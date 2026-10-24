@@ -88,7 +88,11 @@ impl ScriptExecutionDriver for SelectionOwner {
     fn after_action(&mut self) -> crate::GameLogicResult<()> {
         Ok(())
     }
-    fn named_selection(&self, literal_name: &str) -> ScriptOwnerQuery<ScriptSelectionStatus> {
+    fn named_selection(
+        &self,
+        literal_name: &str,
+        _this_object: Option<u32>,
+    ) -> ScriptOwnerQuery<ScriptSelectionStatus> {
         ScriptOwnerQuery::Present(ScriptSelectionStatus {
             multiplayer: self.multiplayer,
             changed_frame: self.selection.get_last_selection_change(),

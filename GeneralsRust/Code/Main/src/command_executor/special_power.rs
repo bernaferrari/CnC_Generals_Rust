@@ -1029,11 +1029,12 @@ impl<'a> CommandExecutor<'a> {
             {
                 // C++ aboutToDoSpecialPower + CompletionDie analog for instant powers.
                 // UpdateModuleStartsAttack prep powers notify at startPreparation.
-                self.game_logic.notify_script_engine_special_power_event(
+                self.game_logic.notify_script_engine_special_power_event_with_recipient(
                     unit_id,
                     power_type,
                     true,
                     true,
+                    self.ui.script_events,
                 );
             }
             any = true;

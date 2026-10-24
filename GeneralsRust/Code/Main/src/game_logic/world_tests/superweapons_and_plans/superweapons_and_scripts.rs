@@ -2456,6 +2456,7 @@ fn script_named_receive_upgrade_writes_live_object() {
         obj.name = "Hero".into();
     }
 
+    logic.initialize_receiving_named_cache_for_fixture();
     crate::game_logic::host_upgrade_rules::register_test_upgrade(
         &logic,
         "Upgrade_AmericaChemicalSuits",
@@ -2947,13 +2948,58 @@ fn script_named_use_command_button_stops_live_unit() {
     logic.scripts_loaded = true;
     ensure_test_player_for_team(&mut logic, Team::USA);
     ensure_test_infantry_template(&mut logic);
+    let team_id = {
+        let mut factory = logic.team_factory.lock().unwrap();
+        let (_, effects) = factory
+            .init_team_owned_with_effects(
+                "teamAmerica".into(),
+                "TestPlayer".into(),
+                true,
+                None,
+                Some(0),
+            )
+            .unwrap();
+        assert!(effects.is_empty());
+        let team = factory
+            .find_team_instances("teamAmerica")
+            .into_iter()
+            .next()
+            .unwrap();
+        let id = team.read().unwrap().get_id();
+        id
+    };
     let id = logic
-        .create_object("TestInfantry", Team::USA, glam::Vec3::ZERO)
-        .expect("unit");
+        .create_object_on_exact_script_team_with_effects_checked(
+            "TestInfantry",
+            0,
+            "teamAmerica",
+            team_id,
+            glam::Vec3::ZERO,
+            true,
+            None,
+            &mut Default::default(),
+        )
+        .unwrap()
+        .expect("unit on actual receiving Team");
+    assert_eq!(
+        logic.host_object(id).unwrap().team_instance_id,
+        Some(team_id)
+    );
+    assert!(
+        logic
+            .team_factory
+            .lock()
+            .unwrap()
+            .find_team_by_id(team_id)
+            .unwrap()
+            .read()
+            .unwrap()
+            .has_member(id.0)
+    );
     if let Some(obj) = logic.host_object_mut(id) {
         obj.name = "Hero".into();
-        obj.team_instance_name = "teamAmerica".into();
     }
+    logic.initialize_receiving_named_cache_for_fixture();
     let _ = logic.unit_command_move_to(id, glam::Vec3::new(300.0, 0.0, 0.0));
 
     let _ = gamelogic::scripting::take_host_script_use_command_button_requests();

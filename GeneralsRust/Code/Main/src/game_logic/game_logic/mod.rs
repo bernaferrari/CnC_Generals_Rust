@@ -8,6 +8,7 @@
 ** Ported from GeneralsMD/Code/GameEngine/Include/GameLogic/GameLogic.h
 */
 
+pub(crate) mod named_script_cache;
 mod prelude;
 pub(self) use prelude::*;
 

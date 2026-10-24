@@ -402,11 +402,6 @@ impl GameLogic {
             gamelogic::helpers::TheGameClient.destroy_drawable(draw);
         }
         self.finish_building_sound(id);
-        if let Some(object) = self.objects.get(&id) {
-            if !object.name.is_empty() {
-                self.named_unit_history.insert(object.name.clone());
-            }
-        }
         self.detach_host_fog_ghost(id);
         let Some(object) = self.take_object_for_physical_retirement(id, effects)? else {
             return Ok(false);

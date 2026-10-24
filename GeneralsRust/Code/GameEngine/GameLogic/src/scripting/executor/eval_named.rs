@@ -1210,9 +1210,16 @@ impl ScriptConditionEvaluator<'_> {
         condition: &Condition,
         driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptConditionResult, ScriptError> {
-        let bridge_name = self.get_condition_string_param(condition, 0)?;
+        let bridge_name = condition
+            .get_parameter(0)
+            .ok_or_else(|| ScriptError::ParameterNotFound("Parameter 0 not found".into()))?
+            .get_string()
+            .to_owned();
         log::debug!("Evaluating if bridge '{}' repaired", bridge_name);
-        match driver.bridge_status(&bridge_name) {
+        match driver.bridge_status(
+            &bridge_name,
+            self.context.borrowed_engine().script_object_id(),
+        ) {
             ScriptOwnerQuery::Present(status) => return Ok(Self::bool_result(status.repaired)),
             ScriptOwnerQuery::Missing => return Ok(ScriptConditionResult::False),
             ScriptOwnerQuery::Unavailable => {}
@@ -1242,9 +1249,16 @@ impl ScriptConditionEvaluator<'_> {
         condition: &Condition,
         driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptConditionResult, ScriptError> {
-        let bridge_name = self.get_condition_string_param(condition, 0)?;
+        let bridge_name = condition
+            .get_parameter(0)
+            .ok_or_else(|| ScriptError::ParameterNotFound("Parameter 0 not found".into()))?
+            .get_string()
+            .to_owned();
         log::debug!("Evaluating if bridge '{}' broken", bridge_name);
-        match driver.bridge_status(&bridge_name) {
+        match driver.bridge_status(
+            &bridge_name,
+            self.context.borrowed_engine().script_object_id(),
+        ) {
             ScriptOwnerQuery::Present(status) => return Ok(Self::bool_result(status.broken)),
             ScriptOwnerQuery::Missing => return Ok(ScriptConditionResult::False),
             ScriptOwnerQuery::Unavailable => {}
@@ -1324,19 +1338,7 @@ impl ScriptConditionEvaluator<'_> {
     ) -> Result<ScriptConditionResult, ScriptError> {
         let name = self.get_condition_string_param(_condition, 0)?;
         log::debug!("Evaluating if video '{}' finished", name);
-        // C++ evaluateVideoHasCompleted → TheScriptEngine->isVideoComplete(name, true).
-        // Live handler waits leftover m_completedVideo; unknown names stay false.
-        if let Some(Some(finished)) = self.context.with_engine_ref(|script_engine| {
-            script_engine
-                .action_handler()
-                .map(|handler| handler.is_video_complete(&name, true))
-        }) {
-            return Ok(if finished {
-                ScriptConditionResult::True
-            } else {
-                ScriptConditionResult::False
-            });
-        }
+        // C++ ScriptConditions.cpp1421 consumes this interpreter's completion list.
         let finished = self
             .context
             .with_engine_ref(|engine| engine.is_video_complete(&name, true))

@@ -388,6 +388,7 @@ fn named_presentation_and_sequential_use_owned_identity_then_topple_consumes_own
         .create_object_for_player("OwnedTopplingStructure", 1, Vec3::new(200.0, 0.0, 200.0))
         .unwrap();
     owner.host_object_mut(building).unwrap().name = "OwnedFallingHall".into();
+    assert!(owner.add_receiving_named_script_object(building));
     let engine = gamelogic::scripting::engine::ScriptEngine::new().unwrap();
     let mut script = Script::new();
     script.script_name = "OwnedUnitSequence".into();
@@ -527,6 +528,8 @@ fn borrowed_script_topple_override_reaches_immediate_named_and_negative_team_dea
         assert_eq!(building, foreign);
         owner.host_object_mut(building).unwrap().name = "BorrowedFallingHall".into();
         peer.host_object_mut(foreign).unwrap().name = "BorrowedFallingHall".into();
+        assert!(owner.add_receiving_named_script_object(building));
+        assert!(peer.add_receiving_named_script_object(foreign));
         roster(&owner, "BorrowedKillTeam", building, 1);
         roster(&peer, "BorrowedKillTeam", foreign, 1);
         // Exercise the actual detached-interpreter phase, as a script walk does.

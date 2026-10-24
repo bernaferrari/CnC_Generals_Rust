@@ -339,7 +339,9 @@ impl GameLogic {
                 NativeDieKind::Production => {
                     self.cancel_all_production(id);
                 }
-                NativeDieKind::Completion => self.maybe_notify_special_power_completion(id),
+                NativeDieKind::Completion => {
+                    self.maybe_notify_special_power_completion(id, presentation_effects)
+                }
                 NativeDieKind::Dam => self.maybe_apply_dam_die(id),
                 NativeDieKind::Pilot => {
                     self.maybe_apply_eject_pilot_die_with_effects(id, presentation_effects)

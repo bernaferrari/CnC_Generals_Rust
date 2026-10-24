@@ -27,6 +27,7 @@ fn owner() -> GameLogic {
     let mut object = Object::new(template, ObjectId(42), Team::USA);
     object.name = "MmbSource".into();
     world.add_object(object);
+    world.initialize_receiving_named_cache_for_fixture();
     world.session_view.scripted.camera_follow_target = Some(ObjectId(42));
     world.session_view.scripted.camera_tether_play = Some(30.);
     world.session_view.scripted.script_default_camera_pitch = 0.37;
@@ -142,6 +143,7 @@ fn short_mmb_defaults_keep_first_setter_motion_then_cancel_second_and_sample_pos
             position: Vec3::new(480., 70., 300.),
         };
         let mut effects = ScriptPresentationEffects {
+            script_events: None,
             partition: None,
             audio: None,
             terrain: None,
@@ -229,6 +231,7 @@ fn short_mmb_defaults_keep_first_setter_motion_then_cancel_second_and_sample_pos
         };
         combined
             .admit_short_mmb_defaults(&mut ScriptPresentationEffects {
+                script_events: None,
                 partition: None,
                 audio: None,
                 terrain: None,
@@ -275,6 +278,7 @@ fn reset_and_mmb_default_share_minimum_hag_floor_without_mutating_peer() {
     };
     world
         .admit_short_mmb_defaults(&mut ScriptPresentationEffects {
+            script_events: None,
             partition: None,
             audio: None,
             terrain: None,

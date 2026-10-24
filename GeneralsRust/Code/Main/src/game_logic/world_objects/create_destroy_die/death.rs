@@ -709,6 +709,13 @@ impl GameLogic {
         topple_interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
+        let mut receiving_effects = presentation_effects.reborrow();
+        if let Some(interpreter) = topple_interpreter {
+            receiving_effects.script_events =
+                Some(crate::game_logic::ScriptEventRecipient::new(interpreter));
+        }
+        let presentation_effects = &mut receiving_effects;
+
         self.object_lifecycle_callback_depth += 1;
         self.begin_object_death_callbacks_with_effects(
             id,
@@ -833,7 +840,7 @@ impl GameLogic {
         // C++ ProductionUpdate cancelAndRefund on death start (before topple/slow-death deferral).
         self.cancel_all_production(id);
         // C++ SpecialPowerCompletionDie::onDie residual.
-        self.maybe_notify_special_power_completion(id);
+        self.maybe_notify_special_power_completion(id, presentation_effects);
         // C++ DamDie::onDie residual fires with other die modules at death start.
         self.maybe_apply_dam_die(id);
         // Wave 754: C++ EjectPilotDie::onDie at death start (before SlowDeath defer).

@@ -1426,7 +1426,7 @@ impl GameLogic {
         self.finish_all_building_sounds();
         self.objects.clear();
         self.beacon_client.clear();
-        self.named_unit_history.clear();
+        self.named_script_cache.clear();
         // Playback/retry deadlines are transient; restored IDs start fresh.
         self.ambient_sound_retries.clear();
         self.next_object_id = ObjectId(1);
@@ -2141,36 +2141,6 @@ impl GameLogic {
         self.players.get(&owner_id)
     }
 
-    /// C++ `SpecialPowerModule::aboutToDoSpecialPower` /
-    /// `SpecialPowerCompletionDie::onDie` ScriptEngine notify residual.
-    pub fn notify_script_engine_special_power_event(
-        &self,
-        source_object: ObjectId,
-        power: &crate::command_system::SpecialPowerType,
-        triggered: bool,
-        completed: bool,
-    ) {
-        if !triggered && !completed {
-            return;
-        }
-        let player_index = self
-            .host_object(source_object)
-            .and_then(|obj| self.player_owner_for_host_object(obj))
-            .unwrap_or(0) as usize;
-        let power_name =
-            crate::game_logic::host_special_power_enum_residual::special_power_ini_template_name(
-                power,
-            );
-        let _ = gamelogic::scripting::engine::with_script_engine_mut(|engine| {
-            if triggered {
-                engine.notify_of_triggered_special_power(player_index, power_name, source_object.0);
-            }
-            if completed {
-                engine.notify_of_completed_special_power(player_index, power_name, source_object.0);
-            }
-        });
-    }
-
     /// C++ `ScriptActions::doNamedStopSpecialPowerCountdown` residual.
     pub fn script_pause_special_power_countdown(
         &mut self,
@@ -2217,12 +2187,11 @@ impl GameLogic {
     /// CPP ScriptEngine.cpp5975-5991: resolve the literal name in this
     /// session's live objects. THIS_OBJECT belongs to the supplied script context.
     pub fn host_object_id_by_script_name(&self, unit_name: &str) -> Option<ObjectId> {
-        if unit_name.is_empty() {
-            return None;
-        }
-        self.objects.registered().find_map(|(id, object)| {
-            (!object.name.is_empty() && object.name == unit_name).then_some(*id)
-        })
+        let target = self.named_script_cache.lookup(unit_name)?;
+        self.objects
+            .get(&target.id)
+            .filter(|object| target.matches(object.id, &object.visual_draw_identity_token))
+            .map(|object| object.id)
     }
 
     /// Apply NAMED_STOP/START/SET/ADD_SPECIAL_POWER_COUNTDOWN to a named host object.

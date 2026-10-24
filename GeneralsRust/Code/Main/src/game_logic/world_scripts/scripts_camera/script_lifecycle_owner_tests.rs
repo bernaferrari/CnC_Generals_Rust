@@ -114,6 +114,7 @@ fn named_kill_topple_callback_reads_only_the_supplied_interpreter() {
         .create_object("AuthoredToppleTarget", Team::Neutral, Vec3::ZERO)
         .unwrap();
     owner.host_object_mut(id).unwrap().name = "ToppleTarget".into();
+    owner.initialize_receiving_named_cache_for_fixture();
     let supplied = gamelogic::scripting::engine::ScriptEngine::new().unwrap();
     let foreign = gamelogic::scripting::engine::ScriptEngine::new().unwrap();
     supplied.set_topple_direction(

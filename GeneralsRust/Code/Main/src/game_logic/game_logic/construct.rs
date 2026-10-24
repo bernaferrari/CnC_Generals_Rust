@@ -720,7 +720,7 @@ impl GameLogic {
             session_difficulty: None,
             owned_script_engine: Some(gamelogic::scripting::engine::ScriptEngine::new().expect("built-in script templates")),
             script_input_enabled: true,
-            named_unit_history: std::collections::BTreeSet::new(),
+            named_script_cache: Default::default(),
             script_event_pump_in_flight: Arc::new(AtomicBool::new(false)),
             script_event_pump_busy_frames: 0,
             loaded_script_lists: Vec::new(),
@@ -881,7 +881,7 @@ impl GameLogic {
         self.objects.clear();
         self.partition_manager = PartitionManager::with_scalar_owner(self.world_services.shroud());
         self.beacon_client.clear();
-        self.named_unit_history.clear();
+        self.named_script_cache.clear();
         self.objects_receive_difficulty_bonus = true;
         self.session_difficulty = None;
         self.ambient_sound_retries.clear();

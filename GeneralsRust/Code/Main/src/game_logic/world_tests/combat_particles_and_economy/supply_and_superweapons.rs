@@ -515,6 +515,7 @@ fn warehouse_set_value_updates_live_host_stock() {
         let obj = logic.host_object_mut(id).expect("name");
         obj.name = "MapWarehouse".into();
     }
+    logic.initialize_receiving_named_cache_for_fixture();
     logic
         .mission_scripts
         .queue_warehouse_set_value("MapWarehouse", 1000);
@@ -540,6 +541,7 @@ fn warehouses_keep_script_values_and_heal_clocks_per_world() {
             .create_object("SupplyWarehouse", Team::Neutral, Vec3::ZERO)
             .expect("warehouse");
         logic.host_object_mut(id).unwrap().name = "MapWarehouse".into();
+        logic.initialize_receiving_named_cache_for_fixture();
         (logic, id)
     }
 

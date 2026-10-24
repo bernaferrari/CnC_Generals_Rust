@@ -375,7 +375,13 @@ impl GameLogic {
         self.try_eva_superweapon_launched_owned(source_owner_player_id, source_team, kind);
 
         // C++ SpecialPowerModule.cpp:513 aboutToDoSpecialPower.
-        self.notify_script_engine_special_power_event(source_object, power, true, false);
+        self.notify_script_engine_special_power_event_with_recipient(
+            source_object,
+            power,
+            true,
+            false,
+            effects.script_events,
+        );
         // C++ SpecialPowerModule.cpp:454/462 createViewObject (range 250 / 30-40s).
         self.create_special_power_view_object_with_effects(
             source_object,
@@ -847,11 +853,12 @@ impl GameLogic {
             if plan.is_final_wave {
                 // C++ SpecialPowerCompletionDie::onDie analog: strike finished.
                 if let Some(power) = plan.kind.command_power_for_notify() {
-                    self.notify_script_engine_special_power_event(
+                    self.notify_script_engine_special_power_event_with_recipient(
                         plan.source_object,
                         &power,
                         false,
                         true,
+                        effects.script_events,
                     );
                 }
             }

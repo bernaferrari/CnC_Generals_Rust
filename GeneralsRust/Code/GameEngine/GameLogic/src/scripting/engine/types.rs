@@ -205,6 +205,44 @@ pub enum ScriptNamedCommand<'a> {
     Evacuate { unit: &'a str },
 }
 
+/// Named runtime mutations retain the action's actual receiving actor.
+#[derive(Debug, Clone, Copy)]
+pub enum ScriptNamedRuntimeRequest<'a> {
+    Held {
+        unit: &'a str,
+        held: bool,
+    },
+    Repulsor {
+        unit: &'a str,
+        enabled: bool,
+    },
+    Emoticon {
+        unit: &'a str,
+        name: &'a str,
+        frames: i32,
+    },
+    StoppingDistance {
+        unit: &'a str,
+        distance: f32,
+    },
+    FaceWaypoint {
+        unit: &'a str,
+        waypoint: &'a str,
+    },
+    Boobytrap {
+        unit: &'a str,
+        template: &'a str,
+    },
+    TransferOwnership {
+        unit: &'a str,
+        player: &'a str,
+    },
+    FireWeaponPath {
+        unit: &'a str,
+        path: &'a str,
+    },
+}
+
 /// CPP ScriptActions5136-5308: nearest selection and goal-object movement.
 #[derive(Debug, Clone, Copy)]
 pub enum ScriptNearestRecipient<'a> {
@@ -307,6 +345,10 @@ pub struct ScriptSelectionStatus {
 }
 
 pub trait ScriptExecutionDriver {
+    fn initialize_named_cache(&mut self) -> Option<()> {
+        None
+    }
+
     /// Main intercepts the owned flag; standalone Core retains its original owner.
     fn set_draw_icon_ui(&mut self, _enabled: bool) -> Option<GameLogicResult<()>> {
         None
@@ -321,7 +363,26 @@ pub trait ScriptExecutionDriver {
         ScriptOwnerQuery::Unavailable
     }
 
-    fn named_selection(&self, _literal_name: &str) -> ScriptOwnerQuery<ScriptSelectionStatus> {
+    fn named_query_fact(
+        &self,
+        _name: &str,
+        _this_object: Option<ObjectID>,
+    ) -> ScriptOwnerQuery<(u32, crate::scripting::HostScriptQueryObject)> {
+        ScriptOwnerQuery::Unavailable
+    }
+    fn receiving_player_query_name(
+        &self,
+        _name: &str,
+        _current_player: Option<&str>,
+    ) -> ScriptOwnerQuery<String> {
+        ScriptOwnerQuery::Unavailable
+    }
+
+    fn named_selection(
+        &self,
+        _literal_name: &str,
+        _this_object: Option<ObjectID>,
+    ) -> ScriptOwnerQuery<ScriptSelectionStatus> {
         ScriptOwnerQuery::Unavailable
     }
 
@@ -404,6 +465,23 @@ pub trait ScriptExecutionDriver {
     }
 
     fn world(&mut self, _request: ScriptWorldRequest<'_>) -> Option<GameLogicResult<()>> {
+        None
+    }
+
+    fn create_named_object(
+        &mut self,
+        _name: Option<&str>,
+        _request: ScriptObjectCreation<'_>,
+    ) -> Option<GameLogicResult<()>> {
+        None
+    }
+    fn create_named_object_at_waypoint(
+        &mut self,
+        _name: Option<&str>,
+        _template: &str,
+        _team: &str,
+        _waypoint: &str,
+    ) -> Option<GameLogicResult<()>> {
         None
     }
 
@@ -502,9 +580,27 @@ pub trait ScriptExecutionDriver {
         None
     }
 
+    /// Named countdown actions use this owner before any standalone named
+    /// tracker or action-handler access. Some includes authoritative absence.
+    fn named_special_power_countdown(
+        &mut self,
+        _name: &str,
+        _power: &str,
+        _action: crate::scripting::core::ScriptActionType,
+        _seconds: i32,
+        _this_object: Option<ObjectID>,
+    ) -> Option<GameLogicResult<()>> {
+        None
+    }
+
     /// CPP ScriptActions::doNamedDamage: Some selects this execution owner,
     /// including an absent named object; None uses the standalone adapter.
-    fn named_damage(&mut self, _name: &str, _amount: i32) -> Option<GameLogicResult<()>> {
+    fn named_damage(
+        &mut self,
+        _name: &str,
+        _amount: i32,
+        _this_object: Option<ObjectID>,
+    ) -> Option<GameLogicResult<()>> {
         None
     }
 
@@ -674,6 +770,85 @@ pub trait ScriptExecutionDriver {
         None
     }
 
+    fn named_attack_priority(
+        &mut self,
+        _name: &str,
+        _set: &str,
+        _this_object: Option<ObjectID>,
+    ) -> Option<GameLogicResult<()>> {
+        None
+    }
+    fn named_evac_disposition(
+        &mut self,
+        _name: &str,
+        _disposition: i32,
+        _this_object: Option<ObjectID>,
+    ) -> Option<GameLogicResult<()>> {
+        None
+    }
+    fn named_panel_flag(
+        &mut self,
+        _name: &str,
+        _flag: &str,
+        _enabled: bool,
+        _this_object: Option<ObjectID>,
+    ) -> Option<GameLogicResult<()>> {
+        None
+    }
+    fn named_warehouse_value(
+        &mut self,
+        _name: &str,
+        _cash: i32,
+        _this_object: Option<ObjectID>,
+    ) -> Option<GameLogicResult<()>> {
+        None
+    }
+
+    fn named_runtime(
+        &mut self,
+        _request: ScriptNamedRuntimeRequest<'_>,
+        _this_object: Option<ObjectID>,
+    ) -> Option<GameLogicResult<()>> {
+        None
+    }
+
+    fn garrison_request(
+        &mut self,
+        _request: crate::scripting::HostScriptGarrisonEnterExitRequest,
+        _this_object: Option<ObjectID>,
+        _calling: Option<TeamID>,
+        _condition: Option<TeamID>,
+    ) -> Option<GameLogicResult<()>> {
+        None
+    }
+
+    fn named_special_power(
+        &mut self,
+        _request: crate::scripting::HostScriptNamedFireSpecialPowerRequest,
+        _this_object: Option<ObjectID>,
+    ) -> Option<GameLogicResult<()>> {
+        None
+    }
+    fn command_button_request(
+        &mut self,
+        _request: crate::scripting::HostScriptUseCommandButtonRequest,
+        _this_object: Option<ObjectID>,
+        _calling: Option<TeamID>,
+        _condition: Option<TeamID>,
+    ) -> Option<GameLogicResult<()>> {
+        None
+    }
+    fn team_face_named(
+        &mut self,
+        _team: &str,
+        _target: &str,
+        _this_object: Option<ObjectID>,
+        _calling: Option<TeamID>,
+        _condition: Option<TeamID>,
+    ) -> Option<GameLogicResult<()>> {
+        None
+    }
+
     fn named_command(
         &mut self,
         _request: ScriptNamedCommand<'_>,
@@ -797,6 +972,17 @@ pub trait ScriptExecutionDriver {
 
     /// CPP ScriptConditions1614: non-inert unit's current/previous-frame entry edge.
     fn named_entered_area(
+        &self,
+        _unit: &str,
+        _area: &str,
+        _current_player: Option<&str>,
+        _this_object: Option<ObjectID>,
+    ) -> ScriptOwnerQuery<bool> {
+        ScriptOwnerQuery::Unavailable
+    }
+
+    /// CPP ScriptConditions1637: exit includes inert objects, unlike entry.
+    fn named_exited_area(
         &self,
         _unit: &str,
         _area: &str,
@@ -1061,7 +1247,11 @@ pub trait ScriptExecutionDriver {
 
     /// Missing is authoritative absence. Unavailable selects only the
     /// standalone adapter, never another world during a live Main execution.
-    fn bridge_status(&self, _name: &str) -> ScriptOwnerQuery<ScriptBridgeStatus> {
+    fn bridge_status(
+        &self,
+        _name: &str,
+        _this_object: Option<ObjectID>,
+    ) -> ScriptOwnerQuery<ScriptBridgeStatus> {
         ScriptOwnerQuery::Unavailable
     }
 
@@ -1403,11 +1593,6 @@ pub trait ScriptActionHandler: Send + Sync {
     /// Mirrors `TheInGameUI->playMovie(name)` used by ScriptActions::doMoviePlayRadar.
     fn movie_play_radar(&self, _filename: &str) -> GameLogicResult<()> {
         Ok(())
-    }
-
-    /// Mirrors `ScriptEngine::isVideoComplete(name, flush)` used by `Condition::HAS_FINISHED_VIDEO`.
-    fn is_video_complete(&self, _name: &str, _flush: bool) -> bool {
-        false
     }
 
     fn speech_play(&self, _name: &str, _allow_overlap: bool) -> GameLogicResult<()> {
@@ -2042,6 +2227,8 @@ pub struct ScriptEngineInner {
     flags: Vec<Option<TFlag>>,
     num_flags: usize,
     attack_priorities: AttackPriorityTable,
+    // ScriptConditions::s_transportStatuses: reset/load-scoped, not original Xfer.
+    receiving_transport_statuses: HashMap<ObjectID, (u32, usize)>,
 
     // Game state
     end_game_timer: i32,

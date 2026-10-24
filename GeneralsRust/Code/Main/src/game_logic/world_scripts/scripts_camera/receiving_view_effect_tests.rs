@@ -59,6 +59,7 @@ fn install_subject(world: &mut GameLogic, moving: bool) {
     subject.name = "ReceivingCamera".into();
     subject.status.moving = moving;
     world.add_object(subject);
+    assert!(world.add_receiving_named_script_object(ObjectId(42)));
 }
 fn enable() -> Box<ScriptAction> {
     action(
@@ -103,6 +104,7 @@ fn authored_enable_slave_then_home_samples_current_receiving_owner_before_walk_r
                 &mut owner,
                 &interpreter,
                 ScriptPresentationEffects {
+                    script_events: None,
                     partition: None,
                     audio: None,
                     terrain: None,
@@ -185,6 +187,7 @@ fn actual_radar_command_borrows_receiving_slave_view_without_peer_delivery() {
         &mut owner,
         0,
         ScriptPresentationEffects {
+            script_events: None,
             partition: None,
             audio: None,
             terrain: None,

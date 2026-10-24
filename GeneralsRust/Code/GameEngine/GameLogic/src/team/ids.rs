@@ -98,6 +98,13 @@ pub(crate) struct TeamScriptEventQueue {
     events: Vec<PendingTeamScriptEvent>,
 }
 
+#[cfg(test)]
+impl TeamScriptEventQueue {
+    pub(crate) fn event_count_for_world_transaction_test(&self) -> usize {
+        self.events.len()
+    }
+}
+
 pub(crate) fn take_pending_team_script_events_for_world_boundary() -> TeamScriptEventQueue {
     let mut pending = match pending_team_script_events().lock() {
         Ok(pending) => pending,

@@ -167,8 +167,9 @@ impl GameLogic {
                 object.status.reconstructing = false;
             }
             self.apply_researched_player_upgrades_to_object_with_effects(structure, ui);
-            // Named-object queries resolve the canonical host roster directly;
-            // no global cache of a second Object model is published.
+            // CPP AIPlayer.cpp117/465: cache admission follows upgrade recheck
+            // and precedes the attached immediate object script.
+            self.add_receiving_named_script_object(structure);
             if let Some(engine) = interpreter {
                 self.run_object_script_with_effects(engine, &completion.script, structure, ui);
             } else {

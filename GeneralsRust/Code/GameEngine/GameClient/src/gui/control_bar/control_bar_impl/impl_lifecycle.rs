@@ -149,7 +149,21 @@ impl ControlBar {
         roster: Option<&super::control_bar_observer::NativeObserverRoster>,
         upgrade_source: crate::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource<'_>,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        self.apply_live_hook_events(false, upgrade_source);
+        self.update_owned_receiving(
+            delta_time,
+            roster,
+            upgrade_source,
+            gamelogic::helpers::TheScriptEngine::is_game_ending(),
+        )
+    }
+    pub fn update_owned_receiving(
+        &mut self,
+        delta_time: Duration,
+        roster: Option<&super::control_bar_observer::NativeObserverRoster>,
+        upgrade_source: crate::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource<'_>,
+        game_ending: bool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        self.apply_live_hook_events_receiving(false, upgrade_source, game_ending);
         self.update_body(delta_time, false, roster, upgrade_source)?;
         if self.observer_mode {
             if let Some(roster) = roster {
@@ -488,6 +502,18 @@ impl ControlBar {
         standalone_viewport: bool,
         upgrade_source: crate::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource<'_>,
     ) {
+        self.apply_live_hook_events_receiving(
+            standalone_viewport,
+            upgrade_source,
+            gamelogic::helpers::TheScriptEngine::is_game_ending(),
+        );
+    }
+    fn apply_live_hook_events_receiving(
+        &mut self,
+        standalone_viewport: bool,
+        upgrade_source: crate::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource<'_>,
+        game_ending: bool,
+    ) {
         let events = drain_live_control_bar_events();
         if events.ui_dirty {
             self.mark_ui_dirty();
@@ -496,10 +522,10 @@ impl ControlBar {
             self.hide_purchase_science();
         }
         if events.toggle_purchase_science {
-            self.toggle_purchase_science();
+            self.toggle_purchase_science_receiving(game_ending);
         }
         if events.show_special_power_shortcut {
-            self.show_special_power_shortcut_with_upgrade_source(upgrade_source);
+            self.show_special_power_shortcut_receiving(upgrade_source, game_ending);
         }
         if events.hide_special_power_shortcut {
             self.hide_special_power_shortcut();

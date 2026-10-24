@@ -74,19 +74,7 @@ impl ScriptEngine {
         // `update` has installed a lexical active engine, so nested
         // CALL_SUBROUTINE re-enters immediately without a second `&mut` borrow.
 
-        let first_update = {
-            let mut inner = self.lock_inner_mut();
-            if inner.first_update {
-                inner.first_update = false;
-                true
-            } else {
-                false
-            }
-        };
-        if first_update {
-            self.create_named_cache();
-            log::info!("ScriptEngine first update: named cache populated");
-        }
+        self.initialize_named_cache_on_first_update(execution.driver);
 
         let close_expired = {
             let mut inner = self.lock_inner_mut();
@@ -184,6 +172,26 @@ impl ScriptEngine {
         }
 
         Ok(())
+    }
+
+    /// Original first-UPDATE cache phase, shared with explicit receiving startup
+    /// fixtures. No timers, team state or script actions advance in this phase.
+    pub fn initialize_named_cache_on_first_update(&self, driver: &mut dyn ScriptExecutionDriver) {
+        let first_update = {
+            let mut inner = self.lock_inner_mut();
+            if inner.first_update {
+                inner.first_update = false;
+                true
+            } else {
+                false
+            }
+        };
+        if first_update {
+            if driver.initialize_named_cache().is_none() {
+                self.create_named_cache();
+            }
+            log::info!("ScriptEngine first update: named cache populated");
+        }
     }
 
     /// Populate the NamedObjectTracker from currently registered objects.

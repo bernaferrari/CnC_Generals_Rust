@@ -21,6 +21,20 @@ impl GameLogic {
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
+        self.with_owned_script_engine(|interpreter, world| {
+            world.apply_host_move_attack_script_requests_with_interpreter_and_effects(
+                interpreter,
+                effects,
+            );
+        })
+        .expect("movement delivery requires its receiving interpreter");
+    }
+
+    pub(super) fn apply_host_move_attack_script_requests_with_interpreter_and_effects(
+        &mut self,
+        interpreter: &gamelogic::scripting::engine::ScriptEngine,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         use gamelogic::scripting::HostScriptMoveAttackRequest;
         for req in gamelogic::scripting::take_host_script_move_attack_requests() {
             match req {
@@ -94,6 +108,7 @@ impl GameLogic {
                         continue;
                     };
                     let Some(target) = self.host_script_closest_object_of_type_in_trigger(
+                        interpreter,
                         id,
                         &object_type,
                         &trigger,
@@ -116,6 +131,7 @@ impl GameLogic {
                         continue;
                     };
                     let Some(target) = self.host_script_closest_object_of_type_in_trigger(
+                        interpreter,
                         source,
                         &object_type,
                         &trigger,
@@ -318,42 +334,78 @@ impl GameLogic {
         use crate::command_executor::CommandExecutor;
         use gamelogic::scripting::HostScriptUseCommandButtonRequest;
         for req in gamelogic::scripting::take_host_script_use_command_button_requests() {
+            self.apply_receiving_command_button_request(
+                req,
+                None,
+                None,
+                None,
+                interpreter,
+                &mut Default::default(),
+            );
+        }
+        self.apply_host_team_partial_command_button_requests();
+    }
+
+    pub(super) fn apply_receiving_command_button_request(
+        &mut self,
+        req: gamelogic::scripting::HostScriptUseCommandButtonRequest,
+        this_object: Option<ObjectId>,
+        calling: Option<u32>,
+        condition: Option<u32>,
+        interpreter: &gamelogic::scripting::engine::ScriptEngine,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
+        use crate::command_executor::CommandExecutor;
+        use gamelogic::scripting::HostScriptUseCommandButtonRequest;
+        // One request is supplied directly by the action dispatcher. Keeping
+        // the original request loop preserves its branch-local continues.
+        for req in std::iter::once(req) {
             match req {
                 HostScriptUseCommandButtonRequest::Named { unit, button } => {
-                    let Some(id) = self.host_object_id_by_script_name(&unit) else {
+                    let Some(id) = self.owned_named_script_object(&unit, this_object) else {
                         continue;
                     };
                     let pid = self
                         .host_object(id)
                         .and_then(|o| o.owner_player_id)
                         .unwrap_or(0);
-                    let _ = CommandExecutor::new_with_target_policy(self, pid, interpreter)
-                        .execute_do_command_button(&[id], &button, None, None);
+                    let _ = CommandExecutor::new_with_target_policy_and_effects(
+                        self,
+                        pid,
+                        interpreter,
+                        effects.reborrow(),
+                    )
+                    .execute_do_command_button(&[id], &button, None, None);
                 }
                 HostScriptUseCommandButtonRequest::NamedOnNamed {
                     unit,
                     button,
                     target,
                 } => {
-                    let Some(id) = self.host_object_id_by_script_name(&unit) else {
+                    let Some(id) = self.owned_named_script_object(&unit, this_object) else {
                         continue;
                     };
-                    let Some(tid) = self.host_object_id_by_script_name(&target) else {
+                    let Some(tid) = self.owned_named_script_object(&target, this_object) else {
                         continue;
                     };
                     let pid = self
                         .host_object(id)
                         .and_then(|o| o.owner_player_id)
                         .unwrap_or(0);
-                    let _ = CommandExecutor::new_with_target_policy(self, pid, interpreter)
-                        .execute_do_command_button(&[id], &button, None, Some(tid));
+                    let _ = CommandExecutor::new_with_target_policy_and_effects(
+                        self,
+                        pid,
+                        interpreter,
+                        effects.reborrow(),
+                    )
+                    .execute_do_command_button(&[id], &button, None, Some(tid));
                 }
                 HostScriptUseCommandButtonRequest::NamedAtWaypoint {
                     unit,
                     button,
                     waypoint,
                 } => {
-                    let Some(id) = self.host_object_id_by_script_name(&unit) else {
+                    let Some(id) = self.owned_named_script_object(&unit, this_object) else {
                         continue;
                     };
                     let Some(pos) = self.host_script_waypoint_position(&waypoint) else {
@@ -363,15 +415,20 @@ impl GameLogic {
                         .host_object(id)
                         .and_then(|o| o.owner_player_id)
                         .unwrap_or(0);
-                    let _ = CommandExecutor::new_with_target_policy(self, pid, interpreter)
-                        .execute_do_command_button(&[id], &button, Some(pos), None);
+                    let _ = CommandExecutor::new_with_target_policy_and_effects(
+                        self,
+                        pid,
+                        interpreter,
+                        effects.reborrow(),
+                    )
+                    .execute_do_command_button(&[id], &button, Some(pos), None);
                 }
                 HostScriptUseCommandButtonRequest::NamedUsingWaypointPath {
                     unit,
                     button,
                     path,
                 } => {
-                    let Some(id) = self.host_object_id_by_script_name(&unit) else {
+                    let Some(id) = self.owned_named_script_object(&unit, this_object) else {
                         continue;
                     };
                     let from = self
@@ -385,11 +442,24 @@ impl GameLogic {
                         .host_object(id)
                         .and_then(|o| o.owner_player_id)
                         .unwrap_or(0);
-                    let _ = CommandExecutor::new_with_target_policy(self, pid, interpreter)
-                        .execute_do_command_button_using_waypoints(&[id], &button, &route.points);
+                    let _ = CommandExecutor::new_with_target_policy_and_effects(
+                        self,
+                        pid,
+                        interpreter,
+                        effects.reborrow(),
+                    )
+                    .execute_do_command_button_using_waypoints(
+                        &[id],
+                        &button,
+                        &route.points,
+                    );
                 }
                 HostScriptUseCommandButtonRequest::Team { team, button } => {
-                    let ids = self.host_script_team_member_ids(&team);
+                    let ids: Vec<_> = self
+                        .resolve_owned_script_team(&team, calling, condition)
+                        .expect("receiving command-button team")
+                        .map(|(_, ids)| ids.into_iter().map(ObjectId).collect())
+                        .unwrap_or_default();
                     if ids.is_empty() {
                         continue;
                     }
@@ -397,16 +467,25 @@ impl GameLogic {
                         .host_object(ids[0])
                         .and_then(|o| o.owner_player_id)
                         .unwrap_or(0);
-                    let _ = CommandExecutor::new_with_target_policy(self, pid, interpreter)
-                        .execute_do_command_button(&ids, &button, None, None);
+                    let _ = CommandExecutor::new_with_target_policy_and_effects(
+                        self,
+                        pid,
+                        interpreter,
+                        effects.reborrow(),
+                    )
+                    .execute_do_command_button(&ids, &button, None, None);
                 }
                 HostScriptUseCommandButtonRequest::TeamOnNamed {
                     team,
                     button,
                     target,
                 } => {
-                    let ids = self.host_script_team_member_ids(&team);
-                    let Some(tid) = self.host_object_id_by_script_name(&target) else {
+                    let ids: Vec<_> = self
+                        .resolve_owned_script_team(&team, calling, condition)
+                        .expect("receiving command-button team")
+                        .map(|(_, ids)| ids.into_iter().map(ObjectId).collect())
+                        .unwrap_or_default();
+                    let Some(tid) = self.owned_named_script_object(&target, this_object) else {
                         continue;
                     };
                     if ids.is_empty() {
@@ -416,15 +495,24 @@ impl GameLogic {
                         .host_object(ids[0])
                         .and_then(|o| o.owner_player_id)
                         .unwrap_or(0);
-                    let _ = CommandExecutor::new_with_target_policy(self, pid, interpreter)
-                        .execute_do_command_button(&ids, &button, None, Some(tid));
+                    let _ = CommandExecutor::new_with_target_policy_and_effects(
+                        self,
+                        pid,
+                        interpreter,
+                        effects.reborrow(),
+                    )
+                    .execute_do_command_button(&ids, &button, None, Some(tid));
                 }
                 HostScriptUseCommandButtonRequest::TeamAtWaypoint {
                     team,
                     button,
                     waypoint,
                 } => {
-                    let ids = self.host_script_team_member_ids(&team);
+                    let ids: Vec<_> = self
+                        .resolve_owned_script_team(&team, calling, condition)
+                        .expect("receiving command-button team")
+                        .map(|(_, ids)| ids.into_iter().map(ObjectId).collect())
+                        .unwrap_or_default();
                     let Some(pos) = self.host_script_waypoint_position(&waypoint) else {
                         continue;
                     };
@@ -435,8 +523,13 @@ impl GameLogic {
                         .host_object(ids[0])
                         .and_then(|o| o.owner_player_id)
                         .unwrap_or(0);
-                    let _ = CommandExecutor::new_with_target_policy(self, pid, interpreter)
-                        .execute_do_command_button(&ids, &button, Some(pos), None);
+                    let _ = CommandExecutor::new_with_target_policy_and_effects(
+                        self,
+                        pid,
+                        interpreter,
+                        effects.reborrow(),
+                    )
+                    .execute_do_command_button(&ids, &button, Some(pos), None);
                 }
                 HostScriptUseCommandButtonRequest::TeamOnNearestEnemy { team, button } => {
                     self.host_script_team_use_command_on_nearest_with_policy(
@@ -526,7 +619,6 @@ impl GameLogic {
                 }
             }
         }
-        self.apply_host_team_partial_command_button_requests();
     }
 
     pub(super) fn host_script_kind_from_token(token: &str) -> Option<crate::game_logic::KindOf> {

@@ -229,6 +229,7 @@ fn named_presentation_actions_mutate_only_the_borrowed_same_id_world() {
             .create_object("OwnedPresentationUnit", Team::USA, glam::Vec3::ZERO)
             .unwrap();
         world.host_object_mut(id).unwrap().name = "SameNamedUnit".into();
+        world.initialize_receiving_named_cache_for_fixture();
         (world, id)
     }
     let (mut first, id) = session();

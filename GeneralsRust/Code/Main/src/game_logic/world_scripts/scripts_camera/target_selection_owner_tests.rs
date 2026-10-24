@@ -95,6 +95,7 @@ fn fixture(normal: bool) -> (GameLogic, ObjectId, ObjectId, ObjectId) {
             );
         })
         .unwrap();
+    world.initialize_receiving_named_cache_for_fixture();
     (world, unit, far, near)
 }
 

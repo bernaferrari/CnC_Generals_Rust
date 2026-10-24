@@ -767,15 +767,6 @@ impl GameLogic {
         let is_garrison = container.is_garrison_contain();
         let is_tunnel = container.is_tunnel_network_style_container();
         let is_cave = container.is_cave_style_container();
-        let container_name = container.name.clone();
-        if is_garrison {
-            if let Some(disp) = gamelogic::object::contain::named_evac_disposition(&container_name)
-            {
-                if let Some(c) = self.objects.get_mut(&container_id) {
-                    c.set_garrison_evac_disposition(disp as u8);
-                }
-            }
-        }
         let Some(container) = self.objects.get(&container_id) else {
             return false;
         };

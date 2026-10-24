@@ -422,7 +422,10 @@ impl ControlBar {
     }
 
     pub fn show_purchase_science(&mut self) {
-        if gamelogic::helpers::TheScriptEngine::is_game_ending() {
+        self.show_purchase_science_receiving(gamelogic::helpers::TheScriptEngine::is_game_ending());
+    }
+    pub fn show_purchase_science_receiving(&mut self, game_ending: bool) {
+        if game_ending {
             return;
         }
         self.ensure_generals_exp_layout();
@@ -459,11 +462,16 @@ impl ControlBar {
     }
 
     pub fn toggle_purchase_science(&mut self) {
+        self.toggle_purchase_science_receiving(
+            gamelogic::helpers::TheScriptEngine::is_game_ending(),
+        );
+    }
+    pub fn toggle_purchase_science_receiving(&mut self, game_ending: bool) {
         let hidden = leftover_find_window(GEN_EXP_PARENT)
             .map(|_| leftover_window_is_hidden(GEN_EXP_PARENT))
             .unwrap_or(!self.science_state.is_visible);
         if hidden {
-            self.show_purchase_science();
+            self.show_purchase_science_receiving(game_ending);
         } else {
             self.hide_purchase_science();
         }
@@ -1932,7 +1940,17 @@ impl ControlBar {
         &mut self,
         upgrade_source: crate::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource<'_>,
     ) {
-        if gamelogic::helpers::TheScriptEngine::is_game_ending() {
+        self.show_special_power_shortcut_receiving(
+            upgrade_source,
+            gamelogic::helpers::TheScriptEngine::is_game_ending(),
+        );
+    }
+    pub fn show_special_power_shortcut_receiving(
+        &mut self,
+        upgrade_source: crate::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource<'_>,
+        game_ending: bool,
+    ) {
+        if game_ending {
             return;
         }
         if self.special_power_shortcut_count == 0 {
@@ -2386,5 +2404,27 @@ mod science_vec_gate_tests {
         let stub = stub.borrow();
         assert!(stub.is_hidden(), "non-table names keep the hidden stub");
         assert_eq!(stub.get_size(), (200, 200));
+    }
+}
+
+#[cfg(test)]
+mod receiving_script_ending_tests {
+    use super::*;
+    #[test]
+    fn receiving_science_toggle_preserves_hide_and_rejects_only_ending_show() {
+        let mut owner = ControlBar::new();
+        let mut peer = ControlBar::new();
+        owner.toggle_purchase_science_receiving(true);
+        assert!(!owner.get_science_state().is_visible);
+        peer.toggle_purchase_science_receiving(false);
+        assert!(peer.get_science_state().is_visible);
+        // Source toggle still hides a visible screen during end-game: only
+        // showPurchaseScience has the isGameEnding guard.
+        peer.toggle_purchase_science_receiving(true);
+        assert!(!peer.get_science_state().is_visible);
+        owner.toggle_purchase_science_receiving(false);
+        assert!(owner.get_science_state().is_visible);
+        assert!(!peer.get_science_state().is_visible);
+        owner.hide_purchase_science();
     }
 }

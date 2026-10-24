@@ -1515,6 +1515,7 @@ mod eval_owned_player_area;
 mod eval_owned_player_census;
 mod eval_owned_skirmish;
 mod eval_player_events;
+mod eval_receiving_named_facts;
 mod eval_skirmish;
 
 #[cfg(test)]
@@ -1540,6 +1541,7 @@ pub const EXECUTOR_SRC: &str = concat!(
     include_str!("dispatch.rs"),
     include_str!("eval_basic.rs"),
     include_str!("eval_owned_body_census.rs"),
+    include_str!("eval_receiving_named_facts.rs"),
     include_str!("eval_owned_player_area.rs"),
     include_str!("eval_owned_skirmish.rs"),
     include_str!("eval_named.rs"),

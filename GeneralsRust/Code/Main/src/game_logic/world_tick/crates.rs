@@ -1836,26 +1836,10 @@ impl GameLogic {
         }
     }
     pub fn transfer_script_object_name(&mut self, from_id: ObjectId, to_id: ObjectId) -> bool {
-        use gamelogic::scripting::engine::get_named_object_tracker;
-        let name = self
-            .objects
-            .get(&from_id)
-            .map(|o| o.name.clone())
-            .filter(|n| !n.is_empty());
-        let Some(n) = name else {
+        let Some(name) = self.objects.get(&from_id).map(|object| object.name.clone()) else {
             return false;
         };
-        if let Some(t) = self.objects.get_mut(&to_id) {
-            t.name = n.clone();
-        }
-        if let Some(f) = self.objects.get_mut(&from_id) {
-            f.name.clear();
-        }
-        // Register on tracker with host ObjectId (no dual-world engine id).
-        let tracker_id = to_id.0;
-        let tracker = get_named_object_tracker();
-        let _ = tracker.register_named_object(n, tracker_id);
-        true
+        self.transfer_receiving_script_name(&name, to_id)
     }
     pub fn execute_shroud_crate_behavior(&mut self, picker_id: ObjectId) -> bool {
         // C++ ShroudCrateCollide: other->getControllingPlayer()->getPlayerIndex().

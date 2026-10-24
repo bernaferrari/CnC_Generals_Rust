@@ -27,6 +27,7 @@ fn script_letterbox_parent_delivery_is_synchronous_repeated_and_receiving_only()
         false,
         Some(parent.clone()),
         game_client::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource::Standalone,
+        false,
     );
     assert!(parent.borrow().is_hidden());
     assert_eq!(camera.viewport.size(), (801, 603));
@@ -41,6 +42,7 @@ fn script_letterbox_parent_delivery_is_synchronous_repeated_and_receiving_only()
             false,
             Some(parent.clone()),
             game_client::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource::Standalone,
+        false,
         );
         assert!(!parent.borrow().is_hidden());
         assert_eq!(camera.viewport.size(), (801, 482));
@@ -51,6 +53,7 @@ fn script_letterbox_parent_delivery_is_synchronous_repeated_and_receiving_only()
         false,
         Some(foreign.clone()),
         game_client::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource::Standalone,
+        false,
     );
     assert!(foreign.borrow().is_hidden());
     assert!(!parent.borrow().is_hidden());
@@ -62,6 +65,7 @@ fn script_letterbox_parent_delivery_is_synchronous_repeated_and_receiving_only()
         false,
         None,
         game_client::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource::Standalone,
+        false,
     );
     assert_eq!(
         camera.viewport.size(),

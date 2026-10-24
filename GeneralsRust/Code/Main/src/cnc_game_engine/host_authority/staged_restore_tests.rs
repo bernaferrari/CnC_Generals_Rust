@@ -2380,3 +2380,6 @@ fn discard_staged_native_fixture(
         .unwrap();
     attempt.discard_attempt().unwrap();
 }
+
+#[path = "staged_restore_tests/detached_candidate_lifetime.rs"]
+mod detached_candidate_lifetime;

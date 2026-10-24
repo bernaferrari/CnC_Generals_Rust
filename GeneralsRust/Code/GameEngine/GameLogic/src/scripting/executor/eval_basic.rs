@@ -210,8 +210,11 @@ impl ScriptConditionEvaluator<'_> {
 
         if condition_type == ConditionType::NamedSelected {
             use crate::scripting::engine::ScriptOwnerQuery;
-            let name = self.get_condition_string_param(condition, 0)?;
-            match driver.named_selection(&name) {
+            let name = condition
+                .get_parameter(0)
+                .ok_or_else(|| ScriptError::ParameterNotFound("Parameter 0 not found".into()))?
+                .get_string();
+            match driver.named_selection(name, self.context.borrowed_engine().script_object_id()) {
                 ScriptOwnerQuery::Present(selection) => {
                     // CPP1372: multiplayer returns before touching the condition cache.
                     if selection.multiplayer {
@@ -302,16 +305,28 @@ impl ScriptConditionEvaluator<'_> {
         if let Some(result) = self.eval_owned_body_census(condition, driver)? {
             return Ok(result);
         }
+        if let Some(result) = self.eval_receiving_named_facts(condition, driver)? {
+            return Ok(result);
+        }
 
         if matches!(
             condition_type,
             ConditionType::NamedInsideArea
                 | ConditionType::NamedOutsideArea
                 | ConditionType::NamedEnteredArea
+                | ConditionType::NamedExitedArea
         ) {
             use crate::scripting::engine::ScriptOwnerQuery;
-            let unit = self.get_condition_string_param(condition, 0)?;
-            let area = self.get_condition_string_param(condition, 1)?;
+            let raw = |index| {
+                condition
+                    .get_parameter(index)
+                    .map(|parameter| parameter.get_string().to_owned())
+                    .ok_or_else(|| {
+                        ScriptError::ParameterNotFound(format!("Parameter {index} not found"))
+                    })
+            };
+            let unit = raw(0)?;
+            let area = raw(1)?;
             let engine = self.context.borrowed_engine();
             let player = engine.get_current_player_name();
             let query = if condition_type == ConditionType::NamedEnteredArea {
@@ -321,6 +336,8 @@ impl ScriptConditionEvaluator<'_> {
                     player.as_deref(),
                     engine.script_object_id(),
                 )
+            } else if condition_type == ConditionType::NamedExitedArea {
+                driver.named_exited_area(&unit, &area, player.as_deref(), engine.script_object_id())
             } else {
                 driver.named_inside_area(&unit, &area, player.as_deref(), engine.script_object_id())
             };

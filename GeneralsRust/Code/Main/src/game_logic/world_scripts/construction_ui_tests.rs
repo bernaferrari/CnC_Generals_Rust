@@ -18,6 +18,7 @@ impl crate::game_logic::ScriptUiEffects for Ui {
         _upgrade_source: game_engine::common::thing::receiving_module_content::UpgradeTooltipSource<
             '_,
         >,
+        _game_ending: bool,
     ) {
         self.events.push(enabled);
     }

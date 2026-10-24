@@ -295,7 +295,27 @@ impl ControlBarCallbacks {
         immediate: bool,
         upgrade_source: crate::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource<'_>,
     ) {
-        bar.show_special_power_shortcut_with_upgrade_source(upgrade_source);
+        self.show_control_bar_receiving(
+            bar,
+            viewport,
+            parent,
+            replay,
+            immediate,
+            upgrade_source,
+            TheScriptEngine::is_game_ending(),
+        );
+    }
+    pub fn show_control_bar_receiving(
+        &mut self,
+        bar: &mut ControlBar,
+        viewport: &mut dyn ControlBarViewport,
+        parent: Option<std::rc::Rc<std::cell::RefCell<GameWindow>>>,
+        replay: bool,
+        immediate: bool,
+        upgrade_source: crate::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource<'_>,
+        game_ending: bool,
+    ) {
+        bar.show_special_power_shortcut_receiving(upgrade_source, game_ending);
         if let Some(parent) = parent {
             bar.switch_control_bar_stage_on_window_owned(
                 ControlBarStage::Default,
@@ -371,11 +391,31 @@ impl ControlBarCallbacks {
         immediate: bool,
         upgrade_source: crate::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource<'_>,
     ) {
+        self.toggle_control_bar_receiving(
+            bar,
+            viewport,
+            parent,
+            replay,
+            immediate,
+            upgrade_source,
+            TheScriptEngine::is_game_ending(),
+        );
+    }
+    pub fn toggle_control_bar_receiving(
+        &mut self,
+        bar: &mut ControlBar,
+        viewport: &mut dyn ControlBarViewport,
+        parent: Option<std::rc::Rc<std::cell::RefCell<GameWindow>>>,
+        replay: bool,
+        immediate: bool,
+        upgrade_source: crate::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource<'_>,
+        game_ending: bool,
+    ) {
         let Some(parent) = parent else {
             return;
         };
         if parent.borrow().is_hidden() {
-            bar.show_special_power_shortcut_with_upgrade_source(upgrade_source);
+            bar.show_special_power_shortcut_receiving(upgrade_source, game_ending);
             viewport.set_height_px((viewport.display_size().1 as f32 * 0.80) as i32);
             let _ = parent.borrow_mut().hide(false);
             bar.switch_control_bar_stage_on_window_owned(

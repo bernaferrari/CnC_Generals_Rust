@@ -26,7 +26,7 @@ use game_engine::common::ini::ini_locomotor::{
 };
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Once;
 
 /// Retail SET_NORMAL locomotor names used by host golden / skirmish unit templates.
 pub const BASIC_HUMAN_LOCOMOTOR: &str = "BasicHumanLocomotor";
@@ -185,8 +185,9 @@ const LOCO_BIGNUM: f32 = 99999.0;
 /// Original omitted braking / initial cap in host distance/sec² units.
 pub(crate) const DEFAULT_HOST_BRAKING: f32 = LOCO_BIGNUM * LOGIC_FPS * LOGIC_FPS;
 
-static BOOTSTRAP_ATTEMPTED: AtomicBool = AtomicBool::new(false);
-static SEED_COMPLETE: AtomicBool = AtomicBool::new(false);
+// Default definitions must finish loading before another reader can admit an actor.
+// Later explicit archive overlays still use the existing Common store.
+static HOST_DEFAULT_LOCOMOTORS: Once = Once::new();
 
 /// Host-facing movement stats resolved from a LocomotorTemplate (dist/sec, rads/sec).
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -308,38 +309,30 @@ pub struct HostCompleteLocomotorSet {
 ///
 /// Returns how many templates were added by this call (seed + filesystem load).
 pub fn ensure_host_locomotor_store() -> usize {
-    // create_object binds movement per placement. After start_new_game the
-    // store is already filled; do not re-seed residual tables.
-    if SEED_COMPLETE.load(Ordering::Relaxed) {
-        return 0;
-    }
     let mut added = 0usize;
-
-    // Prefer real INI data when extracted game data is on disk (once).
-    if !BOOTSTRAP_ATTEMPTED.swap(true, Ordering::Relaxed) {
+    HOST_DEFAULT_LOCOMOTORS.call_once(|| {
+        // Preserve disk definitions before exact and generic fallback rows.
         added += try_load_locomotor_ini_from_disk();
-    }
 
-    // RiderChange must validate the complete SET_NORMAL / SET_SLUGGISH
-    // surface rows even in headless tests where the extracted Locomotor.ini
-    // is unavailable.  Seed both retail Combat Bike members with every
-    // currently-live physics field before the older speed-only generic
-    // table fills the ground member.
-    added += seed_exact_combat_bike_normal_locomotors();
-    added += seed_exact_combat_bike_sluggish_locomotors();
-    added += seed_exact_aircraft_set_switch_locomotors();
-    added += seed_exact_human_cliff_locomotor();
-    added += seed_exact_spy_drone_locomotor();
+        // RiderChange must validate the complete SET_NORMAL / SET_SLUGGISH
+        // surface rows even in headless tests where the extracted Locomotor.ini
+        // is unavailable.  Seed both retail Combat Bike members with every
+        // currently-live physics field before the older speed-only generic
+        // table fills the ground member.
+        added += seed_exact_combat_bike_normal_locomotors();
+        added += seed_exact_combat_bike_sluggish_locomotors();
+        added += seed_exact_aircraft_set_switch_locomotors();
+        added += seed_exact_human_cliff_locomotor();
+        added += seed_exact_spy_drone_locomotor();
 
-    // Always fill missing golden / Wave 81 common-unit locomotors.
-    // (INI load may have BasicHuman but omit some residual names.)
-    added += seed_known_host_locomotors();
-    // Retail Chinook/Helix author SlideIntoPlaceTime=100 even when the
-    // extracted Locomotor.ini is missing. Patch after generic seed so a
-    // prior speed-only insert still gets the leftover duration.
-    added += ensure_chinook_helix_slide_into_place();
-
-    SEED_COMPLETE.store(true, Ordering::Relaxed);
+        // Always fill missing golden / Wave 81 common-unit locomotors.
+        // (INI load may have BasicHuman but omit some residual names.)
+        added += seed_known_host_locomotors();
+        // Retail Chinook/Helix author SlideIntoPlaceTime=100 even when the
+        // extracted Locomotor.ini is missing. Patch after generic seed so a
+        // prior speed-only insert still gets the leftover duration.
+        added += ensure_chinook_helix_slide_into_place();
+    });
     added
 }
 
@@ -1588,17 +1581,41 @@ fn seed_exact_spy_drone_locomotor() -> usize {
     }
 }
 
-/// Test helper: force re-bootstrap attempt (does not clear existing templates).
-#[cfg(test)]
-pub fn reset_bootstrap_attempt_flag_for_tests() {
-    BOOTSTRAP_ATTEMPTED.store(false, Ordering::Relaxed);
-    SEED_COMPLETE.store(false, Ordering::Relaxed);
-}
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
     use glam::Vec3;
+
+    #[test]
+    fn default_locomotor_bootstrap_finishes_before_parallel_readers() {
+        crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+            module_path!(),
+            "default_locomotor_bootstrap_finishes_before_parallel_readers",
+            || {
+                let barrier = std::sync::Arc::new(std::sync::Barrier::new(16));
+                let workers: Vec<_> = (0..16)
+                    .map(|_| {
+                        let barrier = std::sync::Arc::clone(&barrier);
+                        std::thread::spawn(move || {
+                            barrier.wait();
+                            resolve_host_locomotor_binding(BASIC_HUMAN_LOCOMOTOR).unwrap()
+                        })
+                    })
+                    .collect();
+                let definitions: Vec<_> = workers
+                    .into_iter()
+                    .map(|worker| worker.join().unwrap())
+                    .collect();
+                for definition in &definitions[1..] {
+                    assert_eq!(
+                        definition, &definitions[0],
+                        "one completed default admission for every concurrent reader"
+                    );
+                }
+            },
+        );
+    }
 
     #[test]
     fn bootstrap_seeds_basic_human_at_retail_speed() {
@@ -1662,9 +1679,10 @@ mod tests {
             "INI/omitted Braking must not stay hardcoded 50, got {}",
             obj.braking
         );
-        assert!(
-            obj.wander_width_factor > 0.0,
-            "BasicHuman wander weave must be bound"
+        let admitted = resolve_host_locomotor_binding(BASIC_HUMAN_LOCOMOTOR).unwrap();
+        assert_eq!(
+            obj.wander_width_factor, admitted.wander_width_factor,
+            "preserve the admitted width; retail BasicHuman omits it (C++ default zero)"
         );
         assert!(
             obj.wander_offset_increment > 0.0,
@@ -1674,6 +1692,33 @@ mod tests {
             obj.loco_appearance,
             crate::game_logic::LocomotorAppearance::LegsTwo
         );
+    }
+
+    #[test]
+    fn authored_wander_width_preserves_cpp_zero_default_and_explicit_value() {
+        // Locomotor.cpp325/476: omitted width is zero; authored values pass
+        // through unchanged. Do not infer weave merely from infantry kind.
+        let mut properties = HashMap::from([
+            ("Speed".into(), "20".into()),
+            ("Surfaces".into(), "GROUND".into()),
+        ]);
+        let mut object = Object::new(
+            ThingTemplate::new("WanderWidthProbe"),
+            ObjectId(338),
+            Team::USA,
+        );
+        for expected in [0.0, 2.5, 0.0] {
+            if expected == 0.0 {
+                properties.remove("WanderWidthFactor");
+            } else {
+                properties.insert("WanderWidthFactor".into(), "2.5".into());
+            }
+            let template = parse_locomotor_template_definition("WidthProbe", &properties).unwrap();
+            let binding = host_locomotor_binding_from_template(&template).unwrap();
+            assert_eq!(binding.wander_width_factor, expected);
+            apply_host_locomotor_binding(&mut object, &binding);
+            assert_eq!(object.wander_width_factor, expected);
+        }
     }
 
     #[test]

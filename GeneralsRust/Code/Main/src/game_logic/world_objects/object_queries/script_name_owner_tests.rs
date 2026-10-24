@@ -12,6 +12,7 @@ fn world(name: &str) -> (GameLogic, ObjectId) {
         .create_object("NamedOwnerProbe", Team::USA, glam::Vec3::ZERO)
         .unwrap();
     assert!(world.set_host_object_name(id, name));
+    world.initialize_receiving_named_cache_for_fixture();
     (world, id)
 }
 
@@ -59,6 +60,9 @@ fn literal_host_name_lookup_ignores_foreign_same_id_cache_and_applies_to_own_nam
             );
             assert_eq!(peer.host_object(peer_id).unwrap().name, "ForeignOnly");
             assert!(owner.set_host_object_name(id, "RenamedOwner"));
+            assert_eq!(owner.host_object_id_by_script_name("OwnerOnly"), Some(id));
+            assert_eq!(owner.host_object_id_by_script_name("RenamedOwner"), None);
+            owner.add_receiving_named_script_object(id);
             assert_eq!(owner.host_object_id_by_script_name("OwnerOnly"), None);
             assert_eq!(
                 owner.host_object_id_by_script_name("RenamedOwner"),
@@ -91,6 +95,7 @@ fn actual_name_transfer_and_save_keep_only_current_receiving_names() {
                 )
                 .unwrap();
             assert!(owner.set_host_object_name(to, "FormerTargetName"));
+            owner.add_receiving_named_script_object(to);
             let tracker = gamelogic::scripting::engine::get_named_object_tracker();
             tracker
                 .register_named_object("TransferredName".into(), from.0)
@@ -99,7 +104,11 @@ fn actual_name_transfer_and_save_keep_only_current_receiving_names() {
                 .register_named_object("FormerTargetName".into(), to.0)
                 .unwrap();
             assert!(owner.transfer_script_object_name(from, to));
-            assert!(owner.host_object(from).unwrap().name.is_empty());
+            assert_eq!(
+                owner.host_object(from).unwrap().name,
+                "TransferredName",
+                "CPP transfer preserves donor field while moving cached pointer"
+            );
             assert_eq!(
                 owner.host_object_id_by_script_name("TransferredName"),
                 Some(to)
@@ -128,6 +137,15 @@ fn actual_name_transfer_and_save_keep_only_current_receiving_names() {
                 None
             );
             assert!(receiving.set_host_object_name(to, "AfterLoadName"));
+            assert_eq!(
+                receiving.host_object_id_by_script_name("TransferredName"),
+                Some(to)
+            );
+            assert_eq!(
+                receiving.host_object_id_by_script_name("AfterLoadName"),
+                None
+            );
+            receiving.add_receiving_named_script_object(to);
             assert_eq!(
                 receiving.host_object_id_by_script_name("TransferredName"),
                 None

@@ -300,6 +300,8 @@ impl NativeTerrainEffects for game_client::terrain::terrain_visual::TerrainVisua
 }
 #[derive(Default)]
 pub(crate) struct ScriptPresentationEffects<'a> {
+    /// Exact synchronous interpreter event loan; no ambient recipient discovery.
+    pub(crate) script_events: Option<super::ScriptEventRecipient<'a>>,
     pub(crate) ui: Option<&'a mut dyn super::ScriptUiEffects>,
     pub(crate) view: Option<&'a mut dyn NativeViewEffects>,
     pub(crate) terrain: Option<&'a mut dyn NativeTerrainEffects>,
@@ -344,6 +346,7 @@ impl ScriptPresentationEffects<'_> {
 
     pub(crate) fn reborrow(&mut self) -> ScriptPresentationEffects<'_> {
         ScriptPresentationEffects {
+            script_events: self.script_events,
             partition: self.partition.as_deref_mut(),
             audio: self
                 .audio

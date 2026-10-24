@@ -68,6 +68,7 @@ pub(super) fn world() -> (GameLogic, ObjectId, ObjectId) {
             .as_deref(),
         Some("SET_PANIC")
     );
+    world.initialize_receiving_named_cache_for_fixture();
     (world, unit, target)
 }
 

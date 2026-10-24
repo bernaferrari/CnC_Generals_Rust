@@ -24,6 +24,12 @@ impl GameLogic {
         if let Some(error) = self.object_retirement_error() {
             return Err(error);
         }
+        if self.owned_script_engine.is_none() {
+            return Err(gamelogic::GameLogicError::Configuration(
+                "physical retirement requires the receiving interpreter after its script loan"
+                    .into(),
+            ));
+        }
         // RadarUpgrade::onDelete belongs to the still-installed phase. This
         // defensive admission is idempotent when onDelete already consumed it.
         self.remove_host_radar_provider(id);
@@ -49,6 +55,16 @@ impl GameLogic {
         self.partition_manager.unregister_object(id.0);
         object.partition_namespace = Default::default();
         object.host_trigger_world = Default::default();
+        // Object.cpp665 follows current destructor obligations. Ordinary
+        // death and direct deletion converge here on the same Object birth.
+        if !object.name.is_empty() {
+            self.named_script_cache
+                .remove(id, &object.visual_draw_identity_token);
+        }
+        self.owned_script_engine
+            .as_ref()
+            .expect("retirement interpreter preflight")
+            .notify_receiving_object_destruction(id.0);
         Ok(Some(object))
     }
 

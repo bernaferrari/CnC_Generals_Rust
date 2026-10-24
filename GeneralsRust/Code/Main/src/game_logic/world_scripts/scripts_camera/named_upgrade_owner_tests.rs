@@ -26,6 +26,7 @@ fn world(admit: bool) -> (GameLogic, ObjectId) {
         .create_object_for_player("NamedUpgradeActor", 2, Vec3::ZERO)
         .unwrap();
     owner.host_object_mut(id).unwrap().name = ACTOR.into();
+    owner.initialize_receiving_named_cache_for_fixture();
     (owner, id)
 }
 fn action(unit: &str, upgrade: &str) -> ScriptAction {
@@ -61,7 +62,12 @@ impl ScriptExecutionDriver for NextActionProbe<'_> {
     ) -> Option<gamelogic::GameLogicResult<()>> {
         self.inner.named_upgrade(name, upgrade, this)
     }
-    fn named_damage(&mut self, name: &str, amount: i32) -> Option<gamelogic::GameLogicResult<()>> {
+    fn named_damage(
+        &mut self,
+        name: &str,
+        amount: i32,
+        this_object: Option<u32>,
+    ) -> Option<gamelogic::GameLogicResult<()>> {
         assert!(
             self.inner.interpreter.is_some(),
             "callback keeps the actual held interpreter"
@@ -92,7 +98,7 @@ impl ScriptExecutionDriver for NextActionProbe<'_> {
             "same-faction first player is not the recipient"
         );
         self.observed = true;
-        self.inner.named_damage(name, amount)
+        self.inner.named_damage(name, amount, this_object)
     }
 }
 #[test]
@@ -299,6 +305,7 @@ fn immediate_replacement_uses_existing_exact_team_while_interpreter_is_held() {
                 .unwrap()
                 .unwrap();
             owner.host_object_mut(id).unwrap().name = ACTOR.into();
+            owner.initialize_receiving_named_cache_for_fixture();
             let upgrade = "Upgrade_FakeGLABecomeReal";
             crate::game_logic::host_upgrade_rules::register_test_upgrade(
                 &owner, upgrade, "OBJECT", 0, 1,

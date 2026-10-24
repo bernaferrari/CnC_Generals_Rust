@@ -96,6 +96,7 @@ fn owner_world() -> (GameLogic, ObjectId) {
     object.health.current = 40.0;
     object.body_damage_state =
         crate::game_logic::host_enum_table_residual::HostBodyDamageType::Damaged;
+    world.initialize_receiving_named_cache_for_fixture();
     (world, id)
 }
 

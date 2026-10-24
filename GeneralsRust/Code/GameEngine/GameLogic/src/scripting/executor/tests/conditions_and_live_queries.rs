@@ -2418,7 +2418,11 @@ fn bridge_broken_reads_host_named_state_only_on_damage_edge() {
         fn after_action(&mut self) -> GameLogicResult<()> {
             Ok(())
         }
-        fn bridge_status(&self, name: &str) -> ScriptOwnerQuery<ScriptBridgeStatus> {
+        fn bridge_status(
+            &self,
+            name: &str,
+            _this_object: Option<u32>,
+        ) -> ScriptOwnerQuery<ScriptBridgeStatus> {
             assert_eq!(name, "ConvoyBridge");
             self.0
         }
@@ -3405,7 +3409,12 @@ impl crate::scripting::engine::ScriptExecutionDriver for LifecycleOwner {
         self.effects.push(request.clone());
         Some(Ok(()))
     }
-    fn named_damage(&mut self, name: &str, amount: i32) -> Option<crate::GameLogicResult<()>> {
+    fn named_damage(
+        &mut self,
+        name: &str,
+        amount: i32,
+        _this_object: Option<u32>,
+    ) -> Option<crate::GameLogicResult<()>> {
         self.effects
             .push(HostScriptKillDeleteDamageRequest::NamedDamage {
                 unit: name.into(),

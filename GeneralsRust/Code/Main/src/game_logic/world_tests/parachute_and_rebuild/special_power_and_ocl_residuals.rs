@@ -550,8 +550,6 @@ fn start_preparation_notifies_script_engine_triggered_only() {
         missile_defender_laser_guided_weapon, missile_defender_primary_weapon,
     };
     use crate::game_logic::{KindOf, Team, ThingTemplate};
-    use gamelogic::scripting::engine::{initialize_script_engine, with_script_engine_mut};
-    let _ = initialize_script_engine();
     let mut logic = GameLogic::new();
     ensure_test_player_for_team(&mut logic, Team::USA);
     let mut md = ThingTemplate::new("AmericaInfantryMissileDefender");
@@ -582,23 +580,26 @@ fn start_preparation_notifies_script_engine_triggered_only() {
         )
         .expect("enemy");
     assert!(logic.activate_missile_defender_laser_guided(src, tgt));
-    let (triggered, completed) = with_script_engine_mut(|engine| {
-        (
-            engine.is_special_power_triggered(
-                0,
-                "SPECIAL_MISSILE_DEFENDER_LASER_GUIDED_MISSILES",
-                false,
-                src.0,
-            ),
-            engine.is_special_power_complete(
-                0,
-                "SPECIAL_MISSILE_DEFENDER_LASER_GUIDED_MISSILES",
-                false,
-                src.0,
-            ),
-        )
-    })
-    .unwrap_or((false, false));
+    let (triggered, completed) = logic
+        .owned_script_engine
+        .as_ref()
+        .map(|engine| {
+            (
+                engine.is_special_power_triggered(
+                    0,
+                    "SPECIAL_MISSILE_DEFENDER_LASER_GUIDED_MISSILES",
+                    false,
+                    src.0,
+                ),
+                engine.is_special_power_complete(
+                    0,
+                    "SPECIAL_MISSILE_DEFENDER_LASER_GUIDED_MISSILES",
+                    false,
+                    src.0,
+                ),
+            )
+        })
+        .unwrap_or((false, false));
     assert!(triggered, "startPreparation must notify TRIGGERED");
     assert!(!completed, "startPreparation must not notify COMPLETED");
     let _ = SpecialPowerType::MissileDefenderLaserGuided;

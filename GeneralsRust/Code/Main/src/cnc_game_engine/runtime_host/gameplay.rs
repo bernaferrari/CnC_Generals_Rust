@@ -292,7 +292,9 @@ impl CnCGameEngine {
             // click dispatch below fail-closes on a hidden gadget, so show
             // the live quit layout first (idempotent: only when hidden).
             if !game_client::gui::callbacks::is_quit_menu_visible() {
-                game_client::gui::callbacks::toggle_quit_menu();
+                let _ = game_client::gui::callbacks::toggle_quit_menu_receiving(
+                    self.game_logic.owned_script_game_ending(),
+                );
             }
             let quit_layout = ensure_live_quit_menu_layout();
             let quit_save_load = quit_layout && drive_os_wnd_quit_menu_save_load_like_cpp();
@@ -338,7 +340,9 @@ impl CnCGameEngine {
             // C++ pause parity (same as pause_save): show QuitMenu.wnd so
             // the SaveLoad button dispatch hits a visible gadget.
             if !game_client::gui::callbacks::is_quit_menu_visible() {
-                game_client::gui::callbacks::toggle_quit_menu();
+                let _ = game_client::gui::callbacks::toggle_quit_menu_receiving(
+                    self.game_logic.owned_script_game_ending(),
+                );
             }
             let quit_layout = ensure_live_quit_menu_layout();
             let quit_save_load = quit_layout && drive_os_wnd_quit_menu_save_load_like_cpp();

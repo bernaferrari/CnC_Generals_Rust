@@ -172,6 +172,7 @@ impl GameLogic {
         ui: &mut Option<&mut dyn crate::game_logic::ScriptUiEffects>,
     ) -> bool {
         let mut effects = crate::game_logic::ScriptPresentationEffects {
+            script_events: None,
             partition: None,
             audio: None,
             terrain: None,
@@ -207,6 +208,7 @@ mod tests {
             enabled: bool,
             _: bool,
             _upgrade_source: game_engine::common::thing::receiving_module_content::UpgradeTooltipSource<'_>,
+            _game_ending: bool,
         ) {
             self.0.push(enabled);
         }

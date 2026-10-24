@@ -64,39 +64,4 @@ impl GameLogic {
             .record(victim_id.0, DEFECTOR_DETECTION_FRAMES);
         true
     }
-
-    /// C++ SpecialPowerModule ctor path: StartsPaused → pauseCountdown(TRUE).
-
-    /// C++ SupplyWarehouseCreate::onCreate residual.
-
-    /// C++ SpecialPowerCompletionDie::onDie → notifyOfCompletedSpecialPower residual.
-    pub(crate) fn maybe_notify_special_power_completion(&mut self, id: ObjectId) {
-        let Some(obj) = self.objects.get(&id) else {
-            return;
-        };
-        let Some(ref data) = obj.special_power_completion else {
-            return;
-        };
-        if !data.creator_set {
-            return;
-        }
-        let power = data.special_power_name.clone();
-        let creator = data.creator_id;
-        let team = obj.team;
-        let player_id = self
-            .players
-            .values()
-            .find(|p| p.team == team)
-            .map(|p| p.id)
-            .unwrap_or(0);
-        crate::game_logic::script_events::push_event(
-            crate::game_logic::script_events::ScriptEvent::CompletedSpecialPower {
-                player_id,
-                special_power_name: power.clone(),
-                creator_id: creator,
-            },
-        );
-        self.special_power_completion_log
-            .record_notify(&power, creator);
-    }
 }

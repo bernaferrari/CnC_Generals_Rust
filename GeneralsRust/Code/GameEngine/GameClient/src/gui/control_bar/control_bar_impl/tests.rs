@@ -437,6 +437,14 @@ mod tests {
 
     #[test]
     fn presentation_money_is_written_after_the_window_appears_and_reappears() {
+        // This classic-adapter fixture deliberately replaces Core PlayerList.
+        // Keep that process state private; receiving HUD ownership is separate.
+        if let crate::test_process::TestProcess::ParentVerified = crate::test_process::run_bounded(
+            module_path!(),
+            "presentation_money_is_written_after_the_window_appears_and_reappears",
+        ) {
+            return;
+        }
         // InGameUI.cpp:1776-1810 reads the current local player's money and
         // writes MoneyDisplay when it changes. A host presentation stamp is
         // input data; it is not evidence that a WND has received that text.

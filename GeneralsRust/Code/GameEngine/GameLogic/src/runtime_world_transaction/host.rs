@@ -9,7 +9,6 @@ struct HostRuntimeGlobals {
     players: PlayerList,
     teams: TeamFactory,
     script_engine: Option<ScriptEngine>,
-    named_objects: NamedObjectTrackerState,
     pending_team_script_events: TeamScriptEventQueue,
 }
 
@@ -40,14 +39,12 @@ impl HostRuntimeGlobals {
                     .unwrap_or_else(|poisoned| poisoned.into_inner());
                 std::mem::take(&mut *guard)
             };
-            let named_objects = get_named_object_tracker().take_state_for_world_boundary();
             let pending_team_script_events = take_pending_team_script_events_for_world_boundary();
 
             Self {
                 players,
                 teams,
                 script_engine,
-                named_objects,
                 pending_team_script_events,
             }
         })
@@ -64,7 +61,6 @@ impl HostRuntimeGlobals {
                 players,
                 teams,
                 script_engine,
-                named_objects,
                 pending_team_script_events,
             } = self;
 
@@ -82,8 +78,6 @@ impl HostRuntimeGlobals {
                     .unwrap_or_else(|poisoned| poisoned.into_inner());
                 std::mem::replace(&mut *guard, script_engine)
             };
-            let old_named_objects =
-                get_named_object_tracker().replace_state_for_world_boundary(named_objects);
             let old_pending_team_script_events =
                 replace_pending_team_script_events_for_world_boundary(pending_team_script_events);
 
@@ -91,7 +85,6 @@ impl HostRuntimeGlobals {
                 players: old_players,
                 teams: old_teams,
                 script_engine: old_script_engine,
-                named_objects: old_named_objects,
                 pending_team_script_events: old_pending_team_script_events,
             }
         })
@@ -160,14 +153,18 @@ impl HostRuntimeWorldStage {
             .take()
             .expect("HostRuntimeWorldStage missing effect scope")
             .finish();
+        // All singleton/service restoration and effect extraction completed.
+        // The detached token owns values only; it reserves no ambient stores.
+        drop(
+            self.transaction_lock
+                .take()
+                .expect("HostRuntimeWorldStage missing transaction lock"),
+        );
         StagedHostRuntimeWorld {
             globals: staged,
             candidate_bundle,
             team_factory_effects,
-            transaction_lock: self
-                .transaction_lock
-                .take()
-                .expect("HostRuntimeWorldStage missing transaction lock"),
+            _thread_affinity: std::marker::PhantomData,
         }
     }
 }
@@ -199,11 +196,9 @@ pub struct StagedHostRuntimeWorld {
     /// ambient resolution target and lands the candidate contents in it.
     candidate_bundle: Arc<WorldServices>,
     team_factory_effects: Vec<TeamFactoryDeferredEffects>,
-    // Keep all other staging out until Main either commits this candidate or
-    // drops it.  The live singleton bundle was restored before this token was
-    // built, but a second stage still must not interleave its global writes
-    // with the pending combined commit.
-    transaction_lock: MutexGuard<'static, ()>,
+    // Preserve the original token's thread affinity without reserving the
+    // singleton transaction during its detached candidate lifetime.
+    _thread_affinity: std::marker::PhantomData<std::rc::Rc<()>>,
 }
 
 impl StagedHostRuntimeWorld {
@@ -222,8 +217,17 @@ impl StagedHostRuntimeWorld {
             globals,
             candidate_bundle,
             team_factory_effects,
-            transaction_lock,
+            _thread_affinity: _,
         } = self;
+        assert!(
+            !world_runtime_staging_active(),
+            "cannot commit a detached Host candidate inside another active stage"
+        );
+        // Reacquire BEFORE either service publication or raw singleton swaps.
+        // NativeRuntimeWorldCommit retains this through the matching Main swap.
+        let transaction_lock = world_runtime_transaction_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         // Make the candidate bundle the ambient target for the commit swap;
         // the host installs the matching GameLogic immediately after, and the
         // old world's drop then only removes that old bundle's stack entry.
@@ -261,3 +265,7 @@ impl NativeRuntimeWorldCommit {
         drop(self.0.transaction_lock.take());
     }
 }
+
+#[cfg(test)]
+#[path = "host_candidate_lifetime_tests.rs"]
+mod candidate_lifetime_tests;

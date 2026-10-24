@@ -230,24 +230,19 @@ impl GameLogic {
     /// Does **not** populate OBJECT_REGISTRY or wrap crate `Object`s.
     pub fn host_named_unit_id_map(&self) -> std::collections::HashMap<String, u32> {
         let mut map = std::collections::HashMap::new();
-        for (id, obj) in self.host_objects().registered() {
-            if obj.name.is_empty() {
-                continue;
-            }
-            map.insert(obj.name.clone(), id.0);
+        for (name, _raw) in self.named_script_cache.wire() {
+            // A first tombstone hides later duplicate live rows.
+            let id = self
+                .host_object_id_by_script_name(&name)
+                .map_or(0, |id| id.0);
+            map.entry(name).or_insert(id);
         }
+        map.retain(|_, raw| *raw != 0);
         map
     }
 
-    /// Host named-unit query (scripts/AI). Prefer this over empty crate the_ai groups.
     pub fn host_named_unit_id(&self, name: &str) -> Option<ObjectId> {
-        if name.is_empty() {
-            return None;
-        }
-        self.host_objects()
-            .registered()
-            .find(|(_, o)| o.name == name)
-            .map(|(id, _)| *id)
+        self.host_object_id_by_script_name(name)
     }
 
     /// Host team query: live host objects on `team`.
@@ -272,19 +267,6 @@ impl GameLogic {
             })
             .map(|(id, _)| *id)
             .collect()
-    }
-
-    /// Inject host names into the crate NamedObjectTracker (IDs only).
-    /// Crate evaluator can resolve names; it still must not require crate Objects.
-    /// CAMERA_FOLLOW_NAMED / TETHER_NAMED / LOOK_TOWARD_OBJECT read this tracker
-    /// even when leftover OBJECT_REGISTRY is empty.
-    pub fn inject_host_named_unit_map_into_crate_tracker(&self) {
-        use gamelogic::scripting::engine::get_named_object_tracker;
-        let tracker = get_named_object_tracker();
-        for (name, id) in self.host_named_unit_id_map() {
-            let _ = tracker.register_named_object(name, id);
-        }
-        self.inject_host_script_query_snapshot();
     }
 
     /// Project this roster into its trigger owner without callbacks under the guard.
@@ -339,116 +321,8 @@ impl GameLogic {
             }
         }
         for (id, obj) in self.host_objects().registered() {
-            snap.objects.push(HostScriptQueryObject {
-                id: id.0,
-                name: obj.name.clone(),
-                team: obj.team as u32,
-                x: obj.get_position().x,
-                y: obj.get_position().y,
-                z: obj.get_position().z,
-
-                alive: obj.is_alive() && !obj.status.destroyed,
-                effectively_dead: obj.status.effectively_dead || obj.status.destroyed,
-                health: obj.health.current,
-                initial_health: obj.body_initial_health(),
-                owner_player: obj
-                    .owner_player_id
-                    .and_then(|pid| self.player_name(pid))
-                    .unwrap_or_default(),
-                template_name: obj.template_name.clone(),
-                has_contain: obj.can_contain()
-                    || obj.garrison_count() > 0
-                    || obj.transport_capacity() > 0
-                    || obj
-                        .building_data
-                        .as_ref()
-                        .is_some_and(|b| b.max_garrison > 0),
-                contain_count: obj.garrison_count() as u32,
-                contain_max: obj
-                    .building_data
-                    .as_ref()
-                    .map(|b| b.max_garrison)
-                    .unwrap_or(0)
-                    .max(obj.transport_capacity()) as u32,
-                last_damage_source_id: obj.last_damage_source.map(|sid| sid.0).unwrap_or(0),
-                last_damage_template: obj
-                    .last_damage_source
-                    .and_then(|sid| self.objects.get(&sid).map(|src| src.template_name.clone()))
-                    .unwrap_or_default(),
-                last_damage_player: obj
-                    .last_damage_source
-                    .and_then(|sid| {
-                        self.objects.get(&sid).and_then(|src| {
-                            src.owner_player_id.and_then(|pid| self.player_name(pid))
-                        })
-                    })
-                    .unwrap_or_default(),
-                kind_structure: obj.is_kind_of(crate::game_logic::KindOf::Structure),
-                kind_projectile: obj.is_kind_of(crate::game_logic::KindOf::Projectile),
-                kind_inert: leftover_host_template_is_inert(&obj.template_name),
-                kind_mine: obj.is_kind_of(crate::game_logic::KindOf::Mine),
-                held: obj.status.disabled_held,
-                stealthed_hidden: obj.is_effectively_stealthed(),
-                discovered_by: host_discovered_by_player_names(self, id.0, obj),
-                waypoint_labels: obj.completed_waypoint_labels.clone(),
-                selected: obj.selected,
-                idle: matches!(obj.ai_state, crate::game_logic::AIState::Idle)
-                    && !obj.status.moving
-                    && !obj.status.attacking,
-                vision_range: obj.vision_range,
-                kind_names: obj
-                    .thing()
-                    .template
-                    .kind_of
-                    .iter()
-                    .map(|k| format!("{k:?}"))
-                    .collect(),
-                special_power_ready: obj.special_power_ready
-                    && obj.is_alive()
-                    && !obj.is_disabled()
-                    && !obj.status.destroyed,
-                special_power_templates: obj
-                    .thing()
-                    .template
-                    .special_power_modules
-                    .iter()
-                    .map(|module| module.special_power_template.clone())
-                    .collect(),
-                locomotor_surfaces: obj.locomotor_surfaces,
-                captured: obj.status.private_captured,
-                unmanned: obj.status.disabled_unmanned,
-                garrisonable: obj.is_garrison_contain(),
-                build_cost: obj.thing().template.build_cost.supplies as i32,
-                status_bits: host_query_object_status_bits(obj),
-                player_who_entered: host_query_player_who_entered(self, obj),
-                is_supply_warehouse: obj.thing().template.dock_kind
-                    == crate::game_logic::DockKind::SupplyWarehouse,
-                warehouse_boxes: if obj.thing().template.dock_kind
-                    == crate::game_logic::DockKind::SupplyWarehouse
-                {
-                    // C++ SupplyWarehouseDockUpdate::getBoxesStored.
-                    // drawable_supply_boxes is kept in sync by set_stored_supplies
-                    // (including 0). Cash fallback only if never initialized.
-                    if obj.drawable_supply_max_boxes > 0 || obj.drawable_supply_boxes > 0 {
-                        obj.drawable_supply_boxes as i32
-                    } else {
-                        let value = crate::game_logic::host_structure_economy_residual::VALUE_PER_SUPPLY_BOX;
-                        let value = if value > 0 { value as u32 } else { 75 };
-                        (obj.stored_resources.supplies / value) as i32
-                    }
-                } else {
-                    0
-                },
-                off_map: obj.get_position().x < self.world_min.x
-                    || obj.get_position().x > self.world_max.x
-                    || obj.get_position().z < self.world_min.z
-                    || obj.get_position().z > self.world_max.z,
-                contained_by: obj.contained_by.map(|cid| cid.0).unwrap_or(0),
-                // Live has no AI_EXIT state; leftover Exit is pretend-contained.
-                ai_exiting: false,
-
-                ..Default::default()
-            });
+            snap.objects
+                .push(self.receiving_script_query_object(*id, obj));
             if !obj.team_instance_name.is_empty() {
                 snap.team_instance_ids
                     .entry(obj.team_instance_name.clone())
@@ -478,6 +352,126 @@ impl GameLogic {
             }
         }
         snap
+    }
+
+    /// One immutable observation of the canonical receiving Object and services.
+    pub(super) fn receiving_script_query_object(
+        &self,
+        id: ObjectId,
+        obj: &Object,
+    ) -> gamelogic::scripting::HostScriptQueryObject {
+        use gamelogic::scripting::HostScriptQueryObject;
+        HostScriptQueryObject {
+            id: id.0,
+            name: obj.name.clone(),
+            team: obj.team as u32,
+            x: obj.get_position().x,
+            y: obj.get_position().y,
+            z: obj.get_position().z,
+
+            alive: obj.is_alive() && !obj.status.destroyed,
+            effectively_dead: obj.status.effectively_dead || obj.status.destroyed,
+            health: obj.health.current,
+            initial_health: obj.body_initial_health(),
+            owner_player: obj
+                .owner_player_id
+                .and_then(|pid| self.player_name(pid))
+                .unwrap_or_default(),
+            template_name: obj.template_name.clone(),
+            has_contain: obj.can_contain()
+                || obj.garrison_count() > 0
+                || obj.transport_capacity() > 0
+                || obj
+                    .building_data
+                    .as_ref()
+                    .is_some_and(|b| b.max_garrison > 0),
+            contain_count: obj.garrison_count() as u32,
+            contain_max: obj
+                .building_data
+                .as_ref()
+                .map(|b| b.max_garrison)
+                .unwrap_or(0)
+                .max(obj.transport_capacity()) as u32,
+            last_damage_source_id: obj.last_damage_source.map(|sid| sid.0).unwrap_or(0),
+            last_damage_template: obj
+                .last_damage_source
+                .and_then(|sid| self.objects.get(&sid).map(|src| src.template_name.clone()))
+                .unwrap_or_default(),
+            last_damage_player: obj
+                .last_damage_source
+                .and_then(|sid| {
+                    self.objects
+                        .get(&sid)
+                        .and_then(|src| src.owner_player_id.and_then(|pid| self.player_name(pid)))
+                })
+                .unwrap_or_default(),
+            kind_structure: obj.is_kind_of(crate::game_logic::KindOf::Structure),
+            kind_projectile: obj.is_kind_of(crate::game_logic::KindOf::Projectile),
+            kind_inert: leftover_host_template_is_inert(&obj.template_name),
+            kind_mine: obj.is_kind_of(crate::game_logic::KindOf::Mine),
+            held: obj.status.disabled_held,
+            stealthed_hidden: obj.is_effectively_stealthed(),
+            discovered_by: host_discovered_by_player_names(self, id.0, obj),
+            waypoint_labels: obj.completed_waypoint_labels.clone(),
+            selected: obj.selected,
+            idle: matches!(obj.ai_state, crate::game_logic::AIState::Idle)
+                && !obj.status.moving
+                && !obj.status.attacking,
+            vision_range: obj.vision_range,
+            kind_names: obj
+                .thing()
+                .template
+                .kind_of
+                .iter()
+                .map(|k| format!("{k:?}"))
+                .collect(),
+            special_power_ready: obj.special_power_ready
+                && obj.is_alive()
+                && !obj.is_disabled()
+                && !obj.status.destroyed,
+            special_power_templates: obj
+                .thing()
+                .template
+                .special_power_modules
+                .iter()
+                .map(|module| module.special_power_template.clone())
+                .collect(),
+            locomotor_surfaces: obj.locomotor_surfaces,
+            captured: obj.status.private_captured,
+            unmanned: obj.status.disabled_unmanned,
+            garrisonable: obj.is_garrison_contain(),
+            build_cost: obj.thing().template.build_cost.supplies as i32,
+            status_bits: host_query_object_status_bits(obj),
+            player_who_entered: host_query_player_who_entered(self, obj),
+            is_supply_warehouse: obj.thing().template.dock_kind
+                == crate::game_logic::DockKind::SupplyWarehouse,
+            warehouse_boxes: if obj.thing().template.dock_kind
+                == crate::game_logic::DockKind::SupplyWarehouse
+            {
+                // C++ SupplyWarehouseDockUpdate::getBoxesStored.
+                // drawable_supply_boxes is kept in sync by set_stored_supplies
+                // (including 0). Cash fallback only if never initialized.
+                if obj.drawable_supply_max_boxes > 0 || obj.drawable_supply_boxes > 0 {
+                    obj.drawable_supply_boxes as i32
+                } else {
+                    let value =
+                        crate::game_logic::host_structure_economy_residual::VALUE_PER_SUPPLY_BOX;
+                    let value = if value > 0 { value as u32 } else { 75 };
+                    (obj.stored_resources.supplies / value) as i32
+                }
+            } else {
+                0
+            },
+            off_map: obj.get_position().x < self.world_min.x
+                || obj.get_position().x > self.world_max.x
+                || obj.get_position().z < self.world_min.z
+                || obj.get_position().z > self.world_max.z,
+            contained_by: obj.contained_by.map(|cid| cid.0).unwrap_or(0),
+            // Live has no AI_EXIT state; leftover Exit is pretend-contained.
+            ai_exiting: false,
+
+            ..Default::default()
+        }
     }
 
     /// Temporary condition adapter; explicit queries use the same owned projection.

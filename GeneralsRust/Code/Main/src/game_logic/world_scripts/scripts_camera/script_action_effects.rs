@@ -10,6 +10,10 @@ impl GameLogic {
         ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
         let upgrade_observer = self.receiving_upgrade_tooltip_observer();
+        let game_ending = ui.script_events.map_or_else(
+            || self.owned_script_game_ending(),
+            |recipient| recipient.is_game_ending(),
+        );
         let Some(ui) = ui.ui.as_mut() else {
             return;
         };
@@ -21,6 +25,7 @@ impl GameLogic {
                 enabled,
                 matches!(self.game_mode, GameMode::Replay),
                 game_engine::common::thing::receiving_module_content::UpgradeTooltipSource::Receiving(&upgrade_observer),
+                game_ending,
             );
             self.session_view
                 .letterbox_visibility_delivered_since_present = true;
@@ -66,6 +71,12 @@ impl GameLogic {
                 })
                 .expect("script action delivery owns its receiving interpreter");
         };
+        // This boundary can be reached without a HostScriptExecutionDriver.
+        // Preserve the exact supplied interpreter through every nested effect.
+        let mut receiving_ui = ui.reborrow();
+        receiving_ui.script_events =
+            Some(crate::game_logic::ScriptEventRecipient::new(interpreter));
+        let mut ui = receiving_ui;
         self.apply_host_skirmish_script_requests();
         self.apply_host_set_base_construction_speed_requests();
         self.apply_host_set_train_held_requests();
@@ -79,7 +90,10 @@ impl GameLogic {
         self.apply_host_loco_set_script_requests_with_effects(&mut ui);
         self.apply_host_face_script_requests_with_effects(&mut ui);
 
-        self.apply_host_move_attack_script_requests_with_effects(&mut ui);
+        self.apply_host_move_attack_script_requests_with_interpreter_and_effects(
+            interpreter,
+            &mut ui,
+        );
         self.apply_host_hunt_guard_script_requests();
         self.apply_host_garrison_enter_exit_script_requests_with_effects(&mut ui);
         self.apply_host_idle_script_requests_with_effects(&mut ui);
@@ -461,6 +475,7 @@ impl GameLogic {
                     last,
                     matches!(self.game_mode, GameMode::Replay),
                     game_engine::common::thing::receiving_module_content::UpgradeTooltipSource::Receiving(&upgrade_observer),
+                    interpreter.is_game_ending(),
                 );
                 self.session_view
                     .letterbox_visibility_delivered_since_present = true;

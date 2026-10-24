@@ -154,9 +154,27 @@ impl GameLogic {
         target: crate::command_system::PowerTarget,
         waypoint_id: Option<u32>,
     ) {
-        let Some(id) = self.host_object_id_by_script_name(unit) else {
-            return;
-        };
+        if let Some(id) = self.host_object_id_by_script_name(unit) {
+            self.fire_receiving_named_special_power(
+                id,
+                power_name,
+                target,
+                waypoint_id,
+                None,
+                &mut Default::default(),
+            );
+        }
+    }
+
+    pub(super) fn fire_receiving_named_special_power(
+        &mut self,
+        id: ObjectId,
+        power_name: &str,
+        target: crate::command_system::PowerTarget,
+        waypoint_id: Option<u32>,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         let Some(power) = self.host_script_special_power_type_for(id, power_name) else {
             return;
         };
@@ -196,7 +214,7 @@ impl GameLogic {
                     .note_scripted_waypoint_special_power(id, wid);
             }
         }
-        self.queue_command(crate::command_system::GameCommand {
+        let command = crate::command_system::GameCommand {
             command_type: crate::command_system::CommandType::DoSpecialPower {
                 power_type: power,
                 target,
@@ -206,7 +224,18 @@ impl GameLogic {
             timestamp: std::time::SystemTime::now(),
             selected_units: vec![id],
             modifier_keys: crate::command_system::ModifierKeys::default(),
-        });
+        };
+        if let Some(interpreter) = interpreter {
+            let _ = crate::command_executor::CommandExecutor::new_with_target_policy_and_effects(
+                self,
+                player_id,
+                interpreter,
+                effects.reborrow(),
+            )
+            .execute_command(command);
+        } else {
+            self.queue_command(command);
+        }
     }
 
     pub(super) fn host_script_unit_can_guard(&self, id: ObjectId) -> bool {
@@ -1079,7 +1108,7 @@ impl GameLogic {
         )
     }
 
-    fn host_script_create_object_with_effects(
+    pub(super) fn host_script_create_object_with_effects(
         &mut self,
         name: Option<&str>,
         thing: &str,
@@ -1091,18 +1120,20 @@ impl GameLogic {
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> Option<ObjectId> {
+        let old_named_object = name
+            .filter(|name| !name.is_empty())
+            .and_then(|name| self.host_object_id_by_script_name(name));
         if let Some(unit_name) = name.filter(|n| !n.is_empty()) {
             if let Some(id) = self.host_object_id_by_script_name(unit_name) {
                 if self
                     .objects
                     .get(&id)
-                    .is_some_and(|obj| obj.is_alive() && !obj.status.destroyed)
+                    .is_some_and(|obj| !obj.status.effectively_dead)
                 {
                     return None;
                 }
             }
         }
-        let team = self.host_script_create_team(team_name);
         let mut pos = Self::host_script_coord_to_world(x, y, z);
         if z == 0.0 {
             if let Some(h) = self.terrain_height_at(glam::Vec3::new(pos.x, 0.0, pos.z)) {
@@ -1111,11 +1142,26 @@ impl GameLogic {
         }
         self.require_owned_team_creation_interpreter(team_name, false, interpreter)
             .ok()?;
+        // Source getTeamNamed preserves the actual calling/condition Team
+        // before consulting the prototype's instance list.
+        let (calling, condition) = interpreter
+            .map(|engine| (engine.get_calling_team_id(), engine.get_condition_team_id()))
+            .unwrap_or_default();
+        let resolved = self
+            .resolve_owned_script_team(team_name, calling, condition)
+            .ok()?;
+        if resolved.is_none() && team_name == gamelogic::scripting::core::THIS_TEAM {
+            return None;
+        }
         let selected = {
             let mut factory = self.team_factory.lock().ok()?;
-            factory
-                .find_team_with_owned_effects(team_name)
-                .or_else(|| factory.create_inactive_team_with_owned_effects(team_name))
+            if let Some((id, _)) = resolved {
+                factory.find_team_by_id(id).map(|team| (team, Vec::new()))
+            } else {
+                factory
+                    .find_team_with_owned_effects(team_name)
+                    .or_else(|| factory.create_inactive_team_with_owned_effects(team_name))
+            }
         };
         let id = if let Some((selected, effects)) = selected {
             let identity = selected.read().ok()?.get_id();
@@ -1129,11 +1175,17 @@ impl GameLogic {
             if !std::sync::Arc::ptr_eq(&current, &selected) {
                 return None;
             }
-            let controller = current.read().ok()?.get_controlling_player_id()?;
+            let (controller, selected_name) = {
+                let current = current.read().ok()?;
+                (
+                    current.get_controlling_player_id()?,
+                    current.get_name().as_str().to_owned(),
+                )
+            };
             self.create_object_on_exact_script_team_with_effects(
                 thing,
                 controller,
-                team_name,
+                &selected_name,
                 identity,
                 pos,
                 true,
@@ -1141,7 +1193,8 @@ impl GameLogic {
                 ui,
             )?
         } else {
-            self.create_object_with_script_effects(thing, team, pos, interpreter, ui)?
+            // Source cannot construct an object when no receiving Team exists.
+            return None;
         };
         if let Some(obj) = self.objects.get_mut(&id) {
             obj.set_orientation_with_partition_owner(angle, &mut self.partition_manager);
@@ -1150,6 +1203,13 @@ impl GameLogic {
             // that canonical name from the original requested script string.
             if let Some(unit_name) = name.filter(|n| !n.is_empty()) {
                 obj.name = unit_name.to_string();
+            }
+        }
+        if let Some(unit_name) = name.filter(|name| !name.is_empty()) {
+            if old_named_object.is_some() || self.named_script_cache.did_exist(unit_name) {
+                self.transfer_receiving_script_name(unit_name, id);
+            } else {
+                self.add_receiving_named_script_object(id);
             }
         }
         Some(id)
@@ -1356,99 +1416,128 @@ impl GameLogic {
     ) {
         use gamelogic::scripting::HostScriptGarrisonEnterExitRequest;
         for req in gamelogic::scripting::take_host_script_garrison_enter_requests() {
-            match req {
-                HostScriptGarrisonEnterExitRequest::NamedEnter { unit, dest } => {
-                    let Some(unit_id) = self.host_object_id_by_script_name(&unit) else {
-                        continue;
-                    };
-                    let Some(dest_id) = self.host_object_id_by_script_name(&dest) else {
-                        continue;
-                    };
-                    self.host_script_ai_enter(unit_id, dest_id);
+            self.apply_receiving_garrison_request(req, None, None, None, effects);
+        }
+    }
+
+    fn receiving_garrison_members(
+        &self,
+        name: &str,
+        calling: Option<u32>,
+        condition: Option<u32>,
+    ) -> Vec<ObjectId> {
+        self.resolve_owned_script_team(name, calling, condition)
+            .expect("receiving garrison team roster")
+            .map(|(_, members)| members.into_iter().map(ObjectId).collect())
+            .unwrap_or_default()
+    }
+
+    pub(super) fn apply_receiving_garrison_request(
+        &mut self,
+        req: gamelogic::scripting::HostScriptGarrisonEnterExitRequest,
+        this_object: Option<ObjectId>,
+        calling: Option<u32>,
+        condition: Option<u32>,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
+        use gamelogic::scripting::HostScriptGarrisonEnterExitRequest;
+
+        match req {
+            HostScriptGarrisonEnterExitRequest::NamedEnter { unit, dest } => {
+                let Some(unit_id) = self.owned_named_script_object(&unit, this_object) else {
+                    return;
+                };
+                let Some(dest_id) = self.owned_named_script_object(&dest, this_object) else {
+                    return;
+                };
+                self.host_script_ai_enter(unit_id, dest_id);
+            }
+            HostScriptGarrisonEnterExitRequest::TeamEnter { team, dest } => {
+                let Some(dest_id) = self.owned_named_script_object(&dest, this_object) else {
+                    return;
+                };
+                let members = self.receiving_garrison_members(&team, calling, condition);
+                for id in members {
+                    self.host_script_ai_enter(id, dest_id);
                 }
-                HostScriptGarrisonEnterExitRequest::TeamEnter { team, dest } => {
-                    let Some(dest_id) = self.host_object_id_by_script_name(&dest) else {
-                        continue;
-                    };
-                    let members = self.host_script_garrison_team_member_ids(&team);
-                    for id in members {
-                        self.host_script_ai_enter(id, dest_id);
-                    }
-                }
-                HostScriptGarrisonEnterExitRequest::NamedExitAll { unit } => {
-                    let Some(id) = self.host_object_id_by_script_name(&unit) else {
-                        continue;
-                    };
+            }
+            HostScriptGarrisonEnterExitRequest::NamedExitAll { unit } => {
+                let Some(id) = self.owned_named_script_object(&unit, this_object) else {
+                    return;
+                };
+                self.host_script_ai_evacuate_with_effects(id, effects);
+            }
+            HostScriptGarrisonEnterExitRequest::TeamExitAll { team } => {
+                for id in self.receiving_garrison_members(&team, calling, condition) {
                     self.host_script_ai_evacuate_with_effects(id, effects);
                 }
-                HostScriptGarrisonEnterExitRequest::TeamExitAll { team } => {
-                    for id in self.host_script_garrison_team_member_ids(&team) {
-                        self.host_script_ai_evacuate_with_effects(id, effects);
-                    }
+            }
+            HostScriptGarrisonEnterExitRequest::TeamGarrisonSpecific { team, building } => {
+                let Some(building_id) = self.owned_named_script_object(&building, this_object)
+                else {
+                    return;
+                };
+                let members = self.receiving_garrison_members(&team, calling, condition);
+                let player_id = members
+                    .first()
+                    .and_then(|id| self.host_object(*id).and_then(|o| o.owner_player_id));
+                if !self.host_script_building_can_garrison(building_id, player_id) {
+                    return;
                 }
-                HostScriptGarrisonEnterExitRequest::TeamGarrisonSpecific { team, building } => {
-                    let Some(building_id) = self.host_object_id_by_script_name(&building) else {
-                        continue;
-                    };
-                    let members = self.host_script_garrison_team_member_ids(&team);
-                    let player_id = members
-                        .first()
-                        .and_then(|id| self.host_object(*id).and_then(|o| o.owner_player_id));
-                    if !self.host_script_building_can_garrison(building_id, player_id) {
-                        continue;
-                    }
-                    for id in members {
-                        self.host_script_ai_enter(id, building_id);
-                    }
+                for id in members {
+                    self.host_script_ai_enter(id, building_id);
                 }
-                HostScriptGarrisonEnterExitRequest::ExitSpecificBuilding { building } => {
-                    let Some(id) = self.host_object_id_by_script_name(&building) else {
-                        continue;
-                    };
-                    if !self
-                        .host_object(id)
-                        .is_some_and(|o| o.is_kind_of(crate::game_logic::KindOf::Structure))
-                    {
-                        continue;
-                    }
-                    self.host_script_ai_evacuate_with_effects(id, effects);
+            }
+            HostScriptGarrisonEnterExitRequest::ExitSpecificBuilding { building } => {
+                let Some(id) = self.owned_named_script_object(&building, this_object) else {
+                    return;
+                };
+                if !self
+                    .host_object(id)
+                    .is_some_and(|o| o.is_kind_of(crate::game_logic::KindOf::Structure))
+                {
+                    return;
                 }
-                HostScriptGarrisonEnterExitRequest::TeamGarrisonNearest { team } => {
-                    self.host_script_team_garrison_nearest(&team);
-                }
-                HostScriptGarrisonEnterExitRequest::TeamExitAllBuildings { team } => {
-                    for id in self.host_script_garrison_team_member_ids(&team) {
-                        self.host_script_ai_exit_with_effects(id, effects);
-                    }
-                }
-                HostScriptGarrisonEnterExitRequest::NamedGarrisonSpecific { unit, building } => {
-                    let Some(unit_id) = self.host_object_id_by_script_name(&unit) else {
-                        continue;
-                    };
-                    let Some(building_id) = self.host_object_id_by_script_name(&building) else {
-                        continue;
-                    };
-                    let player_id = self.host_object(unit_id).and_then(|o| o.owner_player_id);
-                    if !self.host_script_building_can_garrison(building_id, player_id) {
-                        continue;
-                    }
-                    self.host_script_ai_enter(unit_id, building_id);
-                }
-                HostScriptGarrisonEnterExitRequest::NamedGarrisonNearest { unit } => {
-                    self.host_script_named_garrison_nearest(&unit);
-                }
-                HostScriptGarrisonEnterExitRequest::NamedExitBuilding { unit } => {
-                    let Some(id) = self.host_object_id_by_script_name(&unit) else {
-                        continue;
-                    };
+                self.host_script_ai_evacuate_with_effects(id, effects);
+            }
+            HostScriptGarrisonEnterExitRequest::TeamGarrisonNearest { team } => {
+                self.host_script_team_garrison_nearest(&team);
+            }
+            HostScriptGarrisonEnterExitRequest::TeamExitAllBuildings { team } => {
+                for id in self.receiving_garrison_members(&team, calling, condition) {
                     self.host_script_ai_exit_with_effects(id, effects);
                 }
-                HostScriptGarrisonEnterExitRequest::PlayerGarrisonAll { player } => {
-                    self.host_script_player_garrison_all(&player);
+            }
+            HostScriptGarrisonEnterExitRequest::NamedGarrisonSpecific { unit, building } => {
+                let Some(unit_id) = self.owned_named_script_object(&unit, this_object) else {
+                    return;
+                };
+                let Some(building_id) = self.owned_named_script_object(&building, this_object)
+                else {
+                    return;
+                };
+                let player_id = self.host_object(unit_id).and_then(|o| o.owner_player_id);
+                if !self.host_script_building_can_garrison(building_id, player_id) {
+                    return;
                 }
-                HostScriptGarrisonEnterExitRequest::PlayerExitAll { player } => {
-                    self.host_script_player_exit_all_with_effects(&player, effects);
+                self.host_script_ai_enter(unit_id, building_id);
+            }
+            HostScriptGarrisonEnterExitRequest::NamedGarrisonNearest { unit } => {
+                if let Some(id) = self.owned_named_script_object(&unit, this_object) {
+                    self.host_script_garrison_nearest_for_object(id);
                 }
+            }
+            HostScriptGarrisonEnterExitRequest::NamedExitBuilding { unit } => {
+                let Some(id) = self.owned_named_script_object(&unit, this_object) else {
+                    return;
+                };
+                self.host_script_ai_exit_with_effects(id, effects);
+            }
+            HostScriptGarrisonEnterExitRequest::PlayerGarrisonAll { player } => {
+                self.host_script_player_garrison_all(&player);
+            }
+            HostScriptGarrisonEnterExitRequest::PlayerExitAll { player } => {
+                self.host_script_player_exit_all_with_effects(&player, effects);
             }
         }
     }
@@ -1665,11 +1754,14 @@ impl GameLogic {
     }
 
     pub(super) fn host_script_named_garrison_nearest(&mut self, unit: &str) {
+        if let Some(id) = self.host_object_id_by_script_name(unit) {
+            self.host_script_garrison_nearest_for_object(id);
+        }
+    }
+
+    pub(super) fn host_script_garrison_nearest_for_object(&mut self, unit_id: ObjectId) {
         use crate::game_logic::KindOf;
         use crate::game_logic::host_deliver_payload::is_off_map_default_residual;
-        let Some(unit_id) = self.host_object_id_by_script_name(unit) else {
-            return;
-        };
         let Some((unit_pos, unit_off_map, unit_is_hacker, player_id)) =
             self.host_object(unit_id).map(|obj| {
                 (
@@ -1922,6 +2014,7 @@ impl GameLogic {
     /// `FROM_CENTER_2D`, polygon trigger, same on/off-map).
     pub(super) fn host_script_closest_object_of_type_in_trigger(
         &self,
+        interpreter: &gamelogic::scripting::engine::ScriptEngine,
         source_id: ObjectId,
         object_type: &str,
         trigger_name: &str,
@@ -1932,7 +2025,11 @@ impl GameLogic {
             || source.get_position().x > self.world_max.x
             || source.get_position().z < self.world_min.z
             || source.get_position().z > self.world_max.z;
-        let type_names = host_script_object_type_names(object_type);
+        let type_names = if self.templates.contains_key(object_type) {
+            vec![object_type.to_owned()]
+        } else {
+            host_script_object_type_names(interpreter, object_type)?
+        };
         if type_names.is_empty() {
             return None;
         }

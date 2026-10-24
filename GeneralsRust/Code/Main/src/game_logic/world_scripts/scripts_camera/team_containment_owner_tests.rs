@@ -219,6 +219,8 @@ fn train_held_action_before_first_tick_is_owned_and_failed_restore_preserves_pee
     assert_eq!(train, peer_train);
     owner.host_object_mut(train).unwrap().name = "OwnedTrain".into();
     peer.host_object_mut(train).unwrap().name = "OwnedTrain".into();
+    assert!(owner.add_receiving_named_script_object(train));
+    assert!(peer.add_receiving_named_script_object(peer_train));
     let engine = ScriptEngine::new().unwrap();
     let context = ScriptContext::at_frame(0);
     let mut action = ScriptAction::new(ScriptActionType::SetTrainHeld);

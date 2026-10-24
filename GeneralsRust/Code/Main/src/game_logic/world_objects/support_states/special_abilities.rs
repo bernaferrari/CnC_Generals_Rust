@@ -786,6 +786,14 @@ impl GameLogic {
         object_id: ObjectId,
         kind: crate::game_logic::host_hero_abilities::LeftoverSaKind,
     ) {
+        self.leftover_sa_notify_start_preparation_with_recipient(object_id, kind, None)
+    }
+    pub(crate) fn leftover_sa_notify_start_preparation_with_recipient(
+        &self,
+        object_id: ObjectId,
+        kind: crate::game_logic::host_hero_abilities::LeftoverSaKind,
+        recipient: Option<crate::game_logic::ScriptEventRecipient<'_>>,
+    ) {
         use crate::command_system::SpecialPowerType;
         use crate::game_logic::host_hero_abilities::LeftoverSaKind;
         let candidates: &[SpecialPowerType] = match kind {
@@ -826,7 +834,9 @@ impl GameLogic {
             })
             .or_else(|| candidates.first().cloned());
         if let Some(power) = power {
-            self.notify_script_engine_special_power_event(object_id, &power, true, false);
+            self.notify_script_engine_special_power_event_with_recipient(
+                object_id, &power, true, false, recipient,
+            );
         }
     }
 
@@ -986,7 +996,13 @@ impl GameLogic {
                 // C++ PersistenceRequiresRecharge: freeze until SPM ready.
                 return;
             }
-            self.notify_script_engine_special_power_event(object_id, &power, true, false);
+            self.notify_script_engine_special_power_event_with_recipient(
+                object_id,
+                &power,
+                true,
+                false,
+                effects.script_events,
+            );
         }
         if let Some(obj) = self.objects.get_mut(&object_id) {
             obj.set_status_using_ability(true);
@@ -1643,7 +1659,11 @@ impl GameLogic {
             self.hero_abilities.record_leftover_infiltration();
             self.leftover_sa_set_pack_model(object_id, false, false, true);
         }
-        self.leftover_sa_notify_start_preparation(object_id, kind);
+        self.leftover_sa_notify_start_preparation_with_recipient(
+            object_id,
+            kind,
+            effects.script_events,
+        );
         let mut channel =
             LeftoverSaChannel::new(kind, target_id, LeftoverSaPhase::Preparing, prep_ms);
         channel.special_object_id = special_object_id;
@@ -2879,7 +2899,13 @@ impl GameLogic {
             );
         }
         // C++ startPreparation markSpecialPowerTriggered → ScriptEngine TRIGGERED.
-        self.notify_script_engine_special_power_event(object_id, &power_type, true, false);
+        self.notify_script_engine_special_power_event_with_recipient(
+            object_id,
+            &power_type,
+            true,
+            false,
+            effects.script_events,
+        );
         true
     }
 
@@ -3169,7 +3195,13 @@ impl GameLogic {
         self.leftover_sa_set_pack_model(object_id, false, false, true);
         self.queue_hacker_disable_prep_sound_loop(object_id);
         let power = metadata.command_power();
-        self.notify_script_engine_special_power_event(object_id, &power, true, false);
+        self.notify_script_engine_special_power_event_with_recipient(
+            object_id,
+            &power,
+            true,
+            false,
+            effects.script_events,
+        );
         let Some(object) = self.objects.get_mut(&object_id) else {
             return false;
         };

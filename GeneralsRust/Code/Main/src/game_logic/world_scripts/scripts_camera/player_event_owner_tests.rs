@@ -23,6 +23,7 @@ fn world() -> (GameLogic, ObjectId) {
         .create_object_for_player("OwnedEventInfantry", 1, Vec3::ZERO)
         .unwrap();
     world.host_object_mut(id).unwrap().name = SOURCE.into();
+    world.initialize_receiving_named_cache_for_fixture();
     (world, id)
 }
 
@@ -215,6 +216,7 @@ fn missing_or_wrong_source_does_not_consume_event() {
     assert_eq!(tick(&engine, &mut world), 0);
     assert!(engine.is_special_power_complete(1, EVENT, false, id.0));
     world.host_object_mut(id).unwrap().name = "AbsentSource".into();
+    assert!(world.add_receiving_named_script_object(id));
     assert_eq!(tick(&engine, &mut world), 1);
     assert_eq!(tick(&engine, &mut world), 1);
 }

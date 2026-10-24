@@ -20,7 +20,9 @@ impl CnCGameEngine {
             return false;
         }
 
-        match game_client::gui::callbacks::toggle_quit_menu_with_result() {
+        match game_client::gui::callbacks::toggle_quit_menu_receiving(
+            self.game_logic.owned_script_game_ending(),
+        ) {
             // C++ checks the Options and PopupSaveLoad layouts before it
             // toggles QuitMenu.  They did handle Escape, but they must not
             // seize (or release) Main's pause ownership.

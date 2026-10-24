@@ -18,6 +18,7 @@ fn tracking_world() -> (GameLogic, ObjectId, ObjectId) {
     let target = world
         .create_object_for_player("OwnedNearestTarget", 2, Vec3::new(70.0, 0.0, 70.0))
         .unwrap();
+    world.initialize_receiving_named_cache_for_fixture();
     (world, unit, target)
 }
 
@@ -213,6 +214,17 @@ fn nearest_actual_script_snapshot_preserves_moving_goal_continuation() {
     builder
         .restore_from_snapshot(&snapshot, &mut restored)
         .unwrap();
+    assert_eq!(
+        restored
+            .host_object(unit)
+            .unwrap()
+            .selected_locomotor_definition,
+        source
+            .host_object(unit)
+            .unwrap()
+            .selected_locomotor_definition,
+        "restored mover must retain the exact admitted locomotor definition"
+    );
     let future = Vec3::new(160.0, 0.0, 140.0);
     source.set_fixture_object_position(target, future);
     restored.set_fixture_object_position(target, future);
@@ -301,5 +313,87 @@ fn nearest_cpp_filters_allow_dead_and_queued_bodies_until_physical_removal() {
     assert_eq!(
         world.host_object(unit).unwrap().movement_goal_object(),
         Some(farther)
+    );
+}
+
+#[test]
+fn closest_query_uses_supplied_object_list_and_preserves_present_empty_without_global_fallback() {
+    crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+        module_path!(),
+        "closest_query_uses_supplied_object_list_and_preserves_present_empty_without_global_fallback",
+        || {
+            let (mut owner, source, target) = tracking_world();
+            trigger(&owner);
+            let foreign = ScriptEngine::new().unwrap();
+            let mut foreign_list = gamelogic::object::types::ObjectTypes::new();
+            foreign_list.add_object_type("OwnedNearestTarget".into());
+            foreign.set_object_types("EmptyList".into(), foreign_list.clone());
+            foreign.set_object_types("AbsentList".into(), foreign_list);
+            *gamelogic::scripting::engine::get_script_engine()
+                .write()
+                .unwrap() = Some(foreign);
+            owner
+                .with_owned_script_engine(|engine, receiving| {
+                    let mut list = gamelogic::object::types::ObjectTypes::new();
+                    list.add_object_type("OwnedNearestTarget".into());
+                    engine.set_object_types("OwnList".into(), list);
+                    engine.set_object_types(
+                        "EmptyList".into(),
+                        gamelogic::object::types::ObjectTypes::new(),
+                    );
+                    assert_eq!(
+                        receiving.host_script_closest_object_of_type_in_trigger(
+                            engine,
+                            source,
+                            "OwnList",
+                            "NearestOwned"
+                        ),
+                        Some(target)
+                    );
+                    assert_eq!(
+                        receiving.host_script_closest_object_of_type_in_trigger(
+                            engine,
+                            source,
+                            "EmptyList",
+                            "NearestOwned"
+                        ),
+                        None
+                    );
+                    assert_eq!(
+                        receiving.host_script_closest_object_of_type_in_trigger(
+                            engine,
+                            source,
+                            "AbsentList",
+                            "NearestOwned"
+                        ),
+                        None
+                    );
+                    engine.set_object_types(
+                        "OwnList".into(),
+                        gamelogic::object::types::ObjectTypes::new(),
+                    );
+                    assert_eq!(
+                        receiving.host_script_closest_object_of_type_in_trigger(
+                            engine,
+                            source,
+                            "OwnList",
+                            "NearestOwned"
+                        ),
+                        None
+                    );
+                })
+                .unwrap();
+            assert_eq!(
+                gamelogic::scripting::engine::get_script_engine()
+                    .read()
+                    .unwrap()
+                    .as_ref()
+                    .unwrap()
+                    .get_object_types("EmptyList")
+                    .unwrap()
+                    .list_size(),
+                1
+            );
+        },
     );
 }

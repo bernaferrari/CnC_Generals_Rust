@@ -34,19 +34,23 @@ impl CnCGameEngine {
         &mut self,
         delta: std::time::Duration,
     ) -> Result<(), Box<dyn std::error::Error>> {
+        let game_ending = self.game_logic.owned_script_game_ending();
         let upgrade_observer = self.game_logic.receiving_upgrade_tooltip_observer();
         let upgrade_source = game_client::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource::Receiving(&upgrade_observer);
         if !receiving_local_player_is_observer(&self.game_logic) {
             // A regular ControlBar update does not require replay metadata.
-            return self
-                .control_bar
-                .update_owned_with_upgrade_source(delta, None, upgrade_source);
+            return self.control_bar.update_owned_receiving(
+                delta,
+                None,
+                upgrade_source,
+                game_ending,
+            );
         }
         let roster = self
             .receiving_observer_roster()
             .ok_or("receiving Recorder metadata unavailable for native observer")?;
         self.control_bar
-            .update_owned_with_upgrade_source(delta, Some(&roster), upgrade_source)
+            .update_owned_receiving(delta, Some(&roster), upgrade_source, game_ending)
     }
     fn control_bar_parent_handle(
         &self,
@@ -118,6 +122,7 @@ impl CnCGameEngine {
     }
 
     pub(super) fn show_owned_control_bar(&mut self, immediate: bool) {
+        let game_ending = self.game_logic.owned_script_game_ending();
         let upgrade_observer = self.game_logic.receiving_upgrade_tooltip_observer();
         let upgrade_source = game_client::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource::Receiving(&upgrade_observer);
         let replay = matches!(
@@ -130,15 +135,15 @@ impl CnCGameEngine {
             );
             manager.find_window_by_name(crate::gameplay_layout::CONTROL_BAR_PARENT_NAME)
         });
-        self.control_bar_callbacks
-            .show_control_bar_owned_with_upgrade_source(
-                &mut self.control_bar,
-                &mut self.game_logic.session_view.camera,
-                parent,
-                replay,
-                immediate,
-                upgrade_source,
-            );
+        self.control_bar_callbacks.show_control_bar_receiving(
+            &mut self.control_bar,
+            &mut self.game_logic.session_view.camera,
+            parent,
+            replay,
+            immediate,
+            upgrade_source,
+            game_ending,
+        );
     }
 
     pub(super) fn hide_owned_control_bar(&mut self, immediate: bool) {
@@ -162,6 +167,7 @@ impl CnCGameEngine {
     }
 
     pub(super) fn toggle_owned_control_bar(&mut self, immediate: bool) {
+        let game_ending = self.game_logic.owned_script_game_ending();
         let upgrade_observer = self.game_logic.receiving_upgrade_tooltip_observer();
         let upgrade_source = game_client::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource::Receiving(&upgrade_observer);
         let replay = matches!(
@@ -174,15 +180,15 @@ impl CnCGameEngine {
             );
             manager.find_window_by_name(crate::gameplay_layout::CONTROL_BAR_PARENT_NAME)
         });
-        self.control_bar_callbacks
-            .toggle_control_bar_owned_with_upgrade_source(
-                &mut self.control_bar,
-                &mut self.game_logic.session_view.camera,
-                parent,
-                replay,
-                immediate,
-                upgrade_source,
-            );
+        self.control_bar_callbacks.toggle_control_bar_receiving(
+            &mut self.control_bar,
+            &mut self.game_logic.session_view.camera,
+            parent,
+            replay,
+            immediate,
+            upgrade_source,
+            game_ending,
+        );
     }
 }
 
@@ -226,6 +232,7 @@ impl<'a> NativeScriptUi<'a> {
         replay: bool,
         parent: Option<std::rc::Rc<std::cell::RefCell<game_client::gui::GameWindow>>>,
         upgrade_source: game_client::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource<'_>,
+        game_ending: bool,
     ) {
         // ScriptActions.cpp:3749-3760: HideControlBar(TRUE) precedes enabling
         // letterbox; ShowControlBar(FALSE) precedes disabling it. Every authored
@@ -234,13 +241,14 @@ impl<'a> NativeScriptUi<'a> {
             self.callbacks
                 .hide_control_bar_owned(self.bar, camera, parent, true, true);
         } else {
-            self.callbacks.show_control_bar_owned_with_upgrade_source(
+            self.callbacks.show_control_bar_receiving(
                 self.bar,
                 camera,
                 parent,
                 replay,
                 false,
                 upgrade_source,
+                game_ending,
             );
         }
     }
@@ -282,6 +290,7 @@ impl crate::game_logic::ScriptUiEffects for NativeScriptUi<'_> {
         upgrade_source: game_engine::common::thing::receiving_module_content::UpgradeTooltipSource<
             '_,
         >,
+        game_ending: bool,
     ) {
         let parent = game_client::gui::with_window_manager(|manager| {
             if enabled {
@@ -295,7 +304,7 @@ impl crate::game_logic::ScriptUiEffects for NativeScriptUi<'_> {
             }
             manager.find_window_by_name(crate::gameplay_layout::CONTROL_BAR_PARENT_NAME)
         });
-        self.letterbox_with_parent(camera, enabled, replay, parent, upgrade_source);
+        self.letterbox_with_parent(camera, enabled, replay, parent, upgrade_source, game_ending);
     }
 }
 

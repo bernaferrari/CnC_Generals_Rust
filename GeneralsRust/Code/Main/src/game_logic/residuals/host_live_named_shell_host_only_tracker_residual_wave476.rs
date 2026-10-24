@@ -1,21 +1,6 @@
-//! Wave 476 residual peels: named shell sync is host tracker only.
-//! - `sync_named_shell_object_into_legacy_runtime` registers host ObjectId
-//! - no dual ObjectManager::create_object / OBJECT_REGISTRY mirror
-//! - no engine_object_bridge gate on this path
-//! Never flips shell `playable_claim`.
-//!
-//! Orthogonal to Wave 475 map-ground host-only pose peel.
-//! Architecture residual - shell named objects do not dual-create into legacy registry.
-//!
-//! Sources (game_logic.rs):
-//! - fn sync_named_shell_object_into_legacy_runtime
-//! - tracker.register_named_object(name, host_id)
-//! - Wave 476 host-only comment
-//!
-//! Fail-closed:
-//! - Other bridge create paths may still exist under GENERALS_BRIDGE_ENGINE_OBJECTS
-//! - Shell `playable_claim` stays false; network deferred
-
+//! Historical shell tracker-publication residual. Its source assertions now
+//! require the retired shim's absence and the actual receiving first-update cache.
+//! These source checks are not executable gameplay/serialization evidence.
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 
 pub fn residual_name_index(table: &[&str], name: &str) -> Option<usize> {
@@ -156,31 +141,26 @@ pub fn honesty_named_shell_host_only_tracker_nav_commands_residual_wave476() -> 
 }
 
 pub fn simulate_named_shell_host_only_tracker_source() -> bool {
-    let src = gl_source();
-    let Some(body) = function_body(src, "fn sync_named_shell_object_into_legacy_runtime(") else {
-        return false;
-    };
-    let ok = body.contains("Wave 476: host-only named tracker registration")
-        && body.contains("register_named_object")
-        && body.contains("host_id.0")
-        && body.contains("GameMode::Shell")
-        && !body.contains("engine_object_bridge_enabled")
-        && !body.contains("get_object_manager")
-        && !body.contains("create_object(");
+    // The old shell publication shim is retired. The canonical cache initializes
+    // from the receiving registered traversal at ScriptEngine's first-update phase.
+    let body = function_body(
+        include_str!("../game_logic/named_script_cache.rs"),
+        "fn initialize_receiving_named_script_cache(",
+    );
+    let ok = !gl_source().contains("fn sync_named_shell_object_into_legacy_runtime(")
+        && body.is_some_and(|body| {
+            body.contains("self.named_script_cache")
+                && body.contains("registered_values")
+                && !body.contains("get_named_object_tracker")
+        });
     residual_action_store(ResidualNamedShellHostOnlyTrackerAction::SyncSource);
     ok
 }
 
 pub fn simulate_named_shell_dual_mirror_absent() -> bool {
-    let src = gl_source();
-    let Some(body) = function_body(src, "fn sync_named_shell_object_into_legacy_runtime(") else {
-        return false;
-    };
-    let ok = body.contains("Dual ObjectManager/OBJECT_REGISTRY mirror retired")
-        && !body.contains("OBJECT_REGISTRY.get_object")
-        && !body.contains("TheGameLogic::find_object_by_id")
-        && !body.contains("ObjectCreationFlags")
-        && !body.contains("get_object_manager");
+    let ok = !gl_source().contains("fn sync_named_shell_object_into_legacy_runtime(")
+        && !include_str!("../world_scripts/scripts_camera/script_state.rs")
+            .contains("get_named_object_tracker");
     residual_action_store(ResidualNamedShellHostOnlyTrackerAction::DualAbsent);
     ok
 }
@@ -226,8 +206,8 @@ mod tests {
         assert!(simulate_named_shell_host_only_tracker_source());
         assert!(simulate_named_shell_dual_mirror_absent());
         let body = function_body(
-            gl_source(),
-            "fn sync_named_shell_object_into_legacy_runtime(",
+            include_str!("../game_logic/named_script_cache.rs"),
+            "fn initialize_receiving_named_script_cache(",
         )
         .unwrap();
         assert!(!body.contains("create_object("));

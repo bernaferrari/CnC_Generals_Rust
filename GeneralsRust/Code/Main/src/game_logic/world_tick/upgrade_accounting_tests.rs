@@ -495,6 +495,7 @@ fn local_player_upgrade_dirties_receiving_ui_without_selected_cameo_but_object_d
             _: bool,
             _: bool,
             _upgrade_source: game_engine::common::thing::receiving_module_content::UpgradeTooltipSource<'_>,
+            _game_ending: bool,
         ) {
         }
         fn mark_control_bar_dirty(&mut self) {

@@ -262,35 +262,19 @@ mod tests {
     }
 
     #[test]
-    fn has_finished_video_waits_leftover_list_unknown_names_false() {
-        // Standalone video bookkeeping needs explicit engine startup; hook
-        // construction must not install it as a hidden side effect.
-        initialize_script_engine().unwrap();
+    fn has_finished_video_uses_explicit_completion_list() {
+        let engine = ScriptEngine::new().unwrap();
         let hooks = MissionScriptHooks::new();
-        let handler = MissionScriptActionHandler::new(hooks.clone());
-
+        let handler = MissionScriptActionHandler::new(hooks);
+        assert!(!engine.is_video_complete("IntroMovie", false));
+        handler.movie_play_fullscreen("IntroMovie").unwrap();
         assert!(
-            !handler.is_video_complete("IntroMovie", false),
-            "unknown / never-finished names stay false"
+            !engine.is_video_complete("IntroMovie", false),
+            "playing or stopping a movie does not manufacture the source notification"
         );
-
-        handler
-            .movie_play_fullscreen("IntroMovie")
-            .expect("movie play should queue");
-        assert!(
-            !handler.is_video_complete("IntroMovie", false),
-            "HAS_FINISHED_VIDEO must not complete one frame after play"
-        );
-
-        gamelogic::helpers::TheScriptEngine::notify_of_completed_video("IntroMovie");
-        assert!(
-            handler.is_video_complete("IntroMovie", true),
-            "leftover m_completedVideo membership is true"
-        );
-        assert!(
-            !handler.is_video_complete("IntroMovie", false),
-            "flush removes the leftover completed-video entry"
-        );
+        engine.notify_of_completed_video("IntroMovie");
+        assert!(engine.is_video_complete("IntroMovie", true));
+        assert!(!engine.is_video_complete("IntroMovie", false));
     }
 
     #[test]

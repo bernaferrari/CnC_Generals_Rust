@@ -1,21 +1,12 @@
-//! Session-owned didUnitExist history, framed before the AI/Academy suffixes.
+//! Historical Rust name-only projection framing. Exact ordered cache lives in ScriptEngine Xfer.
 use crate::game_logic::GameLogic;
 use crate::save_load::{SaveLoadError, SaveLoadResult};
 use std::collections::BTreeSet;
 const MAGIC: &[u8; 4] = b"NMLF";
 
+#[cfg(test)]
 pub(super) fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, world: &GameLogic) {
-    let names: BTreeSet<_> = world
-        .named_unit_history
-        .iter()
-        .cloned()
-        .chain(
-            world
-                .host_objects()
-                .registered_values()
-                .filter_map(|object| (!object.name.is_empty()).then(|| object.name.clone())),
-        )
-        .collect();
+    let names: BTreeSet<_> = world.named_script_cache.iter().cloned().collect();
     let start = bytes.len();
     bytes.extend_from_slice(&(names.len() as u32).to_le_bytes());
     for name in names {
@@ -47,7 +38,15 @@ pub(super) fn suffix_start(bytes: &[u8]) -> SaveLoadResult<usize> {
     Ok(start)
 }
 
-pub(super) fn apply_from_lifecycle_tail(bytes: &[u8], world: &mut GameLogic) -> SaveLoadResult<()> {
+pub(super) fn apply_from_lifecycle_tail(
+    bytes: &[u8],
+    _world: &mut GameLogic,
+) -> SaveLoadResult<()> {
+    let _ = read_projection(bytes)?;
+    Ok(())
+}
+
+pub(super) fn read_projection(bytes: &[u8]) -> SaveLoadResult<BTreeSet<String>> {
     let end = super::ai_player_queue_persist::suffix_start(bytes)?;
     let bytes = &bytes[..end];
     let mut names = BTreeSet::new();
@@ -91,87 +90,74 @@ pub(super) fn apply_from_lifecycle_tail(bytes: &[u8], world: &mut GameLogic) -> 
             return Err(invalid());
         }
     }
-    names.extend(
-        world
-            .host_objects()
-            .registered_values()
-            .filter_map(|object| (!object.name.is_empty()).then(|| object.name.clone())),
-    );
-    world.named_unit_history = names;
-    Ok(())
+    Ok(names)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     #[test]
-    fn real_owner_footer_composition_restores_removed_named_history() {
+    fn legacy_projection_parses_structurally_but_never_mutates_named_cache() {
         let mut source = GameLogic::new();
-        source.add_player(crate::game_logic::Player::new(
-            1,
-            crate::game_logic::Team::USA,
-            "LifetimeOwner",
-            false,
-        ));
-        source.named_unit_history.insert("Hero".into());
-        source.named_unit_history.insert("RenamedHero".into());
-        let mut bytes = b"earlier owner payload".to_vec();
+        source.named_script_cache.insert("Hero".into());
+        let mut bytes = b"opaque earlier owner".to_vec();
         append_to_lifecycle_tail(&mut bytes, &source);
         super::super::ai_player_queue_persist::append_to_lifecycle_tail(&mut bytes, &source);
         super::super::player_academy_persist::append_to_lifecycle_tail(&mut bytes, &source);
         super::super::construction_completion_persist::append_to_lifecycle_tail(
             &mut bytes, &source,
         );
-        let end = super::super::ai_player_queue_persist::suffix_start(&bytes).unwrap();
-        assert!(bytes[..end].ends_with(MAGIC));
-        let mut restored = GameLogic::new();
-        apply_from_lifecycle_tail(&bytes, &mut restored).unwrap();
-        assert_eq!(restored.named_unit_history, source.named_unit_history);
-        assert!(restored.host_objects().registered_is_empty());
+        assert_eq!(
+            read_projection(&bytes).unwrap(),
+            BTreeSet::from(["Hero".into()])
+        );
+        let mut receiving = GameLogic::new();
+        receiving.named_script_cache.insert("Existing".into());
+        let before = receiving.named_script_cache.wire();
+        apply_from_lifecycle_tail(&bytes, &mut receiving).unwrap();
+        assert_eq!(receiving.named_script_cache.wire(), before);
     }
-
     #[test]
-    fn actual_world_snapshot_lifecycle_contains_named_history_frame() {
+    fn new_world_snapshot_uses_existing_exact_script_tail_without_emitting_nmlf() {
         let mut source = GameLogic::new();
-        source.named_unit_history.insert("Hero".into());
-        source.named_unit_history.insert("RenamedHero".into());
+        source.named_script_cache.insert("DeadHero".into());
         let snapshot = super::super::SnapshotBuilder::new()
             .create_world_snapshot(&source)
             .unwrap();
-        let mut decoded = GameLogic::new();
-        apply_from_lifecycle_tail(&snapshot.lifecycle_tail, &mut decoded).unwrap();
-        assert_eq!(decoded.named_unit_history, source.named_unit_history);
-    }
-
-    #[test]
-    fn malformed_outer_players_teams_capsule_cannot_clear_named_history() {
-        let mut source = GameLogic::new();
-        source.named_unit_history.insert("Hero".into());
-        let mut snapshot = super::super::SnapshotBuilder::new()
-            .create_world_snapshot(&source)
+        assert!(
+            read_projection(&snapshot.lifecycle_tail)
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(
+            snapshot
+                .persist_v18
+                .script_engine_tail
+                .as_ref()
+                .unwrap()
+                .named_objects,
+            [("DeadHero".into(), 0)]
+        );
+        let mut restored = GameLogic::new();
+        super::super::SnapshotBuilder::new()
+            .restore_from_snapshot(&snapshot, &mut restored)
             .unwrap();
-        let last = snapshot.lifecycle_tail.len();
-        snapshot.lifecycle_tail[last - 8..last - 4].copy_from_slice(&u32::MAX.to_le_bytes());
-        let mut restored = GameLogic::new();
-        restored.named_unit_history.insert("Existing".into());
-        let before = restored.named_unit_history.clone();
-        assert!(apply_from_lifecycle_tail(&snapshot.lifecycle_tail, &mut restored).is_err());
-        assert_eq!(restored.named_unit_history, before);
+        assert_eq!(
+            restored.named_script_cache.wire(),
+            source.named_script_cache.wire()
+        );
     }
-
     #[test]
-    fn malformed_named_history_footer_does_not_mutate_owner() {
-        let mut source = GameLogic::new();
-        source.named_unit_history.insert("EarlierNMLFName".into());
-        let mut bytes = b"prefixNMLFpayload".to_vec();
+    fn malformed_legacy_projection_cannot_mutate_receiving_owner() {
+        let source = GameLogic::new();
+        let mut bytes = b"opaqueNMLFpayload".to_vec();
         append_to_lifecycle_tail(&mut bytes, &source);
-        let mut restored = GameLogic::new();
-        apply_from_lifecycle_tail(&bytes, &mut restored).unwrap();
-        assert_eq!(restored.named_unit_history, source.named_unit_history);
-        let before = restored.named_unit_history.clone();
-        let footer = bytes.len() - 12;
-        bytes[footer + 4..footer + 8].copy_from_slice(&u32::MAX.to_le_bytes());
-        assert!(apply_from_lifecycle_tail(&bytes, &mut restored).is_err());
-        assert_eq!(restored.named_unit_history, before);
+        let n = bytes.len();
+        bytes[n - 8..n - 4].copy_from_slice(&u32::MAX.to_le_bytes());
+        let mut receiving = GameLogic::new();
+        receiving.named_script_cache.insert("Existing".into());
+        let before = receiving.named_script_cache.wire();
+        assert!(apply_from_lifecycle_tail(&bytes, &mut receiving).is_err());
+        assert_eq!(receiving.named_script_cache.wire(), before);
     }
 }

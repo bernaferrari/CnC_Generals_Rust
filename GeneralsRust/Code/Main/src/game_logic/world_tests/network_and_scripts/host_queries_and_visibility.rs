@@ -17,6 +17,7 @@ fn host_named_unit_found_with_empty_object_registry() {
         .create_object("NamedScout", Team::USA, Vec3::new(10.0, 0.0, 20.0))
         .expect("unit");
     logic.host_object_mut(id).unwrap().name = "MapNamedScout".into();
+    logic.initialize_receiving_named_cache_for_fixture();
     assert_eq!(logic.host_named_unit_id("MapNamedScout"), Some(id));
     assert!(logic.host_team_unit_ids(Team::USA).contains(&id));
     assert!(
@@ -121,6 +122,7 @@ fn host_named_unit_found_with_empty_object_registry() {
     let decoy = foreign.host_object_mut(foreign_id).unwrap();
     decoy.name = "MapNamedScout".into();
     decoy.health.current = 0.0;
+    foreign.initialize_receiving_named_cache_for_fixture();
     foreign
         .host_trigger_world
         .lock()
@@ -193,7 +195,8 @@ fn live_executor_named_team_conditions_use_host_snapshot() {
     } else {
         // Host player 1 may already exist; keep whatever name inject reads.
     }
-    logic.inject_host_named_unit_map_into_crate_tracker();
+    logic.initialize_receiving_named_cache_for_fixture();
+    logic.inject_host_script_query_snapshot();
 
     let evaluator_state = std::cell::RefCell::new(ScriptContext::new());
     let mut evaluator = ScriptConditionEvaluator::new(&dispatch_engine, &evaluator_state);
@@ -566,6 +569,7 @@ fn live_host_script_unmanned_radar_stealth_apply() {
         o.set_status_stealthed(true);
     }
 
+    logic.initialize_receiving_named_cache_for_fixture();
     request_host_script_unmanned(HostScriptUnmannedRequest::Named {
         unit: "SnipedHumvee".into(),
     });

@@ -411,8 +411,6 @@ pub fn take_look_at_reset_modes() -> bool {
 /// and carries no lock.
 #[derive(Default)]
 struct ScriptRuntimeState {
-    fullscreen_movie_waits: HashSet<String>,
-    radar_movie_waits: HashSet<String>,
     audio_waits: HashMap<String, Vec<u32>>,
     speech_waits: HashMap<String, Vec<u32>>,
     music_waits: HashMap<String, Vec<u32>>,
@@ -426,18 +424,6 @@ thread_local! {
 
 fn with_script_runtime<R>(f: impl FnOnce(&mut ScriptRuntimeState) -> R) -> R {
     SCRIPT_RUNTIME_STATE.with(|state| f(&mut state.borrow_mut()))
-}
-
-fn clear_pending_fullscreen_movie_key(key: &str) {
-    with_script_runtime(|state| {
-        state.fullscreen_movie_waits.remove(key);
-    });
-}
-
-fn clear_pending_radar_movie_key(key: &str) {
-    with_script_runtime(|state| {
-        state.radar_movie_waits.remove(key);
-    });
 }
 
 #[derive(Default)]
@@ -1277,13 +1263,7 @@ impl ScriptActionHandler for GameClientScriptActionHandler {
             return Ok(());
         }
 
-        clear_pending_fullscreen_movie_key(&media_name);
         let started = play_script_display_movie(filename);
-        if started {
-            with_script_runtime(|state| {
-                state.fullscreen_movie_waits.insert(media_name);
-            });
-        }
         TheGameLogic::set_intro_movie_playing(started);
         Ok(())
     }
@@ -1294,81 +1274,8 @@ impl ScriptActionHandler for GameClientScriptActionHandler {
             return Ok(());
         }
 
-        clear_pending_radar_movie_key(&media_name);
-        let started = TheInGameUI::play_movie(filename);
-        if started {
-            with_script_runtime(|state| {
-                state.radar_movie_waits.insert(media_name);
-            });
-        }
+        let _ = TheInGameUI::play_movie(filename);
         Ok(())
-    }
-
-    fn is_video_complete(&self, name: &str, flush: bool) -> bool {
-        let key = normalize_media_name(name);
-        if key.is_empty() {
-            return false;
-        }
-
-        let display_playing =
-            with_script_display(|display| display.is_movie_playing()).unwrap_or(false);
-        let ui_playing = TheInGameUI::is_movie_playing(name);
-        // The leftover engine list is independent of the wait lanes; read it
-        // before taking the runtime state borrow.
-        let engine_complete = TheScriptEngine::is_video_complete(&key, flush);
-
-        with_script_runtime(|state| {
-            let fullscreen_pending = &mut state.fullscreen_movie_waits;
-            let radar_pending = &mut state.radar_movie_waits;
-
-            if engine_complete {
-                if flush {
-                    fullscreen_pending.remove(&key);
-                    radar_pending.remove(&key);
-                }
-                if fullscreen_pending.is_empty() && !display_playing {
-                    TheGameLogic::set_intro_movie_playing(false);
-                }
-                return true;
-            }
-
-            if fullscreen_pending.contains(&key) {
-                if display_playing {
-                    TheGameLogic::set_intro_movie_playing(true);
-                    return false;
-                }
-
-                if flush {
-                    fullscreen_pending.remove(&key);
-                }
-
-                if fullscreen_pending.is_empty() {
-                    TheGameLogic::set_intro_movie_playing(false);
-                }
-                return true;
-            }
-
-            if radar_pending.contains(&key) {
-                if ui_playing {
-                    return false;
-                }
-
-                if flush {
-                    radar_pending.remove(&key);
-                }
-                return true;
-            }
-
-            if display_playing {
-                TheGameLogic::set_intro_movie_playing(true);
-                return false;
-            }
-
-            if fullscreen_pending.is_empty() {
-                TheGameLogic::set_intro_movie_playing(false);
-            }
-            false
-        })
     }
 
     fn freeze_time(&self) -> GameLogicResult<()> {
@@ -1667,98 +1574,23 @@ mod tests {
     use super::*;
     use gamelogic::helpers::TheGameLogic;
 
-    fn clear_movie_wait_slots() {
-        with_script_runtime(|state| {
-            state.fullscreen_movie_waits.clear();
-            state.radar_movie_waits.clear();
-        });
-    }
-
     #[test]
-    fn fullscreen_movie_wait_completion_clears_intro_state_when_not_playing() {
-        clear_movie_wait_slots();
-        TheGameLogic::set_intro_movie_playing(true);
+    fn reset_script_action_runtime_state_clears_audio_and_ui_state() {
         with_script_runtime(|state| {
-            state.fullscreen_movie_waits.insert("intro".to_string());
-        });
-
-        let handler = GameClientScriptActionHandler::new();
-        assert!(handler.is_video_complete("intro", true));
-        assert!(!TheGameLogic::is_intro_movie_playing());
-        assert!(!with_script_runtime(|state| state
-            .fullscreen_movie_waits
-            .contains("intro")));
-    }
-
-    #[test]
-    fn radar_movie_wait_completion_does_not_clear_intro_state() {
-        clear_movie_wait_slots();
-        TheGameLogic::set_intro_movie_playing(true);
-        with_script_runtime(|state| {
-            state.radar_movie_waits.insert("radar".to_string());
-        });
-
-        let handler = GameClientScriptActionHandler::new();
-        assert!(handler.is_video_complete("radar", true));
-        assert!(TheGameLogic::is_intro_movie_playing());
-        assert!(!with_script_runtime(|state| state
-            .radar_movie_waits
-            .contains("radar")));
-    }
-
-    #[test]
-    fn reset_script_action_runtime_state_clears_movie_waits_and_intro_state() {
-        with_script_runtime(|state| {
-            state.fullscreen_movie_waits.insert("intro".to_string());
-            state.radar_movie_waits.insert("radar".to_string());
+            state.audio_waits.insert("audio".into(), vec![1]);
+            state.speech_waits.insert("speech".into(), vec![2]);
+            state.music_waits.insert("music".into(), vec![3]);
+            state.ui.named_timer_display_shown = true;
         });
         TheGameLogic::set_intro_movie_playing(true);
-
         reset_script_action_runtime_state();
-
-        assert!(with_script_runtime(|state| state
-            .fullscreen_movie_waits
-            .is_empty()));
-        assert!(with_script_runtime(|state| state
-            .radar_movie_waits
-            .is_empty()));
+        with_script_runtime(|state| {
+            assert!(state.audio_waits.is_empty());
+            assert!(state.speech_waits.is_empty());
+            assert!(state.music_waits.is_empty());
+            assert!(!state.ui.named_timer_display_shown);
+        });
         assert!(!TheGameLogic::is_intro_movie_playing());
-    }
-
-    #[test]
-    fn clear_pending_fullscreen_movie_key_preserves_radar_wait_lane() {
-        clear_movie_wait_slots();
-        with_script_runtime(|state| {
-            state.fullscreen_movie_waits.insert("shared".to_string());
-            state.radar_movie_waits.insert("shared".to_string());
-        });
-
-        clear_pending_fullscreen_movie_key("shared");
-
-        assert!(!with_script_runtime(|state| state
-            .fullscreen_movie_waits
-            .contains("shared")));
-        assert!(with_script_runtime(|state| state
-            .radar_movie_waits
-            .contains("shared")));
-    }
-
-    #[test]
-    fn clear_pending_radar_movie_key_preserves_fullscreen_wait_lane() {
-        clear_movie_wait_slots();
-        with_script_runtime(|state| {
-            state.fullscreen_movie_waits.insert("shared".to_string());
-            state.radar_movie_waits.insert("shared".to_string());
-        });
-
-        clear_pending_radar_movie_key("shared");
-
-        assert!(with_script_runtime(|state| state
-            .fullscreen_movie_waits
-            .contains("shared")));
-        assert!(!with_script_runtime(|state| state
-            .radar_movie_waits
-            .contains("shared")));
     }
 
     #[test]

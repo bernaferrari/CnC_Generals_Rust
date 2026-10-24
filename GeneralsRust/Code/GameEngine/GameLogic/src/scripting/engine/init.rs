@@ -61,6 +61,7 @@ impl ScriptEngine {
                 flags: vec![None; MAX_FLAGS],
                 num_flags: 1,
                 attack_priorities: AttackPriorityTable::new(),
+                receiving_transport_statuses: HashMap::new(),
 
                 end_game_timer: -1,
                 close_window_timer: -1,
@@ -1324,6 +1325,7 @@ impl ScriptEngine {
             inner.flags.iter_mut().for_each(|f| *f = None);
             inner.num_flags = 1;
             inner.attack_priorities.clear();
+            inner.receiving_transport_statuses.clear();
 
             inner.end_game_timer = -1;
             inner.close_window_timer = -1;

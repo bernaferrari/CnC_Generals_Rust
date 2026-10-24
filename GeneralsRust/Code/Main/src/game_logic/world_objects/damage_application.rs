@@ -435,6 +435,13 @@ impl GameLogic {
         after_damage_fx: impl FnOnce(&mut Self, ObjectId),
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> Option<OwnedDamageResult> {
+        let mut receiving_effects = effects.reborrow();
+        if let Some(interpreter) = context.topple_interpreter() {
+            receiving_effects.script_events =
+                Some(crate::game_logic::ScriptEventRecipient::new(interpreter));
+        }
+        let effects = &mut receiving_effects;
+
         // Before any reentrant world callback, ActiveBody can select either
         // this impact's source or its retained same/previous-frame source.
         // Resolve both from this receiving object store; the bounded body phase

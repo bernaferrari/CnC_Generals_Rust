@@ -238,9 +238,6 @@ impl SnapshotBuilder {
                     &mut bytes, game_logic,
                 );
 
-                super::super::named_unit_history_persist::append_to_lifecycle_tail(
-                    &mut bytes, game_logic,
-                );
                 super::super::ai_player_queue_persist::append_to_lifecycle_tail(
                     &mut bytes, game_logic,
                 );
@@ -353,8 +350,53 @@ impl SnapshotBuilder {
         let mut receiving_persist = snapshot.persist_v18.clone();
         let encoded_script_tail =
             super::super::player_team_chunks::script_engine_tail_from_world(snapshot)?;
+        if let (Some(embedded), Some(original)) =
+            (&receiving_persist.script_engine_tail, &encoded_script_tail)
+        {
+            if embedded.named_objects != original.named_objects
+                || embedded.first_update != original.first_update
+            {
+                return Err(SaveLoadError::Corrupted(
+                    "conflicting original named cache continuations".into(),
+                ));
+            }
+        }
         if receiving_persist.script_engine_tail.is_none() {
             receiving_persist.script_engine_tail = encoded_script_tail;
+        }
+        let legacy_names =
+            super::super::named_unit_history_persist::read_projection(&snapshot.lifecycle_tail)?;
+        match &receiving_persist.script_engine_tail {
+            Some(tail) if !tail.first_update => {
+                if legacy_names
+                    .iter()
+                    .any(|name| !tail.named_objects.iter().any(|(known, _)| known == name))
+                {
+                    return Err(SaveLoadError::Corrupted("unsupported old Rust named history: name-only projection has no exact ordered cache row".into()));
+                }
+            }
+            Some(_) => {} // Original first update rebuilds the actual registered roster.
+            None if !legacy_names.is_empty()
+                || snapshot
+                    .object_instance_guards
+                    .iter()
+                    .any(|object| !object.instance_name.is_empty()) =>
+            {
+                return Err(SaveLoadError::Corrupted("unsupported old Rust named history: missing original ordered ScriptEngine cache".into()));
+            }
+            None => {}
+        }
+        if let Some(tail) = &receiving_persist.script_engine_tail {
+            if tail.named_objects.len() > u16::MAX as usize
+                || tail.named_objects.iter().any(|(name, id)| {
+                    name.contains('\0')
+                        || (*id != 0 && !snapshot.objects.values().any(|object| object.id.0 == *id))
+                })
+            {
+                return Err(SaveLoadError::Corrupted(
+                    "invalid receiving named script cache history".into(),
+                ));
+            }
         }
         self.validate_object_restore_admission(&snapshot.objects, game_logic)?;
         if game_logic.object_lifecycle_callback_depth != 0

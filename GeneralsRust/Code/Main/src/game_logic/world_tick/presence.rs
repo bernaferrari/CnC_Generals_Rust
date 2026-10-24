@@ -380,19 +380,6 @@ impl GameLogic {
                 params.insert("player_id".into(), Val::PlayerId(*player_id));
                 "reveal_map_for_player"
             }
-            ScriptEvent::CompletedSpecialPower {
-                player_id,
-                special_power_name,
-                creator_id,
-            } => {
-                params.insert("player_id".into(), Val::PlayerId(*player_id));
-                params.insert(
-                    "special_power".into(),
-                    Val::String(special_power_name.clone()),
-                );
-                params.insert("creator_id".into(), Val::String(creator_id.to_string()));
-                "completed_special_power"
-            }
         };
 
         Some(MissionScriptEvent {

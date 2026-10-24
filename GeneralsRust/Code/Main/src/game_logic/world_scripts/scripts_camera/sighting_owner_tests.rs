@@ -49,6 +49,7 @@ fn world() -> (GameLogic, ObjectId, ObjectId) {
     world.host_object_mut(observer).unwrap().name = OBSERVER.into();
     world.host_object_mut(observer).unwrap().vision_range = 20.0;
     world.host_object_mut(target).unwrap().name = TARGET.into();
+    world.initialize_receiving_named_cache_for_fixture();
     (world, observer, target)
 }
 

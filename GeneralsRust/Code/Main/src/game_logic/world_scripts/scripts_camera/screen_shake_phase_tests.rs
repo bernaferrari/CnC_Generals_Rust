@@ -65,6 +65,7 @@ End
         shroud.set_host_object_shroud_status(1, id.0, gamelogic::common::ObjectShroudStatus::Clear);
     }
     drop(shroud);
+    world.initialize_receiving_named_cache_for_fixture();
     (world, ids)
 }
 fn install_death_fx() {
@@ -138,12 +139,15 @@ fn actual_same_walk_screen_shake_precedes_native_death_fx_and_never_replays_froz
             // W3DView3224-3280:8,8+4->fixed3,3+4=7. Deferring the first
             // authored action yields4,8,8+8->3, an observable different result.
             assert_eq!(trace, [8., 3., 7.]);
-            assert!(ids
-                .into_iter()
-                .all(|id| !source.host_object(id).unwrap().is_alive()));
-            assert!(peer_ids
-                .into_iter()
-                .all(|id| peer.host_object(id).unwrap().is_alive()));
+            assert!(
+                ids.into_iter()
+                    .all(|id| !source.host_object(id).unwrap().is_alive())
+            );
+            assert!(
+                peer_ids
+                    .into_iter()
+                    .all(|id| peer.host_object(id).unwrap().is_alive())
+            );
             assert_eq!(peer.capture_camera_continuation().unwrap(), peer_before);
             let source_before = source.session_view.capture();
             let frozen =
@@ -223,10 +227,12 @@ fn fallback_hooks_and_direct_driver_share_logic_frame_seed_without_double_admiss
         first,
         "same Logic frame and source operation, no presentation seed"
     );
-    assert!(direct
-        .mission_scripts
-        .drain_screen_shake_requests()
-        .is_empty());
+    assert!(
+        direct
+            .mission_scripts
+            .drain_screen_shake_requests()
+            .is_empty()
+    );
     assert!(direct.pending_screen_shakes.is_empty());
     assert_eq!(peer.capture_camera_continuation().unwrap(), peer_before);
 }

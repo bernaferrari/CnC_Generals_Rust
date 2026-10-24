@@ -46,7 +46,7 @@ fn status(
     world: &mut GameLogic,
     name: &str,
 ) -> gamelogic::scripting::engine::ScriptSelectionStatus {
-    match HostScriptExecutionDriver::new(world).named_selection(name) {
+    match HostScriptExecutionDriver::new(world).named_selection(name, None) {
         ScriptOwnerQuery::Present(status) => status,
         _ => panic!("Main selection owner must answer its query"),
     }

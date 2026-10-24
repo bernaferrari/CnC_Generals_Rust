@@ -31,6 +31,7 @@ fn world() -> (GameLogic, ObjectId, ObjectId) {
     object.set_formation(19, glam::Vec2::new(4.0, 6.0));
     object.max_shots_to_fire = 3;
     object.is_panicking = true;
+    world.initialize_receiving_named_cache_for_fixture();
     (world, unit, target)
 }
 
@@ -230,6 +231,7 @@ fn named_commands_missing_exact_names_and_no_ai_are_inert() {
         .create_object("OwnedNamedCrate", Team::USA, Vec3::ZERO)
         .unwrap();
     world.host_object_mut(crate_id).unwrap().name = "Crate".into();
+    world.add_receiving_named_script_object(crate_id);
     world
         .host_object_mut(crate_id)
         .unwrap()

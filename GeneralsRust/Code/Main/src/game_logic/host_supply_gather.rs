@@ -1211,9 +1211,13 @@ impl crate::game_logic::GameLogic {
 
     /// C++ `SupplyWarehouseDockUpdate::setCashValue`.
     pub fn apply_warehouse_set_value(&mut self, name: &str, cash: i32) -> bool {
-        let Some(id) = self.find_object_id_by_name(name) else {
+        let Some(id) = self.host_object_id_by_script_name(name) else {
             return false;
         };
+        self.apply_warehouse_set_value_to_object(id, cash)
+    }
+
+    pub(crate) fn apply_warehouse_set_value_to_object(&mut self, id: ObjectId, cash: i32) -> bool {
         let Some(obj) = self.objects.get_mut(&id) else {
             return false;
         };

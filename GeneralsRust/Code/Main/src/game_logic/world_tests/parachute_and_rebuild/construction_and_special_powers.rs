@@ -2858,6 +2858,7 @@ fn named_special_power_countdown_reaches_host_pause_and_set_ready() {
     if let Some(obj) = logic.host_object_mut(id) {
         obj.name = "HeroCC".into();
     }
+    logic.initialize_receiving_named_cache_for_fixture();
     let power = SpecialPowerType::TankHunterTnt;
     assert!(logic.is_special_power_ready_for(id, &power));
     assert!(logic.script_named_special_power_countdown(
@@ -2914,8 +2915,6 @@ fn special_power_fire_notifies_script_engine_triggered() {
     // C++ SpecialPowerModule.cpp:513 notifyOfTriggeredSpecialPower.
     use crate::command_system::SpecialPowerType;
     use crate::game_logic::{KindOf, Team, ThingTemplate};
-    use gamelogic::scripting::engine::{initialize_script_engine, with_script_engine_mut};
-    let _ = initialize_script_engine();
     let mut logic = GameLogic::new();
     ensure_test_player_for_team(&mut logic, Team::USA);
     let mut tpl = ThingTemplate::new("CC");
@@ -2935,15 +2934,14 @@ fn special_power_fire_notifies_script_engine_triggered() {
             )
             .is_some()
     );
-    let hit = with_script_engine_mut(|engine| {
+    let hit = logic.owned_script_engine.as_ref().is_some_and(|engine| {
         engine.is_special_power_triggered(
             0,
             "SuperweaponA10ThunderboltMissileStrike",
             false,
             caster.0,
         )
-    })
-    .unwrap_or(false);
+    });
     assert!(hit, "TRIGGERED condition must see host superweapon fire");
     logic.notify_script_engine_special_power_event(
         caster,
@@ -2951,11 +2949,10 @@ fn special_power_fire_notifies_script_engine_triggered() {
         true,
         true,
     );
-    let sat = with_script_engine_mut(|engine| {
+    let sat = logic.owned_script_engine.as_ref().is_some_and(|engine| {
         engine.is_special_power_triggered(0, "SpecialPowerSpySatellite", false, caster.0)
             && engine.is_special_power_complete(0, "SpecialPowerSpySatellite", false, caster.0)
-    })
-    .unwrap_or(false);
+    });
     assert!(sat, "instant powers notify TRIGGERED and COMPLETED");
 }
 

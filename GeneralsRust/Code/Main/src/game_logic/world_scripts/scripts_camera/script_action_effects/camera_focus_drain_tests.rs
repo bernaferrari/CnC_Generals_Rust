@@ -41,6 +41,7 @@ fn world(x: f32) -> (GameLogic, ObjectId, Vec3) {
         .create_object_for_player("AmericaCommandCenter", 0, home)
         .unwrap();
     world.script_time_frozen_by_script = true;
+    world.initialize_receiving_named_cache_for_fixture();
     (world, id, home)
 }
 

@@ -117,6 +117,7 @@ impl ScriptUiEffects for ObserveNext<'_> {
         _upgrade_source: game_engine::common::thing::receiving_module_content::UpgradeTooltipSource<
             '_,
         >,
+        _game_ending: bool,
     ) {
         // The real interpreter's following authored operation sees the same
         // live native loan, with no presentation or global reset drain.
@@ -200,6 +201,7 @@ fn actual_authored_input_resets_receiving_native_fields_before_next_action_witho
                 observed: Vec::new(),
             };
             let mut effects = ScriptPresentationEffects {
+                script_events: None,
                 partition: None,
                 audio: None,
                 terrain: None,
@@ -275,6 +277,7 @@ fn missing_native_input_capability_rejects_without_ambient_handler_or_owner_writ
         observed: Vec::new(),
     };
     let mut effects = ScriptPresentationEffects {
+        script_events: None,
         partition: None,
         audio: None,
         terrain: None,

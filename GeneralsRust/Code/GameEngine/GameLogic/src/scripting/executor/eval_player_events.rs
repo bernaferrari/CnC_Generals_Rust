@@ -86,7 +86,7 @@ impl ScriptConditionEvaluator<'_> {
         ) {
             ScriptOwnerQuery::Unavailable => {
                 return self
-                    .eval_standalone_player_event(condition, kind, from_named)
+                    .eval_standalone_player_event(condition, kind, from_named, driver)
                     .map(Some);
             }
             ScriptOwnerQuery::Missing => return Ok(Some(ScriptConditionResult::False)),
@@ -105,15 +105,31 @@ impl ScriptConditionEvaluator<'_> {
         condition: &Condition,
         kind: PlayerEventKind,
         from_named: bool,
+        driver: &dyn ScriptExecutionDriver,
     ) -> Result<ScriptConditionResult, ScriptError> {
         let player_name = self.get_condition_string_param(condition, 0)?;
         let event_name = self.get_condition_string_param(condition, 1)?;
         let source_object = if from_named {
-            let source_name = self.get_condition_string_param(condition, 2)?;
-            let Some(source) = leftover_named_source_id(&source_name) else {
-                return Ok(ScriptConditionResult::False);
-            };
-            source
+            // Player compact-slot admission is independent of named-object
+            // ownership. Main supplies its cache even while that older player
+            // adapter is selected; a missing own source never polls Core names.
+            let raw_name = condition
+                .get_parameter(2)
+                .map(|parameter| parameter.get_string())
+                .ok_or_else(|| ScriptError::ParameterNotFound("Parameter 2 not found".into()))?;
+            match driver
+                .named_object_id(raw_name, self.context.borrowed_engine().script_object_id())
+            {
+                ScriptOwnerQuery::Present(source) => source,
+                ScriptOwnerQuery::Missing => return Ok(ScriptConditionResult::False),
+                ScriptOwnerQuery::Unavailable => {
+                    let source_name = self.get_condition_string_param(condition, 2)?;
+                    let Some(source) = leftover_named_source_id(&source_name) else {
+                        return Ok(ScriptConditionResult::False);
+                    };
+                    source
+                }
+            }
         } else {
             INVALID_ID
         };

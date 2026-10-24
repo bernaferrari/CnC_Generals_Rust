@@ -1885,9 +1885,18 @@ fn transfer_script_object_name_moves_host_name() {
     b.add_kind_of(KindOf::Vehicle);
     let bid = ObjectId(5411);
     logic.objects.insert(bid, Object::new(b, bid, Team::USA));
+    logic.initialize_receiving_named_cache_for_fixture();
     assert!(logic.transfer_script_object_name(aid, bid));
     assert_eq!(logic.objects[&bid].name, "ScriptUnit");
-    assert!(logic.objects[&aid].name.is_empty());
+    assert_eq!(
+        logic.objects[&aid].name, "ScriptUnit",
+        "C++ transfer retains donor Object.name"
+    );
+    assert_eq!(
+        logic.host_named_unit_id("ScriptUnit"),
+        Some(bid),
+        "the ordered name cache now resolves the destination, not the retained donor name"
+    );
 }
 
 #[test]

@@ -1675,11 +1675,18 @@ impl GameLogic {
         waypoint: &str,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
-        use crate::game_logic::weapon_bootstrap::host_projectile_name_for_weapon_name;
+        if let Some(id) = self.host_object_id_by_script_name(unit) {
+            self.host_script_fire_weapon_following_path_for(id, waypoint, effects);
+        }
+    }
 
-        let Some(id) = self.host_object_id_by_script_name(unit) else {
-            return;
-        };
+    pub(crate) fn host_script_fire_weapon_following_path_for(
+        &mut self,
+        id: ObjectId,
+        waypoint: &str,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
+        use crate::game_logic::weapon_bootstrap::host_projectile_name_for_weapon_name;
         let Some((pos, team, weapon_name)) = self.host_object(id).and_then(|obj| {
             if !obj.is_alive() || obj.status.destroyed {
                 return None;
@@ -3060,6 +3067,16 @@ mod tests {
                 obj.weapon = Some(Weapon::default());
             }
         }
+
+        // C++ seeds named requests on the interpreter's first update, after
+        // map actors have their authored names. Exercise that phase before
+        // asking the live named-weapon command to resolve the launcher.
+        let engine = gamelogic::scripting::engine::ScriptEngine::new().unwrap();
+        assert_eq!(logic.host_object_id_by_script_name("NamedScud"), None);
+        logic
+            .update_local_script_engine_with_owner(&engine)
+            .expect("first receiving script update");
+        assert_eq!(logic.host_object_id_by_script_name("NamedScud"), Some(id));
 
         request_host_script_named_fire_weapon_path("NamedScud", "Scr2Cruise");
         logic.apply_host_named_fire_weapon_path_script_requests();

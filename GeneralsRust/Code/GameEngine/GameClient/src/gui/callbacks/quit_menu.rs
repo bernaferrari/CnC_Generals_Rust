@@ -365,10 +365,12 @@ pub fn toggle_quit_menu() {
 /// Run retail `ToggleQuitMenu()` and report which of its three externally
 /// visible routes occurred.  See [`QuitMenuToggleResult`].
 pub fn toggle_quit_menu_with_result() -> QuitMenuToggleResult {
-    if TheGameLogic::is_intro_movie_playing()
-        || TheGameLogic::is_loading_map()
-        || TheScriptEngine::is_game_ending()
-    {
+    toggle_quit_menu_receiving(TheScriptEngine::is_game_ending())
+}
+
+/// Receiving operation observes the driving interpreter before GUI callbacks.
+pub fn toggle_quit_menu_receiving(game_ending: bool) -> QuitMenuToggleResult {
+    if TheGameLogic::is_intro_movie_playing() || TheGameLogic::is_loading_map() || game_ending {
         return QuitMenuToggleResult::Suppressed;
     }
 
@@ -1119,5 +1121,18 @@ mod os_wnd_tests {
             *state.lock().unwrap_or_else(|e| e.into_inner()) = QuitMenuState::default();
         }
         with_window_manager(|manager| manager.reset());
+    }
+}
+
+#[cfg(test)]
+mod receiving_script_ending_tests {
+    #[test]
+    fn receiving_quit_ending_suppresses_before_window_or_pause_changes() {
+        let visible = super::is_quit_menu_visible();
+        assert_eq!(
+            super::toggle_quit_menu_receiving(true),
+            super::QuitMenuToggleResult::Suppressed
+        );
+        assert_eq!(super::is_quit_menu_visible(), visible);
     }
 }

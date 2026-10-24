@@ -224,6 +224,226 @@ impl ScriptActionDispatcher<'_> {
                 return Ok(ScriptActionResult::Success);
             }
         }
+        if matches!(
+            action_type,
+            ScriptActionType::NamedSetHeld
+                | ScriptActionType::NamedSetRepulsor
+                | ScriptActionType::NamedSetEmoticon
+                | ScriptActionType::NamedSetStoppingDistance
+                | ScriptActionType::NamedFaceWaypoint
+                | ScriptActionType::NamedSetBoobytrapped
+                | ScriptActionType::NamedTransferOwnershipPlayer
+                | ScriptActionType::NamedFireWeaponFollowingWaypointPath
+        ) {
+            use crate::scripting::engine::ScriptNamedRuntimeRequest as Request;
+            let unit = self.get_string_param(
+                action,
+                if action_type == ScriptActionType::NamedSetBoobytrapped {
+                    1
+                } else {
+                    0
+                },
+            )?;
+            let text;
+            let request = match action_type {
+                ScriptActionType::NamedSetHeld => Request::Held {
+                    unit: &unit,
+                    held: self.get_int_param(action, 1)? != 0,
+                },
+                ScriptActionType::NamedSetRepulsor => Request::Repulsor {
+                    unit: &unit,
+                    enabled: self.get_int_param(action, 1)? != 0,
+                },
+                ScriptActionType::NamedSetEmoticon => {
+                    text = self.get_string_param(action, 1)?;
+                    Request::Emoticon {
+                        unit: &unit,
+                        name: &text,
+                        frames: (self.get_real_param(action, 2)? * LOGICFRAMES_PER_SECOND as f32)
+                            as i32,
+                    }
+                }
+                ScriptActionType::NamedSetStoppingDistance => Request::StoppingDistance {
+                    unit: &unit,
+                    distance: self.get_real_param(action, 1)?,
+                },
+                ScriptActionType::NamedFaceWaypoint => {
+                    text = self.get_string_param(action, 1)?;
+                    Request::FaceWaypoint {
+                        unit: &unit,
+                        waypoint: &text,
+                    }
+                }
+                ScriptActionType::NamedSetBoobytrapped => {
+                    text = self.get_string_param(action, 0)?;
+                    Request::Boobytrap {
+                        unit: &unit,
+                        template: &text,
+                    }
+                }
+                ScriptActionType::NamedTransferOwnershipPlayer => {
+                    text = self.get_string_param(action, 1)?;
+                    Request::TransferOwnership {
+                        unit: &unit,
+                        player: &text,
+                    }
+                }
+                ScriptActionType::NamedFireWeaponFollowingWaypointPath => {
+                    text = self.get_string_param(action, 1)?;
+                    Request::FireWeaponPath {
+                        unit: &unit,
+                        path: &text,
+                    }
+                }
+                _ => unreachable!(),
+            };
+            let this_object = self.context.borrowed_engine().script_object_id();
+            if let Some(result) = driver.named_runtime(request, this_object) {
+                result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
+                return Ok(ScriptActionResult::Success);
+            }
+        }
+
+        if matches!(
+            action_type,
+            ScriptActionType::NamedGarrisonSpecificBuilding
+                | ScriptActionType::NamedGarrisonNearestBuilding
+                | ScriptActionType::NamedExitBuilding
+                | ScriptActionType::TeamEnterNamed
+                | ScriptActionType::TeamGarrisonSpecificBuilding
+                | ScriptActionType::ExitSpecificBuilding
+        ) {
+            use crate::scripting::HostScriptGarrisonEnterExitRequest as Request;
+            let first = self.get_string_param(action, 0)?;
+            let request = match action_type {
+                ScriptActionType::NamedGarrisonSpecificBuilding => Request::NamedGarrisonSpecific {
+                    unit: first,
+                    building: self.get_string_param(action, 1)?,
+                },
+                ScriptActionType::NamedGarrisonNearestBuilding => {
+                    Request::NamedGarrisonNearest { unit: first }
+                }
+                ScriptActionType::NamedExitBuilding => Request::NamedExitBuilding { unit: first },
+                ScriptActionType::TeamEnterNamed => Request::TeamEnter {
+                    team: first,
+                    dest: self.get_string_param(action, 1)?,
+                },
+                ScriptActionType::TeamGarrisonSpecificBuilding => Request::TeamGarrisonSpecific {
+                    team: first,
+                    building: self.get_string_param(action, 1)?,
+                },
+                ScriptActionType::ExitSpecificBuilding => {
+                    Request::ExitSpecificBuilding { building: first }
+                }
+                _ => unreachable!(),
+            };
+            let engine = self.context.borrowed_engine();
+            if let Some(result) = driver.garrison_request(
+                request,
+                engine.script_object_id(),
+                engine.get_calling_team_id(),
+                engine.get_condition_team_id(),
+            ) {
+                result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
+                return Ok(ScriptActionResult::Success);
+            }
+        }
+
+        if matches!(
+            action_type,
+            ScriptActionType::NamedFireSpecialPowerAtWaypoint
+                | ScriptActionType::NamedFireSpecialPowerAtNamed
+        ) {
+            use crate::scripting::HostScriptNamedFireSpecialPowerRequest as Request;
+            let unit = self.get_string_param(action, 0)?;
+            let power = self.get_string_param(action, 1)?;
+            let target = self.get_string_param(action, 2)?;
+            let request = if action_type == ScriptActionType::NamedFireSpecialPowerAtWaypoint {
+                Request::AtWaypoint {
+                    unit,
+                    power,
+                    waypoint: target,
+                }
+            } else {
+                Request::AtNamed {
+                    unit,
+                    power,
+                    target,
+                }
+            };
+            if let Some(result) = driver
+                .named_special_power(request, self.context.borrowed_engine().script_object_id())
+            {
+                result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
+                return Ok(ScriptActionResult::Success);
+            }
+        }
+        if matches!(
+            action_type,
+            ScriptActionType::NamedUseCommandbuttonAbility
+                | ScriptActionType::NamedUseCommandbuttonAbilityOnNamed
+                | ScriptActionType::NamedUseCommandbuttonAbilityAtWaypoint
+                | ScriptActionType::NamedUseCommandbuttonAbilityUsingWaypointPath
+                | ScriptActionType::TeamUseCommandbuttonAbilityOnNamed
+        ) {
+            use crate::scripting::HostScriptUseCommandButtonRequest as Request;
+            let unit = self.get_string_param(action, 0)?;
+            let button = self.get_string_param(action, 1)?;
+            let request = match action_type {
+                ScriptActionType::NamedUseCommandbuttonAbility => Request::Named { unit, button },
+                ScriptActionType::NamedUseCommandbuttonAbilityOnNamed => Request::NamedOnNamed {
+                    unit,
+                    button,
+                    target: self.get_string_param(action, 2)?,
+                },
+                ScriptActionType::NamedUseCommandbuttonAbilityAtWaypoint => {
+                    Request::NamedAtWaypoint {
+                        unit,
+                        button,
+                        waypoint: self.get_string_param(action, 2)?,
+                    }
+                }
+                ScriptActionType::NamedUseCommandbuttonAbilityUsingWaypointPath => {
+                    Request::NamedUsingWaypointPath {
+                        unit,
+                        button,
+                        path: self.get_string_param(action, 2)?,
+                    }
+                }
+                ScriptActionType::TeamUseCommandbuttonAbilityOnNamed => Request::TeamOnNamed {
+                    team: unit,
+                    button,
+                    target: self.get_string_param(action, 2)?,
+                },
+                _ => unreachable!(),
+            };
+            let engine = self.context.borrowed_engine();
+            if let Some(result) = driver.command_button_request(
+                request,
+                engine.script_object_id(),
+                engine.get_calling_team_id(),
+                engine.get_condition_team_id(),
+            ) {
+                result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
+                return Ok(ScriptActionResult::Success);
+            }
+        }
+        if action_type == ScriptActionType::TeamFaceNamed {
+            let team = self.get_string_param(action, 0)?;
+            let target = self.get_string_param(action, 1)?;
+            let engine = self.context.borrowed_engine();
+            if let Some(result) = driver.team_face_named(
+                &team,
+                &target,
+                engine.script_object_id(),
+                engine.get_calling_team_id(),
+                engine.get_condition_team_id(),
+            ) {
+                result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
+                return Ok(ScriptActionResult::Success);
+            }
+        }
+
         // Immutable operation metadata comes from the driving session. A
         // missing exact reference never consults a foreign factory by ID.
         let selected = self
@@ -649,7 +869,18 @@ impl ScriptActionDispatcher<'_> {
                 }
             }
             ScriptActionType::CreateNamedOnTeamAtWaypoint => {
-                self.do_create_named_on_team_at_waypoint(action)
+                let name = self.get_string_param(action, 0)?;
+                let template = self.get_string_param(action, 1)?;
+                let team = self.get_string_param(action, 2)?;
+                let waypoint = self.get_string_param(action, 3)?;
+                if let Some(result) =
+                    driver.create_named_object_at_waypoint(Some(&name), &template, &team, &waypoint)
+                {
+                    result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
+                    Ok(ScriptActionResult::Success)
+                } else {
+                    self.do_create_named_on_team_at_waypoint(action)
+                }
             }
             ScriptActionType::NamedDelete => {
                 let name = self.get_string_param(action, 0)?;
@@ -686,7 +917,11 @@ impl ScriptActionDispatcher<'_> {
             ScriptActionType::NamedDamage => {
                 let name = self.get_string_param(action, 0)?;
                 let amount = self.get_int_param(action, 1)?;
-                if let Some(result) = driver.named_damage(&name, amount) {
+                if let Some(result) = driver.named_damage(
+                    &name,
+                    amount,
+                    self.context.borrowed_engine().script_object_id(),
+                ) {
                     result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
                     Ok(ScriptActionResult::Success)
                 } else {
@@ -1250,7 +1485,18 @@ impl ScriptActionDispatcher<'_> {
             }
             ScriptActionType::NamedAttackTeam => self.do_named_attack_team(action),
             ScriptActionType::NamedApplyAttackPrioritySet => {
-                self.do_named_apply_attack_priority_set(action)
+                let unit = self.get_string_param(action, 0)?;
+                let value = self.get_string_param(action, 1)?;
+                let this_object = self
+                    .context
+                    .with_engine_ref(|engine| engine.script_object_id())
+                    .flatten();
+                if let Some(result) = driver.named_attack_priority(&unit, &value, this_object) {
+                    result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
+                    Ok(ScriptActionResult::Success)
+                } else {
+                    self.do_named_apply_attack_priority_set(action)
+                }
             }
             ScriptActionType::NamedSetAttitude => {
                 let unit = self.get_string_param(action, 0)?;
@@ -1288,16 +1534,16 @@ impl ScriptActionDispatcher<'_> {
                 self.do_named_show_special_power_display(action, driver)
             }
             ScriptActionType::NamedStopSpecialPowerCountdown => {
-                self.do_named_stop_special_power_countdown(action)
+                self.do_named_stop_special_power_countdown(action, driver)
             }
             ScriptActionType::NamedStartSpecialPowerCountdown => {
-                self.do_named_start_special_power_countdown(action)
+                self.do_named_start_special_power_countdown(action, driver)
             }
             ScriptActionType::NamedSetSpecialPowerCountdown => {
-                self.do_named_set_special_power_countdown(action)
+                self.do_named_set_special_power_countdown(action, driver)
             }
             ScriptActionType::NamedAddSpecialPowerCountdown => {
-                self.do_named_add_special_power_countdown(action)
+                self.do_named_add_special_power_countdown(action, driver)
             }
             ScriptActionType::NamedFireSpecialPowerAtWaypoint => {
                 self.do_named_fire_special_power_at_waypoint(action)
@@ -1341,7 +1587,18 @@ impl ScriptActionDispatcher<'_> {
             ScriptActionType::NamedSetEmoticon => self.do_named_set_emoticon(action),
             ScriptActionType::NamedFaceWaypoint => self.do_named_face_waypoint(action),
             ScriptActionType::NamedSetEvacLeftOrRight => {
-                self.do_named_set_evac_left_or_right(action)
+                let unit = self.get_string_param(action, 0)?;
+                let value = action.get_parameter(1).map(|p| p.get_int()).unwrap_or(0);
+                let this_object = self
+                    .context
+                    .with_engine_ref(|engine| engine.script_object_id())
+                    .flatten();
+                if let Some(result) = driver.named_evac_disposition(&unit, value, this_object) {
+                    result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
+                    Ok(ScriptActionResult::Success)
+                } else {
+                    self.do_named_set_evac_left_or_right(action)
+                }
             }
             ScriptActionType::NamedSetUnmannedStatus => self.do_named_set_unmanned_status(action),
             ScriptActionType::NamedSetBoobytrapped => self.do_named_set_boobytrapped(action),
@@ -1388,7 +1645,23 @@ impl ScriptActionDispatcher<'_> {
                     ScriptOwnerQuery::Unavailable => self.do_unit_idle_for_framecount(action),
                 }
             }
-            ScriptActionType::UnitDestroyAllContained => self.do_unit_destroy_all_contained(action),
+            ScriptActionType::UnitDestroyAllContained => {
+                let unit = self.get_string_param(action, 0)?;
+                let request =
+                    super::HostScriptKillDeleteDamageRequest::DestroyAllContained { unit };
+                let engine = self.context.borrowed_engine();
+                if let Some(result) = driver.delete_or_kill(
+                    &request,
+                    engine.script_object_id(),
+                    engine.get_calling_team_id(),
+                    engine.get_condition_team_id(),
+                ) {
+                    result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
+                    Ok(ScriptActionResult::Success)
+                } else {
+                    self.do_unit_destroy_all_contained(action)
+                }
+            }
             ScriptActionType::UnitMoveTowardsNearestObjectType => {
                 use crate::scripting::engine::{
                     ScriptNearestObjectRequest, ScriptNearestRecipient,
@@ -1428,13 +1701,53 @@ impl ScriptActionDispatcher<'_> {
                 }
             }
             ScriptActionType::UnitAffectObjectPanelFlags => {
-                self.do_unit_affect_object_panel_flags(action)
+                let unit = self.get_string_param(action, 0)?;
+                let value = self.get_string_param(action, 1)?;
+                let enabled = self.get_int_param(action, 2)? != 0;
+                let this_object = self
+                    .context
+                    .with_engine_ref(|engine| engine.script_object_id())
+                    .flatten();
+                if let Some(result) = driver.named_panel_flag(&unit, &value, enabled, this_object) {
+                    result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
+                    Ok(ScriptActionResult::Success)
+                } else {
+                    self.do_unit_affect_object_panel_flags(action)
+                }
             }
             ScriptActionType::UnitSpawnNamedLocationOrientation => {
-                self.do_unit_spawn_named_location_orientation(action)
+                let name = self.get_string_param(action, 0)?;
+                let template = self.get_string_param(action, 1)?;
+                let team = self.get_string_param(action, 2)?;
+                let position = self.get_coord_param(action, 3)?;
+                let angle = self.get_real_param(action, 4)?;
+                let request = crate::scripting::engine::ScriptObjectCreation {
+                    template: &template,
+                    team: &team,
+                    x: position.x,
+                    y: position.y,
+                    z: position.z,
+                    angle,
+                };
+                if let Some(result) = driver.create_named_object(Some(&name), request) {
+                    result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
+                    Ok(ScriptActionResult::Success)
+                } else {
+                    self.do_unit_spawn_named_location_orientation(action)
+                }
             }
             ScriptActionType::CreateUnnamedOnTeamAtWaypoint => {
-                self.do_create_unnamed_on_team_at_waypoint(action)
+                let template = self.get_string_param(action, 0)?;
+                let team = self.get_string_param(action, 1)?;
+                let waypoint = self.get_string_param(action, 2)?;
+                if let Some(result) =
+                    driver.create_named_object_at_waypoint(None, &template, &team, &waypoint)
+                {
+                    result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
+                    Ok(ScriptActionResult::Success)
+                } else {
+                    self.do_create_unnamed_on_team_at_waypoint(action)
+                }
             }
 
             // ============================================================================
@@ -1688,7 +2001,20 @@ impl ScriptActionDispatcher<'_> {
             ScriptActionType::TechtreeModifyBuildabilityObject => {
                 self.do_techtree_modify_buildability_object(action, driver)
             }
-            ScriptActionType::WarehouseSetValue => self.do_warehouse_set_value(action),
+            ScriptActionType::WarehouseSetValue => {
+                let unit = self.get_string_param(action, 0)?;
+                let value = self.get_int_param(action, 1)?;
+                let this_object = self
+                    .context
+                    .with_engine_ref(|engine| engine.script_object_id())
+                    .flatten();
+                if let Some(result) = driver.named_warehouse_value(&unit, value, this_object) {
+                    result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
+                    Ok(ScriptActionResult::Success)
+                } else {
+                    self.do_warehouse_set_value(action)
+                }
+            }
             ScriptActionType::CommandbarRemoveButtonObjecttype => {
                 self.do_command_bar_remove_button_object_type(action, driver)
             }

@@ -697,15 +697,6 @@ impl MissionScriptHooks {
         // playing streams only. Stopping a track makes the condition false.
     }
 
-    pub fn is_video_complete(&self, name: &str, flush: bool) -> bool {
-        // C++ ScriptEngine::isVideoComplete: true only if name is on
-        // m_completedVideo. Untracked / never-finished names stay false.
-        gamelogic::scripting::engine::with_script_engine_ref(|engine| {
-            engine.is_video_complete(name, flush)
-        })
-        .unwrap_or(false)
-    }
-
     pub fn has_music_track_completed(&self, track: &str, times: i32) -> bool {
         let key = track.trim();
         if key.is_empty() {

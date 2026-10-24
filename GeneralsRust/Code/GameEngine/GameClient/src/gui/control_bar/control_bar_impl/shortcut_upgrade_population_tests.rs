@@ -112,6 +112,12 @@ fn actual_shortcut_population_observes_each_receiving_upgrade_operation() {
     let missing = |_: &str, _: &str| observation(true, false, true);
     let mut owner = bar("ReceivingOwner.wnd");
     let mut peer = bar("ReceivingPeer.wnd");
+    let forbidden = |_: &str, _: &str| -> UpgradeTooltipObservation {
+        panic!("ending shortcut reveal must stop before definition observation");
+    };
+    owner.show_special_power_shortcut_receiving(UpgradeTooltipSource::Receiving(&forbidden), true);
+    assert_row(&owner, false);
+    assert_row(&peer, false);
     owner
         .populate_special_power_shortcut_with_upgrade_source(UpgradeTooltipSource::Receiving(
             &completed,

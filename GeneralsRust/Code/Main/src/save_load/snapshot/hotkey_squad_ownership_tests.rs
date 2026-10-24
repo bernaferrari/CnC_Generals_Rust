@@ -55,7 +55,7 @@ fn owned_control_groups_failed_candidate_does_not_change_valid_owner() {
 #[test]
 fn control_groups_ignore_magic_inside_actual_named_history_and_keep_terminal_capsules() {
     let mut source = GameLogic::new();
-    source.named_unit_history.insert("ValidHSQDUnitName".into());
+    source.named_script_cache.insert("ValidHSQDUnitName".into());
     let mut snapshot = super::super::SnapshotBuilder::new()
         .create_world_snapshot(&source)
         .unwrap();
@@ -83,7 +83,7 @@ fn control_groups_ignore_magic_inside_actual_named_history_and_keep_terminal_cap
     super::super::SnapshotBuilder::new()
         .restore_from_snapshot(&decoded, &mut restored)
         .unwrap();
-    assert_eq!(restored.named_unit_history, source.named_unit_history);
+    assert_eq!(restored.named_script_cache, source.named_script_cache);
     assert_eq!(
         read_control_groups(&decoded.lifecycle_tail)
             .unwrap()

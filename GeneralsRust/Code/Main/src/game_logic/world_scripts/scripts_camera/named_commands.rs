@@ -10,16 +10,10 @@ impl GameLogic {
     ) -> Option<ObjectId> {
         // CPP ScriptEngine::getUnitNamed: exact authored name, or the calling
         // object (before condition object) supplied by the borrowed engine.
-        if name.is_empty() {
-            return None;
-        }
         if name == gamelogic::scripting::core::THIS_OBJECT {
             return this_object.filter(|id| self.host_object(*id).is_some());
         }
-        self.host_objects()
-            .registered_values()
-            .find(|o| o.name == name)
-            .map(|o| o.id)
+        self.host_object_id_by_script_name(name)
     }
 
     /// CPP ScriptActions.cpp1966 chooses NORMAL even if AI rejects the order;

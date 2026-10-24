@@ -680,10 +680,6 @@ impl ScriptActionHandler for MissionScriptActionHandler {
         Ok(())
     }
 
-    fn is_video_complete(&self, name: &str, flush: bool) -> bool {
-        self.hooks.is_video_complete(name, flush)
-    }
-
     fn speech_play(&self, name: &str, allow_overlap: bool) -> GameLogicResult<()> {
         // Live GAME_SHELL installs this handler (initialize_scripts), not
         // GameClientScriptActionHandler. C++ SPEECH_PLAY always reaches
@@ -698,14 +694,9 @@ impl ScriptActionHandler for MissionScriptActionHandler {
     }
 
     fn sound_play_named(&self, sound: &str, unit_name: &str) -> GameLogicResult<()> {
-        let Some(object_id) =
-            gamelogic::scripting::host_script_named_unit_id(unit_name).or_else(|| {
-                gamelogic::scripting::engine::get_named_object_tracker()
-                    .get_object_id(unit_name)
-                    .ok()
-                    .flatten()
-            })
-        else {
+        // Live Main executes SoundPlayNamed through its supplied driver;
+        // this adapter may use its explicit host snapshot, never a Core peer.
+        let Some(object_id) = gamelogic::scripting::host_script_named_unit_id(unit_name) else {
             return Ok(());
         };
         let handle = Self::play_named_sound_through_the_audio(sound, object_id);

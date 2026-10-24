@@ -718,18 +718,7 @@ impl ScriptEvaluator {
 
         let video_name = video_param.get_string();
 
-        // Live host: MissionScriptActionHandler waits leftover m_completedVideo.
-        // Unknown / never-finished names stay false (C++ isVideoComplete).
-        if let Some(finished) = self
-            .with_evaluation_engine_ref(|engine| {
-                engine
-                    .action_handler()
-                    .map(|handler| handler.is_video_complete(video_name, true))
-            })
-            .flatten()
-        {
-            return Ok(finished);
-        }
+        // C++ ScriptConditions.cpp1421 queries the evaluator's interpreter.
         Ok(self
             .with_evaluation_engine_mut(|engine| engine.is_video_complete(video_name, true))
             .unwrap_or(false))

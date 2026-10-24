@@ -304,7 +304,7 @@ impl GameLogic {
         self.body_damage_definitions.effective = self.body_damage_definitions.base;
         self.lighting_definitions.effective = self.lighting_definitions.base.clone();
         self.reset_ocl_map_definitions();
-        self.named_unit_history.clear();
+        self.named_script_cache.clear();
         self.construction_events.reset();
         self.map_name = map_name.to_string();
         self.map_definition_source = Some(definition_source.unwrap_or(map_name).to_string());
@@ -733,7 +733,7 @@ impl GameLogic {
                                 {
                                     self.set_host_object_name(id, name);
                                 }
-                                self.sync_named_shell_object_into_legacy_runtime(obj, id);
+
                                 if let Some(rot) = obj.rotation {
                                     if let Some(created) = self.objects.get_mut(&id) {
                                         created.set_orientation_with_partition_owner(

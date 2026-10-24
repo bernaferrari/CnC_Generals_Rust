@@ -16,6 +16,7 @@ fn fixture() -> (GameLogic, ObjectId) {
         .unwrap();
     assert!(world.set_host_object_name(id, "Hero"));
     world.install_owned_script_engine(ScriptEngine::new().unwrap());
+    world.initialize_receiving_named_cache_for_fixture();
     (world, id)
 }
 fn query(world: &mut GameLogic, kind: ConditionType, name: &str) -> bool {
@@ -71,8 +72,10 @@ fn live_dead_removed_and_never_created_names_are_session_owned() {
 fn renaming_and_actual_snapshot_restore_preserve_history_but_reset_clears_it() {
     let (mut world, id) = fixture();
     assert!(world.set_host_object_name(id, "RenamedHero"));
-    assert!(query(&mut world, ConditionType::NamedDestroyed, "Hero"));
-    assert!(query(
+    // Object::setName only changes the field; the cached pointer retains its key.
+    assert!(query(&mut world, ConditionType::NamedCreated, "Hero"));
+    assert!(!query(&mut world, ConditionType::NamedDestroyed, "Hero"));
+    assert!(!query(
         &mut world,
         ConditionType::NamedCreated,
         "RenamedHero"
@@ -81,25 +84,25 @@ fn renaming_and_actual_snapshot_restore_preserve_history_but_reset_clears_it() {
     world.process_destroy_list();
     let builder = crate::save_load::SnapshotBuilder::new();
     let snapshot = builder.create_world_snapshot(&world).unwrap();
-    assert!(world.named_unit_history.contains("Hero"));
-    assert!(world.named_unit_history.contains("RenamedHero"));
+    assert!(world.named_script_cache.contains("Hero"));
+    assert!(!world.named_script_cache.contains("RenamedHero"));
     let (mut restored, _) = fixture();
     builder
         .restore_from_snapshot(&snapshot, &mut restored)
         .unwrap();
     assert!(restored.host_objects().registered_is_empty());
     assert!(
-        restored.named_unit_history.contains("Hero"),
+        restored.named_script_cache.contains("Hero"),
         "restored history: {:?}",
-        restored.named_unit_history
+        restored.named_script_cache
     );
-    assert!(restored.named_unit_history.contains("RenamedHero"));
+    assert!(!restored.named_script_cache.contains("RenamedHero"));
     assert!(query(
         &mut restored,
         ConditionType::NamedTotallyDead,
         "Hero"
     ));
-    assert!(query(
+    assert!(!query(
         &mut restored,
         ConditionType::NamedTotallyDead,
         "RenamedHero"

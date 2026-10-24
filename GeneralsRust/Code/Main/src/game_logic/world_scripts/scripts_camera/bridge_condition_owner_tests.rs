@@ -37,6 +37,7 @@ fn world() -> (GameLogic, ObjectId) {
         .unwrap();
     world.host_object_mut(id).unwrap().name = "Crossing".into();
     attach_bridge(&mut world, id, BodyDamageType::Pristine);
+    world.initialize_receiving_named_cache_for_fixture();
     (world, id)
 }
 

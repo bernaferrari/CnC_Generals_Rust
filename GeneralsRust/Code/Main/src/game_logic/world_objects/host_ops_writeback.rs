@@ -1024,11 +1024,6 @@ impl GameLogic {
     /// Wave 955/958: host-authority mutable object map borrow.
     #[inline]
     pub fn host_objects_mut(&mut self) -> &mut HostObjectStore {
-        self.named_unit_history.extend(
-            self.objects
-                .registered_values()
-                .filter_map(|object| (!object.name.is_empty()).then(|| object.name.clone())),
-        );
         &mut self.objects
     }
 
@@ -1038,11 +1033,6 @@ impl GameLogic {
         &mut self,
         id: ObjectId,
     ) -> Option<&mut crate::game_logic::object::Object> {
-        if let Some(object) = self.objects.get(&id) {
-            if !object.name.is_empty() {
-                self.named_unit_history.insert(object.name.clone());
-            }
-        }
         self.objects.get_mut(&id)
     }
 
@@ -1188,11 +1178,6 @@ impl GameLogic {
         &mut crate::game_logic::object::Object,
         &mut Vec<crate::game_logic::AudioEventRequest>,
     )> {
-        if let Some(object) = self.objects.get(&id) {
-            if !object.name.is_empty() {
-                self.named_unit_history.insert(object.name.clone());
-            }
-        }
         self.objects
             .get_mut(&id)
             .map(|object| (object, &mut self.queued_audio_events))
@@ -1239,11 +1224,6 @@ impl GameLogic {
         &mut crate::game_logic::object::Object,
         &mut crate::game_logic::host_attack_log::AttackEvents,
     )> {
-        if let Some(object) = self.objects.get(&id) {
-            if !object.name.is_empty() {
-                self.named_unit_history.insert(object.name.clone());
-            }
-        }
         self.objects
             .get_mut(&id)
             .map(|object| (object, &mut self.attack_events))
@@ -1257,11 +1237,6 @@ impl GameLogic {
         &mut crate::game_logic::host_owner_log::OwnershipEvents,
         &mut crate::game_logic::partition_manager::PartitionManager,
     )> {
-        if let Some(object) = self.objects.get(&id) {
-            if !object.name.is_empty() {
-                self.named_unit_history.insert(object.name.clone());
-            }
-        }
         self.objects.get_mut(&id).map(|object| {
             (
                 object,
@@ -1290,11 +1265,6 @@ impl GameLogic {
         &mut crate::game_logic::object::Object,
         &mut crate::game_logic::host_owner_log::OwnershipEvents,
     )> {
-        if let Some(object) = self.objects.get(&id) {
-            if !object.name.is_empty() {
-                self.named_unit_history.insert(object.name.clone());
-            }
-        }
         self.objects
             .get_mut(&id)
             .map(|object| (object, &mut self.ownership_events))
@@ -1307,10 +1277,6 @@ impl GameLogic {
         let Some(object) = self.objects.get_mut(&id) else {
             return false;
         };
-        if !object.name.is_empty() {
-            self.named_unit_history.insert(object.name.clone());
-        }
-        self.named_unit_history.insert(name.to_owned());
         object.name = name.to_owned();
 
         true

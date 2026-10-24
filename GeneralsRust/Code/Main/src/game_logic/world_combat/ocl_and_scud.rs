@@ -2965,6 +2965,11 @@ End
             })
             .expect("actual OCL source owner");
 
+        logic.initialize_receiving_named_cache_for_fixture();
+        assert_eq!(
+            logic.host_object_id_by_script_name("PilotOne"),
+            Some(source)
+        );
         let created = logic.execute_parsed_weapon_ocl_at(
             "OCL_HostInheritVetParity",
             Some(source),
@@ -2981,9 +2986,13 @@ End
         assert_eq!(spawned.name, "PilotOne");
         assert_eq!(
             logic.objects.get(&source).map(|o| o.name.as_str()),
-            Some("")
+            Some("PilotOne"),
+            "CPP transferObjectName preserves the donor's field"
         );
-        assert_eq!(logic.find_object_id_by_name("PilotOne"), Some(pilot_id));
+        assert_eq!(
+            logic.host_object_id_by_script_name("PilotOne"),
+            Some(pilot_id)
+        );
 
         let field_src = logic
             .create_object("__OclVetSource", Team::USA, Vec3::new(8.0, 0.0, 4.0))

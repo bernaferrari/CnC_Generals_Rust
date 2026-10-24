@@ -45,25 +45,17 @@ fn leftover_host_template_is_inert(template_name: &str) -> bool {
         })
 }
 
-/// C++ `objectTypesFromParam` / leftover `resolve_object_types_for_action`.
-fn host_script_object_type_names(object_type: &str) -> Vec<String> {
-    if object_type.is_empty() {
-        return Vec::new();
-    }
-    if let Some(Some(list)) = gamelogic::scripting::engine::with_script_engine_ref(|engine| {
-        engine.get_object_types(object_type)
-    }) {
-        let mut names = Vec::new();
-        for i in 0..list.list_size() as i32 {
-            if let Some(name) = list.nth_in_list(i) {
-                names.push(name.as_str().to_string());
-            }
-        }
-        if !names.is_empty() {
-            return names;
-        }
-    }
-    vec![object_type.to_string()]
+/// A present empty list is distinct from an absent list. The receiving
+/// template lookup takes precedence in the caller (ScriptActions5158/5253).
+fn host_script_object_type_names(
+    interpreter: &gamelogic::scripting::engine::ScriptEngine,
+    name: &str,
+) -> Option<Vec<String>> {
+    interpreter.get_object_types(name).map(|list| {
+        (0..list.list_size() as i32)
+            .filter_map(|index| list.nth_in_list(index).map(|name| name.as_str().to_owned()))
+            .collect()
+    })
 }
 
 /// C++ Object::getShroudedStatus CLEAR|PARTIAL_CLEAR per player (no stealth filter).
@@ -399,3 +391,6 @@ mod victory_condition_owner_tests;
 
 #[cfg(test)]
 mod buildability_owner_tests;
+
+#[cfg(test)]
+mod special_power_notification_owner_tests;

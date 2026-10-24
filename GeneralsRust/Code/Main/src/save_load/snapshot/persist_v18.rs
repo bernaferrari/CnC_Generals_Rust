@@ -490,7 +490,7 @@ fn capture_persist_v18_impl(
                 flags,
                 engine.snapshot_sequential_scripts(),
                 engine.snapshot_named_reveals(),
-                engine.snapshot_xfer_tail(),
+                engine.snapshot_xfer_tail_with_named_objects(game_logic.named_script_cache.wire()),
             )
         })
     {
@@ -744,6 +744,21 @@ pub(super) fn restore_persist_v18_with_scale_encoding(
     game_logic: &mut GameLogic,
     legacy_multiplier: bool,
 ) -> SaveLoadResult<()> {
+    let restored_named_cache = persist
+        .script_engine_tail
+        .as_ref()
+        .map(|tail| {
+            crate::game_logic::game_logic::named_script_cache::NamedScriptCache::from_wire(
+                &tail.named_objects,
+                |id| {
+                    game_logic
+                        .host_object(id)
+                        .map(|object| std::sync::Arc::clone(&object.visual_draw_identity_token))
+                },
+            )
+            .map_err(SaveLoadError::Corrupted)
+        })
+        .transpose()?;
     // Reject invalid ring references before mutating this candidate or any adapter.
     // C++ requires exactly MAX_RADAR_EVENTS in binary Xfer; absent JSON fields
     // retain their existing default representation for older host save tails.
@@ -813,7 +828,6 @@ pub(super) fn restore_persist_v18_with_scale_encoding(
             .map(ObjectId),
     );
 
-    let _ = gamelogic::scripting::engine::initialize_script_engine();
     let counters: Vec<(String, i32, bool)> = persist
         .script_counters
         .iter()
@@ -866,9 +880,19 @@ pub(super) fn restore_persist_v18_with_scale_encoding(
         engine.restore_sequential_scripts(&sequential);
         engine.restore_named_reveals(&named_reveals);
         if let Some(tail) = &persist.script_engine_tail {
-            engine.restore_xfer_tail(tail);
+            engine.restore_receiving_xfer_tail(tail);
+        } else {
+            engine.reset_receiving_named_state_for_legacy_load();
         }
         engine.reapply_named_map_reveals();
+    }
+
+    if let Some(cache) = restored_named_cache {
+        game_logic.named_script_cache = cache;
+    } else {
+        // An absent historical continuation has no named rows. Never retain
+        // the previous running world's pointers or inferred name history.
+        game_logic.named_script_cache.clear();
     }
 
     game_logic.restore_script_actives(

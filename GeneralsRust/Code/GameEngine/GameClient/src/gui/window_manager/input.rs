@@ -546,7 +546,13 @@ impl WindowManager {
 
     /// Process key event
     pub fn process_key_event(&mut self, key: u8, state: u8) -> WindowInputReturnCode {
-        self.process_key_event_phase(key, state, None)
+        self.process_key_event_phase(
+            key,
+            state,
+            &mut |manager, window, message, data1, data2, routed| {
+                manager.send_input_selected(window, message, data1, data2, routed, None)
+            },
+        )
     }
     pub fn process_key_event_with_control_bar(
         &mut self,
@@ -554,13 +560,51 @@ impl WindowManager {
         state: u8,
         context: &mut super::ControlBarInputContext<'_>,
     ) -> WindowInputReturnCode {
-        self.process_key_event_phase(key, state, Some(context))
+        self.process_key_event_phase(
+            key,
+            state,
+            &mut |manager, window, message, data1, data2, routed| {
+                manager.send_input_selected(
+                    window,
+                    message,
+                    data1,
+                    data2,
+                    routed,
+                    Some(&mut *context),
+                )
+            },
+        )
+    }
+    /// Same focus/ancestor selection, with one short receiver invoked at every
+    /// original delivery point. The receiver finishes synchronous continuation
+    /// before this kernel selects or delivers the next ancestor callback.
+    pub(crate) fn process_key_event_with_receiving_sender(
+        &mut self,
+        key: u8,
+        state: u8,
+        receive: &mut dyn FnMut(
+            &mut Self,
+            &Rc<RefCell<GameWindow>>,
+            WindowMessage,
+            WindowMsgData,
+            WindowMsgData,
+            bool,
+        ) -> WindowMsgHandled,
+    ) -> WindowInputReturnCode {
+        self.process_key_event_phase(key, state, receive)
     }
     fn process_key_event_phase(
         &mut self,
         key: u8,
         state: u8,
-        mut context: Option<&mut super::ControlBarInputContext<'_>>,
+        receive: &mut dyn FnMut(
+            &mut Self,
+            &Rc<RefCell<GameWindow>>,
+            WindowMessage,
+            WindowMsgData,
+            WindowMsgData,
+            bool,
+        ) -> WindowMsgHandled,
     ) -> WindowInputReturnCode {
         if key == 0 {
             return WindowInputReturnCode::NotUsed;
@@ -568,13 +612,13 @@ impl WindowManager {
 
         if let Some(mut window) = self.get_focus() {
             loop {
-                let result = self.send_input_selected(
+                let result = receive(
+                    self,
                     &window,
                     WindowMessage::Char,
                     key as WindowMsgData,
                     state as WindowMsgData,
                     false,
-                    context.as_deref_mut(),
                 );
                 if result.is_handled() {
                     return WindowInputReturnCode::Used;

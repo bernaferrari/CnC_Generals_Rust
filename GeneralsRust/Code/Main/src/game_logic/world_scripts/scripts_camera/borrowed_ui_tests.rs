@@ -27,6 +27,7 @@ impl crate::game_logic::ScriptUiEffects for ReceivingUi {
         _upgrade_source: game_engine::common::thing::receiving_module_content::UpgradeTooltipSource<
             '_,
         >,
+        game_ending: bool,
     ) {
         if enabled {
             self.callbacks.hide_control_bar_owned(
@@ -37,13 +38,14 @@ impl crate::game_logic::ScriptUiEffects for ReceivingUi {
                 true,
             );
         } else {
-            self.callbacks.show_control_bar_owned_with_upgrade_source(
+            self.callbacks.show_control_bar_receiving(
                 &mut self.bar,
                 camera,
                 Some(self.parent.clone()),
                 replay,
                 false,
                 _upgrade_source,
+                game_ending,
             );
         }
         self.delivered.push(enabled);
@@ -297,6 +299,7 @@ fn authored_letterbox_receives_current_upgrade_observation_at_each_action() {
             _: bool,
             _: bool,
             source: game_engine::common::thing::receiving_module_content::UpgradeTooltipSource<'_>,
+            _game_ending: bool,
         ) {
             match source {
                 game_engine::common::thing::receiving_module_content::UpgradeTooltipSource::Receiving(observe) => {
@@ -352,4 +355,59 @@ fn authored_letterbox_receives_current_upgrade_observation_at_each_action() {
             .unwrap()
             .has_unlocked_upgrade("Upgrade_LetterboxObservation")
     );
+}
+
+#[test]
+fn borrowed_letterbox_uses_current_interpreter_ending_state_with_same_id_peer() {
+    struct ObserveEnding(Vec<bool>);
+    impl crate::game_logic::ScriptUiEffects for ObserveEnding {
+        fn weather_visible(&mut self, _: bool) {}
+        fn letterbox(
+            &mut self,
+            _: &mut crate::presentation_frame::camera::SessionCamera,
+            _: bool,
+            _: bool,
+            _: game_engine::common::thing::receiving_module_content::UpgradeTooltipSource<'_>,
+            game_ending: bool,
+        ) {
+            self.0.push(game_ending);
+        }
+    }
+    let (mut owner, unit, _) = world(120.);
+    let (mut peer, peer_unit, _) = world(320.);
+    assert_eq!(unit, peer_unit);
+    let mut ui = ObserveEnding(Vec::new());
+    let mut peer_ui = ObserveEnding(Vec::new());
+    owner
+        .with_owned_script_engine(|interpreter, world| {
+            assert!(world.owned_script_engine.is_none());
+            interpreter.start_end_game_timer();
+            let mut driver = HostScriptExecutionDriver::with_ui(world, interpreter, Some(&mut ui));
+            interpreter
+                .friend_execute_action_with_driver_checked(
+                    &action(ScriptActionType::CameraLetterboxEnd, vec![]),
+                    None,
+                    gamelogic::scripting::executor::ScriptContext::new(),
+                    &mut driver,
+                )
+                .unwrap();
+        })
+        .unwrap();
+    peer.with_owned_script_engine(|interpreter, world| {
+        assert!(world.owned_script_engine.is_none());
+        let mut driver = HostScriptExecutionDriver::with_ui(world, interpreter, Some(&mut peer_ui));
+        interpreter
+            .friend_execute_action_with_driver_checked(
+                &action(ScriptActionType::CameraLetterboxEnd, vec![]),
+                None,
+                gamelogic::scripting::executor::ScriptContext::new(),
+                &mut driver,
+            )
+            .unwrap();
+    })
+    .unwrap();
+    assert_eq!(ui.0, [true]);
+    assert_eq!(peer_ui.0, [false]);
+    assert!(owner.owned_script_game_ending());
+    assert!(!peer.owned_script_game_ending());
 }

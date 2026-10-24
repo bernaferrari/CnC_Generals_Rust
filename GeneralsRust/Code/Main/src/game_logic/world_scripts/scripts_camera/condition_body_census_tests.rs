@@ -80,6 +80,7 @@ fn world(current: f32) -> (GameLogic, ObjectId) {
     object.name = "OwnedBodyName".into();
     object.initial_health = 80.0;
     object.health.current = current;
+    world.initialize_receiving_named_cache_for_fixture();
     (world, id)
 }
 

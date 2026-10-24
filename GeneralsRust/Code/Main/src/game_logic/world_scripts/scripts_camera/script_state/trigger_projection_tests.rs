@@ -62,6 +62,7 @@ fn world(inside: bool) -> (GameLogic, ObjectId, ObjectId, ObjectId) {
     // C++ early scripts still execute while script time is frozen. This keeps
     // the control bounded to the production script phase of public update().
     world.script_time_frozen_by_script = true;
+    world.initialize_receiving_named_cache_for_fixture();
     (world, ids[0], ids[1], ids[2])
 }
 

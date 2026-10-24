@@ -51,7 +51,9 @@ pub(crate) fn evaluate_and_execute_scripts_for_test(logic: &mut game_logic::Game
 
 mod host_types;
 pub(crate) mod host_upgrade_rules;
+mod special_power_notifications;
 pub use host_types::*;
+pub(crate) use special_power_notifications::ScriptEventRecipient;
 // Child modules (`use super::*`) historically saw these parent imports.
 use glam::{Vec2, Vec3};
 use std::collections::HashMap;

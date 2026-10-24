@@ -1434,8 +1434,34 @@ impl ScriptEngine {
         self.clear_destroyed_object_references(object_id);
     }
 
-    fn clear_destroyed_object_references(&mut self, object_id: ObjectID) {
-        let inner = self.inner.get_mut();
+    /// ScriptConditions.cpp1945: first observation records, a previous-frame
+    /// nonempty→empty edge remains visible to every query in the current frame.
+    pub fn observe_receiving_transport_empty(
+        &self,
+        object: ObjectID,
+        frame: u32,
+        count: usize,
+    ) -> bool {
+        let mut inner = self.lock_inner_mut();
+        let status = inner
+            .receiving_transport_statuses
+            .entry(object)
+            .or_insert((frame, count));
+        if status.0 == frame.wrapping_sub(1) && status.1 > 0 && count == 0 {
+            return true;
+        }
+        *status = (frame, count);
+        false
+    }
+
+    /// Receiving cache ownership is external to this interpreter. Preserve
+    /// only ScriptEngine's original calling/condition pointer cleanup here.
+    pub fn notify_receiving_object_destruction(&self, object_id: ObjectID) {
+        self.clear_destroyed_object_references(object_id);
+    }
+
+    fn clear_destroyed_object_references(&self, object_id: ObjectID) {
+        let mut inner = self.lock_inner_mut();
         if inner.condition_object == Some(object_id) {
             inner.condition_object = None;
         }
@@ -1802,6 +1828,13 @@ impl ScriptEngine {
         let named_objects = get_named_object_tracker()
             .get_all_named_objects()
             .unwrap_or_default();
+        self.snapshot_xfer_tail_with_named_objects(named_objects)
+    }
+
+    pub fn snapshot_xfer_tail_with_named_objects(
+        &self,
+        named_objects: Vec<(String, u32)>,
+    ) -> ScriptEngineXferTail {
         self.with_inner(|inner| {
             let attack_priorities = inner
                 .attack_priorities
@@ -1894,8 +1927,28 @@ impl ScriptEngine {
 
     /// Restore the leftover ScriptEngine xfer tail into the live engine.
     pub fn restore_xfer_tail(&self, tail: &ScriptEngineXferTail) {
+        self.restore_xfer_tail_with_named_tracker(tail, true)
+    }
+    /// Supported historical Rust loads without a ScriptEngine continuation
+    /// enter the original reset/first-update name phase. Transport observations
+    /// have no Xfer payload; they cannot survive a load into the same owner.
+    pub fn reset_receiving_named_state_for_legacy_load(&self) {
+        let mut inner = self.lock_inner_mut();
+        inner.receiving_transport_statuses.clear();
+        inner.first_update = true;
+    }
+
+    /// Main owns the ordered name cache; restoring its interpreter never
+    /// clears or fills the standalone Core tracker.
+    pub fn restore_receiving_xfer_tail(&self, tail: &ScriptEngineXferTail) {
+        self.restore_xfer_tail_with_named_tracker(tail, false)
+    }
+    fn restore_xfer_tail_with_named_tracker(&self, tail: &ScriptEngineXferTail, standalone: bool) {
         {
             let mut inner = self.lock_inner_mut();
+            // Original ScriptConditions reset precedes load; this observation
+            // history has no Xfer payload and must not retain the donor run.
+            inner.receiving_transport_statuses.clear();
             inner.attack_priorities.restore(
                 tail.attack_priorities
                     .iter()
@@ -1989,6 +2042,9 @@ impl ScriptEngine {
             inner.choose_victim_always_uses_normal = tail.choose_victim_always_uses_normal;
         }
 
+        if !standalone {
+            return;
+        }
         let tracker = get_named_object_tracker();
         let _ = tracker.clear();
         for (name, object_id) in &tail.named_objects {

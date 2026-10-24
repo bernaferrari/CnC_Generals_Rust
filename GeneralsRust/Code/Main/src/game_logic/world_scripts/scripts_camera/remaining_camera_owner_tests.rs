@@ -80,6 +80,7 @@ fn world(x: f32) -> (GameLogic, ObjectId, Vec3) {
     world
         .create_object_for_player("AmericaCommandCenter", 0, home)
         .unwrap();
+    world.initialize_receiving_named_cache_for_fixture();
     (world, id, home)
 }
 

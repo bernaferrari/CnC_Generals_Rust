@@ -638,8 +638,7 @@ impl GameLogic {
         unit_name: &str,
         disposition: u32,
     ) -> bool {
-        gamelogic::object::contain::record_named_evac_disposition(unit_name, disposition);
-        let Some(id) = self.find_object_id_by_name(unit_name) else {
+        let Some(id) = self.host_object_id_by_script_name(unit_name) else {
             return false;
         };
         if let Some(obj) = self.objects.get_mut(&id) {

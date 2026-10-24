@@ -371,6 +371,7 @@ impl CnCGameEngine {
             body(
                 &mut self.game_logic,
                 &mut crate::game_logic::ScriptPresentationEffects {
+                    script_events: None,
                     partition: None,
                     audio: audio.as_mut().map(|service| service.receiver()),
                     terrain: terrain

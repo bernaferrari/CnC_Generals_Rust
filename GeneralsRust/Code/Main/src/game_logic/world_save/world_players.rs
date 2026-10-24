@@ -1003,42 +1003,6 @@ impl GameLogic {
         }
         true
     }
-
-    pub(in super::super) fn sync_named_shell_object_into_legacy_runtime(
-        &self,
-        object: &super::script_loader::PlacedObject,
-        host_id: ObjectId,
-    ) {
-        if self.game_mode != GameMode::Shell {
-            return;
-        }
-
-        let Some(name) = object
-            .name
-            .as_deref()
-            .map(str::trim)
-            .filter(|name| !name.is_empty())
-        else {
-            return;
-        };
-
-        let tracker = gamelogic::scripting::engine::get_named_object_tracker();
-        if tracker.get_object_id(name).ok().flatten().is_some() {
-            return;
-        }
-
-        // Wave 476: host-only named tracker registration.
-        // Dual ObjectManager/OBJECT_REGISTRY mirror retired — host ObjectId is the name key;
-        // GameWorld shadow materialize owns any GW entity map when dual-tick is enabled.
-        if let Err(err) = tracker.register_named_object(name.to_string(), host_id.0) {
-            log::warn!(
-                "Failed to register host shell object '{}' -> {}: {}",
-                name,
-                host_id.0,
-                err
-            );
-        }
-    }
 }
 
 #[cfg(test)]

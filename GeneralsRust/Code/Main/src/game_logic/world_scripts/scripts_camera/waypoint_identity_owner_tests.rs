@@ -54,6 +54,7 @@ fn actor(world: &mut GameLogic) -> ObjectId {
         .create_object_for_player("WaypointWalker", 1, Vec3::new(10., 0., 20.))
         .unwrap();
     world.host_object_mut(id).unwrap().name = "Walker".into();
+    world.initialize_receiving_named_cache_for_fixture();
     assert!(world.host_object(id).unwrap().has_ai_update_interface());
     id
 }
@@ -292,6 +293,7 @@ fn actual_air_scatter_exits_exact_before_quick_path_overwrites_its_mode() {
             .create_object_for_player("WaypointAir", 1, Vec3::new(10., 50., 20.))
             .unwrap();
         world.host_object_mut(id).unwrap().name = "Walker".into();
+        world.initialize_receiving_named_cache_for_fixture();
         id
     };
     let id = spawn(&mut owner);

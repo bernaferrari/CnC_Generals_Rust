@@ -23,7 +23,7 @@ impl ScriptActionHandler for ReenterBoundEngine {
         Ok(())
     }
 
-    fn is_video_complete(&self, _name: &str, _flush: bool) -> bool {
+    fn has_music_track_completed(&self, _name: &str, _times: i32) -> bool {
         self.reenter();
         true
     }
@@ -40,11 +40,11 @@ fn display_action() -> ScriptAction {
     action
 }
 
-fn video_condition() -> Condition {
-    let mut condition = Condition::new(ConditionType::HasFinishedVideo);
+fn music_condition() -> Condition {
+    let mut condition = Condition::new(ConditionType::MusicTrackHasCompleted);
     condition
         .add_parameter(Parameter::with_string(
-            ParameterType::Movie,
+            ParameterType::Music,
             "Briefing".into(),
         ))
         .unwrap();
@@ -84,11 +84,11 @@ fn public_condition_and_or_callbacks_reenter_bound_engine() {
     let state = RefCell::new(ScriptContext::at_frame(0));
     let mut evaluator = ScriptConditionEvaluator::new(&own, &state);
     let mut or = OrCondition::new();
-    or.set_first_and_condition(Some(Box::new(video_condition())));
+    or.set_first_and_condition(Some(Box::new(music_condition())));
     foreign.with_active(|| {
         assert_eq!(
             evaluator
-                .evaluate_condition(&mut video_condition())
+                .evaluate_condition(&mut music_condition())
                 .unwrap(),
             ScriptConditionResult::True
         );

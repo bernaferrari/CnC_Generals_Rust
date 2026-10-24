@@ -18,7 +18,7 @@ impl GameLogic {
 
         // Host script path: named-unit/team/area queries hit HOST objects.
         // Crate evaluator sees the name→id map + query snapshot (no crate Objects).
-        self.inject_host_named_unit_map_into_crate_tracker();
+        self.inject_host_script_query_snapshot();
         self.inject_host_supply_source_queries();
 
         // Increment script frame counter
@@ -52,26 +52,6 @@ impl GameLogic {
                         player_id,
                     );
                 }
-                ScriptEvent::CompletedSpecialPower {
-                    player_id,
-                    ref special_power_name,
-                    creator_id,
-                } => {
-                    log::debug!(
-                        "📜 Script event: completed special power {} player {} creator {}",
-                        special_power_name,
-                        player_id,
-                        creator_id
-                    );
-                    if let Some(engine) = &self.owned_script_engine {
-                        engine.notify_of_completed_special_power(
-                            player_id as usize,
-                            special_power_name,
-                            creator_id,
-                        );
-                    }
-                }
-
                 ScriptEvent::AllianceStateChanged { player_id, state } => {
                     log::debug!(
                         "📜 Script event: alliance state {:?} for player {}",

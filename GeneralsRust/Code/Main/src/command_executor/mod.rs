@@ -99,10 +99,22 @@ impl<'a> CommandExecutor<'a> {
         player_id: u32,
         interpreter: &'a gamelogic::scripting::engine::ScriptEngine,
     ) -> Self {
-        Self {
-            target_policy: Some(interpreter),
-            ..Self::new(game_logic, player_id)
-        }
+        let mut executor = Self::new(game_logic, player_id);
+        executor.target_policy = Some(interpreter);
+        executor.ui.script_events = Some(crate::game_logic::ScriptEventRecipient::new(interpreter));
+        executor
+    }
+
+    pub(crate) fn new_with_target_policy_and_effects(
+        game_logic: &'a mut GameLogic,
+        player_id: u32,
+        interpreter: &'a gamelogic::scripting::engine::ScriptEngine,
+        ui: crate::game_logic::ScriptPresentationEffects<'a>,
+    ) -> Self {
+        let mut executor = Self::new_with_effects(game_logic, player_id, ui);
+        executor.target_policy = Some(interpreter);
+        executor.ui.script_events = Some(crate::game_logic::ScriptEventRecipient::new(interpreter));
+        executor
     }
 
     /// Consume only the carrier IDs accepted by the current Gather execution.

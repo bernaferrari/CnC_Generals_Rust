@@ -884,6 +884,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_named_stop_special_power_countdown(
         &mut self,
         action: &ScriptAction,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         let unit_name = self.get_string_param(action, 0)?;
         let special_power = self.get_string_param(action, 1)?;
@@ -893,6 +894,22 @@ impl ScriptActionDispatcher<'_> {
             unit_name
         );
 
+        let this_object = self
+            .context
+            .with_engine_ref(|engine| engine.script_object_id())
+            .flatten();
+        if let Some(result) = driver.named_special_power_countdown(
+            &unit_name,
+            &special_power,
+            ScriptActionType::NamedStopSpecialPowerCountdown,
+            0,
+            this_object,
+        ) {
+            if let Err(error) = result {
+                log::warn!("Named countdown effect failed: {error}");
+            }
+            return Ok(ScriptActionResult::Success);
+        }
         self.with_named_special_power_module_mut(&unit_name, &special_power, |sp_module| {
             sp_module.pause_countdown(true);
         });
@@ -906,6 +923,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_named_start_special_power_countdown(
         &mut self,
         action: &ScriptAction,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         let unit_name = self.get_string_param(action, 0)?;
         let special_power = self.get_string_param(action, 1)?;
@@ -915,6 +933,22 @@ impl ScriptActionDispatcher<'_> {
             unit_name
         );
 
+        let this_object = self
+            .context
+            .with_engine_ref(|engine| engine.script_object_id())
+            .flatten();
+        if let Some(result) = driver.named_special_power_countdown(
+            &unit_name,
+            &special_power,
+            ScriptActionType::NamedStartSpecialPowerCountdown,
+            0,
+            this_object,
+        ) {
+            if let Err(error) = result {
+                log::warn!("Named countdown effect failed: {error}");
+            }
+            return Ok(ScriptActionResult::Success);
+        }
         self.with_named_special_power_module_mut(&unit_name, &special_power, |sp_module| {
             sp_module.pause_countdown(false);
         });
@@ -928,6 +962,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_named_set_special_power_countdown(
         &mut self,
         action: &ScriptAction,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         let unit_name = self.get_string_param(action, 0)?;
         let special_power = self.get_string_param(action, 1)?;
@@ -939,6 +974,22 @@ impl ScriptActionDispatcher<'_> {
             countdown
         );
 
+        let this_object = self
+            .context
+            .with_engine_ref(|engine| engine.script_object_id())
+            .flatten();
+        if let Some(result) = driver.named_special_power_countdown(
+            &unit_name,
+            &special_power,
+            ScriptActionType::NamedSetSpecialPowerCountdown,
+            countdown,
+            this_object,
+        ) {
+            if let Err(error) = result {
+                log::warn!("Named countdown effect failed: {error}");
+            }
+            return Ok(ScriptActionResult::Success);
+        }
         let frames = countdown.saturating_mul(LOGICFRAMES_PER_SECOND as i32);
         let base_frame = TheGameLogic::get_frame();
         self.with_named_special_power_module_mut(&unit_name, &special_power, |sp_module| {
@@ -956,6 +1007,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_named_add_special_power_countdown(
         &mut self,
         action: &ScriptAction,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         let unit_name = self.get_string_param(action, 0)?;
         let special_power = self.get_string_param(action, 1)?;
@@ -967,6 +1019,22 @@ impl ScriptActionDispatcher<'_> {
             unit_name
         );
 
+        let this_object = self
+            .context
+            .with_engine_ref(|engine| engine.script_object_id())
+            .flatten();
+        if let Some(result) = driver.named_special_power_countdown(
+            &unit_name,
+            &special_power,
+            ScriptActionType::NamedAddSpecialPowerCountdown,
+            amount,
+            this_object,
+        ) {
+            if let Err(error) = result {
+                log::warn!("Named countdown effect failed: {error}");
+            }
+            return Ok(ScriptActionResult::Success);
+        }
         let frames = amount.saturating_mul(LOGICFRAMES_PER_SECOND as i32);
         self.with_named_special_power_module_mut(&unit_name, &special_power, |sp_module| {
             let new_ready_frame = sp_module.get_ready_frame().saturating_add_signed(frames);

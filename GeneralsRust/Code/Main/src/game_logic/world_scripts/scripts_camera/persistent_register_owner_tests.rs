@@ -18,6 +18,7 @@ fn fixture() -> (GameLogic, ObjectId, ObjectId) {
         (1, 3),
         "pin actual factory identities, never inject IDs"
     );
+    owner.initialize_receiving_named_cache_for_fixture();
     (owner, a, b)
 }
 fn track(

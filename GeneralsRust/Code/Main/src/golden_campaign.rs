@@ -448,7 +448,7 @@ pub fn run_golden_campaign_ex(
     });
 
     // Host scripts must see named map units (adapter — no OBJECT_REGISTRY fill).
-    logic.inject_host_named_unit_map_into_crate_tracker();
+    logic.inject_host_script_query_snapshot();
     let named_units_visible = !logic.host_named_unit_id_map().is_empty()
         || logic
             .host_objects()

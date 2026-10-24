@@ -345,7 +345,11 @@ impl GameLogic {
                 .with_position(src_pos)
                 .with_priority(160),
         );
-        self.leftover_sa_notify_start_preparation(object_id, LeftoverSaKind::LaserGuided);
+        self.leftover_sa_notify_start_preparation_with_recipient(
+            object_id,
+            LeftoverSaKind::LaserGuided,
+            presentation_effects.script_events,
+        );
     }
 
     pub(crate) fn update_leftover_laser_guided_channels(&mut self, dt: f32) {

@@ -31,7 +31,10 @@ impl<'a> HostScriptExecutionDriver<'a> {
         Self {
             world,
             interpreter: Some(interpreter),
-            ui: Default::default(),
+            ui: crate::game_logic::ScriptPresentationEffects {
+                script_events: Some(crate::game_logic::ScriptEventRecipient::new(interpreter)),
+                ..Default::default()
+            },
         }
     }
 
@@ -40,6 +43,7 @@ impl<'a> HostScriptExecutionDriver<'a> {
         interpreter: &'a gamelogic::scripting::engine::ScriptEngine,
         mut ui: crate::game_logic::ScriptPresentationEffects<'a>,
     ) -> Self {
+        ui.script_events = Some(crate::game_logic::ScriptEventRecipient::new(interpreter));
         world.deliver_pending_script_ui(&mut ui);
         Self {
             world,
@@ -54,6 +58,7 @@ impl<'a> HostScriptExecutionDriver<'a> {
         mut ui: Option<&'a mut dyn crate::game_logic::ScriptUiEffects>,
     ) -> Self {
         let effects = crate::game_logic::ScriptPresentationEffects {
+            script_events: None,
             partition: None,
             audio: None,
             terrain: None,
@@ -224,6 +229,11 @@ impl HostScriptExecutionDriver<'_> {
 }
 
 impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
+    fn initialize_named_cache(&mut self) -> Option<()> {
+        self.world.initialize_receiving_named_script_cache();
+        Some(())
+    }
+
     fn set_buildable_status_override(
         &mut self,
         template: &str,
@@ -510,7 +520,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         ScriptOwnerQuery::Present(gamelogic::scripting::engine::ScriptNamedLifecycle {
             exists: object.is_some(),
             effectively_dead: object.is_some_and(|object| object.status.effectively_dead),
-            ever_existed: object.is_some() || self.world.named_unit_history.contains(name),
+            ever_existed: self.world.named_script_cache.did_exist(name),
         })
     }
 
@@ -538,6 +548,24 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
                 .find(|player| player.is_local)
                 .is_some_and(|player| player.is_observer),
         )
+    }
+
+    fn create_named_object(
+        &mut self,
+        name: Option<&str>,
+        request: gamelogic::scripting::engine::ScriptObjectCreation<'_>,
+    ) -> Option<gamelogic::GameLogicResult<()>> {
+        self.receive_create_named_object(name, request)
+    }
+
+    fn create_named_object_at_waypoint(
+        &mut self,
+        name: Option<&str>,
+        template: &str,
+        team: &str,
+        waypoint: &str,
+    ) -> Option<gamelogic::GameLogicResult<()>> {
+        self.receive_create_named_object_at_waypoint(name, template, team, waypoint)
     }
 
     fn create_object(
@@ -1138,19 +1166,45 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         ScriptOwnerQuery::Present((value, changed))
     }
 
+    fn named_query_fact(
+        &self,
+        name: &str,
+        this_object: Option<u32>,
+    ) -> ScriptOwnerQuery<(u32, gamelogic::scripting::HostScriptQueryObject)> {
+        self.world
+            .owned_named_script_object(name, this_object.map(ObjectId))
+            .and_then(|id| {
+                self.world.host_object(id).map(|object| {
+                    (
+                        self.world.frame,
+                        self.world.receiving_script_query_object(id, object),
+                    )
+                })
+            })
+            .map_or(ScriptOwnerQuery::Missing, ScriptOwnerQuery::Present)
+    }
+    fn receiving_player_query_name(
+        &self,
+        name: &str,
+        current: Option<&str>,
+    ) -> ScriptOwnerQuery<String> {
+        self.script_player_id(name, current)
+            .and_then(|id| self.world.player_name(id))
+            .map_or(ScriptOwnerQuery::Missing, ScriptOwnerQuery::Present)
+    }
+
     fn named_selection(
         &self,
         literal_name: &str,
+        this_object: Option<u32>,
     ) -> ScriptOwnerQuery<gamelogic::scripting::engine::ScriptSelectionStatus> {
         ScriptOwnerQuery::Present(gamelogic::scripting::engine::ScriptSelectionStatus {
             multiplayer: self.world.isInMultiplayerGame(),
             changed_frame: self.world.selection_changed_frame,
-            selected: self.world.selected_objects.iter().any(|id| {
-                self.world
-                    .objects
-                    .get(id)
-                    .is_some_and(|object| object.name == literal_name)
-            }),
+            selected: self
+                .world
+                .owned_named_script_object(literal_name, this_object.map(ObjectId))
+                .is_some_and(|id| self.world.selected_objects.contains(&id)),
         })
     }
 
@@ -1215,6 +1269,39 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
             return ScriptOwnerQuery::Missing;
         };
         ScriptOwnerQuery::Present(gamelogic::scripting::host_object_did_enter(
+            &world,
+            object.id.0,
+            &trigger,
+            self.world.frame,
+        ))
+    }
+
+    fn named_exited_area(
+        &self,
+        unit: &str,
+        area: &str,
+        current_player: Option<&str>,
+        this_object: Option<gamelogic::common::ObjectID>,
+    ) -> ScriptOwnerQuery<bool> {
+        let Some(object) = self
+            .world
+            .owned_named_script_object(unit, this_object.map(ObjectId))
+            .and_then(|id| self.world.host_object(id))
+        else {
+            return ScriptOwnerQuery::Missing;
+        };
+        let Some(area) = self.qualified_area(area, current_player) else {
+            return ScriptOwnerQuery::Missing;
+        };
+        let world = self
+            .world
+            .host_trigger_world
+            .lock()
+            .expect("owned named polygon exit");
+        let Some(trigger) = world.trigger_area_by_canonical_name(&area) else {
+            return ScriptOwnerQuery::Missing;
+        };
+        ScriptOwnerQuery::Present(gamelogic::scripting::host_object_did_exit(
             &world,
             object.id.0,
             &trigger,
@@ -1358,11 +1445,8 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
             Some(name) => {
                 let Some(id) = self
                     .world
-                    .host_objects()
-                    .registered_values()
-                    .find_map(|object| {
-                        (!name.is_empty() && object.name == name).then_some(object.id.0)
-                    })
+                    .host_object_id_by_script_name(name)
+                    .map(|id| id.0)
                 else {
                     return ScriptOwnerQuery::Missing;
                 };
@@ -1499,6 +1583,90 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
             }
         }
         Some(Ok(()))
+    }
+
+    fn named_attack_priority(
+        &mut self,
+        name: &str,
+        set: &str,
+        this_object: Option<u32>,
+    ) -> Option<gamelogic::GameLogicResult<()>> {
+        self.receive_named_attack_priority(name, set, this_object)
+    }
+
+    fn named_evac_disposition(
+        &mut self,
+        name: &str,
+        disposition: i32,
+        this_object: Option<u32>,
+    ) -> Option<gamelogic::GameLogicResult<()>> {
+        self.receive_named_evac_disposition(name, disposition, this_object)
+    }
+
+    fn named_panel_flag(
+        &mut self,
+        name: &str,
+        flag: &str,
+        enabled: bool,
+        this_object: Option<u32>,
+    ) -> Option<gamelogic::GameLogicResult<()>> {
+        self.receive_named_panel_flag(name, flag, enabled, this_object)
+    }
+
+    fn named_warehouse_value(
+        &mut self,
+        name: &str,
+        cash: i32,
+        this_object: Option<u32>,
+    ) -> Option<gamelogic::GameLogicResult<()>> {
+        self.receive_named_warehouse_value(name, cash, this_object)
+    }
+
+    fn named_runtime(
+        &mut self,
+        request: gamelogic::scripting::engine::ScriptNamedRuntimeRequest<'_>,
+        this_object: Option<u32>,
+    ) -> Option<gamelogic::GameLogicResult<()>> {
+        self.receive_named_runtime(request, this_object)
+    }
+
+    fn garrison_request(
+        &mut self,
+        request: gamelogic::scripting::HostScriptGarrisonEnterExitRequest,
+        this_object: Option<u32>,
+        calling: Option<u32>,
+        condition: Option<u32>,
+    ) -> Option<gamelogic::GameLogicResult<()>> {
+        self.receive_garrison_request(request, this_object, calling, condition)
+    }
+
+    fn named_special_power(
+        &mut self,
+        request: gamelogic::scripting::HostScriptNamedFireSpecialPowerRequest,
+        this_object: Option<u32>,
+    ) -> Option<gamelogic::GameLogicResult<()>> {
+        self.receive_named_special_power(request, this_object)
+    }
+
+    fn command_button_request(
+        &mut self,
+        request: gamelogic::scripting::HostScriptUseCommandButtonRequest,
+        this_object: Option<u32>,
+        calling: Option<u32>,
+        condition: Option<u32>,
+    ) -> Option<gamelogic::GameLogicResult<()>> {
+        self.receive_command_button_request(request, this_object, calling, condition)
+    }
+
+    fn team_face_named(
+        &mut self,
+        team: &str,
+        target: &str,
+        this_object: Option<u32>,
+        calling: Option<u32>,
+        condition: Option<u32>,
+    ) -> Option<gamelogic::GameLogicResult<()>> {
+        self.receive_team_face_named(team, target, this_object, calling, condition)
     }
 
     fn named_command(
@@ -1638,14 +1806,27 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         ))
     }
 
-    fn named_damage(&mut self, name: &str, amount: i32) -> Option<gamelogic::GameLogicResult<()>> {
+    fn named_special_power_countdown(
+        &mut self,
+        name: &str,
+        power_name: &str,
+        action: gamelogic::scripting::core::ScriptActionType,
+        seconds: i32,
+        this_object: Option<u32>,
+    ) -> Option<gamelogic::GameLogicResult<()>> {
+        self.receive_named_special_power_countdown(name, power_name, action, seconds, this_object)
+    }
+
+    fn named_damage(
+        &mut self,
+        name: &str,
+        amount: i32,
+        this_object: Option<u32>,
+    ) -> Option<gamelogic::GameLogicResult<()>> {
         // A foreign Core registry/tracker entry must never select the receiver.
         let id = self
             .world
-            .host_objects()
-            .registered_values()
-            .find(|object| !object.name.is_empty() && object.name.eq_ignore_ascii_case(name))
-            .map(|object| object.id);
+            .owned_named_script_object(name, this_object.map(ObjectId));
         if let Some(id) = id {
             self.world.host_script_damage_with_interpreter_with_effects(
                 id,
@@ -2226,14 +2407,17 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         })
     }
 
-    fn bridge_status(&self, name: &str) -> ScriptOwnerQuery<ScriptBridgeStatus> {
+    fn bridge_status(
+        &self,
+        name: &str,
+        this_object: Option<u32>,
+    ) -> ScriptOwnerQuery<ScriptBridgeStatus> {
         // Resolve only this world's name/ID pair. The shared named tracker may
         // contain the same ID from a foreign world and is not an owner.
         let Some(object) = self
             .world
-            .host_objects()
-            .registered_values()
-            .find(|object| !object.name.is_empty() && object.name.eq_ignore_ascii_case(name))
+            .owned_named_script_object(name, this_object.map(ObjectId))
+            .and_then(|id| self.world.host_object(id))
         else {
             return ScriptOwnerQuery::Missing;
         };
@@ -2306,6 +2490,7 @@ impl GameLogic {
     ) {
         self.objects_receive_difficulty_bonus =
             engine.get_objects_should_receive_difficulty_bonus();
+        self.named_script_cache.clear();
         self.owned_script_engine = Some(engine);
     }
     /// Observe only this session's interpreter at an input boundary.
@@ -2371,6 +2556,7 @@ impl GameLogic {
         ui: &mut Option<&mut dyn crate::game_logic::ScriptUiEffects>,
     ) {
         let mut effects = crate::game_logic::ScriptPresentationEffects {
+            script_events: None,
             partition: None,
             audio: None,
             terrain: None,
@@ -2434,3 +2620,33 @@ mod target_selection_owner_tests;
 #[cfg(test)]
 #[path = "named_upgrade_owner_tests.rs"]
 mod named_upgrade_owner_tests;
+
+#[cfg(test)]
+impl GameLogic {
+    /// Component fixtures enter the original initial cache phase explicitly;
+    /// no timer/team progression or ambient publication is added to setup.
+    pub(crate) fn initialize_receiving_named_cache_for_fixture(&mut self) {
+        self.with_owned_script_engine(|engine, world| {
+            let mut driver = HostScriptExecutionDriver::with_interpreter(world, engine);
+            engine.initialize_named_cache_on_first_update(&mut driver);
+        })
+        .expect("fixture owns its real interpreter");
+    }
+}
+
+#[cfg(test)]
+#[path = "named_cache_action_owner_tests.rs"]
+mod named_cache_action_owner_tests;
+
+#[path = "named_cache_mutation_actions.rs"]
+mod named_cache_mutation_actions;
+
+#[path = "named_cache_factory_actions.rs"]
+mod named_cache_factory_actions;
+
+#[path = "named_cache_ability_actions.rs"]
+mod named_cache_ability_actions;
+
+#[cfg(test)]
+#[path = "named_cache_condition_owner_tests.rs"]
+mod named_cache_condition_owner_tests;

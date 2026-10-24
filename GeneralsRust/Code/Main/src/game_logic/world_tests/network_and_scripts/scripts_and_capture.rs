@@ -2726,6 +2726,7 @@ fn live_named_and_skirmish_conditions_use_receiving_driver() {
                 vec!["HeroPath".into(), String::new(), "OtherPath".into()];
         }
         logic.install_owned_script_engine(ScriptEngine::new().unwrap());
+        logic.initialize_receiving_named_cache_for_fixture();
         (logic, id)
     }
     fn condition(kind: ConditionType, parameters: &[(ParameterType, &str)]) -> Condition {
@@ -3202,13 +3203,54 @@ fn live_team_garrison_specific_building_drains_ai_enter() {
     bunker_t.set_health(800.0);
     logic.templates.insert("GarrBunk".into(), bunker_t);
 
+    let team_id = {
+        let mut factory = logic.team_factory.lock().unwrap();
+        let (_, effects) = factory
+            .init_team_owned_with_effects(
+                "USA_Infantry".into(),
+                "PlyrAmerica".into(),
+                true,
+                None,
+                Some(1),
+            )
+            .unwrap();
+        assert!(effects.is_empty());
+        let team = factory
+            .find_team_instances("USA_Infantry")
+            .into_iter()
+            .next()
+            .unwrap();
+        let id = team.read().unwrap().get_id();
+        id
+    };
     let infantry = logic
-        .create_object("GarrBunkRanger", Team::USA, Vec3::new(20.0, 0.0, 20.0))
-        .expect("infantry");
-    if let Some(obj) = logic.host_object_mut(infantry) {
-        obj.owner_player_id = Some(1);
-        obj.team_instance_name = "USA_Infantry".into();
-    }
+        .create_object_on_exact_script_team_with_effects_checked(
+            "GarrBunkRanger",
+            1,
+            "USA_Infantry",
+            team_id,
+            Vec3::new(20.0, 0.0, 20.0),
+            true,
+            None,
+            &mut Default::default(),
+        )
+        .unwrap()
+        .expect("infantry on actual receiving Team");
+    assert_eq!(
+        logic.host_object(infantry).unwrap().team_instance_id,
+        Some(team_id)
+    );
+    assert!(
+        logic
+            .team_factory
+            .lock()
+            .unwrap()
+            .find_team_by_id(team_id)
+            .unwrap()
+            .read()
+            .unwrap()
+            .has_member(infantry.0)
+    );
     let bunker = logic
         .create_object("GarrBunk", Team::USA, Vec3::new(60.0, 0.0, 20.0))
         .expect("bunker");
@@ -3220,6 +3262,7 @@ fn live_team_garrison_specific_building_drains_ai_enter() {
         obj.building_data = Some(bd);
     }
 
+    logic.initialize_receiving_named_cache_for_fixture();
     request_host_script_garrison_enter(HostScriptGarrisonEnterExitRequest::TeamGarrisonSpecific {
         team: "USA_Infantry".into(),
         building: "NamedBunker".into(),
