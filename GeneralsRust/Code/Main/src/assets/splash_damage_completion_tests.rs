@@ -337,7 +337,7 @@ End
         10,
         "SplashCompletionRows",
         None,
-        "",
+        "Behavior = DestroyDie ModuleTag_ImmediateDelete\nEnd",
     ));
     let temp = tempfile::tempdir().unwrap();
     let big = temp.path().join("splash.big");
@@ -408,6 +408,7 @@ End
     for (id, team) in [(0, Team::USA), (1, Team::China), (2, Team::GLA)] {
         let mut player = Player::new(id, team, &format!("SplashPlayer{id}"), true);
         player.alliance_team = id as i32;
+        player.is_local = id == 0;
         player.is_alive = true;
         world.add_player(player);
     }
@@ -674,22 +675,26 @@ fn missing_source(kind: Splash) {
     assert!(!world.objects.contains_key(&target));
     assert_eq!(
         world.get_player(1).unwrap().statistics.units_lost(),
-        1,
-        "supplied killer team keeps the pre-existing missing-source death event"
+        0,
+        "ActiveBody.cpp640-649 skips scoreTheKill when no damager exists; removal alone does not addObjectLost"
     );
 }
-fn supplied_team(kind: Splash) {
+fn current_controller(kind: Splash) {
     let mut _ownership_output = crate::game_logic::host_owner_log::OwnershipEvents::default();
 
     let (mut world, fx) = install();
     let source = source(&mut world, kind);
-    // The caller captured USA before the source changed faction. Keep that
-    // explicit event provenance; do not replace it with the fresh FX source.
-    world.objects.get_mut(&source).unwrap().set_team_and_owner(
-        Team::GLA,
-        Some(2),
-        &mut _ownership_output,
-    );
+    // The caller retained the old faction, but C++ Object::scoreTheKill
+    // rereads the actual killer controller before score and FX completion.
+    {
+        let (source, partition) = world.host_object_and_partition_mut(source).unwrap();
+        source.set_team_and_owner_with_partition_owner(
+            Team::GLA,
+            Some(2),
+            &mut _ownership_output,
+            partition,
+        );
+    }
     let target = victim(&mut world, "SplashCompletionImmediate");
     assert_eq!(kind.apply(&mut world, source, Team::USA, ObjectId(0)), 1);
     assert_eq!(world.objects[&source].experience.current, 10.0);
@@ -697,8 +702,13 @@ fn supplied_team(kind: Splash) {
     world.process_destroy_list();
     assert_eq!(
         world.get_player(2).unwrap().statistics.units_destroyed(),
+        1,
+        "Object.cpp2890-2940 credits the current controlling player, not a cached faction"
+    );
+    assert_eq!(
+        world.get_player(0).unwrap().statistics.units_destroyed(),
         0,
-        "event team is the explicit caller team, not the source's later team"
+        "the former controller must not receive duplicate kill credit"
     );
     assert_eq!(world.get_player(1).unwrap().statistics.units_lost(), 1);
 }
@@ -714,7 +724,7 @@ cases!(Splash::Hit;
     instant_splash_nonlethal_and_sink_controls=>controls,
     instant_splash_nested_killed_candidate_is_not_replayed=>nested_kills_next_candidate,
     instant_splash_missing_source_keeps_team_and_regular_fx=>missing_source,
-    instant_splash_preserves_supplied_killer_team=>supplied_team,
+    instant_splash_credits_current_controller_after_team_change=>current_controller,
 );
 cases!(Splash::Scatter;
     scatter_splash_promotion_before_fx=>promotion,
@@ -724,5 +734,5 @@ cases!(Splash::Scatter;
     scatter_splash_nonlethal_and_sink_controls=>controls,
     scatter_splash_nested_killed_candidate_is_not_replayed=>nested_kills_next_candidate,
     scatter_splash_missing_source_keeps_team_and_regular_fx=>missing_source,
-    scatter_splash_preserves_supplied_killer_team=>supplied_team,
+    scatter_splash_credits_current_controller_after_team_change=>current_controller,
 );
