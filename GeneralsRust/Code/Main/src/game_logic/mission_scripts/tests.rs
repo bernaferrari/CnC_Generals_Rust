@@ -326,19 +326,44 @@ mod tests {
     }
 
     #[test]
-    fn start_new_map_fade_calls_leftover_new_map() {
-        let src = concat!(
-            include_str!("mod.rs"),
-            include_str!("script_requests.rs"),
-            include_str!("script_hooks.rs"),
-            include_str!("script_actions.rs"),
-            include_str!("tests.rs"),
+    fn new_map_fade_starts_on_receiving_interpreter_only() {
+        crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+            module_path!(),
+            "new_map_fade_starts_on_receiving_interpreter_only",
+            || {
+                use gamelogic::scripting::engine::TFade;
+                let mut owner = crate::game_logic::GameLogic::new();
+                let mut peer = crate::game_logic::GameLogic::new();
+                for world in [&mut owner, &mut peer] {
+                    world
+                        .with_owned_script_engine(|engine, _| {
+                            assert_eq!(engine.get_fade(), TFade::None);
+                        })
+                        .unwrap();
+                }
+                owner.initialize_scripts("ReceivingFadeProbe");
+                owner
+                    .with_owned_script_engine(|engine, _| {
+                        // ScriptEngine.cpp newMap: fade from black over33 logic
+                        // frames; the loader delegates instead of owning a copy.
+                        assert_eq!(engine.get_fade(), TFade::Multiply);
+                        assert_eq!(engine.get_fade_value(), 0.0);
+                        let tail = engine.snapshot_xfer_tail();
+                        assert_eq!(tail.min_fade, 1.0);
+                        assert_eq!(tail.max_fade, 0.0);
+                        assert_eq!(tail.fade_frames_increase, 0);
+                        assert_eq!(tail.fade_frames_hold, 0);
+                        assert_eq!(tail.fade_frames_decrease, 33);
+                        assert_eq!(tail.cur_fade_frame, 0);
+                    })
+                    .unwrap();
+                peer.with_owned_script_engine(|engine, _| {
+                    assert_eq!(engine.get_fade(), TFade::None);
+                    assert_eq!(engine.snapshot_xfer_tail().fade_frames_decrease, 0);
+                })
+                .unwrap();
+            },
         );
-        assert!(src.contains("pub fn start_new_map_fade"));
-        assert!(src.contains("engine.new_map()"));
-        let load = include_str!("../world_scripts/add_object_selection.rs");
-        assert!(load.contains("engine.new_map()"));
-        assert!(load.contains("FADE_MULTIPLY"));
     }
 
     #[test]
