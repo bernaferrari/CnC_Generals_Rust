@@ -543,6 +543,14 @@ mod tests {
 
     #[test]
     fn test_weather_block_rejects_invalid_cpp_bool() {
+        if crate::common::ini::global_fixture::run(
+            module_path!(),
+            "test_weather_block_rejects_invalid_cpp_bool",
+            "GENERALS_COMMON_WEATHER_FIXTURE_CHILD",
+            "Weather",
+        ) {
+            return;
+        }
         reset_weather_setting_for_test();
 
         let mut ini = INI::new();
@@ -560,6 +568,14 @@ End
 
     #[test]
     fn test_weather_block_rejects_duplicate_without_override_load() {
+        if crate::common::ini::global_fixture::run(
+            module_path!(),
+            "test_weather_block_rejects_duplicate_without_override_load",
+            "GENERALS_COMMON_WEATHER_FIXTURE_CHILD",
+            "Weather",
+        ) {
+            return;
+        }
         reset_weather_setting_for_test();
 
         let mut ini = INI::new();
@@ -587,6 +603,14 @@ End
 
     #[test]
     fn create_overrides_keeps_base_and_reset_restores_it() {
+        if crate::common::ini::global_fixture::run(
+            module_path!(),
+            "create_overrides_keeps_base_and_reset_restores_it",
+            "GENERALS_COMMON_WEATHER_FIXTURE_CHILD",
+            "Weather",
+        ) {
+            return;
+        }
         reset_weather_setting_for_test();
 
         let mut ini = INI::new();

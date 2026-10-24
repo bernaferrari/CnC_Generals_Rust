@@ -14,6 +14,9 @@ use std::{
 
 mod integer_prefix;
 
+#[cfg(test)]
+pub(crate) mod global_fixture;
+
 // INI configuration modules - Batch 1 (Converted)
 pub mod ini;
 pub mod ini_ai_data;

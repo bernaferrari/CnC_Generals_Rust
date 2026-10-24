@@ -561,37 +561,43 @@ pub fn get_map_data_mut() -> Option<RwLockWriteGuard<'static, MapData>> {
         .map(|data| data.write().expect("MapData poisoned"))
 }
 
-/// INI parsing function for MapData definition (matches C++ interface)
-///
-/// This is the main entry point for parsing MapData definitions from INI files.
-/// In the original C++, this function was empty, but we provide a framework
-/// for future implementation.
-pub fn parse_map_data_definition(ini: &mut INI) -> Result<(), String> {
-    let header_tokens = ini.get_line_tokens();
-    let map_name = header_tokens
-        .iter()
-        .skip(1)
-        .find(|token| **token != "=")
-        .map(|token| token.to_string());
-
-    // Get or create global map data
-    if MAP_DATA.get().is_none() {
-        init_global_map_data();
-    }
-
-    if let Some(mut map_data) = get_map_data_mut() {
-        if let Some(name) = map_name {
-            map_data.set_name(name);
-        }
-        map_data.parse_from_ini(ini)?;
-    }
-
+/// C++ INIMapData.cpp:22-24 leaves MapData parsing empty, with no parser cursor
+/// or global MapData mutation.
+pub fn parse_map_data_definition(_ini: &mut INI) -> Result<(), String> {
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn map_data_parser_leaves_the_next_ini_line_for_its_caller() {
+        let mut ini = INI::new();
+        ini.with_inline_source("MapData Example\nName = MustRemainUnread\nEnd\n", |ini| {
+            ini.read_line()?;
+            parse_map_data_definition(ini)
+                .map_err(|_| crate::common::ini::ini::INIError::InvalidData)?;
+            ini.read_line()?;
+            assert_eq!(ini.get_line_tokens(), vec!["Name", "=", "MustRemainUnread"]);
+            Ok(())
+        })
+        .expect("inline INI cursor regression");
+    }
+
+    #[test]
+    fn following_weather_block_dispatches_into_the_receiving_definition_owner() {
+        let mut ini = INI::new();
+        let mut weather = None;
+        let mut updates = Vec::new();
+        ini.with_inline_source(
+            "MapData Ignored\nWeather\nSnowEnabled = Yes\nEnd\n",
+            |ini| ini.parse_current_file_into_weather(&mut weather, &mut updates),
+        )
+        .expect("following Weather block must remain dispatchable");
+        assert_eq!(updates.len(), 1);
+        assert!(weather.expect("receiving Weather definition").snow_enabled);
+    }
 
     #[test]
     fn test_map_data_creation() {

@@ -2609,64 +2609,14 @@ mod tests {
         );
     }
 
-    // These assertions intentionally exercise the public application-global
-    // SpecialPower parser/store. Give each fixture its own process so another
-    // concurrently parsed authored INI cannot reset or consume its template IDs.
-    fn special_power_global_fixture_child(leaf: &str) -> bool {
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            const CHILD: &str = "GENERALS_COMMON_SPECIAL_POWER_FIXTURE_CHILD";
-            let module = module_path!().split_once("::").unwrap().1;
-            let exact = format!("{module}::{leaf}");
-            if std::env::var_os(CHILD).as_deref() == Some(std::ffi::OsStr::new(&exact)) {
-                return false;
-            }
-            let mut child = std::process::Command::new(std::env::current_exe().unwrap())
-                .arg("--exact")
-                .arg(&exact)
-                .arg("--nocapture")
-                .env(CHILD, &exact)
-                .stdout(std::process::Stdio::piped())
-                .stderr(std::process::Stdio::piped())
-                .spawn()
-                .unwrap();
-            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(25);
-            loop {
-                if child.try_wait().unwrap().is_some() {
-                    let output = child.wait_with_output().unwrap();
-                    assert!(
-                        output.status.success(),
-                        "actual SpecialPower fixture child {exact} failed: {}\n{}\n{}",
-                        output.status,
-                        String::from_utf8_lossy(&output.stdout),
-                        String::from_utf8_lossy(&output.stderr)
-                    );
-                    let stdout = String::from_utf8_lossy(&output.stdout);
-                    assert!(
-                        stdout.contains("running 1 test")
-                            && stdout.contains("test result: ok. 1 passed; 0 failed"),
-                        "actual SpecialPower fixture child {exact} must execute exactly one test: {stdout}"
-                    );
-                    return true;
-                }
-                if std::time::Instant::now() >= deadline {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    panic!("actual SpecialPower fixture child {exact} exceeded 25 seconds");
-                }
-                std::thread::sleep(std::time::Duration::from_millis(10));
-            }
-        }
-        #[cfg(target_arch = "wasm32")]
-        {
-            let _ = leaf;
-            false
-        }
-    }
-
     #[test]
     fn special_power_block_populates_rts_store() {
-        if special_power_global_fixture_child("special_power_block_populates_rts_store") {
+        if crate::common::ini::global_fixture::run(
+            module_path!(),
+            "special_power_block_populates_rts_store",
+            "GENERALS_COMMON_SPECIAL_POWER_FIXTURE_CHILD",
+            "SpecialPower",
+        ) {
             return;
         }
         reset_special_power_store();
@@ -2698,8 +2648,11 @@ End
 
     #[test]
     fn special_power_block_rejects_duplicate_without_override_load() {
-        if special_power_global_fixture_child(
+        if crate::common::ini::global_fixture::run(
+            module_path!(),
             "special_power_block_rejects_duplicate_without_override_load",
+            "GENERALS_COMMON_SPECIAL_POWER_FIXTURE_CHILD",
+            "SpecialPower",
         ) {
             return;
         }
