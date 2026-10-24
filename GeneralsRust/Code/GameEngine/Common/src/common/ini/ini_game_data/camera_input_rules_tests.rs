@@ -42,6 +42,12 @@ fn selected_scroll_uses_the_one_existing_parser_and_absent_uses_receiving_defaul
     assert_eq!(rules.keyboard_scroll_factor(&preferences), 0.0);
     preferences.set_int("ScrollFactor", 101);
     assert_eq!(rules.keyboard_scroll_factor(&preferences), 1.0);
+    preferences.set_string("ScrollFactor", "25suffix".into());
+    assert_eq!(rules.keyboard_scroll_factor(&preferences), 0.25);
+    preferences.set_string("ScrollFactor", "  +12.5".into());
+    assert_eq!(rules.keyboard_scroll_factor(&preferences), 0.12);
+    preferences.set_string("ScrollFactor", "-25tail".into());
+    assert_eq!(rules.keyboard_scroll_factor(&preferences), 0.0);
     preferences.set_string("ScrollFactor", "not-an-int".into());
     assert_eq!(rules.keyboard_scroll_factor(&preferences), 0.0);
 }

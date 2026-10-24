@@ -1102,22 +1102,11 @@ fn scan_index(value: &str, names: &[&str], field: &str) -> WeaponResult<i32> {
 }
 
 /// C++ INI::scanInt uses sscanf("%d"), including its decimal-prefix rule.
-/// Reject overflow instead of reproducing the C conversion's undefined result.
 fn shot_delay_msecs(token: &str) -> WeaponResult<i32> {
-    let token = token.trim_start_matches(|c: char| c.is_ascii_whitespace());
-    let sign = usize::from(matches!(token.as_bytes().first(), Some(b'+' | b'-')));
-    let digits = token.as_bytes()[sign..]
-        .iter()
-        .take_while(|byte| byte.is_ascii_digit())
-        .count();
-    if digits == 0 {
-        return Err(WeaponError::ParseError(format!(
-            "Invalid DelayBetweenShots '{token}'"
-        )));
-    }
-    token[..sign + digits]
-        .parse()
-        .map_err(|_| WeaponError::ParseError(format!("Invalid DelayBetweenShots '{token}'")))
+    super::parse_decimal_integer_prefix(token).ok_or_else(|| {
+        let token = token.trim_start_matches(|c: char| c.is_ascii_whitespace());
+        WeaponError::ParseError(format!("Invalid DelayBetweenShots '{token}'"))
+    })
 }
 
 fn delay_frames(token: &str) -> WeaponResult<i32> {

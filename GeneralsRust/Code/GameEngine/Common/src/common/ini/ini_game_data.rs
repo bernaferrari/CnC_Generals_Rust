@@ -1221,7 +1221,12 @@ fn apply_replay_camera_preferences(data: &mut GlobalData, (save_camera, use_came
 /// C++ OptionPreferences::getScrollFactor — missing key uses Default, not GameData 2.0.
 fn scroll_factor_from_preferences(pref: &UserPreferences, default_factor: f32) -> f32 {
     match pref.get_string("ScrollFactor") {
-        Some(raw) => raw.parse::<i32>().unwrap_or(0).clamp(0, 100) as f32 / 100.0,
+        Some(raw) => {
+            super::parse_decimal_integer_prefix(&raw)
+                .unwrap_or(0)
+                .clamp(0, 100) as f32
+                / 100.0
+        }
         None => default_factor,
     }
 }
@@ -2488,6 +2493,15 @@ mod tests {
         assert!((scroll_factor_from_preferences(&pref, 0.5) - 0.25).abs() < f32::EPSILON);
         pref.set_int("ScrollFactor", 200);
         assert!((scroll_factor_from_preferences(&pref, 0.5) - 1.0).abs() < f32::EPSILON);
+
+        pref.set_string("ScrollFactor", "25suffix".into());
+        assert!((scroll_factor_from_preferences(&pref, 0.5) - 0.25).abs() < f32::EPSILON);
+        pref.set_string("ScrollFactor", "  +12.5".into());
+        assert!((scroll_factor_from_preferences(&pref, 0.5) - 0.12).abs() < f32::EPSILON);
+        pref.set_string("ScrollFactor", "-25tail".into());
+        assert_eq!(scroll_factor_from_preferences(&pref, 0.5), 0.0);
+        pref.set_string("ScrollFactor", "not-an-int".into());
+        assert_eq!(scroll_factor_from_preferences(&pref, 0.5), 0.0);
     }
 
     #[test]

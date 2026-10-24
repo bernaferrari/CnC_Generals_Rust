@@ -160814,7 +160814,7 @@
     }
   ],
   "generator": "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-  "input_digest": "a30d15bc54033206619e16f08c1982551d0dd5be2625a6651b20fee164c18085",
+  "input_digest": "3b97cd171b2d09ed7ed2d66a35131409228a286275768e5588e46a814375f3b1",
   "metric_contract": {
     "behavior_requires_explicit_evidence": true,
     "candidate_mapping_is_reviewed": false,
@@ -164844,11 +164844,11 @@
       "cargo_reachable": true,
       "classification": "test",
       "file_range": {
-        "end_line": 48,
+        "end_line": 54,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_game_data/camera_input_rules_tests.rs",
-      "sha256": "8780b40d5ff7a2c033e2a7f02c80901c0b4e572fef057262a0f6e5c6bf2de381",
+      "sha256": "4c8587cf9f541dddd807de4364ae8215277e5ccab948eab99a00a4a47401c841",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -164952,11 +164952,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 2674,
+        "end_line": 2688,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_game_data.rs",
-      "sha256": "76b8bbdaac14708ddc5604bd40165c787ad9d8bf79befbb88014fd7924f3a732",
+      "sha256": "07696acfe7121e5566007e55c635a072556d85d6d492b2cf75d5e25a28639597",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -165144,11 +165144,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 2086,
+        "end_line": 2075,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_weapon.rs",
-      "sha256": "b5de127b65d9801e02ae775257dbad38e563c91e017b852fd27e3e645a0a378a",
+      "sha256": "b00d56566cf2886d2458549e79164d3143b927af29fc7e242e0aef078e65f792",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },

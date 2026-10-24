@@ -113,10 +113,11 @@ fn malformed_present_scroll_view_shares_actual_preference_parser_instead_of_map_
     menu.preferences_mut()
         .set_string("ScrollFactor", "25x".into());
     menu.load_current_settings();
-    assert_eq!(rules.keyboard_scroll_factor(menu.preferences()), 0.0);
+    assert_eq!(rules.keyboard_scroll_factor(menu.preferences()), 0.25);
     assert!(
-        matches!(menu.control_value("controls.scroll_speed"),Some(OptionValue::Float(value)) if *value==0.0)
+        matches!(menu.control_value("controls.scroll_speed"),Some(OptionValue::Float(value)) if *value==0.25)
     );
+    assert!(matches!(menu.camera_scroll_view(), OptionValue::Float(value) if value == 0.25));
 }
 
 #[test]

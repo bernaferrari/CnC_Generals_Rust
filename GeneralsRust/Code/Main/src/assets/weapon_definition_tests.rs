@@ -64,6 +64,32 @@ fn owned_override_preserves_base_and_repeated_rank_fields_in_source_order() {
     assert_eq!(original.get_fire_fx(Heroic).unwrap().name(), "HeroFX");
     assert_eq!(definitions.len(), 1);
 }
+
+#[test]
+fn owned_archive_shot_delay_prefixes_set_host_weapon_cadence() {
+    let mut definitions = HashMap::new();
+    let count = parse_weapon_definitions_ini_into(
+        &mut definitions,
+        r#"Weapon BattleShipGunReal
+PrimaryDamage = 1000
+DelayBetweenShots = 250.0
+End
+Weapon __ShotDelayMinMax
+DelayBetweenShots = Min:34.99 Max:250.9
+End
+"#,
+        WeaponDefinitionLoadType::Normal,
+    );
+
+    assert_eq!(count, 2);
+    let battleship = &definitions["battleshipgunreal"];
+    assert_eq!(battleship.min_delay_between_shots, 8);
+    assert_eq!(battleship.max_delay_between_shots, 8);
+
+    let range = &definitions["__shotdelayminmax"];
+    assert_eq!(range.min_delay_between_shots, 2);
+    assert_eq!(range.max_delay_between_shots, 8);
+}
 #[test]
 fn independent_owned_loads_keep_defaults_and_lookup_sorting_out_of_override_order() {
     let mut first = HashMap::new();

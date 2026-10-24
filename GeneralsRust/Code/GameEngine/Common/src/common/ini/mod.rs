@@ -12,6 +12,8 @@ use std::{
     path::PathBuf,
 };
 
+mod integer_prefix;
+
 // INI configuration modules - Batch 1 (Converted)
 pub mod ini;
 pub mod ini_ai_data;
@@ -71,6 +73,8 @@ pub mod ini_water;
 pub mod ini_weapon;
 pub mod ini_weather;
 pub mod ini_webpage_url;
+
+pub use integer_prefix::parse_decimal_integer_prefix;
 
 // Re-export main types from the batch 1 modules
 pub use ini::{

@@ -736,18 +736,18 @@ fn parse_shot_delay_msec(value: &str) -> Option<(i32, i32)> {
         .collect();
     let first = *tokens.first()?;
     if first.eq_ignore_ascii_case("Min") {
-        let min = tokens.get(1)?.parse::<i32>().ok()?;
+        let min = game_engine::common::ini::parse_decimal_integer_prefix(*tokens.get(1)?)?;
         let max = if tokens
             .get(2)
             .is_some_and(|token| token.eq_ignore_ascii_case("Max"))
         {
-            tokens.get(3)?.parse::<i32>().ok()?
+            game_engine::common::ini::parse_decimal_integer_prefix(*tokens.get(3)?)?
         } else {
             min
         };
         Some((min, max))
     } else {
-        let msec = first.parse::<i32>().ok()?;
+        let msec = game_engine::common::ini::parse_decimal_integer_prefix(first)?;
         Some((msec, msec))
     }
 }
@@ -1821,7 +1821,13 @@ End
     #[test]
     fn parse_shot_delay_accepts_min_max_colon_form() {
         assert_eq!(parse_shot_delay_msec("500"), Some((500, 500)));
+        assert_eq!(parse_shot_delay_msec("250.0"), Some((250, 250)));
+        assert_eq!(
+            parse_shot_delay_msec("Min:34.99 Max:250.9"),
+            Some((34, 250))
+        );
         assert_eq!(parse_shot_delay_msec("Min:200 Max:800"), Some((200, 800)));
+        assert_eq!(parse_shot_delay_msec("2147483648"), None);
         assert_eq!(msec_to_logic_frames(500), 15);
         assert_eq!(
             secs_to_frames_velocity(600.0),

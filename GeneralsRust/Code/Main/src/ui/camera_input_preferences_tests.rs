@@ -15,7 +15,7 @@ fn two_application_preferences_use_receiving_map_default_and_preserve_actual_sto
     let path_a = directory.path().join("A.ini");
     let path_b = directory.path().join("B.ini");
     std::fs::write(&path_a, "MusicVolume = 71\n").unwrap();
-    std::fs::write(&path_b, "ScrollFactor = 25\n").unwrap();
+    std::fs::write(&path_b, "ScrollFactor = 25suffix\n").unwrap();
     let (mut a, mut b) = (app(&path_a), app(&path_b));
     let (mut world, mut peer) = (
         crate::game_logic::GameLogic::new(),
