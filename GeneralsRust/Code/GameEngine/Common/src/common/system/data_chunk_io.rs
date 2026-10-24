@@ -182,7 +182,7 @@ struct InputChunk {
 
 type ParserFn = fn(&mut DataChunkInput, &DataChunkInfo, &mut dyn std::any::Any) -> bool;
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 struct ParserEntry {
     label: String,
     parent_label: String,
@@ -261,13 +261,15 @@ impl DataChunkInput {
                 data_size: self.get_chunk_data_size(),
             };
 
-            for parser in self.parser_list.clone() {
-                if parser.label == label && parser.parent_label == parent_label {
-                    let ok = (parser.parser)(self, &info, user_data);
-                    if !ok {
-                        return false;
-                    }
-                    break;
+            let parser = self
+                .parser_list
+                .iter()
+                .rev()
+                .find(|entry| entry.label == label && entry.parent_label == parent_label)
+                .map(|entry| entry.parser);
+            if let Some(parser) = parser {
+                if !parser(self, &info, user_data) {
+                    return false;
                 }
             }
 
@@ -539,10 +541,12 @@ impl DataChunkOutput {
         out.extend_from_slice(b"CkMp");
         let mut names: Vec<(u32, String)> = self
             .contents
-            .iter()
-            .map(|(name, id)| (*id, name.clone()))
+            .into_iter()
+            .map(|(name, id)| (id, name))
             .collect();
-        names.sort_by_key(|(id, _)| *id);
+        // C++ DataChunkTableOfContents::allocateID prepends each new mapping,
+        // and write() emits that list head first (descending ID order).
+        names.sort_by(|left, right| right.0.cmp(&left.0));
         let count = names.len() as i32;
         out.extend_from_slice(&count.to_le_bytes());
         for (id, name) in names {
@@ -552,5 +556,200 @@ impl DataChunkOutput {
         }
         out.extend_from_slice(&self.buffer);
         out
+    }
+}
+#[cfg(test)]
+mod parser_registration_tests {
+    use super::*;
+
+    fn record(value: u8, user_data: &mut dyn std::any::Any) {
+        user_data.downcast_mut::<Vec<u8>>().unwrap().push(value);
+    }
+
+    fn earlier_parser(
+        _input: &mut DataChunkInput,
+        _info: &DataChunkInfo,
+        user_data: &mut dyn std::any::Any,
+    ) -> bool {
+        record(1, user_data);
+        true
+    }
+
+    fn later_parser(
+        _input: &mut DataChunkInput,
+        _info: &DataChunkInfo,
+        user_data: &mut dyn std::any::Any,
+    ) -> bool {
+        record(2, user_data);
+        true
+    }
+
+    fn wrong_parent_parser(
+        _input: &mut DataChunkInput,
+        _info: &DataChunkInfo,
+        user_data: &mut dyn std::any::Any,
+    ) -> bool {
+        record(9, user_data);
+        true
+    }
+
+    fn register_for_next_chunk(
+        input: &mut DataChunkInput,
+        _info: &DataChunkInfo,
+        user_data: &mut dyn std::any::Any,
+    ) -> bool {
+        input.register_parser("Rule", "", later_parser);
+        record(1, user_data);
+        true
+    }
+
+    fn abort_parser(
+        _input: &mut DataChunkInput,
+        _info: &DataChunkInfo,
+        user_data: &mut dyn std::any::Any,
+    ) -> bool {
+        record(1, user_data);
+        false
+    }
+
+    fn two_rule_chunks() -> Vec<u8> {
+        let mut output = DataChunkOutput::new();
+        for _ in 0..2 {
+            output.open_data_chunk("Rule", 1);
+            output.close_data_chunk();
+        }
+        output.into_ckmp_bytes()
+    }
+
+    #[test]
+    fn most_recently_registered_matching_parser_wins() {
+        let mut input = DataChunkInput::new(two_rule_chunks());
+        let mut calls = Vec::<u8>::new();
+        input.register_parser("Rule", "", earlier_parser);
+        input.register_parser("Rule", "", later_parser);
+
+        assert!(input.parse(&mut calls));
+        assert_eq!(calls, vec![2, 2]);
+    }
+
+    #[test]
+    fn parser_match_requires_both_label_and_parent_scope() {
+        let mut output = DataChunkOutput::new();
+        output.open_data_chunk("Rule", 1);
+        output.close_data_chunk();
+        let mut input = DataChunkInput::new(output.into_ckmp_bytes());
+        let mut calls = Vec::<u8>::new();
+        input.register_parser("Rule", "", earlier_parser);
+        input.register_parser("Rule", "Other", wrong_parent_parser);
+
+        assert!(input.parse(&mut calls));
+        assert_eq!(calls, vec![1]);
+    }
+
+    #[test]
+    fn callback_registration_applies_to_the_next_chunk() {
+        let mut input = DataChunkInput::new(two_rule_chunks());
+        let mut calls = Vec::<u8>::new();
+        input.register_parser("Rule", "", register_for_next_chunk);
+
+        assert!(input.parse(&mut calls));
+        assert_eq!(calls, vec![1, 2]);
+    }
+
+    #[test]
+    fn false_callback_aborts_before_later_chunks() {
+        let mut input = DataChunkInput::new(two_rule_chunks());
+        let mut calls = Vec::<u8>::new();
+        input.register_parser("Rule", "", later_parser);
+        input.register_parser("Rule", "", abort_parser);
+
+        assert!(!input.parse(&mut calls));
+        assert_eq!(calls, vec![1]);
+    }
+
+    #[test]
+    fn table_of_contents_matches_cpp_prepend_order_with_nested_and_reused_names() {
+        let mut output = DataChunkOutput::new();
+        output.open_data_chunk("Outer", 1);
+        output.open_data_chunk("Inner", 3);
+        output.write_byte(0xAA);
+        output.write_byte(0xBB);
+        output.close_data_chunk();
+        output.close_data_chunk();
+        output.open_data_chunk("Inner", 4);
+        output.write_byte(0xCC);
+        output.close_data_chunk();
+
+        let expected = original_nested_reused_ckmp();
+
+        assert_eq!(output.into_ckmp_bytes(), expected);
+    }
+    // Exact 61-byte wire also executed from the original C++ table/writer bodies.
+    fn original_nested_reused_ckmp() -> Vec<u8> {
+        let mut expected = b"CkMp".to_vec();
+        expected.extend_from_slice(&2i32.to_le_bytes());
+        expected.push(5);
+        expected.extend_from_slice(b"Inner");
+        expected.extend_from_slice(&2u32.to_le_bytes());
+        expected.push(5);
+        expected.extend_from_slice(b"Outer");
+        expected.extend_from_slice(&1u32.to_le_bytes());
+        expected.extend_from_slice(&1u32.to_le_bytes()); // outer ID
+        expected.extend_from_slice(&1u16.to_le_bytes()); // outer version
+        expected.extend_from_slice(&12u32.to_le_bytes()); // nested chunk size
+        expected.extend_from_slice(&2u32.to_le_bytes()); // inner ID reused below
+        expected.extend_from_slice(&3u16.to_le_bytes()); // inner version
+        expected.extend_from_slice(&2u32.to_le_bytes());
+        expected.extend_from_slice(&[0xAA, 0xBB]);
+        expected.extend_from_slice(&2u32.to_le_bytes()); // reused Inner ID
+        expected.extend_from_slice(&4u16.to_le_bytes());
+        expected.extend_from_slice(&1u32.to_le_bytes());
+        expected.push(0xCC);
+
+        expected
+    }
+
+    type ChunkVisits = Vec<(String, String, DataChunkVersionType, Vec<u8>)>;
+
+    fn visit_original_chunk(
+        input: &mut DataChunkInput,
+        info: &DataChunkInfo,
+        user_data: &mut dyn std::any::Any,
+    ) -> bool {
+        let payload = if info.label == "Outer" {
+            Vec::new()
+        } else {
+            (0..info.data_size).map(|_| input.read_byte()).collect()
+        };
+        user_data.downcast_mut::<ChunkVisits>().unwrap().push((
+            info.label.clone(),
+            info.parent_label.clone(),
+            info.version,
+            payload,
+        ));
+        if info.label == "Outer" {
+            input.parse(user_data)
+        } else {
+            true
+        }
+    }
+
+    #[test]
+    fn original_nested_and_reused_wire_preserves_scope_version_and_payload() {
+        let mut input = DataChunkInput::new(original_nested_reused_ckmp());
+        let mut visits = ChunkVisits::new();
+        input.register_parser("Outer", "", visit_original_chunk);
+        input.register_parser("Inner", "Outer", visit_original_chunk);
+        input.register_parser("Inner", "", visit_original_chunk);
+        assert!(input.is_valid_file_type());
+        assert!(input.parse(&mut visits));
+        assert_eq!(
+            visits,
+            vec![
+                ("Outer".into(), "".into(), 1, vec![]),
+                ("Inner".into(), "Outer".into(), 3, vec![0xAA, 0xBB]),
+                ("Inner".into(), "".into(), 4, vec![0xCC]),
+            ]
+        );
     }
 }
