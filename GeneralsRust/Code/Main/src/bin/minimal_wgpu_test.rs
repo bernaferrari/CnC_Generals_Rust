@@ -2,7 +2,7 @@ use std::sync::Arc;
 use winit::{
     event::{Event, WindowEvent},
     event_loop::{ControlFlow, EventLoop},
-    window::WindowBuilder,
+    window::Window,
 };
 use ww3d_gpu::present_surface_texture;
 
@@ -11,10 +11,11 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
 
     let event_loop = EventLoop::new()?;
     let window = Arc::new(
-        WindowBuilder::new()
-            .with_title("WGPU Test Window")
-            .with_inner_size(winit::dpi::LogicalSize::new(400, 300))
-            .build(&event_loop)?,
+        event_loop.create_window(
+            Window::default_attributes()
+                .with_title("WGPU Test Window")
+                .with_inner_size(winit::dpi::LogicalSize::new(400, 300)),
+        )?,
     );
 
     println!("✅ Window created");
@@ -22,7 +23,10 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     // Try WGPU initialization with timeout-like approach
     println!("🎨 Starting WGPU initialization...");
 
-    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor { backends: wgpu::Backends::all(), ..wgpu::InstanceDescriptor::new_without_display_handle() });
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+        backends: wgpu::Backends::all(),
+        ..wgpu::InstanceDescriptor::new_without_display_handle()
+    });
     println!("✅ WGPU instance created");
 
     let surface = instance.create_surface(window.clone())?;
@@ -63,7 +67,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let config = wgpu::SurfaceConfiguration {
         usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
         format: surface_format,
-            color_space: wgpu::SurfaceColorSpace::Auto,
+        color_space: wgpu::SurfaceColorSpace::Auto,
         width: size.width,
         height: size.height,
         present_mode: wgpu::PresentMode::Fifo,
@@ -92,7 +96,22 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
                 ..
             } => {
                 // Simple clear screen
-                let output = surface.get_current_texture().unwrap();
+                let output = match surface.get_current_texture() {
+                    wgpu::CurrentSurfaceTexture::Success(frame)
+                    | wgpu::CurrentSurfaceTexture::Suboptimal(frame) => frame,
+                    wgpu::CurrentSurfaceTexture::Lost | wgpu::CurrentSurfaceTexture::Outdated => {
+                        surface.configure(&device, &config);
+                        window.request_redraw();
+                        return;
+                    }
+                    wgpu::CurrentSurfaceTexture::Timeout
+                    | wgpu::CurrentSurfaceTexture::Occluded => return,
+                    wgpu::CurrentSurfaceTexture::Validation => {
+                        eprintln!("Surface validation failed");
+                        elwt.exit();
+                        return;
+                    }
+                };
                 let view = output
                     .texture
                     .create_view(&wgpu::TextureViewDescriptor::default());
@@ -114,7 +133,6 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
                                     g: 0.2,
                                     b: 0.3,
                                     a: 1.0,
-            multiview_mask: None,
                                 }),
                                 store: wgpu::StoreOp::Store,
                             },
@@ -122,6 +140,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
                         depth_stencil_attachment: None,
                         occlusion_query_set: None,
                         timestamp_writes: None,
+                        multiview_mask: None,
                     });
                 }
 
