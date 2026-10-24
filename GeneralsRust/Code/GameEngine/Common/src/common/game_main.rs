@@ -134,56 +134,92 @@ pub async fn run_from_env() -> i32 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::common::game_engine::{clear_game_engine, get_game_engine};
+    use crate::common::game_engine::{
+        clear_game_client_factory, clear_game_engine, get_game_engine,
+        register_successful_game_client_fixture,
+    };
 
-    #[tokio::test]
-    async fn test_game_main_minimal() {
-        let args = vec!["game.exe".to_string()];
+    #[test]
+    fn test_game_main_minimal() {
+        match crate::test_process::run_bounded(module_path!(), "test_game_main_minimal") {
+            crate::test_process::TestProcess::ParentVerified => return,
+            crate::test_process::TestProcess::Child => {}
+        }
+        pollster::block_on(async {
+            let init_calls = register_successful_game_client_fixture();
+            let args = vec!["game.exe".to_string()];
 
-        // This should at least initialize without crashing
-        // Note: We can't run the full game loop in tests as it would run forever
-        // So we just test initialization
-        let mut engine = create_game_engine();
-        let result = engine.init(args).await;
+            // This should at least initialize without crashing
+            // Note: We can't run the full game loop in tests as it would run forever
+            // So we just test initialization
+            let mut engine = create_game_engine();
+            let result = engine.init(args).await;
 
-        assert!(result.is_ok(), "Game engine initialization should succeed");
+            assert!(result.is_ok(), "Game engine initialization should succeed");
 
-        // Clean shutdown
-        let shutdown_result = engine.shutdown().await;
-        assert!(
-            shutdown_result.is_ok(),
-            "Game engine shutdown should succeed"
-        );
+            // Clean shutdown
+            let shutdown_result = engine.shutdown().await;
+            assert!(
+                shutdown_result.is_ok(),
+                "Game engine shutdown should succeed"
+            );
+            assert_eq!(
+                init_calls.load(std::sync::atomic::Ordering::Relaxed),
+                1,
+                "the registered fixture must receive actual GameEngine initialization"
+            );
+            clear_game_client_factory();
+        });
     }
 
-    #[tokio::test]
-    async fn test_game_main_with_args() {
-        let args = vec![
-            "game.exe".to_string(),
-            "-windowed".to_string(),
-            "-fps".to_string(),
-            "60".to_string(),
-        ];
+    #[test]
+    fn test_game_main_with_args() {
+        match crate::test_process::run_bounded(module_path!(), "test_game_main_with_args") {
+            crate::test_process::TestProcess::ParentVerified => return,
+            crate::test_process::TestProcess::Child => {}
+        }
+        pollster::block_on(async {
+            let init_calls = register_successful_game_client_fixture();
+            let args = vec![
+                "game.exe".to_string(),
+                "-windowed".to_string(),
+                "-fps".to_string(),
+                "60".to_string(),
+            ];
 
-        let mut engine = create_game_engine();
-        let result = engine.init(args).await;
+            let mut engine = create_game_engine();
+            let result = engine.init(args).await;
 
-        assert!(
-            result.is_ok(),
-            "Game engine initialization with args should succeed"
-        );
-        assert_eq!(engine.get_frames_per_second_limit(), 60);
+            assert!(
+                result.is_ok(),
+                "Game engine initialization with args should succeed"
+            );
+            assert_eq!(engine.get_frames_per_second_limit(), 60);
 
-        // Clean shutdown
-        let shutdown_result = engine.shutdown().await;
-        assert!(
-            shutdown_result.is_ok(),
-            "Game engine shutdown should succeed"
-        );
+            // Clean shutdown
+            let shutdown_result = engine.shutdown().await;
+            assert!(
+                shutdown_result.is_ok(),
+                "Game engine shutdown should succeed"
+            );
+            assert_eq!(
+                init_calls.load(std::sync::atomic::Ordering::Relaxed),
+                1,
+                "the registered fixture must receive actual GameEngine initialization"
+            );
+            clear_game_client_factory();
+        });
     }
 
     #[test]
     fn test_game_engine_global_slot_can_be_cleared() {
+        match crate::test_process::run_bounded(
+            module_path!(),
+            "test_game_engine_global_slot_can_be_cleared",
+        ) {
+            crate::test_process::TestProcess::ParentVerified => return,
+            crate::test_process::TestProcess::Child => {}
+        }
         clear_game_engine();
         let _engine = crate::common::game_engine::set_game_engine(create_game_engine());
         assert!(get_game_engine().is_some());

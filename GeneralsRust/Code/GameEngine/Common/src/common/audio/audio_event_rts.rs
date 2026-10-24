@@ -450,6 +450,7 @@ pub struct AudioEventComplete {
 }
 
 /// Async audio event trait
+#[cfg(feature = "async")]
 #[async_trait]
 pub trait AsyncAudioEvent {
     async fn play(&mut self) -> Result<(), AudioError>;
@@ -1875,6 +1876,7 @@ mod tests {
         assert_eq!(new_event.get_drawable_id(), 456);
     }
 
+    #[cfg(feature = "async")]
     #[tokio::test]
     async fn test_async_playback() {
         let mut event = AudioEventRts::with_event_name("test_async");
@@ -1892,6 +1894,7 @@ mod tests {
         assert!(!event.is_async_playing());
     }
 
+    #[cfg(feature = "async")]
     #[tokio::test]
     async fn test_async_playback_file_not_found() {
         let mut event = AudioEventRts::with_event_name("test_error");

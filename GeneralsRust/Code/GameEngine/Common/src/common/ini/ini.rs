@@ -2875,52 +2875,61 @@ End
         );
     }
 
-    #[tokio::test]
-    async fn load_directory_loads_current_dir_before_subdirs() {
-        // C++ INI::loadDirectory (INI.cpp:188-237): current-dir files first,
-        // then subdirectory files. Last write wins for the same Weapon name.
-        use crate::common::ini::ini_weapon::{get_weapon_store, reset_weapon_store};
+    #[test]
+    fn load_directory_loads_current_dir_before_subdirs() {
+        match crate::test_process::run_bounded(
+            module_path!(),
+            "load_directory_loads_current_dir_before_subdirs",
+        ) {
+            crate::test_process::TestProcess::ParentVerified => return,
+            crate::test_process::TestProcess::Child => {}
+        }
+        pollster::block_on(async {
+            // C++ INI::loadDirectory (INI.cpp:188-237): current-dir files first,
+            // then subdirectory files. Last write wins for the same Weapon name.
+            use crate::common::ini::ini_weapon::{get_weapon_store, reset_weapon_store};
 
-        let root = std::env::temp_dir().join(format!(
-            "ini_load_dir_{}_{}",
-            std::process::id(),
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .map(|d| d.as_nanos())
-                .unwrap_or(0)
-        ));
-        let sub = root.join("nested");
-        fs::create_dir_all(&sub).expect("temp ini tree");
-        fs::write(
-            root.join("base.ini"),
-            "Weapon CurrentDirProbe\n  PrimaryDamage = 1\nEnd\n",
-        )
-        .unwrap();
-        fs::write(
-            sub.join("override.ini"),
-            "Weapon SubDirProbe\n  PrimaryDamage = 99\nEnd\n",
-        )
-        .unwrap();
+            let root = std::env::temp_dir().join(format!(
+                "ini_load_dir_{}_{}",
+                std::process::id(),
+                SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .map(|d| d.as_nanos())
+                    .unwrap_or(0)
+            ));
+            let sub = root.join("nested");
+            fs::create_dir_all(&sub).expect("temp ini tree");
+            fs::write(
+                root.join("base.ini"),
+                "Weapon CurrentDirProbe\n  PrimaryDamage = 1\nEnd\n",
+            )
+            .unwrap();
+            fs::write(
+                sub.join("override.ini"),
+                "Weapon SubDirProbe\n  PrimaryDamage = 99\nEnd\n",
+            )
+            .unwrap();
 
-        reset_weapon_store();
-        let mut ini = INI::new();
-        ini.load_directory(&root, true, INILoadType::Overwrite)
-            .await
-            .expect("load_directory");
+            reset_weapon_store();
+            let mut ini = INI::new();
+            ini.load_directory(&root, true, INILoadType::Overwrite)
+                .await
+                .expect("load_directory");
 
-        let store = get_weapon_store().expect("weapon store");
-        let names: Vec<&str> = store
-            .get_template_names()
-            .into_iter()
-            .map(String::as_str)
-            .collect();
-        assert_eq!(
-            names,
-            vec!["CurrentDirProbe", "SubDirProbe"],
-            "current-dir files must register before subdirectory files"
-        );
+            let store = get_weapon_store().expect("weapon store");
+            let names: Vec<&str> = store
+                .get_template_names()
+                .into_iter()
+                .map(String::as_str)
+                .collect();
+            assert_eq!(
+                names,
+                vec!["CurrentDirProbe", "SubDirProbe"],
+                "current-dir files must register before subdirectory files"
+            );
 
-        let _ = fs::remove_dir_all(&root);
+            let _ = fs::remove_dir_all(&root);
+        });
     }
 
     #[test]
@@ -2961,24 +2970,29 @@ End
 
     #[test]
     fn particle_system_block_invokes_live_overlay_hook() {
+        match crate::test_process::run_bounded(
+            module_path!(),
+            "particle_system_block_invokes_live_overlay_hook",
+        ) {
+            crate::test_process::TestProcess::ParentVerified => return,
+            crate::test_process::TestProcess::Child => {}
+        }
         // C++ INIParticleSys.cpp:24-32 overlays TheParticleSystemManager.
-        use std::cell::RefCell;
-        thread_local! {
-            static SEEN: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
-        }
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        // Observation only: this exact child owns its installed fn-pointer hook.
+        static CALLBACK_COUNT: AtomicUsize = AtomicUsize::new(0);
         fn hook(name: &str, properties: &HashMap<String, String>, _load_type: INILoadType) {
+            assert_eq!(name, "MapOverrideSmoke");
             assert_eq!(properties.get("Priority").map(String::as_str), Some("NONE"));
-            SEEN.with(|seen| seen.borrow_mut().push(name.to_string()));
+            CALLBACK_COUNT.fetch_add(1, Ordering::Relaxed);
         }
+        CALLBACK_COUNT.store(0, Ordering::Relaxed);
         register_particle_system_live_overlay(hook);
-        SEEN.with(|seen| seen.borrow_mut().clear());
         let src = "ParticleSystem MapOverrideSmoke\n  Priority = NONE\n  IsOneShot = No\nEnd\n";
         let mut ini = INI::new();
         ini.with_inline_source(src, |ini| ini.parse_current_file())
             .expect("ParticleSystem NONE must parse");
-        SEEN.with(|seen| {
-            assert_eq!(seen.borrow().as_slice(), ["MapOverrideSmoke"]);
-        });
+        assert_eq!(CALLBACK_COUNT.load(Ordering::Relaxed), 1);
     }
 }
 

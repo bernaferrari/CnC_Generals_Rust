@@ -25,9 +25,10 @@ use symphonia::core::audio::conv::FromSample;
 use symphonia::core::audio::{Audio, AudioBuffer, GenericAudioBufferRef};
 #[cfg(feature = "audio")]
 use symphonia::core::codecs::audio::AudioDecoder;
-use symphonia::core::formats::{FormatReader, TrackType};
 #[cfg(feature = "audio")]
 use symphonia::core::formats::probe::Hint;
+#[cfg(feature = "audio")]
+use symphonia::core::formats::{FormatReader, TrackType};
 #[cfg(feature = "audio")]
 use symphonia::core::io::{MediaSourceStream, ReadOnlySource};
 
@@ -418,7 +419,9 @@ impl AudioAssetManager {
 
     /// Add a search path for audio assets
     pub fn add_search_path<P: AsRef<Path>>(&self, path: P) {
-        self.search_paths.borrow_mut().push(path.as_ref().to_path_buf());
+        self.search_paths
+            .borrow_mut()
+            .push(path.as_ref().to_path_buf());
     }
 
     /// Load an audio asset synchronously

@@ -19,9 +19,6 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
-#[cfg(feature = "audio")]
-
-
 use crate::common::audio::{
     AudioFormat, AudioHandle, AudioLoadError, AudioMetadata, Bool, Real, UnsignedInt,
 };

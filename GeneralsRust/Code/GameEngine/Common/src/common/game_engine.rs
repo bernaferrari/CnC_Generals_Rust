@@ -1570,6 +1570,9 @@ pub fn create_game_engine() -> GameEngine {
 }
 
 #[cfg(test)]
+pub(crate) use tests::register_successful_game_client_fixture;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::common::ini::ini_game_data::init_global_data;
@@ -1577,8 +1580,6 @@ mod tests {
     use crate::common::recorder::init_recorder;
     use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
-
-    static TEST_LOCK: Mutex<()> = Mutex::new(());
 
     struct CountingGameLogic {
         updates: Arc<AtomicUsize>,
@@ -1729,9 +1730,30 @@ mod tests {
         }
     }
 
+    /// Reuse the existing successful client through the actual bootstrap slot.
+    /// Arc/AtomicUsize is the fixture's existing init receipt shared with the
+    /// registered Send + Sync factory and the constructed client, not a global.
+    pub(crate) fn register_successful_game_client_fixture() -> Arc<AtomicUsize> {
+        clear_game_client_factory();
+        let init_calls = Arc::new(AtomicUsize::new(0));
+        let factory_calls = Arc::clone(&init_calls);
+        register_game_client_factory(move || {
+            Ok(Box::new(RegisteredGameClient::new(Arc::clone(
+                &factory_calls,
+            ))))
+        });
+        init_calls
+    }
+
     #[test]
     fn test_registered_game_client_factory_is_used_when_available() {
-        let _guard = TEST_LOCK.lock();
+        match crate::test_process::run_bounded(
+            module_path!(),
+            "test_registered_game_client_factory_is_used_when_available",
+        ) {
+            crate::test_process::TestProcess::ParentVerified => return,
+            crate::test_process::TestProcess::Child => {}
+        }
         clear_game_client_factory();
 
         let init_calls = Arc::new(AtomicUsize::new(0));
@@ -1762,7 +1784,13 @@ mod tests {
 
     #[test]
     fn test_registered_game_client_factory_create_failure_does_not_fallback_to_stub_client() {
-        let _guard = TEST_LOCK.lock();
+        match crate::test_process::run_bounded(
+            module_path!(),
+            "test_registered_game_client_factory_create_failure_does_not_fallback_to_stub_client",
+        ) {
+            crate::test_process::TestProcess::ParentVerified => return,
+            crate::test_process::TestProcess::Child => {}
+        }
         clear_game_client_factory();
 
         register_game_client_factory(|| {
@@ -1789,7 +1817,13 @@ mod tests {
 
     #[test]
     fn test_registered_game_client_init_failure_does_not_fallback_to_stub_client() {
-        let _guard = TEST_LOCK.lock();
+        match crate::test_process::run_bounded(
+            module_path!(),
+            "test_registered_game_client_init_failure_does_not_fallback_to_stub_client",
+        ) {
+            crate::test_process::TestProcess::ParentVerified => return,
+            crate::test_process::TestProcess::Child => {}
+        }
         clear_game_client_factory();
 
         let init_calls = Arc::new(AtomicUsize::new(0));
@@ -1818,24 +1852,39 @@ mod tests {
         clear_game_client_factory();
     }
 
-    #[tokio::test]
-    async fn test_game_engine_creation() {
-        let mut engine = GameEngine::new();
-        assert!(!engine.initialized);
-        assert!(!engine.quitting);
-        assert!(!engine.is_active);
+    #[test]
+    fn test_game_engine_creation() {
+        pollster::block_on(async {
+            let mut engine = GameEngine::new();
+            assert!(!engine.initialized);
+            assert!(!engine.quitting);
+            assert!(!engine.is_active);
+        });
     }
 
-    #[tokio::test]
-    async fn test_game_engine_init() {
-        let mut engine = GameEngine::new();
-        let args = vec!["game.exe".to_string(), "-windowed".to_string()];
+    #[test]
+    fn test_game_engine_init() {
+        match crate::test_process::run_bounded(module_path!(), "test_game_engine_init") {
+            crate::test_process::TestProcess::ParentVerified => return,
+            crate::test_process::TestProcess::Child => {}
+        }
+        pollster::block_on(async {
+            let init_calls = register_successful_game_client_fixture();
+            let mut engine = GameEngine::new();
+            let args = vec!["game.exe".to_string(), "-windowed".to_string()];
 
-        let result = engine.init(args).await;
-        assert!(result.is_ok(), "Engine initialization failed: {:?}", result);
-        assert!(engine.initialized);
-        assert!(engine.config.windowed);
-        assert!(engine.network_interface.is_none());
+            let result = engine.init(args).await;
+            assert!(result.is_ok(), "Engine initialization failed: {:?}", result);
+            assert!(engine.initialized);
+            assert!(engine.config.windowed);
+            assert!(engine.network_interface.is_none());
+            assert_eq!(
+                init_calls.load(std::sync::atomic::Ordering::Relaxed),
+                1,
+                "the registered fixture must receive actual GameEngine initialization"
+            );
+            clear_game_client_factory();
+        });
     }
 
     #[test]
@@ -1871,6 +1920,13 @@ mod tests {
 
     #[test]
     fn test_sync_after_intro_when_intro_disabled_promotes_runtime_flag() {
+        match crate::test_process::run_bounded(
+            module_path!(),
+            "test_sync_after_intro_when_intro_disabled_promotes_runtime_flag",
+        ) {
+            crate::test_process::TestProcess::ParentVerified => return,
+            crate::test_process::TestProcess::Child => {}
+        }
         init_global_data();
         let global = get_global_data().expect("global data should be initialized");
         {
@@ -1888,6 +1944,13 @@ mod tests {
 
     #[test]
     fn test_handle_initial_file_startup_for_map_disables_intro_and_queues_new_game() {
+        match crate::test_process::run_bounded(
+            module_path!(),
+            "test_handle_initial_file_startup_for_map_disables_intro_and_queues_new_game",
+        ) {
+            crate::test_process::TestProcess::ParentVerified => return,
+            crate::test_process::TestProcess::Child => {}
+        }
         init_global_data();
         let global = get_global_data().expect("global data should be initialized");
         {
@@ -1919,70 +1982,78 @@ mod tests {
     }
 
     /// C++ GameEngine.cpp:749 — offline logic is gated on TheGameLogic->isGamePaused().
-    #[tokio::test]
-    async fn test_update_frame_skips_game_logic_when_paused_and_offline() {
-        let updates = Arc::new(AtomicUsize::new(0));
-        let mut engine = GameEngine::new();
-        engine.current_state = GameState::InGame;
-        engine.game_logic = Some(Box::new(CountingGameLogic::paused(updates.clone())));
-        engine.network_interface = None;
+    #[test]
+    fn test_update_frame_skips_game_logic_when_paused_and_offline() {
+        pollster::block_on(async {
+            let updates = Arc::new(AtomicUsize::new(0));
+            let mut engine = GameEngine::new();
+            engine.current_state = GameState::InGame;
+            engine.game_logic = Some(Box::new(CountingGameLogic::paused(updates.clone())));
+            engine.network_interface = None;
 
-        engine
-            .update_frame(Duration::from_millis(16))
-            .await
-            .expect("update frame should succeed");
+            engine
+                .update_frame(Duration::from_millis(16))
+                .await
+                .expect("update frame should succeed");
 
-        assert_eq!(updates.load(Ordering::Relaxed), 0);
+            assert_eq!(updates.load(Ordering::Relaxed), 0);
+        });
     }
 
     /// Engine GameState::Paused is not the C++ gate; logic still ticks unless logic is paused.
-    #[tokio::test]
-    async fn test_update_frame_runs_logic_when_engine_paused_but_logic_not() {
-        let updates = Arc::new(AtomicUsize::new(0));
-        let mut engine = GameEngine::new();
-        engine.current_state = GameState::Paused;
-        engine.game_logic = Some(Box::new(CountingGameLogic::new(updates.clone())));
-        engine.network_interface = None;
+    #[test]
+    fn test_update_frame_runs_logic_when_engine_paused_but_logic_not() {
+        pollster::block_on(async {
+            let updates = Arc::new(AtomicUsize::new(0));
+            let mut engine = GameEngine::new();
+            engine.current_state = GameState::Paused;
+            engine.game_logic = Some(Box::new(CountingGameLogic::new(updates.clone())));
+            engine.network_interface = None;
 
-        engine
-            .update_frame(Duration::from_millis(16))
-            .await
-            .expect("update frame should succeed");
+            engine
+                .update_frame(Duration::from_millis(16))
+                .await
+                .expect("update frame should succeed");
 
-        assert_eq!(updates.load(Ordering::Relaxed), 1);
+            assert_eq!(updates.load(Ordering::Relaxed), 1);
+        });
     }
 
     /// C++ GameEngine.cpp:749 — network-present gates only on isFrameDataReady().
-    #[tokio::test]
-    async fn test_update_frame_skips_logic_when_network_frame_not_ready() {
-        let updates = Arc::new(AtomicUsize::new(0));
-        let mut engine = GameEngine::new();
-        engine.current_state = GameState::InGame;
-        engine.game_logic = Some(Box::new(CountingGameLogic::new(updates.clone())));
-        engine.network_interface = Some(Box::new(StubNetwork::new(false)));
+    #[test]
+    fn test_update_frame_skips_logic_when_network_frame_not_ready() {
+        pollster::block_on(async {
+            let updates = Arc::new(AtomicUsize::new(0));
+            let mut engine = GameEngine::new();
+            engine.current_state = GameState::InGame;
+            engine.game_logic = Some(Box::new(CountingGameLogic::new(updates.clone())));
+            engine.network_interface = Some(Box::new(StubNetwork::new(false)));
 
-        engine
-            .update_frame(Duration::from_millis(16))
-            .await
-            .expect("update frame should succeed");
+            engine
+                .update_frame(Duration::from_millis(16))
+                .await
+                .expect("update frame should succeed");
 
-        assert_eq!(updates.load(Ordering::Relaxed), 0);
+            assert_eq!(updates.load(Ordering::Relaxed), 0);
+        });
     }
 
-    #[tokio::test]
-    async fn test_update_frame_updates_game_logic_when_network_frame_ready_even_paused() {
-        let updates = Arc::new(AtomicUsize::new(0));
-        let mut engine = GameEngine::new();
-        engine.current_state = GameState::Paused;
-        engine.game_logic = Some(Box::new(CountingGameLogic::new(updates.clone())));
-        engine.network_interface = Some(Box::new(StubNetwork::new(true)));
+    #[test]
+    fn test_update_frame_updates_game_logic_when_network_frame_ready_even_paused() {
+        pollster::block_on(async {
+            let updates = Arc::new(AtomicUsize::new(0));
+            let mut engine = GameEngine::new();
+            engine.current_state = GameState::Paused;
+            engine.game_logic = Some(Box::new(CountingGameLogic::new(updates.clone())));
+            engine.network_interface = Some(Box::new(StubNetwork::new(true)));
 
-        engine
-            .update_frame(Duration::from_millis(16))
-            .await
-            .expect("update frame should succeed");
+            engine
+                .update_frame(Duration::from_millis(16))
+                .await
+                .expect("update frame should succeed");
 
-        assert_eq!(updates.load(Ordering::Relaxed), 1);
+            assert_eq!(updates.load(Ordering::Relaxed), 1);
+        });
     }
 
     #[test]
@@ -1997,6 +2068,13 @@ mod tests {
 
     #[test]
     fn test_is_multiplayer_session_uses_recorder_state_like_cpp() {
+        match crate::test_process::run_bounded(
+            module_path!(),
+            "test_is_multiplayer_session_uses_recorder_state_like_cpp",
+        ) {
+            crate::test_process::TestProcess::ParentVerified => return,
+            crate::test_process::TestProcess::Child => {}
+        }
         let _ = init_recorder();
         with_recorder_mut(|recorder| recorder.set_game_mode_provider(Some(Arc::new(|| 2))));
 
@@ -2009,6 +2087,13 @@ mod tests {
 
     #[test]
     fn find_dynamic_lod_level_matches_cpp_min_fps_walk() {
+        match crate::test_process::run_bounded(
+            module_path!(),
+            "find_dynamic_lod_level_matches_cpp_min_fps_walk",
+        ) {
+            crate::test_process::TestProcess::ParentVerified => return,
+            crate::test_process::TestProcess::Child => {}
+        }
         use crate::common::ini::{DynamicGameLODLevel, get_game_lod_manager_mut};
         {
             let mut manager = get_game_lod_manager_mut();
