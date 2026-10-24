@@ -96,3 +96,6 @@ mod generic_script_callback_tests;
 
 #[cfg(test)]
 mod generic_script_condition_tests;
+
+#[cfg(test)]
+mod generic_script_duplicate_tests;

@@ -485,7 +485,7 @@ impl TeamPrototype {
             let script = script_engine.read().ok().and_then(|engine_guard| {
                 engine_guard
                     .as_ref()
-                    .and_then(|engine| engine.find_script_clone_by_name(&script_name))
+                    .and_then(|engine| engine.find_script_duplicate_by_name(&script_name))
             })?;
             runtime[index] = Some(script);
         }

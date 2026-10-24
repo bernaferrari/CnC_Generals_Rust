@@ -4,8 +4,8 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fs;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::OnceLock;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::common::ini::ini_game_data::{GlobalData, get_global_data};
 use crate::common::ini::ini_game_lod::{
@@ -94,15 +94,9 @@ impl GameLod {
     }
 }
 
-// THREAD: these mirror C++ `GameLODManager` plain file statics. LOD probing and
-// the options menu all run on the single game/client thread (see
-// `GameClient/src/core/mod.rs`), so there is no cross-thread boundary and no lock.
+// Remaining classic probe/cache adapters; live level authority is on GameLODManager.
 thread_local! {
-    static DYNAMIC_LOD_NAME: RefCell<String> = RefCell::new("High".to_string());
     static DYNAMIC_LOD_SLOW_DEATH: RefCell<HashMap<String, f32>> = RefCell::new(HashMap::new());
-    static STATIC_LOD_NAME: RefCell<String> = RefCell::new("Medium".to_string());
-    static CURRENT_STATIC_LOD_NAME: RefCell<String> = RefCell::new("Unknown".to_string());
-    static IDEAL_STATIC_LOD_NAME: RefCell<String> = RefCell::new("Unknown".to_string());
     static MEM_PASSED_OVERRIDE: RefCell<Option<bool>> = RefCell::new(None);
     static CPU_FREQ_MHZ_OVERRIDE: RefCell<Option<i32>> = RefCell::new(None);
     static CPU_TYPE_OVERRIDE: RefCell<Option<CpuType>> = RefCell::new(None);
@@ -181,7 +175,9 @@ fn detected_cpu_frequency_mhz() -> Option<i32> {
 }
 
 pub fn set_dynamic_lod(name: &str) {
-    DYNAMIC_LOD_NAME.with(|cell| *cell.borrow_mut() = name.to_string());
+    if let Some(level) = DynamicGameLODLevel::from_str(name) {
+        set_dynamic_lod_level(level);
+    }
 }
 
 pub fn set_dynamic_lod_from_string(value: &str) {
@@ -197,29 +193,34 @@ pub fn set_dynamic_lod_from_string(value: &str) {
         return;
     }
     set_dynamic_lod(mapped);
-    if let Some(level) = DynamicGameLODLevel::from_str(mapped) {
-        set_dynamic_lod_level(level);
-    }
 }
 
 pub fn get_dynamic_lod() -> String {
-    DYNAMIC_LOD_NAME.with(|cell| cell.borrow().clone())
+    get_game_lod_manager()
+        .get_dynamic_lod_level()
+        .to_str()
+        .to_owned()
 }
 
 pub fn set_static_lod_from_string(value: &str) {
     let Some(mapped) = canonical_static_lod_name(value) else {
         return;
     };
-    STATIC_LOD_NAME.with(|cell| *cell.borrow_mut() = mapped.to_string());
-    if mapped != "Custom"
-        && CURRENT_STATIC_LOD_NAME.with(|cell| cell.borrow().as_str() == mapped)
+    let level = StaticGameLODLevel::from_str(mapped).expect("canonical StaticGameLOD level");
+    if get_global_data().is_some_and(|data| !data.read().enable_static_lod) {
+        get_game_lod_manager_mut().set_current_static_lod_level(StaticGameLODLevel::Custom);
+        return;
+    }
+    if level == StaticGameLODLevel::Unknown
+        || (level != StaticGameLODLevel::Custom
+            && get_game_lod_manager().get_static_lod_level() == level)
     {
         return;
     }
+    // A synchronous callback may query this same manager. No manager loan
+    // survives apply, and the original current level commits after callbacks.
     apply_static_lod_level(mapped);
-    if mapped != "Unknown" {
-        CURRENT_STATIC_LOD_NAME.with(|cell| *cell.borrow_mut() = mapped.to_string());
-    }
+    get_game_lod_manager_mut().set_current_static_lod_level(level);
 }
 
 /// Apply StaticGameLOD settings to GlobalData.
@@ -238,15 +239,13 @@ fn apply_static_lod_level(level_name: &str) {
         refresh_custom_static_lod_level();
     }
 
-    let (lod_info, requested_texture_reduction) = {
-        let manager = get_game_lod_manager();
-        let lod_info = manager.static_game_lod_info[index].clone();
-        let texture_reduction = if level == StaticGameLODLevel::Custom {
-            lod_info.texture_reduction
-        } else {
-            recommended_texture_reduction(&manager, level)
-        };
-        (lod_info, texture_reduction)
+    let lod_info = get_game_lod_manager().static_game_lod_info[index].clone();
+    // Lazy recommendation can now write this manager's ideal field. End the
+    // preset read before invoking it; callbacks likewise retain no guard.
+    let requested_texture_reduction = if level == StaticGameLODLevel::Custom {
+        lod_info.texture_reduction
+    } else {
+        recommended_texture_reduction(level)
     };
 
     let requested_trees = if level == StaticGameLODLevel::Custom {
@@ -311,16 +310,14 @@ fn apply_static_lod_level(level_name: &str) {
     }
 }
 
-fn recommended_texture_reduction(
-    manager: &crate::common::ini::ini_game_lod::GameLODManager,
-    requested_level: StaticGameLODLevel,
-) -> i32 {
+fn recommended_texture_reduction(requested_level: StaticGameLODLevel) -> i32 {
     if get_ideal_static_lod().eq_ignore_ascii_case("Unknown") {
         let _ = find_static_lod_level();
     }
     if !did_mem_pass() {
-        return manager.static_game_lod_info[StaticGameLODLevel::Low.to_index().unwrap()]
-            .texture_reduction;
+        return get_game_lod_manager().static_game_lod_info
+            [StaticGameLODLevel::Low.to_index().unwrap()]
+        .texture_reduction;
     }
 
     let ideal_level = canonical_static_lod_name(&get_ideal_static_lod())
@@ -333,7 +330,7 @@ fn recommended_texture_reduction(
         })
         .unwrap_or(requested_level);
 
-    manager.static_game_lod_info[ideal_level.to_index().unwrap()].texture_reduction
+    get_game_lod_manager().static_game_lod_info[ideal_level.to_index().unwrap()].texture_reduction
 }
 
 /// Mirrors C++ `GameLODManager::refreshCustomStaticLODLevel`.
@@ -378,18 +375,26 @@ fn refresh_custom_static_lod_info_from_global(
 }
 
 pub fn get_static_lod() -> String {
-    STATIC_LOD_NAME.with(|cell| cell.borrow().clone())
+    get_game_lod_manager()
+        .get_static_lod_level()
+        .to_str()
+        .to_owned()
 }
 
 pub fn set_ideal_static_lod_from_string(value: &str) {
     let Some(mapped) = canonical_static_lod_name(value) else {
         return;
     };
-    IDEAL_STATIC_LOD_NAME.with(|cell| *cell.borrow_mut() = mapped.to_string());
+    get_game_lod_manager_mut().set_ideal_static_lod_level(
+        StaticGameLODLevel::from_str(mapped).expect("canonical ideal StaticGameLOD level"),
+    );
 }
 
 pub fn get_ideal_static_lod() -> String {
-    IDEAL_STATIC_LOD_NAME.with(|cell| cell.borrow().clone())
+    get_game_lod_manager()
+        .get_ideal_static_lod_level()
+        .to_str()
+        .to_owned()
 }
 
 /// Matches C++ GameLODManager::didMemPass.
@@ -434,9 +439,11 @@ pub fn set_cpu_freq_mhz_override_for_tests(value: Option<i32>) {
 #[doc(hidden)]
 pub fn reset_static_lod_state_for_tests() {
     SKIP_OPTIONS_PERSIST.store(true, Ordering::Relaxed);
-    STATIC_LOD_NAME.with(|cell| *cell.borrow_mut() = "Medium".to_string());
-    CURRENT_STATIC_LOD_NAME.with(|cell| *cell.borrow_mut() = "Unknown".to_string());
-    IDEAL_STATIC_LOD_NAME.with(|cell| *cell.borrow_mut() = "Unknown".to_string());
+    {
+        let mut manager = get_game_lod_manager_mut();
+        manager.set_current_static_lod_level(StaticGameLODLevel::Unknown);
+        manager.set_ideal_static_lod_level(StaticGameLODLevel::Unknown);
+    }
     set_mem_passed_override_for_tests(None);
     set_hardware_overrides_for_tests(None, None, None, None);
 }
@@ -508,19 +515,15 @@ pub fn find_static_lod_level() -> String {
     set_ideal_static_lod_from_string(name);
 
     let current_unknown =
-        CURRENT_STATIC_LOD_NAME.with(|cell| cell.borrow().eq_ignore_ascii_case("Unknown"));
+        get_game_lod_manager().get_static_lod_level() == StaticGameLODLevel::Unknown;
     persist_recommended_static_lod(name, current_unknown);
-    if current_unknown {
-        STATIC_LOD_NAME.with(|cell| *cell.borrow_mut() = name.to_string());
-    }
     name.to_string()
 }
 
 /// C++ W3DDisplay::init / Options first-open: if static LOD is still
 /// UNKNOWN, apply `findStaticLODLevel()`.
 pub fn ensure_static_lod_applied() {
-    let unknown =
-        CURRENT_STATIC_LOD_NAME.with(|cell| cell.borrow().eq_ignore_ascii_case("Unknown"));
+    let unknown = get_game_lod_manager().get_static_lod_level() == StaticGameLODLevel::Unknown;
     if unknown {
         let level = find_static_lod_level();
         set_static_lod_from_string(&level);
@@ -709,249 +712,13 @@ pub fn get_slow_death_scale() -> f32 {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
+#[path = "game_lod/tests.rs"]
+mod tests;
 
-    #[test]
-    fn static_lod_parser_tracks_current_and_ideal_low_detail() {
-        reset_static_lod_state_for_tests();
-        set_static_lod_from_string("Medium");
-        set_ideal_static_lod_from_string("Medium");
-        assert!(!prefers_low_res_movies());
+#[cfg(test)]
+#[path = "game_lod/level_authority_tests.rs"]
+mod lod_level_acceptance_controls;
 
-        set_static_lod_from_string("Low");
-        assert!(prefers_low_res_movies());
-
-        set_static_lod_from_string("High");
-        set_ideal_static_lod_from_string("Low");
-        assert!(prefers_low_res_movies());
-    }
-
-    #[test]
-    fn custom_static_lod_snapshots_current_global_settings_before_apply() {
-        reset_static_lod_state_for_tests();
-        crate::common::ini::ini_game_data::init_global_data();
-        let global_data = get_global_data().expect("global data initialized");
-
-        {
-            let mut global = global_data.write();
-            global.max_particle_count = 4321;
-            global.use_shadow_volumes = false;
-            global.use_shadow_decals = true;
-            global.use_cloud_map = false;
-            global.use_light_map = true;
-            global.show_soft_water_edge = false;
-            global.max_tank_track_edges = 17;
-            global.max_tank_track_opaque_edges = 9;
-            global.max_tank_track_fade_delay = 12345;
-            global.use_draw_module_lod = true;
-            global.use_heat_effects = false;
-            global.texture_reduction_factor = 2;
-            global.use_fps_limit = true;
-            global.enable_dynamic_lod = false;
-            global.use_trees = false;
-        }
-
-        {
-            let mut manager = get_game_lod_manager_mut();
-            let custom_index = StaticGameLODLevel::Custom.to_index().unwrap();
-            let custom = &mut manager.static_game_lod_info[custom_index];
-            custom.max_particle_count = 111;
-            custom.use_shadow_volumes = true;
-            custom.use_cloud_map = true;
-            custom.texture_reduction = 0;
-            custom.enable_dynamic_lod = true;
-            custom.use_trees = true;
-        }
-
-        set_static_lod_from_string("Custom");
-
-        {
-            let global = global_data.read();
-            assert_eq!(global.max_particle_count, 4321);
-            assert!(!global.use_shadow_volumes);
-            assert!(global.use_shadow_decals);
-            assert!(!global.use_cloud_map);
-            assert!(global.use_light_map);
-            assert!(!global.show_soft_water_edge);
-            assert_eq!(global.max_tank_track_edges, 17);
-            assert_eq!(global.max_tank_track_opaque_edges, 9);
-            assert_eq!(global.max_tank_track_fade_delay, 12345);
-            assert!(global.use_draw_module_lod);
-            assert!(!global.use_heat_effects);
-            assert_eq!(global.texture_reduction_factor, 2);
-            assert!(global.use_fps_limit);
-            assert!(!global.enable_dynamic_lod);
-            assert!(!global.use_trees);
-        }
-
-        let manager = get_game_lod_manager();
-        let custom = &manager.static_game_lod_info[StaticGameLODLevel::Custom.to_index().unwrap()];
-        assert_eq!(custom.max_particle_count, 4321);
-        assert!(!custom.use_shadow_volumes);
-        assert!(!custom.use_buildup_scaffolds);
-        assert!(!custom.use_tree_sway);
-        assert_eq!(custom.texture_reduction, 2);
-        assert!(!custom.enable_dynamic_lod);
-        assert!(!custom.use_trees);
-    }
-
-    #[test]
-    fn non_custom_static_lod_uses_cpp_memory_recommended_texture_reduction() {
-        reset_static_lod_state_for_tests();
-        crate::common::ini::ini_game_data::init_global_data();
-        let global_data = get_global_data().expect("global data initialized");
-
-        {
-            let mut manager = get_game_lod_manager_mut();
-            let low_index = StaticGameLODLevel::Low.to_index().unwrap();
-            let high_index = StaticGameLODLevel::High.to_index().unwrap();
-            manager.static_game_lod_info[low_index].texture_reduction = 3;
-            manager.static_game_lod_info[high_index].texture_reduction = 0;
-            manager.static_game_lod_info[high_index].use_trees = true;
-        }
-
-        {
-            let mut global = global_data.write();
-            global.texture_reduction_factor = 0;
-            global.use_trees = true;
-            global.shell_map_on = true;
-        }
-
-        set_ideal_static_lod_from_string("Unknown");
-        set_mem_passed_override_for_tests(Some(false));
-        set_static_lod_from_string("High");
-
-        {
-            let global = global_data.read();
-            assert_eq!(global.texture_reduction_factor, 3);
-            assert!(!global.use_trees);
-            assert!(!global.shell_map_on);
-        }
-
-        set_mem_passed_override_for_tests(None);
-    }
-
-    #[test]
-    fn repeated_non_custom_static_lod_does_not_reapply_cpp_current_level() {
-        reset_static_lod_state_for_tests();
-        crate::common::ini::ini_game_data::init_global_data();
-        let global_data = get_global_data().expect("global data initialized");
-
-        {
-            let mut manager = get_game_lod_manager_mut();
-            let high_index = StaticGameLODLevel::High.to_index().unwrap();
-            manager.static_game_lod_info[high_index].max_particle_count = 222;
-        }
-
-        {
-            let mut global = global_data.write();
-            global.max_particle_count = 111;
-        }
-
-        set_mem_passed_override_for_tests(Some(true));
-        set_cpu_freq_mhz_override_for_tests(Some(1000));
-        set_static_lod_from_string("High");
-        assert_eq!(global_data.read().max_particle_count, 222);
-
-        global_data.write().max_particle_count = 333;
-        set_static_lod_from_string("High");
-        assert_eq!(global_data.read().max_particle_count, 333);
-
-        global_data.write().max_particle_count = 444;
-        set_static_lod_from_string("Custom");
-        assert_eq!(global_data.read().max_particle_count, 444);
-
-        set_mem_passed_override_for_tests(None);
-        set_cpu_freq_mhz_override_for_tests(None);
-    }
-
-    #[test]
-    fn really_low_mhz_disables_shell_map_even_when_memory_passes() {
-        reset_static_lod_state_for_tests();
-        crate::common::ini::ini_game_data::init_global_data();
-        let global_data = get_global_data().expect("global data initialized");
-
-        {
-            let mut manager = get_game_lod_manager_mut();
-            manager.set_really_low_mhz(400);
-        }
-
-        {
-            let mut global = global_data.write();
-            global.shell_map_on = true;
-        }
-
-        set_mem_passed_override_for_tests(Some(true));
-        set_cpu_freq_mhz_override_for_tests(Some(399));
-        set_static_lod_from_string("High");
-
-        assert!(!global_data.read().shell_map_on);
-
-        set_mem_passed_override_for_tests(None);
-        set_cpu_freq_mhz_override_for_tests(None);
-    }
-
-    #[test]
-    fn did_mem_pass_uses_override_for_cpp_load_screen_gate() {
-        set_mem_passed_override_for_tests(Some(false));
-        assert!(!did_mem_pass());
-
-        set_mem_passed_override_for_tests(Some(true));
-        assert!(did_mem_pass());
-
-        set_mem_passed_override_for_tests(None);
-    }
-
-    #[test]
-    fn find_static_lod_level_walks_presets_high_to_low() {
-        reset_static_lod_state_for_tests();
-        {
-            let mut manager = get_game_lod_manager_mut();
-            manager.init();
-            let high = manager.new_lod_preset(2).expect("high preset");
-            high.cpu_type = CpuType::P4;
-            high.mhz = 1500;
-            high.video_type = ChipsetType::GeForce4;
-            high.memory = 256;
-            let low = manager.new_lod_preset(0).expect("low preset");
-            low.cpu_type = CpuType::P3;
-            low.mhz = 800;
-            low.video_type = ChipsetType::TNT2;
-            low.memory = 128;
-        }
-
-        set_hardware_overrides_for_tests(
-            Some(CpuType::P4),
-            Some(2000),
-            Some(ChipsetType::Radeon9700),
-            Some(1024),
-        );
-        assert_eq!(find_static_lod_level(), "High");
-
-        reset_static_lod_state_for_tests();
-        set_hardware_overrides_for_tests(
-            Some(CpuType::P3),
-            Some(850),
-            Some(ChipsetType::TNT2),
-            Some(128),
-        );
-        assert_eq!(find_static_lod_level(), "Low");
-        set_hardware_overrides_for_tests(None, None, None, None);
-        get_game_lod_manager_mut().init();
-    }
-
-    #[test]
-    fn get_slow_death_scale_reads_live_dynamic_lod() {
-        reset_static_lod_state_for_tests();
-        set_dynamic_lod_from_string("High");
-        {
-            let mut manager = get_game_lod_manager_mut();
-            let low = DynamicGameLODLevel::Low.to_index().unwrap();
-            manager.dynamic_game_lod_info[low].slow_death_scale = 0.25;
-        }
-        set_dynamic_lod_from_string("Low");
-        assert!((get_slow_death_scale() - 0.25).abs() < f32::EPSILON);
-        set_dynamic_lod_from_string("High");
-    }
-}
+#[cfg(test)]
+#[path = "game_lod/static_request_tests.rs"]
+mod static_request_controls;

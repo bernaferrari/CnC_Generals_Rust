@@ -1037,6 +1037,21 @@
               "cargo_reachable": true,
               "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/Common/src/common/game_lod.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/Common/src/common/game_lod/level_authority_tests.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/Common/src/common/game_lod/static_request_tests.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/Common/src/common/game_lod/tests.rs"
             }
           ],
           "entry_id": "game_engine:Source/Common/GameLOD.cpp",
@@ -12734,6 +12749,11 @@
               "cargo_reachable": true,
               "classification": "test",
               "path": "GeneralsRust/Code/GameEngine/GameLogic/src/team/generic_script_condition_tests.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/team/generic_script_duplicate_tests.rs"
             },
             {
               "cargo_reachable": true,
@@ -190052,7 +190072,7 @@
       ]
     }
   ],
-  "provenance_input_digest": "43d795851306c769a1a5cc7921d95f6bf9ded83e9c402226bb0117c7cb14e19d",
+  "provenance_input_digest": "43fa9ebfd48ea09be26ae0d3189a2cd042b86ce2ffbf3f123907249e81921286",
   "schema_version": 1,
   "summary": {
     "maximum_packet_size": 15,

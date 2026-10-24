@@ -2849,6 +2849,13 @@ mod options_os_wnd_tests {
 
     #[test]
     fn os_wnd_options_menu_accept_hits_button_then_latches() {
+        match crate::test_process::run_bounded(
+            module_path!(),
+            "os_wnd_options_menu_accept_hits_button_then_latches",
+        ) {
+            crate::test_process::TestProcess::ParentVerified => return,
+            crate::test_process::TestProcess::Child => {}
+        }
         install_named_button("OptionsMenu.wnd:ButtonAccept", 10, 10);
         assert!(
             drive_os_wnd_options_menu_accept_like_cpp(),
@@ -2863,6 +2870,13 @@ mod options_os_wnd_tests {
 
     #[test]
     fn apply_options_from_host_sets_gamma_and_music_volume_like_cpp() {
+        match crate::test_process::run_bounded(
+            module_path!(),
+            "apply_options_from_host_sets_gamma_and_music_volume_like_cpp",
+        ) {
+            crate::test_process::TestProcess::ParentVerified => return,
+            crate::test_process::TestProcess::Child => {}
+        }
         // C++ OptionsMenu.cpp:1180-1262 MusicVolume 0-100 + TheDisplay->setGamma.
         crate::display::display_fx::set_gamma_state(1.0, 0.0, 1.0);
         let mut apply = HostOptionsApply::default();
@@ -2878,6 +2892,13 @@ mod options_os_wnd_tests {
 
     #[test]
     fn apply_options_from_host_custom_preserves_advanced_detail() {
+        match crate::test_process::run_bounded(
+            module_path!(),
+            "apply_options_from_host_custom_preserves_advanced_detail",
+        ) {
+            crate::test_process::TestProcess::ParentVerified => return,
+            crate::test_process::TestProcess::Child => {}
+        }
         let original = {
             let g = runtime_global_data::read();
             (
@@ -2934,6 +2955,13 @@ mod options_os_wnd_tests {
 
     #[test]
     fn apply_options_from_host_publishes_scroll_anchors() {
+        match crate::test_process::run_bounded(
+            module_path!(),
+            "apply_options_from_host_publishes_scroll_anchors",
+        ) {
+            crate::test_process::TestProcess::ParentVerified => return,
+            crate::test_process::TestProcess::Child => {}
+        }
         use crate::gui::options_host_bridge::{
             HostOptionsRequest, acquire_host_options_bridge_test_guard,
             set_host_options_bridge_enabled, take_host_options_requests,
@@ -2968,6 +2996,13 @@ mod options_os_wnd_tests {
 
     #[test]
     fn os_wnd_options_menu_keyboard_and_defaults_hit_named_gadgets() {
+        match crate::test_process::run_bounded(
+            module_path!(),
+            "os_wnd_options_menu_keyboard_and_defaults_hit_named_gadgets",
+        ) {
+            crate::test_process::TestProcess::ParentVerified => return,
+            crate::test_process::TestProcess::Child => {}
+        }
         install_named_button("OptionsMenu.wnd:ButtonKeyboardOptions", 10, 40);
         install_named_button("OptionsMenu.wnd:ButtonDefaults", 10, 70);
         assert!(drive_os_wnd_options_menu_keyboard_like_cpp());

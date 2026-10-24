@@ -1942,6 +1942,8 @@ pub struct Script {
     pub condition_executed_count: i32,
 }
 
+include!("core/script_duplicate.rs");
+
 impl Script {
     pub fn new() -> Self {
         Self {

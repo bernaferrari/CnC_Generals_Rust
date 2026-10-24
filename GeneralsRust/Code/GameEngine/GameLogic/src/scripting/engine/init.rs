@@ -455,29 +455,31 @@ impl ScriptEngine {
         }
     }
 
-    fn find_script_clone_in_chain(
+    fn find_script_in_chain_with(
         script: &Script,
         name: &str,
         require_subroutine: bool,
+        copy_script: fn(&Script) -> Script,
     ) -> Option<Script> {
         let mut current: Option<&Script> = Some(script);
         while let Some(script_ref) = current {
             if script_ref.script_name == name && (!require_subroutine || script_ref.is_subroutine) {
-                return Some(script_ref.clone());
+                return Some(copy_script(script_ref));
             }
             current = script_ref.next_script.as_deref();
         }
         None
     }
 
-    fn find_script_clone_in_list(
+    fn find_script_in_list_with(
         list: &ScriptList,
         name: &str,
         require_subroutine: bool,
+        copy_script: fn(&Script) -> Script,
     ) -> Option<Script> {
         if let Some(script_head) = list.first_script.as_deref() {
             if let Some(found) =
-                Self::find_script_clone_in_chain(script_head, name, require_subroutine)
+                Self::find_script_in_chain_with(script_head, name, require_subroutine, copy_script)
             {
                 return Some(found);
             }
@@ -486,9 +488,12 @@ impl ScriptEngine {
         let mut group_opt = list.first_group.as_deref();
         while let Some(group) = group_opt {
             if let Some(script_head) = group.first_script.as_deref() {
-                if let Some(found) =
-                    Self::find_script_clone_in_chain(script_head, name, require_subroutine)
-                {
+                if let Some(found) = Self::find_script_in_chain_with(
+                    script_head,
+                    name,
+                    require_subroutine,
+                    copy_script,
+                ) {
                     return Some(found);
                 }
             }
@@ -537,7 +542,8 @@ impl ScriptEngine {
                 let Some(list) = slot.as_deref() else {
                     continue;
                 };
-                if let Some(found) = Self::find_script_clone_in_list(list, name, true) {
+                if let Some(found) = Self::find_script_in_list_with(list, name, true, Script::clone)
+                {
                     return Some(found);
                 }
             }
@@ -551,7 +557,8 @@ impl ScriptEngine {
                 let Some(list) = slot.as_deref() else {
                     continue;
                 };
-                if let Some(found) = Self::find_script_clone_in_list(list, name, true) {
+                if let Some(found) = Self::find_script_in_list_with(list, name, true, Script::clone)
+                {
                     return Some(found);
                 }
             }
@@ -1102,12 +1109,26 @@ impl ScriptEngine {
 
     /// Find a script by name and return a clone (non-subroutine allowed).
     pub fn find_script_clone_by_name(&self, name: &str) -> Option<Script> {
+        self.find_script_by_name_with(name, Script::clone)
+    }
+
+    /// Initial TeamPrototype cache admission uses CPP Script::duplicate.
+    pub(crate) fn find_script_duplicate_by_name(&self, name: &str) -> Option<Script> {
+        self.find_script_by_name_with(name, Script::duplicate_definition)
+    }
+
+    fn find_script_by_name_with(
+        &self,
+        name: &str,
+        copy_script: fn(&Script) -> Script,
+    ) -> Option<Script> {
         if let Some(found) = self.with_current_active_script_lists(|active_lists| {
             for slot in &active_lists.lists {
                 let Some(list) = slot.as_deref() else {
                     continue;
                 };
-                if let Some(found) = Self::find_script_clone_in_list(list, name, false) {
+                if let Some(found) = Self::find_script_in_list_with(list, name, false, copy_script)
+                {
                     return Some(found);
                 }
             }
@@ -1121,7 +1142,8 @@ impl ScriptEngine {
                 let Some(list) = slot.as_deref() else {
                     continue;
                 };
-                if let Some(found) = Self::find_script_clone_in_list(list, name, false) {
+                if let Some(found) = Self::find_script_in_list_with(list, name, false, copy_script)
+                {
                     return Some(found);
                 }
             }
