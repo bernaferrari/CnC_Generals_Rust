@@ -71,22 +71,13 @@ impl Player {
         upgrade_name: &str,
         upgrade_type: gamelogic::upgrade::UpgradeType,
     ) {
-        self.complete_researched_upgrade_with_definition(upgrade_name, upgrade_type, None);
-    }
-
-    pub(crate) fn complete_researched_upgrade_with_definition(
-        &mut self,
-        upgrade_name: &str,
-        upgrade_type: gamelogic::upgrade::UpgradeType,
-        definition: Option<&gamelogic::upgrade::UpgradeTemplate>,
-    ) {
         if let Some(queued) = self.find_queued_upgrade_name(upgrade_name) {
             self.queued_upgrades.remove(&queued);
         }
         if upgrade_type == gamelogic::upgrade::UpgradeType::Object {
             return;
         }
-        self.add_completed_upgrade_with_definition(upgrade_name, definition);
+        self.add_completed_upgrade(upgrade_name);
     }
 
     pub fn has_unlocked_upgrade(&self, upgrade_name: &str) -> bool {

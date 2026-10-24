@@ -676,6 +676,7 @@ fn presentation_feeds_victory_and_construction() {
         o.construction_percent = 1.0;
         let mut bd = BuildingData::new(BuildingType::Barracks);
         bd.production_queue.push(ProductionItem {
+            runtime_entry_identity: 0,
             template_name: "Ranger".into(),
             progress: 0.25,
             total_time: 20.0,
@@ -1004,6 +1005,7 @@ fn presentation_feeds_control_bar_veterancy_and_production() {
         };
         let mut bd = BuildingData::new(BuildingType::Barracks);
         bd.production_queue.push(ProductionItem {
+            runtime_entry_identity: 0,
             template_name: "Ranger".into(),
             progress: 0.55,
             total_time: 10.0,

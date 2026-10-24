@@ -10,7 +10,6 @@ struct HostRuntimeGlobals {
     teams: TeamFactory,
     script_engine: Option<ScriptEngine>,
     named_objects: NamedObjectTrackerState,
-    areas: AreaTrackerState,
     pending_team_script_events: TeamScriptEventQueue,
 }
 
@@ -42,7 +41,6 @@ impl HostRuntimeGlobals {
                 std::mem::take(&mut *guard)
             };
             let named_objects = get_named_object_tracker().take_state_for_world_boundary();
-            let areas = get_area_tracker().take_state_for_world_boundary();
             let pending_team_script_events = take_pending_team_script_events_for_world_boundary();
 
             Self {
@@ -50,7 +48,6 @@ impl HostRuntimeGlobals {
                 teams,
                 script_engine,
                 named_objects,
-                areas,
                 pending_team_script_events,
             }
         })
@@ -68,7 +65,6 @@ impl HostRuntimeGlobals {
                 teams,
                 script_engine,
                 named_objects,
-                areas,
                 pending_team_script_events,
             } = self;
 
@@ -88,7 +84,6 @@ impl HostRuntimeGlobals {
             };
             let old_named_objects =
                 get_named_object_tracker().replace_state_for_world_boundary(named_objects);
-            let old_areas = get_area_tracker().replace_state_for_world_boundary(areas);
             let old_pending_team_script_events =
                 replace_pending_team_script_events_for_world_boundary(pending_team_script_events);
 
@@ -97,7 +92,6 @@ impl HostRuntimeGlobals {
                 teams: old_teams,
                 script_engine: old_script_engine,
                 named_objects: old_named_objects,
-                areas: old_areas,
                 pending_team_script_events: old_pending_team_script_events,
             }
         })

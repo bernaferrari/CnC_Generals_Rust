@@ -212,11 +212,11 @@ impl super::native_pose_loan::NativeInstalledPoseLoan<'_> {
                     self.install_native_condition(id, index, world, sync_ms, graphics);
                 }
             }
-            PresentationDrawableMutation::TransformInstalled { .. } => {
+            PresentationDrawableMutation::TransformInstalled { transform, .. } => {
                 let Some(source) = source else { return };
                 for ((object, _), state) in &mut *self.drawable_visual_states {
                     if *object == id.0 {
-                        source.install_transform(state);
+                        source.install_observed_transform(state, transform);
                     }
                 }
             }
@@ -474,7 +474,51 @@ impl ObjectVisualState {
         if self.native_transform_revision == Some(revision) {
             return;
         }
-        self.native_transform_revision = Some(revision);
+        self.install_native_transform(
+            world,
+            Some(revision),
+            under_construction,
+            construction_percent,
+            max_height_above_position,
+        );
+    }
+
+    /// An actual Set_Transform visit is authoritative even when the source
+    /// observation revision is unchanged. Never replace it with native_pose().
+    pub(super) fn receive_native_installed_transform(
+        &mut self,
+        identity: &crate::assets::LiveDrawPlaybackIdentity,
+        world: Mat4,
+        mesh_scale: f32,
+        float_yaw: f32,
+        float_pitch: f32,
+        under_construction: bool,
+        construction_percent: f32,
+        max_height_above_position: f32,
+    ) {
+        if self.native_host_identity.as_ref() != Some(identity) {
+            return;
+        }
+        let revision = identity.native_pose().map(|(revision, _)| revision);
+        self.native_source_supported = mesh_scale == 1. && float_yaw == 0. && float_pitch == 0.;
+        self.install_native_transform(
+            world,
+            revision,
+            under_construction,
+            construction_percent,
+            max_height_above_position,
+        );
+    }
+
+    fn install_native_transform(
+        &mut self,
+        world: Mat4,
+        revision: Option<u64>,
+        under_construction: bool,
+        construction_percent: f32,
+        max_height_above_position: f32,
+    ) {
+        self.native_transform_revision = revision;
         self.native_drawable_transform = world;
         if let InstalledDrawObject::Ready(pose) = &mut self.installed_draw_pose {
             let mut adjusted = world;

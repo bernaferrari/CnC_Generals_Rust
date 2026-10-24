@@ -114,6 +114,9 @@ impl ScriptUiEffects for ObserveNext<'_> {
         _: &mut crate::presentation_frame::camera::SessionCamera,
         enabled: bool,
         _: bool,
+        _upgrade_source: game_engine::common::thing::receiving_module_content::UpgradeTooltipSource<
+            '_,
+        >,
     ) {
         // The real interpreter's following authored operation sees the same
         // live native loan, with no presentation or global reset drain.

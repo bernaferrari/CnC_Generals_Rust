@@ -476,6 +476,7 @@ fn production_completion_receipts_follow_actual_owner_fifo_across_peer_reset_and
     fn finish(world: &mut GameLogic, factory: ObjectId, name: &str) -> ObjectId {
         let mut building = BuildingData::new(BuildingType::Barracks);
         building.production_queue.push(ProductionItem {
+            runtime_entry_identity: 0,
             template_name: name.into(),
             progress: 0.0,
             total_time: 0.0,

@@ -87,6 +87,31 @@ impl GameLogic {
         origin: Vec3,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> Vec<ObjectId> {
+        self.execute_parsed_weapon_ocl_at_with_interpreter_and_effects(
+            ocl_name,
+            source_id,
+            source_team,
+            source_veterancy,
+            source_orientation,
+            source_velocity,
+            origin,
+            None,
+            presentation_effects,
+        )
+    }
+
+    pub(crate) fn execute_parsed_weapon_ocl_at_with_interpreter_and_effects(
+        &mut self,
+        ocl_name: &str,
+        source_id: Option<ObjectId>,
+        source_team: Team,
+        source_veterancy: VeterancyLevel,
+        source_orientation: f32,
+        source_velocity: Vec3,
+        origin: Vec3,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> Vec<ObjectId> {
         use gamelogic::object_creation_list::{
             DebrisDisposition, GenericObjectCreationNugget, ObjectCreationNugget,
         };
@@ -138,7 +163,7 @@ impl GameLogic {
             for _ in 0..count {
                 // C++ chooses once per created object from ObjectNames using
                 // the game-logic random stream (ObjectCreationList.cpp:1326).
-                let raw_pick = gamelogic::helpers::get_game_logic_random_value(0, upper_pick);
+                let raw_pick = self.logic_random.next_int(0, upper_pick);
                 let Ok(pick) = usize::try_from(raw_pick) else {
                     continue;
                 };
@@ -193,7 +218,7 @@ impl GameLogic {
                     source_team,
                     source_owner_player_id,
                     spawn_position,
-                    None,
+                    interpreter,
                     presentation_effects,
                 ) else {
                     continue;
@@ -240,8 +265,7 @@ impl GameLogic {
                 } else if generic.max_frames > 0 {
                     let min_frames = i32::try_from(generic.min_frames).unwrap_or(i32::MAX);
                     let max_frames = i32::try_from(generic.max_frames).unwrap_or(i32::MAX);
-                    let chosen_frames =
-                        gamelogic::helpers::get_game_logic_random_value(min_frames, max_frames);
+                    let chosen_frames = self.logic_random.next_int(min_frames, max_frames);
                     let delay_frames = u32::try_from(chosen_frames).unwrap_or(generic.min_frames);
                     object.lifetime_update = Some(
                         crate::game_logic::host_lifetime_update::HostLifetimeUpdateData::from_delay_frames(

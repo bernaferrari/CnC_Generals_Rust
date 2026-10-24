@@ -1179,6 +1179,7 @@ fn production_queue_freezes_from_building_data() {
     if let Some(obj) = logic.host_object_mut(id) {
         let mut bd = BuildingData::new(BuildingType::Barracks);
         bd.production_queue.push(ProductionItem {
+            runtime_entry_identity: 0,
             template_name: "Ranger".into(),
             progress: 0.4,
             total_time: 10.0,

@@ -1650,7 +1650,10 @@ impl ControlBar {
         }
     }
 
-    fn populate_special_power_shortcut(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+    fn populate_special_power_shortcut_with_upgrade_source(
+        &mut self,
+        upgrade_source: crate::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource<'_>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         if self.special_power_shortcut_count == 0 {
             return Ok(());
         }
@@ -1705,7 +1708,10 @@ impl ControlBar {
 
             if (logic_button.get_options_bits() & CommandOption::NeedUpgrade as u32) != 0 {
                 if let Some(upgrade) = logic_button.get_upgrade_template() {
-                    if !player.has_upgrade_complete(upgrade) {
+                    let completed = upgrade_source
+                        .completed_upgrade(upgrade.get_name().as_str())
+                        .unwrap_or_else(|| player.has_upgrade_complete(upgrade));
+                    if !completed {
                         continue;
                     }
                 }
@@ -1920,6 +1926,12 @@ impl ControlBar {
     }
 
     pub fn show_special_power_shortcut(&mut self) {
+        self.show_special_power_shortcut_with_upgrade_source(crate::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource::Standalone);
+    }
+    pub fn show_special_power_shortcut_with_upgrade_source(
+        &mut self,
+        upgrade_source: crate::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource<'_>,
+    ) {
         if gamelogic::helpers::TheScriptEngine::is_game_ending() {
             return;
         }
@@ -1952,7 +1964,7 @@ impl ControlBar {
                 shortcut.is_hidden = false;
             }
         }
-        let _ = self.populate_special_power_shortcut();
+        let _ = self.populate_special_power_shortcut_with_upgrade_source(upgrade_source);
     }
 
     pub fn animate_special_power_shortcut(&mut self, enabled: bool) {

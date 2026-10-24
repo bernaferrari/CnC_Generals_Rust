@@ -10,6 +10,9 @@ impl crate::game_logic::ScriptUiEffects for NativeAiUiRecorder {
         camera: &mut crate::presentation_frame::camera::SessionCamera,
         enabled: bool,
         _replay: bool,
+        _upgrade_source: game_engine::common::thing::receiving_module_content::UpgradeTooltipSource<
+            '_,
+        >,
     ) {
         self.events.push((enabled, camera.camera_zoom_target));
     }

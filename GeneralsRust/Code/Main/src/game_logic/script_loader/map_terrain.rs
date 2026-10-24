@@ -448,7 +448,7 @@ pub fn install_runtime_polygon_triggers(
     terrain: &mut gamelogic::terrain::TerrainLogic,
     triggers: &[PolygonTrigger],
 ) {
-    terrain.replace_trigger_areas(triggers.iter().cloned());
+    terrain.replace_receiving_trigger_areas(triggers.iter().cloned());
 }
 
 /// Parse world bounds from the map's GlobalLighting or Waypoints chunk.

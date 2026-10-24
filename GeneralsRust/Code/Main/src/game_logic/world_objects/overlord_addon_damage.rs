@@ -55,6 +55,17 @@ impl GameLogic {
         host_id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> Option<ObjectId> {
+        self.ensure_overlord_portable_addon_occupant_with_interpreter_and_effects(
+            host_id, None, effects,
+        )
+    }
+
+    pub(crate) fn ensure_overlord_portable_addon_occupant_with_interpreter_and_effects(
+        &mut self,
+        host_id: ObjectId,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> Option<ObjectId> {
         let (kind, is_helix, team, pos, owner, existing, stealthed) = {
             let host = self.objects.get(&host_id)?;
             let emperor = is_emperor_template(&host.template_name);
@@ -88,7 +99,12 @@ impl GameLogic {
         }
         self.ensure_overlord_payload_template(template);
         let occupant_id = self.create_object_for_owner_or_team_with_effects(
-            template, team, owner, pos, None, effects,
+            template,
+            team,
+            owner,
+            pos,
+            interpreter,
+            effects,
         )?;
         self.attach_overlord_portable_occupant(host_id, occupant_id);
         if stealthed {

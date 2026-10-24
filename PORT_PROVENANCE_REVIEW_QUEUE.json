@@ -18825,6 +18825,11 @@
             },
             {
               "cargo_reachable": true,
+              "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/Common/src/common/thing/receiving_module_content/upgrade_tooltip.rs"
+            },
+            {
+              "cargo_reachable": true,
               "classification": "test",
               "path": "GeneralsRust/Code/GameEngine/Common/src/common/thing/receiving_module_content_tests.rs"
             },
@@ -24999,6 +25004,11 @@
             {
               "cargo_reachable": true,
               "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/control_bar/control_bar_impl/shortcut_upgrade_population_tests.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "test",
               "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/control_bar/control_bar_impl/tests.rs"
             },
             {
@@ -26332,6 +26342,16 @@
               "cargo_reachable": true,
               "classification": "test",
               "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/gui_callbacks/control_bar_popup_description/owner_tests.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "shim",
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/gui_callbacks/control_bar_popup_description/upgrade_observer.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/gui_callbacks/control_bar_popup_description/upgrade_observer_tests.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameClient/GUI/GUICallbacks/ControlBarPopupDescription.cpp",
@@ -190022,7 +190042,7 @@
       ]
     }
   ],
-  "provenance_input_digest": "d8a9d6b8a4436689b632ddd41bf9c2b1e3bddc0f96a57d185a0d48c3dd28f192",
+  "provenance_input_digest": "0f3f1c0bd1806d74b997c64745eacccec601d7158aea4efe6741ee0ef7c7468a",
   "schema_version": 1,
   "summary": {
     "maximum_packet_size": 15,

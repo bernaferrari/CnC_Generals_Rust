@@ -229,6 +229,7 @@ fn cancel_production_refund_commits_to_owner_without_shadow_writeback() {
         }
         if let Some(bd) = o.building_data.as_mut() {
             bd.production_queue.push(ProductionItem {
+                runtime_entry_identity: 0,
                 template_name: "EconUnit".into(),
                 progress: 0.0,
                 total_time: 10.0,

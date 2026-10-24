@@ -6166,6 +6166,13 @@
           },
           {
             "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/Common/src/common/thing/receiving_module_content/upgrade_tooltip.rs"
+          },
+          {
+            "cargo_reachable": true,
             "classification": "test",
             "owned_source_ranges": [],
             "owned_symbols": [],
@@ -7827,6 +7834,13 @@
             "classification": "test",
             "owned_source_ranges": [],
             "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/control_bar/control_bar_impl/shortcut_upgrade_population_tests.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "test",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/control_bar/control_bar_impl/tests.rs"
           },
           {
@@ -9214,6 +9228,20 @@
             "owned_source_ranges": [],
             "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/gui_callbacks/control_bar_popup_description/owner_tests.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "shim",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/gui_callbacks/control_bar_popup_description/upgrade_observer.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "test",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/gui_callbacks/control_bar_popup_description/upgrade_observer_tests.rs"
           },
           {
             "cargo_reachable": true,
@@ -42498,6 +42526,13 @@
           },
           {
             "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/Common/src/common/thing/receiving_module_content/upgrade_tooltip.rs"
+          },
+          {
+            "cargo_reachable": true,
             "classification": "test",
             "owned_source_ranges": [],
             "owned_symbols": [],
@@ -44891,6 +44926,13 @@
             "classification": "test",
             "owned_source_ranges": [],
             "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/control_bar/control_bar_impl/shortcut_upgrade_population_tests.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "test",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/control_bar/control_bar_impl/tests.rs"
           },
           {
@@ -45752,6 +45794,20 @@
             "owned_source_ranges": [],
             "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/gui_callbacks/control_bar_popup_description/owner_tests.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "shim",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/gui_callbacks/control_bar_popup_description/upgrade_observer.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "test",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/gui_callbacks/control_bar_popup_description/upgrade_observer_tests.rs"
           }
         ],
         "mode": "split_inferred",
@@ -160674,7 +160730,7 @@
     }
   ],
   "generator": "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-  "input_digest": "d8a9d6b8a4436689b632ddd41bf9c2b1e3bddc0f96a57d185a0d48c3dd28f192",
+  "input_digest": "0f3f1c0bd1806d74b997c64745eacccec601d7158aea4efe6741ee0ef7c7468a",
   "metric_contract": {
     "behavior_requires_explicit_evidence": true,
     "candidate_mapping_is_reviewed": false,
@@ -166408,11 +166464,23 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 506,
+        "end_line": 77,
+        "start_line": 1
+      },
+      "path": "GeneralsRust/Code/GameEngine/Common/src/common/thing/receiving_module_content/upgrade_tooltip.rs",
+      "sha256": "915f20475c92c95fa8a28b53bd1b37aa725f4bd8f50de3e48638019f424e9188",
+      "symbol_index_status": "awaiting_mapping_review",
+      "symbols": []
+    },
+    {
+      "cargo_reachable": true,
+      "classification": "implementation",
+      "file_range": {
+        "end_line": 513,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/Common/src/common/thing/receiving_module_content.rs",
-      "sha256": "438127348c4f1918d75e8d1d4c016db60f461af262bcacd491aa3f021ae4fe3a",
+      "sha256": "6002cef2c4d15226de47cf2f6cb1bf0bff5edb047c0659c9fcc645296e63f82a",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -172372,11 +172440,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 427,
+        "end_line": 428,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/callbacks/replay_menu/ingress.rs",
-      "sha256": "34ba4b24587c36a58ad435e0a099e27a786731dde61284764a4d3dfdc97afc35",
+      "sha256": "dd9764352abcc58188293759ade5765693f8f7f2c7183594f70560c93d153a0a",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -172384,11 +172452,11 @@
       "cargo_reachable": true,
       "classification": "test",
       "file_range": {
-        "end_line": 213,
+        "end_line": 214,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/callbacks/replay_menu/policy_refresh_tests.rs",
-      "sha256": "2aec86f30089ec18e48484233dfb04feae2d713bd908a222df10ff601fd82ffe",
+      "sha256": "efb343572a211a3f3f1230bf31818236259107cddfcdbbdf77537abe2b962f70",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -172768,11 +172836,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 964,
+        "end_line": 984,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/control_bar/control_bar_impl/impl_lifecycle.rs",
-      "sha256": "72ff9f523f1616d86fd1f64e04e9008f4bd6c4d0eca59880ce61c12c83e83b49",
+      "sha256": "a1c74318e84be087a73203e423239b559d6655371e3dfe704907d4a17dd863a8",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -172804,11 +172872,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 2379,
+        "end_line": 2391,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/control_bar/control_bar_impl/impl_science.rs",
-      "sha256": "aa706cb38ed3c06e3622259aa19049413e77969715674a3aadfc47e1adf1f5e3",
+      "sha256": "0684fbcaa5a19039db9ee2b7dbdfce6f139197a27e6b22334d9d19df30dd900c",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -172840,11 +172908,23 @@
       "cargo_reachable": true,
       "classification": "test",
       "file_range": {
-        "end_line": 684,
+        "end_line": 167,
+        "start_line": 1
+      },
+      "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/control_bar/control_bar_impl/shortcut_upgrade_population_tests.rs",
+      "sha256": "588a5ac1426461682da2657391c433e57e5faac3984b41309331636d6fe45e87",
+      "symbol_index_status": "awaiting_mapping_review",
+      "symbols": []
+    },
+    {
+      "cargo_reachable": true,
+      "classification": "test",
+      "file_range": {
+        "end_line": 685,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/control_bar/control_bar_impl/tests.rs",
-      "sha256": "eca8e000940be8503f2a704be5faa60f6b858fadb69e2bb1fe62986ebca6f9a7",
+      "sha256": "5c81bc7dc3f7c8b0cf279585d9c838110c4f789d07f0c67983fce79e4a221c5b",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -173512,11 +173592,35 @@
       "cargo_reachable": true,
       "classification": "test",
       "file_range": {
-        "end_line": 212,
+        "end_line": 215,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/gui_callbacks/control_bar_popup_description/owner_tests.rs",
-      "sha256": "ab752048117fa385adb88b34ffd03c8df7b0fdb029eb75af499432b04c262178",
+      "sha256": "b343a7d2ee69bd2a5604efa7593e28f50c076bb9adbc2a33b92640ea35d322e4",
+      "symbol_index_status": "awaiting_mapping_review",
+      "symbols": []
+    },
+    {
+      "cargo_reachable": true,
+      "classification": "shim",
+      "file_range": {
+        "end_line": 8,
+        "start_line": 1
+      },
+      "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/gui_callbacks/control_bar_popup_description/upgrade_observer.rs",
+      "sha256": "66259664d7d527e011907e77786c97a24f87efda488d933cd1e6533e1cb2b926",
+      "symbol_index_status": "awaiting_mapping_review",
+      "symbols": []
+    },
+    {
+      "cargo_reachable": true,
+      "classification": "test",
+      "file_range": {
+        "end_line": 123,
+        "start_line": 1
+      },
+      "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/gui_callbacks/control_bar_popup_description/upgrade_observer_tests.rs",
+      "sha256": "ba644e052ddf0ccbb8e3ac00d2501dd699cb7d31430bf1ba793547f9e119c460",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -173524,11 +173628,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 1006,
+        "end_line": 1102,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/gui_callbacks/control_bar_popup_description.rs",
-      "sha256": "6dd8596354adce3274b8d77ca3bf4171f20748d52136dab996a36e3d26b80844",
+      "sha256": "b4c663dcf76d255116bf14006f0f5dd9e986b1ef8819e649742ae68510b2d854",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },

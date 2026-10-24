@@ -170,16 +170,36 @@ impl TerrainLogic {
     /// PolygonTrigger.cpp:111 clears the old list before appending every row.
     /// Duplicate name/ID lookups keep the first row; no name-based filtering.
     pub fn replace_trigger_areas(&mut self, triggers: impl IntoIterator<Item = PolygonTrigger>) {
+        self.replace_trigger_areas_with_registration(triggers, true);
+    }
+
+    /// Main owns the polygon table through its receiving TerrainLogic. No
+    /// standalone scripting tracker is published during candidate admission.
+    pub fn replace_receiving_trigger_areas(
+        &mut self,
+        triggers: impl IntoIterator<Item = PolygonTrigger>,
+    ) {
+        self.replace_trigger_areas_with_registration(triggers, false);
+    }
+
+    fn replace_trigger_areas_with_registration(
+        &mut self,
+        triggers: impl IntoIterator<Item = PolygonTrigger>,
+        standalone: bool,
+    ) {
         self.trigger_areas.clear();
         self.water_handles.clear();
         self.water_handles_by_trigger_id.clear();
         for trigger in triggers {
-            self.add_trigger_area(trigger);
+            self.add_trigger_area_with_registration(trigger, standalone);
         }
     }
 
     /// Add a trigger area
     pub fn add_trigger_area(&mut self, trigger: PolygonTrigger) {
+        self.add_trigger_area_with_registration(trigger, true);
+    }
+    fn add_trigger_area_with_registration(&mut self, trigger: PolygonTrigger, standalone: bool) {
         let trigger_name_ascii = trigger.get_trigger_name().clone();
         let trigger_name = trigger_name_ascii.to_string();
 
@@ -205,6 +225,9 @@ impl TerrainLogic {
 
         self.trigger_areas.add(trigger);
 
+        if !standalone {
+            return;
+        }
         let area_tracker = crate::scripting::engine::get_area_tracker();
         if let Err(err) = area_tracker.register_polygon_area(&trigger_name) {
             log::warn!(

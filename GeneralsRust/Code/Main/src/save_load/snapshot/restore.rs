@@ -869,6 +869,7 @@ impl SnapshotBuilder {
                             progress = progress.min(total_time);
 
                             building_data.production_queue.push(ProductionItem {
+                                runtime_entry_identity: 0,
                                 template_name: entry.template_name.clone(),
                                 progress,
                                 total_time,

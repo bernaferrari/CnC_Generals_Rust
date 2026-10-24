@@ -14,6 +14,9 @@ const PRODUCTION_EXIT_LOGIC_FRAMES_PER_SECOND: f32 = 30.0;
 pub struct BuildingData {
     pub building_type: BuildingType,
     pub production_queue: Vec<ProductionItem>,
+    /// Runtime entry identity is not part of CPP Xfer; no operation spans a frame.
+    #[serde(skip)]
+    next_production_entry_identity: u64,
     /// Wave 985: C++ ProductionUpdate pause residual (hold queue timer).
     pub production_paused: bool,
     /// C++ QueueProductionExitUpdate exit countdown residual (seconds).
@@ -185,6 +188,9 @@ pub struct ProductionExitRuntimeState {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProductionItem {
+    /// Producer-local node identity; clones preserve an entry, restore admits a new one.
+    #[serde(skip)]
+    pub(crate) runtime_entry_identity: u64,
     pub template_name: String,
     /// Compatibility/presentation progress in seconds.  C++ completion is
     /// driven by `frames_under_construction`, never by this float.
@@ -283,6 +289,7 @@ impl BuildingData {
         Self {
             building_type,
             production_queue: Vec::new(),
+            next_production_entry_identity: 0,
             production_paused: false,
             exit_delay_remaining: 0.0,
             exit_delay_remaining_frames: 0,
@@ -369,7 +376,12 @@ impl BuildingData {
         if self.can_produce(template)
             && self.production_queue.len() < DEFAULT_PRODUCTION_QUEUE_LIMIT
         {
+            self.next_production_entry_identity = self
+                .next_production_entry_identity
+                .checked_add(1)
+                .expect("production entry identity exhausted");
             let item = ProductionItem {
+                runtime_entry_identity: self.next_production_entry_identity,
                 template_name,
                 progress: 0.0,
                 total_time: total_time.max(0.0),
@@ -409,7 +421,12 @@ impl BuildingData {
             return false;
         }
         let _ = key;
+        self.next_production_entry_identity = self
+            .next_production_entry_identity
+            .checked_add(1)
+            .expect("production entry identity exhausted");
         self.production_queue.push(ProductionItem {
+            runtime_entry_identity: self.next_production_entry_identity,
             template_name: upgrade_name,
             progress: 0.0,
             total_time: total_time_secs.max(0.0),
@@ -717,6 +734,34 @@ impl BuildingData {
             kind,
             quantity,
         })
+    }
+
+    /// Pin the actual research entry without retiring it before synchronous callbacks.
+    pub(crate) fn ready_upgrade_entry(&mut self, power_factor: f32) -> Option<(String, u64)> {
+        let item = self.production_queue.first_mut()?;
+        if !item.is_upgrade() || !item.is_complete_at_power(power_factor) {
+            return None;
+        }
+        if item.runtime_entry_identity == 0 {
+            self.next_production_entry_identity = self
+                .next_production_entry_identity
+                .checked_add(1)
+                .expect("production entry identity exhausted");
+            item.runtime_entry_identity = self.next_production_entry_identity;
+        }
+        item.progress = item.total_time.max(0.0);
+        Some((item.template_name.clone(), item.runtime_entry_identity))
+    }
+
+    /// Retire only the original entry. A callback may cancel it and enqueue a new head.
+    pub(crate) fn retire_upgrade_entry(&mut self, identity: u64) {
+        if let Some(index) = self
+            .production_queue
+            .iter()
+            .position(|item| item.is_upgrade() && item.runtime_entry_identity == identity)
+        {
+            self.production_queue.remove(index);
+        }
     }
 
     /// Query the C++ integer production threshold for the queue head.  This is
@@ -1381,6 +1426,7 @@ mod tests {
     fn production_progress_is_clamped_to_valid_percent() {
         let mut building = BuildingData::new(BuildingType::Barracks);
         building.production_queue.push(ProductionItem {
+            runtime_entry_identity: 0,
             template_name: "TestInfantry".to_string(),
             progress: 12.0,
             total_time: 10.0,
@@ -1402,6 +1448,7 @@ mod tests {
     fn zero_time_production_progress_reports_complete() {
         let mut building = BuildingData::new(BuildingType::Barracks);
         building.production_queue.push(ProductionItem {
+            runtime_entry_identity: 0,
             template_name: "TestInfantry".to_string(),
             progress: 0.0,
             total_time: 0.0,
@@ -1550,5 +1597,62 @@ mod tests {
             30_000,
             "dead garrison occupant must stamp HUGE_FRAME_IN_FUTURE"
         );
+    }
+}
+
+#[cfg(test)]
+mod retained_upgrade_entry_tests {
+    use super::*;
+
+    #[test]
+    fn completion_retains_actual_entry_and_never_retires_identical_callback_replacement() {
+        let mut building = BuildingData::new(BuildingType::WarFactory);
+        let cost = Resources {
+            supplies: 800,
+            power: 0,
+        };
+        assert!(building.add_upgrade_to_queue("RetainedResearch".into(), 0.0, cost));
+        let (name, original) = building.ready_upgrade_entry(1.0).unwrap();
+        assert_eq!(name, "RetainedResearch");
+        assert_eq!(building.production_queue.len(), 1);
+        assert_eq!(building.production_queue[0].quantity_produced, 0);
+        assert_eq!(building.production_queue[0].cost.supplies, 800);
+        // A synchronous module callback may cancel research and queue the same data.
+        let cancelled = building.cancel_production(0).unwrap();
+        assert_eq!(cancelled.runtime_entry_identity, original);
+        assert!(building.add_upgrade_to_queue("RetainedResearch".into(), 0.0, cost));
+        let (_, replacement) = building.ready_upgrade_entry(1.0).unwrap();
+        assert_ne!(original, replacement);
+        building.retire_upgrade_entry(original);
+        assert_eq!(building.production_queue.len(), 1);
+        assert_eq!(
+            building.production_queue[0].runtime_entry_identity,
+            replacement
+        );
+        building.retire_upgrade_entry(replacement);
+        assert!(building.production_queue.is_empty());
+    }
+
+    #[test]
+    fn producer_local_runtime_identity_is_not_serialized_as_game_state() {
+        let mut original = BuildingData::new(BuildingType::WarFactory);
+        assert!(original.add_upgrade_to_queue(
+            "RetainedResearch".into(),
+            0.0,
+            Resources {
+                supplies: 30,
+                power: 0
+            }
+        ));
+        let (_, id) = original.ready_upgrade_entry(1.0).unwrap();
+        assert_ne!(id, 0);
+        let bytes = bincode_legacy::serialize(&original).unwrap();
+        let mut restored: BuildingData = bincode_legacy::deserialize(&bytes).unwrap();
+        assert_eq!(restored.production_queue[0].runtime_entry_identity, 0);
+        let (_, admitted) = restored.ready_upgrade_entry(1.0).unwrap();
+        assert_ne!(admitted, 0);
+        restored.retire_upgrade_entry(admitted);
+        assert!(restored.production_queue.is_empty());
+        assert_eq!(original.production_queue.len(), 1);
     }
 }

@@ -37,7 +37,6 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::rc::{Rc, Weak};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicI32, Ordering};
 use std::time::Instant;
 
 use super::*;
@@ -57,7 +56,7 @@ impl WindowManager {
         let (pane_x, pane_y, pane_width, pane_height) = self.compute_tab_pane_rect(window);
 
         for pane_index in 0..crate::gui::gadgets::tabcontrol::NUM_TAB_PANES {
-            let pane_id = generate_window_id();
+            let pane_id = self.generate_window_id();
             let pane = self.create_window_with_id_internal(
                 Some(window),
                 pane_x,
@@ -168,7 +167,7 @@ impl WindowManager {
         let button_width = 21;
         let button_height = height;
 
-        let drop_down_id = generate_window_id();
+        let drop_down_id = self.generate_window_id();
         let drop_down = self.create_window_with_id_internal(
             Some(window),
             (width - button_width).max(0),
@@ -212,7 +211,7 @@ impl WindowManager {
             self.apply_default_draw_callback(&mut drop_mut);
         }
 
-        let edit_id = generate_window_id();
+        let edit_id = self.generate_window_id();
         let edit_width = (width - button_width).max(0);
         let edit = self.create_window_with_id_internal(
             Some(window),
@@ -279,7 +278,7 @@ impl WindowManager {
             self.apply_default_draw_callback(&mut edit_mut);
         }
 
-        let list_id = generate_window_id();
+        let list_id = self.generate_window_id();
         let list = self.create_window_with_id_internal(
             Some(window),
             0,
@@ -393,7 +392,7 @@ impl WindowManager {
         status.remove(WindowStatus::BORDER | WindowStatus::HIDDEN | WindowStatus::NO_INPUT);
         status.insert(WindowStatus::ACTIVE | WindowStatus::ENABLED | WindowStatus::DRAGABLE);
 
-        let thumb_id = generate_window_id();
+        let thumb_id = self.generate_window_id();
         let thumb = self.create_window_with_id_internal(
             Some(slider),
             0,
@@ -535,7 +534,7 @@ impl WindowManager {
         status.remove(WindowStatus::BORDER | WindowStatus::HIDDEN | WindowStatus::NO_INPUT);
         status.insert(WindowStatus::ACTIVE | WindowStatus::ENABLED);
 
-        let up_id = generate_window_id();
+        let up_id = self.generate_window_id();
         let up_button = self.create_window_with_id_internal(
             Some(listbox),
             width - button_width - 2,
@@ -562,7 +561,7 @@ impl WindowManager {
             self.apply_default_draw_callback(&mut up_mut);
         }
 
-        let down_id = generate_window_id();
+        let down_id = self.generate_window_id();
         let down_button = self.create_window_with_id_internal(
             Some(listbox),
             width - button_width - 2,
@@ -589,7 +588,7 @@ impl WindowManager {
             self.apply_default_draw_callback(&mut down_mut);
         }
 
-        let slider_id = generate_window_id();
+        let slider_id = self.generate_window_id();
         let slider_height = (bottom - (2 * button_height) - 6).max(0);
         let slider = self.create_window_with_id_internal(
             Some(listbox),
@@ -617,7 +616,7 @@ impl WindowManager {
 
         let mut thumb_id = None;
         if !th_en.is_empty() || !th_dis.is_empty() || !th_hi.is_empty() {
-            let thumb_window_id = generate_window_id();
+            let thumb_window_id = self.generate_window_id();
             let thumb = self.create_window_with_id_internal(
                 Some(&slider),
                 0,

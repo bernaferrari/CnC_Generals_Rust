@@ -1,6 +1,8 @@
 //! Ordered receiving Object module definitions and their one name-key/data owner.
 //! ThingFactory.cpp106-170,348-407,185-217 are the lifecycle authority.
 //! Effective versions retain immutable base lineage, never mutable override links.
+#[path = "receiving_module_content/upgrade_tooltip.rs"]
+mod upgrade_tooltip;
 use super::{
     module_factory::ModuleFactory,
     thing_factory::{strip_ini_comment, try_parse_object_block_properties},
@@ -8,6 +10,7 @@ use super::{
 };
 use crate::common::ini::INILoadType;
 use std::{collections::HashMap, sync::Arc};
+pub use upgrade_tooltip::{UpgradeTooltipObservation, UpgradeTooltipSource};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ReceivingDefinitionKind {
@@ -55,6 +58,10 @@ impl ReceivingModuleContent {
     }
     pub fn action_definitions(&self) -> &ReceivingActionDefinitions {
         &self.action_current
+    }
+    /// Same immutable admitted catalog, borrowed across a short UI operation.
+    pub fn action_definitions_shared(&self) -> Arc<ReceivingActionDefinitions> {
+        Arc::clone(&self.action_current)
     }
     pub fn admit_action_overrides(&mut self, sources: &[String]) -> Result<(), String> {
         let mut definitions = (*self.action_base).clone();

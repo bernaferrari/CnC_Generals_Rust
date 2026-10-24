@@ -1406,20 +1406,12 @@ impl GameLogic {
         moved
     }
 
-    /// C++ `Player::getPlayerType()==PLAYER_HUMAN`. Leftover PlayerList wins;
-    /// host `is_local` is the live stand-in when leftover is unbound.
+    /// C++ Player::getPlayerType()==PLAYER_HUMAN on this match's controller.
+    /// Local presentation selection is independent of human/computer policy.
     pub(crate) fn player_is_human(&self, player_id: u32) -> bool {
-        if let Some(name) = self.players.get(&player_id).map(|p| p.name.clone()) {
-            if let Some(human) = leftover_player_is_human(player_id, &name) {
-                return human;
-            }
-        } else if let Some(human) = leftover_player_is_human(player_id, "") {
-            return human;
-        }
         self.players
             .get(&player_id)
-            .map(|p| p.is_local)
-            .unwrap_or(false)
+            .is_some_and(|player| player.is_human)
     }
 
     /// C++ BuildAssistant::isRemovableForConstruction.
@@ -1894,16 +1886,21 @@ impl GameLogic {
             Some(id) => self.get_player(id),
             None => team.and_then(|team| self.get_player_by_team(team)),
         };
-        if let Some(player) = player {
-            if leftover_player_has_science(player.id, &player.name, science) == Some(true) {
-                return true;
-            }
-            return live_unlocked_has_science(&player.unlocked_sciences, science);
-        }
-        if let Some(id) = player_id {
-            return leftover_player_has_science(id, "", science) == Some(true);
-        }
-        false
+        let Some(player) = player else {
+            return false;
+        };
+        let Some(name) = self
+            .receiving_module_content
+            .as_ref()
+            .and_then(|content| content.science_name(science))
+        else {
+            return false;
+        };
+        player.unlocked_sciences.iter().any(|owned| {
+            owned.eq_ignore_ascii_case(name)
+                || owned.eq_ignore_ascii_case(&format!("SCIENCE_{name}"))
+                || name.eq_ignore_ascii_case(&format!("SCIENCE_{owned}"))
+        })
     }
 
     fn count_prereq_objects(
@@ -2727,20 +2724,6 @@ fn leftover_has_ai_update(template_name: &str) -> Option<bool> {
     }))
 }
 
-fn leftover_player_is_human(player_id: u32, host_name: &str) -> Option<bool> {
-    let list = gamelogic::player::ThePlayerList().read().ok()?;
-    let named = format!("player{player_id}");
-    let arc = list.find_player_by_name(&named).or_else(|| {
-        if host_name.is_empty() {
-            None
-        } else {
-            list.find_player_by_name(host_name)
-        }
-    })?;
-    let guard = arc.read().ok()?;
-    Some(guard.get_player_type() == gamelogic::player::PlayerType::Human)
-}
-
 fn leftover_thing_template(
     name: &str,
 ) -> Option<std::sync::Arc<game_engine::common::thing::thing_template::ThingTemplate>> {
@@ -2789,43 +2772,6 @@ fn leftover_template_name_for_handle(
     let guard = game_engine::common::thing::thing_factory::try_get_thing_factory()?;
     let factory = guard.as_ref()?;
     Some(factory.find_by_template_id(id)?.get_name().to_string())
-}
-
-fn leftover_player_has_science(
-    player_id: u32,
-    host_name: &str,
-    science: game_engine::common::rts::ScienceType,
-) -> Option<bool> {
-    let list = gamelogic::player::ThePlayerList().read().ok()?;
-    let named = format!("player{player_id}");
-    let arc = list.find_player_by_name(&named).or_else(|| {
-        if host_name.is_empty() {
-            None
-        } else {
-            list.find_player_by_name(host_name)
-        }
-    })?;
-    let guard = arc.read().ok()?;
-    Some(guard.has_science(science))
-}
-
-fn live_unlocked_has_science(
-    unlocked: &std::collections::HashSet<String>,
-    science: game_engine::common::rts::ScienceType,
-) -> bool {
-    let Some(store) = game_engine::common::rts::get_science_store() else {
-        return false;
-    };
-    let name = store.get_internal_name_for_science(science);
-    if name.is_empty() {
-        return false;
-    }
-    let name = name.as_str();
-    unlocked.iter().any(|owned| {
-        owned.eq_ignore_ascii_case(name)
-            || owned.eq_ignore_ascii_case(&format!("SCIENCE_{name}"))
-            || name.eq_ignore_ascii_case(&format!("SCIENCE_{owned}"))
-    })
 }
 
 fn object_matches_prereq_template(obj: &Object, required: &str) -> bool {
@@ -3061,3 +3007,7 @@ impl GameLogic {
         names
     }
 }
+
+#[cfg(test)]
+#[path = "production_player_policy_owner_tests.rs"]
+mod production_player_policy_owner_tests;

@@ -2809,7 +2809,11 @@ impl GameLogic {
 
             // C++ GrantUpgradeCreate::onCreate for map-placed / instant-finished
             // objects (ExemptStatus=UNDER_CONSTRUCTION and not constructing).
-            self.apply_grant_upgrade_create_on_create_with_effects(id, ui);
+            self.apply_grant_upgrade_create_on_create_with_interpreter_and_effects(
+                id,
+                interpreter,
+                ui,
+            );
             // Residual honesty: Emperor innate propaganda counts as install on spawn.
             if emperor_spawn {
                 self.overlord_addons.record_propaganda_install();
@@ -2885,7 +2889,7 @@ impl GameLogic {
                 owner_player_id,
                 sentry_had_explicit_primary,
             );
-            self.apply_researched_player_upgrades_to_object_with_effects(id, ui);
+            self.apply_researched_player_upgrades_to_object_with_interpreter(id, interpreter, ui);
 
             if !starts_under_construction {
                 // C++ ExperienceScalarUpgrade after player Upgrade_AmericaAdvancedTraining:
@@ -3107,6 +3111,16 @@ impl GameLogic {
         object_id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
+        self.apply_grant_upgrade_create_on_create_with_interpreter_and_effects(
+            object_id, None, effects,
+        )
+    }
+    pub(in super::super) fn apply_grant_upgrade_create_on_create_with_interpreter_and_effects(
+        &mut self,
+        object_id: ObjectId,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         let Some(obj) = self.objects.get(&object_id) else {
             return;
         };
@@ -3121,7 +3135,12 @@ impl GameLogic {
             .filter(|grant| grant.exempt_under_construction)
             .cloned()
             .collect();
-        self.apply_grant_upgrade_creates_with_effects(object_id, &grants, effects);
+        self.apply_grant_upgrade_creates_with_interpreter_and_effects(
+            object_id,
+            &grants,
+            interpreter,
+            effects,
+        );
     }
 
     /// C++ GameLogic.cpp:1878-1885 / ProductionUpdate.cpp:819-825 — every
@@ -3164,7 +3183,12 @@ impl GameLogic {
             .get(&object_id)
             .map(|obj| obj.thing().template.grant_upgrade_creates.clone())
             .unwrap_or_default();
-        self.apply_grant_upgrade_creates_with_effects(object_id, &grants, ui);
+        self.apply_grant_upgrade_creates_with_interpreter_and_effects(
+            object_id,
+            &grants,
+            interpreter,
+            ui,
+        );
         self.apply_lock_weapon_create(object_id);
         // C++ SpecialPowerCreate::onBuildComplete walks every getSpecialPower().
         self.on_structure_superweapon_creation(object_id);

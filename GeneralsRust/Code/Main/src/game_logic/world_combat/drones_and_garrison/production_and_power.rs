@@ -200,9 +200,10 @@ impl GameLogic {
         upgrade: &str,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> u32 {
-        self.apply_structure_minefield_upgrade_with_effects(
+        self.apply_structure_minefield_upgrade_with_interpreter_and_effects(
             object_id,
             upgrade,
+            None,
             presentation_effects,
         )
     }

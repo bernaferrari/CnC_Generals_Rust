@@ -2440,7 +2440,10 @@ fn script_disable_unit_construction_and_techtree_override_write_live() {
 
 #[test]
 fn script_named_receive_upgrade_writes_live_object() {
-    use gamelogic::scripting::HostScriptNamedUpgradeRequest;
+    use gamelogic::scripting::core::{
+        Condition, ConditionType, OrCondition, Parameter, ParameterType, Script, ScriptAction,
+        ScriptActionType, ScriptList,
+    };
 
     let mut logic = GameLogic::new();
     logic.scripts_loaded = true;
@@ -2453,12 +2456,40 @@ fn script_named_receive_upgrade_writes_live_object() {
         obj.name = "Hero".into();
     }
 
-    let _ = gamelogic::scripting::take_host_script_named_upgrade_requests();
-    gamelogic::scripting::request_host_script_named_upgrade(HostScriptNamedUpgradeRequest {
-        unit: "Hero".into(),
-        upgrade: "Upgrade_AmericaChemicalSuits".into(),
-    });
-    logic.evaluate_and_execute_scripts(0.0);
+    crate::game_logic::host_upgrade_rules::register_test_upgrade(
+        &logic,
+        "Upgrade_AmericaChemicalSuits",
+        "OBJECT",
+        0,
+        1,
+    );
+    let mut action = ScriptAction::new(ScriptActionType::NamedReceiveUpgrade);
+    action
+        .add_parameter(Parameter::with_string(ParameterType::Unit, "Hero".into()))
+        .unwrap();
+    action
+        .add_parameter(Parameter::with_string(
+            ParameterType::Upgrade,
+            "Upgrade_AmericaChemicalSuits".into(),
+        ))
+        .unwrap();
+    let mut script = Script::new();
+    script.script_name = "OwnedNamedUpgrade".into();
+    script.is_subroutine = true;
+    let mut branch = OrCondition::new();
+    branch.set_first_and_condition(Some(Box::new(Condition::new(ConditionType::ConditionTrue))));
+    script.condition = Some(Box::new(branch));
+    script.action = Some(Box::new(action));
+    let mut list = ScriptList::new();
+    list.append_script(Box::new(script));
+    logic
+        .with_owned_script_engine(|engine, receiving| {
+            engine
+                .set_script_list_for_player(0, Some(Box::new(list)))
+                .unwrap();
+            receiving.run_object_script_with_interpreter(engine, "OwnedNamedUpgrade", id);
+        })
+        .unwrap();
     assert!(
         logic
             .host_object(id)
@@ -2780,7 +2811,7 @@ fn script_move_towards_nearest_writes_live() {
         .terrain()
         .write()
         .expect("owned terrain")
-        .add_trigger_area(trigger);
+        .replace_receiving_trigger_areas([trigger]);
     logic.scripts_loaded = true;
     ensure_test_player_for_team(&mut logic, Team::USA);
     ensure_test_infantry_template(&mut logic);

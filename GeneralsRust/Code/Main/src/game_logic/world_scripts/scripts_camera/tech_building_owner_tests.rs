@@ -93,7 +93,7 @@ fn world() -> (GameLogic, ObjectId) {
         .terrain()
         .write()
         .unwrap()
-        .add_trigger_area(trigger);
+        .replace_receiving_trigger_areas([trigger]);
     let mut template = ThingTemplate::new("OwnedTech");
     template
         .add_kind_of(KindOf::TechBuilding)

@@ -60,6 +60,17 @@ impl GameLogic {
         grants: &[crate::game_logic::GrantUpgradeCreateMetadata],
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
+        self.apply_grant_upgrade_creates_with_interpreter_and_effects(
+            object_id, grants, None, effects,
+        )
+    }
+    pub(in super::super::super) fn apply_grant_upgrade_creates_with_interpreter_and_effects(
+        &mut self,
+        object_id: ObjectId,
+        grants: &[crate::game_logic::GrantUpgradeCreateMetadata],
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         if grants.is_empty() {
             return;
         }
@@ -72,9 +83,10 @@ impl GameLogic {
             match host_grant_upgrade_kind(self, &grant.upgrade_name) {
                 Some(GrantUpgradeKind::Player) => {
                     if let Some(pid) = player_id {
-                        self.add_completed_player_upgrade_with_effects(
+                        self.add_completed_player_upgrade_with_interpreter_and_effects(
                             pid,
                             &grant.upgrade_name,
+                            interpreter,
                             effects,
                         );
                     }

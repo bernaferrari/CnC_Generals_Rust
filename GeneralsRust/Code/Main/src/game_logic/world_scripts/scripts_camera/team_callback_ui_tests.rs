@@ -11,6 +11,9 @@ impl crate::game_logic::ScriptUiEffects for RecordingUi {
         camera: &mut crate::presentation_frame::camera::SessionCamera,
         enabled: bool,
         _replay: bool,
+        _upgrade_source: game_engine::common::thing::receiving_module_content::UpgradeTooltipSource<
+            '_,
+        >,
     ) {
         self.0.push(enabled);
         self.1.push(camera.camera_zoom_target);

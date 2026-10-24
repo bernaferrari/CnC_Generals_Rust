@@ -452,8 +452,8 @@ impl WindowManager {
         if window.borrow().has_owned_control_bar_tooltip() {
             // Release the child before layout creation/population uses its manager.
             if !context.tooltips_disabled && !context.game_ending {
-                crate::gui::gui_callbacks::control_bar_popup_description::show_build_tooltip_layout_owned(
-                    &mut context.control_bar.tooltip, self, window,
+                crate::gui::gui_callbacks::control_bar_popup_description::show_build_tooltip_layout_with_upgrade_source(
+                    &mut context.control_bar.tooltip, self, window, context.upgrade_tooltip,
                 );
             }
             return;

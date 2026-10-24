@@ -1620,6 +1620,7 @@ fn queue_upgrade_refuses_when_production_queue_full_residual() {
         let mut bd = BuildingData::new(BuildingType::Barracks);
         for i in 0..DEFAULT_PRODUCTION_QUEUE_LIMIT {
             bd.production_queue.push(ProductionItem {
+                runtime_entry_identity: 0,
                 template_name: format!("Filler{i}"),
                 progress: 0.0,
                 total_time: 10.0,

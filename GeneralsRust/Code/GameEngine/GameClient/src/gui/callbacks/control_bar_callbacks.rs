@@ -284,7 +284,18 @@ impl ControlBarCallbacks {
         replay: bool,
         immediate: bool,
     ) {
-        bar.show_special_power_shortcut();
+        self.show_control_bar_owned_with_upgrade_source(bar, viewport, parent, replay, immediate, crate::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource::Standalone);
+    }
+    pub fn show_control_bar_owned_with_upgrade_source(
+        &mut self,
+        bar: &mut ControlBar,
+        viewport: &mut dyn ControlBarViewport,
+        parent: Option<std::rc::Rc<std::cell::RefCell<GameWindow>>>,
+        replay: bool,
+        immediate: bool,
+        upgrade_source: crate::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource<'_>,
+    ) {
+        bar.show_special_power_shortcut_with_upgrade_source(upgrade_source);
         if let Some(parent) = parent {
             bar.switch_control_bar_stage_on_window_owned(
                 ControlBarStage::Default,
@@ -349,11 +360,22 @@ impl ControlBarCallbacks {
         replay: bool,
         immediate: bool,
     ) {
+        self.toggle_control_bar_owned_with_upgrade_source(bar, viewport, parent, replay, immediate, crate::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource::Standalone);
+    }
+    pub fn toggle_control_bar_owned_with_upgrade_source(
+        &mut self,
+        bar: &mut ControlBar,
+        viewport: &mut dyn ControlBarViewport,
+        parent: Option<std::rc::Rc<std::cell::RefCell<GameWindow>>>,
+        replay: bool,
+        immediate: bool,
+        upgrade_source: crate::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource<'_>,
+    ) {
         let Some(parent) = parent else {
             return;
         };
         if parent.borrow().is_hidden() {
-            bar.show_special_power_shortcut();
+            bar.show_special_power_shortcut_with_upgrade_source(upgrade_source);
             viewport.set_height_px((viewport.display_size().1 as f32 * 0.80) as i32);
             let _ = parent.borrow_mut().hide(false);
             bar.switch_control_bar_stage_on_window_owned(

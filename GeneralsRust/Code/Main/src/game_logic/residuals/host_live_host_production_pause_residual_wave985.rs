@@ -142,6 +142,7 @@ mod tests {
         };
         let mut bd = BuildingData::new(BuildingType::Barracks);
         bd.production_queue.push(ProductionItem {
+            runtime_entry_identity: 0,
             template_name: "USA_Ranger".into(),
             progress: 0.0,
             total_time: 10.0,

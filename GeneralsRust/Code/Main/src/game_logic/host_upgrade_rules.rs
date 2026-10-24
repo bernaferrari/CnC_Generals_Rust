@@ -7,6 +7,65 @@ use gamelogic::upgrade::{UpgradeTemplate, UpgradeType};
 use std::sync::Arc;
 
 impl GameLogic {
+    /// Freeze only presentation facts at this input operation's original phase.
+    /// The lookup retains the same receiving catalog handle, never a selector.
+    pub(crate) fn receiving_upgrade_tooltip_observer(
+        &self,
+    ) -> impl Fn(
+        &str,
+        &str,
+    )
+        -> game_engine::common::thing::receiving_module_content::UpgradeTooltipObservation
+    + 'static {
+        let completed = self
+            .local_player_id()
+            .and_then(|id| self.get_player(id))
+            .map(|player| player.completed_upgrades.clone())
+            .unwrap_or_default();
+        let selected_upgrades = self
+            .local_player_id()
+            .and_then(|id| self.get_player(id))
+            .and_then(|player| player.selected_objects.first())
+            .and_then(|id| self.objects.get(id))
+            .map(|object| object.applied_upgrades.clone());
+        let services = Arc::clone(&self.world_services);
+        let commands = self
+            .receiving_module_content
+            .as_ref()
+            .map(|content| content.action_definitions_shared());
+        move |command, name| {
+            let template = {
+                let center = services
+                    .upgrade_center()
+                    .read()
+                    .unwrap_or_else(|error| error.into_inner());
+                center.find_upgrade(name)
+            };
+            let completed = completed
+                .iter()
+                .any(|owned| owned.eq_ignore_ascii_case(name));
+            game_engine::common::thing::receiving_module_content::UpgradeTooltipObservation {
+                command: commands.as_ref().and_then(|catalog| {
+                    catalog
+                        .buttons
+                        .find_command_button_resolved(command)
+                        .cloned()
+                }),
+                object_completed: selected_upgrades
+                    .as_ref()
+                    .is_some_and(|tags| tags.iter().any(|owned| owned.eq_ignore_ascii_case(name))),
+                object_affected: selected_upgrades.as_ref().map(|tags| {
+                    crate::game_logic::host_slave_drones::slave_drone_affected_by_upgrade(
+                        name,
+                        tags.iter().map(String::as_str),
+                    )
+                }),
+                template,
+                completed,
+            }
+        }
+    }
+
     pub(crate) fn add_completed_player_upgrade(&mut self, player_id: u32, name: &str) {
         self.add_completed_player_upgrade_with_effects(player_id, name, &mut Default::default())
     }
@@ -17,18 +76,43 @@ impl GameLogic {
         name: &str,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
-        let definition = self.upgrade_template(name);
+        self.add_completed_player_upgrade_with_interpreter_and_effects(
+            player_id, name, None, effects,
+        )
+    }
+    pub(crate) fn add_completed_player_upgrade_with_interpreter_and_effects(
+        &mut self,
+        player_id: u32,
+        name: &str,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         if let Some(player) = self.get_player_mut(player_id) {
-            player.add_completed_upgrade_with_definition(name, definition.as_deref());
+            player.add_completed_upgrade(name);
         }
-        let ids: Vec<_> = self
-            .objects
-            .registered_values()
-            .filter(|object| self.player_owner_for_host_object(object) == Some(player_id))
-            .map(|object| object.id)
-            .collect();
-        for id in ids {
-            self.admit_host_radar_provider_with_effects(id, effects);
+        let Some(team) = self.get_player(player_id).map(|player| player.team) else {
+            return;
+        };
+        self.apply_host_upgrade_modules_from_source_with_interpreter_and_effects(
+            team,
+            player_id,
+            name,
+            None,
+            interpreter,
+            effects,
+        );
+        // Same Player::addUpgrade completion edge for free/script grants.
+        if self.is_local_player(player_id) {
+            if let Some(ui) = effects.ui.as_deref_mut() {
+                ui.mark_control_bar_dirty();
+            }
+        }
+    }
+
+    /// Snapshot masks are restored before resumed gameplay; do not replay modules/accounting.
+    pub(crate) fn restore_completed_player_upgrade(&mut self, player_id: u32, name: &str) {
+        if let Some(player) = self.get_player_mut(player_id) {
+            player.add_completed_upgrade(name);
         }
     }
 
@@ -148,3 +232,7 @@ mod tests {
         assert!(other.is_object_scoped_upgrade(NAME));
     }
 }
+
+#[cfg(all(test, feature = "game_client"))]
+#[path = "upgrade_tooltip_owner_tests.rs"]
+mod upgrade_tooltip_owner_tests;

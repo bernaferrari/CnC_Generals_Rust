@@ -1969,21 +1969,22 @@ impl GameLogic {
     }
 
     pub(super) fn host_script_point_in_trigger(&self, pos: glam::Vec3, trigger_name: &str) -> bool {
-        if let Some(trigger) =
-            gamelogic::scripting::host_script_lookup_polygon_trigger(trigger_name)
-        {
-            return trigger.point_in_trigger_int(&gamelogic::common::ICoord3D::new(
-                pos.x as i32,
-                pos.z as i32,
-                0,
-            ));
-        }
-        if let Some((min_x, min_z, max_x, max_z)) =
-            gamelogic::scripting::host_script_area_bounds(trigger_name)
-        {
-            return pos.x >= min_x && pos.x <= max_x && pos.z >= min_z && pos.z <= max_z;
-        }
-        false
+        self.world_services
+            .terrain()
+            .read()
+            .ok()
+            .and_then(|terrain| {
+                terrain
+                    .get_trigger_area_by_name(trigger_name)
+                    .map(|trigger| {
+                        trigger.point_in_trigger_int(&gamelogic::common::ICoord3D::new(
+                            pos.x as i32,
+                            pos.z as i32,
+                            0,
+                        ))
+                    })
+            })
+            .unwrap_or(false)
     }
 
     pub(super) fn host_script_leftover_waypoint(
@@ -2121,28 +2122,22 @@ impl GameLogic {
     }
 
     pub(super) fn host_script_area_center(&self, area_name: &str) -> Option<glam::Vec3> {
-        if let Ok(terrain) = gamelogic::terrain::get_terrain_logic().read() {
-            if let Some(trigger) = terrain.get_trigger_area_by_name(area_name) {
-                let c = trigger.get_center_point();
-                let mut pos = glam::Vec3::new(c.x, c.z, c.y);
-                if let Some(h) = self.terrain_height_at(glam::Vec3::new(pos.x, 0.0, pos.z)) {
-                    pos.y = h;
-                }
-                return Some(pos);
-            }
+        let center = {
+            let terrain = self.world_services.terrain().read().ok()?;
+            let trigger = terrain.get_trigger_area_by_name(area_name)?;
+            // PolygonTrigger::getCenterPoint uses the bounds midpoint. Its
+            // standalone convenience method reads ambient terrain for Z.
+            let bounds = trigger.get_bounds();
+            (
+                (bounds.lo.x + bounds.hi.x) as f32 / 2.0,
+                (bounds.lo.y + bounds.hi.y) as f32 / 2.0,
+            )
+        };
+        let mut pos = glam::Vec3::new(center.0, 0.0, center.1);
+        if let Some(height) = self.terrain_height_at(glam::Vec3::new(pos.x, 0.0, pos.z)) {
+            pos.y = height;
         }
-        for (name, (min_x, min_z, max_x, max_z)) in
-            gamelogic::scripting::engine::get_area_tracker().all_area_aabbs()
-        {
-            if name.eq_ignore_ascii_case(area_name) {
-                let mut pos = glam::Vec3::new((min_x + max_x) * 0.5, 0.0, (min_z + max_z) * 0.5);
-                if let Some(h) = self.terrain_height_at(pos) {
-                    pos.y = h;
-                }
-                return Some(pos);
-            }
-        }
-        None
+        Some(pos)
     }
 
     pub(super) fn host_script_nearest_team_victim(
@@ -2463,3 +2458,7 @@ End
         },
     );
 }
+
+#[cfg(test)]
+#[path = "area_owner_tests.rs"]
+mod area_owner_tests;

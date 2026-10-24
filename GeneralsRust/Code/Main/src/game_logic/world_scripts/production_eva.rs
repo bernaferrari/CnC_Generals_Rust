@@ -1159,6 +1159,18 @@ impl GameLogic {
         structure_id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
+        self.apply_researched_player_upgrades_to_object_with_interpreter(
+            structure_id,
+            None,
+            effects,
+        )
+    }
+    pub(crate) fn apply_researched_player_upgrades_to_object_with_interpreter(
+        &mut self,
+        structure_id: ObjectId,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         let Some(obj) = self.objects.get(&structure_id) else {
             return;
         };
@@ -1199,7 +1211,13 @@ impl GameLogic {
             if self.is_object_scoped_upgrade(&name) {
                 continue;
             }
-            self.apply_upgrade_to_object_with_effects(structure_id, &name, effects);
+            self.apply_upgrade_to_object_with_interpreter_checked(
+                structure_id,
+                &name,
+                interpreter,
+                effects,
+            )
+            .expect("owned upgrade callback admission must complete");
         }
     }
 
@@ -1355,7 +1373,11 @@ impl GameLogic {
         }
         // C++ Object::updateUpgradeModules after UNDER_CONSTRUCTION clears
         // (DozerAIUpdate.cpp:539-591 / Object.cpp:2410-2438).
-        self.apply_researched_player_upgrades_to_object_with_effects(structure_id, ui);
+        self.apply_researched_player_upgrades_to_object_with_interpreter(
+            structure_id,
+            interpreter,
+            ui,
+        );
         let local = self
             .players
             .values()

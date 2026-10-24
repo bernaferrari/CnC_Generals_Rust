@@ -25,6 +25,7 @@ fn production_queue_advances_one_frame_per_logic_update_and_writeback_matches() 
         use crate::game_logic::{ProductionItem, ProductionKind, Resources};
         let mut data = BuildingData::new(BuildingType::Barracks);
         data.production_queue.push(ProductionItem {
+            runtime_entry_identity: 0,
             template_name: "Ranger".into(),
             progress: 0.0,
             total_time: 1.0,

@@ -624,11 +624,7 @@ impl GameLogic {
                 player.record_upgrade_production_spending(definition);
             }
             if let Some(player) = self.players.get_mut(&player_id) {
-                player.complete_researched_upgrade_with_definition(
-                    &name,
-                    upgrade_type,
-                    definition.as_deref(),
-                );
+                player.complete_researched_upgrade(&name, upgrade_type);
             }
             if !already {
                 self.apply_host_upgrade_complete_with_effects(team, player_id, &name, effects);
@@ -810,240 +806,225 @@ impl GameLogic {
         upgrade_name: &str,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
-        use crate::game_logic::host_upgrades::{HostUpgradeKind, upgrade_mux_target_ids};
+        self.apply_host_upgrade_complete_with_interpreter_and_effects(
+            team,
+            player_id,
+            upgrade_name,
+            None,
+            effects,
+        );
+    }
 
-        let recipients = UpgradeRecipients::Player { team, player_id };
-        let kind = HostUpgradeKind::from_name(upgrade_name);
+    pub(crate) fn apply_host_upgrade_complete_with_interpreter_and_effects(
+        &mut self,
+        team: Team,
+        player_id: u32,
+        upgrade_name: &str,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         let source = self
             .host_upgrades
             .last_source_object_for(player_id, upgrade_name);
+        let affected = self.apply_host_upgrade_modules_from_source_with_interpreter_and_effects(
+            team,
+            player_id,
+            upgrade_name,
+            source,
+            interpreter,
+            effects,
+        );
+        self.record_host_upgrade_completion(team, player_id, upgrade_name, source, affected);
+        self.present_host_upgrade_completion(team, player_id, upgrade_name, source);
+    }
+
+    pub(crate) fn apply_host_upgrade_modules_from_source_with_effects(
+        &mut self,
+        team: Team,
+        player_id: u32,
+        upgrade_name: &str,
+        source: Option<ObjectId>,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> u32 {
+        self.apply_host_upgrade_modules_from_source_with_interpreter_and_effects(
+            team,
+            player_id,
+            upgrade_name,
+            source,
+            None,
+            effects,
+        )
+    }
+
+    pub(crate) fn apply_host_upgrade_modules_from_source_with_interpreter_and_effects(
+        &mut self,
+        team: Team,
+        player_id: u32,
+        upgrade_name: &str,
+        source: Option<ObjectId>,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> u32 {
+        use crate::game_logic::host_upgrades::{HostUpgradeKind, upgrade_mux_target_ids};
+
+        let kind = HostUpgradeKind::from_name(upgrade_name);
         let object_scoped = self.is_object_scoped_upgrade(upgrade_name);
 
         // C++ ProductionUpdate: PLAYER upgrades update the player mask then
         // every object `updateUpgradeModules`. OBJECT upgrades `giveUpgrade`
         // only on the producer.
-        let units_affected = if object_scoped {
-            0
-        } else {
-            match kind {
-                HostUpgradeKind::FlashBangGrenade => {
-                    self.apply_flashbang_unlock_to_team(recipients, upgrade_name)
-                }
-                HostUpgradeKind::TowMissile => {
-                    self.apply_tow_unlock_to_team(recipients, upgrade_name)
-                }
-                HostUpgradeKind::CaptureBuilding => {
-                    self.apply_capture_unlock_tags_to_team(recipients, upgrade_name)
-                }
-                HostUpgradeKind::SupplyLines => {
-                    self.apply_supply_lines_tags_to_team(recipients, upgrade_name)
-                }
-                HostUpgradeKind::NeutronShells => {
-                    self.apply_neutron_shells_unlock_to_team(recipients, upgrade_name)
-                }
-                HostUpgradeKind::BunkerBusters => {
-                    self.apply_bunker_busters_unlock_to_team(recipients, upgrade_name)
-                }
-                HostUpgradeKind::ComancheRocketPods => {
-                    self.apply_comanche_rocket_pods_unlock_to_team(recipients, upgrade_name)
-                }
-                HostUpgradeKind::SentryDroneGun => {
-                    self.apply_sentry_drone_gun_unlock_to_team(recipients, upgrade_name)
-                }
-                HostUpgradeKind::Camouflage => {
-                    self.apply_camouflage_unlock_to_team(recipients, upgrade_name)
-                }
-                HostUpgradeKind::CamoNetting => {
-                    self.apply_camo_netting_unlock_to_team(recipients, upgrade_name)
-                }
-                HostUpgradeKind::CompositeArmor => {
-                    self.apply_composite_armor_unlock_to_team(recipients, upgrade_name)
-                }
-                HostUpgradeKind::WorkerShoes => {
-                    self.apply_worker_shoes_unlock_to_team(recipients, upgrade_name)
-                }
-                HostUpgradeKind::NuclearTanks => {
-                    self.apply_nuclear_tanks_unlock_to_team(recipients, upgrade_name)
-                }
-                HostUpgradeKind::BoobyTrap => {
-                    self.apply_booby_trap_unlock_to_team(recipients, upgrade_name)
-                }
-                HostUpgradeKind::AnthraxGamma => {
-                    self.apply_anthrax_gamma_unlock_to_team(recipients, upgrade_name)
-                }
-                HostUpgradeKind::SuicideBomb => {
-                    self.apply_demo_suicide_bomb_unlock_to_team(recipients, upgrade_name)
-                }
-                HostUpgradeKind::AdvancedControlRods => {
-                    self.apply_advanced_control_rods_to_team(recipients, upgrade_name)
-                }
-                HostUpgradeKind::SubliminalMessaging => {
-                    self.apply_subliminal_messaging_to_team(recipients, upgrade_name)
-                }
-                HostUpgradeKind::ScorpionRocket => {
-                    self.apply_scorpion_rocket_to_team(recipients, upgrade_name)
-                }
-                HostUpgradeKind::ApRockets => {
-                    self.apply_ap_rockets_to_team(recipients, upgrade_name)
-                }
-                HostUpgradeKind::LaserMissiles => {
-                    self.apply_laser_missiles_to_team(recipients, upgrade_name)
-                }
-                HostUpgradeKind::Nationalism => {
-                    self.apply_nationalism_to_team(recipients, upgrade_name)
-                }
-                HostUpgradeKind::Fanaticism => {
-                    self.apply_fanaticism_to_team(recipients, upgrade_name)
-                }
-
-                HostUpgradeKind::ChainGuns => {
-                    self.apply_chain_guns_to_team(recipients, upgrade_name)
-                }
-                HostUpgradeKind::UraniumShells => {
-                    self.apply_uranium_shells_to_team(recipients, upgrade_name)
-                }
-                HostUpgradeKind::BlackNapalm => {
-                    self.apply_black_napalm_to_team(recipients, upgrade_name)
-                }
-                HostUpgradeKind::ApBullets => {
-                    self.apply_ap_bullets_to_team(recipients, upgrade_name)
-                }
-                HostUpgradeKind::AnthraxBeta => {
-                    self.apply_anthrax_beta_to_team(recipients, upgrade_name)
-                }
-                HostUpgradeKind::ToxinShells => {
-                    self.apply_toxin_shells_to_team(recipients, upgrade_name)
-                }
-                HostUpgradeKind::AdvancedTraining => {
-                    self.apply_advanced_training_to_team(recipients, upgrade_name)
-                }
-                HostUpgradeKind::TacticalNukeMig => {
-                    self.apply_tactical_nuke_mig_to_team(recipients, upgrade_name)
-                }
-                HostUpgradeKind::DroneArmor => {
-                    self.apply_drone_armor_to_team(recipients, upgrade_name)
-                }
-                HostUpgradeKind::AircraftArmor => {
-                    self.apply_aircraft_armor_to_team(recipients, upgrade_name)
-                }
-                HostUpgradeKind::ChinaMines => {
-                    self.apply_player_unlock_upgrade(recipients, upgrade_name, "Upgrade_ChinaMines")
-                }
-                HostUpgradeKind::EmpMines => self.apply_player_unlock_upgrade(
-                    recipients,
-                    upgrade_name,
-                    "Upgrade_ChinaEMPMines",
-                ),
-                HostUpgradeKind::FortifiedStructure => {
-                    self.apply_fortified_structure_to_team(recipients, upgrade_name)
-                }
-                HostUpgradeKind::Radar => self.apply_radar_research_to_player_with_effects(
-                    player_id,
-                    upgrade_name,
-                    effects,
-                ),
-                HostUpgradeKind::RadarVanScan => self.apply_player_unlock_upgrade(
-                    recipients,
-                    upgrade_name,
-                    "Upgrade_GLARadarVanScan",
-                ),
-                HostUpgradeKind::ChemicalSuits => {
-                    self.apply_chemical_suits_to_team(recipients, upgrade_name)
-                }
-                HostUpgradeKind::Moab => self.apply_player_unlock_upgrade(
-                    recipients,
-                    upgrade_name,
-                    "Upgrade_AmericaMOAB",
-                ),
-                HostUpgradeKind::SatelliteHack => {
-                    self.apply_satellite_hack_to_team(recipients, upgrade_name)
-                }
-                HostUpgradeKind::Countermeasures => {
-                    self.apply_countermeasures_to_team(recipients, upgrade_name)
-                }
-                HostUpgradeKind::SlaveDrone => self.apply_slave_drone_upgrade_to_team_with_effects(
-                    recipients,
-                    upgrade_name,
-                    effects,
-                ),
-                HostUpgradeKind::CashBounty => {
-                    self.apply_cash_bounty_upgrade_to_team(recipients, upgrade_name)
-                }
-                HostUpgradeKind::HelixNapalmBomb => self.apply_helix_bomb_upgrade_to_team(
-                    recipients,
-                    upgrade_name,
-                    crate::game_logic::host_helix_napalm::UPGRADE_HELIX_NAPALM_BOMB,
-                ),
-                HostUpgradeKind::HelixNukeBomb => self.apply_helix_bomb_upgrade_to_team(
-                    recipients,
-                    upgrade_name,
-                    crate::game_logic::host_helix_napalm::UPGRADE_HELIX_NUKE_BOMB,
-                ),
-                HostUpgradeKind::Other => 0,
-            }
-        };
-
-        let owner_ids: Vec<ObjectId> = self
-            .objects
-            .registered()
-            .filter(|(_, obj)| obj.is_alive() && recipients.matches_object(obj))
-            .map(|(id, _)| *id)
-            .collect();
-        // C++ Object::updateUpgradeModules visits only objects that own the
-        // matching upgrade module. CamoNetting is StealthUpgrade on specific
-        // structure templates (Upgrade_GLACamoNetting); the generic owner
-        // fan-out must not tag unrelated units (Rebel infantry is Camouflage).
-        let owner_ids: Vec<ObjectId> = match kind {
-            // C++ Object::updateUpgradeModules visits only objects that own the
-            // matching upgrade module. CamoNetting is StealthUpgrade on specific
-            // structure templates (Upgrade_GLACamoNetting); the generic owner
-            // fan-out must not tag unrelated units (Rebel infantry is Camouflage).
-            // Camouflage is StealthUpgrade on the Rebel template family only —
-            // the generic fan-out must not tag workers/other GLA infantry
-            // (Worker has no StealthUpgrade; the residual unlock path already
-            // scopes to is_camouflage_unit_template).
-            HostUpgradeKind::CamoNetting => owner_ids
-                .into_iter()
-                .filter(|id| {
-                    self.objects.get(id).is_some_and(|o| {
-                        crate::game_logic::host_upgrades::is_camo_netting_structure_template(
-                            &o.template_name,
-                        )
-                    })
-                })
-                .collect(),
-            HostUpgradeKind::Camouflage => owner_ids
-                .into_iter()
-                .filter(|id| {
-                    self.objects.get(id).is_some_and(|o| {
-                        crate::game_logic::host_upgrades::is_camouflage_unit_template(
-                            &o.template_name,
-                        )
-                    })
-                })
-                .collect(),
-            _ => owner_ids,
-        };
-        let mux_ids = upgrade_mux_target_ids(object_scoped, source, owner_ids);
-        let mut mux_n = 0u32;
-        for id in mux_ids {
-            // C++ Object::updateUpgradeModules → UpgradeMux::attemptUpgrade
-            // (ReplaceObject / GrantScience / Unpause / StatusBits / add-ons).
-            self.apply_upgrade_to_object_with_effects(id, upgrade_name, effects);
-            mux_n = mux_n.saturating_add(1);
-        }
-
+        // Canonical ledger aliases are applied once; object callbacks run only
+        // on the exact receiving Team prototype/instance/member traversal below.
+        let ledger = UpgradeRecipients::PlayerLedger { team, player_id };
         if !object_scoped {
-            // StatusBitsUpgrade already ran once on each actual mux owner above.
-            // Replaying a team fan-out would duplicate synchronous status edges.
-            // C++ PassengersFireUpgrade::upgradeImplementation residual.
-            let _ = self.apply_passengers_fire_upgrade_to_team(recipients, upgrade_name);
-            // C++ ActiveShroudUpgrade::upgradeImplementation residual.
-            let _ = self.apply_active_shroud_upgrade_to_team(recipients, upgrade_name);
+            let _ = self.apply_player_unlock_upgrade(ledger, upgrade_name, upgrade_name);
+        }
+        if !object_scoped
+            && matches!(
+                kind,
+                HostUpgradeKind::CashBounty
+                    | HostUpgradeKind::SatelliteHack
+                    | HostUpgradeKind::HelixNapalmBomb
+                    | HostUpgradeKind::HelixNukeBomb
+            )
+        {
+            let _ =
+                self.apply_upgrade_kind_to_recipients(ledger, upgrade_name, interpreter, effects);
+        }
+        let mut units_affected = 0u32;
+        if object_scoped {
+            if let Some(id) = source {
+                units_affected += self.apply_upgrade_to_exact_recipient(
+                    team,
+                    player_id,
+                    id,
+                    upgrade_name,
+                    true,
+                    interpreter,
+                    effects,
+                ) as u32;
+            }
+        } else {
+            let teams = self
+                .team_factory
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .owned_team_instances_for_controller(player_id);
+            for owned_team in teams {
+                // Snapshot each current Team immediately before visiting it, so
+                // synchronous changes to later Teams are visible at their turn.
+                let (team_id, members) = {
+                    let team = owned_team.read().unwrap_or_else(|error| error.into_inner());
+                    (team.get_id(), team.get_members().to_vec())
+                };
+                for raw in members {
+                    let id = ObjectId(raw);
+                    if !self.objects.get(&id).is_some_and(|object| {
+                        object.owner_player_id == Some(player_id)
+                            && object.team_instance_id == Some(team_id)
+                    }) {
+                        continue;
+                    }
+                    units_affected += self.apply_upgrade_to_exact_recipient(
+                        team,
+                        player_id,
+                        id,
+                        upgrade_name,
+                        false,
+                        interpreter,
+                        effects,
+                    ) as u32;
+                }
+            }
         }
 
-        let units_affected = units_affected.max(mux_n);
+        units_affected
+    }
 
+    fn apply_upgrade_to_exact_recipient(
+        &mut self,
+        team: Team,
+        player_id: u32,
+        id: ObjectId,
+        upgrade_name: &str,
+        object_scoped: bool,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> bool {
+        let Some(object) = self.objects.get(&id).filter(|object| {
+            object.owner_player_id == Some(player_id)
+                && !object.status.under_construction
+                && !object.status.destroyed
+        }) else {
+            return false;
+        };
+        if !object_scoped {
+            // These residuals represent concrete retail module eligibility.
+            // A Player recheck visits every member, but an unrelated member
+            // must not execute this family's generic residual callbacks.
+            use crate::game_logic::host_upgrades::{
+                HostUpgradeKind, is_camo_netting_structure_template, is_camouflage_unit_template,
+                is_supply_center_template,
+            };
+            match HostUpgradeKind::from_name(upgrade_name) {
+                HostUpgradeKind::Camouflage
+                    if !object.is_kind_of(KindOf::Infantry)
+                        || !is_camouflage_unit_template(&object.template_name) =>
+                {
+                    return false;
+                }
+                HostUpgradeKind::CamoNetting
+                    if !is_camo_netting_structure_template(&object.template_name) =>
+                {
+                    return false;
+                }
+                HostUpgradeKind::SupplyLines
+                    if !object.is_kind_of(KindOf::SupplyCenter)
+                        && !is_supply_center_template(&object.template_name) =>
+                {
+                    return false;
+                }
+                _ => {}
+            }
+        }
+        let identity = std::sync::Arc::clone(&object.visual_draw_identity_token);
+        let recipient = UpgradeRecipients::Object {
+            team,
+            player_id,
+            object_id: id,
+        };
+        if !object_scoped {
+            self.apply_upgrade_kind_to_recipients(recipient, upgrade_name, interpreter, effects);
+        }
+        if !self.objects.get(&id).is_some_and(|object| {
+            std::sync::Arc::ptr_eq(&object.visual_draw_identity_token, &identity)
+        }) {
+            return false;
+        }
+        self.apply_upgrade_to_object_with_interpreter_checked(
+            id,
+            upgrade_name,
+            interpreter,
+            effects,
+        )
+        .expect("owned upgrade callback admission must complete");
+        if !object_scoped {
+            self.apply_passengers_fire_upgrade_to_team(recipient, upgrade_name);
+            self.apply_active_shroud_upgrade_to_team(recipient, upgrade_name);
+        }
+        true
+    }
+
+    pub(crate) fn record_host_upgrade_completion(
+        &mut self,
+        team: Team,
+        player_id: u32,
+        upgrade_name: &str,
+        source: Option<ObjectId>,
+        units_affected: u32,
+    ) {
+        use crate::game_logic::host_upgrades::HostUpgradeKind;
+        let kind = HostUpgradeKind::from_name(upgrade_name);
         // Ensure registry has a queue entry even if command path skipped record
         // (e.g. direct Player::queue_upgrade in unit tests).
         self.host_upgrades.record_queue(
@@ -1051,7 +1032,7 @@ impl GameLogic {
             team,
             player_id,
             self.frame.saturating_sub(1),
-            None,
+            source,
         );
         self.host_upgrades
             .record_complete(upgrade_name, player_id, self.frame, units_affected);
@@ -1064,7 +1045,197 @@ impl GameLogic {
             kind.label(),
             units_affected
         );
+    }
 
+    pub(crate) fn ordered_upgrade_owner_object_ids(&self, player_id: u32) -> Vec<ObjectId> {
+        let teams = self
+            .team_factory
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .owned_team_instances_for_controller(player_id);
+        let mut ids = Vec::new();
+        for team in teams {
+            let team = team.read().unwrap_or_else(|e| e.into_inner());
+            let team_id = team.get_id();
+            for &raw in team.get_members() {
+                let id = ObjectId(raw);
+                if self.objects.get(&id).is_some_and(|object| {
+                    object.owner_player_id == Some(player_id)
+                        && object.team_instance_id == Some(team_id)
+                }) {
+                    ids.push(id);
+                }
+            }
+        }
+        ids
+    }
+
+    fn apply_upgrade_kind_to_recipients(
+        &mut self,
+        recipients: UpgradeRecipients,
+        upgrade_name: &str,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> u32 {
+        use crate::game_logic::host_upgrades::HostUpgradeKind;
+        let kind = HostUpgradeKind::from_name(upgrade_name);
+        match kind {
+            HostUpgradeKind::FlashBangGrenade => {
+                self.apply_flashbang_unlock_to_team(recipients, upgrade_name)
+            }
+            HostUpgradeKind::TowMissile => self.apply_tow_unlock_to_team(recipients, upgrade_name),
+            HostUpgradeKind::CaptureBuilding => {
+                self.apply_capture_unlock_tags_to_team(recipients, upgrade_name)
+            }
+            HostUpgradeKind::SupplyLines => {
+                self.apply_supply_lines_tags_to_team(recipients, upgrade_name)
+            }
+            HostUpgradeKind::NeutronShells => {
+                self.apply_neutron_shells_unlock_to_team(recipients, upgrade_name)
+            }
+            HostUpgradeKind::BunkerBusters => {
+                self.apply_bunker_busters_unlock_to_team(recipients, upgrade_name)
+            }
+            HostUpgradeKind::ComancheRocketPods => {
+                self.apply_comanche_rocket_pods_unlock_to_team(recipients, upgrade_name)
+            }
+            HostUpgradeKind::SentryDroneGun => {
+                self.apply_sentry_drone_gun_unlock_to_team(recipients, upgrade_name)
+            }
+            HostUpgradeKind::Camouflage => {
+                self.apply_camouflage_unlock_to_team(recipients, upgrade_name)
+            }
+            HostUpgradeKind::CamoNetting => {
+                self.apply_camo_netting_unlock_to_team(recipients, upgrade_name)
+            }
+            HostUpgradeKind::CompositeArmor => {
+                self.apply_composite_armor_unlock_to_team(recipients, upgrade_name)
+            }
+            HostUpgradeKind::WorkerShoes => {
+                self.apply_worker_shoes_unlock_to_team(recipients, upgrade_name)
+            }
+            HostUpgradeKind::NuclearTanks => {
+                self.apply_nuclear_tanks_unlock_to_team(recipients, upgrade_name)
+            }
+            HostUpgradeKind::BoobyTrap => {
+                self.apply_booby_trap_unlock_to_team(recipients, upgrade_name)
+            }
+            HostUpgradeKind::AnthraxGamma => {
+                self.apply_anthrax_gamma_unlock_to_team(recipients, upgrade_name)
+            }
+            HostUpgradeKind::SuicideBomb => {
+                self.apply_demo_suicide_bomb_unlock_to_team(recipients, upgrade_name)
+            }
+            HostUpgradeKind::AdvancedControlRods => {
+                self.apply_advanced_control_rods_to_team(recipients, upgrade_name)
+            }
+            HostUpgradeKind::SubliminalMessaging => {
+                self.apply_subliminal_messaging_to_team(recipients, upgrade_name)
+            }
+            HostUpgradeKind::ScorpionRocket => {
+                self.apply_scorpion_rocket_to_team(recipients, upgrade_name)
+            }
+            HostUpgradeKind::ApRockets => self.apply_ap_rockets_to_team(recipients, upgrade_name),
+            HostUpgradeKind::LaserMissiles => {
+                self.apply_laser_missiles_to_team(recipients, upgrade_name)
+            }
+            HostUpgradeKind::Nationalism => {
+                self.apply_nationalism_to_team(recipients, upgrade_name)
+            }
+            HostUpgradeKind::Fanaticism => self.apply_fanaticism_to_team(recipients, upgrade_name),
+
+            HostUpgradeKind::ChainGuns => self.apply_chain_guns_to_team(recipients, upgrade_name),
+            HostUpgradeKind::UraniumShells => {
+                self.apply_uranium_shells_to_team(recipients, upgrade_name)
+            }
+            HostUpgradeKind::BlackNapalm => {
+                self.apply_black_napalm_to_team(recipients, upgrade_name)
+            }
+            HostUpgradeKind::ApBullets => self.apply_ap_bullets_to_team(recipients, upgrade_name),
+            HostUpgradeKind::AnthraxBeta => {
+                self.apply_anthrax_beta_to_team(recipients, upgrade_name)
+            }
+            HostUpgradeKind::ToxinShells => {
+                self.apply_toxin_shells_to_team(recipients, upgrade_name)
+            }
+            HostUpgradeKind::AdvancedTraining => {
+                self.apply_advanced_training_to_team(recipients, upgrade_name)
+            }
+            HostUpgradeKind::TacticalNukeMig => {
+                self.apply_tactical_nuke_mig_to_team(recipients, upgrade_name)
+            }
+            HostUpgradeKind::DroneArmor => self.apply_drone_armor_to_team(recipients, upgrade_name),
+            HostUpgradeKind::AircraftArmor => {
+                self.apply_aircraft_armor_to_team(recipients, upgrade_name)
+            }
+            HostUpgradeKind::ChinaMines => {
+                self.apply_player_unlock_upgrade(recipients, upgrade_name, "Upgrade_ChinaMines")
+            }
+            HostUpgradeKind::EmpMines => {
+                self.apply_player_unlock_upgrade(recipients, upgrade_name, "Upgrade_ChinaEMPMines")
+            }
+            HostUpgradeKind::FortifiedStructure => {
+                self.apply_fortified_structure_to_team(recipients, upgrade_name)
+            }
+            HostUpgradeKind::Radar => match recipients {
+                UpgradeRecipients::Object { object_id, .. } => {
+                    self.admit_host_radar_provider_with_effects(object_id, effects);
+                    1
+                }
+                UpgradeRecipients::Player { player_id, .. } => self
+                    .apply_radar_research_to_player_with_effects(player_id, upgrade_name, effects),
+                _ => 0,
+            },
+            HostUpgradeKind::RadarVanScan => self.apply_player_unlock_upgrade(
+                recipients,
+                upgrade_name,
+                "Upgrade_GLARadarVanScan",
+            ),
+            HostUpgradeKind::ChemicalSuits => {
+                self.apply_chemical_suits_to_team(recipients, upgrade_name)
+            }
+            HostUpgradeKind::Moab => {
+                self.apply_player_unlock_upgrade(recipients, upgrade_name, "Upgrade_AmericaMOAB")
+            }
+            HostUpgradeKind::SatelliteHack => {
+                self.apply_satellite_hack_to_team(recipients, upgrade_name)
+            }
+            HostUpgradeKind::Countermeasures => {
+                self.apply_countermeasures_to_team(recipients, upgrade_name)
+            }
+            HostUpgradeKind::SlaveDrone => self
+                .apply_slave_drone_upgrade_to_team_with_interpreter_and_effects(
+                    recipients,
+                    upgrade_name,
+                    interpreter,
+                    effects,
+                ),
+            HostUpgradeKind::CashBounty => {
+                self.apply_cash_bounty_upgrade_to_team(recipients, upgrade_name)
+            }
+            HostUpgradeKind::HelixNapalmBomb => self.apply_helix_bomb_upgrade_to_team(
+                recipients,
+                upgrade_name,
+                crate::game_logic::host_helix_napalm::UPGRADE_HELIX_NAPALM_BOMB,
+            ),
+            HostUpgradeKind::HelixNukeBomb => self.apply_helix_bomb_upgrade_to_team(
+                recipients,
+                upgrade_name,
+                crate::game_logic::host_helix_napalm::UPGRADE_HELIX_NUKE_BOMB,
+            ),
+            HostUpgradeKind::Other => 0,
+        }
+    }
+
+    pub(crate) fn present_host_upgrade_completion(
+        &mut self,
+        team: Team,
+        player_id: u32,
+        upgrade_name: &str,
+        source: Option<ObjectId>,
+    ) {
+        // CPP local message/radar precede either completion sound branch.
+        self.try_radar_upgrade_complete(player_id, team, upgrade_name, source);
         // C++ ProductionUpdate.cpp:888-917: only the local producer presents
         // completion audio. A valid authored ResearchSound is positional on
         // that producer and replaces EVA; UnitSpecificSound is independent
@@ -1106,9 +1277,6 @@ impl GameLogic {
                 }
             }
         }
-
-        // C++ TheRadar->createEvent(pos, RADAR_EVENT_UPGRADE) residual.
-        self.try_radar_upgrade_complete(player_id, team, upgrade_name, source);
     }
 }
 

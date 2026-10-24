@@ -29,6 +29,20 @@ impl GameLogic {
         upgrade: &str,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<()> {
+        self.apply_upgrade_to_object_with_interpreter_checked(
+            object_id,
+            upgrade,
+            None,
+            presentation_effects,
+        )
+    }
+    pub(crate) fn apply_upgrade_to_object_with_interpreter_checked(
+        &mut self,
+        object_id: ObjectId,
+        upgrade: &str,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<()> {
         use crate::game_logic::host_overlord_addons::{
             is_bunker_addon_upgrade, is_gattling_addon_upgrade, is_overlord_family_host,
             is_propaganda_addon_upgrade,
@@ -238,9 +252,10 @@ impl GameLogic {
         // objects have no leftover modules, so spawn via leftover OCL store
         // (or residual attach). Object-scoped complete muxes only the producer.
         if let Some(kind) = attach_slave_drone {
-            self.apply_object_creation_upgrade_ocl_with_effects(
+            self.apply_object_creation_upgrade_ocl_with_interpreter_and_effects(
                 object_id,
                 kind,
+                interpreter,
                 presentation_effects,
             );
         }
@@ -251,8 +266,9 @@ impl GameLogic {
             self.overlord_addons.record_propaganda_install();
         }
         if installed_gattling || installed_propaganda || installed_bunker {
-            self.ensure_overlord_portable_addon_occupant_with_effects(
+            self.ensure_overlord_portable_addon_occupant_with_interpreter_and_effects(
                 object_id,
+                interpreter,
                 presentation_effects,
             );
         }
@@ -260,10 +276,15 @@ impl GameLogic {
         // C++ CostModifierUpgrade residual — player KindOf production cost change.
         if let Some((kind, percent)) =
             crate::game_logic::host_upgrade_module_residuals::cost_modifier_for_upgrade(upgrade)
+                .filter(|_| status_upgrade_first_give)
         {
-            let team = self.objects.get(&object_id).map(|o| o.team);
-            if let Some(team) = team {
-                if let Some(player) = self.players.values_mut().find(|p| p.team == team) {
+            let owner = self
+                .objects
+                .get(&object_id)
+                .filter(|object| self.live_draw_playback_identity(object) == identity)
+                .and_then(|object| object.owner_player_id);
+            if let Some(owner) = owner {
+                if let Some(player) = self.players.get_mut(&owner) {
                     player.add_kind_of_production_cost_change(kind, percent);
                     self.upgrade_module_residuals.record_cost(upgrade);
                 }
@@ -271,19 +292,25 @@ impl GameLogic {
         }
 
         // C++ GenerateMinefieldBehavior::upgradeImplementation residual.
-        let _mines = self.place_structure_minefield_for_upgrade_with_effects(
+        let _mines = self.apply_structure_minefield_upgrade_with_interpreter_and_effects(
             object_id,
             upgrade,
+            interpreter,
             presentation_effects,
         );
 
         // C++ GrantScienceUpgrade residual.
         if let Some(science) =
             crate::game_logic::host_replace_object_upgrade::grant_science_for_upgrade(upgrade)
+                .filter(|_| status_upgrade_first_give)
         {
-            let team = self.objects.get(&object_id).map(|o| o.team);
-            if let Some(team) = team {
-                if let Some(player) = self.players.values_mut().find(|p| p.team == team) {
+            let owner = self
+                .objects
+                .get(&object_id)
+                .filter(|object| self.live_draw_playback_identity(object) == identity)
+                .and_then(|object| object.owner_player_id);
+            if let Some(owner) = owner {
+                if let Some(player) = self.players.get_mut(&owner) {
                     if player.unlock_science(science) {
                         self.replace_grant_command_upgrades.record_science(science);
                     }
@@ -293,7 +320,9 @@ impl GameLogic {
 
         // ReplaceObjectUpgrade.cpp65 queues destruction; the old Object and
         // Drawable remain installed until processDestroyList's physical phase.
-        if crate::game_logic::host_replace_object_upgrade::is_replace_object_upgrade(upgrade) {
+        if status_upgrade_first_give
+            && crate::game_logic::host_replace_object_upgrade::is_replace_object_upgrade(upgrade)
+        {
             let info = self.objects.get(&object_id).map(|object| {
                 (
                     object.template_name.clone(),
@@ -329,7 +358,7 @@ impl GameLogic {
                             team_id,
                             position,
                             true,
-                            None,
+                            interpreter,
                             presentation_effects,
                         )?
                     } else {
@@ -338,7 +367,7 @@ impl GameLogic {
                             team,
                             owner,
                             position,
-                            None,
+                            interpreter,
                             presentation_effects,
                         )?
                     };
@@ -393,6 +422,20 @@ impl GameLogic {
         kind: crate::game_logic::host_slave_drones::SlaveDroneKind,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
+        self.apply_object_creation_upgrade_ocl_with_interpreter_and_effects(
+            object_id,
+            kind,
+            None,
+            presentation_effects,
+        )
+    }
+    fn apply_object_creation_upgrade_ocl_with_interpreter_and_effects(
+        &mut self,
+        object_id: ObjectId,
+        kind: crate::game_logic::host_slave_drones::SlaveDroneKind,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         use crate::game_logic::host_slave_drones::{SlaveDroneKind, drone_ocl_name};
 
         let ctx = self.objects.get(&object_id).map(|obj| {
@@ -407,7 +450,7 @@ impl GameLogic {
         let Some((team, pos, orient, vet, vel)) = ctx else {
             return;
         };
-        let spawned = self.execute_parsed_weapon_ocl_at_with_effects(
+        let spawned = self.execute_parsed_weapon_ocl_at_with_interpreter_and_effects(
             drone_ocl_name(kind),
             Some(object_id),
             team,
@@ -415,12 +458,14 @@ impl GameLogic {
             orient,
             vel,
             pos,
+            interpreter,
             presentation_effects,
         );
         if spawned.is_empty() {
-            let _ = self.residual_attach_slave_drone_with_effects(
+            let _ = self.residual_attach_slave_drone_with_interpreter_and_effects(
                 object_id,
                 kind,
+                interpreter,
                 presentation_effects,
             );
             return;

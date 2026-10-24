@@ -104,6 +104,7 @@ fn authored_weather_reaches_borrowed_snow_and_detached_intent_catches_up() {
             _: &mut crate::presentation_frame::camera::SessionCamera,
             _: bool,
             _: bool,
+            _upgrade_source: game_engine::common::thing::receiving_module_content::UpgradeTooltipSource<'_>,
         ) {
         }
     }

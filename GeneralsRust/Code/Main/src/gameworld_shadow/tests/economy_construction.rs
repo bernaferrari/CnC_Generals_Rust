@@ -493,6 +493,7 @@ fn production_progress_log_drives_set_production_queue() {
         let mut data = BuildingData::new(BuildingType::Barracks);
         data.exit_delay_remaining = 1.25;
         data.production_queue.push(ProductionItem {
+            runtime_entry_identity: 0,
             template_name: "Ranger".into(),
             progress: 3.5,
             total_time: 10.0,

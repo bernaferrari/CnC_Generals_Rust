@@ -68,7 +68,7 @@ impl Object {
 
     /// Host EMP disable residual + status channel log.
     pub fn set_status_disabled_emp(&mut self, disabled: bool) {
-        let was_disabled = self.is_disabled();
+        let was_disabled = self.has_disabled_type();
         self.status.disabled_emp = disabled;
         self.note_disabled_status_transition(was_disabled);
     }
@@ -179,25 +179,25 @@ impl Object {
     }
 
     pub fn set_status_disabled_hacked(&mut self, v: bool) {
-        let was_disabled = self.is_disabled();
+        let was_disabled = self.has_disabled_type();
         self.status.disabled_hacked = v;
         self.note_disabled_status_transition(was_disabled);
     }
 
     pub fn set_status_disabled_unmanned(&mut self, v: bool) {
-        let was_disabled = self.is_disabled();
+        let was_disabled = self.has_disabled_type();
         self.status.disabled_unmanned = v;
         self.note_disabled_status_transition(was_disabled);
     }
 
     pub fn set_status_disabled_paralyzed(&mut self, v: bool) {
-        let was_disabled = self.is_disabled();
+        let was_disabled = self.has_disabled_type();
         self.status.disabled_paralyzed = v;
         self.note_disabled_status_transition(was_disabled);
     }
 
     pub fn set_status_disabled_subdued(&mut self, v: bool) {
-        let was_disabled = self.is_disabled();
+        let was_disabled = self.has_disabled_type();
         self.status.disabled_subdued = v;
         self.note_disabled_status_transition(was_disabled);
     }
@@ -387,7 +387,9 @@ impl Object {
     }
 
     fn note_disabled_status_transition(&mut self, was_disabled: bool) {
-        let disabled = self.is_disabled();
+        // CPP Object.h559: disabled edges observe only m_disabledMask.
+        // UNDER_CONSTRUCTION belongs to Main action eligibility, not this mask.
+        let disabled = self.has_disabled_type();
         if disabled != was_disabled {
             self.on_disabled_edge(disabled);
         }
@@ -399,21 +401,21 @@ impl Object {
 
     /// C++ DISABLED_SCRIPT_DISABLED residual.
     pub fn set_status_disabled_script_disabled(&mut self, v: bool) {
-        let was_disabled = self.is_disabled();
+        let was_disabled = self.has_disabled_type();
         self.status.disabled_script_disabled = v;
         self.note_disabled_status_transition(was_disabled);
     }
 
     /// C++ DISABLED_SCRIPT_UNDERPOWERED residual.
     pub fn set_status_disabled_script_underpowered(&mut self, v: bool) {
-        let was_disabled = self.is_disabled();
+        let was_disabled = self.has_disabled_type();
         self.status.disabled_script_underpowered = v;
         self.note_disabled_status_transition(was_disabled);
     }
 
     /// C++ DISABLED_HELD residual (Battle Bus second life / contain freeze).
     pub fn set_status_disabled_held(&mut self, v: bool) {
-        let was_disabled = self.is_disabled();
+        let was_disabled = self.has_disabled_type();
         self.status.disabled_held = v;
         self.note_disabled_status_transition(was_disabled);
     }
@@ -529,7 +531,7 @@ impl Object {
         if previous == deadline {
             return;
         }
-        let was_disabled = self.is_disabled();
+        let was_disabled = self.has_disabled_type();
         if brainwashed {
             self.status.disabled_brainwashed_until_frame = deadline;
             self.status.disabled_brainwashed = deadline > frame;
@@ -549,7 +551,7 @@ impl Object {
         if !active {
             return false;
         }
-        let was_disabled = self.is_disabled();
+        let was_disabled = self.has_disabled_type();
         if brainwashed {
             self.status.disabled_brainwashed = false;
             self.status.disabled_brainwashed_until_frame = 0;
@@ -719,12 +721,12 @@ impl Object {
         self.set_status_repulsor(true);
     }
     pub fn set_status_disabled_underpowered(&mut self, v: bool) {
-        let was_disabled = self.is_disabled();
+        let was_disabled = self.has_disabled_type();
         self.status.disabled_underpowered = v;
         self.note_disabled_status_transition(was_disabled);
     }
     pub fn set_status_disabled_freefall(&mut self, v: bool) {
-        let was_disabled = self.is_disabled();
+        let was_disabled = self.has_disabled_type();
         self.status.disabled_freefall = v;
         self.note_disabled_status_transition(was_disabled);
     }
@@ -1092,5 +1094,88 @@ impl Object {
             // C++ AIEnterState::onExit clears ignoreObstacle.
             self.ignored_obstacle_id = None;
         }
+    }
+}
+
+#[cfg(test)]
+mod disabled_mask_edge_tests {
+    use super::*;
+
+    fn construction_radar(id: u32, owner: u32) -> Object {
+        let mut template = ThingTemplate::new("RawDisabledMaskWitness");
+        template.radar_upgrade_rules =
+            Some(vec![crate::game_logic::host_radar::RadarUpgradeRules {
+                triggered_by: vec![],
+                conflicts_with: vec![],
+                removes_upgrades: vec![],
+                fx_list: None,
+                requires_all: false,
+                disable_proof: false,
+                valid: true,
+            }]);
+        let mut object = Object::new(template, ObjectId(id), Team::USA);
+        object.owner_player_id = Some(owner);
+        object.status.under_construction = true;
+        object.radar_upgrade_executed = vec![true];
+        object.radar_upgrade_contributors = vec![vec![owner]];
+        object
+    }
+
+    #[test]
+    fn construction_does_not_hide_first_or_last_actual_disabled_edge() {
+        // These are actual status setters used by Body, scripts, containment,
+        // power and timers; each must deliver the existing Radar callback.
+        let setters: &[fn(&mut Object, bool)] = &[
+            Object::set_status_disabled_emp,
+            Object::set_status_disabled_hacked,
+            Object::set_status_disabled_unmanned,
+            Object::set_status_disabled_paralyzed,
+            Object::set_status_disabled_subdued,
+            Object::set_status_disabled_script_disabled,
+            Object::set_status_disabled_script_underpowered,
+            Object::set_status_disabled_held,
+            Object::set_status_disabled_underpowered,
+            Object::set_status_disabled_freefall,
+        ];
+        for set in setters {
+            let mut object = construction_radar(1, 3);
+            assert!(object.is_disabled()); // Existing construction action guard remains.
+            assert!(!object.has_disabled_type());
+            set(&mut object, true);
+            let edges = object.take_radar_disabled_edges();
+            assert_eq!(edges.len(), 1);
+            assert!(edges[0].becoming_disabled);
+            assert_eq!(edges[0].player_id, Some(3));
+            assert!(object.radar_upgrade_contributors[0].is_empty());
+            set(&mut object, true);
+            assert!(object.take_radar_disabled_edges().is_empty());
+            set(&mut object, false);
+            let edges = object.take_radar_disabled_edges();
+            assert_eq!(edges.len(), 1);
+            assert!(!edges[0].becoming_disabled);
+            assert_eq!(object.radar_upgrade_contributors[0], vec![3]);
+            assert!(object.is_disabled());
+            assert!(!object.has_disabled_type());
+        }
+    }
+
+    #[test]
+    fn overlapping_types_and_same_id_peer_keep_original_callback_history() {
+        let mut receiving = construction_radar(1, 3);
+        let mut peer = construction_radar(1, 9);
+        receiving.set_status_disabled_emp(true);
+        assert_eq!(receiving.take_radar_disabled_edges().len(), 1);
+        receiving.set_status_disabled_hacked(true);
+        receiving.set_status_disabled_emp(false);
+        assert!(receiving.take_radar_disabled_edges().is_empty());
+        assert!(receiving.has_disabled_type());
+        assert!(peer.take_radar_disabled_edges().is_empty());
+        assert_eq!(peer.radar_upgrade_contributors[0], vec![9]);
+        receiving.set_status_disabled_hacked(false);
+        let edges = receiving.take_radar_disabled_edges();
+        assert_eq!(edges.len(), 1);
+        assert!(!edges[0].becoming_disabled);
+        assert_eq!(edges[0].player_id, Some(3));
+        assert_eq!(receiving.radar_upgrade_contributors[0], vec![3]);
     }
 }

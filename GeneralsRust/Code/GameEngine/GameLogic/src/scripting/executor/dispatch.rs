@@ -1320,7 +1320,17 @@ impl ScriptActionDispatcher<'_> {
             ScriptActionType::NamedUseCommandbuttonAbilityUsingWaypointPath => {
                 self.do_named_use_command_button_using_waypoint_path(action)
             }
-            ScriptActionType::NamedReceiveUpgrade => self.do_named_receive_upgrade(action),
+            ScriptActionType::NamedReceiveUpgrade => {
+                let unit = self.get_string_param(action, 0)?;
+                let upgrade = self.get_string_param(action, 1)?;
+                let this_object = self.context.borrowed_engine().script_object_id();
+                if let Some(result) = driver.named_upgrade(&unit, &upgrade, this_object) {
+                    result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
+                    Ok(ScriptActionResult::Success)
+                } else {
+                    self.do_named_receive_upgrade(action)
+                }
+            }
             ScriptActionType::NamedSetHeld => self.do_named_set_held(action),
             ScriptActionType::NamedSetToppleDirection => {
                 self.do_named_set_topple_direction(action, driver)

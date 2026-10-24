@@ -141,6 +141,7 @@ pub fn simulate_live_command_production_construction_log_honesty() -> bool {
             .building_data
             .get_or_insert_with(|| BuildingData::new(BuildingType::Barracks));
         building.production_queue.push(ProductionItem {
+            runtime_entry_identity: 0,
             template_name: "CancelUnit199".into(),
             progress: 0.0,
             total_time: 10.0,

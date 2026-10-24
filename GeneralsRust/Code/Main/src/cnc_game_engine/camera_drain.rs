@@ -2900,6 +2900,7 @@ mod replay_fast_forward_probe {
             .expect("producer object");
         let mut building = BuildingData::new(BuildingType::Barracks);
         building.production_queue.push(ProductionItem {
+            runtime_entry_identity: 0,
             template_name: "ReplayFastForwardRanger".to_string(),
             progress: 0.0,
             total_time: 10.0,

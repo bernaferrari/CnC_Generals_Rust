@@ -984,6 +984,25 @@ impl GameLogic {
     ///   C++ Energy::getEnergySupplyRatio: if consumption==0 return production
     ///   (0.0 with no plants). calcTimeToBuild clamps excess to 1.0, applies
     ///   the loaded GameData values, then uses 0.01 only for a non-positive rate.
+    /// Observe this producer's actual player at its own update boundary.
+    /// An earlier synchronous upgrade may have changed Energy this frame.
+    pub(in super::super) fn production_power_factor_for_player(&self, id: u32) -> f32 {
+        let Some(player) = self.players.get(&id) else {
+            return 1.0;
+        };
+        let rules = self.production_energy_rules();
+        let energy_percent = player.energy_supply_ratio_at(self.frame).min(1.0);
+        let energy_short = (1.0 - energy_percent) * rules.penalty;
+        let mut rate = (1.0 - energy_short).max(rules.min_speed);
+        if energy_percent < 1.0 {
+            rate = rate.min(rules.max_speed);
+        }
+        if rate <= 0.0 {
+            rate = 0.01;
+        }
+        rate
+    }
+
     pub(in super::super) fn compute_player_power_factors(
         &self,
     ) -> std::collections::HashMap<u32, f32> {

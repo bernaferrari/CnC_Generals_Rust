@@ -24,6 +24,9 @@ impl crate::game_logic::ScriptUiEffects for ReceivingUi {
         camera: &mut crate::presentation_frame::camera::SessionCamera,
         enabled: bool,
         replay: bool,
+        _upgrade_source: game_engine::common::thing::receiving_module_content::UpgradeTooltipSource<
+            '_,
+        >,
     ) {
         if enabled {
             self.callbacks.hide_control_bar_owned(
@@ -34,12 +37,13 @@ impl crate::game_logic::ScriptUiEffects for ReceivingUi {
                 true,
             );
         } else {
-            self.callbacks.show_control_bar_owned(
+            self.callbacks.show_control_bar_owned_with_upgrade_source(
                 &mut self.bar,
                 camera,
                 Some(self.parent.clone()),
                 replay,
                 false,
+                _upgrade_source,
             );
         }
         self.delivered.push(enabled);
@@ -280,4 +284,72 @@ fn authored_letterbox_zoom_policy_changes_at_action_and_only_on_transition() {
             !expected_limit
         );
     }
+}
+
+#[test]
+fn authored_letterbox_receives_current_upgrade_observation_at_each_action() {
+    struct ObserveUpgrades(Vec<bool>);
+    impl crate::game_logic::ScriptUiEffects for ObserveUpgrades {
+        fn weather_visible(&mut self, _: bool) {}
+        fn letterbox(
+            &mut self,
+            _: &mut crate::presentation_frame::camera::SessionCamera,
+            _: bool,
+            _: bool,
+            source: game_engine::common::thing::receiving_module_content::UpgradeTooltipSource<'_>,
+        ) {
+            match source {
+                game_engine::common::thing::receiving_module_content::UpgradeTooltipSource::Receiving(observe) => {
+                    let observation = observe("", "Upgrade_LetterboxObservation");
+                    assert!(observation.template.is_some());
+                    self.0.push(observation.completed);
+                }
+                game_engine::common::thing::receiving_module_content::UpgradeTooltipSource::Standalone => panic!("authored native action must supply its receiving observation"),
+            }
+        }
+    }
+    let (mut owner, _, _) = world(120.);
+    let (peer, _, _) = world(320.);
+    crate::game_logic::host_upgrade_rules::register_test_upgrade(
+        &owner,
+        "Upgrade_LetterboxObservation",
+        "PLAYER",
+        1,
+        1,
+    );
+    let player = owner
+        .get_players()
+        .values()
+        .find(|player| player.is_local)
+        .unwrap()
+        .id;
+    let mut ui = ObserveUpgrades(Vec::new());
+    for completed in [false, true] {
+        if completed {
+            owner
+                .get_player_mut(player)
+                .unwrap()
+                .add_completed_upgrade("Upgrade_LetterboxObservation");
+        }
+        let mut list = ScriptList::new();
+        list.append_script(script(
+            "CurrentUpgradeLetterbox",
+            vec![action(ScriptActionType::CameraLetterboxEnd, vec![])],
+            true,
+        ));
+        let interpreter = engine(peer.mission_scripts.clone(), list);
+        interpreter
+            .update_with_driver(
+                gamelogic::scripting::executor::ScriptContext::new(),
+                &mut HostScriptExecutionDriver::with_ui(&mut owner, &interpreter, Some(&mut ui)),
+            )
+            .unwrap();
+    }
+    assert_eq!(ui.0, [false, true]);
+    assert!(
+        !peer
+            .get_player(player)
+            .unwrap()
+            .has_unlocked_upgrade("Upgrade_LetterboxObservation")
+    );
 }

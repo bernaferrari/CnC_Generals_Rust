@@ -1895,7 +1895,26 @@ impl GameLogic {
         producer: Option<ObjectId>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> Option<ObjectId> {
-        self.place_mine_kind_with_effects(
+        self.place_land_mine_named_with_interpreter_and_effects(
+            template_name,
+            team,
+            position,
+            producer,
+            None,
+            effects,
+        )
+    }
+
+    pub(crate) fn place_land_mine_named_with_interpreter_and_effects(
+        &mut self,
+        template_name: &str,
+        team: Team,
+        position: Vec3,
+        producer: Option<ObjectId>,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> Option<ObjectId> {
+        self.place_mine_kind_with_interpreter_and_effects(
             crate::game_logic::host_mines::HostMineKind::LandMine,
             template_name,
             team,
@@ -1903,27 +1922,17 @@ impl GameLogic {
             producer,
             None,
             None,
+            interpreter,
             effects,
         )
     }
 
     /// C++ GenerateMinefieldBehavior upgradeImplementation + EMP swap update().
-    pub(in super::super) fn apply_structure_minefield_upgrade(
+    pub(in super::super) fn apply_structure_minefield_upgrade_with_interpreter_and_effects(
         &mut self,
         object_id: ObjectId,
         upgrade: &str,
-    ) -> u32 {
-        self.apply_structure_minefield_upgrade_with_effects(
-            object_id,
-            upgrade,
-            &mut Default::default(),
-        )
-    }
-
-    pub(in super::super) fn apply_structure_minefield_upgrade_with_effects(
-        &mut self,
-        object_id: ObjectId,
-        upgrade: &str,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> u32 {
         use crate::game_logic::host_mines::{
@@ -2006,7 +2015,14 @@ impl GameLogic {
                 continue;
             }
             if self
-                .place_land_mine_named_with_effects(template, team, spot, Some(object_id), effects)
+                .place_land_mine_named_with_interpreter_and_effects(
+                    template,
+                    team,
+                    spot,
+                    Some(object_id),
+                    interpreter,
+                    effects,
+                )
                 .is_some()
             {
                 placed = placed.saturating_add(1);
@@ -2147,6 +2163,31 @@ impl GameLogic {
         delay_frames: Option<u32>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> Option<ObjectId> {
+        self.place_mine_kind_with_interpreter_and_effects(
+            kind,
+            template_name,
+            team,
+            position,
+            producer,
+            attach_to,
+            delay_frames,
+            None,
+            effects,
+        )
+    }
+
+    pub(in super::super) fn place_mine_kind_with_interpreter_and_effects(
+        &mut self,
+        kind: crate::game_logic::host_mines::HostMineKind,
+        template_name: &str,
+        team: Team,
+        position: Vec3,
+        producer: Option<ObjectId>,
+        attach_to: Option<ObjectId>,
+        delay_frames: Option<u32>,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> Option<ObjectId> {
         let tree_move_frame = self.frame;
         use crate::game_logic::host_mines::{
             BURTON_UNIQUE_CHARGE_TARGETS, HostMineData, HostMineKind, can_place_remote_charge,
@@ -2216,8 +2257,13 @@ impl GameLogic {
         }
 
         self.ensure_residual_mine_template(template_name, kind);
-        let id =
-            self.create_object_with_script_effects(template_name, team, position, None, effects)?;
+        let id = self.create_object_with_script_effects(
+            template_name,
+            team,
+            position,
+            interpreter,
+            effects,
+        )?;
 
         let mut data = match kind {
             crate::game_logic::host_mines::HostMineKind::LandMine => {

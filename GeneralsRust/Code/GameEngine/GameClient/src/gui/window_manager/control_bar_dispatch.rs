@@ -111,6 +111,8 @@ impl<'a> CameraOptionsInputContext<'a> {
     }
 }
 pub struct ControlBarInputContext<'a> {
+    pub upgrade_tooltip:
+        crate::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource<'a>,
     pub camera_options: Option<CameraOptionsInputContext<'a>>,
     /// Owned result for this synchronous native operation; consumed by Main
     /// immediately after dispatch, never retained across a frame.

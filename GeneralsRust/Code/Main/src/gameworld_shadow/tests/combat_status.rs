@@ -907,6 +907,7 @@ fn host_production_log_drives_set_production_queue_channel() {
         let o = logic.host_object_mut(barracks).expect("b");
         let mut bd = BuildingData::new(BuildingType::Barracks);
         bd.production_queue.push(ProductionItem {
+            runtime_entry_identity: 0,
             template_name: "ProdRanger".into(),
             progress: 0.0,
             total_time: 10.0,
@@ -981,6 +982,7 @@ fn production_authority_writeback_is_queue_last_writer() {
         let o = logic.host_object_mut(oid).expect("b");
         let mut bd = BuildingData::new(BuildingType::Barracks);
         bd.production_queue.push(ProductionItem {
+            runtime_entry_identity: 0,
             template_name: "ProdAuthRanger".into(),
             progress: 2.0,
             total_time: 10.0,

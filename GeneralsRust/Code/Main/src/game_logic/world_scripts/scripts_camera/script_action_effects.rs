@@ -9,6 +9,7 @@ impl GameLogic {
         &mut self,
         ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
+        let upgrade_observer = self.receiving_upgrade_tooltip_observer();
         let Some(ui) = ui.ui.as_mut() else {
             return;
         };
@@ -19,6 +20,7 @@ impl GameLogic {
                 &mut self.session_view.camera,
                 enabled,
                 matches!(self.game_mode, GameMode::Replay),
+                game_engine::common::thing::receiving_module_content::UpgradeTooltipSource::Receiving(&upgrade_observer),
             );
             self.session_view
                 .letterbox_visibility_delivered_since_present = true;
@@ -453,10 +455,12 @@ impl GameLogic {
         self.deliver_pending_script_ui(&mut ui);
         for last in self.mission_scripts.drain_letterbox_events() {
             if let Some(ui) = ui.ui.as_mut() {
+                let upgrade_observer = self.receiving_upgrade_tooltip_observer();
                 ui.letterbox(
                     &mut self.session_view.camera,
                     last,
                     matches!(self.game_mode, GameMode::Replay),
+                    game_engine::common::thing::receiving_module_content::UpgradeTooltipSource::Receiving(&upgrade_observer),
                 );
                 self.session_view
                     .letterbox_visibility_delivered_since_present = true;

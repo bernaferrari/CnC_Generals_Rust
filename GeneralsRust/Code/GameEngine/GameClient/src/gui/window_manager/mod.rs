@@ -12,7 +12,6 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::rc::{Rc, Weak};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicI32, Ordering};
 
 use crate::gui::gadgets::{
     CheckBox, ComboBox, HorizontalSlider, ListBox, ProgressBar, PushButton, RadioButton,
@@ -152,14 +151,6 @@ pub(crate) use wnd_parse::{
     map_window_message_to_main_menu, resolve_window_script_path, style_for_window_type,
 };
 
-/// Atomic counter for generating unique window IDs
-static NEXT_WINDOW_ID: AtomicI32 = AtomicI32::new(1);
-
-/// Generate a unique window ID
-pub(crate) fn generate_window_id() -> WindowId {
-    NEXT_WINDOW_ID.fetch_add(1, Ordering::SeqCst)
-}
-
 pub(crate) fn with_arc_write<T, R>(
     lock: &Arc<std::sync::RwLock<T>>,
     f: impl FnOnce(&mut T) -> R,
@@ -203,6 +194,7 @@ pub struct WindowManager {
 
     // Statistics
     window_count: usize,
+    next_window_id: WindowId,
 
     // Screen size for layout scaling (defaults to 800x600)
     screen_size: (i32, i32),
@@ -215,6 +207,12 @@ pub struct WindowManager {
 }
 
 impl WindowManager {
+    fn generate_window_id(&mut self) -> WindowId {
+        let id = self.next_window_id;
+        self.next_window_id = id.wrapping_add(1);
+        id
+    }
+
     /// Install the receiving menu policy before loading ReplayMenu.wnd. No
     /// Recorder handle or borrowed owner is retained by the window tree.
     pub fn configure_replay_menu_owned(
@@ -262,6 +260,7 @@ impl WindowManager {
             capture_flags: CaptureFlags::empty(),
             layouts: Vec::new(),
             window_count: 0,
+            next_window_id: 1,
             screen_size: (800, 600),
             radio_groups: HashMap::new(),
             transitions: GameWindowTransitionsHandler::new(),

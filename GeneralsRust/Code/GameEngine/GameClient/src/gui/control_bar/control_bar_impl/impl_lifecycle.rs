@@ -117,16 +117,16 @@ impl ControlBar {
         // ShowControlBar queues DEFAULT (ControlBarCallback.cpp:489) before this
         // live instance ticks. Apply it so CommandWindow HIDDEN is cleared InGame.
         self.apply_pending_control_bar_stage();
-        self.apply_live_hook_events(true);
-        self.update_body(delta_time, true, None)
+        self.apply_live_hook_events(true, crate::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource::Standalone);
+        self.update_body(delta_time, true, None, crate::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource::Standalone)
     }
 
     /// Native viewport/stage changes are already admitted on this instance.
     /// Unmigrated HUD clicks, science and shortcut events retain their explicit
     /// compatibility intake until their receiving-owner migration is complete.
     pub fn update_owned(&mut self, delta_time: Duration) -> Result<(), Box<dyn std::error::Error>> {
-        self.apply_live_hook_events(false);
-        self.update_body(delta_time, false, None)
+        self.apply_live_hook_events(false, crate::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource::Standalone);
+        self.update_body(delta_time, false, None, crate::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource::Standalone)
     }
 
     pub fn update_owned_with_observers(
@@ -134,12 +134,27 @@ impl ControlBar {
         delta_time: Duration,
         roster: &super::control_bar_observer::NativeObserverRoster,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        self.apply_live_hook_events(false);
-        self.update_body(delta_time, false, Some(roster))?;
+        self.apply_live_hook_events(false, crate::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource::Standalone);
+        self.update_body(delta_time, false, Some(roster), crate::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource::Standalone)?;
         if self.observer_mode {
             // Legacy art/stat refresh may enumerate its compatibility players.
             // Reassert only native selectable identities from the receiving map.
             self.refresh_observer_windows_owned(roster);
+        }
+        Ok(())
+    }
+    pub fn update_owned_with_upgrade_source(
+        &mut self,
+        delta_time: Duration,
+        roster: Option<&super::control_bar_observer::NativeObserverRoster>,
+        upgrade_source: crate::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource<'_>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        self.apply_live_hook_events(false, upgrade_source);
+        self.update_body(delta_time, false, roster, upgrade_source)?;
+        if self.observer_mode {
+            if let Some(roster) = roster {
+                self.refresh_observer_windows_owned(roster);
+            }
         }
         Ok(())
     }
@@ -148,6 +163,7 @@ impl ControlBar {
         delta_time: Duration,
         publish_standalone: bool,
         native_roster: Option<&super::control_bar_observer::NativeObserverRoster>,
+        upgrade_source: crate::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource<'_>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         crate::gui::w3d_gadget_draw::ensure_scheme_draw_registered();
         crate::gui::w3d_gadget_draw::ensure_control_bar_wnd_draw_callbacks();
@@ -217,7 +233,7 @@ impl ControlBar {
 
         if self.ui_dirty {
             self.evaluate_context_ui()?;
-            self.populate_special_power_shortcut()?;
+            self.populate_special_power_shortcut_with_upgrade_source(upgrade_source)?;
             self.ui_dirty = false;
         }
 
@@ -467,7 +483,11 @@ impl ControlBar {
         format!("{produced} / {consumed}")
     }
 
-    fn apply_live_hook_events(&mut self, standalone_viewport: bool) {
+    fn apply_live_hook_events(
+        &mut self,
+        standalone_viewport: bool,
+        upgrade_source: crate::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource<'_>,
+    ) {
         let events = drain_live_control_bar_events();
         if events.ui_dirty {
             self.mark_ui_dirty();
@@ -479,7 +499,7 @@ impl ControlBar {
             self.toggle_purchase_science();
         }
         if events.show_special_power_shortcut {
-            self.show_special_power_shortcut();
+            self.show_special_power_shortcut_with_upgrade_source(upgrade_source);
         }
         if events.hide_special_power_shortcut {
             self.hide_special_power_shortcut();

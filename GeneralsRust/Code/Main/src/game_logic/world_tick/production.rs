@@ -3,6 +3,11 @@
 use super::super::*;
 
 /// The two original callback points cannot be interchanged by exit helpers.
+struct RetainedUpgradeEntry {
+    entry_identity: u64,
+    producer_identity: std::sync::Arc<()>,
+}
+
 enum SpawnReadyCallbacks {
     AlreadyNotified,
     NotifyAfterExit,
@@ -747,9 +752,8 @@ impl GameLogic {
         // Wave 875: sole-tick early-return honesty — no host dual-advance.
         {}
 
-        let (upgrade_completions, unit_completions) = self.host_collect_production_completions(dt);
+        let unit_completions = self.host_collect_production_completions(dt, ui);
         // Wave 595/608: host production complete/spawn apply residual via host helpers.
-        self.apply_upgrade_production_completions_with_effects(upgrade_completions, ui);
         self.apply_unit_production_completions_with_effects(unit_completions, ui);
     }
 
@@ -761,37 +765,27 @@ impl GameLogic {
     pub(crate) fn host_collect_production_completions(
         &mut self,
         dt: f32,
-    ) -> (
-        Vec<(Team, String, ObjectId)>,
-        Vec<(Team, String, Vec3, Option<Vec3>, ObjectId)>,
-    ) {
-        // Wave 613: host production complete collect residual.
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> Vec<(Team, String, Vec3, Option<Vec3>, ObjectId)> {
+        // Research is completed synchronously on each producer before advancing the next.
 
-        // C++ parity: pre-compute per-player power factor so we don't borrow
-        // self.players while self.objects is mutably borrowed.
-        // Formula matches ThingTemplate::calcTimeToBuild():
-        //   energy_ratio = produced / max(consumed, produced) clamped to [0,1]
-        //   energy_short = (1.0 - ratio) * penalty_modifier
-        //   rate = max(1.0 - energy_short, 0.5)
-        //   if ratio < 1.0: rate = min(rate, 0.8)
-        let player_power_factor = self.compute_player_power_factors();
-        // Resolve the ownership scope before mutating producers.  Do not use
-        // the historical first-player-for-team lookup: only a genuinely
-        // ownerless object with one living team member gets a compatibility
-        // owner through player_owner_for_host_object.
-        let object_owner_player_ids: std::collections::HashMap<ObjectId, Option<u32>> = self
-            .objects
-            .registered_values()
-            .map(|obj| (obj.id, self.player_owner_for_host_object(obj)))
-            .collect();
-
+        // Ownership and Energy are sampled at each producer's boundary below,
+        // after any earlier producer's synchronous upgrade callbacks.
         use crate::game_logic::buildings::ProductionKind;
         // Unit completions: (team, template, spawn_pos, rally, producer_id)
         let mut unit_completions: Vec<(Team, String, Vec3, Option<Vec3>, ObjectId)> = Vec::new();
-        // Upgrade completions: (team, upgrade_name, producer_id)
-        let mut upgrade_completions: Vec<(Team, String, ObjectId)> = Vec::new();
-
-        for (&id, obj) in self.objects.registered_mut() {
+        let producers: Vec<_> = self.objects.registered_keys().copied().collect();
+        for id in producers {
+            let power_factor = self
+                .objects
+                .get(&id)
+                .and_then(|object| self.player_owner_for_host_object(object))
+                .map(|owner| self.production_power_factor_for_player(owner))
+                .unwrap_or(1.0);
+            let Some(obj) = self.objects.get_mut(&id) else {
+                continue;
+            };
+            let mut ready_research = None;
             if !obj.is_constructed() || !obj.is_alive() {
                 continue;
             }
@@ -812,12 +806,7 @@ impl GameLogic {
             let parking_place = obj.thing().template.parking_place.clone();
             let is_airfield = obj.is_kind_of(KindOf::FSAirfield);
             if let Some(building) = obj.building_data.as_mut() {
-                let pf = object_owner_player_ids
-                    .get(&id)
-                    .copied()
-                    .flatten()
-                    .and_then(|player_id| player_power_factor.get(&player_id).copied())
-                    .unwrap_or(1.0);
+                let pf = power_factor;
                 // C++ ProductionUpdate checks an exit door only for completed
                 // unit entries; upgrades complete independently of the door.
                 let doors = crate::game_logic::host_production_buildable_command_residual::producer_num_door_animations(
@@ -858,7 +847,15 @@ impl GameLogic {
                         .is_some_and(|item| !item.is_upgrade());
                     let head_exit_available =
                         building.production_head_exit_available(exit_metadata.as_ref());
-                    if head_ready
+                    if head_ready && !head_is_unit {
+                        if let Some((name, entry_identity)) = building.ready_upgrade_entry(pf) {
+                            ready_research = Some((obj.team, name, RetainedUpgradeEntry {
+                                entry_identity,
+                                producer_identity: std::sync::Arc::clone(&obj.visual_draw_identity_token),
+                            }));
+                        }
+                        None
+                    } else if head_ready
                         && head_is_unit
                         && head_exit_available
                         && airfield_holds_parking
@@ -945,7 +942,7 @@ impl GameLogic {
                     match completed.kind {
                         ProductionKind::Upgrade => {
                             // C++ upgrades do not enter the unit exit batch loop.
-                            upgrade_completions.push((obj.team, completed_template, id));
+                            unreachable!("research uses the retained entry transaction");
                         }
                         ProductionKind::Unit => {
                             // C++ ProductionUpdate loops every remaining unit in
@@ -1003,9 +1000,26 @@ impl GameLogic {
             if start_door_cycle {
                 obj.start_production_door_cycle(self.frame);
             }
+            // End the producer loan before any player/module/native callback.
+            if !unit_completions.is_empty() {
+                self.apply_unit_production_completions_with_effects(
+                    std::mem::take(&mut unit_completions),
+                    effects,
+                );
+            }
+            if let Some((team, name, retained)) = ready_research {
+                self.complete_upgrade_on_owner_with_effects(
+                    None,
+                    team,
+                    name,
+                    id,
+                    Some(retained),
+                    effects,
+                );
+            }
         }
 
-        (upgrade_completions, unit_completions)
+        unit_completions
     }
 
     /// Wave 595: host upgrade production completion residual (still host-side under
@@ -1096,71 +1110,159 @@ impl GameLogic {
         upgrade_completions: Vec<(Team, String, ObjectId)>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
-        for (team, upgrade_name, producer_id) in upgrade_completions {
-            // Production completion carries its producer ObjectId, which in
-            // turn carries the authoritative PlayerId.  Resolve it before the
-            // mutable producer borrow; never credit the first same-faction
-            // player just because this older event also contains a Team.
-            let producer_owner_player_id = self
-                .objects
-                .get(&producer_id)
-                .and_then(|producer| self.player_owner_for_host_object(producer))
-                .filter(|player_id| {
-                    self.players
-                        .get(player_id)
-                        .is_some_and(|player| player.team == team)
-                });
-            // `ProductionUpdate::update` handles PRODUCTION_UPGRADE directly:
-            // unlike a unit it does not reserve an exit, open a factory door,
-            // or set MODELCONDITION_CONSTRUCTION_COMPLETE.  Keep the producer
-            // ID below solely for the authoritative research completion event.
-            // Wave 483: refresh GW producer queue after host pop (sole-tick skips
-            // per-frame progress log; Complete path snapshots host queue).
-            self.production_events
-                .record_complete(producer_id, upgrade_name.clone(), ObjectId(0));
-            // Unlock via player queue drain + host apply path.
-            if let Some(pid) = producer_owner_player_id {
-                let already = self
-                    .players
-                    .get(&pid)
-                    .map(|p| p.has_unlocked_upgrade(&upgrade_name))
-                    .unwrap_or(false);
-                let upgrade_type = self.upgrade_type(&upgrade_name);
-                let definition = self.upgrade_template(&upgrade_name);
-                // CPP ProductionUpdate.cpp878: score before script notification.
-                if let (Some(player), Some(definition)) =
-                    (self.players.get_mut(&pid), definition.as_deref())
-                {
-                    player.record_upgrade_production_spending(definition);
+        for (team, name, producer) in upgrade_completions {
+            self.complete_upgrade_on_owner_with_effects(
+                interpreter,
+                team,
+                name,
+                producer,
+                None,
+                effects,
+            );
+        }
+    }
+
+    fn complete_upgrade_on_owner_with_effects(
+        &mut self,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+        team: Team,
+        upgrade_name: String,
+        producer_id: ObjectId,
+        retained: Option<RetainedUpgradeEntry>,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
+        self.complete_upgrade_on_owner_with_observer(
+            interpreter,
+            team,
+            upgrade_name,
+            producer_id,
+            retained,
+            effects,
+            |_| {},
+        );
+    }
+
+    /// One synchronous transaction. Its observer is also used by lifetime witnesses.
+    fn complete_upgrade_on_owner_with_observer(
+        &mut self,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+        team: Team,
+        upgrade_name: String,
+        producer_id: ObjectId,
+        retained: Option<RetainedUpgradeEntry>,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+        mut observe_before_retirement: impl FnMut(&mut GameLogic),
+    ) {
+        // Production completion carries its producer ObjectId, which in
+        // turn carries the authoritative PlayerId.  Resolve it before the
+        // mutable producer borrow; never credit the first same-faction
+        // player just because this older event also contains a Team.
+        let producer_owner_player_id = self
+            .objects
+            .get(&producer_id)
+            .and_then(|producer| self.player_owner_for_host_object(producer))
+            .filter(|player_id| {
+                self.players
+                    .get(player_id)
+                    .is_some_and(|player| player.team == team)
+            });
+        // `ProductionUpdate::update` handles PRODUCTION_UPGRADE directly:
+        // unlike a unit it does not reserve an exit, open a factory door,
+        // or set MODELCONDITION_CONSTRUCTION_COMPLETE.  Keep the producer
+        // ID below solely for the authoritative research completion event.
+        // Wave 483: refresh GW producer queue after host pop (sole-tick skips
+        // per-frame progress log; Complete path snapshots host queue).
+
+        // Unlock via player queue drain + host apply path.
+        if let Some(pid) = producer_owner_player_id {
+            let upgrade_type = self.upgrade_type(&upgrade_name);
+            let definition = self.upgrade_template(&upgrade_name);
+            // CPP ProductionUpdate.cpp878: score before script notification.
+            if let (Some(player), Some(definition)) =
+                (self.players.get_mut(&pid), definition.as_deref())
+            {
+                player.record_upgrade_production_spending(definition);
+            }
+            // CPP ProductionUpdate.cpp879-925: edge precedes addUpgrade /
+            // giveUpgrade, including an already-recorded completion.
+            interpreter
+                .or(self.owned_script_engine.as_ref())
+                .expect("research completion requires its driving interpreter")
+                .notify_of_completed_upgrade(pid as usize, &upgrade_name, producer_id.0);
+            if definition
+                .as_ref()
+                .is_some_and(|template| !template.get_display_name().is_empty())
+            {
+                self.present_host_upgrade_completion(team, pid, &upgrade_name, Some(producer_id));
+            }
+            if let Some(player) = self.players.get_mut(&pid) {
+                player.complete_researched_upgrade(&upgrade_name, upgrade_type);
+            }
+            let affected = self
+                .apply_host_upgrade_modules_from_source_with_interpreter_and_effects(
+                    team,
+                    pid,
+                    &upgrade_name,
+                    Some(producer_id),
+                    interpreter,
+                    effects,
+                );
+            // Player.cpp3035–3045: addUpgrade(COMPLETE) dirties local UI
+            // after module callbacks, before ProductionUpdate records Academy.
+            // OBJECT giveUpgrade does not execute this Player-specific edge.
+            if upgrade_type == gamelogic::upgrade::UpgradeType::Player && self.is_local_player(pid)
+            {
+                if let Some(ui) = effects.ui.as_deref_mut() {
+                    ui.mark_control_bar_dirty();
                 }
-                // CPP ProductionUpdate.cpp879-925: edge precedes addUpgrade /
-                // giveUpgrade, including an already-recorded completion.
-                interpreter
-                    .or(self.owned_script_engine.as_ref())
-                    .expect("research completion requires its driving interpreter")
-                    .notify_of_completed_upgrade(pid as usize, &upgrade_name, producer_id.0);
-                if let Some(player) = self.players.get_mut(&pid) {
-                    player.complete_researched_upgrade_with_definition(
-                        &upgrade_name,
-                        upgrade_type,
-                        definition.as_deref(),
-                    );
-                }
-                if !already {
-                    self.apply_host_upgrade_complete_with_effects(
-                        team,
-                        pid,
-                        &upgrade_name,
-                        effects,
-                    );
-                }
-                if let (Some(player), Some(definition)) =
-                    (self.players.get_mut(&pid), definition.as_deref())
-                {
-                    player.record_upgrade_production_academy(definition, self.frame);
+            }
+            self.record_host_upgrade_completion(
+                team,
+                pid,
+                &upgrade_name,
+                Some(producer_id),
+                affected,
+            );
+            if let (Some(player), Some(definition)) =
+                (self.players.get_mut(&pid), definition.as_deref())
+            {
+                player.record_upgrade_production_academy(definition, self.frame);
+            }
+        }
+        let selected_has_cameo = self
+            .players
+            .values()
+            .find(|player| player.is_local)
+            .and_then(|player| player.selected_objects.first())
+            .and_then(|id| self.objects.get(id))
+            .is_some_and(|object| {
+                object
+                    .thing()
+                    .template
+                    .upgrade_cameo_names
+                    .iter()
+                    .any(|name| name.eq_ignore_ascii_case(&upgrade_name))
+            });
+        if selected_has_cameo {
+            if let Some(ui) = effects.ui.as_deref_mut() {
+                ui.mark_control_bar_dirty();
+            }
+        }
+        observe_before_retirement(self);
+        if let Some(retained) = retained {
+            if let Some(producer) = self.objects.get_mut(&producer_id).filter(|producer| {
+                std::sync::Arc::ptr_eq(
+                    &producer.visual_draw_identity_token,
+                    &retained.producer_identity,
+                )
+            }) {
+                if let Some(building) = producer.building_data.as_mut() {
+                    building.retire_upgrade_entry(retained.entry_identity);
                 }
             }
         }
+        self.production_events
+            .record_complete(producer_id, upgrade_name, ObjectId(0));
     }
 
     /// Wave 595: host unit production completion residual — spawn, door, exit delay,

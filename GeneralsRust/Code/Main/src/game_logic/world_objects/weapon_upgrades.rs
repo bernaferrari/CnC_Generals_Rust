@@ -6,13 +6,28 @@ use super::super::*;
 /// remains owned by the driving GameLogic; no call-stack selection is published.
 #[derive(Clone, Copy, Debug)]
 pub(in crate::game_logic) enum UpgradeRecipients {
-    Player { team: Team, player_id: u32 },
+    Player {
+        team: Team,
+        player_id: u32,
+    },
     Team(Team),
+    Object {
+        team: Team,
+        player_id: u32,
+        object_id: ObjectId,
+    },
+    PlayerLedger {
+        team: Team,
+        player_id: u32,
+    },
 }
 impl UpgradeRecipients {
     pub(super) fn team(self) -> Team {
         match self {
-            Self::Player { team, .. } | Self::Team(team) => team,
+            Self::Player { team, .. }
+            | Self::Team(team)
+            | Self::Object { team, .. }
+            | Self::PlayerLedger { team, .. } => team,
         }
     }
     pub(super) fn matches_object(self, object: &Object) -> bool {
@@ -20,6 +35,12 @@ impl UpgradeRecipients {
             && match self {
                 Self::Player { player_id, .. } => object.owner_player_id == Some(player_id),
                 Self::Team(_) => true,
+                Self::Object {
+                    player_id,
+                    object_id,
+                    ..
+                } => object.id == object_id && object.owner_player_id == Some(player_id),
+                Self::PlayerLedger { .. } => false,
             }
     }
     fn matches_player(self, player: &Player) -> bool {
@@ -27,6 +48,8 @@ impl UpgradeRecipients {
             && match self {
                 Self::Player { player_id, .. } => player.id == player_id,
                 Self::Team(_) => true,
+                Self::Object { .. } => false,
+                Self::PlayerLedger { player_id, .. } => player.id == player_id,
             }
     }
 }
@@ -75,6 +98,8 @@ impl GameLogic {
         let player = match recipients {
             UpgradeRecipients::Player { player_id, .. } => self.get_player_mut(player_id),
             UpgradeRecipients::Team(team) => self.get_player_mut_by_team(team),
+            UpgradeRecipients::PlayerLedger { player_id, .. } => self.get_player_mut(player_id),
+            UpgradeRecipients::Object { .. } => None,
         };
         if let Some(p) = player {
             p.unlocked_sciences.insert(canonical_tag.to_string());
@@ -144,6 +169,20 @@ impl GameLogic {
         upgrade_name: &str,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> u32 {
+        self.apply_slave_drone_upgrade_to_team_with_interpreter_and_effects(
+            recipients,
+            upgrade_name,
+            None,
+            effects,
+        )
+    }
+    pub(in super::super) fn apply_slave_drone_upgrade_to_team_with_interpreter_and_effects(
+        &mut self,
+        recipients: UpgradeRecipients,
+        upgrade_name: &str,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> u32 {
         use crate::game_logic::host_slave_drones::{
             SlaveDroneKind, is_slave_drone_master_template, slave_drone_conflicts_with_owned,
         };
@@ -172,7 +211,12 @@ impl GameLogic {
         let mut n = 0u32;
         for mid in masters {
             if self
-                .residual_attach_slave_drone_with_effects(mid, kind, effects)
+                .residual_attach_slave_drone_with_interpreter_and_effects(
+                    mid,
+                    kind,
+                    interpreter,
+                    effects,
+                )
                 .is_some()
             {
                 if let Some(m) = self.objects.get_mut(&mid) {
@@ -2017,5 +2061,78 @@ mod recipient_owner_tests {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod canonical_upgrade_visitation_tests {
+    use super::*;
+
+    #[test]
+    fn receiving_upgrade_visits_actual_default_team_members_in_cpp_prepend_order() {
+        let mut world = GameLogic::new();
+        let mut peer = GameLogic::new();
+        for world in [&mut world, &mut peer] {
+            world.add_player(Player::new(0, Team::GLA, "First", true));
+            world.add_player(Player::new(7, Team::GLA, "SameFaction", false));
+            let mut template = ThingTemplate::new("GLAInfantryWorker");
+            template.add_kind_of(KindOf::Infantry).set_health(100.0);
+            world.templates.insert(template.name.clone(), template);
+        }
+        let first = world
+            .create_object_for_player("GLAInfantryWorker", 0, glam::Vec3::ZERO)
+            .unwrap();
+        let second = world
+            .create_object_for_player("GLAInfantryWorker", 0, glam::Vec3::X)
+            .unwrap();
+        let other = world
+            .create_object_for_player("GLAInfantryWorker", 7, glam::Vec3::Y)
+            .unwrap();
+        let peer_first = peer
+            .create_object_for_player("GLAInfantryWorker", 0, glam::Vec3::ZERO)
+            .unwrap();
+        assert_eq!(first, peer_first);
+        assert_eq!(world.ordered_upgrade_owner_object_ids(0), [second, first]);
+        let name = "Upgrade_GLAWorkerShoes";
+        world.add_completed_player_upgrade(0, name);
+        assert!(world.host_object(first).unwrap().has_upgrade_tag(name));
+        assert!(world.host_object(second).unwrap().has_upgrade_tag(name));
+        assert!(!world.host_object(other).unwrap().has_upgrade_tag(name));
+        assert!(!peer.host_object(peer_first).unwrap().has_upgrade_tag(name));
+        assert!(world.get_player(0).unwrap().has_unlocked_upgrade(name));
+        assert!(!world.get_player(7).unwrap().has_unlocked_upgrade(name));
+        assert!(!peer.get_player(0).unwrap().has_unlocked_upgrade(name));
+    }
+}
+
+#[cfg(test)]
+mod upgrade_lookup_admission_tests {
+    use super::*;
+
+    #[test]
+    fn player_upgrade_visits_registered_team_members_not_lookup_only_constructor_residents() {
+        let mut world = GameLogic::new();
+        world.add_player(Player::new(0, Team::GLA, "owner", true));
+        let mut template = ThingTemplate::new("GLAInfantryWorker");
+        template.add_kind_of(KindOf::Infantry).set_health(100.);
+        world
+            .templates
+            .insert(template.name.clone(), template.clone());
+        let registered = world
+            .create_object_for_player(&template.name, 0, glam::Vec3::ZERO)
+            .unwrap();
+        // This existing lookup-only seam models the period before Team admission.
+        // A controlling Player value alone does not make a Team list member.
+        let raw_id = ObjectId(900);
+        let mut raw = Object::new(template, raw_id, Team::GLA);
+        raw.owner_player_id = Some(0);
+        world.try_admit_host_object(raw).unwrap();
+        assert!(world.objects[&raw_id].team_instance_id.is_none());
+        assert_eq!(world.ordered_upgrade_owner_object_ids(0), [registered]);
+        let name = "Upgrade_GLAWorkerShoes";
+        world.add_completed_player_upgrade(0, name);
+        assert!(world.objects[&registered].has_upgrade_tag(name));
+        assert!(!world.objects[&raw_id].has_upgrade_tag(name));
+        assert!(world.get_player(0).unwrap().has_unlocked_upgrade(name));
     }
 }

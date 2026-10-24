@@ -493,18 +493,6 @@ impl Player {
         self.unlocked_sciences.insert(name.to_string());
     }
 
-    /// World callers supply their admitted definition; no active-store lookup.
-    pub(crate) fn add_completed_upgrade_with_definition(
-        &mut self,
-        name: &str,
-        definition: Option<&gamelogic::upgrade::UpgradeTemplate>,
-    ) {
-        self.add_completed_upgrade(name);
-        if let Some(definition) = definition {
-            self.sync_leftover_player_upgrade_from_host(definition);
-        }
-    }
-
     /// C++ SpecialPowerModule::initiateIntentToDoSpecialPower →
     /// AcademyStats::recordSpecialPowerUsed (ACT_SUPERPOWER only).
     pub fn record_special_power_used(&mut self) {
@@ -578,32 +566,6 @@ impl Player {
         };
         self.academy_stats
             .record_upgrade_at(classification, false, frame);
-    }
-
-    /// Leftover `Player::addUpgrade` already xfers `m_upgradesCompleted`.
-    fn sync_leftover_player_upgrade_from_host(
-        &self,
-        template: &gamelogic::upgrade::UpgradeTemplate,
-    ) {
-        use gamelogic::player::PlayerArcExt;
-
-        let names = [self.name.as_str(), self.map_side.map_player_name.as_str()];
-        let leftover = {
-            let Ok(list) = gamelogic::player::player_list().read() else {
-                return;
-            };
-            names.iter().find_map(|n| {
-                if n.is_empty() {
-                    None
-                } else {
-                    list.find_player_by_name(n)
-                }
-            })
-        };
-        let Some(arc) = leftover else {
-            return;
-        };
-        arc.add_upgrade(template, gamelogic::upgrade::UpgradeStatus::Complete, None);
     }
 
     /// C++ `ResourceGatheringManager::addSupplyCenter`.

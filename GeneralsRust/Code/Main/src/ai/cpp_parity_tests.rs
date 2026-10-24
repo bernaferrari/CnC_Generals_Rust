@@ -732,6 +732,7 @@ fn aidata_team_factory_idle_gate() {
     if let Some(o) = logic.host_object_mut(barracks_id) {
         if let Some(b) = o.building_data.as_mut() {
             b.production_queue.push(crate::game_logic::ProductionItem {
+                runtime_entry_identity: 0,
                 template_name: "USA_Ranger".into(),
                 progress: 0.1,
                 total_time: 10.0,
@@ -749,6 +750,7 @@ fn aidata_team_factory_idle_gate() {
     if let Some(o) = logic.host_object_mut(wf_id) {
         if let Some(b) = o.building_data.as_mut() {
             b.production_queue.push(crate::game_logic::ProductionItem {
+                runtime_entry_identity: 0,
                 template_name: "USA_Humvee".into(),
                 progress: 0.1,
                 total_time: 10.0,

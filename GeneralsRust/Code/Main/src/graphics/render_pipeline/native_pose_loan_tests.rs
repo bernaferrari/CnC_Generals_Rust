@@ -265,3 +265,71 @@ fn native_destroy_loan_retires_only_its_actual_render_and_playback_owner() {
     assert!(world.pending_client_drawable_restore.is_none());
     assert!(world.pending_client_drawable_imports.is_empty());
 }
+
+#[test]
+fn installed_transform_visits_use_each_matrix_at_same_revision_and_reject_foreign_birth() {
+    use super::super::native_draw_source::NativeDrawSource;
+    let world = Arc::new(());
+    let actual = identity(&world, &Arc::new(()), 9);
+    let foreign = identity(&Arc::new(()), &Arc::new(()), 9);
+    let stale = identity(&world, &Arc::new(()), 8);
+    let selected = crate::assets::AuthoredDrawModel::default();
+    let mut state = admitted(actual.clone());
+    state.installed_draw_pose = InstalledDrawObject::Ready(InstalledDrawPose::created(
+        Arc::new(W3DModel::new("ActualMesh".into())),
+        Mat4::IDENTITY,
+        &selected,
+        None,
+    ));
+    let mut peer = admitted(foreign.clone());
+    let peer_before = peer.clone();
+    fn source(identity: &LiveDrawPlaybackIdentity) -> NativeDrawSource<'_> {
+        NativeDrawSource {
+            identity: Some(identity),
+            receiving: None,
+            template: "CameraOwner",
+            mesh_scale: 1.,
+            float_yaw: 0.,
+            float_pitch: 0.,
+            under_construction: false,
+            construction_percent: 1.,
+            max_height_above_position: 100.,
+        }
+    }
+    let first = Mat4::from_translation(Vec3::new(11., 13., 17.));
+    let second = first * Mat4::from_rotation_y(0.7);
+    for expected in [first, second, second] {
+        let InstalledDrawObject::Ready(pose) = &mut state.installed_draw_pose else {
+            panic!()
+        };
+        pose.hierarchy_valid = true;
+        source(&actual).install_observed_transform(
+            &mut state,
+            game_client::drawable::Matrix4 {
+                elements: expected.transpose().to_cols_array_2d(),
+            },
+        );
+        let InstalledDrawObject::Ready(pose) = &state.installed_draw_pose else {
+            panic!()
+        };
+        assert_eq!(pose.world, expected);
+        assert!(
+            !pose.hierarchy_valid,
+            "every Set_Transform invalidates, including equal visits"
+        );
+        assert_eq!(state.native_transform_revision, Some(1));
+        assert!(state.animation.is_none());
+    }
+    let before = state.clone();
+    for rejected in [&foreign, &stale] {
+        source(rejected)
+            .install_observed_transform(&mut state, game_client::drawable::Matrix4::identity());
+        assert_eq!(state, before);
+    }
+    source(&actual)
+        .install_observed_transform(&mut peer, game_client::drawable::Matrix4::identity());
+    assert_eq!(peer, peer_before);
+    // A later frozen observation must not overwrite the event-time installed pose.
+    state.receive_native_transform_observations(&actual, 1., 0., 0., false, 1., 100.);
+    assert_eq!(state, before);
+}

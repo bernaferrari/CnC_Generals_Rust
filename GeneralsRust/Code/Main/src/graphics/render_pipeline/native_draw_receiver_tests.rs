@@ -376,3 +376,51 @@ fn real_receiver_owns_constructor_dirty_setters_and_peer_reset_lifetimes_before_
         installed_draw_pose::InstalledDrawObject::Ready(_)
     ));
 }
+
+#[test]
+fn actual_client_transform_observer_preserves_each_matrix_with_one_frozen_source_revision() {
+    use super::installed_draw_pose::{InstalledDrawObject, InstalledDrawPose};
+    use super::native_draw_source::NativeDrawSource;
+    let mut world = GameLogic::new();
+    admit(&mut world, DRAW, 3.);
+    let unit = source(&mut world);
+    let identity = unit.draw_playback_identity.as_ref().unwrap();
+    let selected = unit.first_object_draw().unwrap().unwrap();
+    let mut state = ObjectVisualState {
+        native_host_identity: Some(identity.clone()),
+        installed_draw_pose: InstalledDrawObject::Ready(InstalledDrawPose::created(
+            Arc::new(model()),
+            Mat4::IDENTITY,
+            &selected,
+            None,
+        )),
+        ..Default::default()
+    };
+    let mut client = GameClient::new().unwrap();
+    let mut observations = Vec::new();
+    for (position, angle) in [([11., 13., 17.], 0.7), ([23., 29., 31.], -0.3)] {
+        let mut payload = entry(&unit);
+        payload.position = position;
+        payload.orientation = angle;
+        client.sync_presentation_drawables_observed([payload], 321, |event| {
+            if let game_client::core::game_client::PresentationDrawableMutation::TransformInstalled { transform, .. } = event {
+                let expected = Mat4::from_cols_array_2d(&transform.elements).transpose();
+                let InstalledDrawObject::Ready(pose) = &mut state.installed_draw_pose else { panic!() };
+                pose.hierarchy_valid = true;
+                NativeDrawSource::display(&unit).install_observed_transform(&mut state, transform);
+                let InstalledDrawObject::Ready(pose) = &state.installed_draw_pose else { panic!() };
+                assert_eq!(pose.world, expected);
+                assert!(!pose.hierarchy_valid);
+                assert_eq!(state.native_transform_revision, identity.native_pose().map(|(revision, _)| revision));
+                observations.push(expected);
+            }
+        }).unwrap();
+    }
+    assert_eq!(observations.len(), 4);
+    assert_ne!(
+        observations[0], observations[1],
+        "position and orientation callbacks are distinct source phases"
+    );
+    assert_ne!(observations[2], observations[3]);
+    assert_eq!(state.native_drawable_transform, observations[3]);
+}

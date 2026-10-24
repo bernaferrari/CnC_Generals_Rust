@@ -4,6 +4,8 @@
 //! driving application lends this interface during execution instead of storing
 //! window resources or selecting another session's UI inside GameLogic.
 pub(crate) trait ScriptUiEffects {
+    /// CPP ProductionUpdate marks selected upgrade cameos after Academy callbacks.
+    fn mark_control_bar_dirty(&mut self) {}
     fn has_cinematic_input(&self) -> bool {
         false
     }
@@ -28,6 +30,9 @@ pub(crate) trait ScriptUiEffects {
         camera: &mut crate::presentation_frame::camera::SessionCamera,
         enabled: bool,
         replay: bool,
+        _upgrade_source: game_engine::common::thing::receiving_module_content::UpgradeTooltipSource<
+            '_,
+        >,
     );
 }
 

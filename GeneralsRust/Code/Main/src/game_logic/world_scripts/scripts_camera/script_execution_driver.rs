@@ -1609,6 +1609,35 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         ScriptOwnerQuery::Present(found)
     }
 
+    fn named_upgrade(
+        &mut self,
+        name: &str,
+        upgrade: &str,
+        this_object: Option<u32>,
+    ) -> Option<gamelogic::GameLogicResult<()>> {
+        let Some(id) = self
+            .world
+            .owned_named_script_object(name, this_object.map(ObjectId))
+        else {
+            return Some(Ok(()));
+        };
+        // CPP ScriptActions5322: a missing template is an authoritative no-op.
+        // Resolve only through this World's admitted UpgradeCenter; a peer or
+        // standalone Core definition cannot authorize this action.
+        let Some(definition) = self.world.upgrade_template(upgrade) else {
+            return Some(Ok(()));
+        };
+        // The active action driver's interpreter remains retained throughout
+        // this synchronous callback. Existing callback effects receive this
+        // exact operation loan; no host queue/default effects or engine lookup.
+        Some(self.world.apply_upgrade_to_object_with_interpreter_checked(
+            id,
+            definition.get_name().as_str(),
+            self.interpreter,
+            &mut self.ui,
+        ))
+    }
+
     fn named_damage(&mut self, name: &str, amount: i32) -> Option<gamelogic::GameLogicResult<()>> {
         // A foreign Core registry/tracker entry must never select the receiver.
         let id = self
@@ -2401,3 +2430,7 @@ mod screen_shake_phase_tests;
 #[cfg(test)]
 #[path = "target_selection_owner_tests.rs"]
 mod target_selection_owner_tests;
+
+#[cfg(test)]
+#[path = "named_upgrade_owner_tests.rs"]
+mod named_upgrade_owner_tests;

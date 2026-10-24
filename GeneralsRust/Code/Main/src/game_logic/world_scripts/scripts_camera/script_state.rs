@@ -484,8 +484,20 @@ impl GameLogic {
     pub fn inject_host_script_query_snapshot(&self) {
         self.project_host_trigger_flags();
         let mut snap = self.build_host_script_query_snapshot();
-        for (name, aabb) in gamelogic::scripting::engine::get_area_tracker().all_area_aabbs() {
-            snap.areas.insert(name, aabb);
+        // Legacy snapshot geometry is projected from the same receiving
+        // polygon owner; first name wins, like PolygonTriggerList lookup.
+        if let Ok(terrain) = self.world_services.terrain().read() {
+            for trigger in terrain.get_trigger_areas().get_triggers() {
+                let bounds = trigger.get_bounds();
+                snap.areas
+                    .entry(trigger.get_trigger_name().to_string())
+                    .or_insert((
+                        bounds.lo.x as f32,
+                        bounds.lo.y as f32,
+                        bounds.hi.x as f32,
+                        bounds.hi.y as f32,
+                    ));
+            }
         }
         merge_host_bridge_states(self, &mut snap);
         gamelogic::scripting::set_host_script_query_snapshot(snap);
@@ -657,7 +669,6 @@ impl GameLogic {
         let builds = gamelogic::scripting::take_host_skirmish_build_requests();
         let supply_centers =
             gamelogic::scripting::take_host_ai_player_build_supply_center_requests();
-        let upgrades = gamelogic::scripting::take_host_ai_player_build_upgrade_requests();
         let nearest = gamelogic::scripting::take_host_ai_player_build_type_nearest_team_requests();
         let cave_indexes = gamelogic::scripting::take_host_set_cave_index_requests();
         let unit_flags = gamelogic::scripting::take_host_object_panel_flag_requests();
@@ -667,7 +678,6 @@ impl GameLogic {
         if fires.is_empty()
             && builds.is_empty()
             && supply_centers.is_empty()
-            && upgrades.is_empty()
             && nearest.is_empty()
             && cave_indexes.is_empty()
             && unit_flags.is_empty()
@@ -687,9 +697,9 @@ impl GameLogic {
         for (player_token, thing_name, cash) in supply_centers {
             let _ = ai_mgr.build_by_supplies_for_token(self, &player_token, cash, &thing_name);
         }
-        for (player_token, upgrade_name) in upgrades {
-            let _ = ai_mgr.build_upgrade_for_token(self, &player_token, &upgrade_name);
-        }
+        // AI_PLAYER_BUILD_UPGRADE already executes through the receiving
+        // ScriptAiPlayerRequest::BuildUpgrade driver at its action point.
+        // Standalone Core request publication belongs to its Core caller.
         for (player_token, thing_name, team_name) in nearest {
             let _ = ai_mgr.build_specific_building_nearest_team_for_token(
                 self,
@@ -907,11 +917,8 @@ impl GameLogic {
             HostScriptRepulsorRequest, HostScriptStoppingDistanceRequest,
         };
 
-        for req in gamelogic::scripting::take_host_script_named_upgrade_requests() {
-            if let Some(id) = self.host_object_id_by_script_name(&req.unit) {
-                self.apply_upgrade_to_object_with_effects(id, &req.upgrade, effects);
-            }
-        }
+        // NAMED_RECEIVE_UPGRADE completes synchronously through the receiving
+        // execution driver. Do not consume a standalone Core caller's queue.
 
         // C++ script actions execute sequentially: CUSTOM_INDICATOR_COLOR
         // writes land before a later FLASH reads getIndicatorColor

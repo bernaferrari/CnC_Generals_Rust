@@ -489,6 +489,19 @@ pub trait ScriptExecutionDriver {
         ScriptOwnerQuery::Unavailable
     }
 
+    /// CPP doUnitReceiveUpgrade: Some completes giveUpgrade synchronously
+    /// on this receiving owner, including authoritative missing-name no-ops.
+    /// None alone selects the standalone Core adapter and its compatibility
+    /// request publication; Main never drains that ambient transport.
+    fn named_upgrade(
+        &mut self,
+        _name: &str,
+        _upgrade: &str,
+        _this_object: Option<ObjectID>,
+    ) -> Option<GameLogicResult<()>> {
+        None
+    }
+
     /// CPP ScriptActions::doNamedDamage: Some selects this execution owner,
     /// including an absent named object; None uses the standalone adapter.
     fn named_damage(&mut self, _name: &str, _amount: i32) -> Option<GameLogicResult<()>> {

@@ -232,6 +232,7 @@ impl CnCGameEngine {
                     !self.game_logic.isInNetworkGame(),
                 );
             let camera_rules = self.game_logic.camera_input_rules();
+            let upgrade_tooltip = self.game_logic.receiving_upgrade_tooltip_observer();
             let pending = &mut self.game_logic.replay_pending;
             let mut replay_version = |filename: &str| {
                 pending
@@ -245,6 +246,7 @@ impl CnCGameEngine {
                 }
             };
             let mut context = game_client::gui::window_manager::ControlBarInputContext {
+            upgrade_tooltip: game_client::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource::Receiving(&upgrade_tooltip),
                 replay_menu: Some(&mut replay_operation),
                 replay_version: Some(&mut replay_version),
                 observer_roster: observer_roster.as_ref(),
@@ -425,6 +427,7 @@ impl CnCGameEngine {
                 !self.game_logic.isInNetworkGame(),
             );
         let camera_rules = self.game_logic.camera_input_rules();
+        let upgrade_tooltip = self.game_logic.receiving_upgrade_tooltip_observer();
         let pending = &mut self.game_logic.replay_pending;
         let mut replay_version = |filename: &str| {
             pending
@@ -438,6 +441,7 @@ impl CnCGameEngine {
             }
         };
         let mut context = game_client::gui::window_manager::ControlBarInputContext {
+            upgrade_tooltip: game_client::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource::Receiving(&upgrade_tooltip),
             replay_menu: Some(&mut replay_operation),
             replay_version: Some(&mut replay_version),
             observer_roster: observer_roster.as_ref(),

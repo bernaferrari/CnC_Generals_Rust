@@ -18,7 +18,6 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::rc::{Rc, Weak};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicI32, Ordering};
 use std::time::Instant;
 
 use super::*;
@@ -233,7 +232,7 @@ impl WindowManager {
                 .unwrap_or_else(|| "<root>".to_string())
         );
         let window_id = if window_def.name.is_empty() {
-            generate_window_id()
+            self.generate_window_id()
         } else {
             NameKeyGenerator::name_to_key(&window_def.name) as WindowId
         };

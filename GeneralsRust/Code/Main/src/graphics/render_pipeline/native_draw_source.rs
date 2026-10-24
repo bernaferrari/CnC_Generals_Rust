@@ -44,6 +44,24 @@ impl<'a> NativeDrawSource<'a> {
         }
     }
 
+    pub(super) fn install_observed_transform(
+        self,
+        state: &mut ObjectVisualState,
+        transform: game_client::drawable::Matrix4,
+    ) {
+        if let Some(identity) = self.identity {
+            state.receive_native_installed_transform(
+                identity,
+                Mat4::from_cols_array_2d(&transform.elements).transpose(),
+                self.mesh_scale,
+                self.float_yaw,
+                self.float_pitch,
+                self.under_construction,
+                self.construction_percent,
+                self.max_height_above_position,
+            );
+        }
+    }
     pub(super) fn install_transform(self, state: &mut ObjectVisualState) {
         if let Some(identity) = self.identity {
             state.receive_native_transform_observations(

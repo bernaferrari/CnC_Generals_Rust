@@ -12,7 +12,6 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::rc::{Rc, Weak};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicI32, Ordering};
 use std::time::Instant;
 
 use super::*;
@@ -27,7 +26,7 @@ impl WindowManager {
         width: i32,
         height: i32,
     ) -> WindowResult<Rc<RefCell<GameWindow>>> {
-        let window_id = generate_window_id();
+        let window_id = self.generate_window_id();
         self.create_window_with_id(parent, x, y, width, height, window_id)
     }
 
@@ -313,5 +312,28 @@ impl WindowManager {
         {
             self.grab_window = None;
         }
+    }
+}
+
+#[cfg(test)]
+mod receiving_window_id_tests {
+    use super::*;
+    #[test]
+    fn manager_allocations_are_independent_and_reset_retains_its_sequence() {
+        let mut a = WindowManager::new();
+        let mut b = WindowManager::new();
+        let a1 = a.create_window(None, 0, 0, 10, 10).unwrap();
+        let b1 = b.create_window(None, 0, 0, 10, 10).unwrap();
+        assert_eq!(a1.borrow().get_id(), 1);
+        assert_eq!(b1.borrow().get_id(), 1);
+        let a2 = a.create_window(None, 0, 0, 10, 10).unwrap();
+        assert_eq!(a2.borrow().get_id(), 2);
+        b.reset();
+        let a3 = a.create_window(None, 0, 0, 10, 10).unwrap();
+        let b2 = b.create_window(None, 0, 0, 10, 10).unwrap();
+        assert_eq!(a3.borrow().get_id(), 3);
+        assert_eq!(b2.borrow().get_id(), 2);
+        assert!(Rc::ptr_eq(&a.get_window_by_id(1).unwrap(), &a1));
+        assert!(!Rc::ptr_eq(&a1, &b1));
     }
 }

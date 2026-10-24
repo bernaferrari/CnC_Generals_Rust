@@ -422,6 +422,7 @@ fn sync_from_host_copies_entity_production_queue_items_residual() {
         let mut bd = BuildingData::new(BuildingType::WarFactory);
         bd.production_queue = vec![
             ProductionItem {
+                runtime_entry_identity: 0,
                 template_name: "UnitA".into(),
                 progress: 0.25,
                 total_time: 10.0,
@@ -435,6 +436,7 @@ fn sync_from_host_copies_entity_production_queue_items_residual() {
                 kind: crate::game_logic::buildings::ProductionKind::Unit,
             },
             ProductionItem {
+                runtime_entry_identity: 0,
                 template_name: "UnitB".into(),
                 progress: 0.0,
                 total_time: 12.0,
@@ -927,6 +929,7 @@ fn sync_from_host_copies_entity_building_residual() {
         obj.object_type = crate::game_logic::ObjectType::Building;
         let mut bd = BuildingData::new(BuildingType::Barracks);
         bd.production_queue.push(ProductionItem {
+            runtime_entry_identity: 0,
             template_name: "AmericaInfantryRanger".into(),
             progress: 0.35,
             total_time: 10.0,
@@ -999,6 +1002,7 @@ fn writeback_production_and_rally_to_host() {
         let obj = /* Wave 946 */ logic.host_object_mut(id).expect("o");
         let mut bd = BuildingData::new(BuildingType::WarFactory);
         bd.production_queue.push(ProductionItem {
+            runtime_entry_identity: 0,
             template_name: "USACrusaderTank".into(),
             progress: 0.1,
             total_time: 10.0,
@@ -1068,6 +1072,7 @@ fn production_authority_sole_ticks_queue_progress() {
         };
         let mut data = BuildingData::new(BuildingType::Barracks);
         data.production_queue.push(ProductionItem {
+            runtime_entry_identity: 0,
             template_name: "Ranger".into(),
             progress: 0.0,
             total_time: 10.0,
@@ -1159,6 +1164,7 @@ fn completed_production_waits_for_open_door_before_entity_first_spawn() {
         let producer = logic.host_object_mut(producer_id).expect("producer object");
         let mut building = BuildingData::new(BuildingType::Barracks);
         building.production_queue.push(ProductionItem {
+            runtime_entry_identity: 0,
             template_name: "DoorGateRanger".to_string(),
             progress: 1.0,
             total_time: 1.0,
@@ -1292,6 +1298,7 @@ fn completed_quantity_batch_emits_every_entity_first_unit_after_open_door() {
         let producer = logic.host_object_mut(producer_id).expect("producer object");
         let mut building = BuildingData::new(BuildingType::Barracks);
         building.production_queue.push(ProductionItem {
+            runtime_entry_identity: 0,
             template_name: "DoorBatchRanger".to_string(),
             progress: 1.0,
             total_time: 1.0,
@@ -1399,6 +1406,7 @@ fn queue_exit_sole_tick_releases_one_then_waits_exact_nine_frames() {
         let producer = logic.host_object_mut(producer_id).expect("producer object");
         let mut building = BuildingData::new(BuildingType::Barracks);
         building.production_queue.push(ProductionItem {
+            runtime_entry_identity: 0,
             template_name: "QueueSoleRanger".to_string(),
             progress: 1.0,
             total_time: 1.0,

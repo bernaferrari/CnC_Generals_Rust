@@ -2319,6 +2319,7 @@ fn actively_constructing_bit_on_dozer_and_factory() {
             // Non-empty queue residual for factory ACTIVELY_CONSTRUCTING.
             bd.production_queue
                 .push(crate::game_logic::buildings::ProductionItem {
+                    runtime_entry_identity: 0,
                     template_name: "AmericaInfantryRanger".into(),
                     progress: 0.0,
                     total_time: 10.0,

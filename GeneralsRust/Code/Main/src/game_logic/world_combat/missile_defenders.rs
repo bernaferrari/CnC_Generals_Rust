@@ -1879,6 +1879,21 @@ impl GameLogic {
         kind: crate::game_logic::host_slave_drones::SlaveDroneKind,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> Option<ObjectId> {
+        self.residual_attach_slave_drone_with_interpreter_and_effects(
+            master_id,
+            kind,
+            None,
+            presentation_effects,
+        )
+    }
+
+    pub(crate) fn residual_attach_slave_drone_with_interpreter_and_effects(
+        &mut self,
+        master_id: ObjectId,
+        kind: crate::game_logic::host_slave_drones::SlaveDroneKind,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> Option<ObjectId> {
         use crate::game_logic::host_slave_drones::{
             SlaveDroneKind, drone_spawn_offset_from_master, is_slave_drone_master_template,
         };
@@ -1919,7 +1934,7 @@ impl GameLogic {
             team,
             owner_player_id,
             spawn_pos,
-            None,
+            interpreter,
             presentation_effects,
         )?;
         // Creation callbacks may remove the intended master. Do not report

@@ -5,6 +5,7 @@ mod tests {
     use super::*;
 
     include!("presentation_input_owner_tests.rs");
+    include!("shortcut_upgrade_population_tests.rs");
 
     fn named_window(name: &str) -> Rc<RefCell<GameWindow>> {
         let window = Rc::new(RefCell::new(GameWindow::new()));

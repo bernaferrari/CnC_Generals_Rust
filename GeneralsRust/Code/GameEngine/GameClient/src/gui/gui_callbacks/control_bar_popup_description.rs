@@ -28,6 +28,9 @@ use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+mod upgrade_observer;
+pub use upgrade_observer::{UpgradeTooltipObservation, UpgradeTooltipSource};
+
 const TOOLTIP_LAYOUT_NAME: &str = "ControlBarPopupDescription.wnd";
 
 #[derive(Default)]
@@ -256,6 +259,24 @@ fn leftover_requires_list(
     parts.join("\n")
 }
 
+fn resolve_command_button_from_source(
+    window: &GameWindow,
+    source: UpgradeTooltipSource<'_>,
+) -> Option<(IniCommandButton, Option<u32>)> {
+    match source {
+        UpgradeTooltipSource::Standalone => resolve_command_button(window),
+        UpgradeTooltipSource::Receiving(observe) => {
+            // Native windows bind the exact live command name. Missing receiving
+            // catalog data is authoritative and never selects a global definition.
+            let button = window.get_user_data::<LiveCommandButton>()?;
+            let observed = observe(&button.command_name, &button.upgrade);
+            observed
+                .command
+                .map(|command| (command, button.presentation_can_make_status))
+        }
+    }
+}
+
 fn leftover_first_selected_object_id() -> Option<u32> {
     let list = player_list().read().ok()?;
     let index = list.get_local_player_index();
@@ -446,6 +467,7 @@ fn populate_layout_for_command(
     presentation_can_make_status: Option<u32>,
     state: &mut TooltipState,
     manager: &mut WindowManager,
+    upgrade_source: UpgradeTooltipSource<'_>,
 ) {
     let mut name = String::new();
     let mut cost = String::new();
@@ -565,28 +587,71 @@ fn populate_layout_for_command(
             }
         }
     } else if !command_button.upgrade.is_empty() {
-        let upgrade_template = gamelogic::upgrade::center::with_upgrade_center(|center| {
-            center.find_upgrade(command_button.upgrade.as_str())
-        });
-        if let Some(template) = upgrade_template {
-            let has_upgrade = player_guard
-                .as_ref()
-                .is_some_and(|guard| guard.has_upgrade_complete(template.as_ref()));
+        // Receiving observation is selected before any formatter/GUI callback.
+        // Its same-operation catalog lookup has released its service guard.
+        let observed = match upgrade_source {
+            UpgradeTooltipSource::Receiving(observe) => observe(
+                command_button.name.as_str(),
+                command_button.upgrade.as_str(),
+            ),
+            UpgradeTooltipSource::Standalone => {
+                let template = gamelogic::upgrade::center::with_upgrade_center(|center| {
+                    center.find_upgrade(command_button.upgrade.as_str())
+                });
+                let completed = template.as_ref().is_some_and(|template| {
+                    player_guard
+                        .as_ref()
+                        .is_some_and(|guard| guard.has_upgrade_complete(template.as_ref()))
+                });
+                let selected = (!completed)
+                    .then(leftover_first_selected_object_id)
+                    .flatten()
+                    .and_then(|id| OBJECT_REGISTRY.get_object(id));
+                let object = selected.as_ref().and_then(|object| object.read().ok());
+                let object_completed = template.as_ref().is_some_and(|template| {
+                    object
+                        .as_ref()
+                        .is_some_and(|object| object.has_upgrade(template))
+                });
+                let object_affected = template.as_ref().and_then(|template| {
+                    object
+                        .as_ref()
+                        .map(|object| object.affected_by_upgrade(template))
+                });
+                UpgradeTooltipObservation {
+                    command: None,
+                    template,
+                    completed,
+                    object_completed,
+                    object_affected,
+                }
+            }
+        };
+        if let Some(template) = observed.template {
+            // Source422–470: only after Player mask misses, inspect the first
+            // selected Object; an OBJECT conflict is !affectedByUpgrade.
+            let has_upgrade = observed.completed || observed.object_completed;
+            let conflicting =
+                !observed.completed && is_object_upgrade && observed.object_affected == Some(false);
             let missing_science = player_guard.as_ref().is_some_and(|guard| {
                 command_button
                     .sciences_ids
                     .iter()
                     .any(|st| !guard.has_science(*st))
             });
-            if has_upgrade && (is_player_upgrade || is_object_upgrade) {
+            if conflicting && !has_upgrade {
+                description = GameText::fetch(if command_button.conflicting_label.is_empty() {
+                    "TOOLTIP:HasConflictingUpgradeDefault"
+                } else {
+                    &command_button.conflicting_label
+                });
+            } else if has_upgrade && (is_player_upgrade || is_object_upgrade) {
                 if !command_button.purchased_label.is_empty() {
                     description = GameText::fetch(&command_button.purchased_label);
                 } else {
                     description = GameText::fetch("TOOLTIP:AlreadyUpgradedDefault");
                 }
-            } else if !command_button.conflicting_label.is_empty() && has_upgrade {
-                description = GameText::fetch(&command_button.conflicting_label);
-            } else {
+            } else if !has_upgrade {
                 // C++ upgradeTemplate->calcCostToBuild(player) == m_cost.
                 cost_value = template.get_cost();
                 if cost_value > 0 {
@@ -706,6 +771,20 @@ pub(crate) fn show_build_tooltip_layout_owned(
     manager: &mut WindowManager,
     cmd_button: Rc<RefCell<GameWindow>>,
 ) -> WindowMsgHandled {
+    show_build_tooltip_layout_with_upgrade_source(
+        state,
+        manager,
+        cmd_button,
+        UpgradeTooltipSource::Standalone,
+    )
+}
+
+pub(crate) fn show_build_tooltip_layout_with_upgrade_source(
+    state: &mut TooltipState,
+    manager: &mut WindowManager,
+    cmd_button: Rc<RefCell<GameWindow>>,
+    upgrade_source: UpgradeTooltipSource<'_>,
+) -> WindowMsgHandled {
     let layout = match ensure_layout(state, manager) {
         Some(layout) => layout,
         None => return WindowMsgHandled::Ignored,
@@ -758,8 +837,17 @@ pub(crate) fn show_build_tooltip_layout_owned(
 
     let is_button = (cmd_button.borrow().get_style() & GWS_PUSH_BUTTON) != 0;
     if is_button {
-        if let Some((command_button, status)) = resolve_command_button(&cmd_button.borrow()) {
-            populate_layout_for_command(&layout, &command_button, status, state, manager);
+        if let Some((command_button, status)) =
+            resolve_command_button_from_source(&cmd_button.borrow(), upgrade_source)
+        {
+            populate_layout_for_command(
+                &layout,
+                &command_button,
+                status,
+                state,
+                manager,
+                upgrade_source,
+            );
         }
     } else if (cmd_button.borrow().get_style() & (GWS_USER_WINDOW | GWS_STATIC_TEXT)) != 0 {
         populate_layout_for_window(&layout, &cmd_button.borrow(), state, manager);
@@ -801,7 +889,14 @@ pub fn repopulate_build_tooltip_layout() -> WindowMsgHandled {
         }
         if let Some((command_button, status)) = resolve_command_button(&prev_window.borrow()) {
             with_window_manager(|manager| {
-                populate_layout_for_command(&layout, &command_button, status, state, manager)
+                populate_layout_for_command(
+                    &layout,
+                    &command_button,
+                    status,
+                    state,
+                    manager,
+                    UpgradeTooltipSource::Standalone,
+                )
             });
             return WindowMsgHandled::Handled;
         }
@@ -985,6 +1080,7 @@ mod presentation_can_make_popup_tests {
                     frozen_status,
                     &mut TooltipState::default(),
                     manager,
+                    UpgradeTooltipSource::Standalone,
                 )
             });
             let text = description.borrow().get_text().to_owned();

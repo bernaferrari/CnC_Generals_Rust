@@ -37,7 +37,7 @@ fn trigger(world: &GameLogic) {
         .terrain()
         .write()
         .unwrap()
-        .add_trigger_area(polygon);
+        .replace_receiving_trigger_areas([polygon]);
 }
 
 fn execute(world: &mut GameLogic, team: bool, recipient: &str) {
