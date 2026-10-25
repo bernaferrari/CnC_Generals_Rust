@@ -23,16 +23,20 @@ pub const TRANSLATOR_ID_INVALID: TranslatorId = 0;
 /// The main GameClient struct - central hub for all client operations
 pub struct GameClient {
     // Core state
+    ui_renderer: Option<crate::gui::UIRenderer>,
     /// The single native WND tree owned for this client's lifetime.
     window_manager_owner: crate::gui::window_manager::WindowManagerOwner,
     /// This client's ordered message pipeline and its translator-local state.
     pub(crate) campaign_manager: crate::gui::campaign_manager::CampaignManager,
     pub(crate) menu_host: crate::gui::campaign_launch_host_bridge::MenuHostMailbox,
+    pub(crate) script_display: crate::core::script_action_handler::ScriptDisplayReceiver,
     pub(crate) main_menu: crate::gui::shell::main_menu::MainMenu,
     message_stream: crate::message_stream::message_stream::MessageStream,
     /// C++ shell-game load-screen first-load latch for this receiving client.
     shell_game_first_load: bool,
+    load_screen_runtime: crate::gui::load_screen::LoadScreenRuntime,
     frame: u32,
+    command_hints: crate::gui::command_hints::CommandHintState,
     owned_world_animations: OwnedWorldAnimations,
     /// DrawIconUI admitted from the driving Main session before native draw.
     receiving_draw_icon_ui: bool,
@@ -64,11 +68,12 @@ pub struct GameClient {
     /// C++ `Display::m_cinematicTextFrames` — decremented per rendered frame.
     cinematic_overlay_frames: u32,
     /// Live letterbox enable residual (mirrors Display, for overlay fade).
-    letterbox_overlay_enabled: bool,
     /// Instant letterbox enable/disable flipped (C++ `m_letterBoxFadeStartTime`).
-    letterbox_overlay_fade_start: Option<Instant>,
     /// Last live InGameUI postDraw / icon-UI submit residual (present path).
     last_live_ingame_hud_draw: LiveInGameHudDrawCounts,
+
+    /// Renderer/cache state belongs to this client, never an active process slot.
+    render_bridge: crate::render_bridge::RenderBridge,
 
     // Drawable management
     drawables: drawable_world::DrawableWorld,
@@ -112,6 +117,7 @@ pub type NativeWindowInputDriver<'a> = dyn FnMut(
         &mut crate::gui::campaign_manager::CampaignManager,
         &mut crate::gui::shell::main_menu::MainMenu,
         &mut crate::gui::campaign_launch_host_bridge::MenuHostMailbox,
+        &mut crate::core::script_action_handler::ScriptDisplayReceiver,
         game_engine::common::message_stream::WindowInputDispatch,
         &mut Vec<crate::message_stream::game_message::GameMessage>,
     ) -> Option<game_engine::common::message_stream::WindowInputDispatchResult>

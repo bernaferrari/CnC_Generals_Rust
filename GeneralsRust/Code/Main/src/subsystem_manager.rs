@@ -1237,7 +1237,9 @@ impl SubsystemInterface for GameStateSubsystem {
     }
 }
 
-pub struct GameResultsQueueSubsystem;
+pub struct GameResultsQueueSubsystem {
+    queue: game_results_queue::GameResultsQueue,
+}
 
 impl Default for GameResultsQueueSubsystem {
     fn default() -> Self {
@@ -1247,7 +1249,15 @@ impl Default for GameResultsQueueSubsystem {
 
 impl GameResultsQueueSubsystem {
     pub fn new() -> Self {
-        Self
+        Self {
+            queue: game_results_queue::GameResultsQueue::new(),
+        }
+    }
+    pub fn queue(&self) -> &game_results_queue::GameResultsQueue {
+        &self.queue
+    }
+    pub fn queue_mut(&mut self) -> &mut game_results_queue::GameResultsQueue {
+        &mut self.queue
     }
 }
 
@@ -1258,13 +1268,14 @@ impl SubsystemInterface for GameResultsQueueSubsystem {
 
     fn init(&mut self) -> Result<()> {
         info!("Initializing GameResultsQueue subsystem");
-        game_results_queue::init_game_results_queue()?;
+        self.queue.init();
         Ok(())
     }
 
     fn reset(&mut self) -> Result<()> {
         info!("Resetting GameResultsQueue subsystem");
-        game_results_queue::reset_game_results_queue()
+        self.queue.reset();
+        Ok(())
     }
 
     fn update(&mut self, _dt: f32) -> Result<()> {
@@ -1273,7 +1284,8 @@ impl SubsystemInterface for GameResultsQueueSubsystem {
 
     fn shutdown(&mut self) -> Result<()> {
         info!("Shutting down GameResultsQueue subsystem");
-        game_results_queue::shutdown_game_results_queue()
+        self.queue.shutdown();
+        Ok(())
     }
 }
 
@@ -1683,10 +1695,8 @@ impl<T: 'static> SubsystemHandle<T> {
 pub(crate) struct ApplicationServices {
     message_stream: MessageStreamSubsystem,
     game_state: GameStateSubsystem,
-    game_results_queue: GameResultsQueueSubsystem,
     message_stream_initialized: bool,
     game_state_initialized: bool,
-    game_results_queue_initialized: bool,
     save_load_initialized: bool,
     user_data_root: Option<std::path::PathBuf>,
 }
@@ -1696,17 +1706,15 @@ impl ApplicationServices {
         Self {
             message_stream: MessageStreamSubsystem::new(),
             game_state: GameStateSubsystem::new(),
-            game_results_queue: GameResultsQueueSubsystem::new(),
             message_stream_initialized: false,
             game_state_initialized: false,
-            game_results_queue_initialized: false,
             save_load_initialized: false,
             user_data_root: None,
         }
     }
 
     fn owns_name(name: &str) -> bool {
-        matches!(name, "MessageStream" | "GameState" | "GameResultsQueue")
+        matches!(name, "MessageStream" | "GameState")
     }
 
     pub(crate) fn admit_user_data_root(&mut self, root: &std::path::Path) -> Result<()> {
@@ -1738,12 +1746,6 @@ impl ApplicationServices {
                     self.game_state_initialized = true;
                 }
             }
-            "GameResultsQueue" => {
-                if !self.game_results_queue_initialized {
-                    self.game_results_queue.init()?;
-                    self.game_results_queue_initialized = true;
-                }
-            }
             _ => return Ok(false),
         }
         Ok(true)
@@ -1762,12 +1764,6 @@ impl ApplicationServices {
 
     pub(crate) fn shutdown(&mut self) -> Result<()> {
         let mut first_error = None;
-        if self.game_results_queue_initialized {
-            match self.game_results_queue.shutdown() {
-                Ok(()) => self.game_results_queue_initialized = false,
-                Err(error) => first_error = Some(error),
-            }
-        }
         if self.game_state_initialized {
             match self.game_state.shutdown() {
                 Ok(()) => self.game_state_initialized = false,
@@ -2360,8 +2356,8 @@ impl SubsystemManager {
         let _ = self.add_subsystem(MetaMapSubsystem::new());
         let _ = self.add_subsystem(ActionManagerSubsystem::new());
         let _ = self.add_subsystem(GameStateMapSubsystem::new());
-        // GameState and GameResultsQueue are process services owned by the
-        // application runner, not mutable slots owned by this engine.
+        let _ = self.add_subsystem(GameResultsQueueSubsystem::new());
+        // GameState is owned by the application runner.
         // Network is registered lazily when multiplayer startup actually needs it.
     }
 }
@@ -2717,49 +2713,35 @@ mod tests {
 
     #[test]
     fn test_game_results_queue_subsystem_lifecycle() {
-        use crate::game_results_queue::{
-            dequeue_victory_summary, get_game_results_queue, init_game_results_queue,
-        };
-
         let mut subsystem = GameResultsQueueSubsystem::new();
+        assert!(subsystem.queue_mut().dequeue().is_err());
         assert!(subsystem.init().is_ok());
-
-        let _ = init_game_results_queue().unwrap();
-        let queue = get_game_results_queue().unwrap();
-
-        {
-            let mut guard = queue.lock().unwrap_or_else(|e| e.into_inner());
-            let mut victory = crate::game_logic::victory::VictorySummary::new();
-            victory.mission_name = Some("Lifecycle".to_string());
-            guard.enqueue(victory.clone()).unwrap();
-            assert_eq!(guard.len(), 1);
-        }
-
+        let mut victory = crate::game_logic::victory::VictorySummary::new();
+        victory.mission_name = Some("Lifecycle".into());
+        subsystem.queue_mut().enqueue(victory).unwrap();
+        assert_eq!(subsystem.queue().len(), 1);
         assert!(subsystem.reset().is_ok());
-        {
-            let guard = queue.lock().unwrap_or_else(|e| e.into_inner());
-            assert_eq!(guard.len(), 1);
-            assert!(!guard.is_empty());
-        }
-
-        {
-            let mut guard = queue.lock().unwrap_or_else(|e| e.into_inner());
-            let mut victory = crate::game_logic::victory::VictorySummary::new();
-            victory.mission_name = Some("Shutdown".to_string());
-            guard.enqueue(victory).unwrap();
-        }
-
+        assert_eq!(subsystem.queue().len(), 1);
+        assert!(!subsystem.queue().is_empty());
+        assert_eq!(
+            subsystem
+                .queue()
+                .peek()
+                .unwrap()
+                .unwrap()
+                .mission_name
+                .as_deref(),
+            Some("Lifecycle")
+        );
         assert!(subsystem.shutdown().is_ok());
-        assert!(dequeue_victory_summary().is_err());
-
+        assert!(subsystem.queue_mut().dequeue().is_err());
         assert!(subsystem.init().is_ok());
-        {
-            let mut guard = queue.lock().unwrap_or_else(|e| e.into_inner());
-            let mut victory = crate::game_logic::victory::VictorySummary::new();
-            victory.mission_name = Some("Reinit".to_string());
-            guard.enqueue(victory).unwrap();
-            assert_eq!(guard.len(), 1);
-        }
+        assert!(subsystem.queue().is_empty());
+        subsystem
+            .queue_mut()
+            .enqueue(crate::game_logic::victory::VictorySummary::new())
+            .unwrap();
+        assert_eq!(subsystem.queue().len(), 1);
     }
 
     #[test]

@@ -19,6 +19,49 @@ impl RenderPipeline {
     }
 }
 
+/// The driving native surface only, with no world/model ownership loan.
+pub(crate) struct NativeLoadSurface<'a> {
+    forward: &'a mut ForwardPass,
+}
+impl NativeLoadSurface<'_> {
+    pub(crate) fn present(
+        &mut self,
+        ui: &mut crate::graphics::ui_render_pass::NativeUiOverlay<'_>,
+    ) -> Result<(), String> {
+        if !self.forward.is_ready() {
+            return Err("native loading surface is unavailable".into());
+        }
+        self.forward
+            .renderer
+            .begin_frame()
+            .map_err(|error| error.to_string())?;
+        let mut overlay = |frame: &mut ww3d_engine::RenderFrame| ui(frame, None);
+        self.forward
+            .renderer
+            .end_frame_with_scene_policy(true, Some(&mut overlay))
+            .map_err(|error| error.to_string())
+    }
+}
+impl RenderPipeline {
+    pub(crate) fn borrow_native_load_surface(&mut self) -> NativeLoadSurface<'_> {
+        NativeLoadSurface {
+            forward: &mut self.forward_pass,
+        }
+    }
+    pub(crate) fn borrow_native_draw_services_and_load_surface(
+        &mut self,
+    ) -> (NativeDrawServices<'_>, NativeLoadSurface<'_>) {
+        (
+            NativeDrawServices {
+                failed_model_resolutions: &mut self.failed_model_resolutions,
+                animation_sync_ms: self.animation_sync_ms,
+            },
+            NativeLoadSurface {
+                forward: &mut self.forward_pass,
+            },
+        )
+    }
+}
 impl<'a> NativeDrawServices<'a> {
     pub(crate) fn bind_world(
         self,

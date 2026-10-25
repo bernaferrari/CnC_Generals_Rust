@@ -981,39 +981,28 @@ pub fn register_game_client_snapshot_block() {
     );
 }
 
-struct TerrainVisualSnapshotBridge {
-    terrain_visual: Arc<Mutex<TerrainVisualStub>>,
-}
-
-impl TerrainVisualSnapshotBridge {
-    fn new(terrain_visual: Arc<Mutex<TerrainVisualStub>>) -> Self {
-        Self { terrain_visual }
-    }
-}
-
+/// Global chunk metadata carries no mutable terrain recipient. Main's native
+/// archive passes its receiving height/water/scorch state through Xfer context.
+struct TerrainVisualSnapshotBridge;
 impl XferSnapshotTrait for TerrainVisualSnapshotBridge {
-    fn crc(&mut self, xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
-        self.xfer(xfer)
+    fn requires_operation_owner(&self) -> bool {
+        true
     }
-
-    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
-        let mut guard = self
-            .terrain_visual
-            .lock()
-            .map_err(|_| XferStatus::InvalidData)?;
-        xfer_terrain_visual_state(&mut guard, xfer)
+    fn crc(&mut self, _xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
+        Err(XferStatus::InvalidData)
     }
-
+    fn xfer(&mut self, _xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
+        Err(XferStatus::InvalidData)
+    }
     fn load_post_process(&mut self) -> Result<(), XferStatus> {
-        Ok(())
+        Err(XferStatus::InvalidData)
     }
 }
-
-pub fn register_terrain_visual_snapshot_block(terrain_visual: Arc<Mutex<TerrainVisualStub>>) {
+pub fn register_terrain_visual_snapshot_block() {
     let mut state = game_engine::System::get_game_state();
     state.add_snapshot_block(
         "CHUNK_TerrainVisual".to_string(),
-        Box::new(TerrainVisualSnapshotBridge::new(terrain_visual)),
+        Box::new(TerrainVisualSnapshotBridge),
         game_engine::System::SnapshotType::SaveLoad,
     );
 }

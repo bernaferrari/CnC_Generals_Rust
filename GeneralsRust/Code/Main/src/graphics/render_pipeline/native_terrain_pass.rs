@@ -13,6 +13,9 @@ pub(super) fn record(
     })?;
     let (vp_x, vp_y, vp_w, vp_h) = viewport;
     match kind {
+        ScopedNativePass::ClientEffects => Err(ww3d_renderer_3d::Error::InvalidOperation(
+            "client effects require receiving particle renderer".into(),
+        )),
         ScopedNativePass::TerrainGround => {
             let terrain_draw_started = Instant::now();
             let depth_view = frame.depth_view_arc();

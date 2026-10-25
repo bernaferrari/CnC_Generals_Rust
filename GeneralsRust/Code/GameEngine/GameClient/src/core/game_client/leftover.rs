@@ -250,12 +250,7 @@ impl GameClient {
         &mut self,
         template: &ThingTemplate,
     ) -> GameClientResult<DrawableId> {
-        let mut drawable = BasicDrawable::new(DrawableId::INVALID);
-        for module in Self::create_snapshot_modules_from_template(template)? {
-            drawable.add_draw_module(module);
-        }
-        let drawable: Box<dyn Drawable> = Box::new(drawable);
-        self.register_drawable_with_template(drawable, Some(template.get_name().to_string()))
+        self.drawables.create_drawable_from_template(template)
     }
 
     /// Finds a drawable by its ID
@@ -290,13 +285,14 @@ impl GameClient {
         if count == 0 {
             return self.destroy_drawable_with_particles(id, None);
         }
-        let mut particles = crate::effects::particle_manager::get_particle_system_manager_mut()
-            .map_err(|error| {
-                GameClientError::SubsystemError(format!(
-                    "Particle manager unavailable during Drawable retirement: {error}"
-                ))
-            })?;
-        self.destroy_drawable_with_particles(id, particles.as_mut())
+        NativeRenderReceiver::new(
+            &mut self.drawables.state,
+            &mut self.native_particle_capability_gaps,
+            &self.subsystem_manager,
+            self.frame,
+            self.local_player_id,
+        )
+        .destroy_drawable_with_particles(id, Some(&mut self.drawables.particles))
     }
 
     /// C++ destroyDrawable: disregard UI, unlink identity, then retire modules.
@@ -306,79 +302,8 @@ impl GameClient {
         id: DrawableId,
         mut particles: Option<&mut crate::effects::particle_manager::ParticleSystemManager>,
     ) -> GameClientResult<()> {
-        let mut laser_particles = false;
-        let mut state_particles = 0;
-        if let Some(basic) = self
-            .drawables
-            .drawable_map
-            .get_mut(&id)
-            .and_then(|draw| draw.as_any_mut().downcast_mut::<BasicDrawable>())
-        {
-            state_particles = basic.native_state_particle_count();
-            laser_particles = basic
-                .native_client_particle_retirement_required()
-                .map_err(GameClientError::InvalidOperation)?;
-        }
-        if particles.is_none() && (laser_particles || state_particles != 0) {
-            return Err(GameClientError::SubsystemError(
-                "receiving particle manager absent during Drawable retirement".into(),
-            ));
-        }
-        if let Some(drawable) = self.drawables.drawable_map.get(&id) {
-            if let Some(ref ui) = self.subsystem_manager.in_game_ui {
-                ui.lock()
-                    .map_err(|_| {
-                        GameClientError::SubsystemError("In-game UI lock poisoned".into())
-                    })?
-                    .disregard_drawable(drawable.as_ref())?;
-            }
-        }
-        self.native_particle_capability_gaps
-            .retain(|gap| gap.drawable_id != id);
-        self.drawables
-            .owned_laser_order
-            .retain(|owner| *owner != id);
-        self.drawables
-            .native_drawable_order
-            .retain(|known| *known != id);
-        let mut removed = self.drawables.drawable_map.remove(&id);
-        if let Some(drawable) = removed.as_ref() {
-            if let Some(object_id) = drawable.get_object_id() {
-                if self.drawables.drawable_object_map.get(&object_id).copied() == Some(id) {
-                    self.drawables.drawable_object_map.remove(&object_id);
-                }
-                prune_live_host_animated_particle_sys_bones(object_id);
-            }
-        }
-        self.drawables
-            .presentation_direct_drawable_bindings
-            .remove(&id);
-        self.drawables
-            .text_bearing_drawables
-            .retain(|&stored_id| stored_id != id);
-        // Identity is no longer discoverable, as in C++ deleteInstance. Retire
-        // actual installed fields before Drop without rediscovering this manager.
-        let mut retirement = Ok(());
-        if let Some(basic) = removed
-            .as_mut()
-            .and_then(|draw| draw.as_any_mut().downcast_mut::<BasicDrawable>())
-        {
-            if let Some(manager) = particles.as_deref_mut() {
-                basic.retire_native_state_particles(manager);
-                retirement = basic
-                    .retire_native_client_particles(manager)
-                    .map_err(GameClientError::InvalidOperation);
-            }
-        }
-        if let Some(basic) = removed
-            .as_mut()
-            .and_then(|draw| draw.as_any_mut().downcast_mut::<BasicDrawable>())
-        {
-            basic.finish_native_retirement();
-        }
-        self.drawables.ray_effects.delete(id);
-        drop(removed);
-        retirement
+        self.native_render_receiver()
+            .destroy_drawable_with_particles(id, particles)
     }
 
     pub fn bind_drawable_to_object(
@@ -473,9 +398,14 @@ impl GameClient {
 
     /// Flushes all text-bearing drawables
     pub fn flush_text_bearing_drawables(&mut self) -> GameClientResult<()> {
+        let facts = self.script_display.fx().draw_facts();
+        let mut draw_context = crate::gui::window_draw_context::WindowDrawContext::new(
+            self.ui_renderer.as_mut(),
+            facts,
+        );
         for &drawable_id in &self.drawables.text_bearing_drawables {
             if let Some(drawable) = self.drawables.drawable_map.get(&drawable_id) {
-                drawable.draw_ui_text()?;
+                drawable.draw_ui_text(&mut draw_context)?;
             }
         }
         self.drawables.text_bearing_drawables.clear();
@@ -600,25 +530,14 @@ impl GameClient {
         // with `TheParticleSystemManager->preloadAssets(timeOfDay)`.  Gather
         // the exact authored texture names while holding the simulation-side
         // manager, then release it before touching WGPU resources.
-        let particle_textures = {
-            match crate::effects::particle_manager::get_particle_system_manager_mut() {
-                Ok(mut manager_guard) => match manager_guard.as_mut() {
-                    Some(manager) => {
-                        manager.preload_assets();
-                        manager.preloaded_texture_assets().to_vec()
-                    }
-                    None => Vec::new(),
-                },
-                Err(_) => Vec::new(),
-            }
-        };
-        if !particle_textures.is_empty() {
-            crate::effects::particle_renderer::with_particle_renderer(|renderer| {
-                if let Ok(mut renderer) = renderer.lock() {
-                    renderer.preload_authored_textures(&particle_textures);
-                }
-            });
-        }
+        self.drawables
+            .particles
+            .admit_effective_definitions()
+            .map_err(|error| GameClientError::SubsystemError(error.to_string()))?;
+        self.drawables.particles.preload_assets();
+        // Authored names stay on this particle owner. Its next receiving CPU
+        // render frame carries them to the exact native GPU renderer, even if
+        // no particles are alive; preload never chooses a process renderer.
 
         if let Some(ref asset_manager) = self.subsystem_manager.asset_manager {
             pollster::block_on(asset_manager.preload_configured_assets()).map_err(|e| {
@@ -1254,8 +1173,9 @@ impl GameClient {
 
         let object_ids: Vec<u32> = self.drawables.drawable_object_map.keys().copied().collect();
 
-        if let Ok(mut bridge_guard) = crate::render_bridge::get_render_bridge().lock() {
-            if let Some(bridge) = bridge_guard.as_mut() {
+        {
+            let bridge = &mut self.render_bridge;
+            {
                 for object_id in object_ids {
                     if let Some(stream) = the_client.get_drawable_projectile_stream(object_id) {
                         let lines = stream
@@ -1688,13 +1608,14 @@ impl Snapshotable for GameClient {
         self.drawables.drawable_object_map.clear();
         let mut next_drawable_id = self.drawables.next_drawable_id.0.max(1);
 
-        for drawable in self.drawables.drawable_map.values() {
+        let state = &mut self.drawables.state;
+        for drawable in state.drawable_map.values() {
             let id = drawable.get_id();
             if id.0 >= next_drawable_id {
                 next_drawable_id = id.0.saturating_add(1).max(1);
             }
             if let Some(object_id) = drawable.get_object_id() {
-                self.drawables.drawable_object_map.insert(object_id, id);
+                state.drawable_object_map.insert(object_id, id);
             }
         }
 
@@ -1756,11 +1677,14 @@ impl Drop for GameClient {
         // must not clear the live presentation's visual.
         if owned_live_slot {
             crate::terrain::terrain_visual::shutdown_terrain_visual();
-            GameClient::reset_global_video_player_streams();
-            shutdown_video_player();
-            reset_script_action_runtime_state();
-            register_script_display_bridge(None);
-            clear_load_screen_presentation_pump();
+        }
+
+        // Only this client's stream is stopped. The native decoder pool belongs
+        // to application services and may still serve a peer GameClient.
+        if let Some(display) = self.subsystem_manager.display.as_ref() {
+            if let Ok(mut display) = display.lock() {
+                display.stop_movie(self.script_display.fx_mut());
+            }
         }
 
         // Subsystems will be dropped automatically through Arc

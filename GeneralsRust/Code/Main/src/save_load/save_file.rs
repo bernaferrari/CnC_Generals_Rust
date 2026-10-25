@@ -996,7 +996,7 @@ impl SaveFileManager {
                 "receiving campaign owner and admitted session kind disagree".into(),
             ));
         }
-        let client_xfer_bytes = if let Some(client) = client {
+        let client_xfer_bytes = if let Some(client) = client.as_deref_mut() {
             capture_game_client_xfer_bytes(client)?
         } else {
             Vec::new()
@@ -1008,7 +1008,15 @@ impl SaveFileManager {
             // C++ mission saves contain only GameState and Campaign blocks.
             None
         } else {
-            Some(capture_particle_system_xfer_bytes()?)
+            client
+                .as_deref_mut()
+                .map(|client| {
+                    let mut bytes =
+                        capture_particle_system_xfer_bytes(client.particle_systems_mut())?;
+                    game_logic.append_fx_random_capsule(&mut bytes);
+                    Ok::<_, SaveLoadError>(bytes)
+                })
+                .transpose()?
         };
 
         // C++ GameState::saveGame (GameState.cpp:534) makes sure the save

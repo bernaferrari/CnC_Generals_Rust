@@ -4,7 +4,6 @@
 //! neither an invalid header nor a later particle failure replaces live state.
 
 use super::*;
-use game_engine::common::random_value::with_game_client_random_transaction;
 use game_engine::common::system::xfer::XferMode;
 use std::collections::HashSet;
 
@@ -39,6 +38,29 @@ impl ParticleSystemManager {
         let mut bytes = Vec::new();
         let mut xfer = CommonXferSave::new(Cursor::new(&mut bytes), 1);
         self.xfer_owned_state(&mut xfer)?;
+        let mut tail = Vec::new();
+        for word in self.random_state.seed_words() {
+            tail.extend_from_slice(&word.to_le_bytes());
+        }
+        let ids: Vec<_> = self
+            .active_system_ids_in_order()
+            .into_iter()
+            .filter(|id| {
+                self.active_systems
+                    .get(id)
+                    .is_some_and(|system| !system.is_destroyed() && system.is_saveable())
+            })
+            .collect();
+        tail.extend_from_slice(&(ids.len() as u32).to_le_bytes());
+        for id in ids {
+            tail.extend_from_slice(&id.to_le_bytes());
+            for word in self.active_systems[&id].random_state.seed_words() {
+                tail.extend_from_slice(&word.to_le_bytes());
+            }
+        }
+        bytes.extend_from_slice(&tail);
+        bytes.extend_from_slice(&(tail.len() as u32).to_le_bytes());
+        bytes.extend_from_slice(b"NRG1");
         Ok(bytes)
     }
 
@@ -51,8 +73,9 @@ impl ParticleSystemManager {
         if bytes.is_empty() || bytes == [1] {
             return Ok(None);
         }
-        let mut xfer = CommonXferLoad::new(Cursor::new(bytes.to_vec()), 1);
-        self.xfer_owned_state(&mut xfer)?;
+        let (payload, random_tail) = decode_random_tail(bytes)?;
+        let mut xfer = CommonXferLoad::new(Cursor::new(payload.to_vec()), 1);
+        self.xfer_owned_state_with_capsule(&mut xfer, random_tail)?;
         Ok(Some(ParticleSystemRestoreReceipt {
             owner: self.runtime_owner(),
             systems: self.active_system_ids_in_order().into_iter().collect(),
@@ -60,6 +83,13 @@ impl ParticleSystemManager {
     }
 
     fn xfer_owned_state(&mut self, xfer: &mut dyn CommonXfer) -> Result<(), String> {
+        self.xfer_owned_state_with_capsule(xfer, None)
+    }
+    fn xfer_owned_state_with_capsule(
+        &mut self,
+        xfer: &mut dyn CommonXfer,
+        capsule: Option<([u32; 6], Vec<(u32, [u32; 6])>)>,
+    ) -> Result<(), String> {
         let mode = xfer.get_xfer_mode();
         if !matches!(mode, XferMode::Save | XferMode::Load | XferMode::Crc) {
             return Err("particle system state requires a save or load stream".into());
@@ -95,7 +125,8 @@ impl ParticleSystemManager {
             return Ok(());
         }
 
-        let loaded = with_game_client_random_transaction(|random| {
+        let mut random = self.random_state.clone();
+        let mut loaded = (|random: &mut game_engine::common::random_value::RandomState| {
             let mut loaded = LoadedSystems {
                 next_id,
                 systems: HashMap::new(),
@@ -139,7 +170,24 @@ impl ParticleSystemManager {
                 loaded.order.push(id);
             }
             Ok::<_, String>(loaded)
-        })?;
+        })(&mut random)?;
+        if let Some((manager, states)) = capsule {
+            let expected: HashSet<_> = states.iter().map(|(id, _)| *id).collect();
+            let actual: HashSet<_> = loaded.systems.keys().copied().collect();
+            if expected != actual {
+                return Err("particle random capsule does not match restored system roster".into());
+            }
+            for (id, words) in states {
+                loaded
+                    .systems
+                    .get_mut(&id)
+                    .expect("validated capsule receiver")
+                    .random_state
+                    .set_seed_words(words);
+            }
+            random.set_seed_words(manager);
+        }
+        self.random_state = random;
 
         let particle_count = loaded.systems.values().map(|s| s.particle_count()).sum();
         self.renew_system_namespace();
@@ -204,3 +252,46 @@ pub fn restore_live_particle_system_from_xfer_bytes(
 #[cfg(test)]
 #[path = "state/tests.rs"]
 mod tests;
+
+// Runtime capsules deliberately remain outside the original ParticleSys Xfer.
+fn decode_random_tail(
+    bytes: &[u8],
+) -> Result<(&[u8], Option<([u32; 6], Vec<(u32, [u32; 6])>)>), String> {
+    if bytes.len() < 8 || &bytes[bytes.len() - 4..] != b"NRG1" {
+        return Ok((bytes, None));
+    }
+    let length =
+        u32::from_le_bytes(bytes[bytes.len() - 8..bytes.len() - 4].try_into().unwrap()) as usize;
+    let start = bytes
+        .len()
+        .checked_sub(
+            length
+                .checked_add(8)
+                .ok_or("particle random capsule size overflow")?,
+        )
+        .ok_or("invalid particle random capsule size")?;
+    let tail = &bytes[start..bytes.len() - 8];
+    if tail.len() < 28 {
+        return Err("truncated particle random capsule".into());
+    }
+    let words = |chunk: &[u8]| -> [u32; 6] {
+        std::array::from_fn(|index| {
+            u32::from_le_bytes(chunk[index * 4..index * 4 + 4].try_into().unwrap())
+        })
+    };
+    let manager = words(&tail[..24]);
+    let count = u32::from_le_bytes(tail[24..28].try_into().unwrap()) as usize;
+    if count.checked_mul(28).and_then(|size| size.checked_add(28)) != Some(tail.len()) {
+        return Err("invalid particle random capsule roster".into());
+    }
+    let mut seen = HashSet::new();
+    let mut systems = Vec::with_capacity(count);
+    for row in tail[28..].chunks_exact(28) {
+        let id = u32::from_le_bytes(row[..4].try_into().unwrap());
+        if id == INVALID_PARTICLE_SYSTEM_ID || !seen.insert(id) {
+            return Err("duplicate particle random capsule ID".into());
+        }
+        systems.push((id, words(&row[4..])));
+    }
+    Ok((&bytes[..start], Some((manager, systems))))
+}

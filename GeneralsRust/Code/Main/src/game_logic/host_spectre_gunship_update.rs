@@ -614,14 +614,15 @@ pub fn spectre_orbit_gattling_is_firing(field: &HostSpectreOrbitField) -> bool {
 pub fn spectre_gattling_strafe_smoke_impact(
     gattling_target: Vec3,
     ground_height: impl FnOnce(f32, f32) -> Option<f32>,
+    mut random: impl FnMut(f32, f32) -> f32,
 ) -> Vec3 {
     let x = gattling_target.x
-        + gamelogic::helpers::game_client_random_value_real(
+        + random(
             -SPECTRE_GATTLING_STRAFE_SMOKE_JITTER,
             SPECTRE_GATTLING_STRAFE_SMOKE_JITTER,
         );
     let z = gattling_target.z
-        + gamelogic::helpers::game_client_random_value_real(
+        + random(
             -SPECTRE_GATTLING_STRAFE_SMOKE_JITTER,
             SPECTRE_GATTLING_STRAFE_SMOKE_JITTER,
         );
@@ -629,19 +630,6 @@ pub fn spectre_gattling_strafe_smoke_impact(
     // The loan ends inside the callback before any particle delivery.
     let y = ground_height(x, z).unwrap_or(gattling_target.y);
     Vec3::new(x, y, z)
-}
-
-/// Leftover `TheParticleSystemManager->createParticleSystem(SpectreGattlingArmsSmoke)`
-/// + `setPosition` at the C++ Z-up impact (host Y-up `(x, height, z)`).
-pub fn spawn_spectre_gattling_strafe_smoke(impact: Vec3) -> Option<u32> {
-    if SPECTRE_GATTLING_STRAFE_FX.is_empty() {
-        return None;
-    }
-    let manager = gamelogic::helpers::TheParticleSystemManager::get()?;
-    let id = manager.create_particle_system(Some(SPECTRE_GATTLING_STRAFE_FX))?;
-    let leftover = gamelogic::common::Coord3D::new(impact.x, impact.z, impact.y);
-    manager.set_particle_system_position(id, &leftover);
-    Some(id)
 }
 
 #[cfg(test)]

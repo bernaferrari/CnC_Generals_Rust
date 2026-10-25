@@ -8,6 +8,16 @@
 //! This module is the live-host call into that runner.
 
 use glam::Vec3;
+#[cfg(feature = "game_client")]
+#[path = "host_fx_runtime.rs"]
+mod receiving;
+#[cfg(feature = "game_client")]
+pub(crate) use receiving::{HostFxRuntime, HostFxState};
+#[cfg(feature = "game_client")]
+#[path = "object_fx_runtime.rs"]
+mod object_receiving;
+#[cfg(feature = "game_client")]
+pub(crate) use object_receiving::{ObjectFxEnvironment, ObjectFxServices};
 
 /// Authored FXList template names (`FX_*` / `WeaponFX_*`) or the leftover
 /// `FX:{template}` audio-queue encoding. These are not Miles event names.
@@ -318,16 +328,27 @@ impl crate::game_logic::GameLogic {
         }
         #[cfg(feature = "game_client")]
         {
-            self.with_host_fx_view_and_terrain(
-                effects.terrain.as_mut().map(|terrain| {
-                    &mut **terrain as &mut dyn crate::game_logic::NativeTerrainEffects
-                }),
-                |view| {
-                    Self::dispatch_fx_list_at_position_with_view(
-                        name, position, secondary, speed, radius, matrix, view,
-                    )
+            let source = game_client::fx_list::FxSource::Position {
+                primary: Some(host_to_leftover_coord(position)),
+                matrix: matrix.map(host_to_leftover_mat4),
+                secondary: secondary.map(host_to_leftover_coord),
+                speed,
+                radius,
+            };
+            match game_client::fx_list::execute_fx_with_runtime(
+                &mut receiving::HostFxRuntime {
+                    world: self,
+                    effects,
                 },
-            )
+                name,
+                source,
+            ) {
+                Ok(found) => found,
+                Err(error) => {
+                    log::error!("FX '{name}' failed at receiving nugget: {error}");
+                    true
+                }
+            }
         }
         #[cfg(not(feature = "game_client"))]
         {
@@ -338,7 +359,7 @@ impl crate::game_logic::GameLogic {
     /// Borrow only the camera scalar owner across immediate nuggets. Object
     /// observations are already owned before entering here, and no catalog,
     /// shroud or global-rules guard survives a callback.
-    #[cfg(feature = "game_client")]
+    #[cfg(all(test, feature = "game_client"))]
     pub(crate) fn with_host_fx_view<R>(
         &mut self,
         run: impl FnOnce(&mut game_client::fx_list::FxViewServices<'_>) -> R,
@@ -352,7 +373,7 @@ impl crate::game_logic::GameLogic {
         )
     }
 
-    #[cfg(feature = "game_client")]
+    #[cfg(all(test, feature = "game_client"))]
     pub(crate) fn with_host_fx_view_and_terrain<R>(
         &mut self,
         terrain: Option<&mut dyn crate::game_logic::NativeTerrainEffects>,
@@ -368,6 +389,30 @@ impl crate::game_logic::GameLogic {
         )
     }
 
+    #[cfg(all(test, feature = "game_client"))]
+    fn with_host_fx_view_and_terrain_and_bones<R>(
+        &mut self,
+        terrain: Option<&mut dyn crate::game_logic::NativeTerrainEffects>,
+        bone_transforms: &mut dyn FnMut(u32, &str, i32, usize) -> Vec<glam::Mat4>,
+        run: impl FnOnce(&mut game_client::fx_list::FxViewServices<'_>) -> R,
+    ) -> R {
+        let player = self.local_player_id();
+        let mut terrain = terrain;
+        let mut add_scorch = |position, radius, kind| {
+            if let Some(receiver) = terrain.as_mut() {
+                receiver.add_scorch(position, radius, kind);
+            }
+        };
+        Self::with_host_fx_view_parts_with_scorch_and_bones(
+            &mut self.session_view,
+            player,
+            self.world_services.shroud(),
+            &mut add_scorch,
+            bone_transforms,
+            run,
+        )
+    }
+
     #[cfg(feature = "game_client")]
     pub(crate) fn dispatch_fx_list_at_position_with_view(
         name: &str,
@@ -376,48 +421,30 @@ impl crate::game_logic::GameLogic {
         speed: f32,
         radius: f32,
         matrix: Option<glam::Mat4>,
-        view: &mut game_client::fx_list::FxViewServices<'_>,
+        view: &mut ObjectFxServices<'_, '_>,
     ) -> bool {
         let name = strip_fx_list_prefix(name);
         if is_none_fx_list(name) {
             return false;
         }
-        let Some(fx) = (view.find_list)(name) else {
-            return false;
-        };
-        let position = host_to_leftover_coord(position);
-        let secondary = secondary.map(host_to_leftover_coord);
-        let matrix = matrix.map(host_to_leftover_mat4);
-        fx.do_fx_pos_with_view(
-            Some(&position),
-            matrix.as_ref(),
-            speed,
-            secondary.as_ref(),
-            radius,
-            view,
-        );
-        true
+        view.position(name, position, secondary, speed, radius, matrix)
     }
 
     #[cfg(feature = "game_client")]
     pub(crate) fn dispatch_fx_list_at_object_with_view(
         name: &str,
-        primary: &gamelogic::helpers::HostFxObjectPose,
+        primary: &crate::game_logic::Object,
         secondary: Option<&gamelogic::helpers::HostFxObjectPose>,
-        view: &mut game_client::fx_list::FxViewServices<'_>,
+        view: &mut ObjectFxServices<'_, '_>,
     ) -> bool {
         let name = strip_fx_list_prefix(name);
         if is_none_fx_list(name) {
             return false;
         }
-        let Some(fx) = (view.find_list)(name) else {
-            return false;
-        };
-        fx.do_fx_obj_host_with_view(primary, secondary, view);
-        true
+        view.object(name, primary, secondary)
     }
 
-    #[cfg(feature = "game_client")]
+    #[cfg(all(test, feature = "game_client"))]
     pub(crate) fn with_host_fx_view_parts<R>(
         session_view: &mut crate::presentation_frame::SessionView,
         player: Option<u32>,
@@ -438,7 +465,7 @@ impl crate::game_logic::GameLogic {
         )
     }
 
-    #[cfg(feature = "game_client")]
+    #[cfg(all(test, feature = "game_client"))]
     pub(crate) fn with_host_fx_view_parts_and_terrain<R>(
         session_view: &mut crate::presentation_frame::SessionView,
         player: Option<u32>,
@@ -460,12 +487,32 @@ impl crate::game_logic::GameLogic {
         )
     }
 
-    #[cfg(feature = "game_client")]
+    #[cfg(all(test, feature = "game_client"))]
     pub(crate) fn with_host_fx_view_parts_with_scorch<R>(
         session_view: &mut crate::presentation_frame::SessionView,
         player: Option<u32>,
         shroud: &std::sync::Arc<std::sync::Mutex<gamelogic::system::shroud_manager::ShroudManager>>,
         add_scorch: &mut dyn FnMut([f32; 3], f32, i32),
+        run: impl FnOnce(&mut game_client::fx_list::FxViewServices<'_>) -> R,
+    ) -> R {
+        let mut no_presentation_bones = |_, _: &str, _, _| Vec::new();
+        Self::with_host_fx_view_parts_with_scorch_and_bones(
+            session_view,
+            player,
+            shroud,
+            add_scorch,
+            &mut no_presentation_bones,
+            run,
+        )
+    }
+
+    #[cfg(all(test, feature = "game_client"))]
+    fn with_host_fx_view_parts_with_scorch_and_bones<R>(
+        session_view: &mut crate::presentation_frame::SessionView,
+        player: Option<u32>,
+        shroud: &std::sync::Arc<std::sync::Mutex<gamelogic::system::shroud_manager::ShroudManager>>,
+        add_scorch: &mut dyn FnMut([f32; 3], f32, i32),
+        bone_transforms: &mut dyn FnMut(u32, &str, i32, usize) -> Vec<glam::Mat4>,
         run: impl FnOnce(&mut game_client::fx_list::FxViewServices<'_>) -> R,
     ) -> R {
         let target = session_view.target;
@@ -484,16 +531,6 @@ impl crate::game_logic::GameLogic {
             };
         let mut find_list =
             |name: &str| game_client::fx_list::get_fx_list_store().find_fx_list(name);
-        // This existing native Drawable adapter is an independent lifecycle
-        // residual. Camera/shroud never select its ambient tactical View.
-        let mut bone_transforms = |id, name: &str, start, limit| {
-            game_client::core::game_client::query_live_current_client_bone_positions(
-                id, name, start, limit,
-            )
-            .into_iter()
-            .map(|(_, matrix)| matrix)
-            .collect()
-        };
         let mut position_visible = |position: Option<&gamelogic::common::Coord3D>| {
             let (Some(player), Some(position)) = (player, position) else {
                 return false;
@@ -510,7 +547,7 @@ impl crate::game_logic::GameLogic {
             add_scorch,
             shake: &mut shake,
             find_list: &mut find_list,
-            bone_transforms: &mut bone_transforms,
+            bone_transforms,
             position_visible: &mut position_visible,
         })
     }
@@ -579,44 +616,60 @@ impl crate::game_logic::GameLogic {
         secondary_id: Option<crate::game_logic::ObjectId>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> bool {
-        let player = self.local_player_id();
-        let primary = self.host_object(primary_id).map(|object| {
-            Self::observe_host_fx_object(object, player, self.world_services.shroud())
-        });
-        let secondary = secondary_id
-            .and_then(|id| self.host_object(id))
-            .map(|object| {
-                Self::observe_host_fx_object(object, player, self.world_services.shroud())
-            });
-        // Attached systems still use the published scene poses between logic
-        // callbacks. Immediate FX receives these owned values directly.
-        if let Some(primary) = primary {
-            gamelogic::helpers::set_host_fx_object_pose(primary);
-        }
-        if let Some(secondary) = secondary {
-            gamelogic::helpers::set_host_fx_object_pose(secondary);
-        }
-        let Some(primary) = primary else {
-            return false;
-        };
         let name = strip_fx_list_prefix(name);
         if is_none_fx_list(name) {
             return false;
         }
         #[cfg(feature = "game_client")]
         {
-            let fx = game_client::fx_list::get_fx_list_store().find_fx_list(name);
-            let Some(fx) = fx else {
+            let source = game_client::fx_list::FxSource::Objects {
+                primary: primary_id.0,
+                secondary: secondary_id.map(|id| id.0),
+            };
+            return match game_client::fx_list::execute_fx_with_runtime(
+                &mut receiving::HostFxRuntime {
+                    world: self,
+                    effects,
+                },
+                name,
+                source,
+            ) {
+                Ok(found) => found,
+                Err(error) => {
+                    log::error!("FX '{name}' failed at receiving nugget: {error}");
+                    true
+                }
+            };
+        }
+        #[cfg(not(feature = "game_client"))]
+        let (primary, secondary) = {
+            let player = self.local_player_id();
+            let primary = self.host_object(primary_id).map(|object| {
+                Self::observe_host_fx_object(object, player, self.world_services.shroud())
+            });
+            let secondary = secondary_id
+                .and_then(|id| self.host_object(id))
+                .map(|object| {
+                    Self::observe_host_fx_object(object, player, self.world_services.shroud())
+                });
+            // Attached systems still use the published scene poses between logic
+            // callbacks. Immediate FX receives these owned values directly.
+            if let Some(primary) = primary {
+                gamelogic::helpers::set_host_fx_object_pose(primary);
+            }
+            if let Some(secondary) = secondary {
+                gamelogic::helpers::set_host_fx_object_pose(secondary);
+            }
+            let Some(primary) = primary else {
                 return false;
             };
-            self.with_host_fx_view_and_terrain(
-                effects.terrain.as_mut().map(|terrain| {
-                    &mut **terrain as &mut dyn crate::game_logic::NativeTerrainEffects
-                }),
-                |view| fx.do_fx_obj_host_with_view(&primary, secondary.as_ref(), view),
-            );
-            return true;
-        }
+            let name = strip_fx_list_prefix(name);
+            if is_none_fx_list(name) {
+                return false;
+            }
+            (primary, secondary)
+        };
+
         #[cfg(not(feature = "game_client"))]
         {
             let Some(fx) = gamelogic::helpers::TheFXList::get() else {
@@ -861,5 +914,29 @@ mod emission_player_owner_tests {
             world.world_services.shroud(),
             999
         ));
+    }
+}
+
+#[cfg(feature = "game_client")]
+impl crate::game_logic::GameLogic {
+    pub(crate) fn with_object_fx_services<R>(
+        session: &mut crate::presentation_frame::SessionView,
+        player: Option<u32>,
+        shroud: &std::sync::Arc<std::sync::Mutex<gamelogic::system::shroud_manager::ShroudManager>>,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+        environment: &ObjectFxEnvironment,
+        terrain: &std::sync::Arc<std::sync::RwLock<gamelogic::terrain::TerrainLogic>>,
+        logic_random: &game_engine::common::random_value::SessionRandom,
+        run: impl FnOnce(&mut ObjectFxServices<'_, '_>) -> R,
+    ) -> R {
+        run(&mut ObjectFxServices {
+            session,
+            player,
+            shroud,
+            effects,
+            environment,
+            terrain,
+            logic_random,
+        })
     }
 }

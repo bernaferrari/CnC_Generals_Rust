@@ -4,8 +4,12 @@ fn initialize_challenge_windows(
     wm: &mut WindowManager,
     did_mem_pass: bool,
     campaign_manager: &crate::gui::campaign_manager::CampaignManager,
+    runtime: &mut LoadScreenRuntime,
 ) {
-    with_challenge_load_screen_state(|state| *state = ChallengeLoadScreenState::default());
+    with_challenge_load_screen_state(
+        |state| *state = ChallengeLoadScreenState::default(),
+        runtime,
+    );
     with_window_video_manager(|manager| manager.init());
 
     for name in [
@@ -40,13 +44,16 @@ fn initialize_challenge_windows(
     };
     let movie_label = current_challenge_movie_label(campaign_manager);
     let voice_length = current_challenge_voice_length(campaign_manager);
-    with_challenge_load_screen_state(|state| {
-        state.player = Some(player.clone());
-        state.opponent = Some(opponent.clone());
-        state.current_frame = 0;
-        state.postlude_audio_played = false;
-        state.ambient_loop_handle = 0;
-    });
+    with_challenge_load_screen_state(
+        |state| {
+            state.player = Some(player.clone());
+            state.opponent = Some(opponent.clone());
+            state.current_frame = 0;
+            state.postlude_audio_played = false;
+            state.ambient_loop_handle = 0;
+        },
+        runtime,
+    );
     if let Some(image) = player.portrait_large.as_deref() {
         set_window_image(wm, "ChallengeLoadScreen.wnd:PortraitLeft", 0, image, true);
     }
@@ -66,44 +73,53 @@ fn initialize_challenge_windows(
     ) {
         // Matches C++'s video-buffer/open failure return: do not create a
         // synthetic min-spec reveal or ambient/taunt audio.
-        with_challenge_load_screen_state(|state| {
-            state.prelude_state = LoadScreenPreludeState::Failed;
-        });
+        with_challenge_load_screen_state(
+            |state| {
+                state.prelude_state = LoadScreenPreludeState::Failed;
+            },
+            runtime,
+        );
         return;
     }
 
     let delay = campaign_voice_delay_duration(voice_length);
     let deadline = Instant::now().checked_add(delay);
-    with_challenge_load_screen_state(|state| {
-        state.background_movie_label = movie_label;
-        state.high_spec_prelude_active = did_mem_pass;
-        state.prelude_state = if did_mem_pass {
-            LoadScreenPreludeState::Movie
-        } else {
-            LoadScreenPreludeState::VoiceDelay
-        };
-        state.prelude_duration = delay;
-        state.prelude_deadline = deadline;
-    });
+    with_challenge_load_screen_state(
+        |state| {
+            state.background_movie_label = movie_label;
+            state.high_spec_prelude_active = did_mem_pass;
+            state.prelude_state = if did_mem_pass {
+                LoadScreenPreludeState::Movie
+            } else {
+                LoadScreenPreludeState::VoiceDelay
+            };
+            state.prelude_duration = delay;
+            state.prelude_deadline = deadline;
+        },
+        runtime,
+    );
 
     if !did_mem_pass {
         // C++ seeks/renders the final background frame, then reveals the
         // min-spec portrait composition while its authored VoiceLength delay
         // continues to pump WindowManager/display.
-        activate_challenge_pieces_min_spec_windows(wm);
+        activate_challenge_pieces_min_spec_windows(wm, runtime);
     }
 }
 
-fn with_challenge_load_screen_state<R>(f: impl FnOnce(&mut ChallengeLoadScreenState) -> R) -> R {
-    CHALLENGE_LOAD_SCREEN_STATE.with_borrow_mut(f)
+fn with_challenge_load_screen_state<R>(
+    f: impl FnOnce(&mut ChallengeLoadScreenState) -> R,
+    runtime: &mut LoadScreenRuntime,
+) -> R {
+    f(&mut runtime.challenge)
 }
 
-pub fn activate_challenge_load_screen_frame(frame: i32) {
-    with_window_manager(|wm| activate_challenge_pieces_frame_windows(wm, frame));
+pub fn activate_challenge_load_screen_frame(frame: i32, runtime: &mut LoadScreenRuntime) {
+    with_window_manager(|wm| activate_challenge_pieces_frame_windows(wm, frame, runtime));
 }
 
-pub fn activate_challenge_load_screen_min_spec() {
-    with_window_manager(activate_challenge_pieces_min_spec_windows);
+pub fn activate_challenge_load_screen_min_spec(runtime: &mut LoadScreenRuntime) {
+    with_window_manager(|wm| activate_challenge_pieces_min_spec_windows(wm, runtime));
 }
 
 fn challenge_prelude_outcome(state: LoadScreenPreludeState) -> LoadScreenPreludeOutcome {
@@ -118,27 +134,33 @@ fn challenge_prelude_outcome(state: LoadScreenPreludeState) -> LoadScreenPrelude
     }
 }
 
-fn complete_challenge_load_screen_prelude(outcome: LoadScreenPreludeOutcome) {
-    let should_play_audio = with_challenge_load_screen_state(|state| {
-        if state.prelude_state == LoadScreenPreludeState::Failed {
-            return false;
-        }
-        state.prelude_state = match outcome {
-            LoadScreenPreludeOutcome::Complete => LoadScreenPreludeState::Complete,
-            LoadScreenPreludeOutcome::Skipped => LoadScreenPreludeState::Skipped,
-            LoadScreenPreludeOutcome::Failed => LoadScreenPreludeState::Failed,
-            LoadScreenPreludeOutcome::NotRequired => LoadScreenPreludeState::NotRequired,
-        };
-        state.high_spec_prelude_active = false;
-        state.background_movie_label.clear();
-        state.prelude_deadline = None;
-        matches!(
-            outcome,
-            LoadScreenPreludeOutcome::Complete | LoadScreenPreludeOutcome::Skipped
-        )
-    });
+fn complete_challenge_load_screen_prelude(
+    outcome: LoadScreenPreludeOutcome,
+    runtime: &mut LoadScreenRuntime,
+) {
+    let should_play_audio = with_challenge_load_screen_state(
+        |state| {
+            if state.prelude_state == LoadScreenPreludeState::Failed {
+                return false;
+            }
+            state.prelude_state = match outcome {
+                LoadScreenPreludeOutcome::Complete => LoadScreenPreludeState::Complete,
+                LoadScreenPreludeOutcome::Skipped => LoadScreenPreludeState::Skipped,
+                LoadScreenPreludeOutcome::Failed => LoadScreenPreludeState::Failed,
+                LoadScreenPreludeOutcome::NotRequired => LoadScreenPreludeState::NotRequired,
+            };
+            state.high_spec_prelude_active = false;
+            state.background_movie_label.clear();
+            state.prelude_deadline = None;
+            matches!(
+                outcome,
+                LoadScreenPreludeOutcome::Complete | LoadScreenPreludeOutcome::Skipped
+            )
+        },
+        runtime,
+    );
     if should_play_audio {
-        finish_challenge_load_screen_audio_postlude();
+        finish_challenge_load_screen_audio_postlude(runtime);
     }
 }
 
@@ -146,26 +168,33 @@ fn activate_challenge_pieces_through_windows(
     wm: &mut WindowManager,
     previous_frame: i32,
     frame: i32,
+    runtime: &mut LoadScreenRuntime,
 ) {
     if frame <= previous_frame {
         return;
     }
     for frame in (previous_frame + 1)..=frame {
-        activate_challenge_pieces_frame_windows(wm, frame);
+        activate_challenge_pieces_frame_windows(wm, frame, runtime);
     }
 }
 
-fn advance_challenge_load_screen_prelude(wm: &mut WindowManager) -> LoadScreenPreludeStep {
+fn advance_challenge_load_screen_prelude(
+    wm: &mut WindowManager,
+    runtime: &mut LoadScreenRuntime,
+) -> LoadScreenPreludeStep {
     let (prelude_state, movie_label, current_frame, deadline, duration) =
-        with_challenge_load_screen_state(|state| {
-            (
-                state.prelude_state,
-                state.background_movie_label.clone(),
-                state.current_frame,
-                state.prelude_deadline,
-                state.prelude_duration,
-            )
-        });
+        with_challenge_load_screen_state(
+            |state| {
+                (
+                    state.prelude_state,
+                    state.background_movie_label.clone(),
+                    state.current_frame,
+                    state.prelude_deadline,
+                    state.prelude_duration,
+                )
+            },
+            runtime,
+        );
 
     match prelude_state {
         LoadScreenPreludeState::NotRequired
@@ -180,17 +209,17 @@ fn advance_challenge_load_screen_prelude(wm: &mut WindowManager) -> LoadScreenPr
                 // A successfully-opened one-shot disappearing before an
                 // observed frame is still a completed/skipped presentation,
                 // not the open failure handled during initialization.
-                complete_challenge_load_screen_prelude(LoadScreenPreludeOutcome::Complete);
+                complete_challenge_load_screen_prelude(LoadScreenPreludeOutcome::Complete, runtime);
                 return LoadScreenPreludeStep::Finished(LoadScreenPreludeOutcome::Complete);
             };
 
             let frame = advance.frame_index.max(current_frame);
             if advance.frame_index > current_frame {
-                activate_challenge_pieces_through_windows(wm, current_frame, frame);
-                with_challenge_load_screen_state(|state| state.current_frame = frame);
+                activate_challenge_pieces_through_windows(wm, current_frame, frame, runtime);
+                with_challenge_load_screen_state(|state| state.current_frame = frame, runtime);
             }
             if advance.completed {
-                complete_challenge_load_screen_prelude(LoadScreenPreludeOutcome::Complete);
+                complete_challenge_load_screen_prelude(LoadScreenPreludeOutcome::Complete, runtime);
                 LoadScreenPreludeStep::Finished(LoadScreenPreludeOutcome::Complete)
             } else {
                 LoadScreenPreludeStep::Pending(LOAD_SCREEN_PRELUDE_MOVIE_IDLE_INTERVAL)
@@ -209,7 +238,7 @@ fn advance_challenge_load_screen_prelude(wm: &mut WindowManager) -> LoadScreenPr
                 set_progress_window(wm, "ChallengeLoadScreen.wnd:ProgressLoad", progress);
             }
             if completed {
-                complete_challenge_load_screen_prelude(LoadScreenPreludeOutcome::Complete);
+                complete_challenge_load_screen_prelude(LoadScreenPreludeOutcome::Complete, runtime);
                 LoadScreenPreludeStep::Finished(LoadScreenPreludeOutcome::Complete)
             } else {
                 LoadScreenPreludeStep::Pending(LOAD_SCREEN_PRELUDE_MIN_SPEC_UPDATE_INTERVAL)
@@ -218,34 +247,38 @@ fn advance_challenge_load_screen_prelude(wm: &mut WindowManager) -> LoadScreenPr
     }
 }
 
-fn skip_challenge_load_screen_prelude() -> LoadScreenPreludeOutcome {
-    let state = with_challenge_load_screen_state(|state| state.prelude_state);
+fn skip_challenge_load_screen_prelude(runtime: &mut LoadScreenRuntime) -> LoadScreenPreludeOutcome {
+    let state = with_challenge_load_screen_state(|state| state.prelude_state, runtime);
     if matches!(
         state,
         LoadScreenPreludeState::Movie | LoadScreenPreludeState::VoiceDelay
     ) {
-        complete_challenge_load_screen_prelude(LoadScreenPreludeOutcome::Skipped);
+        complete_challenge_load_screen_prelude(LoadScreenPreludeOutcome::Skipped, runtime);
         LoadScreenPreludeOutcome::Skipped
     } else {
         challenge_prelude_outcome(state)
     }
 }
 
-fn finish_challenge_load_screen_audio_postlude() {
-    let postlude = with_challenge_load_screen_state(|state| {
-        // C++ returns from init when the background stream/buffer cannot be
-        // created. A later generic 100% map-progress callback must not turn
-        // that failed screen into a taunt/ambient audio path.
-        if state.postlude_audio_played || state.prelude_state == LoadScreenPreludeState::Failed {
-            return None;
-        }
-        let taunt = {
-            let opponent = state.opponent.as_ref()?;
-            challenge_taunt_sound(opponent, challenge_taunt_seed()).map(str::to_string)
-        };
-        state.postlude_audio_played = true;
-        Some(taunt)
-    });
+fn finish_challenge_load_screen_audio_postlude(runtime: &mut LoadScreenRuntime) {
+    let postlude = with_challenge_load_screen_state(
+        |state| {
+            // C++ returns from init when the background stream/buffer cannot be
+            // created. A later generic 100% map-progress callback must not turn
+            // that failed screen into a taunt/ambient audio path.
+            if state.postlude_audio_played || state.prelude_state == LoadScreenPreludeState::Failed
+            {
+                return None;
+            }
+            let taunt = {
+                let opponent = state.opponent.as_ref()?;
+                challenge_taunt_sound(opponent, challenge_taunt_seed()).map(str::to_string)
+            };
+            state.postlude_audio_played = true;
+            Some(taunt)
+        },
+        runtime,
+    );
 
     let Some(taunt) = postlude else {
         return;
@@ -254,9 +287,12 @@ fn finish_challenge_load_screen_audio_postlude() {
         play_audio_event(&taunt);
     }
     let ambient_handle = add_audio_event("LoadScreenAmbient");
-    with_challenge_load_screen_state(|state| {
-        state.ambient_loop_handle = ambient_handle;
-    });
+    with_challenge_load_screen_state(
+        |state| {
+            state.ambient_loop_handle = ambient_handle;
+        },
+        runtime,
+    );
 }
 
 fn pump_challenge_load_screen_audio() {
@@ -265,19 +301,22 @@ fn pump_challenge_load_screen_audio() {
     }
 }
 
-fn reset_challenge_load_screen_audio_state() {
-    let ambient_handle = with_challenge_load_screen_state(|state| {
-        let handle = state.ambient_loop_handle;
-        state.prelude_state = LoadScreenPreludeState::NotRequired;
-        state.prelude_deadline = None;
-        state.prelude_duration = Duration::ZERO;
-        state.background_movie_label.clear();
-        state.high_spec_prelude_active = false;
-        state.current_frame = 0;
-        state.postlude_audio_played = false;
-        state.ambient_loop_handle = 0;
-        handle
-    });
+fn reset_challenge_load_screen_audio_state(runtime: &mut LoadScreenRuntime) {
+    let ambient_handle = with_challenge_load_screen_state(
+        |state| {
+            let handle = state.ambient_loop_handle;
+            state.prelude_state = LoadScreenPreludeState::NotRequired;
+            state.prelude_deadline = None;
+            state.prelude_duration = Duration::ZERO;
+            state.background_movie_label.clear();
+            state.high_spec_prelude_active = false;
+            state.current_frame = 0;
+            state.postlude_audio_played = false;
+            state.ambient_loop_handle = 0;
+            handle
+        },
+        runtime,
+    );
     if ambient_handle != 0 {
         if let Some(audio) = TheAudio::get() {
             audio.remove_audio_event(ambient_handle);
@@ -296,12 +335,19 @@ fn challenge_taunt_sound(persona: &ChallengePersonaText, seed: usize) -> Option<
     Some(persona.taunt_sounds[seed % persona.taunt_sounds.len()].as_str())
 }
 
-fn activate_challenge_pieces_frame_windows(wm: &mut WindowManager, frame: i32) {
-    let personas = with_challenge_load_screen_state(|state| {
-        let player = state.player.clone()?;
-        let opponent = state.opponent.clone()?;
-        Some((player, opponent))
-    });
+fn activate_challenge_pieces_frame_windows(
+    wm: &mut WindowManager,
+    frame: i32,
+    runtime: &mut LoadScreenRuntime,
+) {
+    let personas = with_challenge_load_screen_state(
+        |state| {
+            let player = state.player.clone()?;
+            let opponent = state.opponent.clone()?;
+            Some((player, opponent))
+        },
+        runtime,
+    );
     let Some((player, opponent)) = personas else {
         return;
     };
@@ -313,7 +359,10 @@ fn activate_challenge_pieces_frame_windows(wm: &mut WindowManager, frame: i32) {
             }
         }
         FRAME_TELETYPE_START => {
-            with_challenge_load_screen_state(ChallengeLoadScreenState::reset_teletype_positions);
+            with_challenge_load_screen_state(
+                ChallengeLoadScreenState::reset_teletype_positions,
+                runtime,
+            );
             for name in CHALLENGE_BIO_ENTRY_WINDOWS {
                 hide_window(wm, name, false);
                 set_window_text(wm, name, "");
@@ -356,65 +405,74 @@ fn activate_challenge_pieces_frame_windows(wm: &mut WindowManager, frame: i32) {
     }
 
     if frame > FRAME_TELETYPE_START && frame % TELETYPE_UPDATE_FREQ == 0 {
-        with_challenge_load_screen_state(|state| {
-            state.text_pos_name_left = update_teletype_text(
-                wm,
-                "ChallengeLoadScreen.wnd:BioNameEntryLeft",
-                &player.name,
-                state.text_pos_name_left,
-            );
-            state.text_pos_big_name_left = update_teletype_text(
-                wm,
-                "ChallengeLoadScreen.wnd:BigNameEntryLeft",
-                &player.big_name,
-                state.text_pos_big_name_left,
-            );
-            state.text_pos_birthplace_left = update_teletype_text(
-                wm,
-                "ChallengeLoadScreen.wnd:BioBirthplaceEntryLeft",
-                &player.rank,
-                state.text_pos_birthplace_left,
-            );
-            state.text_pos_strategy_left = update_teletype_text(
-                wm,
-                "ChallengeLoadScreen.wnd:BioStrategyEntryLeft",
-                &player.strategy,
-                state.text_pos_strategy_left,
-            );
-            state.text_pos_name_right = update_teletype_text(
-                wm,
-                "ChallengeLoadScreen.wnd:BioNameEntryRight",
-                &opponent.name,
-                state.text_pos_name_right,
-            );
-            state.text_pos_big_name_right = update_teletype_text(
-                wm,
-                "ChallengeLoadScreen.wnd:BigNameEntryRight",
-                &opponent.big_name,
-                state.text_pos_big_name_right,
-            );
-            state.text_pos_birthplace_right = update_teletype_text(
-                wm,
-                "ChallengeLoadScreen.wnd:BioBirthplaceEntryRight",
-                &opponent.rank,
-                state.text_pos_birthplace_right,
-            );
-            state.text_pos_strategy_right = update_teletype_text(
-                wm,
-                "ChallengeLoadScreen.wnd:BioStrategyEntryRight",
-                &opponent.strategy,
-                state.text_pos_strategy_right,
-            );
-        });
+        with_challenge_load_screen_state(
+            |state| {
+                state.text_pos_name_left = update_teletype_text(
+                    wm,
+                    "ChallengeLoadScreen.wnd:BioNameEntryLeft",
+                    &player.name,
+                    state.text_pos_name_left,
+                );
+                state.text_pos_big_name_left = update_teletype_text(
+                    wm,
+                    "ChallengeLoadScreen.wnd:BigNameEntryLeft",
+                    &player.big_name,
+                    state.text_pos_big_name_left,
+                );
+                state.text_pos_birthplace_left = update_teletype_text(
+                    wm,
+                    "ChallengeLoadScreen.wnd:BioBirthplaceEntryLeft",
+                    &player.rank,
+                    state.text_pos_birthplace_left,
+                );
+                state.text_pos_strategy_left = update_teletype_text(
+                    wm,
+                    "ChallengeLoadScreen.wnd:BioStrategyEntryLeft",
+                    &player.strategy,
+                    state.text_pos_strategy_left,
+                );
+                state.text_pos_name_right = update_teletype_text(
+                    wm,
+                    "ChallengeLoadScreen.wnd:BioNameEntryRight",
+                    &opponent.name,
+                    state.text_pos_name_right,
+                );
+                state.text_pos_big_name_right = update_teletype_text(
+                    wm,
+                    "ChallengeLoadScreen.wnd:BigNameEntryRight",
+                    &opponent.big_name,
+                    state.text_pos_big_name_right,
+                );
+                state.text_pos_birthplace_right = update_teletype_text(
+                    wm,
+                    "ChallengeLoadScreen.wnd:BioBirthplaceEntryRight",
+                    &opponent.rank,
+                    state.text_pos_birthplace_right,
+                );
+                state.text_pos_strategy_right = update_teletype_text(
+                    wm,
+                    "ChallengeLoadScreen.wnd:BioStrategyEntryRight",
+                    &opponent.strategy,
+                    state.text_pos_strategy_right,
+                );
+            },
+            runtime,
+        );
     }
 }
 
-fn activate_challenge_pieces_min_spec_windows(wm: &mut WindowManager) {
-    let personas = with_challenge_load_screen_state(|state| {
-        let player = state.player.clone()?;
-        let opponent = state.opponent.clone()?;
-        Some((player, opponent))
-    });
+fn activate_challenge_pieces_min_spec_windows(
+    wm: &mut WindowManager,
+    runtime: &mut LoadScreenRuntime,
+) {
+    let personas = with_challenge_load_screen_state(
+        |state| {
+            let player = state.player.clone()?;
+            let opponent = state.opponent.clone()?;
+            Some((player, opponent))
+        },
+        runtime,
+    );
     let Some((player, opponent)) = personas else {
         return;
     };

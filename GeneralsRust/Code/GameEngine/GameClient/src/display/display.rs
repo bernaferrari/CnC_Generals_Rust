@@ -10,18 +10,18 @@ use crate::display::DisplayInterface;
 use crate::display::display_fx;
 use crate::display::shadow_pass;
 use crate::display::view::{
-    LETTER_BOX_FADE_TIME_MS, ViewTrait, set_display_letter_boxed, vertical_fov_from_horizontal,
-    with_tactical_view, with_tactical_view_ref,
+    LETTER_BOX_FADE_TIME_MS, ViewTrait, vertical_fov_from_horizontal, with_tactical_view,
+    with_tactical_view_ref,
 };
 use crate::effects::particle_manager::get_particle_system_manager;
 use crate::effects::particle_renderer::{
-    ParticleRenderer as GpuParticleRenderer, ParticleUniforms, register_particle_renderer,
+    ParticleRenderer as GpuParticleRenderer, ParticleUniforms,
 };
 use crate::fx_list::get_decal_manager;
 use crate::game_text::GameText;
 use crate::gui::display_string::{DisplayStringHandle, get_display_string_manager};
 use crate::gui::font::{FontDesc, get_font_library};
-use crate::gui::{ui_renderer::UIRect, with_ui_renderer, with_window_manager};
+use crate::gui::ui_renderer::UIRect;
 use crate::input::with_mouse;
 use crate::platform::GraphicsContext;
 use crate::radius_decal::get_projected_shadow_manager;
@@ -37,7 +37,6 @@ use crate::w3d::W3DParticleSystemBridge;
 use game_engine::common::ini::ini_game_data::{
     GlobalData, MAX_GLOBAL_LIGHTS, TIME_OF_DAY_COUNT, TimeOfDay, get_global_data,
 };
-use gamelogic::helpers::{TheGameLogic, TheScriptEngine};
 use log::{error, warn};
 use std::any::Any;
 use std::sync::{Arc, Mutex};
@@ -147,7 +146,7 @@ fn time_of_day_index(time_of_day: TimeOfDay) -> usize {
 
 pub struct Display {
     graphics: GraphicsContext,
-    particle_renderer: Option<Arc<Mutex<GpuParticleRenderer>>>,
+    particle_renderer: Option<Mutex<GpuParticleRenderer>>,
     #[cfg(feature = "w3d_support")]
     particle_bridge: Mutex<W3DParticleSystemBridge>,
     depth_texture: wgpu::Texture,
@@ -161,7 +160,6 @@ pub struct Display {
     video_buffer: Option<Box<dyn VideoBuffer + Send>>,
     video_stream: Option<Box<dyn VideoStreamInterface>>,
     currently_playing_movie: String,
-    movie_capture_enabled: bool,
     movie_hold_time_ms: i32,
     copyright_hold_time_ms: i32,
     movie_start_time: Option<Instant>,
@@ -172,11 +170,7 @@ pub struct Display {
     debug_display_user_data: Option<Box<dyn Any + Send + Sync>>,
     border_shroud_level: u8,
     letterbox_fade_level: f32,
-    letterbox_enabled: bool,
-    letterbox_fade_start_time: Option<Instant>,
     lighting_state: DisplayLightingState,
-    last_movie_frame: Mutex<Option<(u32, u32, Vec<u8>)>>,
-    pending_screenshot: Mutex<Option<std::path::PathBuf>>,
 }
 
 impl Display {
@@ -193,11 +187,7 @@ impl Display {
             surface_format,
             wgpu::TextureFormat::Depth32Float,
         ) {
-            Ok(renderer) => {
-                let renderer = Arc::new(Mutex::new(renderer));
-                register_particle_renderer(Arc::clone(&renderer));
-                Some(renderer)
-            }
+            Ok(renderer) => Some(Mutex::new(renderer)),
             Err(err) => {
                 error!("Failed to initialize particle renderer: {}", err);
                 None
@@ -233,7 +223,6 @@ impl Display {
             video_buffer: None,
             video_stream: None,
             currently_playing_movie: String::new(),
-            movie_capture_enabled: false,
             movie_hold_time_ms: -1,
             copyright_hold_time_ms: -1,
             movie_start_time: None,
@@ -244,11 +233,7 @@ impl Display {
             debug_display_user_data: None,
             border_shroud_level: 0,
             letterbox_fade_level: 0.0,
-            letterbox_enabled: false,
-            letterbox_fade_start_time: None,
             lighting_state: DisplayLightingState::from_current_global_data(),
-            last_movie_frame: Mutex::new(None),
-            pending_screenshot: Mutex::new(None),
         }
     }
 
@@ -411,6 +396,7 @@ impl Display {
 
     pub fn set_display_mode(
         &mut self,
+        fx: &mut display_fx::DisplayFxState,
         xres: u32,
         yres: u32,
         bit_depth: u32,
@@ -439,11 +425,9 @@ impl Display {
 
         self.graphics.resize(xres, yres);
         self.rebuild_depth_resources();
-        let _ = crate::gui::ui_globals::with_ui_renderer_mut(|renderer| {
-            renderer.set_screen_size(xres, yres);
-        });
+
         // Live device is Main/ww3d. Queue Set_Device_Resolution for host present.
-        display_fx::queue_device_mode(display_fx::PendingDeviceMode {
+        fx.queue_device_mode(display_fx::PendingDeviceMode {
             xres,
             yres,
             bit_depth,
@@ -490,11 +474,12 @@ impl Display {
 
     pub fn play_logo_movie(
         &mut self,
+        fx: &mut display_fx::DisplayFxState,
         movie_name: String,
         min_movie_length: i32,
         min_copyright_length: i32,
     ) {
-        self.stop_movie();
+        self.stop_movie(fx);
 
         let stream = self.open_video_stream(movie_name.clone());
         let Some(stream) = stream else {
@@ -510,15 +495,15 @@ impl Display {
 
         let mut buffer = self.create_video_buffer();
         if !buffer.allocate(stream.width() as u32, stream.height() as u32) {
-            self.stop_movie();
+            self.stop_movie(fx);
             return;
         }
         self.video_buffer = Some(buffer);
         self.video_stream = Some(stream);
     }
 
-    pub fn play_movie(&mut self, movie_name: String) -> bool {
-        self.stop_movie();
+    pub fn play_movie(&mut self, fx: &mut display_fx::DisplayFxState, movie_name: String) -> bool {
+        self.stop_movie(fx);
 
         let stream = self.open_video_stream(movie_name.clone());
         let Some(stream) = stream else {
@@ -530,7 +515,7 @@ impl Display {
 
         let mut buffer = self.create_video_buffer();
         if !buffer.allocate(stream.width() as u32, stream.height() as u32) {
-            self.stop_movie();
+            self.stop_movie(fx);
             return false;
         }
 
@@ -539,18 +524,13 @@ impl Display {
         true
     }
 
-    pub fn stop_movie(&mut self) {
-        // C++ Display::stopMovie intended TheScriptEngine->notifyOfCompletedVideo
-        // before clearing m_currentlyPlayingMovie (commented for MP sync).
-        // Single-player HAS_FINISHED_VIDEO waits leftover m_completedVideo.
-        let completed = if self.currently_playing_movie.is_empty() {
-            None
-        } else {
-            Some(std::mem::take(&mut self.currently_playing_movie))
-        };
+    pub fn stop_movie(&mut self, fx: &mut display_fx::DisplayFxState) {
+        // Display.cpp:244-266 deliberately disables script video-completion
+        // notification. Stopping one presentation must not mutate another world.
+        self.currently_playing_movie.clear();
         self.video_buffer = None;
-        display_fx::clear_movie_frame();
-        display_fx::set_copyright_overlay(None);
+        fx.clear_movie_frame();
+        fx.set_copyright_overlay(None);
 
         if let Some(stream) = self.video_stream.take() {
             stream.close();
@@ -565,47 +545,45 @@ impl Display {
         self.copyright_hold_time_ms = -1;
         self.movie_start_time = None;
         self.copyright_start_time = None;
-
-        TheGameLogic::set_intro_movie_playing(false);
-        if let Some(name) = completed {
-            TheScriptEngine::notify_of_completed_video(&name);
-        }
     }
 
     pub fn is_movie_playing(&self) -> bool {
         self.video_stream.is_some() && self.video_buffer.is_some()
     }
 
-    pub fn toggle_movie_capture(&mut self) {
-        self.movie_capture_enabled = !self.movie_capture_enabled;
-        display_fx::set_movie_capture_enabled(self.movie_capture_enabled);
-        if self.movie_capture_enabled {
-            display_fx::reset_movie_capture_counter();
+    pub fn toggle_movie_capture(&mut self, fx: &mut display_fx::DisplayFxState) {
+        fx.set_movie_capture_enabled(!fx.is_movie_capture_enabled());
+        if fx.is_movie_capture_enabled() {
+            fx.reset_movie_capture_counter();
         }
     }
 
-    pub fn is_movie_capture_enabled(&self) -> bool {
-        self.movie_capture_enabled || display_fx::is_movie_capture_enabled()
+    pub fn is_movie_capture_enabled(&self, fx: &display_fx::DisplayFxState) -> bool {
+        fx.is_movie_capture_enabled()
     }
 
     /// C++ `W3DDisplay::setGamma` stores the ramp; wgpu remaps our frame only
     /// (unlike DX8 `Set_Gamma`, it cannot tint the desktop, so windowed is safe).
-    pub fn set_gamma(&mut self, gamma: f32, bright: f32, contrast: f32, _calibrate: bool) {
-        display_fx::set_gamma_state(gamma, bright, contrast);
+    pub fn set_gamma(
+        &mut self,
+        fx: &mut display_fx::DisplayFxState,
+        gamma: f32,
+        bright: f32,
+        contrast: f32,
+        _calibrate: bool,
+    ) {
+        fx.set_gamma_state(gamma, bright, contrast);
     }
 
     /// C++ `W3DDisplay::takeScreenShot` — queue a backbuffer dump, not the movie buffer.
-    pub fn take_screenshot(&mut self) -> String {
-        let path = display_fx::next_screenshot_path();
+    pub fn take_screenshot(&mut self, fx: &mut display_fx::DisplayFxState) -> String {
+        let path = fx.next_screenshot_path();
         let leaf = path
             .file_name()
             .and_then(|n| n.to_str())
             .unwrap_or("sshot.bmp")
             .to_string();
-        if let Ok(mut pending) = self.pending_screenshot.lock() {
-            *pending = Some(path.clone());
-        }
-        display_fx::queue_screenshot(path);
+        fx.queue_screenshot(path);
         crate::helpers::TheInGameUI::message(&format!(
             "{} {}",
             crate::game_text::GameText::fetch("GUI:ScreenCapture"),
@@ -614,17 +592,26 @@ impl Display {
         leaf
     }
 
-    pub fn set_clip_region(&mut self, lo_x: f32, lo_y: f32, hi_x: f32, hi_y: f32) {
-        display_fx::set_clip_region(lo_x, lo_y, hi_x, hi_y);
+    pub fn set_clip_region(
+        &mut self,
+        fx: &mut display_fx::DisplayFxState,
+        lo_x: f32,
+        lo_y: f32,
+        hi_x: f32,
+        hi_y: f32,
+    ) {
+        fx.set_clip_region(lo_x, lo_y, hi_x, hi_y);
     }
 
-    pub fn enable_clipping(&mut self, enabled: bool) {
-        display_fx::enable_clipping(enabled);
+    pub fn enable_clipping(&mut self, fx: &mut display_fx::DisplayFxState, enabled: bool) {
+        fx.enable_clipping(enabled);
     }
 
     /// C++ `W3DDisplay::drawImage` — ALPHA / GRAYSCALE / ADDITIVE / SOLID + rotate-90.
     pub fn draw_image(
         &self,
+        fx: &display_fx::DisplayFxState,
+        renderer: &mut crate::gui::ui_renderer::UIRenderer,
         image: &crate::display::image::Image,
         start_x: i32,
         start_y: i32,
@@ -641,7 +628,8 @@ impl Display {
             return;
         };
         let texture = std::sync::Arc::new(gpu.view().clone());
-        let _ = display_fx::queue_draw_image_mesh(
+        let _ = fx.queue_draw_image_mesh(
+            renderer,
             texture,
             start_x as f32,
             start_y as f32,
@@ -657,48 +645,50 @@ impl Display {
         );
     }
 
-    pub fn enable_letter_box(&mut self, enabled: bool) {
-        if self.letterbox_enabled == enabled {
+    pub fn enable_letter_box(&mut self, fx: &mut display_fx::DisplayFxState, enabled: bool) {
+        if fx.letterbox_enabled() == enabled {
             return;
         }
-        self.letterbox_enabled = enabled;
-        self.letterbox_fade_start_time = Some(Instant::now());
-        display_fx::set_letterbox_enabled(enabled);
-        set_display_letter_boxed(enabled);
+        fx.set_letterbox_enabled(enabled);
+        fx.letterbox_fade_start_time = Some(Instant::now());
         with_tactical_view(|view| view.set_zoom_limited(!enabled));
     }
 
-    pub fn toggle_letter_box(&mut self) {
-        self.enable_letter_box(!self.letterbox_enabled);
+    pub fn toggle_letter_box(&mut self, fx: &mut display_fx::DisplayFxState) {
+        self.enable_letter_box(fx, !fx.letterbox_enabled());
     }
 
-    pub fn is_letter_box_enabled(&self) -> bool {
-        self.letterbox_enabled
+    pub fn is_letter_box_enabled(&self, fx: &display_fx::DisplayFxState) -> bool {
+        fx.letterbox_enabled()
     }
 
-    pub fn is_letter_boxed(&self) -> bool {
-        self.letterbox_enabled
+    pub fn is_letter_boxed(&self, fx: &display_fx::DisplayFxState) -> bool {
+        fx.letterbox_enabled()
     }
 
-    pub fn is_letter_box_fading(&self) -> bool {
-        let fade = self.letterbox_fade_now();
-        (self.letterbox_enabled && fade < 1.0) || (!self.letterbox_enabled && fade > 0.0)
+    pub fn is_letter_box_fading(&self, fx: &display_fx::DisplayFxState) -> bool {
+        let fade = self.letterbox_fade_now(fx);
+        (fx.letterbox_enabled() && fade < 1.0) || (!fx.letterbox_enabled() && fade > 0.0)
     }
 
-    fn letterbox_fade_now(&self) -> f32 {
-        let Some(start) = self.letterbox_fade_start_time else {
-            return if self.letterbox_enabled { 1.0 } else { 0.0 };
+    fn letterbox_fade_now(&self, fx: &display_fx::DisplayFxState) -> f32 {
+        let Some(start) = fx.letterbox_fade_start_time else {
+            return if fx.letterbox_enabled() { 1.0 } else { 0.0 };
         };
         let t = (start.elapsed().as_millis() as f32 / LETTER_BOX_FADE_TIME_MS).clamp(0.0, 1.0);
-        if self.letterbox_enabled { t } else { 1.0 - t }
+        if fx.letterbox_enabled() { t } else { 1.0 - t }
     }
 
     /// C++ `W3DDisplay::renderLetterBox` — constant 16:9 height, alpha fade.
-    fn queue_letterbox_and_filters(&self, renderer: &mut crate::gui::ui_renderer::UIRenderer) {
-        let fade = self.letterbox_fade_now();
+    fn queue_letterbox_and_filters(
+        &self,
+        fx: &display_fx::DisplayFxState,
+        renderer: &mut crate::gui::ui_renderer::UIRenderer,
+    ) {
+        let fade = self.letterbox_fade_now(fx);
         let width = self.width.max(1) as f32;
         let height = self.height.max(1) as f32;
-        let plan = display_fx::letterbox_plan(width, height, fade, self.letterbox_enabled);
+        let plan = display_fx::letterbox_plan(width, height, fade, fx.letterbox_enabled());
         if plan.draw_top {
             renderer.draw_rect(
                 UIRect::new(0.0, 0.0, width, plan.bar_height),
@@ -738,7 +728,7 @@ impl Display {
         player.open(movie_title)
     }
 
-    fn ensure_copyright_display_string(&mut self) {
+    fn ensure_copyright_display_string(&mut self, fx: &mut display_fx::DisplayFxState) {
         let mut manager = get_display_string_manager();
         let display_string = manager.new_display_string();
         let (font_name, font_size, font_bold) = {
@@ -769,7 +759,7 @@ impl Display {
             }
             display_string_mut.get_size()
         };
-        display_fx::set_copyright_overlay(Some(display_fx::CopyrightOverlay {
+        fx.set_copyright_overlay(Some(display_fx::CopyrightOverlay {
             text: GameText::fetch("GUI:EACopyright"),
             width: text_w as f32,
             height: text_h.max(font_size) as f32,
@@ -779,7 +769,7 @@ impl Display {
         self.copyright_start_time = Some(Instant::now());
     }
 
-    fn update_movie_playback(&mut self) {
+    fn update_movie_playback(&mut self, fx: &mut display_fx::DisplayFxState) {
         let should_stop = {
             let (stream, buffer) = match (self.video_stream.as_mut(), self.video_buffer.as_mut()) {
                 (Some(stream), Some(buffer)) => (stream, buffer),
@@ -793,10 +783,7 @@ impl Display {
             stream.frame_decompress();
             stream.frame_render(buffer.as_mut());
             if let Some((w, h, rgba)) = display_fx::video_buffer_rgba_mut(buffer.as_mut()) {
-                display_fx::store_movie_frame(w, h, rgba.clone());
-                if let Ok(mut frame) = self.last_movie_frame.lock() {
-                    *frame = Some((w, h, rgba));
-                }
+                fx.store_movie_frame(w, h, rgba.clone());
             }
 
             if stream.frame_index() != stream.frame_count() - 1 {
@@ -806,7 +793,7 @@ impl Display {
 
             if self.copyright_hold_time_ms >= 0 || self.movie_hold_time_ms >= 0 {
                 if self.copyright_start_time.is_none() && self.copyright_hold_time_ms >= 0 {
-                    self.ensure_copyright_display_string();
+                    self.ensure_copyright_display_string(fx);
                 }
 
                 let now = Instant::now();
@@ -838,7 +825,7 @@ impl Display {
         };
 
         if should_stop {
-            self.stop_movie();
+            self.stop_movie(fx);
         }
     }
 
@@ -883,46 +870,16 @@ impl SubsystemInterface for Display {
                 (gd.time_of_day, gd.display_gamma)
             };
             self.set_time_of_day(time_of_day);
-            if (gamma - 1.0).abs() > 0.0001 {
-                self.set_gamma(gamma, 0.0, 1.0, false);
-            }
         }
         Ok(())
     }
 
     fn reset(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        self.letterbox_fade_level = 0.0;
-        self.letterbox_enabled = false;
-        self.letterbox_fade_start_time = None;
-        self.stop_movie();
-        self.reset_views();
-        // C++ W3DDisplay::reset (W3DDisplay.cpp:841-842) clears
-        // TheWritableGlobalData->m_drawSkyBox so skybox state never leaks
-        // across maps. Both Rust stores move together (see
-        // script_set_skybox_enabled).
-        game_engine::common::global_data::write().draw_sky_box = false;
-        if let Some(global_data) = get_global_data() {
-            global_data.write().draw_sky_box = 0.0;
-        }
-        #[cfg(feature = "w3d_support")]
-        {
-            self.particle_bridge = Mutex::new(W3DParticleSystemBridge::new());
-        }
-        if let Some(global_data) = get_global_data() {
-            let time_of_day = global_data.read().time_of_day;
-            self.set_time_of_day(time_of_day);
-        }
-        Ok(())
+        Err("Display lifecycle requires its receiving presentation state".into())
     }
 
     fn update(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        self.update_views();
-        self.update_movie_playback();
-        #[cfg(feature = "w3d_support")]
-        if let Ok(mut bridge) = self.particle_bridge.lock() {
-            bridge.queue_particle_render();
-        }
-        Ok(())
+        Err("Display lifecycle requires its receiving presentation state".into())
     }
 }
 
@@ -931,12 +888,18 @@ impl Display {
     pub fn draw_with_snow(
         &self,
         snow: &crate::snow::SnowRenderState,
+        fx: &mut display_fx::DisplayFxState,
+        renderer: Option<&mut crate::gui::ui_renderer::UIRenderer>,
+        owner: Option<&crate::gui::window_manager::WindowManagerOwner>,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        self.draw_with_snow_state(Some(snow))
+        self.draw_with_snow_state(Some(snow), fx, renderer, owner)
     }
     fn draw_with_snow_state(
         &self,
         snow: Option<&crate::snow::SnowRenderState>,
+        fx: &mut display_fx::DisplayFxState,
+        mut renderer: Option<&mut crate::gui::ui_renderer::UIRenderer>,
+        owner: Option<&crate::gui::window_manager::WindowManagerOwner>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         crate::display::client_draw_schedule::run_dual_world_cpu_phases();
 
@@ -1151,6 +1114,8 @@ impl Display {
                         .sum();
                     uniforms.particle_count = particle_count as u32;
                     if let Ok(mut renderer_guard) = renderer.lock() {
+                        renderer_guard
+                            .preload_authored_textures(manager.preloaded_texture_assets());
                         if let Ok(mut bridge) = self.particle_bridge.lock() {
                             bridge.do_particles(
                                 manager,
@@ -1177,6 +1142,8 @@ impl Display {
                             systems.iter().map(|system| system.particle_count()).sum();
                         uniforms.particle_count = particle_count as u32;
                         if let Ok(mut renderer_guard) = renderer.lock() {
+                            renderer_guard
+                                .preload_authored_textures(manager.preloaded_texture_assets());
                             renderer_guard.render_particles(
                                 &mut encoder,
                                 scene_view,
@@ -1236,62 +1203,55 @@ impl Display {
             );
         }
 
-        // UI rendering pass
-        let ui_result =
-            with_ui_renderer(|renderer_arc| -> Result<(), Box<dyn std::error::Error>> {
-                {
-                    let mut renderer = renderer_arc
-                        .write()
-                        .map_err(|_| "UI renderer lock poisoned")?;
-                    renderer.begin_frame();
-                    renderer.set_time(self.start_time.elapsed().as_secs_f32());
-                }
-                // Drop the write guard before gadget draw so `with_ui_renderer_mut`
-                // can record real commands. Holding it discarded WND draws.
-                with_window_manager(|manager| manager.draw_all());
-                if display_fx::present_movie_overlay(self.width, self.height) {
-                    let _ = display_fx::present_copyright_overlay(self.width, self.height);
-                }
-                if self.debug_display_callback.is_some() {
-                    let fps = display_fx::note_frame_for_fps();
-                    let particles = get_particle_system_manager()
-                        .ok()
-                        .and_then(|g| g.as_ref().map(|m| m.particle_count() as u32))
-                        .unwrap_or(0);
-                    display_fx::draw_debug_overlay(self.width, fps, 0, particles);
-                    display_fx::draw_framerate_bar(self.width, fps, 30.0);
-                }
-                let mut renderer = renderer_arc
-                    .write()
-                    .map_err(|_| "UI renderer lock poisoned")?;
-                self.queue_letterbox_and_filters(&mut renderer);
-                let render_result = {
-                    let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                        label: Some("Display UI Pass"),
-                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                            view: &view,
-                            depth_slice: None,
-                            resolve_target: None,
-                            ops: wgpu::Operations {
-                                load: wgpu::LoadOp::Load,
-                                store: wgpu::StoreOp::Store,
-                            },
-                        })],
-                        depth_stencil_attachment: None,
-                        occlusion_query_set: None,
-                        timestamp_writes: None,
-                        multiview_mask: None,
-                    });
-                    renderer.render(&mut render_pass)
-                };
-                renderer.end_frame();
-                render_result.map_err(|err| Box::new(err) as Box<dyn std::error::Error>)
-            });
-        if let Some(Err(err)) = ui_result {
-            return Err(err);
+        // This frame borrows its actual UI renderer and immutable display facts.
+        if let Some(renderer) = renderer.as_deref_mut() {
+            renderer.set_screen_size(self.width, self.height);
+            renderer.begin_frame();
+            renderer.set_time(self.start_time.elapsed().as_secs_f32());
+            if let Some(owner) = owner {
+                let mut context = crate::gui::window_draw_context::WindowDrawContext::new(
+                    Some(&mut *renderer),
+                    fx.draw_facts(),
+                );
+                owner.with_manager(|manager| manager.draw_all(&mut context));
+            }
+            if fx.present_movie_overlay(renderer, self.width, self.height) {
+                let _ = fx.present_copyright_overlay(renderer, self.width, self.height);
+            }
+            if self.debug_display_callback.is_some() {
+                let fps = fx.note_frame_for_fps();
+                let particles = get_particle_system_manager()
+                    .ok()
+                    .and_then(|g| g.as_ref().map(|m| m.particle_count() as u32))
+                    .unwrap_or(0);
+                display_fx::draw_debug_overlay(renderer, self.width, fps, 0, particles);
+                display_fx::draw_framerate_bar(renderer, self.width, fps, 30.0);
+            }
+            self.queue_letterbox_and_filters(fx, renderer);
+            let render_result = {
+                let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("Display UI Pass"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: &view,
+                        depth_slice: None,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Load,
+                            store: wgpu::StoreOp::Store,
+                        },
+                    })],
+                    depth_stencil_attachment: None,
+                    occlusion_query_set: None,
+                    timestamp_writes: None,
+                    multiview_mask: None,
+                });
+                renderer.render(&mut render_pass)
+            };
+            renderer.end_frame();
+            render_result.map_err(|error| Box::new(error) as Box<dyn std::error::Error>)?;
         }
 
-        display_fx::apply_gamma_pass(
+        fx.apply_gamma_pass(
             &mut encoder,
             self.graphics.device(),
             self.graphics.config().format,
@@ -1305,18 +1265,13 @@ impl Display {
 
         // C++ WW3D::Toggle_Movie_Capture / takeScreenShot dump the presented
         // framebuffer, never the decompressed Bink movie buffer.
-        if self.movie_capture_enabled || display_fx::is_movie_capture_enabled() {
-            let _ = display_fx::write_backbuffer_movie_frame();
+        if fx.is_movie_capture_enabled() {
+            let _ = fx.write_backbuffer_movie_frame();
         }
-        if let Ok(mut pending) = self.pending_screenshot.lock() {
-            if let Some(path) = pending.take() {
-                if !display_fx::write_backbuffer_screenshot(&path) {
-                    display_fx::queue_screenshot(path);
-                }
+        if let Some(path) = fx.take_pending_screenshot() {
+            if !fx.write_backbuffer_screenshot(&path) {
+                fx.queue_screenshot(path);
             }
-        }
-        if let Some(path) = display_fx::take_pending_screenshot() {
-            let _ = display_fx::write_backbuffer_screenshot(&path);
         }
 
         self.graphics.queue().present(frame);
@@ -1325,8 +1280,13 @@ impl Display {
 }
 
 impl DisplayInterface for Display {
-    fn draw(&self) -> Result<(), Box<dyn std::error::Error>> {
-        self.draw_with_snow_state(None)
+    fn draw(
+        &self,
+        fx: &mut display_fx::DisplayFxState,
+        renderer: Option<&mut crate::gui::ui_renderer::UIRenderer>,
+        owner: Option<&crate::gui::window_manager::WindowManagerOwner>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        self.draw_with_snow_state(None, fx, renderer, owner)
     }
 
     fn preload_common_textures(&self) -> Result<(), Box<dyn std::error::Error>> {
@@ -1401,5 +1361,50 @@ mod tests {
         let fade_out = display_fx::letterbox_plan(1280.0, 1024.0, 0.4, false);
         assert!(fade_out.draw_top);
         assert!(!fade_out.draw_bottom);
+    }
+}
+
+impl Display {
+    pub fn reset_receiving(
+        &mut self,
+        fx: &mut display_fx::DisplayFxState,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        self.letterbox_fade_level = 0.0;
+        fx.set_letterbox_enabled(false);
+        fx.letterbox_fade_start_time = None;
+        self.stop_movie(fx);
+        self.reset_views();
+        // C++ W3DDisplay::reset (W3DDisplay.cpp:841-842) clears
+        // TheWritableGlobalData->m_drawSkyBox so skybox state never leaks
+        // across maps. Both Rust stores move together (see
+        // script_set_skybox_enabled).
+        game_engine::common::global_data::write().draw_sky_box = false;
+        if let Some(global_data) = get_global_data() {
+            global_data.write().draw_sky_box = 0.0;
+        }
+        #[cfg(feature = "w3d_support")]
+        {
+            self.particle_bridge = Mutex::new(W3DParticleSystemBridge::new());
+        }
+        if let Some(global_data) = get_global_data() {
+            let time_of_day = global_data.read().time_of_day;
+            self.set_time_of_day(time_of_day);
+        }
+        Ok(())
+    }
+}
+
+impl Display {
+    pub fn update_receiving(
+        &mut self,
+        fx: &mut display_fx::DisplayFxState,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        self.update_views();
+        self.update_movie_playback(fx);
+        #[cfg(feature = "w3d_support")]
+        if let Ok(mut bridge) = self.particle_bridge.lock() {
+            bridge.queue_particle_render();
+        }
+        Ok(())
     }
 }

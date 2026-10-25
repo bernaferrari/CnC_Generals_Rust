@@ -3,7 +3,6 @@
 use std::collections::{HashSet, VecDeque};
 use std::fs;
 use std::path::PathBuf;
-use std::sync::{Arc, RwLock};
 
 use game_engine::common::ini::get_global_data;
 use game_engine::common::language::Language;
@@ -13,7 +12,6 @@ use crate::global_language::get_global_language_data;
 use crate::gui::display_string::DisplayStringHandle;
 use crate::gui::display_string::get_display_string_manager;
 use crate::gui::font::{FontDesc, get_font_library};
-use crate::gui::ui_globals::with_ui_renderer;
 
 const CREDIT_SPACE_OFFSET: i32 = 2;
 
@@ -156,7 +154,7 @@ impl CreditsManager {
         Ok(())
     }
 
-    pub fn update(&mut self) {
+    pub fn update(&mut self, screen_size: (i32, i32)) {
         if self.is_finished {
             return;
         }
@@ -166,7 +164,7 @@ impl CreditsManager {
             return;
         }
 
-        let (display_width, display_height) = screen_size();
+        let (display_width, display_height) = screen_size;
         let start = if self.scroll_down { 0 } else { display_height };
         let end = if self.scroll_down { display_height } else { 0 };
         let offset_start = if self.scroll_down { -1 } else { 0 };
@@ -212,8 +210,15 @@ impl CreditsManager {
         self.credit_index += 1;
     }
 
-    pub fn draw(&self) {
-        let (display_width, display_height) = screen_size();
+    pub fn draw(&self, draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>) {
+        let (display_width, display_height) = draw_context
+            .renderer
+            .as_ref()
+            .map(|renderer| {
+                let (w, h) = renderer.screen_size();
+                (w as i32, h as i32)
+            })
+            .unwrap_or((1024, 768));
         let height_chunk = display_height / 3;
 
         for index in &self.displayed_lines {
@@ -237,9 +242,15 @@ impl CreditsManager {
             match line.style {
                 CreditStyle::Title | CreditStyle::Position | CreditStyle::Normal => {
                     if let Some(display) = &line.display_string {
-                        display
-                            .borrow_mut()
-                            .draw_with_drop(line.pos_x, line.pos_y, color, drop_color, 1, 1);
+                        display.borrow_mut().draw_with_drop(
+                            line.pos_x,
+                            line.pos_y,
+                            color,
+                            drop_color,
+                            1,
+                            1,
+                            draw_context,
+                        );
                     }
                 }
                 CreditStyle::Column => {
@@ -253,6 +264,7 @@ impl CreditsManager {
                             drop_color,
                             1,
                             1,
+                            draw_context,
                         );
                     }
                     if let Some(display) = &line.second_display_string {
@@ -264,6 +276,7 @@ impl CreditsManager {
                             drop_color,
                             1,
                             1,
+                            draw_context,
                         );
                     }
                 }
@@ -580,25 +593,6 @@ impl CreditsManager {
     }
 }
 
-thread_local! {
-    static THE_CREDITS: Arc<RwLock<CreditsManager>> =
-        Arc::new(RwLock::new(CreditsManager::new()));
-}
-
-pub fn get_the_credits() -> Arc<RwLock<CreditsManager>> {
-    THE_CREDITS.with(|credits| credits.clone())
-}
-
-fn screen_size() -> (i32, i32) {
-    with_ui_renderer(|renderer| {
-        let renderer = renderer.read().ok()?;
-        let (w, h) = renderer.screen_size();
-        Some((w as i32, h as i32))
-    })
-    .flatten()
-    .unwrap_or((1024, 768))
-}
-
 fn parse_i32(value: &str) -> Option<i32> {
     value
         .trim()
@@ -713,96 +707,115 @@ pub fn residual_credits_frames_since_started() -> i32 {
 }
 
 /// Residual: init credits without INI/fonts load.
-pub fn simulate_credits_init() -> bool {
-    let credits = get_the_credits();
-    let Ok(mut guard) = credits.write() else {
-        return false;
-    };
-    guard.init();
-    residual_credits_sync(&guard);
-    residual_credits_action_store(ResidualCreditsAction::Init);
-    !residual_credits_is_finished()
+pub fn simulate_credits_init(owner: &crate::gui::window_manager::WindowManagerOwner) -> bool {
+    crate::gui::callbacks::owned_credits_menu::with_credits_for_owner(
+        owner,
+        |guard, screen_size| {
+            guard.init();
+            residual_credits_sync(&guard);
+            residual_credits_action_store(ResidualCreditsAction::Init);
+            !residual_credits_is_finished()
+        },
+    )
+    .unwrap_or(false)
 }
 
 /// Residual: reset credits residual.
-pub fn simulate_credits_reset() -> bool {
-    let credits = get_the_credits();
-    let Ok(mut guard) = credits.write() else {
-        return false;
-    };
-    guard.reset();
-    residual_credits_sync(&guard);
-    residual_credits_action_store(ResidualCreditsAction::Reset);
-    residual_credits_line_count() == 0 && !residual_credits_is_finished()
+pub fn simulate_credits_reset(owner: &crate::gui::window_manager::WindowManagerOwner) -> bool {
+    crate::gui::callbacks::owned_credits_menu::with_credits_for_owner(
+        owner,
+        |guard, screen_size| {
+            guard.reset();
+            residual_credits_sync(&guard);
+            residual_credits_action_store(ResidualCreditsAction::Reset);
+            residual_credits_line_count() == 0 && !residual_credits_is_finished()
+        },
+    )
+    .unwrap_or(false)
 }
 
 /// Residual: add text line residual (Normal style default).
-pub fn simulate_credits_add_text(text: &str) -> bool {
+pub fn simulate_credits_add_text(
+    owner: &crate::gui::window_manager::WindowManagerOwner,
+    text: &str,
+) -> bool {
     if text.is_empty() {
         return false;
     }
-    let credits = get_the_credits();
-    let Ok(mut guard) = credits.write() else {
-        return false;
-    };
-    guard.add_text(text);
-    residual_credits_sync(&guard);
-    residual_credits_action_store(ResidualCreditsAction::AddText);
-    residual_credits_line_count() > 0
+    crate::gui::callbacks::owned_credits_menu::with_credits_for_owner(
+        owner,
+        |guard, screen_size| {
+            guard.add_text(text);
+            residual_credits_sync(&guard);
+            residual_credits_action_store(ResidualCreditsAction::AddText);
+            residual_credits_line_count() > 0
+        },
+    )
+    .unwrap_or(false)
 }
 
 /// Residual: add blank line residual.
-pub fn simulate_credits_add_blank() -> bool {
-    let credits = get_the_credits();
-    let Ok(mut guard) = credits.write() else {
-        return false;
-    };
-    let before = guard.credit_lines.len();
-    guard.add_blank();
-    residual_credits_sync(&guard);
-    residual_credits_action_store(ResidualCreditsAction::AddBlank);
-    residual_credits_line_count() == before + 1
+pub fn simulate_credits_add_blank(owner: &crate::gui::window_manager::WindowManagerOwner) -> bool {
+    crate::gui::callbacks::owned_credits_menu::with_credits_for_owner(
+        owner,
+        |guard, screen_size| {
+            let before = guard.credit_lines.len();
+            guard.add_blank();
+            residual_credits_sync(&guard);
+            residual_credits_action_store(ResidualCreditsAction::AddBlank);
+            residual_credits_line_count() == before + 1
+        },
+    )
+    .unwrap_or(false)
 }
 
 /// Residual: update credits residual (may no-op without display size).
-pub fn simulate_credits_update() -> bool {
-    let credits = get_the_credits();
-    let Ok(mut guard) = credits.write() else {
-        return false;
-    };
-    guard.update();
-    residual_credits_sync(&guard);
-    residual_credits_action_store(ResidualCreditsAction::Update);
-    true
+pub fn simulate_credits_update(owner: &crate::gui::window_manager::WindowManagerOwner) -> bool {
+    crate::gui::callbacks::owned_credits_menu::with_credits_for_owner(
+        owner,
+        |guard, screen_size| {
+            guard.update(screen_size);
+            residual_credits_sync(&guard);
+            residual_credits_action_store(ResidualCreditsAction::Update);
+            true
+        },
+    )
+    .unwrap_or(false)
 }
 
 /// Residual: probe finished residual without forcing complete.
-pub fn simulate_credits_is_finished_probe() -> bool {
-    let credits = get_the_credits();
-    let Ok(guard) = credits.read() else {
-        return false;
-    };
-    let finished = guard.is_finished();
-    residual_credits_sync(&guard);
-    residual_credits_action_store(ResidualCreditsAction::FinishProbe);
-    residual_credits_is_finished() == finished
+pub fn simulate_credits_is_finished_probe(
+    owner: &crate::gui::window_manager::WindowManagerOwner,
+) -> bool {
+    crate::gui::callbacks::owned_credits_menu::with_credits_for_owner(
+        owner,
+        |guard, screen_size| {
+            let finished = guard.is_finished();
+            residual_credits_sync(&guard);
+            residual_credits_action_store(ResidualCreditsAction::FinishProbe);
+            residual_credits_is_finished() == finished
+        },
+    )
+    .unwrap_or(false)
 }
 
 /// Residual: reset + add title lines + blank composite.
-pub fn simulate_credits_prepare_short_roll() -> bool {
-    if !simulate_credits_reset() {
+pub fn simulate_credits_prepare_short_roll(
+    owner: &crate::gui::window_manager::WindowManagerOwner,
+) -> bool {
+    if !simulate_credits_reset(owner) {
         return false;
     }
-    if !simulate_credits_init() {
+    if !simulate_credits_init(owner) {
         return false;
     }
-    if !simulate_credits_add_text("COMMAND & CONQUER") {
+    if !simulate_credits_add_text(owner, "COMMAND & CONQUER") {
         return false;
     }
-    if !simulate_credits_add_blank() {
+    if !simulate_credits_add_blank(owner) {
         return false;
     }
-    if !simulate_credits_add_text("GENERALS ZERO HOUR") {
+    if !simulate_credits_add_text(owner, "GENERALS ZERO HOUR") {
         return false;
     }
     residual_credits_line_count() >= 3 && !residual_credits_is_finished()
@@ -813,34 +826,43 @@ pub fn simulate_credits_prepare_short_roll() -> bool {
 pub fn drive_os_wnd_credits_roll_prepare_like_cpp(
     effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> bool {
+    let owner = effects
+        .window_manager_owner
+        .expect("credits tooling requires receiving owner");
     let clicked =
         crate::gui::dispatch_os_click_named_window("CreditsMenu.wnd:ParentCreditsWindow", effects);
     if !clicked {
         return false;
     }
-    simulate_credits_prepare_short_roll()
+    simulate_credits_prepare_short_roll(owner)
 }
 
 pub fn drive_os_wnd_credits_roll_update_like_cpp(
     effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> bool {
+    let owner = effects
+        .window_manager_owner
+        .expect("credits tooling requires receiving owner");
     let clicked =
         crate::gui::dispatch_os_click_named_window("CreditsMenu.wnd:ParentCreditsWindow", effects);
     if !clicked {
         return false;
     }
-    simulate_credits_update()
+    simulate_credits_update(owner)
 }
 
 pub fn drive_os_wnd_credits_roll_finished_like_cpp(
     effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> bool {
+    let owner = effects
+        .window_manager_owner
+        .expect("credits tooling requires receiving owner");
     let clicked =
         crate::gui::dispatch_os_click_named_window("CreditsMenu.wnd:ParentCreditsWindow", effects);
     if !clicked {
         return false;
     }
-    simulate_credits_is_finished_probe()
+    simulate_credits_is_finished_probe(owner)
 }
 
 #[cfg(test)]

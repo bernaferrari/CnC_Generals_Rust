@@ -781,7 +781,12 @@ impl Snapshotable for ParticleSystem {
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        self.xfer_with_particle_random(xfer, &mut random::AmbientParticleRandom)
+        let mut random = self.random_state.clone();
+        let result = self.xfer_with_particle_random(xfer, &mut random);
+        if result.is_ok() {
+            self.random_state = random;
+        }
+        result
     }
 
     fn load_post_process(&mut self) -> Result<(), String> {
@@ -1159,6 +1164,7 @@ pub(crate) struct EmissionCursor {
 
 /// Particle system (matches C++ ParticleSystem)
 pub struct ParticleSystem {
+    pub(super) random_state: game_engine::common::random_value::RandomState,
     // C++ m_template identity is separate from owned ParticleSystemInfo.
     template: Arc<ParticleSystemTemplate>,
     info: ParticleSystemInfo,
@@ -1236,12 +1242,10 @@ impl ParticleSystem {
         system_id: ParticleSystemId,
         create_slaves: bool,
     ) -> Self {
-        Self::new_with_random(
-            template,
-            system_id,
-            create_slaves,
-            &mut get_game_client_random_value_real,
-        )
+        let mut random = game_engine::common::random_value::RandomState::default();
+        Self::new_with_random(template, system_id, create_slaves, &mut |lo, hi| {
+            random.next_real(lo, hi)
+        })
     }
 
     /// Constructor observations belong to the receiving presentation session.
@@ -1272,7 +1276,10 @@ impl ParticleSystem {
             info.color_scale.max / 255.0,
         );
 
+        let mut random_state = game_engine::common::random_value::RandomState::default();
+        random_state.seed_random(random(0.0, u32::MAX as f32) as u32);
         let mut system = Self {
+            random_state,
             template,
             system_id,
 
@@ -1407,6 +1414,22 @@ impl ParticleSystem {
         drawable_pose: Option<&dyn Fn(DrawableId) -> Option<DrawableParticlePose>>,
         object_is_live: Option<&dyn Fn(u32) -> bool>,
     ) -> FrameEmitPhase {
+        self.prepare_frame_emit_with_object_observation(
+            local_player_index,
+            current_frame,
+            drawable_pose,
+            object_is_live,
+            None,
+        )
+    }
+    pub(crate) fn prepare_frame_emit_with_object_observation(
+        &mut self,
+        local_player_index: i32,
+        current_frame: u32,
+        drawable_pose: Option<&dyn Fn(DrawableId) -> Option<DrawableParticlePose>>,
+        object_is_live: Option<&dyn Fn(u32) -> bool>,
+        object_pose: Option<&dyn Fn(u32) -> Option<gamelogic::helpers::HostFxObjectPose>>,
+    ) -> FrameEmitPhase {
         // C++ ParticleSys.cpp: initial delay also delays lifetime (early return).
         if self.delay_left > 0 {
             self.delay_left -= 1;
@@ -1419,10 +1442,11 @@ impl ParticleSystem {
         // C++1846 advances wind before attachment resolution, even if an
         // empty destroyed system retires at the end of this preparation.
         self.update_wind_motion();
-        self.resolve_attached_parent_with_object_liveness(
+        self.resolve_attached_parent_with_object_observation(
             local_player_index,
             drawable_pose,
             object_is_live,
+            object_pose,
         );
         self.update_transform_from_parent();
         self.apply_control_particle_origin();
@@ -1867,7 +1891,12 @@ impl ParticleSystem {
         }
         Some(EmissionCursor {
             // C++ REAL_TO_INT first, then the compound count coefficient cast.
-            count: (((self.info.burst_count.sample() as i32) as f32 * self.count_coeff) as i32)
+            count: (((self
+                .info
+                .burst_count
+                .sample_with(|lo, hi| self.random_state.next_real(lo, hi))
+                as i32) as f32
+                * self.count_coeff) as i32)
                 .max(0) as u32,
             next: 0,
         })
@@ -1883,7 +1912,10 @@ impl ParticleSystem {
     }
 
     pub(crate) fn finish_emission_burst(&mut self, _cursor: EmissionCursor) {
-        let delay = self.info.burst_delay.sample() as u32;
+        let delay = self
+            .info
+            .burst_delay
+            .sample_with(|lo, hi| self.random_state.next_real(lo, hi)) as u32;
         self.burst_delay_left = (delay as f32 * self.delay_coeff) as u32;
     }
 
@@ -1963,15 +1995,14 @@ impl ParticleSystem {
                     if info.wind_angle >= end_angle {
                         info.wind_motion_moving_to_end_angle = false;
                         // C++ ParticleSys.cpp:2137-2146.
-                        info.wind_angle_change = get_game_client_random_value_real(
-                            info.wind_angle_change_min,
-                            info.wind_angle_change_max,
-                        );
-                        info.wind_motion_start_angle = get_game_client_random_value_real(
+                        info.wind_angle_change = self
+                            .random_state
+                            .next_real(info.wind_angle_change_min, info.wind_angle_change_max);
+                        info.wind_motion_start_angle = self.random_state.next_real(
                             info.wind_motion_start_angle_min,
                             info.wind_motion_start_angle_max,
                         );
-                        info.wind_motion_end_angle = get_game_client_random_value_real(
+                        info.wind_motion_end_angle = self.random_state.next_real(
                             info.wind_motion_end_angle_min,
                             info.wind_motion_end_angle_max,
                         );
@@ -1981,15 +2012,14 @@ impl ParticleSystem {
                     if info.wind_angle <= start_angle {
                         info.wind_motion_moving_to_end_angle = true;
                         // C++ ParticleSys.cpp:2165-2174.
-                        info.wind_angle_change = get_game_client_random_value_real(
-                            info.wind_angle_change_min,
-                            info.wind_angle_change_max,
-                        );
-                        info.wind_motion_start_angle = get_game_client_random_value_real(
+                        info.wind_angle_change = self
+                            .random_state
+                            .next_real(info.wind_angle_change_min, info.wind_angle_change_max);
+                        info.wind_motion_start_angle = self.random_state.next_real(
                             info.wind_motion_start_angle_min,
                             info.wind_motion_start_angle_max,
                         );
-                        info.wind_motion_end_angle = get_game_client_random_value_real(
+                        info.wind_motion_end_angle = self.random_state.next_real(
                             info.wind_motion_end_angle_min,
                             info.wind_motion_end_angle_max,
                         );
@@ -1999,10 +2029,9 @@ impl ParticleSystem {
             WindMotion::Circular => {
                 if info.wind_angle_change == 0.0 {
                     // C++ ParticleSys.cpp:2189-2190.
-                    info.wind_angle_change = get_game_client_random_value_real(
-                        info.wind_angle_change_min,
-                        info.wind_angle_change_max,
-                    );
+                    info.wind_angle_change = self
+                        .random_state
+                        .next_real(info.wind_angle_change_min, info.wind_angle_change_max);
                 }
                 info.wind_angle += info.wind_angle_change;
                 if info.wind_angle > std::f32::consts::TAU {

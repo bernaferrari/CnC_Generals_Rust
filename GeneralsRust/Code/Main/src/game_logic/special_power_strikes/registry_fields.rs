@@ -36,7 +36,7 @@ impl HostSpecialPowerStrikeRegistry {
         position: Vec3,
         spawn_frame: u32,
         parent_strike_id: u32,
-        view: &mut game_client::fx_list::FxViewServices<'_>,
+        view: &mut crate::game_logic::host_fx_list_dispatch::ObjectFxServices<'_, '_>,
     ) -> u32 {
         self.spawn_neutron_slow_death_field_with_dispatch(
             source_object,
@@ -1396,7 +1396,7 @@ impl HostSpecialPowerStrikeRegistry {
     pub fn bind_beam_source_axes_with_view(
         &mut self,
         object_positions: &[(ObjectId, Vec3, crate::game_logic::Team, bool)],
-        view: &mut game_client::fx_list::FxViewServices<'_>,
+        view: &mut crate::game_logic::host_fx_list_dispatch::ObjectFxServices<'_, '_>,
     ) {
         self.bind_beam_source_axes_with_dispatch(
             object_positions,

@@ -768,6 +768,9 @@ impl GameLogic {
         prop_id: ObjectId,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> bool {
+        #[cfg(feature = "game_client")]
+        let fx_operation_environment = self.observe_object_fx_environment();
+
         let (level, cpos, speed) = {
             let Some(c) = self.objects.get(&crusher_id) else {
                 return false;
@@ -787,17 +790,20 @@ impl GameLogic {
         #[cfg(feature = "game_client")]
         let fx_player = self.local_player_id();
         let (kill_now, handled, stump, pos, ori) = {
+            #[cfg(feature = "game_client")]
+            let fx_operation_environment = self.observe_object_fx_environment();
             let Some(prop) = self.objects.get_mut(&prop_id) else {
                 return false;
             };
             #[cfg(feature = "game_client")]
-            let kill_now = Self::with_host_fx_view_parts_and_terrain(
+            let kill_now = Self::with_object_fx_services(
                 &mut self.session_view,
                 fx_player,
                 self.world_services.shroud(),
-                presentation_effects.terrain.as_mut().map(|terrain| {
-                    &mut **terrain as &mut dyn crate::game_logic::NativeTerrainEffects
-                }),
+                presentation_effects,
+                &fx_operation_environment,
+                self.world_services.terrain(),
+                &self.logic_random,
                 |view| {
                     prop.try_topple_from_crusher_with_fx(
                         level,

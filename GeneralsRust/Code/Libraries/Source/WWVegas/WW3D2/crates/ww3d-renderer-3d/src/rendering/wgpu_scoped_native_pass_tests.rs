@@ -38,6 +38,7 @@ fn scoped_native_passes_keep_callback_positions_and_borrow_only_the_driving_fram
         send.send(match kind {
             ScopedNativePass::TerrainGround => "ground",
             ScopedNativePass::TerrainWater => "water",
+            ScopedNativePass::ClientEffects => "effects",
         })
         .unwrap();
         Ok(())

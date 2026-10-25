@@ -1609,6 +1609,9 @@ impl GameLogic {
         &mut self,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
+        #[cfg(feature = "game_client")]
+        let fx_operation_environment = self.observe_object_fx_environment();
+
         use crate::game_logic::combat::DamageType;
         use crate::game_logic::host_battle_bus::battle_bus_undeath_passenger_damage;
 
@@ -1637,6 +1640,8 @@ impl GameLogic {
             if !*pending {
                 continue;
             }
+            #[cfg(feature = "game_client")]
+            let fx_operation_environment = self.observe_object_fx_environment();
             if let Some(bus) = self.objects.get_mut(bus_id) {
                 if let Some(body) = bus.battle_bus_body.as_mut() {
                     body.pending_passenger_damage = false;
@@ -1652,6 +1657,8 @@ impl GameLogic {
         }
 
         for (pid, dmg) in passenger_hits {
+            #[cfg(feature = "game_client")]
+            let fx_operation_environment = self.observe_object_fx_environment();
             if let Some(p) = self.objects.get_mut(&pid) {
                 if p.is_alive() {
                     let _ = {
@@ -1678,6 +1685,8 @@ impl GameLogic {
         let fx_player = self.local_player_id();
         for (bus_id, _pending, _occ, passenger_count, z) in &bus_snapshots {
             let above = *z > 0.5;
+            #[cfg(feature = "game_client")]
+            let fx_operation_environment = self.observe_object_fx_environment();
             let Some(bus) = self.objects.get_mut(bus_id) else {
                 continue;
             };
@@ -1686,13 +1695,14 @@ impl GameLogic {
                 &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
             );
             #[cfg(feature = "game_client")]
-            let (_landed, empty_kill) = Self::with_host_fx_view_parts_and_terrain(
+            let (_landed, empty_kill) = Self::with_object_fx_services(
                 &mut self.session_view,
                 fx_player,
                 self.world_services.shroud(),
-                presentation_effects.terrain.as_mut().map(|terrain| {
-                    &mut **terrain as &mut dyn crate::game_logic::NativeTerrainEffects
-                }),
+                presentation_effects,
+                &fx_operation_environment,
+                self.world_services.terrain(),
+                &self.logic_random,
                 |view| {
                     bus.finish_battle_bus_slow_death_with_fx(
                         frame,
@@ -1725,6 +1735,8 @@ impl GameLogic {
 
         for bus_id in empty_kills {
             self.battle_bus.record_empty_hulk_destruction();
+            #[cfg(feature = "game_client")]
+            let fx_operation_environment = self.observe_object_fx_environment();
             if let Some(bus) = self.objects.get_mut(&bus_id) {
                 if let Some(body) = bus.battle_bus_body.as_mut() {
                     body.mark_real_death();

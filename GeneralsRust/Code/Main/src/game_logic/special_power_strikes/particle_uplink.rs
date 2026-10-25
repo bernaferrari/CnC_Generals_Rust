@@ -1383,7 +1383,7 @@ fn parse_puc_death_type(token: &str) -> crate::game_logic::host_usa_pilot::HostD
 #[cfg(feature = "game_client")]
 pub fn play_particle_beam_launch_fx_with_view(
     origin: Vec3,
-    view: &mut game_client::fx_list::FxViewServices<'_>,
+    view: &mut crate::game_logic::host_fx_list_dispatch::ObjectFxServices<'_, '_>,
 ) {
     play_particle_beam_launch_fx_with_dispatch(
         origin,
@@ -1398,10 +1398,10 @@ pub fn play_particle_beam_launch_fx_with_view(
 pub fn apply_particle_beam_scorch_and_ground_hit_fx_with_view(
     position: Vec3,
     scorch_radius: f32,
-    view: &mut game_client::fx_list::FxViewServices<'_>,
+    view: &mut crate::game_logic::host_fx_list_dispatch::ObjectFxServices<'_, '_>,
 ) {
     let scorch_id = gamelogic::helpers::game_client_random_value(0, 3);
-    (view.add_scorch)(
+    view.scorch(
         [position.x, position.z, position.y],
         scorch_radius,
         scorch_id,

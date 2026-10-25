@@ -25,25 +25,41 @@ impl Clone for CombatParticleRegistry {
     }
 }
 
+/// A short, explicit loan of the exact receiving presentation lifetime.
+/// An absent manager is an actual headless capability, never an active slot.
+pub trait ParticleBindingAccess {
+    #[cfg(feature = "game_client")]
+    fn particle_systems_mut(&mut self) -> Option<&mut game_client::effects::ParticleSystemManager>;
+}
 #[cfg(feature = "game_client")]
-pub(crate) fn with_client_particle_manager<R>(
-    operation: impl FnOnce(&mut game_client::effects::ParticleSystemManager) -> R,
-) -> Option<R> {
-    use game_client::effects::{
-        get_particle_system_manager_mut, initialize_particle_system_manager,
-        register_particle_system_manager_bridge,
-    };
-    register_particle_system_manager_bridge();
-    let missing = {
-        let guard = get_particle_system_manager_mut().ok()?;
-        guard.is_none()
-    };
-    if missing {
-        let _ = initialize_particle_system_manager();
+impl ParticleBindingAccess for game_client::effects::ParticleSystemManager {
+    fn particle_systems_mut(&mut self) -> Option<&mut game_client::effects::ParticleSystemManager> {
+        Some(self)
     }
-    let mut guard = get_particle_system_manager_mut().ok()?;
-    let manager = guard.as_mut()?;
-    Some(operation(manager))
+}
+impl ParticleBindingAccess for () {
+    #[cfg(feature = "game_client")]
+    fn particle_systems_mut(&mut self) -> Option<&mut game_client::effects::ParticleSystemManager> {
+        None
+    }
+}
+impl<T: ParticleBindingAccess + ?Sized> ParticleBindingAccess for Option<&mut T> {
+    #[cfg(feature = "game_client")]
+    fn particle_systems_mut(&mut self) -> Option<&mut game_client::effects::ParticleSystemManager> {
+        self.as_deref_mut()?.particle_systems_mut()
+    }
+}
+impl ParticleBindingAccess for crate::game_logic::ScriptPresentationEffects<'_> {
+    #[cfg(feature = "game_client")]
+    fn particle_systems_mut(&mut self) -> Option<&mut game_client::effects::ParticleSystemManager> {
+        self.view.as_deref_mut()?.particle_systems_mut()
+    }
+}
+#[cfg(feature = "game_client")]
+impl ParticleBindingAccess for crate::game_logic::host_fx_list_dispatch::ObjectFxServices<'_, '_> {
+    fn particle_systems_mut(&mut self) -> Option<&mut game_client::effects::ParticleSystemManager> {
+        self.particle_systems_mut()
+    }
 }
 
 #[cfg(feature = "game_client")]
@@ -51,6 +67,7 @@ fn create_binding(
     manager: &mut game_client::effects::ParticleSystemManager,
     entry: &CombatParticleSystemEntry,
 ) -> Option<ClientParticleBinding> {
+    manager.admit_effective_definitions().ok()?;
     let id = if let Some(attachment) = &entry.attachment {
         let template = manager.find_template(&entry.template_name)?;
         let id = manager.create_particle_system(&template, true).ok()?;
@@ -67,9 +84,12 @@ fn create_binding(
         id
     } else {
         let position = host_local_to_cpp(entry.position);
+        let template = manager.find_template(&entry.template_name)?;
+        let id = manager.create_particle_system(&template, true).ok()?;
         manager
-            .create_preset_system_xyz(&entry.template_name, position.x, position.y, position.z)
-            .ok()?
+            .find_particle_system_mut(id)?
+            .set_position(Vec3::new(position.x, position.y, position.z));
+        id
     };
     // Capture while still borrowing the exact manager which returned the ID.
     Some(ClientParticleBinding {
@@ -81,61 +101,55 @@ fn create_binding(
 pub(super) fn spawn_client_binding(
     entry: &CombatParticleSystemEntry,
     bindings: &HashMap<u32, ClientParticleBinding>,
+    particle_owner: &mut dyn ParticleBindingAccess,
 ) -> Option<ClientParticleBinding> {
     #[cfg(feature = "game_client")]
     {
-        with_client_particle_manager(|manager| {
-            let owner = manager.runtime_owner();
-            if bindings
-                .values()
-                .any(|binding| binding.owner.is_live() && binding.owner != owner)
-            {
-                return None;
-            }
-            create_binding(manager, entry)
-        })
-        .flatten()
+        let manager = particle_owner.particle_systems_mut()?;
+        let owner = manager.runtime_owner();
+        if bindings
+            .values()
+            .any(|binding| binding.owner.is_live() && binding.owner != owner)
+        {
+            log::error!("particle source does not own registry namespace");
+            return None;
+        }
+        create_binding(manager, entry)
     }
     #[cfg(not(feature = "game_client"))]
     {
-        let _ = (entry, bindings);
+        let _ = (entry, bindings, particle_owner);
         None
     }
 }
-
-pub(super) fn retire_client_binding(binding: &ClientParticleBinding) -> bool {
+pub(super) fn retire_client_binding(
+    binding: &ClientParticleBinding,
+    particle_owner: &mut dyn ParticleBindingAccess,
+) -> bool {
     #[cfg(feature = "game_client")]
     {
         if !binding.owner.is_live() {
             return true;
         }
-        // Never initialize another namespace just to retire an old receipt.
-        if let Ok(mut guard) = game_client::effects::get_particle_system_manager_mut() {
-            if let Some(manager) = guard.as_mut() {
-                if binding.owner == manager.runtime_owner() {
-                    manager.destroy_particle_system(binding.id);
-                    return true;
-                }
-            }
+        let Some(manager) = particle_owner.particle_systems_mut() else {
+            return false;
+        };
+        if binding.owner != manager.runtime_owner() {
+            return false;
         }
-        false
+        manager.destroy_particle_system(binding.id);
+        true
     }
     #[cfg(not(feature = "game_client"))]
     {
-        let _ = binding;
+        let _ = (binding, particle_owner);
         true
     }
 }
-
 pub(super) fn can_retire_bindings(bindings: &HashMap<u32, ClientParticleBinding>) -> bool {
     #[cfg(feature = "game_client")]
     {
-        let owner = game_client::effects::get_particle_system_manager_mut()
-            .ok()
-            .and_then(|guard| guard.as_ref().map(|manager| manager.runtime_owner()));
-        bindings
-            .values()
-            .all(|binding| !binding.owner.is_live() || owner.as_ref() == Some(&binding.owner))
+        bindings.values().all(|binding| !binding.owner.is_live())
     }
     #[cfg(not(feature = "game_client"))]
     {
@@ -153,93 +167,44 @@ impl CombatParticleRegistry {
         manager: &mut game_client::effects::ParticleSystemManager,
     ) -> usize {
         let owner = manager.runtime_owner();
-        if self
-            .client_bindings
-            .values()
-            .any(|binding| binding.owner.is_live() && binding.owner != owner)
-        {
-            return 0;
+        for (id, binding) in &self.client_bindings {
+            if binding.owner.is_live() && binding.owner != owner {
+                log::error!("particle frame has a peer namespace receipt");
+                return 0;
+            }
+            let _ = id;
         }
-        let mut ids: Vec<_> = self.systems.keys().copied().collect();
-        ids.sort_unstable();
-        let mut admitted = 0;
-        for id in ids {
-            let entry = self.systems.get_mut(&id).expect("collected host particle");
-            if !entry.active
-                || (!entry.fx_list_name.is_empty() && entry.fx_list_name == entry.template_name)
-            {
-                // spawn_fx_list_marker records an FXList notification, not a
-                // ParticleSystem template. Its actual nuggets own emission.
-                continue;
-            }
-            if self
-                .client_bindings
-                .get(&id)
-                .is_some_and(|binding| binding.owner == owner)
-            {
-                continue;
-            }
-            if self
-                .client_bindings
-                .get(&id)
-                .is_some_and(|binding| binding.owner.is_live())
-            {
-                // A live peer manager is not a reset namespace. Keep the
-                // original receipt and canonical entry for its actual owner.
-                continue;
-            }
-            self.client_bindings.remove(&id);
-            entry.client_system_id = None;
-            if let Some(binding) = create_binding(manager, entry) {
-                entry.client_system_id = Some(binding.id);
-                self.client_bindings.insert(id, binding);
-                admitted += 1;
-            }
-        }
-        admitted
+        // Creation occurs only at the immediate authored source point.
+        0
     }
 
-    pub(super) fn update_client_position(&mut self, id: u32, position: Vec3) {
+    pub(super) fn update_client_position(
+        &mut self,
+        id: u32,
+        position: Vec3,
+        particle_owner: &mut dyn ParticleBindingAccess,
+    ) {
         if let Some(entry) = self.systems.get_mut(&id) {
             entry.position = position;
         }
         #[cfg(feature = "game_client")]
         {
-            with_client_particle_manager(|manager| {
-                let owner = manager.runtime_owner();
-                if self
-                    .client_bindings
-                    .values()
-                    .any(|binding| binding.owner.is_live() && binding.owner != owner)
-                {
-                    return;
+            let Some(manager) = particle_owner.particle_systems_mut() else {
+                return;
+            };
+            if let Some(binding) = self
+                .client_bindings
+                .get(&id)
+                .filter(|binding| binding.owner == manager.runtime_owner())
+            {
+                if let Some(system) = manager.find_particle_system_mut(binding.id) {
+                    let position = host_local_to_cpp(position);
+                    system.set_position(Vec3::new(position.x, position.y, position.z));
                 }
-                let current = self
-                    .client_bindings
-                    .get(&id)
-                    .filter(|binding| binding.owner == manager.runtime_owner());
-                if let Some(binding) = current {
-                    if let Some(system) = manager.find_particle_system_mut(binding.id) {
-                        let position = host_local_to_cpp(position);
-                        system.set_position(Vec3::new(position.x, position.y, position.z));
-                    }
-                } else if let Some(entry) = self.systems.get_mut(&id) {
-                    if self
-                        .client_bindings
-                        .get(&id)
-                        .is_some_and(|binding| binding.owner.is_live())
-                    {
-                        return;
-                    }
-                    self.client_bindings.remove(&id);
-                    entry.client_system_id = None;
-                    if let Some(binding) = create_binding(manager, entry) {
-                        entry.client_system_id = Some(binding.id);
-                        self.client_bindings.insert(id, binding);
-                    }
-                }
-            });
+            }
         }
+        #[cfg(not(feature = "game_client"))]
+        let _ = particle_owner;
     }
 }
 
@@ -403,5 +368,24 @@ impl CombatParticleRegistry {
         // Retain the namespace receipt while Client particles drain; clear/reset
         // still owns that real resource and cannot acquire a peer's numeric ID.
         true
+    }
+}
+
+impl CombatParticleRegistry {
+    pub(super) fn bind_source_entry(
+        &mut self,
+        id: u32,
+        particle_owner: &mut dyn ParticleBindingAccess,
+    ) {
+        let Some(entry) = self.systems.get(&id) else {
+            return;
+        };
+        if let Some(binding) = spawn_client_binding(entry, &self.client_bindings, particle_owner) {
+            self.systems
+                .get_mut(&id)
+                .expect("source entry")
+                .client_system_id = Some(binding.id);
+            self.client_bindings.insert(id, binding);
+        }
     }
 }

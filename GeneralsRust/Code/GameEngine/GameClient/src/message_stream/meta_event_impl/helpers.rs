@@ -44,12 +44,18 @@ fn stat_debug_display_callback(
 ) {
 }
 
-fn toggle_script_display_debug_callback(target: DebugDisplayCallback) {
-    let active = get_script_display_debug_callback();
+fn toggle_script_display_debug_callback(
+    receiver: &mut crate::core::script_action_handler::ScriptDisplayReceiver,
+    target: DebugDisplayCallback,
+) {
+    let active = get_script_display_debug_callback(receiver);
     let same_callback = active
         .map(|callback| callback as usize == target as usize)
         .unwrap_or(false);
-    let _ = set_script_display_debug_callback(if same_callback { None } else { Some(target) });
+    let _ = set_script_display_debug_callback(
+        receiver,
+        if same_callback { None } else { Some(target) },
+    );
 }
 
 fn toggle_demo_network_runtime() {
@@ -443,4 +449,45 @@ fn report_drawable_id_lookup_performance() {
             "Time to run {number_lookups} DrawableID lookups is {elapsed:.6}. Next index is {next_index}."
         ));
     }
+}
+
+/// Called only with the presentation recipient supplied by the driving client.
+pub(crate) fn execute_display_input_action(
+    action: game_engine::common::message_stream::DisplayInputAction,
+    receiver: &mut crate::core::script_action_handler::ScriptDisplayReceiver,
+) -> bool {
+    use game_engine::common::message_stream::{
+        DisplayDebugKind as Kind, DisplayInputAction as Action,
+    };
+    match action {
+        Action::IsMoviePlaying => {
+            crate::core::script_action_handler::is_script_display_movie_playing(receiver)
+        }
+        Action::StopMovie => stop_script_display_movie(receiver),
+        Action::ToggleLetterbox => toggle_script_display_letter_box(receiver),
+        Action::ToggleMovieCapture => toggle_script_display_movie_capture(receiver),
+        Action::ToggleDebug(kind) => {
+            let target = match kind {
+                Kind::Statistics => stat_debug_display_callback,
+                Kind::Particles => particle_system_debug_display_callback,
+                Kind::Audio => audio_debug_display_callback,
+            };
+            toggle_script_display_debug_callback(receiver, target);
+            true
+        }
+    }
+}
+
+fn dispatch_display_input(
+    action: game_engine::common::message_stream::DisplayInputAction,
+    dispatch: &mut game_engine::common::message_stream::WindowInputDispatchFn<'_>,
+    emitted: &mut Vec<GameMessage>,
+) -> bool {
+    matches!(
+        dispatch(
+            game_engine::common::message_stream::WindowInputDispatch::Display(action),
+            emitted
+        ),
+        Some(game_engine::common::message_stream::WindowInputDispatchResult::Display(true))
+    )
 }

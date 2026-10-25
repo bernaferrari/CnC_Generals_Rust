@@ -1,6 +1,10 @@
 // Split from `message_stream/meta_event.rs` dump. Included by `meta_event_impl/mod.rs`.
 
-fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
+fn dispatch_map_entry(
+    record: &MetaMapRec,
+    display_dispatch: &mut game_engine::common::message_stream::WindowInputDispatchFn<'_>,
+    emitted: &mut Vec<GameMessage>,
+) -> Option<GameMessageDisposition> {
     if let Some(meta) = &record.meta {
         if matches!(meta, GameMessageType::MetaToggleFastForwardReplay) {
             // C++ MetaEvent.cpp:473-489: replay-gated (unless debug cheats),
@@ -456,7 +460,7 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
         if let Some(manager) = get_global_audio_manager() {
             if let Ok(mut audio) = manager.lock() {
                 if audio.is_on(AudioAffect::Sound) {
-                    stop_movies_for_sound_toggle();
+                    stop_movies_for_sound_toggle(display_dispatch, emitted);
                     audio.set_on(false, AudioAffect::All);
                 } else {
                     audio.set_on(true, AudioAffect::All);
@@ -623,7 +627,11 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
         })
         .unwrap_or(false);
         if !handled {
-            let _ = toggle_script_display_letter_box();
+            let _ = dispatch_display_input(
+                game_engine::common::message_stream::DisplayInputAction::ToggleLetterbox,
+                display_dispatch,
+                emitted,
+            );
         }
         return Some(GameMessageDisposition::DestroyMessage);
     }
@@ -823,7 +831,13 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
     }
 
     if record.name.eq_ignore_ascii_case("DEMO_TOGGLE_DEBUG_STATS") {
-        toggle_script_display_debug_callback(stat_debug_display_callback);
+        dispatch_display_input(
+            game_engine::common::message_stream::DisplayInputAction::ToggleDebug(
+                game_engine::common::message_stream::DisplayDebugKind::Statistics,
+            ),
+            display_dispatch,
+            emitted,
+        );
         return Some(GameMessageDisposition::DestroyMessage);
     }
 
@@ -882,17 +896,33 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
         .name
         .eq_ignore_ascii_case("DEMO_TOGGLE_PARTICLEDEBUG")
     {
-        toggle_script_display_debug_callback(particle_system_debug_display_callback);
+        dispatch_display_input(
+            game_engine::common::message_stream::DisplayInputAction::ToggleDebug(
+                game_engine::common::message_stream::DisplayDebugKind::Particles,
+            ),
+            display_dispatch,
+            emitted,
+        );
         return Some(GameMessageDisposition::DestroyMessage);
     }
 
     if record.name.eq_ignore_ascii_case("DEMO_TOGGLE_AUDIODEBUG") {
-        toggle_script_display_debug_callback(audio_debug_display_callback);
+        dispatch_display_input(
+            game_engine::common::message_stream::DisplayInputAction::ToggleDebug(
+                game_engine::common::message_stream::DisplayDebugKind::Audio,
+            ),
+            display_dispatch,
+            emitted,
+        );
         return Some(GameMessageDisposition::DestroyMessage);
     }
 
     if record.name.eq_ignore_ascii_case("DEMO_TOGGLE_AVI") {
-        let _ = toggle_script_display_movie_capture();
+        let _ = dispatch_display_input(
+            game_engine::common::message_stream::DisplayInputAction::ToggleMovieCapture,
+            display_dispatch,
+            emitted,
+        );
         return Some(GameMessageDisposition::DestroyMessage);
     }
 

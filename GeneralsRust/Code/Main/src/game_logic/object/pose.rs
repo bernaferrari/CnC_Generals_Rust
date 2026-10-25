@@ -1026,7 +1026,7 @@ impl Object {
         &mut self,
         mut event: crate::game_logic::host_transition_damage_fx::HostTransitionDamageFxEvent,
         source: Option<&crate::game_logic::host_transition_damage_fx::HostDamageFxVictim>,
-        view: &mut game_client::fx_list::FxViewServices<'_>,
+        view: &mut crate::game_logic::host_fx_list_dispatch::ObjectFxServices<'_, '_>,
     ) {
         crate::game_logic::host_transition_damage_fx::take_played_transition_event_fx_ocl_with_view(
             view,

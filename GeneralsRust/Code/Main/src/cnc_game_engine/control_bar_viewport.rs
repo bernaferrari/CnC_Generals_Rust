@@ -106,8 +106,8 @@ impl CnCGameEngine {
         let observer_roster = self.receiving_observer_roster();
         let upgrade_tooltip = self.game_logic.receiving_upgrade_tooltip_observer();
         let menu_world = self.receiving_menu_world_facts();
-        let (receiving_window_manager, campaign_manager, main_menu) =
-            self.game_client.window_owner_campaign_and_menu_mut();
+        let (receiving_window_manager, campaign_manager, main_menu, menu_host, display) =
+            self.game_client.window_owner_campaign_menu_and_host_mut();
         let mut context = game_client::gui::window_manager::ControlBarInputContext {
             upgrade_tooltip: game_client::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource::Receiving(&upgrade_tooltip),
             replay_menu: None,
@@ -125,7 +125,8 @@ impl CnCGameEngine {
             main_menu: Some(main_menu),
             window_manager_owner: Some(receiving_window_manager),
             menu_world: Some(menu_world),
-            menu_host: None,
+            menu_host: Some(menu_host),
+            script_display: Some(display),
         };
         receiving_window_manager.with_manager(|manager| {
             manager.refresh_control_bar_tooltip(x as i32, y as i32, &mut context);
@@ -244,6 +245,8 @@ pub(super) struct NativeScriptUi<'a> {
     bar: &'a mut game_client::gui::control_bar::ControlBar,
     callbacks: &'a mut game_client::gui::callbacks::control_bar_callbacks::ControlBarCallbacks,
     campaign_manager: Option<&'a mut game_client::gui::campaign_manager::CampaignManager>,
+    command_hints: Option<&'a mut game_client::gui::command_hints::CommandHintState>,
+    command_hint_frame: Option<u32>,
 }
 
 #[cfg(feature = "game_client")]
@@ -261,9 +264,20 @@ impl<'a> NativeScriptUi<'a> {
             bar,
             callbacks,
             campaign_manager: None,
+            command_hints: None,
+            command_hint_frame: None,
         }
     }
 
+    pub(super) fn with_command_hints(
+        mut self,
+        hints: &'a mut game_client::gui::command_hints::CommandHintState,
+        frame: u32,
+    ) -> Self {
+        self.command_hints = Some(hints);
+        self.command_hint_frame = Some(frame);
+        self
+    }
     pub(super) fn with_campaign_manager(
         mut self,
         campaign_manager: &'a mut game_client::gui::campaign_manager::CampaignManager,
@@ -311,6 +325,23 @@ impl<'a> NativeScriptUi<'a> {
 
 #[cfg(feature = "game_client")]
 impl crate::game_logic::ScriptUiEffects for NativeScriptUi<'_> {
+    fn admit_command_hint_client_frame(&mut self, frame: Option<u32>) {
+        self.command_hint_frame = frame;
+    }
+    fn command_hint(&mut self, attack: bool, position: glam::Vec3, source: u32, eligible: bool) {
+        let (Some(hints), Some(frame)) =
+            (self.command_hints.as_deref_mut(), self.command_hint_frame)
+        else {
+            return;
+        };
+        let kind = if attack {
+            game_client::gui::command_hints::CommandHintKind::Attack
+        } else {
+            game_client::gui::command_hints::CommandHintKind::Move
+        };
+        hints.record(kind, position, source, frame, eligible);
+    }
+
     fn set_campaign_victorious(&mut self, victorious: bool) -> gamelogic::GameLogicResult<()> {
         let manager = self.campaign_manager.as_deref_mut().ok_or_else(|| {
             gamelogic::GameLogicError::Configuration(

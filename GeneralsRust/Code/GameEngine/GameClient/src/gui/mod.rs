@@ -119,6 +119,7 @@ pub mod ui_globals;
 pub mod ui_renderer;
 pub mod w3d_gadget_draw;
 pub mod win_instance_data;
+pub mod window_draw_context;
 pub mod window_layout;
 pub mod window_manager;
 pub mod window_script;
@@ -169,7 +170,9 @@ pub use window_manager::{
 pub use display_string::{
     DisplayString, DisplayStringHandle, DisplayStringManager, get_display_string_manager,
 };
-pub use font::{FontData, FontDesc, FontError, FontLibrary, FontMetrics, GameFont, get_font_library};
+pub use font::{
+    FontData, FontDesc, FontError, FontLibrary, FontMetrics, GameFont, get_font_library,
+};
 pub use header_template::{HeaderTemplate, HeaderTemplateManager, get_header_template_manager};
 
 // Re-export shell system types for convenience
@@ -333,7 +336,9 @@ pub use command_panel::{
 };
 
 // Re-export UI renderer types
-pub use ui_renderer::{RenderStats, UIBlendMode, UIDrawCommand, UIRect, UIRenderer, UIRendererError};
+pub use ui_renderer::{
+    RenderStats, UIBlendMode, UIDrawCommand, UIRect, UIRenderer, UIRendererError,
+};
 
 // Re-export integrated UI system types
 pub use integrated_ui_system::{
@@ -341,8 +346,7 @@ pub use integrated_ui_system::{
 };
 
 pub use ui_globals::{
-    cursor_tooltip_already_submitted, set_ui_renderer, submit_cursor_tooltip, tick_cursor_tooltip,
-    with_ui_renderer, with_ui_renderer_mut,
+    cursor_tooltip_already_submitted, submit_cursor_tooltip, tick_cursor_tooltip,
 };
 
 /// Maximum number of windows that can be created
@@ -404,3 +408,5 @@ mod tests {
         assert!(window.borrow().is_hidden());
     }
 }
+
+pub mod command_hints;

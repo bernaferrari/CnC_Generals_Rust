@@ -150,6 +150,33 @@ impl CombatSystem {
         let projectile_id = self.next_projectile_id;
         self.next_projectile_id = ObjectId(self.next_projectile_id.0 + 1);
 
+        self.fire_projectile_ex_with_id(
+            projectile_id,
+            shooter_pos,
+            target_pos,
+            weapon,
+            shooter_id,
+            target_id,
+            speed,
+            is_homing,
+        )
+    }
+    /// Main uses its canonical world allocator; this method never invents IDs.
+    pub(in crate::game_logic) fn fire_projectile_ex_with_id(
+        &mut self,
+        projectile_id: ObjectId,
+        shooter_pos: Vec3,
+        target_pos: Vec3,
+        weapon: &Weapon,
+        shooter_id: ObjectId,
+        target_id: Option<ObjectId>,
+        speed: f32,
+        is_homing: bool,
+    ) -> ObjectId {
+        assert!(
+            !self.projectiles.contains_key(&projectile_id),
+            "duplicate live projectile identity"
+        );
         let mut projectile = Projectile::new(
             projectile_id,
             shooter_pos,

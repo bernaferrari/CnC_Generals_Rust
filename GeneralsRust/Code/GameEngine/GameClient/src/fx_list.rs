@@ -10,9 +10,12 @@ mod owned_sound;
 pub use owned_sound::submit_sound_fx_owned;
 #[path = "fx_owned_execution.rs"]
 mod owned_execution;
+#[path = "fx_runtime.rs"]
+mod runtime;
 pub use owned_execution::{
     FxDrawableExecution, FxExecution, FxInvocation, FxRayRequest, FxTracerRequest,
 };
+pub use runtime::{FxObservation, FxSource, GameClientFxRuntime, execute_fx_with_runtime};
 
 #[path = "fx_view_services.rs"]
 mod view_services;
@@ -759,6 +762,7 @@ impl Default for FXList {
     }
 }
 
+#[derive(Clone)]
 pub struct FXListStore {
     fx_map: game_engine::common::ini::ini_fx_list::FxCatalog<Arc<FXList>>,
 }
@@ -1561,19 +1565,15 @@ fn current_client_bone_positions(
     start: i32,
     positions: &mut [Coord3D],
     transforms: &mut [Matrix3D],
+    view: &mut FxViewServices<'_>,
 ) -> i32 {
     let max_bones = positions.len().min(transforms.len());
-    let live = crate::core::game_client::query_live_current_client_bone_positions(
-        primary.get_id(),
-        bone_name,
-        start,
-        max_bones,
-    );
+    let live = (view.bone_transforms)(primary.get_id(), bone_name, start, max_bones);
     if !live.is_empty() {
         let count = live.len().min(max_bones);
-        for (i, (pos, mtx)) in live.into_iter().take(count).enumerate() {
-            positions[i] = pos;
-            transforms[i] = mtx;
+        for (i, matrix) in live.into_iter().take(count).enumerate() {
+            positions[i] = Coord3D::new(matrix.w_axis.x, matrix.w_axis.y, matrix.w_axis.z);
+            transforms[i] = matrix;
         }
         return count as i32;
     }
@@ -1643,6 +1643,7 @@ impl FXListAtBonePosFXNugget {
             start,
             &mut positions,
             &mut transforms,
+            view,
         );
         for i in 0..count as usize {
             // C++ convertBonePosToWorldPos: worldMtx = obj * boneMtx,

@@ -3,19 +3,22 @@ use super::*;
 
 /// Same initial condition bank used by the frozen Drawable producer.
 pub(super) fn current_base_condition_bits(
-    logic: &GameLogic,
+    _logic: &GameLogic,
     obj: &crate::game_logic::Object,
 ) -> u128 {
-    let health = logic
-        .host_authoritative_health(obj.id)
-        .unwrap_or(obj.health.current);
+    base_condition_bits_from_object(obj)
+}
+pub(super) fn base_condition_bits_from_object(obj: &crate::game_logic::Object) -> u128 {
+    let health = obj.health.current;
     let destroyed = obj.status.destroyed || health <= 0.01;
     let mut bits = obj.model_condition_bits;
     use crate::game_logic::host_enum_table_residual::{
         HostBodyDamageType, MC_BIT_ATTACKING, MC_BIT_DYING, MC_BIT_MOVING,
         host_apply_body_damage_model_bits,
     };
-    use crate::game_logic::host_neutron_missile_slow_death::{MC_BIT_BACKCRUSHED, MC_BIT_FRONTCRUSHED};
+    use crate::game_logic::host_neutron_missile_slow_death::{
+        MC_BIT_BACKCRUSHED, MC_BIT_FRONTCRUSHED,
+    };
     let state = if destroyed {
         HostBodyDamageType::Rubble
     } else {
@@ -88,18 +91,6 @@ pub(super) fn current_condition_facts(
     obj: &crate::game_logic::Object,
     local_player_id: u32,
 ) -> super::draw_conditions::DrawConditionFacts {
-    let health = logic
-        .host_authoritative_health(obj.id)
-        .unwrap_or(obj.health.current);
-    let destroyed = obj.status.destroyed || health <= 0.01;
-    let body_damage_state = if destroyed {
-        crate::game_logic::host_enum_table_residual::HostBodyDamageType::Rubble
-    } else {
-        obj.body_damage_state
-    } as u8;
-    let (construction_percent, under_construction) = logic
-        .host_authoritative_construction(obj.id)
-        .unwrap_or((obj.construction_percent, obj.status.under_construction));
     let (world_is_snow, world_is_night) = super::world_env::current_model_environment(logic);
     let first_detected = obj
         .contained_units()
@@ -112,6 +103,33 @@ pub(super) fn current_condition_facts(
         .is_some_and(|b| b.hide_garrisoned_state)
         && !first_detected
         && obj.team != receiving_local_team(logic, local_player_id);
+    object_condition_facts(
+        obj,
+        logic.get_current_frame() as u32,
+        (world_is_snow, world_is_night),
+        hide_garrison,
+        logic.host_authoritative_occupant_count(obj.id).unwrap_or(0),
+    )
+}
+
+/// Current Object fields are observed at each source callback. The caller lends
+/// receiving environmental observations; no world/ObjectStore is retained.
+pub(super) fn object_condition_facts(
+    obj: &crate::game_logic::Object,
+    frame: u32,
+    (world_is_snow, world_is_night): (bool, bool),
+    hide_garrison: bool,
+    occupant_count: u16,
+) -> super::draw_conditions::DrawConditionFacts {
+    let health = obj.health.current;
+    let destroyed = obj.status.destroyed || health <= 0.01;
+    let body_damage_state = if destroyed {
+        crate::game_logic::host_enum_table_residual::HostBodyDamageType::Rubble
+    } else {
+        obj.body_damage_state
+    } as u8;
+    let construction_percent = obj.construction_percent;
+    let under_construction = obj.status.under_construction;
     super::draw_conditions::DrawConditionFacts {
         active_weapon_slot: obj.active_weapon_slot,
         ai_state_ordinal: crate::gameworld_shadow::GameWorldShadow::host_ai_state_ordinal(
@@ -159,19 +177,13 @@ pub(super) fn current_condition_facts(
             || obj.is_kind_of(KindOf::Aircraft),
         jammed: obj.status.weapons_jammed,
         jet_slow_death_active: obj.jet_slow_death.is_some(),
-        logic_frame: logic.get_current_frame() as u32,
-        model_condition_bits: current_base_condition_bits(logic, obj),
+        logic_frame: frame,
+        model_condition_bits: base_condition_bits_from_object(obj),
         moving: obj.status.moving,
         moving_backwards: obj.moving_backwards,
         object_type: PresentationObjectType::from_host(obj.object_type),
         object_weather: obj.object_weather,
-        occupant_count: if hide_garrison {
-            0
-        } else {
-            logic
-                .host_authoritative_occupant_count(obj.id)
-                .unwrap_or(obj.occupants.len().min(u16::MAX as usize) as u16)
-        },
+        occupant_count: if hide_garrison { 0 } else { occupant_count },
         over_water: obj.over_water,
         parachute_open: obj.is_parachute_open(),
         parachuting: obj.is_parachuting(),
@@ -249,4 +261,28 @@ impl GameLogic {
             },
         })
     }
+}
+
+pub(crate) struct ObjectNativeDrawObservation {
+    pub condition_bits: u128,
+    pub under_construction: bool,
+    pub construction_percent: f32,
+}
+pub(crate) fn object_native_draw_observation(
+    object: &crate::game_logic::Object,
+    frame: u32,
+    weather: (bool, bool),
+    hide_garrison: bool,
+    occupant_count: u16,
+) -> ObjectNativeDrawObservation {
+    let facts = object_condition_facts(object, frame, weather, hide_garrison, occupant_count);
+    ObjectNativeDrawObservation {
+        condition_bits: facts.bits(),
+        under_construction: facts.under_construction,
+        construction_percent: facts.construction_percent,
+    }
+}
+
+pub(crate) fn current_object_visual_template(object: &crate::game_logic::Object) -> String {
+    super::build::direct_host_visual_template_name(object)
 }

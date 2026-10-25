@@ -97,17 +97,24 @@ impl GameLogic {
     pub(crate) fn load_map_with_progress_and_native<F>(
         &mut self,
         map_name: &str,
-        progress: F,
+        mut progress: F,
         native: Option<&mut dyn crate::game_logic::NativeMapAdmission>,
     ) -> bool
     where
         F: FnMut(f32, &str),
     {
-        self.load_map_with_progress_and_native_checked(map_name, progress, native)
-            .unwrap_or_else(|error| {
-                log::error!("Map admission failed: {error}");
-                false
-            })
+        self.load_map_with_progress_and_native_checked(
+            map_name,
+            |value, phase| {
+                progress(value, phase);
+                Ok(())
+            },
+            native,
+        )
+        .unwrap_or_else(|error| {
+            log::error!("Map admission failed: {error}");
+            false
+        })
     }
 
     pub(crate) fn load_map_with_progress_and_native_checked<F>(
@@ -117,7 +124,7 @@ impl GameLogic {
         native: Option<&mut dyn crate::game_logic::NativeMapAdmission>,
     ) -> Result<bool, String>
     where
-        F: FnMut(f32, &str),
+        F: FnMut(f32, &str) -> Result<(), String>,
     {
         let difficulty = self
             .owned_script_engine
@@ -132,14 +139,20 @@ impl GameLogic {
         &mut self,
         map_name: &str,
         difficulty: Option<gamelogic::player::GameDifficulty>,
-        progress: F,
+        mut progress: F,
         native: Option<&mut dyn crate::game_logic::NativeMapAdmission>,
     ) -> bool
     where
         F: FnMut(f32, &str),
     {
         self.load_map_with_script_difficulty_and_native_checked(
-            map_name, difficulty, progress, native,
+            map_name,
+            difficulty,
+            |value, phase| {
+                progress(value, phase);
+                Ok(())
+            },
+            native,
         )
         .unwrap_or_else(|error| {
             log::error!("Map admission failed: {error}");
@@ -155,7 +168,7 @@ impl GameLogic {
         native: Option<&mut dyn crate::game_logic::NativeMapAdmission>,
     ) -> Result<bool, String>
     where
-        F: FnMut(f32, &str),
+        F: FnMut(f32, &str) -> Result<(), String>,
     {
         let services = Arc::clone(&self.world_services);
         gamelogic::system::engine_stores::with_world_services(&services, || {
@@ -223,7 +236,7 @@ impl GameLogic {
                 difficulty,
                 water_delivery,
                 native,
-                |_, _| {},
+                |_, _| Ok(()),
             )
         })
     }
@@ -236,23 +249,23 @@ impl GameLogic {
         water_delivery: Option<&mut dyn FnMut(&gamelogic::terrain_water::WaterGridState)>,
         mut native: Option<&mut dyn crate::game_logic::NativeMapAdmission>,
         mut report_progress: F,
-    ) -> bool
+    ) -> Result<bool, String>
     where
-        F: FnMut(f32, &str),
+        F: FnMut(f32, &str) -> Result<(), String>,
     {
         if !self.objects.registered_is_empty() || self.has_pending_object_removals() {
             log::error!("Map contents require completed outgoing Object retirement");
-            return false;
+            return Ok(false);
         }
         if self.receiving_module_content.is_some() && self.receiving_template_baseline.is_none() {
             log::error!("Receiving map admission has no accepted host template baseline");
-            return false;
+            return Ok(false);
         }
         // The interpreter belongs to the session even when map decoding fails.
         // A loan must be returned before destructive map admission can begin.
         let Some(engine) = self.owned_script_engine.as_mut() else {
             log::error!("Map admission requires the receiving ScriptEngine to be returned");
-            return false;
+            return Ok(false);
         };
         // ScriptEngine.cpp5252–5405 resets map runtime/lists, not the owning
         // interpreter or its difficulty/debug controls. Core reset currently
@@ -262,7 +275,7 @@ impl GameLogic {
         engine.reset();
         engine.set_global_difficulty(retained_difficulty);
         engine.set_time_frozen_debug(retained_debug);
-        report_progress(0.26, "Preparing map data");
+        report_progress(0.26, "Preparing map data")?;
         log::info!("Loading map: {}", map_name);
         let load_started = Instant::now();
         // A failed decode must never leave the previous map marked playable.
@@ -344,7 +357,7 @@ impl GameLogic {
         self.rebuild_objective_lookup();
 
         // Try to locate the real map file so scripts and future terrain loaders have a source.
-        report_progress(0.30, "Resolving map resources");
+        report_progress(0.30, "Resolving map resources")?;
         let resolved_map = super::script_loader::find_map_file(map_name);
         let mut decoded_map = None;
         if let Some(path) = &resolved_map {
@@ -366,7 +379,7 @@ impl GameLogic {
                         Ok(sources) => sources,
                         Err(error) => {
                             log::error!("Cannot read receiving map definitions: {error}");
-                            return false;
+                            return Ok(false);
                         }
                     }
                 } else {
@@ -378,32 +391,34 @@ impl GameLogic {
                     .collect();
                 if let Err(error) = self.admit_body_damage_companion_sources(&weapon_overrides) {
                     log::error!("Cannot admit receiving map Body rules: {error}");
-                    return false;
+                    return Ok(false);
                 }
                 if let Err(error) = self.admit_lighting_companion_sources(&weapon_overrides) {
                     log::error!("Cannot admit receiving map lighting rules: {error}");
-                    return false;
+                    return Ok(false);
                 }
                 if let Err(error) = self.apply_receiving_module_overrides(&weapon_overrides) {
                     log::error!("Cannot admit receiving map Object modules: {error}");
-                    return false;
+                    return Ok(false);
                 }
                 if let Err(error) = self.apply_camera_input_overrides(&weapon_overrides) {
                     log::error!("Cannot admit receiving map camera input overrides: {error}");
-                    return false;
+                    return Ok(false);
                 }
                 if let Err(error) = self.apply_camera_movement_overrides(&weapon_overrides) {
                     log::error!("Cannot admit receiving map camera movement rule: {error}");
-                    return false;
+                    return Ok(false);
                 }
                 if let Err(error) = self.apply_receiving_ocl_overrides(&weapon_overrides) {
                     log::error!("Cannot admit receiving map OCL overrides: {error}");
-                    return false;
+                    return Ok(false);
                 }
                 if let Err(error) = self.apply_receiving_weapon_overrides(&weapon_overrides) {
                     log::error!("Cannot admit map weapon overrides: {error}");
-                    return false;
+                    return Ok(false);
                 }
+                #[cfg(feature = "game_client")]
+                self.admit_fx_definitions();
                 if let Some(chunks) = super::script_loader::inspect_map_chunks_from_chunky(&chunky)
                 {
                     log::debug!(
@@ -412,7 +427,7 @@ impl GameLogic {
                         chunks.join(", ")
                     );
                 }
-                report_progress(0.34, "Parsing map chunks");
+                report_progress(0.34, "Parsing map chunks")?;
                 log::info!(
                     "Map '{}' parsed: {} TOC entries, body offset {} bytes",
                     map_name,
@@ -421,7 +436,7 @@ impl GameLogic {
                 );
                 // Replace the test map with parsed object placements for basic fidelity.
                 let settings_started = Instant::now();
-                report_progress(0.36, "Reading map settings");
+                report_progress(0.36, "Reading map settings")?;
                 let ai_draft = self.ai_definitions.map_override_draft();
                 let parsed =
                     super::script_loader::parse_map_settings_from_chunky_with_owned_definition_catalogs(
@@ -454,7 +469,7 @@ impl GameLogic {
                             if let Some(rules) = meta.camera_shake_rules {
                                 if let Err(error) = self.admit_camera_map_shake(rules) {
                                     log::warn!("Map camera shake admission failed: {error}");
-                                    return false;
+                                    return Ok(false);
                                 }
                             }
                             if let Some(rules) = meta.camera_clip_rules {
@@ -463,13 +478,13 @@ impl GameLogic {
                             if let Some(rules) = meta.camera_rules {
                                 if let Err(error) = self.admit_camera_map_rules(rules) {
                                     log::warn!("Map camera rules admission failed: {error}");
-                                    return false;
+                                    return Ok(false);
                                 }
                             }
                             if let Some(rules) = meta.physics_rules {
                                 if let Err(error) = self.admit_physics_map_rules(rules) {
                                     log::warn!("Map Physics admission failed: {error}");
-                                    return false;
+                                    return Ok(false);
                                 }
                             }
                             if let Some(rules) = meta.production_energy {
@@ -479,12 +494,12 @@ impl GameLogic {
                         }
                         Err(err) => {
                             log::warn!("Map AI definition admission failed: {err}");
-                            return false;
+                            return Ok(false);
                         }
                     },
                     Err(err) => {
                         log::warn!("Map settings parse failed: {err}");
-                        return false;
+                        return Ok(false);
                     }
                 };
                 log::info!(
@@ -497,9 +512,9 @@ impl GameLogic {
                     self.admit_map_starting_cash(meta.default_starting_cash);
                 }
                 if self.game_mode != GameMode::Shell {
-                    report_progress(0.40, "Syncing runtime objects");
+                    report_progress(0.40, "Syncing runtime objects")?;
                 } else {
-                    report_progress(0.40, "Syncing shell runtime");
+                    report_progress(0.40, "Syncing shell runtime")?;
                 }
                 let sync_started = Instant::now();
                 if !self.sync_legacy_runtime_from_fast_chunky_with_water_delivery(
@@ -512,8 +527,8 @@ impl GameLogic {
                     }),
                     parsed_settings.as_ref(),
                     &mut report_progress,
-                ) {
-                    return false;
+                )? {
+                    return Ok(false);
                 }
                 log::info!(
                     "Map '{}' legacy runtime sync finished in {:.2}s (fast path)",
@@ -522,7 +537,7 @@ impl GameLogic {
                 );
 
                 let heightmap_started = Instant::now();
-                report_progress(0.46, "Parsing terrain heightmap");
+                report_progress(0.46, "Parsing terrain heightmap")?;
                 let heightmap_data =
                     super::script_loader::parse_heightmap_data_from_chunky(&chunky)
                         .ok()
@@ -567,7 +582,7 @@ impl GameLogic {
                 }
                 if let Err(error) = self.initialize_receiving_partition_grid() {
                     log::error!("Cannot initialize receiving partition grid: {error}");
-                    return false;
+                    return Ok(false);
                 }
                 if let Some(meta) = parsed_settings.as_ref() {
                     self.last_map_settings = Some(meta.clone());
@@ -590,7 +605,7 @@ impl GameLogic {
                             );
                         }
                         let object_spawn_started = Instant::now();
-                        report_progress(0.58, "Spawning world objects");
+                        report_progress(0.58, "Spawning world objects")?;
                         // Singleton onCreate actions may already have created
                         // objects during PlayerList admission. Preserve them.
 
@@ -656,7 +671,7 @@ impl GameLogic {
                         for (index, obj) in objects.iter().enumerate() {
                             if index % 4 == 0 {
                                 let t = (index as f32 / total_objects).clamp(0.0, 1.0);
-                                report_progress(0.58 + t * 0.20, "Spawning world objects");
+                                report_progress(0.58 + t * 0.20, "Spawning world objects")?;
                             }
                             if Self::apply_map_object_scorch(obj) {
                                 continue;
@@ -684,7 +699,7 @@ impl GameLogic {
                                 Ok(created) => created,
                                 Err(error) => {
                                     log::error!("Map object construction rejected: {error}");
-                                    return false;
+                                    return Ok(false);
                                 }
                             };
                             if let Some(birth) = created {
@@ -776,11 +791,11 @@ impl GameLogic {
                                 }
                                 if let Err(error) = birth.activate(self) {
                                     log::error!("Map Team activation rejected: {error}");
-                                    return false;
+                                    return Ok(false);
                                 }
                             }
                         }
-                        report_progress(0.80, "World objects spawned");
+                        report_progress(0.80, "World objects spawned")?;
                         let spawned_ids = spawned_object_ids;
                         self.spawned_map_object_ids = spawned_ids.clone();
                         if let Err(error) = self
@@ -794,7 +809,7 @@ impl GameLogic {
                             )
                         {
                             log::error!("Map native child construction rejected: {error}");
-                            return false;
+                            return Ok(false);
                         }
                         // Wave 831: SidesList build-list faction bases (skirmish armies).
                         let side_spawned =
@@ -814,9 +829,9 @@ impl GameLogic {
                                 .unwrap_or_default(),
                         ) {
                             log::error!("Map starting object rejected: {error}");
-                            return false;
+                            return Ok(false);
                         }
-                        report_progress(0.82, "Finalizing world objects");
+                        report_progress(0.82, "Finalizing world objects")?;
                         self.ensure_non_shell_player_presence_with_effects(
                             parsed_settings.as_ref(),
                             &mut native
@@ -833,7 +848,7 @@ impl GameLogic {
                     }
                 }
                 let bounds_started = Instant::now();
-                report_progress(0.84, "Building world bounds");
+                report_progress(0.84, "Building world bounds")?;
                 if let Some((min, max)) = bounds_override {
                     self.world_min = min;
                     self.world_max = max;
@@ -952,7 +967,7 @@ impl GameLogic {
                                 )
                             {
                                 log::error!("Map native child construction rejected: {error}");
-                                return false;
+                                return Ok(false);
                             }
                             let wall_height = self.pathfind_ai_rules().wall_height;
                             ({
@@ -999,7 +1014,7 @@ impl GameLogic {
                     self.refresh_pathfinding_ai_definitions();
                 }
 
-                report_progress(0.88, "Initializing shroud and pathfinding");
+                report_progress(0.88, "Initializing shroud and pathfinding")?;
                 log::info!(
                     "Map '{}' bounds/terrain/shroud hookup finished in {:.2}s",
                     map_name,
@@ -1012,7 +1027,7 @@ impl GameLogic {
                     map_name,
                     path.display()
                 );
-                return false;
+                return Ok(false);
             }
         } else {
             // Development-only fallback maps: keep the legacy test layout for demos.
@@ -1024,7 +1039,7 @@ impl GameLogic {
                 self.create_test_map();
             } else {
                 log::warn!("Map '{}' not found on disk", map_name);
-                return false;
+                return Ok(false);
             }
         }
 
@@ -1077,7 +1092,7 @@ impl GameLogic {
                                 )
                             {
                                 log::error!("Map native child construction rejected: {error}");
-                                return false;
+                                return Ok(false);
                             }
                             let wall_height = self.pathfind_ai_rules().wall_height;
                             ({
@@ -1113,7 +1128,7 @@ impl GameLogic {
         }
 
         let scripts_started = Instant::now();
-        report_progress(0.92, "Initializing mission scripts");
+        report_progress(0.92, "Initializing mission scripts")?;
         self.initialize_scripts_with_map_data_and_difficulty(
             map_name,
             decoded_map.as_ref(),
@@ -1149,7 +1164,7 @@ impl GameLogic {
                     .unwrap_or_default(),
             ) {
                 log::error!("Map starting object rejected: {error}");
-                return false;
+                return Ok(false);
             }
         }
 
@@ -1179,12 +1194,12 @@ impl GameLogic {
         {
             self.update_main_crate_vision();
         }
-        report_progress(0.96, "Map load complete");
+        report_progress(0.96, "Map load complete")?;
         log::info!(
             "Map loaded successfully in {:.2}s",
             load_started.elapsed().as_secs_f32()
         );
-        true
+        Ok(true)
     }
 
     /// Load a map without external progress reporting.
@@ -1234,7 +1249,10 @@ impl GameLogic {
         self.load_map_or_fallback_with_progress_and_native_checked(
             map_name,
             fallback,
-            report_progress,
+            |value, phase| {
+                report_progress(value, phase);
+                Ok(())
+            },
             native,
         )
         .unwrap_or_else(|error| {
@@ -1251,7 +1269,7 @@ impl GameLogic {
         mut native: Option<&mut dyn crate::game_logic::NativeMapAdmission>,
     ) -> Result<Option<String>, String>
     where
-        F: FnMut(f32, &str),
+        F: FnMut(f32, &str) -> Result<(), String>,
     {
         // One admission owns both attempts. Capture the receiving difficulty
         // before either attempt resets map runtime.

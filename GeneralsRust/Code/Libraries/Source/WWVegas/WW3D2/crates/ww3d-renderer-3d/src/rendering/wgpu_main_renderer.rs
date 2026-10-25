@@ -95,6 +95,7 @@ pub struct WgpuMainRenderer {
 pub enum ScopedNativePass {
     TerrainGround,
     TerrainWater,
+    ClientEffects,
 }
 
 enum FrameCallback {

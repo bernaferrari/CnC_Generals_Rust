@@ -18,25 +18,7 @@ impl GameClient {
         &self,
         facts: &[NativeMaterialObservation],
     ) -> GameClientResult<()> {
-        let mut seen = std::collections::HashSet::new();
-        for fact in facts {
-            let key = fact.binding_key;
-            if !seen.insert(key)
-                || self
-                    .presentation_direct_drawable_state(key.host_epoch, key.object_id)
-                    .is_none_or(|state| state.binding_key != key)
-                || !self
-                    .drawables
-                    .drawable_map
-                    .get(&key.drawable_id)
-                    .is_some_and(|drawable| drawable.as_any().is::<BasicDrawable>())
-            {
-                return Err(GameClientError::InvalidOperation(
-                    "stale or duplicate native material observation".into(),
-                ));
-            }
-        }
-        Ok(())
+        self.drawables.validate_material_observations(facts)
     }
 
     pub fn apply_presentation_material_command(
@@ -127,32 +109,7 @@ impl GameClient {
         facts: &[NativeMaterialObservation],
     ) -> GameClientResult<HashMap<PresentationDirectDrawableBindingKey, NativeMaterialObservation>>
     {
-        // CU may retire an owner before Draw; live reused IDs still undergo
-        // the complete key check. No registry or guessed-alive fallback.
-        let live: Vec<_> = facts
-            .iter()
-            .copied()
-            .filter(|fact| {
-                self.drawables
-                    .drawable_map
-                    .contains_key(&fact.binding_key.drawable_id)
-            })
-            .collect();
-        self.validate_material_observations(&live)?;
-        let by_key: HashMap<_, _> = live
-            .into_iter()
-            .map(|fact| (fact.binding_key, fact))
-            .collect();
-        for id in &self.drawables.native_drawable_order {
-            if let Some(binding) = self.drawables.presentation_direct_drawable_bindings.get(id) {
-                if !by_key.contains_key(&binding.binding_key) {
-                    return Err(GameClientError::InvalidOperation(
-                        "missing native material observation".into(),
-                    ));
-                }
-            }
-        }
-        Ok(by_key)
+        self.drawables.resolve_material_draw_facts(facts)
     }
 
     fn advance_material_drawable(
@@ -160,29 +117,7 @@ impl GameClient {
         id: DrawableId,
         by_key: &HashMap<PresentationDirectDrawableBindingKey, NativeMaterialObservation>,
     ) -> GameClientResult<()> {
-        let receiver = self.drawables.drawable_map.get_mut(&id).ok_or_else(|| {
-            GameClientError::InvalidOperation(
-                "native Draw receiver retired during traversal".into(),
-            )
-        })?;
-        let Some(receiver) = receiver.as_any_mut().downcast_mut::<BasicDrawable>() else {
-            return Ok(());
-        };
-        if let Some(binding) = self
-            .drawables
-            .presentation_direct_drawable_bindings
-            .get(&id)
-        {
-            let fact = by_key.get(&binding.binding_key).ok_or_else(|| {
-                GameClientError::InvalidOperation(
-                    "native Draw binding changed during traversal".into(),
-                )
-            })?;
-            receiver.advance_material_draw(fact.effectively_dead, fact.frenzy);
-        } else {
-            receiver.advance_core_material_draw();
-        }
-        Ok(())
+        self.drawables.advance_material_drawable(id, by_key)
     }
 
     fn advance_native_material_draw(

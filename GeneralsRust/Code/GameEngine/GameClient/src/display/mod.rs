@@ -59,7 +59,12 @@ pub use image::{Image, ImageCollection};
 
 /// Legacy Display interface for compatibility
 pub trait DisplayInterface: SubsystemInterface {
-    fn draw(&self) -> Result<(), Box<dyn Error>>;
+    fn draw(
+        &self,
+        fx: &mut display_fx::DisplayFxState,
+        renderer: Option<&mut crate::gui::ui_renderer::UIRenderer>,
+        owner: Option<&crate::gui::window_manager::WindowManagerOwner>,
+    ) -> Result<(), Box<dyn Error>>;
     fn preload_common_textures(&self) -> Result<(), Box<dyn Error>>;
 }
 

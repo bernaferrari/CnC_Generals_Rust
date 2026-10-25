@@ -1285,8 +1285,9 @@ pub fn save_load_menu_init(layout: &WindowLayout, user_data: Option<&dyn std::an
 pub fn save_load_menu_full_screen_init(
     layout: &WindowLayout,
     user_data: Option<&dyn std::any::Any>,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) {
-    show_shell_map_if_available(true);
+    show_shell_map_if_available(true, effects);
 
     let state_handle = save_load_menu_state();
     let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());

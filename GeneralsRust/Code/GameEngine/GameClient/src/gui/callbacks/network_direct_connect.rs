@@ -323,7 +323,11 @@ fn handle_back(state: &mut NetworkDirectConnectState) {
     let _ = try_with_shell_mut(|shell| shell.pop());
 }
 
-pub fn network_direct_connect_init(layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>) {
+pub fn network_direct_connect_init(
+    layout: &WindowLayout,
+    _user_data: Option<&dyn std::any::Any>,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) {
     let state_slot = network_direct_connect_state();
     let mut state = state_slot.borrow_mut();
 
@@ -369,7 +373,7 @@ pub fn network_direct_connect_init(layout: &WindowLayout, _user_data: Option<&dy
     set_local_ip_for_api(local_ip, name.clone());
     request_leave_lobby();
 
-    show_shell_map_if_available(true);
+    show_shell_map_if_available(true, effects);
     layout.hide(false);
 }
 

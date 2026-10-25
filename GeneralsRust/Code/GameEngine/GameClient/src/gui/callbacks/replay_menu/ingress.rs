@@ -408,6 +408,7 @@ mod tests {
                 reader.test_version_playback(selected.into()).unwrap()
             };
             let mut context = ControlBarInputContext {
+            script_display: None,
             upgrade_tooltip: crate::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource::Standalone,
                 replay_menu: Some(&mut operation),
                 replay_version: Some(&mut probe),

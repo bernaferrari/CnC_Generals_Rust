@@ -1,5 +1,5 @@
 //! One particle-generation algorithm with an explicitly borrowed sampling source.
-use super::random::{AmbientParticleRandom, ParticleRandomSource};
+use super::random::ParticleRandomSource;
 use super::*;
 
 impl ParticleSystem {
@@ -10,11 +10,13 @@ impl ParticleSystem {
         particle_num: u32,
         particle_count: u32,
     ) -> Option<ParticleInfo> {
-        self.generate_particle_info_with_random(
-            particle_num,
-            particle_count,
-            &mut AmbientParticleRandom,
-        )
+        // One pure generation phase borrows no callback services. Commit the
+        // locally advanced stream before any emission is admitted by the owner.
+        let mut random = self.random_state.clone();
+        let result =
+            self.generate_particle_info_with_random(particle_num, particle_count, &mut random);
+        self.random_state = random;
+        result
     }
 
     pub(in crate::effects) fn generate_particle_info_with_random(
@@ -106,7 +108,7 @@ impl ParticleSystem {
     /// Compute particle position based on emission volume (matches C++ ParticleSystem::computeParticlePosition)
     #[cfg(test)]
     pub(super) fn compute_particle_position(&self) -> Vec3 {
-        self.compute_particle_position_with_random(&mut AmbientParticleRandom)
+        self.compute_particle_position_with_random(&mut self.random_state.clone())
     }
 
     fn compute_particle_position_with_random(&self, random: &mut dyn ParticleRandomSource) -> Vec3 {
@@ -199,7 +201,7 @@ impl ParticleSystem {
     /// Compute particle velocity based on emission properties (matches C++ ParticleSystem::computeParticleVelocity)
     #[cfg(test)]
     pub(super) fn compute_particle_velocity(&self, position: &Vec3) -> Vec3 {
-        self.compute_particle_velocity_with_random(position, &mut AmbientParticleRandom)
+        self.compute_particle_velocity_with_random(position, &mut self.random_state.clone())
     }
 
     fn compute_particle_velocity_with_random(

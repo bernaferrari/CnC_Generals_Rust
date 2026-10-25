@@ -1417,7 +1417,7 @@ impl HostSpecialPowerStrikeRegistry {
     pub fn advance_particle_intensity_schedule_with_view(
         &mut self,
         current_frame: u32,
-        view: &mut game_client::fx_list::FxViewServices<'_>,
+        view: &mut crate::game_logic::host_fx_list_dispatch::ObjectFxServices<'_, '_>,
     ) {
         self.advance_particle_intensity_schedule_with_dispatch(
             current_frame,

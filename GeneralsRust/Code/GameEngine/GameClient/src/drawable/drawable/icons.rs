@@ -259,7 +259,7 @@ impl Snapshotable for IconInfo {
 
 /// Trait for drawable icons
 pub trait Icon: std::fmt::Debug + Send + Sync {
-    fn render(&self, position: Vector3, size: Vector3);
+    fn render(&self, position: Vector3, size: Vector3, renderer: &mut crate::gui::UIRenderer);
     fn anim2d_template_name(&self) -> Option<&str> {
         None
     }
@@ -308,13 +308,14 @@ impl Anim2DIcon {
 }
 
 impl Icon for Anim2DIcon {
-    fn render(&self, position: Vector3, size: Vector3) {
+    fn render(&self, position: Vector3, size: Vector3, renderer: &mut crate::gui::UIRenderer) {
         let mut anim = self.anim.lock();
         anim.draw_sized(
             position.x as i32,
             position.y as i32,
             size.x as i32,
             size.y as i32,
+            renderer,
         );
     }
 

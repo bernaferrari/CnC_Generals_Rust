@@ -1401,6 +1401,7 @@ impl GameLogic {
         template_name: &str,
         effect_duration_frames: u32,
         do_fx: bool,
+        particle_owner: &mut dyn crate::game_logic::combat_particles::ParticleBindingAccess,
     ) -> bool {
         let (is_structure, footprint, pos, yaw, geom) = match self.objects.get(&target_id) {
             Some(target) => {
@@ -1453,6 +1454,7 @@ impl GameLogic {
                     crate::game_logic::combat_particles::CombatParticleKind::DisableFx,
                     Some(lifetime),
                     is_shrouded,
+                    particle_owner,
                 );
             let _ = caster_id;
             if let Some(pid) = pid {
@@ -1465,10 +1467,13 @@ impl GameLogic {
     }
 
     /// C++ `ParticleSystem::setSystemLifetime` for DisableFX BinaryShower.
-    pub(super) fn expire_leftover_disable_fx(&mut self) {
+    pub(super) fn expire_leftover_disable_fx(
+        &mut self,
+        particle_owner: &mut dyn crate::game_logic::combat_particles::ParticleBindingAccess,
+    ) {
         let now = self.frame;
         for id in self.hero_abilities.take_expired_disable_fx(now) {
-            self.combat_particles.deactivate(id);
+            self.combat_particles.deactivate(id, particle_owner);
         }
     }
 
@@ -3277,6 +3282,7 @@ impl GameLogic {
             crate::game_logic::host_hacker_disable::HACKER_DISABLE_FX_PARTICLE,
             duration_frames,
             do_fx,
+            effects,
         );
         self.hero_abilities
             .disable_fx_toggle

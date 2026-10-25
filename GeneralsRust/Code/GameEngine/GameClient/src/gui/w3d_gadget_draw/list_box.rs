@@ -41,6 +41,7 @@ pub(super) fn draw_list_box_selected_image_bar(
     width: i32,
     item_height: i32,
     list_clip: &IRegion2D,
+    draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
 ) {
     let selected_images = [
         draw_data.get(1).and_then(|entry| entry.image.as_ref()),
@@ -71,6 +72,7 @@ pub(super) fn draw_list_box_selected_image_bar(
         start_y,
         end_x,
         end_y,
+        draw_context,
     );
 }
 
@@ -109,40 +111,36 @@ pub(super) fn draw_list_box_cell_text(
     window_status: WindowStatus,
     text_color: u32,
     border_color: u32,
+    draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
 ) {
-    // C++ ports one retained DisplayString per cell (cells[j].data) and
-    // only re-wraps when the text/font changes. Retain one per (item,
-    // column) here too; set_text short-circuits when the text is
-    // unchanged, so steady-state frames skip re-layout entirely.
-    thread_local! {
-        static CELL_DISPLAY_STRINGS: std::cell::RefCell<
-            std::collections::HashMap<(usize, usize), DisplayString>,
-        > = std::cell::RefCell::new(std::collections::HashMap::new());
+    // Derive this cell's layout from its actual inputs. A thread cache keyed
+    // only by row/column aliases unrelated list boxes and sessions.
+    let mut display = DisplayString::new();
+    display.set_text(text.to_string());
+    if let Some(font) = inst_data.font.as_ref() {
+        display.set_font(font);
     }
-    CELL_DISPLAY_STRINGS.with(|cell| {
-        let mut cache = cell.borrow_mut();
-        let display = cache.entry(cell_key).or_insert_with(DisplayString::new);
-        display.set_text(text.to_string());
-        if let Some(font) = inst_data.font.as_ref() {
-            display.set_font(font);
-        }
-        if window_status.contains(WindowStatus::ONE_LINE) {
-            display.set_word_wrap(0);
-        } else {
-            display.set_word_wrap(column_width - LIST_BOX_TEXT_WIDTH_OFFSET);
-        }
-        display.set_clip_region(Some(column_region));
-        display.draw(
-            column_x + LIST_BOX_TEXT_X_OFFSET,
-            draw_y,
-            text_color,
-            border_color,
-        );
-    });
+    if window_status.contains(WindowStatus::ONE_LINE) {
+        display.set_word_wrap(0);
+    } else {
+        display.set_word_wrap(column_width - LIST_BOX_TEXT_WIDTH_OFFSET);
+    }
+    display.set_clip_region(Some(column_region));
+    display.draw(
+        column_x + LIST_BOX_TEXT_X_OFFSET,
+        draw_y,
+        text_color,
+        border_color,
+        draw_context,
+    );
     note_shipped_ui_draw_commands(1);
 }
 
-pub fn w3d_gadget_list_box_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
+pub fn w3d_gadget_list_box_draw(
+    window: &GameWindow,
+    inst_data: &WindowInstanceData,
+    draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
+) {
     let (draw_data, text_colors) =
         if inst_data.state.contains(WindowState::DISABLED) || !window.is_enabled() {
             (&inst_data.disabled_draw_data, &inst_data.disabled_text)
@@ -155,13 +153,14 @@ pub fn w3d_gadget_list_box_draw(window: &GameWindow, inst_data: &WindowInstanceD
 
     let (mut x, mut y) = window.get_screen_position();
     let (width, mut height) = window.get_size();
-    let font_height = with_window_manager_ref(|manager| {
-        inst_data
-            .font
-            .as_ref()
-            .map(|font| manager.win_font_height(font))
-            .unwrap_or(12)
-    });
+    let font_height =
+        crate::gui::window_draw_context::with_draw_manager(draw_context.manager, |manager| {
+            inst_data
+                .font
+                .as_ref()
+                .map(|font| manager.win_font_height(font))
+                .unwrap_or(12)
+        });
 
     if let Some(title) = inst_data.display_text.as_ref() {
         let mut title = title.borrow_mut();
@@ -169,7 +168,13 @@ pub fn w3d_gadget_list_box_draw(window: &GameWindow, inst_data: &WindowInstanceD
             if let Some(font) = inst_data.font.as_ref() {
                 title.set_font(font);
             }
-            title.draw(x + 1, y, text_colors.color, text_colors.border_color);
+            title.draw(
+                x + 1,
+                y,
+                text_colors.color,
+                text_colors.border_color,
+                draw_context,
+            );
             y += font_height + 1;
             height -= font_height + 1;
         }
@@ -188,13 +193,21 @@ pub fn w3d_gadget_list_box_draw(window: &GameWindow, inst_data: &WindowInstanceD
         list_box_solid_frame_and_content_widths(width, slider_width.map(|w| (w, slider_hidden)));
 
     if back.border_color != WIN_COLOR_UNDEFINED {
-        with_window_manager_ref(|manager| {
-            manager.win_open_rect(back.border_color, 1.0, x, y, x + frame_width, y + height);
+        crate::gui::window_draw_context::with_draw_manager(draw_context.manager, |manager| {
+            manager.win_open_rect(
+                back.border_color,
+                1.0,
+                x,
+                y,
+                x + frame_width,
+                y + height,
+                draw_context,
+            );
         });
         note_shipped_ui_draw_commands(1);
     }
     if back.color != WIN_COLOR_UNDEFINED && color_alpha(back.color) > 16 {
-        with_window_manager_ref(|manager| {
+        crate::gui::window_draw_context::with_draw_manager(draw_context.manager, |manager| {
             manager.win_fill_rect(
                 back.color,
                 1.0,
@@ -202,6 +215,7 @@ pub fn w3d_gadget_list_box_draw(window: &GameWindow, inst_data: &WindowInstanceD
                 y + 1,
                 x + frame_width - 1,
                 y + height - 1,
+                draw_context,
             );
         });
         note_shipped_ui_draw_commands(1);
@@ -213,6 +227,7 @@ pub fn w3d_gadget_list_box_draw(window: &GameWindow, inst_data: &WindowInstanceD
             height,
             FALLBACK_FILL,
             Some(FALLBACK_BORDER),
+            draw_context,
         );
     }
 
@@ -249,6 +264,7 @@ pub fn w3d_gadget_list_box_draw(window: &GameWindow, inst_data: &WindowInstanceD
                         content_width,
                         item_height,
                         &list_clip,
+                        draw_context,
                     );
                 }
                 let mut column_x = x;
@@ -298,6 +314,7 @@ pub fn w3d_gadget_list_box_draw(window: &GameWindow, inst_data: &WindowInstanceD
                                 window.get_status(),
                                 color,
                                 text_colors.border_color,
+                                draw_context,
                             );
                         }
                         Some(crate::gui::gadgets::ListBoxItemData::Image {
@@ -362,6 +379,7 @@ pub fn w3d_gadget_list_box_draw(window: &GameWindow, inst_data: &WindowInstanceD
                                     iy2,
                                     &column_region,
                                     draw_color,
+                                    draw_context,
                                 );
                             }
                         }
@@ -381,6 +399,7 @@ pub fn w3d_gadget_list_box_draw(window: &GameWindow, inst_data: &WindowInstanceD
                                     window.get_status(),
                                     color,
                                     text_colors.border_color,
+                                    draw_context,
                                 );
                             }
                         }
@@ -393,7 +412,11 @@ pub fn w3d_gadget_list_box_draw(window: &GameWindow, inst_data: &WindowInstanceD
     }
 }
 
-pub fn w3d_gadget_list_box_image_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
+pub fn w3d_gadget_list_box_image_draw(
+    window: &GameWindow,
+    inst_data: &WindowInstanceData,
+    draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
+) {
     let (draw_data, text_colors) =
         if inst_data.state.contains(WindowState::DISABLED) || !window.is_enabled() {
             (&inst_data.disabled_draw_data, &inst_data.disabled_text)
@@ -415,7 +438,7 @@ pub fn w3d_gadget_list_box_image_draw(window: &GameWindow, inst_data: &WindowIns
     }
 
     if let Some(image) = &draw_data[0].image {
-        with_window_manager_ref(|manager| {
+        crate::gui::window_draw_context::with_draw_manager(draw_context.manager, |manager| {
             manager.win_draw_image(
                 image,
                 x + inst_data.image_offset.x,
@@ -423,27 +446,43 @@ pub fn w3d_gadget_list_box_image_draw(window: &GameWindow, inst_data: &WindowIns
                 x + inst_data.image_offset.x + width,
                 y + inst_data.image_offset.y + height,
                 WIN_COLOR_UNDEFINED,
+                draw_context,
             );
         });
         note_shipped_ui_draw_commands(1);
     } else {
-        draw_visible_fill(x, y, width, height, FALLBACK_FILL, Some(FALLBACK_BORDER));
+        draw_visible_fill(
+            x,
+            y,
+            width,
+            height,
+            FALLBACK_FILL,
+            Some(FALLBACK_BORDER),
+            draw_context,
+        );
     }
 
-    let font_height = with_window_manager_ref(|manager| {
-        inst_data
-            .font
-            .as_ref()
-            .map(|font| manager.win_font_height(font))
-            .unwrap_or(12)
-    });
+    let font_height =
+        crate::gui::window_draw_context::with_draw_manager(draw_context.manager, |manager| {
+            inst_data
+                .font
+                .as_ref()
+                .map(|font| manager.win_font_height(font))
+                .unwrap_or(12)
+        });
     if let Some(title) = inst_data.display_text.as_ref() {
         let mut title = title.borrow_mut();
         if title.get_text_length() > 0 {
             if let Some(font) = inst_data.font.as_ref() {
                 title.set_font(font);
             }
-            title.draw(x + 1, y, text_colors.color, text_colors.border_color);
+            title.draw(
+                x + 1,
+                y,
+                text_colors.color,
+                text_colors.border_color,
+                draw_context,
+            );
             y += font_height + 1;
             height -= font_height + 1;
         }
@@ -479,6 +518,7 @@ pub fn w3d_gadget_list_box_image_draw(window: &GameWindow, inst_data: &WindowIns
                         width,
                         item_height,
                         &list_clip,
+                        draw_context,
                     );
                 }
                 let mut column_x = x;
@@ -528,6 +568,7 @@ pub fn w3d_gadget_list_box_image_draw(window: &GameWindow, inst_data: &WindowIns
                                 window.get_status(),
                                 color,
                                 text_colors.border_color,
+                                draw_context,
                             );
                         }
                         Some(crate::gui::gadgets::ListBoxItemData::Image {
@@ -592,6 +633,7 @@ pub fn w3d_gadget_list_box_image_draw(window: &GameWindow, inst_data: &WindowIns
                                     iy2,
                                     &column_region,
                                     draw_color,
+                                    draw_context,
                                 );
                             }
                         }
@@ -611,6 +653,7 @@ pub fn w3d_gadget_list_box_image_draw(window: &GameWindow, inst_data: &WindowIns
                                     window.get_status(),
                                     color,
                                     text_colors.border_color,
+                                    draw_context,
                                 );
                             }
                         }
@@ -632,6 +675,7 @@ pub(super) fn draw_listbox_hilite_bar(
     start_y: i32,
     end_x: i32,
     end_y: i32,
+    draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
 ) {
     let mut bar_width = (end_x - start_x).max(0);
     let bar_height = (end_y - start_y).max(0);
@@ -653,7 +697,15 @@ pub(super) fn draw_listbox_hilite_bar(
     while x + center_w <= right_start_x {
         let sx = x;
         let ex = sx + center_w;
-        draw_window_image_clipped(center, sx, start_y, ex, start_y + bar_height, &center_clip);
+        draw_window_image_clipped(
+            center,
+            sx,
+            start_y,
+            ex,
+            start_y + bar_height,
+            &center_clip,
+            draw_context,
+        );
         x += center_w;
     }
 
@@ -667,11 +719,12 @@ pub(super) fn draw_listbox_hilite_bar(
             ex,
             start_y + bar_height,
             &center_clip,
+            draw_context,
         );
         x += small_w;
     }
 
-    with_window_manager_ref(|manager| {
+    crate::gui::window_draw_context::with_draw_manager(draw_context.manager, |manager| {
         manager.win_draw_image(
             left,
             start_x,
@@ -679,6 +732,7 @@ pub(super) fn draw_listbox_hilite_bar(
             left_end_x,
             start_y + bar_height,
             WIN_COLOR_UNDEFINED,
+            draw_context,
         );
         manager.win_draw_image(
             right,
@@ -687,6 +741,7 @@ pub(super) fn draw_listbox_hilite_bar(
             right_start_x + right_w,
             start_y + bar_height,
             WIN_COLOR_UNDEFINED,
+            draw_context,
         );
     });
 }
@@ -699,6 +754,7 @@ pub(super) fn draw_mapped_image_clipped(
     end_y: i32,
     clip_region: &IRegion2D,
     color: u32,
+    draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
 ) {
     let x1 = start_x;
     let y1 = start_y;
@@ -729,7 +785,7 @@ pub(super) fn draw_mapped_image_clipped(
         (iy2 - iy1) as f32,
     );
 
-    let _ = with_ui_renderer_mut(|renderer| {
+    let _ = draw_context.with_renderer(|renderer, display_facts| {
         let texture = {
             let collection = get_mapped_image_collection();
             let mut collection = collection.write();
@@ -771,6 +827,7 @@ pub(super) fn draw_window_image_clipped(
     end_x: i32,
     end_y: i32,
     clip_region: &IRegion2D,
+    draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
 ) {
     let collection = get_mapped_image_collection();
     let Some(collection) = collection.try_read() else {
@@ -788,5 +845,6 @@ pub(super) fn draw_window_image_clipped(
         end_y,
         clip_region,
         WIN_COLOR_UNDEFINED,
+        draw_context,
     );
 }

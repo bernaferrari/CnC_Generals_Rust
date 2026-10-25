@@ -2182,7 +2182,7 @@ fn draw_move_hint_and_locater_models(view: &View) {
 /// reserves (`HintSpy.cpp:99-100` → `InGameUI::createAttackHint`); the C++
 /// body is intentionally empty (InGameUI.cpp:2176-2179), so the red attack
 /// ring is a documented host adaptation requested for order feedback.
-pub fn draw_live_command_markers() {
+pub fn draw_live_command_markers(renderer: &mut crate::gui::UIRenderer) {
     let frame = TheGameLogic::get_frame();
     let hints: Vec<(IPoint2, HintType, u32)> = TheInGameUI::get_hints()
         .into_iter()
@@ -2215,7 +2215,7 @@ pub fn draw_live_command_markers() {
     }
     let segments = 16;
     let tau = std::f32::consts::TAU;
-    crate::gui::ui_globals::with_ui_renderer_mut(|renderer| {
+    {
         for (screen, kind, elapsed) in hints {
             let t = (elapsed.min(40) as f32) / 40.0;
             let (rgb, base_radius) = match kind {
@@ -2243,7 +2243,7 @@ pub fn draw_live_command_markers() {
                 0.0,
             );
         }
-    });
+    }
 }
 thread_local! {
     static THE_TACTICAL_VIEW: RefCell<View> = {

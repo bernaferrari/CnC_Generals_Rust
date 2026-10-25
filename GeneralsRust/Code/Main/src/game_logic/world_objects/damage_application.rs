@@ -435,6 +435,9 @@ impl GameLogic {
         after_damage_fx: impl FnOnce(&mut Self, ObjectId),
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> Option<OwnedDamageResult> {
+        #[cfg(feature = "game_client")]
+        let fx_operation_environment = self.observe_object_fx_environment();
+
         let mut receiving_effects = effects.reborrow();
         if let Some(interpreter) = context.topple_interpreter() {
             receiving_effects.script_events =
@@ -492,18 +495,16 @@ impl GameLogic {
             )
         };
         #[cfg(feature = "game_client")]
-        let native_view = &mut effects.view;
+        let fx_operation_environment = self.observe_object_fx_environment();
         #[cfg(feature = "game_client")]
-        let native_audio = &mut effects.audio;
-        #[cfg(feature = "game_client")]
-        let mut application = Self::with_host_fx_view_parts_and_terrain(
+        let mut application = Self::with_object_fx_services(
             &mut self.session_view,
             begin_player,
             self.world_services.shroud(),
-            effects
-                .terrain
-                .as_mut()
-                .map(|terrain| &mut **terrain as &mut dyn crate::game_logic::NativeTerrainEffects),
+            effects,
+            &fx_operation_environment,
+            self.world_services.terrain(),
+            &self.logic_random,
             |view| {
                 let victim = self
                     .objects
@@ -527,7 +528,7 @@ impl GameLogic {
                         if let crate::game_logic::object::BodyStateFx::NativeVisualState(state) =
                             &effect
                         {
-                            if let Some(view) = native_view.as_mut() {
+                            if let Some(native_view) = view.effects.view.as_mut() {
                                 let mut change = crate::game_logic::NativeBodyVisualChange {
                                     identity: native_body.0.clone(),
                                     state: gamelogic::common::types::BodyDamageType::Pristine,
@@ -535,10 +536,12 @@ impl GameLogic {
                                     time_of_day: native_body.2,
                                     locality: native_body.3,
                                 };
-                                let audio = native_audio
+                                let audio = view
+                                    .effects
+                                    .audio
                                     .as_mut()
                                     .and_then(|audio| audio.native_ambient());
-                                change.deliver(*state, &mut **view, audio);
+                                change.deliver(*state, &mut **native_view, audio);
                             }
                             return;
                         }
@@ -583,6 +586,8 @@ impl GameLogic {
         );
         #[cfg(not(feature = "game_client"))]
         let mut application: DamageApplication = {
+            #[cfg(feature = "game_client")]
+            let fx_operation_environment = self.observe_object_fx_environment();
             let players = &mut self.players;
             self.objects
                 .get_mut(&victim_id)?
@@ -651,6 +656,8 @@ impl GameLogic {
             // Captured callbacks own the actual source-order walk. Do not
             // replay the single-weapon compatibility latch afterward.
             if !healing {
+                #[cfg(feature = "game_client")]
+                let fx_operation_environment = self.observe_object_fx_environment();
                 if let Some(object) = self.objects.get_mut(&victim_id) {
                     let _ = object.take_pending_fire_when_damaged_weapon();
                 }
@@ -663,6 +670,8 @@ impl GameLogic {
                         // Body state is this hit's state, before bridge/state/Die
                         // callbacks. A callback may reenter even with zero hits.
                         reaction_callback_ran = true;
+                        #[cfg(feature = "game_client")]
+                        let fx_operation_environment = self.observe_object_fx_environment();
                         let _ = self
                             .objects
                             .get_mut(&victim_id)
@@ -674,6 +683,8 @@ impl GameLogic {
                             effects,
                         );
                     }
+                    #[cfg(feature = "game_client")]
+                    let fx_operation_environment = self.observe_object_fx_environment();
                 } else if let Some(weapon) = self
                     .objects
                     .get_mut(&victim_id)
@@ -716,14 +727,16 @@ impl GameLogic {
         #[cfg(feature = "game_client")]
         let callback_secondary = self.observe_fx_list_die_secondary(victim_id);
         #[cfg(feature = "game_client")]
-        Self::with_host_fx_view_parts_and_terrain(
+        let fx_operation_environment = self.observe_object_fx_environment();
+        #[cfg(feature = "game_client")]
+        Self::with_object_fx_services(
             &mut self.session_view,
             callback_player,
             self.world_services.shroud(),
-            effects
-                .terrain
-                .as_mut()
-                .map(|terrain| &mut **terrain as &mut dyn crate::game_logic::NativeTerrainEffects),
+            effects,
+            &fx_operation_environment,
+            self.world_services.terrain(),
+            &self.logic_random,
             |view| {
                 if let Some(victim) = self.objects.get_mut(&victim_id) {
                     application.complete_body_state_callbacks_with_body_fx(
@@ -747,6 +760,8 @@ impl GameLogic {
                 }
             },
         );
+        #[cfg(feature = "game_client")]
+        let fx_operation_environment = self.observe_object_fx_environment();
         #[cfg(not(feature = "game_client"))]
         if let Some(victim) = self.objects.get_mut(&victim_id) {
             application.complete_body_state_callbacks_with_body_fx(
@@ -821,14 +836,16 @@ impl GameLogic {
                 Self::observe_host_fx_object(object, armor_player, self.world_services.shroud())
             });
         #[cfg(feature = "game_client")]
-        let after_fx = Self::with_host_fx_view_parts_and_terrain(
+        let fx_operation_environment = self.observe_object_fx_environment();
+        #[cfg(feature = "game_client")]
+        let after_fx = Self::with_object_fx_services(
             &mut self.session_view,
             armor_player,
             self.world_services.shroud(),
-            effects
-                .terrain
-                .as_mut()
-                .map(|terrain| &mut **terrain as &mut dyn crate::game_logic::NativeTerrainEffects),
+            effects,
+            &fx_operation_environment,
+            self.world_services.terrain(),
+            &self.logic_random,
             |view| {
                 let victim = self
                     .objects
@@ -856,6 +873,8 @@ impl GameLogic {
         );
         #[cfg(not(feature = "game_client"))]
         let after_fx = {
+            #[cfg(feature = "game_client")]
+            let fx_operation_environment = self.observe_object_fx_environment();
             let victim = self
                 .objects
                 .get_mut(&victim_id)
@@ -884,14 +903,16 @@ impl GameLogic {
         #[cfg(feature = "game_client")]
         let finish_player = self.local_player_id();
         #[cfg(feature = "game_client")]
-        let destroyed = Self::with_host_fx_view_parts_and_terrain(
+        let fx_operation_environment = self.observe_object_fx_environment();
+        #[cfg(feature = "game_client")]
+        let destroyed = Self::with_object_fx_services(
             &mut self.session_view,
             finish_player,
             self.world_services.shroud(),
-            effects
-                .terrain
-                .as_mut()
-                .map(|terrain| &mut **terrain as &mut dyn crate::game_logic::NativeTerrainEffects),
+            effects,
+            &fx_operation_environment,
+            self.world_services.terrain(),
+            &self.logic_random,
             |view| {
                 let victim = self
                     .objects
@@ -922,6 +943,8 @@ impl GameLogic {
         );
         #[cfg(not(feature = "game_client"))]
         let destroyed = {
+            #[cfg(feature = "game_client")]
+            let fx_operation_environment = self.observe_object_fx_environment();
             let victim = self
                 .objects
                 .get_mut(&victim_id)
@@ -995,6 +1018,7 @@ impl GameLogic {
                 crate::game_logic::projectile_definitions::ProjectileDefinitionMode::LegacyBootstrap
             },
             Some(&projectile_terrain),
+            &mut self.next_object_id,
         );
         if let Some(shot) = ready {
             let limit = game_engine::common::global_data::read().historic_damage_limit;
@@ -1092,6 +1116,9 @@ impl GameLogic {
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> Vec<ObjectId> {
         #[cfg(feature = "game_client")]
+        let fx_operation_environment = self.observe_object_fx_environment();
+
+        #[cfg(feature = "game_client")]
         let player = self.local_player_id();
         let terrain = crate::game_logic::game_logic::FlightTerrainView {
             logical: Some(self.world_services.terrain().as_ref()),
@@ -1102,68 +1129,42 @@ impl GameLogic {
         #[cfg(feature = "game_client")]
         let (events, retired) = {
             let shroud = self.world_services.shroud();
-            Self::with_host_fx_view_parts_and_terrain(
+            #[cfg(feature = "game_client")]
+            let fx_operation_environment = self.observe_object_fx_environment();
+            Self::with_object_fx_services(
                 &mut self.session_view,
                 player,
                 shroud,
-                effects.terrain.as_mut().map(|terrain| {
-                    &mut **terrain as &mut dyn crate::game_logic::NativeTerrainEffects
-                }),
+                effects,
+                &fx_operation_environment,
+                self.world_services.terrain(),
+                &self.logic_random,
                 |view| {
-                    self.combat_system.prepare_projectile_impact_with_fx_and_pose(
-                        id,
-                        dt,
-                        &mut self.objects,
-                        Some(&mut self.countermeasures),
-                        self.frame,
-                        Some(&terrain),
-                        &mut self.ownership_events,
-                        historic_damage_limit,
-                        &mut |name, object| {
-                            let pose = match object {
+                    self.combat_system
+                        .prepare_projectile_impact_with_fx_and_pose(
+                            id,
+                            dt,
+                            &mut self.objects,
+                            Some(&mut self.countermeasures),
+                            self.frame,
+                            Some(&terrain),
+                            &mut self.ownership_events,
+                            historic_damage_limit,
+                            &mut |name, object| match object {
                                 crate::game_logic::combat::ProjectileFxObject::Object(object) => {
-                                    Self::observe_host_fx_object(object, player, shroud)
+                                    view.object(name, object, None);
                                 }
                                 crate::game_logic::combat::ProjectileFxObject::Projectile(
                                     projectile,
                                 ) => {
-                                    use gamelogic::common::types::ObjectShroudStatus;
-                                    let is_shrouded = match (player, shroud.lock()) {
-                                        (Some(player), Ok(shroud)) => shroud
-                                            .get_host_object_shroud_status(player, projectile.id.0)
-                                            .is_some_and(|status| {
-                                                (status as u8) >= ObjectShroudStatus::Fogged as u8
-                                            }),
-                                        _ => true,
-                                    };
-                                    let pos = projectile.position;
-                                    let position = gamelogic::common::types::Coord3D {
-                                        x: pos.x,
-                                        y: pos.z,
-                                        z: pos.y,
-                                    };
-                                    gamelogic::helpers::HostFxObjectPose {
-                                        id: projectile.id.0,
-                                        position,
-                                        transform: glam::Mat4::from_translation(glam::Vec3::new(
-                                            pos.x, pos.z, pos.y,
-                                        )) * glam::Mat4::from_rotation_z(
-                                            projectile.velocity.z.atan2(projectile.velocity.x),
-                                        ),
-                                        player_index: projectile
-                                            .source_owner_player_id
-                                            .map(|id| id as i32)
-                                            .unwrap_or(-1),
-                                        bounding_circle_radius: 0.0,
-                                        is_shrouded,
-                                    }
+                                    view.projectile(name, projectile);
                                 }
-                            };
-                            Self::dispatch_fx_list_at_object_with_view(name, &pose, None, view);
-                        }, &mut |projectile| {
-            crate::game_logic::host_fx_list_dispatch::publish_host_fx_object_with_visibility(projectile.id.0,projectile.position,projectile.velocity.z.atan2(projectile.velocity.x),projectile.source_owner_player_id.map(|id| id as i32).unwrap_or(-1),0.0,Self::host_fx_visibility_for(player,shroud,projectile.id.0));
-        }
-)
+                            },
+                            &mut |_projectile| {
+                                // Each synchronous FX callback reads its borrowed carrier;
+                                // no process-wide pose publication is needed.
+                            },
+                        )
                 },
             )
         };

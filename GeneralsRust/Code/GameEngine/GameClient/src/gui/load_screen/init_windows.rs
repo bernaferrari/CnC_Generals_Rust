@@ -24,26 +24,42 @@ fn initialize_kind_windows(
     context: &LoadScreenInitContext,
     campaign_manager: &crate::gui::campaign_manager::CampaignManager,
     shell_game_first_load: &mut bool,
-) {
+    runtime: &mut LoadScreenRuntime,
+) -> bool {
     match kind {
-        LoadScreenKind::ShellGame => initialize_shell_game_windows(
-            wm,
-            context.shell_game_did_mem_pass,
-            shell_game_first_load,
-        ),
-        // C++ uses the same GameLODManager::didMemPass gate for campaign and
-        // Challenge movie preludes as it does for the first shell screen.
+        LoadScreenKind::ShellGame => {
+            prepare_shell_game_windows(wm, context.shell_game_did_mem_pass, shell_game_first_load)
+        }
         LoadScreenKind::SinglePlayer => {
-            initialize_single_player_windows(wm, context.shell_game_did_mem_pass, campaign_manager)
+            initialize_single_player_windows(
+                wm,
+                context.shell_game_did_mem_pass,
+                campaign_manager,
+                runtime,
+            );
+            false
         }
         LoadScreenKind::Challenge => {
-            initialize_challenge_windows(wm, context.shell_game_did_mem_pass, campaign_manager)
+            initialize_challenge_windows(
+                wm,
+                context.shell_game_did_mem_pass,
+                campaign_manager,
+                runtime,
+            );
+            false
         }
         LoadScreenKind::Multiplayer => {
-            initialize_multiplayer_windows(wm, "MultiplayerLoadScreen.wnd", context)
+            initialize_multiplayer_windows(wm, "MultiplayerLoadScreen.wnd", context, runtime);
+            false
         }
-        LoadScreenKind::GameSpy => initialize_gamespy_windows(wm, context),
-        LoadScreenKind::MapTransfer => initialize_map_transfer_windows(wm, context),
+        LoadScreenKind::GameSpy => {
+            initialize_gamespy_windows(wm, context, runtime);
+            false
+        }
+        LoadScreenKind::MapTransfer => {
+            initialize_map_transfer_windows(wm, context, runtime);
+            false
+        }
     }
 }
 
@@ -52,55 +68,77 @@ fn initialize_shell_game_windows(
     did_mem_pass: bool,
     first_load: &mut bool,
 ) {
-    if *first_load && did_mem_pass {
-        set_window_image(
-            wm,
-            "ShellGameLoadScreen.wnd:ParentShellGameLoadScreen",
-            0,
-            "TitleScreen",
-            true,
-        );
-        hide_window(wm, "ShellGameLoadScreen.wnd:StaticTextLegal", false);
-        hide_window(wm, "ShellGameLoadScreen.wnd:ProgressLoad", true);
+    if prepare_shell_game_windows(wm, did_mem_pass, first_load) {
         run_shell_game_legal_hold(wm);
         *first_load = false;
         hide_window(wm, "ShellGameLoadScreen.wnd:ProgressLoad", false);
     }
 }
 
-fn with_multiplayer_load_screen_state<R>(
-    f: impl FnOnce(&mut MultiplayerLoadScreenState) -> R,
-) -> R {
-    MULTIPLAYER_LOAD_SCREEN_STATE.with_borrow_mut(f)
+fn prepare_shell_game_windows(
+    wm: &mut WindowManager,
+    did_mem_pass: bool,
+    first_load: &bool,
+) -> bool {
+    if !*first_load || !did_mem_pass {
+        return false;
+    }
+    set_window_image(
+        wm,
+        "ShellGameLoadScreen.wnd:ParentShellGameLoadScreen",
+        0,
+        "TitleScreen",
+        true,
+    );
+    hide_window(wm, "ShellGameLoadScreen.wnd:StaticTextLegal", false);
+    hide_window(wm, "ShellGameLoadScreen.wnd:ProgressLoad", true);
+    true
 }
 
-fn reset_multiplayer_load_screen_state() {
-    with_multiplayer_load_screen_state(|state| *state = MultiplayerLoadScreenState::default());
+fn with_multiplayer_load_screen_state<R>(
+    f: impl FnOnce(&mut MultiplayerLoadScreenState) -> R,
+    runtime: &mut LoadScreenRuntime,
+) -> R {
+    f(&mut runtime.multiplayer)
+}
+
+fn reset_multiplayer_load_screen_state(runtime: &mut LoadScreenRuntime) {
+    with_multiplayer_load_screen_state(
+        |state| *state = MultiplayerLoadScreenState::default(),
+        runtime,
+    );
 }
 
 fn with_map_transfer_load_screen_state<R>(
     f: impl FnOnce(&mut MapTransferLoadScreenState) -> R,
+    runtime: &mut LoadScreenRuntime,
 ) -> R {
-    MAP_TRANSFER_LOAD_SCREEN_STATE.with_borrow_mut(f)
+    f(&mut runtime.map_transfer)
 }
 
-fn reset_map_transfer_load_screen_state() {
-    with_map_transfer_load_screen_state(|state| *state = MapTransferLoadScreenState::default());
+fn reset_map_transfer_load_screen_state(runtime: &mut LoadScreenRuntime) {
+    with_map_transfer_load_screen_state(
+        |state| *state = MapTransferLoadScreenState::default(),
+        runtime,
+    );
 }
 
-fn reset_single_player_load_screen_audio_state() {
-    let ambient_handle = with_single_player_load_screen_state(|state| {
-        let handle = state.ambient_loop_handle;
-        state.prelude_state = LoadScreenPreludeState::NotRequired;
-        state.prelude_deadline = None;
-        state.prelude_duration = Duration::ZERO;
-        state.movie_prelude_active = false;
-        state.movie_label.clear();
-        state.briefing_voice_played = false;
-        state.briefing_voice_handle = 0;
-        state.ambient_loop_handle = 0;
-        handle
-    });
+fn reset_single_player_load_screen_audio_state(runtime: &mut LoadScreenRuntime) {
+    let ambient_handle = with_single_player_load_screen_state(
+        |state| {
+            let handle = state.ambient_loop_handle;
+            state.prelude_state = LoadScreenPreludeState::NotRequired;
+            state.prelude_deadline = None;
+            state.prelude_duration = Duration::ZERO;
+            state.movie_prelude_active = false;
+            state.movie_label.clear();
+            state.briefing_voice_played = false;
+            state.briefing_voice_handle = 0;
+            state.ambient_loop_handle = 0;
+            handle
+        },
+        runtime,
+    );
     if ambient_handle != 0 {
         if let Some(audio) = TheAudio::get() {
             audio.remove_audio_event(ambient_handle);
@@ -119,19 +157,34 @@ fn shell_game_legal_hold_duration() -> Duration {
 }
 
 fn run_shell_game_legal_hold(wm: &mut WindowManager) {
-    let hold_duration = shell_game_legal_hold_duration();
-    if hold_duration.is_zero() {
+    let duration = shell_game_legal_hold_duration();
+    let begin = Instant::now();
+    loop {
         wm.update();
-        pump_load_screen_presentation();
+        pump_load_screen_presentation(None)
+            .expect("no presentation recipient in standalone legal hold");
         gamelogic::system::game_logic::set_fp_mode();
-        return;
-    }
-
-    let show_start = Instant::now();
-    while show_start.elapsed() < hold_duration {
-        wm.update();
-        pump_load_screen_presentation();
-        gamelogic::system::game_logic::set_fp_mode();
+        if begin.elapsed() >= duration {
+            break;
+        }
         std::thread::sleep(SHELL_GAME_LEGAL_UPDATE_INTERVAL);
     }
+}
+
+fn run_shell_game_legal_hold_with_pump(
+    mut presentation_pump: Option<&mut LoadScreenPresentationPump<'_>>,
+) -> Result<(), String> {
+    let duration = shell_game_legal_hold_duration();
+    let begin = Instant::now();
+    loop {
+        with_window_manager(|wm| wm.update());
+        let result = pump_load_screen_presentation(presentation_pump.as_deref_mut());
+        gamelogic::system::game_logic::set_fp_mode();
+        result?;
+        if begin.elapsed() >= duration {
+            break;
+        }
+        std::thread::sleep(SHELL_GAME_LEGAL_UPDATE_INTERVAL);
+    }
+    Ok(())
 }

@@ -4,6 +4,7 @@ pub(super) fn draw_tabcontrol_background(
     window: &GameWindow,
     inst_data: &WindowInstanceData,
     use_images: bool,
+    draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
 ) {
     let (draw_data, _text_colors) =
         if inst_data.state.contains(WindowState::DISABLED) || !window.is_enabled() {
@@ -20,7 +21,7 @@ pub(super) fn draw_tabcontrol_background(
 
     if use_images {
         if let Some(image) = back.image.as_ref() {
-            with_window_manager_ref(|manager| {
+            crate::gui::window_draw_context::with_draw_manager(draw_context.manager, |manager| {
                 manager.win_draw_image(
                     image,
                     x + inst_data.image_offset.x,
@@ -28,18 +29,35 @@ pub(super) fn draw_tabcontrol_background(
                     x + inst_data.image_offset.x + width,
                     y + inst_data.image_offset.y + height,
                     WIN_COLOR_UNDEFINED,
+                    draw_context,
                 );
             });
         }
     } else {
         if back.border_color != WIN_COLOR_UNDEFINED {
-            with_window_manager_ref(|manager| {
-                manager.win_open_rect(back.border_color, 1.0, x, y, x + width, y + height);
+            crate::gui::window_draw_context::with_draw_manager(draw_context.manager, |manager| {
+                manager.win_open_rect(
+                    back.border_color,
+                    1.0,
+                    x,
+                    y,
+                    x + width,
+                    y + height,
+                    draw_context,
+                );
             });
         }
         if back.color != WIN_COLOR_UNDEFINED {
-            with_window_manager_ref(|manager| {
-                manager.win_fill_rect(back.color, 1.0, x + 1, y + 1, x + width - 1, y + height - 1);
+            crate::gui::window_draw_context::with_draw_manager(draw_context.manager, |manager| {
+                manager.win_fill_rect(
+                    back.color,
+                    1.0,
+                    x + 1,
+                    y + 1,
+                    x + width - 1,
+                    y + height - 1,
+                    draw_context,
+                );
             });
         }
     }
@@ -107,8 +125,12 @@ pub(super) fn compute_tab_layout(
     )
 }
 
-pub fn w3d_gadget_tab_control_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
-    draw_tabcontrol_background(window, inst_data, false);
+pub fn w3d_gadget_tab_control_draw(
+    window: &GameWindow,
+    inst_data: &WindowInstanceData,
+    draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
+) {
+    draw_tabcontrol_background(window, inst_data, false, draw_context);
 
     let widget = window.widget();
     let Some(crate::gui::game_window::WindowWidget::TabControl(tab_control)) = widget else {
@@ -143,20 +165,32 @@ pub fn w3d_gadget_tab_control_draw(window: &GameWindow, inst_data: &WindowInstan
         let y2 = y1 + tab_height;
 
         if entry.border_color != WIN_COLOR_UNDEFINED {
-            with_window_manager_ref(|manager| {
-                manager.win_open_rect(entry.border_color, 1.0, x1, y1, x2, y2);
+            crate::gui::window_draw_context::with_draw_manager(draw_context.manager, |manager| {
+                manager.win_open_rect(entry.border_color, 1.0, x1, y1, x2, y2, draw_context);
             });
         }
         if entry.color != WIN_COLOR_UNDEFINED {
-            with_window_manager_ref(|manager| {
-                manager.win_fill_rect(entry.color, 1.0, x1 + 1, y1 + 1, x2 - 1, y2 - 1);
+            crate::gui::window_draw_context::with_draw_manager(draw_context.manager, |manager| {
+                manager.win_fill_rect(
+                    entry.color,
+                    1.0,
+                    x1 + 1,
+                    y1 + 1,
+                    x2 - 1,
+                    y2 - 1,
+                    draw_context,
+                );
             });
         }
     }
 }
 
-pub fn w3d_gadget_tab_control_image_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
-    draw_tabcontrol_background(window, inst_data, true);
+pub fn w3d_gadget_tab_control_image_draw(
+    window: &GameWindow,
+    inst_data: &WindowInstanceData,
+    draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
+) {
+    draw_tabcontrol_background(window, inst_data, true, draw_context);
 
     let widget = window.widget();
     let Some(crate::gui::game_window::WindowWidget::TabControl(tab_control)) = widget else {
@@ -195,8 +229,8 @@ pub fn w3d_gadget_tab_control_image_draw(window: &GameWindow, inst_data: &Window
         let x2 = x1 + tab_width;
         let y2 = y1 + tab_height;
 
-        with_window_manager_ref(|manager| {
-            manager.win_draw_image(image, x1, y1, x2, y2, WIN_COLOR_UNDEFINED);
+        crate::gui::window_draw_context::with_draw_manager(draw_context.manager, |manager| {
+            manager.win_draw_image(image, x1, y1, x2, y2, WIN_COLOR_UNDEFINED, draw_context);
         });
     }
 }
@@ -206,6 +240,7 @@ pub(super) fn draw_combobox_title(
     x: i32,
     y: i32,
     text_colors: &crate::gui::game_window::WindowTextColors,
+    draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
 ) -> bool {
     let text = if !inst_data.text.is_empty() {
         inst_data.text.as_str()
@@ -227,7 +262,13 @@ pub(super) fn draw_combobox_title(
         if let Some(font) = inst_data.font.as_ref() {
             title.set_font(font);
         }
-        title.draw(x + 1, y, text_colors.color, text_colors.border_color);
+        title.draw(
+            x + 1,
+            y,
+            text_colors.color,
+            text_colors.border_color,
+            draw_context,
+        );
         return true;
     }
     false
@@ -249,7 +290,11 @@ pub(super) fn combo_box_title_adjustment(
     Some((y_delta, font_height + 1))
 }
 
-pub fn w3d_gadget_combo_box_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
+pub fn w3d_gadget_combo_box_draw(
+    window: &GameWindow,
+    inst_data: &WindowInstanceData,
+    draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
+) {
     let (draw_data, text_colors) =
         if inst_data.state.contains(WindowState::DISABLED) || !window.is_enabled() {
             (&inst_data.disabled_draw_data, &inst_data.disabled_text)
@@ -262,16 +307,17 @@ pub fn w3d_gadget_combo_box_draw(window: &GameWindow, inst_data: &WindowInstance
     let (mut x, mut y) = window.get_screen_position();
     let (mut width, mut height) = window.get_size();
 
-    let font_height = with_window_manager_ref(|manager| {
-        inst_data
-            .font
-            .as_ref()
-            .map(|font| manager.win_font_height(font))
-            .unwrap_or(12)
-    });
+    let font_height =
+        crate::gui::window_draw_context::with_draw_manager(draw_context.manager, |manager| {
+            inst_data
+                .font
+                .as_ref()
+                .map(|font| manager.win_font_height(font))
+                .unwrap_or(12)
+        });
 
     if let Some((y_delta, height_delta)) = combo_box_title_adjustment(
-        draw_combobox_title(inst_data, x, y, text_colors),
+        draw_combobox_title(inst_data, x, y, text_colors, draw_context),
         font_height,
         false,
     ) {
@@ -281,18 +327,38 @@ pub fn w3d_gadget_combo_box_draw(window: &GameWindow, inst_data: &WindowInstance
 
     let back = &draw_data[0];
     if back.border_color != WIN_COLOR_UNDEFINED {
-        with_window_manager_ref(|manager| {
-            manager.win_open_rect(back.border_color, 1.0, x, y, x + width, y + height);
+        crate::gui::window_draw_context::with_draw_manager(draw_context.manager, |manager| {
+            manager.win_open_rect(
+                back.border_color,
+                1.0,
+                x,
+                y,
+                x + width,
+                y + height,
+                draw_context,
+            );
         });
     }
     if back.color != WIN_COLOR_UNDEFINED {
-        with_window_manager_ref(|manager| {
-            manager.win_fill_rect(back.color, 1.0, x + 1, y + 1, x + width - 1, y + height - 1);
+        crate::gui::window_draw_context::with_draw_manager(draw_context.manager, |manager| {
+            manager.win_fill_rect(
+                back.color,
+                1.0,
+                x + 1,
+                y + 1,
+                x + width - 1,
+                y + height - 1,
+                draw_context,
+            );
         });
     }
 }
 
-pub fn w3d_gadget_combo_box_image_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
+pub fn w3d_gadget_combo_box_image_draw(
+    window: &GameWindow,
+    inst_data: &WindowInstanceData,
+    draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
+) {
     let (draw_data, text_colors) =
         if inst_data.state.contains(WindowState::DISABLED) || !window.is_enabled() {
             (&inst_data.disabled_draw_data, &inst_data.disabled_text)
@@ -306,7 +372,7 @@ pub fn w3d_gadget_combo_box_image_draw(window: &GameWindow, inst_data: &WindowIn
     let (mut width, mut height) = window.get_size();
 
     if let Some(image) = &draw_data[0].image {
-        with_window_manager_ref(|manager| {
+        crate::gui::window_draw_context::with_draw_manager(draw_context.manager, |manager| {
             manager.win_draw_image(
                 image,
                 x + inst_data.image_offset.x,
@@ -314,20 +380,22 @@ pub fn w3d_gadget_combo_box_image_draw(window: &GameWindow, inst_data: &WindowIn
                 x + inst_data.image_offset.x + width,
                 y + inst_data.image_offset.y + height,
                 WIN_COLOR_UNDEFINED,
+                draw_context,
             );
         });
     }
 
-    let font_height = with_window_manager_ref(|manager| {
-        inst_data
-            .font
-            .as_ref()
-            .map(|font| manager.win_font_height(font))
-            .unwrap_or(12)
-    });
+    let font_height =
+        crate::gui::window_draw_context::with_draw_manager(draw_context.manager, |manager| {
+            inst_data
+                .font
+                .as_ref()
+                .map(|font| manager.win_font_height(font))
+                .unwrap_or(12)
+        });
 
     if let Some((y_delta, height_delta)) = combo_box_title_adjustment(
-        draw_combobox_title(inst_data, x, y, text_colors),
+        draw_combobox_title(inst_data, x, y, text_colors, draw_context),
         font_height,
         true,
     ) {

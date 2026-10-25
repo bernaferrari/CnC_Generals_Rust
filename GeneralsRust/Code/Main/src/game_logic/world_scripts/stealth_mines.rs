@@ -564,7 +564,9 @@ impl GameLogic {
             use crate::game_logic::host_hero_abilities::{
                 is_black_lotus_template, lotus_stealth_desired,
             };
-            use crate::game_logic::host_jarmen_kell::{is_jarmen_kell_template, jarmen_stealth_desired};
+            use crate::game_logic::host_jarmen_kell::{
+                is_jarmen_kell_template, jarmen_stealth_desired,
+            };
             use crate::game_logic::host_radar_stealth_vision_residual::hero_stealth_delay_frames_residual;
             let hero_ids: Vec<ObjectId> = self
                 .objects
@@ -1005,7 +1007,7 @@ impl GameLogic {
         // wake, then re-creates them for every in-range detected target.
         {
             let scanning: Vec<ObjectId> = detectors.iter().map(|d| d.0).collect();
-            self.clear_detector_ir_grids_for(&scanning);
+            self.clear_detector_ir_grids_for(&scanning, effects);
         }
 
         // Collect stealthed targets first to avoid borrow conflicts.
@@ -1134,7 +1136,7 @@ impl GameLogic {
                     else {
                         continue;
                     };
-                    self.spawn_detector_ir_grid_at(s_pos, det_y, *det_id);
+                    self.spawn_detector_ir_grid_at(s_pos, det_y, *det_id, effects);
                 }
             }
         }
@@ -1233,7 +1235,7 @@ impl GameLogic {
             self.recalc_garrisons_after_occupant_detect_change(&touched);
         }
         let scanned: Vec<ObjectId> = detectors.iter().map(|d| d.0).collect();
-        self.play_detector_ir_scan_fx(&scanned, &spotted_detectors);
+        self.play_detector_ir_scan_fx(&scanned, &spotted_detectors, effects);
         self.apply_local_stealth_look_and_heat_vision();
         self.play_stealth_transition_sounds(&stealth_snap);
     }
@@ -1275,6 +1277,7 @@ impl GameLogic {
         &mut self,
         detector_ids: &[ObjectId],
         spotted: &std::collections::HashSet<ObjectId>,
+        particle_owner: &mut dyn crate::game_logic::combat_particles::ParticleBindingAccess,
     ) {
         use crate::game_logic::combat_particles::CombatParticleKind;
         use crate::game_logic::host_radar_stealth_vision_residual::{
@@ -1316,6 +1319,7 @@ impl GameLogic {
                 frame,
                 Some(id),
                 None,
+                particle_owner,
             );
             let _ = self.combat_particles.spawn_named(
                 CombatParticleKind::ParticleSysBone,
@@ -1324,6 +1328,7 @@ impl GameLogic {
                 frame,
                 Some(id),
                 None,
+                particle_owner,
             );
         }
     }
@@ -1360,7 +1365,11 @@ impl GameLogic {
     }
 
     /// Leftover StealthDetectorUpdate::clear_grid_particles at each scan wake.
-    fn clear_detector_ir_grids_for(&mut self, detector_ids: &[ObjectId]) {
+    fn clear_detector_ir_grids_for(
+        &mut self,
+        detector_ids: &[ObjectId],
+        particle_owner: &mut dyn crate::game_logic::combat_particles::ParticleBindingAccess,
+    ) {
         use crate::game_logic::host_radar_stealth_vision_residual::DETECTOR_IR_GRID_PARTICLE;
         let stale: Vec<u32> = self
             .combat_particles
@@ -1373,13 +1382,19 @@ impl GameLogic {
             .map(|e| e.id)
             .collect();
         for id in stale {
-            self.combat_particles.deactivate(id);
+            self.combat_particles.deactivate(id, particle_owner);
         }
     }
 
     /// C++ StealthDetectorUpdate.cpp:292-308 IR grid each DetectionRate scan.
     /// Host Y-up: snap XZ %12, height = detector Y + 17 (C++ detector z + 17).
-    fn spawn_detector_ir_grid_at(&mut self, pos: Vec3, detector_y: f32, detector_id: ObjectId) {
+    fn spawn_detector_ir_grid_at(
+        &mut self,
+        pos: Vec3,
+        detector_y: f32,
+        detector_id: ObjectId,
+        particle_owner: &mut dyn crate::game_logic::combat_particles::ParticleBindingAccess,
+    ) {
         use crate::game_logic::combat_particles::CombatParticleKind;
         use crate::game_logic::host_radar_stealth_vision_residual::DETECTOR_IR_GRID_PARTICLE;
         let grid = Vec3::new(
@@ -1394,6 +1409,7 @@ impl GameLogic {
             self.frame,
             Some(detector_id),
             None,
+            particle_owner,
         );
     }
 

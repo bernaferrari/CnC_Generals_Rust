@@ -1,23 +1,5 @@
 use super::*;
-use std::cell::RefCell;
 use std::sync::atomic::{AtomicUsize, Ordering};
-
-thread_local! {
-    static RADAR_OBJECT_OVERLAY_CACHE: RefCell<RadarObjectOverlayTextureCache> =
-        RefCell::new(RadarObjectOverlayTextureCache::default());
-    static RADAR_TERRAIN_TEXTURE_CACHE: RefCell<RadarLayerTextureCache> =
-        RefCell::new(RadarLayerTextureCache::default());
-    static RADAR_SHROUD_TEXTURE_CACHE: RefCell<RadarLayerTextureCache> =
-        RefCell::new(RadarLayerTextureCache::default());
-    static MAIN_MENU_PULSE_STATE: RefCell<MainMenuPulseState> = RefCell::new(MainMenuPulseState {
-        started_at: Instant::now(),
-        going_forward: true,
-        width: 0,
-        x: -800,
-        y: 0,
-        initialized: false,
-    });
-}
 
 /// Shipped gadget/HUD draw ops recorded even when no UIRenderer/GPU is bound.
 /// Tests drive the real W3D callbacks and assert this (or UIRenderer) is > 0.
@@ -97,34 +79,41 @@ pub(super) fn draw_visible_fill(
     height: i32,
     color: u32,
     border: Option<u32>,
+    draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
 ) {
     if width <= 0 || height <= 0 {
         return;
     }
     let rect = UIRect::new(x as f32, y as f32, width as f32, height as f32);
     let fill = win_color_to_rgba(color);
-    let queued = with_ui_renderer_mut(|renderer| {
+    let queued = draw_context.with_renderer(|renderer, display_facts| {
         renderer.draw_rect(rect, fill, 0.0);
         if let Some(border_color) = border {
             renderer.draw_rect_outline(rect, 1.0, win_color_to_rgba(border_color), 0.1);
         }
     });
     if queued.is_none() {
-        with_window_manager_ref(|manager| {
-            manager.win_fill_rect(color, 1.0, x, y, x + width, y + height);
+        crate::gui::window_draw_context::with_draw_manager(draw_context.manager, |manager| {
+            manager.win_fill_rect(color, 1.0, x, y, x + width, y + height, draw_context);
             if let Some(border_color) = border {
-                manager.win_open_rect(border_color, 1.0, x, y, x + width, y + height);
+                manager.win_open_rect(border_color, 1.0, x, y, x + width, y + height, draw_context);
             }
         });
     }
     note_shipped_ui_draw_commands(1 + usize::from(border.is_some()));
 }
 
-pub(super) fn draw_visible_label(x: i32, y: i32, text: &str, color: u32) {
+pub(super) fn draw_visible_label(
+    x: i32,
+    y: i32,
+    text: &str,
+    color: u32,
+    draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
+) {
     if text.is_empty() {
         return;
     }
-    let _ = with_ui_renderer_mut(|renderer| {
+    let _ = draw_context.with_renderer(|renderer, display_facts| {
         let _ = renderer.draw_text_simple(
             text,
             glam::Vec2::new((x + 4) as f32, (y + 2) as f32),
@@ -135,8 +124,16 @@ pub(super) fn draw_visible_label(x: i32, y: i32, text: &str, color: u32) {
     note_shipped_ui_draw_commands(1);
 }
 
-pub(super) fn draw_visible_line(color: u32, width: f32, x1: i32, y1: i32, x2: i32, y2: i32) {
-    let queued = with_ui_renderer_mut(|renderer| {
+pub(super) fn draw_visible_line(
+    color: u32,
+    width: f32,
+    x1: i32,
+    y1: i32,
+    x2: i32,
+    y2: i32,
+    draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
+) {
+    let queued = draw_context.with_renderer(|renderer, display_facts| {
         renderer.draw_line(
             glam::Vec2::new(x1 as f32, y1 as f32),
             glam::Vec2::new(x2 as f32, y2 as f32),
@@ -146,8 +143,8 @@ pub(super) fn draw_visible_line(color: u32, width: f32, x1: i32, y1: i32, x2: i3
         );
     });
     if queued.is_none() {
-        with_window_manager_ref(|manager| {
-            manager.win_draw_line(color, width, x1, y1, x2, y2);
+        crate::gui::window_draw_context::with_draw_manager(draw_context.manager, |manager| {
+            manager.win_draw_line(color, width, x1, y1, x2, y2, draw_context);
         });
     }
     note_shipped_ui_draw_commands(1);
@@ -161,23 +158,41 @@ pub(super) fn draw_named_image_or_fallback(
     width: i32,
     height: i32,
     fallback: u32,
+    draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
 ) -> bool {
     if width <= 0 || height <= 0 {
         return false;
     }
-    let found = with_window_manager_ref(|manager| {
-        if let Some(image) = manager.win_find_image(name) {
-            manager.win_draw_image(&image, x, y, x + width, y + height, WIN_COLOR_UNDEFINED);
-            true
-        } else {
-            false
-        }
-    });
+    let found =
+        crate::gui::window_draw_context::with_draw_manager(draw_context.manager, |manager| {
+            if let Some(image) = manager.win_find_image(name) {
+                manager.win_draw_image(
+                    &image,
+                    x,
+                    y,
+                    x + width,
+                    y + height,
+                    WIN_COLOR_UNDEFINED,
+                    draw_context,
+                );
+                true
+            } else {
+                false
+            }
+        });
     if found {
         note_shipped_ui_draw_commands(1);
         true
     } else {
-        draw_visible_fill(x, y, width, height, fallback, Some(FALLBACK_BORDER));
+        draw_visible_fill(
+            x,
+            y,
+            width,
+            height,
+            fallback,
+            Some(FALLBACK_BORDER),
+            draw_context,
+        );
         false
     }
 }
@@ -187,11 +202,12 @@ pub(super) fn draw_window_image_or_fallback(
     inst_data: &WindowInstanceData,
     image: Option<&crate::gui::game_window::Image>,
     fallback: u32,
+    draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
 ) {
     let (x, y) = window.get_screen_position();
     let (width, height) = window.get_size();
     if let Some(image) = image {
-        with_window_manager_ref(|manager| {
+        crate::gui::window_draw_context::with_draw_manager(draw_context.manager, |manager| {
             manager.win_draw_image(
                 image,
                 x + inst_data.image_offset.x,
@@ -199,12 +215,21 @@ pub(super) fn draw_window_image_or_fallback(
                 x + inst_data.image_offset.x + width,
                 y + inst_data.image_offset.y + height,
                 WIN_COLOR_UNDEFINED,
+                draw_context,
             );
         });
         note_shipped_ui_draw_commands(1);
     } else {
         let color = visible_enabled_color(window, inst_data, fallback);
-        draw_visible_fill(x, y, width, height, color, Some(FALLBACK_BORDER));
+        draw_visible_fill(
+            x,
+            y,
+            width,
+            height,
+            color,
+            Some(FALLBACK_BORDER),
+            draw_context,
+        );
     }
 }
 
@@ -219,15 +244,25 @@ pub(super) fn scheme_draw_image(
     start_y: i32,
     end_x: i32,
     end_y: i32,
+    draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
 ) {
-    let found = with_window_manager_ref(|manager| {
-        if let Some(image) = manager.win_find_image(image_name) {
-            manager.win_draw_image(&image, start_x, start_y, end_x, end_y, WIN_COLOR_UNDEFINED);
-            true
-        } else {
-            false
-        }
-    });
+    let found =
+        crate::gui::window_draw_context::with_draw_manager(draw_context.manager, |manager| {
+            if let Some(image) = manager.win_find_image(image_name) {
+                manager.win_draw_image(
+                    &image,
+                    start_x,
+                    start_y,
+                    end_x,
+                    end_y,
+                    WIN_COLOR_UNDEFINED,
+                    draw_context,
+                );
+                true
+            } else {
+                false
+            }
+        });
     if found {
         note_shipped_ui_draw_commands(1);
     }
@@ -235,10 +270,7 @@ pub(super) fn scheme_draw_image(
 
 /// One-time initialization for scheme draw callback.
 pub fn ensure_scheme_draw_registered() {
-    pub(super) static REGISTER_DRAW: OnceLock<()> = OnceLock::new();
-    REGISTER_DRAW.get_or_init(|| {
-        set_scheme_draw_func(scheme_draw_image);
-    });
+    // Drawing supplies its lexical renderer callback at the call site.
 }
 
 pub(super) fn authored_window_rect(window: &GameWindow) -> UIRect {
@@ -303,9 +335,14 @@ pub(super) struct RadarObjectOverlayTextureCache {
 /// cells (which also drops the wasm32 `Send`/`Sync` shims the `static Mutex`
 /// storage used to need for the `!Send` texture handle).
 pub(super) fn with_radar_object_overlay_texture_cache<R>(
-    f: impl FnOnce(&mut RadarObjectOverlayTextureCache) -> R,
+    renderer: &mut crate::gui::UIRenderer,
+    f: impl FnOnce(
+        &mut RadarObjectOverlayTextureCache,
+        &crate::gui::ui_renderer::UiTextureUpload<'_>,
+    ) -> R,
 ) -> R {
-    RADAR_OBJECT_OVERLAY_CACHE.with_borrow_mut(f)
+    let (state, upload) = renderer.native_widget_services();
+    f(&mut state.objects, &upload)
 }
 
 /// Cached device texture for one resident radar layer.
@@ -323,15 +360,19 @@ pub(super) struct RadarLayerTextureCache {
 }
 
 pub(super) fn with_radar_terrain_texture_cache<R>(
-    f: impl FnOnce(&mut RadarLayerTextureCache) -> R,
+    renderer: &mut crate::gui::UIRenderer,
+    f: impl FnOnce(&mut RadarLayerTextureCache, &crate::gui::ui_renderer::UiTextureUpload<'_>) -> R,
 ) -> R {
-    RADAR_TERRAIN_TEXTURE_CACHE.with_borrow_mut(f)
+    let (state, upload) = renderer.native_widget_services();
+    f(&mut state.terrain, &upload)
 }
 
 pub(super) fn with_radar_shroud_texture_cache<R>(
-    f: impl FnOnce(&mut RadarLayerTextureCache) -> R,
+    renderer: &mut crate::gui::UIRenderer,
+    f: impl FnOnce(&mut RadarLayerTextureCache, &crate::gui::ui_renderer::UiTextureUpload<'_>) -> R,
 ) -> R {
-    RADAR_SHROUD_TEXTURE_CACHE.with_borrow_mut(f)
+    let (state, upload) = renderer.native_widget_services();
+    f(&mut state.shroud, &upload)
 }
 
 pub(super) fn radar_map_extent_signature(map_extent: Region3D) -> [u32; 6] {
@@ -362,7 +403,11 @@ pub(super) fn region_bottom(region: &IRegion2D) -> i32 {
     region.y + region.height
 }
 
-pub(super) fn draw_button_text(window: &GameWindow, inst_data: &WindowInstanceData) {
+pub(super) fn draw_button_text(
+    window: &GameWindow,
+    inst_data: &WindowInstanceData,
+    draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
+) {
     let raw_text = if !inst_data.text.is_empty() {
         inst_data.text.as_str()
     } else {
@@ -420,9 +465,9 @@ pub(super) fn draw_button_text(window: &GameWindow, inst_data: &WindowInstanceDa
     if let Some(display) = inst_data.display_text.as_ref() {
         let mut display = display.borrow_mut();
         display.set_text(text.clone());
-        display.draw(text_x, text_y, text_color, border_color);
+        display.draw(text_x, text_y, text_color, border_color, draw_context);
     } else {
-        let _ = with_ui_renderer_mut(|renderer| {
+        let _ = draw_context.with_renderer(|renderer, display_facts| {
             let (point_size, font_name, bold) = match inst_data.font.as_ref() {
                 Some(font) => (font.size as f32, font.name.as_str(), font.bold),
                 None => (12.0, "Arial", false),
@@ -455,6 +500,7 @@ pub(super) fn draw_button_text(window: &GameWindow, inst_data: &WindowInstanceDa
 pub(super) fn draw_main_menu_button_drop_shadow_text(
     window: &GameWindow,
     inst_data: &WindowInstanceData,
+    draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
 ) {
     let raw_text = if !inst_data.text.is_empty() {
         inst_data.text.as_str()
@@ -496,11 +542,11 @@ pub(super) fn draw_main_menu_button_drop_shadow_text(
         let (text_width, text_height) = display.get_size();
         let text_x = origin_x + (width / 2) - (text_width / 2);
         let text_y = origin_y + (height / 2) - (text_height / 2);
-        display.draw(text_x, text_y, text_color, drop_color);
+        display.draw(text_x, text_y, text_color, drop_color, draw_context);
         return;
     }
 
-    let _ = with_ui_renderer_mut(|renderer| {
+    let _ = draw_context.with_renderer(|renderer, display_facts| {
         let (point_size, font_name, bold) = match inst_data.font.as_ref() {
             Some(font) => (font.size as f32, font.name.as_str(), font.bold),
             None => (12.0, "Arial", false),
@@ -538,8 +584,17 @@ pub(super) struct MainMenuPulseState {
     pub(super) initialized: bool,
 }
 
-pub(super) fn with_main_menu_pulse_state<R>(f: impl FnOnce(&mut MainMenuPulseState) -> R) -> R {
-    MAIN_MENU_PULSE_STATE.with_borrow_mut(f)
+pub(super) fn with_main_menu_pulse_state<R>(
+    renderer: Option<&mut crate::gui::UIRenderer>,
+    f: impl FnOnce(&mut MainMenuPulseState) -> R,
+) -> R {
+    match renderer {
+        Some(renderer) => {
+            let (state, _) = renderer.native_widget_services();
+            f(&mut state.pulse)
+        }
+        None => f(&mut MainMenuPulseState::default()),
+    }
 }
 
 #[inline]
@@ -547,17 +602,25 @@ pub(super) fn truncate_to_i32(value: f32) -> i32 {
     value as i32
 }
 
-pub(super) fn ui_screen_height() -> i32 {
-    with_ui_renderer_mut(|renderer| renderer.screen_size().1 as i32).unwrap_or(720)
+pub(super) fn ui_screen_height(
+    draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
+) -> i32 {
+    draw_context
+        .with_renderer(|renderer, display_facts| renderer.screen_size().1 as i32)
+        .unwrap_or(720)
 }
 
-pub(super) fn draw_main_menu_frame(window: &GameWindow, vertical_ratios: &[f32]) {
+pub(super) fn draw_main_menu_frame(
+    window: &GameWindow,
+    vertical_ratios: &[f32],
+    draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
+) {
     pub(super) const COLOR: u32 = 0xFFA7865E;
     pub(super) const COLOR_DROP: u32 = 0xFF261E15;
 
     let (pos_x, pos_y) = window.get_screen_position();
     let (size_x, size_y) = window.get_size();
-    let height = ui_screen_height();
+    let height = ui_screen_height(draw_context);
 
     let top_horizontal_1 = (pos_x, pos_y, pos_x + size_x, pos_y);
     let top_horizontal_1_drop = (pos_x, pos_y + 1, pos_x + size_x, pos_y + 1);
@@ -601,9 +664,10 @@ pub(super) fn draw_main_menu_frame(window: &GameWindow, vertical_ratios: &[f32])
         size_y,
         FALLBACK_MENU_FILL,
         Some(COLOR),
+        draw_context,
     );
 
-    with_window_manager_ref(|manager| {
+    crate::gui::window_draw_context::with_draw_manager(draw_context.manager, |manager| {
         for (x1, y1, x2, y2, width, color) in [
             (
                 top_horizontal_1.0,
@@ -670,62 +734,70 @@ pub(super) fn draw_main_menu_frame(window: &GameWindow, vertical_ratios: &[f32])
                 COLOR_DROP,
             ),
         ] {
-            manager.win_draw_line(color, width, x1, y1, x2, y2);
+            manager.win_draw_line(color, width, x1, y1, x2, y2, draw_context);
             note_shipped_ui_draw_commands(1);
         }
 
         for ratio in vertical_ratios {
             let x = pos_x + truncate_to_i32(size_x as f32 * ratio);
-            manager.win_draw_line(COLOR, 3.0, x, pos_y, x, height);
+            manager.win_draw_line(COLOR, 3.0, x, pos_y, x, height, draw_context);
             note_shipped_ui_draw_commands(1);
         }
     });
 }
 
-pub(super) fn animate_main_menu_pulse(window: &GameWindow, pulse_image_name: &str) {
-    let image = with_window_manager_ref(|manager| manager.win_find_image(pulse_image_name));
+pub(super) fn animate_main_menu_pulse(
+    window: &GameWindow,
+    pulse_image_name: &str,
+    draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
+) {
+    let image =
+        crate::gui::window_draw_context::with_draw_manager(draw_context.manager, |manager| {
+            manager.win_find_image(pulse_image_name)
+        });
 
     let (_pos_x, pos_y) = window.get_screen_position();
     let (size_x, size_y) = window.get_size();
     let pulse_w = image.as_ref().map(|img| img.width).unwrap_or(120).max(24);
     let pulse_h = image.as_ref().map(|img| img.height).unwrap_or(12).max(6);
 
-    let (draw_x, draw_y) = with_main_menu_pulse_state(|state| {
-        if !state.initialized {
-            state.width = size_x + pulse_w;
-            state.x = -800;
-            state.y = pos_y - (pulse_h / 2);
-            state.started_at = Instant::now();
-            state.going_forward = true;
-            state.initialized = true;
-        }
-
-        let elapsed = state.started_at.elapsed().as_secs_f32();
-        let percent_done = (elapsed / 10.0).clamp(0.0, 1.0);
-
-        if state.going_forward {
-            if percent_done >= 1.0 {
-                state.y = pos_y + size_y - (pulse_h / 2);
-                state.started_at = Instant::now();
-                state.going_forward = false;
-            } else {
+    let (draw_x, draw_y) =
+        with_main_menu_pulse_state(draw_context.renderer.as_deref_mut(), |state| {
+            if !state.initialized {
+                state.width = size_x + pulse_w;
+                state.x = -800;
                 state.y = pos_y - (pulse_h / 2);
-                state.x = truncate_to_i32(percent_done * state.width as f32) - pulse_w;
+                state.started_at = Instant::now();
+                state.going_forward = true;
+                state.initialized = true;
             }
-        } else if percent_done >= 1.0 {
-            state.y = pos_y - (pulse_h / 2);
-            state.started_at = Instant::now();
-            state.going_forward = true;
-        } else {
-            state.y = pos_y + size_y - (pulse_h / 2);
-            state.x = size_x - truncate_to_i32(percent_done * state.width as f32);
-        }
 
-        (state.x, state.y)
-    });
+            let elapsed = state.started_at.elapsed().as_secs_f32();
+            let percent_done = (elapsed / 10.0).clamp(0.0, 1.0);
+
+            if state.going_forward {
+                if percent_done >= 1.0 {
+                    state.y = pos_y + size_y - (pulse_h / 2);
+                    state.started_at = Instant::now();
+                    state.going_forward = false;
+                } else {
+                    state.y = pos_y - (pulse_h / 2);
+                    state.x = truncate_to_i32(percent_done * state.width as f32) - pulse_w;
+                }
+            } else if percent_done >= 1.0 {
+                state.y = pos_y - (pulse_h / 2);
+                state.started_at = Instant::now();
+                state.going_forward = true;
+            } else {
+                state.y = pos_y + size_y - (pulse_h / 2);
+                state.x = size_x - truncate_to_i32(percent_done * state.width as f32);
+            }
+
+            (state.x, state.y)
+        });
 
     if let Some(image) = image {
-        with_window_manager_ref(|manager| {
+        crate::gui::window_draw_context::with_draw_manager(draw_context.manager, |manager| {
             manager.win_draw_image(
                 &image,
                 draw_x,
@@ -733,10 +805,40 @@ pub(super) fn animate_main_menu_pulse(window: &GameWindow, pulse_image_name: &st
                 draw_x + image.width,
                 draw_y + image.height,
                 WIN_COLOR_UNDEFINED,
+                draw_context,
             );
         });
         note_shipped_ui_draw_commands(1);
     } else {
-        draw_visible_fill(draw_x, draw_y, pulse_w, pulse_h, FALLBACK_PULSE, None);
+        draw_visible_fill(
+            draw_x,
+            draw_y,
+            pulse_w,
+            pulse_h,
+            FALLBACK_PULSE,
+            None,
+            draw_context,
+        );
+    }
+}
+
+/// GPU caches and menu animation belong to the same receiving UI device.
+#[derive(Default)]
+pub(crate) struct NativeWidgetDrawState {
+    terrain: RadarLayerTextureCache,
+    objects: RadarObjectOverlayTextureCache,
+    shroud: RadarLayerTextureCache,
+    pulse: MainMenuPulseState,
+}
+impl Default for MainMenuPulseState {
+    fn default() -> Self {
+        Self {
+            started_at: Instant::now(),
+            going_forward: true,
+            width: 0,
+            x: -800,
+            y: 0,
+            initialized: false,
+        }
     }
 }

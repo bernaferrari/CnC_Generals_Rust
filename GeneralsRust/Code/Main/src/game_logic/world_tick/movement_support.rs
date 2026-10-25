@@ -3106,6 +3106,7 @@ impl GameLogic {
             self.objects.read(),
             self.frame,
             Some(&projectile_terrain),
+            &mut self.next_object_id,
         );
         self.apply_owned_projectileless_delayed_damage_with_effects(effects);
         self.execute_pending_weapon_fire_ocls_with_effects(effects);

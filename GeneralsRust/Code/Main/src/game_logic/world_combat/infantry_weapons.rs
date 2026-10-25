@@ -242,7 +242,11 @@ impl GameLogic {
     /// C++ TensileFormationUpdate residual (AvalancheChunk springy slide).
     /// C++ TensileFormationUpdate residual (AvalancheChunk springy slide).
     /// Test/host helper: ignite a flammable object residual.
-    pub fn ignite_object_fire_spread(&mut self, id: ObjectId) -> bool {
+    pub fn ignite_object_fire_spread(
+        &mut self,
+        id: ObjectId,
+        particle_owner: &mut dyn crate::game_logic::combat_particles::ParticleBindingAccess,
+    ) -> bool {
         let frame = self.frame as u32;
         let Some(obj) = self.objects.get_mut(&id) else {
             return false;
@@ -258,7 +262,7 @@ impl GameLogic {
             .map(|f| f.burning_sound_name.clone())
             .unwrap_or_default();
         self.start_fire_spread_burning_sound(id, pos, &sound);
-        self.spawn_auto_aflame_particles(id, pos);
+        self.spawn_auto_aflame_particles(id, pos, particle_owner);
         true
     }
 
@@ -2173,7 +2177,7 @@ impl GameLogic {
             self.fire_spread_reg.record_spread();
         }
         if let Some(tid) = ev.ignite_target {
-            if self.ignite_object_fire_spread(tid) {
+            if self.ignite_object_fire_spread(tid, presentation_effects) {
                 // counted inside helper
             }
         }
@@ -2319,10 +2323,10 @@ impl GameLogic {
             self.stop_fire_spread_burning_sound(id, pos, &sound);
         }
         for (id, pos) in auto_aflame {
-            self.spawn_auto_aflame_particles(id, pos);
+            self.spawn_auto_aflame_particles(id, pos, presentation_effects);
         }
         for tid in ignite_targets {
-            let _ = self.ignite_object_fire_spread(tid);
+            let _ = self.ignite_object_fire_spread(tid, presentation_effects);
         }
         // C++ FlammableUpdate.cpp:202-212 doAflameDamage DAMAGE_FLAME / DEATH_BURNED.
         for (id, dmg) in aflame_dots {

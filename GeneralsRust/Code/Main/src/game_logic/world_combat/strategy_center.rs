@@ -1431,7 +1431,11 @@ impl GameLogic {
         }
         // C++ doDisableAttack EMPSparks on disabled victims (not airborne kills).
         for vid in spark_ids {
-            self.spawn_emp_sparks_on_victim(vid, SUPW_PATRIOT_EMP_DURATION_FRAMES);
+            self.spawn_emp_sparks_on_victim(
+                vid,
+                SUPW_PATRIOT_EMP_DURATION_FRAMES,
+                presentation_effects,
+            );
         }
         if any {
             self.supw_patriot_emp_residual_grants =

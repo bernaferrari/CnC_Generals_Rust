@@ -120,7 +120,7 @@ pub mod host_temporary_weapon_behavior;
 pub(super) mod host_fx_list_die;
 
 #[path = "host_fx_list_dispatch.rs"]
-pub(super) mod host_fx_list_dispatch;
+pub(crate) mod host_fx_list_dispatch;
 pub use host_fx_list_dispatch::{
     dispatch_fx_list_at_object, dispatch_fx_list_at_pos, dispatch_fx_list_at_pos_ex,
     dispatch_fx_list_at_pos_oriented, host_to_leftover_mat4, is_authored_fx_list_name,

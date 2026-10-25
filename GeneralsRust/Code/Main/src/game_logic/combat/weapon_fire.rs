@@ -475,7 +475,9 @@ pub fn drain_pending_projectiles(
     objects: HostObjectRead<'_>,
     frame: u32,
 ) {
-    drain_pending_projectiles_with_terrain(combat, objects, frame, None);
+    let mut standalone_next = combat.next_projectile_id;
+    drain_pending_projectiles_with_terrain(combat, objects, frame, None, &mut standalone_next);
+    combat.next_projectile_id = standalone_next;
 }
 
 /// Actual Main admissions borrow the receiving view for each path calculation.
@@ -484,6 +486,7 @@ pub(in crate::game_logic) fn drain_pending_projectiles_with_terrain(
     objects: HostObjectRead<'_>,
     frame: u32,
     terrain: Option<&crate::game_logic::game_logic::FlightTerrainView<'_>>,
+    next_object_id: &mut ObjectId,
 ) {
     let pending = std::mem::take(&mut combat.pending_projectiles);
 
@@ -497,6 +500,7 @@ pub(in crate::game_logic) fn drain_pending_projectiles_with_terrain(
             None,
             crate::game_logic::projectile_definitions::ProjectileDefinitionMode::LegacyBootstrap,
             terrain,
+            next_object_id,
         ) {
             combat.projectileless_delayed.push(immediate);
         }
@@ -517,6 +521,7 @@ pub(in crate::game_logic) fn materialize_accepted_projectile(
     profile: Option<&crate::game_logic::projectile_definitions::ProjectileProfile>,
     definition_mode: crate::game_logic::projectile_definitions::ProjectileDefinitionMode,
     terrain: Option<&crate::game_logic::game_logic::FlightTerrainView<'_>>,
+    next_object_id: &mut ObjectId,
 ) -> Option<LiveProjectilelessDelayedDamage> {
     // Queue acceptance normally froze this field. Retain the parsed-only
     // fallback for legacy shadow records created before that bridge; an
@@ -705,7 +710,10 @@ pub(in crate::game_logic) fn materialize_accepted_projectile(
         reloading_clip: false,
         last_bonus_rof: 0.0,
     };
-    let pid = combat.fire_projectile_ex(
+    let id =
+        crate::game_logic::world_objects::allocate_live_object_id(next_object_id, objects, combat);
+    let pid = combat.fire_projectile_ex_with_id(
+        id,
         p.shooter_pos,
         target_pos,
         &weapon,

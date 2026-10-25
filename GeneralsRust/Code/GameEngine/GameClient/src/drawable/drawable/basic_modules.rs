@@ -75,7 +75,10 @@ impl BasicDrawable {
     // -----------------------------------------------------------------------
 
     /// Wave 980: host group/UI text residual without OBJECT_REGISTRY.
-    pub(super) fn draw_ui_text_from_presentation(&self) -> Result<(), Box<dyn Error>> {
+    pub(super) fn draw_ui_text_from_presentation(
+        &self,
+        draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
+    ) -> Result<(), Box<dyn Error>> {
         // Wave 1077: FOW fully-obscured residual hides dual presentation UI text.
         if self.drawable_fully_obscured_by_shroud {
             return Ok(());
@@ -139,6 +142,7 @@ impl BasicDrawable {
                     draw_group_info.font_is_bold,
                     draw_group_info.drop_shadow_offset_x,
                     draw_group_info.drop_shadow_offset_y,
+                    draw_context,
                 );
             }
         }
@@ -158,6 +162,7 @@ impl BasicDrawable {
                     draw_group_info.font_is_bold,
                     draw_group_info.drop_shadow_offset_x,
                     draw_group_info.drop_shadow_offset_y,
+                    draw_context,
                 );
             }
         }
@@ -214,17 +219,13 @@ impl BasicDrawable {
             total_roll: loco.acceleration_roll,
             ..Default::default()
         };
-        self.recoil_visual = crate::physics_visual::post_multiply_physics_visual_xform(
-            Matrix4::identity(),
-            xform,
-        );
+        self.recoil_visual =
+            crate::physics_visual::post_multiply_physics_visual_xform(Matrix4::identity(), xform);
     }
-
 
     pub fn recoil_visual(&self) -> Matrix4 {
         self.recoil_visual
     }
-
 
     /// Handle weapon fire FX: apply recoil, then dispatch FX to draw modules.
     /// C++ parity: `Drawable::handleWeaponFireFX` (Drawable.cpp:4216-4239).

@@ -40,7 +40,6 @@ layout_noop!(
     popup_player_info_init,
     popup_player_info_update,
     popup_player_info_shutdown,
-    network_direct_connect_init,
     network_direct_connect_update,
     network_direct_connect_shutdown,
     wol_locale_select_init,
@@ -127,3 +126,11 @@ system_ignored!(
     wol_status_menu_system,
     rc_game_details_menu_system,
 );
+
+/// Online transport is deferred; retain the receiving callback capability in offline builds.
+pub fn network_direct_connect_init(
+    _layout: &WindowLayout,
+    _user_data: Option<&dyn Any>,
+    _effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) {
+}

@@ -1274,6 +1274,7 @@ impl GameLogic {
         ui: &mut Option<&mut dyn crate::game_logic::ScriptUiEffects>,
     ) -> gamelogic::GameLogicResult<()> {
         let mut effects = crate::game_logic::ScriptPresentationEffects {
+            pristine_bones: None,
             script_events: None,
             partition: None,
             audio: None,
@@ -1423,7 +1424,9 @@ impl GameLogic {
             let Some(obj) = self.objects.get_mut(&id) else {
                 continue;
             };
-            use gamelogic::object::update::ai_update::dozer_ai_update::{DozerBuildSubTask, DozerTask};
+            use gamelogic::object::update::ai_update::dozer_ai_update::{
+                DozerBuildSubTask, DozerTask,
+            };
             let is_dozer_building = (obj.dozer_tasks.action_is_running(DozerTask::Build)
                 && obj.dozer_tasks.build_sub_task == DozerBuildSubTask::DoBuildAtDock)
                 || obj.dozer_tasks.action_is_running(DozerTask::Repair);

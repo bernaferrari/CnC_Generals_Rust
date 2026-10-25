@@ -418,6 +418,14 @@ impl ClientCampaignLaunch {
 /// Messages consist of a type, defining what the message is, and zero or more arguments
 /// of various data types. The user of a message must know how many and what type of
 /// arguments are valid for a given message type.
+/// Immutable map admission attached to one local Shell NewGame message.
+/// Integer arguments and retail wire serialization remain unchanged.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ClientShellMapLaunch {
+    pub map: String,
+    pub seed: u32,
+}
+
 #[derive(Debug, Clone)]
 pub struct GameMessage {
     message_type: GameMessageType,
@@ -425,6 +433,7 @@ pub struct GameMessage {
     player_index: i32,
     // Native client metadata; never part of message arguments or wire encoding.
     campaign_launch: Option<Box<ClientCampaignLaunch>>,
+    shell_map_launch: Option<Box<ClientShellMapLaunch>>,
 }
 
 impl GameMessage {
@@ -433,6 +442,7 @@ impl GameMessage {
             message_type,
             arguments: Vec::new(),
             campaign_launch: None,
+            shell_map_launch: None,
             player_index: 0, // Default to local player
         }
     }
@@ -442,8 +452,16 @@ impl GameMessage {
             message_type,
             arguments: Vec::new(),
             campaign_launch: None,
+            shell_map_launch: None,
             player_index,
         }
+    }
+
+    pub fn set_shell_map_launch(&mut self, descriptor: ClientShellMapLaunch) {
+        self.shell_map_launch = Some(Box::new(descriptor));
+    }
+    pub fn shell_map_launch(&self) -> Option<&ClientShellMapLaunch> {
+        self.shell_map_launch.as_deref()
     }
 
     pub fn set_campaign_launch(&mut self, descriptor: ClientCampaignLaunch) {

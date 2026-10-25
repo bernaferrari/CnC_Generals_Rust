@@ -7,7 +7,6 @@ use crate::display::image::{ensure_client_mapped_image, get_mapped_image_collect
 use crate::game_text::GameText;
 use crate::gui::UIRect;
 use crate::gui::gadgets::{InputEvent, KeyCode, KeyModifiers};
-use crate::gui::with_ui_renderer_mut;
 use crate::video_buffer::{VideoBufferHandle, VideoBufferType};
 
 use super::font::{Color, WindowInstanceData, WindowState};
@@ -56,14 +55,22 @@ pub fn plan_w3d_game_win_default_draw(
 }
 
 // Default callback implementations
-pub fn legacy_default_draw_callback(_window: &GameWindow, _inst_data: &WindowInstanceData) {
+pub fn legacy_default_draw_callback(
+    _window: &GameWindow,
+    _inst_data: &WindowInstanceData,
+    draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
+) {
     // C++ parity: GameWinDefaultDraw is a no-op. USER/[None]/W3DNoDraw windows
     // should not fall through into a Rust-only generic image draw path.
 }
 
-pub fn default_draw_callback(_window: &GameWindow, _inst_data: &WindowInstanceData) {
+pub fn default_draw_callback(
+    _window: &GameWindow,
+    _inst_data: &WindowInstanceData,
+    draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
+) {
     let video_frame = _inst_data.video_buffer.as_ref().and_then(read_video_frame);
-    let _ = with_ui_renderer_mut(|renderer| {
+    let _ = draw_context.with_renderer(|renderer, display_facts| {
         let (x, y) = _window.get_screen_position();
         let (width, height) = _window.get_size();
         let offset = _inst_data.image_offset;

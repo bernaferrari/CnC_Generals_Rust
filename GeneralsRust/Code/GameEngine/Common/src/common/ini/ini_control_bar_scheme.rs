@@ -826,6 +826,36 @@ impl ControlBarSchemeManager {
             }
         }
     }
+    pub fn draw_background_with(
+        &self,
+        offset: ICoord2D,
+        draw: &mut dyn FnMut(&str, i32, i32, i32, i32),
+    ) {
+        let Some(scheme) = self.get_active_scheme() else {
+            return;
+        };
+        // Background layers: iterate layers 5 down to 3 (matches C++ loop)
+        for layer_idx in (CONTROL_BAR_SCHEME_FOREGROUND_IMAGE_LAYERS as i32
+            ..MAX_CONTROL_BAR_SCHEME_IMAGE_LAYERS as i32)
+            .rev()
+        {
+            for image in &scheme.scheme_images {
+                if image.layer != layer_idx {
+                    continue;
+                }
+                if image.image_name.is_empty() {
+                    continue;
+                }
+                let sx = (image.position.x as f32 * self.multiplier_x) as i32 + offset.x;
+                let sy = (image.position.y as f32 * self.multiplier_y) as i32 + offset.y;
+                let ex = ((image.position.x + image.size.x) as f32 * self.multiplier_x) as i32
+                    + offset.x;
+                let ey = ((image.position.y + image.size.y) as f32 * self.multiplier_y) as i32
+                    + offset.y;
+                (draw)(&image.image_name, sx, sy, ex, ey);
+            }
+        }
+    }
 
     /// Draw the foreground layers at the given offset
     /// Layers 0-2 are foreground (matches C++ ControlBarScheme::drawForeground)
@@ -834,6 +864,33 @@ impl ControlBarSchemeManager {
             return;
         };
         let Some(draw) = SCHEME_DRAW_FUNC.get() else {
+            return;
+        };
+        // Foreground layers: iterate layers 2 down to 0 (matches C++ loop)
+        for layer_idx in (0..CONTROL_BAR_SCHEME_FOREGROUND_IMAGE_LAYERS as i32).rev() {
+            for image in &scheme.scheme_images {
+                if image.layer != layer_idx {
+                    continue;
+                }
+                if image.image_name.is_empty() {
+                    continue;
+                }
+                let sx = (image.position.x as f32 * self.multiplier_x) as i32 + offset.x;
+                let sy = (image.position.y as f32 * self.multiplier_y) as i32 + offset.y;
+                let ex = ((image.position.x + image.size.x) as f32 * self.multiplier_x) as i32
+                    + offset.x;
+                let ey = ((image.position.y + image.size.y) as f32 * self.multiplier_y) as i32
+                    + offset.y;
+                (draw)(&image.image_name, sx, sy, ex, ey);
+            }
+        }
+    }
+    pub fn draw_foreground_with(
+        &self,
+        offset: ICoord2D,
+        draw: &mut dyn FnMut(&str, i32, i32, i32, i32),
+    ) {
+        let Some(scheme) = self.get_active_scheme() else {
             return;
         };
         // Foreground layers: iterate layers 2 down to 0 (matches C++ loop)

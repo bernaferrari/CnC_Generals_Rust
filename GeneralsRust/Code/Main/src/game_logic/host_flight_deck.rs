@@ -158,7 +158,7 @@ impl GameLogic {
         self.flight_deck_adopt_unassigned_replacements(carrier_id, effects);
         self.flight_deck_update_parking_assignments(carrier_id);
         self.flight_deck_update_replacements_with_effects(carrier_id, effects);
-        self.flight_deck_update_launch_waves(carrier_id);
+        self.flight_deck_update_launch_waves(carrier_id, effects);
         self.flight_deck_update_no_attack(carrier_id);
     }
 
@@ -702,7 +702,11 @@ impl GameLogic {
     }
 
     /// C++ launch-wave + ramp + catapult (`update` `:1212-1269`).
-    fn flight_deck_update_launch_waves(&mut self, carrier_id: ObjectId) {
+    fn flight_deck_update_launch_waves(
+        &mut self,
+        carrier_id: ObjectId,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         let now = self.frame;
         let Some(metadata) = self
             .objects
@@ -726,7 +730,7 @@ impl GameLogic {
                 continue;
             };
             let Some(jet_id) = front.object_id else {
-                self.flight_deck_tick_ramp_and_catapult(carrier_id, i, now, &metadata);
+                self.flight_deck_tick_ramp_and_catapult(carrier_id, i, now, &metadata, effects);
                 continue;
             };
             let in_position = self.flight_deck_jet_in_position_to_takeoff(carrier_id, jet_id, i);
@@ -761,7 +765,7 @@ impl GameLogic {
                     }
                 }
             }
-            self.flight_deck_tick_ramp_and_catapult(carrier_id, i, now, &metadata);
+            self.flight_deck_tick_ramp_and_catapult(carrier_id, i, now, &metadata, effects);
         }
     }
 
@@ -771,6 +775,7 @@ impl GameLogic {
         runway: usize,
         now: u32,
         metadata: &crate::game_logic::FlightDeckMetadata,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
         let Some(state) = self.flight_decks.get_mut(&carrier_id) else {
             return;
@@ -791,7 +796,7 @@ impl GameLogic {
                 .get(runway)
                 .and_then(|name| name.as_deref())
                 .unwrap_or("AircraftCarrierCatapultSteam");
-            spawn_carrier_catapult_steam(system, start, start_orient);
+            spawn_carrier_catapult_steam(system, start, start_orient, effects);
         }
         if state.ramp_up[runway] && state.lower_ramp_frame[runway] <= now {
             state.ramp_up[runway] = false;
@@ -1288,21 +1293,42 @@ fn flight_deck_runway_pose(
 /// C++ `FlightDeckBehavior.cpp:1248-1257`: `TheParticleSystemManager->createParticleSystem`
 /// then `setLocalTransform(startTransform)` + `setPosition(start)`.
 /// `RunwayNCatapultSystem` is a ParticleSystemTemplate, not an FXList.
-fn spawn_carrier_catapult_steam(template: &str, start: Vec3, start_orient: f32) {
-    if template.is_empty() || template.eq_ignore_ascii_case("None") {
+fn spawn_carrier_catapult_steam(
+    template_name: &str,
+    start: Vec3,
+    start_orient: f32,
+    effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+) {
+    if template_name.is_empty() || template_name.eq_ignore_ascii_case("None") {
         return;
     }
-    let Some(manager) = gamelogic::helpers::TheParticleSystemManager::get() else {
-        return;
-    };
-    let Some(system_id) = manager.create_particle_system(Some(template)) else {
-        return;
-    };
-    // Host Y-up `(x, height, z)` → leftover/C++ Z-up `(x, y_ground, z_height)`.
-    let leftover_pos = gamelogic::common::Coord3D::new(start.x, start.z, start.y);
-    let leftover_transform = gamelogic::common::Matrix3D::from_rotation_z(start_orient);
-    manager.set_particle_system_transform(system_id, &leftover_transform);
-    manager.set_particle_system_position(system_id, &leftover_pos);
+    #[cfg(feature = "game_client")]
+    {
+        let Some(manager) =
+            crate::game_logic::combat_particles::ParticleBindingAccess::particle_systems_mut(
+                effects,
+            )
+        else {
+            return;
+        };
+        if manager.admit_effective_definitions().is_err() {
+            return;
+        }
+        let Some(template) = manager.find_template(template_name) else {
+            return;
+        };
+        let Ok(system_id) = manager.create_particle_system(&template, true) else {
+            return;
+        };
+        if let Some(system) = manager.find_particle_system_mut(system_id) {
+            // C++ order: setLocalTransform(startTransform), then setPosition(start).
+            system.set_local_transform(glam::Mat3::from_rotation_z(start_orient));
+            // Host Y-up `(x, height, z)` → C++ Z-up `(x, y_ground, z_height)`.
+            system.set_position(Vec3::new(start.x, start.z, start.y));
+        }
+    }
+    #[cfg(not(feature = "game_client"))]
+    let _ = (template_name, start, start_orient, effects);
 }
 
 #[allow(dead_code)]

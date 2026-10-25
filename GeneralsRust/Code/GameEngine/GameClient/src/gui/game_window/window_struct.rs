@@ -12,7 +12,7 @@ use crate::gui::gadgets::{
     StaticText, TabControl, TextEntry, VerticalSlider,
 };
 use crate::helpers::LiveControlBarClick;
-use crate::message_stream::game_message::GameMessage;
+use crate::message_stream::game_message::{GameMessage, GameMessageType};
 use crate::video_buffer::VideoBufferHandle;
 
 use super::callbacks::{
@@ -26,7 +26,13 @@ use super::messages::{WINDOW_ID_INVALID, WindowMessage, WindowMsgHandled, Window
 use super::payload::{WindowId, WindowMsgData};
 
 /// Callback function types
-pub type DrawCallback = Box<dyn Fn(&GameWindow, &WindowInstanceData)>;
+pub type DrawCallback = Box<
+    dyn Fn(
+        &GameWindow,
+        &WindowInstanceData,
+        &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
+    ),
+>;
 pub type TooltipCallback = Box<dyn Fn(&GameWindow, &WindowInstanceData, u32)>;
 pub type InputCallback =
     Box<dyn Fn(&GameWindow, WindowMessage, WindowMsgData, WindowMsgData) -> WindowMsgHandled>;
@@ -42,6 +48,8 @@ pub struct WindowEventEffects<'a> {
     pub(crate) campaign_manager: Option<&'a mut CampaignManager>,
     pub(crate) menu_world: Option<crate::gui::campaign_launch_host_bridge::MenuWorldFacts>,
     pub(crate) menu_host: Option<&'a mut crate::gui::campaign_launch_host_bridge::MenuHostMailbox>,
+    pub(crate) script_display:
+        Option<&'a mut crate::core::script_action_handler::ScriptDisplayReceiver>,
     pub(crate) main_menu: Option<&'a mut crate::gui::shell::main_menu::MainMenu>,
     pub(crate) pending_main_menu_actions: Vec<(
         crate::gui::shell::main_menu::PendingMainMenuAction,
@@ -49,6 +57,13 @@ pub struct WindowEventEffects<'a> {
     )>,
 }
 impl WindowEventEffects<'_> {
+    pub(crate) fn script_display(
+        &mut self,
+    ) -> &mut crate::core::script_action_handler::ScriptDisplayReceiver {
+        self.script_display
+            .as_deref_mut()
+            .expect("display callback requires its receiving presentation")
+    }
     pub(crate) fn menu_world(&self) -> crate::gui::campaign_launch_host_bridge::MenuWorldFacts {
         self.menu_world
             .expect("native menu callback requires receiving world facts")
@@ -67,6 +82,59 @@ impl WindowEventEffects<'_> {
             .as_deref()
             .is_some_and(|host| host.has_lifecycle_request())
     }
+    pub(crate) fn shell_map_settings(
+        &self,
+    ) -> Option<&crate::gui::campaign_launch_host_bridge::ShellMapSettings> {
+        self.menu_host
+            .as_deref()
+            .map(|host| host.shell_map_settings())
+    }
+
+    /// Shell.cpp queues ClearGameData before NewGame. It does not reset inline.
+    /// Keep those commands in this receiving stream and preserve their source order.
+    pub fn request_shell_map(&mut self, on: bool) {
+        use crate::gui::campaign_launch_host_bridge::MenuHostRequest;
+        // C++ explicitly does nothing while no GameLogic exists. An absent
+        // driving-world input never selects an ambient Core world.
+        let Some(facts) = self.menu_world else {
+            return;
+        };
+        let host = self
+            .menu_host
+            .as_deref_mut()
+            .expect("Shell map requires receiving client host");
+        let settings = host.shell_map_settings();
+        if !settings.initial_file.is_empty() {
+            return;
+        }
+        let enabled = on && settings.enabled;
+        let map = settings.map.clone();
+        if enabled && facts.in_shell_game {
+            return;
+        }
+        if (enabled && facts.in_game) || (!enabled && facts.in_shell_game) {
+            self.emitted_messages
+                .push(GameMessage::new(GameMessageType::ClearGameData));
+        }
+        if enabled {
+            host.request(MenuHostRequest::SeedLogic(0));
+            let mut message = GameMessage::new(GameMessageType::NewGame);
+            message.append_integer_argument(gamelogic::system::game_logic::GAME_SHELL);
+            message.set_shell_map_launch(
+                game_engine::common::message_stream::ClientShellMapLaunch { map, seed: 0 },
+            );
+            self.emitted_messages.push(message);
+        }
+        // MainMenuInit runs while Shell is borrowed. Apply its display-only
+        // tail at the existing receiving Shell callback boundary.
+        let owner = self
+            .window_manager_owner
+            .expect("Shell map requires receiving WindowManager");
+        owner.queue_shell_operation_with_effects(move |shell, effects| {
+            shell.apply_shell_map_presentation(enabled, effects);
+        });
+    }
+
     pub(crate) fn with_main_menu<R>(
         &mut self,
         operation: impl FnOnce(

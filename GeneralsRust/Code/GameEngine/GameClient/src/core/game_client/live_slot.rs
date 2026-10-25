@@ -479,7 +479,6 @@ mod live_slot_tests {
                 crate::terrain::terrain_visual::get_terrain_visual().expect("terrain lock");
             *terrain = Some(crate::terrain::terrain_visual::TerrainVisualSystem::new());
         }
-        let previous_pump = register_load_screen_presentation_pump(|| {});
         drop(old_client);
         assert!(
             crate::terrain::terrain_visual::get_terrain_visual()
@@ -487,12 +486,6 @@ mod live_slot_tests {
                 .is_some(),
             "dropping an older client must not clear the active visual"
         );
-        assert!(
-            clear_load_screen_presentation_pump().is_some(),
-            "dropping an older client must preserve the active load-screen callback"
-        );
-        let _ = register_load_screen_presentation_pump(|| {});
-
         drop(live_client);
         assert!(
             crate::terrain::terrain_visual::get_terrain_visual()
@@ -500,14 +493,6 @@ mod live_slot_tests {
                 .is_none(),
             "C++ GameClient destructor deletes its terrain visual"
         );
-        assert!(
-            clear_load_screen_presentation_pump().is_none(),
-            "the active client's callback must be removed on teardown"
-        );
-        if let Some(previous_pump) = previous_pump {
-            let _ = register_load_screen_presentation_pump(move || previous_pump());
-        }
-
         let next_client = GameClient::new().expect("next client");
         assert!(
             crate::terrain::terrain_visual::get_terrain_visual()
@@ -680,9 +665,7 @@ impl GameClient {
                 identity,
             },
             &mut self.snow,
-            NativeDrawableOwner {
-                drawables: &mut self.drawables,
-            },
+            self.drawables.borrow_native(),
         )
     }
     pub fn split_frame_snow_drawable_and_campaign(
@@ -700,11 +683,33 @@ impl GameClient {
                 identity,
             },
             &mut self.snow,
-            NativeDrawableOwner {
-                drawables: &mut self.drawables,
-            },
+            self.drawables.borrow_native(),
             &mut self.campaign_manager,
         )
+    }
+    pub fn split_frame_snow_drawable_campaign_and_hints(
+        &mut self,
+    ) -> (
+        ClientFrameWriter<'_>,
+        &mut crate::snow::SnowManager,
+        NativeDrawableOwner<'_>,
+        &mut crate::gui::campaign_manager::CampaignManager,
+        &mut crate::gui::command_hints::CommandHintState,
+    ) {
+        let identity = std::ptr::from_mut(self) as usize;
+        (
+            ClientFrameWriter {
+                frame: &mut self.frame,
+                identity,
+            },
+            &mut self.snow,
+            self.drawables.borrow_native(),
+            &mut self.campaign_manager,
+            &mut self.command_hints,
+        )
+    }
+    pub fn command_hint_snapshot(&self) -> Vec<crate::gui::command_hints::CommandHint> {
+        self.command_hints.snapshot(self.frame)
     }
     pub fn snow_mut(&mut self) -> &mut crate::snow::SnowManager {
         &mut self.snow

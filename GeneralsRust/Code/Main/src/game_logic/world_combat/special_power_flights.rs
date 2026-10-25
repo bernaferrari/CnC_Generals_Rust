@@ -608,6 +608,7 @@ impl GameLogic {
         &mut self,
         victim_id: ObjectId,
         disabled_duration_frames: u32,
+        particle_owner: &mut dyn crate::game_logic::combat_particles::ParticleBindingAccess,
     ) {
         use crate::game_logic::combat_particles::CombatParticleKind;
         use crate::game_logic::host_emp_pulse::{
@@ -656,6 +657,7 @@ impl GameLogic {
                     CombatParticleKind::DisableFx,
                     Some(lifetime),
                     is_shrouded,
+                    particle_owner,
                 )
             else {
                 continue;
@@ -665,8 +667,10 @@ impl GameLogic {
                 .get(pid)
                 .and_then(|e| e.client_system_id)
             {
-                if let Some(mgr) = gamelogic::helpers::TheParticleSystemManager::get() {
-                    mgr.set_initial_delay(client_id, leftover_emp_spark_initial_delay());
+                if let Some(manager) = particle_owner.particle_systems_mut() {
+                    if let Some(system) = manager.find_particle_system_mut(client_id) {
+                        system.set_initial_delay(leftover_emp_spark_initial_delay());
+                    }
                 }
             }
             self.hero_abilities

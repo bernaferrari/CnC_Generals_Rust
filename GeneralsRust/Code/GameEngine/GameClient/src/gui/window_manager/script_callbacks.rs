@@ -142,21 +142,32 @@ impl WindowManager {
                         }
                     }))
                 }
-                "MapSelectMenuInit" => Some(Box::new(|layout, _| {
-                    if let Err(err) = with_map_select_menu(|menu| menu.init(layout, None)) {
-                        warn!("Map select menu init failed: {}", err);
-                    }
-                })),
-                "CreditsMenuInit" => Some(Box::new(|layout, _| {
-                    if let Err(err) = with_credits_menu(|menu| menu.init(layout, None)) {
-                        warn!("Credits menu init failed: {}", err);
-                    }
-                })),
-                "LanLobbyMenuInit" => Some(Box::new(|layout, _| {
-                    if let Err(err) = with_lan_lobby_menu(|menu| menu.init(layout, None)) {
-                        warn!("LAN lobby menu init failed: {}", err);
-                    }
-                })),
+                "MapSelectMenuInit" => {
+                    layout.init_callback_with_effects = Some(Box::new(|layout, _, effects| {
+                        if let Err(err) = with_map_select_menu(|menu| {
+                            menu.init_with_effects(layout, None, effects)
+                        }) {
+                            warn!("Map select menu init failed: {}", err);
+                        }
+                    }));
+                    None
+                }
+                "CreditsMenuInit" => {
+                    layout.init_callback_with_effects = Some(Box::new(|layout, _, effects| {
+                        crate::gui::callbacks::owned_credits_menu::init(layout, effects)
+                    }));
+                    None
+                }
+                "LanLobbyMenuInit" => {
+                    layout.init_callback_with_effects = Some(Box::new(|layout, _, effects| {
+                        if let Err(err) = with_lan_lobby_menu(|menu| {
+                            menu.init_with_effects(layout, None, effects)
+                        }) {
+                            warn!("LAN lobby menu init failed: {}", err);
+                        }
+                    }));
+                    None
+                }
                 "InGamePopupMessageInit" => Some(Box::new(|layout, _| {
                     in_game_popup_message_init(layout, None);
                 })),
@@ -169,15 +180,21 @@ impl WindowManager {
                 "SaveLoadMenuInit" => Some(Box::new(|layout, data| {
                     save_load_menu_init(layout, data);
                 })),
-                "SaveLoadMenuFullScreenInit" => Some(Box::new(|layout, data| {
-                    save_load_menu_full_screen_init(layout, data);
-                })),
+                "SaveLoadMenuFullScreenInit" => {
+                    layout.init_callback_with_effects = Some(Box::new(|layout, data, effects| {
+                        save_load_menu_full_screen_init(layout, data, effects);
+                    }));
+                    None
+                }
                 "PopupReplayInit" => Some(Box::new(|layout, data| {
                     popup_replay_init(layout, data);
                 })),
-                "ReplayMenuInit" => Some(Box::new(|layout, data| {
-                    replay_menu_init(layout, data);
-                })),
+                "ReplayMenuInit" => {
+                    layout.init_callback_with_effects = Some(Box::new(|layout, data, effects| {
+                        replay_menu_init(layout, data, effects);
+                    }));
+                    None
+                }
                 "ChallengeMenuInit" => {
                     layout.init_callback_with_effects = Some(Box::new(|layout, data, effects| {
                         challenge_menu_init(layout, data, effects);
@@ -205,9 +222,12 @@ impl WindowManager {
                 "SkirmishMapSelectMenuInit" => Some(Box::new(|layout, data| {
                     skirmish_map_select_menu_init(layout, None);
                 })),
-                "SkirmishGameOptionsMenuInit" => Some(Box::new(|layout, data| {
-                    skirmish_game_options_menu_init(layout, None);
-                })),
+                "SkirmishGameOptionsMenuInit" => {
+                    layout.init_callback_with_effects = Some(Box::new(|layout, data, effects| {
+                        skirmish_game_options_menu_init(layout, None, effects);
+                    }));
+                    None
+                }
                 "LanMapSelectMenuInit" => Some(Box::new(|layout, data| {
                     lan_map_select_menu_init(layout, None);
                 })),
@@ -229,9 +249,12 @@ impl WindowManager {
                 "GameInfoWindowInit" => Some(Box::new(|layout, data| {
                     game_info_window_init(layout, None);
                 })),
-                "NetworkDirectConnectInit" => Some(Box::new(|layout, data| {
-                    network_direct_connect_init(layout, data);
-                })),
+                "NetworkDirectConnectInit" => {
+                    layout.init_callback_with_effects = Some(Box::new(|layout, data, effects| {
+                        network_direct_connect_init(layout, data, effects);
+                    }));
+                    None
+                }
                 "WOLLoginMenuInit" => Some(Box::new(|layout, data| {
                     wol_login_menu_init(layout, data);
                 })),
@@ -319,11 +342,12 @@ impl WindowManager {
                     }));
                     None
                 }
-                "CreditsMenuUpdate" => Some(Box::new(|layout, _| {
-                    if let Err(err) = with_credits_menu(|menu| menu.update(layout, None)) {
-                        warn!("Credits menu update failed: {}", err);
-                    }
-                })),
+                "CreditsMenuUpdate" => {
+                    layout.update_callback_with_effects = Some(Box::new(|layout, _, effects| {
+                        crate::gui::callbacks::owned_credits_menu::update(layout, effects)
+                    }));
+                    None
+                }
                 "LanLobbyMenuUpdate" => Some(Box::new(|layout, _| {
                     if let Err(err) = with_lan_lobby_menu(|menu| menu.update(layout, None)) {
                         warn!("LAN lobby menu update failed: {}", err);
@@ -456,11 +480,12 @@ impl WindowManager {
                         warn!("Map select menu shutdown failed: {}", err);
                     }
                 })),
-                "CreditsMenuShutdown" => Some(Box::new(|layout, data| {
-                    if let Err(err) = with_credits_menu(|menu| menu.shutdown(layout, None)) {
-                        warn!("Credits menu shutdown failed: {}", err);
-                    }
-                })),
+                "CreditsMenuShutdown" => {
+                    layout.shutdown_callback_with_effects = Some(Box::new(|layout, _, effects| {
+                        crate::gui::callbacks::owned_credits_menu::shutdown(layout, effects)
+                    }));
+                    None
+                }
                 "LanLobbyMenuShutdown" => Some(Box::new(|layout, data| {
                     if let Err(err) = with_lan_lobby_menu(|menu| menu.shutdown(layout, None)) {
                         warn!("LAN lobby menu shutdown failed: {}", err);
@@ -758,9 +783,7 @@ impl WindowManager {
                     );
                 }
                 "CreditsMenuSystem" => {
-                    window.set_system_callback(|window, msg, data1, data2| {
-                        with_credits_menu(|menu| menu.system(window, msg, data1, data2))
-                    });
+                    window.set_system_callback(crate::gui::callbacks::owned_credits_menu::system);
                 }
                 "LanLobbyMenuSystem" => {
                     window.set_system_callback(|window, msg, data1, data2| {
@@ -1218,9 +1241,9 @@ impl WindowManager {
                     );
                 }
                 "CreditsMenuInput" => {
-                    window.set_input_callback(|window, msg, data1, data2| {
-                        with_credits_menu(|menu| menu.input(window, msg, data1, data2))
-                    });
+                    window.set_input_callback_with_message_sink(
+                        crate::gui::callbacks::owned_credits_menu::input,
+                    );
                 }
                 "LanLobbyMenuInput" => {
                     window.set_input_callback(|window, msg, data1, data2| {
@@ -1585,8 +1608,8 @@ impl WindowManager {
                     window.set_draw_callback(ime_candidate_main_draw);
                 }
                 "IMECandidateTextAreaDraw" => {
-                    window.set_draw_callback(|window, inst| {
-                        ime_candidate_text_area_draw(window, inst)
+                    window.set_draw_callback(|window, inst, draw_context| {
+                        ime_candidate_text_area_draw(window, inst, draw_context)
                     });
                 }
                 other => {

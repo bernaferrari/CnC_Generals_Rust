@@ -1,13 +1,8 @@
 use crate::game_logic::victory::VictorySummary;
-use anyhow::{anyhow, Result};
-use log::warn;
+use anyhow::{Result, anyhow};
 use std::collections::VecDeque;
-use std::sync::{Arc, Mutex, OnceLock};
 
-// THREAD: process-wide handoff from the game thread to the results UI.
-static GAME_RESULTS_QUEUE: OnceLock<Arc<Mutex<GameResultsQueue>>> = OnceLock::new();
-
-/// Thread-safe FIFO queue for end-of-game summaries.
+/// FIFO of offline end-of-game summaries owned by one engine subsystem.
 #[derive(Debug, Default)]
 pub struct GameResultsQueue {
     initialized: bool,
@@ -78,168 +73,76 @@ impl GameResultsQueue {
     }
 }
 
-pub fn init_game_results_queue() -> Result<Arc<Mutex<GameResultsQueue>>> {
-    let queue = GAME_RESULTS_QUEUE
-        .get_or_init(|| Arc::new(Mutex::new(GameResultsQueue::new())))
-        .clone();
-    {
-        let mut guard = queue
-            .lock()
-            .map_err(|err| anyhow!("Failed to lock GameResultsQueue during init: {err}"))?;
-        guard.init();
-    }
-    Ok(queue)
-}
-
-pub fn get_game_results_queue() -> Option<Arc<Mutex<GameResultsQueue>>> {
-    GAME_RESULTS_QUEUE.get().cloned()
-}
-
-pub fn queue_victory_summary(summary: VictorySummary) -> Result<()> {
-    let Some(queue) = get_game_results_queue() else {
-        return Err(anyhow!("GameResultsQueue is not initialized"));
-    };
-    let mut guard = queue
-        .lock()
-        .map_err(|err| anyhow!("Failed to lock GameResultsQueue: {err}"))?;
-    guard.enqueue(summary)
-}
-
-pub fn dequeue_victory_summary() -> Result<Option<VictorySummary>> {
-    let Some(queue) = get_game_results_queue() else {
-        return Err(anyhow!("GameResultsQueue is not initialized"));
-    };
-    let mut guard = queue
-        .lock()
-        .map_err(|err| anyhow!("Failed to lock GameResultsQueue: {err}"))?;
-    guard.dequeue()
-}
-
-pub fn reset_game_results_queue() -> Result<()> {
-    let Some(queue) = get_game_results_queue() else {
-        return Ok(());
-    };
-    let _guard = queue
-        .lock()
-        .map_err(|err| anyhow!("Failed to lock GameResultsQueue: {err}"))?;
-    Ok(())
-}
-
-pub fn shutdown_game_results_queue() -> Result<()> {
-    let Some(queue) = get_game_results_queue() else {
-        return Ok(());
-    };
-    let mut guard = queue
-        .lock()
-        .map_err(|err| anyhow!("Failed to lock GameResultsQueue: {err}"))?;
-    guard.shutdown();
-    Ok(())
-}
-
-pub fn queue_len() -> Option<usize> {
-    let queue = get_game_results_queue()?;
-    let guard = queue.lock().ok()?;
-    Some(guard.len())
-}
-
-pub fn queue_is_empty() -> Option<bool> {
-    let queue = get_game_results_queue()?;
-    let guard = queue.lock().ok()?;
-    Some(guard.is_empty())
-}
-
-pub fn log_queue_unavailable(context: &str) {
-    warn!("GameResultsQueue unavailable while {context}");
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn sample_summary(name: &str) -> VictorySummary {
-        let mut summary = VictorySummary::new();
-        summary.mission_name = Some(name.to_string());
-        summary
+    fn summary(name: &str) -> VictorySummary {
+        let mut value = VictorySummary::new();
+        value.mission_name = Some(name.into());
+        value
     }
-
-    fn reset_singleton() {
-        if let Some(queue) = get_game_results_queue() {
-            if let Ok(mut guard) = queue.lock() {
-                guard.shutdown();
-            }
-        }
-        let _ = reset_game_results_queue();
-    }
-
     #[test]
     fn game_results_queue_preserves_fifo_order() {
-        reset_singleton();
-        let queue = init_game_results_queue().unwrap();
-
-        {
-            let mut guard = queue.lock().unwrap_or_else(|e| e.into_inner());
-            guard.enqueue(sample_summary("First")).unwrap();
-            guard.enqueue(sample_summary("Second")).unwrap();
-        }
-
-        let first = dequeue_victory_summary().unwrap().unwrap();
-        let second = dequeue_victory_summary().unwrap().unwrap();
-
-        assert_eq!(first.mission_name.as_deref(), Some("First"));
-        assert_eq!(second.mission_name.as_deref(), Some("Second"));
+        let mut queue = GameResultsQueue::new();
+        queue.init();
+        queue.enqueue(summary("First")).unwrap();
+        queue.enqueue(summary("Second")).unwrap();
+        assert_eq!(
+            queue.dequeue().unwrap().unwrap().mission_name.as_deref(),
+            Some("First")
+        );
+        assert_eq!(
+            queue.dequeue().unwrap().unwrap().mission_name.as_deref(),
+            Some("Second")
+        );
+        assert!(queue.dequeue().unwrap().is_none());
     }
-
     #[test]
     fn game_results_queue_reset_preserves_pending_entries() {
-        reset_singleton();
-        let queue = init_game_results_queue().unwrap();
-
-        {
-            let mut guard = queue.lock().unwrap_or_else(|e| e.into_inner());
-            guard.enqueue(sample_summary("Reset Me")).unwrap();
-            assert_eq!(guard.len(), 1);
-        }
-
-        reset_game_results_queue().unwrap();
-
-        {
-            let guard = queue.lock().unwrap_or_else(|e| e.into_inner());
-            assert_eq!(guard.len(), 1);
-            assert!(!guard.is_empty());
-            assert_eq!(
-                guard.peek().unwrap().unwrap().mission_name.as_deref(),
-                Some("Reset Me")
-            );
-        }
+        let mut queue = GameResultsQueue::new();
+        queue.init();
+        queue.enqueue(summary("Reset Me")).unwrap();
+        queue.reset();
+        assert_eq!(queue.len(), 1);
+        assert!(!queue.is_empty());
+        assert_eq!(
+            queue.peek().unwrap().unwrap().mission_name.as_deref(),
+            Some("Reset Me")
+        );
     }
-
     #[test]
     fn game_results_queue_shutdown_disables_enqueue_until_reinit() {
-        reset_singleton();
-        let queue = init_game_results_queue().unwrap();
-
-        {
-            let mut guard = queue.lock().unwrap_or_else(|e| e.into_inner());
-            guard.enqueue(sample_summary("Before Shutdown")).unwrap();
-        }
-
-        shutdown_game_results_queue().unwrap();
-
-        {
-            let mut guard = queue.lock().unwrap_or_else(|e| e.into_inner());
-            assert!(!guard.is_initialized());
-            assert!(guard.enqueue(sample_summary("After Shutdown")).is_err());
-        }
-
-        init_game_results_queue().unwrap();
-
-        {
-            let mut guard = queue.lock().unwrap_or_else(|e| e.into_inner());
-            guard.enqueue(sample_summary("After Reinit")).unwrap();
-            assert_eq!(
-                guard.dequeue().unwrap().unwrap().mission_name.as_deref(),
-                Some("After Reinit")
-            );
-        }
+        let mut queue = GameResultsQueue::new();
+        assert!(queue.enqueue(summary("Before Init")).is_err());
+        queue.init();
+        queue.enqueue(summary("Before Shutdown")).unwrap();
+        queue.shutdown();
+        assert!(!queue.is_initialized());
+        assert!(queue.enqueue(summary("After Shutdown")).is_err());
+        assert!(queue.dequeue().is_err());
+        queue.init();
+        assert!(queue.is_empty());
+        queue.enqueue(summary("After Reinit")).unwrap();
+        assert_eq!(
+            queue.dequeue().unwrap().unwrap().mission_name.as_deref(),
+            Some("After Reinit")
+        );
+    }
+    #[test]
+    fn peer_lifecycle_never_changes_pending_results() {
+        let mut first = GameResultsQueue::new();
+        first.init();
+        first.enqueue(summary("First")).unwrap();
+        let mut peer = GameResultsQueue::new();
+        peer.init();
+        peer.enqueue(summary("Peer")).unwrap();
+        peer.reset();
+        peer.shutdown();
+        peer.init();
+        drop(peer);
+        assert_eq!(
+            first.dequeue().unwrap().unwrap().mission_name.as_deref(),
+            Some("First")
+        );
     }
 }

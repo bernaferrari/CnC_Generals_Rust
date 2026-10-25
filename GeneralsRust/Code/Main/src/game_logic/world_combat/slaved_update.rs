@@ -284,14 +284,34 @@ impl GameLogic {
         let close = distance < 144.0;
         if close {
             match state.repair_state {
-                Repair::None => self.slave_set_repair(id, master, data, state, Repair::Ready),
-                Repair::Ready | Repair::Extending if state.frames_to_wait == 0 => {
-                    self.slave_set_repair(id, master, data, state, Repair::Welding)
-                }
+                Repair::None => self.slave_set_repair(
+                    id,
+                    master,
+                    data,
+                    state,
+                    Repair::Ready,
+                    presentation_effects,
+                ),
+                Repair::Ready | Repair::Extending if state.frames_to_wait == 0 => self
+                    .slave_set_repair(
+                        id,
+                        master,
+                        data,
+                        state,
+                        Repair::Welding,
+                        presentation_effects,
+                    ),
                 Repair::Unpacking | Repair::Welding | Repair::Retracting
                     if state.frames_to_wait == 0 =>
                 {
-                    self.slave_set_repair(id, master, data, state, Repair::Ready)
+                    self.slave_set_repair(
+                        id,
+                        master,
+                        data,
+                        state,
+                        Repair::Ready,
+                        presentation_effects,
+                    )
                 }
                 _ => {}
             }
@@ -313,7 +333,7 @@ impl GameLogic {
             self.store_slave_state(id, state.clone());
             self.slave_move(id, goal);
             if state.frames_to_wait == 0 {
-                self.slave_set_repair(id, master, data, state, Repair::Ready);
+                self.slave_set_repair(id, master, data, state, Repair::Ready, presentation_effects);
             }
         }
         if close && state.repairing {
@@ -356,6 +376,7 @@ impl GameLogic {
         data: &Data,
         state: &mut State,
         desired: Repair,
+        particle_owner: &mut dyn crate::game_logic::combat_particles::ParticleBindingAccess,
     ) {
         if state.repair_state == desired {
             return;
@@ -440,6 +461,7 @@ impl GameLogic {
                 self.frame,
                 Some(id),
                 None,
+                particle_owner,
             );
             let event =
                 crate::game_logic::host_economy_log::resolve_misc_audio_event("RepairSparks");

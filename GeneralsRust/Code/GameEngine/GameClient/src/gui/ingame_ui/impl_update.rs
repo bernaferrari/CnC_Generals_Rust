@@ -809,7 +809,10 @@ impl InGameUI {
         self.update_named_timers();
         self.update_military_subtitle();
         self.handle_build_placements();
-        self.update_and_draw_world_animations();
+        let renderer = self.renderer.clone();
+        if let Ok(mut renderer) = renderer.write() {
+            self.update_and_draw_world_animations(&mut renderer);
+        }
     }
 
     pub fn post_draw(&mut self, frame: u32) {

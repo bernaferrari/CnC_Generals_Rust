@@ -172,6 +172,7 @@ impl GameLogic {
         ui: &mut Option<&mut dyn crate::game_logic::ScriptUiEffects>,
     ) -> bool {
         let mut effects = crate::game_logic::ScriptPresentationEffects {
+            pristine_bones: None,
             script_events: None,
             partition: None,
             audio: None,

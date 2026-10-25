@@ -4,6 +4,18 @@
 //! driving application lends this interface during execution instead of storing
 //! window resources or selecting another session's UI inside GameLogic.
 pub(crate) trait ScriptUiEffects {
+    /// Observation comes from the receiving ClientFrameWriter at each admitted
+    /// step; no UI capability means headless execution creates no visual hint.
+    fn admit_command_hint_client_frame(&mut self, _frame: Option<u32>) {}
+    fn command_hint(
+        &mut self,
+        _attack: bool,
+        _position: glam::Vec3,
+        _source: u32,
+        _eligible: bool,
+    ) {
+    }
+
     /// Apply `setCampaignVictorious` to this invocation's receiving application.
     /// UI-less paths reject the operation instead of mutating ambient state.
     fn set_campaign_victorious(&mut self, _victorious: bool) -> gamelogic::GameLogicResult<()> {

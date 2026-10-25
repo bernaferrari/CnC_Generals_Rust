@@ -79,8 +79,15 @@ impl GameLogic {
             None,
             None,
             None,
-            report_progress,
+            |value, phase| {
+                report_progress(value, phase);
+                Ok(())
+            },
         )
+        .unwrap_or_else(|error| {
+            log::error!("Map foundation progress failed: {error}");
+            false
+        })
     }
 
     pub(in super::super) fn sync_legacy_runtime_from_fast_chunky_with_water_delivery<F>(
@@ -92,12 +99,12 @@ impl GameLogic {
         mut native: Option<&mut dyn crate::game_logic::NativeMapAdmission>,
         metadata: Option<&super::script_loader::MapMetadata>,
         mut report_progress: F,
-    ) -> bool
+    ) -> Result<bool, String>
     where
-        F: FnMut(f32, &str),
+        F: FnMut(f32, &str) -> Result<(), String>,
     {
         let sync_started = Instant::now();
-        report_progress(0.41, "Fast sync heightmap");
+        report_progress(0.41, "Fast sync heightmap")?;
         log::info!(
             "Fast legacy runtime sync started for '{}'",
             map_path.display()
@@ -118,7 +125,7 @@ impl GameLogic {
             map_path.display(),
             sync_started.elapsed().as_secs_f32()
         );
-        report_progress(0.415, "Fast sync waypoints");
+        report_progress(0.415, "Fast sync waypoints")?;
 
         let (waypoints, waypoint_links) =
             match super::script_loader::parse_runtime_waypoints_from_chunky(chunky) {
@@ -139,7 +146,7 @@ impl GameLogic {
             waypoint_links.len(),
             sync_started.elapsed().as_secs_f32()
         );
-        report_progress(0.42, "Fast sync bridges");
+        report_progress(0.42, "Fast sync bridges")?;
         let bridges = match super::script_loader::parse_runtime_bridges_from_chunky(chunky) {
             Ok(value) => value,
             Err(err) => {
@@ -151,7 +158,7 @@ impl GameLogic {
                 Vec::new()
             }
         };
-        report_progress(0.425, "Fast sync water");
+        report_progress(0.425, "Fast sync water")?;
         let water_height =
             match super::script_loader::parse_runtime_water_height_from_chunky(chunky) {
                 Ok(value) => value,
@@ -177,7 +184,7 @@ impl GameLogic {
         };
         self.apply_world_info_weather(map_weather);
 
-        report_progress(0.43, "Fast sync polygons");
+        report_progress(0.43, "Fast sync polygons")?;
         let polygon_triggers =
             match super::script_loader::parse_runtime_polygon_triggers_from_chunky(chunky) {
                 Ok(value) => value,
@@ -212,7 +219,7 @@ impl GameLogic {
             super::script_loader::install_runtime_polygon_triggers(&mut terrain, &polygon_triggers);
         } // Release before progress can dispatch authored load-screen callbacks.
 
-        report_progress(0.435, "Fast sync roads");
+        report_progress(0.435, "Fast sync roads")?;
         self.runtime_road_segments =
             match super::script_loader::parse_runtime_roads_from_chunky(chunky) {
                 Ok(value) => value,
@@ -226,7 +233,7 @@ impl GameLogic {
                 }
             };
         self.runtime_terrain_texture_classes.clear();
-        report_progress(0.44, "Fast sync sides");
+        report_progress(0.44, "Fast sync sides")?;
         let sides_data = match super::script_loader::parse_runtime_sides_from_chunky(chunky) {
             Ok(value) => value,
             Err(err) => {
@@ -245,7 +252,7 @@ impl GameLogic {
             sides_data.team_dicts.len(),
             sync_started.elapsed().as_secs_f32()
         );
-        report_progress(0.445, "Fast sync terrain write");
+        report_progress(0.445, "Fast sync terrain write")?;
 
         let has_terrain_payload = heightmap.is_some()
             || water_height.is_some()
@@ -291,7 +298,7 @@ impl GameLogic {
                 let mut terrain = terrain_owner.write().unwrap_or_else(|e| e.into_inner());
                 if let Err(error) = self.admit_map_bridge_geometry(&mut terrain, map_data) {
                     log::error!("Cannot admit receiving terrain: {error}");
-                    return false;
+                    return Ok(false);
                 }
                 // C++ GameLogic.cpp:1629 TheTerrainLogic->newMap after load.
                 // The effective definitions are borrowed only during local
@@ -320,10 +327,10 @@ impl GameLogic {
         if let Some(native) = native.as_mut() {
             if let Err(error) = native.prepare(self, metadata) {
                 log::error!("Receiving native terrain admission failed: {error}");
-                return false;
+                return Ok(false);
             }
         }
-        report_progress(0.45, "Fast sync sides write");
+        report_progress(0.45, "Fast sync sides write")?;
 
         // The fast parser owns its decoded side/team dictionaries instead of
         // going through LogicMapLoader's global SidesList callback. Retain the
@@ -334,7 +341,7 @@ impl GameLogic {
             Some(chunky),
             difficulty,
         ) {
-            return false;
+            return Ok(false);
         }
         let script_lists = self.loaded_script_lists.clone();
         let prepared_team_definitions = self.sync_legacy_sides_list_from_dicts(
@@ -351,7 +358,7 @@ impl GameLogic {
         if !self.uses_lobby_side_foundation() {
             if let Err(error) = self.admit_direct_map_players_from_prepared_sides() {
                 log::error!("Receiving authored Player admission failed: {error}");
-                return false;
+                return Ok(false);
             }
         }
         self.sync_legacy_player_list_from_sides();
@@ -364,7 +371,7 @@ impl GameLogic {
             &prepared_team_definitions,
             &mut effects,
         ) {
-            return false;
+            return Ok(false);
         }
         if !self.uses_lobby_side_foundation() {
             let mut ids = self.players.keys().copied().collect::<Vec<_>>();
@@ -374,7 +381,7 @@ impl GameLogic {
             }
         }
         if !self.finish_map_script_foundation() {
-            return false;
+            return Ok(false);
         }
 
         let waypoint_count = self
@@ -406,7 +413,7 @@ impl GameLogic {
             team_count,
             sync_started.elapsed().as_secs_f32()
         );
-        true
+        Ok(true)
     }
 
     // Temporary compatibility publication while actual native ScoreScreen,

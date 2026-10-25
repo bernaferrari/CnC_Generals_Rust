@@ -105,23 +105,22 @@ impl GameClient {
             .iter()
             .map(|bone| bone.as_str().to_owned())
             .collect();
-        let assets = crate::render_bridge::THE_RENDER_BRIDGE
-            .lock()
-            .map_err(|error| {
-                GameClientError::SubsystemError(format!("native view assets unavailable: {error}"))
-            })?;
-        let mut manager_guard = crate::effects::particle_manager::get_particle_system_manager_mut()
-            .map_err(|error| {
-                GameClientError::SubsystemError(format!(
-                    "native view particle owner unavailable: {error}"
-                ))
-            })?;
-        let manager = manager_guard.as_mut().ok_or_else(|| {
-            GameClientError::SubsystemError("native view particle owner absent".into())
-        })?;
-        self.run_native_views_with_keys(
+        let assets = self.render_bridge.asset_manager();
+        self.drawables
+            .particles
+            .admit_effective_definitions()
+            .map_err(|error| GameClientError::SubsystemError(error.to_string()))?;
+        let (state, manager) = (&mut self.drawables.state, &mut self.drawables.particles);
+        NativeRenderReceiver::new(
+            state,
+            &mut self.native_particle_capability_gaps,
+            &self.subsystem_manager,
+            self.frame,
+            self.local_player_id,
+        )
+        .run_native_views_with_keys(
             manager,
-            assets.as_ref().map(|bridge| bridge.asset_manager()),
+            Some(assets),
             &public_bones,
             frames,
             materials,
@@ -132,10 +131,6 @@ impl GameClient {
         )?;
         // FX retirement can reenter drawable teardown and its particle owner.
         // Preserve the prior boundary: no service guard crosses those callbacks.
-        drop(manager_guard);
-        drop(assets);
-        crate::effects::update_tracer_fx(frames.logic_frame);
-        crate::effects::update_ray_effects(frames.logic_frame);
         Ok(())
     }
 
@@ -196,43 +191,16 @@ impl GameClient {
         lifecycle: Option<&mut crate::effects::particle_manager::NativeParticleObjectLifecycle<'_>>,
         mut keys: Option<&mut game_engine::common::name_key_generator::NameKeyNamespace>,
     ) -> GameClientResult<()> {
-        if frames.client_frame != self.frame {
-            return Err(GameClientError::InvalidOperation(
-                "native view Client frame mismatch".into(),
-            ));
-        }
-        if phase.draw_drawables {
-            for view in views {
-                view.validate()?;
-            }
-            let facts = self.resolve_material_draw_facts(materials)?;
-            self.native_particle_capability_gaps.clear();
-            for view in views {
-                // Preserve view order and repeated eligibility across views.
-                // Each receiver completes material -> installed Draw before
-                // visiting the next receiver; this is not a union or GPU cull.
-                for id in self.native_roster_for_view(view)? {
-                    self.advance_material_drawable(id, &facts)?;
-                    self.prepare_native_drawable_particles_with_assets_and_keys(
-                        id,
-                        particles,
-                        assets,
-                        public_bones,
-                        frames.client_frame,
-                        keys.as_deref_mut(),
-                    )?;
-                }
-            }
-        }
-        // The receiving particle owner advances once, after ALL view work.
-        self.run_native_draw_particle_phase_with_object_lifecycle(
+        self.native_render_receiver().run_native_views_with_keys(
             particles,
             assets,
             public_bones,
             frames,
-            false,
-            phase.update_particles,
+            materials,
+            views,
+            phase,
             lifecycle,
+            keys,
         )
     }
 }

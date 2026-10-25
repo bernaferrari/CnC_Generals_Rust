@@ -31,7 +31,7 @@ impl GameLogic {
         self.sync_host_dock_queue_cancellations();
         self.apply_pending_host_dock_cancellation_effects();
         self.update_leftover_laser_guided_channels_with_effects(dt, effects);
-        self.expire_leftover_disable_fx();
+        self.expire_leftover_disable_fx(effects);
         // C++ OpenContain::update zeros m_playerEnteredMask every logic frame
         // after scripts have already sampled last frame's enter pulse.
         self.clear_open_contain_player_who_entered();
@@ -2856,7 +2856,7 @@ impl GameLogic {
                                 crate::game_logic::host_hero_abilities::LOTUS_DISABLE_FX_PARTICLE,
                                 crate::game_logic::host_hero_abilities::DISABLE_VEHICLE_HACK_DURATION_FRAMES,
                                 do_fx,
-                            );
+                             effects);
                             if let Some(mut ch) =
                                 self.hero_abilities.leftover_channel(object_id).copied()
                             {

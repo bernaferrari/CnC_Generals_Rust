@@ -65,7 +65,10 @@ fn native_entry_rejects_missing_radius_owner_before_time_or_callbacks() {
         None,
         None,
         ScriptPresentationEffects::default(),
-        |_| callback_count += 1,
+        |_| {
+            callback_count += 1;
+            None
+        },
         |_| {},
     );
     assert!(matches!(result, NativeTickProgress::Failed(_)));

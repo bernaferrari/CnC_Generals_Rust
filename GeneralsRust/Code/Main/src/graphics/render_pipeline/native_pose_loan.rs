@@ -210,10 +210,28 @@ impl NativeInstalledPoseLoan<'_> {
             .map_err(|_| NativeCameraPoseUnavailable::UnsupportedSourceControls)?
             .ok_or(NativeCameraPoseUnavailable::UnsupportedSourceControls)?;
         self.validate_binding(identity, key, first.module_index)?;
+        self.receive_current_bone_source(source, key, graphics)?;
+        self.installed_camera_pose_for(identity, key, first.module_index, bone_name)
+    }
+    #[cfg(feature = "game_client")]
+    fn receive_current_bone_source(
+        &mut self,
+        source: &crate::game_logic::NativeSlaveSource,
+        key: game_client::core::PresentationDirectDrawableBindingKey,
+        graphics: &mut GraphicsSystem,
+    ) -> Result<Vec<u32>, NativeCameraPoseUnavailable> {
+        let identity = &source.identity;
         let models = source
             .receiving_draw_models
             .object_draws(source.condition_bits)
             .map_err(|_| NativeCameraPoseUnavailable::UnsupportedSourceControls)?;
+        if let Some(first) = models.first() {
+            self.validate_binding(identity, key, first.module_index)?;
+        } else {
+            self.validate_object_retirement(identity, key)
+                .map_err(|_| NativeCameraPoseUnavailable::UnadmittedDrawableLifecycle)?;
+        }
+        let module_indices = models.iter().map(|model| model.module_index).collect();
         // Querying can consume current dirty state, but cannot invent the
         // constructor/receiving association that C++ already created.
         if models.iter().any(|model| {
@@ -250,8 +268,150 @@ impl NativeInstalledPoseLoan<'_> {
                 .ok_or(NativeCameraPoseUnavailable::UnadmittedDrawableLifecycle)?;
             state.mark_native_condition(source.condition_bits, model);
         }
-        self.sample_camera_pose(identity, key, first.module_index, bone_name, graphics)
+        self.consume_native_camera_conditions(
+            crate::game_logic::ObjectId(identity.object_id()),
+            graphics,
+        );
+        Ok(module_indices)
     }
+
+    /// C++ Drawable::getCurrentClientBonePositions (Drawable.cpp776-801) and
+    /// W3DModelDraw::getCurrentBonePositions (W3DModelDraw.cpp3545-3622).
+    /// Returns scaled model-local C++ Z-up transforms from the actual installed
+    /// HTree. A real missing bone/model contributes zero; unsupported/stale
+    /// native state is an error and never becomes an inline test-bone fallback.
+    #[cfg(feature = "game_client")]
+    pub(crate) fn sample_current_client_bone_transforms(
+        &mut self,
+        source: &crate::game_logic::NativeSlaveSource,
+        key: game_client::core::PresentationDirectDrawableBindingKey,
+        bone_prefix: &str,
+        start_index: i32,
+        max_bones: usize,
+        graphics: &mut GraphicsSystem,
+    ) -> Result<Vec<Mat4>, NativeCameraPoseUnavailable> {
+        if max_bones == 0 || bone_prefix.is_empty() {
+            return Ok(Vec::new());
+        }
+        if !source.mesh_scale.is_finite() {
+            return Err(NativeCameraPoseUnavailable::UnsupportedSourceControls);
+        }
+        let identity = &source.identity;
+        let modules = self.receive_current_bone_source(source, key, graphics)?;
+        let mut transforms = Vec::new();
+        for module in modules {
+            if transforms.len() >= max_bones {
+                break;
+            }
+            self.validate_binding(identity, key, module)?;
+            let state = self
+                .drawable_visual_states
+                .get_mut(&(identity.object_id(), module))
+                .ok_or(NativeCameraPoseUnavailable::UnadmittedDrawableLifecycle)?;
+            if !state.native_source_supported || !state.native_condition_supported {
+                return Err(NativeCameraPoseUnavailable::UnsupportedSourceControls);
+            }
+            // The 64-bone clamp belongs to each ObjectDrawInterface, while
+            // Drawable passes its remaining output capacity to the next module.
+            let limit = (max_bones - transforms.len()).min(64);
+            let end_index = if start_index == 0 { 0 } else { 99 };
+            let mut count = 0;
+            for index in start_index..=end_index {
+                let name = if index == 0 {
+                    bone_prefix.to_owned()
+                } else {
+                    format!("{bone_prefix}{index:02}")
+                };
+                let local =
+                    match state.installed_client_bone_transform(self.animation_sync_ms, &name) {
+                        Ok(Some(local)) => local,
+                        Ok(None) | Err(NativeCameraPoseUnavailable::NoRenderObject) => break,
+                        Err(error) => return Err(error),
+                    };
+                // C++ removes the RenderObj world transform then applies the
+                // Drawable instance scale. The source hierarchy is already Z-up.
+                transforms.push(Mat4::from_scale(Vec3::splat(source.mesh_scale)) * local);
+                count += 1;
+                if count >= limit {
+                    break;
+                }
+            }
+        }
+        Ok(transforms)
+    }
+
+    /// C++ pristine queries select the logical condition afresh, independently
+    /// of the installed transition/current animation. Model definitions are
+    /// immutable; this never replaces or advances the live RenderObj pose.
+    #[cfg(feature = "game_client")]
+    pub(crate) fn sample_pristine_client_bone_transforms(
+        &mut self,
+        source: &crate::game_logic::NativeSlaveSource,
+        key: game_client::core::PresentationDirectDrawableBindingKey,
+        bone_prefix: &str,
+        start_index: i32,
+        max_bones: usize,
+        graphics: &mut GraphicsSystem,
+    ) -> Result<Vec<Mat4>, NativeCameraPoseUnavailable> {
+        use NativeCameraPoseUnavailable::*;
+        if max_bones == 0 || bone_prefix.is_empty() {
+            return Ok(Vec::new());
+        }
+        if !source.mesh_scale.is_finite() || start_index < 0 {
+            return Err(UnsupportedSourceControls);
+        }
+        let models = source
+            .receiving_draw_models
+            .object_draws(source.condition_bits)
+            .map_err(|_| UnsupportedSourceControls)?;
+        self.validate_object_retirement(&source.identity, key)
+            .map_err(|_| UnadmittedDrawableLifecycle)?;
+        let mut transforms = Vec::new();
+        for selected in models {
+            if transforms.len() >= max_bones {
+                break;
+            }
+            self.validate_binding(&source.identity, key, selected.module_index)?;
+            if selected.model_key.is_empty() {
+                continue;
+            }
+            let mut budget = usize::MAX;
+            let model = match RenderPipeline::ensure_render_model_loaded(
+                &mut self.failed_model_resolutions,
+                graphics,
+                &source.template_name,
+                &selected.model_key,
+                true,
+                &mut budget,
+            ) {
+                RenderModelLoadResult::Ready(model) => model,
+                _ => return Err(UnadmittedDrawableLifecycle),
+            };
+            // validateStuff always chooses the first authored animation and
+            // frame zero (or the explicit PRISTINE_BONE_POS_IN_FINAL_FRAME).
+            let binding = match selected.animations.first() {
+                Some(animation) => Some(
+                    RenderPipeline::cached_draw_animation_binding(&model, &animation.name)
+                        .ok_or(UnsupportedSourceControls)?,
+                ),
+                None => None,
+            };
+            transforms.extend(
+                crate::assets::pristine_bones::model_pristine_bone_transforms(
+                    &model,
+                    &selected,
+                    binding.as_ref(),
+                    source.mesh_scale,
+                    bone_prefix,
+                    start_index,
+                    max_bones - transforms.len(),
+                )
+                .map_err(|_| UnsupportedSourceControls)?,
+            );
+        }
+        Ok(transforms)
+    }
+
     /// Validate the exact receiving generation BEFORE consuming dirty state.
     /// Dirty selection/restore and the lazy HTree query execute at this call.
     #[cfg(feature = "game_client")]

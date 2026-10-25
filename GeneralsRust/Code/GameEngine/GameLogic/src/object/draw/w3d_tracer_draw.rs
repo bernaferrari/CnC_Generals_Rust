@@ -150,6 +150,43 @@ impl W3DTracerDraw {
         self.line_end
     }
 
+    /// Actual installed Line3D state at the receiving Draw phase. This
+    /// operation neither publishes a scene line nor selects a GameLogic.
+    pub fn draw_geometry_at_frame(
+        &mut self,
+        transform_mtx: &Matrix3D,
+        current_frame: u32,
+    ) -> SceneLineDesc {
+        // C++ creates Line3D once with local (0,0,0)→(length,0,0) and
+        // `Set_Transform(*transformMtx)`. Later draws only mutate that Line3D
+        // transform (not the incoming drawable matrix).
+        if self.line_transform.is_none() {
+            self.line_transform = Some(*transform_mtx);
+        }
+
+        self.apply_expiration_decay(current_frame);
+
+        // C++ `pos.Translate(Vector3(m_speedInDistPerFrame, 0, 0))` on the Line3D
+        // transform — local X, including the first draw.
+        if self.speed_in_dist_per_frame != 0.0 {
+            if let Some(ref mut xf) = self.line_transform {
+                *xf = *xf
+                    * Matrix3D::from_translation(glam::Vec3::new(
+                        self.speed_in_dist_per_frame,
+                        0.0,
+                        0.0,
+                    ));
+            }
+        }
+
+        let xf = self.line_transform.unwrap_or(*transform_mtx);
+        let (start, end) = Self::world_line_from_transform(&xf, self.length);
+        self.line_start = start;
+        self.line_end = end;
+        self.current_pos = start;
+        self.current_geometry()
+    }
+
     fn sync_scene_visibility(&mut self, visible: bool) {
         let Some(id) = self.scene_line_id else {
             return;
@@ -200,8 +237,8 @@ impl W3DTracerDraw {
         )
     }
 
-    fn submit_or_update_line(&mut self) {
-        let desc = SceneLineDesc {
+    pub fn current_geometry(&self) -> SceneLineDesc {
+        SceneLineDesc {
             start: game_engine::common::system::geometry::Coord3D::new(
                 self.line_start.x,
                 self.line_start.y,
@@ -221,8 +258,11 @@ impl W3DTracerDraw {
             tile_factor: 0.0,
             visible: !self.hidden && !self.fully_obscured_by_shroud,
             scroll_rate: 0.0,
-        };
+        }
+    }
 
+    fn submit_or_update_line(&mut self) {
+        let desc = self.current_geometry();
         match self.scene_line_id {
             None => {
                 self.scene_line_id = submit_scene_line(0, &desc);
@@ -265,33 +305,7 @@ impl DrawModule for W3DTracerDraw {
         transform_mtx: &Matrix3D,
         time: &crate::helpers::DrawTimeObservation,
     ) {
-        // C++ creates Line3D once with local (0,0,0)→(length,0,0) and
-        // `Set_Transform(*transformMtx)`. Later draws only mutate that Line3D
-        // transform (not the incoming drawable matrix).
-        if self.line_transform.is_none() {
-            self.line_transform = Some(*transform_mtx);
-        }
-
-        self.apply_expiration_decay(crate::helpers::TheGameLogic::get_frame());
-
-        // C++ `pos.Translate(Vector3(m_speedInDistPerFrame, 0, 0))` on the Line3D
-        // transform — local X, including the first draw.
-        if self.speed_in_dist_per_frame != 0.0 {
-            if let Some(ref mut xf) = self.line_transform {
-                *xf = *xf
-                    * Matrix3D::from_translation(glam::Vec3::new(
-                        self.speed_in_dist_per_frame,
-                        0.0,
-                        0.0,
-                    ));
-            }
-        }
-
-        let xf = self.line_transform.unwrap_or(*transform_mtx);
-        let (start, end) = Self::world_line_from_transform(&xf, self.length);
-        self.line_start = start;
-        self.line_end = end;
-        self.current_pos = start;
+        self.draw_geometry_at_frame(transform_mtx, crate::helpers::TheGameLogic::get_frame());
         self.submit_or_update_line();
     }
 

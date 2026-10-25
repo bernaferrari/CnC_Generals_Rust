@@ -193,7 +193,10 @@ pub trait Drawable: std::fmt::Debug + Send + Sync + DrawableDowncast {
     fn set_template_name(&mut self, _name: Option<String>) {}
 
     /// Render UI overlays/text associated with this drawable (default noop)
-    fn draw_ui_text(&self) -> Result<(), Box<dyn Error>> {
+    fn draw_ui_text(
+        &self,
+        draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
+    ) -> Result<(), Box<dyn Error>> {
         Ok(())
     }
 

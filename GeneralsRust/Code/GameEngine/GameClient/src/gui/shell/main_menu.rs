@@ -705,7 +705,7 @@ impl MainMenu {
         log::info!("MainMenuInit: Initializing main menu");
 
         let mut state = &mut self.state;
-        log::info!("MainMenuInit: state write lock acquired");
+        log::info!("MainMenuInit: receiving state borrowed");
 
         if let Some(global) = get_global_data() {
             global.write().break_the_movie = false;
@@ -715,7 +715,7 @@ impl MainMenu {
         // C++ MainMenuInit calls TheShell->showShellMap while TheShell may already
         // be on the stack for push/do_push. Use the re-entrancy-safe helper so we
         // never panic on RefCell double-borrow during smoke-test menu entry.
-        crate::gui::shell::base::show_shell_map_if_available(true);
+        crate::gui::shell::base::show_shell_map_if_available(true, effects);
         log::info!("MainMenuInit: show_shell_map_if_available done");
         set_main_menu_cursor_visibility(true, effects);
         log::info!("MainMenuInit: cursor visibility set");
@@ -2349,7 +2349,7 @@ impl MainMenu {
         &mut self,
         effects: &mut WindowEventEffects<'_>,
     ) -> MainMenuResult<()> {
-        let new_disp_settings = self.rollback_resolution_state();
+        let new_disp_settings = self.rollback_resolution_state(effects);
 
         if let Some(global) = get_global_data() {
             let mut global = global.write();
@@ -2396,12 +2396,16 @@ impl MainMenu {
         Ok(())
     }
 
-    fn rollback_resolution_state(&mut self) -> DisplaySettings {
+    fn rollback_resolution_state(
+        &mut self,
+        effects: &mut WindowEventEffects<'_>,
+    ) -> DisplaySettings {
         let mut state = &mut self.state;
 
         // C++ DeclineResolution: TheDisplay->setDisplayMode(old settings).
         let old = state.old_disp_settings;
         let _ = crate::core::script_action_handler::apply_script_display_mode(
+            effects.script_display(),
             old.x_res.max(0) as u32,
             old.y_res.max(0) as u32,
             old.bit_depth.max(0) as u32,

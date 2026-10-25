@@ -276,8 +276,15 @@ fn switch_local_player_between_sides(side_a: &str, side_b: &str) -> bool {
     }
 }
 
-fn stop_movies_for_sound_toggle() {
-    let _ = stop_script_display_movie();
+fn stop_movies_for_sound_toggle(
+    dispatch: &mut game_engine::common::message_stream::WindowInputDispatchFn<'_>,
+    emitted: &mut Vec<GameMessage>,
+) {
+    let _ = dispatch_display_input(
+        game_engine::common::message_stream::DisplayInputAction::StopMovie,
+        dispatch,
+        emitted,
+    );
     with_window_video_manager(|manager| manager.stop_all_movies());
 }
 

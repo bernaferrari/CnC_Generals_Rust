@@ -103,6 +103,15 @@ pub trait MenuCallbacks {
         user_data: Option<&mut dyn std::any::Any>,
     ) -> Result<(), Box<dyn std::error::Error>>;
 
+    fn shutdown_with_effects(
+        &mut self,
+        layout: &WindowLayout,
+        user_data: Option<&mut dyn std::any::Any>,
+        _effects: &mut WindowEventEffects<'_>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        self.shutdown(layout, user_data)
+    }
+
     /// Handle system messages
     fn system(
         &mut self,
@@ -265,8 +274,8 @@ impl SinglePlayerMenu {
         self.button_pushed = false;
         self.is_shutting_down = false;
 
-        if effects.is_some() {
-            show_shell_map_if_available(true);
+        if let Some(effects) = effects.as_deref_mut() {
+            show_shell_map_if_available(true, effects);
         }
         layout.hide(false);
 
@@ -1124,7 +1133,6 @@ impl OptionsMenu {
         terrain_lod: Option<&mut dyn FnMut(i32)>,
         effects: &mut WindowEventEffects<'_>,
     ) -> bool {
-        crate::display::display_fx::install_default_display_gamma_hook();
         let owns_camera_preferences = owned_scroll.is_some();
         let (
             old_resolution,
@@ -1414,9 +1422,12 @@ impl OptionsMenu {
                 global.writable.enable_dynamic_lod = !no_dynamic_lod;
             }
         }
-        crate::display::display_fx::set_gamma_state(display_gamma, 0.0, 1.0);
-        let _ =
-            crate::core::script_action_handler::set_script_display_gamma(display_gamma, 0.0, 1.0);
+        let _ = crate::core::script_action_handler::set_script_display_gamma(
+            effects.script_display(),
+            display_gamma,
+            0.0,
+            1.0,
+        );
 
         if detail_index == CUSTOMDETAIL {
             if let Some(terrain) = terrain_lod {
@@ -1431,7 +1442,6 @@ impl OptionsMenu {
 
         game_engine::common::game_lod::set_static_lod_from_string(detail_name);
         game_engine::common::game_lod::set_ideal_static_lod_from_string(detail_name);
-        crate::gui::options_host_bridge::apply_display_gamma(display_gamma, 0.0, 1.0, false);
 
         let audio = TheAudio;
         // C++ OptionsMenu.cpp:1188/1214/1215/1235 AudioAffect_*|SystemSetting.
@@ -1463,6 +1473,7 @@ impl OptionsMenu {
             };
             // C++ OptionsMenu.cpp:1062 `if (TheDisplay->setDisplayMode(...))`.
             if !crate::core::script_action_handler::apply_script_display_mode(
+                effects.script_display(),
                 resolution.0.max(0) as u32,
                 resolution.1.max(0) as u32,
                 32,
@@ -1969,6 +1980,15 @@ impl MenuCallbacks for MapSelectMenu {
         layout: &WindowLayout,
         _user_data: Option<&mut dyn std::any::Any>,
     ) -> Result<(), Box<dyn std::error::Error>> {
+        Err("receiving menu lifecycle effects are required".into())
+    }
+
+    fn init_with_effects(
+        &mut self,
+        layout: &WindowLayout,
+        _user_data: Option<&mut dyn std::any::Any>,
+        effects: &mut WindowEventEffects<'_>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         info!(
             "Initializing Map Select Menu for layout: {}",
             layout.get_filename()
@@ -1978,7 +1998,7 @@ impl MenuCallbacks for MapSelectMenu {
         self.show_solo_maps = true;
         self.is_shutting_down = false;
         self.start_game = false;
-        show_shell_map_if_available(true);
+        show_shell_map_if_available(true, effects);
         layout.hide(false);
 
         self.parent_id = Self::name_to_id("MapSelectMenu.wnd:MapSelectMenuParent");
@@ -2278,9 +2298,12 @@ impl CreditsMenu {
         }
     }
 
-    pub fn draw(&mut self) {
+    pub fn draw(
+        &mut self,
+        draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
+    ) {
         if let Some(credits) = self.credits.as_mut() {
-            credits.draw();
+            credits.draw(draw_context);
         }
     }
 }
@@ -2297,12 +2320,21 @@ impl MenuCallbacks for CreditsMenu {
         layout: &WindowLayout,
         _user_data: Option<&mut dyn std::any::Any>,
     ) -> Result<(), Box<dyn std::error::Error>> {
+        Err("receiving menu lifecycle effects are required".into())
+    }
+
+    fn init_with_effects(
+        &mut self,
+        layout: &WindowLayout,
+        _user_data: Option<&mut dyn std::any::Any>,
+        effects: &mut WindowEventEffects<'_>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         info!(
             "Initializing Credits Menu for layout: {}",
             layout.get_filename()
         );
 
-        show_shell_map_if_available(false);
+        show_shell_map_if_available(false, effects);
 
         let mut credits = crate::credits::CreditsManager::new();
         if let Err(err) = credits.load_from_path("Data/INI/Credits.ini") {
@@ -2354,7 +2386,13 @@ impl MenuCallbacks for CreditsMenu {
         }
 
         if let Some(credits) = self.credits.as_mut() {
-            credits.update();
+            credits.update(
+                _layout
+                    .windows()
+                    .first()
+                    .map(|window| window.borrow().get_size())
+                    .unwrap_or((0, 0)),
+            );
             if credits.is_finished() {
                 queue_shell_pop();
             }
@@ -2369,6 +2407,15 @@ impl MenuCallbacks for CreditsMenu {
         layout: &WindowLayout,
         _user_data: Option<&mut dyn std::any::Any>,
     ) -> Result<(), Box<dyn std::error::Error>> {
+        Err("receiving menu lifecycle effects are required".into())
+    }
+
+    fn shutdown_with_effects(
+        &mut self,
+        layout: &WindowLayout,
+        _user_data: Option<&mut dyn std::any::Any>,
+        effects: &mut WindowEventEffects<'_>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         info!(
             "Shutting down Credits Menu for layout: {}",
             layout.get_filename()
@@ -2378,7 +2425,7 @@ impl MenuCallbacks for CreditsMenu {
             credits.reset();
         }
 
-        show_shell_map_if_available(true);
+        show_shell_map_if_available(true, effects);
         layout.hide(true);
         queue_shell_shutdown_complete(false);
 
@@ -2450,7 +2497,16 @@ impl MenuCallbacks for LanLobbyMenu {
         layout: &WindowLayout,
         _user_data: Option<&mut dyn std::any::Any>,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        crate::gui::callbacks::lan_lobby_menu::lan_lobby_init(layout);
+        Err("receiving LAN menu effects are required".into())
+    }
+
+    fn init_with_effects(
+        &mut self,
+        layout: &WindowLayout,
+        _user_data: Option<&mut dyn std::any::Any>,
+        effects: &mut WindowEventEffects<'_>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        crate::gui::callbacks::lan_lobby_menu::lan_lobby_init(layout, effects);
         self.initialized = true;
         Ok(())
     }
@@ -2706,7 +2762,6 @@ fn parse_resolution_pref(raw: Option<&str>) -> Option<(i32, i32)> {
 
 /// C++ Accept: `TheDisplay->setGamma` + flat Options.ini + live volumes.
 pub fn apply_options_menu_like_cpp(effects: &mut WindowEventEffects<'_>) -> bool {
-    crate::display::display_fx::install_default_display_gamma_hook();
     with_options_menu_mut(|menu| {
         if !menu.initialized {
             menu.init_ids();
@@ -2725,7 +2780,6 @@ pub fn apply_options_from_host(
     apply: HostOptionsApply,
     effects: &mut WindowEventEffects<'_>,
 ) -> bool {
-    crate::display::display_fx::install_default_display_gamma_hook();
     HOST_OPTIONS_APPLY.with(|slot| {
         *slot.borrow_mut() = Some(apply);
     });
@@ -3041,7 +3095,6 @@ mod options_os_wnd_tests {
             crate::test_process::TestProcess::Child => {}
         }
         // C++ OptionsMenu.cpp:1180-1262 MusicVolume 0-100 + TheDisplay->setGamma.
-        crate::display::display_fx::set_gamma_state(1.0, 0.0, 1.0);
         let mut apply = HostOptionsApply::default();
         apply.music_volume = 80;
         apply.gamma_slider = 100;
@@ -3050,7 +3103,6 @@ mod options_os_wnd_tests {
         let gamma = crate::display::display_fx::gamma_state();
         assert!((gamma.gamma - 2.0).abs() < 0.01);
         assert!((runtime_global_data::read().music_volume_factor - 0.8).abs() < 0.01);
-        crate::display::display_fx::set_gamma_state(1.0, 0.0, 1.0);
     }
 
     #[test]

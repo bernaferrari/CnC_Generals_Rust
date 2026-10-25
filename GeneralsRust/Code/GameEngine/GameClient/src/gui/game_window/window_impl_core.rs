@@ -1642,6 +1642,10 @@ impl GameWindow {
         self.user_data.as_ref()?.downcast_ref::<T>()
     }
 
+    pub fn get_user_data_mut<T: 'static>(&mut self) -> Option<&mut T> {
+        self.user_data.as_mut()?.downcast_mut::<T>()
+    }
+
     /// Set GUI-editor-only metadata for this window.
     pub fn set_edit_data(&mut self, edit_data: Option<GameWindowEditData>) {
         self.edit_data = edit_data;
@@ -1660,7 +1664,11 @@ impl GameWindow {
     /// Set draw callback
     pub fn set_draw_callback<F>(&mut self, callback: F)
     where
-        F: Fn(&GameWindow, &WindowInstanceData) + 'static,
+        F: Fn(
+                &GameWindow,
+                &WindowInstanceData,
+                &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
+            ) + 'static,
     {
         self.callbacks.owned_radar_draw = false;
         self.callbacks.draw = Some(Box::new(callback));
@@ -1674,6 +1682,7 @@ impl GameWindow {
     pub(crate) fn draw_with_radar(
         &self,
         context: Option<&crate::gui::w3d_gadget_draw::RadarDrawContext<'_>>,
+        draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
     ) {
         if self.callbacks.owned_radar_draw && !self.is_hidden() {
             if let Some(context) = context {
@@ -1681,15 +1690,24 @@ impl GameWindow {
                     self,
                     &self.inst_data,
                     context,
+                    draw_context,
                 );
                 return;
             }
         }
-        self.draw();
+        self.draw(draw_context);
     }
 
     /// Get draw callback.
-    pub fn get_draw_callback(&self) -> Option<&dyn Fn(&GameWindow, &WindowInstanceData)> {
+    pub fn get_draw_callback(
+        &self,
+    ) -> Option<
+        &dyn Fn(
+            &GameWindow,
+            &WindowInstanceData,
+            &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
+        ),
+    > {
         self.callbacks.draw.as_deref()
     }
 
@@ -1845,10 +1863,10 @@ impl GameWindow {
     }
 
     /// Draw the window
-    pub fn draw(&self) {
+    pub fn draw(&self, draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>) {
         if !self.is_hidden() {
             if let Some(draw_callback) = &self.callbacks.draw {
-                draw_callback(self, &self.inst_data);
+                draw_callback(self, &self.inst_data, draw_context);
             }
         }
     }

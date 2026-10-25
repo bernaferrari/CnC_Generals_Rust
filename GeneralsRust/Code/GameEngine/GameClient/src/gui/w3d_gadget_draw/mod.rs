@@ -20,7 +20,6 @@ pub(in crate::gui::w3d_gadget_draw) use crate::gui::game_window::{
     resolve_window_text,
 };
 pub(in crate::gui::w3d_gadget_draw) use crate::gui::shell::get_shell;
-pub(in crate::gui::w3d_gadget_draw) use crate::gui::ui_globals::with_ui_renderer_mut;
 pub(in crate::gui::w3d_gadget_draw) use crate::gui::ui_renderer::UIRect;
 pub(in crate::gui::w3d_gadget_draw) use crate::gui::window_manager::{
     with_window_manager, with_window_manager_ref,

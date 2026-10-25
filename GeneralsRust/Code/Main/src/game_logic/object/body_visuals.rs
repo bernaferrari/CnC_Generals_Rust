@@ -271,6 +271,16 @@ impl Object {
                         &self.template_name,
                     );
             }
+            let retired = self
+                .bone_fx_damage
+                .as_mut()
+                .map(|bfx| bfx.take_running_particle_systems())
+                .unwrap_or_else(
+                    crate::game_logic::host_bone_fx_damage::BoneParticleRetirement::empty,
+                );
+            if !retired.is_empty() {
+                body_fx(self, BodyStateFx::BoneParticleRetirement(retired), source);
+            }
             if let Some(bfx) = self.bone_fx_damage.as_mut() {
                 bfx.stamp_last_damage_type(self.last_damage_info_type);
                 let _ =

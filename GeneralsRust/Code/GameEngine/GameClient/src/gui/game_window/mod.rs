@@ -63,7 +63,7 @@ mod prelude {
         MAX_DRAW_DATA, TOOLTIP_DELAY, TOOLTIP_MAX_LEN, UIRect, WindowLayout,
         display_string::DisplayStringHandle,
         font::{FontDesc, get_font_library},
-        get_display_string_manager, with_ui_renderer_mut, with_window_manager_ref,
+        get_display_string_manager, with_window_manager_ref,
     };
 }
 

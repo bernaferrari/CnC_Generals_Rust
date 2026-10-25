@@ -63,9 +63,26 @@ pub fn take_emitted_messages() -> Vec<GameMessage> {
     EMITTED_MESSAGES.with(|slot| slot.borrow_mut().drain(..).collect())
 }
 
+/// A source translator's synchronous operation on its receiving presentation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DisplayInputAction {
+    IsMoviePlaying,
+    StopMovie,
+    ToggleLetterbox,
+    ToggleMovieCapture,
+    ToggleDebug(DisplayDebugKind),
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DisplayDebugKind {
+    Statistics,
+    Particles,
+    Audio,
+}
+
 /// One native window input operation requested by the WindowTranslator.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WindowInputDispatch {
+    Display(DisplayInputAction),
     Mouse {
         message: u32,
         x: i32,
@@ -82,6 +99,7 @@ pub enum WindowInputDispatch {
 /// Result returned by the receiving WindowManager for one input operation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WindowInputDispatchResult {
+    Display(bool),
     NotUsed,
     Used,
 }
@@ -108,6 +126,14 @@ pub enum PropagationProgress {
 pub type WindowInputDispatchFn<'a> =
     dyn FnMut(WindowInputDispatch, &mut Vec<GameMessage>) -> Option<WindowInputDispatchResult> + 'a;
 
+/// Read-only facts from the client driving this input operation.
+/// A fresh standalone stream starts at frame zero with an inactive Shell.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct TranslatorClientObservation {
+    pub frame: u32,
+    pub shell_active: bool,
+}
+
 /// Trait for game message translators
 pub trait GameMessageTranslator: Send + Sync {
     /// Translate a game message and return what to do with it
@@ -117,6 +143,7 @@ pub trait GameMessageTranslator: Send + Sync {
     fn translate_game_message_with_context(
         &mut self,
         msg: &GameMessage,
+        _client: TranslatorClientObservation,
         _dispatch_window_input: &mut WindowInputDispatchFn<'_>,
         _emitted_messages: &mut Vec<GameMessage>,
     ) -> GameMessageDisposition {
@@ -358,6 +385,7 @@ impl MessageStream {
             dispatch_window_input,
             None,
             &mut || false,
+            &mut || Some(TranslatorClientObservation::default()),
         )? {
             PropagationProgress::Complete(messages) => Ok(messages),
             PropagationProgress::HostBoundary(_) => {
@@ -371,6 +399,7 @@ impl MessageStream {
         dispatch_window_input: &mut WindowInputDispatchFn<'_>,
         cursor: Option<PropagationCursor>,
         should_yield: &mut dyn FnMut() -> bool,
+        observe_client: &mut dyn FnMut() -> Option<TranslatorClientObservation>,
     ) -> Result<PropagationProgress, Box<dyn std::error::Error>> {
         if cursor.is_none() {
             let _ = take_emitted_messages();
@@ -396,10 +425,17 @@ impl MessageStream {
                 let Some(message) = self.base.messages.iter().nth(idx).cloned() else {
                     break;
                 };
+                let client = observe_client().ok_or_else(|| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::WouldBlock,
+                        "message translation requires its released receiving Shell",
+                    )
+                })?;
                 let mut emitted = Vec::new();
                 let disposition = match translator.write() {
                     Ok(mut translator) => translator.translate_game_message_with_context(
                         &message,
+                        client,
                         dispatch_window_input,
                         &mut emitted,
                     ),
@@ -877,7 +913,12 @@ mod tests {
         stream.append_message(GameMessageType::Invalid);
         stream.append_message(GameMessageType::LogicCRC(7));
         let cursor = match stream
-            .propagate_messages_until_host_boundary(&mut |_, _| None, None, &mut || true)
+            .propagate_messages_until_host_boundary(
+                &mut |_, _| None,
+                None,
+                &mut || true,
+                &mut || Some(TranslatorClientObservation::default()),
+            )
             .unwrap()
         {
             PropagationProgress::HostBoundary(cursor) => cursor,
@@ -894,6 +935,7 @@ mod tests {
                 &mut |_, _| None,
                 Some(cursor.after_world_reset()),
                 &mut || false,
+                &mut || Some(TranslatorClientObservation::default()),
             )
             .unwrap();
         let PropagationProgress::Complete(messages) = complete else {

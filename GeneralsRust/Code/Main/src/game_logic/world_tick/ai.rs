@@ -20,6 +20,9 @@ impl GameLogic {
         dt: f32,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<()> {
+        #[cfg(feature = "game_client")]
+        let fx_operation_environment = self.observe_object_fx_environment();
+
         use crate::ai_decisions::*;
         self.flush_countermeasure_flare_spawns_with_effects(presentation_effects);
         // Wave 806: under coupled shadow, lifetime owned by GW expire + logs.
@@ -64,6 +67,8 @@ impl GameLogic {
                 // C++ HeightDieUpdate.cpp:132-195 getGroundHeight + structures.
                 self.height_die_terrain_at(pos, &name, ground)
             };
+            #[cfg(feature = "game_client")]
+            let fx_operation_environment = self.observe_object_fx_environment();
             if let Some(obj) = self.objects.get_mut(&object_id) {
                 // CPP Drawable.cpp:1174-1204 advances opacity once per frame.
                 obj.tick_terrain_decal_fade();
@@ -125,6 +130,8 @@ impl GameLogic {
                         presentation_effects,
                     )?;
                 }
+                #[cfg(feature = "game_client")]
+                let fx_operation_environment = self.observe_object_fx_environment();
                 let Some(obj) = self.objects.get_mut(&object_id) else {
                     continue;
                 };
@@ -150,6 +157,8 @@ impl GameLogic {
                         presentation_effects,
                     );
                 }
+                #[cfg(feature = "game_client")]
+                let fx_operation_environment = self.observe_object_fx_environment();
                 let Some(obj) = self.objects.get_mut(&object_id) else {
                     continue;
                 };
@@ -179,19 +188,22 @@ impl GameLogic {
                         )
                         .is_some_and(|result| result.destroyed());
                 }
+                #[cfg(feature = "game_client")]
+                let fx_operation_environment = self.observe_object_fx_environment();
                 let Some(obj) = self.objects.get_mut(&object_id) else {
                     continue;
                 };
                 // C++ MissileLauncherBuildingUpdate::update (ready-frame door SM).
                 let ml_pos = obj.get_position();
                 #[cfg(feature = "game_client")]
-                let (play, stop) = Self::with_host_fx_view_parts_and_terrain(
+                let (play, stop) = Self::with_object_fx_services(
                     &mut self.session_view,
                     fx_player,
                     self.world_services.shroud(),
-                    presentation_effects.terrain.as_mut().map(|terrain| {
-                        &mut **terrain as &mut dyn crate::game_logic::NativeTerrainEffects
-                    }),
+                    presentation_effects,
+                    &fx_operation_environment,
+                    self.world_services.terrain(),
+                    &self.logic_random,
                     |view| {
                         let shroud = self.world_services.shroud();
                         let mut dispatch = |name: &str, object: &Object, at_object: bool| {
@@ -265,13 +277,14 @@ impl GameLogic {
                 {
                     #[cfg(feature = "game_client")]
                     {
-                        topple_kill = Self::with_host_fx_view_parts_and_terrain(
+                        topple_kill = Self::with_object_fx_services(
                             &mut self.session_view,
                             fx_player,
                             self.world_services.shroud(),
-                            presentation_effects.terrain.as_mut().map(|terrain| {
-                                &mut **terrain as &mut dyn crate::game_logic::NativeTerrainEffects
-                            }),
+                            presentation_effects,
+                            &fx_operation_environment,
+                            self.world_services.terrain(),
+                            &self.logic_random,
                             |view| {
                                 let shroud = self.world_services.shroud();
                                 let mut dispatch =
@@ -363,13 +376,14 @@ impl GameLogic {
                 {
                     if !topple_kill && obj.structure_collapse_data.is_some() {
                         #[cfg(feature = "game_client")]
-                        let _completed = Self::with_host_fx_view_parts_and_terrain(
+                        let _completed = Self::with_object_fx_services(
                             &mut self.session_view,
                             fx_player,
                             self.world_services.shroud(),
-                            presentation_effects.terrain.as_mut().map(|terrain| {
-                                &mut **terrain as &mut dyn crate::game_logic::NativeTerrainEffects
-                            }),
+                            presentation_effects,
+                            &fx_operation_environment,
+                            self.world_services.terrain(),
+                            &self.logic_random,
                             |view| {
                                 let shroud = self.world_services.shroud();
                                 let mut dispatch =
@@ -391,16 +405,19 @@ impl GameLogic {
             if let Some((name, pos, ori, burned)) = pending_stump {
                 self.spawn_topple_stump_with_effects(&name, pos, ori, burned, presentation_effects);
             }
+            #[cfg(feature = "game_client")]
+            let fx_operation_environment = self.observe_object_fx_environment();
             if let Some(obj) = self.objects.get_mut(&object_id) {
                 obj.poll_slow_death_phase_fx(self.frame);
                 #[cfg(feature = "game_client")]
-                let _ = Self::with_host_fx_view_parts_and_terrain(
+                let _ = Self::with_object_fx_services(
                     &mut self.session_view,
                     fx_player,
                     self.world_services.shroud(),
-                    presentation_effects.terrain.as_mut().map(|terrain| {
-                        &mut **terrain as &mut dyn crate::game_logic::NativeTerrainEffects
-                    }),
+                    presentation_effects,
+                    &fx_operation_environment,
+                    self.world_services.terrain(),
+                    &self.logic_random,
                     |view| {
                         let shroud = self.world_services.shroud();
                         let mut dispatch = |name: &str, object: &Object, at_object: bool| {
@@ -430,6 +447,8 @@ impl GameLogic {
                 .get(&object_id)
                 .is_some_and(|o| !o.temporary_weapon_runtime.damaged.is_empty());
             if has_live_damaged {
+                #[cfg(feature = "game_client")]
+                let fx_operation_environment = self.observe_object_fx_environment();
                 let _ = self
                     .objects
                     .get_mut(&object_id)
@@ -438,6 +457,8 @@ impl GameLogic {
                     object_id,
                     presentation_effects,
                 );
+                #[cfg(feature = "game_client")]
+                let fx_operation_environment = self.observe_object_fx_environment();
             } else if let Some(wname) = self
                 .objects
                 .get_mut(&object_id)
@@ -465,6 +486,8 @@ impl GameLogic {
                         )
                     })
                     .unwrap_or((glam::Vec3::ZERO, 0.0, String::new(), 1.0));
+                #[cfg(feature = "game_client")]
+                let fx_operation_environment = self.observe_object_fx_environment();
                 let (transition_evs, death_fx, death_audio, death_audio_stop, death_killer) =
                     if let Some(o) = self.objects.get_mut(&object_id) {
                         let te = o.take_pending_transition_damage_fx();
@@ -517,13 +540,15 @@ impl GameLogic {
                         );
                     }
                     if let Some(old) = ev.clear_old_state {
+                        #[cfg(feature = "game_client")]
+                        let fx_operation_environment = self.observe_object_fx_environment();
                         if let Some(cfg) = self
                             .objects
                             .get_mut(&object_id)
                             .and_then(|o| o.transition_damage_fx.as_mut())
                         {
                             for id in cfg.take_attached_ids(old) {
-                                self.combat_particles.deactivate(id);
+                                self.combat_particles.deactivate(id, presentation_effects);
                             }
                         }
                     }
@@ -537,8 +562,10 @@ impl GameLogic {
                             &model,
                             scale,
                             self.frame,
-                            object_id, is_shrouded
+                            object_id, is_shrouded, presentation_effects
 );
+                        #[cfg(feature = "game_client")]
+                        let fx_operation_environment = self.observe_object_fx_environment();
                         if let Some(cfg) = self
                             .objects
                             .get_mut(&object_id)
@@ -584,17 +611,6 @@ impl GameLogic {
             }
             // C++ BoneFXUpdate::update — leftover authored FXList/OCL/PSys at bone pos.
             {
-                let pose = self.objects.get(&object_id).map(|o| {
-                    (
-                        o.get_position(),
-                        o.get_orientation(),
-                        o.thing()
-                            .template
-                            .model_name_for_conditions(o.model_condition_bits),
-                        o.thing().template.asset_scale,
-                        o.drawable_hidden,
-                    )
-                });
                 let events = if let Some(o) = self.objects.get_mut(&object_id) {
                     if o.bone_fx_damage.is_none() {
                         o.bone_fx_damage = crate::game_logic::host_bone_fx_damage::HostBoneFxDamageData::from_template(
@@ -611,23 +627,21 @@ impl GameLogic {
                 } else {
                     Vec::new()
                 };
-                if let Some((origin, yaw, model, scale, hidden)) = pose {
+                {
                     for ev in events {
                         let leftover_id =
-                            crate::game_logic::host_bone_fx_damage::play_bone_fx_event(
+                            crate::game_logic::host_bone_fx_damage::play_bone_fx_event_with_effects(
                                 self,
                                 &ev,
                                 object_id.0,
-                                origin,
-                                yaw,
-                                &model,
-                                scale,
-                                hidden,
-                            );
+                                presentation_effects,
+                            )?;
                         if let Some(id) = leftover_id {
+                            #[cfg(feature = "game_client")]
+                            let fx_operation_environment = self.observe_object_fx_environment();
                             if let Some(o) = self.objects.get_mut(&object_id) {
                                 if let Some(bfx) = o.bone_fx_damage.as_mut() {
-                                    bfx.track_particle(id);
+                                    bfx.track_particle_with_owner(id, presentation_effects);
                                 }
                             }
                         }
@@ -718,6 +732,7 @@ impl GameLogic {
                         self.frame,
                         Some(object_id),
                         None,
+                        presentation_effects,
                     );
                 }
             }

@@ -5,7 +5,44 @@ use super::*;
 pub fn ensure_control_bar_wnd_draw_callbacks() {
     ensure_scheme_draw_registered();
     with_window_manager(|wm| {
-        let assign = |name: &str, cb: fn(&GameWindow, &WindowInstanceData)| {
+        let assign = |name: &str,
+                      cb: fn(
+            &GameWindow,
+            &WindowInstanceData,
+            &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
+        )| {
+            if let Some(win) = wm.find_window_by_name(name) {
+                win.borrow_mut().set_draw_callback(cb);
+            }
+        };
+        assign(
+            "ControlBar.wnd:BackgroundMarker",
+            w3d_command_bar_background_draw,
+        );
+        assign(
+            "ControlBar.wnd:ForegroundMarker",
+            w3d_command_bar_foreground_draw,
+        );
+        assign("ControlBar.wnd:PowerWindow", w3d_power_draw);
+        if let Some(window) = wm.find_window_by_name("ControlBar.wnd:LeftHUD") {
+            window.borrow_mut().set_radar_draw_callback();
+        }
+        assign("ControlBar.wnd:RightHUD", w3d_right_hud_draw);
+        assign("ControlBar.wnd:GeneralsExp", w3d_command_bar_gen_exp_draw);
+    });
+}
+
+pub fn ensure_control_bar_wnd_draw_callbacks_for_owner(
+    owner: &crate::gui::window_manager::WindowManagerOwner,
+) {
+    ensure_scheme_draw_registered();
+    owner.with_manager(|wm| {
+        let assign = |name: &str,
+                      cb: fn(
+            &GameWindow,
+            &WindowInstanceData,
+            &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
+        )| {
             if let Some(win) = wm.find_window_by_name(name) {
                 win.borrow_mut().set_draw_callback(cb);
             }
@@ -53,7 +90,11 @@ fn background_marker_screen_position(window: &GameWindow) -> Option<(i32, i32)> 
     Some(background.borrow().get_screen_position())
 }
 
-pub fn w3d_command_bar_background_draw(window: &GameWindow, _inst_data: &WindowInstanceData) {
+pub fn w3d_command_bar_background_draw(
+    window: &GameWindow,
+    _inst_data: &WindowInstanceData,
+    draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
+) {
     ensure_scheme_draw_registered();
 
     let Some(manager_handle) = get_control_bar_scheme_manager() else {
@@ -73,9 +114,15 @@ pub fn w3d_command_bar_background_draw(window: &GameWindow, _inst_data: &WindowI
         y: pos_y - base_pos.y,
     };
 
-    manager.draw_background(offset);
+    manager.draw_background_with(offset, &mut |image, sx, sy, ex, ey| {
+        scheme_draw_image(image, sx, sy, ex, ey, draw_context)
+    });
 }
-pub fn w3d_command_bar_foreground_draw(window: &GameWindow, _inst_data: &WindowInstanceData) {
+pub fn w3d_command_bar_foreground_draw(
+    window: &GameWindow,
+    _inst_data: &WindowInstanceData,
+    draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
+) {
     ensure_scheme_draw_registered();
 
     // C++ W3DControlBar.cpp:639-641: no scheme manager -> silent return.
@@ -95,7 +142,9 @@ pub fn w3d_command_bar_foreground_draw(window: &GameWindow, _inst_data: &WindowI
         x: pos_x - base_pos.x,
         y: pos_y - base_pos.y,
     };
-    manager.draw_foreground(offset);
+    manager.draw_foreground_with(offset, &mut |image, sx, sy, ex, ey| {
+        scheme_draw_image(image, sx, sy, ex, ey, draw_context)
+    });
 }
 
 #[cfg(test)]
@@ -140,15 +189,23 @@ mod marker_tests {
     }
 }
 
-pub fn w3d_command_bar_top_draw(_window: &GameWindow, _inst_data: &WindowInstanceData) {
+pub fn w3d_command_bar_top_draw(
+    _window: &GameWindow,
+    _inst_data: &WindowInstanceData,
+    draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
+) {
     // C++ callback is effectively no-op in W3DControlBar.cpp.
 }
 
-pub fn w3d_command_bar_grid_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
+pub fn w3d_command_bar_grid_draw(
+    window: &GameWindow,
+    inst_data: &WindowInstanceData,
+    draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
+) {
     // C++ W3DCommandBarGridDraw (W3DControlBar.cpp:442-466): image windows use
     // the default draw; otherwise the border color grids the command table.
     if window.get_status().contains(WindowStatus::IMAGE) {
-        crate::gui::game_window::default_draw_callback(window, inst_data);
+        crate::gui::game_window::default_draw_callback(window, inst_data, draw_context);
         return;
     }
 
@@ -160,7 +217,7 @@ pub fn w3d_command_bar_grid_draw(window: &GameWindow, inst_data: &WindowInstance
         .filter(|color| *color != WIN_COLOR_UNDEFINED)
         .unwrap_or(0xFF808080);
 
-    with_window_manager_ref(|manager| {
+    crate::gui::window_draw_context::with_draw_manager(draw_context.manager, |manager| {
         manager.win_draw_line(
             color,
             1.0,
@@ -168,6 +225,7 @@ pub fn w3d_command_bar_grid_draw(window: &GameWindow, inst_data: &WindowInstance
             y + (height as f32 * 0.33) as i32,
             x + width,
             y + (height as f32 * 0.33) as i32,
+            draw_context,
         );
         manager.win_draw_line(
             color,
@@ -176,6 +234,7 @@ pub fn w3d_command_bar_grid_draw(window: &GameWindow, inst_data: &WindowInstance
             y + (height as f32 * 0.66) as i32,
             x + width,
             y + (height as f32 * 0.66) as i32,
+            draw_context,
         );
         manager.win_draw_line(
             color,
@@ -184,6 +243,7 @@ pub fn w3d_command_bar_grid_draw(window: &GameWindow, inst_data: &WindowInstance
             y,
             x + (width as f32 * 0.33) as i32,
             y + height,
+            draw_context,
         );
         manager.win_draw_line(
             color,
@@ -192,12 +252,17 @@ pub fn w3d_command_bar_grid_draw(window: &GameWindow, inst_data: &WindowInstance
             y,
             x + (width as f32 * 0.66) as i32,
             y + height,
+            draw_context,
         );
     });
     note_shipped_ui_draw_commands(4);
 }
 
-pub fn w3d_command_bar_gen_exp_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
+pub fn w3d_command_bar_gen_exp_draw(
+    window: &GameWindow,
+    inst_data: &WindowInstanceData,
+    draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
+) {
     let _ = inst_data;
     // C++ W3DCommandBarGenExpDraw (W3DControlBar.cpp:468-495): every early-out
     // returns without painting — no fallback meter track.
@@ -230,10 +295,15 @@ pub fn w3d_command_bar_gen_exp_draw(window: &GameWindow, inst_data: &WindowInsta
         "GenExpBarBottom1",
         "GenExpBar1",
         filled_height,
+        draw_context,
     );
 }
 
-pub fn w3d_command_bar_help_popup_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
+pub fn w3d_command_bar_help_popup_draw(
+    window: &GameWindow,
+    inst_data: &WindowInstanceData,
+    draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
+) {
     let _ = inst_data;
     let (_, height) = window.get_size();
     draw_vertical_meter(
@@ -242,5 +312,6 @@ pub fn w3d_command_bar_help_popup_draw(window: &GameWindow, inst_data: &WindowIn
         "Helpbox-bottom",
         "Helpbox-middle",
         height,
+        draw_context,
     );
 }

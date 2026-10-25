@@ -17,6 +17,29 @@ impl MetaEventTranslator {
 
 impl GameMessageTranslator for MetaEventTranslator {
     fn translate_game_message(&mut self, msg: &GameMessage) -> GameMessageDisposition {
+        let mut no_display = |_, _: &mut Vec<GameMessage>| None;
+        self.translate_receiving(msg, Default::default(), &mut no_display, &mut Vec::new())
+    }
+
+    fn translate_game_message_with_context(
+        &mut self,
+        msg: &GameMessage,
+        client: game_engine::common::message_stream::TranslatorClientObservation,
+        _dispatch: &mut game_engine::common::message_stream::WindowInputDispatchFn<'_>,
+        _emitted: &mut Vec<GameMessage>,
+    ) -> GameMessageDisposition {
+        self.translate_receiving(msg, client, _dispatch, _emitted)
+    }
+}
+
+impl MetaEventTranslator {
+    fn translate_receiving(
+        &mut self,
+        msg: &GameMessage,
+        client: game_engine::common::message_stream::TranslatorClientObservation,
+        display_dispatch: &mut game_engine::common::message_stream::WindowInputDispatchFn<'_>,
+        emitted: &mut Vec<GameMessage>,
+    ) -> GameMessageDisposition {
         let mut disp = GameMessageDisposition::KeepMessage;
         let msg_type = msg.get_type();
 
@@ -47,12 +70,8 @@ impl GameMessageTranslator for MetaEventTranslator {
                 new_mod_state |= MOD_ALT;
             }
 
-            let shell_active = with_shell_ref(|shell| shell.is_shell_active()).unwrap_or(false);
-            // Meta translation commonly runs from `GameClient::pump_message_stream`
-            // while that client is already mutably borrowed.  It only needs the
-            // current frame, so use the published scalar rather than re-entering
-            // the snapshot-only mutable client slot.
-            let client_frame = crate::core::game_client::live_game_client_frame().unwrap_or(0);
+            let shell_active = client.shell_active;
+            let client_frame = client.frame;
 
             let map_guard = get_meta_map().read().unwrap_or_else(|e| e.into_inner());
             for map in map_guard.iter() {
@@ -73,7 +92,7 @@ impl GameMessageTranslator for MetaEventTranslator {
                     && ((map.transition == Transition::Up && map.mod_state == self.last_mod_state)
                         || (map.transition == Transition::Down && map.mod_state == new_mod_state))
                 {
-                    if let Some(new_disp) = dispatch_map_entry(map) {
+                    if let Some(new_disp) = dispatch_map_entry(map, display_dispatch, emitted) {
                         disp = new_disp;
                         break;
                     }
@@ -93,7 +112,7 @@ impl GameMessageTranslator for MetaEventTranslator {
                         break;
                     }
 
-                    if let Some(new_disp) = dispatch_map_entry(map) {
+                    if let Some(new_disp) = dispatch_map_entry(map, display_dispatch, emitted) {
                         disp = new_disp;
                         break;
                     }

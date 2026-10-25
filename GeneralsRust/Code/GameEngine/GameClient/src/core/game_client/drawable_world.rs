@@ -7,7 +7,43 @@
 
 use super::*;
 
+/// Presentation lifetime: candidate construction owns both Drawable identity and
+/// its particle namespace. Committing a map moves them together.
 pub struct DrawableWorld {
+    pub(super) state: DrawableState,
+    pub(super) particles: crate::effects::particle_manager::ParticleSystemManager,
+}
+impl DrawableWorld {
+    pub fn new() -> Self {
+        Self {
+            state: DrawableState::new(),
+            particles: crate::effects::particle_manager::ParticleSystemManager::new(),
+        }
+    }
+    pub fn particle_systems(&self) -> &crate::effects::particle_manager::ParticleSystemManager {
+        &self.particles
+    }
+    pub fn particle_systems_mut(
+        &mut self,
+    ) -> &mut crate::effects::particle_manager::ParticleSystemManager {
+        &mut self.particles
+    }
+}
+impl std::ops::Deref for DrawableWorld {
+    type Target = DrawableState;
+    fn deref(&self) -> &Self::Target {
+        &self.state
+    }
+}
+impl std::ops::DerefMut for DrawableWorld {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.state
+    }
+}
+/// Drawable-only loan permits particle callbacks to borrow the same world's
+/// manager without taking either owner out of its lifetime.
+pub struct DrawableState {
+    pub(super) light_scene: crate::fx_list::DisplayLightScene,
     pub(super) next_drawable_id: DrawableId,
     pub(super) ray_effects: crate::effects::ray_effect_registry::RayEffectSystem,
     /// C++ GameClient.cpp480 prepends each newly constructed Drawable.
@@ -26,9 +62,10 @@ pub struct DrawableWorld {
     pub(super) projected_decals: super::native_projected_resources::NativeProjectedDecals,
 }
 
-impl DrawableWorld {
+impl DrawableState {
     pub fn new() -> Self {
         Self {
+            light_scene: Default::default(),
             next_drawable_id: DrawableId(1),
             ray_effects: Default::default(),
             native_drawable_order: Vec::new(),
@@ -215,5 +252,31 @@ impl DrawableWorld {
 impl Default for DrawableWorld {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl GameClient {
+    pub fn particle_systems(&self) -> &crate::effects::particle_manager::ParticleSystemManager {
+        &self.drawables.particles
+    }
+    pub fn particle_systems_mut(
+        &mut self,
+    ) -> &mut crate::effects::particle_manager::ParticleSystemManager {
+        &mut self.drawables.particles
+    }
+}
+
+impl NativeDrawableOwner<'_> {
+    pub fn create_light_pulse(&mut self, pulse: crate::fx_list::DisplayLightPulse) -> bool {
+        let admitted = self.drawables.light_scene.create_pulse(pulse);
+        // The native scene consumes the light directly; legacy pulse receipts
+        // are not another growing writable presentation stream.
+        self.drawables.light_scene.drain_pulses();
+        admitted
+    }
+}
+impl GameClient {
+    pub fn dynamic_lights(&self) -> &[crate::fx_list::DisplayDynamicLight] {
+        self.drawables.light_scene.lights()
     }
 }

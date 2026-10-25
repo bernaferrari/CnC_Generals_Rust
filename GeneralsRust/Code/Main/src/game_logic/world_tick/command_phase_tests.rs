@@ -39,7 +39,7 @@ fn begin(world: &mut GameLogic, messages: Vec<GameMessage>) -> NativeTickContinu
         None,
         Some(1),
         Default::default(),
-        |_| {},
+        |_| None,
         |_| panic!("outgoing object/observer callbacks ran before command completion"),
     ))
 }
@@ -72,7 +72,7 @@ fn actual_source_clear_suspends_before_callbacks_and_advances_reset_frame_once()
                     reset_performed: true,
                 },
                 Default::default(),
-                |_| {},
+                |_| None,
                 |receiving| {
                     callbacks += 1;
                     assert_eq!(receiving.frame, 1, "source tail runs against cleared world");
@@ -114,7 +114,7 @@ fn actual_source_tail_retains_newgame_payload_and_prevents_reset_frame_increment
                     reset_performed: true,
                 },
                 Default::default(),
-                |_| {},
+                |_| None,
                 |_| panic!("NEW_GAME must still be dispatched before object callbacks"),
             ));
             assert_eq!(world.frame, 0);
@@ -132,7 +132,7 @@ fn actual_source_tail_retains_newgame_payload_and_prevents_reset_frame_increment
                     pending,
                     NativeCommandCompletion::NewGamePrepared { prepared: true },
                     Default::default(),
-                    |_| {},
+                    |_| { None },
                     |_| callbacks += 1
                 ),
                 NativeTickProgress::Complete(_)
@@ -172,7 +172,7 @@ fn later_source_clear_cancels_prepared_start_guard_without_dropping_tail() {
                 pending,
                 NativeCommandCompletion::NewGamePrepared { prepared: true },
                 Default::default(),
-                |_| {},
+                |_| None,
                 |_| panic!("remaining clear not yet dispatched"),
             ));
             assert_eq!(world.frame, 37);
@@ -188,7 +188,7 @@ fn later_source_clear_cancels_prepared_start_guard_without_dropping_tail() {
                         reset_performed: true
                     },
                     Default::default(),
-                    |_| {},
+                    |_| { None },
                     |_| {}
                 ),
                 NativeTickProgress::Complete(_)
@@ -280,7 +280,7 @@ fn source_cursor_rejects_a_foreign_receiving_world_before_mutating_it() {
                         reset_performed: true,
                     },
                     Default::default(),
-                    |_| {},
+                    |_| None,
                     |_| panic!("foreign observer must never execute"),
                 );
             }));
@@ -332,7 +332,10 @@ fn budget_receipt(
     let mut before_frames = Vec::new();
     let mut after_frames = Vec::new();
     {
-        let mut before = |frame| before_frames.push(frame);
+        let mut before = |frame| {
+            before_frames.push(frame);
+            None
+        };
         let mut after = |receiving: &mut GameLogic| {
             after_frames.push((receiving.frame, receiving.sim_time_seconds.to_bits()));
             if freeze_after_first {
@@ -449,7 +452,7 @@ fn resume_repeated_cursor(
     completion: NativeCommandCompletion,
     after: impl FnMut(&mut GameLogic),
 ) -> NativeTickProgress {
-    world.resume_native_logic_tick(cursor, completion, Default::default(), |_| {}, after)
+    world.resume_native_logic_tick(cursor, completion, Default::default(), |_| None, after)
 }
 
 #[test]

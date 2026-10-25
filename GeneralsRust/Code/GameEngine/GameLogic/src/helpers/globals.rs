@@ -94,9 +94,14 @@ static GAME_PAUSE_HOOKS: OnceLock<Arc<dyn GamePauseHooks>> = OnceLock::new();
 /// These hooks are passed down the active GameLogic call stack; they are never
 /// registered process-wide or retained after the load operation returns.
 pub trait LoadScreenHooks {
-    fn begin_load_screen(&mut self, game_mode: Int, loading_save_game: Bool);
-    fn update_load_screen(&mut self, progress: Int);
-    fn run_load_screen_completion_transition(&mut self, _loading_save_game: Bool) {}
+    fn begin_load_screen(&mut self, game_mode: Int, loading_save_game: Bool) -> Result<(), String>;
+    fn update_load_screen(&mut self, progress: Int) -> Result<(), String>;
+    fn run_load_screen_completion_transition(
+        &mut self,
+        _loading_save_game: Bool,
+    ) -> Result<(), String> {
+        Ok(())
+    }
     fn end_load_screen(&mut self);
 }
 

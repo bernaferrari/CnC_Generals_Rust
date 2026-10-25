@@ -47,6 +47,9 @@ impl GameLogic {
         location: glam::Vec3,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> bool {
+        #[cfg(feature = "game_client")]
+        let fx_operation_environment = self.observe_object_fx_environment();
+
         use crate::game_logic::host_baikonur_launch::{
             BAIKONUR_DETONATION_OBJECT, BAIKONUR_NUKE_FX,
         };
@@ -81,13 +84,14 @@ impl GameLogic {
             let player = self.local_player_id();
             let frame = self.frame;
             let receiver = &mut self.special_power_strikes;
-            Self::with_host_fx_view_parts_and_terrain(
+            Self::with_object_fx_services(
                 &mut self.session_view,
                 player,
                 self.world_services.shroud(),
-                presentation_effects.terrain.as_mut().map(|terrain| {
-                    &mut **terrain as &mut dyn crate::game_logic::NativeTerrainEffects
-                }),
+                presentation_effects,
+                &fx_operation_environment,
+                self.world_services.terrain(),
+                &self.logic_random,
                 |view| {
                     receiver.spawn_neutron_slow_death_field_with_view(
                         det_id, team, location, frame, 0, view,
@@ -102,6 +106,8 @@ impl GameLogic {
                 .spawn_neutron_slow_death_field(det_id, team, location, self.frame, 0);
         }
         // Presentation FX residual name on detonation object.
+        #[cfg(feature = "game_client")]
+        let fx_operation_environment = self.observe_object_fx_environment();
         if let Some(d) = self.objects.get_mut(&det_id) {
             d.pending_death_fx = Some(BAIKONUR_NUKE_FX.to_string());
             // Lifetime 0 residual — mark for quick completion after blasts.
@@ -370,7 +376,11 @@ impl GameLogic {
         }
         // C++ doDisableAttack EMPSparks on disabled victims (not airborne kills).
         for vid in spark_ids {
-            self.spawn_emp_sparks_on_victim(vid, EMP_PULSE_DISABLED_DURATION_FRAMES);
+            self.spawn_emp_sparks_on_victim(
+                vid,
+                EMP_PULSE_DISABLED_DURATION_FRAMES,
+                presentation_effects,
+            );
         }
 
         let pulse_id = self.emp_pulses.alloc_id();

@@ -231,7 +231,10 @@ fn failed_owned_retirement_is_not_live_or_retried_and_cannot_advance_save_create
                         None,
                         Some(4),
                         Default::default(),
-                        |_| before += 1,
+                        |_| {
+                            before += 1;
+                            None
+                        },
                         |_| after += 1,
                     ),
                     crate::game_logic::game_logic::NativeTickProgress::Failed(_)

@@ -829,13 +829,7 @@ impl GameLogic {
                 .into_iter()
                 .last()
             {
-                if !game_client::core::script_action_handler::set_script_display_border_shroud_level(
-                    level,
-                ) {
-                    log::warn!(
-                        "Border shroud level script request not applied: display bridge unavailable"
-                    );
-                }
+                self.session_view.border_shroud_level = Some(level);
             }
         }
         Ok(())

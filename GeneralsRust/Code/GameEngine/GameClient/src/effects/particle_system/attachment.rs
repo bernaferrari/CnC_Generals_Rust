@@ -21,6 +21,20 @@ impl ParticleSystem {
         drawable_pose: Option<&dyn Fn(DrawableId) -> Option<DrawableParticlePose>>,
         object_is_live: Option<&dyn Fn(u32) -> bool>,
     ) {
+        self.resolve_attached_parent_with_object_observation(
+            local_player_index,
+            drawable_pose,
+            object_is_live,
+            None,
+        );
+    }
+    pub(super) fn resolve_attached_parent_with_object_observation(
+        &mut self,
+        local_player_index: i32,
+        drawable_pose: Option<&dyn Fn(DrawableId) -> Option<DrawableParticlePose>>,
+        object_is_live: Option<&dyn Fn(u32) -> bool>,
+        object_pose: Option<&dyn Fn(u32) -> Option<gamelogic::helpers::HostFxObjectPose>>,
+    ) {
         if self.attached_drawable_id.is_valid() {
             if let Some(resolve) = drawable_pose {
                 if let Some(pose) = resolve(self.attached_drawable_id) {
@@ -71,6 +85,16 @@ impl ParticleSystem {
         }
 
         if self.attached_object_id != 0 {
+            if let Some(resolve) = object_pose {
+                if let Some(pose) = resolve(self.attached_object_id) {
+                    self.apply_host_fx_object_pose(&pose);
+                } else {
+                    self.attached_object_id = 0;
+                    self.destroy();
+                }
+                return;
+            }
+
             // Native existence comes from the driving World, not a peer's
             // published pose or compatibility registry. Delay/wind already ran.
             if object_is_live.is_some_and(|exists| !exists(self.attached_object_id)) {
@@ -137,7 +161,7 @@ impl ParticleSystem {
         self.last_position = self.position;
         let (rot, trans) = affine_from_glam_cols(pose.transform.to_cols_array());
         self.parent_transform = Some(rot);
-        self.position = Vec3::from(trans);
+        self.position = Vec3::new(pose.position.x, pose.position.y, pose.position.z);
         // C++ ParticleSys.cpp:1880-1905 object-attach Fogged+ emit gate.
         self.is_shrouded = pose.is_shrouded;
     }

@@ -539,12 +539,15 @@ fn finalize_single_player_init(state: &mut ScoreScreenState, effects: &mut Windo
     }
 }
 
-fn maybe_start_final_victory_movie(state: &mut ScoreScreenState) -> bool {
+fn maybe_start_final_victory_movie(
+    state: &mut ScoreScreenState,
+    effects: &mut WindowEventEffects<'_>,
+) -> bool {
     let Some(movie_name) = state.pending_final_victory_movie.take() else {
         return false;
     };
 
-    if play_script_display_movie(&movie_name) {
+    if play_script_display_movie(effects.script_display(), &movie_name) {
         state.waiting_for_final_victory_movie = true;
         return true;
     }
@@ -569,7 +572,7 @@ fn update_final_victory_movie_wait(
         return;
     }
 
-    if is_script_display_movie_playing() {
+    if is_script_display_movie_playing(effects.script_display()) {
         return;
     }
 
@@ -751,7 +754,7 @@ fn finish_single_player_init(state: &mut ScoreScreenState, effects: &mut WindowE
                     final_victory_movie_to_queue(campaign, prefers_low_res_movies());
             }
 
-            if maybe_start_final_victory_movie(state) {
+            if maybe_start_final_victory_movie(state, effects) {
                 return;
             }
         } else {
@@ -1951,6 +1954,7 @@ mod tests {
 
         let mut emitted_messages = Vec::new();
         let mut effects = WindowEventEffects {
+            script_display: None,
             window_manager_owner: None,
             selected_window: None,
             emitted_messages: &mut emitted_messages,
@@ -1976,6 +1980,7 @@ mod tests {
         campaign_manager.set_campaign("testcampaign");
         let mut emitted_messages = Vec::new();
         let mut effects = WindowEventEffects {
+            script_display: None,
             window_manager_owner: None,
             selected_window: None,
             emitted_messages: &mut emitted_messages,
@@ -2400,6 +2405,7 @@ mod os_wnd_tests {
         let _ = simulate_score_screen_set_finish_campaign(false);
         let mut emitted_messages = Vec::new();
         let mut effects = WindowEventEffects {
+            script_display: None,
             selected_window: None,
             window_manager_owner: None,
             emitted_messages: &mut emitted_messages,

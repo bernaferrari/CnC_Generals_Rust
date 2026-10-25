@@ -27,6 +27,22 @@ impl RadarCamera {
         self.projection = projection;
         self
     }
+    pub(crate) fn project_world(self, position: glam::Vec3) -> Option<glam::Vec2> {
+        let clip = self.projection * self.view * position.extend(1.0);
+        if !clip.is_finite() || clip.w <= 0.0 {
+            return None;
+        }
+        let ndc = clip.truncate() / clip.w;
+        let (x, y) = self.viewport.origin();
+        let (width, height) = self.viewport.size();
+        if width <= 0 || height <= 0 {
+            return None;
+        }
+        Some(glam::Vec2::new(
+            x as f32 + (ndc.x + 1.0) * 0.5 * width as f32,
+            y as f32 + (1.0 - ndc.y) * 0.5 * height as f32,
+        ))
+    }
     /// View.cpp:209-230 and Vector3::Find_X/Y_At_Z: absolute integer corners,
     /// clockwise UL, UR, LR, LL, projected to the receiving radar's plane.
     pub(crate) fn corners(self) -> Option<[Vec3; 4]> {

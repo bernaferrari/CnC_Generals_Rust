@@ -277,8 +277,11 @@ impl crate::gui::window_manager::WindowManagerOwner {
 
 /// Enable shell map.  Nested lifecycle calls retain the request in the owned
 /// operation queue instead of making a second mutable borrow.
-pub fn show_shell_map_if_available(on: bool) {
-    get_shell().show_shell_map(on);
+pub fn show_shell_map_if_available(
+    on: bool,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) {
+    effects.request_shell_map(on);
 }
 
 /// Queue the C++ `TheShell->reverseAnimateWindow()` side effect.

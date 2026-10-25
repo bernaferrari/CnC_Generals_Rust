@@ -8,7 +8,6 @@ use std::sync::Arc;
 use glam::Vec2;
 
 use super::game_window::{Color, GameWindow, WindowDrawData, WindowStatus, resolve_window_text};
-use super::ui_globals::with_ui_renderer_mut;
 use super::ui_renderer::UIRect;
 use super::window_manager::hide_window_rc;
 use crate::display::image::get_mapped_image_collection;
@@ -90,7 +89,12 @@ fn rgba_from_components(r: u8, g: u8, b: u8, a: u8) -> [f32; 4] {
     ]
 }
 
-fn draw_window_image(window: &GameWindow, rect: UIRect, alpha: u8) -> bool {
+fn draw_window_image(
+    window: &GameWindow,
+    rect: UIRect,
+    alpha: u8,
+    draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
+) -> bool {
     let Some(draw_data) = window.get_enabled_draw_data(0) else {
         return false;
     };
@@ -98,7 +102,7 @@ fn draw_window_image(window: &GameWindow, rect: UIRect, alpha: u8) -> bool {
         return false;
     };
     let mut drawn = false;
-    let _ = with_ui_renderer_mut(|renderer| {
+    let _ = draw_context.with_renderer(|renderer, display_facts| {
         let collection = get_mapped_image_collection();
         let mut collection = collection.write();
         if let Some(mapped) = collection.find_image_by_name_mut(&image.name) {
@@ -122,9 +126,14 @@ fn draw_window_image(window: &GameWindow, rect: UIRect, alpha: u8) -> bool {
     drawn
 }
 
-fn draw_named_image(name: &str, rect: UIRect, alpha: u8) -> bool {
+fn draw_named_image(
+    name: &str,
+    rect: UIRect,
+    alpha: u8,
+    draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
+) -> bool {
     let mut drawn = false;
-    let _ = with_ui_renderer_mut(|renderer| {
+    let _ = draw_context.with_renderer(|renderer, display_facts| {
         let collection = get_mapped_image_collection();
         let mut collection = collection.write();
         if let Some(mapped) = collection.find_image_by_name_mut(name) {
@@ -185,10 +194,11 @@ trait Transition {
         &mut self,
         win: Option<Rc<RefCell<GameWindow>>>,
         window_lookup: &HashMap<i32, Weak<RefCell<GameWindow>>>,
+        screen_size: (i32, i32),
     );
     fn update(&mut self, frame: i32);
     fn reverse(&mut self);
-    fn draw(&mut self);
+    fn draw(&mut self, draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>);
     fn skip(&mut self);
     fn is_finished(&self) -> bool;
     fn frame_length(&self) -> i32;
@@ -233,6 +243,7 @@ impl Transition for FlashTransition {
         &mut self,
         win: Option<Rc<RefCell<GameWindow>>>,
         _window_lookup: &HashMap<i32, Weak<RefCell<GameWindow>>>,
+        screen_size: (i32, i32),
     ) {
         self.win = win.as_ref().map(Rc::downgrade);
         if let Some(win_rc) = win {
@@ -299,7 +310,7 @@ impl Transition for FlashTransition {
         self.is_forward = false;
     }
 
-    fn draw(&mut self) {
+    fn draw(&mut self, draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>) {
         let rect = UIRect::new(
             (self.pos.x + 1) as f32,
             (self.pos.y + 1) as f32,
@@ -315,7 +326,7 @@ impl Transition for FlashTransition {
             6 => (250, 25),
             _ => return,
         };
-        with_ui_renderer_mut(|renderer| {
+        draw_context.with_renderer(|renderer, display_facts| {
             renderer.draw_rect_outline(
                 rect,
                 1.0,
@@ -366,7 +377,11 @@ impl ButtonFlashTransition {
         self.win.as_ref().and_then(|w| w.upgrade())
     }
 
-    fn draw_button_background(&self, alpha: u8) {
+    fn draw_button_background(
+        &self,
+        alpha: u8,
+        draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
+    ) {
         let Some(win_rc) = self.with_window() else {
             return;
         };
@@ -382,7 +397,7 @@ impl ButtonFlashTransition {
             self.size.y as f32,
         );
         let color = rgba_from_color(draw.color, Some(alpha));
-        with_ui_renderer_mut(|renderer| {
+        draw_context.with_renderer(|renderer, display_facts| {
             renderer.draw_rect(rect, color, 0.0);
         });
     }
@@ -393,6 +408,7 @@ impl Transition for ButtonFlashTransition {
         &mut self,
         win: Option<Rc<RefCell<GameWindow>>>,
         _window_lookup: &HashMap<i32, Weak<RefCell<GameWindow>>>,
+        screen_size: (i32, i32),
     ) {
         self.win = win.as_ref().map(Rc::downgrade);
         if let Some(win_rc) = win {
@@ -532,7 +548,7 @@ impl Transition for ButtonFlashTransition {
         self.is_forward = false;
     }
 
-    fn draw(&mut self) {
+    fn draw(&mut self, draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>) {
         match self.draw_state {
             1 => {
                 let rect = UIRect::new(
@@ -541,7 +557,7 @@ impl Transition for ButtonFlashTransition {
                     self.size.x as f32,
                     self.size.y as f32,
                 );
-                with_ui_renderer_mut(|renderer| {
+                draw_context.with_renderer(|renderer, display_facts| {
                     renderer.draw_rect_outline(
                         rect,
                         1.0,
@@ -558,7 +574,7 @@ impl Transition for ButtonFlashTransition {
                     self.size.x as f32,
                     self.size.y as f32,
                 );
-                with_ui_renderer_mut(|renderer| {
+                draw_context.with_renderer(|renderer, display_facts| {
                     renderer.draw_rect_outline(
                         rect,
                         1.0,
@@ -575,7 +591,7 @@ impl Transition for ButtonFlashTransition {
                     self.size.x as f32,
                     self.size.y as f32,
                 );
-                with_ui_renderer_mut(|renderer| {
+                draw_context.with_renderer(|renderer, display_facts| {
                     renderer.draw_rect_outline(
                         rect,
                         1.0,
@@ -586,14 +602,14 @@ impl Transition for ButtonFlashTransition {
                 });
             }
             4 => {
-                self.draw_button_background(255);
+                self.draw_button_background(255, draw_context);
                 let rect = UIRect::new(
                     self.pos.x as f32,
                     self.pos.y as f32,
                     self.size.x as f32,
                     self.size.y as f32,
                 );
-                with_ui_renderer_mut(|renderer| {
+                draw_context.with_renderer(|renderer, display_facts| {
                     renderer.draw_rect_outline(
                         rect,
                         1.0,
@@ -604,14 +620,14 @@ impl Transition for ButtonFlashTransition {
                 });
             }
             5 => {
-                self.draw_button_background(255);
+                self.draw_button_background(255, draw_context);
                 let rect = UIRect::new(
                     self.pos.x as f32,
                     self.pos.y as f32,
                     self.size.x as f32,
                     self.size.y as f32,
                 );
-                with_ui_renderer_mut(|renderer| {
+                draw_context.with_renderer(|renderer, display_facts| {
                     renderer.draw_rect_outline(
                         rect,
                         1.0,
@@ -622,14 +638,14 @@ impl Transition for ButtonFlashTransition {
                 });
             }
             6 => {
-                self.draw_button_background(255);
+                self.draw_button_background(255, draw_context);
                 let rect = UIRect::new(
                     self.pos.x as f32,
                     self.pos.y as f32,
                     self.size.x as f32,
                     self.size.y as f32,
                 );
-                with_ui_renderer_mut(|renderer| {
+                draw_context.with_renderer(|renderer, display_facts| {
                     renderer.draw_rect_outline(
                         rect,
                         1.0,
@@ -640,14 +656,14 @@ impl Transition for ButtonFlashTransition {
                 });
             }
             7 => {
-                self.draw_button_background(255);
+                self.draw_button_background(255, draw_context);
                 let rect = UIRect::new(
                     self.pos.x as f32,
                     self.pos.y as f32,
                     self.size.x as f32,
                     self.size.y as f32,
                 );
-                with_ui_renderer_mut(|renderer| {
+                draw_context.with_renderer(|renderer, display_facts| {
                     renderer.draw_rect_outline(
                         rect,
                         1.0,
@@ -659,7 +675,7 @@ impl Transition for ButtonFlashTransition {
             }
             11 => {
                 if self.is_forward {
-                    self.draw_button_background(255);
+                    self.draw_button_background(255, draw_context);
                 }
                 let rect = UIRect::new(
                     self.pos.x as f32,
@@ -667,7 +683,7 @@ impl Transition for ButtonFlashTransition {
                     self.size.x as f32,
                     self.size.y as f32,
                 );
-                with_ui_renderer_mut(|renderer| {
+                draw_context.with_renderer(|renderer, display_facts| {
                     renderer.draw_rect(rect, rgba_from_components(255, 255, 255, 100), 0.0);
                 });
             }
@@ -678,13 +694,13 @@ impl Transition for ButtonFlashTransition {
                     self.size.x as f32,
                     self.size.y as f32,
                 );
-                with_ui_renderer_mut(|renderer| {
+                draw_context.with_renderer(|renderer, display_facts| {
                     renderer.draw_rect(rect, rgba_from_components(255, 255, 255, 200), 0.0);
                 });
             }
             13 => {
                 if !self.is_forward {
-                    self.draw_button_background(255);
+                    self.draw_button_background(255, draw_context);
                 }
                 let rect = UIRect::new(
                     self.pos.x as f32,
@@ -692,13 +708,13 @@ impl Transition for ButtonFlashTransition {
                     self.size.x as f32,
                     self.size.y as f32,
                 );
-                with_ui_renderer_mut(|renderer| {
+                draw_context.with_renderer(|renderer, display_facts| {
                     renderer.draw_rect(rect, rgba_from_components(255, 255, 255, 150), 0.0);
                 });
             }
             14 => {
                 if !self.is_forward {
-                    self.draw_button_background(255);
+                    self.draw_button_background(255, draw_context);
                 }
                 let rect = UIRect::new(
                     self.pos.x as f32,
@@ -706,13 +722,13 @@ impl Transition for ButtonFlashTransition {
                     self.size.x as f32,
                     self.size.y as f32,
                 );
-                with_ui_renderer_mut(|renderer| {
+                draw_context.with_renderer(|renderer, display_facts| {
                     renderer.draw_rect(rect, rgba_from_components(255, 255, 255, 100), 0.0);
                 });
             }
             15 => {
                 if !self.is_forward {
-                    self.draw_button_background(255);
+                    self.draw_button_background(255, draw_context);
                 }
                 let rect = UIRect::new(
                     self.pos.x as f32,
@@ -720,12 +736,12 @@ impl Transition for ButtonFlashTransition {
                     self.size.x as f32,
                     self.size.y as f32,
                 );
-                with_ui_renderer_mut(|renderer| {
+                draw_context.with_renderer(|renderer, display_facts| {
                     renderer.draw_rect(rect, rgba_from_components(255, 255, 255, 17), 0.0);
                 });
             }
             16 => {
-                self.draw_button_background(255);
+                self.draw_button_background(255, draw_context);
             }
             _ => {}
         }
@@ -777,6 +793,7 @@ impl Transition for FadeTransition {
         &mut self,
         win: Option<Rc<RefCell<GameWindow>>>,
         _window_lookup: &HashMap<i32, Weak<RefCell<GameWindow>>>,
+        screen_size: (i32, i32),
     ) {
         self.win = win.as_ref().map(Rc::downgrade);
         if let Some(win_rc) = win {
@@ -828,7 +845,7 @@ impl Transition for FadeTransition {
         self.is_forward = false;
     }
 
-    fn draw(&mut self) {
+    fn draw(&mut self, draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>) {
         let alpha = match self.draw_state {
             1 => 25,
             2 => 50,
@@ -849,11 +866,11 @@ impl Transition for FadeTransition {
         );
         if let Some(win_rc) = self.with_window() {
             let win_ref = win_rc.borrow();
-            if draw_window_image(&win_ref, rect, alpha) {
+            if draw_window_image(&win_ref, rect, alpha, draw_context) {
                 return;
             }
         }
-        with_ui_renderer_mut(|renderer| {
+        draw_context.with_renderer(|renderer, display_facts| {
             renderer.draw_rect(rect, rgba_from_components(255, 255, 255, alpha), 0.0);
         });
     }
@@ -908,6 +925,7 @@ impl Transition for ScaleUpTransition {
         &mut self,
         win: Option<Rc<RefCell<GameWindow>>>,
         _window_lookup: &HashMap<i32, Weak<RefCell<GameWindow>>>,
+        screen_size: (i32, i32),
     ) {
         self.win = win.as_ref().map(Rc::downgrade);
         if let Some(win_rc) = win {
@@ -977,7 +995,7 @@ impl Transition for ScaleUpTransition {
         self.is_forward = false;
     }
 
-    fn draw(&mut self) {
+    fn draw(&mut self, draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>) {
         if self.draw_state <= 0 || self.draw_state >= self.frame_length {
             return;
         }
@@ -988,7 +1006,7 @@ impl Transition for ScaleUpTransition {
         let rect = UIRect::new(x as f32, y as f32, (x1 - x) as f32, (y1 - y) as f32);
         if let Some(win_rc) = self.with_window() {
             let win_ref = win_rc.borrow();
-            if draw_window_image(&win_ref, rect, 255) {}
+            if draw_window_image(&win_ref, rect, 255, draw_context) {}
         }
     }
 
@@ -1022,8 +1040,9 @@ impl Transition for ScoreScaleUpTransition {
         &mut self,
         win: Option<Rc<RefCell<GameWindow>>>,
         window_lookup: &HashMap<i32, Weak<RefCell<GameWindow>>>,
+        screen_size: (i32, i32),
     ) {
-        self.inner.init(win, window_lookup);
+        self.inner.init(win, window_lookup, screen_size);
     }
 
     fn update(&mut self, frame: i32) {
@@ -1070,8 +1089,8 @@ impl Transition for ScoreScaleUpTransition {
         self.inner.reverse();
     }
 
-    fn draw(&mut self) {
-        self.inner.draw();
+    fn draw(&mut self, draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>) {
+        self.inner.draw(draw_context);
     }
 
     fn skip(&mut self) {
@@ -1134,6 +1153,7 @@ impl Transition for MainMenuScaleUpTransition {
         &mut self,
         win: Option<Rc<RefCell<GameWindow>>>,
         window_lookup: &HashMap<i32, Weak<RefCell<GameWindow>>>,
+        screen_size: (i32, i32),
     ) {
         self.win = win.as_ref().map(Rc::downgrade);
         if let Some(win_rc) = win {
@@ -1228,7 +1248,7 @@ impl Transition for MainMenuScaleUpTransition {
         self.is_forward = false;
     }
 
-    fn draw(&mut self) {
+    fn draw(&mut self, draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>) {
         if self.draw_state <= 0 || self.draw_state >= self.frame_length {
             return;
         }
@@ -1239,7 +1259,7 @@ impl Transition for MainMenuScaleUpTransition {
         let rect = UIRect::new(x as f32, y as f32, (x1 - x) as f32, (y1 - y) as f32);
         if let Some(grow_rc) = self.with_grow_window() {
             let grow_ref = grow_rc.borrow();
-            if draw_window_image(&grow_ref, rect, 255) {}
+            if draw_window_image(&grow_ref, rect, 255, draw_context) {}
         }
     }
 
@@ -1297,6 +1317,7 @@ impl Transition for MainMenuMediumScaleUpTransition {
         &mut self,
         win: Option<Rc<RefCell<GameWindow>>>,
         window_lookup: &HashMap<i32, Weak<RefCell<GameWindow>>>,
+        screen_size: (i32, i32),
     ) {
         self.win = win.as_ref().map(Rc::downgrade);
         if let Some(win_rc) = win {
@@ -1392,7 +1413,7 @@ impl Transition for MainMenuMediumScaleUpTransition {
         }
     }
 
-    fn draw(&mut self) {
+    fn draw(&mut self, draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>) {
         if self.draw_state <= 0 || self.draw_state >= self.frame_length {
             return;
         }
@@ -1403,7 +1424,7 @@ impl Transition for MainMenuMediumScaleUpTransition {
         let rect = UIRect::new(x as f32, y as f32, (x1 - x) as f32, (y1 - y) as f32);
         if let Some(win_rc) = self.with_window() {
             let win_ref = win_rc.borrow();
-            if draw_window_image(&win_ref, rect, 255) {}
+            if draw_window_image(&win_ref, rect, 255, draw_context) {}
         }
     }
 
@@ -1461,6 +1482,7 @@ impl Transition for MainMenuSmallScaleDownTransition {
         &mut self,
         win: Option<Rc<RefCell<GameWindow>>>,
         window_lookup: &HashMap<i32, Weak<RefCell<GameWindow>>>,
+        screen_size: (i32, i32),
     ) {
         self.win = win.as_ref().map(Rc::downgrade);
         if let Some(win_rc) = win {
@@ -1536,7 +1558,7 @@ impl Transition for MainMenuSmallScaleDownTransition {
         self.is_forward = false;
     }
 
-    fn draw(&mut self) {
+    fn draw(&mut self, draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>) {
         if self.draw_state <= 0 || self.draw_state >= self.frame_length {
             return;
         }
@@ -1547,7 +1569,7 @@ impl Transition for MainMenuSmallScaleDownTransition {
         let rect = UIRect::new(x as f32, y as f32, (x1 - x) as f32, (y1 - y) as f32);
         if let Some(win_rc) = self.with_window() {
             let win_ref = win_rc.borrow();
-            if draw_window_image(&win_ref, rect, 255) {}
+            if draw_window_image(&win_ref, rect, 255, draw_context) {}
         }
     }
 
@@ -1601,6 +1623,7 @@ impl Transition for TextTypeTransition {
         &mut self,
         win: Option<Rc<RefCell<GameWindow>>>,
         _window_lookup: &HashMap<i32, Weak<RefCell<GameWindow>>>,
+        screen_size: (i32, i32),
     ) {
         self.win = win.as_ref().map(Rc::downgrade);
         if let Some(win_rc) = win {
@@ -1673,7 +1696,7 @@ impl Transition for TextTypeTransition {
         self.partial_text = self.full_text.clone();
     }
 
-    fn draw(&mut self) {
+    fn draw(&mut self, draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>) {
         if self.draw_state <= 0 || self.draw_state >= self.frame_length {
             return;
         }
@@ -1696,7 +1719,7 @@ impl Transition for TextTypeTransition {
                 self.pos.y as f32 + (self.size.y as f32 / 2.0) - (font_size / 2.0),
             )
         };
-        with_ui_renderer_mut(|renderer| {
+        draw_context.with_renderer(|renderer, display_facts| {
             let _ = renderer.draw_text_simple(&text, Vec2::new(x, y), font_size, color);
         });
     }
@@ -1751,6 +1774,7 @@ impl Transition for CountUpTransition {
         &mut self,
         win: Option<Rc<RefCell<GameWindow>>>,
         _window_lookup: &HashMap<i32, Weak<RefCell<GameWindow>>>,
+        screen_size: (i32, i32),
     ) {
         self.win = win.as_ref().map(Rc::downgrade);
         if let Some(win_rc) = win {
@@ -1853,7 +1877,7 @@ impl Transition for CountUpTransition {
         self.is_forward = false;
     }
 
-    fn draw(&mut self) {
+    fn draw(&mut self, draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>) {
         // C++ parity: CountUpTransition has no custom draw logic.
         // The count is rendered by the window text (set via set_text() in update()).
     }
@@ -1902,6 +1926,7 @@ impl Transition for ScreenFadeTransition {
         &mut self,
         _win: Option<Rc<RefCell<GameWindow>>>,
         _window_lookup: &HashMap<i32, Weak<RefCell<GameWindow>>>,
+        screen_size: (i32, i32),
     ) {
         self.is_forward = false;
         self.update(0);
@@ -1910,13 +1935,10 @@ impl Transition for ScreenFadeTransition {
 
         self.percent = 1.0 / (self.frame_length as f32 - 1.0);
         self.pos = ICoord2D { x: 0, y: 0 };
-        with_ui_renderer_mut(|renderer| {
-            let (w, h) = renderer.screen_size();
-            self.size = ICoord2D {
-                x: w as i32,
-                y: h as i32,
-            };
-        });
+        self.size = ICoord2D {
+            x: screen_size.0,
+            y: screen_size.1,
+        };
     }
 
     fn update(&mut self, frame: i32) {
@@ -1929,7 +1951,7 @@ impl Transition for ScreenFadeTransition {
         self.is_forward = false;
     }
 
-    fn draw(&mut self) {
+    fn draw(&mut self, draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>) {
         if self.draw_state < 0 {
             return;
         }
@@ -1943,7 +1965,7 @@ impl Transition for ScreenFadeTransition {
             self.size.x as f32,
             self.size.y as f32,
         );
-        with_ui_renderer_mut(|renderer| {
+        draw_context.with_renderer(|renderer, display_facts| {
             renderer.draw_rect(rect, rgba_from_components(0, 0, 0, alpha as u8), 0.0);
         });
     }
@@ -1994,6 +2016,7 @@ impl Transition for ControlBarArrowTransition {
         &mut self,
         _win: Option<Rc<RefCell<GameWindow>>>,
         window_lookup: &HashMap<i32, Weak<RefCell<GameWindow>>>,
+        screen_size: (i32, i32),
     ) {
         self.is_forward = false;
         self.update(0);
@@ -2041,7 +2064,7 @@ impl Transition for ControlBarArrowTransition {
         self.is_forward = false;
     }
 
-    fn draw(&mut self) {
+    fn draw(&mut self, draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>) {
         if self.draw_state < 0 {
             return;
         }
@@ -2063,8 +2086,8 @@ impl Transition for ControlBarArrowTransition {
             self.size.x as f32,
             self.size.y as f32,
         );
-        if !draw_named_image("GenArrow", rect, alpha) {
-            with_ui_renderer_mut(|renderer| {
+        if !draw_named_image("GenArrow", rect, alpha, draw_context) {
+            draw_context.with_renderer(|renderer, display_facts| {
                 renderer.draw_rect(rect, rgba_from_components(255, 255, 255, alpha), 0.0);
             });
         }
@@ -2118,6 +2141,7 @@ impl Transition for FullFadeTransition {
         &mut self,
         win: Option<Rc<RefCell<GameWindow>>>,
         _window_lookup: &HashMap<i32, Weak<RefCell<GameWindow>>>,
+        screen_size: (i32, i32),
     ) {
         self.win = win.as_ref().map(Rc::downgrade);
         if let Some(win_rc) = win {
@@ -2171,7 +2195,7 @@ impl Transition for FullFadeTransition {
         self.is_forward = false;
     }
 
-    fn draw(&mut self) {
+    fn draw(&mut self, draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>) {
         let half = self.frame_length / 2;
         let mut alpha = if self.draw_state > half {
             self.percent * 255.0 * (self.frame_length - self.draw_state) as f32
@@ -2187,7 +2211,7 @@ impl Transition for FullFadeTransition {
             self.size.x as f32,
             self.size.y as f32,
         );
-        with_ui_renderer_mut(|renderer| {
+        draw_context.with_renderer(|renderer, display_facts| {
             renderer.draw_rect(rect, rgba_from_components(0, 0, 0, alpha as u8), 0.0);
             renderer.draw_rect_outline(
                 rect,
@@ -2238,6 +2262,7 @@ impl Transition for TextOnFrameTransition {
         &mut self,
         win: Option<Rc<RefCell<GameWindow>>>,
         _window_lookup: &HashMap<i32, Weak<RefCell<GameWindow>>>,
+        screen_size: (i32, i32),
     ) {
         self.win = win.as_ref().map(Rc::downgrade);
         if let Some(win_rc) = self.with_window() {
@@ -2289,7 +2314,7 @@ impl Transition for TextOnFrameTransition {
         }
     }
 
-    fn draw(&mut self) {
+    fn draw(&mut self, draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>) {
         // C++ parity: TextOnFrameTransition has no custom draw logic.
         // The window is shown/hidden in update(); the window system renders content.
     }
@@ -2330,6 +2355,7 @@ impl Transition for ReverseSoundTransition {
         &mut self,
         _win: Option<Rc<RefCell<GameWindow>>>,
         _window_lookup: &HashMap<i32, Weak<RefCell<GameWindow>>>,
+        screen_size: (i32, i32),
     ) {
         self.is_finished = true;
         self.is_forward = true;
@@ -2361,7 +2387,7 @@ impl Transition for ReverseSoundTransition {
         self.is_forward = false;
     }
 
-    fn draw(&mut self) {
+    fn draw(&mut self, draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>) {
         // C++ parity: ReverseSoundTransition has no custom draw logic.
         // Only plays a sound event in update(); nothing to render.
     }
@@ -2429,14 +2455,18 @@ impl TransitionWindow {
         }
     }
 
-    fn init(&mut self, window_lookup: &HashMap<i32, Weak<RefCell<GameWindow>>>) {
+    fn init(
+        &mut self,
+        window_lookup: &HashMap<i32, Weak<RefCell<GameWindow>>>,
+        screen_size: (i32, i32),
+    ) {
         self.win_id = NameKeyGenerator::name_to_key(&self.win_name) as i32;
         self.win = window_lookup.get(&self.win_id).cloned();
         self.current_frame_delay = self.frame_delay;
         self.transition = get_transition_for_style(self.style);
         if let Some(transition) = &mut self.transition {
             let win_rc = self.win.as_ref().and_then(|w| w.upgrade());
-            transition.init(win_rc, window_lookup);
+            transition.init(win_rc, window_lookup, screen_size);
         }
     }
 
@@ -2471,9 +2501,9 @@ impl TransitionWindow {
         }
     }
 
-    fn draw(&mut self) {
+    fn draw(&mut self, draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>) {
         if let Some(transition) = &mut self.transition {
-            transition.draw();
+            transition.draw(draw_context);
         }
     }
 
@@ -2513,11 +2543,15 @@ impl TransitionGroup {
         &self.name
     }
 
-    fn init(&mut self, window_lookup: &HashMap<i32, Weak<RefCell<GameWindow>>>) {
+    fn init(
+        &mut self,
+        window_lookup: &HashMap<i32, Weak<RefCell<GameWindow>>>,
+        screen_size: (i32, i32),
+    ) {
         self.current_frame = 0;
         self.direction_multiplier = 1;
         for win in &mut self.transition_windows {
-            win.init(window_lookup);
+            win.init(window_lookup, screen_size);
         }
         // GameWindowTransitionsStyles.cpp:77-133: a transition STARTS with the
         // window hidden (FLASH::init winHide(TRUE)). Apply that start state to
@@ -2593,9 +2627,9 @@ impl TransitionGroup {
         self.apply_authored_end_visibility();
     }
 
-    fn draw(&mut self) {
+    fn draw(&mut self, draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>) {
         for win in &mut self.transition_windows {
-            win.draw();
+            win.draw(draw_context);
         }
     }
 
@@ -2605,6 +2639,7 @@ impl TransitionGroup {
 }
 
 pub struct GameWindowTransitionsHandler {
+    screen_size: (i32, i32),
     groups: Vec<TransitionGroup>,
     current_group: Option<usize>,
     pending_group: Option<usize>,
@@ -2623,6 +2658,7 @@ impl Default for GameWindowTransitionsHandler {
 impl GameWindowTransitionsHandler {
     pub fn new() -> Self {
         Self {
+            screen_size: (800, 600),
             groups: Vec::new(),
             current_group: None,
             pending_group: None,
@@ -2633,6 +2669,9 @@ impl GameWindowTransitionsHandler {
         }
     }
 
+    pub fn set_screen_size(&mut self, width: i32, height: i32) {
+        self.screen_size = (width, height);
+    }
     pub fn init(&mut self) {
         self.current_group = None;
         self.pending_group = None;
@@ -2701,12 +2740,15 @@ impl GameWindowTransitionsHandler {
         }
     }
 
-    pub fn draw(&mut self) {
+    pub fn draw(
+        &mut self,
+        draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
+    ) {
         if let Some(idx) = self.draw_group {
-            self.groups[idx].draw();
+            self.groups[idx].draw(draw_context);
         }
         if let Some(idx) = self.secondary_draw_group {
-            self.groups[idx].draw();
+            self.groups[idx].draw(draw_context);
         }
     }
 
@@ -2726,7 +2768,7 @@ impl GameWindowTransitionsHandler {
             }
             self.current_group = self.find_group_index(group_name);
             if let Some(idx) = self.current_group {
-                self.groups[idx].init(window_lookup);
+                self.groups[idx].init(window_lookup, self.screen_size);
             }
             return;
         }
@@ -2739,14 +2781,14 @@ impl GameWindowTransitionsHandler {
             // current so hide-pack must not re-hide after CHAR (already gated).
             self.pending_group = self.find_group_index(group_name);
             if let Some(idx) = self.pending_group {
-                self.groups[idx].init(window_lookup);
+                self.groups[idx].init(window_lookup, self.screen_size);
             }
             return;
         }
 
         self.current_group = self.find_group_index(group_name);
         if let Some(idx) = self.current_group {
-            self.groups[idx].init(window_lookup);
+            self.groups[idx].init(window_lookup, self.screen_size);
         }
     }
 
@@ -2772,7 +2814,7 @@ impl GameWindowTransitionsHandler {
                 self.groups[pending].skip();
             }
             self.current_group = Some(group_idx);
-            self.groups[group_idx].init(window_lookup);
+            self.groups[group_idx].init(window_lookup, self.screen_size);
             self.groups[group_idx].skip();
             self.groups[group_idx].reverse();
             self.pending_group = None;
@@ -2891,7 +2933,7 @@ mod tests {
     fn fade_transition_finishes_on_last_forward_frame() {
         let win = Rc::new(RefCell::new(GameWindow::new()));
         let mut transition = FadeTransition::new();
-        transition.init(Some(win.clone()), &HashMap::new());
+        transition.init(Some(win.clone()), &HashMap::new(), (800, 600));
 
         transition.update(9);
 
@@ -2902,7 +2944,7 @@ mod tests {
     fn fade_transition_is_not_finished_before_last_forward_frame() {
         let win = Rc::new(RefCell::new(GameWindow::new()));
         let mut transition = FadeTransition::new();
-        transition.init(Some(win.clone()), &HashMap::new());
+        transition.init(Some(win.clone()), &HashMap::new(), (800, 600));
 
         transition.update(8);
 
@@ -2913,7 +2955,7 @@ mod tests {
     fn fade_transition_reverse_finishes_on_zero_frame_only() {
         let win = Rc::new(RefCell::new(GameWindow::new()));
         let mut transition = FadeTransition::new();
-        transition.init(Some(win.clone()), &HashMap::new());
+        transition.init(Some(win.clone()), &HashMap::new(), (800, 600));
 
         transition.reverse();
         transition.update(9);
@@ -2930,7 +2972,7 @@ mod tests {
         win.borrow_mut().set_text("GUI:Back").unwrap();
         let mut transition = TextTypeTransition::new();
 
-        transition.init(Some(win), &HashMap::new());
+        transition.init(Some(win), &HashMap::new(), (800, 600));
 
         assert_eq!(transition.full_text, "BACK");
     }
@@ -2941,7 +2983,7 @@ mod tests {
         win.borrow_mut().set_text("1234").unwrap();
         let mut transition = CountUpTransition::new();
 
-        transition.init(Some(win), &HashMap::new());
+        transition.init(Some(win), &HashMap::new(), (800, 600));
 
         assert_eq!(transition.full_text, "1234");
         assert_eq!(transition.int_value, 1234);

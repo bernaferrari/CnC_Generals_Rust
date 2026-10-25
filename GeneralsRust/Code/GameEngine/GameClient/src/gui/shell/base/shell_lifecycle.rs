@@ -276,9 +276,11 @@ impl Shell {
     ) -> Result<(), ShellError> {
         log::debug!("Shell::show_shell(run_init: {})", run_init);
 
-        if get_global_data()
-            .map(|data| !data.read().initial_file.is_empty())
-            .unwrap_or(false)
+        if !effects
+            .shell_map_settings()
+            .ok_or(ShellError::NotInitialized)?
+            .initial_file
+            .is_empty()
         {
             return Ok(());
         }
@@ -289,9 +291,10 @@ impl Shell {
             }
         }
 
-        let shell_map_enabled = get_global_data()
-            .map(|data| data.read().shell_map_on)
-            .unwrap_or(false);
+        let shell_map_enabled = effects
+            .shell_map_settings()
+            .ok_or(ShellError::NotInitialized)?
+            .enabled;
         if !shell_map_enabled && self.screen_stack.is_empty() {
             self.push("Menus/MainMenu.wnd", false, effects)?;
         }
@@ -310,8 +313,8 @@ impl Shell {
             self.push("Menus/MainMenu.wnd", false, effects)
         } else {
             if let Some(top) = self.top() {
-                top.hide(false);
-                top.bring_forward();
+                top.hide_with_effects(false, effects);
+                top.bring_forward_with_effects(effects);
             }
             Ok(())
         }
@@ -480,66 +483,39 @@ impl Shell {
 
     /// Show or hide the shell map
     pub fn show_shell_map(&mut self, use_shell_map: bool, effects: &mut WindowEventEffects<'_>) {
-        let Some(global) = get_global_data() else {
-            return;
-        };
-        let initial_file_not_empty = !global.read().initial_file.is_empty();
-        if initial_file_not_empty {
-            return;
-        }
+        effects.request_shell_map(use_shell_map);
+    }
 
-        let shell_map_enabled = global.read().shell_map_on;
-        if use_shell_map && shell_map_enabled {
-            if TheGameLogic::is_in_game() && TheGameLogic::get_game_mode() == GAME_SHELL {
-                return;
-            }
-
-            if TheGameLogic::is_in_game() {
-                effects
-                    .emitted_messages
-                    .push(GameMessage::new(GameMessageType::ClearGameData));
-            }
-
-            let shell_map_name = global.read().shell_map_name.clone();
-            {
-                let mut data = global.write();
-                data.pending_file = shell_map_name;
-            }
-            init_random_with_seed(0);
-            let mut msg = GameMessage::new(GameMessageType::NewGame);
-            msg.append_integer_argument(GAME_SHELL);
-            effects.emitted_messages.push(msg);
+    /// Display-only tail; world commands were already queued by their source callback.
+    pub(crate) fn apply_shell_map_presentation(
+        &mut self,
+        enabled: bool,
+        effects: &mut WindowEventEffects<'_>,
+    ) {
+        if enabled {
             self.shell_map_on = true;
-        } else {
-            if TheGameLogic::is_in_game() && TheGameLogic::get_game_mode() == GAME_SHELL {
-                effects
-                    .emitted_messages
-                    .push(GameMessage::new(GameMessageType::ClearGameData));
-            }
-
-            if !self.is_shell_active {
-                return;
-            }
-            if self.background.is_none() {
-                self.background = Some(Box::new(BasicWindowLayout::new(
-                    "Menus/BlankWindow.wnd".to_string(),
-                )));
-            }
-            if let Some(ref mut bg) = self.background {
-                if let Err(err) = bg.run_init_with_effects(None, effects) {
-                    log::warn!("Failed to initialize shell background layout: {}", err);
-                }
-                bg.set_first_window_image();
-                bg.hide(false);
-                if let Some(top) = self.screen_stack.last_mut() {
-                    top.bring_forward();
-                }
-            }
-            self.shell_map_on = false;
-            self.clear_background = false;
+            return;
         }
-
-        log::debug!("Shell map enabled: {}", self.shell_map_on);
+        if !self.is_shell_active {
+            return;
+        }
+        if self.background.is_none() {
+            self.background = Some(Box::new(BasicWindowLayout::new(
+                "Menus/BlankWindow.wnd".to_string(),
+            )));
+        }
+        if let Some(background) = self.background.as_mut() {
+            if let Err(error) = background.run_init_with_effects(None, effects) {
+                log::warn!("Failed to initialize shell background layout: {error}");
+            }
+            background.set_first_window_image();
+            background.hide_with_effects(false, effects);
+            if let Some(top) = self.screen_stack.last_mut() {
+                top.bring_forward_with_effects(effects);
+            }
+        }
+        self.shell_map_on = false;
+        self.clear_background = false;
     }
 
     fn do_push(

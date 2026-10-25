@@ -644,6 +644,9 @@ impl GameLogic {
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<()> {
+        #[cfg(feature = "game_client")]
+        let fx_operation_environment = self.observe_object_fx_environment();
+
         use crate::game_logic::special_power_strikes::{
             ANTHRAX_TOXIN_AUDIO, HostSuperweaponKind, NUKE_RADIATION_AUDIO, SPECTRE_ORBIT_AUDIO,
         };
@@ -667,6 +670,8 @@ impl GameLogic {
             let mut destroy_ids: Vec<(ObjectId, Team)> = Vec::new();
 
             for hit in &plan.hits {
+                #[cfg(feature = "game_client")]
+                let fx_operation_environment = self.observe_object_fx_environment();
                 if let Some(target) = self.objects.get_mut(&hit.target_id) {
                     if !target.is_alive() {
                         continue;
@@ -746,13 +751,14 @@ impl GameLogic {
                 {
                     let player = self.local_player_id();
                     let receiver = &mut self.special_power_strikes;
-                    Self::with_host_fx_view_parts_and_terrain(
+                    Self::with_object_fx_services(
                         &mut self.session_view,
                         player,
                         self.world_services.shroud(),
-                        effects.terrain.as_mut().map(|terrain| {
-                            &mut **terrain as &mut dyn crate::game_logic::NativeTerrainEffects
-                        }),
+                        effects,
+                        &fx_operation_environment,
+                        self.world_services.terrain(),
+                        &self.logic_random,
                         |view| {
                             receiver.record_impact_wave_with_view(
                                 fx_arg_0, fx_arg_1, fx_arg_2, fx_arg_3, fx_arg_4, fx_arg_5,
@@ -925,6 +931,9 @@ impl GameLogic {
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<()> {
+        #[cfg(feature = "game_client")]
+        let fx_operation_environment = self.observe_object_fx_environment();
+
         use crate::game_logic::host_neutron_missile_slow_death::{
             MC_BIT_BURNED, neutron_blast_can_topple, plan_neutron_frame,
         };
@@ -1004,6 +1013,8 @@ impl GameLogic {
                 if id == meta.source_object {
                     continue;
                 }
+                #[cfg(feature = "game_client")]
+                let fx_operation_environment = self.observe_object_fx_environment();
                 let Some(obj) = self.objects.get_mut(&id) else {
                     continue;
                 };
@@ -1020,13 +1031,14 @@ impl GameLogic {
                         .unwrap_or(false);
                     if neutron_blast_can_topple(has, able) {
                         #[cfg(feature = "game_client")]
-                        Self::with_host_fx_view_parts_and_terrain(
+                        Self::with_object_fx_services(
                             &mut self.session_view,
                             fx_player,
                             self.world_services.shroud(),
-                            effects.terrain.as_mut().map(|terrain| {
-                                &mut **terrain as &mut dyn crate::game_logic::NativeTerrainEffects
-                            }),
+                            effects,
+                            &fx_operation_environment,
+                            self.world_services.terrain(),
+                            &self.logic_random,
                             |view| {
                                 obj.apply_topple_with_fx(
                                     hit.topple_dx,
@@ -2147,7 +2159,8 @@ impl GameLogic {
             }
         }
         self.special_power_strikes.advance_orbit_strafe(frame);
-        self.spawn_spectre_gattling_strafe_smoke();
+        #[cfg(feature = "game_client")]
+        self.spawn_spectre_gattling_strafe_smoke(effects);
 
         self.special_power_strikes.prune_expired_orbit(frame);
         Ok(())
@@ -2155,15 +2168,17 @@ impl GameLogic {
 
     /// C++ `SpectreGunshipUpdate.cpp:598-643` — leftover `createParticleSystem`
     /// at gattling target ±5 / ground height while firing and PARTIAL_CLEAR.
-    fn spawn_spectre_gattling_strafe_smoke(&mut self) {
+    #[cfg(feature = "game_client")]
+    fn spawn_spectre_gattling_strafe_smoke(
+        &mut self,
+        particle_owner: &mut dyn crate::game_logic::combat_particles::ParticleBindingAccess,
+    ) {
         use crate::game_logic::combat_particles::CombatParticleKind;
         use crate::game_logic::host_spectre_gunship_update::{
-            spawn_spectre_gattling_strafe_smoke as spawn_leftover_strafe_smoke,
             spectre_gattling_strafe_smoke_impact, spectre_gunship_visible_for_strafe_fx,
             spectre_orbit_gattling_is_firing,
         };
         use crate::game_logic::special_power_strikes::SPECTRE_GATTLING_STRAFE_FX;
-        use gamelogic::system::shroud_manager::get_shroud_manager;
 
         let frame = self.frame;
         let shots: Vec<(ObjectId, Vec3)> = self
@@ -2184,10 +2199,16 @@ impl GameLogic {
             if !spectre_gunship_visible_for_strafe_fx(shroud) {
                 continue;
             }
-            let impact = spectre_gattling_strafe_smoke_impact(aim, |x, z| {
-                self.terrain_ground_height_at(Vec3::new(x, 0.0, z))
-            });
-            let _ = spawn_leftover_strafe_smoke(impact);
+            let terrain = self.world_services.terrain();
+            let random = self.session_view.fx.client_random_mut();
+            let impact = spectre_gattling_strafe_smoke_impact(
+                aim,
+                |x, z| {
+                    let terrain = terrain.read().unwrap_or_else(|error| error.into_inner());
+                    Some(terrain.get_ground_height(x, z, None))
+                },
+                |lo, hi| random.next_real(lo, hi),
+            );
             let _ = self.combat_particles.spawn_named(
                 CombatParticleKind::WeaponImpact,
                 SPECTRE_GATTLING_STRAFE_FX,
@@ -2195,6 +2216,7 @@ impl GameLogic {
                 frame,
                 Some(source),
                 None,
+                particle_owner,
             );
         }
     }
@@ -2215,6 +2237,9 @@ impl GameLogic {
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<()> {
+        #[cfg(feature = "game_client")]
+        let fx_operation_environment = self.observe_object_fx_environment();
+
         let frame = self.frame;
         self.apply_pending_special_power_overrides();
         let aborting: std::collections::HashSet<ObjectId> = self
@@ -2233,13 +2258,14 @@ impl GameLogic {
             {
                 let player = self.local_player_id();
                 let receiver = &mut self.special_power_strikes;
-                Self::with_host_fx_view_parts_and_terrain(
+                Self::with_object_fx_services(
                     &mut self.session_view,
                     player,
                     self.world_services.shroud(),
-                    effects.terrain.as_mut().map(|terrain| {
-                        &mut **terrain as &mut dyn crate::game_logic::NativeTerrainEffects
-                    }),
+                    effects,
+                    &fx_operation_environment,
+                    self.world_services.terrain(),
+                    &self.logic_random,
                     |view| receiver.advance_particle_intensity_schedule_with_view(fx_arg_0, view),
                 )
             }
@@ -2262,13 +2288,14 @@ impl GameLogic {
             {
                 let player = self.local_player_id();
                 let receiver = &mut self.special_power_strikes;
-                Self::with_host_fx_view_parts_and_terrain(
+                Self::with_object_fx_services(
                     &mut self.session_view,
                     player,
                     self.world_services.shroud(),
-                    effects.terrain.as_mut().map(|terrain| {
-                        &mut **terrain as &mut dyn crate::game_logic::NativeTerrainEffects
-                    }),
+                    effects,
+                    &fx_operation_environment,
+                    self.world_services.terrain(),
+                    &self.logic_random,
                     |view| receiver.bind_beam_source_axes_with_view(fx_arg_0, view),
                 )
             }
@@ -2302,13 +2329,22 @@ impl GameLogic {
             .apply_due_beam_scorch_reveals(frame);
         for event in &scorch_events {
             #[cfg(feature = "game_client")]
-            self.with_host_fx_view_and_terrain(effects.terrain.as_mut().map(|terrain| &mut **terrain as &mut dyn crate::game_logic::NativeTerrainEffects), |view| {
-                crate::game_logic::special_power_strikes::apply_particle_beam_scorch_and_ground_hit_fx_with_view(
+            Self::with_object_fx_services(
+                &mut self.session_view,
+                fx_operation_environment.player,
+                self.world_services.shroud(),
+                effects,
+                &fx_operation_environment,
+                self.world_services.terrain(),
+                &self.logic_random,
+                |view| {
+                    crate::game_logic::special_power_strikes::apply_particle_beam_scorch_and_ground_hit_fx_with_view(
                     event.position,
                     event.scorch_radius,
                     view,
                 );
-            });
+                },
+            );
             #[cfg(not(feature = "game_client"))]
             crate::game_logic::special_power_strikes::apply_particle_beam_scorch_and_ground_hit_fx(
                 event.position,
@@ -2371,6 +2407,8 @@ impl GameLogic {
                 );
 
             for hit in &plan.hits {
+                #[cfg(feature = "game_client")]
+                let fx_operation_environment = self.observe_object_fx_environment();
                 if let Some(target) = self.objects.get_mut(&hit.target_id) {
                     if !target.is_alive() {
                         continue;
@@ -2481,6 +2519,7 @@ impl GameLogic {
                 frame,
                 Some(gunship_id),
                 None,
+                effects,
             );
             if let Some(oid) = self.create_object_with_script_effects(
                 SPECTRE_HOWITZER_SHELL_OBJECT,
@@ -2576,6 +2615,7 @@ impl GameLogic {
                     frame,
                     Some(id),
                     None,
+                    effects,
                 );
             }
             if let Some(o) = self.objects.get_mut(&id) {

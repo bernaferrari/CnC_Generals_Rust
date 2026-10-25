@@ -189,25 +189,28 @@ fn real_fx_nugget_uses_receiving_rule_owner_despite_foreign_global_and_reused_id
             definition.add_nugget(game_engine::common::ini::ini_fx_list::FXNugget::ViewShake {
                 shake_type: CameraShakeType::Normal,
             });
-            let fx = game_client::fx_list::FXList::from_definition(&definition);
-            source.with_host_fx_view(|view| {
-                fx.do_fx_pos_with_view(
-                    Some(&Coord3D::new(30., 40., 999.)),
-                    None,
-                    0.,
-                    None,
-                    0.,
-                    view,
-                )
-            });
+            let mut catalog = game_client::fx_list::FXListStore::new();
+            catalog.add_fx_list(
+                "LocalShake".into(),
+                game_client::fx_list::FXList::from_definition(&definition),
+            );
+            source.admit_fx_catalog(catalog.clone());
+            peer.admit_fx_catalog(catalog);
+            assert!(source.dispatch_fx_list_at_host_position_with_effects(
+                "LocalShake",
+                Vec3::new(30., 999., 40.),
+                &mut Default::default()
+            ));
             assert_eq!(
                 source.session_view.impulse.intensity, 1.,
                 "source XY distance50 over receiving range100"
             );
             assert_eq!(source.session_view.impulse.offset, Vec3::ZERO);
-            peer.with_host_fx_view(|view| {
-                fx.do_fx_pos_with_view(Some(&Coord3D::new(0., 0., -999.)), None, 0., None, 0., view)
-            });
+            assert!(peer.dispatch_fx_list_at_host_position_with_effects(
+                "LocalShake",
+                Vec3::new(0., -999., 0.),
+                &mut Default::default()
+            ));
             assert_eq!(
                 peer.session_view.impulse.intensity, 8.,
                 "same-ID peer keeps its own eight-point amplitude"

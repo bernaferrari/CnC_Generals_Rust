@@ -1,11 +1,11 @@
 //! IMECandidate.cpp callback port.
 
 use crate::gui::display_string::DisplayStringHandle;
-use crate::gui::ime_manager::{get_ime_manager, ImeManager};
+use crate::gui::ime_manager::{ImeManager, get_ime_manager};
 use crate::gui::{
-    get_display_string_manager, get_font_library, with_window_manager, GameWindow,
-    WindowInstanceData, WindowMessage, WindowMsgData, WindowMsgHandled, WindowState, WindowStatus,
-    WIN_COLOR_UNDEFINED,
+    GameWindow, WIN_COLOR_UNDEFINED, WindowInstanceData, WindowMessage, WindowMsgData,
+    WindowMsgHandled, WindowState, WindowStatus, get_display_string_manager, get_font_library,
+    with_window_manager,
 };
 use std::cell::RefCell;
 use std::sync::{Arc, Mutex};
@@ -63,7 +63,11 @@ pub fn ime_candidate_window_system(
     }
 }
 
-pub fn ime_candidate_text_area_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
+pub fn ime_candidate_text_area_draw(
+    window: &GameWindow,
+    inst_data: &WindowInstanceData,
+    draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
+) {
     let Some(display_handle) = ensure_display_string() else {
         return;
     };
@@ -100,6 +104,7 @@ pub fn ime_candidate_text_area_draw(window: &GameWindow, inst_data: &WindowInsta
             origin_y,
             origin_x + size_x,
             origin_y + size_y,
+            draw_context,
         );
     });
 
@@ -156,15 +161,19 @@ pub fn ime_candidate_text_area_draw(window: &GameWindow, inst_data: &WindowInsta
         let number_text = format!("{}:", i as i32 + index_base);
         display.set_text(number_text);
         let number_width = display.get_width(-1);
-        display.draw(left_edge - number_width, y, tcolor, black);
+        display.draw(left_edge - number_width, y, tcolor, black, draw_context);
 
         display.set_text(candidate);
-        display.draw(left_edge, y, tcolor, black);
+        display.draw(left_edge, y, tcolor, black, draw_context);
         y += line_height;
     }
 }
 
-pub fn ime_candidate_main_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
+pub fn ime_candidate_main_draw(
+    window: &GameWindow,
+    inst_data: &WindowInstanceData,
+    draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
+) {
     let (origin_x, origin_y) = window.get_screen_position();
     let (size_x, size_y) = window.get_size();
 
@@ -197,6 +206,7 @@ pub fn ime_candidate_main_draw(window: &GameWindow, inst_data: &WindowInstanceDa
                 origin_y,
                 origin_x + size_x,
                 origin_y + size_y,
+                draw_context,
             );
         });
     }
@@ -210,6 +220,7 @@ pub fn ime_candidate_main_draw(window: &GameWindow, inst_data: &WindowInstanceDa
                 origin_y + 1,
                 origin_x + size_x - 1,
                 origin_y + size_y - 1,
+                draw_context,
             );
         });
     }

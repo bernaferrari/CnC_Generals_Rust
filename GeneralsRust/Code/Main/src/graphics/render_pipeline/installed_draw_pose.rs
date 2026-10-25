@@ -335,11 +335,11 @@ impl ObjectVisualState {
         }
         Ok(pose.sampled_frame)
     }
-    pub(super) fn installed_camera_pose(
+    pub(super) fn installed_client_bone_transform(
         &mut self,
         sync_ms: u32,
         bone_name: &str,
-    ) -> Result<Mat4, NativeCameraPoseUnavailable> {
+    ) -> Result<Option<Mat4>, NativeCameraPoseUnavailable> {
         use NativeCameraPoseUnavailable::*;
         let pose = match &mut self.installed_draw_pose {
             InstalledDrawObject::AwaitingAdmission => return Err(UnadmittedDrawableLifecycle),
@@ -349,9 +349,6 @@ impl ObjectVisualState {
         if !pose.supported_controls {
             return Err(UnsupportedSourceControls);
         }
-        let swap = Mat4::from_cols_array(&[
-            1., 0., 0., 0., 0., 0., 1., 0., 0., 1., 0., 0., 0., 0., 0., 1.,
-        ]);
         // Original Get_Bone_Index is before Get_Bone_Transform; unresolved names
         // write FULL source identity without advancing even an invalid tree.
         if !pose
@@ -359,7 +356,7 @@ impl ObjectVisualState {
             .has_source_named_camera_bone(bone_name)
             .map_err(Bone)?
         {
-            return Ok(swap);
+            return Ok(None);
         }
         if !pose.hierarchy_valid {
             if let Some(animation) = self.animation.as_mut() {
@@ -387,7 +384,33 @@ impl ObjectVisualState {
                 crate::assets::models::BonePoseUnavailable::InvalidHierarchy,
             ))?;
         pose.hierarchy_valid = true;
-        Ok(pose.world * swap * source)
+        Ok(Some(source))
+    }
+
+    pub(super) fn installed_camera_pose(
+        &mut self,
+        sync_ms: u32,
+        bone_name: &str,
+    ) -> Result<Mat4, NativeCameraPoseUnavailable> {
+        let world = match &self.installed_draw_pose {
+            InstalledDrawObject::AwaitingAdmission => {
+                return Err(NativeCameraPoseUnavailable::UnadmittedDrawableLifecycle);
+            }
+            InstalledDrawObject::NoRenderObject => {
+                return Err(NativeCameraPoseUnavailable::NoRenderObject);
+            }
+            InstalledDrawObject::Ready(pose) => pose.world,
+        };
+        let swap = Mat4::from_cols_array(&[
+            1., 0., 0., 0., 0., 0., 1., 0., 0., 1., 0., 0., 0., 0., 0., 1.,
+        ]);
+        // Camera misses keep the source's FULL identity, not the object matrix.
+        Ok(
+            match self.installed_client_bone_transform(sync_ms, bone_name)? {
+                Some(source) => world * swap * source,
+                None => swap,
+            },
+        )
     }
 }
 

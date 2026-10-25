@@ -26,19 +26,9 @@ impl GameClient {
                 .retain(|gap| id.is_some_and(|id| gap.drawable_id != id));
             return Ok(());
         }
-        let mut manager = crate::effects::particle_manager::get_particle_system_manager_mut()
-            .map_err(|error| {
-                GameClientError::SubsystemError(format!(
-                    "Particle manager unavailable during Drawable retirement: {error}"
-                ))
-            })?;
-        let manager = manager.as_mut().ok_or_else(|| {
-            GameClientError::SubsystemError(
-                "receiving particle manager absent during native emitter retirement".into(),
-            )
-        })?;
         self.drawables
-            .retire_native_particles_with_services(id, manager)?;
+            .state
+            .retire_native_particles_with_services(id, &mut self.drawables.particles)?;
         self.native_particle_capability_gaps
             .retain(|gap| id.is_some_and(|id| gap.drawable_id != id));
         Ok(())
@@ -94,29 +84,27 @@ impl GameClient {
             .iter()
             .map(|bone| bone.as_str().to_owned())
             .collect();
-        let assets = crate::render_bridge::THE_RENDER_BRIDGE
-            .lock()
-            .map_err(|error| {
-                GameClientError::SubsystemError(format!("Render assets unavailable: {error}"))
-            })?;
-        let mut particles = crate::effects::particle_manager::get_particle_system_manager_mut()
-            .map_err(|error| {
-                GameClientError::SubsystemError(format!("Particle manager unavailable: {error}"))
-            })?;
-        if let Some(particles) = particles.as_mut() {
-            self.run_native_draw_particle_phase_with_services(
-                particles,
-                assets.as_ref().map(|bridge| bridge.asset_manager()),
-                &public_bones,
-                frames,
-                draw_models,
-                advance_particles,
-            )?;
-        }
-        drop(particles);
-        drop(assets);
-        crate::effects::update_tracer_fx(frames.logic_frame);
-        crate::effects::update_ray_effects(frames.logic_frame);
+        let assets = self.render_bridge.asset_manager();
+        self.drawables
+            .particles
+            .admit_effective_definitions()
+            .map_err(|error| GameClientError::SubsystemError(error.to_string()))?;
+        let (state, particles) = (&mut self.drawables.state, &mut self.drawables.particles);
+        NativeRenderReceiver::new(
+            state,
+            &mut self.native_particle_capability_gaps,
+            &self.subsystem_manager,
+            self.frame,
+            self.local_player_id,
+        )
+        .run_native_draw_particle_phase_with_services(
+            particles,
+            Some(assets),
+            &public_bones,
+            frames,
+            draw_models,
+            advance_particles,
+        )?;
         Ok(())
     }
 
@@ -137,15 +125,15 @@ impl GameClient {
         draw_models: bool,
         advance_particles: bool,
     ) -> GameClientResult<()> {
-        self.run_native_draw_particle_phase_with_object_lifecycle(
-            particles,
-            assets,
-            public_bones,
-            frames,
-            draw_models,
-            advance_particles,
-            None,
-        )
+        self.native_render_receiver()
+            .run_native_draw_particle_phase_with_services(
+                particles,
+                assets,
+                public_bones,
+                frames,
+                draw_models,
+                advance_particles,
+            )
     }
     fn run_native_draw_particle_phase_with_object_lifecycle(
         &mut self,
@@ -157,64 +145,16 @@ impl GameClient {
         advance_particles: bool,
         lifecycle: Option<&mut crate::effects::particle_manager::NativeParticleObjectLifecycle<'_>>,
     ) -> GameClientResult<()> {
-        if frames.client_frame != self.frame {
-            return Err(GameClientError::InvalidOperation(
-                "native particle phase Client clock does not match receiving owner".into(),
-            ));
-        }
-        if draw_models {
-            self.prepare_native_draw_particles_with_assets(
+        self.native_render_receiver()
+            .run_native_draw_particle_phase_with_object_lifecycle(
                 particles,
                 assets,
                 public_bones,
-                frames.client_frame,
-            )?;
-        }
-        particles.set_local_player_index(self.local_player_id);
-        // A retained Core Display walk, when present, performs its ordered
-        // Draw→particle phase afterward; native callbacks never enter it.
-        if advance_particles {
-            let drawables = &self.drawables.drawable_map;
-            let bindings = &self.drawables.presentation_direct_drawable_bindings;
-            let resolve = |id: DrawableId| {
-                let drawable = drawables.get(&id)?;
-                let mut transform = drawable
-                    .as_any()
-                    .downcast_ref::<BasicDrawable>()
-                    .map(BasicDrawable::native_particle_parent_transform)
-                    .unwrap_or_else(|| drawable.get_transform().to_glam());
-                if bindings.contains_key(&id) {
-                    let swizzle = glam::Mat4::from_cols(
-                        glam::Vec4::X,
-                        glam::Vec4::Z,
-                        glam::Vec4::Y,
-                        glam::Vec4::W,
-                    );
-                    transform = swizzle * transform * swizzle;
-                }
-                Some(crate::effects::particle_system::DrawableParticlePose {
-                    transform,
-                    is_shrouded: drawable.fully_obscured_by_shroud()?,
-                })
-            };
-            if let Some(lifecycle) = lifecycle {
-                particles.update_with_receiving_drawables_and_objects(
-                    self.local_player_id as i32,
-                    frames.logic_frame,
-                    frames.client_frame,
-                    &resolve,
-                    lifecycle,
-                );
-            } else {
-                particles.update_with_receiving_drawables(
-                    self.local_player_id as i32,
-                    frames.logic_frame,
-                    frames.client_frame,
-                    &resolve,
-                );
-            }
-        }
-        Ok(())
+                frames,
+                draw_models,
+                advance_particles,
+                lifecycle,
+            )
     }
 
     fn prepare_native_draw_particles_with_assets(
@@ -224,17 +164,8 @@ impl GameClient {
         public_bones: &[String],
         frame: u32,
     ) -> GameClientResult<()> {
-        self.native_particle_capability_gaps.clear();
-        for id in self.drawables.native_drawable_order.clone() {
-            self.prepare_native_drawable_particles_with_assets(
-                id,
-                particles,
-                assets,
-                public_bones,
-                frame,
-            )?;
-        }
-        Ok(())
+        self.native_render_receiver()
+            .prepare_native_draw_particles_with_assets(particles, assets, public_bones, frame)
     }
 
     fn prepare_native_drawable_particles_with_assets(
@@ -245,14 +176,14 @@ impl GameClient {
         public_bones: &[String],
         frame: u32,
     ) -> GameClientResult<()> {
-        self.prepare_native_drawable_particles_with_assets_and_keys(
-            id,
-            particles,
-            assets,
-            public_bones,
-            frame,
-            None,
-        )
+        self.native_render_receiver()
+            .prepare_native_drawable_particles_with_assets(
+                id,
+                particles,
+                assets,
+                public_bones,
+                frame,
+            )
     }
 
     fn prepare_native_drawable_particles_with_assets_and_keys(
@@ -264,51 +195,19 @@ impl GameClient {
         frame: u32,
         keys: Option<&mut game_engine::common::name_key_generator::NameKeyNamespace>,
     ) -> GameClientResult<()> {
-        let drawable = self
-            .drawables
-            .drawable_map
-            .get_mut(&id)
-            .expect("native Drawable roster references a live receiver");
-        let visible = drawable.is_visible();
-        if let Some(drawable) = drawable.as_any_mut().downcast_mut::<BasicDrawable>() {
-            drawable.synchronize_native_particle_visibility(particles);
-            if !visible {
-                return Ok(());
-            }
-            let outcomes = drawable
-                .prepare_native_state_particles_with_keys(
-                    particles,
-                    assets,
-                    public_bones,
-                    frame,
-                    keys,
-                )
-                .map_err(GameClientError::InvalidOperation)?;
-            for (module_index, outcome) in outcomes {
-                use gamelogic::object::draw::draw_module::NativeStateParticlePreparation;
-                let (module_preparation, animation_pose, terrain_tracks) = match outcome {
-                    NativeStateParticlePreparation::Prepared(_) => continue,
-                    NativeStateParticlePreparation::Unsupported {
-                        animation_pose,
-                        terrain_tracks,
-                    } => (false, animation_pose, terrain_tracks),
-                    NativeStateParticlePreparation::UnsupportedModule => (true, false, false),
-                };
-                self.native_particle_capability_gaps
-                    .push(NativeParticleCapabilityGap {
-                        drawable_id: id,
-                        module_index,
-                        module_preparation,
-                        animation_pose,
-                        terrain_tracks,
-                    });
-            }
-        }
-        Ok(())
+        self.native_render_receiver()
+            .prepare_native_drawable_particles_with_assets_and_keys(
+                id,
+                particles,
+                assets,
+                public_bones,
+                frame,
+                keys,
+            )
     }
 }
 
-impl drawable_world::DrawableWorld {
+impl drawable_world::DrawableState {
     /// Same preflight as physical Drawable deletion, over actual native roster.
     /// No flush/update, no ID unlink, and no manager discovery occurs here.
     fn native_particle_retirement_required(
@@ -498,7 +397,9 @@ impl NativeDrawableOwner<'_> {
         &mut self,
         particles: Option<&mut crate::effects::particle_manager::ParticleSystemManager>,
     ) -> GameClientResult<()> {
-        self.drawables.try_clear_for_map_attempt(particles)
+        self.drawables.try_clear_for_map_attempt(particles)?;
+        self.particles.reset_runtime();
+        Ok(())
     }
 }
 

@@ -69,7 +69,7 @@ mod validate;
 pub use leftover::{
     host_beacon_caption, host_beacon_is_hidden, host_beacon_position_is_hidden,
     host_local_player_can_place_beacon, take_leftover_dispatch_commands_from_common_stream,
-    tick_live_beacon_client_updates,
+    tick_live_beacon_client_updates, tick_live_beacon_client_updates_with_effects,
 };
 
 impl<'a> CommandExecutor<'a> {
@@ -585,7 +585,7 @@ impl<'a> CommandExecutor<'a> {
 
     /// C++ HintSpy.cpp:91-96 / InGameUI::createMoveHint (InGameUI.cpp:2141).
     /// Attacks route to the attack-marker hook below (HintSpy.cpp:99-100).
-    fn create_live_move_hint(&self, command: &GameCommand) {
+    fn create_live_move_hint(&mut self, command: &GameCommand) {
         if let CommandType::Attack { target_id } = &command.command_type {
             self.create_live_attack_hint(*target_id, command);
             return;
@@ -598,25 +598,17 @@ impl<'a> CommandExecutor<'a> {
             | CommandType::AddWaypoint { destination } => *destination,
             _ => return,
         };
-        // C++ InGameUI.cpp:2152-2160 — single IMMOBILE selection suppresses the hint.
-        if command.selected_units.len() == 1 {
-            if let Some(obj) = self.game_logic.host_object(command.selected_units[0]) {
-                if obj.is_kind_of(KindOf::Immobile) {
-                    return;
-                }
-            }
+        // C++ expires the old source hint even when a single immobile
+        // selection suppresses the replacement.
+        let eligible = command.selected_units.len() != 1
+            || !self
+                .game_logic
+                .host_object(command.selected_units[0])
+                .is_some_and(|object| object.is_kind_of(KindOf::Immobile));
+        let source = command.selected_units.first().map(|id| id.0).unwrap_or(0);
+        if let Some(ui) = self.ui.ui.as_deref_mut() {
+            ui.command_hint(false, destination, source, eligible);
         }
-        #[cfg(feature = "game_client")]
-        {
-            let source_id = command.selected_units.first().map(|id| id.0).unwrap_or(0);
-            let pos = game_client::message_stream::Coord3D::new(
-                destination.x,
-                destination.y,
-                destination.z,
-            );
-            game_client::helpers::TheInGameUI::create_move_hint(pos.clone(), pos, source_id);
-        }
-        let _ = destination;
     }
 
     /// Attack-order marker hook. C++ HintSpy.cpp:99-100 dispatches
@@ -624,20 +616,14 @@ impl<'a> CommandExecutor<'a> {
     /// (InGameUI.cpp:2176-2179); the retail body is intentionally empty —
     /// ZH ships no attack marker — so storing a red hint here is a documented
     /// host adaptation for issued-order feedback (right-HUD lane).
-    fn create_live_attack_hint(&self, target_id: ObjectId, command: &GameCommand) {
-        #[cfg(feature = "game_client")]
-        {
-            let Some(target) = self.game_logic.host_object(target_id) else {
-                return;
-            };
-            let position = target.get_position();
-            let source_id = command.selected_units.first().map(|id| id.0).unwrap_or(0);
-            let pos = game_client::message_stream::Coord3D::new(position.x, position.y, position.z);
-            game_client::helpers::TheInGameUI::create_attack_hint(pos.clone(), pos, source_id);
-        }
-        #[cfg(not(feature = "game_client"))]
-        {
-            let _ = (target_id, command);
+    fn create_live_attack_hint(&mut self, target_id: ObjectId, command: &GameCommand) {
+        let Some(target) = self.game_logic.host_object(target_id) else {
+            return;
+        };
+        let position = target.get_position();
+        let source = command.selected_units.first().map(|id| id.0).unwrap_or(0);
+        if let Some(ui) = self.ui.ui.as_deref_mut() {
+            ui.command_hint(true, position, source, true);
         }
     }
 

@@ -1,345 +1,245 @@
-//! UI Render Pass — bridges the GUI gadget/window system to WGPU rendering.
-//!
-//! PARITY_NOTE: In C++ SAGE, the GUI draw dispatch chain is:
-//!   GameClient::update() → WinInstance::draw() → GadgetGameWindow::draw()
-//!   → per-gadget draw callbacks (W3DGadgetPushButtonDraw, etc.)
-//!   → DisplayString::draw() → WW3D Device StretchRect/DrawLine primitives
-//!
-//! In Rust, gadget draw callbacks queue commands into the UIRenderer (immediate-mode
-//! batching). This module flushes those commands into a WGPU render pass after the 3D scene.
-
-use log::{error, info, trace, warn};
+//! One borrowed native UI overlay, submitted after the scene on the same frame.
+use game_client::core::subsystems::MouseHandle;
+use game_client::display::display_fx::DisplayDrawFacts;
+use game_client::gui::{
+    ui_renderer::UIRenderer, window_draw_context::WindowDrawContext,
+    window_manager::WindowManagerOwner,
+};
 use ww3d_renderer_3d::RendererResult;
 
-use std::sync::{Arc, RwLock, RwLockWriteGuard};
+pub(crate) type NativeUiOverlay<'a> = dyn FnMut(
+        &mut ww3d_engine::RenderFrame,
+        Option<&super::ui_radar::NativeRadarFrame>,
+    ) -> RendererResult<()>
+    + 'a;
 
-use game_client::gui::ui_renderer::UIRenderer;
-
-/// Acquire the UI lock without permanently bricking presentation after a
-/// caught callback panic.  The caller must reset/discard any open UI frame
-/// before rendering again; the recovery is logged rather than
-/// silently treating a poisoned renderer as healthy.
-fn write_or_recover_ui_lock<'a, T>(
-    lock: &'a RwLock<T>,
-    stage: &'static str,
-) -> (RwLockWriteGuard<'a, T>, bool) {
-    match lock.write() {
-        Ok(guard) => (guard, false),
-        Err(poisoned) => {
-            error!(
-                "UI renderer lock was poisoned {stage}; recovering and resetting the affected UI frame"
-            );
-            let guard = poisoned.into_inner();
-            lock.clear_poison();
-            (guard, true)
+/// This receiver cannot outlive the driving GameClient's renderer loan.
+pub(crate) struct NativeUiDraw<'a> {
+    renderer: &'a mut UIRenderer,
+    windows: &'a WindowManagerOwner,
+    display: DisplayDrawFacts,
+    mouse: Option<MouseHandle>,
+    hints: Vec<game_client::gui::command_hints::CommandHint>,
+    client_frame: u32,
+    loading: bool,
+}
+impl<'a> NativeUiDraw<'a> {
+    pub(crate) fn new(
+        renderer: &'a mut UIRenderer,
+        windows: &'a WindowManagerOwner,
+        display: DisplayDrawFacts,
+        mouse: Option<MouseHandle>,
+    ) -> Self {
+        Self {
+            renderer,
+            windows,
+            display,
+            mouse,
+            hints: Vec::new(),
+            client_frame: 0,
+            loading: false,
         }
+    }
+    pub(crate) fn for_load_screen(mut self) -> Self {
+        self.loading = true;
+        self
+    }
+    pub(crate) fn with_command_hints(
+        mut self,
+        hints: Vec<game_client::gui::command_hints::CommandHint>,
+        client_frame: u32,
+    ) -> Self {
+        self.hints = hints;
+        self.client_frame = client_frame;
+        self
+    }
+    pub(crate) fn flush(
+        &mut self,
+        frame: &mut ww3d_engine::RenderFrame,
+        radar: Option<&super::ui_radar::NativeRadarFrame>,
+    ) -> RendererResult<()> {
+        let shell_active = if self.loading {
+            true
+        } else {
+            self.windows.shell_is_active().ok_or_else(|| {
+                ww3d_renderer_3d::Error::InvalidOperation("native UI has no receiving Shell".into())
+            })?
+        };
+        let parent_live = !shell_active
+            && crate::gameplay_layout::control_bar_parent_is_live_with_owner(self.windows);
+        self.renderer.begin_overlay_frame();
+        let mut cleanup = UiFrameCleanup::new(&mut *self.renderer);
+        let renderer = &mut *cleanup.renderer;
+        renderer.advance_lifecycle_flush();
+        if !shell_active && renderer.begin_control_bar_retry(parent_live).is_some() {
+            let loaded =
+                crate::gameplay_layout::materialise_live_control_bar_with_owner(self.windows);
+            renderer.finish_control_bar_retry(loaded);
+        }
+        let (width, height) = renderer.screen_size();
+        game_client::gui::w3d_gadget_draw::ensure_control_bar_wnd_draw_callbacks_for_owner(
+            self.windows,
+        );
+        // W3DInGameUI.cpp:388-391: issued-order hints precede winRepaint.
+        if let Some(camera) = radar {
+            for hint in &self.hints {
+                let elapsed = self.client_frame.wrapping_sub(hint.creation_frame);
+                if elapsed > 40 {
+                    continue;
+                }
+                let Some(center) = camera.project_hint(hint.position) else {
+                    continue;
+                };
+                let t = elapsed as f32 / 40.0;
+                let (rgb, base) = match hint.kind {
+                    game_client::gui::command_hints::CommandHintKind::Attack => {
+                        ([1.0, 0.25, 0.2], 15.0)
+                    }
+                    _ => ([0.2, 1.0, 0.2], 19.0),
+                };
+                let color = [rgb[0], rgb[1], rgb[2], 0.15 + 0.75 * (1.0 - t)];
+                let radius = 3.0 + base * (1.0 - 0.6 * t);
+                for index in 0..16 {
+                    let a = index as f32 * std::f32::consts::TAU / 16.0;
+                    let b = (index + 1) as f32 * std::f32::consts::TAU / 16.0;
+                    renderer.draw_line(
+                        center + glam::Vec2::new(a.cos(), a.sin()) * radius,
+                        center + glam::Vec2::new(b.cos(), b.sin()) * radius,
+                        2.0,
+                        color,
+                        0.0,
+                    );
+                }
+                renderer.draw_rect(
+                    game_client::gui::ui_renderer::UIRect::new(
+                        center.x - 1.5,
+                        center.y - 1.5,
+                        3.0,
+                        3.0,
+                    ),
+                    color,
+                    0.0,
+                );
+            }
+        }
+        let mut context = WindowDrawContext::new(Some(&mut *renderer), self.display.clone());
+        self.windows.with_manager(|windows| {
+            if width > 0 && height > 0 {
+                windows.set_screen_size(width as i32, height as i32);
+            }
+            if let Some(radar) = radar {
+                radar.draw_windows(windows, &mut context);
+            } else {
+                windows.draw_all(&mut context);
+            }
+        });
+        // W3DMouse.cpp:565-567: draw the receiving mouse tooltip after windows.
+        if let Some(mouse) = self.mouse.as_ref() {
+            let mut mouse = mouse.lock().map_err(|_| {
+                ww3d_renderer_3d::Error::InvalidOperation("native UI mouse poisoned".into())
+            })?;
+            if self.loading {
+                mouse.set_cursor_tooltip(String::new(), None, None, None);
+            }
+            if !game_client::gui::ui_globals::cursor_tooltip_already_submitted_from_mouse(&mouse) {
+                game_client::gui::ui_globals::tick_cursor_tooltip_from_mouse(&mut mouse);
+            }
+            game_client::gui::ui_globals::submit_cursor_tooltip_from_mouse(renderer, &mut mouse);
+        }
+        if renderer.queued_draw_command_count() > 0 {
+            let color = frame.color_view_arc();
+            let mut pass = frame
+                .encoder()
+                .begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("receiving native UI overlay"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: color.as_ref(),
+                        depth_slice: None,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Load,
+                            store: wgpu::StoreOp::Store,
+                        },
+                    })],
+                    depth_stencil_attachment: None,
+                    timestamp_writes: None,
+                    occlusion_query_set: None,
+                    multiview_mask: None,
+                });
+            renderer
+                .render(&mut pass)
+                .map_err(|error| ww3d_renderer_3d::Error::GenericError(error.to_string()))?;
+        }
+        renderer.end_frame();
+        cleanup.disarm();
+        Ok(())
     }
 }
 
-/// The lifecycle surface needed by [`UiFrameCleanup`].
-///
-/// Kept intentionally small so the cleanup protocol can be exercised without
-/// constructing a live WGPU device in a unit test.
 trait UiFrameLifecycle {
     fn is_frame_open(&self) -> bool;
     fn end_frame(&mut self);
 }
-
 impl UiFrameLifecycle for UIRenderer {
     fn is_frame_open(&self) -> bool {
-        Self::is_frame_open(self)
+        UIRenderer::is_frame_open(self)
     }
-
     fn end_frame(&mut self) {
-        Self::end_frame(self);
+        UIRenderer::end_frame(self);
     }
 }
-
-/// Ends an open UI frame if a WND callback unwinds out of the overlay pass.
-///
-/// The frame owner deliberately drops its `RwLockWriteGuard` before
-/// `WindowManager::draw_all`, so this guard owns only an `Arc` and reacquires
-/// the lock during cleanup.  That keeps callbacks alias-free while ensuring a
-/// panic cannot leave commands to leak into a later frame.
-struct UiFrameCleanup<T: UiFrameLifecycle> {
-    renderer: Arc<RwLock<T>>,
+/// Ordinary exclusive cleanup: unwind never reacquires a lock or selects a peer.
+struct UiFrameCleanup<'a, T: UiFrameLifecycle> {
+    renderer: &'a mut T,
     armed: bool,
 }
-
-impl<T: UiFrameLifecycle> UiFrameCleanup<T> {
-    fn new(renderer: Arc<RwLock<T>>) -> Self {
+impl<'a, T: UiFrameLifecycle> UiFrameCleanup<'a, T> {
+    fn new(renderer: &'a mut T) -> Self {
         Self {
             renderer,
             armed: true,
         }
     }
-
     fn disarm(&mut self) {
         self.armed = false;
     }
 }
-
-impl<T: UiFrameLifecycle> Drop for UiFrameCleanup<T> {
+impl<T: UiFrameLifecycle> Drop for UiFrameCleanup<'_, T> {
     fn drop(&mut self) {
-        if !self.armed {
-            return;
-        }
-
-        let (mut renderer, _) =
-            write_or_recover_ui_lock(self.renderer.as_ref(), "while unwinding an overlay frame");
-        if renderer.is_frame_open() {
-            warn!("UI overlay exited before completion; discarding the unfinished UI frame");
-            renderer.end_frame();
+        if self.armed && self.renderer.is_frame_open() {
+            self.renderer.end_frame();
         }
     }
 }
-
-/// C++ `winRepaint` always has the ControlBar tree (`InGameUI::createControlBar`
-/// + `ShowControlBar`). The Rust InGame enter load can miss; retry on the live
-/// `TheWindowManager` with backoff so a later flush can emit draw commands.
-fn retry_missing_control_bar_parent_while_ingame(
-    renderer_arc: &Arc<RwLock<UIRenderer>>,
-    attempt_frame: Option<u32>,
-) {
-    let Some(attempt_frame) = attempt_frame else {
-        return;
-    };
-
-    // Materialization reaches WindowManager and callbacks, so never invoke it
-    // while holding the renderer write guard.
-    let loaded = crate::gameplay_layout::materialise_live_control_bar();
-    let retries = {
-        let mut renderer = renderer_arc
-            .write()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        renderer.finish_control_bar_retry(loaded)
-    };
-    if loaded {
-        info!(
-            "flush_ui_to_frame: ControlBarParent missing after InGame enter; retry load succeeded (renderer flush #{attempt_frame})"
-        );
-    } else if retries <= 8 {
-        error!(
-            "flush_ui_to_frame: ControlBarParent missing on live WindowManager (retry #{retries}, renderer flush #{attempt_frame}); searched {:?}",
-            crate::gameplay_layout::CONTROL_BAR_CANDIDATES
-        );
-    }
-}
-
-pub fn flush_ui_to_frame(frame: &mut ww3d_engine::RenderFrame) -> RendererResult<()> {
-    flush_ui_to_frame_observed(frame, None)
-}
-
-pub(crate) fn flush_ui_to_frame_observed(
-    frame: &mut ww3d_engine::RenderFrame,
-    radar: Option<&super::ui_radar::NativeRadarFrame>,
-) -> RendererResult<()> {
-    let renderer_arc = match game_client::gui::ui_globals::with_ui_renderer(|r| r.clone()) {
-        Some(arc) => arc,
-        None => {
-            trace!("flush_ui_to_frame: no UI renderer available");
-            return Ok(());
-        }
-    };
-
-    // Query external window state before borrowing the renderer. Reserve a
-    // recovery attempt in the ordinary begin-frame borrow, so a healthy
-    // ControlBar does not require an additional renderer lock each frame.
-    let shell_active = game_client::gui::get_shell().is_shell_active();
-    let parent_is_live = !shell_active && crate::gameplay_layout::control_bar_parent_is_live();
-
-    // Begin Main's overlay frame, then **drop** the write guard before gadget
-    // draw.  Presentation-shell UI may already have queued commands before
-    // this post-scene callback; begin_overlay_frame preserves those commands.
-    // WND callbacks submit through `with_ui_renderer_mut`; they must be able
-    // to `try_write()` this same renderer. Holding the guard (or setting the
-    // in-draw flag) used to discard those nested ops — menus drew nothing.
-    let (screen_size, retry_attempt_frame, call) = {
-        let (mut renderer, _) = write_or_recover_ui_lock(&renderer_arc, "before WND draw");
-        renderer.begin_overlay_frame();
-        let call = renderer.advance_lifecycle_flush().wrapping_sub(1);
-        let retry_attempt = if shell_active {
-            None
-        } else {
-            renderer.begin_control_bar_retry(parent_is_live)
-        };
-        (renderer.screen_size(), retry_attempt, call)
-    };
-    let mut frame_cleanup = UiFrameCleanup::new(renderer_arc.clone());
-    if call < 8 {
-        warn!("flush_ui_to_frame #{call} entered");
-    }
-    let (sw, sh) = screen_size;
-    if sw > 0 && sh > 0 {
-        game_client::gui::window_manager::with_window_manager(|wm| {
-            wm.set_screen_size(sw as i32, sh as i32);
-        });
-    }
-    retry_missing_control_bar_parent_while_ingame(&renderer_arc, retry_attempt_frame);
-    // C++ W3DCommandBarBackgroundDraw is on BackgroundMarker. Rust only
-    // assigns that callback from ControlBar::update; if update never ticks,
-    // draw_all has SEE_THRU markers and queues nothing. Assign here.
-    #[cfg(feature = "game_client")]
-    {
-        game_client::gui::w3d_gadget_draw::ensure_control_bar_wnd_draw_callbacks();
-    }
-
-    // C++ W3DInGameUI::draw (W3DInGameUI.cpp:379-415) renders move/attack
-    // hint markers after the scene and before TheWindowManager->winRepaint.
-    #[cfg(feature = "game_client")]
-    game_client::display::view::draw_live_command_markers();
-    let root_count = game_client::gui::window_manager::with_window_manager(|wm| {
-        let roots = wm.root_window_count();
-        if let Some(radar) = radar {
-            radar.draw_windows(wm);
-        } else {
-            wm.draw_all();
-        }
-        roots
-    });
-
-    let (mut renderer, recovered_after_wnd_draw) =
-        write_or_recover_ui_lock(&renderer_arc, "after WND draw");
-    if recovered_after_wnd_draw {
-        renderer.end_frame();
-        frame_cleanup.disarm();
-        return Err(ww3d_renderer_3d::Error::GenericError(
-            "UI renderer recovered from a poisoned WND callback lock; discarded partial UI frame"
-                .into(),
-        ));
-    }
-
-    // C++ W3DMouse::draw calls Mouse::drawTooltip after the cursor (W3DMouse.cpp:565-567).
-    // Menu shell never hits InGame HUD; presentation shell may have queued already.
-    if !game_client::gui::cursor_tooltip_already_submitted() {
-        game_client::gui::tick_cursor_tooltip();
-    }
-    let _ = game_client::gui::submit_cursor_tooltip(&mut renderer);
-
-    let had_draw_commands = renderer.queued_draw_command_count();
-
-    let should_log = call < 10 || call.is_multiple_of(300);
-    if should_log {
-        info!(
-            "flush_ui_to_frame #{}: root_windows={}, draw_commands={}, screen={}x{}",
-            call,
-            root_count,
-            had_draw_commands,
-            renderer.screen_size().0,
-            renderer.screen_size().1,
-        );
-    }
-
-    if had_draw_commands == 0 {
-        if renderer.should_log_empty_overlay() {
-            info!(
-                "flush_ui_to_frame: zero draw commands (root_windows={}) — gadget draws queued nothing",
-                root_count
-            );
-        }
-        renderer.end_frame();
-        frame_cleanup.disarm();
-        return Ok(());
-    }
-
-    let render_result = {
-        let color_view = frame.color_view_arc();
-        let encoder = frame.encoder();
-        let mut ui_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("UI overlay pass"),
-            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: color_view.as_ref(),
-                depth_slice: None,
-                resolve_target: None,
-                ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Load,
-                    store: wgpu::StoreOp::Store,
-                },
-            })],
-            depth_stencil_attachment: None,
-            timestamp_writes: None,
-            occlusion_query_set: None,
-            multiview_mask: None,
-        });
-        renderer.render(&mut ui_pass)
-    };
-    renderer.end_frame();
-    frame_cleanup.disarm();
-
-    if let Err(err) = render_result {
-        warn!("UI render pass failed: {err}");
-        return Err(ww3d_renderer_3d::Error::GenericError(err.to_string()));
-    }
-    trace!(
-        "UI render pass flushed {} commands ({}x{})",
-        had_draw_commands,
-        renderer.screen_size().0,
-        renderer.screen_size().1,
-    );
-
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn poisoned_ui_lock_is_recovered_and_unpoisoned() {
-        let lock = RwLock::new(7_u32);
-        let _ = std::panic::catch_unwind(|| {
-            let _guard = lock.write().expect("test lock initially available");
-            panic!("intentional UI callback panic");
-        });
-        assert!(lock.is_poisoned());
-
-        let (mut guard, recovered) = write_or_recover_ui_lock(&lock, "in test");
-        assert!(recovered);
-        *guard = 9;
-        drop(guard);
-
-        assert!(
-            !lock.is_poisoned(),
-            "recovery must allow later frames to acquire a normal UI lock"
-        );
-        assert_eq!(*lock.read().expect("unpoisoned lock"), 9);
-    }
-
     #[derive(Default)]
-    struct TestUiFrame {
+    struct TestFrame {
         open: bool,
-        end_calls: usize,
+        ends: usize,
     }
-
-    impl UiFrameLifecycle for TestUiFrame {
+    impl UiFrameLifecycle for TestFrame {
         fn is_frame_open(&self) -> bool {
             self.open
         }
-
         fn end_frame(&mut self) {
             self.open = false;
-            self.end_calls += 1;
+            self.ends += 1;
         }
     }
-
     #[test]
-    fn unfinished_ui_frame_is_cleaned_during_panic_unwind() {
-        let frame = Arc::new(RwLock::new(TestUiFrame {
+    fn unfinished_frame_is_discarded_on_callback_unwind() {
+        let mut frame = TestFrame {
             open: true,
-            end_calls: 0,
+            ends: 0,
+        };
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _cleanup = UiFrameCleanup::new(&mut frame);
+            panic!("WND callback unwind");
         }));
-        let frame_for_panic = frame.clone();
-
-        let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
-            let _cleanup = UiFrameCleanup::new(frame_for_panic);
-            panic!("simulated WND callback unwind");
-        }));
-        assert!(panic.is_err());
-
-        let frame = frame
-            .read()
-            .expect("cleanup must not poison its frame lock");
+        assert!(result.is_err());
         assert!(!frame.open);
-        assert_eq!(frame.end_calls, 1);
+        assert_eq!(frame.ends, 1);
     }
 }

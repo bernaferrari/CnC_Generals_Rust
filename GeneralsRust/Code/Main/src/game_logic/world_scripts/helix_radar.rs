@@ -622,6 +622,7 @@ impl GameLogic {
                 self.frame,
                 Some(structure_id),
                 None,
+                effects,
             );
         }
 

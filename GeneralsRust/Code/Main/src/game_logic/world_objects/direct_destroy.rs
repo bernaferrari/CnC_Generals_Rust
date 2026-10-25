@@ -67,7 +67,7 @@ impl GameLogic {
         self.remove_host_radar_provider(id);
         if let Some(object) = self.objects.get_mut(&id) {
             if let Some(bone_fx) = object.bone_fx_damage.as_mut() {
-                bone_fx.kill_running_particle_systems();
+                bone_fx.kill_running_particle_systems_with_owner(effects);
             }
             object.handle_partition_cell_maintenance_with_partition_owner(
                 &mut self.partition_manager,

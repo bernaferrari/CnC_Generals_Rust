@@ -20,13 +20,13 @@ use crate::system::SubsystemInterface;
 use game_engine::common::global_data;
 use game_engine::common::ini::ini_game_data::get_global_data as get_runtime_global_data;
 use game_engine::common::ini::ini_mapped_image::{
-    get_mapped_image_collection as get_common_mapped_image_collection,
     ImageCollection as CommonImageCollection,
+    get_mapped_image_collection as get_common_mapped_image_collection,
 };
 use game_engine::common::ini::ini_webpage_url::get_registry_language;
 use game_engine::common::system::big_file_system::BigArchiveBackend;
 use game_engine::common::system::file::FileAccess;
-use game_engine::common::system::file_system::{get_file_system, FileSystemBackend};
+use game_engine::common::system::file_system::{FileSystemBackend, get_file_system};
 use game_engine::common::system::local_file_system::LocalFileSystem;
 use game_engine::common::system::subsystem_interface::{
     SubsystemInterface as CommonSubsystemInterface, SubsystemState,
@@ -1572,6 +1572,11 @@ mod tests {
             width: 64,
             height: 64,
         };
+        let mut draw_context = crate::gui::window_draw_context::WindowDrawContext {
+            renderer: None,
+            display: Default::default(),
+            manager: Some(&manager),
+        };
         manager.win_draw_image(
             &gui_image,
             0,
@@ -1579,17 +1584,16 @@ mod tests {
             64,
             64,
             crate::gui::game_window::WIN_COLOR_UNDEFINED,
+            &mut draw_context,
         );
 
         let shipped = crate::gui::w3d_gadget_draw::shipped_ui_draw_command_count();
         let queued = crate::gui::game_window_global::win_draw_image_queued_count();
-        let renderer_queued = crate::gui::ui_globals::with_ui_renderer(|arc| {
-            arc.try_read()
-                .ok()
-                .map(|renderer| renderer.queued_draw_command_count())
-                .unwrap_or(0)
-        })
-        .unwrap_or(0);
+        let renderer_queued = draw_context
+            .renderer
+            .as_ref()
+            .map(|renderer| renderer.queued_draw_command_count())
+            .unwrap_or(0);
 
         assert!(
             shipped > 0 || queued > 0 || renderer_queued > 0,

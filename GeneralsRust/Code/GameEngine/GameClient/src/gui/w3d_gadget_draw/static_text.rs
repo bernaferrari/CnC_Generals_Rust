@@ -5,6 +5,7 @@ pub(super) fn draw_static_text(
     inst_data: &WindowInstanceData,
     text_color: u32,
     drop: u32,
+    draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
 ) {
     let raw_text = if !inst_data.text.is_empty() {
         inst_data.text.as_str()
@@ -72,7 +73,7 @@ pub(super) fn draw_static_text(
             align,
             valign,
         );
-        display.draw(text_x, text_y, text_color, drop);
+        display.draw(text_x, text_y, text_color, drop, draw_context);
         display.set_clip_region(None);
         note_shipped_ui_draw_commands(1);
         return;
@@ -93,7 +94,7 @@ pub(super) fn draw_static_text(
         align,
         valign,
     );
-    let _ = with_ui_renderer_mut(|renderer| {
+    let _ = draw_context.with_renderer(|renderer, display_facts| {
         let (point_size, font_name, bold) = match inst_data.font.as_ref() {
             Some(font) => (font.size as f32, font.name.as_str(), font.bold),
             None => (12.0, "Arial", false),
@@ -172,6 +173,7 @@ pub(super) fn static_text_text_colors(
 pub(super) fn draw_static_text_solid_background(
     window: &GameWindow,
     inst_data: &WindowInstanceData,
+    draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
 ) {
     let (draw_data, _) = static_text_draw_data(window, inst_data);
     let Some(entry) = draw_data.first() else {
@@ -181,7 +183,7 @@ pub(super) fn draw_static_text_solid_background(
     let (origin_x, origin_y) = window.get_screen_position();
     let (size_x, size_y) = window.get_size();
     if entry.border_color != WIN_COLOR_UNDEFINED {
-        with_window_manager_ref(|manager| {
+        crate::gui::window_draw_context::with_draw_manager(draw_context.manager, |manager| {
             manager.win_open_rect(
                 entry.border_color,
                 1.0,
@@ -189,12 +191,13 @@ pub(super) fn draw_static_text_solid_background(
                 origin_y,
                 origin_x + size_x,
                 origin_y + size_y,
+                draw_context,
             );
         });
         note_shipped_ui_draw_commands(1);
     }
     if entry.color != WIN_COLOR_UNDEFINED && color_alpha(entry.color) > 16 {
-        with_window_manager_ref(|manager| {
+        crate::gui::window_draw_context::with_draw_manager(draw_context.manager, |manager| {
             manager.win_fill_rect(
                 entry.color,
                 1.0,
@@ -202,6 +205,7 @@ pub(super) fn draw_static_text_solid_background(
                 origin_y + 1,
                 origin_x + size_x - 1,
                 origin_y + size_y - 1,
+                draw_context,
             );
         });
         note_shipped_ui_draw_commands(1);
@@ -211,22 +215,31 @@ pub(super) fn draw_static_text_solid_background(
 pub(super) fn draw_static_text_image_background(
     window: &GameWindow,
     inst_data: &WindowInstanceData,
+    draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
 ) {
     let (draw_data, _) = static_text_draw_data(window, inst_data);
     let image = draw_data.first().and_then(|entry| entry.image.as_ref());
-    draw_window_image_or_fallback(window, inst_data, image, FALLBACK_FILL);
+    draw_window_image_or_fallback(window, inst_data, image, FALLBACK_FILL, draw_context);
 }
 
-pub fn w3d_gadget_static_text_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
-    draw_static_text_solid_background(window, inst_data);
+pub fn w3d_gadget_static_text_draw(
+    window: &GameWindow,
+    inst_data: &WindowInstanceData,
+    draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
+) {
+    draw_static_text_solid_background(window, inst_data, draw_context);
     if let Some((text_color, drop)) = static_text_text_colors(window, inst_data) {
-        draw_static_text(window, inst_data, text_color, drop);
+        draw_static_text(window, inst_data, text_color, drop, draw_context);
     }
 }
 
-pub fn w3d_gadget_static_text_image_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
-    draw_static_text_image_background(window, inst_data);
+pub fn w3d_gadget_static_text_image_draw(
+    window: &GameWindow,
+    inst_data: &WindowInstanceData,
+    draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
+) {
+    draw_static_text_image_background(window, inst_data, draw_context);
     if let Some((text_color, drop)) = static_text_text_colors(window, inst_data) {
-        draw_static_text(window, inst_data, text_color, drop);
+        draw_static_text(window, inst_data, text_color, drop, draw_context);
     }
 }

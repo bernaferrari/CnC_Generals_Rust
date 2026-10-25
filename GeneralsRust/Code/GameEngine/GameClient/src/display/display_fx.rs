@@ -5,14 +5,11 @@
 //! drawImage / renderLetterBox.
 
 use crate::gui::display_string::DisplayStringHandle;
-use crate::gui::ui_globals::with_ui_renderer_mut;
 use crate::gui::ui_renderer::{UIBlendMode, UIRect};
 use crate::video_buffer::{VideoBuffer, VideoBufferType};
 use game_engine::common::ini::ini_game_data::get_global_data;
 use glam::Vec2;
-use std::cell::{Cell, RefCell};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, Ordering};
 use std::time::Instant;
 
 const SHADOW_COLOR_ARGB: u32 = 0x7f_a0_a0_a0;
@@ -69,32 +66,380 @@ impl Default for GammaState {
     }
 }
 
-// THREAD: main thread only. Every slot here is display/present state written and
-// read from the host's frame pump (screenshot queue, gamma, movie capture), which
-// runs on the same thread that owns the wgpu surface, so the slots live in one
-// thread-local cell block.
-thread_local! {
-    static GAMMA_STATE: RefCell<GammaState> = RefCell::new(GammaState {
-        gamma: 1.0,
-        bright: 0.0,
-        contrast: 1.0,
-    });
-    static LAST_FPS: Cell<f32> = Cell::new(0.0);
-    static LAST_FPS_INSTANT: Cell<Option<Instant>> = Cell::new(None);
-    static LAST_MOVIE_FRAME: RefCell<Option<(u32, u32, Vec<u8>)>> = const { RefCell::new(None) };
-    static PENDING_SCREENSHOT: RefCell<Option<PathBuf>> = const { RefCell::new(None) };
-    static PENDING_DEVICE_MODE: RefCell<Option<PendingDeviceMode>> = const { RefCell::new(None) };
-    static COPYRIGHT_OVERLAY: RefCell<Option<CopyrightOverlay>> = const { RefCell::new(None) };
-    static CLIP_REGION: Cell<Option<[f32; 4]>> = Cell::new(None);
-    static LAST_PRESENTED_FRAME: RefCell<Option<(u32, u32, Vec<u8>)>> = const { RefCell::new(None) };
+/// Mutable display/present state belongs to one renderer's receiving client.
+#[derive(Debug)]
+pub struct DisplayFxState {
+    gamma: GammaState,
+    last_fps: f32,
+    last_fps_instant: Option<Instant>,
+    last_movie_frame: Option<(u32, u32, Vec<u8>)>,
+    pending_screenshot: Option<PathBuf>,
+    pending_device_mode: Option<PendingDeviceMode>,
+    copyright_overlay: Option<CopyrightOverlay>,
+    clip_region: Option<[f32; 4]>,
+    last_presented_frame: Option<(u32, u32, Vec<u8>)>,
+    screenshot_serial: i32,
+    movie_frame_serial: i32,
+    debug_frames: u32,
+    movie_capture_enabled: bool,
+    letterbox_enabled: bool,
+    clip_enabled: bool,
+    pub(crate) letterbox_fade_start_time: Option<Instant>,
 }
-
-static SCREENSHOT_SERIAL: AtomicI32 = AtomicI32::new(1);
-static MOVIE_FRAME_SERIAL: AtomicI32 = AtomicI32::new(0);
-static DEBUG_FRAMES: AtomicU32 = AtomicU32::new(0);
-static MOVIE_CAPTURE_ENABLED: AtomicBool = AtomicBool::new(false);
-static LETTERBOX_ENABLED: AtomicBool = AtomicBool::new(false);
-static CLIP_ENABLED: AtomicBool = AtomicBool::new(false);
+impl Default for DisplayFxState {
+    fn default() -> Self {
+        Self {
+            gamma: GammaState::default(),
+            last_fps: 0.0,
+            last_fps_instant: None,
+            last_movie_frame: None,
+            pending_screenshot: None,
+            pending_device_mode: None,
+            copyright_overlay: None,
+            clip_region: None,
+            last_presented_frame: None,
+            screenshot_serial: 1,
+            movie_frame_serial: 0,
+            debug_frames: 0,
+            movie_capture_enabled: false,
+            letterbox_enabled: false,
+            clip_enabled: false,
+            letterbox_fade_start_time: None,
+        }
+    }
+}
+/// Immutable facts consumed by one window draw, never writable display state.
+#[derive(Debug, Clone, Default)]
+pub struct DisplayDrawFacts {
+    pub gamma: GammaState,
+    pub clip_region: Option<[f32; 4]>,
+}
+impl DisplayFxState {
+    pub fn draw_facts(&self) -> DisplayDrawFacts {
+        DisplayDrawFacts {
+            gamma: self.gamma.clone(),
+            clip_region: self.clip_region(),
+        }
+    }
+    pub fn set_gamma_state(&mut self, gamma: f32, bright: f32, contrast: f32) {
+        self.gamma = GammaState {
+            gamma: gamma.clamp(0.6, 6.0),
+            bright: bright.clamp(-0.5, 0.5),
+            contrast: contrast.clamp(0.5, 2.0),
+        };
+    }
+    /// C++ `TheDisplay->setGamma(gamma, bright, contrast, calibrate)` hook body.
+    /// wgpu has no DX8 gamma ramp; this stores the LUT used by draw/present.
+    pub fn display_set_gamma(&mut self, gamma: f32, bright: f32, contrast: f32, _calibrate: bool) {
+        self.set_gamma_state(gamma, bright, contrast);
+    }
+    pub fn gamma_state(&self) -> GammaState {
+        self.gamma.clone()
+    }
+    pub fn gamma_is_identity(&self) -> bool {
+        let s = self.gamma_state();
+        (s.gamma - 1.0).abs() < 0.001 && s.bright.abs() < 0.001 && (s.contrast - 1.0).abs() < 0.001
+    }
+    pub fn set_copyright_overlay(&mut self, overlay: Option<CopyrightOverlay>) {
+        self.copyright_overlay = overlay;
+    }
+    pub fn present_copyright_overlay(
+        &self,
+        renderer: &mut crate::gui::ui_renderer::UIRenderer,
+        screen_w: u32,
+        screen_h: u32,
+    ) -> bool {
+        let Some(overlay) = self.copyright_overlay.as_ref() else {
+            return false;
+        };
+        if overlay.text.is_empty() {
+            return false;
+        }
+        draw_copyright_hint(
+            renderer,
+            screen_w,
+            screen_h,
+            &overlay.text,
+            overlay.width,
+            overlay.height,
+        );
+        true
+    }
+    pub fn set_clip_region(&mut self, lo_x: f32, lo_y: f32, hi_x: f32, hi_y: f32) {
+        self.clip_region = Some([lo_x, lo_y, hi_x, hi_y]);
+    }
+    pub fn enable_clipping(&mut self, enabled: bool) {
+        self.clip_enabled = enabled;
+    }
+    pub fn clip_region(&self) -> Option<[f32; 4]> {
+        if self.clip_enabled {
+            self.clip_region
+        } else {
+            None
+        }
+    }
+    /// C++ `DX8Wrapper::Set_Gamma` ramp applied as a color-space transform.
+    pub fn apply_gamma_rgba(&self, r: f32, g: f32, b: f32) -> [f32; 3] {
+        apply_gamma_rgb_with_settings(&self.gamma, r, g, b)
+    }
+    pub fn apply_gamma_to_rgba_in_place(&self, rgba: &mut [u8]) {
+        apply_gamma_to_rgba_with_settings(&self.gamma, rgba)
+    }
+    /// C++ `W3DDisplay::takeScreenShot` — next unused `sshotNNN.bmp` in user data.
+    pub fn next_screenshot_path(&mut self) -> PathBuf {
+        let dir = user_data_dir();
+        let _ = std::fs::create_dir_all(&dir);
+        loop {
+            let n = self.screenshot_serial;
+            self.screenshot_serial = self.screenshot_serial.wrapping_add(1);
+            let leaf = format!("sshot{n:03}.bmp");
+            let path = dir.join(&leaf);
+            if !path.exists() {
+                return path;
+            }
+        }
+    }
+    pub fn next_movie_frame_path(&mut self) -> PathBuf {
+        let dir = user_data_dir().join("Movie");
+        let _ = std::fs::create_dir_all(&dir);
+        let n = self.movie_frame_serial;
+        self.movie_frame_serial = self.movie_frame_serial.wrapping_add(1);
+        dir.join(format!("Movie{n:05}.bmp"))
+    }
+    pub fn reset_movie_capture_counter(&mut self) {
+        self.movie_frame_serial = 0;
+    }
+    /// C++ `drawVideoBuffer` fullscreen textured quad.
+    pub fn blit_video_rgba(
+        &self,
+        renderer: &mut crate::gui::ui_renderer::UIRenderer,
+        width: u32,
+        height: u32,
+        rgba: &[u8],
+        screen_w: u32,
+        screen_h: u32,
+    ) {
+        let mut pixels = rgba.to_vec();
+        self.apply_gamma_to_rgba_in_place(&mut pixels);
+        {
+            let view = renderer.create_texture_from_rgba(width, height, &pixels);
+            renderer.draw_textured_rect(
+                UIRect::new(0.0, 0.0, screen_w as f32, screen_h as f32),
+                view,
+                [1.0, 1.0, 1.0, 1.0],
+                None,
+                9_500.0,
+            );
+        }
+    }
+    pub fn note_frame_for_fps(&mut self) -> f32 {
+        self.debug_frames = self.debug_frames.wrapping_add(1);
+        let now = Instant::now();
+        match self.last_fps_instant {
+            None => {
+                self.last_fps_instant = Some(now);
+                0.0
+            }
+            Some(prev) => {
+                let elapsed = now.duration_since(prev).as_secs_f32();
+                if elapsed >= 2.0 {
+                    let fps = self.debug_frames as f32 / elapsed.max(0.1);
+                    self.debug_frames = 0;
+                    self.last_fps_instant = Some(now);
+                    self.last_fps = fps;
+                    fps
+                } else {
+                    self.last_fps
+                }
+            }
+        }
+    }
+    /// C++ `W3DDisplay::setGamma` / `DX8Wrapper::Set_Gamma` analog.
+    ///
+    /// Hardware LUT is a wgpu color remap of the last movie/backbuffer sample.
+    /// Called from leftover `Display::draw` and host present.
+    pub fn apply_gamma_pass(
+        &mut self,
+        encoder: &mut wgpu::CommandEncoder,
+        device: &wgpu::Device,
+        format: wgpu::TextureFormat,
+        target: &wgpu::TextureView,
+        width: u32,
+        height: u32,
+    ) {
+        let _ = (encoder, device, format, target, width, height);
+        let gamma = self.gamma.clone();
+        if gamma_settings_are_identity(&gamma) {
+            return;
+        }
+        if let Some((_, _, rgba)) = self.last_movie_frame.as_mut() {
+            apply_gamma_to_rgba_with_settings(&gamma, rgba);
+        }
+        if let Some((_, _, rgba)) = self.last_presented_frame.as_mut() {
+            apply_gamma_to_rgba_with_settings(&gamma, rgba);
+        }
+    }
+    pub fn gamma_uniform(&self) -> [f32; 4] {
+        let s = self.gamma_state();
+        [s.gamma, s.bright, s.contrast, SHADOW_COLOR_ARGB as f32]
+    }
+    pub fn store_movie_frame(&mut self, width: u32, height: u32, rgba: Vec<u8>) {
+        self.last_movie_frame = Some((width, height, rgba));
+    }
+    pub fn current_movie_frame(&self) -> Option<(u32, u32, Vec<u8>)> {
+        self.last_movie_frame.clone()
+    }
+    pub fn clear_movie_frame(&mut self) {
+        self.last_movie_frame = None;
+    }
+    /// Host present: C++ `drawVideoBuffer(m_videoBuffer, 0, 0, getWidth(), getHeight())`.
+    pub fn present_movie_overlay(
+        &mut self,
+        renderer: &mut crate::gui::ui_renderer::UIRenderer,
+        screen_w: u32,
+        screen_h: u32,
+    ) -> bool {
+        let Some((w, h, rgba)) = self.admit_movie_frame_to_backbuffer() else {
+            return false;
+        };
+        self.blit_video_rgba(renderer, w, h, &rgba, screen_w, screen_h);
+        true
+    }
+    fn admit_movie_frame_to_backbuffer(&mut self) -> Option<(u32, u32, Vec<u8>)> {
+        let frame = self.current_movie_frame()?;
+        self.note_presented_frame(frame.0, frame.1, frame.2.clone());
+        Some(frame)
+    }
+    /// C++ W3DDisplay::draw movie + copyright + letterbox + capture flush.
+    pub fn present_host_overlays(
+        &mut self,
+        renderer: &mut crate::gui::ui_renderer::UIRenderer,
+        screen_w: u32,
+        screen_h: u32,
+        letterbox_fade: f32,
+        letterbox_enabled: bool,
+    ) {
+        if self.present_movie_overlay(renderer, screen_w, screen_h) {
+            let _ = self.present_copyright_overlay(renderer, screen_w, screen_h);
+        }
+        queue_letterbox_bars(
+            renderer,
+            screen_w as f32,
+            screen_h as f32,
+            letterbox_fade,
+            letterbox_enabled,
+        );
+        self.flush_pending_captures();
+    }
+    pub fn flush_pending_captures(&mut self) {
+        if self.is_movie_capture_enabled() {
+            let _ = self.write_backbuffer_movie_frame();
+        }
+        if let Some(path) = self.take_pending_screenshot() {
+            if !self.write_backbuffer_screenshot(&path) {
+                self.queue_screenshot(path);
+            }
+        }
+    }
+    pub fn queue_screenshot(&mut self, path: PathBuf) {
+        self.pending_screenshot = Some(path);
+    }
+    pub fn take_pending_screenshot(&mut self) -> Option<PathBuf> {
+        self.pending_screenshot.take()
+    }
+    pub fn note_presented_frame(&mut self, width: u32, height: u32, rgba: Vec<u8>) {
+        self.last_presented_frame = Some((width, height, rgba));
+    }
+    pub fn current_presented_frame(&self) -> Option<(u32, u32, Vec<u8>)> {
+        self.last_presented_frame.clone()
+    }
+    /// Write a screenshot from the presented backbuffer (never the stale movie buffer
+    /// unless that movie is the current fullscreen blit and no backbuffer exists).
+    pub fn write_backbuffer_screenshot(&self, path: &std::path::Path) -> bool {
+        if let Some((w, h, mut rgba)) = self.current_presented_frame() {
+            self.apply_gamma_to_rgba_in_place(&mut rgba);
+            let bgr = rgba_to_bgr(&rgba, w, h);
+            return write_bmp_bgr(path, w, h, &bgr);
+        }
+        false
+    }
+    pub fn write_backbuffer_movie_frame(&mut self) -> bool {
+        let path = self.next_movie_frame_path();
+        self.write_backbuffer_screenshot(&path)
+    }
+    pub fn set_movie_capture_enabled(&mut self, enabled: bool) {
+        self.movie_capture_enabled = enabled;
+        if enabled {
+            self.reset_movie_capture_counter();
+        }
+    }
+    pub fn is_movie_capture_enabled(&self) -> bool {
+        self.movie_capture_enabled
+    }
+    pub fn queue_device_mode(&mut self, mode: PendingDeviceMode) {
+        self.pending_device_mode = Some(mode);
+    }
+    pub fn take_pending_device_mode(&mut self) -> Option<PendingDeviceMode> {
+        self.pending_device_mode.take()
+    }
+    pub fn peek_pending_device_mode(&self) -> Option<PendingDeviceMode> {
+        self.pending_device_mode
+    }
+    pub fn set_letterbox_enabled(&mut self, enabled: bool) {
+        if self.letterbox_enabled != enabled {
+            self.letterbox_enabled = enabled;
+            self.letterbox_fade_start_time = Some(Instant::now());
+        }
+    }
+    pub fn letterbox_enabled(&self) -> bool {
+        self.letterbox_enabled
+    }
+    /// Queue a W3D `drawImage` textured mesh (clip + rotate + mode).
+    pub fn queue_draw_image_mesh(
+        &self,
+        renderer: &mut crate::gui::ui_renderer::UIRenderer,
+        texture: std::sync::Arc<wgpu::TextureView>,
+        start_x: f32,
+        start_y: f32,
+        end_x: f32,
+        end_y: f32,
+        uv_left: f32,
+        uv_top: f32,
+        uv_right: f32,
+        uv_bottom: f32,
+        color: [f32; 4],
+        mode: DrawImageMode,
+        rotated_90: bool,
+    ) -> bool {
+        queue_draw_image_mesh_on(
+            renderer,
+            &self.draw_facts(),
+            texture,
+            start_x,
+            start_y,
+            end_x,
+            end_y,
+            uv_left,
+            uv_top,
+            uv_right,
+            uv_bottom,
+            color,
+            mode,
+            rotated_90,
+        )
+    }
+    /// C++ `W3DDisplay::setGamma` windowed early-out analog for host present.
+    pub fn present_gamma_if_fullscreen(&mut self, windowed: bool, screen_w: u32, screen_h: u32) {
+        if windowed || self.gamma_is_identity() {
+            return;
+        }
+        let _ = (screen_w, screen_h);
+        let gamma = self.gamma.clone();
+        if let Some((_, _, rgba)) = self.last_presented_frame.as_mut() {
+            apply_gamma_to_rgba_with_settings(&gamma, rgba);
+        }
+    }
+}
 
 /// Retail 4:3 modes (`W3DDisplay::getDisplayModeDescription`, ≥800×600, ≥24-bit).
 const STANDARD_4_3_MODES: &[(u32, u32)] = &[
@@ -106,101 +451,6 @@ const STANDARD_4_3_MODES: &[(u32, u32)] = &[
     (1600, 1200),
     (1920, 1440),
 ];
-
-pub fn set_gamma_state(gamma: f32, bright: f32, contrast: f32) {
-    GAMMA_STATE.with_borrow_mut(|state| {
-        state.gamma = gamma.clamp(0.6, 6.0);
-        state.bright = bright.clamp(-0.5, 0.5);
-        state.contrast = contrast.clamp(0.5, 2.0);
-    });
-}
-
-/// C++ `TheDisplay->setGamma(gamma, bright, contrast, calibrate)` hook body.
-/// wgpu has no DX8 gamma ramp; this stores the LUT used by draw/present.
-pub fn display_set_gamma(gamma: f32, bright: f32, contrast: f32, _calibrate: bool) {
-    set_gamma_state(gamma, bright, contrast);
-}
-
-/// Register `display_set_gamma` as C++ `TheDisplay->setGamma` (OnceLock).
-pub fn install_default_display_gamma_hook() {
-    crate::gui::options_host_bridge::set_display_gamma_hook(display_set_gamma);
-}
-
-pub fn gamma_state() -> GammaState {
-    GAMMA_STATE.with_borrow(Clone::clone)
-}
-
-pub fn gamma_is_identity() -> bool {
-    let s = gamma_state();
-    (s.gamma - 1.0).abs() < 0.001 && s.bright.abs() < 0.001 && (s.contrast - 1.0).abs() < 0.001
-}
-
-pub fn set_copyright_overlay(overlay: Option<CopyrightOverlay>) {
-    COPYRIGHT_OVERLAY.with_borrow_mut(|g| *g = overlay);
-}
-
-pub fn present_copyright_overlay(screen_w: u32, screen_h: u32) -> bool {
-    let Some(overlay) = COPYRIGHT_OVERLAY.with_borrow(Clone::clone) else {
-        return false;
-    };
-    if overlay.text.is_empty() {
-        return false;
-    }
-    draw_copyright_hint(
-        screen_w,
-        screen_h,
-        &overlay.text,
-        overlay.width,
-        overlay.height,
-    );
-    true
-}
-
-pub fn set_clip_region(lo_x: f32, lo_y: f32, hi_x: f32, hi_y: f32) {
-    CLIP_REGION.set(Some([lo_x, lo_y, hi_x, hi_y]));
-}
-
-pub fn enable_clipping(enabled: bool) {
-    CLIP_ENABLED.store(enabled, Ordering::Relaxed);
-}
-
-pub fn clip_region() -> Option<[f32; 4]> {
-    if !CLIP_ENABLED.load(Ordering::Relaxed) {
-        return None;
-    }
-    CLIP_REGION.get()
-}
-
-/// C++ `DX8Wrapper::Set_Gamma` ramp applied as a color-space transform.
-pub fn apply_gamma_rgba(r: f32, g: f32, b: f32) -> [f32; 3] {
-    let state = gamma_state();
-    let inv = if state.gamma > 0.0001 {
-        1.0 / state.gamma
-    } else {
-        1.0
-    };
-    let map = |c: f32| {
-        let x = c.clamp(0.0, 1.0).powf(inv);
-        (state.contrast * x + state.bright).clamp(0.0, 1.0)
-    };
-    [map(r), map(g), map(b)]
-}
-
-pub fn apply_gamma_to_rgba_in_place(rgba: &mut [u8]) {
-    if gamma_is_identity() {
-        return;
-    }
-    for px in rgba.chunks_exact_mut(4) {
-        let mapped = apply_gamma_rgba(
-            px[0] as f32 / 255.0,
-            px[1] as f32 / 255.0,
-            px[2] as f32 / 255.0,
-        );
-        px[0] = (mapped[0] * 255.0).round() as u8;
-        px[1] = (mapped[1] * 255.0).round() as u8;
-        px[2] = (mapped[2] * 255.0).round() as u8;
-    }
-}
 
 fn user_data_dir() -> PathBuf {
     get_global_data()
@@ -215,35 +465,10 @@ fn user_data_dir() -> PathBuf {
         .unwrap_or_else(std::env::temp_dir)
 }
 
-/// C++ `W3DDisplay::takeScreenShot` — next unused `sshotNNN.bmp` in user data.
-pub fn next_screenshot_path() -> PathBuf {
-    let dir = user_data_dir();
-    let _ = std::fs::create_dir_all(&dir);
-    loop {
-        let n = SCREENSHOT_SERIAL.fetch_add(1, Ordering::Relaxed);
-        let leaf = format!("sshot{n:03}.bmp");
-        let path = dir.join(&leaf);
-        if !path.exists() {
-            return path;
-        }
-    }
-}
-
-pub fn next_movie_frame_path() -> PathBuf {
-    let dir = user_data_dir().join("Movie");
-    let _ = std::fs::create_dir_all(&dir);
-    let n = MOVIE_FRAME_SERIAL.fetch_add(1, Ordering::Relaxed);
-    dir.join(format!("Movie{n:05}.bmp"))
-}
-
 pub fn movie_capture_dir() -> PathBuf {
     let dir = user_data_dir().join("Movie");
     let _ = std::fs::create_dir_all(&dir);
     dir
-}
-
-pub fn reset_movie_capture_counter() {
-    MOVIE_FRAME_SERIAL.store(0, Ordering::Relaxed);
 }
 
 /// Write a 24-bit BMP (C++ `CreateBMPFile`).
@@ -393,34 +618,25 @@ fn convert_r8g8b8(src: &[u8], width: u32, height: u32, pitch: u32) -> Option<Vec
     Some(out)
 }
 
-/// C++ `drawVideoBuffer` fullscreen textured quad.
-pub fn blit_video_rgba(width: u32, height: u32, rgba: &[u8], screen_w: u32, screen_h: u32) {
-    let mut pixels = rgba.to_vec();
-    apply_gamma_to_rgba_in_place(&mut pixels);
-    let _ = with_ui_renderer_mut(|renderer| {
-        let view = renderer.create_texture_from_rgba(width, height, &pixels);
-        renderer.draw_textured_rect(
-            UIRect::new(0.0, 0.0, screen_w as f32, screen_h as f32),
-            view,
-            [1.0, 1.0, 1.0, 1.0],
-            None,
-            9_500.0,
-        );
-    });
-}
-
 /// C++ `W3DDisplay::draw` copyright: black, `((width-dX)/2, height-dY-20)`.
-pub fn draw_copyright_hint(screen_w: u32, screen_h: u32, text: &str, text_w: f32, text_h: f32) {
+pub fn draw_copyright_hint(
+    renderer: &mut crate::gui::ui_renderer::UIRenderer,
+    screen_w: u32,
+    screen_h: u32,
+    text: &str,
+    text_w: f32,
+    text_h: f32,
+) {
     let x = (screen_w as f32 - text_w) * 0.5;
     let y = screen_h as f32 - text_h - 20.0;
-    let _ = with_ui_renderer_mut(|renderer| {
+    {
         let _ = renderer.draw_text_simple(
             text,
             Vec2::new(x, y),
             text_h.max(12.0),
             [0.0, 0.0, 0.0, 1.0],
         );
-    });
+    }
 }
 
 pub fn copyright_text(handle: &Option<DisplayStringHandle>) -> String {
@@ -431,32 +647,15 @@ pub fn copyright_text(handle: &Option<DisplayStringHandle>) -> String {
     }
 }
 
-pub fn note_frame_for_fps() -> f32 {
-    let frames = DEBUG_FRAMES.fetch_add(1, Ordering::Relaxed) + 1;
-    let now = Instant::now();
-    LAST_FPS_INSTANT.with(|last| match last.get() {
-        None => {
-            last.set(Some(now));
-            0.0
-        }
-        Some(prev) => {
-            let elapsed = now.duration_since(prev).as_secs_f32();
-            if elapsed >= 2.0 {
-                let fps = frames as f32 / elapsed.max(0.1);
-                DEBUG_FRAMES.store(0, Ordering::Relaxed);
-                last.set(Some(now));
-                LAST_FPS.set(fps);
-                fps
-            } else {
-                LAST_FPS.get()
-            }
-        }
-    })
-}
-
-pub fn draw_debug_overlay(screen_w: u32, fps: f32, frame: u32, particle_count: u32) {
+pub fn draw_debug_overlay(
+    renderer: &mut crate::gui::ui_renderer::UIRenderer,
+    screen_w: u32,
+    fps: f32,
+    frame: u32,
+    particle_count: u32,
+) {
     let _ = screen_w;
-    let _ = with_ui_renderer_mut(|renderer| {
+    {
         let ms = if fps > 0.1 { 1000.0 / fps } else { 0.0 };
         let line0 = format!("FPS: {fps:.2}, {ms:.2}ms");
         let line1 = format!("Frame: {frame}");
@@ -464,10 +663,15 @@ pub fn draw_debug_overlay(screen_w: u32, fps: f32, frame: u32, particle_count: u
         let _ = renderer.draw_text_simple(&line0, Vec2::new(3.0, 3.0), 13.0, [1.0, 1.0, 1.0, 1.0]);
         let _ = renderer.draw_text_simple(&line1, Vec2::new(3.0, 16.0), 13.0, [1.0, 1.0, 1.0, 1.0]);
         let _ = renderer.draw_text_simple(&line2, Vec2::new(3.0, 29.0), 13.0, [1.0, 1.0, 1.0, 1.0]);
-    });
+    }
 }
 
-pub fn draw_framerate_bar(screen_w: u32, fps: f32, fps_limit: f32) {
+pub fn draw_framerate_bar(
+    renderer: &mut crate::gui::ui_renderer::UIRenderer,
+    screen_w: u32,
+    fps: f32,
+    fps_limit: f32,
+) {
     let perc = if fps_limit > 0.0 {
         (fps / fps_limit).clamp(0.0, 1.0)
     } else {
@@ -475,155 +679,14 @@ pub fn draw_framerate_bar(screen_w: u32, fps: f32, fps_limit: f32) {
     };
     let width = perc * screen_w as f32;
     let color = [1.0 - perc, perc, 0.0, 0.5];
-    let _ = with_ui_renderer_mut(|renderer| {
+    {
         renderer.draw_rect(UIRect::new(1.0, 1.0, width, 15.0), color, 9_000.0);
-    });
-}
-
-/// C++ `W3DDisplay::setGamma` / `DX8Wrapper::Set_Gamma` analog.
-///
-/// Hardware LUT is a wgpu color remap of the last movie/backbuffer sample.
-/// Called from leftover `Display::draw` and host present.
-pub fn apply_gamma_pass(
-    encoder: &mut wgpu::CommandEncoder,
-    device: &wgpu::Device,
-    format: wgpu::TextureFormat,
-    target: &wgpu::TextureView,
-    width: u32,
-    height: u32,
-) {
-    let _ = (encoder, device, format, target, width, height);
-    if gamma_is_identity() {
-        return;
     }
-    LAST_MOVIE_FRAME.with_borrow_mut(|frame| {
-        if let Some((_, _, rgba)) = frame.as_mut() {
-            apply_gamma_to_rgba_in_place(rgba);
-        }
-    });
-    LAST_PRESENTED_FRAME.with_borrow_mut(|frame| {
-        if let Some((_, _, rgba)) = frame.as_mut() {
-            apply_gamma_to_rgba_in_place(rgba);
-        }
-    });
-}
-
-pub fn gamma_uniform() -> [f32; 4] {
-    let s = gamma_state();
-    [s.gamma, s.bright, s.contrast, SHADOW_COLOR_ARGB as f32]
 }
 
 // ---------------------------------------------------------------------------
 // Live-path host present hooks (C++ W3DDisplay::draw / setDisplayMode)
 // ---------------------------------------------------------------------------
-
-pub fn store_movie_frame(width: u32, height: u32, rgba: Vec<u8>) {
-    LAST_MOVIE_FRAME.with_borrow_mut(|frame| *frame = Some((width, height, rgba)));
-}
-
-pub fn current_movie_frame() -> Option<(u32, u32, Vec<u8>)> {
-    LAST_MOVIE_FRAME.with_borrow(Clone::clone)
-}
-
-pub fn clear_movie_frame() {
-    LAST_MOVIE_FRAME.with_borrow_mut(|frame| *frame = None);
-}
-
-/// Host present: C++ `drawVideoBuffer(m_videoBuffer, 0, 0, getWidth(), getHeight())`.
-pub fn present_movie_overlay(screen_w: u32, screen_h: u32) -> bool {
-    let Some((w, h, rgba)) = current_movie_frame() else {
-        return false;
-    };
-    // While a Display movie covers the frame, that buffer *is* the backbuffer.
-    note_presented_frame(w, h, rgba.clone());
-    blit_video_rgba(w, h, &rgba, screen_w, screen_h);
-    true
-}
-
-/// C++ W3DDisplay::draw movie + copyright + letterbox + capture flush.
-pub fn present_host_overlays(
-    screen_w: u32,
-    screen_h: u32,
-    letterbox_fade: f32,
-    letterbox_enabled: bool,
-) {
-    if present_movie_overlay(screen_w, screen_h) {
-        let _ = present_copyright_overlay(screen_w, screen_h);
-    }
-    queue_letterbox_bars(
-        screen_w as f32,
-        screen_h as f32,
-        letterbox_fade,
-        letterbox_enabled,
-    );
-    flush_pending_captures();
-}
-
-pub fn flush_pending_captures() {
-    if is_movie_capture_enabled() {
-        let _ = write_backbuffer_movie_frame();
-    }
-    if let Some(path) = take_pending_screenshot() {
-        if !write_backbuffer_screenshot(&path) {
-            queue_screenshot(path);
-        }
-    }
-}
-
-pub fn queue_screenshot(path: PathBuf) {
-    PENDING_SCREENSHOT.with_borrow_mut(|pending| *pending = Some(path));
-}
-
-pub fn take_pending_screenshot() -> Option<PathBuf> {
-    PENDING_SCREENSHOT.with_borrow_mut(Option::take)
-}
-
-pub fn note_presented_frame(width: u32, height: u32, rgba: Vec<u8>) {
-    LAST_PRESENTED_FRAME.with_borrow_mut(|frame| *frame = Some((width, height, rgba)));
-}
-
-pub fn current_presented_frame() -> Option<(u32, u32, Vec<u8>)> {
-    LAST_PRESENTED_FRAME.with_borrow(Clone::clone)
-}
-
-/// Write a screenshot from the presented backbuffer (never the stale movie buffer
-/// unless that movie is the current fullscreen blit and no backbuffer exists).
-pub fn write_backbuffer_screenshot(path: &std::path::Path) -> bool {
-    if let Some((w, h, mut rgba)) = current_presented_frame() {
-        apply_gamma_to_rgba_in_place(&mut rgba);
-        let bgr = rgba_to_bgr(&rgba, w, h);
-        return write_bmp_bgr(path, w, h, &bgr);
-    }
-    false
-}
-
-pub fn write_backbuffer_movie_frame() -> bool {
-    let path = next_movie_frame_path();
-    write_backbuffer_screenshot(&path)
-}
-
-pub fn set_movie_capture_enabled(enabled: bool) {
-    MOVIE_CAPTURE_ENABLED.store(enabled, Ordering::Relaxed);
-    if enabled {
-        reset_movie_capture_counter();
-    }
-}
-
-pub fn is_movie_capture_enabled() -> bool {
-    MOVIE_CAPTURE_ENABLED.load(Ordering::Relaxed)
-}
-
-pub fn queue_device_mode(mode: PendingDeviceMode) {
-    PENDING_DEVICE_MODE.with_borrow_mut(|pending| *pending = Some(mode));
-}
-
-pub fn take_pending_device_mode() -> Option<PendingDeviceMode> {
-    PENDING_DEVICE_MODE.with_borrow_mut(Option::take)
-}
-
-pub fn peek_pending_device_mode() -> Option<PendingDeviceMode> {
-    PENDING_DEVICE_MODE.with_borrow(|g| *g)
-}
 
 /// C++ `W3DDisplay::getDisplayModeCount` — 4:3, ≥800×600, ≥24-bit.
 pub fn display_mode_count() -> i32 {
@@ -652,14 +715,6 @@ pub fn is_valid_device_mode(xres: u32, yres: u32, bit_depth: u32) -> bool {
     xres >= MIN_DISPLAY_RESOLUTION_X && yres >= 600 && bit_depth >= 24 && xres > 0 && yres > 0
 }
 
-pub fn set_letterbox_enabled(enabled: bool) {
-    LETTERBOX_ENABLED.store(enabled, Ordering::Relaxed);
-}
-
-pub fn letterbox_enabled() -> bool {
-    LETTERBOX_ENABLED.load(Ordering::Relaxed)
-}
-
 /// C++ `W3DDisplay::renderLetterBox` (non-SLIDE): constant 16:9 height, alpha fade.
 /// Fade-out (`!enabled`) draws only the top bar — bottom `drawFillRect` is commented out.
 pub fn letterbox_plan(width: f32, height: f32, fade: f32, enabled: bool) -> LetterboxPlan {
@@ -674,12 +729,18 @@ pub fn letterbox_plan(width: f32, height: f32, fade: f32, enabled: bool) -> Lett
     }
 }
 
-pub fn queue_letterbox_bars(width: f32, height: f32, fade: f32, enabled: bool) {
+pub fn queue_letterbox_bars(
+    renderer: &mut crate::gui::ui_renderer::UIRenderer,
+    width: f32,
+    height: f32,
+    fade: f32,
+    enabled: bool,
+) {
     let plan = letterbox_plan(width, height, fade, enabled);
     if !plan.draw_top {
         return;
     }
-    let _ = with_ui_renderer_mut(|renderer| {
+    {
         renderer.draw_rect(
             UIRect::new(0.0, 0.0, width, plan.bar_height),
             plan.color,
@@ -692,35 +753,12 @@ pub fn queue_letterbox_bars(width: f32, height: f32, fade: f32, enabled: bool) {
                 10_000.0,
             );
         }
-    });
-}
-
-/// Queue a W3D `drawImage` textured mesh (clip + rotate + mode).
-pub fn queue_draw_image_mesh(
-    texture: std::sync::Arc<wgpu::TextureView>,
-    start_x: f32,
-    start_y: f32,
-    end_x: f32,
-    end_y: f32,
-    uv_left: f32,
-    uv_top: f32,
-    uv_right: f32,
-    uv_bottom: f32,
-    color: [f32; 4],
-    mode: DrawImageMode,
-    rotated_90: bool,
-) -> bool {
-    with_ui_renderer_mut(|renderer| {
-        queue_draw_image_mesh_on(
-            renderer, texture, start_x, start_y, end_x, end_y, uv_left, uv_top, uv_right,
-            uv_bottom, color, mode, rotated_90,
-        )
-    })
-    .unwrap_or(false)
+    }
 }
 
 pub fn queue_draw_image_mesh_on(
     renderer: &mut crate::gui::ui_renderer::UIRenderer,
+    display: &DisplayDrawFacts,
     texture: std::sync::Arc<wgpu::TextureView>,
     start_x: f32,
     start_y: f32,
@@ -735,11 +773,20 @@ pub fn queue_draw_image_mesh_on(
     rotated_90: bool,
 ) -> bool {
     let Some((sx0, sy0, sx1, sy1, u0, v0, u1, v1)) = clip_image_quad(
-        start_x, start_y, end_x, end_y, uv_left, uv_top, uv_right, uv_bottom, rotated_90,
+        display.clip_region,
+        start_x,
+        start_y,
+        end_x,
+        end_y,
+        uv_left,
+        uv_top,
+        uv_right,
+        uv_bottom,
+        rotated_90,
     ) else {
         return false;
     };
-    let (color, blend) = apply_draw_image_color(color, mode);
+    let (color, blend) = apply_draw_image_color(display, color, mode);
     if rotated_90 {
         let verts = rotated_90_vertices(sx0, sy0, sx1, sy1, u0, v0, u1, v1);
         let positions: Vec<[f32; 2]> = verts.iter().map(|(p, _)| *p).collect();
@@ -768,6 +815,7 @@ pub fn queue_draw_image_mesh_on(
 
 /// C++ `W3DDisplay::drawImage` clip remap (normal or `IMAGE_STATUS_ROTATED_90_CLOCKWISE`).
 pub fn clip_image_quad(
+    clip_region: Option<[f32; 4]>,
     start_x: f32,
     start_y: f32,
     end_x: f32,
@@ -778,7 +826,7 @@ pub fn clip_image_quad(
     uv_bottom: f32,
     rotated_90: bool,
 ) -> Option<(f32, f32, f32, f32, f32, f32, f32, f32)> {
-    let Some([clip_lo_x, clip_lo_y, clip_hi_x, clip_hi_y]) = clip_region() else {
+    let Some([clip_lo_x, clip_lo_y, clip_hi_x, clip_hi_y]) = clip_region else {
         return Some((
             start_x, start_y, end_x, end_y, uv_left, uv_top, uv_right, uv_bottom,
         ));
@@ -863,7 +911,11 @@ pub fn color_u32_to_rgba(color: u32) -> [f32; 4] {
     [r, g, b, a]
 }
 
-pub fn apply_draw_image_color(color: [f32; 4], mode: DrawImageMode) -> ([f32; 4], UIBlendMode) {
+pub fn apply_draw_image_color(
+    display: &DisplayDrawFacts,
+    color: [f32; 4],
+    mode: DrawImageMode,
+) -> ([f32; 4], UIBlendMode) {
     // C++ DX8Wrapper::Set_Gamma is a hardware LUT after all draws.
     // wgpu analog: remap every W3D drawImage tint that reaches the renderer.
     let (mut color, blend) = match mode {
@@ -875,26 +927,11 @@ pub fn apply_draw_image_color(color: [f32; 4], mode: DrawImageMode) -> ([f32; 4]
             ([gray, gray, gray, color[3]], UIBlendMode::Grayscale)
         }
     };
-    let mapped = apply_gamma_rgba(color[0], color[1], color[2]);
+    let mapped = apply_gamma_rgb_with_settings(&display.gamma, color[0], color[1], color[2]);
     color[0] = mapped[0];
     color[1] = mapped[1];
     color[2] = mapped[2];
     (color, blend)
-}
-
-/// C++ `W3DDisplay::setGamma` windowed early-out analog for host present.
-pub fn present_gamma_if_fullscreen(windowed: bool, screen_w: u32, screen_h: u32) {
-    if windowed || gamma_is_identity() {
-        return;
-    }
-    let _ = (screen_w, screen_h);
-    // blit_video_rgba already remaps a copy. Remap the presented backbuffer
-    // sample used for screenshots / host consume of LAST_PRESENTED_FRAME.
-    LAST_PRESENTED_FRAME.with_borrow_mut(|frame| {
-        if let Some((_, _, rgba)) = frame.as_mut() {
-            apply_gamma_to_rgba_in_place(rgba);
-        }
-    });
 }
 
 #[cfg(test)]
@@ -903,8 +940,9 @@ mod tests {
 
     #[test]
     fn gamma_identity_at_defaults() {
-        set_gamma_state(1.0, 0.0, 1.0);
-        let mapped = apply_gamma_rgba(0.5, 0.25, 0.75);
+        let mut fx = DisplayFxState::default();
+        fx.set_gamma_state(1.0, 0.0, 1.0);
+        let mapped = fx.apply_gamma_rgba(0.5, 0.25, 0.75);
         assert!((mapped[0] - 0.5).abs() < 0.01);
         assert!((mapped[1] - 0.25).abs() < 0.01);
         assert!((mapped[2] - 0.75).abs() < 0.01);
@@ -946,68 +984,150 @@ mod tests {
 
     #[test]
     fn clip_image_quad_remaps_uv() {
-        enable_clipping(true);
-        set_clip_region(10.0, 10.0, 50.0, 50.0);
-        let clipped =
-            clip_image_quad(0.0, 0.0, 100.0, 100.0, 0.0, 0.0, 1.0, 1.0, false).expect("visible");
+        let mut fx = DisplayFxState::default();
+        fx.enable_clipping(true);
+        fx.set_clip_region(10.0, 10.0, 50.0, 50.0);
+        let clipped = clip_image_quad(
+            fx.clip_region(),
+            0.0,
+            0.0,
+            100.0,
+            100.0,
+            0.0,
+            0.0,
+            1.0,
+            1.0,
+            false,
+        )
+        .expect("visible");
         assert!((clipped.0 - 10.0).abs() < 0.01);
         assert!((clipped.4 - 0.1).abs() < 0.01);
-        enable_clipping(false);
+        fx.enable_clipping(false);
     }
 
     #[test]
     fn grayscale_mode_desaturates_tint() {
-        set_gamma_state(1.0, 0.0, 1.0);
-        let (c, blend) = apply_draw_image_color([1.0, 0.0, 0.0, 1.0], DrawImageMode::Grayscale);
+        let mut fx = DisplayFxState::default();
+        fx.set_gamma_state(1.0, 0.0, 1.0);
+        let (c, blend) = apply_draw_image_color(
+            &fx.draw_facts(),
+            [1.0, 0.0, 0.0, 1.0],
+            DrawImageMode::Grayscale,
+        );
         assert!((c[0] - c[1]).abs() < 0.001 && (c[1] - c[2]).abs() < 0.001);
         assert_eq!(blend, UIBlendMode::Grayscale);
-        let (_, add) = apply_draw_image_color([1.0, 1.0, 1.0, 0.5], DrawImageMode::Additive);
+        let (_, add) = apply_draw_image_color(
+            &fx.draw_facts(),
+            [1.0, 1.0, 1.0, 0.5],
+            DrawImageMode::Additive,
+        );
         assert_eq!(add, UIBlendMode::Additive);
     }
 
     #[test]
     fn draw_image_color_consumes_display_gamma_like_dx8_set_gamma() {
+        let mut fx = DisplayFxState::default();
         // C++ W3DDisplay.cpp:519-524 TheDisplay->setGamma / DX8Wrapper::Set_Gamma.
-        set_gamma_state(2.0, 0.0, 1.0);
-        let (c, _) = apply_draw_image_color([0.25, 0.25, 0.25, 1.0], DrawImageMode::Alpha);
-        let expected = apply_gamma_rgba(0.25, 0.25, 0.25);
+        fx.set_gamma_state(2.0, 0.0, 1.0);
+        let (c, _) = apply_draw_image_color(
+            &fx.draw_facts(),
+            [0.25, 0.25, 0.25, 1.0],
+            DrawImageMode::Alpha,
+        );
+        let expected = fx.apply_gamma_rgba(0.25, 0.25, 0.25);
         assert!((c[0] - expected[0]).abs() < 0.01);
         assert!((c[0] - 0.25).abs() > 0.05);
-        set_gamma_state(1.0, 0.0, 1.0);
+        fx.set_gamma_state(1.0, 0.0, 1.0);
     }
 
     #[test]
     fn present_gamma_remaps_presented_backbuffer() {
-        set_gamma_state(2.0, 0.0, 1.0);
-        note_presented_frame(1, 1, vec![64, 0, 0, 255]);
-        present_gamma_if_fullscreen(false, 8, 8);
-        let (_, _, rgba) = current_presented_frame().expect("presented");
+        let mut fx = DisplayFxState::default();
+        fx.set_gamma_state(2.0, 0.0, 1.0);
+        fx.note_presented_frame(1, 1, vec![64, 0, 0, 255]);
+        fx.present_gamma_if_fullscreen(false, 8, 8);
+        let (_, _, rgba) = fx.current_presented_frame().expect("presented");
         assert_ne!(rgba[0], 64);
-        present_gamma_if_fullscreen(true, 8, 8);
-        set_gamma_state(1.0, 0.0, 1.0);
-        LAST_PRESENTED_FRAME.with_borrow_mut(|frame| *frame = None);
+        fx.present_gamma_if_fullscreen(true, 8, 8);
+        fx.set_gamma_state(1.0, 0.0, 1.0);
     }
 
     #[test]
     fn screenshot_does_not_use_stale_movie_without_backbuffer() {
-        clear_movie_frame();
-        LAST_PRESENTED_FRAME.with_borrow_mut(|frame| *frame = None);
+        let mut fx = DisplayFxState::default();
+        fx.clear_movie_frame();
         let path = std::env::temp_dir().join("sshot_no_backbuffer.bmp");
-        assert!(!write_backbuffer_screenshot(&path));
-        note_presented_frame(1, 1, vec![10, 20, 30, 255]);
-        assert!(write_backbuffer_screenshot(&path));
+        assert!(!fx.write_backbuffer_screenshot(&path));
+        fx.note_presented_frame(1, 1, vec![10, 20, 30, 255]);
+        assert!(fx.write_backbuffer_screenshot(&path));
         let _ = std::fs::remove_file(path);
     }
 
     #[test]
     fn present_movie_notes_backbuffer_for_screenshot() {
-        clear_movie_frame();
-        LAST_PRESENTED_FRAME.with_borrow_mut(|frame| *frame = None);
-        store_movie_frame(1, 1, vec![255, 0, 0, 255]);
-        assert!(present_movie_overlay(8, 8));
+        let mut fx = DisplayFxState::default();
+        fx.clear_movie_frame();
+        fx.store_movie_frame(1, 1, vec![255, 0, 0, 255]);
+        assert!(fx.admit_movie_frame_to_backbuffer().is_some());
         let path = std::env::temp_dir().join("sshot_movie_as_backbuffer.bmp");
-        assert!(write_backbuffer_screenshot(&path));
+        assert!(fx.write_backbuffer_screenshot(&path));
         let _ = std::fs::remove_file(path);
-        clear_movie_frame();
+        fx.clear_movie_frame();
+    }
+    #[test]
+    fn peer_display_state_changes_and_drop_leave_receiving_state_unchanged() {
+        let mut receiving = DisplayFxState::default();
+        receiving.set_gamma_state(2.0, 0.0, 1.0);
+        receiving.set_clip_region(10.0, 20.0, 30.0, 40.0);
+        receiving.enable_clipping(true);
+        receiving.set_movie_capture_enabled(true);
+        receiving.note_presented_frame(1, 1, vec![1, 2, 3, 255]);
+        {
+            let mut peer = DisplayFxState::default();
+            peer.set_gamma_state(0.8, 0.3, 1.5);
+            peer.set_letterbox_enabled(true);
+            peer.enable_clipping(false);
+            peer.note_presented_frame(1, 1, vec![9, 8, 7, 255]);
+        }
+        assert_eq!(receiving.gamma_state().gamma, 2.0);
+        assert_eq!(receiving.clip_region(), Some([10.0, 20.0, 30.0, 40.0]));
+        assert!(receiving.is_movie_capture_enabled());
+        assert!(!receiving.letterbox_enabled());
+        assert_eq!(
+            receiving.current_presented_frame().unwrap().2,
+            vec![1, 2, 3, 255]
+        );
+    }
+}
+
+fn gamma_settings_are_identity(state: &GammaState) -> bool {
+    (state.gamma - 1.0).abs() < 0.001
+        && state.bright.abs() < 0.001
+        && (state.contrast - 1.0).abs() < 0.001
+}
+fn apply_gamma_rgb_with_settings(state: &GammaState, r: f32, g: f32, b: f32) -> [f32; 3] {
+    let inv = if state.gamma > 0.0001 {
+        1.0 / state.gamma
+    } else {
+        1.0
+    };
+    let map =
+        |c: f32| (state.contrast * c.clamp(0.0, 1.0).powf(inv) + state.bright).clamp(0.0, 1.0);
+    [map(r), map(g), map(b)]
+}
+fn apply_gamma_to_rgba_with_settings(state: &GammaState, rgba: &mut [u8]) {
+    if gamma_settings_are_identity(state) {
+        return;
+    }
+    for px in rgba.chunks_exact_mut(4) {
+        let c = apply_gamma_rgb_with_settings(
+            state,
+            px[0] as f32 / 255.0,
+            px[1] as f32 / 255.0,
+            px[2] as f32 / 255.0,
+        );
+        for i in 0..3 {
+            px[i] = (c[i] * 255.0).round() as u8;
+        }
     }
 }

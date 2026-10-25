@@ -796,7 +796,7 @@ impl GameLogic {
             obj.unstamp_partition_value_threat_with_partition_owner(&mut self.partition_manager);
             // C++ BoneFXUpdate dtor / onDelete: killRunningParticleSystems.
             if let Some(bfx) = obj.bone_fx_damage.as_mut() {
-                bfx.stop_all_bone_fx();
+                bfx.stop_all_bone_fx_with_owner(presentation_effects);
             }
         }
         // C++ BridgeTowerBehavior::onDie kills the span; BridgeBehavior::onDie
@@ -1795,6 +1795,9 @@ impl GameLogic {
         collapse_only: Option<bool>,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> bool {
+        #[cfg(feature = "game_client")]
+        let fx_operation_environment = self.observe_object_fx_environment();
+
         let attacker_pos = {
             incoming_source.and_then(|sid| {
                 self.objects.get(&sid).map(|s| {
@@ -1817,6 +1820,8 @@ impl GameLogic {
             .map(|direction| (direction.x, direction.y));
         #[cfg(feature = "game_client")]
         let fx_player = self.local_player_id();
+        #[cfg(feature = "game_client")]
+        let fx_operation_environment = self.observe_object_fx_environment();
         let Some(obj) = self.objects.get_mut(&id) else {
             return false;
         };
@@ -1868,32 +1873,36 @@ impl GameLogic {
         }
         // Prefer StructureCollapse for civilian/prop peels; else StructureTopple.
         #[cfg(feature = "game_client")]
-        let collapse_started = Self::with_host_fx_view_parts_and_terrain(
+        let collapse_started = Self::with_object_fx_services(
             &mut self.session_view,
             fx_player,
             self.world_services.shroud(),
-            presentation_effects
-                .terrain
-                .as_mut()
-                .map(|terrain| &mut **terrain as &mut dyn crate::game_logic::NativeTerrainEffects),
+            presentation_effects,
+            &fx_operation_environment,
+            self.world_services.terrain(),
+            &self.logic_random,
             |view| {
                 if collapse_only == Some(false) {
                     return false;
                 }
-                obj.begin_structure_collapse_with_fx(
-                    frame,
-                    &mut |name, object, at_object| {
-                        Self::dispatch_object_phase_fx_with_view(
-                            name,
-                            object,
-                            at_object,
-                            fx_player,
-                            self.world_services.shroud(),
-                            view,
-                        );
-                    },
-                    &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
-                )
+                let Some((started, retired)) = obj.prepare_structure_collapse(frame) else {
+                    return false;
+                };
+                if !started {
+                    return true;
+                }
+                view.retire_particles(retired);
+                obj.dispatch_pending_collapse_fx_with(&mut |name, object, at_object| {
+                    Self::dispatch_object_phase_fx_with_view(
+                        name,
+                        object,
+                        at_object,
+                        fx_player,
+                        self.world_services.shroud(),
+                        view,
+                    );
+                });
+                true
             },
         );
         #[cfg(not(feature = "game_client"))]
@@ -1949,6 +1958,8 @@ impl GameLogic {
         );
         let _ = obj;
         burst.y = self.terrain_ground_height_at(burst).unwrap_or(0.0);
+        #[cfg(feature = "game_client")]
+        let fx_operation_environment = self.observe_object_fx_environment();
         let prepared = self.objects.get_mut(&id).is_some_and(|object| {
             object.prepare_structure_topple_with_direction(
                 frame,

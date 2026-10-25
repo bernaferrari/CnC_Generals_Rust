@@ -1,6 +1,12 @@
 use super::*;
 
-pub(super) fn draw_skinny_border(pixel_x: i32, pixel_y: i32, width: i32, height: i32) {
+pub(super) fn draw_skinny_border(
+    pixel_x: i32,
+    pixel_y: i32,
+    width: i32,
+    height: i32,
+    draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
+) {
     pub(super) const BORDER_LINE_SIZE: i32 = 5;
     pub(super) const SIZE: i32 = 5;
     pub(super) const HALF_SIZE: i32 = SIZE / 2;
@@ -10,7 +16,7 @@ pub(super) fn draw_skinny_border(pixel_x: i32, pixel_y: i32, width: i32, height:
     let max_x = pixel_x + width;
     let max_y = pixel_y + height;
 
-    with_window_manager_ref(|manager| {
+    crate::gui::window_draw_context::with_draw_manager(draw_context.manager, |manager| {
         let top = manager.win_find_image("FrameT");
         let bottom = manager.win_find_image("FrameB");
         if let (Some(top), Some(bottom)) = (top, bottom) {
@@ -19,7 +25,15 @@ pub(super) fn draw_skinny_border(pixel_x: i32, pixel_y: i32, width: i32, height:
             let mut x = pixel_x + 3;
             let x_limit = max_x - (OFFSET_LOWER + SIZE);
             while x <= x_limit {
-                manager.win_draw_image(&top, x, top_y, x + SIZE, top_y + SIZE, WIN_COLOR_UNDEFINED);
+                manager.win_draw_image(
+                    &top,
+                    x,
+                    top_y,
+                    x + SIZE,
+                    top_y + SIZE,
+                    WIN_COLOR_UNDEFINED,
+                    draw_context,
+                );
                 manager.win_draw_image(
                     &bottom,
                     x,
@@ -27,6 +41,7 @@ pub(super) fn draw_skinny_border(pixel_x: i32, pixel_y: i32, width: i32, height:
                     x + SIZE,
                     bottom_y + SIZE,
                     WIN_COLOR_UNDEFINED,
+                    draw_context,
                 );
                 x += SIZE;
             }
@@ -39,6 +54,7 @@ pub(super) fn draw_skinny_border(pixel_x: i32, pixel_y: i32, width: i32, height:
                     x + HALF_SIZE,
                     top_y + SIZE,
                     WIN_COLOR_UNDEFINED,
+                    draw_context,
                 );
                 manager.win_draw_image(
                     &bottom,
@@ -47,6 +63,7 @@ pub(super) fn draw_skinny_border(pixel_x: i32, pixel_y: i32, width: i32, height:
                     x + HALF_SIZE,
                     bottom_y + SIZE,
                     WIN_COLOR_UNDEFINED,
+                    draw_context,
                 );
                 x += BORDER_LINE_SIZE / 2;
             }
@@ -60,6 +77,7 @@ pub(super) fn draw_skinny_border(pixel_x: i32, pixel_y: i32, width: i32, height:
                     x + HALF_SIZE,
                     top_y + SIZE,
                     WIN_COLOR_UNDEFINED,
+                    draw_context,
                 );
                 manager.win_draw_image(
                     &bottom,
@@ -68,6 +86,7 @@ pub(super) fn draw_skinny_border(pixel_x: i32, pixel_y: i32, width: i32, height:
                     x + HALF_SIZE,
                     bottom_y + SIZE,
                     WIN_COLOR_UNDEFINED,
+                    draw_context,
                 );
             }
         }
@@ -87,6 +106,7 @@ pub(super) fn draw_skinny_border(pixel_x: i32, pixel_y: i32, width: i32, height:
                     left_x + SIZE,
                     y + SIZE,
                     WIN_COLOR_UNDEFINED,
+                    draw_context,
                 );
                 manager.win_draw_image(
                     &right,
@@ -95,6 +115,7 @@ pub(super) fn draw_skinny_border(pixel_x: i32, pixel_y: i32, width: i32, height:
                     right_x + SIZE,
                     y + SIZE,
                     WIN_COLOR_UNDEFINED,
+                    draw_context,
                 );
                 y += SIZE;
             }
@@ -107,6 +128,7 @@ pub(super) fn draw_skinny_border(pixel_x: i32, pixel_y: i32, width: i32, height:
                     left_x + SIZE,
                     y + HALF_SIZE,
                     WIN_COLOR_UNDEFINED,
+                    draw_context,
                 );
                 manager.win_draw_image(
                     &right,
@@ -115,6 +137,7 @@ pub(super) fn draw_skinny_border(pixel_x: i32, pixel_y: i32, width: i32, height:
                     right_x + SIZE,
                     y + HALF_SIZE,
                     WIN_COLOR_UNDEFINED,
+                    draw_context,
                 );
                 y += BORDER_LINE_SIZE / 2;
             }
@@ -128,6 +151,7 @@ pub(super) fn draw_skinny_border(pixel_x: i32, pixel_y: i32, width: i32, height:
                     left_x + SIZE,
                     y + HALF_SIZE,
                     WIN_COLOR_UNDEFINED,
+                    draw_context,
                 );
                 manager.win_draw_image(
                     &right,
@@ -136,6 +160,7 @@ pub(super) fn draw_skinny_border(pixel_x: i32, pixel_y: i32, width: i32, height:
                     right_x + SIZE,
                     y + HALF_SIZE,
                     WIN_COLOR_UNDEFINED,
+                    draw_context,
                 );
             }
         }
@@ -147,13 +172,25 @@ pub(super) fn draw_skinny_border(pixel_x: i32, pixel_y: i32, width: i32, height:
             ("FrameCornerLR", max_x - 5, max_y - 5),
         ] {
             if let Some(image) = manager.win_find_image(name) {
-                manager.win_draw_image(&image, x, y, x + SIZE, y + SIZE, WIN_COLOR_UNDEFINED);
+                manager.win_draw_image(
+                    &image,
+                    x,
+                    y,
+                    x + SIZE,
+                    y + SIZE,
+                    WIN_COLOR_UNDEFINED,
+                    draw_context,
+                );
             }
         }
     });
 }
 
-pub fn w3d_draw_map_preview(window: &GameWindow, inst_data: &WindowInstanceData) {
+pub fn w3d_draw_map_preview(
+    window: &GameWindow,
+    inst_data: &WindowInstanceData,
+    draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
+) {
     let (x, y) = window.get_screen_position();
     let (w, h) = window.get_size();
     if w <= 0 || h <= 0 {
@@ -165,8 +202,8 @@ pub fn w3d_draw_map_preview(window: &GameWindow, inst_data: &WindowInstanceData)
         .and_then(|meta| meta.as_ref())
         .cloned();
     let Some(meta) = meta else {
-        crate::gui::game_window::default_draw_callback(window, inst_data);
-        draw_skinny_border(x - 1, y - 1, w + 2, h + 2);
+        crate::gui::game_window::default_draw_callback(window, inst_data, draw_context);
+        draw_skinny_border(x - 1, y - 1, w + 2, h + 2, draw_context);
         return;
     };
 
@@ -174,36 +211,58 @@ pub fn w3d_draw_map_preview(window: &GameWindow, inst_data: &WindowInstanceData)
     let fill_color: u32 = 0xFF000000;
     let line_color: u32 = 0xFF323232;
 
-    with_window_manager_ref(|manager| {
+    crate::gui::window_draw_context::with_draw_manager(draw_context.manager, |manager| {
         let map_ratio = (meta.extent.hi.x - meta.extent.lo.x) / (w as f32).max(1.0);
         let window_ratio = (meta.extent.hi.y - meta.extent.lo.y) / (h as f32).max(1.0);
         if map_ratio >= window_ratio {
-            manager.win_fill_rect(fill_color, 1.0, x, y, x + w, ul.y - 1);
-            manager.win_fill_rect(fill_color, 1.0, x, lr.y + 1, x + w, y + h);
-            manager.win_draw_line(line_color, 1.0, x, ul.y, x + w, ul.y);
-            manager.win_draw_line(line_color, 1.0, x, lr.y + 1, x + w, lr.y + 1);
+            manager.win_fill_rect(fill_color, 1.0, x, y, x + w, ul.y - 1, draw_context);
+            manager.win_fill_rect(fill_color, 1.0, x, lr.y + 1, x + w, y + h, draw_context);
+            manager.win_draw_line(line_color, 1.0, x, ul.y, x + w, ul.y, draw_context);
+            manager.win_draw_line(line_color, 1.0, x, lr.y + 1, x + w, lr.y + 1, draw_context);
         } else {
-            manager.win_fill_rect(fill_color, 1.0, x, y, ul.x - 1, y + h);
-            manager.win_fill_rect(fill_color, 1.0, lr.x + 1, y, x + w, y + h);
-            manager.win_draw_line(line_color, 1.0, ul.x, y, ul.x, y + h);
-            manager.win_draw_line(line_color, 1.0, lr.x + 1, y, lr.x + 1, y + h);
+            manager.win_fill_rect(fill_color, 1.0, x, y, ul.x - 1, y + h, draw_context);
+            manager.win_fill_rect(fill_color, 1.0, lr.x + 1, y, x + w, y + h, draw_context);
+            manager.win_draw_line(line_color, 1.0, ul.x, y, ul.x, y + h, draw_context);
+            manager.win_draw_line(line_color, 1.0, lr.x + 1, y, lr.x + 1, y + h, draw_context);
         }
     });
 
     if let Some(draw) = window.get_enabled_draw_data(0) {
         if window.get_status().contains(WindowStatus::IMAGE) {
             if let Some(image) = draw.image {
-                with_window_manager_ref(|manager| {
-                    manager.win_draw_image(&image, ul.x, ul.y, lr.x, lr.y, draw.color);
-                });
+                crate::gui::window_draw_context::with_draw_manager(
+                    draw_context.manager,
+                    |manager| {
+                        manager.win_draw_image(
+                            &image,
+                            ul.x,
+                            ul.y,
+                            lr.x,
+                            lr.y,
+                            draw.color,
+                            draw_context,
+                        );
+                    },
+                );
             } else {
-                with_window_manager_ref(|manager| {
-                    manager.win_fill_rect(line_color, 1.0, ul.x, ul.y, lr.x, lr.y);
-                });
+                crate::gui::window_draw_context::with_draw_manager(
+                    draw_context.manager,
+                    |manager| {
+                        manager.win_fill_rect(
+                            line_color,
+                            1.0,
+                            ul.x,
+                            ul.y,
+                            lr.x,
+                            lr.y,
+                            draw_context,
+                        );
+                    },
+                );
             }
         } else {
-            with_window_manager_ref(|manager| {
-                manager.win_fill_rect(line_color, 1.0, ul.x, ul.y, lr.x, lr.y);
+            crate::gui::window_draw_context::with_draw_manager(draw_context.manager, |manager| {
+                manager.win_fill_rect(line_color, 1.0, ul.x, ul.y, lr.x, lr.y, draw_context);
             });
         }
     }
@@ -211,7 +270,7 @@ pub fn w3d_draw_map_preview(window: &GameWindow, inst_data: &WindowInstanceData)
     pub(super) const SUPPLY_TECH_SIZE: i32 = 15;
     let supply_and_tech = get_supply_and_tech_image_locations();
     let overlay = supply_and_tech.lock().unwrap_or_else(|e| e.into_inner());
-    with_window_manager_ref(|manager| {
+    crate::gui::window_draw_context::with_draw_manager(draw_context.manager, |manager| {
         if let Some(image) = manager.win_find_image("TecBuilding") {
             for pos in &overlay.tech_positions {
                 manager.win_draw_image(
@@ -221,6 +280,7 @@ pub fn w3d_draw_map_preview(window: &GameWindow, inst_data: &WindowInstanceData)
                     x + pos.x + SUPPLY_TECH_SIZE,
                     y + pos.y + SUPPLY_TECH_SIZE,
                     WIN_COLOR_UNDEFINED,
+                    draw_context,
                 );
             }
         }
@@ -233,10 +293,11 @@ pub fn w3d_draw_map_preview(window: &GameWindow, inst_data: &WindowInstanceData)
                     x + pos.x + SUPPLY_TECH_SIZE,
                     y + pos.y + SUPPLY_TECH_SIZE,
                     WIN_COLOR_UNDEFINED,
+                    draw_context,
                 );
             }
         }
     });
 
-    draw_skinny_border(x - 1, y - 1, w + 2, h + 2);
+    draw_skinny_border(x - 1, y - 1, w + 2, h + 2, draw_context);
 }

@@ -404,7 +404,14 @@ pub type WinInputFn = Arc<
         + Sync,
 >;
 pub type WinTooltipFn = Arc<dyn Fn(&GameWindow, u32) + Send + Sync>;
-pub type WinDrawFn = Arc<dyn Fn(&GameWindow, &WindowInstanceData) + Send + Sync>;
+pub type WinDrawFn = Arc<
+    dyn Fn(
+            &GameWindow,
+            &WindowInstanceData,
+            &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
+        ) + Send
+        + Sync,
+>;
 
 /// Registry that maps callback name strings to handler closures.
 ///
@@ -585,7 +592,15 @@ impl ScriptCallbackRegistry {
 
     /// Register a window draw callback by name.
     /// PARITY_NOTE: mirrors C++ `TheFunctionLexicon->gameWinDrawFunc()`.
-    pub fn register_win_draw<F: Fn(&GameWindow, &WindowInstanceData) + Send + Sync + 'static>(
+    pub fn register_win_draw<
+        F: Fn(
+                &GameWindow,
+                &WindowInstanceData,
+                &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
+            ) + Send
+            + Sync
+            + 'static,
+    >(
         &mut self,
         name: &str,
         callback: F,
@@ -986,9 +1001,10 @@ impl ScriptCallbackRegistry {
         self.register_layout_init("SaveLoadMenuInit", |layout| {
             cb::save_load_menu_init(layout, None)
         });
-        self.register_layout_init("SaveLoadMenuFullScreenInit", |layout| {
-            cb::save_load_menu_full_screen_init(layout, None)
-        });
+        self.layout_init.insert(
+            "SaveLoadMenuFullScreenInit".into(),
+            Box::new(|layout, effects| cb::save_load_menu_full_screen_init(layout, None, effects)),
+        );
         self.register_layout_init("PopupCommunicatorInit", |layout| {
             cb::popup_communicator_init(layout, None)
         });
@@ -1003,21 +1019,50 @@ impl ScriptCallbackRegistry {
                 });
             }),
         );
-        self.register_layout_init("MapSelectMenuInit", map_select_menu_init);
-        self.register_layout_init("LanLobbyMenuInit", lan_lobby_menu_init);
-        self.register_layout_init("ReplayMenuInit", |layout| {
-            cb::replay_menu_init(layout, None)
-        });
-        self.register_layout_init("CreditsMenuInit", credits_menu_init);
+        self.layout_init.insert(
+            "MapSelectMenuInit".into(),
+            Box::new(|layout, effects| {
+                if let Err(error) =
+                    cb::with_map_select_menu(|menu| menu.init_with_effects(layout, None, effects))
+                {
+                    log::warn!("MapSelectMenuInit failed: {error}");
+                }
+            }),
+        );
+        self.layout_init.insert(
+            "LanLobbyMenuInit".into(),
+            Box::new(|layout, effects| {
+                if let Err(error) =
+                    cb::with_lan_lobby_menu(|menu| menu.init_with_effects(layout, None, effects))
+                {
+                    log::warn!("LanLobbyMenuInit failed: {error}");
+                }
+            }),
+        );
+        self.layout_init.insert(
+            "ReplayMenuInit".into(),
+            Box::new(|layout, effects| cb::replay_menu_init(layout, None, effects)),
+        );
+        self.layout_init.insert(
+            "CreditsMenuInit".into(),
+            Box::new(|layout, effects| {
+                if let Err(error) =
+                    cb::with_credits_menu(|menu| menu.init_with_effects(layout, None, effects))
+                {
+                    log::warn!("CreditsMenuInit failed: {error}");
+                }
+            }),
+        );
         self.register_layout_init("LanGameOptionsMenuInit", |layout| {
             cb::lan_game_options_menu_init(layout, None)
         });
         self.register_layout_init("LanMapSelectMenuInit", |layout| {
             cb::lan_map_select_menu_init(layout, None)
         });
-        self.register_layout_init("SkirmishGameOptionsMenuInit", |layout| {
-            cb::skirmish_game_options_menu_init(layout, None)
-        });
+        self.layout_init.insert(
+            "SkirmishGameOptionsMenuInit".into(),
+            Box::new(|layout, effects| cb::skirmish_game_options_menu_init(layout, None, effects)),
+        );
         self.register_layout_init("SkirmishMapSelectMenuInit", |layout| {
             cb::skirmish_map_select_menu_init(layout, None)
         });
@@ -1054,10 +1099,10 @@ impl ScriptCallbackRegistry {
             "WOLCustomScoreScreenInit",
             cb::wol_custom_score_screen_init
         );
-        register_online_layout_init!(
-            self,
-            "NetworkDirectConnectInit",
-            cb::network_direct_connect_init
+        #[cfg(feature = "online_ui")]
+        self.layout_init.insert(
+            "NetworkDirectConnectInit".into(),
+            Box::new(|layout, effects| cb::network_direct_connect_init(layout, None, effects)),
         );
         register_online_layout_init!(self, "PopupHostGameInit", cb::popup_host_game_init);
         register_online_layout_init!(self, "PopupJoinGameInit", cb::popup_join_game_init);
@@ -1231,7 +1276,16 @@ impl ScriptCallbackRegistry {
         self.register_layout_shutdown_without_data("ReplayMenuShutdown", |layout| {
             cb::replay_menu_shutdown(layout, None)
         });
-        self.register_layout_shutdown_without_data("CreditsMenuShutdown", credits_menu_shutdown);
+        self.layout_shutdown.insert(
+            "CreditsMenuShutdown".into(),
+            Box::new(|layout, _, effects| {
+                if let Err(error) =
+                    cb::with_credits_menu(|menu| menu.shutdown_with_effects(layout, None, effects))
+                {
+                    log::warn!("CreditsMenuShutdown failed: {error}");
+                }
+            }),
+        );
         self.register_layout_shutdown_without_data("LanGameOptionsMenuShutdown", |layout| {
             cb::lan_game_options_menu_shutdown(layout, None)
         });
@@ -2294,13 +2348,23 @@ impl ScriptCallbackRegistry {
     pub fn create_draw_callback(
         &self,
         name: &str,
-    ) -> Option<Box<dyn Fn(&GameWindow, &WindowInstanceData)>> {
+    ) -> Option<
+        Box<
+            dyn Fn(
+                &GameWindow,
+                &WindowInstanceData,
+                &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
+            ),
+        >,
+    > {
         let normalized = normalize_callback_name(name);
         if normalized.is_empty() {
             return None;
         }
         let cb = Arc::clone(self.win_draw.get(&normalized)?);
-        Some(Box::new(move |win, inst| cb(win, inst)))
+        Some(Box::new(move |win, inst, draw_context| {
+            cb(win, inst, draw_context)
+        }))
     }
 
     /// Create a complete `GwCallbacks` instance by resolving all four
@@ -2341,11 +2405,16 @@ impl ScriptCallbackRegistry {
             ));
         }
         if let Some(cb) = self.create_draw_callback(draw_name) {
-            callbacks.draw = Some(Box::new(
-                move |win: &GameWindow, inst: &WindowInstanceData| {
-                    cb(win, inst);
-                },
-            ));
+            callbacks.draw =
+                Some(Box::new(
+                    move |win: &GameWindow,
+                          inst: &WindowInstanceData,
+                          draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<
+                        '_,
+                    >| {
+                        cb(win, inst, draw_context);
+                    },
+                ));
         }
         callbacks
     }
@@ -2944,7 +3013,7 @@ mod tests {
         registry.register_win_tooltip("OwnedTooltip", move |_win, time| {
             tooltip_for_cb.fetch_add(time as usize, Ordering::Relaxed);
         });
-        registry.register_win_draw("OwnedDraw", move |_win, _inst| {
+        registry.register_win_draw("OwnedDraw", move |_win, _inst, _draw_context| {
             draw_for_cb.fetch_add(1, Ordering::Relaxed);
         });
 
@@ -2952,7 +3021,7 @@ mod tests {
         let draw = registry.create_draw_callback("OwnedDraw").unwrap();
 
         registry.register_win_tooltip("OwnedTooltip", |_win, _time| {});
-        registry.register_win_draw("OwnedDraw", |_win, _inst| {});
+        registry.register_win_draw("OwnedDraw", |_win, _inst, _draw_context| {});
 
         let win = GameWindow::new();
         let inst = WindowInstanceData::default();

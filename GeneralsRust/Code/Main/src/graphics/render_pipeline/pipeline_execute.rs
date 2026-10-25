@@ -29,6 +29,8 @@ impl RenderPipeline {
     pub fn execute(
         &mut self,
         graphics_system: &mut GraphicsSystem,
+        #[cfg(feature = "game_client")]
+        render_bridge: &mut game_client::render_bridge::RenderBridge,
         // Immutable presentation boundary: world collect reads only
         // `self.presentation_frame` (engine always seeds a frame before execute).
         view_matrix: &Mat4,
@@ -51,6 +53,9 @@ impl RenderPipeline {
         #[cfg(feature = "game_client")] native_radius_items: Vec<
             game_client::effects::decals::DecalRenderItem,
         >,
+        #[cfg(feature = "game_client")] prepared_particles: Option<
+            game_client::effects::particle_renderer::ParticleRenderFrame,
+        >,
         #[cfg(feature = "game_client")]
         view_filter: &mut game_client::display::view_filter::ViewFilterState,
         #[cfg(feature = "game_client")] snow: &game_client::snow::SnowRenderState,
@@ -63,6 +68,7 @@ impl RenderPipeline {
                 &mut GraphicsSystem,
             ) -> std::result::Result<FilterCameraMatrices, String>,
         >,
+        ui_overlay: Option<&mut crate::graphics::ui_render_pass::NativeUiOverlay<'_>>,
         complete_physics_visual: Option<
             &mut dyn FnMut(
                 &mut crate::presentation_frame::UnitRenderInput,
@@ -140,6 +146,7 @@ impl RenderPipeline {
                         .and_then(|frame| frame.world_env.runtime_heightmap.as_ref())
                         .map_or(0., |heightmap| heightmap.min_height),
                     native_radius_items,
+                    prepared_particles,
                 );
             }
             let _ = (laser, proj, moves, attacks, floats, anims, particles);
@@ -258,6 +265,7 @@ impl RenderPipeline {
             #[cfg(feature = "game_client")]
             {
                 self.drain_render_bridge_submissions(
+                    render_bridge,
                     graphics_system,
                     camera_position,
                     &mut deferred_model_load_budget,
@@ -534,6 +542,7 @@ impl RenderPipeline {
             Some(&mut finish_overlay),
             #[cfg(not(feature = "game_client"))]
             None,
+            ui_overlay,
             #[cfg(feature = "game_client")]
             self.native_terrain.as_ref(),
             #[cfg(feature = "game_client")]
@@ -580,6 +589,13 @@ impl RenderPipeline {
         let Some(pres) = self.presentation_frame.as_ref() else {
             return;
         };
+        #[cfg(feature = "game_client")]
+        {
+            let lighting = self
+                .cached_lighting
+                .get_or_insert_with(CachedLighting::default);
+            lighting.dynamic_lights.clone_from(&pres.dynamic_lights);
+        }
         let env = &pres.world_env;
         if !env.has_map_metadata
             && env.sun_direction.is_none()
@@ -589,6 +605,8 @@ impl RenderPipeline {
             return;
         }
         let derived = CachedLighting {
+            #[cfg(feature = "game_client")]
+            dynamic_lights: Vec::new(),
             sun_direction: env.sun_direction,
             sun_color: env.sun_color,
             ambient_color: env.ambient_color,
@@ -622,5 +640,24 @@ impl RenderPipeline {
                 self.cached_lighting = Some(derived);
             }
         }
+    }
+}
+
+#[cfg(feature = "game_client")]
+impl RenderPipeline {
+    pub(crate) fn capture_native_particles(
+        &self,
+        manager: &mut game_client::effects::particle_manager::ParticleSystemManager,
+        view: Mat4,
+        projection: Mat4,
+        position: Vec3,
+        time: f32,
+    ) -> Option<game_client::effects::particle_renderer::ParticleRenderFrame> {
+        let min_height = self
+            .presentation_frame
+            .as_ref()
+            .and_then(|frame| frame.world_env.runtime_heightmap.as_ref())
+            .map_or(0., |heightmap| heightmap.min_height);
+        ForwardPass::prepare_client_particles(manager, view, projection, position, time, min_height)
     }
 }

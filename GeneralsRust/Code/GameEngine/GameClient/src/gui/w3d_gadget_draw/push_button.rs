@@ -1,6 +1,10 @@
 use super::*;
 
-pub(super) fn draw_video_buffer(window: &GameWindow, inst_data: &WindowInstanceData) {
+pub(super) fn draw_video_buffer(
+    window: &GameWindow,
+    inst_data: &WindowInstanceData,
+    draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
+) {
     let frame = inst_data.video_buffer.as_ref().and_then(read_video_frame);
     let Some(frame) = frame else {
         return;
@@ -13,36 +17,45 @@ pub(super) fn draw_video_buffer(window: &GameWindow, inst_data: &WindowInstanceD
         rect.width,
         rect.height,
     );
-    let _ = with_ui_renderer_mut(|renderer| {
+    let _ = draw_context.with_renderer(|renderer, display_facts| {
         let texture = renderer.create_texture_from_rgba(frame.width, frame.height, &frame.data);
         renderer.draw_textured_rect(rect, texture, [1.0, 1.0, 1.0, 1.0], None, 0.0);
     });
 }
 
-pub(super) fn draw_overlay_image(window: &GameWindow, name: &str) {
+pub(super) fn draw_overlay_image(
+    window: &GameWindow,
+    name: &str,
+    draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
+) {
     let (x, y, w, h) = authored_window_bounds_i32(window);
-    with_window_manager_ref(|manager| {
+    crate::gui::window_draw_context::with_draw_manager(draw_context.manager, |manager| {
         if let Some(image) = manager.win_find_image(name) {
-            manager.win_draw_transparent_overlay_image(&image, x, y, x + w, y + h);
+            manager.win_draw_transparent_overlay_image(&image, x, y, x + w, y + h, draw_context);
         }
     });
 }
 
-pub(super) fn draw_button_overlays(window: &GameWindow, inst_data: &WindowInstanceData) {
+pub(super) fn draw_button_overlays(
+    window: &GameWindow,
+    inst_data: &WindowInstanceData,
+    draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
+) {
     let status = window.get_status();
     if status.contains(WindowStatus::FLASHING) {
-        draw_overlay_image(window, "Cameo_push");
+        draw_overlay_image(window, "Cameo_push", draw_context);
     }
 
     if let Some(name) = push_button_state_overlay_name(status, inst_data.state) {
         // C++ W3DPushButton.cpp:429-449 enables state overlays only when
         // both mapped images exist; FLASHING above is independent.
-        let has_overlay_pair = with_window_manager_ref(|manager| {
-            manager.win_find_image("Cameo_push").is_some()
-                && manager.win_find_image("Cameo_hilited").is_some()
-        });
+        let has_overlay_pair =
+            crate::gui::window_draw_context::with_draw_manager(draw_context.manager, |manager| {
+                manager.win_find_image("Cameo_push").is_some()
+                    && manager.win_find_image("Cameo_hilited").is_some()
+            });
         if has_overlay_pair {
-            draw_overlay_image(window, name);
+            draw_overlay_image(window, name, draw_context);
         }
     }
 }
@@ -64,19 +77,31 @@ fn push_button_state_overlay_name(
     }
 }
 
-pub(super) fn draw_button_style_overlay(window: &GameWindow, button: &PushButton) {
+pub(super) fn draw_button_style_overlay(
+    window: &GameWindow,
+    button: &PushButton,
+    draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
+) {
     let (x, y, w, h) = authored_window_bounds_i32(window);
     if let Some(ref overlay) = button.style().overlay_image {
-        with_window_manager_ref(|manager| {
+        crate::gui::window_draw_context::with_draw_manager(draw_context.manager, |manager| {
             if let Some(image) = manager.win_find_image(overlay) {
-                manager.win_draw_image(&image, x, y, x + w, y + h, WIN_COLOR_UNDEFINED);
+                manager.win_draw_image(
+                    &image,
+                    x,
+                    y,
+                    x + w,
+                    y + h,
+                    WIN_COLOR_UNDEFINED,
+                    draw_context,
+                );
             }
         });
     }
 
     match button.consume_clock_request() {
         Some((ClockMode::Normal, progress, color)) => {
-            with_window_manager_ref(|manager| {
+            crate::gui::window_draw_context::with_draw_manager(draw_context.manager, |manager| {
                 manager.win_draw_rect_clock(
                     x,
                     y,
@@ -84,11 +109,12 @@ pub(super) fn draw_button_style_overlay(window: &GameWindow, button: &PushButton
                     h,
                     progress as i32,
                     gadget_color_to_win_color(color),
+                    draw_context,
                 );
             });
         }
         Some((ClockMode::Inverse, progress, color)) => {
-            with_window_manager_ref(|manager| {
+            crate::gui::window_draw_context::with_draw_manager(draw_context.manager, |manager| {
                 manager.win_draw_remaining_rect_clock(
                     x,
                     y,
@@ -96,6 +122,7 @@ pub(super) fn draw_button_style_overlay(window: &GameWindow, button: &PushButton
                     h,
                     progress as i32,
                     gadget_color_to_win_color(color),
+                    draw_context,
                 );
             });
         }
@@ -185,7 +212,11 @@ pub(super) fn button_draw_entry_image(
     draw_data.get(index).and_then(|entry| entry.image.as_ref())
 }
 
-pub(super) fn draw_push_button_image_one(window: &GameWindow, inst_data: &WindowInstanceData) {
+pub(super) fn draw_push_button_image_one(
+    window: &GameWindow,
+    inst_data: &WindowInstanceData,
+    draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
+) {
     let (bank, index) =
         push_button_one_image_source(window.get_status(), inst_data.state, window.is_enabled());
     let (draw_data, _) = push_button_bank_data(inst_data, bank);
@@ -214,7 +245,7 @@ pub(super) fn draw_push_button_image_one(window: &GameWindow, inst_data: &Window
     } else {
         crate::display::DrawImageMode::Alpha
     };
-    with_window_manager_ref(|manager| {
+    crate::gui::window_draw_context::with_draw_manager(draw_context.manager, |manager| {
         manager.win_draw_image_ex(
             image,
             start_x,
@@ -223,6 +254,7 @@ pub(super) fn draw_push_button_image_one(window: &GameWindow, inst_data: &Window
             end_y,
             WIN_COLOR_UNDEFINED,
             mode,
+            draw_context,
         );
     });
     note_shipped_ui_draw_commands(1);
@@ -278,6 +310,7 @@ pub(super) fn draw_push_button_image_three(
     left: &crate::gui::game_window::Image,
     center: &crate::gui::game_window::Image,
     right: &crate::gui::game_window::Image,
+    draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
 ) {
     let rect = authored_window_rect(window);
     let origin_x = rect.x as i32;
@@ -301,7 +334,7 @@ pub(super) fn draw_push_button_image_three(
     let start_y = origin_y.saturating_add(y_offset);
     let end_y = start_y.saturating_add(height);
 
-    with_window_manager_ref(|manager| {
+    crate::gui::window_draw_context::with_draw_manager(draw_context.manager, |manager| {
         if right_start_x <= left_end_x {
             let mid_x = origin_x.saturating_add(x_offset).saturating_add(width / 2);
             manager.win_draw_image(
@@ -311,6 +344,7 @@ pub(super) fn draw_push_button_image_three(
                 mid_x,
                 end_y,
                 WIN_COLOR_UNDEFINED,
+                draw_context,
             );
             manager.win_draw_image(
                 right,
@@ -319,6 +353,7 @@ pub(super) fn draw_push_button_image_three(
                 origin_x.saturating_add(width).saturating_add(x_offset),
                 end_y,
                 WIN_COLOR_UNDEFINED,
+                draw_context,
             );
             return;
         }
@@ -350,6 +385,7 @@ pub(super) fn draw_push_button_image_three(
                 right_start_x,
                 end_y,
                 WIN_COLOR_UNDEFINED,
+                draw_context,
             );
         } else {
             let mut centers = Vec::new();
@@ -358,7 +394,7 @@ pub(super) fn draw_push_button_image_three(
                 centers.push((x, start_y, x.saturating_add(piece_w), end_y));
                 x = x.saturating_add(piece_w);
             }
-            manager.win_draw_image_batch(center, &centers);
+            manager.win_draw_image_batch(center, &centers, draw_context);
             if let Some(((tail_start_x, tail_start_y, tail_end_x, tail_end_y), clip)) =
                 push_button_three_piece_tail_clip(x, right_start_x, start_y, end_y, piece_w)
             {
@@ -369,6 +405,7 @@ pub(super) fn draw_push_button_image_three(
                     tail_end_x,
                     tail_end_y,
                     &clip,
+                    draw_context,
                 );
             }
         }
@@ -380,6 +417,7 @@ pub(super) fn draw_push_button_image_three(
             left_end_x,
             end_y,
             WIN_COLOR_UNDEFINED,
+            draw_context,
         );
         manager.win_draw_image(
             right,
@@ -388,11 +426,16 @@ pub(super) fn draw_push_button_image_three(
             right_start_x.saturating_add(right_w),
             end_y,
             WIN_COLOR_UNDEFINED,
+            draw_context,
         );
     });
 }
 
-pub(super) fn draw_push_button_solid_base(window: &GameWindow, inst_data: &WindowInstanceData) {
+pub(super) fn draw_push_button_solid_base(
+    window: &GameWindow,
+    inst_data: &WindowInstanceData,
+    draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
+) {
     let rect = authored_window_rect(window);
 
     let (draw_data, text_colors) = current_push_button_draw_data(window, inst_data);
@@ -417,18 +460,23 @@ pub(super) fn draw_push_button_solid_base(window: &GameWindow, inst_data: &Windo
         rect.height.round() as i32,
         fill,
         border.or(Some(FALLBACK_BORDER)),
+        draw_context,
     );
 
     let _ = text_colors;
 }
 
-pub(super) fn draw_push_button_image_base(window: &GameWindow, inst_data: &WindowInstanceData) {
+pub(super) fn draw_push_button_image_base(
+    window: &GameWindow,
+    inst_data: &WindowInstanceData,
+    draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
+) {
     let (draw_data, text_colors) = current_push_button_draw_data(window, inst_data);
 
     if let Some((left, center, right)) =
         resolve_push_button_three_piece_images(window, inst_data, draw_data)
     {
-        draw_push_button_image_three(window, inst_data, left, center, right);
+        draw_push_button_image_three(window, inst_data, left, center, right, draw_context);
         let _ = text_colors;
         return;
     }
@@ -437,7 +485,7 @@ pub(super) fn draw_push_button_image_base(window: &GameWindow, inst_data: &Windo
         push_button_one_image_source(window.get_status(), inst_data.state, window.is_enabled());
     let (one_draw_data, _) = push_button_bank_data(inst_data, one_bank);
     if button_draw_entry_image(one_draw_data, one_index).is_some() {
-        draw_push_button_image_one(window, inst_data);
+        draw_push_button_image_one(window, inst_data, draw_context);
         let _ = text_colors;
         return;
     }
@@ -449,28 +497,36 @@ pub(super) fn draw_push_button_image_base(window: &GameWindow, inst_data: &Windo
     // draw here painted the authored `255 0 0 255` placeholder as solid red.
 }
 
-pub fn w3d_gadget_push_button_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
-    draw_push_button_solid_base(window, inst_data);
-    draw_button_text(window, inst_data);
-    draw_video_buffer(window, inst_data);
+pub fn w3d_gadget_push_button_draw(
+    window: &GameWindow,
+    inst_data: &WindowInstanceData,
+    draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
+) {
+    draw_push_button_solid_base(window, inst_data, draw_context);
+    draw_button_text(window, inst_data, draw_context);
+    draw_video_buffer(window, inst_data, draw_context);
     if let Some(widget) = window.widget() {
         if let crate::gui::game_window::WindowWidget::PushButton(button) = widget {
-            draw_button_style_overlay(window, button);
+            draw_button_style_overlay(window, button, draw_context);
         }
     }
-    draw_button_overlays(window, inst_data);
+    draw_button_overlays(window, inst_data, draw_context);
 }
 
-pub fn w3d_gadget_push_button_image_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
-    draw_push_button_image_base(window, inst_data);
-    draw_button_text(window, inst_data);
-    draw_video_buffer(window, inst_data);
+pub fn w3d_gadget_push_button_image_draw(
+    window: &GameWindow,
+    inst_data: &WindowInstanceData,
+    draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
+) {
+    draw_push_button_image_base(window, inst_data, draw_context);
+    draw_button_text(window, inst_data, draw_context);
+    draw_video_buffer(window, inst_data, draw_context);
     if let Some(widget) = window.widget() {
         if let crate::gui::game_window::WindowWidget::PushButton(button) = widget {
-            draw_button_style_overlay(window, button);
+            draw_button_style_overlay(window, button, draw_context);
         }
     }
-    draw_button_overlays(window, inst_data);
+    draw_button_overlays(window, inst_data, draw_context);
 }
 
 #[cfg(test)]

@@ -43,24 +43,68 @@ impl GameClient {
             display
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
-                .draw_with_snow(&snow)?;
+                .draw_with_snow(
+                    &snow,
+                    self.script_display.fx_mut(),
+                    self.ui_renderer.as_mut(),
+                    Some(&self.window_manager_owner),
+                )?;
         }
         Ok(())
     }
 
-    fn install_load_screen_presentation_pump(display: Arc<Mutex<GraphicsDisplay>>) {
-        register_load_screen_presentation_pump(move || {
-            let mut display = display.lock().unwrap_or_else(|e| e.into_inner());
-            if let Err(err) = display.update() {
-                log::warn!("Load-screen display update failed: {err}");
-                return;
-            }
-            if let Err(err) = display.draw() {
-                log::warn!("Load-screen display draw failed: {err}");
-            }
-        });
+    /// Borrow a weak, operation-scoped pump for this receiving client's display.
+    /// The actual update/draw keeps the display's existing mutex boundary.
+    pub fn load_screen_presentation_pump(
+        &mut self,
+    ) -> crate::gui::load_screen::LoadScreenPresentationPump<'_> {
+        crate::gui::load_screen::LoadScreenPresentationPump::for_display(
+            self.subsystem_manager.display.as_ref(),
+            self.script_display.fx_mut(),
+            self.ui_renderer.as_mut(),
+            &self.window_manager_owner,
+        )
+        .with_mouse(self.subsystem_manager.input_mouse.clone())
     }
 
+    pub fn load_screen_runtime_mut(&mut self) -> &mut crate::gui::load_screen::LoadScreenRuntime {
+        &mut self.load_screen_runtime
+    }
+
+    pub fn split_load_screen_runtime_and_pump(
+        &mut self,
+    ) -> (
+        &mut crate::gui::load_screen::LoadScreenRuntime,
+        crate::gui::load_screen::LoadScreenPresentationPump<'_>,
+    ) {
+        let pump = crate::gui::load_screen::LoadScreenPresentationPump::for_display(
+            self.subsystem_manager.display.as_ref(),
+            self.script_display.fx_mut(),
+            self.ui_renderer.as_mut(),
+            &self.window_manager_owner,
+        )
+        .with_mouse(self.subsystem_manager.input_mouse.clone());
+        (&mut self.load_screen_runtime, pump)
+    }
+
+    pub fn split_load_screen_services(
+        &mut self,
+    ) -> (
+        &mut crate::core::script_action_handler::ScriptDisplayReceiver,
+        Option<&mut crate::gui::UIRenderer>,
+        crate::gui::load_screen::LoadScreenOwner<'_>,
+    ) {
+        (
+            &mut self.script_display,
+            self.ui_renderer.as_mut(),
+            crate::gui::load_screen::LoadScreenOwner {
+                owner: &self.window_manager_owner,
+                campaign: &self.campaign_manager,
+                first_load: &mut self.shell_game_first_load,
+                runtime: &mut self.load_screen_runtime,
+            },
+        )
+    }
     fn draw_drawable_icon_ui(&mut self) {
         let mut text_ids = Vec::new();
         for (id, drawable) in self.drawables.drawable_map.iter_mut() {
@@ -160,7 +204,6 @@ impl GameClient {
 
     fn draw_ingame_post_draw_hud(&mut self, counts: &mut LiveInGameHudDrawCounts) {
         use crate::display::view::{Point3, with_tactical_view_ref};
-        use crate::gui::ui_globals::with_ui_renderer_mut;
         use glam::Vec2;
 
         let (messages, subtitle, timers, floating, world_anims) = self.packed_ingame_hud_snapshot();
@@ -169,7 +212,30 @@ impl GameClient {
         counts.superweapon_timers = timers.len() as u32;
         counts.floating_texts = floating.len() as u32;
 
-        let _ = with_ui_renderer_mut(|renderer| {
+        let floating_clear: Vec<_> = floating
+            .iter()
+            .map(|(_, pos, _, _, _)| {
+                self.get_shroud_status_for_player(
+                    self.local_player_id,
+                    &crate::system::Coord3D::new(pos[0], pos[1], pos[2]),
+                ) == ShroudStatus::Clear
+            })
+            .collect();
+        let animation_logic_frame = self.owned_world_animations.logic_frame;
+        let prepared_animations: Vec<_> = world_anims
+            .iter()
+            .map(|animation| {
+                let pos = self
+                    .owned_world_animations
+                    .prepare_draw(animation, animation_logic_frame)?;
+                (self.get_shroud_status_for_player(
+                    self.local_player_id,
+                    &crate::system::Coord3D::new(pos[0], pos[1], pos[2]),
+                ) == ShroudStatus::Clear)
+                    .then_some(pos)
+            })
+            .collect();
+        if let Some(renderer) = self.ui_renderer.as_mut() {
             let (screen_w, screen_h) = renderer.screen_size();
             let screen_w = if screen_w == 0 {
                 1024.0
@@ -252,7 +318,9 @@ impl GameClient {
             }
 
             // C++ InGameUI::drawFloatingText (InGameUI.cpp:5082-5115).
-            for (text, pos, color, spawn_frame, timeout) in &floating {
+            for ((text, pos, color, spawn_frame, timeout), clear) in
+                floating.iter().zip(&floating_clear)
+            {
                 let timeout_frames = (*timeout).max(1);
                 let frame_timeout = spawn_frame.saturating_add(timeout_frames);
                 let spawn_alpha = color.3;
@@ -266,9 +334,7 @@ impl GameClient {
                     continue;
                 }
                 let coord = crate::system::Coord3D::new(pos[0], pos[1], pos[2]);
-                if self.get_shroud_status_for_player(self.local_player_id, &coord)
-                    != ShroudStatus::Clear
-                {
+                if !clear {
                     continue;
                 }
                 let lift = crate::gui::ingame_ui::InGameUI::floating_text_screen_offset_y(
@@ -296,21 +362,11 @@ impl GameClient {
             }
 
             // C++ InGameUI::updateAndDrawWorldAnimations (InGameUI.cpp:5323-5418).
-            let animation_logic_frame = self.owned_world_animations.logic_frame;
-            for animation in &world_anims {
-                let Some(pos) = self
-                    .owned_world_animations
-                    .prepare_draw(animation, animation_logic_frame)
-                else {
+            for (animation, prepared) in world_anims.iter().zip(&prepared_animations) {
+                let Some(pos) = *prepared else {
                     continue;
                 };
                 let world = Point3::new(pos[0], pos[1], pos[2]);
-                let coord = crate::system::Coord3D::new(pos[0], pos[1], pos[2]);
-                if self.get_shroud_status_for_player(self.local_player_id, &coord)
-                    != ShroudStatus::Clear
-                {
-                    continue;
-                }
                 let alpha = self
                     .owned_world_animations
                     .visible_alpha(animation, animation_logic_frame);
@@ -340,12 +396,11 @@ impl GameClient {
             // C++ W3DMouse.cpp:565-567 / Mouse.cpp:963-1023 — tooltip after delay.
             crate::gui::ui_globals::tick_cursor_tooltip();
             let _ = crate::gui::ui_globals::submit_cursor_tooltip(renderer);
-        });
+        };
     }
 
-    fn draw_drawable_icon_overlays(&self, counts: &mut LiveInGameHudDrawCounts) {
+    fn draw_drawable_icon_overlays(&mut self, counts: &mut LiveInGameHudDrawCounts) {
         use crate::drawable::drawable::{format_under_construction_desc, health_bar_colors};
-        use crate::gui::ui_globals::with_ui_renderer_mut;
         use crate::gui::ui_renderer::UIRect;
         use crate::gui::window_manager::with_window_manager_ref;
         use glam::Vec2;
@@ -368,7 +423,8 @@ impl GameClient {
             .collect();
         counts.icon_overlays = overlays.len() as u32;
 
-        let _ = with_ui_renderer_mut(|renderer| {
+        let display_facts = self.script_display.fx().draw_facts();
+        if let Some(renderer) = self.ui_renderer.as_mut() {
             for overlay in &overlays {
                 let Some(region) = overlay.health_region else {
                     draw_cpp_drawable_caption(renderer, overlay);
@@ -434,6 +490,12 @@ impl GameClient {
                         // SCALE_ICONS_WITH_ZOOM_ML is off in retail ZH, so
                         // objScale is 1.0 (native mapped-image size).
                         let _ = self.window_manager_owner.with_manager(|manager| {
+                            let mut draw_context =
+                                crate::gui::window_draw_context::WindowDrawContext {
+                                    renderer: Some(&mut *renderer),
+                                    display: display_facts.clone(),
+                                    manager: Some(manager),
+                                };
                             if let Some(image) = manager.win_find_image(name) {
                                 let w = image.width.max(1);
                                 let h = image.height.max(1);
@@ -446,6 +508,7 @@ impl GameClient {
                                     x1 + w,
                                     y1 + h,
                                     crate::gui::WIN_COLOR_UNDEFINED,
+                                    &mut draw_context,
                                 );
                             }
                         });
@@ -464,6 +527,12 @@ impl GameClient {
                         };
                         let x = bar_x + (i as f32) * (pip + 1.0);
                         let drew = self.window_manager_owner.with_manager(|manager| {
+                            let mut draw_context =
+                                crate::gui::window_draw_context::WindowDrawContext {
+                                    renderer: Some(&mut *renderer),
+                                    display: display_facts.clone(),
+                                    manager: Some(manager),
+                                };
                             if let Some(image) = manager.win_find_image(name) {
                                 manager.win_draw_image(
                                     &image,
@@ -472,6 +541,7 @@ impl GameClient {
                                     (x + pip) as i32,
                                     (pip_y + pip) as i32,
                                     crate::gui::WIN_COLOR_UNDEFINED,
+                                    &mut draw_context,
                                 );
                                 true
                             } else {
@@ -509,6 +579,12 @@ impl GameClient {
                             0xFF00_00FF // C++ NON_INFANTRY_COLOR GameMakeColor(0,0,255,255)
                         };
                         let drew = self.window_manager_owner.with_manager(|manager| {
+                            let mut draw_context =
+                                crate::gui::window_draw_context::WindowDrawContext {
+                                    renderer: Some(&mut *renderer),
+                                    display: display_facts.clone(),
+                                    manager: Some(manager),
+                                };
                             if let Some(image) = manager.win_find_image(name) {
                                 manager.win_draw_image(
                                     &image,
@@ -517,6 +593,7 @@ impl GameClient {
                                     (x + pip) as i32,
                                     (pip_y + pip) as i32,
                                     tint,
+                                    &mut draw_context,
                                 );
                                 true
                             } else {
@@ -569,10 +646,12 @@ impl GameClient {
 
                 draw_cpp_drawable_caption(renderer, overlay);
             }
-        });
+        };
 
         for overlay in &overlays {
-            draw_overlay_anim2d_icons(overlay);
+            if let Some(renderer) = self.ui_renderer.as_mut() {
+                draw_overlay_anim2d_icons(renderer, overlay);
+            }
         }
     }
 
@@ -609,11 +688,10 @@ impl GameClient {
         }
 
         use crate::display::view::{Point3, with_tactical_view_ref};
-        use crate::gui::ui_globals::with_ui_renderer_mut;
         use crate::gui::ui_renderer::UIRect;
 
         let overlay_ids = self.icon_overlay_object_ids();
-        let _ = with_ui_renderer_mut(|renderer| {
+        if let Some(renderer) = self.ui_renderer.as_mut() {
             for u in &units {
                 if overlay_ids.contains(&u.object_id) {
                     continue;
@@ -651,14 +729,16 @@ impl GameClient {
                     None,
                 );
             }
-        });
+        };
     }
 }
 
 /// C++ `Anim2D::draw` for drawable HUD icons (`Drawable.cpp` heal/bomb/disabled/enthusiastic/emoticon).
-fn draw_overlay_anim2d_icons(overlay: &crate::drawable::drawable::DrawableOverlayData) {
+fn draw_overlay_anim2d_icons(
+    renderer: &mut crate::gui::ui_renderer::UIRenderer,
+    overlay: &crate::drawable::drawable::DrawableOverlayData,
+) {
     use crate::drawable::drawable::{Anim2DIcon, ICoord2D, Vector3};
-    use crate::gui::ui_globals::with_ui_renderer_mut;
     use crate::gui::ui_renderer::UIRect;
 
     let Some(region) = overlay.health_region else {
@@ -674,16 +754,16 @@ fn draw_overlay_anim2d_icons(overlay: &crate::drawable::drawable::DrawableOverla
             icon.render(
                 Vector3::new(x, y, 0.0),
                 Vector3::new(w.max(1.0), h.max(1.0), 0.0),
+                renderer,
             );
             return;
         }
-        let _ = with_ui_renderer_mut(|renderer| {
-            let _ = renderer.draw_rect_with_scissor(
-                UIRect::new(x, y, w.max(4.0), h.max(4.0)),
-                fallback,
-                None,
-            );
-        });
+
+        let _ = renderer.draw_rect_with_scissor(
+            UIRect::new(x, y, w.max(4.0), h.max(4.0)),
+            fallback,
+            None,
+        );
     };
 
     if overlay.show_healing {

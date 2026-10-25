@@ -305,21 +305,24 @@ impl GameClient {
         // This is the existing native manager boundary, borrowed once. Installed
         // CU/bone callbacks receive the receiver and never relock this parent.
         {
-            let assets = crate::render_bridge::THE_RENDER_BRIDGE
-                .lock()
-                .map_err(|err| {
-                    GameClientError::SubsystemError(format!("Render assets unavailable: {err}"))
-                })?;
-            let mut guard = crate::effects::particle_manager::get_particle_system_manager_mut()
-                .map_err(|err| {
-                    GameClientError::SubsystemError(format!("Particle manager unavailable: {err}"))
-                })?;
-            let particles = guard.as_mut();
-            self.tick_mapped_drawables_with_particles(
+            let assets = self.render_bridge.asset_manager();
+            self.drawables
+                .particles
+                .admit_effective_definitions()
+                .map_err(|error| GameClientError::SubsystemError(error.to_string()))?;
+            let (state, particles) = (&mut self.drawables.state, &mut self.drawables.particles);
+            NativeRenderReceiver::new(
+                state,
+                &mut self.native_particle_capability_gaps,
+                &self.subsystem_manager,
+                self.frame,
+                self.local_player_id,
+            )
+            .tick_mapped_drawables_with_particles(
                 frames,
                 delta_time,
-                particles,
-                assets.as_ref().map(|bridge| bridge.asset_manager()),
+                Some(particles),
+                Some(assets),
             )?
         };
         Ok(())
@@ -332,46 +335,8 @@ impl GameClient {
         mut particles: Option<&mut crate::effects::particle_manager::ParticleSystemManager>,
         assets: Option<&ww3d_assets::AssetManager>,
     ) -> GameClientResult<Vec<DrawableId>> {
-        let mut expired = Vec::new();
-        // C++ walks the constructor-prepended Drawable list. Lookup storage
-        // must not choose the order of ClientUpdate or expiration callbacks.
-        // Callbacks borrow one installed node and cannot edit this owner's roster.
-        // Removing that node shifts its successor into the current cursor slot,
-        // preserving the C++ cached-next walk without a second snapshot roster.
-        let mut cursor = 0;
-        while let Some(&id) = self.drawables.native_drawable_order.get(cursor) {
-            let host_projection = self
-                .drawables
-                .presentation_direct_drawable_bindings
-                .contains_key(&id);
-            let drawable = self
-                .drawables
-                .drawable_map
-                .get_mut(&id)
-                .expect("native Drawable roster references a live update receiver");
-            drawable.set_current_frame(frames.client_frame);
-            if let Some(basic) = drawable.as_any_mut().downcast_mut::<BasicDrawable>() {
-                basic
-                    .update_native_client_modules(particles.as_deref_mut(), host_projection, assets)
-                    .map_err(GameClientError::InvalidOperation)?;
-                basic.update_after_client_modules(frames.logic_frame);
-            } else {
-                drawable.update(delta_time, frames.logic_frame);
-            }
-            if drawable.is_expired(frames.logic_frame) {
-                if !drawable.as_any().is::<BasicDrawable>() {
-                    return Err(GameClientError::InvalidOperation(
-                        "native expiration requires an installed BasicDrawable teardown".into(),
-                    ));
-                }
-                self.destroy_drawable_with_particles(id, particles.as_deref_mut())?;
-                expired.push(id);
-                // Current was unlinked; its cached successor now occupies cursor.
-            } else {
-                cursor += 1;
-            }
-        }
-        Ok(expired)
+        self.native_render_receiver()
+            .tick_mapped_drawables_with_particles(frames, delta_time, particles, assets)
     }
 
     /// Apply presentation-owned FOW shroud to bound drawables (no OBJECT_REGISTRY).
@@ -459,19 +424,12 @@ impl GameClient {
         raw_status: gamelogic::common::types::ObjectShroudStatus,
         effectively_dead: bool,
     ) -> Option<crate::drawable::SceneShroudDecision> {
-        let state =
-            self.presentation_direct_drawable_state(binding_key.host_epoch, binding_key.object_id)?;
-        if state.binding_key != binding_key {
-            return None;
-        }
-        let drawable = self
-            .drawables
-            .drawable_map
-            .get_mut(&binding_key.drawable_id)?;
-        if drawable.get_object_id() != Some(binding_key.object_id) {
-            return None;
-        }
-        drawable.evaluate_frozen_direct_scene_candidate(logic_frame, raw_status, effectively_dead)
+        self.drawables.evaluate_frozen_direct_scene_candidate(
+            logic_frame,
+            binding_key,
+            raw_status,
+            effectively_dead,
+        )
     }
 
     /// Consume one immutable Main scene-candidate ledger.
@@ -489,21 +447,8 @@ impl GameClient {
     where
         I: IntoIterator<Item = FrozenDirectSceneShroudCandidate>,
     {
-        candidates
-            .into_iter()
-            .filter_map(|candidate| {
-                let decision = self.evaluate_frozen_direct_scene_candidate(
-                    logic_frame,
-                    candidate.binding_key,
-                    candidate.raw_status,
-                    candidate.effectively_dead,
-                )?;
-                Some(FrozenDirectSceneShroudDecision {
-                    binding_key: candidate.binding_key,
-                    decision,
-                })
-            })
-            .collect()
+        self.drawables
+            .evaluate_frozen_direct_scene_shroud_candidates(logic_frame, candidates)
     }
 
     /// Read a direct presentation Drawable state guarded by frozen host-world
@@ -921,10 +866,7 @@ impl GameClient {
                     .remove(&drawable_id);
             }
 
-            NativeDrawableOwner {
-                drawables: &mut self.drawables,
-            }
-            .admit_fresh_drawable(
+            self.drawables.borrow_native().admit_fresh_drawable(
                 &e,
                 sync_ms,
                 content.as_deref_mut(),
@@ -1095,30 +1037,21 @@ impl GameClient {
     ///
     /// C++ script camera letterbox residual without dual-owning Main RenderPipeline 3D draw.
     pub fn apply_presentation_cinematic_letterbox(&mut self, enabled: bool) {
-        if self.letterbox_overlay_enabled != enabled {
-            self.letterbox_overlay_enabled = enabled;
-            self.letterbox_overlay_fade_start = Some(Instant::now());
-        }
-        if let Some(ref display) = self.subsystem_manager.display {
-            let mut display = display.lock().unwrap_or_else(|e| e.into_inner());
-            if display.is_letter_box_enabled() != enabled {
-                display.enable_letter_box(enabled);
-            }
-        }
+        self.script_display.fx_mut().set_letterbox_enabled(enabled);
     }
 
     /// C++ `W3DDisplay::renderLetterBox` fade (LETTER_BOX_FADE_TIME = 1000 ms).
     pub fn letterbox_overlay_fade(&self) -> f32 {
         const LETTER_BOX_FADE_TIME_MS: f32 = 1000.0;
-        let Some(start) = self.letterbox_overlay_fade_start else {
-            return if self.letterbox_overlay_enabled {
+        let Some(start) = self.script_display.fx().letterbox_fade_start_time else {
+            return if self.script_display.fx().letterbox_enabled() {
                 1.0
             } else {
                 0.0
             };
         };
         let t = (start.elapsed().as_millis() as f32 / LETTER_BOX_FADE_TIME_MS).clamp(0.0, 1.0);
-        if self.letterbox_overlay_enabled {
+        if self.script_display.fx().letterbox_enabled() {
             t
         } else {
             1.0 - t
@@ -1131,17 +1064,23 @@ impl GameClient {
     }
 
     pub fn letterbox_overlay_enabled(&self) -> bool {
-        self.letterbox_overlay_enabled
+        self.script_display.fx().letterbox_enabled()
     }
 
     /// C++ W3DDisplay::draw movie blit + copyright + letterbox on the live present path.
-    pub fn queue_host_display_overlays(&self, width: f32, height: f32) {
-        crate::display::display_fx::present_host_overlays(
-            width.max(1.0) as u32,
-            height.max(1.0) as u32,
-            self.letterbox_overlay_fade(),
-            self.letterbox_overlay_enabled,
-        );
+    pub fn queue_host_display_overlays(&mut self, width: f32, height: f32) {
+        let fade = self.letterbox_overlay_fade();
+        let enabled = self.letterbox_overlay_enabled();
+        let (display, renderer) = self.split_script_display_and_ui_renderer();
+        if let Some(renderer) = renderer {
+            display.fx_mut().present_host_overlays(
+                renderer,
+                width.max(1.0) as u32,
+                height.max(1.0) as u32,
+                fade,
+                enabled,
+            );
+        }
     }
 
     /// Apply presentation military caption residual to InGameUI subsystem.
@@ -2170,7 +2109,7 @@ impl GameClient {
     }
 
     fn update_effects(&mut self, delta_time: f32) -> GameClientResult<()> {
-        Self::update_scene_lights(delta_time);
+        self.update_scene_lights(delta_time);
         if delta_time > 0.0 {
             crate::display::view::with_tactical_view(|view| view.tick_impulse_shake());
         }
@@ -2180,13 +2119,13 @@ impl GameClient {
     // Main advances its receiving SessionView impulse at the admitted view phase.
     // Native scene effects must not advance an unrelated standalone Core View.
     fn update_native_effects(&mut self, delta_time: f32) -> GameClientResult<()> {
-        Self::update_scene_lights(delta_time);
+        self.update_scene_lights(delta_time);
         self.update_effect_decals(delta_time)
     }
 
-    fn update_scene_lights(delta_time: f32) {
+    fn update_scene_lights(&mut self, delta_time: f32) {
         if delta_time > 0.0 {
-            crate::fx_list::tick_scene_dynamic_lights();
+            self.drawables.light_scene.update();
         }
     }
 
@@ -2329,7 +2268,10 @@ impl GameClient {
 
     fn update_display_only(&mut self) -> GameClientResult<()> {
         if let Some(ref display) = self.subsystem_manager.display {
-            display.lock().unwrap_or_else(|e| e.into_inner()).update()?;
+            display
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .update_receiving(self.script_display.fx_mut())?;
         }
         Ok(())
     }
@@ -2337,8 +2279,12 @@ impl GameClient {
     fn update_startup_movie_display(&mut self) -> GameClientResult<()> {
         if let Some(ref display) = self.subsystem_manager.display {
             let mut display = display.lock().unwrap_or_else(|e| e.into_inner());
-            display.draw()?;
-            display.update()?;
+            display.draw(
+                self.script_display.fx_mut(),
+                self.ui_renderer.as_mut(),
+                Some(&self.window_manager_owner),
+            )?;
+            display.update_receiving(self.script_display.fx_mut())?;
         }
         Ok(())
     }
@@ -2353,32 +2299,28 @@ impl GameClient {
     }
 
     fn should_activate_shell_after_startup(&self) -> bool {
-        let Some(global_data) = get_global_data() else {
-            return true;
-        };
-        let global = global_data.read();
-        global.initial_file.is_empty()
+        self.menu_host.shell_map_settings().initial_file.is_empty()
     }
 
     fn activate_shell_after_startup(&mut self) -> GameClientResult<()> {
         if !self.should_activate_shell_after_startup() {
             return Ok(());
         }
-
-        log::info!("Activating shell after startup movie flow");
-        let mut shell = self.window_manager_owner.shell_handle();
-        shell.show_shell_map(true);
-        shell.show_shell(true).map_err(|err| {
-            GameClientError::SubsystemError(format!(
-                "Failed to activate shell after startup movies: {}",
-                err
-            ))
-        })?;
-        self.complete_window_event_messages(Vec::new(), None);
-        Ok(())
+        log::info!("Activating receiving Shell after startup movie flow");
+        self.with_receiving_shell(None, |shell, effects| {
+            shell.show_shell_map(true, effects);
+            shell.show_shell(true, effects)
+        })
+        .ok_or_else(|| GameClientError::SubsystemError("startup Shell is already borrowed".into()))?
+        .map_err(|error| {
+            GameClientError::SubsystemError(format!("Failed to activate startup Shell: {error}"))
+        })
     }
 
-    fn show_low_memory_legal_page(&self, display: &mut GraphicsDisplay) -> GameClientResult<()> {
+    fn show_low_memory_legal_page(
+        &mut self,
+        display: &mut GraphicsDisplay,
+    ) -> GameClientResult<()> {
         let Some((layout, _info)) = self.window_manager_owner.with_manager(|manager| {
             manager
                 .create_layout_with_windows("Menus/LegalPage.wnd")
@@ -2397,7 +2339,11 @@ impl GameClient {
         while begin.elapsed() < Duration::from_millis(4000) {
             self.window_manager_owner
                 .with_manager(|manager| manager.update());
-            display.draw()?;
+            display.draw(
+                self.script_display.fx_mut(),
+                self.ui_renderer.as_mut(),
+                Some(&self.window_manager_owner),
+            )?;
             thread::sleep(Duration::from_millis(100));
         }
 
@@ -2452,14 +2398,19 @@ impl GameClient {
 
         match action {
             StartupMovieAction::PlayLogo(movie_name) => {
-                display.play_logo_movie(movie_name.to_string(), 5000, 3000);
+                display.play_logo_movie(
+                    self.script_display.fx_mut(),
+                    movie_name.to_string(),
+                    5000,
+                    3000,
+                );
                 global.play_intro = false;
                 global.after_intro = true;
                 self.startup_sizzle_pending = true;
             }
             StartupMovieAction::PlaySizzle(movie_name) => {
                 global.allow_exit_out_of_movies = true;
-                if display.play_movie(movie_name.to_string()) {
+                if display.play_movie(self.script_display.fx_mut(), movie_name.to_string()) {
                     self.startup_sizzle_pending = false;
                     return Ok(());
                 }
@@ -2467,6 +2418,7 @@ impl GameClient {
                 global.break_the_movie = true;
                 global.after_intro = false;
                 drop(global);
+                drop(display);
                 self.activate_shell_after_startup()?;
             }
             StartupMovieAction::FinalizeStartup => {
@@ -2477,6 +2429,7 @@ impl GameClient {
                 if low_res_movies {
                     self.show_low_memory_legal_page(&mut display)?;
                 }
+                drop(display);
                 self.activate_shell_after_startup()?;
             }
         }
@@ -2490,26 +2443,22 @@ impl GameClient {
         if !self.should_activate_shell_after_startup() {
             return Ok(());
         }
-
-        let mut shell = self.window_manager_owner.shell_handle();
-        let needs_screen = shell.get_screen_count() == 0 && !shell.is_shell_map_on();
-        if needs_screen || !shell.is_shell_active() {
-            log::info!(
-                "Activating shell: screen_count={}, shell_active={}, shell_map_on={}",
-                shell.get_screen_count(),
-                shell.is_shell_active(),
-                shell.is_shell_map_on()
-            );
-            shell.show_shell_map(true);
-            shell.show_shell(true).map_err(|err| {
-                GameClientError::SubsystemError(format!(
-                    "Failed to ensure shell visibility: {}",
-                    err
-                ))
-            })?;
-        }
-        self.complete_window_event_messages(Vec::new(), menu_world);
-        Ok(())
+        self.with_receiving_shell(menu_world, |shell, effects| {
+            let needs_screen = shell.get_screen_count() == 0 && !shell.is_shell_map_on();
+            if needs_screen || !shell.is_shell_active() {
+                shell.show_shell_map(true, effects);
+                shell.show_shell(true, effects)?;
+            }
+            Ok::<(), crate::gui::shell::base::ShellError>(())
+        })
+        .ok_or_else(|| {
+            GameClientError::SubsystemError("receiving Shell is already borrowed".into())
+        })?
+        .map_err(|error| {
+            GameClientError::SubsystemError(format!(
+                "Failed to ensure receiving Shell visibility: {error}"
+            ))
+        })
     }
 
     pub fn update_pre_draw_ui(&mut self) -> GameClientResult<()> {
@@ -2535,6 +2484,7 @@ impl GameClient {
             let mut shell = self.window_manager_owner.shell_handle();
             let mut messages = Vec::new();
             let mut effects = crate::gui::game_window::WindowEventEffects {
+                script_display: None,
                 window_manager_owner: Some(&self.window_manager_owner),
                 selected_window: None,
                 emitted_messages: &mut messages,
@@ -2572,6 +2522,7 @@ impl GameClient {
             let mut shell = self.window_manager_owner.shell_handle();
             let mut messages = Vec::new();
             let mut effects = crate::gui::game_window::WindowEventEffects {
+                script_display: None,
                 window_manager_owner: Some(&self.window_manager_owner),
                 selected_window: None,
                 emitted_messages: &mut messages,

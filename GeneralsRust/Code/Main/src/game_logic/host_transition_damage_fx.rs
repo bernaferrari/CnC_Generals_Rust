@@ -756,7 +756,7 @@ pub fn play_transition_event_fx_ocl(
 
 #[cfg(feature = "game_client")]
 pub fn play_transition_event_fx_ocl_with_view(
-    view: &mut game_client::fx_list::FxViewServices<'_>,
+    view: &mut crate::game_logic::host_fx_list_dispatch::ObjectFxServices<'_, '_>,
     ev: &HostTransitionDamageFxEvent,
     owner: u32,
     host_pos: glam::Vec3,
@@ -783,7 +783,7 @@ pub fn play_transition_event_fx_ocl_with_view(
 
 #[cfg(feature = "game_client")]
 pub fn take_played_transition_event_fx_ocl_with_view(
-    view: &mut game_client::fx_list::FxViewServices<'_>,
+    view: &mut crate::game_logic::host_fx_list_dispatch::ObjectFxServices<'_, '_>,
     ev: &mut HostTransitionDamageFxEvent,
     owner: u32,
     host_pos: glam::Vec3,
@@ -1029,6 +1029,7 @@ pub fn spawn_transition_particles_at_pose(
         frame,
         owner,
         crate::game_logic::host_fx_list_dispatch::host_object_is_shrouded_for_local(owner.0),
+        &mut (),
     )
 }
 
@@ -1042,6 +1043,7 @@ pub fn spawn_transition_particles_at_pose_with_visibility(
     frame: u32,
     owner: crate::game_logic::ObjectId,
     is_shrouded: bool,
+    particle_owner: &mut dyn crate::game_logic::combat_particles::ParticleBindingAccess,
 ) -> Vec<u32> {
     let leftover_owner = crate::game_logic::crate_object_bridge::crate_object(owner.0);
     let leftover_guard = leftover_owner.as_ref().and_then(|h| h.read().ok());
@@ -1072,6 +1074,7 @@ pub fn spawn_transition_particles_at_pose_with_visibility(
             crate::game_logic::combat_particles::CombatParticleKind::DeathSmoke,
             None,
             is_shrouded,
+            particle_owner,
         ) {
             ids.push(id);
             continue;

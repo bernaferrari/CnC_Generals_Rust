@@ -270,6 +270,15 @@ impl WindowManagerOwner {
             .push_back(ShellOperation::WithEffects(Box::new(operation)));
     }
 
+    /// Observe this owner's Shell without publishing a compatibility selector.
+    pub fn shell_is_active(&self) -> Option<bool> {
+        self.state
+            .shell
+            .try_borrow()
+            .ok()
+            .map(|shell| shell.is_shell_active())
+    }
+
     /// Read this client's Shell when no mutable lifecycle operation is active.
     pub fn with_shell_ref<R>(&self, f: impl FnOnce(&Shell) -> R) -> Option<R> {
         let owner = Rc::clone(&self.state);
@@ -784,7 +793,18 @@ pub fn dispatch_translated_window_input_for_owner(
     request: game_engine::common::message_stream::WindowInputDispatch,
     context: &mut super::ControlBarInputContext<'_>,
 ) -> Option<game_engine::common::message_stream::WindowInputDispatchResult> {
+    if let game_engine::common::message_stream::WindowInputDispatch::Display(action) = request {
+        let display = context.script_display.as_deref_mut()?;
+        return Some(
+            game_engine::common::message_stream::WindowInputDispatchResult::Display(
+                crate::message_stream::meta_event::execute_display_input_action(action, display),
+            ),
+        );
+    }
     let result = owner.try_with_manager(|manager| match request {
+        game_engine::common::message_stream::WindowInputDispatch::Display(_) => {
+            unreachable!("display dispatch completed above")
+        }
         game_engine::common::message_stream::WindowInputDispatch::Mouse {
             message,
             x,
@@ -826,6 +846,7 @@ pub fn dispatch_translated_window_input_for_owner(
             main_menu: context.main_menu.as_deref_mut(),
             menu_world: context.menu_world,
             menu_host: context.menu_host.as_deref_mut(),
+            script_display: context.script_display.as_deref_mut(),
             pending_main_menu_actions: Vec::new(),
         };
         owner.complete_event_callbacks(&mut effects);
@@ -1022,7 +1043,11 @@ pub fn dispatch_os_key_to_window_manager_with_control_bar_for_owner(
 
 pub(crate) fn apply_draw_callback_override(
     window_name: &str,
-    draw: fn(&GameWindow, &WindowInstanceData),
+    draw: fn(
+        &GameWindow,
+        &WindowInstanceData,
+        &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
+    ),
 ) {
     with_window_manager(|manager| {
         if let Some(window) = manager.find_window_by_name(window_name) {

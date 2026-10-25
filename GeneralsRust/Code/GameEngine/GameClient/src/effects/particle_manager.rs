@@ -26,6 +26,8 @@ use std::io::Cursor;
 /// existing host registry. The actual manager retains destruction/drain clocks.
 pub struct NativeParticleObjectLifecycle<'a> {
     pub object_is_live: &'a dyn Fn(u32) -> bool,
+    pub object_pose: &'a dyn Fn(u32) -> Option<gamelogic::helpers::HostFxObjectPose>,
+    pub ground_height: &'a dyn Fn(Vec3) -> Option<f32>,
     pub attached_object_lost: &'a mut dyn FnMut(&ParticleSystemOwner, u32, u32),
 }
 
@@ -328,6 +330,8 @@ impl ParticleSystemOwner {
 /// The particle system manager (matches C++ ParticleSystemManager).
 pub struct ParticleSystemManager {
     runtime_owner: Arc<()>,
+    random_state: game_engine::common::random_value::RandomState,
+    definitions_admitted: bool,
     pub(crate) templates: HashMap<String, Arc<ParticleSystemTemplate>>,
     active_systems: HashMap<ParticleSystemId, Box<ParticleSystem>>,
     /// C++ keeps `m_allParticleSystemList` in creation order. The lookup map
@@ -355,6 +359,52 @@ pub struct ParticleSystemManager {
 }
 
 impl ParticleSystemManager {
+    /// C++ reset drops the receiving runtime after Drawable destructors, while
+    /// immutable effective definitions and the admitted presentation seed remain.
+    pub fn reset_runtime(&mut self) {
+        // Reset all systems and templates
+        self.renew_system_namespace();
+        self.active_systems.clear();
+        self.active_system_order.clear();
+        self.next_system_id = 1;
+        self.next_particle_ordinal = 1;
+        self.particle_count = 0;
+        self.field_particle_count = 0;
+        self.system_count = 0;
+        // C++ reset differs from construction: frame zero must run once.
+        self.last_logic_frame_update = u32::MAX;
+    }
+    /// Pure CPU capture: live systems and random state never cross the GPU
+    /// callback. A bounded local stream advance commits before returning.
+    pub fn prepare_render_frame(
+        &mut self,
+        uniforms: &crate::effects::particle_renderer::ParticleUniforms,
+        use_heat: bool,
+    ) -> Option<crate::effects::particle_renderer::ParticleRenderFrame> {
+        let preloaded_texture_assets = self.preloaded_texture_assets.clone();
+        let mut random = self.random_state.clone();
+        let systems = self.draw_particle_systems();
+        if systems.is_empty() && preloaded_texture_assets.is_empty() {
+            return None;
+        }
+        let mut uniforms = *uniforms;
+        uniforms.particle_count = systems
+            .iter()
+            .map(|system| system.particle_count())
+            .sum::<usize>()
+            .min(u32::MAX as usize) as u32;
+        let frame = crate::effects::particle_renderer::ParticleRenderFrame::prepare_owned(
+            &systems,
+            &uniforms,
+            use_heat,
+            &mut |lo, hi| random.next_real(lo, hi),
+        );
+        self.random_state = random;
+        Some(frame.with_preloaded_texture_assets(preloaded_texture_assets))
+    }
+    pub fn seed_presentation_random(&mut self, seed: u32) {
+        self.random_state.seed_random(seed);
+    }
     pub fn runtime_owner(&self) -> ParticleSystemOwner {
         ParticleSystemOwner(Arc::downgrade(&self.runtime_owner))
     }
@@ -367,6 +417,8 @@ impl ParticleSystemManager {
     pub fn new() -> Self {
         Self {
             runtime_owner: Arc::new(()),
+            random_state: Default::default(),
+            definitions_admitted: false,
             templates: HashMap::new(),
             active_systems: HashMap::new(),
             active_system_order: Vec::new(),
@@ -398,6 +450,47 @@ impl ParticleSystemManager {
         parser
             .load_particle_system_definitions("Data/INI/ParticleSystem.ini", self)
             .map_err(|error| ParticleSystemError::ResourceLoadFailed(error.to_string()))
+    }
+
+    /// Complete explicit content admission for a manager populated by a local
+    /// parser/authoring receiver. Runtime lookup never replaces that catalog.
+    pub fn finish_definition_admission(&mut self) {
+        self.definitions_admitted = true;
+    }
+
+    /// Admit immutable effective definitions into this presentation lifetime.
+    /// Constructors stay inert. The driving content-admission operation calls
+    /// this before the first factory/FX action; later peer INI loads cannot
+    /// replace this manager's catalog or mutate its active system namespace.
+    pub fn admit_effective_definitions(&mut self) -> Result<(), ParticleSystemError> {
+        if self.definitions_admitted {
+            return Ok(());
+        }
+        self.load_retail_particle_templates()?;
+        let definitions = game_engine::common::ini::ini_particle_sys::get_particle_system_manager()
+            .map(|catalog| {
+                let catalog = catalog.read();
+                catalog
+                    .get_template_names()
+                    .into_iter()
+                    .filter_map(|name| {
+                        catalog
+                            .find_template(&game_engine::common::ascii_string::AsciiString::from(
+                                name.as_str(),
+                            ))
+                            .map(|template| (name.clone(), template.properties.clone()))
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        let parser = ParticleSystemINIParser::default();
+        for (name, properties) in definitions {
+            parser
+                .overlay_from_property_map(&name, &properties, self)
+                .map_err(|error| ParticleSystemError::ResourceLoadFailed(error.to_string()))?;
+        }
+        self.definitions_admitted = true;
+        Ok(())
     }
 
     /// Find a template by name
@@ -559,13 +652,16 @@ impl ParticleSystemManager {
         create_slaves: bool,
         creation_frame: u32,
     ) -> Result<ParticleSystemId, ParticleSystemError> {
-        self.create_authored_system_chain(
+        let mut random = self.random_state.clone();
+        let result = self.create_authored_system_chain(
             template,
             self.next_system_id,
             create_slaves,
-            &mut get_game_client_random_value_real,
+            &mut |lo, hi| random.next_real(lo, hi),
             creation_frame,
-        )
+        );
+        self.random_state = random;
+        result
     }
 
     /// Create a particle system by template name at a given world position.
@@ -594,12 +690,15 @@ impl ParticleSystemManager {
         system_id: ParticleSystemId,
         create_slaves: bool,
     ) -> Result<ParticleSystemId, ParticleSystemError> {
-        self.create_particle_system_with_id_and_random(
+        let mut random = self.random_state.clone();
+        let result = self.create_particle_system_with_id_and_random(
             template,
             system_id,
             create_slaves,
-            &mut get_game_client_random_value_real,
-        )
+            &mut |lo, hi| random.next_real(lo, hi),
+        );
+        self.random_state = random;
+        result
     }
 
     /// Create with this manager's explicit initialization stream. No ambient
@@ -821,11 +920,12 @@ impl ParticleSystemManager {
                     .expect("particle admission order references a registered system");
                 let attached_before = system.attached_object();
                 let phase = if let Some(owner) = lifecycle.as_deref() {
-                    system.prepare_frame_emit_with_object_liveness(
+                    system.prepare_frame_emit_with_object_observation(
                         local_player_index,
                         client_frame,
                         drawable_pose,
                         Some(owner.object_is_live),
+                        Some(owner.object_pose),
                     )
                 } else {
                     system.prepare_frame_emit_with_drawable_poses(
@@ -895,11 +995,19 @@ impl ParticleSystemManager {
                         break;
                     };
                     if emit_above_ground {
-                        let ground = gamelogic::helpers::TheTerrainLogic::get()
-                            .map(|terrain| {
-                                terrain.get_ground_height(info.position.x, info.position.y, None)
-                            })
-                            .unwrap_or(0.0);
+                        let ground = if let Some(owner) = lifecycle.as_deref() {
+                            (owner.ground_height)(info.position).unwrap_or(0.0)
+                        } else {
+                            gamelogic::helpers::TheTerrainLogic::get()
+                                .map(|terrain| {
+                                    terrain.get_ground_height(
+                                        info.position.x,
+                                        info.position.y,
+                                        None,
+                                    )
+                                })
+                                .unwrap_or(0.0)
+                        };
                         if info.position.z < ground {
                             continue;
                         }
@@ -1226,17 +1334,7 @@ impl SubsystemInterface for ParticleSystemManager {
     }
 
     fn reset(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        // Reset all systems and templates
-        self.renew_system_namespace();
-        self.active_systems.clear();
-        self.active_system_order.clear();
-        self.next_system_id = 1;
-        self.next_particle_ordinal = 1;
-        self.particle_count = 0;
-        self.field_particle_count = 0;
-        self.system_count = 0;
-        // C++ reset differs from construction: frame zero must run once.
-        self.last_logic_frame_update = u32::MAX;
+        self.reset_runtime();
         Ok(())
     }
 

@@ -1398,8 +1398,8 @@ impl CnCGameEngine {
             }
             GameState::Loading => {
                 info!("Entering Loading state");
-                self.ensure_shell_loading_overlay();
-                self.update_shell_loading_progress(0.0, Some("Loading assets..."));
+                self.ensure_shell_loading_overlay()?;
+                self.update_shell_loading_progress(0.0, Some("Loading assets..."))?;
                 self.ui_manager.suspend_for_shell_overlay();
                 self.set_runtime_ui_state_projection(Screen::Loading);
                 self.last_slow_menu_tick_log = None;
@@ -1884,24 +1884,23 @@ impl CnCGameEngine {
                 let scale = self.window.scale_factor().max(0.0001);
                 let logical_w = ((size.width as f64) / scale).round().max(1.0) as u32;
                 let logical_h = ((size.height as f64) / scale).round().max(1.0) as u32;
-                let _ = game_client::gui::ui_globals::with_ui_renderer_mut(|renderer| {
+                if let Some(renderer) = self.game_client.ui_renderer_mut() {
                     renderer.set_screen_size(logical_w, logical_h);
-                });
-                game_client::gui::with_window_manager(|manager| {
-                    manager.set_screen_size(logical_w as i32, logical_h as i32);
-                });
+                }
+                self.game_client
+                    .window_manager_owner()
+                    .with_manager(|manager| {
+                        manager.set_screen_size(logical_w as i32, logical_h as i32);
+                    });
                 self.apply_pending_display_mode();
-                // C++ W3DDisplay::draw: movie blit after InGameUI, then copyright, then letterbox.
-                let _ =
-                    game_client::display::display_fx::present_movie_overlay(logical_w, logical_h);
-                let _ = game_client::display::display_fx::present_copyright_overlay(
-                    logical_w, logical_h,
-                );
-                game_client::display::display_fx::present_gamma_if_fullscreen(
-                    self.is_windowed,
-                    logical_w,
-                    logical_h,
-                );
+                // W3DDisplay::draw: movie, copyright, then letterbox.
+                let (display, renderer) = self.game_client.split_script_display_and_ui_renderer();
+                if let Some(renderer) = renderer {
+                    let fx = display.fx_mut();
+                    let _ = fx.present_movie_overlay(renderer, logical_w, logical_h);
+                    let _ = fx.present_copyright_overlay(renderer, logical_w, logical_h);
+                    fx.present_gamma_if_fullscreen(self.is_windowed, logical_w, logical_h);
+                }
                 self.queue_live_letterbox_and_cinematic_overlays(
                     logical_w as f32,
                     logical_h as f32,
@@ -2144,6 +2143,14 @@ impl CnCGameEngine {
         #[cfg(feature = "game_client")]
         let native_radius_items = self.game_client.collect_native_radius_render_items();
         #[cfg(feature = "game_client")]
+        let prepared_particles = self.render_pipeline.capture_native_particles(
+            self.game_client.particle_systems_mut(),
+            view_matrix,
+            projection_matrix,
+            camera_position,
+            render_time_delta,
+        );
+        #[cfg(feature = "game_client")]
         let render_result = {
             let world_bounds = self.presentation_world_bounds();
             // This operation owns GameLogic for its entire render continuation.
@@ -2214,6 +2221,30 @@ impl CnCGameEngine {
                 &mut self.graphics_system,
                 &mut self.game_client,
             );
+            let display_facts = game_client.script_display_receiver().fx().draw_facts();
+            let mouse = game_client.input_mouse_handle();
+            let command_hints = game_client.command_hint_snapshot();
+            let client_frame = game_client.get_frame();
+            let (render_bridge, mut scene_drawables, ui_renderer, window_owner) =
+                game_client.split_render_bridge_drawables_and_ui_renderer();
+            let mut ui_draw = ui_renderer.map(|renderer| {
+                crate::graphics::ui_render_pass::NativeUiDraw::new(
+                    renderer,
+                    window_owner,
+                    display_facts,
+                    mouse,
+                )
+                .with_command_hints(command_hints, client_frame)
+            });
+            let mut ui_overlay =
+                |frame: &mut ww3d_engine::RenderFrame,
+                 radar: Option<&crate::graphics::ui_radar::NativeRadarFrame>| {
+                    if let Some(ui) = ui_draw.as_mut() {
+                        ui.flush(frame, radar)
+                    } else {
+                        Ok(())
+                    }
+                };
             let mut direct_scene_candidate_sink = |candidates: &[crate::graphics::render_pipeline::FrozenDirectDrawableSceneCandidate]| {
                 let game_client_candidates = candidates.iter().copied().map(|candidate| {
                     game_client::core::FrozenDirectSceneShroudCandidate {
@@ -2232,7 +2263,7 @@ impl CnCGameEngine {
                 // Drawable before forward rendering, and retains Clear versus
                 // PartialClear/Fogged pass eligibility for hq-1a1's projected
                 // material route. No scalar FOW result is used here.
-                game_client
+                scene_drawables
                     .evaluate_frozen_direct_scene_shroud_candidates(
                         presentation_logic_frame,
                         game_client_candidates,
@@ -2271,6 +2302,7 @@ impl CnCGameEngine {
             };
             let result = render_pipeline.execute(
                 graphics_system,
+                render_bridge,
                 &view_matrix,
                 &projection_matrix,
                 camera_position,
@@ -2280,11 +2312,13 @@ impl CnCGameEngine {
                 skip_world_scene,
                 Some(&mut direct_scene_candidate_sink),
                 native_radius_items,
+                prepared_particles,
                 filter,
                 &snow,
                 filter_scroll,
                 presentation_logic_frame,
                 Some(&mut complete_filter_camera),
+                Some(&mut ui_overlay),
                 Some(&mut complete_physics_visual),
             );
             result
@@ -2303,6 +2337,7 @@ impl CnCGameEngine {
             allow_sync_model_loads,
             deferred_startup_model_load_budget,
             skip_world_scene,
+            None,
             None,
             None,
         )?;
@@ -2348,9 +2383,13 @@ impl CnCGameEngine {
     #[cfg(feature = "game_client")]
     fn queue_live_letterbox_and_cinematic_overlays(&mut self, width: f32, height: f32) {
         use game_client::gui::ui_renderer::{TextAlignment, TextLayout, UIRect, VerticalAlignment};
-        let _ = game_client::gui::ui_globals::with_ui_renderer_mut(|renderer| {
-            let fade = self.game_client.letterbox_overlay_fade();
-            let enabled = self.game_client.letterbox_overlay_enabled();
+        let fade = self.game_client.letterbox_overlay_fade();
+        let enabled = self.game_client.letterbox_overlay_enabled();
+        let cinematic = self
+            .game_client
+            .cinematic_overlay()
+            .map(|(text, font, frames)| (text.to_owned(), font.map(str::to_owned), frames));
+        if let Some(renderer) = self.game_client.ui_renderer_mut() {
             let plan =
                 game_client::display::display_fx::letterbox_plan(width, height, fade, enabled);
             if plan.draw_top {
@@ -2367,7 +2406,10 @@ impl CnCGameEngine {
                     10_000.0,
                 );
             }
-            if let Some((text, font, _frames)) = self.game_client.cinematic_overlay() {
+            if let Some((text, font, _frames)) = cinematic
+                .as_ref()
+                .map(|(text, font, frames)| (text.as_str(), font.as_deref(), *frames))
+            {
                 let font_size = Self::cinematic_font_size(font);
                 let y = height * 0.9;
                 let wrap_width = (width - 20.0).max(1.0);
@@ -2383,7 +2425,7 @@ impl CnCGameEngine {
                 };
                 let _ = renderer.draw_text(&layout, 10_100.0);
             }
-        });
+        }
     }
 
     #[cfg(not(feature = "game_client"))]
@@ -2397,7 +2439,7 @@ impl CnCGameEngine {
 
     #[cfg(feature = "game_client")]
     fn apply_pending_display_mode(&mut self) {
-        let Some(mode) = game_client::display::display_fx::take_pending_device_mode() else {
+        let Some(mode) = self.game_client.take_pending_display_mode() else {
             return;
         };
         // C++ WW3D::Set_Device_Resolution + Render2DClass::Set_Screen_Resolution.
@@ -2420,29 +2462,54 @@ impl CnCGameEngine {
         if size.width > 0 && size.height > 0 {
             let logical_w = ((size.width as f64) / scale).round().max(1.0) as u32;
             let logical_h = ((size.height as f64) / scale).round().max(1.0) as u32;
-            let _ = game_client::gui::ui_globals::with_ui_renderer_mut(|renderer| {
+            if let Some(renderer) = self.game_client.ui_renderer_mut() {
                 renderer.set_screen_size(logical_w, logical_h);
-            });
-            game_client::gui::with_window_manager(|manager| {
-                manager.set_screen_size(logical_w as i32, logical_h as i32);
-            });
+            }
+            self.game_client
+                .window_manager_owner()
+                .with_manager(|manager| {
+                    manager.set_screen_size(logical_w as i32, logical_h as i32);
+                });
         }
     }
 
     #[cfg(feature = "game_client")]
     fn flush_display_capture(&mut self) {
         // C++ W3DDisplay::takeScreenShot writes user-data sshotNNN.bmp of the backbuffer.
-        if let Some(path) = game_client::display::display_fx::take_pending_screenshot() {
-            if !game_client::display::display_fx::write_backbuffer_screenshot(&path) {
+        if let Some(path) = self
+            .game_client
+            .script_display_receiver()
+            .fx_mut()
+            .take_pending_screenshot()
+        {
+            if !self
+                .game_client
+                .script_display_receiver()
+                .fx_mut()
+                .write_backbuffer_screenshot(&path)
+            {
                 if let Err(err) = ww3d_engine::make_screenshot(&path) {
                     warn!("W3DDisplay takeScreenShot failed: {err:?}");
-                    game_client::display::display_fx::queue_screenshot(path);
+                    self.game_client
+                        .script_display_receiver()
+                        .fx_mut()
+                        .queue_screenshot(path);
                 }
             }
         }
         // C++ WW3D::Toggle_Movie_Capture("Movie", 30) dumps the presented framebuffer.
-        if game_client::display::display_fx::is_movie_capture_enabled() {
-            if !game_client::display::display_fx::write_backbuffer_movie_frame() {
+        if self
+            .game_client
+            .script_display_receiver()
+            .fx_mut()
+            .is_movie_capture_enabled()
+        {
+            if !self
+                .game_client
+                .script_display_receiver()
+                .fx_mut()
+                .write_backbuffer_movie_frame()
+            {
                 let dir = game_client::display::display_fx::movie_capture_dir();
                 let _ = ww3d_engine::set_movie_capture_output(&dir, "Movie");
                 let _ = ww3d_engine::set_movie_capture_enabled(true);
@@ -2544,8 +2611,8 @@ impl CnCGameEngine {
                     if screen == Screen::Loading
                         && matches!(self.current_state, GameState::Menu | GameState::Loading)
                     {
-                        self.ensure_shell_loading_overlay();
-                        self.update_shell_loading_progress(0.0, Some("Loading assets..."));
+                        self.ensure_shell_loading_overlay()?;
+                        self.update_shell_loading_progress(0.0, Some("Loading assets..."))?;
                         self.ui_manager.suspend_for_shell_overlay();
                         self.set_runtime_ui_state_projection(Screen::Loading);
                         continue;
@@ -3135,7 +3202,10 @@ impl CnCGameEngine {
                         self.game_client
                             .message_stream_mut()
                             .append_message_value(MenuHostMailbox::campaign_message(descriptor));
-                        game_engine::common::random_value::init_client_audio_random_with_seed(0);
+                        self.game_logic.seed_fx_random(0);
+                        self.game_client
+                            .particle_systems_mut()
+                            .seed_presentation_random(0);
                         self.game_logic.set_logic_random_seed(0);
                         if matches!(source, MenuLaunchSource::MainMenu) {
                             self.game_client.finish_source_menu_campaign_start();
@@ -3146,6 +3216,9 @@ impl CnCGameEngine {
                             // Post-clear callbacks live in the receiving mailbox instead.
                             break;
                         }
+                    }
+                    MenuHostRequest::SeedLogic(seed) => {
+                        self.game_logic.set_logic_random_seed(seed);
                     }
                     MenuHostRequest::Quit => {
                         self.pending_state = None;

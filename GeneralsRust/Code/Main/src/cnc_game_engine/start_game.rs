@@ -110,6 +110,8 @@ fn resolve_map_activation_lighting(env: Option<&PresentationWorldEnv>) -> MapAct
         .primary_object_lighting
         .filter(|lighting| lighting.object_light_active);
     let object = (map_has_lighting || object_primary.is_some()).then(|| CachedLighting {
+        #[cfg(feature = "game_client")]
+        dynamic_lights: Vec::new(),
         sun_direction: env
             .sun_direction
             .or_else(|| object_primary.map(|lighting| lighting.render_light_pos())),
@@ -128,6 +130,8 @@ fn resolve_map_activation_lighting(env: Option<&PresentationWorldEnv>) -> MapAct
     // independently of whether a W3D object directional light is enabled.
     let terrain_primary = env.primary_terrain_lighting;
     let terrain = (map_has_lighting || terrain_primary.is_some()).then(|| CachedLighting {
+        #[cfg(feature = "game_client")]
+        dynamic_lights: Vec::new(),
         sun_direction: env
             .sun_direction
             .or_else(|| terrain_primary.map(|lighting| lighting.render_light_pos())),
@@ -584,7 +588,10 @@ impl CnCGameEngine {
         // winit to deliver focus/close events before the next decoder step.
         #[cfg(feature = "game_client")]
         if let Some(kind) = self.active_load_screen {
-            game_client::gui::load_screen::begin_nonblocking_load_screen_prelude(kind);
+            game_client::gui::load_screen::begin_nonblocking_load_screen_prelude(
+                kind,
+                self.game_client.load_screen_runtime_mut(),
+            );
         }
         // Park the blocking map load for the next Loading tick. Runtime-host
         // publishes status after each command (run_loop.rs); returning here
@@ -669,8 +676,8 @@ impl CnCGameEngine {
         info!("host_start_game_from_ui: match residuals cleared");
         if let Some((seed, _)) = replay_inputs {
             self.host_game_logic_mut().set_logic_random_seed(seed);
-        } else if mode == GameMode::SinglePlayer {
-            // Campaign/Challenge starts select seed 0 in C++ menus. Admission
+        } else if matches!(mode, GameMode::SinglePlayer | GameMode::Shell) {
+            // Campaign/Challenge and Shell starts select seed 0 in C++ menus. Admission
             // targets this session instead of relying on a process broadcast.
             self.host_game_logic_mut().set_logic_random_seed(0);
         }
@@ -1914,11 +1921,7 @@ impl CnCGameEngine {
                 cast_shadow: false,
                 ..Default::default()
             };
-            if let Ok(mut bridge_guard) = game_client::render_bridge::get_render_bridge().lock() {
-                if let Some(bridge) = bridge_guard.as_mut() {
-                    bridge.submit(submission);
-                }
-            }
+            self.game_client.render_bridge_mut().submit(submission);
         }
 
         self.sync_structure_placement_faction_bibs(Some((world_x, world_z, facing, half, illegal)));
@@ -2115,7 +2118,12 @@ impl CnCGameEngine {
         let summary = self.presentation_or_boot_victory_summary(winner);
         let queued_summary = summary.clone();
         self.victory_summary = Some(summary.clone());
-        if let Err(err) = crate::game_results_queue::queue_victory_summary(queued_summary) {
+        if let Err(err) = self
+            .subsystem_manager
+            .get_mut::<crate::subsystem_manager::GameResultsQueueSubsystem>()
+            .ok_or_else(|| anyhow::anyhow!("GameResultsQueue is not initialized"))
+            .and_then(|subsystem| subsystem.queue_mut().enqueue(queued_summary))
+        {
             warn!("Failed to enqueue victory summary: {err}");
         }
         self.game_paused = true;

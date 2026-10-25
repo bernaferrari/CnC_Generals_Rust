@@ -294,7 +294,11 @@ fn confirm_copy_replay(state_handle: Rc<RefCell<ReplayMenuState>>) {
     );
 }
 
-pub fn replay_menu_init(layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>) {
+pub fn replay_menu_init(
+    layout: &WindowLayout,
+    _user_data: Option<&dyn std::any::Any>,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) {
     let state_handle = replay_menu_layout_state(layout).unwrap_or_else(replay_menu_state);
     let mut state = state_handle.borrow_mut();
 
@@ -326,7 +330,7 @@ pub fn replay_menu_init(layout: &WindowLayout, _user_data: Option<&dyn std::any:
     });
 
     populate_replay_listbox(&mut state);
-    show_shell_map_if_available(true);
+    show_shell_map_if_available(true, effects);
     layout.hide(false);
 }
 

@@ -10,7 +10,6 @@ use super::DisplayStringManager;
 use super::display_string::DisplayStringHandle;
 use super::font::{FontDesc, get_font_library};
 use super::game_window::{Color, GameFont, Image, WIN_COLOR_UNDEFINED};
-use super::ui_globals::with_ui_renderer_mut;
 use super::ui_renderer::UIRect;
 use super::window_manager::WindowManager;
 
@@ -46,6 +45,7 @@ impl WindowManager {
         end_x: i32,
         end_y: i32,
         color: Color,
+        draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
     ) {
         self.win_draw_image_ex(
             image,
@@ -55,6 +55,7 @@ impl WindowManager {
             end_y,
             color,
             crate::display::DrawImageMode::Alpha,
+            draw_context,
         );
     }
 
@@ -68,6 +69,7 @@ impl WindowManager {
         end_y: i32,
         color: Color,
         mode: crate::display::DrawImageMode,
+        draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
     ) {
         self.win_draw_image_with_policy(
             image,
@@ -78,6 +80,7 @@ impl WindowManager {
             color,
             mode,
             MissingImagePolicy::Placeholder,
+            draw_context,
         );
     }
 
@@ -91,6 +94,7 @@ impl WindowManager {
         start_y: i32,
         end_x: i32,
         end_y: i32,
+        draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
     ) {
         self.win_draw_image_with_policy(
             image,
@@ -101,6 +105,7 @@ impl WindowManager {
             WIN_COLOR_UNDEFINED,
             crate::display::DrawImageMode::Alpha,
             MissingImagePolicy::Skip,
+            draw_context,
         );
     }
 
@@ -114,13 +119,14 @@ impl WindowManager {
         color: Color,
         mode: crate::display::DrawImageMode,
         missing_policy: MissingImagePolicy,
+        draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
     ) {
         let color_rgba = if color != WIN_COLOR_UNDEFINED {
             color_to_rgba(color)
         } else {
             [1.0, 1.0, 1.0, 1.0]
         };
-        let submitted = with_ui_renderer_mut(|renderer| {
+        let submitted = draw_context.with_renderer(|renderer, display_facts| {
             let mut found_mapped = false;
             let texture = {
                 let collection = get_mapped_image_collection();
@@ -182,6 +188,7 @@ impl WindowManager {
             if let Some((texture, u0, v0, u1, v1, rotated)) = texture {
                 crate::display::display_fx::queue_draw_image_mesh_on(
                     renderer,
+                    display_facts,
                     texture,
                     start_x as f32,
                     start_y as f32,
@@ -233,11 +240,16 @@ impl WindowManager {
     /// Same pixels as repeated `win_draw_image` calls, one texture lookup.
     /// W3D window borders tile a 20px piece across the edge; doing that as
     /// thousands of separate draws made the shell menu a 600ms paint.
-    pub fn win_draw_image_batch(&self, image: &Image, rects: &[(i32, i32, i32, i32)]) {
+    pub fn win_draw_image_batch(
+        &self,
+        image: &Image,
+        rects: &[(i32, i32, i32, i32)],
+        draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
+    ) {
         if rects.is_empty() {
             return;
         }
-        let _ = with_ui_renderer_mut(|renderer| {
+        let _ = draw_context.with_renderer(|renderer, display_facts| {
             let _ = ensure_client_mapped_image(&image.name);
             let collection = get_mapped_image_collection();
             let mut collection = collection.write();
@@ -264,6 +276,7 @@ impl WindowManager {
                 for &(x1, y1, x2, y2) in rects {
                     crate::display::display_fx::queue_draw_image_mesh_on(
                         renderer,
+                        display_facts,
                         texture.clone(),
                         x1 as f32,
                         y1 as f32,
@@ -323,6 +336,7 @@ impl WindowManager {
         start_y: i32,
         end_x: i32,
         end_y: i32,
+        draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
     ) {
         let rect = UIRect::new(
             start_x as f32,
@@ -331,7 +345,7 @@ impl WindowManager {
             (end_y - start_y) as f32,
         );
         let color = color_to_rgba(color);
-        let _ = with_ui_renderer_mut(|renderer| {
+        let _ = draw_context.with_renderer(|renderer, display_facts| {
             renderer.draw_rect(rect, color, 0.0);
         });
     }
@@ -345,6 +359,7 @@ impl WindowManager {
         start_y: i32,
         end_x: i32,
         end_y: i32,
+        draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
     ) {
         let rect = UIRect::new(
             start_x as f32,
@@ -353,7 +368,7 @@ impl WindowManager {
             (end_y - start_y) as f32,
         );
         let color = color_to_rgba(color);
-        let _ = with_ui_renderer_mut(|renderer| {
+        let _ = draw_context.with_renderer(|renderer, display_facts| {
             renderer.draw_rect_outline(rect, width, color, 0.0);
         });
     }
@@ -367,8 +382,9 @@ impl WindowManager {
         start_y: i32,
         end_x: i32,
         end_y: i32,
+        draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
     ) {
-        let _ = with_ui_renderer_mut(|renderer| {
+        let _ = draw_context.with_renderer(|renderer, display_facts| {
             renderer.draw_line(
                 Vec2::new(start_x as f32, start_y as f32),
                 Vec2::new(end_x as f32, end_y as f32),
@@ -388,6 +404,7 @@ impl WindowManager {
         height: i32,
         percent: i32,
         color: Color,
+        draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
     ) {
         if !(1..=100).contains(&percent) {
             return;
@@ -402,7 +419,7 @@ impl WindowManager {
         let end_x = start_xf + width_f;
         let end_y = start_yf + height_f;
 
-        let _ = with_ui_renderer_mut(|renderer| {
+        let _ = draw_context.with_renderer(|renderer, display_facts| {
             let add_rect = |renderer: &mut super::ui_renderer::UIRenderer,
                             x0: f32,
                             y0: f32,
@@ -537,6 +554,7 @@ impl WindowManager {
         height: i32,
         percent: i32,
         color: Color,
+        draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
     ) {
         if !(0..=99).contains(&percent) {
             return;
@@ -553,7 +571,7 @@ impl WindowManager {
         let half_w = width_f * 0.5;
         let half_h = height_f * 0.5;
 
-        let _ = with_ui_renderer_mut(|renderer| {
+        let _ = draw_context.with_renderer(|renderer, display_facts| {
             let add_rect = |renderer: &mut super::ui_renderer::UIRenderer,
                             x0: f32,
                             y0: f32,
@@ -704,9 +722,12 @@ impl WindowManager {
         y: i32,
         width: i32,
         _height: i32,
+        draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
     ) {
         let display = create_display_string(font, text, width);
-        display.borrow_mut().draw_with_drop(x, y, color, 0, 0, 0);
+        display
+            .borrow_mut()
+            .draw_with_drop(x, y, color, 0, 0, 0, draw_context);
     }
 
     /// Get the text size for a font and string.

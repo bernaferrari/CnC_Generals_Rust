@@ -52,7 +52,11 @@ pub(super) fn mapped_image_dims(image: &crate::gui::game_window::Image) -> (i32,
     (width.max(1), height.max(1))
 }
 
-pub fn w3d_gadget_horizontal_slider_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
+pub fn w3d_gadget_horizontal_slider_draw(
+    window: &GameWindow,
+    inst_data: &WindowInstanceData,
+    draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
+) {
     let (draw_data, _) = if inst_data.state.contains(WindowState::DISABLED) || !window.is_enabled()
     {
         (&inst_data.disabled_draw_data, &inst_data.disabled_text)
@@ -65,7 +69,7 @@ pub fn w3d_gadget_horizontal_slider_draw(window: &GameWindow, inst_data: &Window
     let (origin_x, origin_y) = window.get_screen_position();
     let (size_x, size_y) = window.get_size();
     if back.border_color != WIN_COLOR_UNDEFINED {
-        with_window_manager_ref(|manager| {
+        crate::gui::window_draw_context::with_draw_manager(draw_context.manager, |manager| {
             manager.win_open_rect(
                 back.border_color,
                 1.0,
@@ -73,11 +77,12 @@ pub fn w3d_gadget_horizontal_slider_draw(window: &GameWindow, inst_data: &Window
                 origin_y,
                 origin_x + size_x,
                 origin_y + size_y,
+                draw_context,
             );
         });
     }
     if back.color != WIN_COLOR_UNDEFINED {
-        with_window_manager_ref(|manager| {
+        crate::gui::window_draw_context::with_draw_manager(draw_context.manager, |manager| {
             manager.win_fill_rect(
                 back.color,
                 1.0,
@@ -85,6 +90,7 @@ pub fn w3d_gadget_horizontal_slider_draw(window: &GameWindow, inst_data: &Window
                 origin_y + 1,
                 origin_x + size_x - 1,
                 origin_y + size_y - 1,
+                draw_context,
             );
         });
     }
@@ -154,6 +160,7 @@ pub(super) fn horizontal_slider_box_counts(
 pub fn w3d_gadget_horizontal_slider_image_draw(
     window: &GameWindow,
     inst_data: &WindowInstanceData,
+    draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
 ) {
     let (filled_index, blank_index, highlight_index) = horizontal_slider_box_image_sources();
     let filled = inst_data
@@ -177,7 +184,10 @@ pub fn w3d_gadget_horizontal_slider_image_draw(
     let (size_x, size_y) = window.get_size();
     let slider_data = None;
     let selected_percent = slider_percent(window, slider_data);
-    let x_multi = with_window_manager_ref(|manager| manager.screen_size().0 as f32 / 800.0);
+    let x_multi =
+        crate::gui::window_draw_context::with_draw_manager(draw_context.manager, |manager| {
+            manager.screen_size().0 as f32 / 800.0
+        });
     let (filled_w, _) = mapped_image_dims(filled);
     let box_width = ((filled_w as f32 * x_multi) as i32).max(1);
     let box_padding = 2;
@@ -191,7 +201,7 @@ pub fn w3d_gadget_horizontal_slider_image_draw(
         let bg_end_y = bg_start_y + box_width + box_padding;
         for _ in 0..(num_boxes + 1) {
             let bg_end_x = bg_start_x + box_width + box_padding;
-            with_window_manager_ref(|manager| {
+            crate::gui::window_draw_context::with_draw_manager(draw_context.manager, |manager| {
                 manager.win_draw_image(
                     highlight,
                     bg_start_x,
@@ -199,6 +209,7 @@ pub fn w3d_gadget_horizontal_slider_image_draw(
                     bg_end_x,
                     bg_end_y,
                     WIN_COLOR_UNDEFINED,
+                    draw_context,
                 );
             });
             bg_start_x = bg_end_x;
@@ -208,7 +219,7 @@ pub fn w3d_gadget_horizontal_slider_image_draw(
     for i in 0..num_selected {
         let sx = origin_x + i * (box_width + box_padding);
         let ex = sx + box_width;
-        with_window_manager_ref(|manager| {
+        crate::gui::window_draw_context::with_draw_manager(draw_context.manager, |manager| {
             manager.win_draw_image(
                 filled,
                 sx,
@@ -216,13 +227,14 @@ pub fn w3d_gadget_horizontal_slider_image_draw(
                 ex,
                 origin_y + box_width,
                 WIN_COLOR_UNDEFINED,
+                draw_context,
             );
         });
     }
     for i in num_selected..num_boxes {
         let sx = origin_x + i * (box_width + box_padding);
         let ex = sx + box_width;
-        with_window_manager_ref(|manager| {
+        crate::gui::window_draw_context::with_draw_manager(draw_context.manager, |manager| {
             manager.win_draw_image(
                 blank,
                 sx,
@@ -230,6 +242,7 @@ pub fn w3d_gadget_horizontal_slider_image_draw(
                 ex,
                 origin_y + box_width,
                 WIN_COLOR_UNDEFINED,
+                draw_context,
             );
         });
     }
@@ -240,6 +253,7 @@ pub(super) const HORIZONTAL_SLIDER_THUMB_WIDTH: i32 = 8;
 pub fn w3d_gadget_horizontal_slider_image_draw_a(
     window: &GameWindow,
     inst_data: &WindowInstanceData,
+    draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
 ) {
     let source_enabled = !inst_data.state.contains(WindowState::DISABLED) && window.is_enabled();
     let sources = horizontal_slider_image_draw_a_sources(source_enabled);
@@ -326,6 +340,7 @@ pub fn w3d_gadget_horizontal_slider_image_draw_a(
             end_x,
             end_y,
             &clip_left,
+            draw_context,
         );
         draw_window_image_clipped(
             center_image_right,
@@ -334,6 +349,7 @@ pub fn w3d_gadget_horizontal_slider_image_draw_a(
             end_x,
             end_y,
             &clip_right,
+            draw_context,
         );
         start_x += center_w;
     }
@@ -350,6 +366,7 @@ pub fn w3d_gadget_horizontal_slider_image_draw_a(
             end_x,
             end_y,
             &clip_left,
+            draw_context,
         );
         draw_window_image_clipped(
             small_center_image_right,
@@ -358,6 +375,7 @@ pub fn w3d_gadget_horizontal_slider_image_draw_a(
             end_x,
             end_y,
             &clip_right,
+            draw_context,
         );
         start_x += small_center_w;
     }
@@ -370,6 +388,7 @@ pub fn w3d_gadget_horizontal_slider_image_draw_a(
         left_end_x,
         left_end_y,
         &clip_left,
+        draw_context,
     );
     draw_window_image_clipped(
         left_image_right,
@@ -378,6 +397,7 @@ pub fn w3d_gadget_horizontal_slider_image_draw_a(
         left_end_x,
         left_end_y,
         &clip_right,
+        draw_context,
     );
 
     // Draw right end
@@ -388,6 +408,7 @@ pub fn w3d_gadget_horizontal_slider_image_draw_a(
         right_start_x + right_size_x,
         left_end_y,
         &clip_left,
+        draw_context,
     );
     draw_window_image_clipped(
         right_image_right,
@@ -396,19 +417,24 @@ pub fn w3d_gadget_horizontal_slider_image_draw_a(
         right_start_x + right_size_x,
         left_end_y,
         &clip_right,
+        draw_context,
     );
 }
 
 pub fn w3d_gadget_horizontal_slider_image_draw_b(
     window: &GameWindow,
     inst_data: &WindowInstanceData,
+    draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
 ) {
     let (origin_x, origin_y) = window.get_screen_position();
     let (size_x, size_y) = window.get_size();
 
     let slider_data = window.get_user_data::<crate::gui::window_script::SliderData>();
 
-    let (display_w, display_h) = with_window_manager_ref(|manager| manager.screen_size());
+    let (display_w, display_h) =
+        crate::gui::window_draw_context::with_draw_manager(draw_context.manager, |manager| {
+            manager.screen_size()
+        });
     let x_multi = display_w as f32 / 800.0;
     let y_multi = display_h as f32 / 600.0;
 
@@ -475,7 +501,7 @@ pub fn w3d_gadget_horizontal_slider_image_draw_b(
         ));
 
         while background_start_x < origin_x + size_x {
-            with_window_manager_ref(|manager| {
+            crate::gui::window_draw_context::with_draw_manager(draw_context.manager, |manager| {
                 manager.win_draw_image(
                     highlight_square,
                     background_start_x,
@@ -483,6 +509,7 @@ pub fn w3d_gadget_horizontal_slider_image_draw_b(
                     background_end_x,
                     background_end_y,
                     WIN_COLOR_UNDEFINED,
+                    draw_context,
                 );
             });
             background_start_x = background_end_x;
@@ -512,7 +539,7 @@ pub fn w3d_gadget_horizontal_slider_image_draw_b(
 
     let max_selected_x = origin_x + (num_ticks * (position - min_val) as f32) as i32;
     while start_x <= max_selected_x && end_x < origin_x + size_x && position != min_val {
-        with_window_manager_ref(|manager| {
+        crate::gui::window_draw_context::with_draw_manager(draw_context.manager, |manager| {
             manager.win_draw_image(
                 fill_square,
                 start_x,
@@ -520,6 +547,7 @@ pub fn w3d_gadget_horizontal_slider_image_draw_b(
                 end_x,
                 end_y,
                 WIN_COLOR_UNDEFINED,
+                draw_context,
             );
         });
         start_x = end_x + 2;
@@ -530,7 +558,7 @@ pub fn w3d_gadget_horizontal_slider_image_draw_b(
     end_x = start_x + (bw as f32 * x_multi) as i32;
 
     while end_x < origin_x + size_x {
-        with_window_manager_ref(|manager| {
+        crate::gui::window_draw_context::with_draw_manager(draw_context.manager, |manager| {
             manager.win_draw_image(
                 blank_square,
                 start_x,
@@ -538,6 +566,7 @@ pub fn w3d_gadget_horizontal_slider_image_draw_b(
                 end_x,
                 end_y,
                 WIN_COLOR_UNDEFINED,
+                draw_context,
             );
         });
         start_x = end_x + 2;
@@ -545,11 +574,19 @@ pub fn w3d_gadget_horizontal_slider_image_draw_b(
     }
 }
 
-pub fn w3d_gadget_vertical_slider_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
-    w3d_gadget_horizontal_slider_draw(window, inst_data);
+pub fn w3d_gadget_vertical_slider_draw(
+    window: &GameWindow,
+    inst_data: &WindowInstanceData,
+    draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
+) {
+    w3d_gadget_horizontal_slider_draw(window, inst_data, draw_context);
 }
 
-pub fn w3d_gadget_vertical_slider_image_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
+pub fn w3d_gadget_vertical_slider_image_draw(
+    window: &GameWindow,
+    inst_data: &WindowInstanceData,
+    draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
+) {
     let (draw_data, _) = if !window.is_enabled() {
         (&inst_data.disabled_draw_data, &inst_data.disabled_text)
     } else if inst_data.state.contains(WindowState::HILITED) {
@@ -593,7 +630,7 @@ pub fn w3d_gadget_vertical_slider_image_draw(window: &GameWindow, inst_data: &Wi
         let start_y = origin_y + y_offset;
         let end_x = origin_x + x_offset + top_width;
         let end_y = origin_y + size_y / 2;
-        with_window_manager_ref(|manager| {
+        crate::gui::window_draw_context::with_draw_manager(draw_context.manager, |manager| {
             manager.win_draw_image(
                 top_image,
                 start_x,
@@ -601,6 +638,7 @@ pub fn w3d_gadget_vertical_slider_image_draw(window: &GameWindow, inst_data: &Wi
                 end_x,
                 end_y,
                 WIN_COLOR_UNDEFINED,
+                draw_context,
             );
         });
 
@@ -608,7 +646,7 @@ pub fn w3d_gadget_vertical_slider_image_draw(window: &GameWindow, inst_data: &Wi
         let start_y = origin_y + size_y / 2;
         let end_x = origin_x + x_offset + bottom_width;
         let end_y = origin_y + y_offset + size_y;
-        with_window_manager_ref(|manager| {
+        crate::gui::window_draw_context::with_draw_manager(draw_context.manager, |manager| {
             manager.win_draw_image(
                 bottom_image,
                 start_x,
@@ -616,6 +654,7 @@ pub fn w3d_gadget_vertical_slider_image_draw(window: &GameWindow, inst_data: &Wi
                 end_x,
                 end_y,
                 WIN_COLOR_UNDEFINED,
+                draw_context,
             );
         });
     } else {
@@ -634,7 +673,7 @@ pub fn w3d_gadget_vertical_slider_image_draw(window: &GameWindow, inst_data: &Wi
         let end_x = start_x + center_w;
         for _ in 0..pieces {
             let end_y = start_y + center_h;
-            with_window_manager_ref(|manager| {
+            crate::gui::window_draw_context::with_draw_manager(draw_context.manager, |manager| {
                 manager.win_draw_image(
                     center_image,
                     start_x,
@@ -642,6 +681,7 @@ pub fn w3d_gadget_vertical_slider_image_draw(window: &GameWindow, inst_data: &Wi
                     end_x,
                     end_y,
                     WIN_COLOR_UNDEFINED,
+                    draw_context,
                 );
             });
             start_y += center_h;
@@ -653,7 +693,7 @@ pub fn w3d_gadget_vertical_slider_image_draw(window: &GameWindow, inst_data: &Wi
         let end_x = start_x + small_center_w;
         for _ in 0..pieces {
             let end_y = start_y + small_center_h;
-            with_window_manager_ref(|manager| {
+            crate::gui::window_draw_context::with_draw_manager(draw_context.manager, |manager| {
                 manager.win_draw_image(
                     small_center_image,
                     start_x,
@@ -661,6 +701,7 @@ pub fn w3d_gadget_vertical_slider_image_draw(window: &GameWindow, inst_data: &Wi
                     end_x,
                     end_y,
                     WIN_COLOR_UNDEFINED,
+                    draw_context,
                 );
             });
             start_y += small_center_h;
@@ -671,7 +712,7 @@ pub fn w3d_gadget_vertical_slider_image_draw(window: &GameWindow, inst_data: &Wi
         let start_y = origin_y + y_offset;
         let end_x = top_end_x;
         let end_y = top_end_y;
-        with_window_manager_ref(|manager| {
+        crate::gui::window_draw_context::with_draw_manager(draw_context.manager, |manager| {
             manager.win_draw_image(
                 top_image,
                 start_x,
@@ -679,6 +720,7 @@ pub fn w3d_gadget_vertical_slider_image_draw(window: &GameWindow, inst_data: &Wi
                 end_x,
                 end_y,
                 WIN_COLOR_UNDEFINED,
+                draw_context,
             );
         });
 
@@ -687,7 +729,7 @@ pub fn w3d_gadget_vertical_slider_image_draw(window: &GameWindow, inst_data: &Wi
         let start_y = bottom_start_y;
         let end_x = start_x + bottom_width;
         let end_y = start_y + bottom_height;
-        with_window_manager_ref(|manager| {
+        crate::gui::window_draw_context::with_draw_manager(draw_context.manager, |manager| {
             manager.win_draw_image(
                 bottom_image,
                 start_x,
@@ -695,6 +737,7 @@ pub fn w3d_gadget_vertical_slider_image_draw(window: &GameWindow, inst_data: &Wi
                 end_x,
                 end_y,
                 WIN_COLOR_UNDEFINED,
+                draw_context,
             );
         });
     }

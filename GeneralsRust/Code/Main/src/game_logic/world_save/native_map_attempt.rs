@@ -9,7 +9,7 @@ impl GameLogic {
         map_script_difficulty: Option<gamelogic::player::GameDifficulty>,
         water_delivery: Option<&mut dyn FnMut(&gamelogic::terrain_water::WaterGridState)>,
         mut native: Option<&mut dyn crate::game_logic::NativeMapAdmission>,
-        report_progress: F,
+        mut report_progress: F,
     ) -> bool
     where
         F: FnMut(f32, &str),
@@ -20,7 +20,10 @@ impl GameLogic {
             map_script_difficulty,
             water_delivery,
             native,
-            report_progress,
+            |value, phase| {
+                report_progress(value, phase);
+                Ok(())
+            },
         )
         .unwrap_or_else(|error| {
             log::error!("Map admission failed: {error}");
@@ -35,10 +38,10 @@ impl GameLogic {
         map_script_difficulty: Option<gamelogic::player::GameDifficulty>,
         water_delivery: Option<&mut dyn FnMut(&gamelogic::terrain_water::WaterGridState)>,
         mut native: Option<&mut dyn crate::game_logic::NativeMapAdmission>,
-        report_progress: F,
+        mut report_progress: F,
     ) -> Result<bool, String>
     where
-        F: FnMut(f32, &str),
+        F: FnMut(f32, &str) -> Result<(), String>,
     {
         // A loaned interpreter or missing accepted baseline cannot authorize
         // destructive replacement of any outgoing attempt.
@@ -57,12 +60,17 @@ impl GameLogic {
                 native
                     .as_mut()
                     .map(|native| &mut **native as &mut dyn crate::game_logic::NativeMapAdmission),
-                report_progress,
-            );
+                &mut report_progress,
+            )?;
             if accepted && kind.is_new() {
                 if let Some(native) = native.as_mut() {
                     native.on_level_start()?;
                 }
+            }
+            if accepted {
+                // The final presentation belongs inside the attempt: an error
+                // must retire its Objects before discarding native resources.
+                report_progress(1.0, "Map load complete")?;
             }
             Ok(accepted)
         })();
@@ -181,7 +189,7 @@ mod loading_gate_failure_tests {
                 None,
                 None,
                 Some(&mut native),
-                |_, _| {},
+                |_, _| Ok(()),
             );
             assert!(
                 result
@@ -227,7 +235,7 @@ mod loading_gate_failure_tests {
                 None,
                 None,
                 Some(&mut native),
-                |_, _| {},
+                |_, _| Ok(()),
             )
             .unwrap_err();
         assert!(error.contains("receiving retirement rejected"));
@@ -275,7 +283,7 @@ mod loading_gate_failure_tests {
                 None,
                 None,
                 Some(&mut native),
-                |_, _| {},
+                |_, _| Ok(()),
             )
             .unwrap_err();
         assert!(error.contains("ScriptEngine"));

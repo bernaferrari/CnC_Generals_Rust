@@ -19,6 +19,38 @@ use crate::presentation_frame::camera::build::SlaveCameraSample;
 /// One immediate receiving audio admission, borrowed for a synchronous operation.
 /// The service owns its actual pending AR_Play requests; gameplay keeps no receipt log.
 pub(crate) trait NativeAudioEffects {
+    fn add_prepared_audio_event(
+        &mut self,
+        event: &game_engine::common::audio::AudioEventRts,
+        locality: &game_engine::common::audio::AudioSubmissionLocality,
+    ) {
+        self.add_audio_event(event, locality);
+    }
+
+    #[cfg(feature = "game_client")]
+    fn submit_fx_sound(
+        &mut self,
+        name: &str,
+        position: Option<&gamelogic::common::Coord3D>,
+        player: Option<i32>,
+        locality: &game_engine::common::audio::AudioSubmissionLocality,
+        _selection: &mut dyn game_engine::common::audio::audio_event_rts::AudioEventSelection,
+    ) -> Result<(), String> {
+        let mut event = game_engine::common::audio::AudioEventRts::with_event_name(name);
+        if let Some(position) = position {
+            event.set_position(&game_engine::common::audio::audio_event_rts::Coord3D {
+                x: position.x,
+                y: position.y,
+                z: position.z,
+            });
+        }
+        if let Some(player) = player {
+            event.set_player_index(player);
+        }
+        self.add_audio_event(&event, locality);
+        Ok(())
+    }
+
     /// Actual captured mixer capability; detached add-only candidates cannot
     /// fabricate Drawable playing-handle ownership.
     #[cfg(feature = "game_client")]
@@ -34,6 +66,29 @@ pub(crate) trait NativeAudioEffects {
     );
 }
 impl NativeAudioEffects for game_engine::common::audio::AudioManager {
+    fn add_prepared_audio_event(
+        &mut self,
+        event: &game_engine::common::audio::AudioEventRts,
+        locality: &game_engine::common::audio::AudioSubmissionLocality,
+    ) {
+        self.add_prepared_audio_event_with_locality(event, locality);
+    }
+
+    #[cfg(feature = "game_client")]
+    fn submit_fx_sound(
+        &mut self,
+        name: &str,
+        position: Option<&gamelogic::common::Coord3D>,
+        player: Option<i32>,
+        locality: &game_engine::common::audio::AudioSubmissionLocality,
+        selection: &mut dyn game_engine::common::audio::audio_event_rts::AudioEventSelection,
+    ) -> Result<(), String> {
+        game_client::fx_list::submit_sound_fx_owned(
+            name, position, player, self, locality, selection,
+        )
+        .map(|_| ())
+    }
+
     #[cfg(feature = "game_client")]
     fn native_ambient(
         &mut self,
@@ -96,6 +151,69 @@ pub(crate) trait NativeProjectedRadiusAllocator {
 }
 
 pub(crate) trait NativeViewEffects {
+    #[cfg(feature = "game_client")]
+    fn spawn_tracer(
+        &mut self,
+        template: &game_engine::common::thing::ThingTemplate,
+        request: &game_client::fx_list::FxTracerRequest<'_>,
+    ) -> Result<(), String> {
+        let _ = (template, request);
+        Err("receiving native tracer factory unavailable".into())
+    }
+    #[cfg(feature = "game_client")]
+    fn create_ray(
+        &mut self,
+        template: &game_engine::common::thing::ThingTemplate,
+        request: &game_client::fx_list::FxRayRequest<'_>,
+    ) -> Result<(), String> {
+        let _ = (template, request);
+        Err("receiving native ray factory unavailable".into())
+    }
+
+    #[cfg(feature = "game_client")]
+    fn create_light_pulse(
+        &mut self,
+        pulse: game_client::fx_list::DisplayLightPulse,
+    ) -> Result<bool, String> {
+        let _ = pulse;
+        Err("receiving native light scene unavailable".into())
+    }
+
+    /// Mutable particles belong to this exact native presentation lifetime.
+    /// Omitted only by explicitly headless/recording adapters.
+    fn particle_systems_mut(
+        &mut self,
+    ) -> Option<&mut game_client::effects::particle_manager::ParticleSystemManager> {
+        None
+    }
+
+    /// Query actual installed native bones at this immediate nugget point.
+    /// The caller supplies fresh source observations from the receiving world.
+    #[cfg(feature = "game_client")]
+    fn current_client_bone_transforms(
+        &mut self,
+        source: &NativeSlaveSource,
+        bone_name: &str,
+        start: i32,
+        max_bones: usize,
+    ) -> Result<Vec<glam::Mat4>, String> {
+        let _ = (source, bone_name, start, max_bones);
+        Err("native FX bone query has no receiving installed-render capability".into())
+    }
+
+    /// Logical-condition pristine bones, independent of the current HAnim.
+    #[cfg(feature = "game_client")]
+    fn pristine_client_bone_transforms(
+        &mut self,
+        source: &NativeSlaveSource,
+        bone_name: &str,
+        start: i32,
+        max_bones: usize,
+    ) -> Result<Vec<glam::Mat4>, String> {
+        let _ = (source, bone_name, start, max_bones);
+        Err("native pristine bone query has no receiving installed-render capability".into())
+    }
+
     /// Explicit capability: native forwarding adapters must forward this call.
     /// A genuinely detached recipient declares no Drawable by returning false.
     #[cfg(feature = "game_client")]
@@ -304,6 +422,8 @@ pub(crate) struct ScriptPresentationEffects<'a> {
     pub(crate) script_events: Option<super::ScriptEventRecipient<'a>>,
     pub(crate) ui: Option<&'a mut dyn super::ScriptUiEffects>,
     pub(crate) view: Option<&'a mut dyn NativeViewEffects>,
+    /// Immutable decoded content capability, usable independently of a GPU.
+    pub(crate) pristine_bones: Option<&'a dyn crate::assets::pristine_bones::PristineBoneAssets>,
     pub(crate) terrain: Option<&'a mut dyn NativeTerrainEffects>,
     pub(crate) audio: Option<&'a mut dyn NativeAudioEffects>,
     /// Historical type name: this is an operation's borrowed service context.
@@ -347,6 +467,7 @@ impl ScriptPresentationEffects<'_> {
     pub(crate) fn reborrow(&mut self) -> ScriptPresentationEffects<'_> {
         ScriptPresentationEffects {
             script_events: self.script_events,
+            pristine_bones: self.pristine_bones,
             partition: self.partition.as_deref_mut(),
             audio: self
                 .audio

@@ -501,10 +501,13 @@ impl Drawable for BasicDrawable {
         BasicDrawable::set_terrain_decal(self, decal_type);
     }
 
-    fn draw_ui_text(&self) -> Result<(), Box<dyn Error>> {
+    fn draw_ui_text(
+        &self,
+        draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
+    ) -> Result<(), Box<dyn Error>> {
         // Wave 980: host empty dual-world → drawable pose + presentation team color residual.
         if dual_world_registry_unavailable() {
-            return self.draw_ui_text_from_presentation();
+            return self.draw_ui_text_from_presentation(draw_context);
         }
 
         let Some(object_id) = self.object_id else {
@@ -576,6 +579,7 @@ impl Drawable for BasicDrawable {
                                 draw_group_info.font_is_bold,
                                 draw_group_info.drop_shadow_offset_x,
                                 draw_group_info.drop_shadow_offset_y,
+                                draw_context,
                             );
                             drew_anything = true;
                         }
@@ -598,6 +602,7 @@ impl Drawable for BasicDrawable {
                     draw_group_info.font_is_bold,
                     draw_group_info.drop_shadow_offset_x,
                     draw_group_info.drop_shadow_offset_y,
+                    draw_context,
                 );
                 drew_anything = true;
             }

@@ -555,6 +555,7 @@ impl CnCGameEngine {
         let mut wnd_ok = false;
         #[cfg(feature = "game_client")]
         {
+            let credits_owner = self.game_client.window_manager_owner();
             use game_client::credits::{
                 drive_os_wnd_credits_roll_finished_like_cpp,
                 drive_os_wnd_credits_roll_prepare_like_cpp,
@@ -564,24 +565,24 @@ impl CnCGameEngine {
                 simulate_credits_reset, simulate_credits_update,
             };
             wnd_ok = match action.as_str() {
-                "init" => simulate_credits_init(),
-                "reset" => simulate_credits_reset(),
-                "add" => simulate_credits_add_text(&text),
-                "blank" => simulate_credits_add_blank(),
+                "init" => simulate_credits_init(&credits_owner),
+                "reset" => simulate_credits_reset(&credits_owner),
+                "add" => simulate_credits_add_text(&credits_owner, &text),
+                "blank" => simulate_credits_add_blank(&credits_owner),
                 "update" => {
                     self.with_receiving_menu_effects(|effects| {
                         drive_os_wnd_credits_roll_update_like_cpp(effects)
-                    })? || simulate_credits_update()
+                    })? || simulate_credits_update(&credits_owner)
                 }
                 "finished" => {
                     self.with_receiving_menu_effects(|effects| {
                         drive_os_wnd_credits_roll_finished_like_cpp(effects)
-                    })? || simulate_credits_is_finished_probe()
+                    })? || simulate_credits_is_finished_probe(&credits_owner)
                 }
                 _ => {
                     self.with_receiving_menu_effects(|effects| {
                         drive_os_wnd_credits_roll_prepare_like_cpp(effects)
-                    })? || simulate_credits_prepare_short_roll()
+                    })? || simulate_credits_prepare_short_roll(&credits_owner)
                 }
             };
         }

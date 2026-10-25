@@ -14,8 +14,12 @@ pub struct RadarDrawContext<'a> {
 
 use super::*;
 
-pub fn w3d_clock_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
-    crate::gui::game_window::default_draw_callback(window, inst_data);
+pub fn w3d_clock_draw(
+    window: &GameWindow,
+    inst_data: &WindowInstanceData,
+    draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
+) {
+    crate::gui::game_window::default_draw_callback(window, inst_data, draw_context);
 
     let datestr = Local::now().format("%H:%M:%S").to_string();
     let font = get_font_library()
@@ -41,7 +45,7 @@ pub fn w3d_clock_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
         (size_y - 2).max(0) as f32,
     );
 
-    let _ = with_ui_renderer_mut(|renderer| {
+    let _ = draw_context.with_renderer(|renderer, display_facts| {
         let (point_size, font_name) = match font.as_ref() {
             Some(font) => (font.desc.size as f32, font.desc.name.as_str()),
             None => (16.0, "Arial"),
@@ -68,8 +72,12 @@ pub fn w3d_clock_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
     note_shipped_ui_draw_commands(1);
 }
 
-pub fn w3d_cameo_movie_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
-    draw_video_buffer(window, inst_data);
+pub fn w3d_cameo_movie_draw(
+    window: &GameWindow,
+    inst_data: &WindowInstanceData,
+    draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
+) {
+    draw_video_buffer(window, inst_data, draw_context);
 }
 
 /// Check if radar should be drawn (helper function to avoid lifetime issues)
@@ -77,20 +85,26 @@ pub(super) fn should_draw_radar_check() -> bool {
     crate::helpers::TheInGameUI::radar_presentation().is_some_and(|radar| radar.is_radar_shown())
 }
 
-pub fn w3d_left_hud_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
-    draw_left_hud(window, inst_data, None);
+pub fn w3d_left_hud_draw(
+    window: &GameWindow,
+    inst_data: &WindowInstanceData,
+    draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
+) {
+    draw_left_hud(window, inst_data, None, draw_context);
 }
 pub(crate) fn w3d_left_hud_draw_with_radar(
     window: &GameWindow,
     inst_data: &WindowInstanceData,
     context: &RadarDrawContext<'_>,
+    draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
 ) {
-    draw_left_hud(window, inst_data, Some(context));
+    draw_left_hud(window, inst_data, Some(context), draw_context);
 }
 fn draw_left_hud(
     window: &GameWindow,
     inst_data: &WindowInstanceData,
     context: Option<&RadarDrawContext<'_>>,
+    draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
 ) {
     // First check for video buffer (in-game movies)
     if inst_data
@@ -99,7 +113,7 @@ fn draw_left_hud(
         .and_then(read_video_frame)
         .is_some()
     {
-        draw_video_buffer(window, inst_data);
+        draw_video_buffer(window, inst_data, draw_context);
         return;
     }
 
@@ -121,6 +135,7 @@ fn draw_left_hud(
             size_x.saturating_sub(2),
             size_y.saturating_sub(2),
             context,
+            draw_context,
         );
     }
     // C++ W3DLeftHUDDraw (W3DControlBar.cpp:38-73): video → draw, radar →
@@ -131,8 +146,14 @@ fn draw_left_hud(
 }
 
 /// Draw radar in the HUD area (matches C++ TheRadar->draw())
-pub(super) fn draw_radar_in_hud(x: i32, y: i32, width: i32, height: i32) {
-    draw_radar_in_hud_with_context(x, y, width, height, None);
+pub(super) fn draw_radar_in_hud(
+    x: i32,
+    y: i32,
+    width: i32,
+    height: i32,
+    draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
+) {
+    draw_radar_in_hud_with_context(x, y, width, height, None, draw_context);
 }
 fn draw_radar_in_hud_with_context(
     x: i32,
@@ -140,6 +161,7 @@ fn draw_radar_in_hud_with_context(
     width: i32,
     height: i32,
     context: Option<&RadarDrawContext<'_>>,
+    draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
 ) {
     if width <= 0 || height <= 0 {
         return;
@@ -177,10 +199,11 @@ fn draw_radar_in_hud_with_context(
     let current_frame = radar.current_frame();
     let map_extent_signature = radar_map_extent_signature(radar.map_extent());
     let terrain_generation = radar.terrain_generation();
-    let _ = with_ui_renderer_mut(|renderer| {
+    let receiving_manager = draw_context.manager;
+    let _ = draw_context.with_renderer(|renderer, display_facts| {
         // C++ keeps `m_terrainTexture` resident and repaints it only on
         // `newMap`/`refreshTerrain`; key the upload on extent + generation.
-        let texture = with_radar_terrain_texture_cache(|terrain_cache| {
+        let texture = with_radar_terrain_texture_cache(renderer, |terrain_cache, upload| {
             if !terrain_cache
                 .owner_identity
                 .as_ref()
@@ -189,7 +212,7 @@ fn draw_radar_in_hud_with_context(
                 || terrain_cache.map_extent_signature != Some(map_extent_signature)
                 || terrain_cache.layer_revision != terrain_generation
             {
-                terrain_cache.texture = Some(renderer.create_texture_from_rgba(
+                terrain_cache.texture = Some(upload.create_rgba(
                     game_engine::common::system::radar::RADAR_CELL_WIDTH,
                     game_engine::common::system::radar::RADAR_CELL_HEIGHT,
                     terrain_texture,
@@ -296,7 +319,7 @@ fn draw_radar_in_hud_with_context(
         }
 
         let (object_overlay, hero_object_ids) =
-            with_radar_object_overlay_texture_cache(|overlay_cache| {
+            with_radar_object_overlay_texture_cache(renderer, |overlay_cache, upload| {
                 if !overlay_cache
                     .owner_identity
                     .as_ref()
@@ -306,7 +329,7 @@ fn draw_radar_in_hud_with_context(
                     || should_refresh_w3d_object_overlay(current_frame)
                 {
                     let object_overlay = radar.build_object_overlay_texture_rgba();
-                    overlay_cache.texture = Some(renderer.create_texture_from_rgba(
+                    overlay_cache.texture = Some(upload.create_rgba(
                         game_engine::common::system::radar::RADAR_CELL_WIDTH,
                         game_engine::common::system::radar::RADAR_CELL_HEIGHT,
                         &object_overlay,
@@ -333,7 +356,7 @@ fn draw_radar_in_hud_with_context(
         // C++ paints `m_shroudTexture` incrementally from `setShroudLevel`;
         // key the upload on extent + shroud revision instead of every frame.
         let shroud_revision = radar.shroud_revision();
-        let shroud_texture = with_radar_shroud_texture_cache(|shroud_cache| {
+        let shroud_texture = with_radar_shroud_texture_cache(renderer, |shroud_cache, upload| {
             if !shroud_cache
                 .owner_identity
                 .as_ref()
@@ -343,7 +366,7 @@ fn draw_radar_in_hud_with_context(
                 || shroud_cache.layer_revision != shroud_revision
             {
                 let shroud_rgba = radar.build_shroud_texture_rgba();
-                shroud_cache.texture = Some(renderer.create_texture_from_rgba(
+                shroud_cache.texture = Some(upload.create_rgba(
                     game_engine::common::system::radar::RADAR_CELL_WIDTH,
                     game_engine::common::system::radar::RADAR_CELL_HEIGHT,
                     &shroud_rgba,
@@ -365,7 +388,7 @@ fn draw_radar_in_hud_with_context(
         }
 
         if !hero_object_ids.is_empty() {
-            with_window_manager_ref(|manager| {
+            crate::gui::window_draw_context::with_draw_manager(receiving_manager, |manager| {
                 if let Some(image) = manager.win_find_image("HeroReticle") {
                     let hero_reticles = radar.build_hero_reticle_rects_for_objects(
                         &hero_object_ids,
@@ -376,6 +399,11 @@ fn draw_radar_in_hud_with_context(
                         image.width,
                         image.height,
                     );
+                    let mut icon_context = crate::gui::window_draw_context::WindowDrawContext {
+                        renderer: Some(&mut *renderer),
+                        display: display_facts.clone(),
+                        manager: Some(manager),
+                    };
                     for reticle in hero_reticles {
                         manager.win_draw_image(
                             &image,
@@ -384,6 +412,7 @@ fn draw_radar_in_hud_with_context(
                             reticle.x2,
                             reticle.y2,
                             WIN_COLOR_UNDEFINED,
+                            &mut icon_context,
                         );
                     }
                 }
@@ -507,7 +536,11 @@ pub(super) fn rgba_int_to_rgba(color: RGBAColorInt) -> [f32; 4] {
     ]
 }
 
-pub fn w3d_right_hud_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
+pub fn w3d_right_hud_draw(
+    window: &GameWindow,
+    inst_data: &WindowInstanceData,
+    draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
+) {
     // C++ W3DRightHUDDraw (GeneralsMD W3DControlBar.cpp:74-81): draw the
     // default window art only when WIN_STATUS_IMAGE is set, and paint NOTHING
     // otherwise. The right-HUD frame is scheme background art (ControlBarScheme
@@ -516,7 +549,7 @@ pub fn w3d_right_hud_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
     // invisible. The previous fallback slab painted a grey rectangle where
     // retail paints nothing.
     if window.get_status().contains(WindowStatus::IMAGE) {
-        crate::gui::game_window::default_draw_callback(window, inst_data);
+        crate::gui::game_window::default_draw_callback(window, inst_data, draw_context);
     }
     if std::env::var_os("GENERALS_RIGHTHUD_PROBE").is_some() {
         static ONCE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
@@ -550,17 +583,26 @@ pub(super) fn draw_tiled_horiz(
     y: i32,
     width: i32,
     height: i32,
+    draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
 ) {
     if width <= 0 || height <= 0 {
         return;
     }
     let tile_width = image.width.max(1);
-    with_window_manager_ref(|manager| {
+    crate::gui::window_draw_context::with_draw_manager(draw_context.manager, |manager| {
         let mut draw_x = x;
         let end_x = x + width;
         while draw_x < end_x {
             let next_x = (draw_x + tile_width).min(end_x);
-            manager.win_draw_image(image, draw_x, y, next_x, y + height, WIN_COLOR_UNDEFINED);
+            manager.win_draw_image(
+                image,
+                draw_x,
+                y,
+                next_x,
+                y + height,
+                WIN_COLOR_UNDEFINED,
+                draw_context,
+            );
             draw_x += tile_width;
         }
     });
@@ -572,17 +614,26 @@ pub(super) fn draw_tiled_vert(
     y: i32,
     width: i32,
     height: i32,
+    draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
 ) {
     if width <= 0 || height <= 0 {
         return;
     }
     let tile_height = image.height.max(1);
-    with_window_manager_ref(|manager| {
+    crate::gui::window_draw_context::with_draw_manager(draw_context.manager, |manager| {
         let mut draw_y = y;
         let end_y = y + height;
         while draw_y < end_y {
             let next_y = (draw_y + tile_height).min(end_y);
-            manager.win_draw_image(image, x, draw_y, x + width, next_y, WIN_COLOR_UNDEFINED);
+            manager.win_draw_image(
+                image,
+                x,
+                draw_y,
+                x + width,
+                next_y,
+                WIN_COLOR_UNDEFINED,
+                draw_context,
+            );
             draw_y += tile_height;
         }
     });

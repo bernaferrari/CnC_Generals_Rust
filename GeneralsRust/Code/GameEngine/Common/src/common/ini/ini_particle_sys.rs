@@ -659,10 +659,20 @@ impl IniParticleSys {
         let manager_handle = ensure_particle_system_manager();
 
         let name = template.name.clone();
-        manager_handle
-            .write()
+        let mut manager = manager_handle.write();
+        let template = if let Some(previous) = manager.templates.get(name.as_str()) {
+            // C++ initFromINI updates the existing template: omitted fields
+            // survive successive partial override blocks.
+            let mut properties = previous.properties.clone();
+            properties.extend(template.properties);
+            Self::parse_particle_system_block(name.clone(), properties)?
+        } else {
+            template
+        };
+        manager
             .templates
             .insert(name.as_str().to_string(), template);
+        drop(manager);
 
         println!("Registered particle system template: {}", name.as_str());
         Ok(())

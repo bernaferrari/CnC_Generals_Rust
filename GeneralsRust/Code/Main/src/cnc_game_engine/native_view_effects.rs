@@ -176,6 +176,90 @@ impl<'a> NativeRendererViewEffects<'a> {
 }
 #[cfg(feature = "game_client")]
 impl NativeViewEffects for NativeRendererViewEffects<'_> {
+    fn spawn_tracer(
+        &mut self,
+        template: &game_engine::common::thing::ThingTemplate,
+        request: &game_client::fx_list::FxTracerRequest<'_>,
+    ) -> Result<(), String> {
+        self.drawables
+            .create_owned_tracer(template, request)
+            .map(|_| ())
+            .map_err(|error| error.to_string())
+    }
+    fn create_ray(
+        &mut self,
+        template: &game_engine::common::thing::ThingTemplate,
+        request: &game_client::fx_list::FxRayRequest<'_>,
+    ) -> Result<(), String> {
+        self.drawables
+            .create_owned_ray(template, request.primary, request.secondary)
+            .map(|_| ())
+            .map_err(|error| error.to_string())
+    }
+
+    fn create_light_pulse(
+        &mut self,
+        pulse: game_client::fx_list::DisplayLightPulse,
+    ) -> Result<bool, String> {
+        Ok(self.drawables.create_light_pulse(pulse))
+    }
+
+    fn particle_systems_mut(
+        &mut self,
+    ) -> Option<&mut game_client::effects::particle_manager::ParticleSystemManager> {
+        Some(self.drawables.particle_systems_mut())
+    }
+
+    fn current_client_bone_transforms(
+        &mut self,
+        source: &NativeSlaveSource,
+        bone_name: &str,
+        start: i32,
+        max_bones: usize,
+    ) -> Result<Vec<glam::Mat4>, String> {
+        let key = self
+            .drawables
+            .binding_key(self.host_epoch, source.identity.object_id())
+            .ok_or_else(|| {
+                "native FX bone query has no matching receiving Drawable binding".to_owned()
+            })?;
+        self.poses
+            .sample_current_client_bone_transforms(
+                source,
+                key,
+                bone_name,
+                start,
+                max_bones,
+                self.graphics,
+            )
+            .map_err(|error| format!("native FX bone query unavailable: {error:?}"))
+    }
+
+    fn pristine_client_bone_transforms(
+        &mut self,
+        source: &NativeSlaveSource,
+        bone_name: &str,
+        start: i32,
+        max_bones: usize,
+    ) -> Result<Vec<glam::Mat4>, String> {
+        let key = self
+            .drawables
+            .binding_key(self.host_epoch, source.identity.object_id())
+            .ok_or_else(|| {
+                "native pristine bone query has no matching receiving Drawable binding".to_owned()
+            })?;
+        self.poses
+            .sample_pristine_client_bone_transforms(
+                source,
+                key,
+                bone_name,
+                start,
+                max_bones,
+                self.graphics,
+            )
+            .map_err(|error| format!("native pristine bone query unavailable: {error:?}"))
+    }
+
     fn projected_radius_allocator(
         &mut self,
     ) -> Option<&mut dyn crate::game_logic::NativeProjectedRadiusAllocator> {
@@ -371,6 +455,7 @@ impl CnCGameEngine {
             body(
                 &mut self.game_logic,
                 &mut crate::game_logic::ScriptPresentationEffects {
+                    pristine_bones: Some(self.application_assets.as_ref()),
                     script_events: None,
                     partition: None,
                     audio: audio.as_mut().map(|service| service.receiver()),
@@ -386,6 +471,7 @@ impl CnCGameEngine {
         body(
             &mut self.game_logic,
             &mut crate::game_logic::ScriptPresentationEffects {
+                pristine_bones: Some(self.application_assets.as_ref()),
                 audio: audio.as_mut().map(|service| service.receiver()),
                 ..Default::default()
             },

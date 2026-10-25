@@ -522,33 +522,50 @@ impl GameLogic {
     ) -> Vec<u32> {
         #[cfg(feature = "game_client")]
         {
-            let player = self.local_player_id();
-            let particles = &mut self.combat_particles;
-            Self::with_host_fx_view_parts_and_terrain(
-                &mut self.session_view,
-                player,
-                self.world_services.shroud(),
-                presentation_effects.terrain.as_mut().map(|terrain| {
-                    &mut **terrain as &mut dyn crate::game_logic::NativeTerrainEffects
-                }),
-                |view| {
-                    particles.spawn_weapon_fire_fx_named_ocl_oriented_with_view(
-                        muzzle_position,
-                        impact_position,
-                        logic_frame,
-                        shooter,
-                        target,
-                        fire_fx,
-                        detonation_fx,
-                        fire_ocl,
-                        detonation_ocl,
-                        weapon_speed,
-                        damage_radius,
-                        drawable_transform,
-                        view,
-                    )
-                },
-            )
+            // The registry only records presentation marker IDs; its dispatch
+            // callback cannot mutate gameplay. Finish that bounded bookkeeping
+            // loan, then run every original nugget synchronously in source order
+            // before returning to the weapon continuation.
+            let mut callbacks = Vec::new();
+            let ids = self
+                .combat_particles
+                .spawn_weapon_fire_fx_named_ocl_oriented_with_dispatch(
+                    muzzle_position,
+                    impact_position,
+                    logic_frame,
+                    shooter,
+                    target,
+                    fire_fx,
+                    detonation_fx,
+                    fire_ocl,
+                    detonation_ocl,
+                    weapon_speed,
+                    damage_radius,
+                    drawable_transform,
+                    &mut |name, position, secondary, speed, radius, matrix| {
+                        callbacks.push((
+                            name.to_owned(),
+                            position,
+                            secondary,
+                            speed,
+                            radius,
+                            matrix,
+                        ));
+                        true
+                    },
+                );
+            for (name, position, secondary, speed, radius, matrix) in callbacks {
+                self.dispatch_fx_list_at_host_position_oriented_with_effects(
+                    &name,
+                    position,
+                    secondary,
+                    speed,
+                    radius,
+                    matrix,
+                    presentation_effects,
+                );
+            }
+            ids
         }
         #[cfg(not(feature = "game_client"))]
         {

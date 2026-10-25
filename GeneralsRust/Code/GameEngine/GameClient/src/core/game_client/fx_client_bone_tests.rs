@@ -21,8 +21,8 @@ fn client_with_bone(x: f32) -> GameClient {
 
 #[test]
 fn current_bone_query_resolves_only_the_supplied_same_id_client() {
-    let first = client_with_bone(11.0);
-    let peer = client_with_bone(22.0);
+    let mut first = client_with_bone(11.0);
+    let mut peer = client_with_bone(22.0);
     let first_bones = first.query_current_client_bone_positions(73, "WeaponFireFXBone", 1, 4);
     let peer_bones = peer.query_current_client_bone_positions(73, "WeaponFireFXBone", 1, 4);
     assert_eq!(first_bones.len(), 1);
@@ -31,6 +31,18 @@ fn current_bone_query_resolves_only_the_supplied_same_id_client() {
     assert_eq!(first_bones[0].1.w_axis.x, 11.0);
     assert_eq!(peer_bones[0].0.x, 22.0);
     assert_eq!(peer_bones[0].1.w_axis.x, 22.0);
+    let mut first_owner_bones = first
+        .drawables
+        .borrow_native()
+        .current_client_bone_transforms(73, "WeaponFireFXBone", 1, 4);
+    let peer_owner_bones = peer
+        .drawables
+        .borrow_native()
+        .current_client_bone_transforms(73, "WeaponFireFXBone", 1, 4);
+    assert_eq!(first_owner_bones.len(), 1);
+    assert_eq!(peer_owner_bones.len(), 1);
+    assert_eq!(first_owner_bones.pop().unwrap().w_axis.x, 11.0);
+    assert_eq!(peer_owner_bones[0].w_axis.x, 22.0);
     assert!(
         first
             .query_current_client_bone_positions(73, "WeaponFireFXBone", 0, 4)

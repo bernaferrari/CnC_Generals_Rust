@@ -175,6 +175,7 @@ impl crate::game_logic::NativeMapAdmission for NativeMapCandidate {
     }
     fn effects(&mut self) -> crate::game_logic::ScriptPresentationEffects<'_> {
         crate::game_logic::ScriptPresentationEffects {
+            pristine_bones: None,
             script_events: None,
             partition: None,
             audio: Some(&mut self.audio),
@@ -338,6 +339,7 @@ mod audio_owner_tests {
 /// stored in the detached world.
 #[cfg(feature = "game_client")]
 pub(super) struct NativeMapAttempt<'a> {
+    pristine_bones: Option<&'a dyn crate::assets::pristine_bones::PristineBoneAssets>,
     retirement: &'a mut CandidateRetirement,
     audio: &'a mut super::native_audio_effects::PendingNativeAudio,
     visual: &'a mut Option<game_client::terrain::terrain_visual::TerrainVisualImpl>,
@@ -356,6 +358,7 @@ impl NativeMapCandidate {
         let epoch = self
             .epoch
             .ok_or("map birth requires a reserved candidate epoch")?;
+        self.audio.capture_sound_service();
         let poses = services.bind_world(&mut self.draw);
         let view = super::native_view_effects::NativeRendererViewEffects::new(
             poses,
@@ -367,11 +370,22 @@ impl NativeMapCandidate {
             retirement,
         );
         Ok(NativeMapAttempt {
+            pristine_bones: None,
             retirement: &mut self.retirement,
             audio: &mut self.audio,
             visual: &mut self.visual,
             view,
         })
+    }
+}
+#[cfg(feature = "game_client")]
+impl<'a> NativeMapAttempt<'a> {
+    pub(super) fn with_pristine_bones(
+        mut self,
+        assets: &'a dyn crate::assets::pristine_bones::PristineBoneAssets,
+    ) -> Self {
+        self.pristine_bones = Some(assets);
+        self
     }
 }
 #[cfg(feature = "game_client")]
@@ -429,6 +443,7 @@ impl crate::game_logic::NativeMapAdmission for NativeMapAttempt<'_> {
             *self.retirement = CandidateRetirement::MayOwnResources;
         }
         crate::game_logic::ScriptPresentationEffects {
+            pristine_bones: self.pristine_bones,
             script_events: None,
             partition: None,
             audio: Some(self.audio),

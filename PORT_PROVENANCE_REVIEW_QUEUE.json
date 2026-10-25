@@ -20866,6 +20866,11 @@
             {
               "cargo_reachable": true,
               "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/fx_runtime.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/GameClient/src/fx_view_services.rs"
             },
             {
@@ -21433,6 +21438,11 @@
               "cargo_reachable": true,
               "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/native_projected_resources.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/native_render_receiver.rs"
             },
             {
               "cargo_reachable": true,
@@ -190141,7 +190151,7 @@
       ]
     }
   ],
-  "provenance_input_digest": "7eaee6dd05043366b5a9ecb5989db02ea9c31d0c5cd3a8ccd2e323b95f21cf2b",
+  "provenance_input_digest": "cc06909853245734da223484f8698e36b78258fba4b5758ce21b149afee71589",
   "schema_version": 1,
   "summary": {
     "maximum_packet_size": 15,

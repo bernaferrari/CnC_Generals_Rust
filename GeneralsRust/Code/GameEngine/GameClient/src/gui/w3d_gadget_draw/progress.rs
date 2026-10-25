@@ -25,13 +25,14 @@ pub(super) fn draw_progress_bar_solid(
     inst_data: &WindowInstanceData,
     back: &crate::gui::game_window::WindowDrawData,
     bar: &crate::gui::game_window::WindowDrawData,
+    draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
 ) {
     let (origin_x, origin_y) = window.get_screen_position();
     let (size_x, size_y) = window.get_size();
     let progress = progress_percent(window);
 
     if back.border_color != WIN_COLOR_UNDEFINED {
-        with_window_manager_ref(|manager| {
+        crate::gui::window_draw_context::with_draw_manager(draw_context.manager, |manager| {
             manager.win_open_rect(
                 back.border_color,
                 1.0,
@@ -39,11 +40,12 @@ pub(super) fn draw_progress_bar_solid(
                 origin_y,
                 origin_x + size_x,
                 origin_y + size_y,
+                draw_context,
             );
         });
     }
     if back.color != WIN_COLOR_UNDEFINED {
-        with_window_manager_ref(|manager| {
+        crate::gui::window_draw_context::with_draw_manager(draw_context.manager, |manager| {
             manager.win_fill_rect(
                 back.color,
                 1.0,
@@ -51,6 +53,7 @@ pub(super) fn draw_progress_bar_solid(
                 origin_y + 1,
                 origin_x + size_x - 1,
                 origin_y + size_y - 1,
+                draw_context,
             );
         });
     }
@@ -58,7 +61,7 @@ pub(super) fn draw_progress_bar_solid(
     if progress != 0 {
         let bar_width = progress_bar_solid_width(size_x, progress);
         if bar.border_color != WIN_COLOR_UNDEFINED && bar_width > 1 {
-            with_window_manager_ref(|manager| {
+            crate::gui::window_draw_context::with_draw_manager(draw_context.manager, |manager| {
                 manager.win_open_rect(
                     bar.border_color,
                     1.0,
@@ -66,11 +69,12 @@ pub(super) fn draw_progress_bar_solid(
                     origin_y,
                     origin_x + bar_width,
                     origin_y + size_y,
+                    draw_context,
                 );
             });
         }
         if bar.color != WIN_COLOR_UNDEFINED && bar_width > 1 {
-            with_window_manager_ref(|manager| {
+            crate::gui::window_draw_context::with_draw_manager(draw_context.manager, |manager| {
                 manager.win_fill_rect(
                     bar.color,
                     1.0,
@@ -78,6 +82,7 @@ pub(super) fn draw_progress_bar_solid(
                     origin_y + 1,
                     origin_x + bar_width - 1,
                     origin_y + size_y - 1,
+                    draw_context,
                 );
                 manager.win_draw_line(
                     0xFFFFFFFF,
@@ -86,6 +91,7 @@ pub(super) fn draw_progress_bar_solid(
                     origin_y + 1,
                     origin_x + bar_width - 1,
                     origin_y + 1,
+                    draw_context,
                 );
                 manager.win_draw_line(
                     0xFFC8C8C8,
@@ -94,6 +100,7 @@ pub(super) fn draw_progress_bar_solid(
                     origin_y + 1,
                     origin_x + 1,
                     origin_y + size_y - 1,
+                    draw_context,
                 );
             });
         }
@@ -108,6 +115,7 @@ pub(super) fn draw_progress_bar_image(
     back_center: &crate::gui::game_window::Image,
     bar_right: &crate::gui::game_window::Image,
     bar_center: &crate::gui::game_window::Image,
+    draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
 ) {
     let (origin_x, origin_y) = window.get_screen_position();
     let (size_x, size_y) = window.get_size();
@@ -133,7 +141,7 @@ pub(super) fn draw_progress_bar_image(
     let pieces = center_width_available / center_width;
     for _ in 0..pieces {
         let end_x = start_x + center_width;
-        with_window_manager_ref(|manager| {
+        crate::gui::window_draw_context::with_draw_manager(draw_context.manager, |manager| {
             manager.win_draw_image(
                 back_center,
                 start_x,
@@ -141,6 +149,7 @@ pub(super) fn draw_progress_bar_image(
                 end_x,
                 end_y,
                 WIN_COLOR_UNDEFINED,
+                draw_context,
             );
         });
         start_x += center_width;
@@ -156,10 +165,11 @@ pub(super) fn draw_progress_bar_image(
             start_x + center_width,
             end_y,
             &clip,
+            draw_context,
         );
     }
 
-    with_window_manager_ref(|manager| {
+    crate::gui::window_draw_context::with_draw_manager(draw_context.manager, |manager| {
         manager.win_draw_image(
             back_left,
             origin_x + x_offset,
@@ -167,6 +177,7 @@ pub(super) fn draw_progress_bar_image(
             left_end_x,
             left_end_y,
             WIN_COLOR_UNDEFINED,
+            draw_context,
         );
         manager.win_draw_image(
             back_right,
@@ -175,6 +186,7 @@ pub(super) fn draw_progress_bar_image(
             right_start_x + right_width,
             right_start_y + size_y,
             WIN_COLOR_UNDEFINED,
+            draw_context,
         );
     });
 
@@ -185,7 +197,7 @@ pub(super) fn draw_progress_bar_image(
     let end_y = start_y + size_y - 10;
     for _ in 0..filled_pieces {
         let end_x = start_x + bar_center_width;
-        with_window_manager_ref(|manager| {
+        crate::gui::window_draw_context::with_draw_manager(draw_context.manager, |manager| {
             manager.win_draw_image(
                 bar_center,
                 start_x,
@@ -193,6 +205,7 @@ pub(super) fn draw_progress_bar_image(
                 end_x,
                 end_y,
                 WIN_COLOR_UNDEFINED,
+                draw_context,
             );
         });
         start_x += bar_center_width;
@@ -202,7 +215,7 @@ pub(super) fn draw_progress_bar_image(
     let grey_pieces = ((size_x - 20) / bar_center_width) - filled_pieces;
     for _ in 0..grey_pieces {
         let end_x = start_x + bar_right_width;
-        with_window_manager_ref(|manager| {
+        crate::gui::window_draw_context::with_draw_manager(draw_context.manager, |manager| {
             manager.win_draw_image(
                 bar_right,
                 start_x,
@@ -210,6 +223,7 @@ pub(super) fn draw_progress_bar_image(
                 end_x,
                 end_y,
                 WIN_COLOR_UNDEFINED,
+                draw_context,
             );
         });
         start_x += bar_right_width;
@@ -232,7 +246,11 @@ pub(super) fn progress_bar_image_draw_a_bank() -> PushButtonDrawBank {
     PushButtonDrawBank::Enabled
 }
 
-pub fn w3d_gadget_progress_bar_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
+pub fn w3d_gadget_progress_bar_draw(
+    window: &GameWindow,
+    inst_data: &WindowInstanceData,
+    draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
+) {
     let (draw_data, _) = if inst_data.state.contains(WindowState::DISABLED) || !window.is_enabled()
     {
         (&inst_data.disabled_draw_data, &inst_data.disabled_text)
@@ -243,14 +261,18 @@ pub fn w3d_gadget_progress_bar_draw(window: &GameWindow, inst_data: &WindowInsta
     };
     let (back_index, bar_index) = progress_bar_solid_sources();
     let (Some(back), Some(bar)) = (draw_data.get(back_index), draw_data.get(bar_index)) else {
-        draw_progress_bar_fallback(window, inst_data);
+        draw_progress_bar_fallback(window, inst_data, draw_context);
         return;
     };
-    draw_progress_bar_solid(window, inst_data, back, bar);
+    draw_progress_bar_solid(window, inst_data, back, bar, draw_context);
     note_shipped_ui_draw_commands(1);
 }
 
-pub fn w3d_gadget_progress_bar_image_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
+pub fn w3d_gadget_progress_bar_image_draw(
+    window: &GameWindow,
+    inst_data: &WindowInstanceData,
+    draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
+) {
     let (draw_data, _) = if inst_data.state.contains(WindowState::DISABLED) || !window.is_enabled()
     {
         (&inst_data.disabled_draw_data, &inst_data.disabled_text)
@@ -279,7 +301,7 @@ pub fn w3d_gadget_progress_bar_image_draw(window: &GameWindow, inst_data: &Windo
     let (Some(back_left), Some(back_right), Some(back_center), Some(bar_right), Some(bar_center)) =
         (back_left, back_right, back_center, bar_right, bar_center)
     else {
-        w3d_gadget_progress_bar_draw(window, inst_data);
+        w3d_gadget_progress_bar_draw(window, inst_data, draw_context);
         return;
     };
     draw_progress_bar_image(
@@ -290,11 +312,16 @@ pub fn w3d_gadget_progress_bar_image_draw(window: &GameWindow, inst_data: &Windo
         back_center,
         bar_right,
         bar_center,
+        draw_context,
     );
     note_shipped_ui_draw_commands(1);
 }
 
-pub fn w3d_gadget_progress_bar_image_draw_a(window: &GameWindow, inst_data: &WindowInstanceData) {
+pub fn w3d_gadget_progress_bar_image_draw_a(
+    window: &GameWindow,
+    inst_data: &WindowInstanceData,
+    draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
+) {
     let progress = progress_percent(window);
     let (draw_data, _) = push_button_bank_data(inst_data, progress_bar_image_draw_a_bank());
 
@@ -319,7 +346,7 @@ pub fn w3d_gadget_progress_bar_image_draw_a(window: &GameWindow, inst_data: &Win
     let (Some(bar_center), Some(_bar_right), Some(_left), Some(_right), Some(_center)) =
         (bar_center, bar_right, left, right, center)
     else {
-        draw_progress_bar_fallback(window, inst_data);
+        draw_progress_bar_fallback(window, inst_data, draw_context);
         return;
     };
 
@@ -331,7 +358,7 @@ pub fn w3d_gadget_progress_bar_image_draw_a(window: &GameWindow, inst_data: &Win
     let pieces = draw_width / width;
     let mut x = origin_x;
     for _ in 0..pieces {
-        with_window_manager_ref(|manager| {
+        crate::gui::window_draw_context::with_draw_manager(draw_context.manager, |manager| {
             manager.win_draw_image(
                 bar_center,
                 x,
@@ -339,28 +366,41 @@ pub fn w3d_gadget_progress_bar_image_draw_a(window: &GameWindow, inst_data: &Win
                 x + width,
                 origin_y + size_y,
                 WIN_COLOR_UNDEFINED,
+                draw_context,
             );
         });
         x += width;
     }
     if pieces == 0 {
-        draw_progress_bar_fallback(window, inst_data);
+        draw_progress_bar_fallback(window, inst_data, draw_context);
     } else {
         note_shipped_ui_draw_commands(pieces.max(1) as usize);
     }
 }
 
-pub(super) fn draw_progress_bar_fallback(window: &GameWindow, inst_data: &WindowInstanceData) {
+pub(super) fn draw_progress_bar_fallback(
+    window: &GameWindow,
+    inst_data: &WindowInstanceData,
+    draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
+) {
     let (x, y) = window.get_screen_position();
     let (width, height) = window.get_size();
     if width <= 0 || height <= 0 {
         return;
     }
     let track = visible_enabled_color(window, inst_data, 0xFF1B242C);
-    draw_visible_fill(x, y, width, height, track, Some(FALLBACK_BORDER));
+    draw_visible_fill(
+        x,
+        y,
+        width,
+        height,
+        track,
+        Some(FALLBACK_BORDER),
+        draw_context,
+    );
     let progress = progress_percent(window).clamp(0, 100);
     if progress > 0 {
         let fill_w = progress_bar_solid_width(width, progress).clamp(1, width);
-        draw_visible_fill(x, y, fill_w, height, 0xFF3D8C40, None);
+        draw_visible_fill(x, y, fill_w, height, 0xFF3D8C40, None, draw_context);
     }
 }

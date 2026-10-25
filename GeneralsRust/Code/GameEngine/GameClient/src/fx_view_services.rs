@@ -25,12 +25,9 @@ pub(super) fn with_tactical_fx_view_services<R>(
         });
     };
     let mut find_list = |name: &str| get_fx_list_store().find_fx_list(name);
-    let mut bones = |id, name: &str, start, limit| {
-        crate::core::game_client::query_live_current_client_bone_positions(id, name, start, limit)
-            .into_iter()
-            .map(|(_, matrix)| matrix)
-            .collect()
-    };
+    // This retained Core entrypoint has no receiving GameClient borrow.
+    // Leave bone lookup absent; FXListAtBonePos keeps its GameLogic Drawable fallback.
+    let mut bones = |_, _: &str, _, _| Vec::new();
     let mut add_scorch = |position, radius, kind| {
         crate::terrain::scorch_mesh::add_terrain_scorch(position, radius, kind);
     };

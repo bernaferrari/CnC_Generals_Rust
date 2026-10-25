@@ -29,6 +29,8 @@ fn actual_native_client_phase_lends_receiving_object_loss_only_when_particles_ar
         false
     };
     let mut lifecycle = NativeParticleObjectLifecycle {
+        object_pose: &|_| None,
+        ground_height: &|_| None,
         object_is_live: &absent,
         attached_object_lost: &mut lost,
     };

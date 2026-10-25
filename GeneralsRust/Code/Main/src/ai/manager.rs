@@ -155,6 +155,7 @@ impl AIManager {
         ui: &mut Option<&mut dyn crate::game_logic::ScriptUiEffects>,
     ) {
         let mut effects = crate::game_logic::ScriptPresentationEffects {
+            pristine_bones: None,
             script_events: None,
             partition: None,
             audio: None,
@@ -994,7 +995,9 @@ impl AIManager {
 #[cfg(test)]
 mod aidata_owner_tests {
     use super::*;
-    use game_engine::common::ini::ini_ai_data::{self, AIDataStore, AiSideBuildList, BuildListEntry};
+    use game_engine::common::ini::ini_ai_data::{
+        self, AIDataStore, AiSideBuildList, BuildListEntry,
+    };
     use glam::Vec3;
     use std::io::Read;
     use std::process::{Command, Stdio};

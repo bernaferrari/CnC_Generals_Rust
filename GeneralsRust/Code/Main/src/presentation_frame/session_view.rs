@@ -17,6 +17,11 @@ use glam::Vec3;
 
 #[derive(Debug, Default)]
 pub(crate) struct SessionView {
+    #[cfg(feature = "game_client")]
+    pub(crate) fx: crate::game_logic::host_fx_list_dispatch::HostFxState,
+    /// C++ Display's script border override belongs to this session's view.
+    /// None keeps the authored GlobalData shroud-alpha default.
+    pub(crate) border_shroud_level: Option<u8>,
     pub(crate) world_animations: world_animations::WorldAnimations,
     pub(crate) camera: camera::SessionCamera,
     pub(crate) scripted: scripted::ScriptCameraState,

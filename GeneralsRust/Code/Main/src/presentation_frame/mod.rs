@@ -37,6 +37,9 @@ mod honesty;
 mod kind_facts;
 mod lasers;
 mod live_draw_source;
+pub(crate) use live_draw_source::{
+    ObjectNativeDrawObservation, current_object_visual_template, object_native_draw_observation,
+};
 #[cfg(test)]
 mod live_draw_source_tests;
 #[cfg(test)]

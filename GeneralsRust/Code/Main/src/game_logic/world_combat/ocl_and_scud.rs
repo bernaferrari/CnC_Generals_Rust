@@ -340,6 +340,7 @@ impl GameLogic {
                             self.frame,
                             particle,
                             is_shrouded,
+                            presentation_effects,
                         );
                 }
                 created.push(created_id);

@@ -445,7 +445,7 @@ impl GameLogic {
             }
         }
         self.update_spy_satellites_with_effects(&mut ui);
-        crate::command_executor::tick_live_beacon_client_updates(self);
+        crate::command_executor::tick_live_beacon_client_updates_with_effects(self, &mut ui);
 
         // Host CIA Intelligence residual: expire vision-spied marks + FOW undos.
         // Fail-closed vs full SpyVisionUpdate setUnitsVisionSpied module path.
@@ -739,6 +739,7 @@ impl GameLogic {
                 objects.read(),
                 self.frame,
                 Some(&projectile_terrain),
+                &mut self.next_object_id,
             );
         }
         self.apply_owned_projectileless_delayed_damage_with_effects(&mut ui);
@@ -805,8 +806,8 @@ impl GameLogic {
             // stable creation order keeps host particle identities deterministic.
             exhausts.sort_by_key(|(projectile_id, _, _, _)| *projectile_id);
             self.combat_particles
-                .sync_projectile_exhausts(frame, &exhausts);
-            self.sync_live_state_particles();
+                .sync_projectile_exhausts(frame, &exhausts, &mut ui);
+            self.sync_live_state_particles(&mut ui);
             // C++ ProjectileStreamUpdate residual: track projectile positions for stream draw.
             // Re-adding every live shot each frame must not flip-flop targets (that
             // would punch a hole every particle). Lock the stream to the newest

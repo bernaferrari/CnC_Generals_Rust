@@ -1,6 +1,10 @@
 use super::*;
 
-pub(super) fn draw_check_box_text(window: &GameWindow, inst_data: &WindowInstanceData) {
+pub(super) fn draw_check_box_text(
+    window: &GameWindow,
+    inst_data: &WindowInstanceData,
+    draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
+) {
     let raw_text = if !inst_data.text.is_empty() {
         inst_data.text.as_str()
     } else {
@@ -40,7 +44,7 @@ pub(super) fn draw_check_box_text(window: &GameWindow, inst_data: &WindowInstanc
         let (text_w, text_h) = display.get_size();
         let text_x = origin_x + size_y;
         let text_y = origin_y + (size_y / 2) - (text_h / 2);
-        display.draw(text_x, text_y, text_color, drop_color);
+        display.draw(text_x, text_y, text_color, drop_color, draw_context);
     }
 }
 
@@ -71,7 +75,11 @@ pub(super) fn solid_check_box_mark_color(color: u32) -> Option<u32> {
     (color != WIN_COLOR_UNDEFINED).then_some(color)
 }
 
-pub fn w3d_gadget_check_box_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
+pub fn w3d_gadget_check_box_draw(
+    window: &GameWindow,
+    inst_data: &WindowInstanceData,
+    draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
+) {
     let (draw_data, _) = if inst_data.state.contains(WindowState::DISABLED) || !window.is_enabled()
     {
         (&inst_data.disabled_draw_data, &inst_data.disabled_text)
@@ -93,7 +101,7 @@ pub fn w3d_gadget_check_box_draw(window: &GameWindow, inst_data: &WindowInstance
     let check_offset = size_x / 16;
 
     if back.border_color != WIN_COLOR_UNDEFINED {
-        with_window_manager_ref(|manager| {
+        crate::gui::window_draw_context::with_draw_manager(draw_context.manager, |manager| {
             manager.win_open_rect(
                 back.border_color,
                 1.0,
@@ -101,11 +109,12 @@ pub fn w3d_gadget_check_box_draw(window: &GameWindow, inst_data: &WindowInstance
                 origin_y,
                 origin_x + size_x,
                 origin_y + size_y,
+                draw_context,
             );
         });
     }
     if back.color != WIN_COLOR_UNDEFINED {
-        with_window_manager_ref(|manager| {
+        crate::gui::window_draw_context::with_draw_manager(draw_context.manager, |manager| {
             manager.win_fill_rect(
                 back.color,
                 1.0,
@@ -113,6 +122,7 @@ pub fn w3d_gadget_check_box_draw(window: &GameWindow, inst_data: &WindowInstance
                 origin_y + 1,
                 origin_x + size_x - 1,
                 origin_y + size_y - 1,
+                draw_context,
             );
         });
     }
@@ -121,7 +131,7 @@ pub fn w3d_gadget_check_box_draw(window: &GameWindow, inst_data: &WindowInstance
     let box_y = origin_y + (size_y / 3);
     let box_end_x = box_x + (size_y / 3);
     let box_end_y = box_y + (size_y / 3);
-    with_window_manager_ref(|manager| {
+    crate::gui::window_draw_context::with_draw_manager(draw_context.manager, |manager| {
         manager.win_open_rect(
             check_box.border_color,
             1.0,
@@ -129,20 +139,41 @@ pub fn w3d_gadget_check_box_draw(window: &GameWindow, inst_data: &WindowInstance
             box_y,
             box_end_x,
             box_end_y,
+            draw_context,
         );
     });
 
     if let Some(mark_color) = solid_check_box_mark_color(check_box.color) {
-        with_window_manager_ref(|manager| {
-            manager.win_draw_line(mark_color, 1.0, box_x, box_y, box_end_x, box_end_y);
-            manager.win_draw_line(mark_color, 1.0, box_x, box_end_y, box_end_x, box_y);
+        crate::gui::window_draw_context::with_draw_manager(draw_context.manager, |manager| {
+            manager.win_draw_line(
+                mark_color,
+                1.0,
+                box_x,
+                box_y,
+                box_end_x,
+                box_end_y,
+                draw_context,
+            );
+            manager.win_draw_line(
+                mark_color,
+                1.0,
+                box_x,
+                box_end_y,
+                box_end_x,
+                box_y,
+                draw_context,
+            );
         });
     }
 
-    draw_check_box_text(window, inst_data);
+    draw_check_box_text(window, inst_data, draw_context);
 }
 
-pub fn w3d_gadget_check_box_image_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
+pub fn w3d_gadget_check_box_image_draw(
+    window: &GameWindow,
+    inst_data: &WindowInstanceData,
+    draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
+) {
     let state = if is_check_box_checked(window) {
         inst_data.state | WindowState::SELECTED
     } else {
@@ -151,7 +182,7 @@ pub fn w3d_gadget_check_box_image_draw(window: &GameWindow, inst_data: &WindowIn
     let (bank, image_index) = check_box_image_source(state, window.is_enabled());
     let (draw_data, _) = push_button_bank_data(inst_data, bank);
     let Some(check_box) = draw_data.get(image_index) else {
-        draw_check_box_text(window, inst_data);
+        draw_check_box_text(window, inst_data, draw_context);
         return;
     };
     if let Some(image) = &check_box.image {
@@ -161,14 +192,26 @@ pub fn w3d_gadget_check_box_image_draw(window: &GameWindow, inst_data: &WindowIn
         let start_y = origin_y + 3;
         let end_x = start_x + (size_y - 6);
         let end_y = start_y + (size_y - 6);
-        with_window_manager_ref(|manager| {
-            manager.win_draw_image(image, start_x, start_y, end_x, end_y, WIN_COLOR_UNDEFINED);
+        crate::gui::window_draw_context::with_draw_manager(draw_context.manager, |manager| {
+            manager.win_draw_image(
+                image,
+                start_x,
+                start_y,
+                end_x,
+                end_y,
+                WIN_COLOR_UNDEFINED,
+                draw_context,
+            );
         });
     }
-    draw_check_box_text(window, inst_data);
+    draw_check_box_text(window, inst_data, draw_context);
 }
 
-pub(super) fn draw_radio_button_text(window: &GameWindow, inst_data: &WindowInstanceData) {
+pub(super) fn draw_radio_button_text(
+    window: &GameWindow,
+    inst_data: &WindowInstanceData,
+    draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
+) {
     let raw_text = if !inst_data.text.is_empty() {
         inst_data.text.as_str()
     } else {
@@ -208,7 +251,7 @@ pub(super) fn draw_radio_button_text(window: &GameWindow, inst_data: &WindowInst
         let (text_w, text_h) = display.get_size();
         let text_x = origin_x + (size_x / 2) - (text_w / 2);
         let text_y = origin_y + (size_y / 2) - (text_h / 2);
-        display.draw(text_x, text_y, text_color, drop_color);
+        display.draw(text_x, text_y, text_color, drop_color, draw_context);
     }
 }
 
@@ -250,7 +293,11 @@ pub(super) fn radio_button_solid_box_source(
     (bank, box_index)
 }
 
-pub fn w3d_gadget_radio_button_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
+pub fn w3d_gadget_radio_button_draw(
+    window: &GameWindow,
+    inst_data: &WindowInstanceData,
+    draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
+) {
     let state = if is_radio_selected(window) {
         inst_data.state | WindowState::SELECTED
     } else {
@@ -265,7 +312,7 @@ pub fn w3d_gadget_radio_button_draw(window: &GameWindow, inst_data: &WindowInsta
     let (size_x, size_y) = window.get_size();
 
     if back.border_color != WIN_COLOR_UNDEFINED {
-        with_window_manager_ref(|manager| {
+        crate::gui::window_draw_context::with_draw_manager(draw_context.manager, |manager| {
             manager.win_open_rect(
                 back.border_color,
                 1.0,
@@ -273,11 +320,12 @@ pub fn w3d_gadget_radio_button_draw(window: &GameWindow, inst_data: &WindowInsta
                 origin_y,
                 origin_x + size_x,
                 origin_y + size_y,
+                draw_context,
             );
         });
     }
     if back.color != WIN_COLOR_UNDEFINED {
-        with_window_manager_ref(|manager| {
+        crate::gui::window_draw_context::with_draw_manager(draw_context.manager, |manager| {
             manager.win_fill_rect(
                 back.color,
                 1.0,
@@ -285,12 +333,13 @@ pub fn w3d_gadget_radio_button_draw(window: &GameWindow, inst_data: &WindowInsta
                 origin_y + 1,
                 origin_x + size_x - 1,
                 origin_y + size_y - 1,
+                draw_context,
             );
         });
     }
 
     if back.border_color != WIN_COLOR_UNDEFINED {
-        with_window_manager_ref(|manager| {
+        crate::gui::window_draw_context::with_draw_manager(draw_context.manager, |manager| {
             manager.win_draw_line(
                 back.border_color,
                 1.0,
@@ -298,6 +347,7 @@ pub fn w3d_gadget_radio_button_draw(window: &GameWindow, inst_data: &WindowInsta
                 origin_y,
                 origin_x + size_y,
                 origin_y + size_y,
+                draw_context,
             );
             manager.win_draw_line(
                 back.border_color,
@@ -306,12 +356,13 @@ pub fn w3d_gadget_radio_button_draw(window: &GameWindow, inst_data: &WindowInsta
                 origin_y,
                 origin_x + size_x - size_y,
                 origin_y + size_y,
+                draw_context,
             );
         });
     }
 
     if radio_box.color != WIN_COLOR_UNDEFINED {
-        with_window_manager_ref(|manager| {
+        crate::gui::window_draw_context::with_draw_manager(draw_context.manager, |manager| {
             manager.win_fill_rect(
                 radio_box.color,
                 1.0,
@@ -319,6 +370,7 @@ pub fn w3d_gadget_radio_button_draw(window: &GameWindow, inst_data: &WindowInsta
                 origin_y + 1,
                 origin_x + size_y - 1,
                 origin_y + size_y - 1,
+                draw_context,
             );
             manager.win_fill_rect(
                 radio_box.color,
@@ -327,11 +379,12 @@ pub fn w3d_gadget_radio_button_draw(window: &GameWindow, inst_data: &WindowInsta
                 origin_y + 1,
                 origin_x + size_x - 1,
                 origin_y + size_y - 1,
+                draw_context,
             );
         });
     }
 
-    draw_radio_button_text(window, inst_data);
+    draw_radio_button_text(window, inst_data, draw_context);
 }
 
 pub(super) fn radio_button_image_set_complete(images: [bool; 3]) -> bool {
@@ -348,6 +401,7 @@ pub(super) fn draw_radio_button_image_strip(
     size_y: i32,
     x_offset: i32,
     y_offset: i32,
+    draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
 ) {
     let left_w = left.width.max(1);
     let right_w = right.width.max(1);
@@ -369,11 +423,12 @@ pub(super) fn draw_radio_button_image_strip(
             end_x,
             strip_bottom_y,
             &center_clip,
+            draw_context,
         );
         start_x += center_w;
     }
 
-    with_window_manager_ref(|manager| {
+    crate::gui::window_draw_context::with_draw_manager(draw_context.manager, |manager| {
         manager.win_draw_image(
             left,
             origin_x + x_offset,
@@ -381,6 +436,7 @@ pub(super) fn draw_radio_button_image_strip(
             left_end_x,
             strip_bottom_y,
             WIN_COLOR_UNDEFINED,
+            draw_context,
         );
         manager.win_draw_image(
             right,
@@ -389,11 +445,16 @@ pub(super) fn draw_radio_button_image_strip(
             origin_x + size_x,
             strip_bottom_y,
             WIN_COLOR_UNDEFINED,
+            draw_context,
         );
     });
 }
 
-pub fn w3d_gadget_radio_button_image_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
+pub fn w3d_gadget_radio_button_image_draw(
+    window: &GameWindow,
+    inst_data: &WindowInstanceData,
+    draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
+) {
     let state = if is_radio_selected(window) {
         inst_data.state | WindowState::SELECTED
     } else {
@@ -437,6 +498,7 @@ pub fn w3d_gadget_radio_button_image_draw(window: &GameWindow, inst_data: &Windo
         size_y,
         inst_data.image_offset.x,
         inst_data.image_offset.y,
+        draw_context,
     );
-    draw_radio_button_text(window, inst_data);
+    draw_radio_button_text(window, inst_data, draw_context);
 }

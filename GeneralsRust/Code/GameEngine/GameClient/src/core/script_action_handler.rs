@@ -21,113 +21,126 @@ use gamelogic::scripting::engine::ScriptActionHandler;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicI32, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, Weak};
 
-thread_local! {
-    static SCRIPT_DISPLAY: RefCell<Option<Arc<Mutex<GraphicsDisplay>>>> = const { RefCell::new(None) };
+/// A presentation capability belonging to one GameClient. It neither publishes
+/// the device nor extends its lifetime. Native device-mode requests remain on
+/// this same receiver until the driving engine admits them.
+#[derive(Default)]
+pub struct ScriptDisplayReceiver {
+    display: Option<Weak<Mutex<GraphicsDisplay>>>,
+    fx: crate::display::display_fx::DisplayFxState,
+}
+impl ScriptDisplayReceiver {
+    pub fn bind(&mut self, display: Option<&Arc<Mutex<GraphicsDisplay>>>) {
+        self.display = display.map(Arc::downgrade);
+    }
+    fn with_display<R>(
+        &mut self,
+        operation: impl FnOnce(
+            &mut GraphicsDisplay,
+            &mut crate::display::display_fx::DisplayFxState,
+        ) -> R,
+    ) -> Option<R> {
+        let display = self.display.as_ref()?.upgrade()?;
+        let mut display = display.lock().ok()?;
+        Some(operation(&mut display, &mut self.fx))
+    }
+    pub fn fx(&self) -> &crate::display::display_fx::DisplayFxState {
+        &self.fx
+    }
+    pub fn fx_mut(&mut self) -> &mut crate::display::display_fx::DisplayFxState {
+        &mut self.fx
+    }
+    pub fn take_pending_device_mode(
+        &mut self,
+    ) -> Option<crate::display::display_fx::PendingDeviceMode> {
+        self.fx.take_pending_device_mode()
+    }
 }
 
-static PENDING_BORDER_SHROUD_LEVEL: AtomicI32 = AtomicI32::new(-1);
-
-pub fn register_script_display_bridge(display: Option<Arc<Mutex<GraphicsDisplay>>>) {
-    SCRIPT_DISPLAY.with(|slot| *slot.borrow_mut() = display);
-    apply_pending_script_display_state();
+pub fn play_script_display_movie(receiver: &mut ScriptDisplayReceiver, movie_name: &str) -> bool {
+    receiver
+        .with_display(|display, fx| display.play_movie(fx, movie_name.to_string()))
+        .unwrap_or(false)
 }
-
-pub fn set_script_display_border_shroud_level(level: u8) -> bool {
-    PENDING_BORDER_SHROUD_LEVEL.store(level as i32, Ordering::Relaxed);
-    let _ = with_script_display(|display| display.set_border_shroud_level(level));
+pub fn is_script_display_movie_playing(receiver: &mut ScriptDisplayReceiver) -> bool {
+    receiver
+        .with_display(|display, _fx| display.is_movie_playing())
+        .unwrap_or(false)
+}
+pub fn stop_script_display_movie(receiver: &mut ScriptDisplayReceiver) -> bool {
+    receiver
+        .with_display(|display, fx| display.stop_movie(fx))
+        .is_some()
+}
+pub fn toggle_script_display_movie_capture(receiver: &mut ScriptDisplayReceiver) -> bool {
+    let enabled = !receiver.fx.is_movie_capture_enabled();
+    receiver.fx.set_movie_capture_enabled(enabled);
     true
 }
-
-/// Latest script-owned W3D shroud border level, when one has been requested.
-///
-/// This is intentionally readable without a live `Display` lock so a
-/// presentation frame can freeze the value alongside its FOW grid.  `None`
-/// means no script override exists and consumers should retain the source
-/// `GlobalData::m_shroudAlpha` initialization value instead.
-pub fn script_display_border_shroud_level() -> Option<u8> {
-    let level = PENDING_BORDER_SHROUD_LEVEL.load(Ordering::Relaxed);
-    (0..=u8::MAX as i32).contains(&level).then_some(level as u8)
+pub fn is_script_display_movie_capture_enabled(receiver: &mut ScriptDisplayReceiver) -> bool {
+    receiver.fx.is_movie_capture_enabled()
 }
-
-/// Clear the deferred script override when the script-display runtime resets.
-/// The next presentation snapshot falls back to `GlobalData::m_shroudAlpha`.
-pub fn clear_script_display_border_shroud_level() {
-    PENDING_BORDER_SHROUD_LEVEL.store(-1, Ordering::Relaxed);
-}
-
-pub fn play_script_display_movie(movie_name: &str) -> bool {
-    with_script_display(|display| display.play_movie(movie_name.to_string())).unwrap_or(false)
-}
-
-pub fn is_script_display_movie_playing() -> bool {
-    with_script_display(|display| display.is_movie_playing()).unwrap_or(false)
-}
-
-pub fn stop_script_display_movie() -> bool {
-    with_script_display(|display| {
-        display.stop_movie();
-    })
-    .is_some()
-}
-
-pub fn toggle_script_display_movie_capture() -> bool {
-    with_script_display(|display| {
-        display.toggle_movie_capture();
-    })
-    .is_some()
-}
-
-pub fn is_script_display_movie_capture_enabled() -> bool {
-    with_script_display(|display| display.is_movie_capture_enabled()).unwrap_or(false)
-}
-
-/// C++ `TheDisplay->setDisplayMode`. Queues a host device change when Display
-/// is not installed (Main-owned swap chain).
-pub fn apply_script_display_mode(xres: u32, yres: u32, bit_depth: u32, windowed: bool) -> bool {
-    if let Some(ok) =
-        with_script_display(|display| display.set_display_mode(xres, yres, bit_depth, windowed))
+/// C++ setDisplayMode. A native owner with no compatibility GPU admits its own
+/// validated request; there is no process-wide pending device-mode slot.
+pub fn apply_script_display_mode(
+    receiver: &mut ScriptDisplayReceiver,
+    xres: u32,
+    yres: u32,
+    bit_depth: u32,
+    windowed: bool,
+) -> bool {
+    if let Some(ok) = receiver
+        .with_display(|display, fx| display.set_display_mode(fx, xres, yres, bit_depth, windowed))
     {
         return ok;
     }
-    if crate::display::display_fx::is_valid_device_mode(xres, yres, bit_depth) {
-        crate::display::display_fx::queue_device_mode(
-            crate::display::display_fx::PendingDeviceMode {
-                xres,
-                yres,
-                bit_depth,
-                windowed,
-            },
-        );
-        true
-    } else {
-        false
+    if !crate::display::display_fx::is_valid_device_mode(xres, yres, bit_depth) {
+        return false;
     }
+    receiver
+        .fx
+        .queue_device_mode(crate::display::display_fx::PendingDeviceMode {
+            xres,
+            yres,
+            bit_depth,
+            windowed,
+        });
+    true
 }
-
-pub fn toggle_script_display_letter_box() -> bool {
-    with_script_display(|display| {
-        let enabled = !display.is_letter_box_enabled();
-        display.enable_letter_box(enabled);
-    })
-    .is_some()
+pub fn toggle_script_display_letter_box(receiver: &mut ScriptDisplayReceiver) -> bool {
+    receiver
+        .fx
+        .set_letterbox_enabled(!receiver.fx.letterbox_enabled());
+    true
 }
-
-pub fn set_script_display_debug_callback(callback: Option<DebugDisplayCallback>) -> bool {
-    with_script_display(|display| display.set_debug_display_callback(callback, None)).is_some()
+pub fn set_script_display_debug_callback(
+    receiver: &mut ScriptDisplayReceiver,
+    callback: Option<DebugDisplayCallback>,
+) -> bool {
+    receiver
+        .with_display(|display, _fx| display.set_debug_display_callback(callback, None))
+        .is_some()
 }
-
-pub fn get_script_display_debug_callback() -> Option<DebugDisplayCallback> {
-    with_script_display(|display| display.get_debug_display_callback()).flatten()
+pub fn get_script_display_debug_callback(
+    receiver: &mut ScriptDisplayReceiver,
+) -> Option<DebugDisplayCallback> {
+    receiver
+        .with_display(|display, _fx| display.get_debug_display_callback())
+        .flatten()
 }
-
-pub fn set_script_display_gamma(gamma: f32, bright: f32, contrast: f32) -> bool {
-    with_script_display(|display| display.set_gamma(gamma, bright, contrast, false)).is_some()
+pub fn set_script_display_gamma(
+    receiver: &mut ScriptDisplayReceiver,
+    gamma: f32,
+    bright: f32,
+    contrast: f32,
+) -> bool {
+    receiver.fx.set_gamma_state(gamma, bright, contrast);
+    true
 }
-
-pub fn take_script_display_screenshot() -> Option<String> {
-    with_script_display(|display| display.take_screenshot())
+pub fn take_script_display_screenshot(receiver: &mut ScriptDisplayReceiver) -> Option<String> {
+    receiver.with_display(|display, fx| display.take_screenshot(fx))
 }
 
 pub fn script_popup_message(
@@ -313,26 +326,12 @@ pub fn reset_script_action_runtime_state() {
     with_script_runtime(|state| {
         *state = ScriptRuntimeState::default();
     });
-    clear_script_display_border_shroud_level();
     game_engine::common::global_data::write().writable.wireframe = false;
     with_tactical_view(|view| view.reset_3d_wireframe_mode());
     TheGameLogic::set_intro_movie_playing(false);
 }
 
-fn with_script_display<R>(f: impl FnOnce(&mut GraphicsDisplay) -> R) -> Option<R> {
-    SCRIPT_DISPLAY.with(|slot| {
-        let display = slot.borrow().clone()?;
-        let mut guard = display.lock().ok()?;
-        Some(f(&mut guard))
-    })
-}
-
 pub fn apply_pending_script_display_state() {
-    let level = PENDING_BORDER_SHROUD_LEVEL.load(Ordering::Relaxed);
-    if level >= 0 {
-        let _ = with_script_display(|display| display.set_border_shroud_level(level as u8));
-    }
-
     let wireframe = game_engine::common::global_data::read().writable.wireframe;
     with_tactical_view(|view| {
         if view.pending_3d_wireframe_mode() != wireframe {
@@ -634,12 +633,9 @@ impl ScriptActionHandler for GameClientScriptActionHandler {
     }
 
     fn set_border_shroud_level(&self, level: u8) -> GameLogicResult<()> {
-        // Keep the value even before a Display is registered.  The frozen
-        // projected-shroud snapshot consumes this script handoff at
-        // presentation-build time, while `set_script_display...` also updates
-        // an active Display when one exists.
-        let _ = set_script_display_border_shroud_level(level);
-        Ok(())
+        Err(gamelogic::GameLogicError::Configuration(
+            "display script action requires the receiving presentation execution driver".into(),
+        ))
     }
 
     fn display_text(&self, text: &str) -> GameLogicResult<()> {
@@ -1085,15 +1081,15 @@ impl ScriptActionHandler for GameClientScriptActionHandler {
     }
 
     fn camera_letterbox_begin(&self) -> GameLogicResult<()> {
-        let _ = hide_control_bar(true);
-        let _ = with_script_display(|display| display.enable_letter_box(true));
-        Ok(())
+        Err(gamelogic::GameLogicError::Configuration(
+            "display script action requires the receiving presentation execution driver".into(),
+        ))
     }
 
     fn camera_letterbox_end(&self) -> GameLogicResult<()> {
-        let _ = show_control_bar(false);
-        let _ = with_script_display(|display| display.enable_letter_box(false));
-        Ok(())
+        Err(gamelogic::GameLogicError::Configuration(
+            "display script action requires the receiving presentation execution driver".into(),
+        ))
     }
 
     fn camera_set_default(&self, pitch: f32, angle: f32, max_height: f32) -> GameLogicResult<()> {
@@ -1233,14 +1229,9 @@ impl ScriptActionHandler for GameClientScriptActionHandler {
     }
 
     fn movie_play_fullscreen(&self, filename: &str) -> GameLogicResult<()> {
-        let media_name = normalize_media_name(filename);
-        if media_name.is_empty() {
-            return Ok(());
-        }
-
-        let started = play_script_display_movie(filename);
-        TheGameLogic::set_intro_movie_playing(started);
-        Ok(())
+        Err(gamelogic::GameLogicError::Configuration(
+            "display script action requires the receiving presentation execution driver".into(),
+        ))
     }
 
     fn movie_play_radar(&self, filename: &str) -> GameLogicResult<()> {

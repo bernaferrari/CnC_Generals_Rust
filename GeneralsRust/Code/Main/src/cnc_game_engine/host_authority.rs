@@ -189,13 +189,15 @@ impl CnCGameEngine {
         }
         let policy = super::native_view_effects::receiving_native_drawable_policy_for(world);
         let mut retirement = game_client::core::game_client::NativeParticleRetirementService;
-        let mut attempt = candidate.attempt(
-            self.render_pipeline.borrow_native_draw_services(),
-            &mut self.graphics_system,
-            self.current_player_id,
-            policy,
-            &mut retirement,
-        )?;
+        let mut attempt = candidate
+            .attempt(
+                self.render_pipeline.borrow_native_draw_services(),
+                &mut self.graphics_system,
+                self.current_player_id,
+                policy,
+                &mut retirement,
+            )?
+            .with_pristine_bones(self.application_assets.as_ref());
         world
             .destroy_all_objects_immediate_with_effects_checked(&mut attempt.effects())
             .map_err(|error| error.to_string())?;
@@ -1015,6 +1017,7 @@ impl CnCGameEngine {
                 template,
                 builder,
                 &mut crate::game_logic::ScriptPresentationEffects {
+                    pristine_bones: Some(self.application_assets.as_ref()),
                     script_events: None,
                     partition: None,
                     audio: None,
@@ -2768,6 +2771,37 @@ impl CnCGameEngine {
             if let Some(native) = native.as_mut() {
                 native.admit_restored_object_drawables(&mut staged)?;
             }
+            if let Some(bytes) = snapshot.particle_system_companion.as_deref() {
+                let (bytes, fx_random) =
+                    crate::game_logic::GameLogic::split_fx_random_capsule(bytes)?;
+
+                let native = native
+                    .as_mut()
+                    .ok_or("particle companion requires a detached native presentation owner")?;
+                let mut effects = native.effects();
+                let view = effects
+                    .view
+                    .as_deref_mut()
+                    .ok_or("particle companion requires receiving native view")?;
+                let manager = view
+                    .particle_systems_mut()
+                    .ok_or("particle companion requires receiving particle namespace")?;
+                manager
+                    .admit_effective_definitions()
+                    .map_err(|error| error.to_string())?;
+                if let Some(receipt) =
+                    crate::save_load::snapshot::restore_particle_system_from_xfer_bytes(
+                        manager, bytes,
+                    )
+                    .map_err(|error| error.to_string())?
+                {
+                    staged
+                        .combat_particles_mut()
+                        .adopt_loaded_client_systems(manager, &receipt)?;
+                    staged.adopt_loaded_bone_particle_systems(manager, &receipt)?;
+                    staged.restore_fx_random_capsule(fx_random);
+                }
+            }
             if let Some(prepared) = &terrain_visual {
                 crate::save_load::snapshot::admit_receiving_terrain_visual(&mut staged, prepared)
                     .map_err(|error| error.to_string())?;
@@ -2886,13 +2920,15 @@ impl CnCGameEngine {
                 self.next_native_world_epoch(),
             );
             let mut retirement = game_client::core::game_client::NativeParticleRetirementService;
-            let mut attempt = candidate.attempt(
-                self.render_pipeline.borrow_native_draw_services(),
-                &mut self.graphics_system,
-                self.current_player_id,
-                policy,
-                &mut retirement,
-            )?;
+            let mut attempt = candidate
+                .attempt(
+                    self.render_pipeline.borrow_native_draw_services(),
+                    &mut self.graphics_system,
+                    self.current_player_id,
+                    policy,
+                    &mut retirement,
+                )?
+                .with_pristine_bones(self.application_assets.as_ref());
             let result = Self::stage_saved_world_for_restore_with_native(
                 &mut self.save_file_manager,
                 slot,
@@ -3073,7 +3109,13 @@ impl CnCGameEngine {
                 .campaign_manager_mut()
                 .apply_logic_chunk_state(state);
         }
-        game_engine::common::random_value::init_client_audio_random_with_seed(0);
+        #[cfg(feature = "game_client")]
+        {
+            self.game_logic.seed_fx_random(0);
+            self.game_client
+                .particle_systems_mut()
+                .seed_presentation_random(0);
+        }
         self.host_game_logic_mut().set_logic_random_seed(0);
         {
             let mut global = game_engine::common::global_data::write();

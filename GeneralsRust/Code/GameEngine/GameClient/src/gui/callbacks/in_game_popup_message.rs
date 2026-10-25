@@ -349,6 +349,7 @@ fn in_game_popup_message_system(
 ) -> WindowMsgHandled {
     let mut emitted_messages = Vec::new();
     let mut effects = crate::gui::game_window::WindowEventEffects {
+        script_display: None,
         window_manager_owner: None,
         selected_window: None,
         emitted_messages: &mut emitted_messages,
@@ -471,6 +472,7 @@ mod tests {
                 popup_mutex_was_available.store(false, Ordering::SeqCst);
                 let mut emitted = Vec::new();
                 let mut effects = crate::gui::game_window::WindowEventEffects {
+                    script_display: None,
                     window_manager_owner: None,
                     emitted_messages: &mut emitted,
                     pending_control_bar_clicks: None,
@@ -519,6 +521,7 @@ mod tests {
                 set_popup_button_ok_id(BUTTON_OK_ID, false, Some(HOST_POPUP_GENERATION));
                 let mut emitted = Vec::new();
                 let mut effects = crate::gui::game_window::WindowEventEffects {
+                    script_display: None,
                     window_manager_owner: None,
                     selected_window: None,
                     emitted_messages: &mut emitted,

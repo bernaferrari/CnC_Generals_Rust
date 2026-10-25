@@ -22,13 +22,7 @@ struct LaserCallbackPack {
 #[cfg(feature = "game_client")]
 use super::particle_camera::ParticleCamera;
 #[cfg(feature = "game_client")]
-use game_client::effects::particle_renderer::register_particle_renderer;
-#[cfg(feature = "game_client")]
 use game_client::effects::{ParticleRenderer, get_particle_system_manager};
-#[cfg(feature = "game_client")]
-use game_client::fx_list::get_decal_manager;
-#[cfg(feature = "game_client")]
-use game_client::radius_decal::get_projected_shadow_manager;
 #[cfg(feature = "game_client")]
 use game_client::system::smudge::get_smudge_manager;
 
@@ -148,15 +142,7 @@ impl ForwardPass {
                 graphics_system.color_format(),
                 depth_format,
             ) {
-                Ok(renderer) => {
-                    let renderer = Arc::new(Mutex::new(renderer));
-                    // Asset loading happens after RenderPipeline initialization, so
-                    // registering Main's sole renderer lets normal GameClient asset
-                    // uploads populate this exact WGPU device instead of a second
-                    // Display-owned surface.
-                    register_particle_renderer(Arc::clone(&renderer));
-                    Some(renderer)
-                }
+                Ok(renderer) => Some(renderer),
                 Err(error) => {
                     warn!("Main particle renderer initialization failed: {error}");
                     None
@@ -190,6 +176,8 @@ impl ForwardPass {
             laser_draw_gpu: None,
             #[cfg(feature = "game_client")]
             particle_renderer,
+            #[cfg(feature = "game_client")]
+            pending_client_effects: Default::default(),
         })
     }
 
@@ -312,6 +300,23 @@ impl ForwardPass {
         true
     }
 
+    #[cfg(feature = "game_client")]
+    pub(super) fn prepare_client_particles(
+        manager: &mut game_client::effects::particle_manager::ParticleSystemManager,
+        view: Mat4,
+        projection: Mat4,
+        position: Vec3,
+        time: f32,
+        min_height: f32,
+    ) -> Option<game_client::effects::particle_renderer::ParticleRenderFrame> {
+        let camera = ParticleCamera::capture(view, projection, position, time, min_height)?;
+        manager.cull_particles_to_visible_box(camera.visible.center, camera.visible.extent, 512);
+        let use_heat = game_engine::common::global_data::read_safe()
+            .map(|rules| rules.use_heat_effects)
+            .unwrap_or(true);
+        manager.prepare_render_frame(&camera.uniforms, use_heat)
+    }
+
     /// Queue GameClient particle and decal draws on Main's sole WGPU
     /// frame.  `GameClient::Display::draw` stays disconnected: it would create
     /// and present a second surface instead of sharing this post-scene target.
@@ -324,10 +329,11 @@ impl ForwardPass {
         time: f32,
         min_terrain_height: f32,
         native_radius_items: Vec<game_client::effects::decals::DecalRenderItem>,
+        prepared_particles: Option<game_client::effects::particle_renderer::ParticleRenderFrame>,
     ) -> bool {
-        let Some(renderer) = self.particle_renderer.as_ref().map(Arc::clone) else {
+        if self.particle_renderer.is_none() {
             return false;
-        };
+        }
 
         // Legacy effect positions are Z-up. Freeze the receiving camera after
         // its HAG/terrain/FX/shake work; the deferred draw never resolves a view.
@@ -343,134 +349,89 @@ impl ForwardPass {
         };
         let uniforms = camera.uniforms;
 
-        self.renderer.enqueue_post_frame_callback(move |frame| {
-            let Some(depth_view) = frame.depth_view_arc() else {
-                // The renderer was constructed for a depth-backed Main frame;
-                // do not issue a depth-test pipeline against an absent target.
-                return Ok(());
-            };
-            let color_view = frame.color_view_arc();
-            let color_texture = frame.color_texture().clone();
-            let encoder = frame.encoder();
+        self.pending_client_effects
+            .push_back(NativeClientEffectFrame {
+                uniforms,
+                radius_items: native_radius_items,
+                particles: prepared_particles,
+            });
+        self.renderer.enqueue_scoped_post_frame_pass(
+            ww3d_renderer_3d::rendering::wgpu_main_renderer::ScopedNativePass::ClientEffects,
+        );
+        true
+    }
 
-            let Ok(mut renderer_guard) = renderer.lock() else {
-                warn!("Main particle renderer lock poisoned; skipping effect draw");
-                return Ok(());
-            };
+    #[cfg(feature = "game_client")]
+    fn record_client_effect_draw(
+        renderer: &mut game_client::effects::ParticleRenderer,
+        data: NativeClientEffectFrame,
+        frame: &mut ww3d_engine::RenderFrame,
+    ) -> RendererResult<()> {
+        let NativeClientEffectFrame {
+            uniforms,
+            radius_items: native_radius_items,
+            particles: prepared_particles,
+        } = data;
 
-            // Systems are owned and advanced by the GameClient presentation
-            // shell. Borrow the real manager only while its live system refs are
-            // submitted; no Main GameLogic state is read in this render callback.
-            if let Ok(mut manager_guard) = game_client::effects::get_particle_system_manager_mut() {
-                if let Some(manager) = manager_guard.as_mut() {
-                    manager.cull_particles_to_visible_box(
-                        camera.visible.center,
-                        camera.visible.extent,
-                        512,
-                    );
-                }
-            }
-            let prepared_particles = get_particle_system_manager()
-                .ok()
-                .and_then(|manager_guard| {
-                    let manager = manager_guard.as_ref()?;
-                    let systems = manager.draw_particle_systems();
-                    if systems.is_empty() {
-                        return None;
-                    }
-                    let mut particle_uniforms = uniforms;
-                    particle_uniforms.particle_count = systems
-                        .iter()
-                        .map(|system| system.particle_count())
-                        .sum::<usize>()
-                        .min(u32::MAX as usize)
-                        as u32;
-                    Some(
-                        game_client::effects::particle_renderer::ParticleRenderFrame::prepare(
-                            &systems,
-                            &particle_uniforms,
-                        ),
-                    )
-                });
-            // The manager guard and every live system reference end above.
-            // GPU resource loading/upload/submission only sees owned CPU data.
-            if let Some(prepared) = prepared_particles.as_ref() {
-                renderer_guard.render_prepared_particles(
-                    encoder,
-                    color_view.as_ref(),
-                    depth_view.as_ref(),
-                    prepared,
-                );
-            }
+        let Some(depth_view) = frame.depth_view_arc() else {
+            // The renderer was constructed for a depth-backed Main frame;
+            // do not issue a depth-test pipeline against an absent target.
+            return Ok(());
+        };
+        let color_view = frame.color_view_arc();
+        let color_texture = frame.color_texture().clone();
+        let encoder = frame.encoder();
 
-            // C++ W3DDisplay draws FXList Tracer/RayEffect after particles
-            // (Display::draw). Host presentation skips Display::draw, so the
-            // same submit must happen on Main's sole present path.
-            renderer_guard.render_tracer_and_ray_fx(
+        if let Some(prepared) = prepared_particles.as_ref() {
+            renderer.preload_authored_textures(prepared.preloaded_texture_assets());
+        }
+        // Exact receiving lifetime was frozen before the render callback.
+        // No live particle owner is discovered or advanced from GPU work.
+        if let Some(prepared) = prepared_particles.as_ref() {
+            renderer.render_prepared_particles(
                 encoder,
                 color_view.as_ref(),
                 depth_view.as_ref(),
+                prepared,
+            );
+        }
+
+        // Client decals follow particle/tracer submission. Retail snow is
+        // emitted by terrain overlays, not an unconfigured weather manager.
+        // Only the driving native client's resources belong to this pass.
+        // Standalone Core Draw/Effects managers cannot contribute a peer
+        // scene through their retained compatibility publications. Native
+        // Radius handles are already frozen from the exact receiving owner.
+        let decals = native_radius_items;
+
+        if !decals.is_empty() {
+            let mut decal_uniforms = uniforms;
+            decal_uniforms.particle_count = decals.len().min(u32::MAX as usize) as u32;
+            renderer.render_decals(
+                encoder,
+                color_view.as_ref(),
+                depth_view.as_ref(),
+                &decals,
+                &decal_uniforms,
+            );
+        }
+
+        let smudges = prepared_particles
+            .as_ref()
+            .map(|frame| frame.heat_smudges())
+            .unwrap_or_default();
+        if !smudges.is_empty() {
+            renderer.render_heat_haze(
+                encoder,
+                color_view.as_ref(),
+                depth_view.as_ref(),
+                Some(&color_texture),
+                &smudges,
                 &uniforms,
             );
+        }
 
-            // Client decals follow particle/tracer submission. Retail snow is
-            // emitted by terrain overlays, not an unconfigured weather manager.
-            let mut decals = if let Some(manager) = get_decal_manager() {
-                manager
-                    .lock()
-                    .map(|guard| guard.collect_render_items())
-                    .unwrap_or_default()
-            } else {
-                Vec::new()
-            };
-            // C++ W3DProjectedShadowManager::flushDecals — radius addDecal rings
-            // stay ungated. Unit addShadow blobs are omitted when 2D Shadows off
-            // (`collect_render_items` / W3DProjectedShadow.cpp:1303).
-            decals.extend(get_projected_shadow_manager().read().collect_render_items());
-            // Radius handles come from the driving native client. This owned
-            // per-frame value cannot rediscover another world's manager during
-            // the deferred GPU callback. Legacy ModelDraw remains separate.
-            decals.extend(native_radius_items);
-
-            if !decals.is_empty() {
-                let mut decal_uniforms = uniforms;
-                decal_uniforms.particle_count = decals.len().min(u32::MAX as usize) as u32;
-                renderer_guard.render_decals(
-                    encoder,
-                    color_view.as_ref(),
-                    depth_view.as_ref(),
-                    &decals,
-                    &decal_uniforms,
-                );
-            }
-
-            let smudges = prepared_particles
-                .as_ref()
-                .map(|frame| frame.heat_smudges().to_vec())
-                .unwrap_or_else(|| {
-                    get_smudge_manager()
-                        .lock()
-                        .map(|manager| {
-                            game_client::effects::heat_haze::collect_heat_haze_smudges(
-                                &manager.collect_used_smudges(),
-                            )
-                        })
-                        .unwrap_or_default()
-                });
-            if !smudges.is_empty() {
-                renderer_guard.render_heat_haze(
-                    encoder,
-                    color_view.as_ref(),
-                    depth_view.as_ref(),
-                    Some(&color_texture),
-                    &smudges,
-                    &uniforms,
-                );
-            }
-
-            Ok(())
-        });
-        true
+        Ok(())
     }
 
     /// Check if the forward pass is ready to render
@@ -585,12 +546,16 @@ impl ForwardPass {
         mut post_draw_overlay: Option<
             &mut dyn FnMut(&mut ww3d_engine::RenderFrame) -> RendererResult<()>,
         >,
+        mut ui_overlay: Option<&mut crate::graphics::ui_render_pass::NativeUiOverlay<'_>>,
         #[cfg(feature = "game_client")] native_terrain: Option<
             &game_client::terrain::terrain_visual::TerrainVisualImpl,
         >,
         #[cfg(feature = "game_client")] terrain_viewport: (f32, f32, f32, f32),
         #[cfg(feature = "game_client")] terrain_clear_color: wgpu::Color,
     ) -> Result<()> {
+        #[cfg(feature = "game_client")]
+        let mut pending_effects = std::mem::take(&mut self.pending_client_effects);
+
         let native_radar_frame = self.native_radar_frame.clone();
         // Check if renderer is ready before attempting to render
         // This prevents crashes when engine is shutting down or not initialized
@@ -659,30 +624,36 @@ impl ForwardPass {
                     // C++ winRepaint still runs after a 3D fault. End the
                     // WW3D frame so pending_frame is not leaked and the UI
                     // overlay still flushes.
-                    self.renderer.enqueue_post_frame_callback(move |frame| {
-                        crate::graphics::ui_render_pass::flush_ui_to_frame_observed(
-                            frame,
-                            native_radar_frame.as_ref(),
-                        )
-                    });
-                    let _ = self.renderer.end_frame();
+                    let mut overlay = |frame: &mut ww3d_engine::RenderFrame| {
+                        if let Some(ui) = ui_overlay.as_deref_mut() {
+                            ui(frame, native_radar_frame.as_ref())
+                        } else {
+                            Ok(())
+                        }
+                    };
+                    self.renderer
+                        .end_frame_with_post_render(Some(&mut overlay))
+                        .map_err(|error| {
+                            anyhow::anyhow!("WW3D frame completion after queue poison: {error}")
+                        })?;
                     return Err(anyhow::anyhow!(
                         "WW3D renderer handle poisoned - another thread panicked while holding the lock"
                     ));
                 }
                 Err(std::sync::TryLockError::WouldBlock) => {
                     warn!("WW3D renderer handle already locked - skipping mesh queue");
-                    self.renderer.enqueue_post_frame_callback(move |frame| {
-                        crate::graphics::ui_render_pass::flush_ui_to_frame_observed(
-                            frame,
-                            native_radar_frame.as_ref(),
-                        )
-                    });
-                    self.renderer.end_frame().map_err(|e| {
-                        anyhow::anyhow!(
-                            "WW3D renderer end_frame failed after lock contention: {e:?}"
-                        )
-                    })?;
+                    let mut overlay = |frame: &mut ww3d_engine::RenderFrame| {
+                        if let Some(ui) = ui_overlay.as_deref_mut() {
+                            ui(frame, native_radar_frame.as_ref())
+                        } else {
+                            Ok(())
+                        }
+                    };
+                    self.renderer
+                        .end_frame_with_post_render(Some(&mut overlay))
+                        .map_err(|error| {
+                            anyhow::anyhow!("WW3D frame completion after queue contention: {error}")
+                        })?;
                     return Ok(());
                 }
             };
@@ -818,11 +789,8 @@ impl ForwardPass {
             if let Some(overlay) = post_draw_overlay.as_mut() {
                 overlay(frame)?;
             }
-            if let Err(err) = crate::graphics::ui_render_pass::flush_ui_to_frame_observed(
-                frame,
-                radar_for_draw.as_ref(),
-            ) {
-                log::warn!("post-frame flush_ui_to_frame failed: {err}");
+            if let Some(ui) = ui_overlay.as_deref_mut() {
+                ui(frame, radar_for_draw.as_ref())?;
             }
             Ok(())
         };
@@ -830,7 +798,14 @@ impl ForwardPass {
         // Scene effects finish on this frame, before its UI overlay and submission.
         #[cfg(feature = "game_client")]
         {
+            let particle_renderer = &mut self.particle_renderer;
             let mut native_pass = |kind, frame: &mut ww3d_engine::RenderFrame| {
+                if kind == ww3d_renderer_3d::rendering::wgpu_main_renderer::ScopedNativePass::ClientEffects {
+                    return match (particle_renderer.as_mut(), pending_effects.pop_front()) {
+                        (Some(renderer),Some(data))=>Self::record_client_effect_draw(renderer,data,frame),
+                        _=>Err(ww3d_renderer_3d::Error::InvalidOperation("native client effect marker has no receiving owner/frame".into())),
+                    };
+                }
                 native_terrain_pass::record(
                     kind,
                     native_terrain,
@@ -910,7 +885,10 @@ impl ForwardPass {
 
         #[cfg(feature = "game_client")]
         {
-            for pulse in game_client::fx_list::scene_dynamic_lights() {
+            for pulse in lighting
+                .into_iter()
+                .flat_map(|lighting| lighting.dynamic_lights.iter())
+            {
                 if !pulse.enabled {
                     continue;
                 }
@@ -1495,6 +1473,8 @@ mod tests {
     #[test]
     fn ghost_light_environment_scales_frozen_ambient_and_directional_light() {
         let lighting = CachedLighting {
+            #[cfg(feature = "game_client")]
+            dynamic_lights: Vec::new(),
             sun_direction: Some([0.0, -1.0, 0.0]),
             sun_color: Some([0.8, 0.6, 0.4]),
             ambient_color: Some([0.4, 0.3, 0.2]),

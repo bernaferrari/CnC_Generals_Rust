@@ -5,6 +5,7 @@ use std::hash::Hash;
 /// Owned definitions or derived backend data. Exact names; `None` is null.
 /// Admission replaces an earlier definition like C++ parseFXListDefinition.
 /// Engine keys can retain their immutable name buffers without a String copy.
+#[derive(Clone)]
 pub struct FxCatalog<Value, Name = String> {
     entries: HashMap<Name, Value>,
 }

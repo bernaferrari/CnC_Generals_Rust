@@ -38,24 +38,9 @@ impl NativeDrawableRetirement for NativeParticleRetirementService {
                 None => owner.try_clear_for_map_attempt(None),
             };
         }
-        {
-            let mut guard = crate::effects::particle_manager::get_particle_system_manager_mut()
-                .map_err(|error| {
-                    GameClientError::SubsystemError(format!(
-                        "native retirement particle service: {error}"
-                    ))
-                })?;
-            let manager = guard.as_mut().ok_or_else(|| {
-                GameClientError::SubsystemError(
-                    "receiving particle manager absent during native retirement".into(),
-                )
-            })?;
-            // This phase only retires installed state/client particle IDs.
-            // It does not unlink, drop modules or stop ambient audio.
-            owner
-                .drawables
-                .retire_native_particles_with_services(selected, manager)?;
-        }
+        owner
+            .drawables
+            .retire_native_particles_with_services(selected, owner.particles)?;
         // W3DTankDraw/TruckDraw destructors may discover the existing particle
         // manager bridge. Its guard MUST be released before arbitrary module
         // Drop or ambient-stop callbacks execute. Native IDs are now retired,
@@ -77,14 +62,66 @@ enum NativeConstructorAmbientPolicy {
 }
 
 pub struct NativeDrawableOwner<'a> {
-    drawables: &'a mut drawable_world::DrawableWorld,
+    drawables: &'a mut drawable_world::DrawableState,
+    particles: &'a mut crate::effects::particle_manager::ParticleSystemManager,
 }
 impl NativeDrawableWorld {
     pub fn borrow_native(&mut self) -> NativeDrawableOwner<'_> {
-        NativeDrawableOwner { drawables: self }
+        NativeDrawableOwner {
+            drawables: &mut self.state,
+            particles: &mut self.particles,
+        }
     }
 }
 impl NativeDrawableOwner<'_> {
+    pub fn particle_systems(&self) -> &crate::effects::particle_manager::ParticleSystemManager {
+        self.particles
+    }
+    pub fn particle_systems_mut(
+        &mut self,
+    ) -> &mut crate::effects::particle_manager::ParticleSystemManager {
+        self.particles
+    }
+
+    /// Query current-client W3D bones on this exact receiving Drawable owner.
+    /// The short borrow ends before FX nugget callbacks can reenter the owner.
+    pub fn current_client_bone_transforms(
+        &self,
+        object_id: u32,
+        bone_name: &str,
+        start: i32,
+        max_bones: usize,
+    ) -> Vec<glam::Mat4> {
+        if max_bones == 0 || bone_name.is_empty() {
+            return Vec::new();
+        }
+        let Some(drawable_id) = self.drawables.get_drawable_for_object(object_id) else {
+            return Vec::new();
+        };
+        let Some(drawable) = self.drawables.find_drawable_by_id(drawable_id) else {
+            return Vec::new();
+        };
+        let Some(basic) = drawable
+            .as_any()
+            .downcast_ref::<crate::drawable::BasicDrawable>()
+        else {
+            return Vec::new();
+        };
+        let mut positions = vec![crate::drawable::Vector3::zero(); max_bones];
+        let mut transforms = vec![crate::drawable::Matrix4::identity(); max_bones];
+        let count = basic.get_current_client_bone_positions(
+            bone_name,
+            start,
+            &mut positions,
+            &mut transforms,
+        );
+        transforms
+            .into_iter()
+            .take(count.max(0) as usize)
+            .map(|transform| transform.to_glam())
+            .collect()
+    }
+
     /// Missing runtime binding does not imply that its actual CPU actor is
     /// absent (for example, the current Client load-postprocess clears keys).
     /// A broken inverse map also cannot masquerade as prebirth absence.
@@ -195,6 +232,9 @@ impl NativeDrawableOwner<'_> {
         retirement: &mut dyn NativeDrawableRetirement,
         observe: &mut impl FnMut(PresentationDrawableMutation<'_>) -> GameClientResult<()>,
     ) -> GameClientResult<PresentationDirectDrawableBindingKey> {
+        self.particles
+            .admit_effective_definitions()
+            .map_err(|error| GameClientError::SubsystemError(error.to_string()))?;
         let receiving_tod = if e.module_admission.authored_template().is_some() {
             Some(
                 policy

@@ -835,6 +835,7 @@ impl AudioManager {
             event_to_add,
             AudioSubmission::Explicit(locality),
             selection,
+            false,
         )
     }
 
@@ -847,6 +848,54 @@ impl AudioManager {
             event_to_add,
             submission,
             &mut super::audio_event_rts::AmbientAudioSelection,
+            false,
+        )
+    }
+
+    /// Resolve variation at the originating callback without publishing a play
+    /// request. A detached native map keeps this owned event until commit.
+    pub fn prepare_audio_event_with_selection(
+        &self,
+        event: &AudioEventRts,
+        selection: &mut dyn super::audio_event_rts::AudioEventSelection,
+    ) -> Result<Option<AudioEventRts>, String> {
+        let mut event = event.clone();
+        if event.get_audio_event_info().is_none() {
+            let info = self
+                .find_audio_event_info(event.get_event_name())
+                .ok_or_else(|| {
+                    format!("unknown receiving FX sound '{}'", event.get_event_name())
+                })?;
+            event.set_volume(info.volume);
+            event.set_audio_event_info(info);
+        }
+        let sound_type = event.get_audio_event_info().unwrap().sound_type;
+        let enabled = match sound_type {
+            AudioType::Music => self.is_on(AudioAffect::Music),
+            AudioType::SoundEffect => {
+                self.is_on(AudioAffect::Sound) && self.is_on(AudioAffect::Sound3D)
+            }
+            AudioType::Streaming => self.is_on(AudioAffect::Speech) && !self.disallow_speech,
+        };
+        if !enabled {
+            return Ok(None);
+        }
+        let paths = self.audio_paths();
+        event.generate_filename_with_selection(&paths, selection);
+        event.generate_play_info_with_selection(&paths, selection);
+        Ok(Some(event))
+    }
+    /// Admit an already selected event without another instance's random draw.
+    pub fn add_prepared_audio_event_with_locality(
+        &mut self,
+        event: &AudioEventRts,
+        locality: &AudioSubmissionLocality,
+    ) -> AudioHandle {
+        self.add_audio_event_with_submission_and_selection(
+            event,
+            AudioSubmission::Explicit(locality),
+            &mut super::audio_event_rts::AmbientAudioSelection,
+            true,
         )
     }
 
@@ -855,6 +904,7 @@ impl AudioManager {
         event_to_add: &AudioEventRts,
         submission: AudioSubmission<'_>,
         selection: &mut dyn super::audio_event_rts::AudioEventSelection,
+        prepared: bool,
     ) -> AudioHandle {
         if event_to_add.get_event_name().is_empty() || event_to_add.get_event_name() == "NoSound" {
             return AHSV_NO_SOUND;
@@ -906,10 +956,12 @@ impl AudioManager {
         let handle = self.allocate_new_handle();
         audio_event.set_playing_handle(handle);
         let paths = self.audio_paths();
-        audio_event.generate_filename_with_selection(&paths, selection);
-        // C++ GameAudio.cpp:424 writes the chosen index back onto the caller's event.
-        event_to_add.set_playing_audio_index(audio_event.get_playing_audio_index());
-        audio_event.generate_play_info_with_selection(&paths, selection);
+        if !prepared {
+            audio_event.generate_filename_with_selection(&paths, selection);
+            // C++ GameAudio.cpp:424 writes the chosen index back onto the caller's event.
+            event_to_add.set_playing_audio_index(audio_event.get_playing_audio_index());
+            audio_event.generate_play_info_with_selection(&paths, selection);
+        }
 
         // Check volume adjustments
         for (name, volume) in &self.adjusted_volumes {

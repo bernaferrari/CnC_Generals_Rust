@@ -29,7 +29,11 @@ pub mod lan_lobby_menu;
 pub mod lan_lobby_menu {
     use crate::gui::{GameWindow, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled};
 
-    pub fn lan_lobby_init(_layout: &WindowLayout) {}
+    pub fn lan_lobby_init(
+        _layout: &WindowLayout,
+        _effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    ) {
+    }
     pub fn lan_lobby_update(_layout: &WindowLayout) {}
     pub fn lan_lobby_shutdown(_layout: &WindowLayout, _immediate: bool) {}
 
@@ -330,3 +334,5 @@ pub fn main_menu_campaign_selected() -> bool {
 pub fn set_main_menu_campaign_selected(v: bool) {
     MAIN_MENU_CAMPAIGN_SELECTED.with(|c| c.set(v));
 }
+
+pub mod owned_credits_menu;

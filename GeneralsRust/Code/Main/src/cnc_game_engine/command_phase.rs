@@ -111,8 +111,9 @@ impl CnCGameEngine {
         #[cfg(feature = "game_client")]
         let window_manager_owner = self.game_client.window_manager_owner();
         #[cfg(feature = "game_client")]
-        let (mut client_frame, snow, presence, campaign_manager) =
-            self.game_client.split_frame_snow_drawable_and_campaign();
+        let (mut client_frame, snow, presence, campaign_manager, command_hints) = self
+            .game_client
+            .split_frame_snow_drawable_campaign_and_hints();
         #[cfg(feature = "game_client")]
         let cinematic_window = &self.window;
         #[cfg(feature = "game_client")]
@@ -149,7 +150,8 @@ impl CnCGameEngine {
             window_manager_owner,
         )
         .with_cinematic_input(cinematic_input)
-        .with_campaign_manager(campaign_manager);
+        .with_campaign_manager(campaign_manager)
+        .with_command_hints(command_hints, client_frame.frame());
         let mut audio = super::native_audio_effects::NativeAudioService::live();
         #[cfg(feature = "game_client")]
         let (poses, terrain) = self
@@ -172,6 +174,7 @@ impl CnCGameEngine {
         );
         #[cfg(feature = "game_client")]
         let effects = crate::game_logic::ScriptPresentationEffects {
+            pristine_bones: Some(self.application_assets.as_ref()),
             script_events: None,
             partition: None,
             audio: audio.as_mut().map(|service| service.receiver()),
@@ -182,6 +185,7 @@ impl CnCGameEngine {
         };
         #[cfg(not(feature = "game_client"))]
         let effects = crate::game_logic::ScriptPresentationEffects {
+            pristine_bones: Some(self.application_assets.as_ref()),
             audio: audio.as_mut().map(|service| service.receiver()),
             ..Default::default()
         };
@@ -218,9 +222,15 @@ impl CnCGameEngine {
                 effects,
                 |frame| {
                     #[cfg(feature = "game_client")]
-                    client_frame.set_frame(frame);
+                    {
+                        client_frame.set_frame(frame);
+                        Some(client_frame.frame())
+                    }
                     #[cfg(not(feature = "game_client"))]
-                    let _ = frame;
+                    {
+                        let _ = frame;
+                        None
+                    }
                 },
                 &mut observe,
             ),
@@ -231,9 +241,15 @@ impl CnCGameEngine {
                     effects,
                     |frame| {
                         #[cfg(feature = "game_client")]
-                        client_frame.set_frame(frame);
+                        {
+                            client_frame.set_frame(frame);
+                            Some(client_frame.frame())
+                        }
                         #[cfg(not(feature = "game_client"))]
-                        let _ = frame;
+                        {
+                            let _ = frame;
+                            None
+                        }
                     },
                     &mut observe,
                 )
@@ -373,7 +389,11 @@ impl CnCGameEngine {
         }
         self.game_logic
             .prepare_native_command_mode(dispatch.game_mode);
-        let request = if dispatch.game_mode == GameMode::Replay {
+        let request = if let Some(descriptor) = message.shell_map_launch() {
+            // The descriptor belongs to this exact command and survives a prior clear.
+            self.game_logic.set_logic_random_seed(descriptor.seed);
+            Some(self.source_shell_map_start_request(dispatch, descriptor)?)
+        } else if dispatch.game_mode == GameMode::Replay {
             // Header/map/slots belong to this same live receiving Recorder.
             Self::take_application_new_game_map();
             self.receiving_recorded_start_request(dispatch)

@@ -1749,6 +1749,9 @@ impl GameLogic {
         &mut self,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
+        #[cfg(feature = "game_client")]
+        let fx_operation_environment = self.observe_object_fx_environment();
+
         use crate::game_logic::host_neutron_missile_update::{
             NEUTRON_DEFAULT_BOUNDING_SPHERE, NeutronMissileFlightPhase, NeutronMissileWorld,
         };
@@ -1796,6 +1799,8 @@ impl GameLogic {
                 }
             });
             let (grounded, phase, is_cruise, producer, launch_fx, ignition_fx) = {
+                #[cfg(feature = "game_client")]
+                let fx_operation_environment = self.observe_object_fx_environment();
                 let Some(o) = self.objects.get_mut(&id) else {
                     continue;
                 };
@@ -1865,6 +1870,8 @@ impl GameLogic {
                     .unwrap_or((Vec3::ZERO, Team::Neutral, producer));
                 let source = producer.unwrap_or(id);
                 // Kill delivery decals on missile + launcher.
+                #[cfg(feature = "game_client")]
+                let fx_operation_environment = self.observe_object_fx_environment();
                 if let Some(o) = self.objects.get_mut(&id) {
                     if let Some(rd) = o.radius_decal_update.as_mut() {
                         rd.kill_radius_decal();
@@ -1872,6 +1879,8 @@ impl GameLogic {
                     }
                 }
                 if let Some(lid) = producer {
+                    #[cfg(feature = "game_client")]
+                    let fx_operation_environment = self.observe_object_fx_environment();
                     if let Some(o) = self.objects.get_mut(&lid) {
                         if let Some(rd) = o.radius_decal_update.as_mut() {
                             rd.kill_radius_decal();
@@ -1912,14 +1921,14 @@ impl GameLogic {
                         {
                             let player = self.local_player_id();
                             let receiver = &mut self.special_power_strikes;
-                            Self::with_host_fx_view_parts_and_terrain(
+                            Self::with_object_fx_services(
                                 &mut self.session_view,
                                 player,
                                 self.world_services.shroud(),
-                                presentation_effects.terrain.as_mut().map(|terrain| {
-                                    &mut **terrain
-                                        as &mut dyn crate::game_logic::NativeTerrainEffects
-                                }),
+                                presentation_effects,
+                                &fx_operation_environment,
+                                self.world_services.terrain(),
+                                &self.logic_random,
                                 |view| {
                                     receiver.spawn_neutron_slow_death_field_with_view(
                                         fx_arg_0, fx_arg_1, fx_arg_2, fx_arg_3, fx_arg_4, view,
@@ -1945,6 +1954,8 @@ impl GameLogic {
                         .with_priority(200),
                     );
                 }
+                #[cfg(feature = "game_client")]
+                let fx_operation_environment = self.observe_object_fx_environment();
                 if let Some(o) = self.objects.get_mut(&id) {
                     o.fire_create_object_die();
                 }
@@ -3108,6 +3119,7 @@ impl GameLogic {
                     self.frame,
                     Some(id),
                     None,
+                    presentation_effects,
                 );
             }
             let mut p = o.get_position();
@@ -3875,15 +3887,36 @@ impl crate::game_logic::GameLogic {
             Option<&mut game_engine::common::thing::module_factory::ModuleFactory>,
         ) -> R,
     ) -> R {
+        let player = self.local_player_id();
+        let shroud = self.world_services.shroud();
         let objects = &self.objects;
+        let projectiles = self.combat_system.get_projectiles();
+        let terrain = self.world_services.terrain();
+        let ground = |position: glam::Vec3| {
+            let terrain = terrain.read().unwrap_or_else(|error| error.into_inner());
+            Some(terrain.get_ground_height(position.x, position.y, None))
+        };
         let particles = &mut self.combat_particles;
-        let exists = |id| objects.contains_key(&ObjectId(id));
+        let exists =
+            |id| objects.contains_key(&ObjectId(id)) || projectiles.contains_key(&ObjectId(id));
+        let pose = |id| {
+            objects
+                .get(&ObjectId(id))
+                .map(|object| Self::observe_host_fx_object(object, player, shroud))
+                .or_else(|| {
+                    projectiles.get(&ObjectId(id)).map(|projectile| {
+                        Self::observe_host_fx_projectile(projectile, player, shroud)
+                    })
+                })
+        };
         let mut lost =
             |manager: &game_client::effects::particle_manager::ParticleSystemOwner, id, object| {
                 particles.admit_client_object_attachment_lost(manager, id, object);
             };
         let mut lifecycle = game_client::effects::particle_manager::NativeParticleObjectLifecycle {
             object_is_live: &exists,
+            object_pose: &pose,
+            ground_height: &ground,
             attached_object_lost: &mut lost,
         };
         operation(

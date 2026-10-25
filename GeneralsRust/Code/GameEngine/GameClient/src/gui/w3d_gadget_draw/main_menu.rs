@@ -1,24 +1,48 @@
 use super::*;
 
-pub fn w3d_main_menu_draw(window: &GameWindow, _inst_data: &WindowInstanceData) {
-    draw_main_menu_frame(window, &[0.225, 0.445, 0.6662, 0.885]);
-    animate_main_menu_pulse(window, "MainMenuPulse");
+pub fn w3d_main_menu_draw(
+    window: &GameWindow,
+    _inst_data: &WindowInstanceData,
+    draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
+) {
+    draw_main_menu_frame(window, &[0.225, 0.445, 0.6662, 0.885], draw_context);
+    animate_main_menu_pulse(window, "MainMenuPulse", draw_context);
 }
 
-pub fn w3d_main_menu_four_draw(window: &GameWindow, _inst_data: &WindowInstanceData) {
-    draw_main_menu_frame(window, &[0.295, 0.59, 0.885]);
-    animate_main_menu_pulse(window, "MainMenuPulse");
+pub fn w3d_main_menu_four_draw(
+    window: &GameWindow,
+    _inst_data: &WindowInstanceData,
+    draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
+) {
+    draw_main_menu_frame(window, &[0.295, 0.59, 0.885], draw_context);
+    animate_main_menu_pulse(window, "MainMenuPulse", draw_context);
 }
 
-pub fn w3d_metal_bar_menu_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
+pub fn w3d_metal_bar_menu_draw(
+    window: &GameWindow,
+    inst_data: &WindowInstanceData,
+    draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
+) {
     let color = visible_enabled_color(window, inst_data, FALLBACK_METAL_FILL);
     let (x, y) = window.get_screen_position();
     let (width, height) = window.get_size();
-    draw_visible_fill(x, y, width, height, color, Some(FALLBACK_BORDER));
-    window.draw_border_w3d();
+    draw_visible_fill(
+        x,
+        y,
+        width,
+        height,
+        color,
+        Some(FALLBACK_BORDER),
+        draw_context,
+    );
+    window.draw_border_w3d(draw_context);
 }
 
-pub fn w3d_main_menu_map_border(window: &GameWindow, _inst_data: &WindowInstanceData) {
+pub fn w3d_main_menu_map_border(
+    window: &GameWindow,
+    _inst_data: &WindowInstanceData,
+    draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
+) {
     pub(super) const BORDER_CORNER_SIZE: i32 = 10;
     pub(super) const BORDER_LINE_SIZE: i32 = 20;
     pub(super) const SIZE: i32 = 20;
@@ -29,7 +53,7 @@ pub fn w3d_main_menu_map_border(window: &GameWindow, _inst_data: &WindowInstance
     let max_x = x + width;
     let max_y = y + height;
 
-    with_window_manager_ref(|manager| {
+    crate::gui::window_draw_context::with_draw_manager(draw_context.manager, |manager| {
         let mut drew_any_piece = false;
 
         if let Some(image) = manager.win_find_image("FrameCornerHorizontal") {
@@ -46,6 +70,7 @@ pub fn w3d_main_menu_map_border(window: &GameWindow, _inst_data: &WindowInstance
                     draw_x + SIZE,
                     top_y + SIZE,
                     WIN_COLOR_UNDEFINED,
+                    draw_context,
                 );
                 manager.win_draw_image(
                     &image,
@@ -54,6 +79,7 @@ pub fn w3d_main_menu_map_border(window: &GameWindow, _inst_data: &WindowInstance
                     draw_x + SIZE,
                     bottom_y + SIZE,
                     WIN_COLOR_UNDEFINED,
+                    draw_context,
                 );
                 draw_x += BORDER_LINE_SIZE;
             }
@@ -66,6 +92,7 @@ pub fn w3d_main_menu_map_border(window: &GameWindow, _inst_data: &WindowInstance
                     draw_x + HALF_SIZE,
                     top_y + SIZE,
                     WIN_COLOR_UNDEFINED,
+                    draw_context,
                 );
                 manager.win_draw_image(
                     &image,
@@ -74,6 +101,7 @@ pub fn w3d_main_menu_map_border(window: &GameWindow, _inst_data: &WindowInstance
                     draw_x + HALF_SIZE,
                     bottom_y + SIZE,
                     WIN_COLOR_UNDEFINED,
+                    draw_context,
                 );
                 draw_x += BORDER_LINE_SIZE / 2;
             }
@@ -87,6 +115,7 @@ pub fn w3d_main_menu_map_border(window: &GameWindow, _inst_data: &WindowInstance
                     draw_x + HALF_SIZE,
                     top_y + SIZE,
                     WIN_COLOR_UNDEFINED,
+                    draw_context,
                 );
                 manager.win_draw_image(
                     &image,
@@ -95,6 +124,7 @@ pub fn w3d_main_menu_map_border(window: &GameWindow, _inst_data: &WindowInstance
                     draw_x + HALF_SIZE,
                     bottom_y + SIZE,
                     WIN_COLOR_UNDEFINED,
+                    draw_context,
                 );
             }
         }
@@ -113,6 +143,7 @@ pub fn w3d_main_menu_map_border(window: &GameWindow, _inst_data: &WindowInstance
                     left_x + SIZE,
                     draw_y + SIZE,
                     WIN_COLOR_UNDEFINED,
+                    draw_context,
                 );
                 manager.win_draw_image(
                     &image,
@@ -121,6 +152,7 @@ pub fn w3d_main_menu_map_border(window: &GameWindow, _inst_data: &WindowInstance
                     right_x + SIZE,
                     draw_y + SIZE,
                     WIN_COLOR_UNDEFINED,
+                    draw_context,
                 );
                 draw_y += BORDER_LINE_SIZE;
             }
@@ -133,6 +165,7 @@ pub fn w3d_main_menu_map_border(window: &GameWindow, _inst_data: &WindowInstance
                     left_x + SIZE,
                     draw_y + HALF_SIZE,
                     WIN_COLOR_UNDEFINED,
+                    draw_context,
                 );
                 manager.win_draw_image(
                     &image,
@@ -141,6 +174,7 @@ pub fn w3d_main_menu_map_border(window: &GameWindow, _inst_data: &WindowInstance
                     right_x + SIZE,
                     draw_y + HALF_SIZE,
                     WIN_COLOR_UNDEFINED,
+                    draw_context,
                 );
                 draw_y += BORDER_LINE_SIZE / 2;
             }
@@ -154,6 +188,7 @@ pub fn w3d_main_menu_map_border(window: &GameWindow, _inst_data: &WindowInstance
                     left_x + SIZE,
                     draw_y + HALF_SIZE,
                     WIN_COLOR_UNDEFINED,
+                    draw_context,
                 );
                 manager.win_draw_image(
                     &image,
@@ -162,6 +197,7 @@ pub fn w3d_main_menu_map_border(window: &GameWindow, _inst_data: &WindowInstance
                     right_x + SIZE,
                     draw_y + HALF_SIZE,
                     WIN_COLOR_UNDEFINED,
+                    draw_context,
                 );
             }
         }
@@ -197,6 +233,7 @@ pub fn w3d_main_menu_map_border(window: &GameWindow, _inst_data: &WindowInstance
                     draw_x + SIZE,
                     draw_y + SIZE,
                     WIN_COLOR_UNDEFINED,
+                    draw_context,
                 );
             }
         }
@@ -210,14 +247,38 @@ pub fn w3d_main_menu_map_border(window: &GameWindow, _inst_data: &WindowInstance
             let right = max_x + BORDER_CORNER_SIZE;
             let bottom = max_y + BORDER_CORNER_SIZE;
 
-            manager.win_draw_line(COLOR, 1.0, left, top, right, top);
-            manager.win_draw_line(COLOR_DROP, 1.0, left, top + 1, right, top + 1);
-            manager.win_draw_line(COLOR, 1.0, left, bottom, right, bottom);
-            manager.win_draw_line(COLOR_DROP, 1.0, left, bottom - 1, right, bottom - 1);
-            manager.win_draw_line(COLOR, 1.0, left, top, left, bottom);
-            manager.win_draw_line(COLOR_DROP, 1.0, left + 1, top, left + 1, bottom);
-            manager.win_draw_line(COLOR, 1.0, right, top, right, bottom);
-            manager.win_draw_line(COLOR_DROP, 1.0, right - 1, top, right - 1, bottom);
+            manager.win_draw_line(COLOR, 1.0, left, top, right, top, draw_context);
+            manager.win_draw_line(COLOR_DROP, 1.0, left, top + 1, right, top + 1, draw_context);
+            manager.win_draw_line(COLOR, 1.0, left, bottom, right, bottom, draw_context);
+            manager.win_draw_line(
+                COLOR_DROP,
+                1.0,
+                left,
+                bottom - 1,
+                right,
+                bottom - 1,
+                draw_context,
+            );
+            manager.win_draw_line(COLOR, 1.0, left, top, left, bottom, draw_context);
+            manager.win_draw_line(
+                COLOR_DROP,
+                1.0,
+                left + 1,
+                top,
+                left + 1,
+                bottom,
+                draw_context,
+            );
+            manager.win_draw_line(COLOR, 1.0, right, top, right, bottom, draw_context);
+            manager.win_draw_line(
+                COLOR_DROP,
+                1.0,
+                right - 1,
+                top,
+                right - 1,
+                bottom,
+                draw_context,
+            );
             note_shipped_ui_draw_commands(8);
         } else {
             note_shipped_ui_draw_commands(1);
@@ -225,19 +286,27 @@ pub fn w3d_main_menu_map_border(window: &GameWindow, _inst_data: &WindowInstance
     });
 }
 
-pub fn w3d_main_menu_button_drop_shadow_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
-    draw_push_button_image_base(window, inst_data);
-    draw_main_menu_button_drop_shadow_text(window, inst_data);
-    draw_video_buffer(window, inst_data);
+pub fn w3d_main_menu_button_drop_shadow_draw(
+    window: &GameWindow,
+    inst_data: &WindowInstanceData,
+    draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
+) {
+    draw_push_button_image_base(window, inst_data, draw_context);
+    draw_main_menu_button_drop_shadow_text(window, inst_data, draw_context);
+    draw_video_buffer(window, inst_data, draw_context);
     if let Some(widget) = window.widget() {
         if let crate::gui::game_window::WindowWidget::PushButton(button) = widget {
-            draw_button_style_overlay(window, button);
+            draw_button_style_overlay(window, button, draw_context);
         }
     }
-    draw_button_overlays(window, inst_data);
+    draw_button_overlays(window, inst_data, draw_context);
 }
 
-pub fn w3d_main_menu_random_text_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
+pub fn w3d_main_menu_random_text_draw(
+    window: &GameWindow,
+    inst_data: &WindowInstanceData,
+    draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
+) {
     let raw_text = if !inst_data.text.is_empty() {
         inst_data.text.as_str()
     } else {
@@ -275,12 +344,13 @@ pub fn w3d_main_menu_random_text_draw(window: &GameWindow, inst_data: &WindowIns
             inst_data.disabled_text.border_color,
             1,
             1,
+            draw_context,
         );
         display.set_clip_region(None);
         return;
     }
 
-    let _ = with_ui_renderer_mut(|renderer| {
+    let _ = draw_context.with_renderer(|renderer, display_facts| {
         let (point_size, font_name, bold) = match inst_data.font.as_ref() {
             Some(font) => (font.size as f32, font.name.as_str(), font.bold),
             None => (12.0, "Arial", false),
@@ -314,29 +384,47 @@ pub fn w3d_main_menu_random_text_draw(window: &GameWindow, inst_data: &WindowIns
     });
 }
 
-pub fn w3d_thin_border_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
+pub fn w3d_thin_border_draw(
+    window: &GameWindow,
+    inst_data: &WindowInstanceData,
+    draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
+) {
     let image = window
         .get_enabled_draw_data(0)
         .and_then(|draw_data| draw_data.image);
-    draw_window_image_or_fallback(window, inst_data, image.as_ref(), FALLBACK_FILL);
+    draw_window_image_or_fallback(
+        window,
+        inst_data,
+        image.as_ref(),
+        FALLBACK_FILL,
+        draw_context,
+    );
 }
 
-pub fn w3d_shell_menu_scheme_draw(_window: &GameWindow, _inst_data: &WindowInstanceData) {
+pub fn w3d_shell_menu_scheme_draw(
+    _window: &GameWindow,
+    _inst_data: &WindowInstanceData,
+    draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
+) {
     // Drawing may re-enter from a shell layout callback.  It has no durable
     // shell mutation to queue, so skip the frame rather than aliasing a live
     // lifecycle borrow.
     let _ = crate::gui::shell::try_with_shell_mut(|shell| {
         if shell.is_shell_active() {
-            shell.get_shell_menu_scheme_manager().draw();
+            shell.get_shell_menu_scheme_manager().draw(draw_context);
         }
     });
 }
 
-pub fn w3d_credits_menu_draw(_window: &GameWindow, _inst_data: &WindowInstanceData) {
+pub fn w3d_credits_menu_draw(
+    _window: &GameWindow,
+    _inst_data: &WindowInstanceData,
+    draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
+) {
     // THREAD: the credits menu is owned by the GUI-thread menu manager, so the
     // draw simply borrows it mutably — a draw that re-entered a live lifecycle
     // borrow would panic on the RefCell instead of wedging a std RwLock.
-    with_credits_menu(|menu| menu.draw());
+    crate::gui::callbacks::owned_credits_menu::draw(_window, draw_context);
 }
 
 /// C++ W3DControlBar.cpp:661-667 — `W3DNoDraw` has an EMPTY body (the
@@ -346,4 +434,9 @@ pub fn w3d_credits_menu_draw(_window: &GameWindow, _inst_data: &WindowInstanceDa
 /// 0,414-799,599) holds `IMAGE: InGameUIChinaBase`, which the ZH retail
 /// window manager never paints. Painting it here leaked atlas art across the
 /// in-match control bar as a giant blurry text band.
-pub fn w3d_no_draw(_window: &GameWindow, _inst_data: &WindowInstanceData) {}
+pub fn w3d_no_draw(
+    _window: &GameWindow,
+    _inst_data: &WindowInstanceData,
+    draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
+) {
+}

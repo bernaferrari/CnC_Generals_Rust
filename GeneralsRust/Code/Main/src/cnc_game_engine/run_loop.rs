@@ -614,7 +614,6 @@ pub async fn run_cnc_game(
                                 engine_init_started_at = None;
                                 engine_init_last_log_at = None;
                                 let mut new_engine = Box::new(new_engine);
-                                new_engine.game_client.republish_live_slot_after_engine_move();
                                 if let Some(event) = startup_focus
                                     .as_mut()
                                     .and_then(StartupWindowFocus::take_event)

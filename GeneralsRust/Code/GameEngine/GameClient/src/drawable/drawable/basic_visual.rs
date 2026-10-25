@@ -443,6 +443,7 @@ impl BasicDrawable {
         font_is_bold: bool,
         drop_shadow_offset_x: i32,
         drop_shadow_offset_y: i32,
+        draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
     ) {
         let mut text = text_handle.borrow_mut();
         let font_desc = FontDesc::new(font_name, font_size, font_is_bold);
@@ -456,6 +457,7 @@ impl BasicDrawable {
             drop_color,
             drop_shadow_offset_x,
             drop_shadow_offset_y,
+            draw_context,
         );
     }
 }

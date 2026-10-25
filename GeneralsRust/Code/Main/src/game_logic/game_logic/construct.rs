@@ -819,6 +819,7 @@ impl GameLogic {
         );
         self.queued_audio_events.clear();
         self.session_view.world_animations.clear();
+        self.session_view.border_shroud_level = None;
         self.native_hulk_max_lifetime_override = -1;
         self.draw_icon_ui = true;
         self.weapon_definitions = self.weapon_definition_base.clone();

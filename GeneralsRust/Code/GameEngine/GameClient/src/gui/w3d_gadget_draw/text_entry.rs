@@ -94,6 +94,7 @@ pub(super) fn draw_text_entry_text(
     origin_y: i32,
     size_x: i32,
     size_y: i32,
+    draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
 ) {
     if !text_entry_text_color_defined(text_color) {
         return;
@@ -130,7 +131,7 @@ pub(super) fn draw_text_entry_text(
 
     let text_width = display.get_width(-1);
     let draw_x = text_entry_text_draw_x(draw_from_start, start_x, width, text_width);
-    display.draw(draw_x, start_y, text_color, drop_color);
+    display.draw(draw_x, start_y, text_color, drop_color, draw_context);
     let mut cursor_pos = if text_entry_password_composition_is_masked(entry) {
         draw_x + text_width
     } else {
@@ -141,14 +142,20 @@ pub(super) fn draw_text_entry_text(
         let comp_text = entry.ime_composition().to_string();
         let comp_x = draw_x + text_width;
         display.set_text(comp_text);
-        display.draw(comp_x, start_y, composite_color, composite_drop);
+        display.draw(
+            comp_x,
+            start_y,
+            composite_color,
+            composite_drop,
+            draw_context,
+        );
         cursor_pos += display.get_width(entry.ime_cursor() as i32);
     }
 
     pub(super) static DRAW_CNT: AtomicU8 = AtomicU8::new(0);
     let cnt = DRAW_CNT.fetch_add(1, Ordering::Relaxed);
-    if text_entry_caret_has_focus(window) && (cnt >> 3) & 0x1 == 1 {
-        with_window_manager_ref(|manager| {
+    if text_entry_caret_has_focus(window, draw_context) && (cnt >> 3) & 0x1 == 1 {
+        crate::gui::window_draw_context::with_draw_manager(draw_context.manager, |manager| {
             manager.win_fill_rect(
                 text_color,
                 1.0,
@@ -156,6 +163,7 @@ pub(super) fn draw_text_entry_text(
                 origin_y + 3,
                 cursor_pos + 2,
                 origin_y + size_y - 3,
+                draw_context,
             );
         });
     }
@@ -250,13 +258,17 @@ pub(super) fn text_entry_text_color_defined(text_color: u32) -> bool {
     text_color != WIN_COLOR_UNDEFINED
 }
 
-pub(super) fn text_entry_caret_has_focus(window: &GameWindow) -> bool {
-    let focus_id = with_window_manager_ref(|manager| {
-        manager
-            .get_focus()
-            .as_ref()
-            .map(|focus| focus.borrow().get_id())
-    });
+pub(super) fn text_entry_caret_has_focus(
+    window: &GameWindow,
+    draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
+) -> bool {
+    let focus_id =
+        crate::gui::window_draw_context::with_draw_manager(draw_context.manager, |manager| {
+            manager
+                .get_focus()
+                .as_ref()
+                .map(|focus| focus.borrow().get_id())
+        });
     let combo_parent_id = window.get_parent().and_then(|parent| {
         let parent = parent.borrow();
         if parent.get_style() & GWS_COMBO_BOX != 0 {
@@ -278,7 +290,11 @@ pub(super) fn text_entry_focus_matches(
         || combo_parent_id.is_some_and(|parent_id| focus_id == Some(parent_id))
 }
 
-pub fn w3d_gadget_text_entry_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
+pub fn w3d_gadget_text_entry_draw(
+    window: &GameWindow,
+    inst_data: &WindowInstanceData,
+    draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
+) {
     let (draw_data, text_colors) =
         if inst_data.state.contains(WindowState::DISABLED) || !window.is_enabled() {
             (&inst_data.disabled_draw_data, &inst_data.disabled_text)
@@ -292,7 +308,7 @@ pub fn w3d_gadget_text_entry_draw(window: &GameWindow, inst_data: &WindowInstanc
     let (size_x, size_y) = window.get_size();
 
     if back.border_color != WIN_COLOR_UNDEFINED {
-        with_window_manager_ref(|manager| {
+        crate::gui::window_draw_context::with_draw_manager(draw_context.manager, |manager| {
             manager.win_open_rect(
                 back.border_color,
                 1.0,
@@ -300,11 +316,12 @@ pub fn w3d_gadget_text_entry_draw(window: &GameWindow, inst_data: &WindowInstanc
                 origin_y,
                 origin_x + size_x,
                 origin_y + size_y,
+                draw_context,
             );
         });
     }
     if back.color != WIN_COLOR_UNDEFINED {
-        with_window_manager_ref(|manager| {
+        crate::gui::window_draw_context::with_draw_manager(draw_context.manager, |manager| {
             manager.win_fill_rect(
                 back.color,
                 1.0,
@@ -312,17 +329,19 @@ pub fn w3d_gadget_text_entry_draw(window: &GameWindow, inst_data: &WindowInstanc
                 origin_y + 1,
                 origin_x + size_x - 1,
                 origin_y + size_y - 1,
+                draw_context,
             );
         });
     }
 
-    let font_height = with_window_manager_ref(|manager| {
-        inst_data
-            .font
-            .as_ref()
-            .map(|font| manager.win_font_height(font))
-            .unwrap_or(12)
-    });
+    let font_height =
+        crate::gui::window_draw_context::with_draw_manager(draw_context.manager, |manager| {
+            inst_data
+                .font
+                .as_ref()
+                .map(|font| manager.win_font_height(font))
+                .unwrap_or(12)
+        });
     let start_offset = 5;
     let width = size_x - (2 * start_offset);
     let start_x = origin_x + start_offset;
@@ -348,10 +367,15 @@ pub fn w3d_gadget_text_entry_draw(window: &GameWindow, inst_data: &WindowInstanc
         origin_y,
         size_x,
         size_y,
+        draw_context,
     );
 }
 
-pub fn w3d_gadget_text_entry_image_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
+pub fn w3d_gadget_text_entry_image_draw(
+    window: &GameWindow,
+    inst_data: &WindowInstanceData,
+    draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
+) {
     let (draw_data, text_colors) =
         if inst_data.state.contains(WindowState::DISABLED) || !window.is_enabled() {
             (&inst_data.disabled_draw_data, &inst_data.disabled_text)
@@ -383,7 +407,7 @@ pub fn w3d_gadget_text_entry_image_draw(window: &GameWindow, inst_data: &WindowI
             center_image.width,
             small_center_image.width,
         );
-        with_window_manager_ref(|manager| {
+        crate::gui::window_draw_context::with_draw_manager(draw_context.manager, |manager| {
             for (kind, start_x, start_y, end_x, end_y) in tiles {
                 let image = match kind {
                     TextEntryImageTileKind::Left => left_image,
@@ -391,18 +415,27 @@ pub fn w3d_gadget_text_entry_image_draw(window: &GameWindow, inst_data: &WindowI
                     TextEntryImageTileKind::Center => center_image,
                     TextEntryImageTileKind::SmallCenter => small_center_image,
                 };
-                manager.win_draw_image(image, start_x, start_y, end_x, end_y, WIN_COLOR_UNDEFINED);
+                manager.win_draw_image(
+                    image,
+                    start_x,
+                    start_y,
+                    end_x,
+                    end_y,
+                    WIN_COLOR_UNDEFINED,
+                    draw_context,
+                );
             }
         });
     }
 
-    let font_height = with_window_manager_ref(|manager| {
-        inst_data
-            .font
-            .as_ref()
-            .map(|font| manager.win_font_height(font))
-            .unwrap_or(12)
-    });
+    let font_height =
+        crate::gui::window_draw_context::with_draw_manager(draw_context.manager, |manager| {
+            inst_data
+                .font
+                .as_ref()
+                .map(|font| manager.win_font_height(font))
+                .unwrap_or(12)
+        });
     let start_offset = 5;
     let width = size_x - (2 * start_offset);
     let start_x = origin_x + start_offset;
@@ -428,5 +461,6 @@ pub fn w3d_gadget_text_entry_image_draw(window: &GameWindow, inst_data: &WindowI
         origin_y,
         size_x,
         size_y,
+        draw_context,
     );
 }

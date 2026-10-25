@@ -192,17 +192,9 @@ struct SinglePlayerLoadScreenState {
     ambient_loop_handle: u32,
 }
 
-// THREAD: main thread only. The load screens are GUI-thread state — the host drives
-// them from the map-load milestone pump on the same thread that owns the
-// WindowManager, and the movie hooks are registered by tests on that thread too,
-// so these live in one thread-local cell block instead of lock-wrapped statics.
+// Optional external progress callbacks retain their existing adapter boundary.
+// Per-screen mutable state is owned by LoadScreenRuntime below.
 thread_local! {
-    static SINGLE_PLAYER_LOAD_SCREEN_STATE: RefCell<SinglePlayerLoadScreenState> =
-        RefCell::new(SinglePlayerLoadScreenState::default());
-    static MULTIPLAYER_LOAD_SCREEN_STATE: RefCell<MultiplayerLoadScreenState> =
-        RefCell::new(MultiplayerLoadScreenState::default());
-    static MAP_TRANSFER_LOAD_SCREEN_STATE: RefCell<MapTransferLoadScreenState> =
-        RefCell::new(MapTransferLoadScreenState::default());
     static MAP_TRANSFER_LITEUPDATE_HOOK: RefCell<Option<MapTransferLiteupdateHook>> =
         const { RefCell::new(None) };
     static MULTIPLAYER_LOAD_PROGRESS_HOOK: RefCell<Option<MultiplayerLoadProgressHook>> =
@@ -226,7 +218,123 @@ thread_local! {
 
 type MapTransferLiteupdateHook = Arc<dyn Fn() + Send + Sync + 'static>;
 type MultiplayerLoadProgressHook = Arc<dyn Fn(i32, i32) + Send + Sync + 'static>;
-type LoadScreenPresentationPump = Rc<dyn Fn() + 'static>;
+/// Explicit bridge from one load-screen operation to its receiving display.
+/// The weak handle keeps the GameClient as the display owner while retaining
+/// the display mutex required by native draw/update callers.
+pub struct LoadScreenPresentationPump<'a> {
+    recipient: LoadScreenPresentationRecipient<'a>,
+    mouse: Option<crate::core::subsystems::MouseHandle>,
+}
+enum LoadScreenPresentationRecipient<'a> {
+    Display {
+        display: Option<std::sync::Weak<std::sync::Mutex<crate::display::display::Display>>>,
+        fx: &'a mut crate::display::display_fx::DisplayFxState,
+        renderer: Option<&'a mut crate::gui::UIRenderer>,
+        owner: &'a crate::gui::window_manager::WindowManagerOwner,
+    },
+    Native(&'a mut dyn FnMut() -> Result<(), String>),
+}
+impl<'a> LoadScreenPresentationPump<'a> {
+    pub fn for_display(
+        display: Option<&std::sync::Arc<std::sync::Mutex<crate::display::display::Display>>>,
+        fx: &'a mut crate::display::display_fx::DisplayFxState,
+        renderer: Option<&'a mut crate::gui::UIRenderer>,
+        owner: &'a crate::gui::window_manager::WindowManagerOwner,
+    ) -> Self {
+        Self {
+            recipient: LoadScreenPresentationRecipient::Display {
+                display: display.map(std::sync::Arc::downgrade),
+                fx,
+                renderer,
+                owner,
+            },
+            mouse: None,
+        }
+    }
+    pub fn for_native(present: &'a mut dyn FnMut() -> Result<(), String>) -> Self {
+        Self {
+            recipient: LoadScreenPresentationRecipient::Native(present),
+            mouse: None,
+        }
+    }
+    pub fn with_mouse(mut self, mouse: Option<crate::core::subsystems::MouseHandle>) -> Self {
+        self.mouse = mouse;
+        self
+    }
+    fn clear_cursor_tooltip(&mut self) -> Result<(), String> {
+        if let Some(mouse) = self.mouse.as_ref() {
+            let mut mouse = mouse
+                .lock()
+                .map_err(|_| "load-screen receiving mouse poisoned".to_string())?;
+            mouse.set_cursor_tooltip(String::new(), None, None, None);
+        }
+        Ok(())
+    }
+    pub fn pump(&mut self) -> Result<(), String> {
+        match &mut self.recipient {
+            LoadScreenPresentationRecipient::Native(present) => present(),
+            LoadScreenPresentationRecipient::Display {
+                display,
+                fx,
+                renderer,
+                owner,
+            } => {
+                let Some(display) = display.as_ref().and_then(std::sync::Weak::upgrade) else {
+                    #[cfg(test)]
+                    {
+                        pump_load_screen_presentation_test_hook();
+                        return Ok(());
+                    }
+                    #[cfg(not(test))]
+                    return Err("load screen has no receiving display presentation service".into());
+                };
+                let mut display = display
+                    .lock()
+                    .map_err(|_| "load-screen display poisoned".to_string())?;
+                display
+                    .update_receiving(fx)
+                    .map_err(|error| error.to_string())?;
+                display
+                    .draw(fx, renderer.as_deref_mut(), Some(owner))
+                    .map_err(|error| error.to_string())
+            }
+        }
+    }
+}
+/// Disjoint load-screen initialization loan, independent of its UI/device loan.
+pub struct LoadScreenOwner<'a> {
+    pub(crate) owner: &'a WindowManagerOwner,
+    pub(crate) campaign: &'a crate::gui::campaign_manager::CampaignManager,
+    pub(crate) first_load: &'a mut bool,
+    pub(crate) runtime: &'a mut LoadScreenRuntime,
+}
+impl<'a> LoadScreenOwner<'a> {
+    pub fn runtime_mut(&mut self) -> &mut LoadScreenRuntime {
+        self.runtime
+    }
+    pub fn windows(&self) -> &'a WindowManagerOwner {
+        self.owner
+    }
+    pub fn init(
+        &mut self,
+        kind: LoadScreenKind,
+        context: &LoadScreenInitContext,
+        pump: &mut LoadScreenPresentationPump<'_>,
+    ) -> Result<bool, String> {
+        init_load_screen_for_owner_with_pump(
+            self.owner,
+            kind,
+            context,
+            self.campaign,
+            self.first_load,
+            Some(pump),
+            self.runtime,
+        )
+    }
+}
+
+#[cfg(test)]
+pub type LoadScreenPresentationPumpTestHook = Rc<dyn Fn() + 'static>;
 #[cfg(test)]
 type LoadScreenFinishUpdateHook = Arc<dyn Fn() + Send + Sync + 'static>;
 #[cfg(test)]
@@ -237,8 +345,9 @@ type ChallengeMoviePlayHook = Arc<dyn Fn(&str) -> bool + Send + Sync + 'static>;
 type ChallengeMovieAdvanceHook =
     Arc<dyn Fn(&str) -> Option<LoadScreenMovieAdvance> + Send + Sync + 'static>;
 
+#[cfg(test)]
 thread_local! {
-    static LOAD_SCREEN_PRESENTATION_PUMP: RefCell<Option<LoadScreenPresentationPump>> =
+    static LOAD_SCREEN_PRESENTATION_PUMP_TEST_HOOK: RefCell<Option<LoadScreenPresentationPumpTestHook>> =
         const { RefCell::new(None) };
 }
 
@@ -275,11 +384,6 @@ struct ChallengeLoadScreenState {
     text_pos_name_left: usize,
     text_pos_birthplace_left: usize,
     text_pos_strategy_left: usize,
-}
-
-thread_local! {
-    static CHALLENGE_LOAD_SCREEN_STATE: RefCell<ChallengeLoadScreenState> =
-        RefCell::new(ChallengeLoadScreenState::default());
 }
 
 const CHALLENGE_BIO_LABEL_WINDOWS: &[&str] = &[
@@ -335,4 +439,13 @@ impl Default for LoadScreenInitContext {
             slots: Vec::new(),
         }
     }
+}
+
+/// Mutable loading presentation belongs to one client, independent of its thread.
+#[derive(Debug, Default)]
+pub struct LoadScreenRuntime {
+    single_player: SinglePlayerLoadScreenState,
+    multiplayer: MultiplayerLoadScreenState,
+    map_transfer: MapTransferLoadScreenState,
+    challenge: ChallengeLoadScreenState,
 }

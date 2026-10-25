@@ -61,11 +61,28 @@ impl Object {
         fx: &mut dyn FnMut(&str, &Object, bool),
         _audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) -> bool {
-        if !self.is_kind_of(crate::game_logic::KindOf::Structure) {
+        let Some((started, _detached_retirement)) = self.prepare_structure_collapse(current_frame)
+        else {
             return false;
+        };
+        if !started {
+            return true;
+        }
+        self.dispatch_pending_collapse_fx_with(fx);
+        true
+    }
+    pub(in crate::game_logic) fn prepare_structure_collapse(
+        &mut self,
+        current_frame: u32,
+    ) -> Option<(
+        bool,
+        crate::game_logic::host_bone_fx_damage::BoneParticleRetirement,
+    )> {
+        if !self.is_kind_of(crate::game_logic::KindOf::Structure) {
+            return None;
         }
         if !self.thing.template.authored_structure_collapse {
-            return false;
+            return None;
         }
         if self
             .structure_collapse_data
@@ -73,7 +90,10 @@ impl Object {
             .map(|d| !d.is_standing())
             .unwrap_or(false)
         {
-            return true;
+            return Some((
+                false,
+                crate::game_logic::host_bone_fx_damage::BoneParticleRetirement::empty(),
+            ));
         }
         let mut data =
             crate::game_logic::host_structure_collapse::HostStructureCollapseData::default();
@@ -94,14 +114,16 @@ impl Object {
         // Mid delay residual (average of 15–30).
         data.begin(current_frame, 22);
         self.structure_collapse_data = Some(data);
-        if let Some(bfx) = self.bone_fx_damage.as_mut() {
-            bfx.stop_all_bone_fx();
-        }
-        // ActiveBody has already committed lethal HP/dead state before onDie.
-        // The independently scheduled structure update must not revive that body.
-        // C++ beginStructureCollapse: doPhaseStuff(SCPHASE_INITIAL) → FXList::doFXPos.
-        self.dispatch_pending_collapse_fx_with(fx);
-        true
+        let retired = self
+            .bone_fx_damage
+            .as_mut()
+            .map(|bfx| {
+                let ids = bfx.take_running_particle_systems();
+                bfx.stop_all_bone_fx();
+                ids
+            })
+            .unwrap_or_else(crate::game_logic::host_bone_fx_damage::BoneParticleRetirement::empty);
+        Some((true, retired))
     }
 
     /// C++ StructureCollapseUpdate::update. Animation completion does not request deletion.
@@ -145,7 +167,10 @@ impl Object {
     }
 
     /// C++ `doPhaseStuff` → `FXList::doFXPos` at the building position.
-    fn dispatch_pending_collapse_fx_with(&mut self, dispatch: &mut dyn FnMut(&str, &Object, bool)) {
+    pub(in crate::game_logic) fn dispatch_pending_collapse_fx_with(
+        &mut self,
+        dispatch: &mut dyn FnMut(&str, &Object, bool),
+    ) {
         let Some(sc) = self.structure_collapse_data.as_mut() else {
             return;
         };
@@ -1094,7 +1119,7 @@ impl Object {
         self.model_condition_bits |=
             1u128 << crate::game_logic::host_enum_table_residual::post_collapse_model_bit();
         if let Some(bfx) = self.bone_fx_damage.as_mut() {
-            bfx.stop_all_bone_fx();
+            bfx.stop_all_bone_fx_with_owner(effects);
         }
         let Some(data) = self.structure_topple_data.as_ref() else {
             return;

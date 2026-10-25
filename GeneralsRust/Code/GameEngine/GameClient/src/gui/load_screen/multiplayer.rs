@@ -4,6 +4,7 @@ fn initialize_multiplayer_windows(
     wm: &mut WindowManager,
     prefix: &str,
     context: &LoadScreenInitContext,
+    runtime: &mut LoadScreenRuntime,
 ) {
     let has_team_windows = load_screen_has_team_windows(prefix);
     if let Some(portrait_image) = context
@@ -47,17 +48,20 @@ fn initialize_multiplayer_windows(
     );
 
     let slots = multiplayer_slot_contexts(context);
-    with_multiplayer_load_screen_state(|state| {
-        *state = MultiplayerLoadScreenState::default();
-        state.local_player_id = context.local_team_number;
-        for (compact_slot, slot_context) in slots.iter().enumerate() {
-            if slot_context.player_id >= 0
-                && (slot_context.player_id as usize) < MAX_LOAD_SCREEN_SLOTS
-            {
-                state.player_lookup[slot_context.player_id as usize] = compact_slot as i32;
+    with_multiplayer_load_screen_state(
+        |state| {
+            *state = MultiplayerLoadScreenState::default();
+            state.local_player_id = context.local_team_number;
+            for (compact_slot, slot_context) in slots.iter().enumerate() {
+                if slot_context.player_id >= 0
+                    && (slot_context.player_id as usize) < MAX_LOAD_SCREEN_SLOTS
+                {
+                    state.player_lookup[slot_context.player_id as usize] = compact_slot as i32;
+                }
             }
-        }
-    });
+        },
+        runtime,
+    );
     for slot in 0..MAX_LOAD_SCREEN_SLOTS {
         set_progress_window(wm, &format!("{prefix}:ProgressLoad{slot}"), 0.0);
         if let Some(slot_context) = slots.get(slot) {
@@ -276,8 +280,12 @@ fn apply_multiplayer_start_position_labels(
     }
 }
 
-fn initialize_gamespy_windows(wm: &mut WindowManager, context: &LoadScreenInitContext) {
-    initialize_multiplayer_windows(wm, "GameSpyLoadScreen.wnd", context);
+fn initialize_gamespy_windows(
+    wm: &mut WindowManager,
+    context: &LoadScreenInitContext,
+    runtime: &mut LoadScreenRuntime,
+) {
+    initialize_multiplayer_windows(wm, "GameSpyLoadScreen.wnd", context, runtime);
 
     let slots = multiplayer_slot_contexts(context);
     for slot in 0..MAX_LOAD_SCREEN_SLOTS {

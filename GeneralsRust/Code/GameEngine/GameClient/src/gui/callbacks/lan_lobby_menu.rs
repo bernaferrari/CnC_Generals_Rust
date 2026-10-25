@@ -12,13 +12,13 @@ use crate::gui::callbacks::{
 };
 use crate::gui::gadgets::ListBoxItemData;
 use crate::gui::{
-    get_shell, show_shell_map_if_available, try_with_shell_mut, with_window_manager,
-    write_input_focus_response, GameWindow, LanPreferences, WindowLayout, WindowMessage,
-    WindowMsgData, WindowMsgHandled, GLM_DOUBLE_CLICKED,
+    GLM_DOUBLE_CLICKED, GameWindow, LanPreferences, WindowLayout, WindowMessage, WindowMsgData,
+    WindowMsgHandled, get_shell, show_shell_map_if_available, try_with_shell_mut,
+    with_window_manager, write_input_focus_response,
 };
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_network::lan_api::{
-    ensure_the_lan, reset_the_lan, the_lan, ChatType, LanEvent, LanGameInfo, LanResult,
+    ChatType, LanEvent, LanGameInfo, LanResult, ensure_the_lan, reset_the_lan, the_lan,
 };
 use log::warn;
 
@@ -278,7 +278,10 @@ fn request_join_selected(state: &LanLobbyState) {
     });
 }
 
-pub fn lan_lobby_init(layout: &WindowLayout) {
+pub fn lan_lobby_init(
+    layout: &WindowLayout,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) {
     set_lan_button_pushed(false);
     set_lan_is_shutting_down(false);
     if let Ok(mut q) = events().lock() {
@@ -357,7 +360,7 @@ pub fn lan_lobby_init(layout: &WindowLayout) {
     if let Some(chat) = state.text_entry_chat.as_ref() {
         let _ = with_window_manager(|manager| manager.set_focus(Some(chat)));
     }
-    show_shell_map_if_available(true);
+    show_shell_map_if_available(true, effects);
     layout.hide(false);
     if let Some(gadget) = with_window_manager(|manager| {
         manager.get_window_by_id(name_to_id("LanLobbyMenu.wnd:GadgetParent"))

@@ -51,8 +51,7 @@ use crate::audio::{AudioEngine, AudioEventQueue, MusicSystem, SpeechSystem};
 use crate::core::Region3D;
 use crate::core::script_action_handler::{
     GameClientScriptActionHandler, apply_pending_script_display_state, get_script_fps_limit,
-    get_script_visual_speed_multiplier, register_script_display_bridge,
-    reset_script_action_runtime_state,
+    get_script_visual_speed_multiplier, reset_script_action_runtime_state,
 };
 use crate::core::subsystems::{
     AudioSubsystem, DisplayStringManagerSubsystem, FontLibrarySubsystem,
@@ -72,13 +71,8 @@ use crate::game_text::GameText;
 
 use crate::gui::gadgets::register_button_audio_hook;
 use crate::gui::ime_manager::get_ime_manager;
-use crate::gui::load_screen::{
-    clear_load_screen_presentation_pump, register_load_screen_presentation_pump,
-};
 use crate::gui::window_manager::WindowManagerOwner;
-use crate::gui::{
-    UIRenderer, WindowStatus, get_shell, get_skirmish_setup, set_ui_renderer, with_window_manager,
-};
+use crate::gui::{UIRenderer, WindowStatus, get_shell, get_skirmish_setup, with_window_manager};
 use crate::helpers::{register_in_game_ui_backend, register_mouse_backend};
 use crate::input::*;
 use crate::message_stream::command_list::get_command_list;
@@ -176,6 +170,7 @@ include!("impl_update.rs");
 include!("owned_world_animations.rs");
 include!("impl_draw.rs");
 include!("native_particle_draw.rs");
+include!("native_render_receiver.rs");
 include!("native_view_draw.rs");
 include!("native_presentation.rs");
 include!("material_pass.rs");

@@ -6,9 +6,8 @@
 
 use bytemuck::{Pod, Zeroable};
 use image::{DynamicImage, GenericImageView};
-use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, Mutex, OnceLock, RwLock};
+use std::sync::Arc;
 use wgpu::util::DeviceExt;
 
 use super::decals::DecalRenderItem;
@@ -606,44 +605,6 @@ pub struct ParticleRenderer {
 
     /// Performance stats
     pub stats: ParticleRenderStats,
-}
-
-#[cfg(target_arch = "wasm32")]
-// SAFETY: wasm32-only. The `Arc<wgpu::Device>`/`Arc<wgpu::Queue>`, pipelines,
-// buffers, bind groups and the atlas textures are `Rc`-backed on the web
-// backend and therefore `!Send` by default. wasm32 has no threads, so those
-// handles can never move to or be touched from another thread; the impl only
-// lets `ParticleRenderer` satisfy the `Send` bounds of its owners.
-unsafe impl Send for ParticleRenderer {}
-#[cfg(target_arch = "wasm32")]
-// SAFETY: same wasm32-only scope: the target is single-threaded, so
-// `&ParticleRenderer` is never shared between threads and the handles'
-// `!Sync` default is unreachable.
-unsafe impl Sync for ParticleRenderer {}
-
-/// The currently active WGPU owner for GameClient particle textures.
-///
-/// A standalone `Display` and Main's shared-frame WGPU renderer can be
-/// initialized in either order during shell/game transitions.  `OnceLock` is
-/// used only for the slot itself: retaining the first renderer forever makes
-/// later asset uploads land in a surface that is no longer presented.  The
-/// active owner is therefore replaceable, and readers clone its `Arc` before
-/// doing any potentially re-entrant GPU work.
-// THREAD: main thread only — registration and the frame's particle draw both
-// run on the GUI thread that owns the wgpu surface; the `Arc` inside stays a
-// shared handle for the display that owns the renderer.
-thread_local! {
-    static PARTICLE_RENDERER: RefCell<Option<Arc<Mutex<ParticleRenderer>>>> =
-        const { RefCell::new(None) };
-}
-
-pub fn register_particle_renderer(renderer: Arc<Mutex<ParticleRenderer>>) {
-    PARTICLE_RENDERER.with_borrow_mut(|slot| *slot = Some(renderer));
-}
-
-pub fn with_particle_renderer<R>(f: impl FnOnce(&Arc<Mutex<ParticleRenderer>>) -> R) -> Option<R> {
-    let renderer = PARTICLE_RENDERER.with_borrow(|slot| slot.as_ref().map(Arc::clone))?;
-    Some(f(&renderer))
 }
 
 /// Particle rendering statistics

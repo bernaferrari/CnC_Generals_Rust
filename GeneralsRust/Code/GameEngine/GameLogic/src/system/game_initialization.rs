@@ -223,11 +223,15 @@ impl GameInitializer {
         // Load the map file, parse heightmap, objects, waypoints
         // Matches C++ map loading from MapUtil.cpp
         if let Some(hooks) = load_screen_hooks.as_deref_mut() {
-            hooks.update_load_screen(LOAD_PROGRESS_POST_PARTICLE_INI_LOAD);
+            hooks
+                .update_load_screen(LOAD_PROGRESS_POST_PARTICLE_INI_LOAD)
+                .map_err(std::io::Error::other)?;
         }
         Self::load_map(&mut game_state, &params.map_path)?;
         if let Some(hooks) = load_screen_hooks.as_deref_mut() {
-            hooks.update_load_screen(LOAD_PROGRESS_POST_LOAD_MAP);
+            hooks
+                .update_load_screen(LOAD_PROGRESS_POST_LOAD_MAP)
+                .map_err(std::io::Error::other)?;
         }
         Self::prepare_sides_for_new_game(&params);
 
@@ -237,7 +241,9 @@ impl GameInitializer {
         // Matches C++ player initialization from GameLogic.cpp
         Self::initialize_players(&mut game_state, &params)?;
         if let Some(hooks) = load_screen_hooks.as_deref_mut() {
-            hooks.update_load_screen(LOAD_PROGRESS_POST_SCRIPT_ENGINE_NEW_MAP);
+            hooks
+                .update_load_screen(LOAD_PROGRESS_POST_SCRIPT_ENGINE_NEW_MAP)
+                .map_err(std::io::Error::other)?;
         }
 
         // PHASE 3: GAME START SEQUENCE
@@ -246,7 +252,9 @@ impl GameInitializer {
         // Matches C++ startup sequence from GameLogic.cpp and GameClient.cpp
         Self::execute_start_sequence(&mut game_state, &params)?;
         if let Some(hooks) = load_screen_hooks.as_deref_mut() {
-            hooks.update_load_screen(LOAD_PROGRESS_POST_STARTING_CAMERA_2);
+            hooks
+                .update_load_screen(LOAD_PROGRESS_POST_STARTING_CAMERA_2)
+                .map_err(std::io::Error::other)?;
         }
 
         // PHASE 4: VICTORY CONDITIONS

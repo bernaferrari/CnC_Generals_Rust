@@ -301,7 +301,7 @@ impl HostSpecialPowerStrikeRegistry {
         wave_shell_count: u32,
         is_final_wave: bool,
         epicenters: &[Vec3],
-        view: &mut game_client::fx_list::FxViewServices<'_>,
+        view: &mut crate::game_logic::host_fx_list_dispatch::ObjectFxServices<'_, '_>,
     ) {
         self.record_impact_wave_with_dispatch(
             strike_id,

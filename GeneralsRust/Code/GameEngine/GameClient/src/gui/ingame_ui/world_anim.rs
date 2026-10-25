@@ -61,7 +61,7 @@ impl InGameUI {
         self.world_animations.clear();
     }
 
-    pub fn update_and_draw_world_animations(&mut self) {
+    pub fn update_and_draw_world_animations(&mut self, renderer: &mut crate::gui::UIRenderer) {
         const FRAMES_BEFORE_EXPIRE_TO_FADE: u32 = 30;
 
         let current_frame = self.current_frame;
@@ -140,11 +140,7 @@ impl InGameUI {
                 let zoom_scale = with_tactical_view_ref(|view| {
                     let max_zoom = view.max_zoom();
                     let zoom = view.zoom();
-                    if zoom > 0.0 {
-                        max_zoom / zoom
-                    } else {
-                        1.0
-                    }
+                    if zoom > 0.0 { max_zoom / zoom } else { 1.0 }
                 });
 
                 let scaled_width = (width * zoom_scale) as i32;
@@ -153,7 +149,7 @@ impl InGameUI {
                 let draw_x = (screen.x - scaled_width as f32 / 2.0) as i32;
                 let draw_y = (screen.y - scaled_height as f32 / 2.0) as i32;
 
-                anim_guard.draw_sized(draw_x, draw_y, scaled_width, scaled_height);
+                anim_guard.draw_sized(draw_x, draw_y, scaled_width, scaled_height, renderer);
             }
 
             i += 1;
@@ -163,5 +159,4 @@ impl InGameUI {
     // ── Lifecycle methods ──────────────────────────────────────────────
     // C++: InGameUI.cpp:1571 (preDraw)
     // C++: InGameUI.cpp:3426 (postDraw)
-
 }

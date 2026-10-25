@@ -46,6 +46,10 @@ pub fn SkirmishMapSelectMenuInput(
     skirmish_map_select_menu_input(window, msg, data1, data2)
 }
 
-pub fn W3DDrawMapPreview(window: &GameWindow, inst: &WindowInstanceData) {
-    draw_map_preview(window, inst);
+pub fn W3DDrawMapPreview(
+    window: &GameWindow,
+    inst: &WindowInstanceData,
+    draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
+) {
+    draw_map_preview(window, inst, draw_context);
 }

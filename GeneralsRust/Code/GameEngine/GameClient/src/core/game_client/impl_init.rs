@@ -36,9 +36,13 @@ impl GameClient {
             campaign_manager: crate::gui::campaign_manager::CampaignManager::new(),
             main_menu: crate::gui::shell::main_menu::MainMenu::new(),
             menu_host: crate::gui::campaign_launch_host_bridge::MenuHostMailbox::default(),
+            ui_renderer: None,
+            script_display: crate::core::script_action_handler::ScriptDisplayReceiver::default(),
             message_stream: crate::message_stream::message_stream::MessageStream::new(),
             shell_game_first_load: true,
+            load_screen_runtime: crate::gui::load_screen::LoadScreenRuntime::default(),
             frame: 0,
+            command_hints: Default::default(),
             owned_world_animations: OwnedWorldAnimations::default(),
             receiving_draw_icon_ui: true,
             snow: crate::snow::SnowManager::new(),
@@ -56,10 +60,9 @@ impl GameClient {
             last_applied_cinematic_remaining_ms: None,
             cinematic_overlay_font: None,
             cinematic_overlay_frames: 0,
-            letterbox_overlay_enabled: false,
-            letterbox_overlay_fade_start: None,
             last_live_ingame_hud_draw: LiveInGameHudDrawCounts::default(),
 
+            render_bridge: crate::render_bridge::RenderBridge::new(),
             drawables: drawable_world::DrawableWorld::new(),
             drawable_toc: Vec::new(),
             loaded_map: None,
@@ -134,18 +137,36 @@ impl GameClient {
         operation(&mut hooks)
     }
 
+    /// Admit effective settings to this client without publishing a recipient.
+    pub fn configure_shell_map(
+        &mut self,
+        settings: crate::gui::campaign_launch_host_bridge::ShellMapSettings,
+    ) {
+        self.menu_host.configure_shell_map(settings);
+    }
+
     pub fn init_owned_load_screen(
         &mut self,
         kind: crate::gui::load_screen::LoadScreenKind,
         context: &crate::gui::load_screen::LoadScreenInitContext,
-    ) -> bool {
+    ) -> Result<bool, String> {
         let owner = &self.window_manager_owner;
-        crate::gui::load_screen::init_load_screen_for_owner(
+        let mut presentation_pump =
+            crate::gui::load_screen::LoadScreenPresentationPump::for_display(
+                self.subsystem_manager.display.as_ref(),
+                self.script_display.fx_mut(),
+                self.ui_renderer.as_mut(),
+                owner,
+            )
+            .with_mouse(self.subsystem_manager.input_mouse.clone());
+        crate::gui::load_screen::init_load_screen_for_owner_with_pump(
             owner,
             kind,
             context,
             &self.campaign_manager,
             &mut self.shell_game_first_load,
+            Some(&mut presentation_pump),
+            &mut self.load_screen_runtime,
         )
     }
 
@@ -164,7 +185,6 @@ impl GameClient {
         register_live_game_client(self);
         Self::register_w3d_ghost_snapshot_bridges();
 
-        reset_script_action_runtime_state();
         init_video_player();
 
         // Set expected frame rate
@@ -193,12 +213,8 @@ impl GameClient {
     }
 
     pub fn mark_initialized(&mut self) {
-        // Main performs the WGPU-safe subset of GameClient initialization
-        // directly (it must not create the legacy PlatformContext).  Register
-        // that fully prepared client at the same lifecycle boundary as
-        // `GameClient::init`, so published input frame state is live.
-        register_live_game_client(self);
-        Self::register_w3d_ghost_snapshot_bridges();
+        // Native Main owns its client directly. Snapshot, frame, bone and FX
+        // operations receive that owner and never publish its address.
         self.campaign_manager.init();
         self.initialized = true;
     }
@@ -207,24 +223,6 @@ impl GameClient {
     /// A staged candidate does not call this until its world is installed.
     pub fn bind_visual_world(&mut self, visual_world: gamelogic::helpers::ClientVisualHandle) {
         self.visual_world = Some(visual_world);
-    }
-
-    /// Republish this client's address to the live snapshot slot after the
-    /// owning engine has been moved to its final home.
-    ///
-    /// C++ parity: `TheGameClient` is a stable singleton pointer for the
-    /// process lifetime. The Rust engine owns the client BY VALUE inside
-    /// `CnCGameEngine`, which is constructed inside the boxed boot future and
-    /// then moved out (`run_loop.rs`: `engine = Some(new_engine)`). The raw
-    /// address registered by `mark_initialized`/`init` points into the
-    /// future's memory and dangles the moment that move happens; the next
-    /// `with_live_game_client_mut` (e.g. particle
-    /// `resolve_attached_parent` → `query_live_drawable_fx_pose` at InGame
-    /// entry) then dereferences freed heap and faults (SIGSEGV,
-    /// generals_snap-2026-09-02-{050658,051348}.ips). Must be called once the
-    /// engine has reached its final address, before any frame runs.
-    pub fn republish_live_slot_after_engine_move(&mut self) {
-        register_live_game_client(self);
     }
 
     /// Discard presentation-owned Drawable state after a successful world
@@ -263,12 +261,14 @@ impl GameClient {
         self.drawables.drawable_map.clear();
         self.drawables.native_drawable_order.clear();
         self.drawables.ray_effects.reset();
+        self.drawables.light_scene = Default::default();
         self.drawables.owned_laser_order.clear();
         self.drawables.drawable_object_map.clear();
         self.drawables.presentation_direct_drawable_bindings.clear();
         self.drawables.text_bearing_drawables.clear();
         self.shadow_map.clear();
         self.rendered_object_count = 0;
+        self.render_bridge.reset_world_after_drawable_retirement();
         // Particle/native retirement has succeeded; clear both playback and
         // transport now, before another world can be installed or rendered.
         self.clear_world_animation_runtime_after_retirement()?;
@@ -302,7 +302,9 @@ impl GameClient {
     /// This retains the existing required retirement capability and can fail;
     /// callers must not treat failure as an empty candidate or continue commit.
     pub fn retire_native_drawable_world_for_replace(&mut self) -> GameClientResult<()> {
-        self.try_invalidate_presentation_drawable_world()
+        self.try_invalidate_presentation_drawable_world()?;
+        self.command_hints.clear();
+        Ok(())
     }
     /// Only after retirement succeeded. No callbacks or failure after moving
     /// the candidate, so its IDs/order and continuation are installed unchanged.
@@ -317,9 +319,8 @@ impl GameClient {
     }
 
     fn reset_with_window_owner(&mut self) -> GameClientResult<()> {
+        self.command_hints.clear();
         self.receiving_draw_icon_ui = true;
-        reset_script_action_runtime_state();
-        Self::reset_global_video_player_streams();
         self.startup_sizzle_pending = false;
 
         // C++ parity: show a blank transition window while subsystems reset.
@@ -346,7 +347,9 @@ impl GameClient {
         }
 
         // Reset subsystems
-        self.subsystem_manager.reset_all()?;
+        self.subsystem_manager
+            .reset_all(self.script_display.fx_mut())?;
+        self.drawables.particles.reset_runtime();
 
         // C++ GameClient.cpp:438-451 clears Drawables, then resets the
         // Display/Terrain/RayEffects for the next match. Drop the Rust
@@ -527,6 +530,19 @@ impl GameClient {
         replay_menu: Option<crate::gui::shell::replay_menu::ReplayMenuInputs>,
     ) -> GameClientResult<()> {
         log::info!("init_display_subsystems: starting");
+        // Definitions have been loaded; construction itself publishes nothing.
+        if !self.menu_host.shell_map_is_configured() {
+            if let Some(global) = get_global_data() {
+                let definitions = global.read();
+                self.menu_host.configure_shell_map(
+                    crate::gui::campaign_launch_host_bridge::ShellMapSettings {
+                        initial_file: definitions.initial_file.clone(),
+                        enabled: definitions.shell_map_on,
+                        map: definitions.shell_map_name.clone(),
+                    },
+                );
+            }
+        }
 
         self.init_localized_ui_resources()?;
 
@@ -556,15 +572,15 @@ impl GameClient {
 
             let mut display = GraphicsDisplay::new(graphics_context);
             display.init()?;
+            if let Some(data) = get_global_data() {
+                self.script_display
+                    .fx_mut()
+                    .set_gamma_state(data.read().display_gamma, 0.0, 1.0);
+            }
             let display = Arc::new(Mutex::new(display));
-            register_script_display_bridge(Some(Arc::clone(&display)));
-            Self::install_load_screen_presentation_pump(Arc::clone(&display));
+
             self.subsystem_manager.display = Some(display);
         } else if let Some(display) = self.subsystem_manager.display.as_ref() {
-            register_script_display_bridge(Some(Arc::clone(display)));
-            Self::install_load_screen_presentation_pump(Arc::clone(display));
-        } else {
-            clear_load_screen_presentation_pump();
         }
         // If neither PlatformContext nor display exists, we skip GraphicsDisplay
         // creation — the engine's own wgpu pipeline handles rendering.  All logical
@@ -626,7 +642,7 @@ impl GameClient {
             .map_err(|err| {
                 GameClientError::SubsystemError(format!("UI renderer initialization failed: {err}"))
             })?;
-            set_ui_renderer(Arc::new(RwLock::new(renderer)));
+            self.set_ui_renderer(renderer);
         }
 
         if self.subsystem_manager.display_strings.is_none() {
@@ -714,7 +730,7 @@ impl GameClient {
 
         if let Some(terrain_visual) = self.subsystem_manager.terrain_visual.as_ref() {
             let terrain_visual = Arc::clone(terrain_visual);
-            register_terrain_visual_snapshot_block(Arc::clone(&terrain_visual));
+            register_terrain_visual_snapshot_block();
             let _ = register_terrain_tree_hook(Arc::new(move |event| {
                 if let Ok(mut terrain) = terrain_visual.lock() {
                     match event {
@@ -861,16 +877,6 @@ impl GameClient {
         }
     }
 
-    fn reset_global_video_player_streams() {
-        if let Some(player) = get_video_player() {
-            if let Ok(mut guard) = player.lock() {
-                if let Some(player) = guard.as_mut() {
-                    player.reset();
-                }
-            }
-        }
-    }
-
     pub fn init_message_translators(&mut self) -> GameClientResult<()> {
         self.message_stream.clear_messages();
         self.menu_host.clear_pending();
@@ -953,12 +959,16 @@ impl GameClient {
         &mut crate::gui::campaign_manager::CampaignManager,
         &mut crate::gui::shell::main_menu::MainMenu,
         &mut crate::gui::campaign_launch_host_bridge::MenuHostMailbox,
+        &mut crate::core::script_action_handler::ScriptDisplayReceiver,
     ) {
+        self.script_display
+            .bind(self.subsystem_manager.display.as_ref());
         (
             &self.window_manager_owner,
             &mut self.campaign_manager,
             &mut self.main_menu,
             &mut self.menu_host,
+            &mut self.script_display,
         )
     }
     pub fn main_menu(&self) -> &crate::gui::shell::main_menu::MainMenu {
@@ -971,6 +981,8 @@ impl GameClient {
         &mut crate::gui::shell::main_menu::MainMenu,
         &mut crate::gui::campaign_launch_host_bridge::MenuHostMailbox,
     ) {
+        self.script_display
+            .bind(self.subsystem_manager.display.as_ref());
         (
             &mut self.campaign_manager,
             &mut self.main_menu,
@@ -1013,11 +1025,27 @@ impl GameClient {
         }
     }
 
+    pub fn script_display_receiver(
+        &mut self,
+    ) -> &mut crate::core::script_action_handler::ScriptDisplayReceiver {
+        self.script_display
+            .bind(self.subsystem_manager.display.as_ref());
+        &mut self.script_display
+    }
+
+    pub fn take_pending_display_mode(
+        &mut self,
+    ) -> Option<crate::display::display_fx::PendingDeviceMode> {
+        self.script_display.take_pending_device_mode()
+    }
+
     pub fn with_window_event_effects<R>(
         &mut self,
         menu_world: Option<crate::gui::campaign_launch_host_bridge::MenuWorldFacts>,
         operation: impl FnOnce(&mut crate::gui::game_window::WindowEventEffects<'_>) -> R,
     ) -> R {
+        self.script_display
+            .bind(self.subsystem_manager.display.as_ref());
         let owner = &self.window_manager_owner;
         let mut messages = Vec::new();
         let mut effects = crate::gui::game_window::WindowEventEffects {
@@ -1029,6 +1057,7 @@ impl GameClient {
             main_menu: Some(&mut self.main_menu),
             menu_world,
             menu_host: Some(&mut self.menu_host),
+            script_display: Some(&mut self.script_display),
             pending_main_menu_actions: Vec::new(),
         };
         let result = owner.with_scope(|| operation(&mut effects));
@@ -1047,6 +1076,8 @@ impl GameClient {
             &mut crate::gui::game_window::WindowEventEffects<'_>,
         ) -> R,
     ) -> Option<R> {
+        self.script_display
+            .bind(self.subsystem_manager.display.as_ref());
         let owner = &self.window_manager_owner;
         let mut messages = Vec::new();
         let mut effects = crate::gui::game_window::WindowEventEffects {
@@ -1058,6 +1089,7 @@ impl GameClient {
             main_menu: Some(&mut self.main_menu),
             menu_world,
             menu_host: Some(&mut self.menu_host),
+            script_display: Some(&mut self.script_display),
             pending_main_menu_actions: Vec::new(),
         };
         let result = owner.with_shell_effects_mut(&mut effects, operation);
@@ -1074,6 +1106,8 @@ impl GameClient {
         mut messages: Vec<GameMessage>,
         menu_world: Option<crate::gui::campaign_launch_host_bridge::MenuWorldFacts>,
     ) {
+        self.script_display
+            .bind(self.subsystem_manager.display.as_ref());
         let owner = &self.window_manager_owner;
         let mut effects = crate::gui::game_window::WindowEventEffects {
             window_manager_owner: Some(owner),
@@ -1084,6 +1118,7 @@ impl GameClient {
             main_menu: Some(&mut self.main_menu),
             menu_world,
             menu_host: Some(&mut self.menu_host),
+            script_display: Some(&mut self.script_display),
             pending_main_menu_actions: Vec::new(),
         };
         owner.complete_event_callbacks(&mut effects);
@@ -1101,6 +1136,7 @@ impl GameClient {
              campaign_manager: &mut crate::gui::campaign_manager::CampaignManager,
              main_menu: &mut crate::gui::shell::main_menu::MainMenu,
              menu_host: &mut crate::gui::campaign_launch_host_bridge::MenuHostMailbox,
+             display: &mut crate::core::script_action_handler::ScriptDisplayReceiver,
              request,
              _emitted_messages: &mut Vec<GameMessage>| {
                 let mut pending_clicks = Vec::new();
@@ -1113,9 +1149,13 @@ impl GameClient {
                     main_menu: Some(main_menu),
                     menu_world: None,
                     menu_host: Some(menu_host),
+                    script_display: Some(display),
                     pending_main_menu_actions: Vec::new(),
                 };
                 let result = owner.try_with_manager(|manager| match request {
+                    game_engine::common::message_stream::WindowInputDispatch::Display(_) => {
+                        unreachable!("display dispatch is completed before the window manager loan")
+                    }
                     game_engine::common::message_stream::WindowInputDispatch::Mouse {
                         message,
                         x,
@@ -1175,20 +1215,47 @@ impl GameClient {
         driver: &mut NativeWindowInputDriver<'_>,
         cursor: Option<game_engine::common::message_stream::PropagationCursor>,
     ) -> GameClientResult<game_engine::common::message_stream::PropagationProgress> {
+        self.script_display
+            .bind(self.subsystem_manager.display.as_ref());
         use game_engine::common::message_stream::PropagationProgress;
         let yielded = std::cell::Cell::new(false);
+        let frame = self.frame;
         let owner = &self.window_manager_owner;
         let campaign = &mut self.campaign_manager;
         let menu = &mut self.main_menu;
         let host = &mut self.menu_host;
+        let display = &mut self.script_display;
         let mut dispatch = |request, emitted: &mut Vec<GameMessage>| {
-            let result = driver(owner, campaign, menu, host, request, emitted);
+            if let game_engine::common::message_stream::WindowInputDispatch::Display(action) =
+                request
+            {
+                return Some(
+                    game_engine::common::message_stream::WindowInputDispatchResult::Display(
+                        crate::message_stream::meta_event::execute_display_input_action(
+                            action, display,
+                        ),
+                    ),
+                );
+            }
+            let result = driver(owner, campaign, menu, host, display, request, emitted);
             yielded.set(host.has_requests());
             result
         };
         let mut progress = self
             .message_stream
-            .propagate_messages_until_host_boundary(&mut dispatch, cursor, &mut || yielded.get())
+            .propagate_messages_until_host_boundary(
+                &mut dispatch,
+                cursor,
+                &mut || yielded.get(),
+                &mut || {
+                    owner.shell_is_active().map(|shell_active| {
+                        game_engine::common::message_stream::TranslatorClientObservation {
+                            frame,
+                            shell_active,
+                        }
+                    })
+                },
+            )
             .map_err(|error| {
                 GameClientError::SubsystemError(format!("Message stream update failed: {error}"))
             })?;
@@ -1332,5 +1399,25 @@ mod load_screen_latch_owner_tests {
         receiving.shell_game_first_load = false;
         assert!(!receiving.shell_game_first_load);
         assert!(peer.shell_game_first_load);
+    }
+}
+
+impl GameClient {
+    pub fn set_ui_renderer(&mut self, renderer: crate::gui::UIRenderer) {
+        self.ui_renderer = Some(renderer);
+    }
+    pub fn ui_renderer(&self) -> Option<&crate::gui::UIRenderer> {
+        self.ui_renderer.as_ref()
+    }
+    pub fn ui_renderer_mut(&mut self) -> Option<&mut crate::gui::UIRenderer> {
+        self.ui_renderer.as_mut()
+    }
+    pub fn split_script_display_and_ui_renderer(
+        &mut self,
+    ) -> (
+        &mut crate::core::script_action_handler::ScriptDisplayReceiver,
+        Option<&mut crate::gui::UIRenderer>,
+    ) {
+        (&mut self.script_display, self.ui_renderer.as_mut())
     }
 }

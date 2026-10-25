@@ -124,7 +124,7 @@ impl crate::game_logic::GameLogic {
         frame: u32,
         player: Option<u32>,
         shroud: &std::sync::Arc<std::sync::Mutex<gamelogic::system::shroud_manager::ShroudManager>>,
-        view: &mut game_client::fx_list::FxViewServices<'_>,
+        view: &mut crate::game_logic::host_fx_list_dispatch::ObjectFxServices<'_, '_>,
     ) {
         // C++ destroys all old-state systems BEFORE testing/playing the worse state.
         if let Some(old) = event.clear_old_state.take() {
@@ -134,7 +134,7 @@ impl crate::game_logic::GameLogic {
                 .and_then(|config| config.attached_ids.get_mut(old as usize))
             {
                 retire_old_transition_ids(ids, |id| {
-                    let retired = particles.try_deactivate(id);
+                    let retired = particles.try_deactivate(id, view);
                     if !retired {
                         log::warn!(
                             "could not retire transition particle {} for object {}",
@@ -166,7 +166,7 @@ impl crate::game_logic::GameLogic {
                 else {
                     return;
                 };
-                if !prepare_transition_slot(ids, slot, |id| particles.try_deactivate(id)) {
+                if !prepare_transition_slot(ids, slot, |id| particles.try_deactivate(id, view)) {
                     log::warn!(
                         "retained transition particle in slot {} for object {}",
                         slot,
@@ -186,6 +186,7 @@ impl crate::game_logic::GameLogic {
                     crate::game_logic::combat_particles::CombatParticleKind::DeathSmoke,
                     None,
                     is_shrouded,
+                    view,
                 ) {
                     if let Some(ids) = object
                         .transition_damage_fx

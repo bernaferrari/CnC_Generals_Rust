@@ -11,8 +11,9 @@ use crate::gui::{GameWindow, WindowLayout, WindowMessage, WindowMsgData, WindowM
 pub fn SkirmishGameOptionsMenuInit(
     layout: &WindowLayout,
     user_data: Option<&mut dyn std::any::Any>,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) {
-    skirmish_game_options_menu_init(layout, user_data);
+    skirmish_game_options_menu_init(layout, user_data, effects);
 }
 
 pub fn SkirmishGameOptionsMenuUpdate(

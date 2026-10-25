@@ -66,8 +66,8 @@ impl ShellMenuScheme {
         self.lines.push(line);
     }
 
-    pub fn draw(&self) {
-        with_window_manager_ref(|manager| {
+    pub fn draw(&self, draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>) {
+        crate::gui::window_draw_context::with_draw_manager(draw_context.manager, |manager| {
             for image in &self.images {
                 if let Some(mapped) = manager.win_find_image(&image.name) {
                     manager.win_draw_image(
@@ -77,6 +77,7 @@ impl ShellMenuScheme {
                         image.position.x + image.size.x,
                         image.position.y + image.size.y,
                         WIN_COLOR_UNDEFINED,
+                        draw_context,
                     );
                 }
             }
@@ -93,6 +94,7 @@ impl ShellMenuScheme {
                     line.start_pos.y,
                     line.end_pos.x,
                     line.end_pos.y,
+                    draw_context,
                 );
             }
         });
@@ -143,10 +145,10 @@ impl ShellMenuSchemeManager {
         }
     }
 
-    pub fn draw(&self) {
+    pub fn draw(&self, draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>) {
         if let Some(scheme_name) = &self.current_scheme {
             if let Some(scheme) = self.schemes.get(scheme_name) {
-                scheme.draw();
+                scheme.draw(draw_context);
             }
         }
     }

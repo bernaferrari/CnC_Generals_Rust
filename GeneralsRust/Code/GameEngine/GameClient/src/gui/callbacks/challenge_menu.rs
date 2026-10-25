@@ -521,7 +521,7 @@ pub fn challenge_menu_init(
         });
     }
 
-    show_shell_map_if_available(true);
+    show_shell_map_if_available(true, effects);
     layout.hide(false);
     with_window_video_manager(|manager| manager.init());
 }
@@ -954,6 +954,7 @@ mod tests {
         let layout = WindowLayout::new("Menus/ChallengeMenu.wnd".to_string());
         let mut messages = Vec::new();
         let mut effects = crate::gui::game_window::WindowEventEffects {
+            script_display: None,
             window_manager_owner: None,
             selected_window: None,
             emitted_messages: &mut messages,
@@ -1018,6 +1019,7 @@ mod tests {
         let layout = WindowLayout::new("Menus/ChallengeMenu.wnd".to_string());
         let mut messages = Vec::new();
         let mut effects = crate::gui::game_window::WindowEventEffects {
+            script_display: None,
             window_manager_owner: None,
             selected_window: None,
             emitted_messages: &mut messages,
@@ -1189,6 +1191,7 @@ mod tests {
 
             let mut messages = Vec::new();
             let mut effects = crate::gui::game_window::WindowEventEffects {
+                script_display: None,
                 window_manager_owner: None,
                 selected_window: None,
                 emitted_messages: &mut messages,

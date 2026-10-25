@@ -685,21 +685,9 @@ impl SnapshotBuilder {
             &game_logic.world_services,
         ));
         restore_objectless_from_client_drawables(&visual_world, &snapshot.client_drawables);
-        if let Some(particle_bytes) = snapshot.particle_system_companion.as_deref() {
-            if let Some(owner) = restore_particle_system_from_xfer_bytes(particle_bytes)? {
-                let manager_guard = game_client::effects::get_particle_system_manager()
-                    .map_err(|error| SaveLoadError::Corrupted(error.to_string()))?;
-                let manager = manager_guard.as_ref().ok_or_else(|| {
-                    SaveLoadError::Corrupted(
-                        "paired particle companion has no receiving manager".into(),
-                    )
-                })?;
-                game_logic
-                    .combat_particles_mut()
-                    .adopt_loaded_client_systems(manager, &owner)
-                    .map_err(SaveLoadError::Corrupted)?;
-            }
-        }
+        // The logical builder has no native presentation owner. Its caller
+        // restores CHUNK_ParticleSystem into the detached native candidate after
+        // reconstructing that candidate's saved Drawables, before terrain admit.
         // Direct WorldSnapshot restore has no archive companion. Full saves
         // explicitly prepare/admit their paired TerrainVisual in the caller.
 

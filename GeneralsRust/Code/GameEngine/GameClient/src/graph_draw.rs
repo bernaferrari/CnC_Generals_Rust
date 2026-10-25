@@ -2,7 +2,6 @@
 
 use crate::gui::display_string::{DisplayStringHandle, get_display_string_manager};
 use crate::gui::font::get_font_library;
-use crate::gui::ui_globals::with_ui_renderer;
 use crate::gui::ui_renderer::UIRect;
 
 const MAX_GRAPH_VALUES: usize = 128;
@@ -39,18 +38,20 @@ impl GraphDraw {
         self.entries.push((label.into(), value));
     }
 
-    pub fn render(&mut self) {
+    pub fn render(
+        &mut self,
+        draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
+    ) {
         let entries_len = self.entries.len().min(MAX_GRAPH_VALUES);
         if entries_len == 0 {
             return;
         }
 
-        let Some((width, height)) = with_ui_renderer(|renderer| {
-            renderer
-                .read()
-                .map(|renderer| renderer.screen_size())
-                .unwrap_or((0, 0))
-        }) else {
+        let Some((width, height)) = draw_context
+            .renderer
+            .as_ref()
+            .map(|renderer| renderer.screen_size())
+        else {
             return;
         };
         let width = width as i32;
@@ -76,6 +77,7 @@ impl GraphDraw {
                     0x00000000,
                     1,
                     1,
+                    draw_context,
                 );
             }
 
@@ -86,10 +88,8 @@ impl GraphDraw {
                 bar_len.max(0) as f32,
                 (BAR_HEIGHT - BAR_SPACE) as f32,
             );
-            let _ = with_ui_renderer(|renderer| {
-                if let Ok(mut renderer) = renderer.write() {
-                    renderer.draw_rect(rect, [0.5, 0.5, 0.5, 0.5], 0.0);
-                }
+            let _ = draw_context.with_renderer(|renderer, _| {
+                renderer.draw_rect(rect, [0.5, 0.5, 0.5, 0.5], 0.0);
             });
         }
     }

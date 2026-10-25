@@ -36,7 +36,14 @@ impl NativeRadarFrame {
             ..self.clone()
         }
     }
-    pub(crate) fn draw_windows(&self, windows: &mut WindowManager) {
+    pub(crate) fn project_hint(&self, position: glam::Vec3) -> Option<glam::Vec2> {
+        self.camera.project_world(position)
+    }
+    pub(crate) fn draw_windows(
+        &self,
+        windows: &mut WindowManager,
+        draw: &mut game_client::gui::window_draw_context::WindowDrawContext<'_>,
+    ) {
         let z_up = |v: glam::Vec3| Coord3D::new(v.x, v.z, v.y);
         let view_box = self.camera.corners().map(|corners| RadarViewCorners {
             origin_world: z_up(corners[0]),
@@ -49,11 +56,14 @@ impl NativeRadarFrame {
                 }
             }
         };
-        windows.draw_all_with_radar(&RadarDrawContext {
-            radar: self.radar.as_deref(),
-            view_box,
-            admit: &admit,
-        });
+        windows.draw_all_with_radar(
+            &RadarDrawContext {
+                radar: self.radar.as_deref(),
+                view_box,
+                admit: &admit,
+            },
+            draw,
+        );
     }
 }
 

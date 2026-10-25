@@ -670,72 +670,81 @@ impl GameLogic {
         self.set_loading_map(true);
         crate::helpers::TheGameLogic::clear_start_new_game_request();
         let game_mode_int = self.get_game_mode();
-        if let Some(hooks) = load_screen_hooks
-            .as_mut()
-            .map(|hook| &mut **hook as &mut dyn crate::helpers::LoadScreenHooks)
-        {
-            hooks.begin_load_screen(game_mode_int, loading_save_game);
-            hooks.update_load_screen(crate::system::game_initialization::LOAD_PROGRESS_START);
-        }
-
-        let game_mode = match game_mode_int {
-            GAME_SHELL => crate::system::game_initialization::GameMode::ShellMap,
-            GAME_SKIRMISH => crate::system::game_initialization::GameMode::Skirmish,
-            GAME_LAN | GAME_INTERNET => crate::system::game_initialization::GameMode::Multiplayer,
-            GAME_REPLAY => crate::system::game_initialization::GameMode::Replay,
-            _ => crate::system::game_initialization::GameMode::SinglePlayer,
-        };
-
-        let difficulty = match crate::helpers::TheScriptEngine::get_global_difficulty() {
-            0 => crate::system::game_initialization::GameDifficulty::Easy,
-            2 => crate::system::game_initialization::GameDifficulty::Hard,
-            3 => crate::system::game_initialization::GameDifficulty::Brutal,
-            _ => crate::system::game_initialization::GameDifficulty::Normal,
-        };
-
-        let num_players = if let Ok(sides_guard) = crate::sides_list::get_sides_list().read() {
-            let count = sides_guard.get_num_sides().max(1) as usize;
-            count.min(crate::system::player_init::MAX_PLAYER_COUNT)
-        } else if let Ok(player_list) = crate::player::ThePlayerList().read() {
-            let count = player_list.iter().count();
-            if count > 0 {
-                count.min(crate::system::player_init::MAX_PLAYER_COUNT)
-            } else {
-                2
-            }
-        } else {
-            2
-        };
-
-        let params = crate::system::game_initialization::GameInitParams {
-            map_path,
-            game_mode,
-            difficulty,
-            num_players,
-            player_templates: Vec::new(),
-            victory_type: crate::system::victory_conditions::VictoryType::Annihilation,
-            score_limit: None,
-            time_limit: None,
-            fog_of_war_enabled: true,
-            starting_resources: crate::system::game_initialization::default_starting_cash(),
-            ai_script: "DefaultAI".to_string(),
-        };
-
-        let init_result = crate::system::game_initialization::GameInitializer::
-            initialize_game_with_load_screen_hooks(params, load_screen_hooks.as_mut().map(|hook| &mut **hook as &mut dyn crate::helpers::LoadScreenHooks))
-                .map(|_| ())
-                .map_err(|err| format!("Game initialization failed: {}", err));
-        if init_result.is_ok() {
-            // C++ GameLogic.cpp:2073-2119 after PlayerList::newMap.
-            apply_challenge_the_player_relationships(self.campaign_session_is_challenge);
+        let init_result = (|| -> Result<(), String> {
             if let Some(hooks) = load_screen_hooks
                 .as_mut()
                 .map(|hook| &mut **hook as &mut dyn crate::helpers::LoadScreenHooks)
             {
-                hooks.update_load_screen(crate::system::game_initialization::LOAD_PROGRESS_END);
-                hooks.run_load_screen_completion_transition(loading_save_game);
+                hooks.begin_load_screen(game_mode_int, loading_save_game)?;
+                hooks
+                    .update_load_screen(crate::system::game_initialization::LOAD_PROGRESS_START)?;
             }
-        }
+
+            let game_mode = match game_mode_int {
+                GAME_SHELL => crate::system::game_initialization::GameMode::ShellMap,
+                GAME_SKIRMISH => crate::system::game_initialization::GameMode::Skirmish,
+                GAME_LAN | GAME_INTERNET => {
+                    crate::system::game_initialization::GameMode::Multiplayer
+                }
+                GAME_REPLAY => crate::system::game_initialization::GameMode::Replay,
+                _ => crate::system::game_initialization::GameMode::SinglePlayer,
+            };
+
+            let difficulty = match crate::helpers::TheScriptEngine::get_global_difficulty() {
+                0 => crate::system::game_initialization::GameDifficulty::Easy,
+                2 => crate::system::game_initialization::GameDifficulty::Hard,
+                3 => crate::system::game_initialization::GameDifficulty::Brutal,
+                _ => crate::system::game_initialization::GameDifficulty::Normal,
+            };
+
+            let num_players = if let Ok(sides_guard) = crate::sides_list::get_sides_list().read() {
+                let count = sides_guard.get_num_sides().max(1) as usize;
+                count.min(crate::system::player_init::MAX_PLAYER_COUNT)
+            } else if let Ok(player_list) = crate::player::ThePlayerList().read() {
+                let count = player_list.iter().count();
+                if count > 0 {
+                    count.min(crate::system::player_init::MAX_PLAYER_COUNT)
+                } else {
+                    2
+                }
+            } else {
+                2
+            };
+
+            let params = crate::system::game_initialization::GameInitParams {
+                map_path,
+                game_mode,
+                difficulty,
+                num_players,
+                player_templates: Vec::new(),
+                victory_type: crate::system::victory_conditions::VictoryType::Annihilation,
+                score_limit: None,
+                time_limit: None,
+                fog_of_war_enabled: true,
+                starting_resources: crate::system::game_initialization::default_starting_cash(),
+                ai_script: "DefaultAI".to_string(),
+            };
+
+            let init_result = crate::system::game_initialization::GameInitializer::
+            initialize_game_with_load_screen_hooks(params, load_screen_hooks.as_mut().map(|hook| &mut **hook as &mut dyn crate::helpers::LoadScreenHooks))
+                .map(|_| ())
+                .map_err(|err| format!("Game initialization failed: {}", err));
+            if init_result.is_ok() {
+                // C++ GameLogic.cpp:2073-2119 after PlayerList::newMap.
+                apply_challenge_the_player_relationships(self.campaign_session_is_challenge);
+                if let Some(hooks) = load_screen_hooks
+                    .as_mut()
+                    .map(|hook| &mut **hook as &mut dyn crate::helpers::LoadScreenHooks)
+                {
+                    hooks.update_load_screen(
+                        crate::system::game_initialization::LOAD_PROGRESS_END,
+                    )?;
+                    hooks.run_load_screen_completion_transition(loading_save_game)?;
+                }
+            }
+
+            init_result
+        })();
         if let Some(hooks) = load_screen_hooks
             .as_mut()
             .map(|hook| &mut **hook as &mut dyn crate::helpers::LoadScreenHooks)

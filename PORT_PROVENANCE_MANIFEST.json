@@ -9165,6 +9165,13 @@
             "classification": "implementation",
             "owned_source_ranges": [],
             "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameClient/src/fx_runtime.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/GameClient/src/fx_view_services.rs"
           },
           {
@@ -10485,6 +10492,13 @@
             "owned_source_ranges": [],
             "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/native_projected_resources.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/native_render_receiver.rs"
           },
           {
             "cargo_reachable": true,
@@ -44829,6 +44843,13 @@
             "classification": "implementation",
             "owned_source_ranges": [],
             "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameClient/src/fx_runtime.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/GameClient/src/fx_view_services.rs"
           },
           {
@@ -50197,6 +50218,13 @@
             "owned_source_ranges": [],
             "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/native_projected_resources.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/native_render_receiver.rs"
           },
           {
             "cargo_reachable": true,
@@ -160991,7 +161019,7 @@
     }
   ],
   "generator": "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-  "input_digest": "7eaee6dd05043366b5a9ecb5989db02ea9c31d0c5cd3a8ccd2e323b95f21cf2b",
+  "input_digest": "cc06909853245734da223484f8698e36b78258fba4b5758ce21b149afee71589",
   "metric_contract": {
     "behavior_requires_explicit_evidence": true,
     "candidate_mapping_is_reviewed": false,
@@ -161300,11 +161328,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 3719,
+        "end_line": 3771,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/Common/src/common/audio/game_audio.rs",
-      "sha256": "0b77808df51d7a9f25a23ddaf1bfe23e6e783c303eb83bef478425686ff30c2e",
+      "sha256": "1ed62b0787506ef9210f709e7f1ea6826a28dde297b9c7756d0cb37c6ac36162",
       "symbol_index_status": "indexed",
       "symbols": [
         {
@@ -161779,987 +161807,997 @@
         },
         {
           "kind": "fn",
-          "line": 840,
+          "line": 841,
           "name": "add_audio_event_with_submission"
         },
         {
           "kind": "fn",
-          "line": 852,
+          "line": 857,
+          "name": "prepare_audio_event_with_selection"
+        },
+        {
+          "kind": "fn",
+          "line": 889,
+          "name": "add_prepared_audio_event_with_locality"
+        },
+        {
+          "kind": "fn",
+          "line": 901,
           "name": "add_audio_event_with_submission_and_selection"
         },
         {
           "kind": "fn",
-          "line": 956,
+          "line": 1008,
           "name": "get_audio_event_info"
         },
         {
           "kind": "fn",
-          "line": 960,
+          "line": 1012,
           "name": "remove_audio_event"
         },
         {
           "kind": "fn",
-          "line": 1005,
+          "line": 1057,
           "name": "is_currently_playing"
         },
         {
           "kind": "fn",
-          "line": 1018,
+          "line": 1070,
           "name": "is_named_event_playing_for_object"
         },
         {
           "kind": "fn",
-          "line": 1028,
+          "line": 1080,
           "name": "test_insert_active_named_event"
         },
         {
           "kind": "fn",
-          "line": 1034,
+          "line": 1086,
           "name": "get_audio_length_ms"
         },
         {
           "kind": "fn",
-          "line": 1054,
+          "line": 1106,
           "name": "get_file_length_ms"
         },
         {
           "kind": "static",
-          "line": 1064,
+          "line": 1116,
           "name": "FILE_LENGTH_CACHE"
         },
         {
           "kind": "fn",
-          "line": 1084,
+          "line": 1136,
           "name": "read_audio_file_bytes"
         },
         {
           "kind": "fn",
-          "line": 1122,
+          "line": 1174,
           "name": "read_from_virtual_file_system"
         },
         {
           "kind": "fn",
-          "line": 1131,
+          "line": 1183,
           "name": "duration_ms_from_audio_data"
         },
         {
           "kind": "fn",
-          "line": 1137,
+          "line": 1189,
           "name": "duration_ms_from_wav"
         },
         {
           "kind": "fn",
-          "line": 1151,
+          "line": 1203,
           "name": "duration_ms_from_mp3"
         },
         {
           "kind": "fn",
-          "line": 1183,
+          "line": 1235,
           "name": "duration_ms_from_ogg"
         },
         {
           "kind": "fn",
-          "line": 1205,
+          "line": 1257,
           "name": "is_valid_audio_event"
         },
         {
           "kind": "fn",
-          "line": 1216,
+          "line": 1268,
           "name": "add_track_name"
         },
         {
           "kind": "fn",
-          "line": 1220,
+          "line": 1272,
           "name": "set_music_track_name"
         },
         {
           "kind": "fn",
-          "line": 1227,
+          "line": 1279,
           "name": "get_music_track_name"
         },
         {
           "kind": "fn",
-          "line": 1263,
+          "line": 1315,
           "name": "next_track_name"
         },
         {
           "kind": "fn",
-          "line": 1277,
+          "line": 1329,
           "name": "next_music_track"
         },
         {
           "kind": "fn",
-          "line": 1286,
+          "line": 1338,
           "name": "prev_music_track"
         },
         {
           "kind": "fn",
-          "line": 1293,
+          "line": 1345,
           "name": "prev_track_name"
         },
         {
           "kind": "fn",
-          "line": 1307,
+          "line": 1359,
           "name": "playing_or_current_music_name"
         },
         {
           "kind": "fn",
-          "line": 1328,
+          "line": 1380,
           "name": "queue_music_track"
         },
         {
           "kind": "fn",
-          "line": 1340,
+          "line": 1392,
           "name": "set_audio_event_enabled"
         },
         {
           "kind": "fn",
-          "line": 1345,
+          "line": 1397,
           "name": "set_audio_event_volume_override"
         },
         {
           "kind": "fn",
-          "line": 1378,
+          "line": 1430,
           "name": "is_on"
         },
         {
           "kind": "fn",
-          "line": 1390,
+          "line": 1442,
           "name": "set_on"
         },
         {
           "kind": "fn",
-          "line": 1405,
+          "line": 1457,
           "name": "set_volume"
         },
         {
           "kind": "fn",
-          "line": 1447,
+          "line": 1499,
           "name": "get_volume"
         },
         {
           "kind": "fn",
-          "line": 1461,
+          "line": 1513,
           "name": "miles_volume_sliders"
         },
         {
           "kind": "fn",
-          "line": 1473,
+          "line": 1525,
           "name": "get_effective_volume"
         },
         {
           "kind": "fn",
-          "line": 1476,
+          "line": 1528,
           "name": "set_3d_volume_adjustment"
         },
         {
           "kind": "fn",
-          "line": 1488,
+          "line": 1540,
           "name": "set_listener_position"
         },
         {
           "kind": "fn",
-          "line": 1504,
+          "line": 1556,
           "name": "get_listener_position"
         },
         {
           "kind": "fn",
-          "line": 1508,
+          "line": 1560,
           "name": "get_listener_orientation"
         },
         {
           "kind": "fn",
-          "line": 1512,
+          "line": 1564,
           "name": "allocate_audio_request"
         },
         {
           "kind": "fn",
-          "line": 1519,
+          "line": 1571,
           "name": "append_audio_request"
         },
         {
           "kind": "fn",
-          "line": 1525,
+          "line": 1577,
           "name": "process_request_list"
         },
         {
           "kind": "fn",
-          "line": 1528,
+          "line": 1580,
           "name": "process_request_list_with_visibility"
         },
         {
           "kind": "fn",
-          "line": 1571,
+          "line": 1623,
           "name": "should_process_request_this_frame"
         },
         {
           "kind": "fn",
-          "line": 1581,
+          "line": 1633,
           "name": "adjust_request"
         },
         {
           "kind": "fn",
-          "line": 1595,
+          "line": 1647,
           "name": "check_for_sample"
         },
         {
           "kind": "fn",
-          "line": 1605,
+          "line": 1657,
           "name": "check_event_can_play_now"
         },
         {
           "kind": "fn",
-          "line": 1619,
+          "line": 1671,
           "name": "play_now_queries"
         },
         {
           "kind": "fn",
-          "line": 1631,
+          "line": 1683,
           "name": "process_request"
         },
         {
           "kind": "fn",
-          "line": 1656,
+          "line": 1708,
           "name": "new_audio_event_info"
         },
         {
           "kind": "fn",
-          "line": 1695,
+          "line": 1747,
           "name": "find_audio_event_info"
         },
         {
           "kind": "fn",
-          "line": 1699,
+          "line": 1751,
           "name": "register_audio_event_info"
         },
         {
           "kind": "fn",
-          "line": 1706,
+          "line": 1758,
           "name": "remove_level_specific_audio_event_infos"
         },
         {
           "kind": "fn",
-          "line": 1710,
+          "line": 1762,
           "name": "audio_paths"
         },
         {
           "kind": "fn",
-          "line": 1714,
+          "line": 1766,
           "name": "get_audio_settings"
         },
         {
           "kind": "fn",
-          "line": 1718,
+          "line": 1770,
           "name": "get_misc_audio"
         },
         {
           "kind": "fn",
-          "line": 1722,
+          "line": 1774,
           "name": "get_disallow_speech"
         },
         {
           "kind": "fn",
-          "line": 1726,
+          "line": 1778,
           "name": "set_disallow_speech"
         },
         {
           "kind": "fn",
-          "line": 1733,
+          "line": 1785,
           "name": "stop_all_speech"
         },
         {
           "kind": "fn",
-          "line": 1748,
+          "line": 1800,
           "name": "notify_sample_completion_if_effect"
         },
         {
           "kind": "fn",
-          "line": 1766,
+          "line": 1818,
           "name": "stop_playing_handle"
         },
         {
           "kind": "fn",
-          "line": 1775,
+          "line": 1827,
           "name": "release_playing_handle"
         },
         {
           "kind": "fn",
-          "line": 1784,
+          "line": 1836,
           "name": "play_audio_event"
         },
         {
           "kind": "fn",
-          "line": 1853,
+          "line": 1905,
           "name": "friend_force_play_audio_event_rts"
         },
         {
           "kind": "fn",
-          "line": 1905,
+          "line": 1957,
           "name": "force_played_count"
         },
         {
           "kind": "fn",
-          "line": 1909,
+          "line": 1961,
           "name": "force_played_volume"
         },
         {
           "kind": "fn",
-          "line": 1915,
+          "line": 1967,
           "name": "pending_play_delay"
         },
         {
           "kind": "fn",
-          "line": 1923,
+          "line": 1975,
           "name": "get_zoom_volume"
         },
         {
           "kind": "fn",
-          "line": 1927,
+          "line": 1979,
           "name": "allocate_new_handle"
         },
         {
           "kind": "fn",
-          "line": 1933,
+          "line": 1985,
           "name": "lose_focus"
         },
         {
           "kind": "fn",
-          "line": 1953,
+          "line": 2005,
           "name": "regain_focus"
         },
         {
           "kind": "fn",
-          "line": 1967,
+          "line": 2019,
           "name": "pause_audio"
         },
         {
           "kind": "fn",
-          "line": 1987,
+          "line": 2039,
           "name": "resume_audio"
         },
         {
           "kind": "fn",
-          "line": 2019,
+          "line": 2071,
           "name": "stop_audio"
         },
         {
           "kind": "fn",
-          "line": 2034,
+          "line": 2086,
           "name": "is_music_playing_from_cd"
         },
         {
           "kind": "fn",
-          "line": 2039,
+          "line": 2091,
           "name": "is_music_playing"
         },
         {
           "kind": "fn",
-          "line": 2055,
+          "line": 2107,
           "name": "has_music_track_completed"
         },
         {
           "kind": "fn",
-          "line": 2069,
+          "line": 2121,
           "name": "translate_speaker_type_to_unsigned_int"
         },
         {
           "kind": "fn",
-          "line": 2078,
+          "line": 2130,
           "name": "translate_unsigned_int_to_speaker_type"
         },
         {
           "kind": "fn",
-          "line": 2090,
+          "line": 2142,
           "name": "should_play_locally"
         },
         {
           "kind": "fn",
-          "line": 2094,
+          "line": 2146,
           "name": "should_play_locally_for_player"
         },
         {
           "kind": "fn",
-          "line": 2128,
+          "line": 2180,
           "name": "should_play_locally_with_resolver"
         },
         {
           "kind": "fn",
-          "line": 2147,
+          "line": 2199,
           "name": "does_violate_limit"
         },
         {
           "kind": "fn",
-          "line": 2209,
+          "line": 2261,
           "name": "event_counts_as_playing"
         },
         {
           "kind": "fn",
-          "line": 2218,
+          "line": 2270,
           "name": "is_playing_lower_priority"
         },
         {
           "kind": "fn",
-          "line": 2240,
+          "line": 2292,
           "name": "sample_event_priority"
         },
         {
           "kind": "fn",
-          "line": 2247,
+          "line": 2299,
           "name": "is_playing_sample"
         },
         {
           "kind": "fn",
-          "line": 2253,
+          "line": 2305,
           "name": "sample_slot_available"
         },
         {
           "kind": "fn",
-          "line": 2273,
+          "line": 2325,
           "name": "find_lowest_priority_sound"
         },
         {
           "kind": "fn",
-          "line": 2299,
+          "line": 2351,
           "name": "kill_lowest_priority_sound_immediately"
         },
         {
           "kind": "fn",
-          "line": 2309,
+          "line": 2361,
           "name": "is_playing_already"
         },
         {
           "kind": "fn",
-          "line": 2333,
+          "line": 2385,
           "name": "is_object_playing_voice"
         },
         {
           "kind": "const",
-          "line": 2334,
+          "line": 2386,
           "name": "ST_VOICE"
         },
         {
           "kind": "fn",
-          "line": 2369,
+          "line": 2421,
           "name": "remove_all_audio_requests"
         },
         {
           "kind": "fn",
-          "line": 2374,
+          "line": 2426,
           "name": "get_num_2d_samples"
         },
         {
           "kind": "fn",
-          "line": 2379,
+          "line": 2431,
           "name": "get_num_3d_samples"
         },
         {
           "kind": "fn",
-          "line": 2385,
+          "line": 2437,
           "name": "adjust_volume_of_playing_audio"
         },
         {
           "kind": "fn",
-          "line": 2399,
+          "line": 2451,
           "name": "remove_playing_audio"
         },
         {
           "kind": "fn",
-          "line": 2418,
+          "line": 2470,
           "name": "remove_all_disabled_audio"
         },
         {
           "kind": "fn",
-          "line": 2438,
+          "line": 2490,
           "name": "has_3d_sensitive_streams_playing"
         },
         {
           "kind": "fn",
-          "line": 2457,
+          "line": 2509,
           "name": "begin_music_fade"
         },
         {
           "kind": "fn",
-          "line": 2486,
+          "line": 2538,
           "name": "release_fading_audio"
         },
         {
           "kind": "fn",
-          "line": 2494,
+          "line": 2546,
           "name": "adjust_playing_volume"
         },
         {
           "kind": "fn",
-          "line": 2501,
+          "line": 2553,
           "name": "process_playing_list"
         },
         {
           "kind": "fn",
-          "line": 2586,
+          "line": 2638,
           "name": "process_fading_list"
         },
         {
           "kind": "fn",
-          "line": 2610,
+          "line": 2662,
           "name": "notify_of_audio_completion"
         },
         {
           "kind": "fn",
-          "line": 2614,
+          "line": 2666,
           "name": "notify_of_audio_completion_with_visibility"
         },
         {
           "kind": "fn",
-          "line": 2663,
+          "line": 2715,
           "name": "replay_playing_event"
         },
         {
           "kind": "fn",
-          "line": 2678,
+          "line": 2730,
           "name": "start_next_loop"
         },
         {
           "kind": "fn",
-          "line": 2705,
+          "line": 2757,
           "name": "pending_play_events"
         },
         {
           "kind": "fn",
-          "line": 2711,
+          "line": 2763,
           "name": "pending_play_request_count"
         },
         {
           "kind": "fn",
-          "line": 2721,
+          "line": 2773,
           "name": "pending_play_request_count_for"
         },
         {
           "kind": "fn",
-          "line": 2732,
+          "line": 2784,
           "name": "fading_audio_count"
         },
         {
           "kind": "fn",
-          "line": 2736,
+          "line": 2788,
           "name": "volume_has_changed_flag"
         },
         {
           "kind": "fn",
-          "line": 2740,
+          "line": 2792,
           "name": "fading_frames"
         },
         {
           "kind": "fn",
-          "line": 2747,
+          "line": 2799,
           "name": "force_notify_completion_for_test"
         },
         {
           "kind": "fn",
-          "line": 2758,
+          "line": 2810,
           "name": "active_event_mut_for_test"
         },
         {
           "kind": "fn",
-          "line": 2762,
+          "line": 2814,
           "name": "insert_playing_event_for_test"
         },
         {
           "kind": "fn",
-          "line": 2766,
+          "line": 2818,
           "name": "active_event_count"
         },
         {
           "kind": "fn",
-          "line": 2770,
+          "line": 2822,
           "name": "active_event_loop_count"
         },
         {
           "kind": "fn",
-          "line": 2776,
+          "line": 2828,
           "name": "active_event_portion"
         },
         {
           "kind": "fn",
-          "line": 2782,
+          "line": 2834,
           "name": "track_active_event"
         },
         {
           "kind": "fn",
-          "line": 2789,
+          "line": 2841,
           "name": "purge_inactive_events"
         },
         {
           "kind": "fn",
-          "line": 2799,
+          "line": 2851,
           "name": "default"
         },
         {
           "kind": "fn",
-          "line": 2805,
+          "line": 2857,
           "name": "get_rodio_stream_handle"
         },
         {
           "kind": "static",
-          "line": 2807,
+          "line": 2859,
           "name": "STATE"
         },
         {
           "kind": "static",
-          "line": 2821,
+          "line": 2873,
           "name": "LIVE_AUDIO_FILE_CACHE"
         },
         {
           "kind": "fn",
-          "line": 2823,
+          "line": 2875,
           "name": "live_audio_file_cache"
         },
         {
           "kind": "fn",
-          "line": 2829,
+          "line": 2881,
           "name": "wav_channel_count"
         },
         {
           "kind": "struct",
-          "line": 2835,
+          "line": 2887,
           "name": "CachedAudioBytes"
         },
         {
           "kind": "fn",
-          "line": 2839,
+          "line": 2891,
           "name": "as_ref"
         },
         {
           "kind": "enum",
-          "line": 2845,
+          "line": 2897,
           "name": "RodioVoice"
         },
         {
           "kind": "fn",
-          "line": 2852,
+          "line": 2904,
           "name": "set_volume"
         },
         {
           "kind": "fn",
-          "line": 2858,
+          "line": 2910,
           "name": "stop"
         },
         {
           "kind": "fn",
-          "line": 2865,
+          "line": 2917,
           "name": "pause"
         },
         {
           "kind": "fn",
-          "line": 2872,
+          "line": 2924,
           "name": "play"
         },
         {
           "kind": "fn",
-          "line": 2879,
+          "line": 2931,
           "name": "empty"
         },
         {
           "kind": "fn",
-          "line": 2886,
+          "line": 2938,
           "name": "is_paused"
         },
         {
           "kind": "fn",
-          "line": 2893,
+          "line": 2945,
           "name": "set_stereo_pan"
         },
         {
           "kind": "struct",
-          "line": 2904,
+          "line": 2956,
           "name": "RodioPlaybackHook"
         },
         {
           "kind": "struct",
-          "line": 2913,
+          "line": 2965,
           "name": "RodioSinkState"
         },
         {
           "kind": "fn",
-          "line": 2927,
+          "line": 2979,
           "name": "new"
         },
         {
           "kind": "fn",
-          "line": 2951,
+          "line": 3003,
           "name": "new"
         },
         {
           "kind": "fn",
-          "line": 2963,
+          "line": 3015,
           "name": "build_path_candidates"
         },
         {
           "kind": "fn",
-          "line": 2989,
+          "line": 3041,
           "name": "portion_filename"
         },
         {
           "kind": "fn",
-          "line": 3001,
+          "line": 3053,
           "name": "resolve_audio_data"
         },
         {
           "kind": "fn",
-          "line": 3030,
+          "line": 3082,
           "name": "calculate_3d_volume_falloff"
         },
         {
           "kind": "fn",
-          "line": 3049,
+          "line": 3101,
           "name": "effective_volume"
         },
         {
           "kind": "fn",
-          "line": 3058,
+          "line": 3110,
           "name": "refresh_sink_volume"
         },
         {
           "kind": "fn",
-          "line": 3062,
+          "line": 3114,
           "name": "listener_pose"
         },
         {
           "kind": "fn",
-          "line": 3082,
+          "line": 3134,
           "name": "refresh_positional_pan"
         },
         {
           "kind": "fn",
-          "line": 3095,
+          "line": 3147,
           "name": "play_with_observation"
         },
         {
           "kind": "fn",
-          "line": 3209,
+          "line": 3261,
           "name": "play"
         },
         {
           "kind": "fn",
-          "line": 3212,
+          "line": 3264,
           "name": "play_with_visibility"
         },
         {
           "kind": "fn",
-          "line": 3215,
+          "line": 3267,
           "name": "stop"
         },
         {
           "kind": "fn",
-          "line": 3220,
+          "line": 3272,
           "name": "pause"
         },
         {
           "kind": "fn",
-          "line": 3226,
+          "line": 3278,
           "name": "set_listener_position"
         },
         {
           "kind": "fn",
-          "line": 3239,
+          "line": 3291,
           "name": "set_listener_orientation"
         },
         {
           "kind": "fn",
-          "line": 3252,
+          "line": 3304,
           "name": "resume"
         },
         {
           "kind": "fn",
-          "line": 3258,
+          "line": 3310,
           "name": "is_playing"
         },
         {
           "kind": "fn",
-          "line": 3273,
+          "line": 3325,
           "name": "set_event_volume"
         },
         {
           "kind": "fn",
-          "line": 3291,
+          "line": 3343,
           "name": "set_sink_volume"
         },
         {
           "kind": "fn",
-          "line": 3300,
+          "line": 3352,
           "name": "music_loop_count"
         },
         {
           "kind": "fn",
-          "line": 3315,
+          "line": 3367,
           "name": "is_sink_paused"
         },
         {
           "kind": "fn",
-          "line": 3326,
+          "line": 3378,
           "name": "register_rodio_playback_hook"
         },
         {
           "kind": "struct",
-          "line": 3333,
+          "line": 3385,
           "name": "WasmPlaybackHook"
         },
         {
           "kind": "fn",
-          "line": 3337,
+          "line": 3389,
           "name": "play"
         },
         {
           "kind": "fn",
-          "line": 3340,
+          "line": 3392,
           "name": "stop"
         },
         {
           "kind": "fn",
-          "line": 3341,
+          "line": 3393,
           "name": "pause"
         },
         {
           "kind": "fn",
-          "line": 3342,
+          "line": 3394,
           "name": "resume"
         },
         {
           "kind": "fn",
-          "line": 3343,
+          "line": 3395,
           "name": "is_playing"
         },
         {
           "kind": "fn",
-          "line": 3349,
+          "line": 3401,
           "name": "register_wasm_playback_hook"
         },
         {
           "kind": "const",
-          "line": 3352,
+          "line": 3404,
           "name": "AHSV_NO_SOUND"
         },
         {
           "kind": "const",
-          "line": 3354,
+          "line": 3406,
           "name": "AHSV_ERROR"
         },
         {
           "kind": "const",
-          "line": 3355,
+          "line": 3407,
           "name": "AHSV_NOT_FOR_LOCAL"
         },
         {
           "kind": "const",
-          "line": 3356,
+          "line": 3408,
           "name": "AHSV_MUTED"
         },
         {
           "kind": "const",
-          "line": 3357,
+          "line": 3409,
           "name": "AHSV_STOP_THE_MUSIC"
         },
         {
           "kind": "const",
-          "line": 3358,
+          "line": 3410,
           "name": "AHSV_STOP_THE_MUSIC_FADE"
         },
         {
           "kind": "const",
-          "line": 3359,
+          "line": 3411,
           "name": "AHSV_FIRST_HANDLE"
         },
         {
           "kind": "static",
-          "line": 3364,
+          "line": 3416,
           "name": "THE_AUDIO"
         },
         {
           "kind": "struct",
-          "line": 3365,
+          "line": 3417,
           "name": "AnimatedSoundBridge"
         },
         {
           "kind": "fn",
-          "line": 3373,
+          "line": 3425,
           "name": "new"
         },
         {
           "kind": "fn",
-          "line": 3379,
+          "line": 3431,
           "name": "normalized_key"
         },
         {
           "kind": "fn",
-          "line": 3388,
+          "line": 3440,
           "name": "record_handle"
         },
         {
           "kind": "fn",
-          "line": 3407,
+          "line": 3459,
           "name": "take_handles"
         },
         {
           "kind": "fn",
-          "line": 3416,
+          "line": 3468,
           "name": "play_internal"
         },
         {
           "kind": "fn",
-          "line": 3453,
+          "line": 3505,
           "name": "play_3d_audio"
         },
         {
           "kind": "fn",
-          "line": 3462,
+          "line": 3514,
           "name": "play_2d_audio"
         },
         {
           "kind": "fn",
-          "line": 3466,
+          "line": 3518,
           "name": "stop_audio"
         },
         {
           "kind": "fn",
-          "line": 3480,
+          "line": 3532,
           "name": "register_animation_sound_library"
         },
         {
           "kind": "fn",
-          "line": 3490,
+          "line": 3542,
           "name": "initialize_global_audio_manager"
         },
         {
           "kind": "fn",
-          "line": 3515,
+          "line": 3567,
           "name": "get_global_audio_manager"
         },
         {
           "kind": "fn",
-          "line": 3523,
+          "line": 3575,
           "name": "load_audio_event_inis"
         },
         {
           "kind": "const",
-          "line": 3524,
+          "line": 3576,
           "name": "AUDIO_INI_FILES"
         },
         {
           "kind": "fn",
-          "line": 3570,
+          "line": 3622,
           "name": "read_audio_settings_from_game_fs"
         },
         {
           "kind": "fn",
-          "line": 3582,
+          "line": 3634,
           "name": "apply_loaded_audio_settings_to_manager"
         },
         {
           "kind": "fn",
-          "line": 3675,
+          "line": 3727,
           "name": "assets_root"
         },
         {
           "kind": "fn",
-          "line": 3685,
+          "line": 3737,
           "name": "archived_audio_settings_apply_retail_mix_values"
         }
       ]
@@ -164948,11 +164986,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 2090,
+        "end_line": 2147,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_control_bar_scheme.rs",
-      "sha256": "17686c6878a25444f91b5e30929b9cd0a943a080dbec7a27aa54c94a4fd045f5",
+      "sha256": "1e028b7b9486abe59af49243a5e28ee04299bb1b5f517b6c18b59db6a8483ff5",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -165248,11 +165286,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 941,
+        "end_line": 951,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_particle_sys.rs",
-      "sha256": "77bb159504595af29bba51a3dd9ededda8349bee18af0fbfee5959e75c3d1f01",
+      "sha256": "1c168e5379b3b8fc7ace04245bf7512916edc4270acc53ea37b89fbc8b175d29",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -165392,11 +165430,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 787,
+        "end_line": 805,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/Common/src/common/message_stream/game_message.rs",
-      "sha256": "f32a864b0edf13657a2b76043216dfdfb05a7b367cdab819d3e2d733f27096a5",
+      "sha256": "80527214c2d554edf14c01d763e45766ff94624142dca31de0b70aed3ef0923f",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -165416,11 +165454,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 946,
+        "end_line": 988,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/Common/src/common/message_stream/message_stream.rs",
-      "sha256": "a440e614bc8e575bca92c836cdfaa26bcdffa5992d5231dcdac69a3ca3fec195",
+      "sha256": "86175868c02efe41ec889bd50e4fcdffec8ac3e04c298c417e6065d278d6486f",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -167372,11 +167410,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 119,
+        "end_line": 125,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/client_types.rs",
-      "sha256": "5c4e61c34d8029eb5eb19580001d34334f0ff6ee8f7c844a9cec4509d0844430",
+      "sha256": "0fffb72a527a040eb8dd6493264af0960e1bc498d7f7b7c79c12b1e92fe52fad",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -167408,11 +167446,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 220,
+        "end_line": 283,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/drawable_world.rs",
-      "sha256": "8682cf8718d6cdbfb59a8d58f9efe4883f0be6daf75710ec1cca36a7d9965d13",
+      "sha256": "2794b8e1c22dd8a2c51a1a01b7e222b56c0630aa9213bc36f3473baf8fdf8734",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -167444,11 +167482,11 @@
       "cargo_reachable": true,
       "classification": "test",
       "file_range": {
-        "end_line": 51,
+        "end_line": 63,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/fx_client_bone_tests.rs",
-      "sha256": "55de57b325b3860bb503b1b71c83da12ad8af838d8c04e571fa9b4683f7b7e85",
+      "sha256": "ea783632447c4a9829993a44a54dad8acdda1f9ed5c9c994a52f30b7386d7f84",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -167480,11 +167518,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 794,
+        "end_line": 874,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/impl_draw.rs",
-      "sha256": "d0e93f90016a5ad4a20d006c516265758b79db04b30fa8ca2e2b26e18ccda9d0",
+      "sha256": "f55db947b3d885a1e7c87b9cbbf7e907d924135aaff64ff882aad0d484b37b3c",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -167492,11 +167530,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 1337,
+        "end_line": 1424,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/impl_init.rs",
-      "sha256": "e54c4a0419477780985b9de0cd8958544d8b5e6f333779f3c2b0ade312e04648",
+      "sha256": "f8bfdc776e7817b2e5602d59b6675a4c17852567adc4864474d4c1b9ec78cc0f",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -167504,11 +167542,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 2676,
+        "end_line": 2627,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/impl_update.rs",
-      "sha256": "285db6d1b943b7b5d87fe6a0348d36a81d49ac470a8b0a22ad0b228a7b4d4447",
+      "sha256": "9958110d5e4e6d12933156a188d5e5f8885c0d89b68c2d702339b17dfca248c5",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -167516,11 +167554,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 1837,
+        "end_line": 1761,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/leftover.rs",
-      "sha256": "a4c394ced8b64b02eaba22396f7764abcf7cded976c65ad5a26b8bd233a3d277",
+      "sha256": "e55b6d6fa0f31aeb37e7d9f56aea0b1cc58870d106fca6dde85a2c2abcff2583",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -167528,11 +167566,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 806,
+        "end_line": 811,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/live_slot.rs",
-      "sha256": "b3a65e8296c58941e6c913a83286fc58ac07dd53b8ba90b4465924d0a72cbe82",
+      "sha256": "51f583a870481d421d37eca59d1365d92327999d0cde417b0889872a911c1c80",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -167540,11 +167578,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 199,
+        "end_line": 134,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/material_pass.rs",
-      "sha256": "72ccf91866c262c150a5f80eea38c5f552768a9458cb7fce21f9845d2a8d9e3f",
+      "sha256": "44bce3ff83887c0bfe13d1c8d69de820a74cc9055c6c88619ba9517471cc3b2a",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -167564,11 +167602,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 228,
+        "end_line": 223,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/mod.rs",
-      "sha256": "178c03f99b2135487a7af955bd51a094fde4add400bd7eec41e7bfb22424d71f",
+      "sha256": "e2e6e2f4b2e604ae3661853dc7a23b765920432be4599be151cfb79878f97051",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -167600,11 +167638,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 565,
+        "end_line": 466,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/native_particle_draw.rs",
-      "sha256": "20a55c59ee052b862a6874089bdb4d5100b91d11adaa1a7aac10092b97f52dde",
+      "sha256": "2382a72f3cf17d8b1541b8fbb17146e9f412fbb14ddecd3f6cb14b6b7dd559b9",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -167612,11 +167650,11 @@
       "cargo_reachable": true,
       "classification": "test",
       "file_range": {
-        "end_line": 79,
+        "end_line": 81,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/native_particle_owner_lifecycle_tests.rs",
-      "sha256": "b3230e42eedf7356a11586a2343d15b3ff10e18ffc2bb3b0038f6d819235b032",
+      "sha256": "d7b7279fa20a63fc6fb8442ba745c2bb8d549ffc383b0694f0e01acff99f1c4b",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -167624,11 +167662,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 243,
+        "end_line": 211,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/native_presentation.rs",
-      "sha256": "e70b8c8e9944bb56aba86ea80ab8a5d83215a41f08efb954e293d1bb2640c1d9",
+      "sha256": "298e6bacb1fecbcddd7da8359b89507ebf708fba1c5d15d5f742070b3ec33742",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -167660,11 +167698,23 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 122,
+        "end_line": 657,
+        "start_line": 1
+      },
+      "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/native_render_receiver.rs",
+      "sha256": "c2da92c93bd9dcc211150e801d8fafc48b45057c9cf6d10287f2ca8b9a7f3740",
+      "symbol_index_status": "awaiting_mapping_review",
+      "symbols": []
+    },
+    {
+      "cargo_reachable": true,
+      "classification": "implementation",
+      "file_range": {
+        "end_line": 89,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/native_view_draw.rs",
-      "sha256": "84c921e7f4aade65cd34d86ba66a4cdf1cd71345459064bf5d4ea4ee769e4774",
+      "sha256": "62d989fc897dcbffeffe8b55f0b73e8d88949e4a2b6616a553c76034e47fd069",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -167696,11 +167746,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 464,
+        "end_line": 599,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/owned_laser.rs",
-      "sha256": "13f3382b857973d8813242acbf9f5cf376169b9473c052c90a095c378a11e6c4",
+      "sha256": "e03b1364abc85d0427ff1a29866c06991b18f0385b37c830cf2733aad95e0263",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -167900,11 +167950,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 949,
+        "end_line": 989,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/semantic_admission.rs",
-      "sha256": "9c37abc16748f187adc2ce58f7adbaceeac832ecdeb35e16a3ece4db2abdedeb",
+      "sha256": "4bc8014d0acfc81c882bde29bfb66806c6d711afaab5a01762b9f44309cb2ccd",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -167936,11 +167986,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 114,
+        "end_line": 120,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/subsystem.rs",
-      "sha256": "486cb99bd10a2840ecda3a0a09b08b629508f4726cb1cca697cc8b855e2d013a",
+      "sha256": "82d880a2ff1f6917bf716612e82c66abdd6ba8a0cd27c4d39d0f8cafd65774aa",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -168032,11 +168082,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 878,
+        "end_line": 900,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/credits.rs",
-      "sha256": "5f7bda882bab3995eed226eb669e363df009b27dbe5f5403f6939ba91a533541",
+      "sha256": "37fccd44d057c7999f0e0efd26fdefdc1829408eebf287c98ab8e95b0ddab11a",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -168068,11 +168118,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 1406,
+        "end_line": 1411,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/display/display.rs",
-      "sha256": "e4af6079e6fec6d88dc2408b6089eddc9b7c5233a63c9beeaef41afd4f5e9aea",
+      "sha256": "9d892edc4590edc695147e72b3a53be53d332af28c25835dc392fd9e79b3e34f",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -168080,11 +168130,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 1014,
+        "end_line": 1134,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/display/display_fx.rs",
-      "sha256": "72dd9d11bb8aa4948492742484ccdd38f220c5d631bfa773dec020a6c72d42ba",
+      "sha256": "0616d35d9b4fe535e4b1f03214856a3a3c0e02a61ec074f6401c3121610404f0",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -168092,11 +168142,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 1621,
+        "end_line": 1625,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/display/image.rs",
-      "sha256": "6afcead921a9c8236673603e8ba36bff6ac22d2d02b95cd36c4124a6d09c0364",
+      "sha256": "97dd2f4bf707313ecc1bb68918975d2c4a5a07c83efc78a1b05c5f3a6bbf6f37",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -168104,11 +168154,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 75,
+        "end_line": 80,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/display/mod.rs",
-      "sha256": "a55b869354e0158d715a4d0c4a967e4e654c6eed4a0ec3e93c704a27b47ab7fe",
+      "sha256": "2e7f147bb498cd1aad89f0e1a89271c904d26eb1041eece96d10b1a4e86d2c24",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -168216,7 +168266,7 @@
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/display/view.rs",
-      "sha256": "03ca165da8dbe06a15b9f1e50c9388e1084999d1b6eb065e821fee0ca6559ad6",
+      "sha256": "dea957dfe3af4282dadde5932627b6983e0a1f273fc636340001af6d29d38663",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -168938,11 +168988,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 632,
+        "end_line": 637,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/drawable/drawable/basic_drawable_trait.rs",
-      "sha256": "458a596e2b7fec22d671495489b9797b004c74c53214f4cbf3b2f284a169b6df",
+      "sha256": "3141c1e607eab37223f86424eb5dfb169c8eb70fc37402bcd29992becfa6424a",
       "symbol_index_status": "indexed",
       "symbols": [
         {
@@ -169162,22 +169212,22 @@
         },
         {
           "kind": "fn",
-          "line": 608,
+          "line": 613,
           "name": "set_current_frame"
         },
         {
           "kind": "fn",
-          "line": 612,
+          "line": 617,
           "name": "is_expired"
         },
         {
           "kind": "fn",
-          "line": 617,
+          "line": 622,
           "name": "xfer_snapshot"
         },
         {
           "kind": "fn",
-          "line": 628,
+          "line": 633,
           "name": "native_base_transform"
         }
       ]
@@ -169186,11 +169236,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 484,
+        "end_line": 485,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/drawable/drawable/basic_modules.rs",
-      "sha256": "1dad37c5630704034bc66bc24424d2404e2238e9973433b66a2cc9d407af2d0d",
+      "sha256": "df89e143671e0793f707d8e919e24bf8e5d0873996de8e46b65a38351c4481ee",
       "symbol_index_status": "indexed",
       "symbols": [
         {
@@ -169230,62 +169280,62 @@
         },
         {
           "kind": "fn",
-          "line": 170,
+          "line": 175,
           "name": "apply_recoil_impulse"
         },
         {
           "kind": "fn",
-          "line": 191,
+          "line": 196,
           "name": "integrate_recoil_visual"
         },
         {
           "kind": "const",
-          "line": 198,
+          "line": 203,
           "name": "STIFFNESS"
         },
         {
           "kind": "const",
-          "line": 199,
+          "line": 204,
           "name": "DAMPING"
         },
         {
           "kind": "fn",
-          "line": 222,
+          "line": 225,
           "name": "recoil_visual"
         },
         {
           "kind": "fn",
-          "line": 233,
+          "line": 234,
           "name": "handle_weapon_fire_fx"
         },
         {
           "kind": "fn",
-          "line": 267,
+          "line": 268,
           "name": "handle_weapon_fire_fx_with_module_index"
         },
         {
           "kind": "fn",
-          "line": 307,
+          "line": 308,
           "name": "get_barrel_count"
         },
         {
           "kind": "fn",
-          "line": 329,
+          "line": 330,
           "name": "get_pristine_bone_positions"
         },
         {
           "kind": "fn",
-          "line": 368,
+          "line": 369,
           "name": "get_current_client_bone_positions"
         },
         {
           "kind": "fn",
-          "line": 405,
+          "line": 406,
           "name": "get_current_worldspace_client_bone_positions"
         },
         {
           "kind": "fn",
-          "line": 431,
+          "line": 432,
           "name": "get_projectile_launch_offset"
         }
       ]
@@ -169462,11 +169512,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 534,
+        "end_line": 536,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/drawable/drawable/basic_visual.rs",
-      "sha256": "91824a49b6e36e868053292177912ecf47d762c4689355d7d5efd9b6ab45d042",
+      "sha256": "3c411c8dba2ccdaf75657c496c53365c1f7cb8d3c143816ab4519eeb067fc6f9",
       "symbol_index_status": "indexed",
       "symbols": [
         {
@@ -169591,12 +169641,12 @@
         },
         {
           "kind": "fn",
-          "line": 470,
+          "line": 472,
           "name": "original_model_bits_map_by_meaning_not_integer_layout"
         },
         {
           "kind": "fn",
-          "line": 514,
+          "line": 516,
           "name": "unrelated_model_conditions_never_become_selected_or_damage"
         }
       ]
@@ -169916,11 +169966,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 240,
+        "end_line": 243,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/drawable/drawable/drawable_trait.rs",
-      "sha256": "d116b8d82e9d340c0dec92f9784d2dc32d356dbe89220ba086994cb328309cb9",
+      "sha256": "00cc6a860027333b0a77d973e80f8394db675f53bc7f68feeca47b40951b8914",
       "symbol_index_status": "indexed",
       "symbols": [
         {
@@ -170165,42 +170215,42 @@
         },
         {
           "kind": "fn",
-          "line": 202,
+          "line": 205,
           "name": "draw_icon_ui"
         },
         {
           "kind": "fn",
-          "line": 207,
+          "line": 210,
           "name": "set_time_of_day"
         },
         {
           "kind": "fn",
-          "line": 212,
+          "line": 215,
           "name": "preload_assets"
         },
         {
           "kind": "fn",
-          "line": 217,
+          "line": 220,
           "name": "set_current_frame"
         },
         {
           "kind": "fn",
-          "line": 220,
+          "line": 223,
           "name": "is_expired"
         },
         {
           "kind": "fn",
-          "line": 225,
+          "line": 228,
           "name": "xfer_snapshot"
         },
         {
           "kind": "fn",
-          "line": 231,
+          "line": 234,
           "name": "downcast_ref"
         },
         {
           "kind": "fn",
-          "line": 234,
+          "line": 237,
           "name": "downcast_mut"
         }
       ]
@@ -170227,11 +170277,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 330,
+        "end_line": 331,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/drawable/drawable/icons.rs",
-      "sha256": "2449d62e62a884646ec667f5c55bf13bbbb53c18c5ff33ecbdc6ef24b06d8c56",
+      "sha256": "686ce9c5af87ef0c125c73ab99e33ba75babce046a7f01e8edb479cffac51db1",
       "symbol_index_status": "indexed",
       "symbols": [
         {
@@ -170366,12 +170416,12 @@
         },
         {
           "kind": "fn",
-          "line": 320,
+          "line": 321,
           "name": "anim2d_template_name"
         },
         {
           "kind": "fn",
-          "line": 324,
+          "line": 325,
           "name": "xfer"
         }
       ]
@@ -170674,11 +170724,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 106,
+        "end_line": 146,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/drawable/drawable/native_laser.rs",
-      "sha256": "d1661f0bf6f1147ae5eaa5ceba6b4d03a1756a39256732550e4b7fdc0c881e0f",
+      "sha256": "7d2f59181d74772e2a8d4cc0b28320521660601d0c7557153e80270c8a9b68a3",
       "symbol_index_status": "indexed",
       "symbols": [
         {
@@ -170705,6 +170755,16 @@
           "kind": "fn",
           "line": 45,
           "name": "draw_native_laser_geometry"
+        },
+        {
+          "kind": "fn",
+          "line": 108,
+          "name": "configure_native_tracers"
+        },
+        {
+          "kind": "fn",
+          "line": 122,
+          "name": "draw_native_tracer_geometry"
         }
       ]
     },
@@ -172311,11 +172371,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 2367,
+        "end_line": 2368,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/fx_list.rs",
-      "sha256": "e5ba6715a683396e013cad873b9735c82a8d57a34f8ba407f47b6ff55e3b97a2",
+      "sha256": "65f60b352aa5eeeb0db910e51a5e1f9a789a94d8ef56d6879c771da8e84616a3",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -172323,11 +172383,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 382,
+        "end_line": 291,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/fx_owned_execution.rs",
-      "sha256": "048250beca941139d3ae63ac55369b56ba170279797d425974ed3d24207c7a48",
+      "sha256": "c30b74070899ac4a0c1b524c6c346c820f1a91047d80288899bba2a4dfe985b5",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -172371,11 +172431,23 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 122,
+        "end_line": 211,
+        "start_line": 1
+      },
+      "path": "GeneralsRust/Code/GameEngine/GameClient/src/fx_runtime.rs",
+      "sha256": "1c4028bdf2275cef0f28559c072b91baf593e0a80486a49488564584988009bc",
+      "symbol_index_status": "awaiting_mapping_review",
+      "symbols": []
+    },
+    {
+      "cargo_reachable": true,
+      "classification": "implementation",
+      "file_range": {
+        "end_line": 119,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/fx_view_services.rs",
-      "sha256": "05c9d3860ef59aeff6d412ce073564a5b94e975ffddc940ee1d5b6ce6469529b",
+      "sha256": "dfa5a0be9eab3ffc5dac59c4047f29538aa6941c1d9d86e27da9e5d6077f6b24",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -172459,7 +172531,7 @@
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/graph_draw.rs",
-      "sha256": "e3dbb242a9b92d90c8be28fe8e404c9b763cc1e2684c9f225df8a9fa997111a8",
+      "sha256": "88b1b80dbe93cf3e9e085206165ccf968ddbdd2abdc3bee999e2adf525f3e247",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -172479,11 +172551,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 1210,
+        "end_line": 1213,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/callbacks/challenge_menu.rs",
-      "sha256": "9f207d5b9c9f7421427364055ffefe99c6bb22bf7344d4ca99cd2e7bf8371c32",
+      "sha256": "24fec7e1b3dffab3dd8ae17660763ac8ab856a08b2656879d644992867bb553f",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -172551,11 +172623,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 217,
+        "end_line": 228,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/callbacks/ime_candidate.rs",
-      "sha256": "50dbd0af34af12f93ea046ee16c7b9d7eb1cda8b37b2e32d934f4dac93e9cfe3",
+      "sha256": "8580afe5d5bc9e9ea90d3d402030246ba9d1afd2e92540a79a6a9db0aea70e0a",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -172563,11 +172635,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 691,
+        "end_line": 694,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/callbacks/in_game_popup_message.rs",
-      "sha256": "e12cc8b68447beb32a77a8cb63e7602ccdcf8a8c5bd1b3ff94e978cc00e5a544",
+      "sha256": "00aa70f55deb3385b5430f3eb56e72632a0d576294b065a1ebbe3a40ced0de71",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -172599,11 +172671,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 597,
+        "end_line": 600,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/callbacks/lan_lobby_menu.rs",
-      "sha256": "9961dc244e173adfb3ce87eb82bf1785afb4813387184412846ad1757828e98e",
+      "sha256": "d0b9771d675999edfdf582e5d3e2e84d148b95445a7abd5c2e8a3a986ce84fe0",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -172635,11 +172707,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 479,
+        "end_line": 483,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/callbacks/network_direct_connect.rs",
-      "sha256": "7eddb22e0aac9c507dd7246d25086ff115784b08913017be6b174525ef21fce9",
+      "sha256": "6dfd1a7a0efd0c6ab4123b710f05311eb83351f5a401cfdb46307e727a961516",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -172719,11 +172791,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 2139,
+        "end_line": 2140,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/callbacks/popup_save_load.rs",
-      "sha256": "1329e5c9e4a49328cefd0fc1c5cda37bd255d9121e1744066928a3af415f8b80",
+      "sha256": "d6758176aa924c9b0530cd1d1b522601b94d234748c33c5605ff64eac5b9f5d2",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -172755,11 +172827,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 449,
+        "end_line": 450,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/callbacks/replay_menu/ingress.rs",
-      "sha256": "040ad8329da3dbd1a95eb0da5be4dca1562b761bc97ebadd28e232e81abb4879",
+      "sha256": "761930fcb9d3d3ee200a1cb267f33bf02cd30c7d27f67d06edd38ca855fdb2bf",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -172767,11 +172839,11 @@
       "cargo_reachable": true,
       "classification": "test",
       "file_range": {
-        "end_line": 217,
+        "end_line": 218,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/callbacks/replay_menu/policy_refresh_tests.rs",
-      "sha256": "cd9067d0390931503363b439c0788e7100a0ecda724e76fa4c194afcb3245e9c",
+      "sha256": "271e11eda5093622d4deaa9199e492caf739110ee2fadbea1807a53eb7f51f6f",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -172779,11 +172851,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 807,
+        "end_line": 811,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/callbacks/replay_menu.rs",
-      "sha256": "eae359abcd897a0b0860f28bbf0eaca1047b291e0b9ed179922680185b3b2c0e",
+      "sha256": "d808c19e2a7b49456725e7deb4dc9f637967ff4ca56760d052851fcf4726e49e",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -172791,11 +172863,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 2554,
+        "end_line": 2560,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/callbacks/score_screen.rs",
-      "sha256": "c07f3d49b67fe403a90068a69c5c8be505629ae462379d96e5bad6390c87d55a",
+      "sha256": "979ffb93089232724e93965b63e160a33c9bdfe3e12fc07888404cef34dfeba9",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -172815,11 +172887,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 2258,
+        "end_line": 2261,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/callbacks/skirmish_game_options_menu.rs",
-      "sha256": "3c4bfbe6b9e1634fd5a820c91f0a1cd55f9547951655228f15e9592f752ee619",
+      "sha256": "2de75861573d75908e6ba57c22a9975c018f27e66227d0e15af32f0266d8220d",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -172839,11 +172911,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 1032,
+        "end_line": 1093,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/callbacks/skirmish_map_select_menu.rs",
-      "sha256": "4c8132f6619c8104222e29c0fc865f5eeaeff5739c8716bd79cc862db19afaec",
+      "sha256": "db7b13583675ba1035fb580245b0e1844ba6312d751171d03d7a036a313f16df",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -173151,11 +173223,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 1036,
+        "end_line": 1041,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/control_bar/control_bar_impl/impl_lifecycle.rs",
-      "sha256": "e4983f44a2f2b1d673ec48c52e0a35d238317e4f7e82511c029bd636fe602dde",
+      "sha256": "7686bacdcdfd9e37f8a1a39ca633cd4ddf4e5586f19c48d47cdbecaf24678989",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -173475,11 +173547,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 1037,
+        "end_line": 1044,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/display_string.rs",
-      "sha256": "18e7daff79a6c1c681f7d9ae73b7e316b66e1c24ff958d856fffc9172bfffdb8",
+      "sha256": "3ea548bc7564457825d67ff78f28075b3512181caed8dd64d5dae7e70d177650",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -173667,11 +173739,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 464,
+        "end_line": 471,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/game_window/callbacks.rs",
-      "sha256": "3055f0243494a4ddee75c300a10c9f16c5da77285b446c1586e96b22e38c1064",
+      "sha256": "cd936b25713d589bd542d04698d875fb0f27bbe142039011d1553a0358166a5b",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -173731,7 +173803,7 @@
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/game_window/mod.rs",
-      "sha256": "109cc9218dafa4e5649dd5d17c3a442922ba804d4970e2fcb8d40b6a70940429",
+      "sha256": "141acb178aaf3847051fe5e917bc49c0319c40573941c75dd8ce0584648ff5fa",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -173775,11 +173847,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 2061,
+        "end_line": 2079,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/game_window/window_impl_core.rs",
-      "sha256": "61aa99ea048f06923cc6455c75fa0b400b15951a45f2d0fba53074bc25272c9c",
+      "sha256": "f7212c756599ebc0fd0bb8ebdd711f05bef764b9d3006b205703f978a8d3a496",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -173787,11 +173859,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 360,
+        "end_line": 373,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/game_window/window_impl_draw.rs",
-      "sha256": "4937ecd5c44679a231949e322d7caebcf8eac0e82a0af50808d252bbd752a502",
+      "sha256": "671249153d0f1b340de1bef3a7f2157fd7a18d8aa15f169b49e2ae5cb23022e9",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -173823,11 +173895,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 324,
+        "end_line": 392,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/game_window/window_struct.rs",
-      "sha256": "5f1555614bf432405abf8aae2ac52cbab1d62b54b193146979b098366f3aaee0",
+      "sha256": "54e6cd688bee05323478f03d616afe3afbce60410c0faf7c2a01e4450e5d3e1b",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -173835,11 +173907,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 821,
+        "end_line": 842,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/game_window_global.rs",
-      "sha256": "1ee8e2df38d42510973f9fbe25337d6770bbbecc8f1a225c521a8351e848dd0d",
+      "sha256": "70cd96210fdbfe572406269fb120dae33b7b1c6b8c51ceaf0d05aff6bd95626e",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -173859,11 +173931,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 3272,
+        "end_line": 3341,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/game_window_manager_script.rs",
-      "sha256": "60f6d77bdcb633f1059cf29614e251d0da796e6b9ddccaa9411d80e24241d386",
+      "sha256": "9c1671e0c65d73befdc9cdd124c3e165ced9fed0b6505c54771a9e8ee90c2ee3",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -173871,11 +173943,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 2950,
+        "end_line": 2992,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/game_window_transitions.rs",
-      "sha256": "d5c0878bdc2b455ba39ea4808b7c08c92849184f35d50a79611bd2d2421df7ad",
+      "sha256": "7aab607fab2ea7d20dad77ca1850865196e0748d2b011c1f51ef471c0c810f60",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -173907,11 +173979,11 @@
       "cargo_reachable": true,
       "classification": "test",
       "file_range": {
-        "end_line": 224,
+        "end_line": 227,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/gui_callbacks/control_bar_popup_description/owner_tests.rs",
-      "sha256": "f4148706431f44bef3cf12b5bebe625eb55b9eb8683a4acec2be40858e9d0f95",
+      "sha256": "68f4d8555fe8b70e3df31c2fcf88f5679f0707fee29f92562baaf96e22fbaf27",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -174195,11 +174267,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 39,
+        "end_line": 43,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/gui_callbacks/menus/network_direct_connect.rs",
-      "sha256": "f5eb2c23e712a7f1b93b6367bb6ff6b92438cbfcddd9ef8afceec040c606b349",
+      "sha256": "e02ee0dbbf43e4367e9354c7f5509a69cd0ffa70d862f3780ef32275e6428926",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -174291,11 +174363,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 44,
+        "end_line": 48,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/gui_callbacks/menus/popup_save_load.rs",
-      "sha256": "2a90673d57a65693eb64a539655e494a515a4ef0b3fcba939f6ef74308a92996",
+      "sha256": "bcc6898eadb4d345da13b6d923defd62df75e860db5e0d3dd134746de2032ef3",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -174351,11 +174423,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 50,
+        "end_line": 51,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/gui_callbacks/menus/skirmish_game_options_menu.rs",
-      "sha256": "a8993dd9aafbb28e95288d28185a1f65752e2ceff995e6f19dd0cac2f6564296",
+      "sha256": "8a434d1168563c0809a5a18236e60f26fa25e74bb587d9ff2f5307c2e4477c5f",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -174363,11 +174435,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 52,
+        "end_line": 56,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/gui_callbacks/menus/skirmish_map_select_menu.rs",
-      "sha256": "5ca1954e367229373b44916f0adcf5bc89e628893a98639f3944293ffbd183de",
+      "sha256": "8948b67f9fca0e6815fe97ada9fd2ba5afbb45db4934a4fe46824c15c8289720",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -174615,11 +174687,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 1365,
+        "end_line": 1368,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/ingame_ui/impl_update.rs",
-      "sha256": "da57c8117307379a4ad43f0078f06475738a5a9fd94793fb995ee6ea4984b1ec",
+      "sha256": "16ba5ab3fc0a2c31b838d4c5e42c4516fb394f720226ec644cf005ff91c25c1a",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -174807,11 +174879,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 168,
+        "end_line": 163,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/ingame_ui/world_anim.rs",
-      "sha256": "4a0b3be958c5d88754e9f4f19930c331ebef3c09a1898aecaf6d16c2dc5e38c8",
+      "sha256": "393167dc9480a2cf3421a9cb40e9aa5a97147375b01aeba4db222232ec81ba51",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -174819,11 +174891,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 685,
+        "end_line": 882,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/load_screen/api.rs",
-      "sha256": "e73fa4a80324c89b8ca9fb43c303238c3912648043f843b032df3954a86e5976",
+      "sha256": "8a8e8b3b8e9fc94dd3e54b88322bf35986be187954892d27ac8ac42bcf3f9e39",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -174831,11 +174903,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 492,
+        "end_line": 550,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/load_screen/challenge.rs",
-      "sha256": "508be5bccb226a8f0c86390c234c9976018049024f5338ef7e9c77a063160151",
+      "sha256": "91d2a6631e12d75d7779efecd5125b3d8265369ac8620031dbb0890b9fa7c067",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -174855,11 +174927,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 138,
+        "end_line": 191,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/load_screen/init_windows.rs",
-      "sha256": "877a0b2e7fc0d35a3f845b83dfcff696082fbe07ba87c8c070fb1dd48044d64a",
+      "sha256": "c0239bfb874a5ce24c4d85b15823b3ec33f02235a5b3d633b5ab69613f68f5e6",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -174867,11 +174939,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 298,
+        "end_line": 316,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/load_screen/map_transfer.rs",
-      "sha256": "7571a6e9d2933a5bcccdfedc06e77b6e9206d02f91a543b5a18d6d63fc170d42",
+      "sha256": "6285419e116531182bbd00abf5d4c90cd3a204f8464daba1d9cd259677a13b62",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -174879,11 +174951,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 44,
+        "end_line": 45,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/load_screen/mod.rs",
-      "sha256": "9eda4054a40145ec4d6aab34b41e4bdc09ce3e2e98bb68fb62e8a5a637a930d5",
+      "sha256": "b594cadf3f68bb27575ed074eb150e0651df1a8d524275bcf45363576cfebbd7",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -174903,11 +174975,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 300,
+        "end_line": 308,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/load_screen/multiplayer.rs",
-      "sha256": "567147c764466fa431e5a9dcf38b33e58a94f961f50cac2dc3fa49872f26ad5b",
+      "sha256": "97a504da507f4c6eb621ee09c7cadca61ef9b6a78c0feee85345128064b2a093",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -174915,11 +174987,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 259,
+        "end_line": 296,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/load_screen/single_player.rs",
-      "sha256": "235ffd6746b401ef7e7fd1733ce32596b27ca1e750939f29e788455dc19c54f9",
+      "sha256": "8fda8390d1b78bb9b0024be7dcb1ec172f60c3a41229dfff74a2af034cb30f6a",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -174927,11 +174999,11 @@
       "cargo_reachable": true,
       "classification": "test",
       "file_range": {
-        "end_line": 2931,
+        "end_line": 3024,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/load_screen/tests.rs",
-      "sha256": "f317a1f39a4f35193af3d2eb536cff9deb63a368304992069da8c8b0eafae5d2",
+      "sha256": "881538b67d0b13d85cb1d9e367f277cc21971a518916a75fa5baa78669a99aac",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -174939,11 +175011,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 339,
+        "end_line": 452,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/load_screen/types.rs",
-      "sha256": "82c7f04d2d5d38c493aba652d47c2824a46bda78475f00a8bfeb6fbbea310bad",
+      "sha256": "2868718161889433b46519e93e5d8dfea2b5c7ff4cc0403d801d0ed277f96020",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -174999,11 +175071,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 392,
+        "end_line": 394,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/shell/base/scheme.rs",
-      "sha256": "2ef057dfb04d8cc8e121dd68759cf80404fab085e2b28fd6d2952c4bab5d3b4d",
+      "sha256": "f4090c0fc6d1df02ff3b86352bda785e3581998ccbddb0ecd6e00e6b20dcc503",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -175011,11 +175083,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 720,
+        "end_line": 696,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/shell/base/shell_lifecycle.rs",
-      "sha256": "3f4e38ecaf65a7e5186dc44b100e1066c0ed92e7f2e9927722750b04c4878364",
+      "sha256": "6b077b36dc8b7b9161f0d49e0b5339d1ca852fede6e2cd0d63725c44757c931d",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -175023,11 +175095,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 351,
+        "end_line": 354,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/shell/base/shell_ops.rs",
-      "sha256": "4764cf540a2dfc0ae85815d7a0a4372fad19abe63047d186ccc75a4e3ccf6763",
+      "sha256": "f72f71d15bbc565139879ec437c7c1fbfce0e2a05b944dc1c19375c21958cd3c",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -175059,11 +175131,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 3507,
+        "end_line": 3511,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/shell/main_menu.rs",
-      "sha256": "30f6051a24a00b077c65a9fd63bbdf3629ab6817195e9000729800033a4f98ea",
+      "sha256": "e21d3e7ca8cbdca331434abf030bfc7cd0ddc50133cd1e06b1da574801047ceb",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -175083,11 +175155,11 @@
       "cargo_reachable": true,
       "classification": "test",
       "file_range": {
-        "end_line": 1939,
+        "end_line": 2087,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/shell/main_menu_tests.rs",
-      "sha256": "311b1f779aca3879a6346c7a84c923c0d82ed9a978153520e6684778e87ede02",
+      "sha256": "04b2015b9b0334b3894792b2e11819dd94761005fcd12f2968cbec4859669708",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -175335,11 +175407,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 434,
+        "end_line": 446,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/message_stream/window_xlat.rs",
-      "sha256": "f4b29e5712517e699e9ebb77701afab8ebdca82c30de49be8d941979e7eb50b6",
+      "sha256": "9823c925512f2238da6c27f6812210ecedcd0a5b15aa2835a77d118ad068ae8a",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -175467,11 +175539,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 504,
+        "end_line": 510,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/system/anim2_d.rs",
-      "sha256": "868d2268698c34d899d14055c0f147240d3bd808d8dbbb5efd223f882b18943f",
+      "sha256": "b1346b1da244febb0db98027c1b8756af94640e64fdd2e8b5cabbe88231950cb",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -206130,11 +206202,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 519,
+        "end_line": 533,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/draw/w3d_tracer_draw.rs",
-      "sha256": "d2f0499639bbe9267107c3797064b5f3b4531b5c3078ecb87f855de6a39c7c09",
+      "sha256": "73576537fac8f6a0c596b0769af2962bdf32f60d5f05fd5eabf6583ad20c4389",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },

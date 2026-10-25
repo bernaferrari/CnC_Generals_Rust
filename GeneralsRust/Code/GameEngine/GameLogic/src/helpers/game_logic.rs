@@ -375,27 +375,34 @@ impl TheGameLogic {
         if let Ok(mut logic) = crate::system::game_logic::get_game_logic().lock() {
             logic.set_loading_map(true);
         }
-        if let Some(hooks) = hooks
-            .as_mut()
-            .map(|hook| &mut **hook as &mut dyn crate::helpers::LoadScreenHooks)
-        {
-            hooks.begin_load_screen(Self::get_game_mode(), is_load_game);
-            hooks.update_load_screen(crate::system::game_initialization::LOAD_PROGRESS_START);
-        }
-
-        let init_result = crate::system::game_initialization::GameInitializer::
-            initialize_game_with_load_screen_hooks(params, hooks.as_mut().map(|hook| &mut **hook as &mut dyn crate::helpers::LoadScreenHooks))
-                .map(|_| ())
-                .map_err(|err| format!("Game initialization failed: {}", err));
-        if init_result.is_ok() {
+        let init_result = (|| -> Result<(), String> {
             if let Some(hooks) = hooks
                 .as_mut()
                 .map(|hook| &mut **hook as &mut dyn crate::helpers::LoadScreenHooks)
             {
-                hooks.update_load_screen(crate::system::game_initialization::LOAD_PROGRESS_END);
-                hooks.run_load_screen_completion_transition(is_load_game);
+                hooks.begin_load_screen(Self::get_game_mode(), is_load_game)?;
+                hooks
+                    .update_load_screen(crate::system::game_initialization::LOAD_PROGRESS_START)?;
             }
-        }
+
+            let init_result = crate::system::game_initialization::GameInitializer::
+            initialize_game_with_load_screen_hooks(params, hooks.as_mut().map(|hook| &mut **hook as &mut dyn crate::helpers::LoadScreenHooks))
+                .map(|_| ())
+                .map_err(|err| format!("Game initialization failed: {}", err));
+            if init_result.is_ok() {
+                if let Some(hooks) = hooks
+                    .as_mut()
+                    .map(|hook| &mut **hook as &mut dyn crate::helpers::LoadScreenHooks)
+                {
+                    hooks.update_load_screen(
+                        crate::system::game_initialization::LOAD_PROGRESS_END,
+                    )?;
+                    hooks.run_load_screen_completion_transition(is_load_game)?;
+                }
+            }
+
+            init_result
+        })();
         if let Some(hooks) = hooks
             .as_mut()
             .map(|hook| &mut **hook as &mut dyn crate::helpers::LoadScreenHooks)

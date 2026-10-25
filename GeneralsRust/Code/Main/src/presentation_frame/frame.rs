@@ -3,6 +3,11 @@ use crate::fow_rendering::ProjectedShroudSnapshot;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PresentationFrame {
+    /// Immutable receiving display scene; GPU submission never selects a live scene.
+    #[cfg(feature = "game_client")]
+    #[serde(skip)]
+    pub(crate) dynamic_lights: Vec<game_client::fx_list::DisplayDynamicLight>,
+
     pub frame: LogicFrame,
     #[serde(skip)]
     pub(crate) control_bar_overrides:

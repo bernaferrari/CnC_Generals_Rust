@@ -5,9 +5,6 @@ use super::message_stream::{
     GameMessageDisposition, GameMessageTranslator, WindowInputDispatch, WindowInputDispatchFn,
     WindowInputDispatchResult,
 };
-use crate::core::script_action_handler::{
-    is_script_display_movie_playing, stop_script_display_movie,
-};
 use crate::display::view::with_tactical_view_ref;
 use crate::gui::game_window::{WindowInputReturnCode, WindowMessage};
 use crate::gui::shell::get_shell;
@@ -166,6 +163,7 @@ impl GameMessageTranslator for WindowTranslator {
     fn translate_game_message_with_context(
         &mut self,
         msg: &GameMessage,
+        _client: game_engine::common::message_stream::TranslatorClientObservation,
         dispatch_window_input: &mut WindowInputDispatchFn<'_>,
         emitted_messages: &mut Vec<GameMessage>,
     ) -> GameMessageDisposition {
@@ -243,6 +241,9 @@ impl WindowTranslator {
                     _emitted_messages,
                 ) {
                     Some(WindowInputDispatchResult::Used) => WindowInputReturnCode::Used,
+                    Some(WindowInputDispatchResult::Display(_)) => {
+                        unreachable!("display response returned for a window input request")
+                    }
                     Some(WindowInputDispatchResult::NotUsed) | None => {
                         WindowInputReturnCode::NotUsed
                     }
@@ -272,6 +273,9 @@ impl WindowTranslator {
                     _emitted_messages,
                 ) {
                     Some(WindowInputDispatchResult::Used) => WindowInputReturnCode::Used,
+                    Some(WindowInputDispatchResult::Display(_)) => {
+                        unreachable!("display response returned for a window input request")
+                    }
                     Some(WindowInputDispatchResult::NotUsed) | None => {
                         WindowInputReturnCode::NotUsed
                     }
@@ -281,13 +285,21 @@ impl WindowTranslator {
                     && *key == KEY_ESC
                     && (state & KEY_STATE_UP) != 0
                 {
-                    let movie_playing = is_script_display_movie_playing();
+                    let movie_playing = matches!(dispatch_window_input(
+                        WindowInputDispatch::Display(game_engine::common::message_stream::DisplayInputAction::IsMoviePlaying),
+                        _emitted_messages,
+                    ), Some(WindowInputDispatchResult::Display(true)));
                     let allow_exit = get_global_data()
                         .map(|global_data| global_data.read().allow_exit_out_of_movies)
                         .unwrap_or(false);
 
                     if movie_playing && allow_exit {
-                        let _ = stop_script_display_movie();
+                        let _ = dispatch_window_input(
+                            WindowInputDispatch::Display(
+                                game_engine::common::message_stream::DisplayInputAction::StopMovie,
+                            ),
+                            _emitted_messages,
+                        );
                         return_code = WindowInputReturnCode::Used;
                     }
                 }

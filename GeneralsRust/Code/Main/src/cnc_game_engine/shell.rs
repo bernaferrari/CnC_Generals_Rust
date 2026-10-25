@@ -258,7 +258,7 @@ impl CnCGameEngine {
         }
     }
 
-    pub(super) fn ensure_shell_loading_overlay(&mut self) {
+    pub(super) fn ensure_shell_loading_overlay(&mut self) -> Result<(), String> {
         if self.startup_loading_phase.trim().is_empty() {
             self.startup_loading_phase = DEFAULT_LOADING_PHASE.to_string();
         }
@@ -267,7 +267,7 @@ impl CnCGameEngine {
         #[cfg(feature = "game_client")]
         {
             if self.loading_overlay_active {
-                return;
+                return Ok(());
             }
 
             let kind = self
@@ -295,23 +295,65 @@ impl CnCGameEngine {
                     manager.set_screen_size(logical_w, logical_h);
                 });
             }
-            if !self.game_client.init_owned_load_screen(kind, &context) {
-                warn!(
-                    "Failed to load {:?} load screen from .wnd assets; loading screen unavailable",
-                    kind
-                );
-                error!(
-                    "The selected load screen could not be loaded — the loading overlay will not be visible. \
-                     Ensure game assets (BIG archives or extracted Data/) are in the correct path. \
-                     The game will continue without a loading screen."
+            let created = match self
+                .with_native_load_screen_presentation(|load, pump| load.init(kind, &context, pump))
+            {
+                Ok(created) => created,
+                Err(error) => {
+                    game_client::gui::load_screen::reset_load_screen_for_owner(
+                        &owner,
+                        kind,
+                        self.game_client.load_screen_runtime_mut(),
+                    );
+                    self.active_load_screen = None;
+                    return Err(error);
+                }
+            };
+            if !created {
+                game_client::gui::load_screen::reset_load_screen_for_owner(
+                    &owner,
+                    kind,
+                    self.game_client.load_screen_runtime_mut(),
                 );
                 self.active_load_screen = None;
-                return;
+                return Err(format!(
+                    "Failed to create {kind:?} receiving load-screen layout"
+                ));
             }
 
             self.loading_overlay_active = true;
             info!("Loading screen overlay created as {:?}", kind);
         }
+
+        Ok(())
+    }
+
+    #[cfg(feature = "game_client")]
+    fn with_native_load_screen_presentation<R>(
+        &mut self,
+        operation: impl FnOnce(
+            &mut game_client::gui::load_screen::LoadScreenOwner<'_>,
+            &mut game_client::gui::load_screen::LoadScreenPresentationPump<'_>,
+        ) -> Result<R, String>,
+    ) -> Result<R, String> {
+        let mouse = self.game_client.input_mouse_handle();
+        let (display, renderer, mut load) = self.game_client.split_load_screen_services();
+        let facts = display.fx().draw_facts();
+        let renderer = renderer
+            .ok_or_else(|| "native load screen has no receiving UI renderer".to_string())?;
+        let mut draw = crate::graphics::ui_render_pass::NativeUiDraw::new(
+            renderer,
+            load.windows(),
+            facts,
+            mouse.clone(),
+        )
+        .for_load_screen();
+        let mut surface = self.render_pipeline.borrow_native_load_surface();
+        let mut present = || surface.present(&mut |frame, radar| draw.flush(frame, radar));
+        let mut pump =
+            game_client::gui::load_screen::LoadScreenPresentationPump::for_native(&mut present)
+                .with_mouse(mouse);
+        operation(&mut load, &mut pump)
     }
 
     /// Advance the pre-map movie once, then return control to winit. C++ pumps
@@ -321,27 +363,31 @@ impl CnCGameEngine {
     pub(super) fn advance_cpp_load_screen_prelude(
         &mut self,
         pending: &mut PendingMatchStart,
-    ) -> bool {
+    ) -> Result<bool, String> {
         use game_client::gui::load_screen::{
-            LoadScreenPreludeStepResult, advance_load_screen_prelude,
-            pump_load_screen_prelude_presentation,
+            LoadScreenPreludeStepResult, advance_load_screen_prelude_for_owner_with_pump,
+            pump_load_screen_prelude_presentation_for_owner_with_pump,
         };
         if !self.loading_overlay_active {
-            return true;
+            return Ok(true);
         }
         let Some(kind) = self.active_load_screen else {
-            return true;
+            return Ok(true);
         };
         let now = std::time::Instant::now();
         if now < pending.prelude_retry_at {
-            return false;
+            return Ok(false);
         }
-        let owner = self.game_client.window_manager_owner();
-        let step = game_client::gui::load_screen::advance_load_screen_prelude_for_owner(
-            &owner,
-            kind,
-            self.message_processor.is_active(),
-        );
+        let focused = self.message_processor.is_active();
+        let step = self.with_native_load_screen_presentation(|load, pump| {
+            advance_load_screen_prelude_for_owner_with_pump(
+                load.windows(),
+                kind,
+                focused,
+                Some(pump),
+                load.runtime_mut(),
+            )
+        })?;
         let (finished, presentation_needed) = match step {
             LoadScreenPreludeStepResult::Pending {
                 retry_after,
@@ -356,11 +402,15 @@ impl CnCGameEngine {
             } => (true, presentation_needed),
         };
         if presentation_needed {
-            game_client::gui::load_screen::pump_load_screen_prelude_presentation_for_owner(
-                &owner, kind,
-            );
+            self.with_native_load_screen_presentation(|load, pump| {
+                pump_load_screen_prelude_presentation_for_owner_with_pump(
+                    load.windows(),
+                    kind,
+                    Some(pump),
+                )
+            })?;
         }
-        finished
+        Ok(finished)
     }
 
     pub(super) fn hide_shell_loading_overlay(&mut self) {
@@ -375,7 +425,11 @@ impl CnCGameEngine {
             // ShellGameLoadScreen.wnd (92%) stacked over MainMenu.
             let owner = self.game_client.window_manager_owner();
             if let Some(kind) = self.active_load_screen.take() {
-                game_client::gui::load_screen::reset_load_screen_for_owner(&owner, kind);
+                game_client::gui::load_screen::reset_load_screen_for_owner(
+                    &owner,
+                    kind,
+                    self.game_client.load_screen_runtime_mut(),
+                );
             }
             for kind in [
                 game_client::gui::load_screen::LoadScreenKind::ShellGame,
@@ -385,7 +439,11 @@ impl CnCGameEngine {
                 game_client::gui::load_screen::LoadScreenKind::GameSpy,
                 game_client::gui::load_screen::LoadScreenKind::MapTransfer,
             ] {
-                game_client::gui::load_screen::reset_load_screen_for_owner(&owner, kind);
+                game_client::gui::load_screen::reset_load_screen_for_owner(
+                    &owner,
+                    kind,
+                    self.game_client.load_screen_runtime_mut(),
+                );
             }
             self.loading_overlay_active = false;
         }
@@ -475,7 +533,11 @@ impl CnCGameEngine {
         self.startup_health_summary_logged = true;
     }
 
-    pub(super) fn update_shell_loading_progress(&mut self, progress: f32, phase: Option<&str>) {
+    pub(super) fn update_shell_loading_progress(
+        &mut self,
+        progress: f32,
+        phase: Option<&str>,
+    ) -> Result<(), String> {
         self.startup_last_reported_progress = progress.clamp(0.0, 1.0);
         if let Some(phase) = phase {
             let phase = phase.trim();
@@ -488,10 +550,19 @@ impl CnCGameEngine {
         {
             if let Some(kind) = self.active_load_screen {
                 let percent = self.startup_last_reported_progress * 100.0;
-                let owner = self.game_client.window_manager_owner();
-                game_client::gui::load_screen::update_load_screen_for_owner(&owner, kind, percent);
+                self.with_native_load_screen_presentation(|load, pump| {
+                    game_client::gui::load_screen::update_load_screen_for_owner_with_pump(
+                        load.windows(),
+                        kind,
+                        percent,
+                        Some(pump),
+                        load.runtime_mut(),
+                    )
+                })?;
             }
         }
+
+        Ok(())
     }
 
     /// Deliver the C++ load-screen frame work synchronously while map loading
@@ -500,26 +571,38 @@ impl CnCGameEngine {
     #[cfg(feature = "game_client")]
     pub(super) fn pump_cpp_load_screen_progress(
         owner: &game_client::gui::window_manager::WindowManagerOwner,
+        presentation_pump: &mut game_client::gui::load_screen::LoadScreenPresentationPump<'_>,
         kind: game_client::gui::load_screen::LoadScreenKind,
         progress: f32,
-    ) {
+        runtime: &mut game_client::gui::load_screen::LoadScreenRuntime,
+    ) -> Result<(), String> {
         let progress = progress.clamp(0.0, 1.0);
-        game_client::gui::load_screen::update_load_screen_for_owner(owner, kind, progress * 100.0);
+        game_client::gui::load_screen::update_load_screen_for_owner_with_pump(
+            owner,
+            kind,
+            progress * 100.0,
+            Some(presentation_pump),
+            runtime,
+        )
     }
 
-    pub(super) fn observe_startup_progress(&mut self, progress: f32, phase: &str) {
+    pub(super) fn observe_startup_progress(
+        &mut self,
+        progress: f32,
+        phase: &str,
+    ) -> Result<(), String> {
         let progress = progress.clamp(0.0, 1.0);
         if progress > self.startup_last_reported_progress + 0.001 {
             self.startup_last_reported_progress = progress;
             self.startup_last_progress_change_at = Instant::now();
             self.startup_last_stall_warning_at = None;
-            return;
+            return Ok(());
         }
 
         let stalled_for = self.startup_last_progress_change_at.elapsed();
         let stall_threshold = Self::startup_stall_warning_threshold(progress, phase);
         if stalled_for < Duration::from_secs(2) || stalled_for < stall_threshold {
-            return;
+            return Ok(());
         }
 
         let should_warn = self
@@ -527,7 +610,7 @@ impl CnCGameEngine {
             .map(|last| last.elapsed() >= Duration::from_secs(2))
             .unwrap_or(true);
         if !should_warn {
-            return;
+            return Ok(());
         }
 
         self.startup_stall_events = self.startup_stall_events.saturating_add(1);
@@ -550,6 +633,8 @@ impl CnCGameEngine {
             );
         }
         self.startup_last_stall_warning_at = Some(Instant::now());
+
+        Ok(())
     }
 
     pub(super) fn startup_stall_warning_threshold(progress: f32, phase: &str) -> Duration {
@@ -1641,7 +1726,8 @@ impl CnCGameEngine {
                     let mut startup_messages = Vec::new();
                     if map_requested_from_initial_file {
                         startup_messages.push(super::startup_worker_owner::initial_file_message());
-                        game_engine::common::random_value::init_client_audio_random_with_seed(0);
+                        #[cfg(feature="game_client")]
+                        game_logic.seed_fx_random(0);
                         game_logic.set_logic_random_seed(0);
                     }
 
@@ -1810,7 +1896,8 @@ impl CnCGameEngine {
             })
             .cloned()
         {
-            self.update_shell_loading_progress(0.24, Some("Loading map data"));
+            self.update_shell_loading_progress(0.24, Some("Loading map data"))
+                .map_err(anyhow::Error::msg)?;
             // Same detached host world; native constructors run on the driving
             // thread against this candidate's actual owners and application services.
             #[cfg(feature = "game_client")]
@@ -1833,17 +1920,40 @@ impl CnCGameEngine {
                 };
                 game_logic.require_native_drawable_owner();
                 let window = &self.window;
+                let load_kind = self.active_load_screen;
+                let mouse = self.game_client.input_mouse_handle();
+                let (display, renderer, mut load_owner) =
+                    self.game_client.split_load_screen_services();
+                let renderer = renderer
+                    .ok_or_else(|| anyhow::anyhow!("startup loading UI renderer unavailable"))?;
+                let mut draw = crate::graphics::ui_render_pass::NativeUiDraw::new(
+                    renderer,
+                    load_owner.windows(),
+                    display.fx().draw_facts(),
+                    mouse.clone(),
+                )
+                .for_load_screen();
+                let (draw_services, mut surface) = self
+                    .render_pipeline
+                    .borrow_native_draw_services_and_load_surface();
+                let mut present = || surface.present(&mut |frame, radar| draw.flush(frame, radar));
+                let mut pump =
+                    game_client::gui::load_screen::LoadScreenPresentationPump::for_native(
+                        &mut present,
+                    )
+                    .with_mouse(mouse);
                 let mut retirement =
                     game_client::core::game_client::NativeParticleRetirementService;
                 let mut attempt = native_map
                     .attempt(
-                        self.render_pipeline.borrow_native_draw_services(),
+                        draw_services,
                         &mut self.graphics_system,
                         self.current_player_id,
                         policy,
                         &mut retirement,
                     )
-                    .map_err(anyhow::Error::msg)?;
+                    .map_err(anyhow::Error::msg)?
+                    .with_pristine_bones(self.application_assets.as_ref());
                 let loaded = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                     game_logic.load_map_with_progress_and_native_checked(
                         &map_to_load,
@@ -1853,7 +1963,17 @@ impl CnCGameEngine {
                                 "Command & Conquer Generals Zero Hour - Loading {phase} ({:.0}%)",
                                 progress * 100.0
                             ));
+                            if let Some(kind) = load_kind {
+                                Self::pump_cpp_load_screen_progress(
+                                    load_owner.windows(),
+                                    &mut pump,
+                                    kind,
+                                    progress,
+                                    load_owner.runtime_mut(),
+                                )?;
+                            }
                             window.request_redraw();
+                            Ok(())
                         },
                         Some(&mut attempt),
                     )
@@ -1932,7 +2052,8 @@ impl CnCGameEngine {
                 loaded_map_name = Some(map_to_load);
             }
         } else {
-            self.update_shell_loading_progress(0.24, Some("Skipping shell map load"));
+            self.update_shell_loading_progress(0.24, Some("Skipping shell map load"))
+                .map_err(anyhow::Error::msg)?;
             if start_in_menu {
                 info!(
                     "No shell background map available; entering menu without a shell background map"
@@ -1953,11 +2074,13 @@ impl CnCGameEngine {
             // update_shell_with_budget steps were hanging minutes
             // (pathfinding/scripts + ASSET_MANAGER) and never sent
             // Complete, so TerrainVisual never installed.
-            self.update_shell_loading_progress(0.968, Some("Priming shell simulation"));
+            self.update_shell_loading_progress(0.968, Some("Priming shell simulation"))
+                .map_err(anyhow::Error::msg)?;
             info!("Startup shell simulation warmup deferred to Menu ticks");
         }
 
-        self.update_shell_loading_progress(0.984, Some("Finalizing startup data"));
+        self.update_shell_loading_progress(0.984, Some("Finalizing startup data"))
+            .map_err(anyhow::Error::msg)?;
 
         // Rejected attempts were explicitly retired before their empty owners move.
         Ok(StartupLoadResult {
@@ -1980,19 +2103,20 @@ impl CnCGameEngine {
     /// Load shell drawables before `GameState::Menu`. The worker must not take
     /// the asset-manager lock (that hung startup). The menu model budget stays
     /// at least 4 for anything this pass misses.
-    fn preload_shell_drawable_models(&mut self) {
+    fn preload_shell_drawable_models(&mut self) -> Result<()> {
         let names = self.host_game_logic().live_drawable_model_names();
         if names.is_empty() {
-            return;
+            return Ok(());
         }
-        self.update_shell_loading_progress(0.997, Some("Loading shell models"));
+        self.update_shell_loading_progress(0.997, Some("Loading shell models"))
+            .map_err(anyhow::Error::msg)?;
         let Some(manager) = crate::assets::get_asset_manager() else {
-            return;
+            return Ok(());
         };
         let loaded_models = {
             let Ok(mut manager) = manager.lock() else {
                 warn!("Shell model preload skipped: asset manager lock poisoned");
-                return;
+                return Ok(());
             };
             let mut loaded_models = Vec::new();
             for name in &names {
@@ -2017,6 +2141,7 @@ impl CnCGameEngine {
             "Preloaded {found}/{} shell W3Ds into the graphics cache before the menu present",
             names.len()
         );
+        Ok(())
     }
 
     pub(super) fn host_finalize_startup_map_load(
@@ -2024,7 +2149,8 @@ impl CnCGameEngine {
         result: StartupLoadResult,
     ) -> Result<()> {
         // Wave 610: host residual helper.
-        self.update_shell_loading_progress(0.995, Some("Finalizing startup"));
+        self.update_shell_loading_progress(0.995, Some("Finalizing startup"))
+            .map_err(anyhow::Error::msg)?;
         self.default_starting_cash = result.default_starting_cash;
         // Admit the detached worker's actual start_new_game reset only now.
         self.reset_replay_pacing_for_new_game();
@@ -2132,7 +2258,7 @@ impl CnCGameEngine {
         }
 
         if result.start_in_menu {
-            self.preload_shell_drawable_models();
+            self.preload_shell_drawable_models()?;
         }
 
         let fallback_to_menu = result.start_in_menu
@@ -2152,7 +2278,8 @@ impl CnCGameEngine {
                 .map_err(anyhow::Error::msg)?;
             self.startup_load_state = StartupLoadState::Complete;
             self.last_loading_title_update = None;
-            self.update_shell_loading_progress(1.0, Some("Startup complete"));
+            self.update_shell_loading_progress(1.0, Some("Startup complete"))
+                .map_err(anyhow::Error::msg)?;
             self.startup_last_reported_progress = 1.0;
             self.startup_last_progress_change_at = Instant::now();
             self.startup_last_stall_warning_at = None;
@@ -2181,7 +2308,8 @@ impl CnCGameEngine {
         }
         self.startup_load_state = StartupLoadState::Complete;
         self.last_loading_title_update = None;
-        self.update_shell_loading_progress(1.0, Some("Startup complete"));
+        self.update_shell_loading_progress(1.0, Some("Startup complete"))
+            .map_err(anyhow::Error::msg)?;
         self.startup_last_reported_progress = 1.0;
         self.startup_last_progress_change_at = Instant::now();
         self.startup_last_stall_warning_at = None;
@@ -2306,8 +2434,10 @@ impl CnCGameEngine {
         }
 
         if let (Some(phase), Some(progress)) = (visual_phase, visual_progress) {
-            self.update_shell_loading_progress(progress, Some(&phase));
-            self.observe_startup_progress(progress, &phase);
+            self.update_shell_loading_progress(progress, Some(&phase))
+                .map_err(anyhow::Error::msg)?;
+            self.observe_startup_progress(progress, &phase)
+                .map_err(anyhow::Error::msg)?;
             if self
                 .last_loading_title_update
                 // Avoid hammering native window-title updates during startup; on macOS these

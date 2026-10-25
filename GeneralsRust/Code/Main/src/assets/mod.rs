@@ -17,6 +17,7 @@ pub mod local_file_system;
 pub mod manager;
 pub mod mesh_asset_resolve;
 pub mod models;
+pub(crate) mod pristine_bones;
 pub mod resolver;
 pub mod sound_effects;
 pub mod textures;

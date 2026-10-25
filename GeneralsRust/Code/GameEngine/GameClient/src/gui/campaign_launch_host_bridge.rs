@@ -20,6 +20,24 @@ pub struct MenuWorldFacts {
     pub in_shell_game: bool,
 }
 
+/// Effective authored Shell settings admitted by this client after INI loading.
+/// Runtime map selection is carried by the message, never writable GlobalData.
+#[derive(Clone, Debug)]
+pub struct ShellMapSettings {
+    pub initial_file: String,
+    pub enabled: bool,
+    pub map: String,
+}
+impl Default for ShellMapSettings {
+    fn default() -> Self {
+        Self {
+            initial_file: String::new(),
+            enabled: true,
+            map: String::new(),
+        }
+    }
+}
+
 /// A source lifecycle action, delivered after the current UI loans end.
 #[derive(Clone, Copy, Debug)]
 pub enum MenuLaunchSource {
@@ -36,6 +54,7 @@ pub enum MenuHostRequest {
         source: MenuLaunchSource,
         main_menu_layout: Option<std::rc::Weak<std::cell::RefCell<crate::gui::WindowLayout>>>,
     },
+    SeedLogic(u32),
     Quit,
     SignalUiInteract(&'static str),
     SetDifficulty(i32),
@@ -47,8 +66,21 @@ pub enum MenuHostRequest {
 #[derive(Default)]
 pub struct MenuHostMailbox {
     requests: Vec<MenuHostRequest>,
+    shell_map: ShellMapSettings,
+    shell_map_configured: bool,
 }
 impl MenuHostMailbox {
+    pub fn configure_shell_map(&mut self, settings: ShellMapSettings) {
+        self.shell_map = settings;
+        self.shell_map_configured = true;
+    }
+    pub fn shell_map_is_configured(&self) -> bool {
+        self.shell_map_configured
+    }
+    pub fn shell_map_settings(&self) -> &ShellMapSettings {
+        &self.shell_map
+    }
+
     pub fn request(&mut self, request: MenuHostRequest) {
         self.requests.push(request);
     }
@@ -62,7 +94,9 @@ impl MenuHostMailbox {
         self.requests.iter().any(|request| {
             matches!(
                 request,
-                MenuHostRequest::StartCampaign { .. } | MenuHostRequest::Quit
+                MenuHostRequest::StartCampaign { .. }
+                    | MenuHostRequest::SeedLogic(_)
+                    | MenuHostRequest::Quit
             )
         })
     }

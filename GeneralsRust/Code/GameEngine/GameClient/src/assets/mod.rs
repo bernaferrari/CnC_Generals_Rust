@@ -28,10 +28,9 @@ use tokio::sync::{Notify, RwLock as AsyncRwLock, Semaphore};
 use crate::audio::*;
 use crate::display::texture_system::{TextureHandle, TextureManager};
 use crate::drawable::drawable_draw_pipeline::{MeshVertex, with_drawable_pipeline};
-use crate::effects::particle_renderer::with_particle_renderer;
 use crate::system::SubsystemInterface;
+use glam::Vec3;
 use image::GenericImageView;
-use glam::{Vec3};
 
 // Re-export sub-modules
 pub mod audio_bridge;
@@ -887,12 +886,10 @@ impl AssetManager {
                             .file_stem()
                             .and_then(|p| p.to_str())
                         {
-                            with_particle_renderer(|renderer| {
-                                if let Ok(mut guard) = renderer.lock() {
-                                    let _ = guard.load_texture(label, &asset_data.data);
-                                    let _ = guard.load_texture(stem, &asset_data.data);
-                                }
-                            });
+                            // Particle assets are admitted by the receiving
+                            // manager's authored preload names on its own GPU
+                            // frame. Loader work never chooses a live renderer.
+
                             with_drawable_pipeline(|pipeline| {
                                 if let Ok(mut guard) = pipeline.lock() {
                                     let _ = guard.load_texture(label, &asset_data.data);
@@ -1157,11 +1154,10 @@ impl AssetManager {
             self.config.base_path.join(path)
         };
         if full_path.exists() {
-            return std::fs::read(&full_path)
-                .map_err(|e| AssetError::LoadingFailed {
-                    path: path.to_string_lossy().to_string(),
-                    error: e.to_string(),
-                });
+            return std::fs::read(&full_path).map_err(|e| AssetError::LoadingFailed {
+                path: path.to_string_lossy().to_string(),
+                error: e.to_string(),
+            });
         }
 
         Err(AssetError::NotFound {
@@ -1269,12 +1265,10 @@ impl AssetManager {
 
             let full_path = self.config.base_path.join(&current);
             if full_path.exists() {
-                let data =
-                    std::fs::read(&full_path)
-                        .map_err(|e| AssetError::LoadingFailed {
-                            path: current.to_string_lossy().to_string(),
-                            error: e.to_string(),
-                        })?;
+                let data = std::fs::read(&full_path).map_err(|e| AssetError::LoadingFailed {
+                    path: current.to_string_lossy().to_string(),
+                    error: e.to_string(),
+                })?;
                 let metadata = std::fs::metadata(&full_path).ok();
                 let last_modified = metadata.and_then(|m| m.modified().ok());
                 let size = data.len() as u64;

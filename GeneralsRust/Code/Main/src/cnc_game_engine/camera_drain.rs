@@ -121,8 +121,10 @@ impl CnCGameEngine {
         #[cfg(feature = "game_client")]
         {
             if let Some(ref name) = pres.pending_movie {
-                let started =
-                    game_client::core::script_action_handler::play_script_display_movie(name);
+                let started = game_client::core::script_action_handler::play_script_display_movie(
+                    self.game_client.script_display_receiver(),
+                    name,
+                );
                 if !started {
                     log::trace!("presentation movie play deferred/failed: {name}");
                 }
@@ -131,8 +133,10 @@ impl CnCGameEngine {
                 // Radar movies use InGameUI path when available.
                 let started = game_client::helpers::TheInGameUI::play_movie(name);
                 if !started {
-                    let _ =
-                        game_client::core::script_action_handler::play_script_display_movie(name);
+                    let _ = game_client::core::script_action_handler::play_script_display_movie(
+                        self.game_client.script_display_receiver(),
+                        name,
+                    );
                 }
             }
         }
@@ -401,7 +405,10 @@ impl CnCGameEngine {
         // not discarded. Still calls `host_load_map_or_default` (does not skip).
         if let Some(mut pending) = self.pending_match_start.take() {
             #[cfg(feature = "game_client")]
-            if !self.advance_cpp_load_screen_prelude(&mut pending) {
+            if !self
+                .advance_cpp_load_screen_prelude(&mut pending)
+                .map_err(anyhow::Error::msg)?
+            {
                 self.pending_match_start = Some(pending);
                 return Ok(());
             }
@@ -467,7 +474,8 @@ impl CnCGameEngine {
             info!(
                 "Startup load still in progress; releasing Loading → Menu, keeping worker for shell map"
             );
-            self.update_shell_loading_progress(1.0, Some("Startup complete"));
+            self.update_shell_loading_progress(1.0, Some("Startup complete"))
+                .map_err(anyhow::Error::msg)?;
             self.startup_last_reported_progress = 1.0;
             self.apply_shell_menu_window_chrome();
             self.transition_to_state(GameState::Menu)
@@ -1316,6 +1324,7 @@ impl CnCGameEngine {
                               campaign: &mut game_client::gui::campaign_manager::CampaignManager,
                               main_menu: &mut game_client::gui::shell::main_menu::MainMenu,
                               menu_host: &mut game_client::gui::campaign_launch_host_bridge::MenuHostMailbox,
+                              display: &mut game_client::core::script_action_handler::ScriptDisplayReceiver,
                               request,
                               messages: &mut Vec<game_engine::common::message_stream::GameMessage>| {
                 let mut context = game_client::gui::window_manager::ControlBarInputContext {
@@ -1326,7 +1335,7 @@ impl CnCGameEngine {
                     control_bar: &mut *control_bar, viewport: &mut *viewport,
                     replay, game_ending, tooltips_disabled, cursor_mouse: cursor_mouse.as_ref(),
                     window_manager_owner: Some(owner), campaign_manager: Some(campaign), main_menu: Some(main_menu),
-                    menu_world: Some(menu_world), menu_host: Some(menu_host),
+                    menu_world: Some(menu_world), menu_host: Some(menu_host), script_display: Some(display),
                     emitted_messages: Some(messages),
                 };
                 let result = game_client::gui::window_manager::dispatch_translated_window_input_for_owner(owner, request, &mut context);
@@ -1687,6 +1696,25 @@ impl CnCGameEngine {
         )?;
         #[cfg(feature = "game_client")]
         {
+            frame.dynamic_lights = self.game_client.dynamic_lights().to_vec();
+        }
+        #[cfg(feature = "game_client")]
+        frame.scene_lines.extend(
+            self.game_client
+                .owned_tracer_geometry(frame.frame.0)
+                .into_iter()
+                .filter_map(crate::presentation_frame::PresentationSceneLine::from_cpp_desc),
+        );
+        #[cfg(feature = "game_client")]
+        frame.scene_lines.extend(
+            self.game_client
+                .render_bridge()
+                .snapshot_visible_scene_lines()
+                .into_iter()
+                .map(crate::presentation_frame::PresentationSceneLine::from),
+        );
+        #[cfg(feature = "game_client")]
+        {
             // The asset cache is a native service shared with loader workers;
             // only immutable authored texture dimensions cross this boundary.
             let texture_store = crate::assets::get_asset_manager();
@@ -1741,6 +1769,14 @@ impl CnCGameEngine {
                 runtime_heightmap,
                 false,
             )?;
+        #[cfg(feature = "game_client")]
+        pres.scene_lines.extend(
+            self.game_client
+                .render_bridge()
+                .snapshot_visible_scene_lines()
+                .into_iter()
+                .map(crate::presentation_frame::PresentationSceneLine::from),
+        );
         // Seed the same instance HUD used by input and ordinary frame updates.
         self.apply_presentation_to_huds(&pres);
         #[cfg(feature = "game_client")]
@@ -2205,7 +2241,7 @@ impl CnCGameEngine {
             shadow.sync_from_host(&self.game_logic);
         }
         let runtime_heightmap = self.presentation_runtime_heightmap_for_frame();
-        let env_frame =
+        let mut env_frame =
             crate::presentation_frame::PresentationFrame::try_publish_for_engine_with_runtime_heightmap(
                 &mut self.game_logic,
                 self.current_player_id,
@@ -2213,6 +2249,18 @@ impl CnCGameEngine {
                 runtime_heightmap,
                 false,
             )?;
+        #[cfg(feature = "game_client")]
+        {
+            env_frame.dynamic_lights = self.game_client.dynamic_lights().to_vec();
+        }
+        #[cfg(feature = "game_client")]
+        env_frame.scene_lines.extend(
+            self.game_client
+                .render_bridge()
+                .snapshot_visible_scene_lines()
+                .into_iter()
+                .map(crate::presentation_frame::PresentationSceneLine::from),
+        );
         self.render_pipeline
             .set_presentation_frame(Some(env_frame.into()));
         Ok(())
@@ -2476,12 +2524,10 @@ impl CnCGameEngine {
         // Wave 589/838/926: shadow sync + victory presentation build via single boundary.
         // Admit actual client bindings into the receiving canonical registry
         // before freezing observations. Presentation frames never emit systems.
-        let fx_n = crate::game_logic::combat_particles::with_client_particle_manager(|manager| {
-            self.game_logic
-                .combat_particles_mut()
-                .backfill_client_systems(manager)
-        })
-        .unwrap_or(0);
+        let fx_n = self
+            .game_logic
+            .combat_particles_mut()
+            .backfill_client_systems(self.game_client.particle_systems_mut());
         let mut pres = self.host_sync_shadow_and_build_presentation(true)?;
         // Presentation → audio subsystem directly (no GameLogic dual-write mid-frame).
         let audio_n = pres.dispatch_audio_events_direct(

@@ -103,3 +103,43 @@ impl BasicDrawable {
         Ok(output)
     }
 }
+
+impl BasicDrawable {
+    pub(crate) fn configure_native_tracers(
+        &mut self,
+        mut configure: impl FnMut(&mut gamelogic::object::draw::W3DTracerDraw),
+    ) {
+        for slot in &mut self.draw_modules {
+            if let Some(module) = slot.logic_module_mut().and_then(|module| {
+                module
+                    .as_any_mut()
+                    .downcast_mut::<gamelogic::object::draw::W3DTracerDraw>()
+            }) {
+                configure(module);
+            }
+        }
+    }
+    pub(crate) fn draw_native_tracer_geometry(
+        &mut self,
+        logic_frame: u32,
+    ) -> Vec<game_engine::common::system::SceneLineDesc> {
+        let has_tracer = self.draw_modules.iter_mut().any(|slot| {
+            slot.logic_module_mut().is_some_and(|module| {
+                module
+                    .as_any()
+                    .is::<gamelogic::object::draw::W3DTracerDraw>()
+            })
+        });
+        if !has_tracer {
+            return Vec::new();
+        }
+        // C++ getDrawModules flushes pending model conditions before draw.
+        self.flush_dirty_model_condition();
+        let transform = self.native_base_transform().to_glam();
+        let mut lines = Vec::new();
+        self.configure_native_tracers(|module| {
+            lines.push(module.draw_geometry_at_frame(&transform, logic_frame));
+        });
+        lines
+    }
+}

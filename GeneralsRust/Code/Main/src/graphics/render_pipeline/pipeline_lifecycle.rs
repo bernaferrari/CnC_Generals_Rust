@@ -40,6 +40,8 @@ impl RenderPipeline {
         }
         let (ambient_light, sun_color, sun_direction) = graphics_system.current_lighting();
         let initial_lighting = CachedLighting {
+            #[cfg(feature = "game_client")]
+            dynamic_lights: Vec::new(),
             sun_direction: Some(sun_direction),
             sun_color: Some(sun_color),
             ambient_color: Some(ambient_light),

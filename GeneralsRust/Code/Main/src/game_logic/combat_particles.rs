@@ -16,8 +16,7 @@ use std::collections::{HashMap, HashSet};
 
 #[path = "combat_particle_bindings.rs"]
 mod client_bindings;
-#[cfg(feature = "game_client")]
-pub(crate) use client_bindings::with_client_particle_manager;
+pub use client_bindings::ParticleBindingAccess;
 use client_bindings::{
     ClientParticleBinding, can_retire_bindings, retire_client_binding, spawn_client_binding,
 };
@@ -112,7 +111,7 @@ impl CombatParticleRegistry {
             return Err("particle registry requires its actual live receiving manager".into());
         }
         for (_, binding) in self.client_bindings.drain() {
-            let retired = retire_client_binding(&binding);
+            let retired = retire_client_binding(&binding, &mut ());
             debug_assert!(
                 retired,
                 "driving particle owner changed during synchronous clear"
@@ -218,6 +217,9 @@ impl CombatParticleRegistry {
             .systems
             .values()
             .filter(|entry| {
+                if self.client_bindings.contains_key(&entry.id) {
+                    return false;
+                }
                 let Some(lifetime) = entry.kind.sweep_system_lifetime() else {
                     return false;
                 };
@@ -226,7 +228,7 @@ impl CombatParticleRegistry {
             .map(|entry| entry.id)
             .collect();
         for id in expired {
-            self.deactivate(id);
+            self.deactivate(id, &mut ());
         }
     }
 
@@ -258,8 +260,12 @@ impl CombatParticleRegistry {
         frame: u32,
         source: Option<ObjectId>,
         target: Option<ObjectId>,
+        particle_owner: &mut dyn crate::game_logic::combat_particles::ParticleBindingAccess,
     ) -> u32 {
-        self.spawn_with_template(kind, template_name.into(), position, frame, source, target)
+        let id =
+            self.spawn_with_template(kind, template_name.into(), position, frame, source, target);
+        self.bind_source_entry(id, particle_owner);
+        id
     }
 
     /// Spawn with an exact particle-system template rather than the generic
@@ -293,10 +299,6 @@ impl CombatParticleRegistry {
             attach_offset: Vec3::ZERO,
             attachment: None,
         };
-        if let Some(binding) = spawn_client_binding(&entry, &self.client_bindings) {
-            entry.client_system_id = Some(binding.id);
-            self.client_bindings.insert(id, binding);
-        }
         self.systems.insert(id, entry);
         self.spawned_this_frame.push(id);
         id
@@ -580,7 +582,7 @@ impl CombatParticleRegistry {
         primary_speed: f32,
         override_radius: f32,
         drawable_matrix: Option<glam::Mat4>,
-        view: &mut game_client::fx_list::FxViewServices<'_>,
+        view: &mut crate::game_logic::host_fx_list_dispatch::ObjectFxServices<'_, '_>,
     ) -> Vec<u32> {
         self.spawn_weapon_fire_fx_named_ocl_oriented_with_dispatch(
             muzzle_pos,
@@ -752,6 +754,7 @@ impl CombatParticleRegistry {
         shooter: ObjectId,
         projectile_id: Option<ObjectId>,
         exhaust_name: &str,
+        particle_owner: &mut dyn crate::game_logic::combat_particles::ParticleBindingAccess,
     ) -> Option<u32> {
         let exhaust_name = usable_particle_template_name(exhaust_name)?;
         if let Some(projectile_id) = projectile_id {
@@ -761,6 +764,7 @@ impl CombatParticleRegistry {
                 shooter,
                 projectile_id,
                 exhaust_name,
+                particle_owner,
             ));
         }
 
@@ -785,6 +789,7 @@ impl CombatParticleRegistry {
         &mut self,
         frame: u32,
         projectiles: &[(ObjectId, ObjectId, Vec3, String)],
+        particle_owner: &mut dyn crate::game_logic::combat_particles::ParticleBindingAccess,
     ) {
         self.current_frame = self.current_frame.max(frame);
         let live_projectiles: HashSet<ObjectId> = projectiles
@@ -800,9 +805,10 @@ impl CombatParticleRegistry {
                     *shooter,
                     *projectile_id,
                     exhaust_name,
+                    particle_owner,
                 );
             } else {
-                self.deactivate_projectile_exhausts_for(*projectile_id);
+                self.deactivate_projectile_exhausts_for(*projectile_id, particle_owner);
             }
         }
 
@@ -819,7 +825,7 @@ impl CombatParticleRegistry {
             .map(|entry| entry.id)
             .collect();
         for id in stale_ids {
-            self.deactivate(id);
+            self.deactivate(id, particle_owner);
         }
     }
 
@@ -830,6 +836,7 @@ impl CombatParticleRegistry {
         shooter: ObjectId,
         projectile_id: ObjectId,
         exhaust_name: &str,
+        particle_owner: &mut dyn crate::game_logic::combat_particles::ParticleBindingAccess,
     ) -> u32 {
         let mut matching: Vec<(u32, u32)> = self
             .systems
@@ -845,7 +852,7 @@ impl CombatParticleRegistry {
 
         let existing_id = matching.pop().map(|(_, id)| id);
         for (_, duplicate_id) in matching {
-            self.deactivate(duplicate_id);
+            self.deactivate(duplicate_id, particle_owner);
         }
 
         let Some(existing_id) = existing_id else {
@@ -855,6 +862,7 @@ impl CombatParticleRegistry {
                 shooter,
                 projectile_id,
                 exhaust_name,
+                particle_owner,
             );
         };
 
@@ -863,17 +871,18 @@ impl CombatParticleRegistry {
             .get(&existing_id)
             .is_some_and(|entry| entry.template_name == exhaust_name);
         if !template_matches {
-            self.deactivate(existing_id);
+            self.deactivate(existing_id, particle_owner);
             return self.spawn_projectile_exhaust_entry(
                 position,
                 frame,
                 shooter,
                 projectile_id,
                 exhaust_name,
+                particle_owner,
             );
         }
 
-        self.update_client_position(existing_id, position);
+        self.update_client_position(existing_id, position, particle_owner);
 
         if let Some(entry) = self.systems.get_mut(&existing_id) {
             entry.position = position;
@@ -891,18 +900,25 @@ impl CombatParticleRegistry {
         shooter: ObjectId,
         projectile_id: ObjectId,
         exhaust_name: &str,
+        particle_owner: &mut dyn crate::game_logic::combat_particles::ParticleBindingAccess,
     ) -> u32 {
-        self.spawn_with_template(
+        let id = self.spawn_with_template(
             CombatParticleKind::ProjectileExhaust,
             exhaust_name.to_string(),
             position,
             frame,
             Some(shooter),
             Some(projectile_id),
-        )
+        );
+        self.bind_source_entry(id, particle_owner);
+        id
     }
 
-    fn deactivate_projectile_exhausts_for(&mut self, projectile_id: ObjectId) {
+    fn deactivate_projectile_exhausts_for(
+        &mut self,
+        projectile_id: ObjectId,
+        particle_owner: &mut dyn crate::game_logic::combat_particles::ParticleBindingAccess,
+    ) {
         let ids: Vec<u32> = self
             .systems
             .values()
@@ -914,7 +930,7 @@ impl CombatParticleRegistry {
             .map(|entry| entry.id)
             .collect();
         for id in ids {
-            self.deactivate(id);
+            self.deactivate(id, particle_owner);
         }
     }
 
@@ -925,6 +941,7 @@ impl CombatParticleRegistry {
         position: Vec3,
         frame: u32,
         template_name: &str,
+        particle_owner: &mut dyn crate::game_logic::combat_particles::ParticleBindingAccess,
     ) -> Option<u32> {
         self.attach_named_to_object_local(
             owner,
@@ -935,6 +952,7 @@ impl CombatParticleRegistry {
             template_name,
             CombatParticleKind::ParticleSysBone,
             None,
+            particle_owner,
         )
     }
 
@@ -945,6 +963,7 @@ impl CombatParticleRegistry {
         frame: u32,
         template_name: &str,
         is_shrouded: bool,
+        particle_owner: &mut dyn crate::game_logic::combat_particles::ParticleBindingAccess,
     ) -> Option<u32> {
         self.attach_named_to_object_local_with_visibility(
             owner,
@@ -956,6 +975,7 @@ impl CombatParticleRegistry {
             CombatParticleKind::ParticleSysBone,
             None,
             is_shrouded,
+            particle_owner,
         )
     }
 
@@ -970,6 +990,7 @@ impl CombatParticleRegistry {
         template_name: &str,
         kind: CombatParticleKind,
         lifetime: Option<u32>,
+        particle_owner: &mut dyn crate::game_logic::combat_particles::ParticleBindingAccess,
     ) -> Option<u32> {
         self.attach_named_to_object_local_with_visibility(
             owner,
@@ -980,7 +1001,8 @@ impl CombatParticleRegistry {
             template_name,
             kind,
             lifetime,
-            crate::game_logic::host_fx_list_dispatch::host_object_is_shrouded_for_local(owner.0),
+            true,
+            particle_owner,
         )
     }
 
@@ -995,6 +1017,7 @@ impl CombatParticleRegistry {
         kind: CombatParticleKind,
         lifetime: Option<u32>,
         is_shrouded: bool,
+        particle_owner: &mut dyn crate::game_logic::combat_particles::ParticleBindingAccess,
     ) -> Option<u32> {
         Some(spawn_attached_system(
             self,
@@ -1008,6 +1031,7 @@ impl CombatParticleRegistry {
             lifetime,
             0.0,
             is_shrouded,
+            particle_owner,
         ))
     }
 
@@ -1019,6 +1043,7 @@ impl CombatParticleRegistry {
         position: Vec3,
         bones: &[(String, String)],
         pose: BodyAutoParticlePose<'_>,
+        particle_owner: &mut dyn crate::game_logic::combat_particles::ParticleBindingAccess,
     ) {
         // C++ AnimatedParticleSysBoneClientUpdate::clientUpdate leftover-tick.
         // Distinct from spawn-time recalcBonesForClientParticleSystems (pristine).
@@ -1044,7 +1069,7 @@ impl CombatParticleRegistry {
             .map(|entry| entry.id)
             .collect();
         for id in stale {
-            self.deactivate(id);
+            self.deactivate(id, particle_owner);
         }
         for (bone, system) in wanted {
             let (local, z_rot) = leftover_or_pristine_particle_sys_bone_pose(&pose, &bone);
@@ -1076,11 +1101,8 @@ impl CombatParticleRegistry {
                     frame,
                     None,
                     z_rot,
-                    pose.is_shrouded.unwrap_or_else(|| {
-                        crate::game_logic::host_fx_list_dispatch::host_object_is_shrouded_for_local(
-                            owner.0,
-                        )
-                    }),
+                    pose.is_shrouded.unwrap_or(true),
+                    particle_owner,
                 );
             }
         }
@@ -1095,6 +1117,7 @@ impl CombatParticleRegistry {
         body_ordinal: u8,
         aflame: bool,
         pose: BodyAutoParticlePose<'_>,
+        particle_owner: &mut dyn crate::game_logic::combat_particles::ParticleBindingAccess,
     ) {
         self.replace_body_auto_particles_resolved(
             owner,
@@ -1105,6 +1128,7 @@ impl CombatParticleRegistry {
             pose.yaw,
             pose.is_shrouded,
             |prefix, max| body_prefix_bone_locals(pose.model, pose.scale, prefix, max),
+            particle_owner,
         );
     }
 
@@ -1117,6 +1141,7 @@ impl CombatParticleRegistry {
         body_ordinal: u8,
         aflame: bool,
         prefix_bones: &[(String, Vec<Vec3>)],
+        particle_owner: &mut dyn crate::game_logic::combat_particles::ParticleBindingAccess,
     ) {
         self.replace_body_auto_particles_resolved(
             owner,
@@ -1133,6 +1158,7 @@ impl CombatParticleRegistry {
                     .map(|(_, bones)| bones.iter().map(|world| *world - position).collect())
                     .unwrap_or_default()
             },
+            particle_owner,
         );
     }
 
@@ -1146,6 +1172,7 @@ impl CombatParticleRegistry {
         yaw: f32,
         is_shrouded: Option<bool>,
         resolve_locals: impl Fn(&str, usize) -> Vec<Vec3>,
+        particle_owner: &mut dyn crate::game_logic::combat_particles::ParticleBindingAccess,
     ) {
         let stale: Vec<u32> = self
             .systems
@@ -1161,7 +1188,7 @@ impl CombatParticleRegistry {
             .map(|entry| entry.id)
             .collect();
         for id in stale {
-            self.deactivate(id);
+            self.deactivate(id, particle_owner);
         }
         // Pristine models typically have no FIRESMALL/SMOKESMALL bones.
         if body_ordinal == 0 && !aflame {
@@ -1182,11 +1209,8 @@ impl CombatParticleRegistry {
                 frame,
                 spec.max_systems,
                 &locals,
-                is_shrouded.unwrap_or_else(|| {
-                    crate::game_logic::host_fx_list_dispatch::host_object_is_shrouded_for_local(
-                        owner.0,
-                    )
-                }),
+                is_shrouded.unwrap_or(true),
+                particle_owner,
             );
         }
     }
@@ -1228,7 +1252,11 @@ impl CombatParticleRegistry {
     }
 
     /// HeightDie destroys systems attached to this receiving object only.
-    pub(crate) fn destroy_attached_to_object(&mut self, owner: ObjectId) {
+    pub(crate) fn destroy_attached_to_object(
+        &mut self,
+        owner: ObjectId,
+        particle_owner: &mut dyn crate::game_logic::combat_particles::ParticleBindingAccess,
+    ) {
         let ids: Vec<_> = self
             .systems
             .values()
@@ -1250,19 +1278,27 @@ impl CombatParticleRegistry {
             .map(|entry| entry.id)
             .collect();
         for id in ids {
-            self.deactivate(id);
+            self.deactivate(id, particle_owner);
         }
     }
 
-    pub fn deactivate(&mut self, id: u32) {
-        let _ = self.try_deactivate(id);
+    pub fn deactivate(
+        &mut self,
+        id: u32,
+        particle_owner: &mut dyn crate::game_logic::combat_particles::ParticleBindingAccess,
+    ) {
+        let _ = self.try_deactivate(id, particle_owner);
     }
 
     /// Keep the ownership receipt until its actual client resource retires.
     /// Callers holding an attached ID must retain it when this returns false.
-    pub(crate) fn try_deactivate(&mut self, id: u32) -> bool {
+    pub(crate) fn try_deactivate(
+        &mut self,
+        id: u32,
+        particle_owner: &mut dyn crate::game_logic::combat_particles::ParticleBindingAccess,
+    ) -> bool {
         if let Some(binding) = self.client_bindings.get(&id) {
-            if !retire_client_binding(binding) {
+            if !retire_client_binding(binding, particle_owner) {
                 return false;
             }
         }
@@ -1619,21 +1655,12 @@ fn spawn_attached_system(
     lifetime: Option<u32>,
     local_z_rot: f32,
     is_shrouded: bool,
+    particle_owner: &mut dyn crate::game_logic::combat_particles::ParticleBindingAccess,
 ) -> u32 {
     let world = rotate_yaw_host(origin, yaw, local);
     let id = registry.next_id;
     registry.next_id = registry.next_id.saturating_add(1).max(1);
     registry.current_frame = registry.current_frame.max(frame);
-    // Existing host attachment pose bridge remains until particle simulation
-    // itself receives the driving Object pose explicitly.
-    crate::game_logic::host_fx_list_dispatch::publish_host_fx_object_with_visibility(
-        owner.0,
-        origin,
-        yaw,
-        -1,
-        0.0,
-        is_shrouded,
-    );
     let mut entry = CombatParticleSystemEntry {
         id,
         kind,
@@ -1654,7 +1681,7 @@ fn spawn_attached_system(
             local_z_rotation: local_z_rot,
         }),
     };
-    if let Some(binding) = spawn_client_binding(&entry, &registry.client_bindings) {
+    if let Some(binding) = spawn_client_binding(&entry, &registry.client_bindings, particle_owner) {
         entry.client_system_id = Some(binding.id);
         registry.client_bindings.insert(id, binding);
     }
@@ -1675,6 +1702,7 @@ fn spawn_body_systems_on_bones(
     max_systems: i32,
     bone_locals: &[Vec3],
     is_shrouded: bool,
+    particle_owner: &mut dyn crate::game_logic::combat_particles::ParticleBindingAccess,
 ) {
     if max_systems <= 0 || bone_locals.is_empty() {
         return;
@@ -1714,6 +1742,7 @@ fn spawn_body_systems_on_bones(
             None,
             0.0,
             is_shrouded,
+            particle_owner,
         );
     }
 }

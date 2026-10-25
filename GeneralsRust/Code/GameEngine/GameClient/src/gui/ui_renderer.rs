@@ -392,6 +392,7 @@ const TEXTURE_BIND_GROUP_CACHE_CAP: usize = 128;
 
 /// UI Renderer - main rendering system
 pub struct UIRenderer {
+    native_widget_state: crate::gui::w3d_gadget_draw::NativeWidgetDrawState,
     device: Arc<Device>,
     queue: Arc<Queue>,
 
@@ -1098,6 +1099,7 @@ impl UIRenderer {
         });
 
         Ok(Self {
+            native_widget_state: Default::default(),
             device,
             queue,
             solid_pipeline,
@@ -1438,85 +1440,12 @@ impl UIRenderer {
         height: u32,
         data: &[u8],
     ) -> Arc<TextureView> {
-        if width == 0 || height == 0 {
-            return self.default_texture.clone();
+        UiTextureUpload {
+            device: &self.device,
+            queue: &self.queue,
+            default_texture: &self.default_texture,
         }
-        let expected_len = (width as usize)
-            .saturating_mul(height as usize)
-            .saturating_mul(4);
-        if data.len() < expected_len {
-            return self.default_texture.clone();
-        }
-
-        let texture = self.device.create_texture(&TextureDescriptor {
-            label: Some("UI Video Texture"),
-            size: wgpu::Extent3d {
-                width,
-                height,
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: TextureDimension::D2,
-            format: TextureFormat::Rgba8UnormSrgb,
-            usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
-            view_formats: &[],
-        });
-
-        let bytes_per_row = width.saturating_mul(4);
-        let aligned_bytes_per_row = (bytes_per_row + 255) & !255;
-        if aligned_bytes_per_row == bytes_per_row {
-            self.queue.write_texture(
-                wgpu::TexelCopyTextureInfo {
-                    texture: &texture,
-                    mip_level: 0,
-                    origin: wgpu::Origin3d::ZERO,
-                    aspect: wgpu::TextureAspect::All,
-                },
-                &data[..expected_len],
-                wgpu::TexelCopyBufferLayout {
-                    offset: 0,
-                    bytes_per_row: Some(bytes_per_row),
-                    rows_per_image: Some(height),
-                },
-                wgpu::Extent3d {
-                    width,
-                    height,
-                    depth_or_array_layers: 1,
-                },
-            );
-        } else {
-            let mut padded = vec![0u8; aligned_bytes_per_row as usize * height as usize];
-            let row_bytes = bytes_per_row as usize;
-            let aligned_row_bytes = aligned_bytes_per_row as usize;
-            for row in 0..height as usize {
-                let src_start = row * row_bytes;
-                let dst_start = row * aligned_row_bytes;
-                padded[dst_start..dst_start + row_bytes]
-                    .copy_from_slice(&data[src_start..src_start + row_bytes]);
-            }
-            self.queue.write_texture(
-                wgpu::TexelCopyTextureInfo {
-                    texture: &texture,
-                    mip_level: 0,
-                    origin: wgpu::Origin3d::ZERO,
-                    aspect: wgpu::TextureAspect::All,
-                },
-                &padded,
-                wgpu::TexelCopyBufferLayout {
-                    offset: 0,
-                    bytes_per_row: Some(aligned_bytes_per_row),
-                    rows_per_image: Some(height),
-                },
-                wgpu::Extent3d {
-                    width,
-                    height,
-                    depth_or_array_layers: 1,
-                },
-            );
-        }
-
-        Arc::new(texture.create_view(&TextureViewDescriptor::default()))
+        .create_rgba(width, height, data)
     }
 
     /// Draw a rectangle outline
@@ -2566,3 +2495,111 @@ mod memory_font_registration_tests;
 #[cfg(test)]
 #[path = "ui_renderer/constructor_font_buffer_tests.rs"]
 mod constructor_font_buffer_tests;
+
+/// Immutable device service split from mutable widget cache ownership.
+/// Device/queue concurrency is native WGPU service concurrency, not GUI state.
+pub(crate) struct UiTextureUpload<'a> {
+    device: &'a Device,
+    queue: &'a Queue,
+    default_texture: &'a Arc<TextureView>,
+}
+impl UiTextureUpload<'_> {
+    pub(crate) fn create_rgba(&self, width: u32, height: u32, data: &[u8]) -> Arc<TextureView> {
+        if width == 0 || height == 0 {
+            return self.default_texture.clone();
+        }
+        let expected_len = (width as usize)
+            .saturating_mul(height as usize)
+            .saturating_mul(4);
+        if data.len() < expected_len {
+            return self.default_texture.clone();
+        }
+
+        let texture = self.device.create_texture(&TextureDescriptor {
+            label: Some("UI Video Texture"),
+            size: wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: TextureDimension::D2,
+            format: TextureFormat::Rgba8UnormSrgb,
+            usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+
+        let bytes_per_row = width.saturating_mul(4);
+        let aligned_bytes_per_row = (bytes_per_row + 255) & !255;
+        if aligned_bytes_per_row == bytes_per_row {
+            self.queue.write_texture(
+                wgpu::TexelCopyTextureInfo {
+                    texture: &texture,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d::ZERO,
+                    aspect: wgpu::TextureAspect::All,
+                },
+                &data[..expected_len],
+                wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(bytes_per_row),
+                    rows_per_image: Some(height),
+                },
+                wgpu::Extent3d {
+                    width,
+                    height,
+                    depth_or_array_layers: 1,
+                },
+            );
+        } else {
+            let mut padded = vec![0u8; aligned_bytes_per_row as usize * height as usize];
+            let row_bytes = bytes_per_row as usize;
+            let aligned_row_bytes = aligned_bytes_per_row as usize;
+            for row in 0..height as usize {
+                let src_start = row * row_bytes;
+                let dst_start = row * aligned_row_bytes;
+                padded[dst_start..dst_start + row_bytes]
+                    .copy_from_slice(&data[src_start..src_start + row_bytes]);
+            }
+            self.queue.write_texture(
+                wgpu::TexelCopyTextureInfo {
+                    texture: &texture,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d::ZERO,
+                    aspect: wgpu::TextureAspect::All,
+                },
+                &padded,
+                wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(aligned_bytes_per_row),
+                    rows_per_image: Some(height),
+                },
+                wgpu::Extent3d {
+                    width,
+                    height,
+                    depth_or_array_layers: 1,
+                },
+            );
+        }
+
+        Arc::new(texture.create_view(&TextureViewDescriptor::default()))
+    }
+}
+impl UIRenderer {
+    pub(crate) fn native_widget_services(
+        &mut self,
+    ) -> (
+        &mut crate::gui::w3d_gadget_draw::NativeWidgetDrawState,
+        UiTextureUpload<'_>,
+    ) {
+        (
+            &mut self.native_widget_state,
+            UiTextureUpload {
+                device: &self.device,
+                queue: &self.queue,
+                default_texture: &self.default_texture,
+            },
+        )
+    }
+}

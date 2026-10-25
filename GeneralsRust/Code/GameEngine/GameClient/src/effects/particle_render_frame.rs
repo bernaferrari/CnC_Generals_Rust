@@ -12,6 +12,7 @@ pub(super) struct PreparedParticleBatch {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ParticleRenderFrame {
+    preloaded_texture_assets: Vec<String>,
     pub(super) uniforms: ParticleUniforms,
     pub(super) batches: Vec<PreparedParticleBatch>,
     pub(super) particles_rendered: usize,
@@ -20,12 +21,71 @@ pub struct ParticleRenderFrame {
 }
 
 impl ParticleRenderFrame {
+    /// Native frame preparation owns its SMUD output. No process manager,
+    /// TLS, active-client lookup, or ambient random stream is consulted.
+    pub fn prepare_owned(
+        systems: &[&ParticleSystem],
+        uniforms: &ParticleUniforms,
+        use_heat: bool,
+        random: &mut dyn FnMut(f32, f32) -> f32,
+    ) -> Self {
+        let started = std::time::Instant::now();
+        let mut frame = Self {
+            preloaded_texture_assets: Vec::new(),
+            uniforms: *uniforms,
+            batches: Vec::new(),
+            particles_rendered: 0,
+            preparation_time: std::time::Duration::ZERO,
+            heat_smudges: Vec::new(),
+        };
+        for system in systems {
+            if matches!(
+                system.info().particle_type,
+                ParticleType::Invalid | ParticleType::Drawable
+            ) {
+                continue;
+            }
+            if system_is_heat_smudge(system) {
+                if use_heat {
+                    for particle in system
+                        .particles()
+                        .iter()
+                        .filter(|particle| particle.is_draw_alive())
+                    {
+                        // Preserve two source draws even for an invisible-size
+                        // smudge; collection filters after authored generation.
+                        let offset = [random(-0.06, 0.06), random(-0.03, 0.03)];
+                        if particle.size > 0. && particle.alpha > 0. {
+                            frame
+                                .heat_smudges
+                                .push(crate::effects::heat_haze::HeatHazeSmudge {
+                                    world_pos: [
+                                        particle.position.x,
+                                        particle.position.y,
+                                        particle.position.z,
+                                    ],
+                                    size: particle.size,
+                                    offset,
+                                    opacity: particle.alpha,
+                                });
+                        }
+                    }
+                }
+            } else {
+                frame.collect_system_particles(system, uniforms.camera_position);
+            }
+        }
+        frame.preparation_time = started.elapsed();
+        frame
+    }
+
     /// Call at the existing DoParticles phase after culling. SMUD reset and
     /// RNG consumption retain their original order relative to each system.
     pub fn prepare(systems: &[&ParticleSystem], uniforms: &ParticleUniforms) -> Self {
         let preparation_started = std::time::Instant::now();
         begin_particle_heat_smudge_frame();
         let mut frame = Self {
+            preloaded_texture_assets: Vec::new(),
             uniforms: *uniforms,
             batches: Vec::new(),
             particles_rendered: 0,
@@ -189,3 +249,13 @@ mod owned_info_tests {
 #[cfg(test)]
 #[path = "particle_render_frame/volume_tests.rs"]
 mod volume_tests;
+
+impl ParticleRenderFrame {
+    pub fn preloaded_texture_assets(&self) -> &[String] {
+        &self.preloaded_texture_assets
+    }
+    pub(crate) fn with_preloaded_texture_assets(mut self, names: Vec<String>) -> Self {
+        self.preloaded_texture_assets = names;
+        self
+    }
+}

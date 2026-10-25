@@ -7,6 +7,7 @@ pub(in crate::game_logic) enum BodyStateFx {
     /// ActiveBody::evaluateVisualCondition, before effectivelyDead/onDamage.
     NativeVisualState(crate::game_logic::host_enum_table_residual::HostBodyDamageType),
     Transition(HostTransitionDamageFxEvent),
+    BoneParticleRetirement(crate::game_logic::host_bone_fx_damage::BoneParticleRetirement),
     VoiceFear(crate::game_logic::AudioEventRequest),
     MovementStop(crate::game_logic::AudioEventRequest),
     FxListDie,
@@ -70,6 +71,7 @@ impl Object {
             // Detached Object fixtures have no AudioManager owner. A caller
             // observing presentation supplies its BodyStateFxReceiver; admitted
             // objects use the receiving session operations below.
+            BodyStateFx::BoneParticleRetirement(_) => {}
             BodyStateFx::NativeVisualState(_)
             | BodyStateFx::VoiceFear(_)
             | BodyStateFx::MovementStop(_) => {}
@@ -120,11 +122,11 @@ impl crate::game_logic::GameLogic {
         at_object: bool,
         player: Option<u32>,
         shroud: &std::sync::Arc<std::sync::Mutex<gamelogic::system::shroud_manager::ShroudManager>>,
-        view: &mut game_client::fx_list::FxViewServices<'_>,
+        view: &mut crate::game_logic::host_fx_list_dispatch::ObjectFxServices<'_, '_>,
     ) {
         if at_object {
             let pose = Self::observe_host_fx_object(object, player, shroud);
-            Self::dispatch_fx_list_at_object_with_view(name, &pose, None, view);
+            Self::dispatch_fx_list_at_object_with_view(name, object, None, view);
         } else {
             Self::dispatch_fx_list_at_position_with_view(
                 name,
@@ -181,6 +183,9 @@ impl crate::game_logic::GameLogic {
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
         #[cfg(feature = "game_client")]
+        let fx_operation_environment = self.observe_object_fx_environment();
+
+        #[cfg(feature = "game_client")]
         {
             let player = self.local_player_id();
             let secondary = source
@@ -188,13 +193,14 @@ impl crate::game_logic::GameLogic {
                 .map(|object| {
                     Self::observe_host_fx_object(object, player, self.world_services.shroud())
                 });
-            Self::with_host_fx_view_parts_and_terrain(
+            Self::with_object_fx_services(
                 &mut self.session_view,
                 player,
                 self.world_services.shroud(),
-                presentation_effects.terrain.as_mut().map(|terrain| {
-                    &mut **terrain as &mut dyn crate::game_logic::NativeTerrainEffects
-                }),
+                presentation_effects,
+                &fx_operation_environment,
+                self.world_services.terrain(),
+                &self.logic_random,
                 |view| {
                     if let Some(object) = self.objects.get_mut(&id) {
                         object.fire_fx_list_die_with_fx(&mut |name, object, at_object| {
@@ -212,6 +218,8 @@ impl crate::game_logic::GameLogic {
                 },
             );
         }
+        #[cfg(feature = "game_client")]
+        let fx_operation_environment = self.observe_object_fx_environment();
         #[cfg(not(feature = "game_client"))]
         if let Some(object) = self.objects.get_mut(&id) {
             object.fire_fx_list_die_with_fx(&mut |name, object, at_object| {
@@ -253,9 +261,10 @@ impl crate::game_logic::GameLogic {
         particles: &mut crate::game_logic::combat_particles::CombatParticleRegistry,
         audio: &mut Vec<crate::game_logic::AudioEventRequest>,
         frame: u32,
-        view: &mut game_client::fx_list::FxViewServices<'_>,
+        view: &mut crate::game_logic::host_fx_list_dispatch::ObjectFxServices<'_, '_>,
     ) {
         match effect {
+            BodyStateFx::BoneParticleRetirement(ids) => view.retire_particles(ids),
             BodyStateFx::VoiceFear(request) | BodyStateFx::MovementStop(request) => {
                 audio.push(request)
             }
@@ -315,7 +324,7 @@ impl crate::game_logic::GameLogic {
         secondary: Option<&gamelogic::helpers::HostFxObjectPose>,
         player: Option<u32>,
         shroud: &std::sync::Arc<std::sync::Mutex<gamelogic::system::shroud_manager::ShroudManager>>,
-        view: &mut game_client::fx_list::FxViewServices<'_>,
+        view: &mut crate::game_logic::host_fx_list_dispatch::ObjectFxServices<'_, '_>,
     ) {
         crate::game_logic::host_transition_damage_fx::dispatch_armor_damage_fx_with_dispatch(
             object,
@@ -332,7 +341,7 @@ impl crate::game_logic::GameLogic {
                         secondary.filter(|pose| pose.id == source.id)
                     }
                 });
-                Self::dispatch_fx_list_at_object_with_view(name, &primary, secondary, view);
+                Self::dispatch_fx_list_at_object_with_view(name, object, secondary, view);
             },
         );
     }
@@ -360,7 +369,7 @@ impl crate::game_logic::GameLogic {
         secondary: Option<&gamelogic::helpers::HostFxObjectPose>,
         player: Option<u32>,
         shroud: &std::sync::Arc<std::sync::Mutex<gamelogic::system::shroud_manager::ShroudManager>>,
-        view: &mut game_client::fx_list::FxViewServices<'_>,
+        view: &mut crate::game_logic::host_fx_list_dispatch::ObjectFxServices<'_, '_>,
     ) -> bool {
         if at_object {
             let primary = Self::observe_host_fx_object(object, player, shroud);
@@ -375,7 +384,7 @@ impl crate::game_logic::GameLogic {
                     pose
                 }
             });
-            Self::dispatch_fx_list_at_object_with_view(name, &primary, secondary, view)
+            Self::dispatch_fx_list_at_object_with_view(name, object, secondary, view)
         } else {
             Self::dispatch_fx_list_at_position_with_view(
                 name,

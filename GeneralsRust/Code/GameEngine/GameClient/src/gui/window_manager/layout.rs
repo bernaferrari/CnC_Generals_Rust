@@ -101,6 +101,20 @@ impl WindowLayout {
         self.hidden.set(hide);
     }
 
+    pub(crate) fn hide_receiving(
+        &self,
+        hide: bool,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    ) {
+        for window in &self.windows {
+            let window = window.clone();
+            effects.queue_window_operation(move |manager, _| {
+                let _ = manager.hide_window(&window, hide);
+            });
+        }
+        self.hidden.set(hide);
+    }
+
     /// Hide or show all windows in this layout
     pub fn hide(&self, hide: bool) {
         for window_rc in &self.windows {

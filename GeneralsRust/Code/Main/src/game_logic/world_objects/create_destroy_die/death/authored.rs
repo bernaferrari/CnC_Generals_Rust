@@ -417,7 +417,7 @@ impl GameLogic {
             object.fire_weapon_when_dead_fired = true;
             object.unstamp_partition_value_threat_with_partition_owner(&mut self.partition_manager);
             if let Some(bone_fx) = object.bone_fx_damage.as_mut() {
-                bone_fx.stop_all_bone_fx();
+                bone_fx.stop_all_bone_fx_with_owner(presentation_effects);
             }
         }
         // Only explicit authored deletion owns removal. Keep/Slow alone do
@@ -473,6 +473,9 @@ impl GameLogic {
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
         #[cfg(feature = "game_client")]
+        let fx_operation_environment = self.observe_object_fx_environment();
+
+        #[cfg(feature = "game_client")]
         {
             let player = self.local_player_id();
             let secondary = source
@@ -480,13 +483,14 @@ impl GameLogic {
                 .map(|object| {
                     Self::observe_host_fx_object(object, player, self.world_services.shroud())
                 });
-            Self::with_host_fx_view_parts_and_terrain(
+            Self::with_object_fx_services(
                 &mut self.session_view,
                 player,
                 self.world_services.shroud(),
-                presentation_effects.terrain.as_mut().map(|terrain| {
-                    &mut **terrain as &mut dyn crate::game_logic::NativeTerrainEffects
-                }),
+                presentation_effects,
+                &fx_operation_environment,
+                self.world_services.terrain(),
+                &self.logic_random,
                 |view| {
                     if let Some(object) = self.objects.get_mut(&id) {
                         object.fire_fx_list_die_config_with_fx(
@@ -500,7 +504,7 @@ impl GameLogic {
                                     );
                                     Self::dispatch_fx_list_at_object_with_view(
                                         name,
-                                        &primary,
+                                        object,
                                         secondary.as_ref(),
                                         view,
                                     )
@@ -521,6 +525,8 @@ impl GameLogic {
                 },
             );
         }
+        #[cfg(feature = "game_client")]
+        let fx_operation_environment = self.observe_object_fx_environment();
         #[cfg(not(feature = "game_client"))]
         if let Some(object) = self.objects.get_mut(&id) {
             object.fire_fx_list_die_config_with_fx(config, &mut |name, object, at_object| {

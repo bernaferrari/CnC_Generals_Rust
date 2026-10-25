@@ -97,12 +97,16 @@ pub struct HostBoneFxEvent {
     pub old_state: HostBodyDamageType,
     pub new_state: HostBodyDamageType,
     pub bone: String,
+    #[serde(default)]
+    slot_index: Option<usize>,
+    #[serde(default)]
+    kind: FireKind,
     pub fx_list: Option<String>,
     pub ocl: Option<String>,
     pub particle_system: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct HostBoneFxDamageData {
     pub transitions: u32,
     pub last_fx: Option<String>,
@@ -126,6 +130,109 @@ pub struct HostBoneFxDamageData {
     /// C++ `m_particleSystemIDs` leftover client ids.
     #[serde(default)]
     particle_system_ids: Vec<u32>,
+    #[serde(default)]
+    pristine: BoneFxPristineCache,
+    #[cfg(feature = "game_client")]
+    #[serde(skip)]
+    particle_owner: Option<game_client::effects::particle_manager::ParticleSystemOwner>,
+}
+
+/// C++ m_*BonePositions/m_bonesResolved: local translations survive body
+/// state reentry, animation changes, and save/load. No presentation authority.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct BoneFxPristineCache {
+    fx: [[[f32; 3]; BONE_FX_MAX_BONES]; BODY_DAMAGE_TYPE_COUNT],
+    ocl: [[[f32; 3]; BONE_FX_MAX_BONES]; BODY_DAMAGE_TYPE_COUNT],
+    psys: [[[f32; 3]; BONE_FX_MAX_BONES]; BODY_DAMAGE_TYPE_COUNT],
+    resolved: [bool; BODY_DAMAGE_TYPE_COUNT],
+}
+impl Default for BoneFxPristineCache {
+    fn default() -> Self {
+        Self {
+            fx: [[[0.; 3]; BONE_FX_MAX_BONES]; BODY_DAMAGE_TYPE_COUNT],
+            ocl: [[[0.; 3]; BONE_FX_MAX_BONES]; BODY_DAMAGE_TYPE_COUNT],
+            psys: [[[0.; 3]; BONE_FX_MAX_BONES]; BODY_DAMAGE_TYPE_COUNT],
+            resolved: [false; BODY_DAMAGE_TYPE_COUNT],
+        }
+    }
+}
+/// A numeric ID alone never authorizes retirement in another manager namespace.
+#[derive(Debug)]
+pub(crate) struct BoneParticleRetirement {
+    ids: Vec<u32>,
+    #[cfg(feature = "game_client")]
+    owner: Option<game_client::effects::particle_manager::ParticleSystemOwner>,
+}
+impl BoneParticleRetirement {
+    pub(crate) fn is_empty(&self) -> bool {
+        self.ids.is_empty()
+    }
+    pub(crate) fn empty() -> Self {
+        Self {
+            ids: Vec::new(),
+            #[cfg(feature = "game_client")]
+            owner: None,
+        }
+    }
+}
+impl Clone for HostBoneFxDamageData {
+    fn clone(&self) -> Self {
+        Self {
+            transitions: self.transitions,
+            last_fx: self.last_fx.clone(),
+            pending: self.pending.clone(),
+            authored: self.authored.clone(),
+            next_fx_frame: self.next_fx_frame,
+            next_ocl_frame: self.next_ocl_frame,
+            next_ps_frame: self.next_ps_frame,
+            cur_state: self.cur_state,
+            active: self.active,
+            last_damage_type: self.last_damage_type,
+            particle_system_ids: self.particle_system_ids.clone(),
+            pristine: self.pristine.clone(),
+            #[cfg(feature = "game_client")]
+            particle_owner: None,
+        }
+    }
+}
+pub(crate) fn retire_particle_ids(
+    receipt: BoneParticleRetirement,
+    owner: &mut dyn crate::game_logic::combat_particles::ParticleBindingAccess,
+) {
+    #[cfg(feature = "game_client")]
+    if let Some(manager) = owner.particle_systems_mut() {
+        if receipt.owner.as_ref() == Some(&manager.runtime_owner()) {
+            for id in receipt.ids {
+                manager.destroy_particle_system(id);
+            }
+        }
+    }
+    #[cfg(not(feature = "game_client"))]
+    let _ = (receipt, owner);
+}
+#[cfg(feature = "game_client")]
+impl crate::game_logic::GameLogic {
+    pub(crate) fn adopt_loaded_bone_particle_systems(
+        &mut self,
+        manager: &game_client::effects::ParticleSystemManager,
+        receipt: &game_client::effects::particle_manager::ParticleSystemRestoreReceipt,
+    ) -> Result<(), String> {
+        if !receipt.belongs_to(manager) {
+            return Err("BoneFX particle receipt names another manager".into());
+        }
+        for object in self.objects.registered_values_mut() {
+            if let Some(bfx) = object.bone_fx_damage.as_mut() {
+                bfx.particle_system_ids.retain(|id| {
+                    receipt.contains_system(*id)
+                        && manager
+                            .find_particle_system(*id)
+                            .is_some_and(|system| system.attached_object_id() == object.id.0)
+                });
+                bfx.particle_owner = Some(manager.runtime_owner());
+            }
+        }
+        Ok(())
+    }
 }
 
 fn unset_schedule() -> [[i32; BONE_FX_MAX_BONES]; BODY_DAMAGE_TYPE_COUNT] {
@@ -146,6 +253,9 @@ impl Default for HostBoneFxDamageData {
             active: false,
             last_damage_type: None,
             particle_system_ids: Vec::new(),
+            pristine: BoneFxPristineCache::default(),
+            #[cfg(feature = "game_client")]
+            particle_owner: None,
         }
     }
 }
@@ -222,14 +332,52 @@ impl HostBoneFxDamageData {
     }
 
     /// C++ `BoneFXUpdate::killRunningParticleSystems`.
-    pub fn kill_running_particle_systems(&mut self) {
-        if let Some(manager) = gamelogic::helpers::TheParticleSystemManager::get() {
-            for id in self.particle_system_ids.drain(..) {
-                manager.destroy_particle_system(id);
-            }
-        } else {
-            self.particle_system_ids.clear();
+    pub(crate) fn take_running_particle_systems(&mut self) -> BoneParticleRetirement {
+        BoneParticleRetirement {
+            ids: std::mem::take(&mut self.particle_system_ids),
+            #[cfg(feature = "game_client")]
+            owner: self.particle_owner.take(),
         }
+    }
+    pub(crate) fn track_particle_with_owner(
+        &mut self,
+        id: u32,
+        owner: &mut dyn crate::game_logic::combat_particles::ParticleBindingAccess,
+    ) {
+        if id == 0 {
+            return;
+        }
+        #[cfg(feature = "game_client")]
+        if let Some(manager) = owner.particle_systems_mut() {
+            let namespace = manager.runtime_owner();
+            if self.particle_owner.as_ref() != Some(&namespace) {
+                self.particle_system_ids.clear();
+            }
+            self.particle_owner = Some(namespace);
+            self.particle_system_ids.push(id);
+        }
+        #[cfg(not(feature = "game_client"))]
+        let _ = owner;
+    }
+    /// Detached component state has no native resources. Production always
+    /// consumes the source receipt with kill/stop_with_owner below.
+    pub fn kill_running_particle_systems(&mut self) {
+        self.particle_system_ids.clear();
+    }
+    pub(crate) fn kill_running_particle_systems_with_owner(
+        &mut self,
+        owner: &mut dyn crate::game_logic::combat_particles::ParticleBindingAccess,
+    ) {
+        retire_particle_ids(self.take_running_particle_systems(), owner);
+    }
+    pub(crate) fn stop_all_bone_fx_with_owner(
+        &mut self,
+        owner: &mut dyn crate::game_logic::combat_particles::ParticleBindingAccess,
+    ) {
+        self.next_fx_frame = unset_schedule();
+        self.next_ocl_frame = unset_schedule();
+        self.next_ps_frame = unset_schedule();
+        self.kill_running_particle_systems_with_owner(owner);
     }
 
     fn damage_type_allowed(&self, flags: u64) -> bool {
@@ -260,9 +408,7 @@ impl HostBoneFxDamageData {
         for i in 0..BONE_FX_MAX_BONES {
             if due(self.next_fx_frame[idx][i], now) {
                 if let Some(slot) = self.authored.fx[idx][i].clone() {
-                    if self.damage_type_allowed(self.authored.damage_fx_types) {
-                        self.push_fire(old_state, new_state, &slot, FireKind::Fx);
-                    }
+                    self.push_fire(old_state, new_state, &slot, FireKind::Fx, i);
                     self.next_fx_frame[idx][i] = next_after_fire(&slot, now);
                 } else {
                     self.next_fx_frame[idx][i] = -1;
@@ -270,9 +416,7 @@ impl HostBoneFxDamageData {
             }
             if due(self.next_ocl_frame[idx][i], now) {
                 if let Some(slot) = self.authored.ocl[idx][i].clone() {
-                    if self.damage_type_allowed(self.authored.damage_ocl_types) {
-                        self.push_fire(old_state, new_state, &slot, FireKind::Ocl);
-                    }
+                    self.push_fire(old_state, new_state, &slot, FireKind::Ocl, i);
                     self.next_ocl_frame[idx][i] = next_after_fire(&slot, now);
                 } else {
                     self.next_ocl_frame[idx][i] = -1;
@@ -280,9 +424,7 @@ impl HostBoneFxDamageData {
             }
             if due(self.next_ps_frame[idx][i], now) {
                 if let Some(slot) = self.authored.psys[idx][i].clone() {
-                    if self.damage_type_allowed(self.authored.damage_particle_types) {
-                        self.push_fire(old_state, new_state, &slot, FireKind::Psys);
-                    }
+                    self.push_fire(old_state, new_state, &slot, FireKind::Psys, i);
                     self.next_ps_frame[idx][i] = next_after_fire(&slot, now);
                 } else {
                     self.next_ps_frame[idx][i] = -1;
@@ -297,6 +439,7 @@ impl HostBoneFxDamageData {
         new_state: HostBodyDamageType,
         slot: &HostBoneFxSlot,
         kind: FireKind,
+        slot_index: usize,
     ) {
         let name = slot.name.trim();
         let ev = match kind {
@@ -304,6 +447,8 @@ impl HostBoneFxDamageData {
                 old_state,
                 new_state,
                 bone: slot.bone.clone(),
+                slot_index: Some(slot_index),
+                kind,
                 fx_list: nonempty_name(name),
                 ocl: None,
                 particle_system: None,
@@ -312,6 +457,8 @@ impl HostBoneFxDamageData {
                 old_state,
                 new_state,
                 bone: slot.bone.clone(),
+                slot_index: Some(slot_index),
+                kind,
                 fx_list: None,
                 ocl: nonempty_name(name),
                 particle_system: None,
@@ -320,14 +467,13 @@ impl HostBoneFxDamageData {
                 old_state,
                 new_state,
                 bone: slot.bone.clone(),
+                slot_index: Some(slot_index),
+                kind,
                 fx_list: None,
                 ocl: None,
                 particle_system: nonempty_name(name),
             },
         };
-        if ev.fx_list.is_none() && ev.ocl.is_none() && ev.particle_system.is_none() {
-            return;
-        }
         if self.last_fx.is_none() {
             self.last_fx = ev
                 .fx_list
@@ -341,8 +487,9 @@ impl HostBoneFxDamageData {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
 enum FireKind {
+    #[default]
     Fx,
     Ocl,
     Psys,
@@ -675,56 +822,246 @@ pub fn bone_world_pos(origin: Vec3, yaw: f32, model: &str, scale: f32, bone: &st
     rotate_yaw_host(origin, yaw, bone_local_pos(model, scale, bone))
 }
 
+fn pristine_bone_local(
+    source: &crate::game_logic::NativeSlaveSource,
+    bone: &str,
+    effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+) -> gamelogic::GameLogicResult<[f32; 3]> {
+    if bone.is_empty() {
+        return Ok([0.; 3]);
+    }
+    let bones = if let Some(assets) = effects.pristine_bones {
+        assets.pristine_bone_transforms(&source, bone, 0, 1)
+    } else {
+        #[cfg(feature = "game_client")]
+        {
+            effects
+                .view
+                .as_deref_mut()
+                .ok_or_else(|| "BoneFX requires receiving pristine model assets".to_owned())
+                .and_then(|view| view.pristine_client_bone_transforms(&source, bone, 0, 1))
+        }
+        #[cfg(not(feature = "game_client"))]
+        {
+            Err("BoneFX requires receiving pristine model assets".to_owned())
+        }
+    }
+    .map_err(gamelogic::GameLogicError::Configuration)?;
+    Ok(bones
+        .first()
+        .map(|matrix| matrix.w_axis.truncate().to_array())
+        .unwrap_or([0.; 3]))
+}
+
+fn resolve_pristine_state(
+    world: &mut crate::game_logic::GameLogic,
+    owner: u32,
+    state: usize,
+    effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+) -> gamelogic::GameLogicResult<()> {
+    if state >= BODY_DAMAGE_TYPE_COUNT {
+        return Err(gamelogic::GameLogicError::Configuration(
+            "invalid BoneFX cache state".into(),
+        ));
+    }
+    let object = world
+        .host_object(crate::game_logic::ObjectId(owner))
+        .ok_or(gamelogic::GameLogicError::InvalidObject(owner))?;
+    let bfx = object.bone_fx_damage.as_ref().ok_or_else(|| {
+        gamelogic::GameLogicError::Configuration("BoneFX current owner data absent".into())
+    })?;
+    if bfx.pristine.resolved[state] {
+        return Ok(());
+    }
+    let authored = bfx.authored.clone();
+    let source = world
+        .current_native_slave_source(
+            crate::game_logic::ObjectId(owner),
+            world.local_player_id().unwrap_or(0),
+        )
+        .map_err(|error| {
+            gamelogic::GameLogicError::Configuration(format!("BoneFX source {owner}: {error}"))
+        })?;
+    let mut fx = [[0.; 3]; BONE_FX_MAX_BONES];
+    let mut ocl = fx;
+    let mut psys = fx;
+    for i in 0..BONE_FX_MAX_BONES {
+        if let Some(slot) = &authored.fx[state][i] {
+            fx[i] = pristine_bone_local(&source, &slot.bone, effects)?;
+        }
+        if let Some(slot) = &authored.ocl[state][i] {
+            ocl[i] = pristine_bone_local(&source, &slot.bone, effects)?;
+        }
+        if let Some(slot) = &authored.psys[state][i] {
+            psys[i] = pristine_bone_local(&source, &slot.bone, effects)?;
+        }
+    }
+    let object = world
+        .host_object_mut(crate::game_logic::ObjectId(owner))
+        .ok_or(gamelogic::GameLogicError::InvalidObject(owner))?;
+    let bfx = object.bone_fx_damage.as_mut().ok_or_else(|| {
+        gamelogic::GameLogicError::Configuration("BoneFX current owner data absent".into())
+    })?;
+    bfx.pristine.fx[state] = fx;
+    bfx.pristine.ocl[state] = ocl;
+    bfx.pristine.psys[state] = psys;
+    bfx.pristine.resolved[state] = true;
+    Ok(())
+}
+
 /// Play leftover-authored FXList / OCL / PSys at the bone.
 /// Returns leftover particle-system id when a PSys was attached (C++ `m_particleSystemIDs`).
-pub fn play_bone_fx_event(
+/// Actual BoneFX update borrows the receiving native pose, FX, factory and particles.
+/// C++ BoneFXUpdate.cpp:375-448: pristine local bone, FX, OCL, then attached PSys.
+pub(crate) fn play_bone_fx_event_with_effects(
     world: &mut crate::game_logic::GameLogic,
     ev: &HostBoneFxEvent,
     owner: u32,
-    origin: Vec3,
-    yaw: f32,
-    model: &str,
-    scale: f32,
-    drawable_hidden: bool,
-) -> Option<u32> {
-    let local = bone_local_pos(model, scale, &ev.bone);
-    let effect_position = rotate_yaw_host(origin, yaw, local);
+    effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+) -> gamelogic::GameLogicResult<Option<u32>> {
+    let state = ev.new_state.ordinal() as usize;
+    let kind = if ev.ocl.is_some() {
+        FireKind::Ocl
+    } else if ev.particle_system.is_some() {
+        FireKind::Psys
+    } else {
+        ev.kind
+    };
+    // Older host snapshots saved names but no row receipt. Recover the authored
+    // row before acquiring the canonical state cache; new saves carry exact row.
+    let slot_index = if let Some(index) = ev.slot_index {
+        index
+    } else {
+        let bfx = world
+            .host_object(crate::game_logic::ObjectId(owner))
+            .and_then(|object| object.bone_fx_damage.as_ref())
+            .ok_or_else(|| {
+                gamelogic::GameLogicError::Configuration("BoneFX saved event owner absent".into())
+            })?;
+        if state >= BODY_DAMAGE_TYPE_COUNT {
+            return Err(gamelogic::GameLogicError::Configuration(
+                "invalid saved BoneFX state".into(),
+            ));
+        }
+        let row = match kind {
+            FireKind::Fx => &bfx.authored.fx[state],
+            FireKind::Ocl => &bfx.authored.ocl[state],
+            FireKind::Psys => &bfx.authored.psys[state],
+        };
+        row.iter()
+            .position(|slot| slot.as_ref().is_some_and(|slot| slot.bone == ev.bone))
+            .ok_or_else(|| {
+                gamelogic::GameLogicError::Configuration("saved BoneFX row absent".into())
+            })?
+    };
+    if slot_index >= BONE_FX_MAX_BONES {
+        return Err(gamelogic::GameLogicError::Configuration(
+            "invalid BoneFX slot index".into(),
+        ));
+    }
+    resolve_pristine_state(world, owner, state, effects)?;
+    let object = world
+        .host_object(crate::game_logic::ObjectId(owner))
+        .ok_or(gamelogic::GameLogicError::InvalidObject(owner))?;
+    let bfx = object.bone_fx_damage.as_ref().ok_or_else(|| {
+        gamelogic::GameLogicError::Configuration("BoneFX current owner data absent".into())
+    })?;
+    let (position, allowed) = match kind {
+        FireKind::Fx => (
+            bfx.pristine.fx[state][slot_index],
+            bfx.damage_type_allowed(bfx.authored.damage_fx_types),
+        ),
+        FireKind::Ocl => (
+            bfx.pristine.ocl[state][slot_index],
+            bfx.damage_type_allowed(bfx.authored.damage_ocl_types),
+        ),
+        FireKind::Psys => (
+            bfx.pristine.psys[state][slot_index],
+            bfx.damage_type_allowed(bfx.authored.damage_particle_types),
+        ),
+    };
+    if !allowed {
+        return Ok(None);
+    }
+    if !position.iter().all(|value| value.is_finite()) {
+        return Err(gamelogic::GameLogicError::Configuration(
+            "nonfinite saved BoneFX cache".into(),
+        ));
+    }
+    let local = Vec3::from_array(position);
+    // Pristine bone is C++ Z-up, whereas the canonical host Object is Y-up.
+    let host_local = Vec3::new(local.x, local.z, local.y);
+    let effect_position = {
+        let Some(object) = world.host_object(crate::game_logic::ObjectId(owner)) else {
+            return Ok(None);
+        };
+        object.get_transform_matrix().transform_point3(host_local)
+    };
+    #[cfg(feature = "game_client")]
     if let Some(fx) = ev.fx_list.as_deref() {
-        let _ = world.dispatch_fx_list_at_host_position(fx, effect_position);
+        world.dispatch_fx_list_at_host_position_with_effects(fx, effect_position, effects);
     }
     if let Some(ocl) = ev.ocl.as_deref() {
-        crate::game_logic::host_transition_damage_fx::play_authored_transition_ocl(
+        // Reacquire after FX: no ObjectStore loan survives a factory callback.
+        let Some(object) = world.host_object(crate::game_logic::ObjectId(owner)) else {
+            return Ok(None);
+        };
+        let (team, veterancy, yaw, velocity) = (
+            object.team,
+            object.experience.level,
+            object.get_orientation(),
+            object.movement.velocity,
+        );
+        world.execute_parsed_weapon_ocl_at_with_effects(
             ocl,
-            owner,
+            Some(crate::game_logic::ObjectId(owner)),
+            team,
+            veterancy,
+            yaw,
+            velocity,
             effect_position,
+            effects,
         );
     }
-    let Some(ps) = ev.particle_system.as_deref() else {
-        return None;
-    };
-    crate::game_logic::host_fx_list_dispatch::publish_host_fx_object_with_visibility(
-        owner,
-        origin,
-        yaw,
-        -1,
-        0.0,
-        world.host_fx_object_is_shrouded(owner),
-    );
-    let cpp_local = host_local_to_cpp(local);
-    let leftover_id = gamelogic::helpers::attach_particle_system_to_object_local(
-        ps,
-        owner,
-        Some(&cpp_local),
-        None,
-    )?;
-    // Leftover `do_particle_system_at_bone`: hidden drawable destroys the system.
-    if drawable_hidden {
-        if let Some(manager) = gamelogic::helpers::TheParticleSystemManager::get() {
-            manager.destroy_particle_system(leftover_id);
+    #[cfg(feature = "game_client")]
+    {
+        let Some(ps) = ev.particle_system.as_deref() else {
+            return Ok(None);
+        };
+        let Some(object) = world.host_object(crate::game_logic::ObjectId(owner)) else {
+            return Ok(None);
+        };
+        let hidden = object.drawable_hidden;
+        let manager = effects
+            .view
+            .as_deref_mut()
+            .and_then(|view| view.particle_systems_mut())
+            .ok_or_else(|| {
+                gamelogic::GameLogicError::Configuration(
+                    "BoneFX requires receiving particle manager".into(),
+                )
+            })?;
+        manager
+            .admit_effective_definitions()
+            .map_err(|error| gamelogic::GameLogicError::Configuration(error.to_string()))?;
+        let Some(template) = manager.find_template(ps) else {
+            return Ok(None);
+        };
+        let id = manager
+            .create_particle_system(&template, true)
+            .map_err(|error| gamelogic::GameLogicError::Configuration(error.to_string()))?;
+        let system = manager.find_particle_system_mut(id).ok_or_else(|| {
+            gamelogic::GameLogicError::Configuration("created BoneFX particle system absent".into())
+        })?;
+        system.set_position(local);
+        system.attach_to_object(owner);
+        if hidden {
+            system.stop();
         }
-        return None;
+        Ok(Some(id))
     }
-    Some(leftover_id)
+    #[cfg(not(feature = "game_client"))]
+    Ok(None)
 }
 
 #[cfg(test)]

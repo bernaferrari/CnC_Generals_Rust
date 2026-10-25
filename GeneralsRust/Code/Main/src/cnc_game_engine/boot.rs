@@ -775,10 +775,6 @@ impl CnCGameEngine {
                 game_client::gui::control_bar::set_host_control_bar_bridge_enabled(true);
                 game_client::gui::options_host_bridge::set_host_options_bridge_enabled(true);
 
-                game_client::render_bridge::init_render_bridge();
-                let _ = gamelogic::helpers::register_scene_submission(std::sync::Arc::new(
-                    game_client::render_bridge::RenderBridge::new(),
-                ));
                 game_client::core::game_client::GameClient::new()
                     .map_err(|e| anyhow::anyhow!("Failed to create GameClient: {e}"))?
             },
@@ -981,6 +977,20 @@ impl CnCGameEngine {
             if let Err(e) = engine.game_client.init_input_subsystems() {
                 warn!("GameClient input subsystems init failed: {}", e);
             }
+            {
+                let settings = game_engine::common::global_data::read();
+                engine.game_client.configure_shell_map(
+                    game_client::gui::campaign_launch_host_bridge::ShellMapSettings {
+                        initial_file: startup_initial_map
+                            .as_ref()
+                            .or(startup_initial_replay.as_ref())
+                            .cloned()
+                            .unwrap_or_default(),
+                        enabled: settings.writable.shell_map_on,
+                        map: settings.writable.shell_map_name.clone(),
+                    },
+                );
+            }
             let replay_menu_inputs = engine.receiving_replay_menu_inputs();
             if let Err(e) = engine
                 .game_client
@@ -994,7 +1004,6 @@ impl CnCGameEngine {
             // PlatformContext creation to avoid macOS winit deadlock (second EventLoop).
             // The GraphicsSystem holds the same wgpu device/queue we need.
             {
-                use game_client::gui::ui_globals::set_ui_renderer;
                 use game_client::gui::ui_renderer::UIRenderer;
 
                 let device = engine.graphics_system.device_arc();
@@ -1003,14 +1012,16 @@ impl CnCGameEngine {
 
                 match UIRenderer::new(device, queue, format) {
                     Ok(renderer) => {
-                        set_ui_renderer(Arc::new(std::sync::RwLock::new(renderer)));
+                        engine.game_client.set_ui_renderer(renderer);
                         info!(
                             "UIRenderer created from GraphicsSystem (format: {:?})",
                             format
                         );
                     }
                     Err(err) => {
-                        warn!("UIRenderer creation from GraphicsSystem failed: {err}");
+                        return Err(anyhow::anyhow!(
+                            "UIRenderer creation from GraphicsSystem failed: {err}"
+                        ));
                     }
                 }
             }
@@ -1039,6 +1050,7 @@ impl CnCGameEngine {
                 .bind_visual_world(gamelogic::helpers::ClientVisualHandle::new(Arc::clone(
                     &engine.game_logic.world_services,
                 )));
+
             engine.game_client.mark_initialized();
             info!("GameClient: all subsystems initialized");
         }
@@ -1126,8 +1138,12 @@ impl CnCGameEngine {
         engine
             .window
             .set_title("Command & Conquer Generals Zero Hour - Loading...");
-        engine.ensure_shell_loading_overlay();
-        engine.update_shell_loading_progress(0.0, Some("Loading assets..."));
+        engine
+            .ensure_shell_loading_overlay()
+            .map_err(anyhow::Error::msg)?;
+        engine
+            .update_shell_loading_progress(0.0, Some("Loading assets..."))
+            .map_err(anyhow::Error::msg)?;
 
         Ok(engine)
     }

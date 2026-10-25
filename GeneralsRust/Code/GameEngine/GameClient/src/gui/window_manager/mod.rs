@@ -309,6 +309,7 @@ impl WindowManager {
     pub fn set_screen_size(&mut self, width: i32, height: i32) {
         if width > 0 && height > 0 {
             self.screen_size = (width, height);
+            self.transitions.set_screen_size(width, height);
         }
     }
 

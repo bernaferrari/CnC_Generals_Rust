@@ -429,7 +429,8 @@ impl GameLogic {
         }
         *last_position = current;
         if destroy_particles {
-            self.combat_particles_mut().destroy_attached_to_object(id);
+            self.combat_particles_mut()
+                .destroy_attached_to_object(id, effects);
         }
     }
 }

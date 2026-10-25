@@ -1608,27 +1608,17 @@ impl RenderPipeline {
     #[cfg(feature = "game_client")]
     pub(super) fn drain_render_bridge_submissions(
         &mut self,
+        bridge: &mut game_client::render_bridge::RenderBridge,
         graphics_system: &mut GraphicsSystem,
         camera_position: Vec3,
         deferred_model_load_budget: &mut usize,
     ) {
-        use game_client::render_bridge::get_render_bridge;
-
         // Replace the scene from this exact immutable presentation boundary.
         // Session changes cannot retain another world's pooled ghost IDs.
         self.frozen_ghost_scene = self
             .presentation_frame
             .as_ref()
             .and_then(|frame| frame.w3d_ghost_scene.clone());
-
-        let mut bridge_guard = match get_render_bridge().lock() {
-            Ok(g) => g,
-            Err(_) => return,
-        };
-        let bridge = match bridge_guard.as_mut() {
-            Some(b) => b,
-            None => return,
-        };
 
         // Live host never calls RenderBridge::begin_frame, so flush() has no
         // camera and would drain+drop pending. Pull them first so placement

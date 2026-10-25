@@ -119,7 +119,7 @@ impl GameLogic {
         timing: Option<&FrameTiming>,
         budget: Option<usize>,
         mut ui: crate::game_logic::ScriptPresentationEffects<'_>,
-        mut before: impl FnMut(u32),
+        mut before: impl FnMut(u32) -> Option<u32>,
         after: impl FnMut(&mut Self),
     ) -> NativeTickProgress {
         if let Err(error) =
@@ -136,7 +136,10 @@ impl GameLogic {
             budget.map(|n| n.max(1)),
             None,
             |world, fixed| {
-                before(world.frame);
+                let client_frame = before(world.frame);
+                if let Some(ui) = ui.ui.as_deref_mut() {
+                    ui.admit_command_hint_client_frame(client_frame);
+                }
                 world.update_simulation_with_command_phase(
                     fixed,
                     ui.reborrow(),
@@ -157,7 +160,7 @@ impl GameLogic {
         mut pending: NativeTickContinuation,
         completion: NativeCommandCompletion,
         mut ui: crate::game_logic::ScriptPresentationEffects<'_>,
-        mut before: impl FnMut(u32),
+        mut before: impl FnMut(u32) -> Option<u32>,
         mut after: impl FnMut(&mut Self),
     ) -> NativeTickProgress {
         if let Err(error) =
@@ -263,7 +266,10 @@ impl GameLogic {
                     if let Some(outcome) = completed.take() {
                         return outcome;
                     }
-                    before(world.frame);
+                    let client_frame = before(world.frame);
+                    if let Some(ui) = ui.ui.as_deref_mut() {
+                        ui.admit_command_hint_client_frame(client_frame);
+                    }
                     world.update_simulation_with_command_phase(
                         fixed,
                         ui.reborrow(),

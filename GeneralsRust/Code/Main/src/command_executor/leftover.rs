@@ -1022,7 +1022,7 @@ impl<'a> CommandExecutor<'a> {
             }
             self.game_logic.note_beacon_placed(pos);
         } else {
-            live_beacon_hide(self.game_logic, beacon_id);
+            live_beacon_hide(self.game_logic, beacon_id, &mut self.ui);
         }
         CommandResult::Success
     }
@@ -1060,7 +1060,7 @@ impl<'a> CommandExecutor<'a> {
                 self.game_logic.beacon_client.remove(id);
                 any = true;
             } else if local_id == Some(player_id) {
-                live_beacon_hide(self.game_logic, id);
+                live_beacon_hide(self.game_logic, id, &mut self.ui);
                 any = true;
             }
         }
@@ -1287,7 +1287,11 @@ fn host_kill_player(
     }
 }
 
-fn live_beacon_hide(logic: &mut GameLogic, id: ObjectId) {
+fn live_beacon_hide(
+    logic: &mut GameLogic,
+    id: ObjectId,
+    effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+) {
     let pos = logic.host_object(id).map(|o| o.get_position());
     if let Some(obj) = logic.host_object_mut(id) {
         // C++ BeaconClientUpdate::hideBeacon: setDrawableHidden + no shadows.
@@ -1299,7 +1303,7 @@ fn live_beacon_hide(logic: &mut GameLogic, id: ObjectId) {
     }
     let smoke_id = logic.beacon_client.hide(id);
     if let Some(smoke_id) = smoke_id {
-        logic.combat_particles_mut().deactivate(smoke_id);
+        logic.combat_particles_mut().deactivate(smoke_id, effects);
     }
 }
 
@@ -1352,7 +1356,17 @@ pub fn host_local_player_can_place_beacon(logic: &GameLogic, player_id: u32) -> 
 
 /// C++ BeaconClientUpdate::clientUpdate — house-color smoke + yellow pulse.
 pub fn tick_live_beacon_client_updates(logic: &mut GameLogic) {
-    use gamelogic::helpers::TheParticleSystemManager;
+    tick_live_beacon_client_updates_with_effects(
+        logic,
+        &mut crate::game_logic::ScriptPresentationEffects::default(),
+    );
+}
+
+/// Production beacon update with the exact receiving presentation owner.
+pub fn tick_live_beacon_client_updates_with_effects(
+    logic: &mut GameLogic,
+    effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+) {
     use gamelogic::object::update::{BeaconClientUpdateModule, BeaconClientUpdateModuleData};
 
     let frame = logic.frame;
@@ -1378,22 +1392,29 @@ pub fn tick_live_beacon_client_updates(logic: &mut GameLogic) {
                 .map(|p| p.color_rgb)
                 .unwrap_or((255, 255, 255));
             let color = gamelogic::common::Color::rgb(rgb.0, rgb.1, rgb.2);
-            let (template, tint) =
+            let (template, tint) = {
+                let manager = crate::game_logic::combat_particles::ParticleBindingAccess::particle_systems_mut(effects);
                 BeaconClientUpdateModule::resolve_smoke_template_with_lookup(color, |name| {
-                    TheParticleSystemManager::get()
-                        .and_then(|m| m.find_template(name))
-                        .is_some()
+                    manager.as_deref().is_some_and(|manager| manager.find_template(name).is_some())
                 })
-                .unwrap_or_else(|| {
-                    (
-                        format!("BeaconSmoke{:02X}{:02X}{:02X}", rgb.0, rgb.1, rgb.2),
-                        Some(color),
-                    )
-                });
+            }
+            .unwrap_or_else(|| {
+                (
+                    format!("BeaconSmoke{:02X}{:02X}{:02X}", rgb.0, rgb.1, rgb.2),
+                    Some(color),
+                )
+            });
             let is_shrouded = logic.host_fx_object_is_shrouded(id.0);
             if let Some(smoke_id) = logic
                 .combat_particles_mut()
-                .attach_named_to_object_with_visibility(id, pos, frame, &template, is_shrouded)
+                .attach_named_to_object_with_visibility(
+                    id,
+                    pos,
+                    frame,
+                    &template,
+                    is_shrouded,
+                    effects,
+                )
             {
                 if let Some(tint) = tint {
                     if let Some(client_id) = logic
@@ -1401,14 +1422,16 @@ pub fn tick_live_beacon_client_updates(logic: &mut GameLogic) {
                         .get(smoke_id)
                         .and_then(|e| e.client_system_id)
                     {
-                        if let Some(mgr) = TheParticleSystemManager::get() {
-                            mgr.tint_particle_system_all_colors(client_id, tint);
+                        if let Some(manager) = crate::game_logic::combat_particles::ParticleBindingAccess::particle_systems_mut(effects) {
+                            if let Some(system) = manager.find_particle_system_mut(client_id) {
+                                system.tint_all_colors([tint.r as f32 / 255.0, tint.g as f32 / 255.0, tint.b as f32 / 255.0]);
+                            }
                         }
                     }
                 }
                 logic.beacon_client.set_smoke(id, smoke_id);
                 if hidden {
-                    logic.combat_particles_mut().deactivate(smoke_id);
+                    logic.combat_particles_mut().deactivate(smoke_id, effects);
                 }
             }
         }

@@ -36,9 +36,11 @@ fn actual_host_strafe_impact_uses_receiving_ground_with_foreign_owner_locked() {
             guard.try_load_map_geometry(map).unwrap();
             gamelogic::system::engine_stores::with_active_stores(&foreign, || {
                 let impact = |world: &GameLogic| {
-                    spectre_gattling_strafe_smoke_impact(Vec3::new(30., 999., 30.), |x, z| {
-                        world.terrain_ground_height_at(Vec3::new(x, 0., z))
-                    })
+                    spectre_gattling_strafe_smoke_impact(
+                        Vec3::new(30., 999., 30.),
+                        |x, z| world.terrain_ground_height_at(Vec3::new(x, 0., z)),
+                        |_, _| 0.,
+                    )
                 };
                 assert_eq!(impact(&a).y, 10.);
                 assert_eq!(impact(&b).y, 50.);
@@ -58,6 +60,7 @@ fn actual_host_strafe_impact_uses_receiving_ground_with_foreign_owner_locked() {
 
 #[test]
 fn explicit_absent_ground_retains_existing_mapless_aim_height() {
-    let impact = spectre_gattling_strafe_smoke_impact(Vec3::new(30., 123., 30.), |_, _| None);
+    let impact =
+        spectre_gattling_strafe_smoke_impact(Vec3::new(30., 123., 30.), |_, _| None, |_, _| 0.);
     assert_eq!(impact.y, 123.);
 }

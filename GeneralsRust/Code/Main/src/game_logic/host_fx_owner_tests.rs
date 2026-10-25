@@ -14,59 +14,87 @@ struct Observation {
     secondary: Option<HostFxObjectPose>,
 }
 
-struct ObjectNugget {
-    nugget: u8,
+/// Authored Sound delivery observes the production runtime; object/source
+/// identities are sampled through the same real receiver, not a global bridge.
+struct ObserveAudio {
+    source: game_client::fx_list::FxObservation,
+    secondary: Option<HostFxObjectPose>,
     observed: Sender<Observation>,
 }
-
-impl game_client::fx_list::FXNugget for ObjectNugget {
-    fn do_fx_pos(
-        &self,
-        _: Option<&Coord3D>,
-        _: Option<&Matrix3D>,
-        _: f32,
-        _: Option<&Coord3D>,
-        _: f32,
+impl crate::game_logic::NativeAudioEffects for ObserveAudio {
+    fn add_audio_event(
+        &mut self,
+        _: &game_engine::common::audio::AudioEventRts,
+        _: &game_engine::common::audio::AudioSubmissionLocality,
     ) {
-        panic!("the object dispatch must retain its pose and secondary identity");
+        unreachable!("FX uses explicit sound admission");
     }
-
-    fn do_fx_obj_host(&self, primary: &HostFxObjectPose, secondary: Option<&HostFxObjectPose>) {
-        // A nugget may inspect or admit definitions; no catalog lock may span
-        // the callback. The event capture itself needs no shared mutable Vec.
-        drop(game_client::fx_list::get_fx_list_store_mut());
+    fn submit_fx_sound(
+        &mut self,
+        name: &str,
+        position: Option<&Coord3D>,
+        player: Option<i32>,
+        _: &game_engine::common::audio::AudioSubmissionLocality,
+        _: &mut dyn game_engine::common::audio::audio_event_rts::AudioEventSelection,
+    ) -> Result<(), String> {
+        let primary = self
+            .source
+            .object
+            .expect("object dispatch retains its identity");
+        assert_eq!(position, self.source.primary.as_ref());
+        assert_eq!(player, Some(primary.player_index));
+        let nugget = name
+            .strip_prefix("OwnerVisibility_")
+            .unwrap()
+            .parse()
+            .unwrap();
         self.observed
             .send(Observation {
-                nugget: self.nugget,
-                primary: *primary,
-                secondary: secondary.copied(),
+                nugget,
+                primary,
+                secondary: self.secondary,
             })
             .unwrap();
+        Ok(())
     }
 }
-
-fn install_fx() -> Receiver<Observation> {
+fn install_fx() -> (
+    game_client::fx_list::FXListStore,
+    Receiver<Observation>,
+    Sender<Observation>,
+) {
+    use game_engine::common::ini::ini_fx_list::{FXList, FXNugget};
     let (observed, events) = mpsc::channel();
-    let mut fx = game_client::fx_list::FXList::new();
-    for nugget in [1, 2] {
-        fx.add_fx_nugget(Box::new(ObjectNugget {
-            nugget,
-            observed: observed.clone(),
-        }));
+    let mut definition = FXList::new("FX_OwnerVisibility".into());
+    for marker in [1, 2] {
+        definition.add_nugget(FXNugget::Sound {
+            name: format!("OwnerVisibility_{marker}").into(),
+        });
     }
-    game_client::fx_list::get_fx_list_store_mut().add_fx_list("FX_OwnerVisibility".into(), fx);
-    game_client::fx_list::register_fx_list_manager_bridge();
-    events
+    let mut catalog = game_client::fx_list::FXListStore::new();
+    catalog.add_fx_list(
+        "FX_OwnerVisibility".into(),
+        game_client::fx_list::FXList::from_definition(&definition),
+    );
+    (catalog, events, observed)
 }
 
-fn world(local: u32, x: f32) -> (GameLogic, ObjectId, ObjectId) {
+fn world(
+    local: u32,
+    x: f32,
+    catalog: &game_client::fx_list::FXListStore,
+) -> (GameLogic, ObjectId, ObjectId) {
     let mut logic = GameLogic::new();
     // Admit this owner explicitly; FX needs no retail map/content bootstrap.
-    logic.install_as_active_stores();
+    logic.admit_fx_catalog(catalog.clone());
     logic.clear_all_players();
     logic.add_player(Player::new(local, Team::USA, "Local", true));
     logic.add_player(Player::new(8, Team::China, "Enemy", false));
-    let template = ThingTemplate::new("FxOwnerUnit");
+    let mut parser = crate::assets::IniParser::new();
+    parser.parse_ini_content("Object FxOwnerUnit\n Draw = W3DModelDraw DrawTag\n DefaultConditionState\n Model = BoneOwnerModel\n End\n End\nEnd\n","owned_fx_fixture.ini").unwrap();
+    let definition = parser.get_definition("FxOwnerUnit").unwrap();
+    let mut template = ThingTemplate::new("FxOwnerUnit");
+    template.set_authored_draw_models(definition.model_name.as_deref(), &definition.draw_modules);
     logic.templates.insert(template.name.clone(), template);
     let primary = logic
         .create_object("FxOwnerUnit", Team::China, Vec3::new(x, 4.0, 12.0))
@@ -89,8 +117,43 @@ fn status(logic: &GameLogic, player: u32, object: ObjectId, value: ObjectShroudS
         .set_host_object_shroud_status(player, object.0, value);
 }
 
-fn dispatch(logic: &mut GameLogic, primary: ObjectId, secondary: ObjectId) {
-    assert!(logic.dispatch_fx_list_at_host_object("FX_OwnerVisibility", primary, Some(secondary)));
+fn dispatch(
+    logic: &mut GameLogic,
+    primary: ObjectId,
+    secondary: ObjectId,
+    observed: &Sender<Observation>,
+) {
+    use game_client::fx_list::{FxSource, GameClientFxRuntime};
+    let mut effects = crate::game_logic::ScriptPresentationEffects::default();
+    let source = crate::game_logic::host_fx_list_dispatch::HostFxRuntime {
+        world: logic,
+        effects: &mut effects,
+    }
+    .observe(FxSource::Objects {
+        primary: primary.0,
+        secondary: Some(secondary.0),
+    });
+    let secondary = logic.host_object(secondary).map(|object| {
+        GameLogic::observe_host_fx_object(
+            object,
+            logic.local_player_id(),
+            logic.world_services.shroud(),
+        )
+    });
+    let mut audio = ObserveAudio {
+        source,
+        secondary,
+        observed: observed.clone(),
+    };
+    assert!(logic.dispatch_fx_list_at_host_object_with_effects(
+        "FX_OwnerVisibility",
+        primary,
+        secondary.map(|source| ObjectId(source.id)),
+        &mut crate::game_logic::ScriptPresentationEffects {
+            audio: Some(&mut audio),
+            ..Default::default()
+        }
+    ));
 }
 
 fn assert_visible(events: &Receiver<Observation>, primary: ObjectId, secondary: ObjectId, x: f32) {
@@ -114,40 +177,34 @@ fn assert_visible(events: &Receiver<Observation>, primary: ObjectId, secondary: 
 
 #[test]
 fn object_fx_uses_own_visibility_local_player_and_pose_with_reused_ids() {
-    crate::game_logic::game_logic::pose_owner_tests::isolated_at(
-        module_path!(),
-        "object_fx_uses_own_visibility_local_player_and_pose_with_reused_ids",
-        || {
-            let events = install_fx();
-            let (mut left, primary, secondary) = world(0, 10.0);
-            let (mut right, right_primary, right_secondary) = world(7, 100.0);
-            assert_eq!((primary, secondary), (right_primary, right_secondary));
-            status(&left, 0, primary, ObjectShroudStatus::Fogged);
-            status(&left, 0, secondary, ObjectShroudStatus::Shrouded);
-            status(&right, 7, primary, ObjectShroudStatus::Clear);
-            status(&right, 7, secondary, ObjectShroudStatus::Shrouded);
-            // Opposite status for another local slot catches a global-player
-            // read even if it happens to select the correct world's shroud.
-            status(&right, 0, primary, ObjectShroudStatus::Shrouded);
-            dispatch(&mut left, primary, secondary);
-            assert_eq!(
-                events.try_iter().count(),
-                0,
-                "left fogged primary is suppressed"
-            );
-            dispatch(&mut right, primary, secondary);
-            assert_visible(&events, primary, secondary, 100.0);
-            status(&left, 0, primary, ObjectShroudStatus::PartialClear);
-            status(&right, 7, primary, ObjectShroudStatus::Shrouded);
-            dispatch(&mut left, primary, secondary);
-            assert_visible(&events, primary, secondary, 10.0);
-            dispatch(&mut right, primary, secondary);
-            assert_eq!(
-                events.try_iter().count(),
-                0,
-                "right primary is independently suppressed"
-            );
-        },
+    let (catalog, events, observed) = install_fx();
+    let (mut left, primary, secondary) = world(0, 10.0, &catalog);
+    let (mut right, right_primary, right_secondary) = world(7, 100.0, &catalog);
+    assert_eq!((primary, secondary), (right_primary, right_secondary));
+    status(&left, 0, primary, ObjectShroudStatus::Fogged);
+    status(&left, 0, secondary, ObjectShroudStatus::Shrouded);
+    status(&right, 7, primary, ObjectShroudStatus::Clear);
+    status(&right, 7, secondary, ObjectShroudStatus::Shrouded);
+    // Opposite status for another local slot catches a global-player
+    // read even if it happens to select the correct world's shroud.
+    status(&right, 0, primary, ObjectShroudStatus::Shrouded);
+    dispatch(&mut left, primary, secondary, &observed);
+    assert_eq!(
+        events.try_iter().count(),
+        0,
+        "left fogged primary is suppressed"
+    );
+    dispatch(&mut right, primary, secondary, &observed);
+    assert_visible(&events, primary, secondary, 100.0);
+    status(&left, 0, primary, ObjectShroudStatus::PartialClear);
+    status(&right, 7, primary, ObjectShroudStatus::Shrouded);
+    dispatch(&mut left, primary, secondary, &observed);
+    assert_visible(&events, primary, secondary, 10.0);
+    dispatch(&mut right, primary, secondary, &observed);
+    assert_eq!(
+        events.try_iter().count(),
+        0,
+        "right primary is independently suppressed"
     );
 }
 
@@ -157,8 +214,8 @@ fn object_fx_keeps_driving_visibility_after_foreign_construct_reset_and_restore(
         module_path!(),
         "object_fx_keeps_driving_visibility_after_foreign_construct_reset_and_restore",
         || {
-            let events = install_fx();
-            let (mut left, primary, secondary) = world(0, 20.0);
+            let (catalog, events, observed) = install_fx();
+            let (mut left, primary, secondary) = world(0, 20.0, &catalog);
             status(&left, 0, primary, ObjectShroudStatus::PartialClear);
             status(&left, 0, secondary, ObjectShroudStatus::Shrouded);
             let builder = crate::save_load::snapshot::SnapshotBuilder::new();
@@ -172,26 +229,27 @@ fn object_fx_keeps_driving_visibility_after_foreign_construct_reset_and_restore(
                 ),
                 "constructing a candidate never publishes it"
             );
-            dispatch(&mut left, primary, secondary);
+            dispatch(&mut left, primary, secondary, &observed);
             assert_visible(&events, primary, secondary, 20.0);
-            let (mut right, _, _) = world(7, 200.0);
+            let (mut right, _, _) = world(7, 200.0, &catalog);
             status(&right, 7, primary, ObjectShroudStatus::Shrouded);
             right.reset();
-            dispatch(&mut left, primary, secondary);
+            dispatch(&mut left, primary, secondary, &observed);
             assert_visible(&events, primary, secondary, 20.0);
             status(&left, 0, primary, ObjectShroudStatus::Fogged);
-            dispatch(&mut left, primary, secondary);
+            dispatch(&mut left, primary, secondary, &observed);
             assert_eq!(events.try_iter().count(), 0);
             builder.restore_from_snapshot(&saved, &mut left).unwrap();
+            left.admit_fx_catalog(catalog.clone());
             // Object visibility is derived transient state, not a new save
             // field. Observe this owner's newly admitted post-load statuses.
             status(&left, 0, primary, ObjectShroudStatus::PartialClear);
             status(&left, 0, secondary, ObjectShroudStatus::Shrouded);
-            dispatch(&mut left, primary, secondary);
+            dispatch(&mut left, primary, secondary, &observed);
             assert_visible(&events, primary, secondary, 20.0);
             drop(candidate);
             drop(right);
-            dispatch(&mut left, primary, secondary);
+            dispatch(&mut left, primary, secondary, &observed);
             assert_visible(&events, primary, secondary, 20.0);
         },
     );
@@ -199,38 +257,32 @@ fn object_fx_keeps_driving_visibility_after_foreign_construct_reset_and_restore(
 
 #[test]
 fn object_fx_missing_local_player_fails_closed_and_unknown_status_keeps_host_policy() {
-    crate::game_logic::game_logic::pose_owner_tests::isolated_at(
-        module_path!(),
-        "object_fx_missing_local_player_fails_closed_and_unknown_status_keeps_host_policy",
-        || {
-            let events = install_fx();
-            let (mut logic, primary, secondary) = world(0, 30.0);
-            logic
-                .world_services
-                .shroud()
-                .lock()
-                .unwrap()
-                .clear_host_object_visibility(0);
-            status(&logic, 0, secondary, ObjectShroudStatus::Shrouded);
-            assert!(
-                logic
-                    .world_services
-                    .shroud()
-                    .lock()
-                    .unwrap()
-                    .get_host_object_shroud_status(0, primary.0)
-                    .is_none()
-            );
-            dispatch(&mut logic, primary, secondary);
-            assert_visible(&events, primary, secondary, 30.0);
-            for player in logic.get_players_mut().values_mut() {
-                player.is_local = false;
-            }
-            assert_eq!(logic.local_player_id(), None);
-            dispatch(&mut logic, primary, secondary);
-            assert_eq!(events.try_iter().count(), 0, "no local viewer fails closed");
-        },
+    let (catalog, events, observed) = install_fx();
+    let (mut logic, primary, secondary) = world(0, 30.0, &catalog);
+    logic
+        .world_services
+        .shroud()
+        .lock()
+        .unwrap()
+        .clear_host_object_visibility(0);
+    status(&logic, 0, secondary, ObjectShroudStatus::Shrouded);
+    assert!(
+        logic
+            .world_services
+            .shroud()
+            .lock()
+            .unwrap()
+            .get_host_object_shroud_status(0, primary.0)
+            .is_none()
     );
+    dispatch(&mut logic, primary, secondary, &observed);
+    assert_visible(&events, primary, secondary, 30.0);
+    for player in logic.get_players_mut().values_mut() {
+        player.is_local = false;
+    }
+    assert_eq!(logic.local_player_id(), None);
+    dispatch(&mut logic, primary, secondary, &observed);
+    assert_eq!(events.try_iter().count(), 0, "no local viewer fails closed");
 }
 
 #[test]
@@ -239,8 +291,8 @@ fn object_fx_keeps_owned_pose_when_foreign_core_object_has_same_id() {
         module_path!(),
         "object_fx_keeps_owned_pose_when_foreign_core_object_has_same_id",
         || {
-            let events = install_fx();
-            let (mut logic, primary, secondary) = world(0, 40.0);
+            let (catalog, events, observed) = install_fx();
+            let (mut logic, primary, secondary) = world(0, 40.0, &catalog);
             status(&logic, 0, primary, ObjectShroudStatus::Clear);
             status(&logic, 0, secondary, ObjectShroudStatus::Shrouded);
             // This independent Core fixture constructs AI-backed players;
@@ -266,7 +318,7 @@ fn object_fx_keeps_owned_pose_when_foreign_core_object_has_same_id() {
                     assert_ne!(*foreign_guard.get_position(), Coord3D::new(40.0, 12.0, 4.0));
                     // C++ gets this owner's actual object. A same-ID foreign
                     // Core entry must never replace it or be reacquired here.
-                    dispatch(&mut logic, primary, secondary);
+                    dispatch(&mut logic, primary, secondary, &observed);
                     assert_visible(&events, primary, secondary, 40.0);
                 }
                 core.destroy_object(primary.0);
@@ -290,16 +342,18 @@ fn object_fx_keeps_owned_pose_when_foreign_core_object_has_same_id() {
     );
 }
 
-fn install_session_shake_definition(name: &str) {
+fn install_session_shake_definition(name: &str) -> game_client::fx_list::FXListStore {
     use game_engine::common::ini::ini_fx_list::{CameraShakeType, FXList, FXNugget};
     let mut definition = FXList::new(name.into());
     definition.add_nugget(FXNugget::ViewShake {
         shake_type: CameraShakeType::Normal,
     });
-    game_client::fx_list::get_fx_list_store_mut().add_fx_list(
+    let mut catalog = game_client::fx_list::FXListStore::new();
+    catalog.add_fx_list(
         name.into(),
         game_client::fx_list::FXList::from_definition(&definition),
     );
+    catalog
 }
 
 fn reveal_fx_positions(world: &GameLogic, player: u32) {
@@ -314,11 +368,11 @@ fn authored_fx_observes_canonical_session_target_and_not_foreign_tactical_view()
         module_path!(),
         "authored_fx_observes_canonical_session_target_and_not_foreign_tactical_view",
         || {
-            install_session_shake_definition("FX_SessionViewOwner");
+            let catalog = install_session_shake_definition("FX_SessionViewOwner");
             let rules = game_engine::common::global_data::read().clone();
             assert!(rules.shake_normal_intensity > 0.0 && rules.max_shake_range > 0.0);
-            let (mut left, id, _) = world(0, 10.0);
-            let (mut peer, peer_id, _) = world(7, 10.0);
+            let (mut left, id, _) = world(0, 10.0, &catalog);
+            let (mut peer, peer_id, _) = world(7, 10.0, &catalog);
             assert_eq!(id, peer_id);
             status(&left, 0, id, ObjectShroudStatus::Clear);
             status(&peer, 7, id, ObjectShroudStatus::Clear);
@@ -375,58 +429,150 @@ fn authored_fx_observes_canonical_session_target_and_not_foreign_tactical_view()
     );
 }
 
+struct BoneView {
+    model: crate::assets::W3DModel,
+    visits: Vec<i32>,
+    epoch: u64,
+    object_id: u32,
+}
+impl BoneView {
+    fn new(epoch: u64, object_id: u32) -> Self {
+        let mut model = crate::assets::W3DModel::new("BoneOwnerModel".into());
+        let pivot = |name: &str, parent_idx| crate::assets::W3dPivot {
+            name: name.into(),
+            parent_idx,
+            translation: [0.; 3],
+            euler_angles: [0.; 3],
+            rotation: [0., 0., 0., 1.],
+        };
+        model.hierarchy = Some(crate::assets::W3dHierarchy {
+            name: "FXTREE".into(),
+            pivot_fixups: vec![],
+            pivots: vec![
+                pivot("ROOT", u32::MAX),
+                pivot("Muzzle", 0),
+                pivot("Muzzle01", 0),
+            ],
+        });
+        model.hlods.push(crate::assets::W3dHlod {
+            version: 0x10000,
+            name: "BoneOwnerModel".into(),
+            hierarchy_name: "FXTREE".into(),
+            lods: vec![crate::assets::W3dHlodLod {
+                max_screen_size: f32::MAX,
+                subobjects: vec![],
+            }],
+            aggregates: None,
+            proxies: None,
+            has_unrendered_aggregates: false,
+            has_invalid_trailing_records: false,
+        });
+        Self {
+            model,
+            visits: Vec::new(),
+            epoch,
+            object_id,
+        }
+    }
+}
+impl crate::game_logic::NativeViewEffects for BoneView {
+    fn current_client_bone_transforms(
+        &mut self,
+        source: &crate::game_logic::NativeSlaveSource,
+        name: &str,
+        start: i32,
+        limit: usize,
+    ) -> Result<Vec<Matrix3D>, String> {
+        assert_eq!(source.identity.object_id(), self.object_id);
+        assert_eq!(source.template_name, "FxOwnerUnit");
+        assert_eq!(
+            source
+                .receiving_draw_models
+                .first_object_draw(source.condition_bits)
+                .unwrap()
+                .unwrap()
+                .model_key,
+            "BoneOwnerModel"
+        );
+        assert_eq!(name, "Muzzle");
+        assert_eq!(limit, 40);
+        self.visits.push(start);
+        let name = if start == 0 {
+            name.to_string()
+        } else {
+            format!("{name}{start:02}")
+        };
+        self.model
+            .source_named_bone_transform(&name, None, 0., &[])
+            .map(|pose| pose.into_iter().collect())
+            .map_err(|error| format!("{error:?}"))
+    }
+    fn local_player_id(&self) -> u32 {
+        0
+    }
+    fn sample_slave(
+        &mut self,
+        _: &crate::game_logic::NativeSlaveSource,
+        _: &str,
+    ) -> crate::presentation_frame::camera::build::SlaveCameraSample {
+        unreachable!("bone fixture is not a camera query")
+    }
+    fn body_visual_changed(
+        &mut self,
+        _: &crate::game_logic::NativeBodyVisualChange,
+        _: Option<&mut dyn game_client::drawable::drawable::NativeAmbientAudio>,
+    ) -> Result<bool, String> {
+        Err("bone fixture has no body renderer".into())
+    }
+    fn retire_physical_object_drawable(
+        &mut self,
+        _: &crate::game_logic::NativeObjectRetirement<'_>,
+    ) -> Result<(), String> {
+        Err("bone fixture has no factory owner".into())
+    }
+    fn host_epoch(&self) -> u64 {
+        self.epoch
+    }
+    fn admit_factory_drawable(
+        &mut self,
+        _: crate::game_logic::NativeFactoryDrawableSource,
+        _: game_client::core::game_client::NativeDrawableBirthContext,
+        _: &mut game_engine::common::thing::module_factory::ModuleFactory,
+    ) -> Result<(), String> {
+        Err("bone fixture has no factory owner".into())
+    }
+}
+
 #[test]
 fn authored_nested_bone_fx_borrows_same_session_impulse_and_world_visibility() {
-    crate::game_logic::game_logic::pose_owner_tests::isolated_at(
-        module_path!(),
-        "authored_nested_bone_fx_borrows_same_session_impulse_and_world_visibility",
-        || {
-            use game_engine::common::ini::ini_fx_list::{FXList, FXNugget};
-            install_session_shake_definition("FX_SessionViewChild");
-            let mut definition = FXList::new("FX_SessionViewBone".into());
-            definition.add_nugget(FXNugget::FXListAtBonePos {
-                fx_name: "FX_SessionViewChild".into(),
-                bone_name: "Muzzle".into(),
-                orient_to_bone: false,
-            });
-            let outer = game_client::fx_list::FXList::from_definition(&definition);
-            let (mut logic, id, _) = world(0, 10.0);
-            reveal_fx_positions(&logic, 0);
-            logic.session_view.target = Vec3::new(10.0, 0.0, 12.0);
-            let primary = HostFxObjectPose {
-                id: id.0,
-                position: Coord3D::new(10.0, 12.0, 4.0),
-                transform: Matrix3D::from_translation(glam::Vec3::new(10.0, 12.0, 4.0)),
-                player_index: 0,
-                bounding_circle_radius: 1.0,
-                is_shrouded: false,
-            };
-            let mut visits = Vec::new();
-            logic.with_host_fx_view(|services| {
-                // Actual factory bone access requires a rendered Drawable. Supply
-                // only its observed matrices here; all nested authored FX, shroud
-                // queries, catalog lookups and impulse writes are the real route.
-                let mut bones = |object, name: &str, start, limit| {
-                    assert_eq!(object, id.0);
-                    assert_eq!(name, "Muzzle");
-                    assert_eq!(limit, 40);
-                    visits.push(start);
-                    vec![Matrix3D::IDENTITY]
-                };
-                let mut receiving = game_client::fx_list::FxViewServices {
-                    add_scorch: &mut |_, _, _| {},
-                    shake: &mut *services.shake,
-                    find_list: &mut *services.find_list,
-                    bone_transforms: &mut bones,
-                    position_visible: &mut *services.position_visible,
-                };
-                outer.do_fx_obj_host_with_view(&primary, None, &mut receiving);
-            });
-            assert_eq!(visits, vec![0, 1]);
-            assert!(logic.session_view.impulse.intensity > 0.0);
-            assert_eq!(logic.session_view.impulse.offset, Vec3::ZERO);
-            logic.session_view.advance_impulse();
-            assert!(logic.session_view.impulse.offset.length_squared() > 0.0);
-        },
+    use game_engine::common::ini::ini_fx_list::{FXList, FXNugget};
+    let mut catalog = install_session_shake_definition("FX_SessionViewChild");
+    let mut definition = FXList::new("FX_SessionViewBone".into());
+    definition.add_nugget(FXNugget::FXListAtBonePos {
+        fx_name: "FX_SessionViewChild".into(),
+        bone_name: "Muzzle".into(),
+        orient_to_bone: false,
+    });
+    catalog.add_fx_list(
+        "FX_SessionViewBone".into(),
+        game_client::fx_list::FXList::from_definition(&definition),
     );
+    let (mut logic, id, _) = world(0, 10.0, &catalog);
+    reveal_fx_positions(&logic, 0);
+    logic.session_view.target = Vec3::new(10.0, 0.0, 12.0);
+    let mut view = BoneView::new(17, id.0);
+    assert!(logic.dispatch_fx_list_at_host_object_with_effects(
+        "FX_SessionViewBone",
+        id,
+        None,
+        &mut crate::game_logic::ScriptPresentationEffects {
+            view: Some(&mut view),
+            ..Default::default()
+        }
+    ));
+    assert_eq!(view.visits, vec![0, 1]);
+    assert!(logic.session_view.impulse.intensity > 0.0);
+    assert_eq!(logic.session_view.impulse.offset, Vec3::ZERO);
+    logic.session_view.advance_impulse();
+    assert!(logic.session_view.impulse.offset.length_squared() > 0.0);
 }

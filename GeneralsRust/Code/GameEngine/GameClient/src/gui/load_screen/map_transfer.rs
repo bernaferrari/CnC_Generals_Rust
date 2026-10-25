@@ -1,20 +1,27 @@
 // Split from `gui/load_screen.rs` dump. Included by `load_screen/mod.rs`.
 
-fn initialize_map_transfer_windows(wm: &mut WindowManager, context: &LoadScreenInitContext) {
+fn initialize_map_transfer_windows(
+    wm: &mut WindowManager,
+    context: &LoadScreenInitContext,
+    runtime: &mut LoadScreenRuntime,
+) {
     set_window_text(wm, "MapTransferScreen.wnd:StaticTextCurrentFile", "");
     set_window_text(wm, "MapTransferScreen.wnd:StaticTextTimeout", "");
 
     let slots = map_transfer_slot_contexts(context);
-    with_map_transfer_load_screen_state(|state| {
-        *state = MapTransferLoadScreenState::default();
-        for (compact_slot, slot_context) in slots.iter().enumerate() {
-            if slot_context.player_id >= 0
-                && (slot_context.player_id as usize) < MAX_LOAD_SCREEN_SLOTS
-            {
-                state.player_lookup[slot_context.player_id as usize] = compact_slot as i32;
+    with_map_transfer_load_screen_state(
+        |state| {
+            *state = MapTransferLoadScreenState::default();
+            for (compact_slot, slot_context) in slots.iter().enumerate() {
+                if slot_context.player_id >= 0
+                    && (slot_context.player_id as usize) < MAX_LOAD_SCREEN_SLOTS
+                {
+                    state.player_lookup[slot_context.player_id as usize] = compact_slot as i32;
+                }
             }
-        }
-    });
+        },
+        runtime,
+    );
 
     for slot in 0..MAX_LOAD_SCREEN_SLOTS {
         set_progress_window(
@@ -90,7 +97,12 @@ fn map_transfer_progress_hidden(slot: &LoadScreenSlotInitContext) -> bool {
     slot.player_id == 0 || slot.has_map
 }
 
-pub fn process_map_transfer_progress(player_id: i32, percentage: i32, state_label: &str) -> bool {
+pub fn process_map_transfer_progress(
+    player_id: i32,
+    percentage: i32,
+    state_label: &str,
+    runtime: &mut LoadScreenRuntime,
+) -> bool {
     if !(0..=100).contains(&percentage)
         || player_id < 0
         || player_id as usize >= MAX_LOAD_SCREEN_SLOTS
@@ -98,14 +110,17 @@ pub fn process_map_transfer_progress(player_id: i32, percentage: i32, state_labe
         return false;
     }
 
-    let update = with_map_transfer_load_screen_state(|state| {
-        let translated_slot = state.player_lookup[player_id as usize];
-        if translated_slot < 0 || state.old_progress[player_id as usize] == percentage {
-            return None;
-        }
-        state.old_progress[player_id as usize] = percentage;
-        Some(translated_slot as usize)
-    });
+    let update = with_map_transfer_load_screen_state(
+        |state| {
+            let translated_slot = state.player_lookup[player_id as usize];
+            if translated_slot < 0 || state.old_progress[player_id as usize] == percentage {
+                return None;
+            }
+            state.old_progress[player_id as usize] = percentage;
+            Some(translated_slot as usize)
+        },
+        runtime,
+    );
     let Some(translated_slot) = update else {
         return false;
     };
@@ -125,14 +140,17 @@ pub fn process_map_transfer_progress(player_id: i32, percentage: i32, state_labe
     true
 }
 
-pub fn process_map_transfer_timeout(seconds_left: i32) -> bool {
-    let changed = with_map_transfer_load_screen_state(|state| {
-        if state.old_timeout == seconds_left {
-            return false;
-        }
-        state.old_timeout = seconds_left;
-        true
-    });
+pub fn process_map_transfer_timeout(seconds_left: i32, runtime: &mut LoadScreenRuntime) -> bool {
+    let changed = with_map_transfer_load_screen_state(
+        |state| {
+            if state.old_timeout == seconds_left {
+                return false;
+            }
+            state.old_timeout = seconds_left;
+            true
+        },
+        runtime,
+    );
     if !changed {
         return false;
     }

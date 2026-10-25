@@ -94,7 +94,6 @@ impl IntegratedUISystem {
     ) -> Result<Self> {
         // Create shared renderer
         let renderer = Arc::new(RwLock::new(UIRenderer::new(device, queue, format)?));
-        crate::gui::set_ui_renderer(renderer.clone());
         // Seed the renderer projection in the same logical units the
         // UIManager subsystems below are laid out in.
         if let Ok(mut renderer) = renderer.write() {
@@ -419,7 +418,7 @@ impl IntegratedUISystem {
                     timestamp_writes: None,
                     occlusion_query_set: None,
                     multiview_mask: None,
-});
+                });
 
                 renderer.render(&mut render_pass)?;
             }

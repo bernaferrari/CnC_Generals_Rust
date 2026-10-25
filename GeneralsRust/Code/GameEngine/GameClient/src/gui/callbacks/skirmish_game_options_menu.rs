@@ -1444,6 +1444,7 @@ fn check_for_cd_at_game_start(
 pub fn skirmish_game_options_menu_init(
     layout: &WindowLayout,
     _user_data: Option<&mut dyn std::any::Any>,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) {
     set_skirmish_button_pushed(false);
     set_skirmish_is_shutting_down(false);
@@ -1606,7 +1607,7 @@ pub fn skirmish_game_options_menu_init(
     set_skirmish_slot_updates_enabled(true);
     set_skirmish_is_initing(false);
 
-    show_shell_map_if_available(true);
+    show_shell_map_if_available(true, effects);
     layout.hide(false);
 }
 
@@ -2144,6 +2145,7 @@ mod tests {
         let token = push_payload(WindowMsgPayload::Bool(false));
         let mut emitted = Vec::new();
         let mut effects = WindowEventEffects {
+            script_display: None,
             selected_window: None,
             window_manager_owner: None,
             emitted_messages: &mut emitted,
@@ -2215,6 +2217,7 @@ mod tests {
             });
             let mut emitted = Vec::new();
             let mut effects = WindowEventEffects {
+                script_display: None,
                 selected_window: None,
                 window_manager_owner: None,
                 emitted_messages: &mut emitted,

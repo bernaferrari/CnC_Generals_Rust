@@ -19,10 +19,11 @@ pub(crate) struct BorderPieces {
     horizontal_bottom_short: Option<Image>,
 }
 
-pub(crate) fn border_pieces() -> &'static BorderPieces {
-    static PIECES: OnceLock<BorderPieces> = OnceLock::new();
-    PIECES.get_or_init(|| {
-        with_window_manager_ref(|manager| BorderPieces {
+pub(crate) fn border_pieces(
+    draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
+) -> BorderPieces {
+    crate::gui::window_draw_context::with_draw_manager(draw_context.manager, |manager| {
+        BorderPieces {
             corner_ul: manager.win_find_image("BorderCornerUL"),
             corner_ur: manager.win_find_image("BorderCornerUR"),
             corner_ll: manager.win_find_image("BorderCornerLL"),
@@ -35,7 +36,7 @@ pub(crate) fn border_pieces() -> &'static BorderPieces {
             vertical_right_short: manager.win_find_image("BorderRightShort"),
             horizontal_bottom: manager.win_find_image("BorderBottom"),
             horizontal_bottom_short: manager.win_find_image("BorderBottomShort"),
-        })
+        }
     })
 }
 
@@ -48,7 +49,10 @@ pub(crate) fn clamp_border_span(span: i32) -> i32 {
 
 impl GameWindow {
     /// Draw W3D border art for this window (port of W3DGameWindow::winDrawBorder).
-    pub fn draw_border_w3d(&self) {
+    pub fn draw_border_w3d(
+        &self,
+        draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
+    ) {
         const BORDER_CORNER_SIZE: i32 = 15;
         const BORDER_LINE_SIZE: i32 = 20;
         const OFFSET: i32 = 15;
@@ -90,17 +94,20 @@ impl GameWindow {
                             self.inst_data.text_label.as_str()
                         };
                         let mut text_width = 0;
-                        with_window_manager_ref(|manager| {
-                            if let Some(font) = self.inst_data.font.as_ref() {
-                                manager.win_get_text_size(
-                                    font,
-                                    text,
-                                    Some(&mut text_width),
-                                    None,
-                                    0,
-                                );
-                            }
-                        });
+                        crate::gui::window_draw_context::with_draw_manager(
+                            draw_context.manager,
+                            |manager| {
+                                if let Some(font) = self.inst_data.font.as_ref() {
+                                    manager.win_get_text_size(
+                                        font,
+                                        text,
+                                        Some(&mut text_width),
+                                        None,
+                                        0,
+                                    );
+                                }
+                            },
+                        );
                         width = (width - (text_width + 6)).max(0);
                         original_x += text_width + 6;
                     }
@@ -115,6 +122,7 @@ impl GameWindow {
                         BORDER_LINE_SIZE,
                         HALF_SIZE,
                         BORDER_CORNER_SIZE,
+                        draw_context,
                     );
                     found = true;
                 }
@@ -141,6 +149,7 @@ impl GameWindow {
                         BORDER_LINE_SIZE,
                         HALF_SIZE,
                         BORDER_CORNER_SIZE,
+                        draw_context,
                     );
                     found = true;
                 }
@@ -156,6 +165,7 @@ impl GameWindow {
                         BORDER_LINE_SIZE,
                         HALF_SIZE,
                         BORDER_CORNER_SIZE,
+                        draw_context,
                     );
                     found = true;
                 }
@@ -179,8 +189,9 @@ impl GameWindow {
         line_size: i32,
         half_size: i32,
         corner_size: i32,
+        draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
     ) {
-        let pieces = border_pieces().clone();
+        let pieces = border_pieces(draw_context).clone();
         // Huge/garbage window sizes used to tile tens of millions of border
         // pieces and SIGKILL the process during InGame HUD draw.
         let width = clamp_border_span(width);
@@ -188,13 +199,15 @@ impl GameWindow {
         let max_x = x + width;
         let max_y = y + height;
 
-        with_window_manager_ref(|manager| {
+        crate::gui::window_draw_context::with_draw_manager(draw_context.manager, |manager| {
             let mut batches: Vec<(Image, Vec<(i32, i32, i32, i32)>)> = Vec::new();
             let mut draw_piece = |piece: &Option<Image>, x1: i32, y1: i32, x2: i32, y2: i32| {
                 let Some(image) = piece else {
                     return;
                 };
-                if let Some((_, rects)) = batches.iter_mut().find(|(existing, _)| existing.name == image.name)
+                if let Some((_, rects)) = batches
+                    .iter_mut()
+                    .find(|(existing, _)| existing.name == image.name)
                 {
                     rects.push((x1, y1, x2, y2));
                 } else {
@@ -352,7 +365,7 @@ impl GameWindow {
                 max_y - 5 + line_size,
             );
             for (image, rects) in batches {
-                manager.win_draw_image_batch(&image, &rects);
+                manager.win_draw_image_batch(&image, &rects, draw_context);
             }
         });
     }

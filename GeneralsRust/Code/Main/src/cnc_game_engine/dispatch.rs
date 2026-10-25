@@ -58,6 +58,12 @@ impl CnCGameEngine {
         message: &game_engine::common::message_stream::GameMessage,
     ) {
         let forwarded = stream.append_message(message.get_type().clone());
+        if let Some(descriptor) = message.shell_map_launch() {
+            forwarded.set_shell_map_launch(descriptor.clone());
+        }
+        if let Some(descriptor) = message.campaign_launch() {
+            forwarded.set_campaign_launch(descriptor.clone());
+        }
         for arg in message.get_arguments() {
             Self::append_message_argument_to_common_stream(forwarded, &arg.data);
         }
@@ -231,9 +237,25 @@ impl CnCGameEngine {
     /// Host start still consumes the payload; `propagate_messages` can deliver
     /// the same message to crate GameLogic (C++ `logicMessageDispatcher`).
     pub(super) fn take_pending_new_game_start_request(&mut self) -> Option<HostStartRequest> {
+        if self
+            .game_client
+            .message_stream()
+            .get_messages()
+            .iter()
+            .any(|message| message.shell_map_launch().is_some())
+        {
+            // Preserve all source commands when an owned Shell launch is queued;
+            // a later match start must not overtake its preceding clear.
+            return None;
+        }
         let mut last_any = None;
         let mut last_match = None;
         for message in self.game_client.message_stream().get_messages().iter() {
+            if message.shell_map_launch().is_some() {
+                // Source Shell commands must reach the ordered native command cursor;
+                // peeking NewGame here would skip an earlier ClearGameData.
+                continue;
+            }
             if let Some(dispatch) = Self::startup_new_game_dispatch_from_message(message) {
                 last_any = Some((dispatch, message.clone()));
                 if !matches!(dispatch.game_mode, GameMode::Shell) {
@@ -321,7 +343,9 @@ impl CnCGameEngine {
         let mut kept = Vec::with_capacity(messages.len());
         for message in messages {
             match Self::startup_new_game_dispatch_from_message(&message) {
-                Some(d) if matches!(d.game_mode, GameMode::Shell) => {}
+                Some(d)
+                    if matches!(d.game_mode, GameMode::Shell)
+                        && message.shell_map_launch().is_none() => {}
                 _ => kept.push(message),
             }
         }
@@ -538,6 +562,25 @@ impl CnCGameEngine {
     }
 
     /// Resolve map/faction/skirmish config after a NewGame dispatch (or helper flag).
+    pub(super) fn source_shell_map_start_request(
+        &self,
+        dispatch: StartupNewGameDispatch,
+        descriptor: &game_engine::common::message_stream::ClientShellMapLaunch,
+    ) -> Result<HostStartRequest, String> {
+        if dispatch.game_mode != GameMode::Shell || descriptor.map.trim().is_empty() {
+            return Err("Shell NewGame requires its nonempty owned map descriptor".into());
+        }
+        let mut request = HostStartRequest::without_player_template(
+            GameMode::Shell,
+            "USA".to_string(),
+            descriptor.map.clone(),
+            None,
+        );
+        request.recorder_dispatch = Some(dispatch);
+        request.difficulty_code = Some(dispatch.difficulty_code);
+        Ok(request)
+    }
+
     pub(super) fn build_start_request_from_pending_globals(
         &mut self,
         dispatch: Option<StartupNewGameDispatch>,

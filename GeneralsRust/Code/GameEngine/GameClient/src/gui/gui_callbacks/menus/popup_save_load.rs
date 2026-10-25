@@ -11,8 +11,12 @@ pub fn SaveLoadMenuInit(layout: &WindowLayout, user_data: Option<&dyn std::any::
     save_load_menu_init(layout, user_data);
 }
 
-pub fn SaveLoadMenuFullScreenInit(layout: &WindowLayout, user_data: Option<&dyn std::any::Any>) {
-    save_load_menu_full_screen_init(layout, user_data);
+pub fn SaveLoadMenuFullScreenInit(
+    layout: &WindowLayout,
+    user_data: Option<&dyn std::any::Any>,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) {
+    save_load_menu_full_screen_init(layout, user_data, effects);
 }
 
 pub fn SaveLoadMenuUpdate(layout: &WindowLayout, user_data: Option<&dyn std::any::Any>) {

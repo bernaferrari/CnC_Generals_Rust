@@ -26,6 +26,7 @@ mod physical_retirement;
 pub(crate) mod radar_live;
 mod radar_provider_owner;
 mod ready_completions;
+pub(in crate::game_logic) use ready_completions::allocate_live_object_id;
 mod resources_income;
 mod selection_owner;
 mod spawn_templates;

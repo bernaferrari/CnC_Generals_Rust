@@ -382,16 +382,9 @@ impl PresentationFrame {
         // renderer input here, including GlobalData tint/levels, so WGPU never
         // reads live FOW or GlobalData while drawing.
         let projected_shroud = {
-            // `Enable/DisableBorderShroud` can override the constructor's
-            // `ShroudAlpha` border.  Read the script-display handoff only
-            // while building the frame; the resulting R8 padding is immutable
-            // to renderer code.  Headless/no-GameClient builds retain the
-            // source constructor default through `None`.
-            #[cfg(feature = "game_client")]
-            let border_alpha_override =
-                game_client::core::script_action_handler::script_display_border_shroud_level();
-            #[cfg(not(feature = "game_client"))]
-            let border_alpha_override = None;
+            // Freeze this session's script override beside its own FOW grid.
+            // No published display or peer session supplies presentation state.
+            let border_alpha_override = logic.session_view.border_shroud_level;
             let global = game_engine::common::global_data::read();
             ProjectedShroudSnapshot::from_grid(
                 &fow_grid,
@@ -1689,13 +1682,8 @@ impl PresentationFrame {
             ));
         }
 
-        #[cfg(feature = "game_client")]
-        let scene_lines: Vec<PresentationSceneLine> =
-            game_client::render_bridge::snapshot_visible_scene_lines()
-                .into_iter()
-                .map(PresentationSceneLine::from)
-                .collect();
-        #[cfg(not(feature = "game_client"))]
+        // Logic-only builders have no presentation owner. Native publication
+        // appends its receiving client's completed renderer lines explicitly.
         let scene_lines: Vec<PresentationSceneLine> = Vec::new();
 
         let camera_fade = camera_fade.sample();
@@ -1960,6 +1948,8 @@ impl PresentationFrame {
             native_ghost_scale_sources,
             #[cfg(feature = "game_client")]
             w3d_ghost_scene,
+            #[cfg(feature = "game_client")]
+            dynamic_lights: Vec::new(),
             total_play_time_seconds: logic.get_total_play_time(),
             ai_difficulty: logic.get_difficulty(),
             game_mode: logic.game_mode(),

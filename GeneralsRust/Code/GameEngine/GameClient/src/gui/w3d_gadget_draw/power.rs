@@ -1,6 +1,10 @@
 use super::*;
 
-pub fn w3d_power_draw_a(window: &GameWindow, _inst_data: &WindowInstanceData) {
+pub fn w3d_power_draw_a(
+    window: &GameWindow,
+    _inst_data: &WindowInstanceData,
+    draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
+) {
     // C++ W3DPowerDrawA (W3DControlBar.cpp:261-440) has no fallback painter:
     // every missing-input branch simply returns and paints nothing.
     let Some(global) = get_global_data() else {
@@ -44,14 +48,15 @@ pub fn w3d_power_draw_a(window: &GameWindow, _inst_data: &WindowInstanceData) {
             ("PowerBarGreenEndR", "PowerBarGreenEndL", "PowerBarGreen")
         };
 
-    let (end_bar, begin_bar, center_bar, slider) = with_window_manager_ref(|manager| {
-        (
-            manager.win_find_image(end_bar),
-            manager.win_find_image(begin_bar),
-            manager.win_find_image(center_bar),
-            manager.win_find_image("PowerBarSlider"),
-        )
-    });
+    let (end_bar, begin_bar, center_bar, slider) =
+        crate::gui::window_draw_context::with_draw_manager(draw_context.manager, |manager| {
+            (
+                manager.win_find_image(end_bar),
+                manager.win_find_image(begin_bar),
+                manager.win_find_image(center_bar),
+                manager.win_find_image("PowerBarSlider"),
+            )
+        });
     let (Some(end_bar), Some(begin_bar), Some(center_bar), Some(slider)) =
         (end_bar, begin_bar, center_bar, slider)
     else {
@@ -81,7 +86,7 @@ pub fn w3d_power_draw_a(window: &GameWindow, _inst_data: &WindowInstanceData) {
     let right_start_x = pos_x + range - end_w;
 
     if right_start_x <= left_end_x {
-        with_window_manager_ref(|manager| {
+        crate::gui::window_draw_context::with_draw_manager(draw_context.manager, |manager| {
             manager.win_draw_image(
                 &begin_bar,
                 pos_x,
@@ -89,6 +94,7 @@ pub fn w3d_power_draw_a(window: &GameWindow, _inst_data: &WindowInstanceData) {
                 pos_x + range / 2,
                 pos_y + size_y,
                 WIN_COLOR_UNDEFINED,
+                draw_context,
             );
             manager.win_draw_image(
                 &end_bar,
@@ -97,6 +103,7 @@ pub fn w3d_power_draw_a(window: &GameWindow, _inst_data: &WindowInstanceData) {
                 pos_x + range,
                 pos_y + size_y,
                 WIN_COLOR_UNDEFINED,
+                draw_context,
             );
         });
     } else {
@@ -105,7 +112,7 @@ pub fn w3d_power_draw_a(window: &GameWindow, _inst_data: &WindowInstanceData) {
         let pieces = center_width / center_w;
         let mut x = left_end_x;
         for _ in 0..pieces {
-            with_window_manager_ref(|manager| {
+            crate::gui::window_draw_context::with_draw_manager(draw_context.manager, |manager| {
                 manager.win_draw_image(
                     &center_bar,
                     x,
@@ -113,6 +120,7 @@ pub fn w3d_power_draw_a(window: &GameWindow, _inst_data: &WindowInstanceData) {
                     x + center_w,
                     pos_y + size_y,
                     WIN_COLOR_UNDEFINED,
+                    draw_context,
                 );
             });
             x += center_w;
@@ -120,7 +128,7 @@ pub fn w3d_power_draw_a(window: &GameWindow, _inst_data: &WindowInstanceData) {
 
         let remaining = right_start_x - x;
         if remaining > 0 {
-            with_window_manager_ref(|manager| {
+            crate::gui::window_draw_context::with_draw_manager(draw_context.manager, |manager| {
                 manager.win_draw_image(
                     &center_bar,
                     x,
@@ -128,11 +136,12 @@ pub fn w3d_power_draw_a(window: &GameWindow, _inst_data: &WindowInstanceData) {
                     x + center_w,
                     pos_y + size_y,
                     WIN_COLOR_UNDEFINED,
+                    draw_context,
                 );
             });
         }
 
-        with_window_manager_ref(|manager| {
+        crate::gui::window_draw_context::with_draw_manager(draw_context.manager, |manager| {
             manager.win_draw_image(
                 &begin_bar,
                 pos_x,
@@ -140,10 +149,11 @@ pub fn w3d_power_draw_a(window: &GameWindow, _inst_data: &WindowInstanceData) {
                 left_end_x,
                 pos_y + size_y,
                 WIN_COLOR_UNDEFINED,
+                draw_context,
             );
         });
 
-        with_window_manager_ref(|manager| {
+        crate::gui::window_draw_context::with_draw_manager(draw_context.manager, |manager| {
             manager.win_draw_image(
                 &end_bar,
                 right_start_x,
@@ -151,6 +161,7 @@ pub fn w3d_power_draw_a(window: &GameWindow, _inst_data: &WindowInstanceData) {
                 right_start_x + end_w,
                 pos_y + size_y,
                 WIN_COLOR_UNDEFINED,
+                draw_context,
             );
         });
     }
@@ -175,7 +186,7 @@ pub fn w3d_power_draw_a(window: &GameWindow, _inst_data: &WindowInstanceData) {
         slider_start = pos_x;
     }
 
-    with_window_manager_ref(|manager| {
+    crate::gui::window_draw_context::with_draw_manager(draw_context.manager, |manager| {
         manager.win_draw_image(
             &slider,
             slider_start,
@@ -183,11 +194,16 @@ pub fn w3d_power_draw_a(window: &GameWindow, _inst_data: &WindowInstanceData) {
             slider_start + slider_w,
             pos_y + size_y,
             WIN_COLOR_UNDEFINED,
+            draw_context,
         );
     });
 }
 
-pub fn w3d_power_draw(window: &GameWindow, _inst_data: &WindowInstanceData) {
+pub fn w3d_power_draw(
+    window: &GameWindow,
+    _inst_data: &WindowInstanceData,
+    draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
+) {
     // C++ W3DPowerDraw (W3DControlBar.cpp:94-259) has no fallback painter:
     // missing inputs (no player/energy/images) return and paint nothing.
     let Some(global) = get_global_data() else {
@@ -230,12 +246,13 @@ pub fn w3d_power_draw(window: &GameWindow, _inst_data: &WindowInstanceData) {
         "PowerPointG"
     };
 
-    let (center_bar, slider) = with_window_manager_ref(|manager| {
-        (
-            manager.win_find_image(center_name),
-            manager.win_find_image("PowerBarSlider"),
-        )
-    });
+    let (center_bar, slider) =
+        crate::gui::window_draw_context::with_draw_manager(draw_context.manager, |manager| {
+            (
+                manager.win_find_image(center_name),
+                manager.win_find_image("PowerBarSlider"),
+            )
+        });
     let (Some(center_bar), Some(slider)) = (center_bar, slider) else {
         // C++ W3DControlBar.cpp:155-156 — `if(!slider || !centerBar) return;`
         // — missing bar art paints nothing (no fallback meter).
@@ -253,7 +270,7 @@ pub fn w3d_power_draw(window: &GameWindow, _inst_data: &WindowInstanceData) {
         (log_n(prod_for_log, power_bar_base) * (width as f32 / power_bar_intervals)).round() as i32;
     power_range = power_range.clamp(0, width);
     if power_range > 0 {
-        draw_tiled_horiz(&center_bar, x, y, power_range, height);
+        draw_tiled_horiz(&center_bar, x, y, power_range, height, draw_context);
     }
 
     let consumption_for_needle = if consumption == 1 {
@@ -293,7 +310,7 @@ pub fn w3d_power_draw(window: &GameWindow, _inst_data: &WindowInstanceData) {
     } else {
         slider_start = slider_start.max(x).min(x + width - slider_w);
     }
-    with_window_manager_ref(|manager| {
+    crate::gui::window_draw_context::with_draw_manager(draw_context.manager, |manager| {
         manager.win_draw_image(
             &slider,
             slider_start,
@@ -301,6 +318,7 @@ pub fn w3d_power_draw(window: &GameWindow, _inst_data: &WindowInstanceData) {
             slider_start + slider_w,
             y + height,
             WIN_COLOR_UNDEFINED,
+            draw_context,
         );
     });
 }
@@ -311,14 +329,16 @@ pub(super) fn draw_vertical_meter(
     bottom_name: &str,
     center_name: &str,
     filled_height: i32,
+    draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
 ) {
-    let (top, bottom, center) = with_window_manager_ref(|manager| {
-        (
-            manager.win_find_image(top_name),
-            manager.win_find_image(bottom_name),
-            manager.win_find_image(center_name),
-        )
-    });
+    let (top, bottom, center) =
+        crate::gui::window_draw_context::with_draw_manager(draw_context.manager, |manager| {
+            (
+                manager.win_find_image(top_name),
+                manager.win_find_image(bottom_name),
+                manager.win_find_image(center_name),
+            )
+        });
     let (Some(top), Some(bottom), Some(center)) = (top, bottom, center) else {
         // C++ W3DCommandBarGenExpDraw (W3DControlBar.cpp:494-495) returns when
         // the meter images are missing — no fallback track is painted.
@@ -341,7 +361,7 @@ pub(super) fn draw_vertical_meter(
     let fill_top = y + height - fill;
 
     let bottom_start = y + height - bottom_h;
-    with_window_manager_ref(|manager| {
+    crate::gui::window_draw_context::with_draw_manager(draw_context.manager, |manager| {
         manager.win_draw_image(
             &bottom,
             x,
@@ -349,11 +369,12 @@ pub(super) fn draw_vertical_meter(
             x + width,
             y + height,
             WIN_COLOR_UNDEFINED,
+            draw_context,
         );
     });
 
     let top_start = (fill_top - top_h).max(y);
-    with_window_manager_ref(|manager| {
+    crate::gui::window_draw_context::with_draw_manager(draw_context.manager, |manager| {
         manager.win_draw_image(
             &top,
             x,
@@ -361,13 +382,21 @@ pub(super) fn draw_vertical_meter(
             x + width,
             top_start + top_h,
             WIN_COLOR_UNDEFINED,
+            draw_context,
         );
     });
 
     let center_start = top_start + top_h;
     let center_end = bottom_start;
     if center_end > center_start {
-        draw_tiled_vert(&center, x, center_start, width, center_end - center_start);
+        draw_tiled_vert(
+            &center,
+            x,
+            center_start,
+            width,
+            center_end - center_start,
+            draw_context,
+        );
     }
     note_shipped_ui_draw_commands(1);
 }

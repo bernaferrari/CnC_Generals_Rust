@@ -3,7 +3,6 @@
 use crate::display::image::{
     ensure_client_mapped_image, get_mapped_image_collection as get_client_images,
 };
-use crate::gui::ui_globals::with_ui_renderer;
 use crate::gui::ui_renderer::UIRect;
 use game_engine::common::ascii_string::AsciiString;
 use game_engine::common::ini::ini::INILoadType;
@@ -163,7 +162,7 @@ impl Anim2D {
             .unwrap_or(0)
     }
 
-    pub fn draw(&mut self, x: i32, y: i32) {
+    pub fn draw(&mut self, x: i32, y: i32, renderer: &mut crate::gui::UIRenderer) {
         let Some(name) = self.resolve_frame_image_name() else {
             return;
         };
@@ -174,16 +173,23 @@ impl Anim2D {
             let width = image.get_image_width();
             let height = image.get_image_height();
             drop(collection);
-            self.draw_internal(&name, x, y, x + width, y + height);
+            self.draw_internal(&name, x, y, x + width, y + height, renderer);
         }
     }
 
-    pub fn draw_sized(&mut self, x: i32, y: i32, width: i32, height: i32) {
+    pub fn draw_sized(
+        &mut self,
+        x: i32,
+        y: i32,
+        width: i32,
+        height: i32,
+        renderer: &mut crate::gui::UIRenderer,
+    ) {
         let Some(name) = self.resolve_frame_image_name() else {
             return;
         };
         self.ensure_client_image(&name);
-        self.draw_internal(&name, x, y, x + width, y + height);
+        self.draw_internal(&name, x, y, x + width, y + height, renderer);
     }
 
     fn draw_internal(
@@ -193,6 +199,7 @@ impl Anim2D {
         start_y: i32,
         end_x: i32,
         end_y: i32,
+        renderer: &mut crate::gui::UIRenderer,
     ) {
         let color = argb_to_rgba_u8(0xFFFFFFFF, self.alpha);
 
@@ -203,8 +210,7 @@ impl Anim2D {
             (end_y - start_y) as f32,
         );
 
-        let _ = with_ui_renderer(|renderer| {
-            let mut renderer = renderer.write().ok()?;
+        let _ = (|| {
             let client_images = get_client_images();
             let mut collection = client_images.write();
             let image = collection.find_image_by_name_mut(image_name)?;
@@ -221,7 +227,7 @@ impl Anim2D {
                 0.0,
             );
             Some(())
-        });
+        })();
 
         if self.collection_system.is_none() && !self.status.contains(Anim2DStatus::FROZEN) {
             self.try_next_frame();

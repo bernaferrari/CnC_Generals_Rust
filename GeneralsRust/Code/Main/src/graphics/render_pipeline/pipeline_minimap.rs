@@ -95,6 +95,8 @@ impl RenderPipeline {
         fog_range: Option<(f32, f32)>,
     ) {
         let lighting = CachedLighting {
+            #[cfg(feature = "game_client")]
+            dynamic_lights: Vec::new(),
             sun_direction,
             sun_color,
             ambient_color,

@@ -588,6 +588,22 @@ impl RenderBridge {
         self.camera = Some(frame_camera);
     }
 
+    /// Clear only this renderer's retired world after its Drawables are gone.
+    /// Asset definitions/search paths and monotonically increasing capture
+    /// identities survive, so a saved/late receipt cannot alias a new world.
+    pub fn reset_world_after_drawable_retirement(&mut self) {
+        self.pending.clear();
+        self.pending_projectile_streams.clear();
+        self.scene_lines.clear();
+        self.scene.clear();
+        self.last_frame_objects.clear();
+        self.last_flushed_capture_submissions.clear();
+        self.ghost_snapshots.clear();
+        self.ghost_hidden_parents.clear();
+        self.ghost_scene_revision = self.ghost_scene_revision.wrapping_add(1).max(1);
+        self.stats = RenderBridgeStats::default();
+    }
+
     pub fn submit(&mut self, submission: DrawSubmission) {
         self.pending.push(submission);
     }
@@ -1262,6 +1278,25 @@ pub struct FrozenSceneLine {
     pub texture_name: String,
     pub tile_factor: f32,
     pub scroll_rate: f32,
+}
+
+impl RenderBridge {
+    /// Freeze this receiving renderer's visible lines at the presentation boundary.
+    pub fn snapshot_visible_scene_lines(&self) -> Vec<FrozenSceneLine> {
+        self.visible_scene_lines()
+            .into_iter()
+            .map(|(id, entry)| FrozenSceneLine {
+                id,
+                start: [entry.start.x, entry.start.y, entry.start.z],
+                end: [entry.end.x, entry.end.y, entry.end.z],
+                width: entry.width,
+                color: entry.color,
+                scroll_rate: entry.scroll_rate,
+                texture_name: entry.texture_name.clone(),
+                tile_factor: entry.tile_factor,
+            })
+            .collect()
+    }
 }
 
 /// Snapshot visible lines from the global RenderBridge (empty if not initialized).

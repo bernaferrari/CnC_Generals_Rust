@@ -44,9 +44,15 @@ impl SubsystemManager {
         }
     }
 
-    fn reset_all(&mut self) -> GameClientResult<()> {
+    fn reset_all(
+        &mut self,
+        fx: &mut crate::display::display_fx::DisplayFxState,
+    ) -> GameClientResult<()> {
         if let Some(ref display) = self.display {
-            display.lock().unwrap_or_else(|e| e.into_inner()).reset()?;
+            display
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .reset_receiving(fx)?;
         }
 
         if let Some(ref audio) = self.audio {

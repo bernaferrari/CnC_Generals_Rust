@@ -71,40 +71,7 @@ impl GameClient {
         &self,
         view: &NativeDrawView,
     ) -> GameClientResult<Vec<DrawableId>> {
-        view.validate()?;
-        let mut selected = Vec::new();
-        for &id in &self.drawables.native_drawable_order {
-            let drawable = self.drawables.drawable_map.get(&id).ok_or_else(|| {
-                GameClientError::InvalidOperation("native view roster receiver absent".into())
-            })?;
-            let position = drawable.get_position();
-            let point = if let Some(binding) = self
-                .drawables
-                .presentation_direct_drawable_bindings
-                .get(&id)
-            {
-                let key = binding.binding_key;
-                if key.drawable_id != id
-                    || self
-                        .presentation_direct_drawable_state(key.host_epoch, key.object_id)
-                        .is_none_or(|state| state.binding_key != key)
-                    || !drawable.as_any().is::<BasicDrawable>()
-                {
-                    return Err(GameClientError::InvalidOperation(
-                        "stale native view binding".into(),
-                    ));
-                }
-                // Main stores raw host positions Y-up. Instance matrices,
-                // float pose, scale and recoil are not getPosition().
-                [position.x, position.z, position.y]
-            } else {
-                [position.x, position.y, position.z]
-            };
-            if view.region.contains(point) {
-                selected.push(id);
-            }
-        }
-        Ok(selected)
+        self.drawables.native_roster_for_view(view)
     }
 }
 

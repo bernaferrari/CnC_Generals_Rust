@@ -262,6 +262,8 @@ pub(super) fn world_sphere_in_expanded_frustum(
 
 #[derive(Debug, Clone, Default)]
 pub struct CachedLighting {
+    #[cfg(feature = "game_client")]
+    pub dynamic_lights: Vec<game_client::fx_list::DisplayDynamicLight>,
     pub sun_direction: Option<[f32; 3]>,
     pub sun_color: Option<[f32; 3]>,
     pub ambient_color: Option<[f32; 3]>,
@@ -897,7 +899,9 @@ pub struct ForwardPass {
     /// renderer with the ForwardPass avoids GameClient::Display creating or
     /// presenting a second surface.
     #[cfg(feature = "game_client")]
-    particle_renderer: Option<Arc<Mutex<game_client::effects::ParticleRenderer>>>,
+    particle_renderer: Option<game_client::effects::ParticleRenderer>,
+    #[cfg(feature = "game_client")]
+    pending_client_effects: std::collections::VecDeque<NativeClientEffectFrame>,
 }
 
 pub(super) enum RenderModelLoadResult {
@@ -970,3 +974,10 @@ mod animation_sync;
 
 #[cfg(all(test, feature = "game_client"))]
 mod native_draw_receiver_tests;
+
+#[cfg(feature = "game_client")]
+struct NativeClientEffectFrame {
+    uniforms: game_client::effects::particle_renderer::ParticleUniforms,
+    radius_items: Vec<game_client::effects::decals::DecalRenderItem>,
+    particles: Option<game_client::effects::particle_renderer::ParticleRenderFrame>,
+}

@@ -153,7 +153,12 @@ impl GameLogic {
     }
 
     /// C++ ActiveBody::setAflame → updateBodyParticleSystems (AFLAME prefix).
-    pub(crate) fn spawn_auto_aflame_particles(&mut self, object_id: ObjectId, pos: Vec3) {
+    pub(crate) fn spawn_auto_aflame_particles(
+        &mut self,
+        object_id: ObjectId,
+        pos: Vec3,
+        particle_owner: &mut dyn crate::game_logic::combat_particles::ParticleBindingAccess,
+    ) {
         let (ordinal, model, scale, yaw) = {
             let Some(obj) = self.objects.get(&object_id) else {
                 return;
@@ -173,12 +178,23 @@ impl GameLogic {
             yaw,
             self.host_fx_object_is_shrouded(object_id.0),
         );
-        self.combat_particles
-            .replace_body_auto_particles(object_id, pos, self.frame, ordinal, true, pose);
+        self.combat_particles.replace_body_auto_particles(
+            object_id,
+            pos,
+            self.frame,
+            ordinal,
+            true,
+            pose,
+            particle_owner,
+        );
     }
 
     /// C++ `recalcBonesForClientParticleSystems` on create.
-    pub(crate) fn spawn_particle_sys_bones_for_object(&mut self, object_id: ObjectId) {
+    pub(crate) fn spawn_particle_sys_bones_for_object(
+        &mut self,
+        object_id: ObjectId,
+        particle_owner: &mut dyn crate::game_logic::combat_particles::ParticleBindingAccess,
+    ) {
         let Some(obj) = self.objects.get(&object_id) else {
             return;
         };
@@ -200,12 +216,21 @@ impl GameLogic {
             yaw,
             self.host_fx_object_is_shrouded(object_id.0),
         );
-        self.combat_particles
-            .sync_particle_sys_bones(frame, object_id, pos, &bones, pose);
+        self.combat_particles.sync_particle_sys_bones(
+            frame,
+            object_id,
+            pos,
+            &bones,
+            pose,
+            particle_owner,
+        );
     }
 
     /// Keep ParticleSysBone and damaged-body fire/smoke attached to live objects.
-    pub(crate) fn sync_live_state_particles(&mut self) {
+    pub(crate) fn sync_live_state_particles(
+        &mut self,
+        particle_owner: &mut dyn crate::game_logic::combat_particles::ParticleBindingAccess,
+    ) {
         let frame = self.frame;
         let snapshots: Vec<_> = self
             .objects
@@ -242,16 +267,36 @@ impl GameLogic {
                 yaw,
                 self.host_fx_object_is_shrouded(id.0),
             );
-            self.combat_particles
-                .sync_particle_sys_bones(frame, id, pos, &bones, pose);
+            self.combat_particles.sync_particle_sys_bones(
+                frame,
+                id,
+                pos,
+                &bones,
+                pose,
+                particle_owner,
+            );
             let wants_body = ordinal > 0 || aflame;
             let has_body = self.combat_particles.has_body_particles(id);
             if wants_body && !has_body {
-                self.combat_particles
-                    .replace_body_auto_particles(id, pos, frame, ordinal, aflame, pose);
+                self.combat_particles.replace_body_auto_particles(
+                    id,
+                    pos,
+                    frame,
+                    ordinal,
+                    aflame,
+                    pose,
+                    particle_owner,
+                );
             } else if !wants_body && has_body {
-                self.combat_particles
-                    .replace_body_auto_particles(id, pos, frame, 0, false, pose);
+                self.combat_particles.replace_body_auto_particles(
+                    id,
+                    pos,
+                    frame,
+                    0,
+                    false,
+                    pose,
+                    particle_owner,
+                );
             }
             self.combat_particles
                 .follow_attached_body_particles(id, pos, yaw);

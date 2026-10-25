@@ -160,6 +160,9 @@ impl ControlBar {
             Some(window_manager_owner),
             emitted_messages,
         );
+        crate::gui::w3d_gadget_draw::ensure_control_bar_wnd_draw_callbacks_for_owner(
+            window_manager_owner,
+        );
         self.update_body(delta_time, false, roster, upgrade_source)?;
         if self.observer_mode {
             if let Some(roster) = roster {
@@ -176,7 +179,9 @@ impl ControlBar {
         upgrade_source: crate::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource<'_>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         crate::gui::w3d_gadget_draw::ensure_scheme_draw_registered();
-        crate::gui::w3d_gadget_draw::ensure_control_bar_wnd_draw_callbacks();
+        if publish_standalone {
+            crate::gui::w3d_gadget_draw::ensure_control_bar_wnd_draw_callbacks();
+        }
         super::control_bar_observer::init_observer_controls();
         super::control_bar_observer::ensure_gen_arrow_from_mapped_images();
 

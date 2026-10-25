@@ -75,57 +75,14 @@ impl LaserExecution for ClientLaserPhase<'_, '_> {
 }
 
 impl GameClient {
-    /// Actual authored template factory, no synthetic Drawable on failure.
+    /// Actual authored template factory through the same receiving Drawable arena.
     pub fn create_owned_ray(
         &mut self,
         template: &ThingTemplate,
         start: gamelogic::common::Coord3D,
         end: gamelogic::common::Coord3D,
     ) -> GameClientResult<DrawableId> {
-        let updates: Vec<_> = template
-            .get_client_update_module_info()
-            .iter()
-            .filter(|entry| entry.name.as_str() == "LaserUpdate")
-            .collect();
-        if updates.len() != 1 {
-            return Err(GameClientError::InvalidOperation(
-                "ray template requires exactly one authored LaserUpdate".into(),
-            ));
-        }
-        if template.get_client_update_module_info().iter().count() != 1 {
-            return Err(GameClientError::InvalidOperation(
-                "ray has additional unsupplied client-update callbacks".into(),
-            ));
-        }
-        let mut beam_count = 0;
-        for entry in template.get_draw_module_info().iter() {
-            if entry.name.as_str() != "W3DLaserDraw"
-                || !entry.data.as_any().is::<W3DLaserDrawModuleData>()
-            {
-                return Err(GameClientError::InvalidOperation(
-                    "ray has unsupported authored draw callback/data".into(),
-                ));
-            }
-            beam_count += 1;
-        }
-        if beam_count == 0 {
-            return Err(GameClientError::InvalidOperation(
-                "ray requires actual W3DLaserDraw".into(),
-            ));
-        }
-        let id = self.create_drawable_from_template(template)?;
-        self.drawables
-            .drawable_map
-            .get_mut(&id)
-            .ok_or(GameClientError::DrawableNotFound(id))?
-            .set_position(crate::drawable::Vector3::new(
-                (start.x + end.x) * 0.5,
-                (start.y + end.y) * 0.5,
-                (start.z + end.z) * 0.5,
-            ));
-        // C++ addRayEffect does not destroy a successfully created Drawable on capacity exhaustion.
-        self.drawables.ray_effects.add(id, start, end);
-        Ok(id)
+        self.drawables.create_owned_ray(template, start, end)
     }
 
     fn with_owned_laser<T>(
@@ -459,5 +416,183 @@ impl GameClient {
         }
         self.drawables.ray_effects.reset();
         Ok(())
+    }
+}
+
+impl drawable_world::DrawableState {
+    /// Actual authored template factory, no synthetic Drawable on failure.
+    pub fn create_owned_ray(
+        &mut self,
+        template: &ThingTemplate,
+        start: gamelogic::common::Coord3D,
+        end: gamelogic::common::Coord3D,
+    ) -> GameClientResult<DrawableId> {
+        let updates: Vec<_> = template
+            .get_client_update_module_info()
+            .iter()
+            .filter(|entry| entry.name.as_str() == "LaserUpdate")
+            .collect();
+        if updates.len() != 1 {
+            return Err(GameClientError::InvalidOperation(
+                "ray template requires exactly one authored LaserUpdate".into(),
+            ));
+        }
+        if template.get_client_update_module_info().iter().count() != 1 {
+            return Err(GameClientError::InvalidOperation(
+                "ray has additional unsupplied client-update callbacks".into(),
+            ));
+        }
+        let mut beam_count = 0;
+        for entry in template.get_draw_module_info().iter() {
+            if entry.name.as_str() != "W3DLaserDraw"
+                || !entry.data.as_any().is::<W3DLaserDrawModuleData>()
+            {
+                return Err(GameClientError::InvalidOperation(
+                    "ray has unsupported authored draw callback/data".into(),
+                ));
+            }
+            beam_count += 1;
+        }
+        if beam_count == 0 {
+            return Err(GameClientError::InvalidOperation(
+                "ray requires actual W3DLaserDraw".into(),
+            ));
+        }
+        let id = self.create_drawable_from_template(template)?;
+        self.drawable_map
+            .get_mut(&id)
+            .ok_or(GameClientError::DrawableNotFound(id))?
+            .set_position(crate::drawable::Vector3::new(
+                (start.x + end.x) * 0.5,
+                (start.y + end.y) * 0.5,
+                (start.z + end.z) * 0.5,
+            ));
+        // C++ addRayEffect does not destroy a successfully created Drawable on capacity exhaustion.
+        self.ray_effects.add(id, start, end);
+        Ok(id)
+    }
+
+    /// Objectless FX use the same actual module factory and canonical client IDs.
+    /// No simulation Object, active registry, or second visual store is created.
+    fn create_drawable_from_template(
+        &mut self,
+        template: &ThingTemplate,
+    ) -> GameClientResult<DrawableId> {
+        let mut drawable = BasicDrawable::new(DrawableId::INVALID);
+        for module in GameClient::create_snapshot_modules_from_template(template)? {
+            drawable.add_draw_module(module);
+        }
+        drawable.set_template_name(Some(template.get_name().to_string()));
+        let lasers = GameClient::owned_laser_count(&mut drawable);
+        if lasers > 1 {
+            return Err(GameClientError::InvalidOperation(
+                "multiple actual LaserUpdate callbacks".into(),
+            ));
+        }
+        let id = self.alloc_drawable_id();
+        drawable.set_id(id);
+        GameClient::bind_owned_laser_module(&mut drawable, id);
+        self.admit_native_drawable(id, Box::new(drawable));
+        if lasers == 1 {
+            self.owned_laser_order.insert(0, id);
+        }
+        Ok(id)
+    }
+}
+impl NativeDrawableOwner<'_> {
+    pub fn create_owned_ray(
+        &mut self,
+        template: &ThingTemplate,
+        start: gamelogic::common::Coord3D,
+        end: gamelogic::common::Coord3D,
+    ) -> GameClientResult<DrawableId> {
+        self.drawables.create_owned_ray(template, start, end)
+    }
+    pub fn create_owned_tracer(
+        &mut self,
+        template: &ThingTemplate,
+        request: &crate::fx_list::FxTracerRequest<'_>,
+    ) -> GameClientResult<DrawableId> {
+        use gamelogic::object::draw::draw_module::{RGBColor, TracerDrawInterface};
+        use gamelogic::object::draw::{W3DTracerDraw, W3DTracerDrawModuleData};
+        if template.get_client_update_module_info().iter().count() != 0
+            || template.get_draw_module_info().iter().count() == 0
+        {
+            return Err(GameClientError::InvalidOperation(
+                "native tracer requires actual tracer Draw modules without unsupplied CU callbacks"
+                    .into(),
+            ));
+        }
+        for entry in template.get_draw_module_info().iter() {
+            if entry.name.as_str() != "W3DTracerDraw"
+                || !entry.data.as_any().is::<W3DTracerDrawModuleData>()
+            {
+                return Err(GameClientError::InvalidOperation(
+                    "unsupported authored tracer draw callback/data".into(),
+                ));
+            }
+        }
+        let id = self.drawables.create_drawable_from_template(template)?;
+        let basic = self
+            .drawables
+            .drawable_map
+            .get_mut(&id)
+            .and_then(|draw| draw.as_any_mut().downcast_mut::<BasicDrawable>())
+            .expect("actual tracer factory installs BasicDrawable");
+        let start = glam::Vec3::new(request.primary.x, request.primary.y, request.primary.z);
+        let end = glam::Vec3::new(
+            request.secondary.x,
+            request.secondary.y,
+            request.secondary.z,
+        );
+        let direction = (end - start).normalize_or_zero();
+        let transform = crate::effects::tracer_fx::build_tracer_transform(
+            start.to_array(),
+            direction.to_array(),
+        );
+        basic.set_instance_transform(crate::drawable::Matrix4::from_glam(glam::Mat4::from_mat3(
+            glam::Mat3::from_mat4(transform),
+        )));
+        basic.set_position(crate::drawable::Vector3::new(start.x, start.y, start.z));
+        let expire =
+            request
+                .frame
+                .wrapping_add(crate::effects::tracer_fx::tracer_expiration_frames(
+                    (end - start).length() - request.length,
+                    request.speed,
+                    request.decay_at,
+                ));
+        basic.set_expiration_frame(expire);
+        let color = RGBColor::new(
+            (request.color[0] * 255.0).round().clamp(0.0, 255.0) as u8,
+            (request.color[1] * 255.0).round().clamp(0.0, 255.0) as u8,
+            (request.color[2] * 255.0).round().clamp(0.0, 255.0) as u8,
+        );
+        basic.configure_native_tracers(|module: &mut W3DTracerDraw| {
+            module.set_tracer_parms(request.speed, request.length, request.width, &color, 1.0);
+            module.set_expiration_date(expire);
+        });
+        Ok(id)
+    }
+}
+impl GameClient {
+    pub fn owned_tracer_geometry(
+        &mut self,
+        logic_frame: u32,
+    ) -> Vec<game_engine::common::system::SceneLineDesc> {
+        let mut lines = Vec::new();
+        for id in self.drawables.native_drawable_order.clone() {
+            if let Some(basic) = self
+                .drawables
+                .drawable_map
+                .get_mut(&id)
+                .and_then(|draw| draw.as_any_mut().downcast_mut::<BasicDrawable>())
+            {
+                if !basic.is_expired(logic_frame) {
+                    lines.extend(basic.draw_native_tracer_geometry(logic_frame));
+                }
+            }
+        }
+        lines
     }
 }
