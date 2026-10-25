@@ -9,7 +9,6 @@ use serde::{Deserialize, Serialize};
 use std::fs::{File, OpenOptions};
 use std::io::{BufWriter, Cursor, Read, Seek, Write};
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 #[path = "save_file/decoded.rs"]
@@ -307,39 +306,14 @@ fn apply_campaign_manager_state(state: game_engine::System::CampaignManagerXferS
     game_client::gui::campaign_manager::get_campaign_manager().apply_logic_chunk_state(state);
 }
 
-/// Stash CHUNK_Campaign until the staged restore commits. Applying during
-/// `read_common_sav_chunks` mutates live campaign globals before map/snapshot
-/// success — C++ `GameState::loadGame` only keeps campaign after the whole
-/// xfer succeeds, and failed loads call `clearGameData`.
-static PENDING_CAMPAIGN: Mutex<Option<game_engine::System::CampaignManagerXferState>> =
-    Mutex::new(None);
-
-fn stash_loaded_campaign_state(state: game_engine::System::CampaignManagerXferState) {
-    if let Ok(mut slot) = PENDING_CAMPAIGN.lock() {
-        *slot = Some(state);
-    }
-}
-
-pub(crate) fn take_stashed_campaign_state() -> Option<game_engine::System::CampaignManagerXferState>
-{
-    PENDING_CAMPAIGN
-        .lock()
-        .ok()
-        .and_then(|mut slot| slot.take())
-}
-
-pub(crate) fn discard_stashed_campaign_state() {
-    if let Ok(mut slot) = PENDING_CAMPAIGN.lock() {
-        *slot = None;
-    }
-}
-
 pub(crate) fn capture_live_campaign_state() -> game_engine::System::CampaignManagerXferState {
     game_client::gui::campaign_manager::get_campaign_manager().capture_logic_chunk_state()
 }
 
-pub(crate) fn commit_stashed_campaign_state() {
-    if let Some(state) = take_stashed_campaign_state() {
+/// Apply only the payload belonging to the admitted archive. Decoding another
+/// archive cannot replace or discard it.
+pub(crate) fn commit_campaign_state(state: Option<game_engine::System::CampaignManagerXferState>) {
+    if let Some(state) = state {
         apply_campaign_manager_state(state);
     }
 }
@@ -350,7 +324,6 @@ pub(crate) fn commit_stashed_campaign_state() {
 pub(crate) fn rollback_campaign_after_failed_load(
     prior: game_engine::System::CampaignManagerXferState,
 ) {
-    discard_stashed_campaign_state();
     apply_campaign_manager_state(prior);
 }
 
@@ -1098,7 +1071,7 @@ impl SaveFileManager {
         self.validate_logical_restore_admission()
             .map_err(SaveLoadError::Serialization)?;
         let prior_campaign = capture_live_campaign_state();
-        let decoded = match self.load_game_snapshot(filename) {
+        let mut decoded = match self.load_game_snapshot(filename) {
             Ok(decoded) => decoded,
             Err(error) => {
                 rollback_campaign_after_failed_load(prior_campaign);
@@ -1107,7 +1080,7 @@ impl SaveFileManager {
         };
         // Mission metadata launches a later mission-start operation, as before.
         if decoded.save_info.save_type == SaveFileType::Mission {
-            commit_stashed_campaign_state();
+            commit_campaign_state(decoded.campaign_state.take());
             return Ok((decoded.save_info, None));
         }
         match crate::cnc_game_engine::CnCGameEngine::restore_decoded_logical_save(
@@ -1115,10 +1088,7 @@ impl SaveFileManager {
         )
         .map_err(SaveLoadError::Serialization)
         {
-            Ok(restored) => {
-                commit_stashed_campaign_state();
-                Ok(restored)
-            }
+            Ok(restored) => Ok(restored),
             Err(error) => {
                 rollback_campaign_after_failed_load(prior_campaign);
                 Err(error)
@@ -1625,7 +1595,6 @@ impl SaveFileManager {
     }
 
     fn read_common_sav_chunks(data: &[u8], save_dir: &Path) -> SaveLoadResult<DecodedGameSave> {
-        discard_stashed_campaign_state();
         let blocks = walk_named_chunks(data)?;
         let mut save_info = SaveGameInfo {
             pristine_map_name: None,
@@ -1641,6 +1610,7 @@ impl SaveFileManager {
             difficulty: GameDifficulty::Medium,
             save_type: SaveFileType::Normal,
         };
+        let mut campaign_state = None;
         let mut logic_data: Option<Vec<u8>> = None;
         let mut game_client_xfer = None;
         let mut terrain_visual_xfer = None;
@@ -1669,7 +1639,7 @@ impl SaveFileManager {
                     if !state.campaign.is_empty() {
                         save_info.campaign_side = Some(state.campaign.clone());
                     }
-                    stash_loaded_campaign_state(state);
+                    campaign_state = Some(state);
                 }
             } else if token.eq_ignore_ascii_case(CHUNK_GHOST_OBJECT) {
                 let bytes = if payload.first().copied() == Some(1) {
@@ -1794,6 +1764,7 @@ impl SaveFileManager {
         );
         Ok(DecodedGameSave {
             snapshot: world_snapshot,
+            campaign_state,
             save_info,
             game_client_xfer,
             terrain_visual_xfer,

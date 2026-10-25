@@ -9,8 +9,6 @@
 
 use crate::assets::{W3DModel, get_asset_manager};
 use crate::command_line::CommandLineArgs;
-use crate::fow_rendering;
-use crate::game_logic::script_events::{self, ScriptEvent};
 use crate::game_logic::victory_conditions::AllianceState;
 use crate::game_logic::*;
 use crate::graphics::{

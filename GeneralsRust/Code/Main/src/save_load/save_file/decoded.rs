@@ -6,6 +6,9 @@ use crate::save_load::{SaveGameInfo, snapshot::WorldSnapshot};
 #[derive(Debug)]
 pub struct DecodedGameSave {
     pub snapshot: WorldSnapshot,
+    /// Detached CHUNK_Campaign payload; only this archive's successful admission
+    /// may apply it. Failed or interleaved decodes never publish pending state.
+    pub campaign_state: Option<game_engine::System::CampaignManagerXferState>,
     pub save_info: SaveGameInfo,
     /// Original GameStateMap v2 game-mode integer. Version 1 and omitted map
     /// chunks leave the receiving mode unchanged; unknown values retain the

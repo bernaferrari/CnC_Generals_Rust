@@ -148,6 +148,19 @@ impl GameLogic {
         // C++ VictoryConditions.cpp:196 p->killPlayer() on first defeat frame.
         let pending = self.victory_conditions.take_pending_kills();
         for player_id in pending {
+            // C++ VictoryConditions.cpp:172-196 reveals the defeated player's
+            // map before killPlayer callbacks. This is gameplay state owned by
+            // this session, independent of script loading or UI notification.
+            if self.frame > 1 {
+                self.partition_manager.reveal_map_for_player_permanently(
+                    &mut self
+                        .world_services
+                        .shroud()
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner()),
+                    player_id,
+                );
+            }
             self.kill_player_for_victory_with_effects(player_id, effects);
         }
         // Publish only after defeat callbacks complete. C++ GameLogic.cpp:3769

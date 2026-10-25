@@ -129,6 +129,7 @@ mod messages;
 mod modal;
 mod reentry;
 mod script_callbacks;
+mod script_message_window;
 mod types;
 mod wnd_parse;
 
@@ -167,6 +168,9 @@ pub(crate) fn as_any_ref(user_data: Option<&mut dyn std::any::Any>) -> Option<&d
 pub struct WindowManager {
     pub(crate) replay_menu:
         Option<Rc<RefCell<crate::gui::callbacks::replay_menu::ReplayMenuState>>>,
+    /// Non-owning C++ `ScriptActions::m_messageWindow` equivalent. The actual
+    /// target remains owned by this manager's window registry/layout.
+    script_message_window: Option<Weak<RefCell<GameWindow>>>,
     // Window lists
     root_windows: Vec<Rc<RefCell<GameWindow>>>,
     window_by_id: HashMap<WindowId, Weak<RefCell<GameWindow>>>,
@@ -246,6 +250,7 @@ impl WindowManager {
     pub fn new() -> Self {
         Self {
             replay_menu: None,
+            script_message_window: None,
             root_windows: Vec::new(),
             window_by_id: HashMap::new(),
             destroy_queue: VecDeque::new(),

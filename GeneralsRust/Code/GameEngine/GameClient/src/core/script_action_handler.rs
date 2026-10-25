@@ -29,25 +29,6 @@ thread_local! {
 
 static PENDING_BORDER_SHROUD_LEVEL: AtomicI32 = AtomicI32::new(-1);
 
-thread_local! {
-    /// C++ ScriptActions.cpp m_messageWindow — first window from winCreateFromScript.
-    static WIN_LOSE_MESSAGE_WINDOW: RefCell<Option<(String, crate::gui::WindowId)>> =
-        const { RefCell::new(None) };
-}
-
-fn destroy_tracked_win_lose_window() {
-    let tracked = WIN_LOSE_MESSAGE_WINDOW.with(|slot| slot.borrow_mut().take());
-    let Some((_layout, window_id)) = tracked else {
-        return;
-    };
-    crate::gui::with_window_manager(|manager| {
-        if let Some(window) = manager.get_window_by_id(window_id) {
-            let _ = manager.destroy_window(window);
-            manager.flush_destroy_queue();
-        }
-    });
-}
-
 pub fn register_script_display_bridge(display: Option<Arc<Mutex<GraphicsDisplay>>>) {
     SCRIPT_DISPLAY.with(|slot| *slot.borrow_mut() = display);
     apply_pending_script_display_state();
@@ -1538,21 +1519,15 @@ impl ScriptActionHandler for GameClientScriptActionHandler {
 
     fn create_win_lose_window(&self, layout_filename: &str) -> GameLogicResult<()> {
         // C++ ScriptActions.cpp:201/204/225/228/247 TheWindowManager->winCreateFromScript.
-        destroy_tracked_win_lose_window();
-        let created =
-            crate::gui::with_window_manager(|manager| manager.load_window(layout_filename));
-        if let Ok(window) = created {
-            let window_id = window.borrow().get_id();
-            WIN_LOSE_MESSAGE_WINDOW.with(|slot| {
-                *slot.borrow_mut() = Some((layout_filename.to_string(), window_id));
-            });
-        }
+        crate::gui::with_window_manager(|manager| {
+            manager.create_script_message_window(layout_filename);
+        });
         Ok(())
     }
 
     fn destroy_win_lose_window(&self) -> GameLogicResult<()> {
         // C++ ScriptActions.cpp:160-162 TheWindowManager->winDestroy(m_messageWindow).
-        destroy_tracked_win_lose_window();
+        crate::gui::with_window_manager(|manager| manager.destroy_script_message_window());
         Ok(())
     }
 
@@ -1616,24 +1591,23 @@ mod tests {
     #[test]
     fn create_win_lose_window_loads_victorious_layout_when_present() {
         // C++ ScriptActions.cpp:204 TheWindowManager->winCreateFromScript("Menus/Victorious.wnd")
-        let handler = GameClientScriptActionHandler::new();
-        handler
+        GameClientScriptActionHandler::new()
             .create_win_lose_window("Menus/Victorious.wnd")
             .expect("create Victorious.wnd");
-        let tracked = WIN_LOSE_MESSAGE_WINDOW.with(|slot| slot.borrow().clone());
-        if let Some((layout, window_id)) = tracked {
-            assert_eq!(layout, "Menus/Victorious.wnd");
-            crate::gui::with_window_manager(|manager| {
+        crate::gui::with_window_manager(|manager| {
+            if let Some(window_id) = manager.script_message_window_id_for_test() {
                 assert!(
                     manager.get_window_by_id(window_id).is_some(),
                     "winCreateFromScript must keep the loaded Victorious window"
                 );
-            });
-        }
-        handler
+            }
+        });
+        GameClientScriptActionHandler::new()
             .destroy_win_lose_window()
             .expect("destroy Victorious.wnd");
-        assert!(WIN_LOSE_MESSAGE_WINDOW.with(|slot| slot.borrow().is_none()));
+        crate::gui::with_window_manager(|manager| {
+            assert_eq!(manager.script_message_window_id_for_test(), None);
+        });
     }
 
     fn register_script_music_track(name: &str) {

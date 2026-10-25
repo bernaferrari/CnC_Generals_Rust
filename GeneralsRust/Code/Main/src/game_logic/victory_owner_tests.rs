@@ -378,6 +378,7 @@ fn successful_restore_clears_only_transient_victory_observation() {
         receiver.evaluate_victory_condition(),
         Some(VictoryCondition::Winner(0))
     );
+    let before_rejection = gameplay_observation(&receiver);
     snapshot.lifecycle_tail = vec![0xff];
     assert!(
         builder
@@ -386,10 +387,11 @@ fn successful_restore_clears_only_transient_victory_observation() {
     );
     assert_eq!(
         receiver.current_victory_condition(),
-        None,
-        "a partial direct restore cannot display the old world's result"
+        Some(VictoryCondition::Winner(0)),
+        "detached validation must leave the running world's observation intact"
     );
-    // This is projection invalidation, not proof that the preexisting victory
+    assert_eq!(gameplay_observation(&receiver), before_rejection);
+    // This is projection invalidation on admission, not proof that the preexisting victory
     // gameplay latches/defeat state survive save/load (tracked separately).
 }
 
@@ -480,4 +482,59 @@ fn unresolved_owned_template_remains_excluded_without_foreign_fallback() {
     assert!(owner.evaluate_victory_condition().is_some());
     assert_eq!(owner.get_player(0).unwrap().resources.supplies, 1234);
     assert_eq!(owner.get_player(1).unwrap().resources.supplies, 0);
+}
+
+#[test]
+fn defeat_reveal_belongs_to_victory_owner_without_loaded_scripts() {
+    if isolated("defeat_reveal_belongs_to_victory_owner_without_loaded_scripts") {
+        return;
+    }
+    let (mut owner, _) = observation_match();
+    let (mut peer, _) = observation_match();
+    assert!(!owner.partition_manager.has_revealed_map(1));
+    assert!(!peer.partition_manager.has_revealed_map(1));
+    owner.evaluate_victory_condition();
+    assert!(owner.partition_manager.has_revealed_map(1));
+    assert!(!peer.partition_manager.has_revealed_map(1));
+    // Same player IDs, same thread: updating the peer cannot consume an event
+    // from the owner, and its own defeat gets its own permanent reveal.
+    peer.evaluate_victory_condition();
+    assert!(peer.partition_manager.has_revealed_map(1));
+    let builder = crate::save_load::snapshot::SnapshotBuilder::new();
+    let saved = builder.create_world_snapshot(&owner).unwrap();
+    assert!(saved.shroud.pending_permanent_reveal_players.contains(&1));
+    let (mut restored, _) = admitted_match();
+    restored.templates = owner.templates.clone();
+    builder
+        .restore_from_snapshot(&saved, &mut restored)
+        .unwrap();
+    assert_eq!(
+        restored
+            .world_services
+            .shroud()
+            .lock()
+            .unwrap()
+            .snapshot_state(),
+        saved.shroud,
+        "the defeat reveal must travel with this saved world's shroud"
+    );
+    owner.reset();
+    assert!(!owner.partition_manager.has_revealed_map(1));
+    assert!(peer.partition_manager.has_revealed_map(1));
+}
+
+#[test]
+fn initial_defeat_frames_do_not_publish_a_late_reveal() {
+    if isolated("initial_defeat_frames_do_not_publish_a_late_reveal") {
+        return;
+    }
+    for frame in [0, 1] {
+        let (mut world, _) = observation_match();
+        world.frame = frame;
+        world.evaluate_victory_condition();
+        assert!(!world.partition_manager.has_revealed_map(1));
+        world.frame = 2;
+        world.evaluate_victory_condition();
+        assert!(!world.partition_manager.has_revealed_map(1));
+    }
 }

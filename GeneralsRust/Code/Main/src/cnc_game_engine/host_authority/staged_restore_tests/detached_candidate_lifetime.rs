@@ -8,6 +8,7 @@ fn stage_decoded(
     slot: &str,
 ) -> Result<StagedRestoreWorld, RestoreStagingFailure> {
     let crate::save_load::DecodedGameSave {
+        campaign_state,
         snapshot,
         save_info,
         saved_game_mode,
@@ -51,6 +52,10 @@ fn stage_decoded(
                 .map_err(|error| error.to_string())
         },
     )
+    .map(|mut staged| {
+        staged.campaign_state = campaign_state;
+        staged
+    })
 }
 
 #[test]

@@ -24,44 +24,6 @@ impl GameLogic {
         // Increment script frame counter
         self.mission_script_counter += 1;
 
-        for event in script_events::drain_events() {
-            match event {
-                ScriptEvent::PlayerDefeated { player_id } => {
-                    log::debug!(
-                        "📜 Script event: player {} defeated (frame {})",
-                        player_id,
-                        self.frame
-                    );
-                    self.partition_manager.reveal_map_for_player_permanently(
-                        &mut self
-                            .world_services
-                            .shroud()
-                            .lock()
-                            .unwrap_or_else(|e| e.into_inner()),
-                        player_id,
-                    );
-                }
-                ScriptEvent::RevealMapForPlayer { player_id } => {
-                    log::debug!("📜 Script event: reveal map for player {}", player_id);
-                    self.partition_manager.reveal_map_for_player(
-                        &mut self
-                            .world_services
-                            .shroud()
-                            .lock()
-                            .unwrap_or_else(|e| e.into_inner()),
-                        player_id,
-                    );
-                }
-                ScriptEvent::AllianceStateChanged { player_id, state } => {
-                    log::debug!(
-                        "📜 Script event: alliance state {:?} for player {}",
-                        state,
-                        player_id
-                    );
-                }
-            }
-        }
-
         // Leftover ScriptingEngine event queue / process_events is leftover-only
         // (hq-8ta4n). Live host conditions/actions walk ScriptEngine::update.
         // C++ GameLogic.cpp:3600 — one TheScriptEngine->UPDATE() per logic frame.

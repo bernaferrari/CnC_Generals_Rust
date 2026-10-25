@@ -2,6 +2,7 @@
 
 mod camera_continuation;
 mod camera_ownership;
+mod campaign_ownership;
 mod client_candidate;
 mod control_group_ownership;
 mod historical_player_cash;
@@ -747,14 +748,14 @@ fn failed_load_does_not_apply_chunk_campaign_to_live_match() {
                 CPP_GAME_SINGLE_PLAYER,
             )
             .expect("write mission sav");
-            let _ = SaveFileManager::read_common_sav_chunks(&mission_bytes, Path::new(""))
+            let decoded = SaveFileManager::read_common_sav_chunks(&mission_bytes, Path::new(""))
                 .expect("mission decode");
             let after_stash = capture_live_campaign_state();
             assert_eq!(
                 after_stash.rank_points, 11,
                 "successful decode must stash CHUNK_Campaign, not apply it"
             );
-            commit_stashed_campaign_state();
+            commit_campaign_state(decoded.campaign_state);
             let after_commit = capture_live_campaign_state();
             assert_eq!(after_commit.rank_points, 99);
             assert_eq!(after_commit.difficulty, 2);

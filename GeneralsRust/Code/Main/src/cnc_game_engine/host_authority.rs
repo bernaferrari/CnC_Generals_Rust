@@ -44,6 +44,7 @@ impl std::ops::Deref for RestoreStagingFailure {
 /// process-global runtime bundle that map loading touched while staging it.
 /// The bundle stays opaque until the single combined commit boundary below.
 struct StagedRestoreWorld {
+    campaign_state: Option<game_engine::System::CampaignManagerXferState>,
     native_map: super::map_native_admission::NativeMapCandidate,
     logic: crate::game_logic::GameLogic,
     info: SaveGameInfo,
@@ -1563,6 +1564,7 @@ impl CnCGameEngine {
             mut native_map,
             mut logic,
             info: _,
+            campaign_state,
             runtime_world,
             shroud: _,
             client_drawables,
@@ -1896,6 +1898,7 @@ impl CnCGameEngine {
         // client/camera/presentation admission. Emit once at the successful tail.
         self.game_logic.finish_saved_snapshot_admission()?;
         pending_map_audio.admit_to_live();
+        crate::save_load::commit_campaign_state(campaign_state);
         Ok(())
     }
 
@@ -2126,6 +2129,7 @@ impl CnCGameEngine {
         native: Option<&mut dyn crate::game_logic::NativeMapAdmission>,
     ) -> Result<StagedRestoreWorld, RestoreStagingFailure> {
         let crate::save_load::DecodedGameSave {
+            campaign_state,
             snapshot,
             save_info,
             game_client_xfer: game_client_xfer_bytes,
@@ -2165,6 +2169,7 @@ impl CnCGameEngine {
             },
             native,
         )?;
+        staged.campaign_state = campaign_state;
         Ok(staged)
     }
 
@@ -2199,6 +2204,7 @@ impl CnCGameEngine {
             return Self::restore_mapless_logical_save(manager, decoded, live);
         }
         let crate::save_load::DecodedGameSave {
+            campaign_state,
             snapshot,
             save_info,
             saved_game_mode,
@@ -2288,6 +2294,7 @@ impl CnCGameEngine {
         let previous = std::mem::replace(live, logic);
         drop(previous);
         committed.finish_after_logic_commit();
+        crate::save_load::commit_campaign_state(campaign_state);
         Ok((info, terrain_visual))
     }
 
@@ -2435,6 +2442,7 @@ impl CnCGameEngine {
         let previous = std::mem::replace(live, candidate);
         drop(previous);
         committed.finish_after_logic_commit();
+        crate::save_load::commit_campaign_state(decoded.campaign_state);
         Ok((decoded.save_info, terrain))
     }
 
@@ -2742,6 +2750,7 @@ impl CnCGameEngine {
         // no-fail combined commit below.
         let runtime_world = runtime_stage.finish_and_restore_live(&staged.world_services);
         Ok(StagedRestoreWorld {
+            campaign_state: None,
             native_map: Default::default(),
             logic: staged,
             info: save_info,
@@ -2792,7 +2801,7 @@ impl CnCGameEngine {
 
         // Keep the current world untouched until the save metadata, exact map,
         // and snapshot all restore successfully in a staging world.
-        // CHUNK_Campaign is stashed during decode; apply only after commit so
+        // CHUNK_Campaign stays with the staged archive; apply only after commit so
         // a failed load cannot leave half-applied campaign on the live match
         // (C++ GameState.cpp:695-712 clearGameData).
         self.rejected_native_worlds
@@ -2912,7 +2921,6 @@ impl CnCGameEngine {
             crate::save_load::rollback_campaign_after_failed_load(prior_campaign);
             return Err(HostLoadFailure::Committed(err));
         }
-        crate::save_load::commit_stashed_campaign_state();
         info!(
             "Game loaded successfully from slot '{}' on map '{}'",
             slot,
