@@ -62,7 +62,7 @@ use crate::gui::callbacks::{
 };
 use crate::gui::game_window::*;
 use crate::gui::header_template::get_header_template_manager;
-use crate::gui::shell::main_menu::get_main_menu;
+
 use crate::gui::w3d_gadget_draw::{
     w3d_cameo_movie_draw, w3d_clock_draw, w3d_command_bar_background_draw,
     w3d_command_bar_foreground_draw, w3d_command_bar_gen_exp_draw, w3d_command_bar_grid_draw,
@@ -114,8 +114,9 @@ impl WindowManager {
                 "W3DMainMenuInit" | "MainMenuInit" => {
                     layout.init_callback_with_effects = Some(Box::new(|layout, _, effects| {
                         apply_w3d_main_menu_runtime_draw_overrides();
-                        let mut menu = get_main_menu();
-                        if let Err(err) = menu.init(layout, None, effects) {
+                        if let Err(err) =
+                            effects.with_main_menu(|menu, effects| menu.init(layout, None, effects))
+                        {
                             warn!("Main menu init failed: {}", err);
                         }
                     }));
@@ -285,8 +286,9 @@ impl WindowManager {
             layout.update_callback = match layout_def.update_callback.as_str() {
                 "MainMenuUpdate" => {
                     layout.update_callback_with_effects = Some(Box::new(|layout, _, effects| {
-                        let mut menu = get_main_menu();
-                        if let Err(err) = menu.update(layout, None, effects) {
+                        if let Err(err) = effects
+                            .with_main_menu(|menu, effects| menu.update(layout, None, effects))
+                        {
                             warn!("Main menu update failed: {}", err);
                         }
                     }));
@@ -428,12 +430,17 @@ impl WindowManager {
 
         if !layout_def.shutdown_callback.is_empty() {
             layout.shutdown_callback = match layout_def.shutdown_callback.as_str() {
-                "MainMenuShutdown" => Some(Box::new(|layout, data| {
-                    let mut menu = get_main_menu();
-                    if let Err(err) = menu.shutdown(layout, as_any_ref(data)) {
-                        warn!("Main menu shutdown failed: {}", err);
-                    }
-                })),
+                "MainMenuShutdown" => {
+                    layout.shutdown_callback_with_effects =
+                        Some(Box::new(|layout, data, effects| {
+                            if let Err(err) = effects
+                                .with_main_menu(|menu, _| menu.shutdown(layout, as_any_ref(data)))
+                            {
+                                warn!("Main menu shutdown failed: {err}");
+                            }
+                        }));
+                    None
+                }
                 "SinglePlayerMenuShutdown" => Some(Box::new(|layout, data| {
                     if let Err(err) = with_single_player_menu(|menu| menu.shutdown(layout, None)) {
                         warn!("Single player menu shutdown failed: {}", err);
@@ -707,12 +714,13 @@ impl WindowManager {
                 "MainMenuSystem" => {
                     window.set_system_callback_with_message_sink(
                         |window, msg, data1, data2, effects| {
-                            let mut menu = get_main_menu();
                             let raw_msg = map_window_message_to_main_menu(msg);
                             if raw_msg == 0 {
                                 return WindowMsgHandled::Ignored;
                             }
-                            if menu.system(window.get_id() as u32, raw_msg, data1, data2, effects) {
+                            if effects.with_main_menu(|menu, effects| {
+                                menu.system(window.get_id() as u32, raw_msg, data1, data2, effects)
+                            }) {
                                 WindowMsgHandled::Handled
                             } else {
                                 WindowMsgHandled::Ignored
@@ -731,9 +739,13 @@ impl WindowManager {
                     );
                 }
                 "OptionsMenuSystem" => {
-                    window.set_system_callback(|window, msg, data1, data2| {
-                        with_options_menu(|menu| menu.system(window, msg, data1, data2))
-                    });
+                    window.set_system_callback_with_message_sink(
+                        |window, msg, data1, data2, effects| {
+                            with_options_menu(|menu| {
+                                menu.system_with_effects(window, msg, data1, data2, effects)
+                            })
+                        },
+                    );
                     window.mark_options_menu_system_callback();
                 }
                 "MapSelectMenuSystem" => {
@@ -834,9 +846,11 @@ impl WindowManager {
                     });
                 }
                 "DownloadMenuSystem" => {
-                    window.set_system_callback(|window, msg, data1, data2| {
-                        download_menu_system(window, msg, data1, data2)
-                    });
+                    window.set_system_callback_with_message_sink(
+                        |window, msg, data1, data2, effects| {
+                            download_menu_system(window, msg, data1, data2, effects)
+                        },
+                    );
                 }
                 "QuitMenuSystem" => {
                     window.set_system_callback_with_message_sink(
@@ -1166,12 +1180,13 @@ impl WindowManager {
                 "MainMenuInput" => {
                     window.set_input_callback_with_message_sink(
                         |window, msg, data1, data2, effects| {
-                            let mut menu = get_main_menu();
                             let raw_msg = map_window_message_to_main_menu(msg);
                             if raw_msg == 0 {
                                 return WindowMsgHandled::Ignored;
                             }
-                            if menu.input(window.get_id() as u32, raw_msg, data1, data2, effects) {
+                            if effects.with_main_menu(|menu, effects| {
+                                menu.input(window.get_id() as u32, raw_msg, data1, data2, effects)
+                            }) {
                                 WindowMsgHandled::Handled
                             } else {
                                 WindowMsgHandled::Ignored
@@ -1250,9 +1265,11 @@ impl WindowManager {
                     });
                 }
                 "DownloadMenuInput" => {
-                    window.set_input_callback(|window, msg, data1, data2| {
-                        download_menu_input(window, msg, data1, data2)
-                    });
+                    window.set_input_callback_with_message_sink(
+                        |window, msg, data1, data2, effects| {
+                            download_menu_input(window, msg, data1, data2, effects)
+                        },
+                    );
                 }
                 "SaveLoadMenuInput" => {
                     window.set_input_callback(|window, msg, data1, data2| {

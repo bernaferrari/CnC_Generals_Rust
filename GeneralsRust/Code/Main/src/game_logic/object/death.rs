@@ -59,7 +59,7 @@ impl Object {
         &mut self,
         current_frame: u32,
         fx: &mut dyn FnMut(&str, &Object, bool),
-        audio: &mut crate::game_logic::ObjectAudio<'_>,
+        _audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) -> bool {
         if !self.is_kind_of(crate::game_logic::KindOf::Structure) {
             return false;
@@ -86,15 +86,17 @@ impl Object {
         ) {
             data.bind_ini(&ini);
         }
+        // C++ onDie marks AI dead and deselects before beginStructureCollapse
+        // starts the collapse phase and emits its initial FX.
+        self.mark_ai_dead();
+        self.selected = false;
+        self.status.selected = false;
         // Mid delay residual (average of 15–30).
         data.begin(current_frame, 22);
         self.structure_collapse_data = Some(data);
         if let Some(bfx) = self.bone_fx_damage.as_mut() {
             bfx.stop_all_bone_fx();
         }
-        self.selected = false;
-        self.status.selected = false;
-        self.set_ai_state(crate::game_logic::AIState::Idle, audio);
         // ActiveBody has already committed lethal HP/dead state before onDie.
         // The independently scheduled structure update must not revive that body.
         // C++ beginStructureCollapse: doPhaseStuff(SCPHASE_INITIAL) → FXList::doFXPos.
@@ -225,7 +227,7 @@ impl Object {
         override_direction: Option<(f32, f32)>,
         delay: u32,
         burst_location: Option<glam::Vec3>,
-        audio: &mut crate::game_logic::ObjectAudio<'_>,
+        _audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) -> bool {
         if !self.is_kind_of(crate::game_logic::KindOf::Structure) {
             return false;
@@ -279,9 +281,9 @@ impl Object {
         data.bind_topple_fx(&definition.fx);
         data.structural_decay = definition.decay;
         // Original onDie marks AI dead and deselects BEFORE Start FX.
+        self.mark_ai_dead();
         self.selected = false;
         self.status.selected = false;
-        self.set_ai_state(crate::game_logic::AIState::Idle, audio);
         data.begin(current_frame, dx, dz, delay);
         data.structural_integrity = definition.integrity;
         if let Some(location) = burst_location {
@@ -394,7 +396,7 @@ impl Object {
     pub fn begin_keep_object_die(
         &mut self,
         current_frame: u32,
-        audio: &mut crate::game_logic::ObjectAudio<'_>,
+        _audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) -> bool {
         let is_struct = self.is_kind_of(crate::game_logic::KindOf::Structure);
         if !crate::game_logic::host_keep_object_die::wants_keep_object_die(
@@ -420,7 +422,6 @@ impl Object {
         // Not destroyed: remains in world. Unselectable rubble husk.
         self.status.destroyed = false;
         self.status.selected = false;
-        self.set_ai_state(crate::game_logic::AIState::Idle, audio);
         self.target = None;
         self.refresh_model_condition_bits();
         true
@@ -481,7 +482,7 @@ impl Object {
         current_frame: u32,
         ini: &crate::game_logic::host_slow_death::HostSlowDeathIni,
         deletion_queued: bool,
-        audio: &mut crate::game_logic::ObjectAudio<'_>,
+        _audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) -> bool {
         if self
             .slow_death
@@ -495,6 +496,10 @@ impl Object {
                 .map(|s| s.is_active())
                 .unwrap_or(false);
         }
+        if self.ai_death_pending() {
+            return false;
+        }
+        self.mark_ai_dead();
         let mut sd =
             crate::game_logic::host_slow_death::HostSlowDeathData::from_ini(current_frame, ini);
         if ini.fling_force > 0.0 {
@@ -514,9 +519,7 @@ impl Object {
         self.slow_death = Some(sd);
         // CPP SlowDeath retains the dead Body. Its owned timer and Physics
         // continue without healing HP or replaying a damage-state transition.
-        // Mark "dead" for AI but not removed yet.
-        self.set_ai_state(crate::game_logic::AIState::Idle, audio);
-        self.target = None;
+        // The AI_DEAD state transition is deferred until the next AI update.
         self.selected = false;
         self.status.selected = false;
         if !deletion_queued {
@@ -906,7 +909,7 @@ impl Object {
     pub(crate) fn fire_instant_death_for(
         &mut self,
         death_type: crate::game_logic::host_usa_pilot::HostDeathType,
-        audio: &mut crate::game_logic::ObjectAudio<'_>,
+        _audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) -> bool {
         let ini = match &self.thing.template.authored_instant_death {
             Some(modules) => modules
@@ -920,6 +923,10 @@ impl Object {
             ),
         };
         let Some(ini) = ini else { return false };
+        if self.ai_death_pending() {
+            return false;
+        }
+        self.mark_ai_dead();
         let burst = ini.pick(self.id.0);
         if let Some(fx) = burst.fx {
             if self.pending_death_fx.is_none() {
@@ -936,8 +943,6 @@ impl Object {
             }
         }
         self.pending_instant_death_weapon = burst.weapon;
-        self.set_ai_state(crate::game_logic::AIState::Idle, audio);
-        self.target = None;
         true
     }
 

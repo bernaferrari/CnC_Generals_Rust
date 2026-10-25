@@ -316,15 +316,11 @@ impl CnCGameEngine {
     fn prepare_receiving_source_new_game(
         &mut self,
         message: &game_engine::common::message_stream::GameMessage,
-    ) -> bool {
-        if self
-            .require_native_world_boundary("prepare source NewGame")
-            .is_err()
-        {
-            return false;
-        }
+    ) -> Result<bool, String> {
+        self.require_native_world_boundary("prepare source NewGame")
+            .map_err(|error| error.to_string())?;
         let Some(dispatch) = Self::startup_new_game_dispatch_from_message(message) else {
-            return false;
+            return Ok(false);
         };
         let before = self.capture_source_preparation();
         // Dispatch.cpp407–419 applies optional FPS before prepareNewGame.
@@ -350,14 +346,14 @@ impl CnCGameEngine {
                     Some(Err(error)) => {
                         warn!("Cannot prepare native NewGame: Menus/BlankWindow.wnd: {error}");
                         self.reject_source_preparation(before);
-                        return false;
+                        return Ok(false);
                     }
                     None => {
                         warn!(
                             "Cannot prepare native NewGame: receiving WindowManager unavailable for Menus/BlankWindow.wnd"
                         );
                         self.reject_source_preparation(before);
-                        return false;
+                        return Ok(false);
                     }
                 }
             }
@@ -370,7 +366,7 @@ impl CnCGameEngine {
                     "Cannot prepare native NewGame: required Menus/BlankWindow.wnd has no first window"
                 );
                 self.reject_source_preparation(before);
-                return false;
+                return Ok(false);
             };
             root.borrow_mut()
                 .clear_status(game_client::gui::game_window::WindowStatus::IMAGE);
@@ -382,18 +378,22 @@ impl CnCGameEngine {
             Self::take_application_new_game_map();
             self.receiving_recorded_start_request(dispatch)
         } else {
-            self.build_start_request_from_pending_globals_at_source(Some(dispatch), true)
+            self.build_start_request_from_pending_globals_at_source(
+                Some(dispatch),
+                true,
+                message.campaign_launch(),
+            )
         };
         let Some(request) = request else {
             self.reject_source_preparation(before);
-            return false;
+            return Ok(false);
         };
-        if !self.host_start_game_from_command_phase(request) {
+        if !self.host_start_game_from_command_phase(request)? {
             self.reject_source_preparation(before);
-            return false;
+            return Ok(false);
         }
         self.update_last_new_game_dispatch(dispatch);
-        true
+        Ok(true)
     }
 
     pub(super) fn destroy_source_new_game_background(&mut self) {
@@ -442,7 +442,7 @@ impl CnCGameEngine {
                         && self.pending_match_start.is_none()
                         && self.game_logic.game_mode() == GameMode::None
                     {
-                        self.transition_to_state(GameState::Menu);
+                        self.transition_to_state(GameState::Menu)?;
                         if last_clear_score {
                             self.set_runtime_host_ui_screen_override(Some("ScoreScreen"));
                         }
@@ -456,7 +456,7 @@ impl CnCGameEngine {
                                 self.game_logic.game_mode(),
                                 GameMode::None | GameMode::Shell
                             );
-                            let reset_performed = self.clear_receiving_game_data(true);
+                            let reset_performed = self.clear_receiving_game_data(true)?;
                             if self.is_quitting() {
                                 return Err("ClearGameData rejected a terminal native owner".into());
                             }
@@ -471,7 +471,7 @@ impl CnCGameEngine {
                             NativeCommandCompletion::Cleared { reset_performed }
                         }
                         NativeCommandAction::PrepareNewGame(message) => {
-                            let prepared = self.prepare_receiving_source_new_game(&message);
+                            let prepared = self.prepare_receiving_source_new_game(&message)?;
                             if self.is_quitting() {
                                 return Err("NewGame rejected a terminal native owner".into());
                             }

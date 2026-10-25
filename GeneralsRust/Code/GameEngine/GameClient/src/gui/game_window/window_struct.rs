@@ -40,8 +40,58 @@ pub struct WindowEventEffects<'a> {
     pub(crate) emitted_messages: &'a mut Vec<GameMessage>,
     pub(crate) pending_control_bar_clicks: Option<&'a mut Vec<LiveControlBarClick>>,
     pub(crate) campaign_manager: Option<&'a mut CampaignManager>,
+    pub(crate) menu_world: Option<crate::gui::campaign_launch_host_bridge::MenuWorldFacts>,
+    pub(crate) menu_host: Option<&'a mut crate::gui::campaign_launch_host_bridge::MenuHostMailbox>,
+    pub(crate) main_menu: Option<&'a mut crate::gui::shell::main_menu::MainMenu>,
+    pub(crate) pending_main_menu_actions: Vec<(
+        crate::gui::shell::main_menu::PendingMainMenuAction,
+        Option<crate::gui::callbacks::OptionsCameraInputObservation>,
+    )>,
 }
 impl WindowEventEffects<'_> {
+    pub(crate) fn menu_world(&self) -> crate::gui::campaign_launch_host_bridge::MenuWorldFacts {
+        self.menu_world
+            .expect("native menu callback requires receiving world facts")
+    }
+    pub(crate) fn request_menu_host(
+        &mut self,
+        request: crate::gui::campaign_launch_host_bridge::MenuHostRequest,
+    ) {
+        self.menu_host
+            .as_deref_mut()
+            .expect("menu lifecycle requires receiving host mailbox")
+            .request(request);
+    }
+    pub(crate) fn menu_lifecycle_pending(&self) -> bool {
+        self.menu_host
+            .as_deref()
+            .is_some_and(|host| host.has_lifecycle_request())
+    }
+    pub(crate) fn with_main_menu<R>(
+        &mut self,
+        operation: impl FnOnce(
+            &mut crate::gui::shell::main_menu::MainMenu,
+            &mut WindowEventEffects<'_>,
+        ) -> R,
+    ) -> R {
+        let menu = self
+            .main_menu
+            .take()
+            .expect("menu callback requires its receiving GameClient");
+        let result = operation(menu, self);
+        self.pending_main_menu_actions.extend(
+            menu.take_pending_actions()
+                .into_iter()
+                .map(|action| (action, None)),
+        );
+        self.main_menu = Some(menu);
+        let actions = std::mem::take(&mut self.pending_main_menu_actions);
+        for (action, camera_input) in actions {
+            crate::gui::shell::main_menu::MainMenu::execute_action(action, camera_input, self);
+        }
+        result
+    }
+
     pub(crate) fn queue_window_operation(
         &self,
         operation: impl for<'a> FnOnce(

@@ -472,27 +472,34 @@ impl CnCGameEngine {
 
     /// Restart the simulation with UI-selected parameters and refresh view/minimap.
     /// Wave 611: via `host_start_game_from_ui`.
-    pub(super) fn start_game_from_ui(&mut self, request: HostStartRequest) {
+    pub(super) fn start_game_from_ui(&mut self, request: HostStartRequest) -> Result<(), String> {
         // Wave 611: thin wrapper — residual via host helper.
         self.host_start_game_from_ui(request)
     }
 
     /// Restart the simulation with UI-selected parameters and refresh view/minimap.
-    pub(super) fn host_start_game_from_ui(&mut self, request: HostStartRequest) {
-        let _ = self.park_host_start_request(request, false);
+    pub(super) fn host_start_game_from_ui(
+        &mut self,
+        request: HostStartRequest,
+    ) -> Result<(), String> {
+        let _ = self.park_host_start_request(request, false)?;
+        Ok(())
     }
 
-    pub(super) fn host_start_game_from_command_phase(&mut self, request: HostStartRequest) -> bool {
+    pub(super) fn host_start_game_from_command_phase(
+        &mut self,
+        request: HostStartRequest,
+    ) -> Result<bool, String> {
         self.park_host_start_request(request, true)
     }
 
-    fn park_host_start_request(&mut self, request: HostStartRequest, source_command: bool) -> bool {
-        if self
-            .require_native_world_boundary("park new match")
-            .is_err()
-        {
-            return false;
-        }
+    fn park_host_start_request(
+        &mut self,
+        request: HostStartRequest,
+        source_command: bool,
+    ) -> Result<bool, String> {
+        self.require_native_world_boundary("park new match")
+            .map_err(|error| error.to_string())?;
         let HostStartRequest {
             mode,
             faction,
@@ -511,7 +518,7 @@ impl CnCGameEngine {
         // Defcon6 and abandon the ShellMapMD worker.
         if matches!(mode, GameMode::Shell) && !source_command {
             info!("host_start_game_from_ui: ignore GAME_SHELL (shell map, not a match)");
-            return false;
+            return Ok(false);
         }
 
         // A typed shell descriptor is only meaningful for C++ single-player
@@ -522,7 +529,7 @@ impl CnCGameEngine {
                 "Rejecting PlayerTemplate identity on non-single-player start mode {:?}",
                 mode
             );
-            return false;
+            return Ok(false);
         }
 
         let faction_team = Self::team_from_faction(&faction);
@@ -532,7 +539,7 @@ impl CnCGameEngine {
                     "Rejecting PlayerTemplate '{}' whose exact base side no longer matches requested team {:?}",
                     player_template.template_name, faction_team
                 );
-                return false;
+                return Ok(false);
             }
         }
 
@@ -554,7 +561,9 @@ impl CnCGameEngine {
         // (windowed host start was SIGSEGV'ing mid MainMenuShutdown / hide_shell).
         #[cfg(feature = "game_client")]
         if mode != GameMode::Shell {
-            game_client::gui::mark_host_match_start();
+            let _ = self.with_receiving_menu_effects(|effects| {
+                game_client::gui::mark_host_match_start(effects)
+            });
         }
         if source_command && mode == GameMode::SinglePlayer {
             self.destroy_source_new_game_background();
@@ -568,7 +577,7 @@ impl CnCGameEngine {
             // Only the application loading pump is selected for the parked map.
             self.current_state = GameState::Loading;
         } else {
-            self.transition_to_state(GameState::Loading);
+            self.transition_to_state(GameState::Loading)?;
         }
         info!("host_start_game_from_ui: state=Loading");
         // Prelude playback is advanced by subsequent Loading ticks, allowing
@@ -602,20 +611,19 @@ impl CnCGameEngine {
             prelude_retry_at: std::time::Instant::now(),
         });
         info!("host_start_game_from_ui: parked match start for next Loading tick");
-        true
+        Ok(true)
     }
 
     /// Finish a parked UI start: `host_load_map_or_default` then InGame.
     ///
     /// Called from the Loading tick after status has been published. Still
     /// the live `load_map` path (hq-ibnf owns making Lone Eagle return).
-    pub(super) fn complete_parked_match_start(&mut self, pending: PendingMatchStart) {
-        if self
-            .require_native_world_boundary("complete parked match")
-            .is_err()
-        {
-            return;
-        }
+    pub(super) fn complete_parked_match_start(
+        &mut self,
+        pending: PendingMatchStart,
+    ) -> Result<(), String> {
+        self.require_native_world_boundary("complete parked match")
+            .map_err(|error| error.to_string())?;
         let HostStartRequest {
             mode,
             faction,
@@ -638,8 +646,8 @@ impl CnCGameEngine {
             let recorder = self.game_logic.replay_pending.recorder_owned();
             if !recorder.is_playback() {
                 warn!("Rejecting Replay start without receiving admitted Recorder");
-                self.return_to_main_menu_after_match();
-                return;
+                self.return_to_main_menu_after_match()?;
+                return Ok(());
             }
             let info = recorder.get_game_info();
             Some((info.seed, info.starting_cash))
@@ -654,9 +662,7 @@ impl CnCGameEngine {
         } else {
             self.host_game_engine_reset()
         };
-        if reset.is_err() {
-            return;
-        }
+        reset.map_err(|error| error.to_string())?;
         self.reset_replay_pacing_for_new_game();
         // Wave 843/844/871: clear prior match residuals until load completes.
         self.host_clear_match_residuals();
@@ -702,8 +708,8 @@ impl CnCGameEngine {
                 GameMode::Replay,
             ) {
                 warn!("Rejecting recorded GameInfo admission before map load: {error}");
-                self.return_to_main_menu_after_match();
-                return;
+                self.return_to_main_menu_after_match()?;
+                return Ok(());
             }
             if let Some(local) = self.game_logic.local_player_id() {
                 self.current_player_id = local;
@@ -726,8 +732,8 @@ impl CnCGameEngine {
                     // Team-only legacy start when one is stale/locked: that
                     // would launch a plausible but wrong General match.
                     warn!("Rejecting configured Skirmish start before map load: {e}");
-                    self.return_to_main_menu_after_match();
-                    return;
+                    self.return_to_main_menu_after_match()?;
+                    return Ok(());
                 }
             } else {
                 // C++ `GameLogic::startNewGame` (GameLogic.cpp:1494-1532)
@@ -749,8 +755,8 @@ impl CnCGameEngine {
                     Ok(()) => {}
                     Err(e) => {
                         warn!("Rejecting synthesized Skirmish start before map load: {e}");
-                        self.return_to_main_menu_after_match();
-                        return;
+                        self.return_to_main_menu_after_match()?;
+                        return Ok(());
                     }
                 }
             }
@@ -778,8 +784,8 @@ impl CnCGameEngine {
                         // GameSlot PlayerTemplate fails to resolve.  Return to
                         // the shell before map load so Main cannot create a
                         // plausible-looking but wrong General match.
-                        self.return_to_main_menu_after_match();
-                        return;
+                        self.return_to_main_menu_after_match()?;
+                        return Ok(());
                     }
                 }
                 None => {
@@ -877,8 +883,8 @@ impl CnCGameEngine {
                 "Cannot start {:?}: neither requested map '{}' nor fallback '{}' loaded",
                 mode, map_name, DEFAULT_SKIRMISH_MAP
             );
-            self.return_to_main_menu_after_match();
-            return;
+            self.return_to_main_menu_after_match()?;
+            return Ok(());
         };
         let initial_rank = recorder_dispatch.map_or(0, |dispatch| dispatch.rank_points);
         self.game_logic
@@ -919,7 +925,7 @@ impl CnCGameEngine {
         info!("host_start_game_from_ui: seeding presentation");
         if let Err(error) = self.seed_presentation_after_match_start() {
             error!("Match start cannot complete native presentation: {error}");
-            return;
+            return Ok(());
         }
         if mode != GameMode::Shell {
             self.snap_camera_to_local_units_if_needed();
@@ -932,7 +938,7 @@ impl CnCGameEngine {
             GameState::Menu
         } else {
             GameState::InGame
-        });
+        })?;
         info!(
             "host_start_game_from_ui: pre-note menu_click={} was_menu={} offline={}",
             self.interactive_playability.menu_wnd_click, interactive_start_from_menu, offline_mode
@@ -949,13 +955,13 @@ impl CnCGameEngine {
         // Wave 455: seed presentation env then apply presentation-only heightmap/skybox hints.
         if let Err(error) = self.ensure_presentation_env_seeded() {
             error!("Match start presentation environment unavailable: {error}");
-            return;
+            return Ok(());
         }
         Self::apply_heightmap_hint(&mut self.render_pipeline);
         Self::apply_skybox_hint(&mut self.render_pipeline);
         if let Err(error) = self.ensure_presentation_env_seeded() {
             error!("Match start presentation environment unavailable: {error}");
-            return;
+            return Ok(());
         }
         Self::sync_render_terrain_visual(
             &mut self.game_logic,
@@ -970,7 +976,7 @@ impl CnCGameEngine {
         // Apply map lighting if provided by map settings.
         if let Err(error) = self.ensure_presentation_env_seeded() {
             error!("Match start presentation environment unavailable: {error}");
-            return;
+            return Ok(());
         }
         Self::apply_map_lighting(&mut self.graphics_system, &mut self.render_pipeline);
 
@@ -1009,6 +1015,7 @@ impl CnCGameEngine {
                 log::error!("camera transform: {error}");
             }
         }
+        Ok(())
     }
 
     /// Prefer a local base focus for the match camera when bootstrap aim is far
@@ -2363,15 +2370,14 @@ impl CnCGameEngine {
         Ok(())
     }
 
-    pub(super) fn return_to_main_menu_after_match(&mut self) {
-        if self.reset_match_state().is_err() {
-            return;
-        }
-        self.transition_to_state(GameState::Menu);
+    pub(super) fn return_to_main_menu_after_match(&mut self) -> Result<(), String> {
+        self.reset_match_state()
+            .map_err(|error| error.to_string())?;
+        self.transition_to_state(GameState::Menu)
     }
 
-    pub(super) fn exit_to_main_menu_from_victory(&mut self) {
-        self.return_to_main_menu_after_match();
+    pub(super) fn exit_to_main_menu_from_victory(&mut self) -> Result<(), String> {
+        self.return_to_main_menu_after_match()
     }
 }
 

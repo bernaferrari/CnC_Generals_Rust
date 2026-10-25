@@ -51,6 +51,11 @@ impl GameLogic {
                         "AI clear lost its receiving actor during state exit".into(),
                     )
                 })?;
+            if state == AIState::Dead {
+                // AIDeadState::onExit clears DYING only; it does not restore
+                // firing or movement model conditions.
+                unit.exit_ai_dead_model_condition();
+            }
             if let Some((offset, delay)) = attack_move_idle {
                 // AIAttackMoveToState::onExit first resets its child to Idle.
                 unit.unit_ai_runtime
@@ -121,6 +126,65 @@ impl GameLogic {
         unit.clear_base_ai_control_after_exit();
         Ok(true)
     }
+    /// C++ AIUpdateInterface::update observes m_isAiDead after the provider's
+    /// update, clears the retained machine, enters AI_DEAD, and locks it.
+    /// The caller runs this after the receiving object's death callbacks.
+    pub(crate) fn enter_base_ai_dead_owned(
+        &mut self,
+        id: ObjectId,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> GameLogicResult<bool> {
+        let Some((pending, current, birth)) = self.objects.get(&id).map(|unit| {
+            (
+                unit.ai_death_pending(),
+                unit.unit_ai_runtime.current_leaf_state(),
+                std::sync::Arc::clone(&unit.visual_draw_identity_token),
+            )
+        }) else {
+            return Ok(false);
+        };
+        if !pending || current == AIState::Dead {
+            return Ok(false);
+        }
+        if !self.clear_base_ai_machine_owned(id, effects)? {
+            return Ok(false);
+        }
+        let unit = self
+            .objects
+            .get_mut(&id)
+            .filter(|unit| std::sync::Arc::ptr_eq(&unit.visual_draw_identity_token, &birth))
+            .ok_or_else(|| {
+                GameLogicError::Configuration(
+                    "AI_DEAD lost its receiving actor before commit".into(),
+                )
+            })?;
+        // AttackMove's onExit has already consumed its authored child Idle RNG
+        // draw during clear; the dead root has no deferred Idle initialization.
+        unit.unit_ai_runtime.consume_idle_initialization();
+        unit.set_ai_state(
+            AIState::Dead,
+            &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
+        );
+        unit.unit_ai_runtime.lock_machine();
+        unit.refresh_model_condition_bits();
+        self.script_object_count_changed_frame = self.frame;
+        Ok(true)
+    }
+
+    /// C++ AIDeadState::update runs on frames after state entry. Its onEnter
+    /// deliberately leaves velocity unchanged for the current locomotor pass.
+    pub(crate) fn update_base_ai_dead_owned(&mut self, id: ObjectId) {
+        let Some(unit) = self.objects.get_mut(&id) else {
+            return;
+        };
+        unit.set_locomotor_goal_none();
+        unit.status.effectively_dead = true;
+        if unit.is_kind_of(crate::game_logic::KindOf::Infantry) {
+            let velocity = unit.velocity_magnitude();
+            unit.scrub_velocity_2d(velocity * 0.8);
+        }
+    }
+
     pub(crate) fn enter_base_ai_idle_owned(
         &mut self,
         id: ObjectId,

@@ -38,7 +38,11 @@ fn attack_request_mapless_fallback_keeps_victim_and_skips_move_initializer() {
     let goal = Vec3::new(80.0, 0.0, 0.0);
     let mut world = world(false, goal);
     world.objects.get_mut(&ATTACKER).unwrap().is_final_goal = true;
-    assert!(world.request_attack_path(ATTACKER, Some(VICTIM), goal));
+    assert!(
+        world
+            .request_attack_path(ATTACKER, Some(VICTIM), goal)
+            .expect("valid attack request fixture")
+    );
     let unit = &world.objects[&ATTACKER];
     assert_eq!(unit.requested_victim_id, Some(VICTIM));
     assert!(!unit.is_attack_path);
@@ -54,7 +58,11 @@ fn attack_request_loaded_admission_preserves_old_path_until_resolution() {
     let mut world = world(true, goal);
     let old = vec![Vec3::ZERO, Vec3::new(0.0, 0.0, 20.0)];
     world.objects.get_mut(&ATTACKER).unwrap().movement.path = old.clone();
-    assert!(world.request_attack_path(ATTACKER, Some(VICTIM), goal));
+    assert!(
+        world
+            .request_attack_path(ATTACKER, Some(VICTIM), goal)
+            .expect("valid attack request fixture")
+    );
     let unit = &world.objects[&ATTACKER];
     assert_eq!(unit.movement.path, old);
     assert!(unit.waiting_for_path);
@@ -62,7 +70,11 @@ fn attack_request_loaded_admission_preserves_old_path_until_resolution() {
     assert_eq!(unit.requested_victim_id, Some(VICTIM));
     assert_eq!(world.pathfinding_system.pending_path_count(), 1);
     // A second accepted request replaces its queued entry, rather than searching.
-    assert!(world.request_attack_path(ATTACKER, Some(VICTIM), goal + Vec3::Z));
+    assert!(
+        world
+            .request_attack_path(ATTACKER, Some(VICTIM), goal + Vec3::Z)
+            .expect("valid attack request fixture")
+    );
     assert_eq!(world.pathfinding_system.pending_path_count(), 1);
     assert_eq!(
         world
@@ -79,7 +91,11 @@ fn attack_request_loaded_admission_preserves_old_path_until_resolution() {
 fn attack_request_queued_fallback_observes_current_victim_position() {
     let goal = Vec3::new(80.0, 0.0, 0.0);
     let mut world = world(true, goal);
-    assert!(world.request_attack_path(ATTACKER, Some(VICTIM), goal));
+    assert!(
+        world
+            .request_attack_path(ATTACKER, Some(VICTIM), goal)
+            .expect("valid attack request fixture")
+    );
     let current = Vec3::new(120.0, 0.0, 0.0);
     world.set_fixture_object_position(VICTIM, current);
     let mut adjusted = current;
@@ -99,7 +115,11 @@ fn attack_request_queued_fallback_observes_current_victim_position() {
 fn attack_request_missing_victim_keeps_destination_without_new_ignore() {
     let goal = Vec3::new(80.0, 0.0, 0.0);
     let mut world = world(true, goal);
-    assert!(world.request_attack_path(ATTACKER, Some(VICTIM), goal));
+    assert!(
+        world
+            .request_attack_path(ATTACKER, Some(VICTIM), goal)
+            .expect("valid attack request fixture")
+    );
     world.objects.remove(&VICTIM);
     resolve(&mut world);
     let unit = &world.objects[&ATTACKER];
@@ -120,7 +140,11 @@ fn attack_request_ranged_search_restores_attack_flag() {
         can_target_ground: true,
         ..Default::default()
     });
-    assert!(world.request_attack_path(ATTACKER, Some(VICTIM), goal));
+    assert!(
+        world
+            .request_attack_path(ATTACKER, Some(VICTIM), goal)
+            .expect("valid attack request fixture")
+    );
     resolve(&mut world);
     let unit = &world.objects[&ATTACKER];
     assert!(unit.is_attack_path);
@@ -134,7 +158,11 @@ fn attack_request_ranged_search_restores_attack_flag() {
 fn attack_request_cancelled_waiting_does_not_install_stale_entry() {
     let goal = Vec3::new(80.0, 0.0, 0.0);
     let mut world = world(true, goal);
-    assert!(world.request_attack_path(ATTACKER, Some(VICTIM), goal));
+    assert!(
+        world
+            .request_attack_path(ATTACKER, Some(VICTIM), goal)
+            .expect("valid attack request fixture")
+    );
     world.objects.get_mut(&ATTACKER).unwrap().waiting_for_path = false;
     resolve(&mut world);
     assert!(world.objects[&ATTACKER].movement.path.is_empty());
@@ -145,7 +173,11 @@ fn attack_request_cancelled_waiting_does_not_install_stale_entry() {
 fn attack_request_fresh_move_replaces_attack_metadata() {
     let goal = Vec3::new(80.0, 0.0, 0.0);
     let mut world = world(true, goal);
-    assert!(world.request_attack_path(ATTACKER, Some(VICTIM), goal));
+    assert!(
+        world
+            .request_attack_path(ATTACKER, Some(VICTIM), goal)
+            .expect("valid attack request fixture")
+    );
     let newest = Vec3::new(0.0, 0.0, 100.0);
     assert!(world.assign_unit_path(ATTACKER, newest, &[]));
     assert_eq!(world.pathfinding_system.pending_path_count(), 1);
@@ -165,7 +197,9 @@ fn attack_request_repath_two_and_three_frame_boundary() {
         world.frame = frame;
         world.objects.get_mut(&ATTACKER).unwrap().path_timestamp = 100;
         assert_eq!(
-            world.request_attack_path(ATTACKER, Some(VICTIM), goal),
+            world
+                .request_attack_path(ATTACKER, Some(VICTIM), goal)
+                .expect("valid attack request fixture"),
             accepted
         );
         let unit = &world.objects[&ATTACKER];
@@ -187,8 +221,14 @@ fn attack_request_repath_two_and_three_frame_boundary() {
 fn attack_request_same_ids_resolve_in_their_own_world() {
     let mut a = world(true, Vec3::new(80.0, 0.0, 0.0));
     let mut b = world(true, Vec3::new(0.0, 0.0, 120.0));
-    assert!(a.request_attack_path(ATTACKER, Some(VICTIM), Vec3::new(80.0, 0.0, 0.0)));
-    assert!(b.request_attack_path(ATTACKER, Some(VICTIM), Vec3::new(0.0, 0.0, 120.0)));
+    assert!(
+        a.request_attack_path(ATTACKER, Some(VICTIM), Vec3::new(80.0, 0.0, 0.0))
+            .expect("valid attack request fixture")
+    );
+    assert!(
+        b.request_attack_path(ATTACKER, Some(VICTIM), Vec3::new(0.0, 0.0, 120.0))
+            .expect("valid attack request fixture")
+    );
     resolve(&mut b);
     resolve(&mut a);
     assert_ne!(
@@ -213,7 +253,9 @@ fn attack_request_snapshot_retains_queued_and_deferred_continuation() {
             source.objects.get_mut(&ATTACKER).unwrap().path_timestamp = 99;
         }
         assert_eq!(
-            source.request_attack_path(ATTACKER, Some(VICTIM), goal),
+            source
+                .request_attack_path(ATTACKER, Some(VICTIM), goal)
+                .expect("valid attack request fixture"),
             !deferred
         );
         let builder = SnapshotBuilder::new();
@@ -270,7 +312,11 @@ fn attack_request_loaded_contact_approach_waits_for_owned_search_phase() {
             ..Default::default()
         });
         unit.movement.path = old.clone();
-        assert!(world.attack_approach_compute_path(ATTACKER, Some(VICTIM), None));
+        assert!(
+            world
+                .attack_approach_compute_path(ATTACKER, Some(VICTIM), None)
+                .expect("valid attack request fixture")
+        );
         let unit = &world.objects[&ATTACKER];
         assert!(unit.waiting_for_path);
         assert!(unit.is_attack_path);

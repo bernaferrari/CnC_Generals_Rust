@@ -399,7 +399,7 @@ impl GameLogic {
         &mut self,
         object_ids: &[ObjectId],
         dt: f32,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         self.update_movement_locomotor_pass_with_effects(object_ids, dt, &mut Default::default())
     }
 
@@ -408,7 +408,7 @@ impl GameLogic {
         object_ids: &[ObjectId],
         dt: f32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         let pose_frame = self.frame;
         // C++ m_isBlockedAndStuck → patchPath; requestSafePath → findSafePath Dijkstra.
         let mut repaths: Vec<(ObjectId, Vec<Vec3>, bool)> = Vec::new();
@@ -996,6 +996,7 @@ impl GameLogic {
 
         for &id in object_ids {
             self.prepare_transport_return_path(id);
+            let mut idle_after_locomotion = false;
             let (ground_y, surface_y, climber_ahead_y, cell_type, underwater) = {
                 let Some(obj) = self.objects.get(&id) else {
                     continue;
@@ -1516,6 +1517,15 @@ impl GameLogic {
                                         obj.set_precise_z_pos(false);
                                         obj.ignored_obstacle_id = None;
                                         obj.queue_for_path_frames = 0;
+                                        idle_after_locomotion |= matches!(
+                                            obj.ai_state(),
+                                            AIState::Moving | AIState::AttackMoving
+                                        ) && !obj.has_temporary_ai_move()
+                                            && !matches!(
+                                                obj.retained_ai_root_state(),
+                                                AIState::JetReturningForLanding
+                                                    | AIState::JetReturnToDeadAirfield
+                                            );
                                         obj.stop_moving(
                                             &mut crate::game_logic::ObjectAudio::queue(
                                                 &mut self.queued_audio_events,
@@ -1970,6 +1980,16 @@ impl GameLogic {
                                                 obj.set_precise_z_pos(false);
                                                 obj.ignored_obstacle_id = None;
                                                 obj.queue_for_path_frames = 0;
+                                                idle_after_locomotion |= matches!(
+                                                    obj.ai_state(),
+                                                    AIState::Moving | AIState::AttackMoving
+                                                ) && !obj
+                                                    .has_temporary_ai_move()
+                                                    && !matches!(
+                                                        obj.retained_ai_root_state(),
+                                                        AIState::JetReturningForLanding
+                                                            | AIState::JetReturnToDeadAirfield
+                                                    );
                                                 obj.stop_moving(
                                                     &mut crate::game_logic::ObjectAudio::queue(
                                                         &mut self.queued_audio_events,
@@ -2502,6 +2522,16 @@ impl GameLogic {
                                             obj.set_precise_z_pos(false);
                                             obj.ignored_obstacle_id = None;
                                             obj.queue_for_path_frames = 0;
+                                            idle_after_locomotion |= matches!(
+                                                obj.ai_state(),
+                                                AIState::Moving | AIState::AttackMoving
+                                            ) && !obj
+                                                .has_temporary_ai_move()
+                                                && !matches!(
+                                                    obj.retained_ai_root_state(),
+                                                    AIState::JetReturningForLanding
+                                                        | AIState::JetReturnToDeadAirfield
+                                                );
                                             obj.stop_moving(
                                                 &mut crate::game_logic::ObjectAudio::queue(
                                                     &mut self.queued_audio_events,
@@ -2639,6 +2669,15 @@ impl GameLogic {
                                         obj.set_precise_z_pos(false);
                                         obj.ignored_obstacle_id = None;
                                         obj.queue_for_path_frames = 0;
+                                        idle_after_locomotion |= matches!(
+                                            obj.ai_state(),
+                                            AIState::Moving | AIState::AttackMoving
+                                        ) && !obj.has_temporary_ai_move()
+                                            && !matches!(
+                                                obj.retained_ai_root_state(),
+                                                AIState::JetReturningForLanding
+                                                    | AIState::JetReturnToDeadAirfield
+                                            );
                                         obj.stop_moving(
                                             &mut crate::game_logic::ObjectAudio::queue(
                                                 &mut self.queued_audio_events,
@@ -2736,9 +2775,21 @@ impl GameLogic {
                 self.apply_arrival_goal_snap(id, Some(goal));
             }
             self.finish_transport_return_phase_with_effects(id, effects);
+            if idle_after_locomotion && self.objects.contains_key(&id) {
+                let nested = self
+                    .objects
+                    .get(&id)
+                    .is_some_and(|object| object.unit_ai_runtime.parent_state().is_some());
+                if nested {
+                    self.enter_ai_idle_child_owned(id);
+                } else {
+                    self.enter_base_ai_idle_owned(id, effects)?;
+                }
+            }
         }
 
         self.drain_pending_transport_exits_with_effects(effects);
+        Ok(())
     }
     /// Closest-segment projection on the host XZ polyline — the same loop as
     /// `PathfindingSystem::compute_point_on_path_for`

@@ -824,13 +824,12 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         let Some(area) = self.qualified_area(area, current_player) else {
             return Some(Ok(()));
         };
-        self.world.apply_owned_named_attack_area_with_effects(
+        Some(self.world.apply_owned_named_attack_area_with_effects(
             unit,
             &area,
             this_object.map(ObjectId),
             &mut self.ui,
-        );
-        Some(Ok(()))
+        ))
     }
 
     fn named_attack_team(

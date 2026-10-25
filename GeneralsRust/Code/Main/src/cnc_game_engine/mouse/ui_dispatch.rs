@@ -210,12 +210,12 @@ impl CnCGameEngine {
         &mut self,
         physical_key: &winit::keyboard::PhysicalKey,
         pressed: bool,
-    ) -> bool {
+    ) -> Result<bool, String> {
         #[cfg(feature = "game_client")]
         {
             use game_client::gui::game_window::WindowInputReturnCode;
             let Some(vk) = Self::winit_physical_key_to_wnd_vk(physical_key) else {
-                return false;
+                return Ok(false);
             };
             // C++ KEY_STATE_DOWN=0x02, KEY_STATE_UP=0x01
             let state = if pressed { 0x02 } else { 0x01 };
@@ -233,6 +233,7 @@ impl CnCGameEngine {
                 );
             let camera_rules = self.game_logic.camera_input_rules();
             let upgrade_tooltip = self.game_logic.receiving_upgrade_tooltip_observer();
+            let menu_world = self.receiving_menu_world_facts();
             let pending = &mut self.game_logic.replay_pending;
             let mut replay_version = |filename: &str| {
                 pending
@@ -245,8 +246,9 @@ impl CnCGameEngine {
                     terrain.apply_texture_lod_reduction(reduction);
                 }
             };
-            let receiving_window_manager = self.game_client.window_manager_owner();
             let mut emitted_messages = Vec::new();
+            let (window_manager_owner, campaign_manager, main_menu, menu_host) =
+                self.game_client.window_owner_campaign_menu_and_host_mut();
             let mut context = game_client::gui::window_manager::ControlBarInputContext {
             upgrade_tooltip: game_client::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource::Receiving(&upgrade_tooltip),
                 replay_menu: Some(&mut replay_operation),
@@ -266,28 +268,30 @@ impl CnCGameEngine {
                 tooltips_disabled,
                 cursor_mouse: cursor_mouse.as_ref(),
                 emitted_messages: Some(&mut emitted_messages),
-                campaign_manager: Some(self.game_client.campaign_manager_mut()),
-                window_manager_owner: Some(&receiving_window_manager),
+                campaign_manager: Some(campaign_manager),
+                main_menu: Some(main_menu),
+                window_manager_owner: Some(window_manager_owner),
+                menu_world: Some(menu_world),
+                menu_host: Some(menu_host),
             };
             let result = game_client::gui::window_manager::dispatch_os_key_to_window_manager_with_control_bar_for_owner(
-                &receiving_window_manager,
+                window_manager_owner,
                 vk,
                 state,
                 &mut context,
             );
             drop(context);
             drop(replay_version);
-            self.game_client
-                .complete_window_event_messages(emitted_messages);
+            self.complete_receiving_menu_event_messages(emitted_messages)?;
             if let Some(step) = replay_operation.take() {
-                step.complete(self);
+                step.complete(self)?;
             }
-            result == WindowInputReturnCode::Used
+            Ok(result == WindowInputReturnCode::Used)
         }
         #[cfg(not(feature = "game_client"))]
         {
             let _ = (physical_key, pressed);
-            false
+            Ok(false)
         }
     }
 
@@ -425,7 +429,7 @@ impl CnCGameEngine {
         x: i32,
         y: i32,
         facts: game_client::gui::WindowMouseFacts,
-    ) -> game_client::gui::game_window::WindowInputReturnCode {
+    ) -> Result<game_client::gui::game_window::WindowInputReturnCode, String> {
         let replay = matches!(
             self.game_logic.game_mode(),
             crate::game_logic::GameMode::Replay
@@ -440,6 +444,7 @@ impl CnCGameEngine {
             );
         let camera_rules = self.game_logic.camera_input_rules();
         let upgrade_tooltip = self.game_logic.receiving_upgrade_tooltip_observer();
+        let menu_world = self.receiving_menu_world_facts();
         let pending = &mut self.game_logic.replay_pending;
         let mut replay_version = |filename: &str| {
             pending
@@ -452,8 +457,9 @@ impl CnCGameEngine {
                 terrain.apply_texture_lod_reduction(reduction);
             }
         };
-        let receiving_window_manager = self.game_client.window_manager_owner();
         let mut emitted_messages = Vec::new();
+        let (receiving_window_manager, campaign_manager, main_menu, menu_host) =
+            self.game_client.window_owner_campaign_menu_and_host_mut();
         let mut context = game_client::gui::window_manager::ControlBarInputContext {
             upgrade_tooltip: game_client::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource::Receiving(&upgrade_tooltip),
             replay_menu: Some(&mut replay_operation),
@@ -473,11 +479,14 @@ impl CnCGameEngine {
             tooltips_disabled,
             cursor_mouse: cursor_mouse.as_ref(),
             emitted_messages: Some(&mut emitted_messages),
-            campaign_manager: Some(self.game_client.campaign_manager_mut()),
-                window_manager_owner: Some(&receiving_window_manager),
+            campaign_manager: Some(campaign_manager),
+            main_menu: Some(main_menu),
+            window_manager_owner: Some(receiving_window_manager),
+            menu_world: Some(menu_world),
+            menu_host: Some(menu_host),
         };
         let result = game_client::gui::window_manager::dispatch_os_mouse_to_window_manager_with_control_bar_for_owner(
-            &receiving_window_manager,
+            receiving_window_manager,
             msg,
             x,
             y,
@@ -486,12 +495,11 @@ impl CnCGameEngine {
         );
         drop(context);
         drop(replay_version);
-        self.game_client
-            .complete_window_event_messages(emitted_messages);
+        self.complete_receiving_menu_event_messages(emitted_messages)?;
         if let Some(step) = replay_operation.take() {
-            step.complete(self);
+            step.complete(self)?;
         }
-        result
+        Ok(result)
     }
 
     pub(in crate::cnc_game_engine) fn dispatch_os_mouse_to_window_manager(
@@ -501,7 +509,7 @@ impl CnCGameEngine {
         x: i32,
         y: i32,
         origin: MouseInputOrigin,
-    ) -> bool {
+    ) -> Result<bool, String> {
         #[cfg(feature = "game_client")]
         {
             use game_client::gui::control_bar::{
@@ -515,7 +523,7 @@ impl CnCGameEngine {
                 (MouseButton::Right, false) => WindowMessage::RightUp,
                 (MouseButton::Middle, true) => WindowMessage::MiddleDown,
                 (MouseButton::Middle, false) => WindowMessage::MiddleUp,
-                _ => return false,
+                _ => return Ok(false),
             };
             // `CommandSourceType::FromUser` alone cannot distinguish a real
             // winit event from `inject_winit_equivalent_*`: both deliberately
@@ -530,31 +538,35 @@ impl CnCGameEngine {
             let facts = self.native_window_mouse_facts();
             with_host_control_bar_input_provenance(provenance, || {
                 self.dispatch_native_window_mouse_with_bar(msg, x, y, facts)
-                    == WindowInputReturnCode::Used
+                    .map(|result| result == WindowInputReturnCode::Used)
             })
         }
         #[cfg(not(feature = "game_client"))]
         {
             let _ = (button, pressed, x, y, origin);
-            false
+            Ok(false)
         }
     }
 
-    pub(in crate::cnc_game_engine) fn dispatch_os_mouse_move(&mut self, x: i32, y: i32) -> bool {
+    pub(in crate::cnc_game_engine) fn dispatch_os_mouse_move(
+        &mut self,
+        x: i32,
+        y: i32,
+    ) -> Result<bool, String> {
         #[cfg(feature = "game_client")]
         {
             use game_client::gui::game_window::{WindowInputReturnCode, WindowMessage};
-            self.dispatch_native_window_mouse_with_bar(
+            Ok(self.dispatch_native_window_mouse_with_bar(
                 WindowMessage::MousePos,
                 x,
                 y,
                 self.native_window_mouse_facts(),
-            ) == WindowInputReturnCode::Used
+            )? == WindowInputReturnCode::Used)
         }
         #[cfg(not(feature = "game_client"))]
         {
             let _ = (x, y);
-            false
+            Ok(false)
         }
     }
 
@@ -563,20 +575,24 @@ impl CnCGameEngine {
         delta: &winit::event::MouseScrollDelta,
         x: i32,
         y: i32,
-    ) -> bool {
+    ) -> Result<bool, String> {
         #[cfg(feature = "game_client")]
         {
             use game_client::gui::game_window::WindowInputReturnCode;
             let Some(msg) = window_message_for_mouse_wheel(delta) else {
-                return false;
+                return Ok(false);
             };
-            self.dispatch_native_window_mouse_with_bar(msg, x, y, self.native_window_mouse_facts())
-                == WindowInputReturnCode::Used
+            Ok(self.dispatch_native_window_mouse_with_bar(
+                msg,
+                x,
+                y,
+                self.native_window_mouse_facts(),
+            )? == WindowInputReturnCode::Used)
         }
         #[cfg(not(feature = "game_client"))]
         {
             let _ = (delta, x, y);
-            false
+            Ok(false)
         }
     }
 

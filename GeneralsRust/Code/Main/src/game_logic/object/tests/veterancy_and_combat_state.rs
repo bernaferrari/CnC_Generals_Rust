@@ -348,6 +348,46 @@ fn leftover_sa_player_targetable_sets_script_targetable() {
 }
 
 #[test]
+fn disabled_status_does_not_issue_ai_idle() {
+    let mut obj = make_test_object();
+    obj.set_ai_state(
+        crate::game_logic::AIState::Moving,
+        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+    );
+    obj.apply_disabled_emp(
+        30,
+        &mut crate::game_logic::HostHealthEvents::default(),
+        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+    );
+    assert_eq!(obj.ai_state(), crate::game_logic::AIState::Moving);
+}
+
+#[test]
+fn prone_and_cheer_timers_do_not_rewrite_ai_machine() {
+    let mut obj = make_test_object();
+    obj.set_ai_state(
+        crate::game_logic::AIState::Moving,
+        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+    );
+    obj.go_prone(
+        0.5,
+        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+    );
+    assert_eq!(obj.ai_state(), crate::game_logic::AIState::Moving);
+
+    obj.set_ai_state(
+        crate::game_logic::AIState::SpecialAbility,
+        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+    );
+    obj.cheer_timer = 0.1;
+    obj.tick_timers(
+        0.2,
+        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+    );
+    assert_eq!(obj.ai_state(), crate::game_logic::AIState::SpecialAbility);
+}
+
+#[test]
 fn paralyzed_rejects_move_orders() {
     let mut obj = make_test_object();
     obj.apply_disabled_paralyzed(
@@ -492,6 +532,13 @@ fn stop_attack_clears_force_attack_and_targets() {
         &mut _attack_output,
         &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
     );
+    object.clear_target(&mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()));
+    assert_eq!(object.ai_state(), AIState::Attacking);
+    object.set_target(
+        Some(ObjectId(99)),
+        &mut _attack_output,
+        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+    );
     object.set_force_attack(true);
     object.set_target_location(
         Some(Vec3::new(1.0, 0.0, 2.0)),
@@ -500,6 +547,7 @@ fn stop_attack_clears_force_attack_and_targets() {
     assert!(object.set_weapon_lock(0, WeaponLockType::LockedTemporarily));
     object.stop_attack(&mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()));
 
+    assert_eq!(object.ai_state(), AIState::Attacking);
     assert!(object.target.is_none());
     assert!(object.target_location.is_none());
     assert!(!object.force_attack);
@@ -1649,7 +1697,9 @@ fn bone_fx_pristine_slots_fire_without_state_change() {
 
 #[test]
 fn crush_die_sets_model_condition_bits() {
-    use crate::game_logic::host_neutron_missile_slow_death::{MC_BIT_BACKCRUSHED, MC_BIT_FRONTCRUSHED};
+    use crate::game_logic::host_neutron_missile_slow_death::{
+        MC_BIT_BACKCRUSHED, MC_BIT_FRONTCRUSHED,
+    };
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut t = ThingTemplate::new("TestInfantry");
     t.set_health(100.0);
@@ -1886,7 +1936,9 @@ fn crush_die_queues_sound_on_crushed_death() {
 
 #[test]
 fn crush_die_zero_flags_defaults_to_total() {
-    use crate::game_logic::host_neutron_missile_slow_death::{MC_BIT_BACKCRUSHED, MC_BIT_FRONTCRUSHED};
+    use crate::game_logic::host_neutron_missile_slow_death::{
+        MC_BIT_BACKCRUSHED, MC_BIT_FRONTCRUSHED,
+    };
     use crate::game_logic::host_usa_pilot::HostDeathType;
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut t = ThingTemplate::new("AmericaRanger");
@@ -1905,7 +1957,9 @@ fn crush_die_zero_flags_defaults_to_total() {
 
 #[test]
 fn crush_die_recomputes_front_from_crusher_pose() {
-    use crate::game_logic::host_neutron_missile_slow_death::{MC_BIT_BACKCRUSHED, MC_BIT_FRONTCRUSHED};
+    use crate::game_logic::host_neutron_missile_slow_death::{
+        MC_BIT_BACKCRUSHED, MC_BIT_FRONTCRUSHED,
+    };
     use crate::game_logic::host_usa_pilot::HostDeathType;
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut t = ThingTemplate::new("AmericaRanger");

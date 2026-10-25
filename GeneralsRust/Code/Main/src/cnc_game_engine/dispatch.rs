@@ -231,9 +231,22 @@ impl CnCGameEngine {
     /// Host start still consumes the payload; `propagate_messages` can deliver
     /// the same message to crate GameLogic (C++ `logicMessageDispatcher`).
     pub(super) fn take_pending_new_game_start_request(&mut self) -> Option<HostStartRequest> {
-        let dispatch =
-            Self::peek_new_game_dispatch_from_common_stream(self.game_client.message_stream())?;
-        self.build_start_request_from_pending_globals(Some(dispatch))
+        let mut last_any = None;
+        let mut last_match = None;
+        for message in self.game_client.message_stream().get_messages().iter() {
+            if let Some(dispatch) = Self::startup_new_game_dispatch_from_message(message) {
+                last_any = Some((dispatch, message.clone()));
+                if !matches!(dispatch.game_mode, GameMode::Shell) {
+                    last_match = Some((dispatch, message.clone()));
+                }
+            }
+        }
+        let (dispatch, message) = last_match.or(last_any)?;
+        self.build_start_request_from_pending_globals_at_source(
+            Some(dispatch),
+            false,
+            message.campaign_launch(),
+        )
     }
 
     /// Inspect every `NewGame` on the common stream without removing it.
@@ -387,7 +400,7 @@ impl CnCGameEngine {
         end_frame: u32,
         advice: game_engine::common::rts::academy_stats::AcademyAdviceInfo,
         show_advice: bool,
-    ) {
+    ) -> Result<(), String> {
         #[cfg(feature = "game_client")]
         {
             let snapshot = game_client::gui::callbacks::score_screen::ScoreScreenAcademySnapshot {
@@ -395,64 +408,51 @@ impl CnCGameEngine {
                 advice,
                 show_advice,
             };
-            let deferred_snapshot = snapshot.clone();
-            game_client::gui::with_window_manager(|manager| {
-                manager.transition_set_group("FadeWholeScreen", false);
-            });
-            let result = self.game_client.with_receiving_shell(|shell, effects| {
-                if let Err(e) = game_client::system::SubsystemInterface::init(shell) {
-                    return Err(e);
-                }
-                shell.push_score_screen(snapshot, false, effects)?;
-                shell.show_shell(false, effects)?;
-                Ok(shell.get_screen_count())
-            });
-            match result {
-                Some(Ok(_)) => {
-                    self.shell_menu_active = true;
-                }
-                Some(Err(e)) => {
-                    warn!("clearGameData failed to push ScoreScreen.wnd: {e:?}");
-                }
-                None => {
-                    game_client::gui::shell::base::queue_shell_operation_with_effects(
-                        move |shell, effects| {
-                            if let Err(e) =
-                                shell.push_score_screen(deferred_snapshot, false, effects)
-                            {
-                                warn!("deferred ScoreScreen push failed: {e:?}");
-                                return;
-                            }
-                            if let Err(e) = shell.show_shell(false, effects) {
-                                warn!("deferred showShell(FALSE) failed: {e:?}");
-                            }
-                        },
-                    );
-                    self.shell_menu_active = true;
-                }
-            }
+            self.game_client
+                .window_manager_owner_ref()
+                .try_with_manager(|manager| manager.transition_set_group("FadeWholeScreen", false))
+                .ok_or_else(|| {
+                    "ScoreScreen requires released receiving WindowManager".to_string()
+                })?;
+            let facts = self.receiving_menu_world_facts();
+            // Score init observes the outgoing world before reset. Host requests
+            // stay on the receiving mailbox until the enclosing clear returns;
+            // recursively draining here would run lifecycle work during clear.
+            self.game_client
+                .with_receiving_shell(Some(facts), |shell, effects| {
+                    game_client::system::SubsystemInterface::init(shell)?;
+                    shell.push_score_screen(snapshot, false, effects)?;
+                    shell.show_shell(false, effects)?;
+                    Ok::<_, Box<dyn std::error::Error>>(())
+                })
+                .ok_or_else(|| "ScoreScreen requires released receiving Shell".to_string())?
+                .map_err(|error| error.to_string())?;
+            self.shell_menu_active = true;
+            self.game_client
+                .window_manager_owner_ref()
+                .try_with_manager(|manager| manager.transition_reverse("FadeWholeScreen"))
+                .ok_or_else(|| {
+                    "ScoreScreen requires released receiving WindowManager".to_string()
+                })?;
         }
-        #[cfg(feature = "game_client")]
-        game_client::gui::with_window_manager(|manager| {
-            manager.transition_reverse("FadeWholeScreen");
-        });
         self.set_runtime_host_ui_screen_override(Some("ScoreScreen"));
+        Ok(())
     }
 
     /// End the live offline match when ScriptEngine or QuitMenu posts
     /// MSG_CLEAR_GAME_DATA. C++ `GameLogic::clearGameData`
     /// (`GameLogicDispatch.cpp:223-253`) pushes ScoreScreen then resets.
-    pub(super) fn host_consume_clear_game_data(&mut self) -> bool {
+    pub(super) fn host_consume_clear_game_data(&mut self) -> Result<bool, String> {
         #[cfg(feature = "game_client")]
-        if self.dispatch_receiving_recorder_lifecycle() {
-            return true;
+        if self.dispatch_receiving_recorder_lifecycle()? {
+            return Ok(true);
         }
 
         if !matches!(
             self.current_state,
             GameState::InGame | GameState::Victory | GameState::Defeat
         ) {
-            return false;
+            return Ok(false);
         }
         // Network/replay stay out of this consumer (GameNetwork deferred).
         if matches!(
@@ -464,33 +464,32 @@ impl CnCGameEngine {
                     | crate::game_logic::GameMode::Replay
             )
         ) {
-            return false;
+            return Ok(false);
         }
         if !Self::take_clear_game_data_from_common_stream(self.game_client.message_stream_mut()) {
-            return false;
+            return Ok(false);
         }
         let show_score = self.game_logic.game_mode() != GameMode::Shell
             && self.game_logic.game_mode() != GameMode::None;
-        self.clear_receiving_game_data(true);
+        self.clear_receiving_game_data(true)?;
         if self.is_quitting() {
-            return true;
+            return Ok(true);
         }
-        self.transition_to_state(GameState::Menu);
+        self.transition_to_state(GameState::Menu)?;
         if show_score {
             self.set_runtime_host_ui_screen_override(Some("ScoreScreen"));
         }
-        true
+        Ok(true)
     }
 
     /// C++ `restartMissionMenu` (QuitMenu.cpp:175-226): re-apply MSG_NEW_GAME
     /// mode/difficulty/rank and keep the last Challenge PlayerTemplate.
-    pub(super) fn host_restart_mission_from_dispatch(&mut self, dispatch: StartupNewGameDispatch) {
-        if self
-            .require_native_world_boundary("restart mission dispatch")
-            .is_err()
-        {
-            return;
-        }
+    pub(super) fn host_restart_mission_from_dispatch(
+        &mut self,
+        dispatch: StartupNewGameDispatch,
+    ) -> Result<(), String> {
+        self.require_native_world_boundary("restart mission dispatch")
+            .map_err(|error| error.to_string())?;
         self.update_last_new_game_dispatch(dispatch);
         let prepared_map = Self::apply_application_new_game_dispatch(dispatch);
         let identity = self.last_new_game_identity();
@@ -534,7 +533,8 @@ impl CnCGameEngine {
             faction: request.faction.clone(),
             map: request.map.clone(),
         });
-        self.start_game_from_ui(request);
+        self.start_game_from_ui(request)?;
+        Ok(())
     }
 
     /// Resolve map/faction/skirmish config after a NewGame dispatch (or helper flag).
@@ -542,13 +542,14 @@ impl CnCGameEngine {
         &mut self,
         dispatch: Option<StartupNewGameDispatch>,
     ) -> Option<HostStartRequest> {
-        self.build_start_request_from_pending_globals_at_source(dispatch, false)
+        self.build_start_request_from_pending_globals_at_source(dispatch, false, None)
     }
 
     pub(super) fn build_start_request_from_pending_globals_at_source(
         &mut self,
         dispatch: Option<StartupNewGameDispatch>,
         receiving: bool,
+        campaign_launch: Option<&game_engine::common::message_stream::ClientCampaignLaunch>,
     ) -> Option<HostStartRequest> {
         let dispatch = dispatch.unwrap_or(StartupNewGameDispatch {
             game_mode_code: 2, // GAME_SKIRMISH default when only the helper flag is set
@@ -559,30 +560,21 @@ impl CnCGameEngine {
             max_fps: None,
         });
 
-        // C++ has one GameInfo/GlobalData path for a campaign launch. Main's
-        // host consumes the typed shell descriptor only when it exactly
-        // corresponds to the NewGame payload being dispatched.  The bridge
-        // drops stale/mismatched descriptors, so ordinary commands and a
-        // later Skirmish launch cannot inherit a selected campaign faction.
-        #[cfg(feature = "game_client")]
-        let campaign_launch = match game_client::gui::campaign_launch_host_bridge::take_host_campaign_launch_for_new_game(
-            dispatch.game_mode_code,
-            dispatch.difficulty_code,
-            dispatch.rank_points,
-            dispatch.max_fps,
-        ) {
-            game_client::gui::campaign_launch_host_bridge::HostCampaignLaunchDelivery::None => None,
-            game_client::gui::campaign_launch_host_bridge::HostCampaignLaunchDelivery::Matched(descriptor) => Some(descriptor),
-            game_client::gui::campaign_launch_host_bridge::HostCampaignLaunchDelivery::Mismatched => {
-                warn!("Rejecting MSG_NEW_GAME whose payload does not match its pending campaign launch descriptor");
-                Self::clear_pending_campaign_start_map();
+        if let Some(descriptor) = campaign_launch {
+            if !descriptor.matches_new_game(
+                dispatch.game_mode_code,
+                dispatch.difficulty_code,
+                dispatch.rank_points,
+                dispatch.max_fps,
+            ) {
+                warn!("Rejecting NewGame whose owned campaign descriptor mismatches its payload");
                 return None;
             }
-        };
+        }
         #[cfg(feature = "game_client")]
         let campaign_launch_overrides = match Self::campaign_launch_start_overrides(
             dispatch.game_mode,
-            campaign_launch.as_ref(),
+            campaign_launch,
         ) {
             Ok(overrides) => overrides,
             Err(reason) => {

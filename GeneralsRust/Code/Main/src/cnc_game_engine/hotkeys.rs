@@ -238,8 +238,8 @@ impl CnCGameEngine {
         self.record_control_group_select(group_num, false);
     }
 
-    pub(super) fn handle_key_press(&mut self, key: &Key) {
-        self.handle_mapped_key_press(key, None, false);
+    pub(super) fn handle_key_press(&mut self, key: &Key) -> Result<(), String> {
+        self.handle_mapped_key_press(key, None, false)
     }
 
     /// Live MetaEvent + default-hotkey path. `physical` supplies KEY_KP* /
@@ -250,10 +250,10 @@ impl CnCGameEngine {
         key: &Key,
         physical: Option<winit::keyboard::PhysicalKey>,
         os_repeat: bool,
-    ) {
+    ) -> Result<(), String> {
         if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
             if os_repeat {
-                return;
+                return Ok(());
             }
             match key {
                 Key::Character(c) if c == "m" || c == "M" => {
@@ -274,8 +274,8 @@ impl CnCGameEngine {
                 }
                 _ => {}
             }
-            let _ = self.try_dispatch_command_map_remap(key, physical.as_ref(), true);
-            return;
+            let _ = self.try_dispatch_command_map_remap(key, physical.as_ref(), true)?;
+            return Ok(());
         }
 
         let ctrl_down = self.keys_pressed.contains(&Key::Named(NamedKey::Control));
@@ -285,14 +285,14 @@ impl CnCGameEngine {
             && self.chat_panel.is_open()
         {
             if self.route_key_to_chat_panel(key) {
-                return;
+                return Ok(());
             }
         }
 
         // C++ MetaEvent eats KEY_STATE_AUTOREPEAT of known CommandMap keys
         // (no second meta). Chat already had its chance above.
         if os_repeat {
-            return;
+            return Ok(());
         }
 
         // C++ CommandXlat.cpp:2322-2326 — DISABLE_INPUT destroys every meta
@@ -301,7 +301,7 @@ impl CnCGameEngine {
             if matches!(key, Key::Named(NamedKey::Escape)) {
                 self.apply_meta_options_interrupt();
                 #[cfg(feature = "game_client")]
-                if self.host_toggle_retail_quit_menu() {
+                if self.host_toggle_retail_quit_menu()? {
                     info!("Escape opened/toggled the retail QuitMenu WND");
                 } else if matches!(self.current_state, GameState::InGame) {
                     info!("Escape QuitMenu WND unavailable - using pause fallback");
@@ -312,14 +312,14 @@ impl CnCGameEngine {
                     self.request_state_change(GameState::Paused);
                 }
             }
-            return;
+            return Ok(());
         }
 
         // C++ MetaEventTranslator walks TheMetaMap so Keyboard Options remaps
         // apply on the next key. Number-row CREATE/SELECT/ADD/VIEW_TEAM stays
         // with FixSelectSquad.
-        if self.try_dispatch_command_map_remap(key, physical.as_ref(), false) {
-            return;
+        if self.try_dispatch_command_map_remap(key, physical.as_ref(), false)? {
+            return Ok(());
         }
 
         // Retail CommandMap CAMERA_RESET KEY_KP5 residual. C++
@@ -338,7 +338,7 @@ impl CnCGameEngine {
             )
         {
             self.reset_camera_view_hotkey();
-            return;
+            return Ok(());
         }
 
         // Chat and configured CommandMap bindings have already seen the
@@ -441,7 +441,7 @@ impl CnCGameEngine {
                 if ctrl_down && !shift {
                     // Cancel entire production queue residual (Ctrl+Delete).
                     if self.cancel_all_selected_production() {
-                        return;
+                        return Ok(());
                     }
                 }
                 if shift {
@@ -450,7 +450,7 @@ impl CnCGameEngine {
                     // engine ids.
                     let selected = self.ui_selected_ids(self.current_player_id);
                     if selected.is_empty() {
-                        return;
+                        return Ok(());
                     }
                     for id in selected {
                         self.host_destroy_object(id);
@@ -548,7 +548,7 @@ impl CnCGameEngine {
                     && !self.keys_pressed.contains(&Key::Named(NamedKey::Alt)) =>
             {
                 // Toggle pause with 'P' key
-                self.toggle_pause();
+                self.toggle_pause()?;
             }
             Key::Character(c)
                 if c.eq_ignore_ascii_case("s")
@@ -1153,7 +1153,7 @@ impl CnCGameEngine {
                             // MSG_META_OPTIONS -> ToggleQuitMenu().
                             self.apply_meta_options_interrupt();
                             #[cfg(feature = "game_client")]
-                            if self.host_toggle_retail_quit_menu() {
+                            if self.host_toggle_retail_quit_menu()? {
                                 info!("Escape opened/toggled the retail QuitMenu WND");
                             } else {
                                 info!("Escape QuitMenu WND unavailable - using pause fallback");
@@ -1192,6 +1192,8 @@ impl CnCGameEngine {
             }
             _ => {}
         }
+
+        Ok(())
     }
 
     /// Retail SAVE_VIEW / VIEW_VIEW (Ctrl+Fn save, Fn recall) residual.
@@ -1297,15 +1299,15 @@ impl CnCGameEngine {
         key: &Key,
         physical: Option<&winit::keyboard::PhysicalKey>,
         shell: bool,
-    ) -> bool {
+    ) -> Result<bool, String> {
         #[cfg(feature = "game_client")]
         {
             let Some(code) = os_key_to_command_map_vk(key, physical) else {
-                return false;
+                return Ok(false);
             };
             // Number row is CREATE/SELECT/ADD/VIEW_TEAM (FixSelectSquad).
             if (0x30..=0x39).contains(&code) {
-                return false;
+                return Ok(false);
             }
             let mut mods = 0u32;
             if self.keys_pressed.contains(&Key::Named(NamedKey::Control)) {
@@ -1327,7 +1329,7 @@ impl CnCGameEngine {
                     code, mods, usable,
                 )
             else {
-                return false;
+                return Ok(false);
             };
             let upper = name.to_ascii_uppercase();
             if upper.contains("CREATE_TEAM")
@@ -1335,19 +1337,19 @@ impl CnCGameEngine {
                 || upper.contains("ADD_TEAM")
                 || upper.contains("VIEW_TEAM")
             {
-                return false;
+                return Ok(false);
             }
             // C++ MetaEvent.cpp:56-71 SAVE_VIEW1..8 / VIEW_VIEW1..8.
             if let Some(slot) = command_map_view_slot("SAVE_VIEW", &upper) {
                 self.store_or_apply_camera_view(slot, true);
-                return true;
+                return Ok(true);
             }
             if let Some(slot) = command_map_view_slot("VIEW_VIEW", &upper) {
                 self.store_or_apply_camera_view(slot, false);
-                return true;
+                return Ok(true);
             }
 
-            match upper.as_str() {
+            Ok(match upper.as_str() {
                 "TOGGLE_FAST_FORWARD_REPLAY" => {
                     self.toggle_replay_fast_forward_hotkey();
                     true
@@ -1430,7 +1432,7 @@ impl CnCGameEngine {
                 }
                 "TOGGLE_CONTROL_BAR" => {
                     if self.presentation_or_boot_in_replay_game() {
-                        return true;
+                        return Ok(true);
                     }
                     #[cfg(feature = "game_client")]
                     {
@@ -1482,7 +1484,7 @@ impl CnCGameEngine {
                 "OPTIONS" => {
                     // C++ CommandXlat.cpp:3091-3094 MSG_META_OPTIONS → ToggleQuitMenu.
                     #[cfg(feature = "game_client")]
-                    if !self.host_toggle_retail_quit_menu()
+                    if !self.host_toggle_retail_quit_menu()?
                         && matches!(self.current_state, GameState::InGame)
                     {
                         info!("OPTIONS QuitMenu WND unavailable - using pause fallback");
@@ -1495,12 +1497,12 @@ impl CnCGameEngine {
                     true
                 }
                 _ => false,
-            }
+            })
         }
         #[cfg(not(feature = "game_client"))]
         {
             let _ = (key, physical, shell);
-            false
+            Ok(false)
         }
     }
 

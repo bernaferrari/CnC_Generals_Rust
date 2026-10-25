@@ -61,7 +61,7 @@ impl GameLogic {
                 HostScriptMoveAttackRequest::TeamAttackTeam { attacker, victim } => {
                     let members = self.host_script_team_member_ids(&attacker);
                     for id in members {
-                        self.host_script_attack_team(id, &victim);
+                        self.host_script_attack_team(id, &victim)?;
                     }
                 }
                 HostScriptMoveAttackRequest::NamedAttackNamed { attacker, victim } => {
@@ -78,19 +78,19 @@ impl GameLogic {
                         continue;
                     };
                     let _ = self.apply_unit_locomotor_set(id, "normal");
-                    self.host_script_attack_area_with_effects(id, &area, effects);
+                    self.host_script_attack_area_with_effects(id, &area, effects)?;
                 }
                 HostScriptMoveAttackRequest::NamedAttackTeam { unit, team } => {
                     let Some(id) = self.host_object_id_by_script_name(&unit) else {
                         continue;
                     };
                     let _ = self.apply_unit_locomotor_set(id, "normal");
-                    self.host_script_attack_team(id, &team);
+                    self.host_script_attack_team(id, &team)?;
                 }
                 HostScriptMoveAttackRequest::TeamAttackArea { team, area } => {
                     let members = self.host_script_team_member_ids(&team);
                     for id in members {
-                        self.host_script_attack_area_with_effects(id, &area, effects);
+                        self.host_script_attack_area_with_effects(id, &area, effects)?;
                     }
                 }
                 HostScriptMoveAttackRequest::TeamAttackNamed { team, unit } => {
@@ -98,7 +98,7 @@ impl GameLogic {
                         continue;
                     };
                     for id in self.host_script_team_member_ids(&team) {
-                        self.unit_command_attack(id, vid);
+                        self.unit_command_attack(id, vid)?;
                     }
                 }
                 HostScriptMoveAttackRequest::NamedMoveTowardsNearest {
@@ -156,7 +156,10 @@ impl GameLogic {
     /// C++ ScriptActions TEAM/NAMED HUNT, TEAM/NAMED GUARD, PLAYER_HUNT.
     /// Leftover `OBJECT_REGISTRY` is empty on the host path; leftover actions
     /// queue [`gamelogic::scripting::HostScriptHuntGuardRequest`].
-    pub(super) fn apply_host_hunt_guard_script_requests(&mut self) {
+    pub(super) fn apply_host_hunt_guard_script_requests(
+        &mut self,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<()> {
         use crate::game_logic::KindOf;
         use gamelogic::scripting::HostScriptHuntGuardRequest;
         for req in gamelogic::scripting::take_host_script_hunt_guard_requests() {
@@ -213,10 +216,11 @@ impl GameLogic {
                     }
                 }
                 HostScriptHuntGuardRequest::TeamHuntWithCommandButton { team, button } => {
-                    self.host_script_team_hunt_with_command_button(&team, &button);
+                    self.host_script_team_hunt_with_command_button(&team, &button, effects)?;
                 }
             }
         }
+        Ok(())
     }
 
     /// C++ ScriptActions NAMED_STOP / TEAM_STOP / TEAM_STOP_AND_DISBAND.

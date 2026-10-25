@@ -231,6 +231,8 @@ pub struct INI {
     // application compatibility parser; Some(empty) is explicitly authoritative.
     terrain_types_target: Option<super::ini_terrain::TerrainTypes>,
     armor_definitions_target: Option<armor_definitions::ArmorDefinitions>,
+    // ChallengeMode is parsed into this operation-owned draft and published only after validation.
+    challenge_generals_target: Option<super::ini_challenge_generals::ChallengeGenerals>,
     // Explicit engine-owner target for `Upgrade` block parsing.
     upgrade_center_target: Option<Arc<RwLock<crate::common::system::upgrade::UpgradeCenter>>>,
     #[cfg(debug_assertions)]
@@ -1292,6 +1294,7 @@ impl INI {
             upgrade_center_target: None,
             terrain_types_target: None,
             armor_definitions_target: None,
+            challenge_generals_target: None,
             #[cfg(debug_assertions)]
             cur_block_start: String::new(),
         }
@@ -1312,7 +1315,20 @@ impl INI {
         self.ai_data_store_target.as_ref().map(Arc::clone)
     }
 
-    /// Admit Armor blocks into this operation's draft without global publication.
+    /// Keep ChallengeMode parsing state on this individual INI operation.
+    pub(crate) fn set_challenge_generals_target(
+        &mut self,
+        target: super::ini_challenge_generals::ChallengeGenerals,
+    ) {
+        self.challenge_generals_target = Some(target);
+    }
+
+    pub(crate) fn take_challenge_generals_target(
+        &mut self,
+    ) -> Option<super::ini_challenge_generals::ChallengeGenerals> {
+        self.challenge_generals_target.take()
+    }
+
     pub fn set_armor_definitions_target(&mut self, target: armor_definitions::ArmorDefinitions) {
         self.armor_definitions_target = Some(target);
     }

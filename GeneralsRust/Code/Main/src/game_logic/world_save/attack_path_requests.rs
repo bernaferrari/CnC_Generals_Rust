@@ -8,7 +8,7 @@ impl GameLogic {
     pub(in crate::game_logic) fn resolve_initialized_path_request(
         &mut self,
         mut req: crate::game_logic::pathfinding::PendingHostPath,
-    ) -> bool {
+    ) -> gamelogic::GameLogicResult<bool> {
         let (
             start,
             can_move,
@@ -35,7 +35,7 @@ impl GameLogic {
                 unit.is_attack_path,
                 unit.requested_victim_id,
             ),
-            _ => return false,
+            _ => return Ok(false),
         };
         if let Some(unit) = self.objects.get_mut(&req.unit_id) {
             req.destination = unit.requested_destination.unwrap_or(req.destination);
@@ -47,7 +47,7 @@ impl GameLogic {
             }
         }
         if !can_move {
-            return false;
+            return Ok(false);
         }
         // C++ queueForPath stores the object id; doPathfind reads the
         // current ignored obstacle from this same world's object.
@@ -113,10 +113,10 @@ impl GameLogic {
                     self.apply_computed_unit_path(req.unit_id, start, req.destination, path, false);
             }
             self.pathfinding_system.set_ignore_obstacle(None);
-            return self
+            return Ok(self
                 .objects
                 .get(&req.unit_id)
-                .is_some_and(|unit| !unit.movement.path.is_empty());
+                .is_some_and(|unit| !unit.movement.path.is_empty()));
         }
         if approach {
             if let Some(unit) = self.objects.get_mut(&req.unit_id) {
@@ -167,10 +167,10 @@ impl GameLogic {
                 }
             }
             self.pathfinding_system.set_ignore_obstacle(None);
-            return self
+            return Ok(self
                 .objects
                 .get(&req.unit_id)
-                .is_some_and(|unit| !unit.movement.path.is_empty());
+                .is_some_and(|unit| !unit.movement.path.is_empty()));
         }
         let mut goal = self
             .objects
@@ -194,7 +194,7 @@ impl GameLogic {
                     unit.is_attack_path = true;
                 }
                 self.pathfinding_system.set_ignore_obstacle(None);
-                return true;
+                return Ok(true);
             }
             if let Some(unit) = self.objects.get_mut(&req.unit_id) {
                 unit.is_attack_path = false;
@@ -217,10 +217,10 @@ impl GameLogic {
             }
             self.settle_try_one_more_repath(req.unit_id);
             self.pathfinding_system.set_ignore_obstacle(None);
-            return self
+            return Ok(self
                 .objects
                 .get(&req.unit_id)
-                .is_some_and(|unit| !unit.movement.path.is_empty());
+                .is_some_and(|unit| !unit.movement.path.is_empty()));
         }
         match self.compute_assigned_unit_path(
             req.unit_id,
@@ -250,13 +250,13 @@ impl GameLogic {
                     }
                     self.on_waited_path_arrived(req.unit_id);
                 } else {
-                    self.on_waited_path_failed(req.unit_id);
+                    self.on_waited_path_failed(req.unit_id)?;
                 }
             }
             None => {
                 if Self::route_is_already_there(start, goal, &req.waypoints) {
                     self.clear_compute_path_blocked(req.unit_id);
-                    self.on_waited_path_failed(req.unit_id);
+                    self.on_waited_path_failed(req.unit_id)?;
                 } else if self.try_closest_path_when_none(
                     req.unit_id,
                     start,
@@ -289,15 +289,16 @@ impl GameLogic {
                             unit.waiting_for_path = true;
                         }
                     } else {
-                        self.on_waited_path_failed(req.unit_id);
+                        self.on_waited_path_failed(req.unit_id)?;
                     }
                 }
             }
         }
         self.pathfinding_system.set_ignore_obstacle(None);
-        self.objects
+        Ok(self
+            .objects
             .get(&req.unit_id)
-            .is_some_and(|unit| !unit.movement.path.is_empty())
+            .is_some_and(|unit| !unit.movement.path.is_empty()))
     }
 
     /// C++ AIUpdate when `now >= m_queueForPathFrame`: queueForPath and clear the timer.

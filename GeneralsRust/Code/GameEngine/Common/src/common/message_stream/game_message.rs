@@ -376,6 +376,43 @@ impl fmt::Display for GameMessageType {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ClientCampaignLaunch {
+    pub map_name: String,
+    pub campaign_name: String,
+    pub campaign_player_faction: String,
+    pub is_challenge: bool,
+    /// C++ `TheChallengeGameInfo->getStartingCash().countMoney()` captured
+    /// with this launch. `Some(0)` is present GameInfo, not default cash.
+    /// Ordinary campaigns have no GameInfo and carry `None`.
+    pub game_info_starting_cash: Option<u32>,
+    pub player_template_name: Option<String>,
+    pub player_template_index: Option<i32>,
+    pub game_mode_code: i32,
+    pub difficulty_code: i32,
+    pub rank_points: i32,
+    pub max_fps: Option<i32>,
+}
+
+impl ClientCampaignLaunch {
+    /// Match the exact message payload emitted immediately after this
+    /// descriptor.  A mismatch is stale UI state and must never affect a later
+    /// NewGame request.
+    pub fn matches_new_game(
+        &self,
+        game_mode_code: i32,
+        difficulty_code: i32,
+        rank_points: i32,
+        max_fps: Option<i32>,
+    ) -> bool {
+        !self.map_name.trim().is_empty()
+            && self.game_mode_code == game_mode_code
+            && self.difficulty_code == difficulty_code
+            && self.rank_points == rank_points
+            && self.max_fps == max_fps
+    }
+}
+
 /// A game message that lives on TheMessageStream or TheCommandList
 ///
 /// Messages consist of a type, defining what the message is, and zero or more arguments
@@ -386,6 +423,8 @@ pub struct GameMessage {
     message_type: GameMessageType,
     arguments: Vec<GameMessageArgument>,
     player_index: i32,
+    // Native client metadata; never part of message arguments or wire encoding.
+    campaign_launch: Option<Box<ClientCampaignLaunch>>,
 }
 
 impl GameMessage {
@@ -393,6 +432,7 @@ impl GameMessage {
         Self {
             message_type,
             arguments: Vec::new(),
+            campaign_launch: None,
             player_index: 0, // Default to local player
         }
     }
@@ -401,8 +441,16 @@ impl GameMessage {
         Self {
             message_type,
             arguments: Vec::new(),
+            campaign_launch: None,
             player_index,
         }
+    }
+
+    pub fn set_campaign_launch(&mut self, descriptor: ClientCampaignLaunch) {
+        self.campaign_launch = Some(Box::new(descriptor));
+    }
+    pub fn campaign_launch(&self) -> Option<&ClientCampaignLaunch> {
+        self.campaign_launch.as_deref()
     }
 
     /// Get the message type
@@ -690,5 +738,49 @@ mod tests {
         assert_eq!(iregion2d.y, 0);
         assert_eq!(iregion2d.width, 0);
         assert_eq!(iregion2d.height, 0);
+    }
+}
+
+#[cfg(test)]
+mod menu_owner_metadata_tests {
+    use super::*;
+    #[test]
+    fn menu_owner_launch_metadata_clones_and_never_changes_wire_arguments() {
+        let mut bare = GameMessage::new(GameMessageType::NewGame);
+        bare.append_integer_argument(0);
+        bare.append_integer_argument(1);
+        bare.append_integer_argument(17);
+        let mut owned = bare.clone();
+        owned.set_campaign_launch(ClientCampaignLaunch {
+            map_name: "Maps/ReceivingCampaign".into(),
+            campaign_name: "Receiving".into(),
+            campaign_player_faction: "USA".into(),
+            is_challenge: false,
+            game_info_starting_cash: None,
+            player_template_name: None,
+            player_template_index: None,
+            game_mode_code: 0,
+            difficulty_code: 1,
+            rank_points: 17,
+            max_fps: None,
+        });
+        let copy = owned.clone();
+        assert_eq!(copy.campaign_launch(), owned.campaign_launch());
+        assert!(!std::ptr::eq(
+            copy.campaign_launch().unwrap(),
+            owned.campaign_launch().unwrap()
+        ));
+        let bytes =
+            super::super::message_serialization::MessageSerializer::serialize(&owned).unwrap();
+        assert_eq!(
+            bytes,
+            super::super::message_serialization::MessageSerializer::serialize(&bare).unwrap()
+        );
+        assert!(
+            super::super::message_serialization::MessageSerializer::deserialize(&bytes)
+                .unwrap()
+                .campaign_launch()
+                .is_none()
+        );
     }
 }

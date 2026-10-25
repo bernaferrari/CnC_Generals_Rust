@@ -50,7 +50,7 @@ impl CnCGameEngine {
     }
 
     /// Same source message-stream phase used by EOF/stop, not an end-frame effect queue.
-    pub(super) fn dispatch_receiving_recorder_lifecycle(&mut self) -> bool {
+    pub(super) fn dispatch_receiving_recorder_lifecycle(&mut self) -> Result<bool, String> {
         let messages = self
             .game_logic
             .replay_pending
@@ -65,13 +65,13 @@ impl CnCGameEngine {
                     self.game_logic.game_mode(),
                     GameMode::Shell | GameMode::None
                 );
-                self.clear_receiving_game_data(true);
+                self.clear_receiving_game_data(true)?;
                 if self.is_quitting() {
-                    return handled;
+                    return Ok(handled);
                 }
                 // The clear already reset the receiving world. Do not reset
                 // again and destroy the source score/shell windows.
-                self.transition_to_state(GameState::Menu);
+                self.transition_to_state(GameState::Menu)?;
                 if show_score {
                     self.set_runtime_host_ui_screen_override(Some("ScoreScreen"));
                 }
@@ -83,12 +83,12 @@ impl CnCGameEngine {
             let Some(request) = self.receiving_recorded_start_request(dispatch) else {
                 continue;
             };
-            self.host_start_game_from_ui(request);
+            self.host_start_game_from_ui(request)?;
             if self.is_quitting() {
-                return handled;
+                return Ok(handled);
             }
         }
-        handled
+        Ok(handled)
     }
 }
 
@@ -100,13 +100,9 @@ impl ReplayMenuReceiver for CnCGameEngine {
             .unwrap_or(false)
     }
 
-    fn playback_file(&mut self, filename: String) {
-        if self
-            .require_native_world_boundary("Recorder playback")
-            .is_err()
-        {
-            return;
-        }
+    fn playback_file(&mut self, filename: String) -> Result<(), String> {
+        self.require_native_world_boundary("Recorder playback")
+            .map_err(|error| error.to_string())?;
         // Filename survives actual clear/reset; no Recorder/world borrow crosses it.
         let in_game = self.game_logic.game_mode() != GameMode::None;
         let admission = self
@@ -114,8 +110,8 @@ impl ReplayMenuReceiver for CnCGameEngine {
             .replay_pending
             .prepare_playback_owned(filename, in_game);
         if admission.requires_clear() {
-            if !self.clear_receiving_game_data(true) {
-                return;
+            if !self.clear_receiving_game_data(true)? {
+                return Err("Replay source clear failed on receiving native world".into());
             }
         }
         match self
@@ -136,15 +132,12 @@ impl ReplayMenuReceiver for CnCGameEngine {
             Err(error) => warn!("Replay admission failed after receiving clear: {error}"),
         }
         // WND continuation hides the captured source parent after both success/error.
+        Ok(())
     }
 
-    fn restart(&mut self) {
-        if self
-            .require_native_world_boundary("Recorder restart")
-            .is_err()
-        {
-            return;
-        }
+    fn restart(&mut self) -> Result<(), String> {
+        self.require_native_world_boundary("Recorder restart")
+            .map_err(|error| error.to_string())?;
         game_client::gui::callbacks::quit_menu::destroy_quit_menu();
         let filename = self
             .game_logic
@@ -163,17 +156,20 @@ impl ReplayMenuReceiver for CnCGameEngine {
         }
         // QuitMenu.cpp203 clears without a score screen even for replay.
         // playback_file now observes GAME_NONE and must not clear a second time.
-        self.clear_receiving_game_data(false);
+        let had_world = self.game_logic.game_mode() != GameMode::None;
+        if !self.clear_receiving_game_data(false)? && had_world {
+            return Err("Restart source clear failed on receiving native world".into());
+        }
         if self.is_quitting() {
-            return;
+            return Ok(());
         }
         if self.pending_state == Some(GameState::Exiting) {
             self.pending_state = None;
         }
         if !filename.is_empty() {
-            self.playback_file(filename);
+            self.playback_file(filename)?;
         } else if let Some(identity) = identity {
-            self.host_restart_mission_from_dispatch(identity.dispatch);
+            self.host_restart_mission_from_dispatch(identity.dispatch)?;
         } else {
             warn!("Cannot restart without owned NewGame identity");
         }
@@ -181,5 +177,6 @@ impl ReplayMenuReceiver for CnCGameEngine {
         // separate from receiving Recorder/world ownership.
         game_client::helpers::TheInGameUI::set_client_quiet(true);
         self.game_logic.set_radar_client_quiet(true);
+        Ok(())
     }
 }

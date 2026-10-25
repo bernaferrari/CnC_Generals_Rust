@@ -34,6 +34,8 @@ impl GameClient {
         let client = Self {
             window_manager_owner: window_manager_owner.clone(),
             campaign_manager: crate::gui::campaign_manager::CampaignManager::new(),
+            main_menu: crate::gui::shell::main_menu::MainMenu::new(),
+            menu_host: crate::gui::campaign_launch_host_bridge::MenuHostMailbox::default(),
             message_stream: crate::message_stream::message_stream::MessageStream::new(),
             shell_game_first_load: true,
             frame: 0,
@@ -94,6 +96,31 @@ impl GameClient {
     /// Mutably borrow this client's live campaign progress.
     pub fn campaign_manager_mut(&mut self) -> &mut crate::gui::campaign_manager::CampaignManager {
         &mut self.campaign_manager
+    }
+
+    /// Borrow the two receiving client owners needed by synchronous menu callbacks.
+    pub fn campaign_and_menu_mut(
+        &mut self,
+    ) -> (
+        &mut crate::gui::campaign_manager::CampaignManager,
+        &mut crate::gui::shell::main_menu::MainMenu,
+    ) {
+        (&mut self.campaign_manager, &mut self.main_menu)
+    }
+
+    /// Borrow the receiver identity and the two disjoint menu recipients together.
+    pub fn window_owner_campaign_and_menu_mut(
+        &mut self,
+    ) -> (
+        &WindowManagerOwner,
+        &mut crate::gui::campaign_manager::CampaignManager,
+        &mut crate::gui::shell::main_menu::MainMenu,
+    ) {
+        (
+            &self.window_manager_owner,
+            &mut self.campaign_manager,
+            &mut self.main_menu,
+        )
     }
 
     /// Initialize a load screen using this client's persistent first-load state.
@@ -628,6 +655,11 @@ impl GameClient {
         self.window_manager_owner.clone()
     }
 
+    /// Borrow this client's native WND identity without cloning its owner handle.
+    pub fn window_manager_owner_ref(&self) -> &WindowManagerOwner {
+        &self.window_manager_owner
+    }
+
     /// Borrow this client's message pipeline for its synchronous producer/consumer operations.
     pub fn message_stream(&self) -> &crate::message_stream::message_stream::MessageStream {
         &self.message_stream
@@ -841,6 +873,7 @@ impl GameClient {
 
     pub fn init_message_translators(&mut self) -> GameClientResult<()> {
         self.message_stream.clear_messages();
+        self.menu_host.clear_pending();
         let stream = &mut self.message_stream;
 
         self.num_translators = 0;
@@ -913,8 +946,76 @@ impl GameClient {
         Ok(())
     }
 
+    pub fn window_owner_campaign_menu_and_host_mut(
+        &mut self,
+    ) -> (
+        &WindowManagerOwner,
+        &mut crate::gui::campaign_manager::CampaignManager,
+        &mut crate::gui::shell::main_menu::MainMenu,
+        &mut crate::gui::campaign_launch_host_bridge::MenuHostMailbox,
+    ) {
+        (
+            &self.window_manager_owner,
+            &mut self.campaign_manager,
+            &mut self.main_menu,
+            &mut self.menu_host,
+        )
+    }
+    pub fn main_menu(&self) -> &crate::gui::shell::main_menu::MainMenu {
+        &self.main_menu
+    }
+    pub fn campaign_menu_and_host_mut(
+        &mut self,
+    ) -> (
+        &mut crate::gui::campaign_manager::CampaignManager,
+        &mut crate::gui::shell::main_menu::MainMenu,
+        &mut crate::gui::campaign_launch_host_bridge::MenuHostMailbox,
+    ) {
+        (
+            &mut self.campaign_manager,
+            &mut self.main_menu,
+            &mut self.menu_host,
+        )
+    }
+    pub fn take_menu_host_requests(
+        &mut self,
+    ) -> Vec<crate::gui::campaign_launch_host_bridge::MenuHostRequest> {
+        self.menu_host.take_requests()
+    }
+    pub fn has_menu_host_requests(&self) -> bool {
+        self.menu_host.has_requests()
+    }
+    pub fn clear_pending_client_messages(&mut self) {
+        self.message_stream.clear_messages();
+        self.menu_host.clear_pending();
+        self.window_manager_owner
+            .discard_pending_event_operations_for_world_boundary();
+    }
+    pub fn finish_source_menu_campaign_start(&mut self) {
+        self.main_menu.complete_source_campaign_start();
+    }
+    pub fn finish_source_menu_campaign_shutdown(&mut self) {
+        self.main_menu.complete_source_campaign_shutdown();
+    }
+    pub fn set_receiving_menu_cursor_visibility(&mut self, visible: bool) {
+        if let Some(mouse) = self.subsystem_manager.input_mouse.as_ref() {
+            mouse
+                .lock()
+                .expect("receiving Mouse owner poisoned")
+                .set_cursor_visible(visible);
+        }
+    }
+    pub fn reset_receiving_menu_placement(&mut self) {
+        if let Some(ui) = self.subsystem_manager.in_game_ui.as_ref() {
+            ui.lock()
+                .expect("receiving InGameUI owner poisoned")
+                .reset_menu_placement();
+        }
+    }
+
     pub fn with_window_event_effects<R>(
         &mut self,
+        menu_world: Option<crate::gui::campaign_launch_host_bridge::MenuWorldFacts>,
         operation: impl FnOnce(&mut crate::gui::game_window::WindowEventEffects<'_>) -> R,
     ) -> R {
         let owner = &self.window_manager_owner;
@@ -925,6 +1026,10 @@ impl GameClient {
             emitted_messages: &mut messages,
             pending_control_bar_clicks: None,
             campaign_manager: Some(&mut self.campaign_manager),
+            main_menu: Some(&mut self.main_menu),
+            menu_world,
+            menu_host: Some(&mut self.menu_host),
+            pending_main_menu_actions: Vec::new(),
         };
         let result = owner.with_scope(|| operation(&mut effects));
         owner.complete_event_callbacks(&mut effects);
@@ -936,6 +1041,7 @@ impl GameClient {
 
     pub fn with_receiving_shell<R>(
         &mut self,
+        menu_world: Option<crate::gui::campaign_launch_host_bridge::MenuWorldFacts>,
         operation: impl FnOnce(
             &mut crate::gui::shell::base::Shell,
             &mut crate::gui::game_window::WindowEventEffects<'_>,
@@ -949,6 +1055,10 @@ impl GameClient {
             emitted_messages: &mut messages,
             pending_control_bar_clicks: None,
             campaign_manager: Some(&mut self.campaign_manager),
+            main_menu: Some(&mut self.main_menu),
+            menu_world,
+            menu_host: Some(&mut self.menu_host),
+            pending_main_menu_actions: Vec::new(),
         };
         let result = owner.with_shell_effects_mut(&mut effects, operation);
         owner.complete_event_callbacks(&mut effects);
@@ -959,7 +1069,11 @@ impl GameClient {
     }
 
     /// Finish the synchronous WND event before admitting its messages to this client's stream.
-    pub fn complete_window_event_messages(&mut self, mut messages: Vec<GameMessage>) {
+    pub fn complete_window_event_messages(
+        &mut self,
+        mut messages: Vec<GameMessage>,
+        menu_world: Option<crate::gui::campaign_launch_host_bridge::MenuWorldFacts>,
+    ) {
         let owner = &self.window_manager_owner;
         let mut effects = crate::gui::game_window::WindowEventEffects {
             window_manager_owner: Some(owner),
@@ -967,6 +1081,10 @@ impl GameClient {
             emitted_messages: &mut messages,
             pending_control_bar_clicks: None,
             campaign_manager: Some(&mut self.campaign_manager),
+            main_menu: Some(&mut self.main_menu),
+            menu_world,
+            menu_host: Some(&mut self.menu_host),
+            pending_main_menu_actions: Vec::new(),
         };
         owner.complete_event_callbacks(&mut effects);
         for message in messages {
@@ -981,15 +1099,21 @@ impl GameClient {
         let mut standalone =
             |owner: &crate::gui::window_manager::WindowManagerOwner,
              campaign_manager: &mut crate::gui::campaign_manager::CampaignManager,
+             main_menu: &mut crate::gui::shell::main_menu::MainMenu,
+             menu_host: &mut crate::gui::campaign_launch_host_bridge::MenuHostMailbox,
              request,
              _emitted_messages: &mut Vec<GameMessage>| {
                 let mut pending_clicks = Vec::new();
                 let mut effects = crate::gui::game_window::WindowEventEffects {
-                    window_manager_owner: Some(&owner),
+                    window_manager_owner: Some(owner),
                     selected_window: None,
                     emitted_messages: _emitted_messages,
                     pending_control_bar_clicks: Some(&mut pending_clicks),
                     campaign_manager: Some(campaign_manager),
+                    main_menu: Some(main_menu),
+                    menu_world: None,
+                    menu_host: Some(menu_host),
+                    pending_main_menu_actions: Vec::new(),
                 };
                 let result = owner.try_with_manager(|manager| match request {
                     game_engine::common::message_stream::WindowInputDispatch::Mouse {
@@ -1033,29 +1157,50 @@ impl GameClient {
         playback: bool,
         driver: &mut NativeWindowInputDriver<'_>,
     ) -> GameClientResult<Vec<GameMessage>> {
-        let owner = &self.window_manager_owner;
-        let stream = &mut self.message_stream;
-        let campaign_manager = &mut self.campaign_manager;
-        let mut dispatch_window_input = |request, emitted_messages: &mut Vec<GameMessage>| {
-            driver(owner, campaign_manager, request, emitted_messages)
-        };
-        let mut completed_messages = stream
-            .propagate_messages_with_context(&mut dispatch_window_input)
-            .map_err(|e| {
-                GameClientError::SubsystemError(format!("Message stream update failed: {e}"))
-            })?;
-
-        if playback {
-            // C++ Recorder::updatePlayback culls live user network orders
-            // before GameLogic dispatch. The owner now ticks Recorder later,
-            // so filter them before routing into the legacy queue as well.
-            completed_messages.retain(|message| {
-                let kind = message.get_type();
-                !(is_network_command_message(kind) && !matches!(kind, GameMessageType::LogicCRC(_)))
-            });
+        match self.take_message_stream_until_menu_host(playback, driver, None)? {
+            game_engine::common::message_stream::PropagationProgress::Complete(messages) => {
+                Ok(messages)
+            }
+            game_engine::common::message_stream::PropagationProgress::HostBoundary(_) => {
+                Err(GameClientError::SubsystemError(
+                    "menu lifecycle requires receiving host continuation".into(),
+                ))
+            }
         }
+    }
 
-        Ok(completed_messages)
+    pub fn take_message_stream_until_menu_host(
+        &mut self,
+        playback: bool,
+        driver: &mut NativeWindowInputDriver<'_>,
+        cursor: Option<game_engine::common::message_stream::PropagationCursor>,
+    ) -> GameClientResult<game_engine::common::message_stream::PropagationProgress> {
+        use game_engine::common::message_stream::PropagationProgress;
+        let yielded = std::cell::Cell::new(false);
+        let owner = &self.window_manager_owner;
+        let campaign = &mut self.campaign_manager;
+        let menu = &mut self.main_menu;
+        let host = &mut self.menu_host;
+        let mut dispatch = |request, emitted: &mut Vec<GameMessage>| {
+            let result = driver(owner, campaign, menu, host, request, emitted);
+            yielded.set(host.has_requests());
+            result
+        };
+        let mut progress = self
+            .message_stream
+            .propagate_messages_until_host_boundary(&mut dispatch, cursor, &mut || yielded.get())
+            .map_err(|error| {
+                GameClientError::SubsystemError(format!("Message stream update failed: {error}"))
+            })?;
+        if playback {
+            if let PropagationProgress::Complete(messages) = &mut progress {
+                messages.retain(|message| {
+                    !is_network_command_message(message.get_type())
+                        || matches!(message.get_type(), GameMessageType::LogicCRC(_))
+                });
+            }
+        }
+        Ok(progress)
     }
 
     pub fn pump_message_stream(&mut self) -> GameClientResult<()> {

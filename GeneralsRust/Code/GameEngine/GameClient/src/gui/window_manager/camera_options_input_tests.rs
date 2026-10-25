@@ -109,6 +109,8 @@ fn click_options(
         emitted_messages: None,
             campaign_manager: None,
             window_manager_owner: None,
+
+        main_menu: None,
     };
     for message in [WindowMessage::LeftDown, WindowMessage::LeftUp] {
         assert_eq!(

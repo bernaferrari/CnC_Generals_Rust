@@ -42,7 +42,7 @@ impl GameClient {
             self.finish_frame_timing(current_time);
             return Ok(());
         }
-        self.ensure_shell_visible()?;
+        self.ensure_shell_visible(None)?;
         let freeze_time = self.should_freeze_visual_time();
         let mut visual_delta = if freeze_time {
             0.0
@@ -101,7 +101,7 @@ impl GameClient {
             let _ = self.draw_live_ingame_hud();
 
             self.update_display_string_manager()?;
-            self.update_post_draw_ui()?;
+            self.update_post_draw_ui(None)?;
             self.process_beacon_notifications()?;
             self.pump_message_stream()?;
             self.rendered_object_count = 0;
@@ -145,7 +145,7 @@ impl GameClient {
         self.update_display_string_manager()?;
 
         // C++ lines 744-751: Shell and InGameUI AFTER draw
-        self.update_post_draw_ui()?;
+        self.update_post_draw_ui(None)?;
 
         self.process_beacon_notifications()?;
         self.pump_message_stream()?;
@@ -2085,7 +2085,7 @@ impl GameClient {
         // C++ DisplayStringManager after drawable/effects residual.
         self.update_display_string_manager()?;
 
-        self.update_post_draw_ui()?;
+        self.update_post_draw_ui(None)?;
         self.process_beacon_notifications()?;
         if let Some((recorder, receive)) = receive {
             self.pump_message_stream_to_receiving_owner(recorder, receive)?;
@@ -2374,7 +2374,7 @@ impl GameClient {
                 err
             ))
         })?;
-        self.complete_window_event_messages(Vec::new());
+        self.complete_window_event_messages(Vec::new(), None);
         Ok(())
     }
 
@@ -2483,7 +2483,10 @@ impl GameClient {
         Ok(())
     }
 
-    pub fn ensure_shell_visible(&mut self) -> GameClientResult<()> {
+    pub fn ensure_shell_visible(
+        &mut self,
+        menu_world: Option<crate::gui::campaign_launch_host_bridge::MenuWorldFacts>,
+    ) -> GameClientResult<()> {
         if !self.should_activate_shell_after_startup() {
             return Ok(());
         }
@@ -2505,7 +2508,7 @@ impl GameClient {
                 ))
             })?;
         }
-        self.complete_window_event_messages(Vec::new());
+        self.complete_window_event_messages(Vec::new(), menu_world);
         Ok(())
     }
 
@@ -2524,7 +2527,10 @@ impl GameClient {
         Ok(())
     }
 
-    pub fn update_post_draw_ui(&mut self) -> GameClientResult<()> {
+    pub fn update_post_draw_ui(
+        &mut self,
+        menu_world: Option<crate::gui::campaign_launch_host_bridge::MenuWorldFacts>,
+    ) -> GameClientResult<()> {
         {
             let mut shell = self.window_manager_owner.shell_handle();
             let mut messages = Vec::new();
@@ -2534,6 +2540,10 @@ impl GameClient {
                 emitted_messages: &mut messages,
                 pending_control_bar_clicks: None,
                 campaign_manager: Some(&mut self.campaign_manager),
+                main_menu: Some(&mut self.main_menu),
+                menu_world,
+                menu_host: Some(&mut self.menu_host),
+                pending_main_menu_actions: Vec::new(),
             };
             shell.update(&mut effects).map_err(|err| {
                 GameClientError::SubsystemError(format!("Shell update failed: {err}"))
@@ -2567,6 +2577,10 @@ impl GameClient {
                 emitted_messages: &mut messages,
                 pending_control_bar_clicks: None,
                 campaign_manager: Some(&mut self.campaign_manager),
+                main_menu: Some(&mut self.main_menu),
+                menu_world: None,
+                menu_host: Some(&mut self.menu_host),
+                pending_main_menu_actions: Vec::new(),
             };
             shell.update(&mut effects).map_err(|err| {
                 GameClientError::SubsystemError(format!("Shell update failed: {err}"))

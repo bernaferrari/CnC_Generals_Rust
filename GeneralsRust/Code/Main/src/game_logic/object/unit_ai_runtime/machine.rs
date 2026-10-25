@@ -72,6 +72,9 @@ pub struct BaseAiContinuation {
     pub(crate) idle_initial_sleep_offset: u16,
     pub(crate) idle_entry_frame: u32,
     pub(crate) idle_initialized: bool,
+    /// C++ AIUpdateInterface::m_isAiDead, distinct from Object death/effectively-dead flags.
+    #[serde(default)]
+    pub(crate) ai_dead: bool,
 }
 impl Default for BaseAiContinuation {
     fn default() -> Self {
@@ -104,6 +107,7 @@ impl Default for BaseAiContinuation {
             idle_initial_sleep_offset: 0,
             idle_entry_frame: 0,
             idle_initialized: false,
+            ai_dead: false,
         }
     }
 }
@@ -220,6 +224,15 @@ impl UnitAiRuntime {
     }
     pub(crate) fn machine_locked(&self) -> bool {
         self.machine.locked
+    }
+    pub(crate) fn lock_machine(&mut self) {
+        self.machine.locked = true;
+    }
+    pub(crate) fn mark_ai_dead(&mut self) {
+        self.machine.ai_dead = true;
+    }
+    pub(crate) fn is_ai_dead(&self) -> bool {
+        self.machine.ai_dead
     }
     pub(crate) fn clear_machine_after_exit(&mut self) {
         self.machine.parent = None;

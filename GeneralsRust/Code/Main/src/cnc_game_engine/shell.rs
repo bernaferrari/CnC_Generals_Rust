@@ -4,7 +4,7 @@ impl CnCGameEngine {
     pub(super) fn enter_shell_menu_from_runtime_host(
         &mut self,
         override_screen: Option<&'static str>,
-    ) {
+    ) -> Result<(), String> {
         self.set_runtime_host_ui_screen_override(override_screen);
         self.ui_manager.suspend_for_shell_overlay();
         // Wave 845: shell residual — presentation peels treat FOW shell bypass as true.
@@ -12,14 +12,15 @@ impl CnCGameEngine {
         if self.current_state != GameState::Menu {
             self.request_state_change(GameState::Menu);
         }
+        Ok(())
     }
 
     pub(super) fn enter_shell_screen_from_runtime_host(
         &mut self,
         override_screen: Option<&'static str>,
         layout_file: &'static str,
-    ) {
-        self.enter_shell_menu_from_runtime_host(override_screen);
+    ) -> Result<(), String> {
+        self.enter_shell_menu_from_runtime_host(override_screen)?;
         #[cfg(feature = "game_client")]
         {
             // GENERALS_RUNTIME_HOST_WND=0 keeps soft UI override without shell push.
@@ -28,44 +29,43 @@ impl CnCGameEngine {
                 .map(|v| !(v == "0" || v.eq_ignore_ascii_case("false")))
                 .unwrap_or(true);
             if push_wnd {
-                self.show_shell_menu();
+                self.show_shell_menu()?;
                 let push_result = self
-                    .game_client
-                    .with_receiving_shell(|shell, effects| shell.push(layout_file, false, effects))
-                    .expect("shell navigation requires the outer shell loan released");
-                if let Err(err) = push_result {
-                    warn!("Runtime host failed to push shell screen {layout_file}: {err:?}");
-                }
+                    .with_receiving_menu_shell(|shell, effects| {
+                        shell.push(layout_file, false, effects)
+                    })?
+                    .ok_or_else(|| "runtime host shell push has no receiving Shell".to_string())?;
+                push_result.map_err(|err| {
+                    format!("Runtime host failed to push shell screen {layout_file}: {err}")
+                })?;
             } else {
                 log::debug!(
                     "Runtime host soft shell screen {override_screen:?} (shell/WND push disabled)"
                 );
             }
         }
+        Ok(())
     }
 
-    pub(super) fn enter_shell_options_from_runtime_host(&mut self) {
-        self.enter_shell_menu_from_runtime_host(Some("Options"));
+    pub(super) fn enter_shell_options_from_runtime_host(&mut self) -> Result<(), String> {
+        self.enter_shell_menu_from_runtime_host(Some("Options"))?;
         #[cfg(feature = "game_client")]
         {
-            self.show_shell_menu();
-            let initialized = game_client::gui::with_shell_mut(|shell| {
-                let Some(layout) = shell.get_options_layout(true) else {
-                    return false;
-                };
-                if let Err(err) = layout.run_init(None) {
-                    warn!("Runtime host failed to init shell options layout: {err:?}");
-                    return false;
-                }
-                layout.hide(false);
-                layout.bring_forward();
-                true
-            })
-            .unwrap_or(false);
-            if !initialized {
-                warn!("Runtime host failed to create shell options layout");
-            }
+            self.show_shell_menu()?;
+            self.with_receiving_menu_shell(|shell, effects| {
+                let layout = shell.get_options_layout(true).ok_or_else(|| {
+                    "Runtime host failed to create shell options layout".to_string()
+                })?;
+                layout.run_init_with_effects(None, effects).map_err(|err| {
+                    format!("Runtime host failed to init shell options layout: {err}")
+                })?;
+                layout.hide_with_effects(false, effects);
+                layout.bring_forward_with_effects(effects);
+                Ok::<(), String>(())
+            })?
+            .ok_or_else(|| "runtime host options require a receiving Shell".to_string())??;
         }
+        Ok(())
     }
 
     pub(super) fn loading_visual_phase(elapsed_seconds: f32) -> (&'static str, f32) {
@@ -402,91 +402,59 @@ impl CnCGameEngine {
     /// C++ parity: Shell::push("Menus/MainMenu.wnd") + Shell::doPush()
     /// GameLogic::startNewGame() line 2198: TheShell->push("Menus/MainMenu.wnd")
     /// when m_gameMode == GAME_SHELL && screenCount == 0.
-    pub(super) fn show_shell_menu(&mut self) {
+    pub(super) fn show_shell_menu(&mut self) -> Result<(), String> {
         #[cfg(feature = "game_client")]
         {
-            // C++ Shell::showShell / startNewGame GAME_SHELL inspect the live
-            // stack (getScreenCount / top), not a host bookkeeping flag.
-            // A stale shell_menu_active==true would skip restore after a WM
-            // wipe; a stale false paired with hide_shell_menu tears down
-            // MainMenu (hq-pzya / hq-3vo4).
-
-            // C++ TheDisplay size == window client; WND CREATIONRESOLUTION
-            // 800x600 scales to that. Set WM screen_size before push so
-            // gadgets fill the logical window instead of a 800x600 corner.
             let scale = self.window.scale_factor().max(0.0001);
             let size = self.window.inner_size();
             let logical_w = ((size.width as f64) / scale).round().max(1.0) as i32;
             let logical_h = ((size.height as f64) / scale).round().max(1.0) as i32;
             self.game_client
                 .window_manager_owner()
-                .with_manager(|manager| {
-                    manager.set_screen_size(logical_w, logical_h);
-                });
+                .with_manager(|manager| manager.set_screen_size(logical_w, logical_h));
 
-            // C++ TheShell is initialized via SubsystemInterface before GAME_SHELL push.
-            // Thread-local Shell starts uninitialized; push() fails without init.
-            let result = self.game_client.with_receiving_shell(|shell, effects| {
-                if let Err(e) = game_client::system::SubsystemInterface::init(shell) {
-                    return Err(e);
-                }
-                shell.show_shell_map(true, effects);
-                if shell.get_screen_count() == 0 {
-                    shell.push("Menus/MainMenu.wnd", false, effects)?;
-                } else if let Some(top) = shell.top() {
-                    top.hide(false);
-                    top.bring_forward();
-                }
-                let screens = shell.get_screen_count();
-                if screens == 0 {
-                    return Err(Box::<dyn std::error::Error>::from(
-                        "Shell::push returned Ok but screen stack is empty",
-                    ));
-                }
-                shell.set_shell_active(true);
-                Ok(screens)
-            });
-            let screens = match result {
-                Some(Ok(screens)) => screens,
-                Some(Err(e)) => {
-                    warn!(
-                        "Failed to init or activate Shell before MainMenu push: {:?}",
-                        e
-                    );
-                    error!(
-                        "Shell subsystem failed to initialize — the main menu will not be visible."
-                    );
-                    return;
-                }
-                None => {
-                    warn!("Shell was re-entered while activating MainMenu; request skipped");
-                    return;
-                }
-            };
+            let screens = self
+                .with_receiving_menu_shell(|shell, effects| -> Result<usize, String> {
+                    game_client::system::SubsystemInterface::init(shell)
+                        .map_err(|err| format!("Shell subsystem init failed: {err}"))?;
+                    shell.show_shell_map(true, effects);
+                    if shell.get_screen_count() == 0 {
+                        shell
+                            .push("Menus/MainMenu.wnd", false, effects)
+                            .map_err(|err| format!("Shell::push MainMenu failed: {err}"))?;
+                    } else if let Some(top) = shell.top() {
+                        top.hide(false);
+                        top.bring_forward();
+                    }
+                    let screens = shell.get_screen_count();
+                    if screens == 0 {
+                        return Err("Shell::push returned Ok but screen stack is empty".into());
+                    }
+                    shell.set_shell_active(true);
+                    Ok(screens)
+                })?
+                .ok_or_else(|| "Shell activation has no receiving Shell".to_string())??;
             self.shell_menu_active = true;
             info!(
                 "Shell menu activated from Menus/MainMenu.wnd (screens={})",
                 screens
             );
         }
+        Ok(())
     }
 
-    pub(super) fn hide_shell_menu(&mut self) {
+    pub(super) fn hide_shell_menu(&mut self) -> Result<(), String> {
         #[cfg(feature = "game_client")]
         {
             if !self.shell_menu_active {
-                return;
+                return Ok(());
             }
-
-            if let Some(Err(err)) = self
-                .game_client
-                .with_receiving_shell(|shell, effects| shell.hide_shell(effects))
-            {
-                warn!("Failed to hide shell menu: {:?}", err);
-            }
-
+            self.with_receiving_menu_shell(|shell, effects| shell.hide_shell(effects))?
+                .ok_or_else(|| "Shell hide has no receiving Shell".to_string())?
+                .map_err(|err| format!("Failed to hide shell menu: {err}"))?;
             self.shell_menu_active = false;
         }
+        Ok(())
     }
 
     pub(super) fn log_startup_health_summary(&mut self) {
@@ -2180,7 +2148,8 @@ impl CnCGameEngine {
             self.ui_manager.suspend_for_shell_overlay();
             self.set_runtime_ui_state_projection(Screen::MainMenu);
             let _ = self.startup_target_state.take();
-            self.transition_to_state(GameState::Menu);
+            self.transition_to_state(GameState::Menu)
+                .map_err(anyhow::Error::msg)?;
             self.startup_load_state = StartupLoadState::Complete;
             self.last_loading_title_update = None;
             self.update_shell_loading_progress(1.0, Some("Startup complete"));
@@ -2207,7 +2176,8 @@ impl CnCGameEngine {
                 self.seed_presentation_after_match_start()
                     .map_err(anyhow::Error::msg)?;
             }
-            self.transition_to_state(target_state);
+            self.transition_to_state(target_state)
+                .map_err(anyhow::Error::msg)?;
         }
         self.startup_load_state = StartupLoadState::Complete;
         self.last_loading_title_update = None;

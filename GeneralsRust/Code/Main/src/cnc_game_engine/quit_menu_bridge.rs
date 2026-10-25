@@ -13,48 +13,50 @@ impl CnCGameEngine {
     /// offline match.  `true` means a real QuitMenu layout handled the key;
     /// callers may retain the legacy pause fallback only when WND creation was
     /// unavailable.
-    pub(super) fn host_toggle_retail_quit_menu(&mut self) -> bool {
+    pub(super) fn host_toggle_retail_quit_menu(&mut self) -> Result<bool, String> {
         if !matches!(self.current_state, GameState::InGame)
             || !self.host_quit_menu_bridge_is_offline()
         {
-            return false;
+            return Ok(false);
         }
 
-        match game_client::gui::callbacks::toggle_quit_menu_receiving(
-            self.game_logic.owned_script_game_ending(),
-        ) {
-            // C++ checks the Options and PopupSaveLoad layouts before it
-            // toggles QuitMenu.  They did handle Escape, but they must not
-            // seize (or release) Main's pause ownership.
-            game_client::gui::callbacks::QuitMenuToggleResult::ClosedInterveningLayout => true,
-            // C++ discards the meta-options command while these states are
-            // active. Do not substitute Main's old PauseMenu there.
-            game_client::gui::callbacks::QuitMenuToggleResult::Suppressed => true,
-            // The old pause surface is only a damaged-install fallback after
-            // C++ actually attempted, but failed to materialise, its WND.
-            game_client::gui::callbacks::QuitMenuToggleResult::LayoutUnavailable => false,
-            game_client::gui::callbacks::QuitMenuToggleResult::ToggledQuitMenu => {
-                // Do NOT re-derive quit_menu_host_active from WND visibility
-                // here: on a host toggle that HIDES the menu it would clear
-                // ownership before host_tick_quit_menu_bridge can resume the
-                // pause this QuitMenu created (same contract as ButtonReturn /
-                // Escape hiding the WND). The tick below adopts on show and
-                // resumes on hide.
-                self.host_tick_quit_menu_bridge();
-                true
-            }
-        }
+        Ok(
+            match game_client::gui::callbacks::toggle_quit_menu_receiving(
+                self.game_logic.owned_script_game_ending(),
+            ) {
+                // C++ checks the Options and PopupSaveLoad layouts before it
+                // toggles QuitMenu.  They did handle Escape, but they must not
+                // seize (or release) Main's pause ownership.
+                game_client::gui::callbacks::QuitMenuToggleResult::ClosedInterveningLayout => true,
+                // C++ discards the meta-options command while these states are
+                // active. Do not substitute Main's old PauseMenu there.
+                game_client::gui::callbacks::QuitMenuToggleResult::Suppressed => true,
+                // The old pause surface is only a damaged-install fallback after
+                // C++ actually attempted, but failed to materialise, its WND.
+                game_client::gui::callbacks::QuitMenuToggleResult::LayoutUnavailable => false,
+                game_client::gui::callbacks::QuitMenuToggleResult::ToggledQuitMenu => {
+                    // Do NOT re-derive quit_menu_host_active from WND visibility
+                    // here: on a host toggle that HIDES the menu it would clear
+                    // ownership before host_tick_quit_menu_bridge can resume the
+                    // pause this QuitMenu created (same contract as ButtonReturn /
+                    // Escape hiding the WND). The tick below adopts on show and
+                    // resumes on hide.
+                    self.host_tick_quit_menu_bridge()?;
+                    true
+                }
+            },
+        )
     }
 
     /// Keep Main's offline frame gate synchronized with the real WND callback.
     /// This runs after other UI bridges have drained: PopupSaveLoad remains its
     /// own authority, while QuitMenu owns only pause/resume/restart/exit.
-    pub(crate) fn host_tick_quit_menu_bridge(&mut self) {
+    pub(crate) fn host_tick_quit_menu_bridge(&mut self) -> Result<(), String> {
         if !matches!(self.current_state, GameState::InGame)
             || !self.host_quit_menu_bridge_is_offline()
         {
             self.quit_menu_host_active = false;
-            return;
+            return Ok(());
         }
 
         // The QuitMenu can also be opened by its retail ControlBar callback.
@@ -63,13 +65,13 @@ impl CnCGameEngine {
         if game_client::gui::callbacks::is_quit_menu_visible() {
             self.quit_menu_host_active = true;
             self.host_set_paused(true);
-            return;
+            return Ok(());
         }
 
         // No live WND and no prior QuitMenu-owned pause: leave independent
         // pause reasons alone (legacy PauseMenu, load/restart transitions).
         if !self.quit_menu_host_active {
-            return;
+            return Ok(());
         }
 
         self.quit_menu_host_active = false;
@@ -82,8 +84,8 @@ impl CnCGameEngine {
             Self::take_new_game_dispatch_from_common_stream(self.game_client.message_stream_mut())
         {
             self.host_set_paused(false);
-            self.host_restart_mission_from_dispatch(dispatch);
-            return;
+            self.host_restart_mission_from_dispatch(dispatch)?;
+            return Ok(());
         }
 
         // C++ `exitQuitMenu()` appends MSG_CLEAR_GAME_DATA.  Consume exactly
@@ -91,13 +93,14 @@ impl CnCGameEngine {
         // Rust match, then return to the retail shell.  Other stream messages
         // are retained unchanged. Scripted VICTORY/DEFEAT use the same
         // consumer via host_consume_clear_game_data.
-        if self.host_consume_clear_game_data() {
-            return;
+        if self.host_consume_clear_game_data()? {
+            return Ok(());
         }
 
         // ButtonReturn / Escape hiding the WND: resume the same host world
         // without entering Main's separate PauseMenu screen.
         self.host_set_paused(false);
+        Ok(())
     }
 
     fn host_quit_menu_bridge_is_offline(&self) -> bool {

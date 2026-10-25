@@ -817,7 +817,8 @@ fn object_attack_orders_passenger_fire() {
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
         assert_eq!(
-            exec.execute_attack(&[humvee], enemy),
+            exec.execute_attack(&[humvee], enemy)
+                .expect("valid group attack fixture"),
             CommandResult::Success
         );
     }
@@ -885,7 +886,9 @@ fn object_attack_skips_vehicle_transport_riders() {
     }
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
-        let _ = exec.execute_attack(&[chinook], enemy);
+        let _ = exec
+            .execute_attack(&[chinook], enemy)
+            .expect("valid group attack fixture");
     }
     let rider = logic.host_object(rider).unwrap();
     assert_ne!(

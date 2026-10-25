@@ -162,6 +162,7 @@ impl GameLogic {
             AIState::Panic
             | AIState::Exiting
             | AIState::Uninitialized
+            | AIState::Dead
             | AIState::JetReturningForLanding
             | AIState::JetReturnToDeadAirfield
             | AIState::JetCirclingDeadAirfield => None,
@@ -552,15 +553,15 @@ impl GameLogic {
     }
 
     pub(in super::super) fn stop_attack_decision_aware(&mut self, unit_id: ObjectId) {
-        // Always clear host combat engagement immediately so mid-frame fire stops.
-        // Log under decision authority for GameWorld last-write parity.
+        // Clear host combat engagement immediately; the AI machine's own
+        // update result or owning command performs any state transition.
         self.drop_jet_targeters_on_attack_exit(unit_id);
         if let Some(obj) = self.objects.get_mut(&unit_id) {
             obj.stop_attack(&mut crate::game_logic::ObjectAudio::queue(
                 &mut self.queued_audio_events,
             ));
+            obj.unit_ai_runtime.set_machine_goal_object(None);
         }
-        {}
     }
 
     /// Clear engagement target, honoring AI decision authority (StopAttack channel).

@@ -1290,7 +1290,9 @@ fn jarmen_rifle_mode_has_no_vehicle_attack_cursor() {
 
 #[test]
 fn player_attack_command_uses_weaponset_target_legality_before_stamping_target() {
-    use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate, Weapon, WeaponLockType};
+    use crate::game_logic::{
+        KindOf, Object, ObjectId, Team, ThingTemplate, Weapon, WeaponLockType,
+    };
     use glam::Vec3;
 
     let mut logic = GameLogic::new();
@@ -1323,7 +1325,11 @@ fn player_attack_command_uses_weaponset_target_legality_before_stamping_target()
 
     // The command boundary, not just AI target acquisition, must reject a
     // target C++ marks UNATTACKABLE. Force attack cannot override it either.
-    assert!(!logic.unit_command_attack(attacker_id, target_id));
+    assert!(
+        !logic
+            .unit_command_attack(attacker_id, target_id)
+            .expect("valid attack command fixture")
+    );
     assert!(!logic.unit_command_force_attack(attacker_id, target_id));
     assert_eq!(logic.objects[&attacker_id].target, None);
 
@@ -1333,12 +1339,20 @@ fn player_attack_command_uses_weaponset_target_legality_before_stamping_target()
 
     // A hand-authored ground-only weapon is not silently promoted to
     // AntiProjectile by the command route.
-    assert!(!logic.unit_command_attack(attacker_id, target_id));
+    assert!(
+        !logic
+            .unit_command_attack(attacker_id, target_id)
+            .expect("valid attack command fixture")
+    );
     assert_eq!(logic.objects[&attacker_id].target, None);
 
     let target = logic.objects.get_mut(&target_id).unwrap();
     target.template_mut().kind_of.remove(&KindOf::Projectile);
-    assert!(logic.unit_command_attack(attacker_id, target_id));
+    assert!(
+        logic
+            .unit_command_attack(attacker_id, target_id)
+            .expect("valid attack command fixture")
+    );
     assert_eq!(logic.objects[&attacker_id].target, Some(target_id));
 
     // A locked slot is the actual C++ WeaponSet choice.  PRIMARY cannot use
@@ -1357,14 +1371,22 @@ fn player_attack_command_uses_weaponset_target_legality_before_stamping_target()
     });
     assert!(attacker.set_weapon_lock(0, WeaponLockType::LockedPermanently));
     drop(attacker);
-    assert!(!logic.unit_command_attack(attacker_id, target_id));
+    assert!(
+        !logic
+            .unit_command_attack(attacker_id, target_id)
+            .expect("valid attack command fixture")
+    );
     assert_eq!(logic.objects[&attacker_id].target, None);
     logic
         .objects
         .get_mut(&attacker_id)
         .unwrap()
         .release_weapon_lock(WeaponLockType::LockedPermanently);
-    assert!(logic.unit_command_attack(attacker_id, target_id));
+    assert!(
+        logic
+            .unit_command_attack(attacker_id, target_id)
+            .expect("valid attack command fixture")
+    );
 }
 
 #[test]
@@ -1676,7 +1698,9 @@ fn attack_state_enter_fails_without_legal_weapon() {
 
 #[test]
 fn attack_state_machine_aim_to_fire_when_facing() {
-    use crate::game_logic::{AttackSubState, KindOf, Object, ObjectId, Team, ThingTemplate, Weapon};
+    use crate::game_logic::{
+        AttackSubState, KindOf, Object, ObjectId, Team, ThingTemplate, Weapon,
+    };
     use glam::Vec3;
     let mut logic = GameLogic::new();
     let mut at = ThingTemplate::new("AsmA");
@@ -1723,7 +1747,9 @@ fn attack_state_machine_aim_to_fire_when_facing() {
 
 #[test]
 fn attack_state_machine_out_of_range_approaches() {
-    use crate::game_logic::{AttackSubState, KindOf, Object, ObjectId, Team, ThingTemplate, Weapon};
+    use crate::game_logic::{
+        AttackSubState, KindOf, Object, ObjectId, Team, ThingTemplate, Weapon,
+    };
     use glam::Vec3;
     let mut logic = GameLogic::new();
     let mut at = ThingTemplate::new("AsmA2");
@@ -1793,7 +1819,9 @@ fn attack_state_machine_success_when_victim_dies() {
 
 #[test]
 fn attack_state_machine_fire_returns_to_aim() {
-    use crate::game_logic::{AttackSubState, KindOf, Object, ObjectId, Team, ThingTemplate, Weapon};
+    use crate::game_logic::{
+        AttackSubState, KindOf, Object, ObjectId, Team, ThingTemplate, Weapon,
+    };
     use glam::Vec3;
     let mut logic = GameLogic::new();
     let mut at = ThingTemplate::new("AsmA4");
@@ -2363,7 +2391,11 @@ fn attack_approach_skips_when_victim_still() {
         o
     });
     logic.frame = 105; // within MIN_RECOMPUTE of 100
-    assert!(logic.attack_approach_compute_path(aid, Some(vid), None));
+    assert!(
+        logic
+            .attack_approach_compute_path(aid, Some(vid), None)
+            .expect("valid attack approach fixture")
+    );
 }
 
 #[test]
@@ -2387,7 +2419,9 @@ fn request_attack_path_sets_flags() {
     logic.objects.insert(vid, v);
 
     logic.frame = 10;
-    let _ = logic.request_attack_path(aid, Some(vid), Vec3::new(80.0, 0.0, 0.0));
+    logic
+        .request_attack_path(aid, Some(vid), Vec3::new(80.0, 0.0, 0.0))
+        .expect("valid attack request fixture");
     let a = logic.objects.get(&aid).unwrap();
     assert!(a.is_attack_path || a.movement.target_position.is_some() || a.status.attacking);
     assert_eq!(a.requested_victim_id, Some(vid));
@@ -2405,9 +2439,13 @@ fn request_attack_path_rate_limits() {
     a.set_position(Vec3::ZERO);
     logic.objects.insert(aid, a);
     logic.frame = 100;
-    let _ = logic.request_attack_path(aid, None, Vec3::new(10.0, 0.0, 0.0));
+    logic
+        .request_attack_path(aid, None, Vec3::new(10.0, 0.0, 0.0))
+        .expect("valid attack request fixture");
     logic.frame = 101; // within 3 frames
-    let deferred = !logic.request_attack_path(aid, None, Vec3::new(20.0, 0.0, 0.0));
+    let deferred = !logic
+        .request_attack_path(aid, None, Vec3::new(20.0, 0.0, 0.0))
+        .expect("valid deferred attack fixture");
     let a = logic.objects.get(&aid).unwrap();
     assert!(deferred || a.queue_for_path_frames > 0);
 }
@@ -2442,7 +2480,11 @@ fn private_attack_object_sets_target_and_shots() {
         o.set_position(Vec3::new(5.0, 0.0, 0.0));
         o
     });
-    assert!(logic.private_attack_object(aid, vid, 3));
+    assert!(
+        logic
+            .private_attack_object(aid, vid, 3)
+            .expect("valid private attack fixture")
+    );
     let a = logic.objects.get(&aid).unwrap();
     assert_eq!(a.target, Some(vid));
     assert_eq!(a.max_shots_to_fire, 3);
@@ -2893,7 +2935,9 @@ fn loco_set_physics_options_sticks_infantry() {
 
 #[test]
 fn apply_motive_force_arms_lateral_window() {
-    use crate::game_logic::{KindOf, MOTIVE_FRAMES_RESIDUAL, Object, ObjectId, Team, ThingTemplate};
+    use crate::game_logic::{
+        KindOf, MOTIVE_FRAMES_RESIDUAL, Object, ObjectId, Team, ThingTemplate,
+    };
     use glam::Vec3;
     assert_eq!(MOTIVE_FRAMES_RESIDUAL, 10);
     let mut t = ThingTemplate::new("MotF");

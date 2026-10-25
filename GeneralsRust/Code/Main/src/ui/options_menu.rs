@@ -200,6 +200,12 @@ impl ActionBtn {
 }
 
 /// Options Menu implementation (from C++ OptionsMenu.cpp)
+#[cfg(feature = "game_client")]
+type HostWindowEventEffects<'borrow, 'receiver> =
+    Option<&'borrow mut game_client::gui::game_window::WindowEventEffects<'receiver>>;
+#[cfg(not(feature = "game_client"))]
+type HostWindowEventEffects<'borrow, 'receiver> = ();
+
 pub struct OptionsMenu {
     preferences: game_engine::common::user_preferences::UserPreferences,
     /// Current active tab
@@ -399,6 +405,17 @@ impl OptionsMenu {
         button: MouseButton,
         terrain_lod: Option<&mut dyn FnMut(i32)>,
     ) -> Option<UIEvent> {
+        self.handle_mouse_click_with_terrain_lod_and_effects(x, y, button, terrain_lod, None)
+    }
+
+    pub(crate) fn handle_mouse_click_with_terrain_lod_and_effects(
+        &mut self,
+        x: i32,
+        y: i32,
+        button: MouseButton,
+        terrain_lod: Option<&mut dyn FnMut(i32)>,
+        effects: HostWindowEventEffects<'_, '_>,
+    ) -> Option<UIEvent> {
         if button != MouseButton::Left {
             return None;
         }
@@ -425,7 +442,7 @@ impl OptionsMenu {
             }
         }
         if let Some(action) = clicked_action {
-            return self.handle_action(action, terrain_lod);
+            return self.handle_action(action, terrain_lod, effects);
         }
 
         // Check option controls - find which control was clicked first
@@ -1060,10 +1077,11 @@ impl OptionsMenu {
         &mut self,
         action: ActionButton,
         terrain_lod: Option<&mut dyn FnMut(i32)>,
+        effects: HostWindowEventEffects<'_, '_>,
     ) -> Option<UIEvent> {
         match action {
             ActionButton::Accept => {
-                self.apply_settings_with_terrain_lod(terrain_lod);
+                self.apply_settings_with_terrain_lod(terrain_lod, effects);
                 Some(UIEvent::SettingsChanged)
             }
             ActionButton::Cancel => {
@@ -1071,7 +1089,7 @@ impl OptionsMenu {
                 None
             }
             ActionButton::Apply => {
-                self.apply_settings_with_terrain_lod(terrain_lod);
+                self.apply_settings_with_terrain_lod(terrain_lod, effects);
                 Some(UIEvent::SettingsChanged)
             }
             ActionButton::RestoreDefaults => {
@@ -1086,10 +1104,19 @@ impl OptionsMenu {
         key: KeyCode,
         terrain_lod: Option<&mut dyn FnMut(i32)>,
     ) -> bool {
+        self.handle_key_press_with_terrain_lod_and_effects(key, terrain_lod, None)
+    }
+
+    pub(crate) fn handle_key_press_with_terrain_lod_and_effects(
+        &mut self,
+        key: KeyCode,
+        terrain_lod: Option<&mut dyn FnMut(i32)>,
+        effects: HostWindowEventEffects<'_, '_>,
+    ) -> bool {
         match key {
             KeyCode::Escape => true,
             KeyCode::Enter => {
-                self.apply_settings_with_terrain_lod(terrain_lod);
+                self.apply_settings_with_terrain_lod(terrain_lod, effects);
                 true
             }
             _ => false,
@@ -1097,10 +1124,14 @@ impl OptionsMenu {
     }
 
     fn apply_settings(&mut self) {
-        self.apply_settings_with_terrain_lod(None);
+        self.apply_settings_with_terrain_lod(None, None);
     }
 
-    fn apply_settings_with_terrain_lod(&mut self, terrain_lod: Option<&mut dyn FnMut(i32)>) {
+    fn apply_settings_with_terrain_lod(
+        &mut self,
+        terrain_lod: Option<&mut dyn FnMut(i32)>,
+        effects: HostWindowEventEffects<'_, '_>,
+    ) {
         info!(
             "{}",
             Self::text("options.log.apply_settings", "Applying settings...")
@@ -1110,12 +1141,14 @@ impl OptionsMenu {
         #[cfg(feature = "game_client")]
         {
             let apply = self.host_apply_values();
-            let _ =
-                game_client::gui::callbacks::apply_options_from_host_with_preferences_and_terrain(
+            if let Some(effects) = effects {
+                let _ = game_client::gui::callbacks::apply_options_from_host_with_preferences_and_terrain(
                     apply,
                     &mut self.preferences,
                     terrain_lod,
+                    effects,
                 );
+            }
         }
 
         for (key, value) in self.cpp_option_pairs() {
@@ -1729,6 +1762,8 @@ mod receiving_terrain_lod_tests {
         let before_b = b.snapshot_current_values();
         let mut observed_a = Vec::new();
         let mut observed_b = Vec::new();
+        let mut receiver_a = game_client::core::game_client::GameClient::new().unwrap();
+        let mut receiver_b = game_client::core::game_client::GameClient::new().unwrap();
         let _foreign = game_client::terrain::terrain_visual::get_terrain_visual().unwrap();
         let button = a
             .action_buttons
@@ -1736,19 +1771,22 @@ mod receiving_terrain_lod_tests {
             .find(|button| button.action == ActionButton::Apply)
             .unwrap();
         let (x, y) = (button.position.0 + 1, button.position.1 + 1);
-        let event = a.handle_mouse_click_with_terrain_lod(
-            x,
-            y,
-            MouseButton::Left,
-            Some(&mut |value| {
-                assert_eq!(definitions.read().texture_reduction_factor, value);
-                assert_eq!(
-                    ww3d_renderer_3d::rendering::texture_quality::texture_reduction(),
-                    value as u32
-                );
-                observed_a.push(value);
-            }),
-        );
+        let event = receiver_a.with_window_event_effects(|effects| {
+            a.handle_mouse_click_with_terrain_lod_and_effects(
+                x,
+                y,
+                MouseButton::Left,
+                Some(&mut |value| {
+                    assert_eq!(definitions.read().texture_reduction_factor, value);
+                    assert_eq!(
+                        ww3d_renderer_3d::rendering::texture_quality::texture_reduction(),
+                        value as u32
+                    );
+                    observed_a.push(value);
+                }),
+                Some(effects),
+            )
+        });
         assert!(matches!(event, Some(UIEvent::SettingsChanged)));
         assert_eq!(
             observed_a,
@@ -1757,13 +1795,16 @@ mod receiving_terrain_lod_tests {
         );
         assert!(observed_b.is_empty());
         assert_eq!(b.snapshot_current_values(), before_b);
-        assert!(b.handle_key_press_with_terrain_lod(
-            KeyCode::Enter,
-            Some(&mut |value| {
-                assert_eq!(definitions.read().texture_reduction_factor, value);
-                observed_b.push(value);
-            })
-        ));
+        assert!(receiver_b.with_window_event_effects(|effects| {
+            b.handle_key_press_with_terrain_lod_and_effects(
+                KeyCode::Enter,
+                Some(&mut |value| {
+                    assert_eq!(definitions.read().texture_reduction_factor, value);
+                    observed_b.push(value);
+                }),
+                Some(effects),
+            )
+        }));
         assert_eq!(
             observed_b,
             vec![1],

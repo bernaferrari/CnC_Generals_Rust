@@ -48,7 +48,10 @@ impl GameLogic {
                         return SimulationStepOutcome::Failed(error);
                     }
                     self.tick_host_guard_states_with_effects(&object_ids, &mut ui);
-                    self.update_movement_with_effects(&object_ids, dt, &mut ui);
+                    if let Err(error) = self.update_movement_with_effects(&object_ids, dt, &mut ui)
+                    {
+                        return SimulationStepOutcome::Failed(error);
+                    }
                 }
                 super::super::HostSleepyKind::SpecialPowers => {
                     update_special_powers();

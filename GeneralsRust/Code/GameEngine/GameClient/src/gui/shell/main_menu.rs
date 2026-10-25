@@ -36,7 +36,7 @@ use crate::gui::callbacks::message_box::{
     ex_message_box_ok_cancel, message_box_ok, message_box_ok_cancel, quit_message_box_yes_no,
 };
 use crate::gui::campaign_launch_host_bridge::{
-    HostCampaignLaunchDescriptor, publish_host_campaign_launch,
+    HostCampaignLaunchDescriptor, MenuHostRequest, MenuLaunchSource,
 };
 use crate::gui::campaign_manager::GameDifficulty as CampaignDifficulty;
 use crate::gui::game_window::WindowEventEffects;
@@ -52,8 +52,6 @@ use crate::gui::window_manager::{
     window_manager_try_borrow_free, with_window_manager, with_window_manager_ref,
 };
 use crate::gui::write_input_focus_response;
-use crate::helpers::set_mouse_cursor_visibility;
-use crate::helpers::{TheControlBar, TheInGameUI};
 use crate::map_util::get_map_cache_manager;
 use crate::message_stream::{GameMessage, GameMessageType};
 use crate::shell_hooks::{
@@ -62,21 +60,17 @@ use crate::shell_hooks::{
     SHELL_SCRIPT_HOOK_MAIN_MENU_SKIRMISH_SELECTED, THE_SHELL_HOOK_NAMES,
 };
 use crate::system::SubsystemInterface;
-use game_engine::common::game_engine::get_game_engine;
 use game_engine::common::global_data as runtime_global_data;
 use game_engine::common::ini::get_global_data;
 use game_engine::common::name_key_generator::NameKeyGenerator;
-use game_engine::common::random_value::init_random_with_seed;
 use game_engine::common::user_preferences::UserPreferences;
 use game_network::download_manager::download_manager;
 use game_network::gamespy::peer_defs::tear_down_gamespy;
 use game_network::gamespy::peer_thread::get_peer_message_queue;
-use gamelogic::helpers::{TheGameLogic, TheScriptEngine};
+
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, OnceLock, RwLock};
 
 #[cfg(feature = "online_ui")]
 #[path = "main_menu_online.rs"]
@@ -122,8 +116,8 @@ fn http_cleanup() {}
 
 fn stop_async_dns_check() {}
 
-fn set_main_menu_cursor_visibility(visible: bool) {
-    set_mouse_cursor_visibility(visible);
+fn set_main_menu_cursor_visibility(visible: bool, effects: &mut WindowEventEffects<'_>) {
+    effects.request_menu_host(MenuHostRequest::SetCursorVisibility(visible));
 }
 
 // ================================================================================================
@@ -134,7 +128,6 @@ fn set_main_menu_cursor_visibility(visible: bool) {
 const SHOW_FRAMES_LIMIT: i32 = 20;
 const INITIAL_GADGET_DELAY_DEFAULT: i32 = 210;
 const CORNER: i32 = 10;
-static FIRST_TIME_RUNNING_GAME: AtomicBool = AtomicBool::new(true);
 
 // ================================================================================================
 // MESSAGE CONSTANTS (C++ COMPAT)
@@ -228,8 +221,8 @@ pub enum MessageBoxReturnType {
     KeepOpen,
 }
 
-#[derive(Debug, Clone)]
-enum PendingMainMenuAction {
+#[derive(Debug)]
+pub(crate) enum PendingMainMenuAction {
     PushShellScreen(&'static str),
     ReverseTransitionGroup(&'static str),
     ShowOptionsLayout,
@@ -239,6 +232,13 @@ enum PendingMainMenuAction {
     StartDownloadingPatches,
     LaunchWorldBuilder,
     QuitRequest,
+    QuitNow,
+    Focus(i32),
+    CampaignCdDialog(GameDifficulty),
+    ResolutionDialog(i32, i32),
+    ShutdownComplete,
+    DrainShellPushes,
+    HostRequest(MenuHostRequest),
 }
 
 // ================================================================================================
@@ -343,6 +343,7 @@ impl Default for DisplaySettings {
 pub struct MainMenuState {
     // Window IDs
     pub window_ids: WindowIds,
+    residual_campaign_difficulty: Option<GameDifficulty>,
 
     // State flags - match C++ lines 78-190
     pub raise_message_boxes: bool,
@@ -406,6 +407,7 @@ impl Default for MainMenuState {
 
         Self {
             window_ids: WindowIds::default(),
+            residual_campaign_difficulty: None,
             raise_message_boxes: true,
             campaign_selected: false,
             button_pushed: false,
@@ -449,12 +451,12 @@ impl Default for MainMenuState {
 /// Main Menu UI System
 /// Port of C++ MainMenu.cpp functionality
 pub struct MainMenu {
-    state: Arc<RwLock<MainMenuState>>,
+    state: MainMenuState,
+    first_time_running_game: bool,
 }
 
 impl MainMenu {
     fn find_live_window(
-        &self,
         state: &MainMenuState,
         id: Option<u32>,
         name: Option<&str>,
@@ -475,21 +477,15 @@ impl MainMenu {
         })
     }
 
-    fn hide_window_by_id(
-        &self,
-        state: &MainMenuState,
-        id: u32,
-        fallback_name: Option<&str>,
-        hide: bool,
-    ) {
-        if let Some(window) = self.find_live_window(state, Some(id), fallback_name) {
+    fn hide_window_by_id(state: &MainMenuState, id: u32, fallback_name: Option<&str>, hide: bool) {
+        if let Some(window) = Self::find_live_window(state, Some(id), fallback_name) {
             crate::gui::hide_window_rc(&window, hide);
         }
     }
 
-    fn hide_window_by_name(&self, state: &MainMenuState, name: &str, hide: bool) {
+    fn hide_window_by_name(state: &MainMenuState, name: &str, hide: bool) {
         if let Some(window) =
-            self.find_live_window(state, Some(NameKeyGenerator::name_to_key(name)), Some(name))
+            Self::find_live_window(state, Some(NameKeyGenerator::name_to_key(name)), Some(name))
         {
             crate::gui::hide_window_rc(&window, hide);
         }
@@ -586,12 +582,12 @@ impl MainMenu {
     /// Apply C++ MainMenuInit hide pack. Returns true only if all dropdowns
     /// were found on the live WindowManager and hidden. Never calls
     /// `transition_set_group`.
-    fn apply_cpp_init_hide_pack(&self) -> bool {
+    fn apply_cpp_init_hide_pack() -> bool {
         Self::hide_named_windows_live_or_deferred(Self::CPP_INIT_HIDE_PACK_NAMES);
         Self::all_dropdowns_hidden_on_live_wm()
     }
 
-    fn set_dropdown_hidden(&self, _state: &MainMenuState, dropdown: DropdownType, hide: bool) {
+    fn set_dropdown_hidden(_state: &MainMenuState, dropdown: DropdownType, hide: bool) {
         // C++ dropDownWindows[dropdown]->winHide(hide). Name lookup via queued
         // WM op — never fail-closed dummy `with_window_manager_ref`.
         let Some(name) = Self::dropdown_wnd_name(dropdown) else {
@@ -604,7 +600,7 @@ impl MainMenu {
         });
     }
 
-    fn show_only_dropdown(&self, _state: &MainMenuState, dropdown: DropdownType) {
+    fn show_only_dropdown(_state: &MainMenuState, dropdown: DropdownType) {
         // One queued pass so Single/Main (etc.) actually winHide live MapBorder*
         // windows. Dummy WM lookups never count as success.
         queue_window_manager_op(move |manager| {
@@ -628,7 +624,7 @@ impl MainMenu {
     /// C++ `dropDownWindows[DROPDOWN_MAIN]->winHide(FALSE)` (MainMenu.cpp:985/1001).
     /// Name lookup via queued WM op — never `show_only_dropdown` (that re-hides
     /// other borders) and never fail-closed dummy lookup.
-    fn win_hide_dropdown_main_false(&self) {
+    fn win_hide_dropdown_main_false() {
         queue_window_manager_op(|manager| {
             if let Some(window) = manager.find_window_by_name("MainMenu.wnd:MapBorder2") {
                 crate::gui::hide_window_rc(&window, false);
@@ -636,16 +632,16 @@ impl MainMenu {
         });
     }
 
-    fn reveal_hidden_main_menu(&self, state: &mut MainMenuState) {
+    fn reveal_hidden_main_menu(state: &mut MainMenuState, effects: &mut WindowEventEffects<'_>) {
         state.initial_gadget_delay = 1;
         state.drop_down = DropdownType::Main;
         // C++ MainMenuInput GWM_CHAR: dropDownWindows[DROPDOWN_MAIN]->winHide(FALSE)
         // only. Other borders were already hidden by MainMenuInit. Do not
         // re-hide them here (show_only_dropdown + transition_set_group stalls).
-        self.win_hide_dropdown_main_false();
-        self.transition_set_group("MainMenuFade", true);
-        self.transition_set_group("MainMenuDefaultMenu", false);
-        set_main_menu_cursor_visibility(true);
+        Self::win_hide_dropdown_main_false();
+        Self::transition_set_group("MainMenuFade", true);
+        Self::transition_set_group("MainMenuDefaultMenu", false);
+        set_main_menu_cursor_visibility(true, effects);
         state.not_shown = false;
     }
 
@@ -653,16 +649,48 @@ impl MainMenu {
         Self::queue_action(state, PendingMainMenuAction::SignalUiInteract(hook));
     }
 
-    fn sync_cpp_startup_visibility(&self, state: &MainMenuState) {
+    fn sync_cpp_startup_visibility(state: &MainMenuState) {
         // The C++ init block that hid these controls is commented out, so keep the
         // runtime visibility untouched here as well.
         let _ = state;
     }
 
+    pub fn complete_source_campaign_shutdown(&mut self) {
+        self.state.is_shutting_down = false;
+    }
+    pub fn campaign_start_latched(&self, side: ShowSide) -> bool {
+        let state = &self.state;
+        state.campaign_selected
+            && state.show_side == side
+            && state.start_game
+            && !state.launch_challenge_menu
+    }
+    pub fn challenge_latched(&self) -> bool {
+        self.state.campaign_selected && self.state.launch_challenge_menu
+    }
+    pub fn skirmish_latched(&self) -> bool {
+        self.state.button_pushed
+            && self.state.campaign_selected
+            && !self.state.launch_challenge_menu
+    }
+    pub fn residual_last_campaign_difficulty(&self) -> Option<GameDifficulty> {
+        self.state.residual_campaign_difficulty
+    }
+
+    pub fn complete_source_campaign_start(&mut self) {
+        self.state.start_game = false;
+        self.state.is_shutting_down = true;
+    }
+
+    pub(crate) fn take_pending_actions(&mut self) -> Vec<PendingMainMenuAction> {
+        std::mem::take(&mut self.state.pending_actions)
+    }
+
     /// Create a new MainMenu instance
     pub fn new() -> Self {
         Self {
-            state: Arc::new(RwLock::new(MainMenuState::default())),
+            state: MainMenuState::default(),
+            first_time_running_game: true,
         }
     }
 
@@ -676,7 +704,7 @@ impl MainMenu {
     ) -> MainMenuResult<()> {
         log::info!("MainMenuInit: Initializing main menu");
 
-        let mut state = self.state.write().unwrap_or_else(|e| e.into_inner());
+        let mut state = &mut self.state;
         log::info!("MainMenuInit: state write lock acquired");
 
         if let Some(global) = get_global_data() {
@@ -689,7 +717,7 @@ impl MainMenu {
         // never panic on RefCell double-borrow during smoke-test menu entry.
         crate::gui::shell::base::show_shell_map_if_available(true);
         log::info!("MainMenuInit: show_shell_map_if_available done");
-        set_main_menu_cursor_visibility(true);
+        set_main_menu_cursor_visibility(true, effects);
         log::info!("MainMenuInit: cursor visibility set");
 
         // Reset state - matches C++ lines 431-442
@@ -700,7 +728,8 @@ impl MainMenu {
         state.logo_is_shown = false;
         state.launch_challenge_menu = false;
         state.dont_allow_transitions = false;
-        state.first_time_running_the_game = FIRST_TIME_RUNNING_GAME.swap(false, Ordering::SeqCst);
+        state.first_time_running_the_game =
+            std::mem::replace(&mut self.first_time_running_game, false);
         state.drop_down = DropdownType::None;
         state.pending_drop_down = DropdownType::None;
         state.show_frames = 0;
@@ -745,12 +774,12 @@ impl MainMenu {
         // Do not latch success from dummy with_window_manager_ref lookups.
         // C++ info.windows is roots only; hide(false) must not clear authored
         // HIDDEN on Clock / GetUpdate / StaticTextSelectDifficulty.
-        let hide_ok = self.apply_cpp_init_hide_pack();
+        let hide_ok = Self::apply_cpp_init_hide_pack();
         if let Some(layout) = layout.downcast_ref::<ManagerWindowLayout>() {
             layout.hide(false);
         }
         state.init_dropdowns_hidden = if hide_ok {
-            self.apply_cpp_init_hide_pack()
+            Self::apply_cpp_init_hide_pack()
         } else {
             false
         };
@@ -782,7 +811,7 @@ impl MainMenu {
         if state.first_time_running_the_game {
             log::debug!("First time running the game - hiding mouse and fading");
             state.not_shown = true;
-            set_main_menu_cursor_visibility(false);
+            set_main_menu_cursor_visibility(false, effects);
             // Defer reverse fade to first update; transition_reverse can re-enter WM.
         } else {
             state.show_fade = true;
@@ -791,8 +820,6 @@ impl MainMenu {
             state.just_entered = true;
             state.initial_gadget_delay = 2;
         }
-
-        drop(state);
 
         log::info!("MainMenuInit: Initialization complete");
         Ok(())
@@ -807,7 +834,7 @@ impl MainMenu {
     ) -> MainMenuResult<()> {
         log::info!("MainMenuShutdown: Shutting down main menu");
 
-        let mut state = self.state.write().unwrap_or_else(|e| e.into_inner());
+        let mut state = &mut self.state;
 
         if !state.start_game {
             state.is_shutting_down = true;
@@ -824,7 +851,7 @@ impl MainMenu {
 
         if pop_immediate {
             // Complete shutdown immediately - matches C++ lines 673-682
-            self.finish_shutdown_complete(Some(layout), &mut state)?;
+            Self::finish_shutdown_complete(Some(layout), &mut state)?;
             log::info!("Main menu shutdown complete");
             return Ok(());
         }
@@ -834,7 +861,7 @@ impl MainMenu {
             // callback runs inside Shell::push, so queue it at that lifecycle
             // boundary rather than taking a second mutable shell borrow.
             log::debug!("Reversing window animation");
-            queue_shell_reverse_animate_window();
+            Self::queue_action(&mut state, PendingMainMenuAction::ReverseAnimateWindow);
         }
 
         log::info!("MainMenuShutdown: Shutdown complete");
@@ -849,12 +876,10 @@ impl MainMenu {
         user_data: Option<&dyn std::any::Any>,
         effects: &mut WindowEventEffects<'_>,
     ) -> MainMenuResult<()> {
-        let mut state = self.state.write().unwrap_or_else(|e| e.into_inner());
+        let mut state = &mut self.state;
         let mut focus_target = None;
         let mut pending_actions = Vec::new();
-        if TheGameLogic::is_in_game()
-            && TheGameLogic::get_game_mode() != gamelogic::system::game_logic::GAME_SHELL
-        {
+        if effects.menu_world().in_game && !effects.menu_world().in_shell_game {
             return Ok(());
         }
 
@@ -885,12 +910,12 @@ impl MainMenu {
                 && state.not_shown
                 && state.drop_down == DropdownType::None
             {
-                state.init_dropdowns_hidden = self.apply_cpp_init_hide_pack();
+                state.init_dropdowns_hidden = Self::apply_cpp_init_hide_pack();
             }
         }
         if state.just_entered {
             if state.initial_gadget_delay == 1 {
-                self.transition_set_group("MainMenuDefaultMenuLogoFade", false);
+                Self::transition_set_group("MainMenuDefaultMenuLogoFade", false);
                 focus_target = Some(state.window_ids.main_menu_id as i32);
                 state.initial_gadget_delay = 2;
                 state.just_entered = false;
@@ -910,11 +935,11 @@ impl MainMenu {
             && std::env::var("GENERALS_RUNTIME_HOST_WND").as_deref() == Ok("1")
         {
             log::info!("MainMenuUpdate: unattended runtime-host run — revealing main menu");
-            self.reveal_hidden_main_menu(&mut state);
+            Self::reveal_hidden_main_menu(&mut state, effects);
         }
 
         // Handle transitions - matches C++ lines 847-848
-        if state.dont_allow_transitions && self.transitions_finished() {
+        if state.dont_allow_transitions && Self::transitions_finished() {
             state.dont_allow_transitions = false;
         }
 
@@ -922,23 +947,23 @@ impl MainMenu {
         if state.show_logo && !state.dont_allow_transitions {
             match state.show_side {
                 ShowSide::Training => {
-                    self.transition_set_group("MainMenuFactionTraining", false);
+                    Self::transition_set_group("MainMenuFactionTraining", false);
                     log::debug!("Showing training faction logo");
                 }
                 ShowSide::China => {
-                    self.transition_set_group("MainMenuFactionChina", false);
+                    Self::transition_set_group("MainMenuFactionChina", false);
                     log::debug!("Showing China faction logo");
                 }
                 ShowSide::GLA => {
-                    self.transition_set_group("MainMenuFactionGLA", false);
+                    Self::transition_set_group("MainMenuFactionGLA", false);
                     log::debug!("Showing GLA faction logo");
                 }
                 ShowSide::USA => {
-                    self.transition_set_group("MainMenuFactionUS", false);
+                    Self::transition_set_group("MainMenuFactionUS", false);
                     log::debug!("Showing USA faction logo");
                 }
                 ShowSide::Skirmish => {
-                    self.transition_set_group("MainMenuFactionSkirmish", false);
+                    Self::transition_set_group("MainMenuFactionSkirmish", false);
                     log::debug!("Showing Skirmish faction logo");
                 }
                 ShowSide::None => {}
@@ -953,39 +978,52 @@ impl MainMenu {
         }
 
         // HTTP and GameSpy updates - matches C++ lines 907-908
-        self.http_think_wrapper(&mut state);
+        Self::http_think_wrapper(&mut state);
         update_gamespy_overlays();
 
         // Check if we should start the game - matches C++ lines 933-936
         if state.start_game
             && crate::gui::shell::base::shell_anim_finished_for_layout()
-            && self.transitions_finished()
+            && Self::transitions_finished()
         {
-            self.do_game_start(&mut state, effects)?;
+            // Prefix UI actions precede the source clear. The post-clear branch
+            // resumes from the current request's weak layout receipt on its host.
+            if let Some(id) = focus_target.take() {
+                effects
+                    .pending_main_menu_actions
+                    .push((PendingMainMenuAction::Focus(id), None));
+            }
+            pending_actions.append(&mut state.pending_actions);
+            Self::do_game_start(&mut state, layout, effects)?;
+            pending_actions.append(&mut state.pending_actions);
+            Self::execute_pending_actions(pending_actions, effects);
+            return Ok(());
         }
 
         // Check if shutdown is complete - matches C++ lines 939-942
         if state.is_shutting_down
             && crate::gui::shell::base::shell_anim_finished_for_layout()
-            && self.transitions_finished()
+            && Self::transitions_finished()
         {
-            self.finish_shutdown_complete(Some(layout), &mut state)?;
-            drop(state);
-            self.complete_shell_shutdown()?;
+            Self::finish_shutdown_complete(Some(layout), &mut state)?;
+            Self::queue_action(&mut state, PendingMainMenuAction::ShutdownComplete);
             log::info!("Main menu shutdown complete");
             return Ok(());
         }
 
         pending_actions.append(&mut state.pending_actions);
-        drop(state);
         if let Some(id) = focus_target {
-            self.focus_window(id);
+            effects
+                .pending_main_menu_actions
+                .push((PendingMainMenuAction::Focus(id), None));
         }
-        self.execute_pending_actions(pending_actions, effects);
+        Self::execute_pending_actions(pending_actions, effects);
         // C++ TheShell->push is synchronous from GBM_SELECTED. We queue
         // during process_mouse_event; drain here so the next Shell::update
         // boundary applies Options/Load/Credits/Skirmish/Challenge.
-        drain_deferred_shell_pushes();
+        effects
+            .pending_main_menu_actions
+            .push((PendingMainMenuAction::DrainShellPushes, None));
 
         Ok(())
     }
@@ -1000,7 +1038,7 @@ impl MainMenu {
         data2: WindowMsgData,
         effects: &mut WindowEventEffects<'_>,
     ) -> bool {
-        let mut state = self.state.write().unwrap_or_else(|e| e.into_inner());
+        let mut state = &mut self.state;
 
         if !state.not_shown {
             return false; // MSG_IGNORED
@@ -1027,7 +1065,7 @@ impl MainMenu {
                     log::debug!("Mouse moved significantly: ({}, {})", mouse_x, mouse_y);
 
                     if state.not_shown {
-                        self.reveal_hidden_main_menu(&mut state);
+                        Self::reveal_hidden_main_menu(&mut state, effects);
                         return true; // MSG_HANDLED
                     }
                 }
@@ -1035,7 +1073,7 @@ impl MainMenu {
 
             // GWM_CHAR - matches C++ lines 996-1009
             GWM_CHAR if state.not_shown => {
-                self.reveal_hidden_main_menu(&mut state);
+                Self::reveal_hidden_main_menu(&mut state, effects);
                 return true; // MSG_HANDLED
             }
 
@@ -1081,7 +1119,7 @@ impl MainMenu {
         camera_input: Option<crate::gui::callbacks::OptionsCameraInputObservation>,
         effects: &mut WindowEventEffects<'_>,
     ) -> bool {
-        let mut state = self.state.write().unwrap_or_else(|e| e.into_inner());
+        let mut state = &mut self.state;
         let mut pending_actions = Vec::new();
 
         match msg {
@@ -1131,10 +1169,9 @@ impl MainMenu {
             // GBM_MOUSE_ENTERING - matches C++ lines 1060-1176
             GBM_MOUSE_ENTERING => {
                 let control_id = data1 as u32;
-                self.handle_mouse_entering(&mut state, control_id);
+                Self::handle_mouse_entering(&mut state, control_id);
                 pending_actions.append(&mut state.pending_actions);
-                drop(state);
-                self.execute_pending_actions_with_camera_input(
+                Self::execute_pending_actions_with_camera_input(
                     pending_actions,
                     camera_input,
                     effects,
@@ -1145,10 +1182,9 @@ impl MainMenu {
             // GBM_MOUSE_LEAVING - matches C++ lines 1178-1277
             GBM_MOUSE_LEAVING => {
                 let control_id = data1 as u32;
-                self.handle_mouse_leaving(&mut state, control_id);
+                Self::handle_mouse_leaving(&mut state, control_id);
                 pending_actions.append(&mut state.pending_actions);
-                drop(state);
-                self.execute_pending_actions_with_camera_input(
+                Self::execute_pending_actions_with_camera_input(
                     pending_actions,
                     camera_input,
                     effects,
@@ -1170,12 +1206,11 @@ impl MainMenu {
                     return true;
                 }
 
-                if let Err(e) = self.handle_button_selected(&mut state, control_id, effects) {
+                if let Err(e) = Self::handle_button_selected(&mut state, control_id, effects) {
                     log::error!("Error handling button selection: {}", e);
                 }
                 pending_actions.append(&mut state.pending_actions);
-                drop(state);
-                self.execute_pending_actions_with_camera_input(
+                Self::execute_pending_actions_with_camera_input(
                     pending_actions,
                     camera_input,
                     effects,
@@ -1193,7 +1228,7 @@ impl MainMenu {
     // PRIVATE HELPER METHODS
     // ============================================================================================
 
-    fn transition_set_group(&self, group: &str, immediate: bool) {
+    fn transition_set_group(group: &str, immediate: bool) {
         // Button handlers run nested under a live WM borrow (gadget callback
         // stack); plain `with_window_manager` would silently drop the call
         // (fail-closed dummy). Queue with owned data like the hide helpers so
@@ -1214,74 +1249,90 @@ impl MainMenu {
     }
 
     fn execute_pending_actions(
-        &self,
         actions: Vec<PendingMainMenuAction>,
         effects: &mut WindowEventEffects<'_>,
     ) {
-        self.execute_pending_actions_with_camera_input(actions, None, effects);
+        Self::execute_pending_actions_with_camera_input(actions, None, effects);
     }
     fn execute_pending_actions_with_camera_input(
-        &self,
         actions: Vec<PendingMainMenuAction>,
         camera_input: Option<crate::gui::callbacks::OptionsCameraInputObservation>,
         effects: &mut WindowEventEffects<'_>,
     ) {
-        for action in actions {
-            match action {
-                PendingMainMenuAction::PushShellScreen(screen) => {
-                    // Defer shell layout push off the process_mouse_event stack.
-                    // Synchronous shell.push during LeftUp has hung windowed host
-                    // inject (MainMenuInit / layout create mid control-drain).
-                    // Evidence still latches Used from process_mouse_event; the
-                    // push runs on the next menu tick via drain_deferred_shell_pushes.
-                    queue_deferred_shell_push(screen);
-                }
-                PendingMainMenuAction::ReverseTransitionGroup(group) => {
-                    self.transition_reverse(group);
-                }
-                PendingMainMenuAction::ShowOptionsLayout => {
-                    queue_shell_operation(move |shell| {
+        effects
+            .pending_main_menu_actions
+            .extend(actions.into_iter().map(|action| (action, camera_input)));
+    }
+
+    pub(crate) fn execute_action(
+        action: PendingMainMenuAction,
+        camera_input: Option<crate::gui::callbacks::OptionsCameraInputObservation>,
+        effects: &mut WindowEventEffects<'_>,
+    ) {
+        match action {
+            PendingMainMenuAction::PushShellScreen(screen) => {
+                effects
+                    .window_manager_owner
+                    .expect("menu requires receiving window owner")
+                    .queue_shell_operation_with_effects(move |shell, effects| {
+                        let _ = shell.push(screen, false, effects);
+                    });
+            }
+            PendingMainMenuAction::ReverseTransitionGroup(group) => Self::transition_reverse(group),
+            PendingMainMenuAction::ShowOptionsLayout => {
+                effects
+                    .window_manager_owner
+                    .expect("menu requires receiving window owner")
+                    .queue_shell_operation_with_effects(move |shell, effects| {
                         if let Some(layout) = shell.get_options_layout(true) {
-                            if let Err(err) = layout.run_init(
+                            if let Err(err) = layout.run_init_with_effects(
                                 camera_input
                                     .as_ref()
                                     .map(|value| value as &dyn std::any::Any),
+                                effects,
                             ) {
-                                log::warn!("Options layout init failed: {}", err);
+                                log::warn!("Options layout init failed: {err}");
                             }
                             layout.hide(false);
                             layout.bring_forward();
                         }
                     });
-                }
-                PendingMainMenuAction::SignalUiInteract(hook) => {
-                    TheScriptEngine::signal_ui_interact(hook);
-                }
-                PendingMainMenuAction::ReverseAnimateWindow => {
-                    queue_shell_reverse_animate_window();
-                }
-                PendingMainMenuAction::StartPatchCheck => self.start_patch_check(),
-                PendingMainMenuAction::StartDownloadingPatches => {
-                    self.start_downloading_patches();
-                }
-                PendingMainMenuAction::LaunchWorldBuilder => self.launch_world_builder(),
-                PendingMainMenuAction::QuitRequest => self.perform_quit_request(effects),
             }
+            PendingMainMenuAction::SignalUiInteract(hook) => {
+                effects.request_menu_host(MenuHostRequest::SignalUiInteract(hook))
+            }
+            PendingMainMenuAction::ReverseAnimateWindow => queue_shell_reverse_animate_window(),
+            PendingMainMenuAction::StartPatchCheck => {
+                effects.with_main_menu(|menu, _| menu.start_patch_check())
+            }
+            PendingMainMenuAction::StartDownloadingPatches => {
+                Self::start_downloading_patches(effects)
+            }
+            PendingMainMenuAction::LaunchWorldBuilder => Self::launch_world_builder(),
+            PendingMainMenuAction::QuitRequest => Self::perform_quit_request(effects),
+            PendingMainMenuAction::QuitNow => Self::perform_quit_now(effects),
+            PendingMainMenuAction::Focus(id) => Self::focus_window(id),
+            PendingMainMenuAction::CampaignCdDialog(diff) => Self::show_campaign_cd_dialog(diff),
+            PendingMainMenuAction::ResolutionDialog(x, y) => Self::show_resolution_dialog(x, y),
+            PendingMainMenuAction::ShutdownComplete => {
+                let _ = Self::complete_shell_shutdown();
+            }
+            PendingMainMenuAction::DrainShellPushes => drain_deferred_shell_pushes(),
+            PendingMainMenuAction::HostRequest(request) => effects.request_menu_host(request),
         }
     }
 
-    fn perform_quit_request(&self, effects: &mut WindowEventEffects<'_>) {
+    fn perform_quit_request(effects: &mut WindowEventEffects<'_>) {
         let windowed = get_global_data()
             .map(|data| data.read().windowed)
             .unwrap_or(true);
         if windowed {
-            self.confirm_quit(effects);
+            effects.with_main_menu(|menu, effects| menu.confirm_quit(effects));
             return;
         }
 
         let yes: MessageBoxFunc = Box::new(|effects| {
-            let menu = get_main_menu();
-            menu.confirm_quit(effects);
+            effects.with_main_menu(|menu, effects| menu.confirm_quit(effects));
         });
         let _ = quit_message_box_yes_no(
             &crate::game_text::GameText::fetch("GUI:QuitPopupTitle"),
@@ -1291,31 +1342,30 @@ impl MainMenu {
         );
     }
 
-    fn confirm_quit(&self, effects: &mut WindowEventEffects<'_>) {
-        let mut state = self.state.write().unwrap_or_else(|e| e.into_inner());
+    fn confirm_quit(&mut self, effects: &mut WindowEventEffects<'_>) {
+        let mut state = &mut self.state;
         state.button_pushed = true;
-        drop(state);
 
-        Self::perform_quit_now(effects);
+        effects
+            .pending_main_menu_actions
+            .push((PendingMainMenuAction::QuitNow, None));
     }
 
     fn perform_quit_now(effects: &mut WindowEventEffects<'_>) {
-        TheScriptEngine::signal_ui_interact(
+        effects.request_menu_host(MenuHostRequest::SignalUiInteract(
             THE_SHELL_HOOK_NAMES[SHELL_SCRIPT_HOOK_MAIN_MENU_EXIT_SELECTED as usize],
-        );
+        ));
         queue_shell_pop();
-        if let Some(engine) = get_game_engine() {
-            engine.lock().set_quitting(true);
-        }
-        if TheGameLogic::is_in_game() {
+        effects.request_menu_host(MenuHostRequest::Quit);
+        if effects.menu_world().in_game {
             effects
                 .emitted_messages
                 .push(GameMessage::new(GameMessageType::ClearGameData));
         }
     }
 
-    fn start_patch_check(&self) {
-        let mut state = self.state.write().unwrap_or_else(|e| e.into_inner());
+    fn start_patch_check(&mut self) {
+        let mut state = &mut self.state;
         state.checking_for_patch_before_gamespy = true;
         state.cant_connect_before_online = false;
         state.checks_left_before_online = 4;
@@ -1325,7 +1375,7 @@ impl MainMenu {
         log::info!("StartPatchCheck requested");
     }
 
-    fn start_downloading_patches(&self) {
+    fn start_downloading_patches(effects: &mut WindowEventEffects<'_>) {
         let has_queued_downloads = download_manager()
             .lock()
             .ok()
@@ -1337,7 +1387,7 @@ impl MainMenu {
             .unwrap_or(false);
 
         if !has_queued_downloads {
-            get_main_menu().handle_canceled_download(true);
+            effects.with_main_menu(|menu, _| menu.handle_canceled_download(true));
             log::info!("StartDownloadingPatches requested with empty queue");
             return;
         }
@@ -1348,14 +1398,14 @@ impl MainMenu {
             {
                 {
                     let layout_ref = layout.borrow();
-                    layout_ref.run_init(None);
+                    layout_ref.run_init_with_effects(None, effects);
                     layout_ref.hide(false);
                 }
                 layout.borrow_mut().bring_forward();
             }
         });
 
-        get_main_menu().handle_canceled_download(false);
+        effects.with_main_menu(|menu, _| menu.handle_canceled_download(false));
 
         if let Ok(mut guard) = download_manager().lock() {
             if let Some(manager) = guard.as_mut() {
@@ -1365,7 +1415,7 @@ impl MainMenu {
         log::info!("StartDownloadingPatches requested");
     }
 
-    fn launch_world_builder(&self) {
+    fn launch_world_builder() {
         let candidates: &[&str] = if cfg!(debug_assertions) {
             &["WorldBuilderD.exe", "WorldBuilderI.exe", "WorldBuilder.exe"]
         } else {
@@ -1391,7 +1441,7 @@ impl MainMenu {
         }
     }
 
-    fn transition_reverse(&self, group: &str) {
+    fn transition_reverse(group: &str) {
         // Queued, never fail-closed dropped under a nested WM borrow.
         if !window_manager_try_borrow_free() {
             log::debug!("MainMenu: transition_reverse({group}) queued behind live WM borrow");
@@ -1400,7 +1450,7 @@ impl MainMenu {
         queue_window_manager_op(move |manager| manager.transition_reverse(&group));
     }
 
-    fn transition_remove(&self, group: &str, skip_pending: bool) {
+    fn transition_remove(group: &str, skip_pending: bool) {
         // Queued, never fail-closed dropped under a nested WM borrow.
         if !window_manager_try_borrow_free() {
             log::debug!(
@@ -1413,11 +1463,11 @@ impl MainMenu {
         });
     }
 
-    fn transitions_finished(&self) -> bool {
+    fn transitions_finished() -> bool {
         with_window_manager_ref(|manager| manager.transitions_finished())
     }
 
-    fn focus_window(&self, id: i32) {
+    fn focus_window(id: i32) {
         with_window_manager(|manager| {
             manager.request_focus(id);
         });
@@ -1425,7 +1475,7 @@ impl MainMenu {
 
     /// Handle mouse entering a control
     /// Port of GBM_MOUSE_ENTERING handler - C++ lines 1060-1176
-    fn handle_mouse_entering(&self, state: &mut MainMenuState, control_id: u32) {
+    fn handle_mouse_entering(state: &mut MainMenuState, control_id: u32) {
         // Check which control the mouse is entering
         if control_id == state.window_ids.online_id {
             Self::queue_signal_ui_interact(state, "ShellMainMenuOnlineHighlighted");
@@ -1449,7 +1499,7 @@ impl MainMenu {
                 return;
             }
 
-            self.transition_set_group("MainMenuFactionTraining", false);
+            Self::transition_set_group("MainMenuFactionTraining", false);
             log::debug!("Mouse entering Challenge button");
         } else if control_id == state.window_ids.skirmish_id {
             if state.dont_allow_transitions && !state.campaign_selected {
@@ -1461,7 +1511,7 @@ impl MainMenu {
                 return;
             }
 
-            self.transition_set_group("MainMenuFactionSkirmish", false);
+            Self::transition_set_group("MainMenuFactionSkirmish", false);
             log::debug!("Mouse entering Skirmish button");
         } else if control_id == state.window_ids.button_usa_id {
             if state.dont_allow_transitions && !state.campaign_selected {
@@ -1473,7 +1523,7 @@ impl MainMenu {
                 return;
             }
 
-            self.transition_set_group("MainMenuFactionUS", false);
+            Self::transition_set_group("MainMenuFactionUS", false);
             log::debug!("Mouse entering USA button");
         } else if control_id == state.window_ids.button_gla_id {
             if state.dont_allow_transitions && !state.campaign_selected {
@@ -1485,7 +1535,7 @@ impl MainMenu {
                 return;
             }
 
-            self.transition_set_group("MainMenuFactionGLA", false);
+            Self::transition_set_group("MainMenuFactionGLA", false);
             log::debug!("Mouse entering GLA button");
         } else if control_id == state.window_ids.button_china_id {
             if state.dont_allow_transitions && !state.campaign_selected {
@@ -1497,14 +1547,14 @@ impl MainMenu {
                 return;
             }
 
-            self.transition_set_group("MainMenuFactionChina", false);
+            Self::transition_set_group("MainMenuFactionChina", false);
             log::debug!("Mouse entering China button");
         }
     }
 
     /// Handle mouse leaving a control
     /// Port of GBM_MOUSE_LEAVING handler - C++ lines 1178-1277
-    fn handle_mouse_leaving(&self, state: &mut MainMenuState, control_id: u32) {
+    fn handle_mouse_leaving(state: &mut MainMenuState, control_id: u32) {
         if control_id == state.window_ids.online_id {
             Self::queue_signal_ui_interact(state, "ShellMainMenuOnlineUnhighlighted");
             log::debug!("Mouse leaving Online button");
@@ -1527,7 +1577,7 @@ impl MainMenu {
                 return;
             }
 
-            self.transition_reverse("MainMenuFactionTraining");
+            Self::transition_reverse("MainMenuFactionTraining");
             log::debug!("Mouse leaving Challenge button");
         } else if control_id == state.window_ids.skirmish_id {
             if state.dont_allow_transitions && !state.campaign_selected && state.show_logo {
@@ -1539,7 +1589,7 @@ impl MainMenu {
                 return;
             }
 
-            self.transition_reverse("MainMenuFactionSkirmish");
+            Self::transition_reverse("MainMenuFactionSkirmish");
             log::debug!("Mouse leaving Skirmish button");
         } else if control_id == state.window_ids.button_usa_id {
             if state.dont_allow_transitions && !state.campaign_selected && state.show_logo {
@@ -1551,7 +1601,7 @@ impl MainMenu {
                 return;
             }
 
-            self.transition_reverse("MainMenuFactionUS");
+            Self::transition_reverse("MainMenuFactionUS");
             log::debug!("Mouse leaving USA button");
         } else if control_id == state.window_ids.button_gla_id {
             if state.dont_allow_transitions && !state.campaign_selected && state.show_logo {
@@ -1563,7 +1613,7 @@ impl MainMenu {
                 return;
             }
 
-            self.transition_reverse("MainMenuFactionGLA");
+            Self::transition_reverse("MainMenuFactionGLA");
             log::debug!("Mouse leaving GLA button");
         } else if control_id == state.window_ids.button_china_id {
             if state.dont_allow_transitions && !state.campaign_selected && state.show_logo {
@@ -1575,7 +1625,7 @@ impl MainMenu {
                 return;
             }
 
-            self.transition_reverse("MainMenuFactionChina");
+            Self::transition_reverse("MainMenuFactionChina");
             log::debug!("Mouse leaving China button");
         }
     }
@@ -1583,7 +1633,6 @@ impl MainMenu {
     /// Handle button selected
     /// Port of GBM_SELECTED handler - C++ lines 1279-1677
     fn handle_button_selected(
-        &self,
         state: &mut MainMenuState,
         control_id: u32,
         effects: &mut WindowEventEffects<'_>,
@@ -1596,7 +1645,7 @@ impl MainMenu {
         if control_id != state.window_ids.button_easy_id
             && control_id != state.window_ids.button_medium_id
             && control_id != state.window_ids.button_hard_id
-            && self.transitions_finished()
+            && Self::transitions_finished()
         {
             state.launch_challenge_menu = false;
         }
@@ -1610,10 +1659,10 @@ impl MainMenu {
             state.dont_allow_transitions = true;
             state.button_pushed = false;
             state.drop_down = DropdownType::Single;
-            self.show_only_dropdown(state, DropdownType::Single);
-            self.transition_remove("MainMenuDefaultMenu", false);
-            self.transition_reverse("MainMenuDefaultMenuBack");
-            self.transition_set_group("MainMenuSinglePlayerMenu", false);
+            Self::show_only_dropdown(state, DropdownType::Single);
+            Self::transition_remove("MainMenuDefaultMenu", false);
+            Self::transition_reverse("MainMenuDefaultMenuBack");
+            Self::transition_set_group("MainMenuSinglePlayerMenu", false);
             log::info!("Single Player button selected");
         } else if control_id == state.window_ids.button_single_back_id {
             // Single Player Back button - C++ lines 1326-1335
@@ -1622,10 +1671,10 @@ impl MainMenu {
             }
             state.button_pushed = false;
             state.drop_down = DropdownType::Main;
-            self.show_only_dropdown(state, DropdownType::Main);
-            self.transition_remove("MainMenuSinglePlayerMenu", false);
-            self.transition_reverse("MainMenuSinglePlayerMenuBack");
-            self.transition_set_group("MainMenuDefaultMenu", false);
+            Self::show_only_dropdown(state, DropdownType::Main);
+            Self::transition_remove("MainMenuSinglePlayerMenu", false);
+            Self::transition_reverse("MainMenuSinglePlayerMenuBack");
+            Self::transition_set_group("MainMenuDefaultMenu", false);
             state.dont_allow_transitions = true;
             log::info!("Single Player Back button selected");
         } else if control_id == state.window_ids.button_multi_back_id {
@@ -1636,10 +1685,10 @@ impl MainMenu {
             state.dont_allow_transitions = true;
             state.button_pushed = false;
             state.drop_down = DropdownType::Main;
-            self.show_only_dropdown(state, DropdownType::Main);
-            self.transition_remove("MainMenuMultiPlayerMenu", false);
-            self.transition_reverse("MainMenuMultiPlayerMenuReverse");
-            self.transition_set_group("MainMenuDefaultMenu", false);
+            Self::show_only_dropdown(state, DropdownType::Main);
+            Self::transition_remove("MainMenuMultiPlayerMenu", false);
+            Self::transition_reverse("MainMenuMultiPlayerMenuReverse");
+            Self::transition_set_group("MainMenuDefaultMenu", false);
             log::info!("Multiplayer Back button selected");
         } else if control_id == state.window_ids.button_load_replay_back_id {
             // Load Replay Back button - C++ lines 1347-1357
@@ -1649,10 +1698,10 @@ impl MainMenu {
             state.dont_allow_transitions = true;
             state.button_pushed = false;
             state.drop_down = DropdownType::Main;
-            self.show_only_dropdown(state, DropdownType::Main);
-            self.transition_remove("MainMenuLoadReplayMenu", false);
-            self.transition_reverse("MainMenuLoadReplayMenuBack");
-            self.transition_set_group("MainMenuDefaultMenu", false);
+            Self::show_only_dropdown(state, DropdownType::Main);
+            Self::transition_remove("MainMenuLoadReplayMenu", false);
+            Self::transition_reverse("MainMenuLoadReplayMenuBack");
+            Self::transition_set_group("MainMenuDefaultMenu", false);
             log::info!("Load Replay Back button selected");
         } else if control_id == state.window_ids.button_credits_id {
             // Credits button - C++ lines 1359-1368
@@ -1666,8 +1715,8 @@ impl MainMenu {
                 PendingMainMenuAction::PushShellScreen("Menus/CreditsMenu.wnd"),
             );
             state.drop_down = DropdownType::Main;
-            self.show_only_dropdown(state, DropdownType::Main);
-            self.transition_reverse("MainMenuDefaultMenu");
+            Self::show_only_dropdown(state, DropdownType::Main);
+            Self::transition_reverse("MainMenuDefaultMenu");
             log::info!("Credits button selected");
         } else if control_id == state.window_ids.button_multi_player_id {
             // Multiplayer button - C++ lines 1369-1380
@@ -1677,10 +1726,10 @@ impl MainMenu {
             state.dont_allow_transitions = true;
             state.button_pushed = false;
             state.drop_down = DropdownType::Multiplayer;
-            self.show_only_dropdown(state, DropdownType::Multiplayer);
-            self.transition_remove("MainMenuDefaultMenu", false);
-            self.transition_reverse("MainMenuDefaultMenuBack");
-            self.transition_set_group("MainMenuMultiPlayerMenu", false);
+            Self::show_only_dropdown(state, DropdownType::Multiplayer);
+            Self::transition_remove("MainMenuDefaultMenu", false);
+            Self::transition_reverse("MainMenuDefaultMenuBack");
+            Self::transition_set_group("MainMenuMultiPlayerMenu", false);
             log::info!("Multiplayer button selected");
         } else if control_id == state.window_ids.button_load_replay_id {
             // Load Replay button - C++ lines 1381-1392
@@ -1690,10 +1739,10 @@ impl MainMenu {
             state.dont_allow_transitions = true;
             state.button_pushed = false;
             state.drop_down = DropdownType::LoadReplay;
-            self.show_only_dropdown(state, DropdownType::LoadReplay);
-            self.transition_remove("MainMenuDefaultMenu", false);
-            self.transition_reverse("MainMenuDefaultMenuBack");
-            self.transition_set_group("MainMenuLoadReplayMenu", false);
+            Self::show_only_dropdown(state, DropdownType::LoadReplay);
+            Self::transition_remove("MainMenuDefaultMenu", false);
+            Self::transition_reverse("MainMenuDefaultMenuBack");
+            Self::transition_set_group("MainMenuLoadReplayMenu", false);
             log::info!("Load Replay button selected");
         } else if control_id == state.window_ids.button_load_id {
             // Load Game button - C++ lines 1393-1409
@@ -1703,8 +1752,8 @@ impl MainMenu {
             state.dont_allow_transitions = true;
             state.button_pushed = true;
             state.drop_down = DropdownType::LoadReplay;
-            self.show_only_dropdown(state, DropdownType::LoadReplay);
-            self.transition_reverse("MainMenuLoadReplayMenuBackTransition");
+            Self::show_only_dropdown(state, DropdownType::LoadReplay);
+            Self::transition_reverse("MainMenuLoadReplayMenuBackTransition");
             Self::queue_action(
                 state,
                 PendingMainMenuAction::PushShellScreen("Menus/SaveLoad.wnd"),
@@ -1718,8 +1767,8 @@ impl MainMenu {
             state.dont_allow_transitions = true;
             state.button_pushed = true;
             state.drop_down = DropdownType::LoadReplay;
-            self.show_only_dropdown(state, DropdownType::LoadReplay);
-            self.transition_reverse("MainMenuLoadReplayMenuBackTransition");
+            Self::show_only_dropdown(state, DropdownType::LoadReplay);
+            Self::transition_reverse("MainMenuLoadReplayMenuBackTransition");
             Self::queue_action(
                 state,
                 PendingMainMenuAction::PushShellScreen("Menus/ReplayMenu.wnd"),
@@ -1734,9 +1783,9 @@ impl MainMenu {
             state.button_pushed = true;
             state.campaign_selected = true;
             state.drop_down = DropdownType::Single;
-            self.show_only_dropdown(state, DropdownType::Single);
-            self.transition_remove("MainMenuFactionSkirmish", false);
-            self.transition_reverse("MainMenuSinglePlayerMenuBackSkirmish");
+            Self::show_only_dropdown(state, DropdownType::Single);
+            Self::transition_remove("MainMenuFactionSkirmish", false);
+            Self::transition_reverse("MainMenuSinglePlayerMenuBackSkirmish");
             Self::queue_action(
                 state,
                 PendingMainMenuAction::PushShellScreen("Menus/SkirmishGameOptionsMenu.wnd"),
@@ -1756,8 +1805,8 @@ impl MainMenu {
             state.dont_allow_transitions = true;
             state.button_pushed = true;
             state.drop_down = DropdownType::Multiplayer;
-            self.show_only_dropdown(state, DropdownType::Multiplayer);
-            self.transition_reverse("MainMenuMultiPlayerMenuTransitionToNext");
+            Self::show_only_dropdown(state, DropdownType::Multiplayer);
+            Self::transition_reverse("MainMenuMultiPlayerMenuTransitionToNext");
             Self::queue_action(state, PendingMainMenuAction::StartPatchCheck);
             state.drop_down = DropdownType::None;
             log::info!("Online button selected");
@@ -1769,8 +1818,8 @@ impl MainMenu {
             state.dont_allow_transitions = true;
             state.button_pushed = true;
             state.drop_down = DropdownType::Multiplayer;
-            self.show_only_dropdown(state, DropdownType::Multiplayer);
-            self.transition_reverse("MainMenuMultiPlayerMenuTransitionToNext");
+            Self::show_only_dropdown(state, DropdownType::Multiplayer);
+            Self::transition_reverse("MainMenuMultiPlayerMenuTransitionToNext");
             Self::queue_action(
                 state,
                 PendingMainMenuAction::PushShellScreen("Menus/LanLobbyMenu.wnd"),
@@ -1806,7 +1855,7 @@ impl MainMenu {
             log::info!("Get Update button selected");
         } else if control_id == state.window_ids.exit_id {
             // Exit button - C++ lines 1502-1521
-            self.request_quit(state);
+            Self::request_quit(state);
             log::info!("Exit button selected");
         } else if control_id == state.window_ids.button_challenge_id {
             // Challenge button - C++ lines 1522-1538
@@ -1815,10 +1864,10 @@ impl MainMenu {
             }
 
             state.drop_down = DropdownType::Difficulty;
-            self.transition_set_group("MainMenuFactionTraining", false);
-            self.hide_window_by_name(state, "MainMenu.wnd:WinFactionTraining", true);
-            self.transition_reverse("MainMenuSinglePlayerMenuBackTraining");
-            self.transition_set_group("MainMenuDifficultyMenuTraining", false);
+            Self::transition_set_group("MainMenuFactionTraining", false);
+            Self::hide_window_by_name(state, "MainMenu.wnd:WinFactionTraining", true);
+            Self::transition_reverse("MainMenuSinglePlayerMenuBackTraining");
+            Self::transition_set_group("MainMenuDifficultyMenuTraining", false);
             state.campaign_selected = true;
             state.show_logo = false;
             state.show_side = ShowSide::Training;
@@ -1836,11 +1885,11 @@ impl MainMenu {
             } else {
                 return Ok(());
             }
-            self.transition_set_group("MainMenuFactionUS", false);
-            self.transition_remove("MainMenuFactionUS", true);
-            self.hide_window_by_name(state, "MainMenu.wnd:WinFactionUS", true);
-            self.transition_reverse("MainMenuSinglePlayerMenuBackUS");
-            self.transition_set_group("MainMenuDifficultyMenuUS", false);
+            Self::transition_set_group("MainMenuFactionUS", false);
+            Self::transition_remove("MainMenuFactionUS", true);
+            Self::hide_window_by_name(state, "MainMenu.wnd:WinFactionUS", true);
+            Self::transition_reverse("MainMenuSinglePlayerMenuBackUS");
+            Self::transition_set_group("MainMenuDifficultyMenuUS", false);
             state.campaign_selected = true;
             state.logo_is_shown = false;
             state.show_logo = false;
@@ -1858,11 +1907,11 @@ impl MainMenu {
             } else {
                 return Ok(());
             }
-            self.transition_set_group("MainMenuFactionGLA", false);
-            self.transition_remove("MainMenuFactionGLA", true);
-            self.hide_window_by_name(state, "MainMenu.wnd:WinFactionGLA", true);
-            self.transition_reverse("MainMenuSinglePlayerMenuBackGLA");
-            self.transition_set_group("MainMenuDifficultyMenuGLA", false);
+            Self::transition_set_group("MainMenuFactionGLA", false);
+            Self::transition_remove("MainMenuFactionGLA", true);
+            Self::hide_window_by_name(state, "MainMenu.wnd:WinFactionGLA", true);
+            Self::transition_reverse("MainMenuSinglePlayerMenuBackGLA");
+            Self::transition_set_group("MainMenuDifficultyMenuGLA", false);
             state.campaign_selected = true;
             state.logo_is_shown = false;
             state.show_logo = false;
@@ -1880,11 +1929,11 @@ impl MainMenu {
             } else {
                 return Ok(());
             }
-            self.transition_set_group("MainMenuFactionChina", false);
-            self.transition_remove("MainMenuFactionChina", true);
-            self.hide_window_by_name(state, "MainMenu.wnd:WinFactionChina", true);
-            self.transition_reverse("MainMenuSinglePlayerMenuBackChina");
-            self.transition_set_group("MainMenuDifficultyMenuChina", false);
+            Self::transition_set_group("MainMenuFactionChina", false);
+            Self::transition_remove("MainMenuFactionChina", true);
+            Self::hide_window_by_name(state, "MainMenu.wnd:WinFactionChina", true);
+            Self::transition_reverse("MainMenuSinglePlayerMenuBackChina");
+            Self::transition_set_group("MainMenuDifficultyMenuChina", false);
             state.campaign_selected = true;
             state.logo_is_shown = false;
             state.show_logo = false;
@@ -1895,21 +1944,21 @@ impl MainMenu {
             if state.dont_allow_transitions {
                 return Ok(());
             }
-            self.check_cd_before_campaign(state, GameDifficulty::Easy, effects);
+            Self::check_cd_before_campaign(state, GameDifficulty::Easy, effects);
             log::info!("Easy difficulty selected");
         } else if control_id == state.window_ids.button_medium_id {
             // Medium difficulty - C++ lines 1651-1657
             if state.dont_allow_transitions {
                 return Ok(());
             }
-            self.check_cd_before_campaign(state, GameDifficulty::Normal, effects);
+            Self::check_cd_before_campaign(state, GameDifficulty::Normal, effects);
             log::info!("Medium difficulty selected");
         } else if control_id == state.window_ids.button_hard_id {
             // Hard difficulty - C++ lines 1658-1664
             if state.dont_allow_transitions {
                 return Ok(());
             }
-            self.check_cd_before_campaign(state, GameDifficulty::Hard, effects);
+            Self::check_cd_before_campaign(state, GameDifficulty::Hard, effects);
             log::info!("Hard difficulty selected");
         } else if control_id == state.window_ids.button_diff_back_id {
             // Difficulty Back button - C++ lines 1665-1673
@@ -1924,7 +1973,7 @@ impl MainMenu {
             } else {
                 return Ok(());
             }
-            self.diff_reverse_side(state);
+            Self::diff_reverse_side(state);
             state.campaign_selected = false;
             log::info!("Difficulty Back button selected");
         }
@@ -1934,7 +1983,7 @@ impl MainMenu {
 
     /// Initial hide of faction windows
     /// Port of initialHide() - C++ lines 360-425
-    fn initial_hide(&self, state: &MainMenuState) {
+    fn initial_hide(state: &MainMenuState) {
         for name in [
             "MainMenu.wnd:WinFactionGLA",
             "MainMenu.wnd:WinFactionChina",
@@ -1956,44 +2005,44 @@ impl MainMenu {
             "MainMenu.wnd:WinFactionChinaSmall",
             "MainMenu.wnd:WinFactionChinaMedium",
         ] {
-            self.hide_window_by_name(state, name, true);
+            Self::hide_window_by_name(state, name, true);
         }
     }
 
     /// Show selective buttons based on faction
     /// Port of showSelectiveButtons() - C++ lines 217-225
-    fn show_selective_buttons(&self, state: &MainMenuState, show: ShowSide) {
-        self.hide_window_by_id(
+    fn show_selective_buttons(state: &MainMenuState, show: ShowSide) {
+        Self::hide_window_by_id(
             state,
             state.window_ids.button_usa_recent_save_id,
             Some("MainMenu.wnd:ButtonUSARecentSave"),
             show != ShowSide::USA,
         );
-        self.hide_window_by_id(
+        Self::hide_window_by_id(
             state,
             state.window_ids.button_usa_load_game_id,
             Some("MainMenu.wnd:ButtonUSALoadGame"),
             show != ShowSide::USA,
         );
-        self.hide_window_by_id(
+        Self::hide_window_by_id(
             state,
             state.window_ids.button_gla_recent_save_id,
             Some("MainMenu.wnd:ButtonGLARecentSave"),
             show != ShowSide::GLA,
         );
-        self.hide_window_by_id(
+        Self::hide_window_by_id(
             state,
             state.window_ids.button_gla_load_game_id,
             Some("MainMenu.wnd:ButtonGLALoadGame"),
             show != ShowSide::GLA,
         );
-        self.hide_window_by_id(
+        Self::hide_window_by_id(
             state,
             state.window_ids.button_china_recent_save_id,
             Some("MainMenu.wnd:ButtonChinaRecentSave"),
             show != ShowSide::China,
         );
-        self.hide_window_by_id(
+        Self::hide_window_by_id(
             state,
             state.window_ids.button_china_load_game_id,
             Some("MainMenu.wnd:ButtonChinaLoadGame"),
@@ -2001,7 +2050,7 @@ impl MainMenu {
         );
     }
 
-    fn request_quit(&self, state: &mut MainMenuState) {
+    fn request_quit(state: &mut MainMenuState) {
         Self::queue_action(state, PendingMainMenuAction::QuitRequest);
         log::info!("Quit requested from main menu");
     }
@@ -2009,7 +2058,6 @@ impl MainMenu {
     /// Setup game start
     /// Port of setupGameStart() - C++ lines 253-273
     fn setup_game_start(
-        &self,
         state: &mut MainMenuState,
         map_name: &str,
         diff: GameDifficulty,
@@ -2043,7 +2091,7 @@ impl MainMenu {
             }
             runtime_global_data::write().pending_file = pending_file;
             Self::queue_action(state, PendingMainMenuAction::ReverseAnimateWindow);
-            self.transition_set_group("FadeWholeScreen", false);
+            Self::transition_set_group("FadeWholeScreen", false);
             log::info!("Starting game: {} with difficulty: {:?}", map_name, diff);
         }
     }
@@ -2056,14 +2104,13 @@ impl MainMenu {
         diff: GameDifficulty,
         effects: &mut WindowEventEffects<'_>,
     ) {
-        let mut state = self.state.write().unwrap_or_else(|e| e.into_inner());
-        self.setup_game_start(&mut state, map_name, diff, effects);
+        let mut state = &mut self.state;
+        Self::setup_game_start(&mut state, map_name, diff, effects);
     }
 
     /// Prepare campaign game
     /// Port of prepareCampaignGame() - C++ lines 275-286
     fn prepare_campaign_game(
-        &self,
         state: &mut MainMenuState,
         diff: GameDifficulty,
         effects: &mut WindowEventEffects<'_>,
@@ -2080,13 +2127,13 @@ impl MainMenu {
         let _ = prefs.load("Options.ini");
         prefs.set_int("CampaignDifficulty", diff as i32);
         let _ = prefs.write();
-        TheScriptEngine::set_global_difficulty(diff as i32);
+        effects.request_menu_host(MenuHostRequest::SetDifficulty(diff as i32));
 
         state.button_pushed = false;
-        self.transition_reverse("MainMenuDifficultyMenuBack");
+        Self::transition_reverse("MainMenuDifficultyMenuBack");
         // C++ setupGameStart(TheCampaignManager->getCurrentMap(), diff)
         // even when the map string is empty (Challenge uses launchChallengeMenu).
-        self.setup_game_start(state, &map_name, diff, effects);
+        Self::setup_game_start(state, &map_name, diff, effects);
 
         log::info!("Preparing campaign game with difficulty: {:?}", diff);
     }
@@ -2096,8 +2143,8 @@ impl MainMenu {
         diff: GameDifficulty,
         effects: &mut WindowEventEffects<'_>,
     ) {
-        let mut state = self.state.write().unwrap_or_else(|e| e.into_inner());
-        self.prepare_campaign_game(&mut state, diff, effects);
+        let mut state = &mut self.state;
+        Self::prepare_campaign_game(&mut state, diff, effects);
     }
 
     fn retry_campaign_start_after_cd_check(
@@ -2127,7 +2174,7 @@ impl MainMenu {
     }
 
     fn cancel_campaign_start_after_cd_check(&mut self) {
-        let mut state = self.state.write().unwrap_or_else(|e| e.into_inner());
+        let mut state = &mut self.state;
         state.button_pushed = false;
     }
 
@@ -2139,48 +2186,49 @@ impl MainMenu {
     /// Check CD before starting campaign
     /// Port of checkCDBeforeCampaign() - C++ lines 323-335
     fn check_cd_before_campaign(
-        &self,
         state: &mut MainMenuState,
         diff: GameDifficulty,
         effects: &mut WindowEventEffects<'_>,
     ) {
         if !Self::is_first_cd_present() {
             state.button_pushed = false;
-            let ok: ExtendedMessageBoxFunc = Box::new(move |_user_data, effects| {
-                let mut menu = get_main_menu();
-                menu.retry_campaign_start_after_cd_check(diff, effects)
-            });
-            let cancel: ExtendedMessageBoxFunc = Box::new(|_user_data, _effects| {
-                let mut menu = get_main_menu();
-                menu.cancel_campaign_start_after_cd_check();
-                ExMessageBoxReturnType::Close
-            });
-            let _ = ex_message_box_ok_cancel(
-                &crate::game_text::GameText::fetch("GUI:InsertCDPrompt"),
-                &crate::game_text::GameText::fetch("GUI:InsertCDMessage"),
-                None,
-                Some(ok),
-                Some(cancel),
-            );
+            effects
+                .pending_main_menu_actions
+                .push((PendingMainMenuAction::CampaignCdDialog(diff), None));
             return;
         }
 
-        self.prepare_campaign_game(state, diff, effects);
+        Self::prepare_campaign_game(state, diff, effects);
         log::info!("Checking CD before campaign start");
+    }
+
+    fn show_campaign_cd_dialog(diff: GameDifficulty) {
+        let ok: ExtendedMessageBoxFunc = Box::new(move |_user_data, effects| {
+            effects.with_main_menu(|menu, effects| {
+                menu.retry_campaign_start_after_cd_check(diff, effects)
+            })
+        });
+        let cancel: ExtendedMessageBoxFunc = Box::new(|_user_data, effects| {
+            effects.with_main_menu(|menu, _| menu.cancel_campaign_start_after_cd_check());
+            ExMessageBoxReturnType::Close
+        });
+        let _ = ex_message_box_ok_cancel(
+            &crate::game_text::GameText::fetch("GUI:InsertCDPrompt"),
+            &crate::game_text::GameText::fetch("GUI:InsertCDMessage"),
+            None,
+            Some(ok),
+            Some(cancel),
+        );
     }
 
     /// Do game start
     /// Port of doGameStart() - C++ lines 306-321
     fn do_game_start(
-        &self,
         state: &mut MainMenuState,
+        layout: &dyn std::any::Any,
         effects: &mut WindowEventEffects<'_>,
     ) -> MainMenuResult<()> {
         state.start_game = false;
-
-        if TheGameLogic::is_in_game() {
-            let _ = TheGameLogic::clear_game_data();
-        }
 
         let Some(campaign_manager) = effects.campaign_manager.as_deref_mut() else {
             return Ok(());
@@ -2204,8 +2252,7 @@ impl MainMenu {
         // identity at the moment this exact MSG_NEW_GAME is enqueued; a later
         // HUD faction is not a valid substitute.  Normal campaigns do not
         // select a challenge template here.
-        let _ = publish_host_campaign_launch(HostCampaignLaunchDescriptor {
-            generation: 0,
+        let descriptor = HostCampaignLaunchDescriptor {
             map_name,
             campaign_name,
             campaign_player_faction,
@@ -2217,15 +2264,22 @@ impl MainMenu {
             difficulty_code: difficulty,
             rank_points,
             max_fps: None,
-        });
-        let mut msg = GameMessage::new(GameMessageType::NewGame);
-        msg.append_integer_argument(gamelogic::system::game_logic::GAME_SINGLE_PLAYER);
-        msg.append_integer_argument(difficulty);
-        msg.append_integer_argument(rank_points);
-        effects.emitted_messages.push(msg);
-        init_random_with_seed(0);
-
-        state.is_shutting_down = true;
+        };
+        let clear_previous = effects.menu_world().in_game;
+        let source_layout = layout
+            .downcast_ref::<ManagerWindowLayout>()
+            .and_then(|layout| layout.get_first_window())
+            .and_then(|window| window.borrow().get_layout())
+            .map(|layout| Rc::downgrade(&layout));
+        Self::queue_action(
+            state,
+            PendingMainMenuAction::HostRequest(MenuHostRequest::StartCampaign {
+                descriptor,
+                clear_previous,
+                source: MenuLaunchSource::MainMenu,
+                main_menu_layout: source_layout,
+            }),
+        );
         log::info!("Starting new game");
         Ok(())
     }
@@ -2233,7 +2287,6 @@ impl MainMenu {
     /// Finish the layout/state side of shutdownComplete() without re-entering shell shutdown.
     /// Port of the layout/state portion of shutdownComplete() - C++ lines 337-347.
     fn finish_shutdown_complete(
-        &self,
         layout: Option<&dyn std::any::Any>,
         state: &mut MainMenuState,
     ) -> MainMenuResult<()> {
@@ -2244,33 +2297,33 @@ impl MainMenu {
         Ok(())
     }
 
-    fn complete_shell_shutdown(&self) -> MainMenuResult<()> {
+    fn complete_shell_shutdown() -> MainMenuResult<()> {
         queue_shell_shutdown_complete(false);
         Ok(())
     }
 
     /// Reverse side for difficulty menu
     /// Port of diffReverseSide() - C++ lines 1690-1711
-    fn diff_reverse_side(&self, state: &MainMenuState) {
+    fn diff_reverse_side(state: &MainMenuState) {
         match state.show_side {
             ShowSide::Training => {
-                self.transition_reverse("MainMenuDifficultyMenuTrainingBack");
-                self.transition_set_group("MainMenuSinglePlayerTrainingMenuFromDiff", false);
+                Self::transition_reverse("MainMenuDifficultyMenuTrainingBack");
+                Self::transition_set_group("MainMenuSinglePlayerTrainingMenuFromDiff", false);
                 log::debug!("Reversing difficulty menu - Training");
             }
             ShowSide::USA => {
-                self.transition_reverse("MainMenuDifficultyMenuUSBack");
-                self.transition_set_group("MainMenuSinglePlayerUSAMenuFromDiff", false);
+                Self::transition_reverse("MainMenuDifficultyMenuUSBack");
+                Self::transition_set_group("MainMenuSinglePlayerUSAMenuFromDiff", false);
                 log::debug!("Reversing difficulty menu - USA");
             }
             ShowSide::GLA => {
-                self.transition_reverse("MainMenuDifficultyMenuGLABack");
-                self.transition_set_group("MainMenuSinglePlayerGLAMenuFromDiff", false);
+                Self::transition_reverse("MainMenuDifficultyMenuGLABack");
+                Self::transition_set_group("MainMenuSinglePlayerGLAMenuFromDiff", false);
                 log::debug!("Reversing difficulty menu - GLA");
             }
             ShowSide::China => {
-                self.transition_reverse("MainMenuDifficultyMenuChinaBack");
-                self.transition_set_group("MainMenuSinglePlayerChinaMenuFromDiff", false);
+                Self::transition_reverse("MainMenuDifficultyMenuChinaBack");
+                Self::transition_set_group("MainMenuSinglePlayerChinaMenuFromDiff", false);
                 log::debug!("Reversing difficulty menu - China");
             }
             _ => {}
@@ -2280,7 +2333,7 @@ impl MainMenu {
     /// Accept resolution change
     /// Port of AcceptResolution() - C++ lines 704-710
     pub fn accept_resolution(&mut self) {
-        let mut state = self.state.write().unwrap_or_else(|e| e.into_inner());
+        let mut state = &mut self.state;
         state.old_disp_settings = state.new_disp_settings;
         state.disp_changed = false;
         log::info!(
@@ -2333,9 +2386,7 @@ impl MainMenu {
                 shell.set_shell_active(true);
             });
 
-        TheControlBar::hide_purchase_science();
-        TheInGameUI::place_build_available(None, None);
-        TheInGameUI::clear_pending_special_power();
+        effects.request_menu_host(MenuHostRequest::ResetPlacement);
 
         log::info!(
             "Resolution change declined - reverted to: {}x{}",
@@ -2345,8 +2396,8 @@ impl MainMenu {
         Ok(())
     }
 
-    fn rollback_resolution_state(&self) -> DisplaySettings {
-        let mut state = self.state.write().unwrap_or_else(|e| e.into_inner());
+    fn rollback_resolution_state(&mut self) -> DisplaySettings {
+        let mut state = &mut self.state;
 
         // C++ DeclineResolution: TheDisplay->setDisplayMode(old settings).
         let old = state.old_disp_settings;
@@ -2366,7 +2417,7 @@ impl MainMenu {
         old_settings: DisplaySettings,
         new_settings: DisplaySettings,
     ) {
-        let mut state = self.state.write().unwrap_or_else(|e| e.into_inner());
+        let mut state = &mut self.state;
         state.old_disp_settings = old_settings;
         state.new_disp_settings = new_settings;
         state.disp_changed = true;
@@ -2374,18 +2425,26 @@ impl MainMenu {
 
     /// Show resolution dialog
     /// Port of DoResolutionDialog() - C++ lines 757-773
-    pub fn do_resolution_dialog(&self) {
+    pub fn do_resolution_dialog(&mut self, effects: &mut WindowEventEffects<'_>) {
         let (x_res, y_res) = {
-            let state = self.state.read().unwrap_or_else(|e| e.into_inner());
+            let state = &self.state;
             (state.new_disp_settings.x_res, state.new_disp_settings.y_res)
         };
+        effects
+            .pending_main_menu_actions
+            .push((PendingMainMenuAction::ResolutionDialog(x_res, y_res), None));
+    }
+
+    fn show_resolution_dialog(x_res: i32, y_res: i32) {
         let title = crate::game_text::GameText::fetch("GUI:Resolution");
         let body = format!("{}: {}x{}", title, x_res, y_res);
-        let ok: MessageBoxFunc = Box::new(|_| {
-            get_main_menu().accept_resolution();
+        let ok: MessageBoxFunc = Box::new(|effects| {
+            effects.with_main_menu(|menu, _| menu.accept_resolution());
         });
         let cancel: MessageBoxFunc = Box::new(|effects| {
-            if let Err(err) = get_main_menu().decline_resolution(effects) {
+            if let Err(err) =
+                effects.with_main_menu(|menu, effects| menu.decline_resolution(effects))
+            {
                 log::warn!("DeclineResolution callback failed: {}", err);
             }
         });
@@ -2394,12 +2453,12 @@ impl MainMenu {
 
     /// Handle canceled download
     /// Port of HandleCanceledDownload() - C++ lines 203-211
-    fn handle_canceled_download_state(&self, state: &mut MainMenuState, reset_dropdown: bool) {
+    fn handle_canceled_download_state(state: &mut MainMenuState, reset_dropdown: bool) {
         state.button_pushed = false;
 
         if reset_dropdown {
-            self.set_dropdown_hidden(state, DropdownType::Main, false);
-            self.transition_set_group("MainMenuDefaultMenuLogoFade", false);
+            Self::set_dropdown_hidden(state, DropdownType::Main, false);
+            Self::transition_set_group("MainMenuDefaultMenuLogoFade", false);
             log::info!("Download canceled - resetting dropdown");
         }
     }
@@ -2412,20 +2471,20 @@ impl MainMenu {
         state.online_cancel_window_open = false;
     }
 
-    fn finish_online_handoff_state(&self, state: &mut MainMenuState) {
+    fn finish_online_handoff_state(state: &mut MainMenuState) {
         #[cfg(feature = "online_ui")]
         if matches!(
             main_menu_online::start_online(state),
             main_menu_online::OnlineHandoff::NeedPatchDownload
         ) {
-            self.start_downloading_patches();
+            Self::queue_action(state, PendingMainMenuAction::StartDownloadingPatches);
         }
 
         #[cfg(not(feature = "online_ui"))]
         let _ = main_menu_online::start_online(state);
     }
 
-    fn http_think_wrapper(&self, state: &mut MainMenuState) {
+    fn http_think_wrapper(state: &mut MainMenuState) {
         if !state.checking_for_patch_before_gamespy {
             return;
         }
@@ -2439,16 +2498,16 @@ impl MainMenu {
         if state.checks_left_before_online > 0 {
             state.checks_left_before_online -= 1;
             if state.checks_left_before_online == 0 {
-                self.finish_online_handoff_state(state);
+                Self::finish_online_handoff_state(state);
             }
         } else {
-            self.finish_online_handoff_state(state);
+            Self::finish_online_handoff_state(state);
         }
     }
 
     pub fn handle_canceled_download(&mut self, reset_dropdown: bool) {
-        let mut state = self.state.write().unwrap_or_else(|e| e.into_inner());
-        self.handle_canceled_download_state(&mut state, reset_dropdown);
+        let mut state = &mut self.state;
+        Self::handle_canceled_download_state(&mut state, reset_dropdown);
     }
 }
 
@@ -2516,50 +2575,50 @@ impl Default for MainMenu {
 pub fn simulate_main_menu_skirmish_button_gadget_selected(
     effects: &mut WindowEventEffects<'_>,
 ) -> bool {
-    let ids = build_window_ids();
-    let skirmish_id = if ids.skirmish_id != 0 {
-        ids.skirmish_id
-    } else {
-        // Stable residual id when NameKey table is cold.
-        NameKeyGenerator::name_to_key("MainMenu.wnd:ButtonSkirmish")
-    };
-    let main_menu_id = if ids.main_menu_id != 0 {
-        ids.main_menu_id
-    } else {
-        NameKeyGenerator::name_to_key("MainMenu.wnd:MainMenuParent")
-    };
+    effects.with_main_menu(|menu, effects| {
+        let ids = build_window_ids();
+        let skirmish_id = if ids.skirmish_id != 0 {
+            ids.skirmish_id
+        } else {
+            // Stable residual id when NameKey table is cold.
+            NameKeyGenerator::name_to_key("MainMenu.wnd:ButtonSkirmish")
+        };
+        let main_menu_id = if ids.main_menu_id != 0 {
+            ids.main_menu_id
+        } else {
+            NameKeyGenerator::name_to_key("MainMenu.wnd:MainMenuParent")
+        };
 
-    {
-        let mut menu = get_main_menu();
-        // Reset latches so residual can re-fire after prior shell peels.
         {
-            let mut state = menu.state.write().unwrap_or_else(|e| e.into_inner());
-            state.button_pushed = false;
-            state.campaign_selected = false;
-            state.dont_allow_transitions = false;
-            state.launch_challenge_menu = false;
-            state.pending_actions.clear();
-            state.window_ids = ids.clone();
-            if state.window_ids.skirmish_id == 0 {
-                state.window_ids.skirmish_id = skirmish_id;
+            // Reset latches so residual can re-fire after prior shell peels.
+            {
+                let mut state = &mut menu.state;
+                state.button_pushed = false;
+                state.campaign_selected = false;
+                state.dont_allow_transitions = false;
+                state.launch_challenge_menu = false;
+                state.pending_actions.clear();
+                state.window_ids = ids.clone();
+                if state.window_ids.skirmish_id == 0 {
+                    state.window_ids.skirmish_id = skirmish_id;
+                }
+                if state.window_ids.main_menu_id == 0 {
+                    state.window_ids.main_menu_id = main_menu_id;
+                }
             }
-            if state.window_ids.main_menu_id == 0 {
-                state.window_ids.main_menu_id = main_menu_id;
-            }
+            let _ = menu.system(
+                main_menu_id,
+                GBM_SELECTED,
+                skirmish_id as WindowMsgData,
+                0,
+                effects,
+            );
         }
-        let _ = menu.system(
-            main_menu_id,
-            GBM_SELECTED,
-            skirmish_id as WindowMsgData,
-            0,
-            effects,
-        );
-    }
 
-    let menu = get_main_menu();
-    let state = menu.state.read().unwrap_or_else(|e| e.into_inner());
-    // C++ ButtonSkirmish sets buttonPushed + campaignSelected and queues shell push.
-    state.button_pushed && state.campaign_selected
+        let state = &menu.state;
+        // C++ ButtonSkirmish sets buttonPushed + campaignSelected and queues shell push.
+        state.button_pushed && state.campaign_selected
+    })
 }
 
 /// Residual: ButtonSkirmish latch only (no pending PushShellScreen execution).
@@ -2568,19 +2627,20 @@ pub fn simulate_main_menu_skirmish_button_gadget_selected(
 /// `execute_pending_actions`, which headlessly parses
 /// `Menus/SkirmishGameOptionsMenu.wnd` (~900KB) and can stall peel tests.
 /// Host residuals that only need C++ latch outcomes use this helper.
-pub fn simulate_main_menu_skirmish_button_latch_only() -> bool {
-    let menu = get_main_menu();
-    let mut state = menu.state.write().unwrap_or_else(|e| e.into_inner());
-    state.button_pushed = false;
-    state.campaign_selected = false;
-    state.dont_allow_transitions = false;
-    state.launch_challenge_menu = false;
-    state.pending_actions.clear();
-    // C++ ButtonSkirmish GBM_SELECTED latch outcomes (lines 1420-1443).
-    state.button_pushed = true;
-    state.campaign_selected = true;
-    state.pending_actions.clear();
-    state.button_pushed && state.campaign_selected
+pub fn simulate_main_menu_skirmish_button_latch_only(effects: &mut WindowEventEffects<'_>) -> bool {
+    effects.with_main_menu(|menu, effects| {
+        let mut state = &mut menu.state;
+        state.button_pushed = false;
+        state.campaign_selected = false;
+        state.dont_allow_transitions = false;
+        state.launch_challenge_menu = false;
+        state.pending_actions.clear();
+        // C++ ButtonSkirmish GBM_SELECTED latch outcomes (lines 1420-1443).
+        state.button_pushed = true;
+        state.campaign_selected = true;
+        state.pending_actions.clear();
+        state.button_pushed && state.campaign_selected
+    })
 }
 
 /// Residual helper: apply MainMenu button residual **state latches only**.
@@ -2592,32 +2652,36 @@ fn simulate_main_menu_button_gadget_selected(
     bind_id: impl Fn(&mut WindowIds, u32),
     apply: impl Fn(&mut MainMenuState),
     success: impl Fn(&MainMenuState) -> bool,
+    effects: &mut WindowEventEffects<'_>,
 ) -> bool {
-    let ids = build_window_ids();
-    let mut control_id = resolve_id(&ids);
-    if control_id == 0 {
-        control_id = NameKeyGenerator::name_to_key(cold_name_key);
-    }
-    let _ = control_id;
+    effects.with_main_menu(|menu, effects| {
+        let ids = build_window_ids();
+        let mut control_id = resolve_id(&ids);
+        if control_id == 0 {
+            control_id = NameKeyGenerator::name_to_key(cold_name_key);
+        }
+        let _ = control_id;
 
-    let menu = get_main_menu();
-    let mut state = menu.state.write().unwrap_or_else(|e| e.into_inner());
-    // Soft reset: clear one-shot button latch only. Preserve campaign_selected /
-    // show_side / drop_down / launch_challenge so difficulty peels can chain after
-    // campaign-side residual without re-entering shell transitions.
-    state.button_pushed = false;
-    state.dont_allow_transitions = false;
-    state.pending_actions.clear();
-    state.window_ids = ids.clone();
-    let bound_id = resolve_id(&state.window_ids).max(control_id);
-    bind_id(&mut state.window_ids, bound_id);
-    apply(&mut state);
-    success(&state)
+        let mut state = &mut menu.state;
+        // Soft reset: clear one-shot button latch only. Preserve campaign_selected /
+        // show_side / drop_down / launch_challenge so difficulty peels can chain after
+        // campaign-side residual without re-entering shell transitions.
+        state.button_pushed = false;
+        state.dont_allow_transitions = false;
+        state.pending_actions.clear();
+        state.window_ids = ids.clone();
+        let bound_id = resolve_id(&state.window_ids).max(control_id);
+        bind_id(&mut state.window_ids, bound_id);
+        apply(&mut state);
+        success(&state)
+    })
 }
 
 /// Residual: fire retail `MainMenu.wnd:ButtonOptions` via `GBM_SELECTED`.
 /// C++ path queues options layout + ShellMainMenuOptionsSelected hook.
-pub fn simulate_main_menu_options_button_gadget_selected() -> bool {
+pub fn simulate_main_menu_options_button_gadget_selected(
+    effects: &mut WindowEventEffects<'_>,
+) -> bool {
     simulate_main_menu_button_gadget_selected(
         "MainMenu.wnd:ButtonOptions",
         |ids| ids.options_id,
@@ -2627,12 +2691,15 @@ pub fn simulate_main_menu_options_button_gadget_selected() -> bool {
             state.dont_allow_transitions = true;
         },
         |state| state.dont_allow_transitions,
+        effects,
     )
 }
 
 /// Residual: fire retail `MainMenu.wnd:ButtonCredits` via `GBM_SELECTED`.
 /// C++ path: PushShellScreen(`Menus/CreditsMenu.wnd`).
-pub fn simulate_main_menu_credits_button_gadget_selected() -> bool {
+pub fn simulate_main_menu_credits_button_gadget_selected(
+    effects: &mut WindowEventEffects<'_>,
+) -> bool {
     simulate_main_menu_button_gadget_selected(
         "MainMenu.wnd:ButtonCredits",
         |ids| ids.button_credits_id,
@@ -2642,12 +2709,15 @@ pub fn simulate_main_menu_credits_button_gadget_selected() -> bool {
             state.button_pushed = true;
         },
         |state| state.button_pushed,
+        effects,
     )
 }
 
 /// Residual: fire retail `MainMenu.wnd:ButtonLoadGame` via `GBM_SELECTED`.
 /// C++ path: PushShellScreen(`Menus/SaveLoad.wnd`).
-pub fn simulate_main_menu_load_game_button_gadget_selected() -> bool {
+pub fn simulate_main_menu_load_game_button_gadget_selected(
+    effects: &mut WindowEventEffects<'_>,
+) -> bool {
     simulate_main_menu_button_gadget_selected(
         "MainMenu.wnd:ButtonLoadGame",
         |ids| ids.button_load_id,
@@ -2658,12 +2728,15 @@ pub fn simulate_main_menu_load_game_button_gadget_selected() -> bool {
             state.drop_down = DropdownType::LoadReplay;
         },
         |state| state.button_pushed,
+        effects,
     )
 }
 
 /// Residual: fire retail `MainMenu.wnd:ButtonSinglePlayer` via `GBM_SELECTED`.
 /// C++ path: opens single-player dropdown (does not push a layout immediately).
-pub fn simulate_main_menu_single_player_button_gadget_selected() -> bool {
+pub fn simulate_main_menu_single_player_button_gadget_selected(
+    effects: &mut WindowEventEffects<'_>,
+) -> bool {
     simulate_main_menu_button_gadget_selected(
         "MainMenu.wnd:ButtonSinglePlayer",
         |ids| ids.button_single_player_id,
@@ -2674,6 +2747,7 @@ pub fn simulate_main_menu_single_player_button_gadget_selected() -> bool {
             state.drop_down = DropdownType::Single;
         },
         |state| state.drop_down == DropdownType::Single && state.dont_allow_transitions,
+        effects,
     )
 }
 
@@ -2684,39 +2758,43 @@ pub fn notify_physical_main_menu_gadget_gbm_selected(
     name: &str,
     effects: &mut WindowEventEffects<'_>,
 ) {
-    if !name.starts_with("MainMenu.wnd:Button") {
-        return;
-    }
-    let ids = build_window_ids();
-    let control_id = NameKeyGenerator::name_to_key(name);
-    let main_menu_id = if ids.main_menu_id != 0 {
-        ids.main_menu_id
-    } else {
-        NameKeyGenerator::name_to_key("MainMenu.wnd:MainMenuParent")
-    };
-    let mut menu = get_main_menu();
-    {
-        let mut state = menu.state.write().unwrap_or_else(|e| e.into_inner());
-        if state.window_ids.button_single_player_id == 0 {
-            state.window_ids = ids;
+    effects.with_main_menu(|menu, effects| {
+        if !name.starts_with("MainMenu.wnd:Button") {
+            return;
         }
-        // Stalled transition groups must not swallow Solo Play / Skirmish.
-        if state.dont_allow_transitions {
-            state.dont_allow_transitions = false;
+        let ids = build_window_ids();
+        let control_id = NameKeyGenerator::name_to_key(name);
+        let main_menu_id = if ids.main_menu_id != 0 {
+            ids.main_menu_id
+        } else {
+            NameKeyGenerator::name_to_key("MainMenu.wnd:MainMenuParent")
+        };
+
+        {
+            let mut state = &mut menu.state;
+            if state.window_ids.button_single_player_id == 0 {
+                state.window_ids = ids;
+            }
+            // Stalled transition groups must not swallow Solo Play / Skirmish.
+            if state.dont_allow_transitions {
+                state.dont_allow_transitions = false;
+            }
         }
-    }
-    log::info!("physical GBM_SELECTED notify name={name} id={control_id}");
-    let _ = menu.system(
-        main_menu_id,
-        GBM_SELECTED,
-        control_id as WindowMsgData,
-        0,
-        effects,
-    );
+        log::info!("physical GBM_SELECTED notify name={name} id={control_id}");
+        let _ = menu.system(
+            main_menu_id,
+            GBM_SELECTED,
+            control_id as WindowMsgData,
+            0,
+            effects,
+        );
+    })
 }
 
 /// Residual: fire retail `MainMenu.wnd:ButtonMultiplayer` via `GBM_SELECTED`.
-pub fn simulate_main_menu_multiplayer_button_gadget_selected() -> bool {
+pub fn simulate_main_menu_multiplayer_button_gadget_selected(
+    effects: &mut WindowEventEffects<'_>,
+) -> bool {
     simulate_main_menu_button_gadget_selected(
         "MainMenu.wnd:ButtonMultiplayer",
         |ids| ids.button_multi_player_id,
@@ -2727,12 +2805,15 @@ pub fn simulate_main_menu_multiplayer_button_gadget_selected() -> bool {
             state.drop_down = DropdownType::Multiplayer;
         },
         |state| state.drop_down == DropdownType::Multiplayer && state.dont_allow_transitions,
+        effects,
     )
 }
 
 /// Residual: fire retail `MainMenu.wnd:ButtonChallenge` via `GBM_SELECTED`.
 /// C++ path: difficulty/training faction residual (launch_challenge_menu).
-pub fn simulate_main_menu_challenge_button_gadget_selected() -> bool {
+pub fn simulate_main_menu_challenge_button_gadget_selected(
+    effects: &mut WindowEventEffects<'_>,
+) -> bool {
     simulate_main_menu_button_gadget_selected(
         "MainMenu.wnd:ButtonChallenge",
         |ids| ids.button_challenge_id,
@@ -2745,12 +2826,15 @@ pub fn simulate_main_menu_challenge_button_gadget_selected() -> bool {
             state.show_side = ShowSide::Training;
         },
         |state| state.launch_challenge_menu && state.campaign_selected,
+        effects,
     )
 }
 
 /// Residual: fire retail `MainMenu.wnd:ButtonReplay` via `GBM_SELECTED`.
 /// C++ path: PushShellScreen(`Menus/ReplayMenu.wnd`).
-pub fn simulate_main_menu_replay_button_gadget_selected() -> bool {
+pub fn simulate_main_menu_replay_button_gadget_selected(
+    effects: &mut WindowEventEffects<'_>,
+) -> bool {
     simulate_main_menu_button_gadget_selected(
         "MainMenu.wnd:ButtonReplay",
         |ids| ids.button_replay_id,
@@ -2760,26 +2844,27 @@ pub fn simulate_main_menu_replay_button_gadget_selected() -> bool {
             state.button_pushed = true;
         },
         |state| state.button_pushed,
+        effects,
     )
 }
 
-/// Last difficulty selected by residual campaign peels (host honesty).
-static LAST_RESIDUAL_CAMPAIGN_DIFFICULTY: std::sync::atomic::AtomicI32 =
-    std::sync::atomic::AtomicI32::new(-1);
-
-/// Residual: last campaign difficulty ordinal from residual peels (-1 if none).
-pub fn residual_last_campaign_difficulty() -> Option<GameDifficulty> {
-    match LAST_RESIDUAL_CAMPAIGN_DIFFICULTY.load(std::sync::atomic::Ordering::Relaxed) {
-        0 => Some(GameDifficulty::Easy),
-        1 => Some(GameDifficulty::Normal),
-        2 => Some(GameDifficulty::Hard),
-        _ => None,
-    }
+/// Last difficulty belongs to the receiving menu's residual input history.
+pub fn residual_last_campaign_difficulty(
+    effects: &WindowEventEffects<'_>,
+) -> Option<GameDifficulty> {
+    effects
+        .main_menu
+        .as_deref()
+        .expect("menu observation requires receiving Menu")
+        .residual_last_campaign_difficulty()
 }
 
 /// Residual: fire retail campaign side button (USA/GLA/China) via state latches.
 /// C++ path: opens difficulty dropdown for the faction.
-pub fn simulate_main_menu_campaign_side_button_gadget_selected(side: ShowSide) -> bool {
+pub fn simulate_main_menu_campaign_side_button_gadget_selected(
+    side: ShowSide,
+    effects: &mut WindowEventEffects<'_>,
+) -> bool {
     let (cold_key, resolve, bind): (&str, fn(&WindowIds) -> u32, fn(&mut WindowIds, u32)) =
         match side {
             ShowSide::USA => (
@@ -2826,6 +2911,7 @@ pub fn simulate_main_menu_campaign_side_button_gadget_selected(side: ShowSide) -
                 && state.drop_down == DropdownType::Difficulty
                 && state.show_side == side
         },
+        effects,
     )
 }
 
@@ -2833,7 +2919,10 @@ pub fn simulate_main_menu_campaign_side_button_gadget_selected(side: ShowSide) -
 /// C++ path: checkCDBeforeCampaign → prepareCampaignGame → setupGameStart.
 /// Host residual skips CD dialog / prefs disk / WM transitions; latches start_game
 /// when a non-challenge campaign side is selected.
-pub fn simulate_main_menu_difficulty_button_gadget_selected(diff: GameDifficulty) -> bool {
+pub fn simulate_main_menu_difficulty_button_gadget_selected(
+    diff: GameDifficulty,
+    effects: &mut WindowEventEffects<'_>,
+) -> bool {
     let (cold_key, resolve, bind): (&str, fn(&WindowIds) -> u32, fn(&mut WindowIds, u32)) =
         match diff {
             GameDifficulty::Easy => (
@@ -2861,8 +2950,7 @@ pub fn simulate_main_menu_difficulty_button_gadget_selected(diff: GameDifficulty
             // Difficulty buttons ignore clicks when transitions blocked, except
             // residual peels force-apply after campaign side residual.
             state.dont_allow_transitions = true;
-            LAST_RESIDUAL_CAMPAIGN_DIFFICULTY
-                .store(diff as i32, std::sync::atomic::Ordering::Relaxed);
+            state.residual_campaign_difficulty = Some(diff);
             if state.launch_challenge_menu {
                 // Challenge: difficulty feeds ChallengeMenu push (not immediate start_game).
                 state.campaign_selected = true;
@@ -2879,83 +2967,86 @@ pub fn simulate_main_menu_difficulty_button_gadget_selected(diff: GameDifficulty
                 return false;
             }
             if state.launch_challenge_menu {
-                residual_last_campaign_difficulty() == Some(diff)
+                state.residual_campaign_difficulty == Some(diff)
             } else {
-                state.start_game && residual_last_campaign_difficulty() == Some(diff)
+                state.start_game && state.residual_campaign_difficulty == Some(diff)
             }
         },
+        effects,
     );
     ok
 }
 
 /// Residual: campaign side + difficulty composite (USA/GLA/China + Easy/Normal/Hard).
-pub fn simulate_main_menu_campaign_start_residual(side: ShowSide, diff: GameDifficulty) -> bool {
+pub fn simulate_main_menu_campaign_start_residual(
+    side: ShowSide,
+    diff: GameDifficulty,
+    effects: &mut WindowEventEffects<'_>,
+) -> bool {
     if !matches!(side, ShowSide::USA | ShowSide::GLA | ShowSide::China) {
         return false;
     }
-    if !simulate_main_menu_campaign_side_button_gadget_selected(side) {
+    if !simulate_main_menu_campaign_side_button_gadget_selected(side, effects) {
         return false;
     }
-    simulate_main_menu_difficulty_button_gadget_selected(diff)
-}
-
-// Global main menu instance
-static MAIN_MENU: OnceLock<Mutex<MainMenu>> = OnceLock::new();
-
-pub fn get_main_menu() -> std::sync::MutexGuard<'static, MainMenu> {
-    let lock = MAIN_MENU.get_or_init(|| Mutex::new(MainMenu::new()));
-    lock.lock().unwrap_or_else(|e| e.into_inner())
+    simulate_main_menu_difficulty_button_gadget_selected(diff, effects)
 }
 
 /// C++ MainMenuInput `GWM_CHAR` first-run reveal (notShown → DROPDOWN_MAIN).
 /// Does not skip first-run; this *is* the first human keypress.
 pub fn reveal_main_menu_first_input_like_cpp(effects: &mut WindowEventEffects<'_>) -> bool {
-    let ids = build_window_ids();
-    let mut menu = get_main_menu();
-    let handled = menu.input(ids.main_menu_id, GWM_CHAR, 0, 0, effects);
-    let (not_shown, drop_down) = {
-        let state = menu.state.read().unwrap_or_else(|e| e.into_inner());
-        (state.not_shown, state.drop_down)
-    };
-    // Host inject `soft_reveal` can clear `not_shown` without C++
-    // `dropDownWindows[DROPDOWN_MAIN]->winHide(FALSE)` (MapBorder2).
-    // After Solo Play, drop_down is Single — do not cover MapBorder.
-    if matches!(drop_down, DropdownType::None | DropdownType::Main) {
-        menu.win_hide_dropdown_main_false();
-    }
-    handled || !not_shown
+    effects.with_main_menu(|menu, effects| {
+        let ids = build_window_ids();
+
+        let handled = menu.input(ids.main_menu_id, GWM_CHAR, 0, 0, effects);
+        let (not_shown, drop_down) = {
+            let state = &menu.state;
+            (state.not_shown, state.drop_down)
+        };
+        // Host inject `soft_reveal` can clear `not_shown` without C++
+        // `dropDownWindows[DROPDOWN_MAIN]->winHide(FALSE)` (MapBorder2).
+        // After Solo Play, drop_down is Single — do not cover MapBorder.
+        if matches!(drop_down, DropdownType::None | DropdownType::Main) {
+            MainMenu::win_hide_dropdown_main_false();
+        }
+        handled || !not_shown
+    })
 }
 
 /// Test-only: C++ CHAR visibility (`winHide(FALSE)` DROPDOWN_MAIN). Skips
 /// `transition_set_group` (that path can stall unit tests). Physical live
 /// path still uses [`reveal_main_menu_first_input_like_cpp`].
 #[cfg(test)]
-pub fn apply_first_run_dropdown_reveal_visibility_for_tests() -> bool {
-    let menu = get_main_menu();
-    let mut state = menu.state.write().unwrap_or_else(|e| e.into_inner());
-    state.initial_gadget_delay = 1;
-    state.drop_down = DropdownType::Main;
-    // C++ winHide(FALSE) DROPDOWN_MAIN only — queued name lookup, no
-    // transition_set_group / show_only_dropdown.
-    menu.win_hide_dropdown_main_false();
-    set_main_menu_cursor_visibility(true);
-    state.not_shown = false;
-    true
+pub fn apply_first_run_dropdown_reveal_visibility_for_tests(
+    effects: &mut WindowEventEffects<'_>,
+) -> bool {
+    effects.with_main_menu(|menu, effects| {
+        let mut state = &mut menu.state;
+        state.initial_gadget_delay = 1;
+        state.drop_down = DropdownType::Main;
+        // C++ winHide(FALSE) DROPDOWN_MAIN only — queued name lookup, no
+        // transition_set_group / show_only_dropdown.
+        MainMenu::win_hide_dropdown_main_false();
+        set_main_menu_cursor_visibility(true, effects);
+        state.not_shown = false;
+        true
+    })
 }
 
 /// Host inject residual: flip `not_shown` so menu→match gadgets are eligible
 /// for under-cursor hit tests. Intentionally avoids `transition_set_group` and
 /// hide/show WM drains (op-queue hang class mid control-command apply).
-pub fn soft_reveal_main_menu_for_host_inject() -> bool {
-    let menu = get_main_menu();
-    let mut state = menu.state.write().unwrap_or_else(|e| e.into_inner());
-    if !state.not_shown {
-        return true;
-    }
-    state.initial_gadget_delay = 1;
-    state.drop_down = DropdownType::Main;
-    state.not_shown = false;
-    true
+pub fn soft_reveal_main_menu_for_host_inject(effects: &mut WindowEventEffects<'_>) -> bool {
+    effects.with_main_menu(|menu, effects| {
+        let mut state = &mut menu.state;
+        if !state.not_shown {
+            return true;
+        }
+        state.initial_gadget_delay = 1;
+        state.drop_down = DropdownType::Main;
+        state.not_shown = false;
+        true
+    })
 }
 
 // Deferred menu pushes belong to the receiving Shell owner. The menu tick
@@ -3001,10 +3092,18 @@ pub fn tick_main_menu_transitions(times: u32, effects: &mut WindowEventEffects<'
         .window_manager_owner
         .expect("menu tick requires receiving window owner");
     for _ in 0..times {
+        if effects.menu_lifecycle_pending() {
+            return;
+        }
         owner.with_manager(|manager| manager.update());
         let dummy = ();
-        let _ = get_main_menu().update(&dummy, None, effects);
+        effects.with_main_menu(|menu, effects| {
+            let _ = menu.update(&dummy, None, effects);
+        });
         owner.complete_event_callbacks(effects);
+        if effects.menu_lifecycle_pending() {
+            return;
+        }
         drain_deferred_shell_pushes();
     }
 }
@@ -3012,25 +3111,25 @@ pub fn tick_main_menu_transitions(times: u32, effects: &mut WindowEventEffects<'
 /// Host `start_game` residual: mark MainMenu as starting a match so
 /// `MainMenuShutdown` skips reverse-animate (avoids shell re-borrow /
 /// post-shutdown SIGSEGV on the windowed runtime-host path).
-pub fn mark_host_match_start() {
-    let menu = get_main_menu();
-    let mut state = menu.state.write().unwrap_or_else(|e| e.into_inner());
-    state.start_game = true;
+pub fn mark_host_match_start(effects: &mut WindowEventEffects<'_>) {
+    effects.with_main_menu(|menu, effects| {
+        let mut state = &mut menu.state;
+        state.start_game = true;
+    })
 }
-
-static LAST_OS_WND_WIDGET_TREE_CLICK_OK: AtomicBool = AtomicBool::new(false);
-static OS_WND_WIDGET_TREE_NAV_OK: AtomicBool = AtomicBool::new(false);
 
 /// Last `dispatch_os_click_named_window` hit-tested the named gadget and the
 /// WindowManager consumed LeftDown/Up (C++ WindowXlat → winProcessMouseEvent).
-pub fn last_os_wnd_widget_tree_click_ok() -> bool {
-    LAST_OS_WND_WIDGET_TREE_CLICK_OK.load(Ordering::SeqCst)
+pub fn last_os_wnd_widget_tree_click_ok(
+    owner: &crate::gui::window_manager::WindowManagerOwner,
+) -> bool {
+    owner.last_widget_tree_click_used()
 }
 
 /// Sticky: a hit-verified WND gadget was under the cursor (`note_os_wnd_widget_tree_hit`)
 /// or a named `dispatch_os_click_named_window` hit-tested the live widget tree.
-pub fn os_wnd_widget_tree_nav_ok() -> bool {
-    OS_WND_WIDGET_TREE_NAV_OK.load(Ordering::SeqCst)
+pub fn os_wnd_widget_tree_nav_ok(owner: &crate::gui::window_manager::WindowManagerOwner) -> bool {
+    owner.widget_tree_navigation_observed()
 }
 
 /// Record a live OS mouse hit on the WND tree (C++ WindowXlat getWindowUnderCursor).
@@ -3059,43 +3158,17 @@ pub fn note_os_wnd_widget_tree_hit_for_owner(
             })
     });
     if hit == Some(true) {
-        OS_WND_WIDGET_TREE_NAV_OK.store(true, Ordering::SeqCst);
+        owner.record_widget_tree_navigation();
     }
     hit
 }
 
-pub fn note_os_wnd_widget_tree_hit(x: i32, y: i32) -> bool {
-    // Use shared ref borrow (not with_window_manager) so hit-test cannot enter
-    // the op-drain loop. A stuck drain was hanging windowed winit_menu_nav after
-    // control drain, so Menu never advanced and start_game never ran.
-    use crate::gui::window_manager::with_window_manager_ref;
-    let hit = with_window_manager_ref(|manager| {
-        manager
-            .get_window_under_cursor(x, y, false)
-            .is_some_and(|window| {
-                match window.try_borrow() {
-                    Ok(guard) => {
-                        if guard.is_hidden() || !guard.is_enabled() {
-                            return false;
-                        }
-                        // Shell::hide marks layout.hidden immediately, but individual
-                        // window hide may still be queued. Residual MainMenu parents
-                        // must not steal InGame RMB / world hits after match start.
-                        if let Some(layout) = guard.get_layout() {
-                            if layout.borrow().is_hidden() {
-                                return false;
-                            }
-                        }
-                        true
-                    }
-                    Err(_) => false,
-                }
-            })
-    });
-    if hit {
-        OS_WND_WIDGET_TREE_NAV_OK.store(true, Ordering::SeqCst);
-    }
-    hit
+pub fn note_os_wnd_widget_tree_hit(
+    owner: &crate::gui::window_manager::WindowManagerOwner,
+    x: i32,
+    y: i32,
+) -> bool {
+    note_os_wnd_widget_tree_hit_for_owner(owner, x, y).unwrap_or(false)
 }
 
 /// Name of the enabled, visible gadget under the cursor, if any.
@@ -3162,9 +3235,10 @@ pub fn log_named_window_screen_rect(name: &str) {
 }
 
 #[cfg(test)]
-pub fn reset_os_wnd_widget_tree_nav_for_tests() {
-    LAST_OS_WND_WIDGET_TREE_CLICK_OK.store(false, Ordering::SeqCst);
-    OS_WND_WIDGET_TREE_NAV_OK.store(false, Ordering::SeqCst);
+pub fn reset_os_wnd_widget_tree_nav_for_tests(
+    owner: &crate::gui::window_manager::WindowManagerOwner,
+) {
+    owner.reset_widget_tree_observations();
 }
 
 fn window_is_named_or_descendant(
@@ -3192,13 +3266,17 @@ fn window_is_named_or_descendant(
 /// Return value is hit-test success; `last_os_wnd_widget_tree_click_ok` is Used.
 /// Used is never latched without this hit-test.
 pub fn dispatch_os_click_named_window(name: &str, effects: &mut WindowEventEffects<'_>) -> bool {
+    if effects.menu_lifecycle_pending() {
+        return false;
+    }
+
     use crate::gui::game_window::WindowInputReturnCode;
     use crate::gui::{WindowMessage, WindowMsgData};
 
     let owner = effects
         .window_manager_owner
         .expect("named click requires receiving window owner");
-    LAST_OS_WND_WIDGET_TREE_CLICK_OK.store(false, Ordering::SeqCst);
+    owner.record_widget_tree_click_used(false);
 
     let Some((x, y)) = owner.with_manager(|manager| {
         let window = manager.find_window_by_name(name)?;
@@ -3224,7 +3302,7 @@ pub fn dispatch_os_click_named_window(name: &str, effects: &mut WindowEventEffec
 
     let data = (((y as u32) << 16) | ((x as u32) & 0xFFFF)) as WindowMsgData;
     // Named dispatch and live OS mouse share the same sticky nav latch.
-    let _ = note_os_wnd_widget_tree_hit(x, y);
+    let _ = note_os_wnd_widget_tree_hit(owner, x, y);
     let (down, up) = owner.with_manager(|manager| {
         let down = manager.process_mouse_event_with_delta_and_message_sink(
             WindowMessage::LeftDown,
@@ -3245,9 +3323,9 @@ pub fn dispatch_os_click_named_window(name: &str, effects: &mut WindowEventEffec
         (down, up)
     });
     let used = down == WindowInputReturnCode::Used || up == WindowInputReturnCode::Used;
-    LAST_OS_WND_WIDGET_TREE_CLICK_OK.store(used, Ordering::SeqCst);
+    owner.record_widget_tree_click_used(used);
     if used {
-        OS_WND_WIDGET_TREE_NAV_OK.store(true, Ordering::SeqCst);
+        owner.record_widget_tree_navigation();
     }
     owner.complete_event_callbacks(effects);
     // Hit-test succeeded. Used is LAST_OS_WND_WIDGET_TREE_CLICK_OK only — never
@@ -3255,16 +3333,20 @@ pub fn dispatch_os_click_named_window(name: &str, effects: &mut WindowEventEffec
     true
 }
 
-fn main_menu_skirmish_latched() -> bool {
-    let menu = get_main_menu();
-    let state = menu.state.read().unwrap_or_else(|e| e.into_inner());
-    state.button_pushed && state.campaign_selected && !state.launch_challenge_menu
+fn main_menu_skirmish_latched(effects: &WindowEventEffects<'_>) -> bool {
+    effects
+        .main_menu
+        .as_deref()
+        .expect("menu observation requires receiving Menu")
+        .skirmish_latched()
 }
 
-fn main_menu_challenge_latched() -> bool {
-    let menu = get_main_menu();
-    let state = menu.state.read().unwrap_or_else(|e| e.into_inner());
-    state.launch_challenge_menu && state.campaign_selected
+fn main_menu_challenge_latched(effects: &WindowEventEffects<'_>) -> bool {
+    effects
+        .main_menu
+        .as_deref()
+        .expect("menu observation requires receiving Menu")
+        .challenge_latched()
 }
 
 /// Click `name` once it is enabled, visible, and under-cursor. FLASH groups
@@ -3276,6 +3358,10 @@ fn dispatch_os_click_named_window_when_hittable(
     max_ticks: u32,
     effects: &mut WindowEventEffects<'_>,
 ) -> bool {
+    if effects.menu_lifecycle_pending() {
+        return false;
+    }
+
     if dispatch_os_click_named_window(name, effects) {
         return true;
     }
@@ -3304,16 +3390,15 @@ pub fn drive_os_wnd_open_skirmish_like_cpp(effects: &mut WindowEventEffects<'_>)
     let _ =
         dispatch_os_click_named_window_when_hittable("MainMenu.wnd:ButtonSkirmish", 32, effects);
     tick_main_menu_transitions(4, effects);
-    main_menu_skirmish_latched()
+    main_menu_skirmish_latched(effects)
 }
 
-fn campaign_start_latched(side: ShowSide) -> bool {
-    let menu = get_main_menu();
-    let state = menu.state.read().unwrap_or_else(|e| e.into_inner());
-    state.campaign_selected
-        && state.show_side == side
-        && state.start_game
-        && !state.launch_challenge_menu
+fn campaign_start_latched(side: ShowSide, effects: &WindowEventEffects<'_>) -> bool {
+    effects
+        .main_menu
+        .as_deref()
+        .expect("menu observation requires receiving Menu")
+        .campaign_start_latched(side)
 }
 
 /// Human click-through: CHAR reveal → Single Player → USA/GLA/China → Easy/Medium/Hard
@@ -3352,15 +3437,22 @@ pub fn drive_os_wnd_start_campaign_like_cpp(
     if !clicked_sp && !clicked_faction && !clicked_diff {
         return false;
     }
-    if !campaign_start_latched(side) {
+    if effects
+        .menu_host
+        .as_deref()
+        .is_some_and(|host| host.has_campaign_start())
+    {
+        return true;
+    }
+    if !campaign_start_latched(side, effects) {
         if clicked_faction || clicked_sp {
-            let _ = simulate_main_menu_campaign_side_button_gadget_selected(side);
+            let _ = simulate_main_menu_campaign_side_button_gadget_selected(side, effects);
         }
         if clicked_diff || clicked_faction {
-            let _ = simulate_main_menu_difficulty_button_gadget_selected(diff);
+            let _ = simulate_main_menu_difficulty_button_gadget_selected(diff, effects);
         }
     }
-    campaign_start_latched(side)
+    campaign_start_latched(side, effects)
 }
 
 /// Human USA campaign start (retail Medium / Normal).
@@ -3390,7 +3482,7 @@ pub fn drive_os_wnd_open_challenge_menu_like_cpp(effects: &mut WindowEventEffect
     let _ =
         dispatch_os_click_named_window_when_hittable("MainMenu.wnd:ButtonChallenge", 32, effects);
     tick_main_menu_transitions(8, effects);
-    if !main_menu_challenge_latched() {
+    if !main_menu_challenge_latched(effects) {
         return false;
     }
     let _ = dispatch_os_click_named_window("MainMenu.wnd:ButtonMedium", effects);
@@ -3402,7 +3494,7 @@ pub fn drive_os_wnd_open_challenge_menu_like_cpp(effects: &mut WindowEventEffect
             .unwrap_or(false)
     })
     .unwrap_or(false);
-    on_challenge || main_menu_challenge_latched()
+    on_challenge || main_menu_challenge_latched(effects)
 }
 
 // ================================================================================================

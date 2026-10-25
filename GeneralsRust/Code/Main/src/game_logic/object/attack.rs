@@ -983,22 +983,21 @@ impl Object {
     }
 
     pub fn stop_moving(&mut self, audio: &mut crate::game_logic::ObjectAudio<'_>) {
-        self.stop_moving_with_idle_transition(audio, true);
+        self.stop_moving_with_idle_transition(audio);
     }
 
-    /// Stop locomotion while leaving the AI machine untouched so the owning
-    /// World operation can enter Idle at the original synchronous boundary.
+    /// Stop locomotion and report whether a normal move leaf reached its
+    /// terminal point. The World owns any resulting AI transition.
     pub(crate) fn stop_moving_for_owned_idle_entry(
         &mut self,
         audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) -> bool {
-        self.stop_moving_with_idle_transition(audio, false)
+        self.stop_moving_with_idle_transition(audio)
     }
 
     fn stop_moving_with_idle_transition(
         &mut self,
         audio: &mut crate::game_logic::ObjectAudio<'_>,
-        enter_idle: bool,
     ) -> bool {
         let overlay = self.has_temporary_ai_move();
         self.end_temporary_move_overlay(audio);
@@ -1026,20 +1025,12 @@ impl Object {
 
         self.is_blocked = false;
         self.is_blocked_and_stuck = false;
-        // Only pure locomotion returns to Idle when the destination is reached.
-        // Interaction states (Capturing, Repairing, SpecialAbility, Entering, …)
-        // set a destination while remaining in-state; clobbering them to Idle
-        // aborted capture/repair on arrival before support-state resolution.
-        let should_enter_idle = !overlay
-            && !matches!(
-                self.retained_ai_root_state(),
-                AIState::JetReturningForLanding | AIState::JetReturnToDeadAirfield
-            )
-            && matches!(self.ai_state(), AIState::Moving | AIState::AttackMoving);
-        if should_enter_idle && enter_idle {
-            self.set_ai_state(AIState::Idle, audio);
-        }
-        should_enter_idle
+        // Physical movement can stop without completing the current AI state:
+        // the C++ AI state machine, not Object locomotion, owns that transition.
+        !matches!(
+            self.retained_ai_root_state(),
+            AIState::JetReturningForLanding | AIState::JetReturnToDeadAirfield
+        ) && matches!(self.ai_state(), AIState::Moving | AIState::AttackMoving)
     }
 
     pub fn attack_target(
@@ -1205,59 +1196,10 @@ impl Object {
         self.set_attack_substate(crate::game_logic::AttackSubState::AimAtTarget);
     }
 
-    /// Clear attack scalars while leaving the retained machine in its old
-    /// state until the owning World performs the synchronous Idle transition.
-    pub(crate) fn clear_attack_for_owned_idle_entry(&mut self) {
+    /// Clear combat engagement data without changing the retained AI machine.
+    /// The owning World applies any state-machine result at its observation point.
+    pub fn stop_attack(&mut self, _audio: &mut crate::game_logic::ObjectAudio<'_>) {
         self.clear_attack_scalar_state();
-    }
-
-    pub fn stop_attack(&mut self, audio: &mut crate::game_logic::ObjectAudio<'_>) {
-        self.clear_attack_scalar_state();
-
-        let retained_parent = self.capture_base_ai_continuation().parent_state();
-        self.unit_ai_runtime.set_machine_goal_object(None);
-        if self.unit_ai_runtime.resume_parent() {
-            if retained_parent == Some(AIState::AttackMoving) {
-                self.next_mood_check_time = 0;
-                if let Some(src) = self.attack_move_command_src.take() {
-                    self.last_command_source = src;
-                }
-                if let Some(dest) = self.requested_destination {
-                    self.movement.path.clear();
-                    self.movement.current_path_index = 0;
-                    self.movement.target_position = Some(dest);
-                    self.set_status_moving(true);
-                }
-            }
-            return;
-        }
-
-        // C++ parity: guard units return to guard; Hunt stays in AI_HUNT;
-        // attack-move keeps AI_ATTACK_MOVE_TO so dest can resume.
-        let stay_hunt = matches!(self.ai_state(), AIState::Patrolling);
-        let stay_attack_move = matches!(self.ai_state(), AIState::AttackMoving);
-        if self.active_guard_target().is_some() {
-            self.set_ai_state(AIState::GuardingObject, audio);
-        } else if self.active_guard_position().is_some() {
-            self.set_ai_state(AIState::GuardingArea, audio);
-        } else if stay_hunt {
-            self.set_ai_state(AIState::Patrolling, audio);
-        } else if stay_attack_move {
-            // Nested attack just went idle. The next getNextMoodTarget must
-            // not wait out the check rate (forceRetargetThisFrame).
-            self.next_mood_check_time = 0;
-            if let Some(src) = self.attack_move_command_src.take() {
-                self.last_command_source = src;
-            }
-            if let Some(dest) = self.requested_destination {
-                self.movement.path.clear();
-                self.movement.current_path_index = 0;
-                self.movement.target_position = Some(dest);
-                self.set_status_moving(true);
-            }
-        } else {
-            self.set_ai_state(AIState::Idle, audio);
-        }
     }
 
     pub fn clear_all_occupants(&mut self) {

@@ -21,6 +21,27 @@ use std::time::SystemTime;
 use ww3d_engine::FrameTiming;
 
 /// Subsystem interface trait - matches C++ SubsystemInterface
+#[cfg(feature = "game_client")]
+pub(crate) struct ReceivingClientUpdateCursor {
+    order: Vec<usize>,
+    next: usize,
+    messages: Vec<game_engine::common::message_stream::GameMessage>,
+    stream: Option<game_engine::common::message_stream::PropagationCursor>,
+}
+#[cfg(feature = "game_client")]
+impl ReceivingClientUpdateCursor {
+    pub(crate) fn after_world_reset(mut self) -> Self {
+        self.stream = self.stream.map(|cursor| cursor.after_world_reset());
+        self.messages.clear();
+        self
+    }
+}
+#[cfg(feature = "game_client")]
+pub(crate) enum ReceivingClientUpdateProgress {
+    HostBoundary(ReceivingClientUpdateCursor),
+    Complete(Vec<game_engine::common::message_stream::GameMessage>),
+}
+
 pub trait SubsystemInterface: Send + Sync + Any {
     /// Initialize the subsystem
     fn init(&mut self) -> Result<()>;
@@ -938,6 +959,7 @@ impl GameClientSubsystem {
         &mut self,
         timing: Option<&FrameTiming>,
         client: &mut game_client::core::GameClient,
+        menu_world: game_client::gui::campaign_launch_host_bridge::MenuWorldFacts,
     ) -> Result<()> {
         self.frame = timing.map_or_else(
             || self.frame.wrapping_add(1),
@@ -971,7 +993,9 @@ impl GameClientSubsystem {
             game_client::core::script_action_handler::apply_pending_script_display_state();
         });
         client
-            .with_receiving_shell(|shell, effects| shell.update_receiving(effects))
+            .with_receiving_shell(Some(menu_world), |shell, effects| {
+                shell.update_receiving(effects)
+            })
             .ok_or_else(|| anyhow!("native Shell update requires released receiving owner"))?
             .map_err(|error| anyhow!(error.to_string()))
     }
@@ -2020,7 +2044,7 @@ impl SubsystemManager {
             .copied();
         for index in (0..self.subsystems.len()).rev() {
             if Some(index) == stream_index {
-                client.message_stream_mut().clear_messages();
+                client.clear_pending_client_messages();
                 continue;
             }
             if let Err(error) = self.subsystems[index].reset() {
@@ -2092,11 +2116,15 @@ impl SubsystemManager {
         dt: f32,
         timing: Option<&FrameTiming>,
         client: &mut game_client::core::GameClient,
+        menu_world: game_client::gui::campaign_launch_host_bridge::MenuWorldFacts,
+        resume: Option<ReceivingClientUpdateCursor>,
         propagate: &mut dyn FnMut(
             &mut game_client::core::GameClient,
-        )
-            -> Result<Vec<game_engine::common::message_stream::GameMessage>>,
-    ) -> Result<Vec<game_engine::common::message_stream::GameMessage>> {
+            Option<game_engine::common::message_stream::PropagationCursor>,
+        ) -> Result<
+            game_engine::common::message_stream::PropagationProgress,
+        >,
+    ) -> Result<ReceivingClientUpdateProgress> {
         let client_index = self
             .indices_by_type
             .get(&TypeId::of::<GameClientSubsystem>())
@@ -2105,24 +2133,44 @@ impl SubsystemManager {
             .indices_by_type
             .get(&TypeId::of::<NativeMessagePhase>())
             .copied();
-        let mut order = Vec::new();
-        let mut admitted = HashSet::new();
-        for target in &self.update_order {
-            if let Some(&index) = self.indices_by_name.get(target) {
-                if admitted.insert(index) {
-                    order.push(index);
+        let mut cursor = resume.unwrap_or_else(|| {
+            let mut order = Vec::new();
+            let mut admitted = HashSet::new();
+            for target in &self.update_order {
+                if let Some(&index) = self.indices_by_name.get(target) {
+                    if admitted.insert(index) {
+                        order.push(index);
+                    }
                 }
             }
-        }
-        order.extend((0..self.subsystems.len()).filter(|index| !admitted.contains(index)));
-        let mut completed_messages = Vec::new();
-        for index in order {
+            order.extend((0..self.subsystems.len()).filter(|index| !admitted.contains(index)));
+            ReceivingClientUpdateCursor {
+                order,
+                next: 0,
+                messages: Vec::new(),
+                stream: None,
+            }
+        });
+        while let Some(&index) = cursor.order.get(cursor.next) {
+            cursor.next += 1;
             let result = if Some(index) == client_index {
                 self.get_mut::<GameClientSubsystem>()
                     .expect("typed GameClient registration changed")
-                    .update_receiving_client(timing, client)
+                    .update_receiving_client(timing, client, menu_world)
             } else if Some(index) == stream_index {
-                propagate(client).map(|messages| completed_messages.extend(messages))
+                match propagate(client, cursor.stream.take())? {
+                    game_engine::common::message_stream::PropagationProgress::Complete(
+                        messages,
+                    ) => cursor.messages.extend(messages),
+                    game_engine::common::message_stream::PropagationProgress::HostBoundary(
+                        stream,
+                    ) => {
+                        cursor.next -= 1;
+                        cursor.stream = Some(stream);
+                        return Ok(ReceivingClientUpdateProgress::HostBoundary(cursor));
+                    }
+                }
+                Ok(())
             } else if let Some(timing) = timing {
                 self.subsystems[index].update_with_timing(timing)
             } else {
@@ -2134,8 +2182,11 @@ impl SubsystemManager {
                     self.subsystems[index].name()
                 );
             }
+            if Some(index) == client_index && client.has_menu_host_requests() {
+                return Ok(ReceivingClientUpdateProgress::HostBoundary(cursor));
+            }
         }
-        Ok(completed_messages)
+        Ok(ReceivingClientUpdateProgress::Complete(cursor.messages))
     }
 
     /// Obtain a typed handle to a subsystem, if registered.

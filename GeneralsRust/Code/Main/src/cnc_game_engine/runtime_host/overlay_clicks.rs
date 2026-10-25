@@ -2,7 +2,10 @@
 use super::*;
 
 impl CnCGameEngine {
-    pub(super) fn runtime_host_cmd_click_replay_control(&mut self, args: &HashMap<String, String>) {
+    pub(super) fn runtime_host_cmd_click_replay_control(
+        &mut self,
+        args: &HashMap<String, String>,
+    ) -> Result<(), String> {
         let action = args
             .get("action")
             .map(|v| v.trim().to_ascii_lowercase())
@@ -26,30 +29,30 @@ impl CnCGameEngine {
             };
             wnd_ok = match action.as_str() {
                 "pause" => {
-                    self.game_client.with_window_event_effects(|effects| {
+                    self.with_receiving_menu_effects(|effects| {
                         drive_os_wnd_replay_control_pause_like_cpp(effects)
-                    }) || simulate_replay_control_pause()
+                    })? || simulate_replay_control_pause()
                 }
                 "stop" => {
-                    self.game_client.with_window_event_effects(|effects| {
+                    self.with_receiving_menu_effects(|effects| {
                         drive_os_wnd_replay_control_stop_like_cpp(effects)
-                    }) || simulate_replay_control_stop()
+                    })? || simulate_replay_control_stop()
                 }
                 "ff" | "fast_forward" => {
-                    self.game_client.with_window_event_effects(|effects| {
+                    self.with_receiving_menu_effects(|effects| {
                         drive_os_wnd_replay_control_fast_forward_like_cpp(effects)
-                    }) || simulate_replay_control_toggle_fast_forward()
+                    })? || simulate_replay_control_toggle_fast_forward()
                 }
                 "seek" => simulate_replay_control_seek(position),
                 "prepare" | "prepare_play" => {
-                    self.game_client.with_window_event_effects(|effects| {
+                    self.with_receiving_menu_effects(|effects| {
                         drive_os_wnd_replay_control_prepare_play_at_like_cpp(position, effects)
-                    }) || simulate_replay_control_prepare_play_at(position)
+                    })? || simulate_replay_control_prepare_play_at(position)
                 }
                 _ => {
-                    self.game_client.with_window_event_effects(|effects| {
+                    self.with_receiving_menu_effects(|effects| {
                         drive_os_wnd_replay_control_play_like_cpp(effects)
-                    }) || simulate_replay_control_play()
+                    })? || simulate_replay_control_play()
                 }
             };
         }
@@ -58,6 +61,8 @@ impl CnCGameEngine {
         } else {
             "click_replay_control_miss".into()
         };
+
+        Ok(())
     }
 
     pub(super) fn runtime_host_cmd_toggle_shell_map(&mut self, _args: &HashMap<String, String>) {
@@ -233,7 +238,10 @@ impl CnCGameEngine {
         };
     }
 
-    pub(super) fn runtime_host_cmd_click_ime(&mut self, args: &HashMap<String, String>) {
+    pub(super) fn runtime_host_cmd_click_ime(
+        &mut self,
+        args: &HashMap<String, String>,
+    ) -> Result<(), String> {
         let action = args
             .get("action")
             .map(|v| v.trim().to_ascii_lowercase())
@@ -260,21 +268,21 @@ impl CnCGameEngine {
                 "start" => simulate_ime_start_composition(),
                 "update" => simulate_ime_update_composition(&text, text.chars().count()),
                 "result" => {
-                    self.game_client.with_window_event_effects(|effects| {
+                    self.with_receiving_menu_effects(|effects| {
                         drive_os_wnd_ime_result_like_cpp(&text, effects)
-                    }) || simulate_ime_result_string(&text)
+                    })? || simulate_ime_result_string(&text)
                 }
                 "clear" => {
-                    self.game_client.with_window_event_effects(|effects| {
+                    self.with_receiving_menu_effects(|effects| {
                         drive_os_wnd_ime_clear_candidates_like_cpp(effects)
-                    }) || simulate_ime_clear_candidates()
+                    })? || simulate_ime_clear_candidates()
                 }
                 "end" => simulate_ime_end_composition(),
                 "reset" => simulate_ime_reset(),
                 _ => {
-                    self.game_client.with_window_event_effects(|effects| {
+                    self.with_receiving_menu_effects(|effects| {
                         drive_os_wnd_ime_prepare_composition_cycle_like_cpp(&text, effects)
-                    }) || simulate_ime_prepare_composition_cycle(&text)
+                    })? || simulate_ime_prepare_composition_cycle(&text)
                 }
             };
         }
@@ -283,6 +291,8 @@ impl CnCGameEngine {
         } else {
             "click_ime_miss".into()
         };
+
+        Ok(())
     }
 
     pub(super) fn runtime_host_cmd_click_smudge(&mut self, args: &HashMap<String, String>) {
@@ -530,7 +540,10 @@ impl CnCGameEngine {
         };
     }
 
-    pub(super) fn runtime_host_cmd_click_credits_roll(&mut self, args: &HashMap<String, String>) {
+    pub(super) fn runtime_host_cmd_click_credits_roll(
+        &mut self,
+        args: &HashMap<String, String>,
+    ) -> Result<(), String> {
         let action = args
             .get("action")
             .map(|v| v.trim().to_ascii_lowercase())
@@ -556,19 +569,19 @@ impl CnCGameEngine {
                 "add" => simulate_credits_add_text(&text),
                 "blank" => simulate_credits_add_blank(),
                 "update" => {
-                    self.game_client.with_window_event_effects(|effects| {
+                    self.with_receiving_menu_effects(|effects| {
                         drive_os_wnd_credits_roll_update_like_cpp(effects)
-                    }) || simulate_credits_update()
+                    })? || simulate_credits_update()
                 }
                 "finished" => {
-                    self.game_client.with_window_event_effects(|effects| {
+                    self.with_receiving_menu_effects(|effects| {
                         drive_os_wnd_credits_roll_finished_like_cpp(effects)
-                    }) || simulate_credits_is_finished_probe()
+                    })? || simulate_credits_is_finished_probe()
                 }
                 _ => {
-                    self.game_client.with_window_event_effects(|effects| {
+                    self.with_receiving_menu_effects(|effects| {
                         drive_os_wnd_credits_roll_prepare_like_cpp(effects)
-                    }) || simulate_credits_prepare_short_roll()
+                    })? || simulate_credits_prepare_short_roll()
                 }
             };
         }
@@ -577,6 +590,8 @@ impl CnCGameEngine {
         } else {
             "click_credits_roll_miss".into()
         };
+
+        Ok(())
     }
 
     pub(super) fn runtime_host_cmd_click_challenge_generals(

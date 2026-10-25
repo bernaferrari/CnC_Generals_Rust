@@ -221,7 +221,7 @@ fn playback_replay_row_direct(state_handle: Rc<RefCell<ReplayMenuState>>, row_se
         state.parent.clone(),
     );
     drop(state);
-    ingress::ReplayMenuStep::Playback(playback).complete(&mut ingress::CompatibilityReplayReceiver);
+    ingress::ReplayMenuStep::Playback(playback).complete_compatibility();
 }
 
 fn playback_selected_replay(state_handle: Rc<RefCell<ReplayMenuState>>, ignore_version: bool) {
@@ -239,7 +239,7 @@ fn playback_selected_replay(state_handle: Rc<RefCell<ReplayMenuState>>, ignore_v
         Err(_) => ingress::ReplayMenuStep::NoSelection,
     };
     drop(state);
-    step.complete(&mut ingress::CompatibilityReplayReceiver);
+    step.complete_compatibility();
 }
 
 fn confirm_delete_replay(state_handle: Rc<RefCell<ReplayMenuState>>) {

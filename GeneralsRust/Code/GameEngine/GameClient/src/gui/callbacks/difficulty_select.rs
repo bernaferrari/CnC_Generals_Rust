@@ -1,7 +1,7 @@
 //! DifficultySelect.cpp callback port.
 
 use crate::gui::campaign_manager::{CampaignManager, GameDifficulty};
-use crate::gui::shell::main_menu::{GameDifficulty as MainMenuDifficulty, get_main_menu};
+use crate::gui::shell::main_menu::GameDifficulty as MainMenuDifficulty;
 use crate::gui::{
     GameWindow, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled, WindowWidget,
     with_window_manager, write_input_focus_response,
@@ -174,12 +174,13 @@ fn start_campaign_game(
 
     // C++ DifficultySelect calls MainMenu::setupGameStart() instead of
     // preparing gameplay directly, so route through the same startup pipeline.
-    let mut main_menu = get_main_menu();
-    main_menu.setup_game_start_from_callback(
-        &current_map,
-        difficulty_to_main_menu(difficulty),
-        effects,
-    );
+    effects.with_main_menu(|menu, effects| {
+        menu.setup_game_start_from_callback(
+            &current_map,
+            difficulty_to_main_menu(difficulty),
+            effects,
+        )
+    });
 }
 
 pub fn difficulty_select_init(layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>) {

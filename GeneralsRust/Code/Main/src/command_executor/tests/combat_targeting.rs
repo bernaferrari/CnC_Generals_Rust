@@ -398,7 +398,9 @@ fn move_to_releases_temporary_but_not_permanent_weapon_lock() {
 fn do_weapon_locks_the_requested_secondary_slot_before_targeting() {
     use super::CommandExecutor;
     use crate::command_system::{CommandResult, WeaponSlot, WeaponTarget};
-    use crate::game_logic::{AIState, GameLogic, KindOf, Team, ThingTemplate, Weapon, WeaponLockType};
+    use crate::game_logic::{
+        AIState, GameLogic, KindOf, Team, ThingTemplate, Weapon, WeaponLockType,
+    };
     use glam::Vec3;
 
     let mut logic = GameLogic::new();
@@ -446,7 +448,9 @@ fn do_weapon_locks_the_requested_secondary_slot_before_targeting() {
 fn do_weapon_uses_the_real_tertiary_slot_without_secondary_aliasing() {
     use super::CommandExecutor;
     use crate::command_system::{CommandResult, WeaponSlot, WeaponTarget};
-    use crate::game_logic::{GameLogic, KindOf, ObjectId, Team, ThingTemplate, Weapon, WeaponLockType};
+    use crate::game_logic::{
+        GameLogic, KindOf, ObjectId, Team, ThingTemplate, Weapon, WeaponLockType,
+    };
     use glam::Vec3;
 
     let mut logic = GameLogic::new();
@@ -770,7 +774,8 @@ fn attack_area_engages_enemy_inside_radius() {
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
         assert_eq!(
-            exec.execute_attack_area(&[u], Vec3::new(40.0, 0.0, 0.0), 80.0, None),
+            exec.execute_attack_area(&[u], Vec3::new(40.0, 0.0, 0.0), 80.0, None)
+                .expect("valid attack-area fixture"),
             CommandResult::Success
         );
     }

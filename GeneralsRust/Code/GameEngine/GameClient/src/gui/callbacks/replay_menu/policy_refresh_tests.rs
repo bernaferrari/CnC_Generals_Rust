@@ -193,6 +193,8 @@ fn admitted_content_crc_refresh_preserves_active_native_selection_and_release() 
             tooltips_disabled: false,
             cursor_mouse: None,
             emitted_messages: None,
+
+            main_menu: None,
         };
         assert_eq!(
             manager.process_mouse_event_with_control_bar(

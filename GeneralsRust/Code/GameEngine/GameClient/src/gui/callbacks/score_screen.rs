@@ -7,7 +7,7 @@ use crate::core::script_action_handler::{
 use crate::game_text::GameText;
 use crate::gui::callbacks::popup_replay::popup_replay_update;
 use crate::gui::campaign_launch_host_bridge::{
-    HostCampaignLaunchDescriptor, publish_host_campaign_launch,
+    HostCampaignLaunchDescriptor, MenuHostRequest, MenuLaunchSource,
 };
 use crate::gui::campaign_manager::{
     Campaign, CampaignManager, GameDifficulty as CampaignDifficulty,
@@ -333,9 +333,6 @@ fn start_next_campaign_game(effects: &mut WindowEventEffects<'_>) {
         game_info_starting_cash = manager
             .challenge_game_info()
             .map(|info| info.game_info().get_starting_cash().count_money());
-        if TheGameLogic::is_in_game() {
-            let _ = TheGameLogic::clear_game_data();
-        }
     }
 
     if let Some(data) = game_engine::common::ini::get_global_data() {
@@ -359,8 +356,7 @@ fn start_next_campaign_game(effects: &mut WindowEventEffects<'_>) {
                 .map(|template| template.get_name().to_string())
         })
     });
-    let _ = publish_host_campaign_launch(HostCampaignLaunchDescriptor {
-        generation: 0,
+    let descriptor = HostCampaignLaunchDescriptor {
         map_name: pending_file,
         campaign_name,
         campaign_player_faction,
@@ -372,14 +368,14 @@ fn start_next_campaign_game(effects: &mut WindowEventEffects<'_>) {
         difficulty_code: difficulty,
         rank_points,
         max_fps: None,
+    };
+    let clear_previous = is_challenge && effects.menu_world().in_game;
+    effects.request_menu_host(MenuHostRequest::StartCampaign {
+        descriptor,
+        clear_previous,
+        source: MenuLaunchSource::ScoreScreen,
+        main_menu_layout: None,
     });
-
-    let mut msg = GameMessage::new(GameMessageType::NewGame);
-    msg.append_integer_argument(GAME_SINGLE_PLAYER);
-    msg.append_integer_argument(difficulty);
-    msg.append_integer_argument(rank_points);
-    effects.emitted_messages.push(msg);
-    init_random_with_seed(0);
 }
 
 fn init_single_player(state: &mut ScoreScreenState, effects: &mut WindowEventEffects<'_>) {
@@ -1960,6 +1956,10 @@ mod tests {
             emitted_messages: &mut emitted_messages,
             pending_control_bar_clicks: None,
             campaign_manager: None,
+            main_menu: None,
+            menu_world: None,
+            menu_host: None,
+            pending_main_menu_actions: Vec::new(),
         };
         assert_eq!(
             score_screen_system(&window, WindowMessage::Destroy, 0, 0, &mut effects),
@@ -1981,6 +1981,10 @@ mod tests {
             emitted_messages: &mut emitted_messages,
             pending_control_bar_clicks: None,
             campaign_manager: Some(&mut campaign_manager),
+            main_menu: None,
+            menu_world: None,
+            menu_host: None,
+            pending_main_menu_actions: Vec::new(),
         };
         start_next_campaign_game(&mut effects);
         assert!(
@@ -2401,6 +2405,10 @@ mod os_wnd_tests {
             emitted_messages: &mut emitted_messages,
             pending_control_bar_clicks: None,
             campaign_manager: None,
+            main_menu: None,
+            menu_world: None,
+            menu_host: None,
+            pending_main_menu_actions: Vec::new(),
         };
         assert!(drive_os_wnd_score_screen_continue_like_cpp(&mut effects));
         assert_eq!(

@@ -27,6 +27,8 @@ pub struct GameClient {
     window_manager_owner: crate::gui::window_manager::WindowManagerOwner,
     /// This client's ordered message pipeline and its translator-local state.
     pub(crate) campaign_manager: crate::gui::campaign_manager::CampaignManager,
+    pub(crate) menu_host: crate::gui::campaign_launch_host_bridge::MenuHostMailbox,
+    pub(crate) main_menu: crate::gui::shell::main_menu::MainMenu,
     message_stream: crate::message_stream::message_stream::MessageStream,
     /// C++ shell-game load-screen first-load latch for this receiving client.
     shell_game_first_load: bool,
@@ -108,6 +110,8 @@ pub struct GameClient {
 pub type NativeWindowInputDriver<'a> = dyn FnMut(
         &crate::gui::window_manager::WindowManagerOwner,
         &mut crate::gui::campaign_manager::CampaignManager,
+        &mut crate::gui::shell::main_menu::MainMenu,
+        &mut crate::gui::campaign_launch_host_bridge::MenuHostMailbox,
         game_engine::common::message_stream::WindowInputDispatch,
         &mut Vec<crate::message_stream::game_message::GameMessage>,
     ) -> Option<game_engine::common::message_stream::WindowInputDispatchResult>

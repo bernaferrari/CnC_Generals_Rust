@@ -109,7 +109,6 @@ use crate::gui::callbacks::{
 use crate::gui::{MAX_DRAW_DATA, MAX_WINDOWS};
 
 use crate::gui::header_template::get_header_template_manager;
-use crate::gui::shell::main_menu::get_main_menu;
 use crate::gui::{get_disconnect_menu, get_establish_connections_menu};
 use crate::input::with_mouse;
 use game_engine::common::name_key_generator::NameKeyGenerator;

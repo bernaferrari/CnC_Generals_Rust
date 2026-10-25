@@ -59,8 +59,7 @@ impl Object {
     pub fn tick_timers(&mut self, dt: f32, audio: &mut crate::game_logic::ObjectAudio<'_>) -> bool {
         if self.cheer_timer > 0.0 {
             self.cheer_timer -= dt;
-            if self.cheer_timer <= 0.0 && self.ai_state() == AIState::SpecialAbility {
-                self.set_ai_state(AIState::Idle, audio);
+            if self.cheer_timer <= 0.0 {
                 self.cheer_timer = 0.0;
             }
         }

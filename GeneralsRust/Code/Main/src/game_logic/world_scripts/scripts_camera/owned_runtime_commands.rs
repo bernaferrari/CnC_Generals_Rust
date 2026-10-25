@@ -92,7 +92,7 @@ impl GameLogic {
                 .is_some_and(|object| object.has_ai_update_interface() && !object.is_contained())
             {
                 // CPP groupAttackTeam does not choose Normal or leaveGroup.
-                self.apply_owned_attack_team_member(id, target_id, force_normal);
+                self.apply_owned_attack_team_member(id, target_id, force_normal)?;
             }
         }
         Ok(())
@@ -162,7 +162,7 @@ impl GameLogic {
         for member in members {
             let id = ObjectId(member);
             if self.unit_can_team_hunt_with_command_button(id, Some(button)) {
-                self.start_command_button_hunt_named(id, Some(button));
+                self.start_command_button_hunt_named(id, Some(button))?;
             }
         }
         Ok(())

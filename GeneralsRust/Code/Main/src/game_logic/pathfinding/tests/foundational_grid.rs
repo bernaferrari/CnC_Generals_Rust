@@ -492,7 +492,11 @@ fn attack_order_closes_on_open_ground() {
         });
     }
     logic.force_map_loaded_for_path_test(true);
-    assert!(logic.unit_command_attack(id, victim));
+    assert!(
+        logic
+            .unit_command_attack(id, victim)
+            .expect("valid attack command fixture")
+    );
     for _ in 0..40 {
         logic.update();
     }
@@ -553,7 +557,11 @@ fn attack_in_range_damages_the_target() {
         });
     }
     let before = logic.host_object(victim).expect("victim").health.current;
-    assert!(logic.unit_command_attack(id, victim));
+    assert!(
+        logic
+            .unit_command_attack(id, victim)
+            .expect("valid attack command fixture")
+    );
     // Observe a bounded firing interval: enough for the 0.1s reload weapon to
     // hit, but not enough to kill the 100 HP victim and remove it from the
     // live object list.
@@ -592,7 +600,11 @@ fn stop_prevents_further_attack_damage() {
             ..Weapon::default()
         });
     }
-    assert!(logic.unit_command_attack(id, victim));
+    assert!(
+        logic
+            .unit_command_attack(id, victim)
+            .expect("valid attack command fixture")
+    );
     for _ in 0..8 {
         logic.update();
     }

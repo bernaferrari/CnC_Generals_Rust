@@ -213,10 +213,13 @@ impl Object {
     }
 
     /// C++ AICMD_GO_PRONE residual — infantry hit the dirt briefly.
-    pub fn go_prone(&mut self, duration_secs: f32, audio: &mut crate::game_logic::ObjectAudio<'_>) {
-        self.clear_target(audio);
-        self.set_force_attack(false);
-        self.stop_moving(audio);
+    pub fn go_prone(
+        &mut self,
+        duration_secs: f32,
+        _audio: &mut crate::game_logic::ObjectAudio<'_>,
+    ) {
+        // C++ AIUpdateInterface::privateGoProne only forwards the damage to
+        // ProneUpdate::goProne; the AI state and order remain untouched.
         self.prone_timer = duration_secs.max(0.1);
         if let Some(pu) = self.prone_update.as_mut() {
             // Approximate seconds → frames at 30 Hz for module residual.
@@ -233,16 +236,6 @@ impl Object {
         {
             self.model_condition_bits |= 1u128 << bit;
             // Wave 487: prone model bit must reach GW before model-condition writeback.
-        }
-        // Stay in Idle while prone so orders can break it; timer clears the bit.
-        if !matches!(
-            self.ai_state(),
-            AIState::Attacking
-                | AIState::AttackMoving
-                | AIState::GuardingArea
-                | AIState::GuardingObject
-        ) {
-            self.set_ai_state(AIState::Idle, audio);
         }
     }
 

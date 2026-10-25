@@ -37,7 +37,10 @@ impl CnCGameEngine {
         };
     }
 
-    pub(super) fn runtime_host_cmd_click_message_box(&mut self, args: &HashMap<String, String>) {
+    pub(super) fn runtime_host_cmd_click_message_box(
+        &mut self,
+        args: &HashMap<String, String>,
+    ) -> Result<(), String> {
         // Retail MessageBox Yes/No/Ok/Cancel residual.
         let action = args
             .get("action")
@@ -66,35 +69,35 @@ impl CnCGameEngine {
             };
             wnd_ok = match action.as_str() {
                 "ok" => {
-                    self.game_client.with_window_event_effects(|effects| {
+                    self.with_receiving_menu_effects(|effects| {
                         drive_os_wnd_message_box_ok_like_cpp(effects)
-                    }) || simulate_message_box_ok_button_gadget_selected()
+                    })? || simulate_message_box_ok_button_gadget_selected()
                 }
                 "no" => {
-                    self.game_client.with_window_event_effects(|effects| {
+                    self.with_receiving_menu_effects(|effects| {
                         drive_os_wnd_message_box_no_like_cpp(effects)
-                    }) || simulate_message_box_no_button_gadget_selected()
+                    })? || simulate_message_box_no_button_gadget_selected()
                 }
                 "cancel" => {
-                    self.game_client.with_window_event_effects(|effects| {
+                    self.with_receiving_menu_effects(|effects| {
                         drive_os_wnd_message_box_cancel_like_cpp(effects)
-                    }) || simulate_message_box_cancel_button_gadget_selected()
+                    })? || simulate_message_box_cancel_button_gadget_selected()
                 }
                 "hide" => simulate_message_box_hide(),
                 "prepare_yes" => {
-                    self.game_client.with_window_event_effects(|effects| {
+                    self.with_receiving_menu_effects(|effects| {
                         drive_os_wnd_message_box_prepare_yes_like_cpp(&title, &body, effects)
-                    }) || simulate_message_box_prepare_yes(&title, &body)
+                    })? || simulate_message_box_prepare_yes(&title, &body)
                 }
                 "prepare_ok" => {
-                    self.game_client.with_window_event_effects(|effects| {
+                    self.with_receiving_menu_effects(|effects| {
                         drive_os_wnd_message_box_prepare_ok_like_cpp(&title, &body, effects)
-                    }) || simulate_message_box_prepare_ok(&title, &body)
+                    })? || simulate_message_box_prepare_ok(&title, &body)
                 }
                 _ => {
-                    self.game_client.with_window_event_effects(|effects| {
+                    self.with_receiving_menu_effects(|effects| {
                         drive_os_wnd_message_box_yes_like_cpp(effects)
-                    }) || simulate_message_box_yes_button_gadget_selected()
+                    })? || simulate_message_box_yes_button_gadget_selected()
                 }
             };
         }
@@ -103,16 +106,21 @@ impl CnCGameEngine {
         } else {
             "click_message_box_miss".into()
         };
+
+        Ok(())
     }
 
-    pub(super) fn runtime_host_cmd_toggle_diplomacy(&mut self, _args: &HashMap<String, String>) {
+    pub(super) fn runtime_host_cmd_toggle_diplomacy(
+        &mut self,
+        _args: &HashMap<String, String>,
+    ) -> Result<(), String> {
         // Retail Diplomacy toggle residual without layout/animate.
         let mut wnd_ok = false;
         #[cfg(feature = "game_client")]
         {
-            wnd_ok = self.game_client.with_window_event_effects(|effects| {
+            wnd_ok = self.with_receiving_menu_effects(|effects| {
                 game_client::gui::callbacks::drive_os_wnd_diplomacy_prepare_ingame_like_cpp(effects)
-            });
+            })?;
             if !wnd_ok {
                 wnd_ok = game_client::gui::callbacks::simulate_diplomacy_toggle_show();
             }
@@ -122,9 +130,14 @@ impl CnCGameEngine {
         } else {
             "toggle_diplomacy_miss".into()
         };
+
+        Ok(())
     }
 
-    pub(super) fn runtime_host_cmd_click_diplomacy(&mut self, args: &HashMap<String, String>) {
+    pub(super) fn runtime_host_cmd_click_diplomacy(
+        &mut self,
+        args: &HashMap<String, String>,
+    ) -> Result<(), String> {
         // Retail Diplomacy radio/mute/hide residual.
         let action = args
             .get("action")
@@ -150,36 +163,36 @@ impl CnCGameEngine {
             };
             wnd_ok = match action.as_str() {
                 "hide" => {
-                    self.game_client.with_window_event_effects(|effects| {
+                    self.with_receiving_menu_effects(|effects| {
                         drive_os_wnd_diplomacy_hide_like_cpp(effects)
-                    }) || simulate_diplomacy_hide()
+                    })? || simulate_diplomacy_hide()
                 }
                 "toggle_hide" => simulate_diplomacy_toggle_hide(),
                 "reset" => simulate_diplomacy_reset(),
                 "buddies" => {
-                    self.game_client.with_window_event_effects(|effects| {
+                    self.with_receiving_menu_effects(|effects| {
                         drive_os_wnd_diplomacy_radio_buddies_like_cpp(effects)
-                    }) || simulate_diplomacy_radio_buddies()
+                    })? || simulate_diplomacy_radio_buddies()
                 }
                 "mute" => {
-                    self.game_client.with_window_event_effects(|effects| {
+                    self.with_receiving_menu_effects(|effects| {
                         drive_os_wnd_diplomacy_mute_like_cpp(slot, effects)
-                    }) || simulate_diplomacy_mute_slot(slot)
+                    })? || simulate_diplomacy_mute_slot(slot)
                 }
                 "unmute" => {
-                    self.game_client.with_window_event_effects(|effects| {
+                    self.with_receiving_menu_effects(|effects| {
                         drive_os_wnd_diplomacy_unmute_like_cpp(slot, effects)
-                    }) || simulate_diplomacy_unmute_slot(slot)
+                    })? || simulate_diplomacy_unmute_slot(slot)
                 }
                 "prepare_ingame" => {
-                    self.game_client.with_window_event_effects(|effects| {
+                    self.with_receiving_menu_effects(|effects| {
                         drive_os_wnd_diplomacy_prepare_ingame_like_cpp(effects)
-                    }) || simulate_diplomacy_prepare_ingame()
+                    })? || simulate_diplomacy_prepare_ingame()
                 }
                 _ => {
-                    self.game_client.with_window_event_effects(|effects| {
+                    self.with_receiving_menu_effects(|effects| {
                         drive_os_wnd_diplomacy_radio_ingame_like_cpp(effects)
-                    }) || simulate_diplomacy_radio_ingame()
+                    })? || simulate_diplomacy_radio_ingame()
                 }
             };
         }
@@ -188,21 +201,28 @@ impl CnCGameEngine {
         } else {
             "click_diplomacy_miss".into()
         };
+
+        Ok(())
     }
 
-    pub(super) fn runtime_host_cmd_open_popup_replay(&mut self, _args: &HashMap<String, String>) {
+    pub(super) fn runtime_host_cmd_open_popup_replay(
+        &mut self,
+        _args: &HashMap<String, String>,
+    ) -> Result<(), String> {
         // Retail ScoreScreen → PopupReplay residual open.
         let mut wnd_ok = false;
         #[cfg(feature = "game_client")]
         {
             wnd_ok = game_client::gui::callbacks::simulate_popup_replay_bind_controls();
         }
-        self.enter_shell_menu_from_runtime_host(Some("PopupReplay"));
+        self.enter_shell_menu_from_runtime_host(Some("PopupReplay"))?;
         self.runtime_host_last_gameplay_cmd = if wnd_ok {
             "open_popup_replay_ok_wnd".into()
         } else {
             "open_popup_replay_ok".into()
         };
+
+        Ok(())
     }
 
     pub(super) fn runtime_host_cmd_click_popup_replay(&mut self, args: &HashMap<String, String>) {

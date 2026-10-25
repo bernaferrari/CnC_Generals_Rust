@@ -49,6 +49,7 @@ impl GameLogic {
             let mut final_death_destroy = false;
             let mut lifetime_kill = false;
             let mut poison_kill = false;
+            let mut ai_dead_entered_this_tick = false;
             let mut pending_stump: Option<(String, glam::Vec3, f32, bool)> = None;
             let mut defector_audio: Vec<String> = Vec::new();
             let mut disguise_halfpoint: Option<(glam::Vec3, bool, bool)> = None;
@@ -635,6 +636,15 @@ impl GameLogic {
             }
             // C++ CreateObjectDie residual (spawn after death FX).
             self.apply_pending_create_object_die_with_effects(object_id, presentation_effects);
+            // C++ AIUpdateInterface::update transitions a marked AI to AI_DEAD
+            // only after the die callbacks and provider update have run. The
+            // transition locks AI commands but does not skip locomotor/physics.
+            if self.objects.get(&object_id).is_some_and(|object| {
+                object.ai_death_pending() && object.ai_state() != AIState::Dead
+            }) {
+                ai_dead_entered_this_tick =
+                    self.enter_base_ai_dead_owned(object_id, presentation_effects)?;
+            }
             if lifetime_kill {
                 // The receiving kill driver already delivered onDie/retention.
                 // Never turn a retained corpse into a second forced destroy.
@@ -775,7 +785,7 @@ impl GameLogic {
             self.apply_pending_idle_mood_reset_with_effects(object_id, presentation_effects);
             // C++ AIIdleState::update: mood scan / attack only — never AI_HUNT wander.
             if let Some(obj) = self.objects.get(&object_id) {
-                if obj.has_temporary_ai_move() {
+                if obj.has_temporary_ai_move() && obj.ai_state() != AIState::Dead {
                     self.dozer_update_primary_owned_with_effects(object_id, presentation_effects)?;
                     continue;
                 }
@@ -809,6 +819,9 @@ impl GameLogic {
                     presentation_effects,
                 ) {
                     self.apply_ai_command_with_effects(command, presentation_effects)?;
+                }
+                if ai_state == AIState::Dead && !ai_dead_entered_this_tick {
+                    self.update_base_ai_dead_owned(object_id);
                 }
             }
             // C++ DozerAIUpdate::update invokes the retained derived machine

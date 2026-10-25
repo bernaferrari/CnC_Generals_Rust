@@ -27,7 +27,7 @@ use crate::gui::game_window::{
     GameWindow, WindowCallbacks as GwCallbacks, WindowInstanceData, WindowMessage, WindowMsgData,
     WindowMsgHandled, WindowWidget,
 };
-use crate::gui::shell::main_menu::get_main_menu;
+
 use crate::gui::window_manager::WindowLayout;
 use crate::gui::window_script::{WindowLayoutDefinition, WindowScriptError, parse_window_script};
 use crate::gui::{get_disconnect_menu, get_establish_connections_menu};
@@ -734,7 +734,7 @@ impl ScriptCallbackRegistry {
         self.register_win_system("MOTDSystem", cb::motd_system);
 
         self.register_win_system_with_effects("MainMenuSystem", main_menu_system);
-        self.register_win_system("OptionsMenuSystem", options_menu_system);
+        self.register_win_system_with_effects("OptionsMenuSystem", options_menu_system);
         self.register_win_system_with_effects("SinglePlayerMenuSystem", single_player_menu_system);
         self.register_win_system_with_effects("QuitMenuSystem", cb::quit_menu_system);
         self.register_win_system_with_effects("MapSelectMenuSystem", map_select_menu_system);
@@ -856,7 +856,7 @@ impl ScriptCallbackRegistry {
         );
         self.register_win_system("GameInfoWindowSystem", cb::game_info_window_system);
         self.register_win_system_with_effects("ScoreScreenSystem", cb::score_screen_system);
-        self.register_win_system("DownloadMenuSystem", cb::download_menu_system);
+        self.register_win_system_with_effects("DownloadMenuSystem", cb::download_menu_system);
     }
 
     fn populate_win_input_table(&mut self) {
@@ -963,7 +963,7 @@ impl ScriptCallbackRegistry {
         self.register_win_input_with_effects("DifficultySelectInput", cb::difficulty_select_input);
         self.register_win_input("PopupReplayInput", cb::popup_replay_input);
         self.register_win_input("GeneralsExpPointsInput", cb::generals_exp_points_input);
-        self.register_win_input("DownloadMenuInput", cb::download_menu_input);
+        self.register_win_input_with_effects("DownloadMenuInput", cb::download_menu_input);
         self.register_win_input("IMECandidateWindowInput", cb::ime_candidate_window_input);
     }
 
@@ -975,7 +975,9 @@ impl ScriptCallbackRegistry {
         self.layout_init.insert(
             "MainMenuInit".into(),
             Box::new(|layout, effects| {
-                if let Err(err) = get_main_menu().init(layout, None, effects) {
+                if let Err(err) =
+                    effects.with_main_menu(|menu, effects| menu.init(layout, None, effects))
+                {
                     log::warn!("MainMenuInit failed: {}", err);
                 }
             }),
@@ -1087,7 +1089,9 @@ impl ScriptCallbackRegistry {
         self.layout_update.insert(
             "MainMenuUpdate".into(),
             Box::new(|layout, effects| {
-                if let Err(err) = get_main_menu().update(layout, None, effects) {
+                if let Err(err) =
+                    effects.with_main_menu(|menu, effects| menu.update(layout, None, effects))
+                {
                     log::warn!("MainMenuUpdate failed: {}", err);
                 }
             }),
@@ -1195,11 +1199,16 @@ impl ScriptCallbackRegistry {
     }
 
     fn populate_layout_shutdown_table(&mut self) {
-        self.register_layout_shutdown("MainMenuShutdown", |layout, data| {
-            if let Err(err) = get_main_menu().shutdown(layout, data) {
-                log::warn!("MainMenuShutdown failed: {}", err);
-            }
-        });
+        self.layout_shutdown.insert(
+            "MainMenuShutdown".into(),
+            Box::new(|layout, data, effects| {
+                if let Err(err) =
+                    effects.with_main_menu(|menu, effects| menu.shutdown(layout, data))
+                {
+                    log::warn!("MainMenuShutdown failed: {}", err);
+                }
+            }),
+        );
         self.register_layout_shutdown_without_data("OptionsMenuShutdown", options_menu_shutdown);
         self.register_layout_shutdown_without_data("SaveLoadMenuShutdown", |layout| {
             cb::save_load_menu_shutdown(layout, None)
@@ -1540,13 +1549,15 @@ fn main_menu_system(
     data2: WindowMsgData,
     effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> WindowMsgHandled {
-    if get_main_menu().system(
-        window.get_id() as u32,
-        legacy_main_menu_message(msg),
-        data1,
-        data2,
-        effects,
-    ) {
+    if effects.with_main_menu(|menu, effects| {
+        menu.system(
+            window.get_id() as u32,
+            legacy_main_menu_message(msg),
+            data1,
+            data2,
+            effects,
+        )
+    }) {
         WindowMsgHandled::Handled
     } else {
         WindowMsgHandled::Ignored
@@ -1560,13 +1571,15 @@ fn main_menu_input(
     data2: WindowMsgData,
     effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> WindowMsgHandled {
-    if get_main_menu().input(
-        window.get_id() as u32,
-        legacy_main_menu_message(msg),
-        data1,
-        data2,
-        effects,
-    ) {
+    if effects.with_main_menu(|menu, effects| {
+        menu.input(
+            window.get_id() as u32,
+            legacy_main_menu_message(msg),
+            data1,
+            data2,
+            effects,
+        )
+    }) {
         WindowMsgHandled::Handled
     } else {
         WindowMsgHandled::Ignored
@@ -1918,8 +1931,11 @@ fn options_menu_system(
     msg: WindowMessage,
     data1: WindowMsgData,
     data2: WindowMsgData,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> WindowMsgHandled {
-    menu_system(options_menu, "OptionsMenuSystem", window, msg, data1, data2)
+    with_menu(options_menu, |menu| {
+        menu.system_with_effects(window, msg, data1, data2, effects)
+    })
 }
 
 fn map_select_menu_system(

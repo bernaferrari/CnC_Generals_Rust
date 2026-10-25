@@ -144,7 +144,7 @@ pub use ini_campaign::{
 pub use ini_challenge_generals::{
     ChallengeGenerals, ChallengeGeneralsLoadError, ChallengeGeneralsLoadStatus, GeneralPersona,
     NUM_GENERALS, challenge_generals_load_status, ensure_challenge_generals_loaded,
-    get_challenge_generals, get_challenge_generals_mut, init_challenge_generals,
+    get_authored_general_by_template_name, get_challenge_generals, init_challenge_generals,
     parse_challenge_generals_definition,
 };
 pub use ini_credits::{

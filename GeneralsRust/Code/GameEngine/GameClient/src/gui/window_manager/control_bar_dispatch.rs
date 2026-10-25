@@ -61,6 +61,7 @@ impl<'a> CameraOptionsInputContext<'a> {
                     self.terrain_lod
                         .as_mut()
                         .map(|receiver| &mut **receiver as &mut dyn FnMut(i32)),
+                    effects,
                 )
             }
             Some(PendingCameraOptions::Defaults(slider)) => {
@@ -84,8 +85,9 @@ impl<'a> CameraOptionsInputContext<'a> {
                     self.preferences,
                 );
                 let window_id = window.borrow().get_id() as u32;
-                let _ = crate::gui::shell::main_menu::get_main_menu()
-                    .select_options_with_camera_input(window_id, observation, effects);
+                let _ = effects.with_main_menu(|menu, effects| {
+                    menu.select_options_with_camera_input(window_id, observation, effects)
+                });
             }
             Some(PendingCameraOptions::OpenQuit(control_id)) => {
                 if let Some(path) = self
@@ -131,6 +133,9 @@ pub struct ControlBarInputContext<'a> {
     pub cursor_mouse: Option<&'a crate::core::subsystems::MouseHandle>,
     pub window_manager_owner: Option<&'a crate::gui::window_manager::WindowManagerOwner>,
     pub campaign_manager: Option<&'a mut crate::gui::campaign_manager::CampaignManager>,
+    pub menu_world: Option<crate::gui::campaign_launch_host_bridge::MenuWorldFacts>,
+    pub menu_host: Option<&'a mut crate::gui::campaign_launch_host_bridge::MenuHostMailbox>,
+    pub main_menu: Option<&'a mut crate::gui::shell::main_menu::MainMenu>,
     pub emitted_messages: Option<&'a mut Vec<crate::message_stream::game_message::GameMessage>>,
 }
 impl ControlBarInputContext<'_> {
@@ -145,6 +150,10 @@ impl ControlBarInputContext<'_> {
                     .expect("native callback requires receiving message sink"),
                 pending_control_bar_clicks: Some(&mut self.control_bar.pending_command_clicks),
                 campaign_manager: self.campaign_manager.as_deref_mut(),
+                main_menu: self.main_menu.as_deref_mut(),
+                menu_world: self.menu_world,
+                menu_host: self.menu_host.as_deref_mut(),
+                pending_main_menu_actions: Vec::new(),
             };
             options.complete(&mut effects);
         }
@@ -213,6 +222,10 @@ impl WindowManager {
                         &mut context.control_bar.pending_command_clicks,
                     ),
                     campaign_manager: context.campaign_manager.as_deref_mut(),
+                    main_menu: context.main_menu.as_deref_mut(),
+                    menu_world: context.menu_world,
+                    menu_host: context.menu_host.as_deref_mut(),
+                    pending_main_menu_actions: Vec::new(),
                 },
             );
         let emitted_messages = effects.as_mut();

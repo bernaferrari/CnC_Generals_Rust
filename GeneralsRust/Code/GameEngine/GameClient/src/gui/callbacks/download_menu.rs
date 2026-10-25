@@ -1,5 +1,6 @@
 //! DownloadMenu.cpp callback port.
 
+use crate::gui::game_window::WindowEventEffects;
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
@@ -124,8 +125,8 @@ fn handle_download_error() {
     message_box_ok(
         &title,
         &body,
-        Some(Box::new(|_| {
-            crate::gui::shell::main_menu::get_main_menu().handle_canceled_download(true);
+        Some(Box::new(|effects| {
+            effects.with_main_menu(|menu, _| menu.handle_canceled_download(true));
             close_download_window();
         })),
     );
@@ -142,7 +143,7 @@ fn handle_download_success(should_quit: bool) {
     message_box_ok(
         &title,
         &body,
-        Some(Box::new(move |_| {
+        Some(Box::new(move |effects| {
             if should_quit {
                 if let Some(engine) = get_game_engine() {
                     let mut engine = engine.lock();
@@ -152,7 +153,7 @@ fn handle_download_success(should_quit: bool) {
                     let _ = TheGameLogic::clear_game_data();
                 }
             } else {
-                crate::gui::shell::main_menu::get_main_menu().handle_canceled_download(true);
+                effects.with_main_menu(|menu, _| menu.handle_canceled_download(true));
             }
             close_download_window();
         })),
@@ -331,6 +332,7 @@ pub fn download_menu_input(
     msg: WindowMessage,
     data1: WindowMsgData,
     data2: WindowMsgData,
+    effects: &mut WindowEventEffects<'_>,
 ) -> WindowMsgHandled {
     if msg != WindowMessage::Char {
         return WindowMsgHandled::Ignored;
@@ -342,7 +344,7 @@ pub fn download_menu_input(
         return WindowMsgHandled::Handled;
     }
 
-    crate::gui::shell::main_menu::get_main_menu().handle_canceled_download(true);
+    effects.with_main_menu(|menu, _| menu.handle_canceled_download(true));
     close_download_window();
     WindowMsgHandled::Handled
 }
@@ -352,6 +354,7 @@ pub fn download_menu_system(
     msg: WindowMessage,
     data1: WindowMsgData,
     data2: WindowMsgData,
+    effects: &mut WindowEventEffects<'_>,
 ) -> WindowMsgHandled {
     match msg {
         WindowMessage::Create | WindowMessage::Destroy => WindowMsgHandled::Handled,
@@ -360,7 +363,7 @@ pub fn download_menu_system(
             let control_id = data1 as i32;
             let state_handle = download_menu_state();
             if control_id == state_handle.borrow().button_cancel_id {
-                crate::gui::shell::main_menu::get_main_menu().handle_canceled_download(true);
+                effects.with_main_menu(|menu, _| menu.handle_canceled_download(true));
                 close_download_window();
                 return WindowMsgHandled::Handled;
             }

@@ -106,6 +106,12 @@ pub enum UIEvent {
 }
 
 /// Main UI manager that coordinates all UI systems
+#[cfg(feature = "game_client")]
+type HostWindowEventEffects<'borrow, 'receiver> =
+    Option<&'borrow mut game_client::gui::game_window::WindowEventEffects<'receiver>>;
+#[cfg(not(feature = "game_client"))]
+type HostWindowEventEffects<'borrow, 'receiver> = ();
+
 pub struct UIManager {
     /// Current UI state
     current_state: UIState,
@@ -356,6 +362,17 @@ impl UIManager {
         button: MouseButton,
         terrain_lod: Option<&mut dyn FnMut(i32)>,
     ) -> bool {
+        self.handle_mouse_click_with_terrain_lod_and_effects(x, y, button, terrain_lod, None)
+    }
+
+    pub(crate) fn handle_mouse_click_with_terrain_lod_and_effects(
+        &mut self,
+        x: i32,
+        y: i32,
+        button: MouseButton,
+        terrain_lod: Option<&mut dyn FnMut(i32)>,
+        effects: HostWindowEventEffects<'_, '_>,
+    ) -> bool {
         let ui_sound_events_before = self.queued_ui_sound_event_count();
         let handled = match self.current_screen {
             Some(Screen::Title) => {
@@ -420,10 +437,24 @@ impl UIManager {
                 }
             }
             Some(Screen::Options) => {
-                if let Some(event) =
-                    self.options_menu
-                        .handle_mouse_click_with_terrain_lod(x, y, button, terrain_lod)
-                {
+                #[cfg(feature = "game_client")]
+                let event = self
+                    .options_menu
+                    .handle_mouse_click_with_terrain_lod_and_effects(
+                        x,
+                        y,
+                        button,
+                        terrain_lod,
+                        effects,
+                    );
+                #[cfg(not(feature = "game_client"))]
+                let event = self.options_menu.handle_mouse_click_with_terrain_lod(
+                    x,
+                    y,
+                    button,
+                    terrain_lod,
+                );
+                if let Some(event) = event {
                     self.queue_event(event);
                     true
                 } else {
@@ -467,6 +498,21 @@ impl UIManager {
         key: KeyCode,
         allow_hud_input: bool,
         terrain_lod: Option<&mut dyn FnMut(i32)>,
+    ) -> bool {
+        self.handle_key_press_with_hud_input_and_terrain_lod_and_effects(
+            key,
+            allow_hud_input,
+            terrain_lod,
+            None,
+        )
+    }
+
+    pub(crate) fn handle_key_press_with_hud_input_and_terrain_lod_and_effects(
+        &mut self,
+        key: KeyCode,
+        allow_hud_input: bool,
+        terrain_lod: Option<&mut dyn FnMut(i32)>,
+        effects: HostWindowEventEffects<'_, '_>,
     ) -> bool {
         self.keys_pressed.insert(key, true);
 
@@ -539,9 +585,18 @@ impl UIManager {
             Some(Screen::LoadGame) | Some(Screen::SaveGame) => {
                 self.save_load_menu.handle_key_press(key)
             }
-            Some(Screen::Options) => self
-                .options_menu
-                .handle_key_press_with_terrain_lod(key, terrain_lod),
+            Some(Screen::Options) => {
+                #[cfg(feature = "game_client")]
+                {
+                    self.options_menu
+                        .handle_key_press_with_terrain_lod_and_effects(key, terrain_lod, effects)
+                }
+                #[cfg(not(feature = "game_client"))]
+                {
+                    self.options_menu
+                        .handle_key_press_with_terrain_lod(key, terrain_lod)
+                }
+            }
             _ => false,
         };
 

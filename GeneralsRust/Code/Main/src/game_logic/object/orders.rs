@@ -87,15 +87,6 @@ impl Object {
         self.set_target_state(None, audio);
     }
 
-    /// Remove the visible target projection while preserving the old retained
-    /// AI state for a World-owned Idle transition.
-    pub(crate) fn clear_target_for_owned_idle_entry(&mut self) {
-        self.target = None;
-        self.target_location = None;
-        self.set_status_force_attack(false);
-        self.set_status_attacking(false);
-    }
-
     pub fn set_target(
         &mut self,
         target: Option<ObjectId>,
@@ -150,7 +141,6 @@ impl Object {
         } else {
             self.target_location = None;
             self.set_status_force_attack(false);
-            self.set_ai_state(AIState::Idle, audio);
             self.set_status_attacking(false);
         }
     }
@@ -892,11 +882,10 @@ impl Object {
         }
     }
 
-    /// Compatibility state-machine call for object-local command paths that
-    /// have not yet been lifted to a World owner operation.
-    pub fn end_guard_retaliate(&mut self, audio: &mut crate::game_logic::ObjectAudio<'_>) {
-        let state = self.end_guard_retaliate_state();
-        self.set_ai_state(state, audio);
+    /// Clear GuardRetaliate payload only. Its World state-machine caller owns
+    /// the successor transition at the same update phase.
+    pub fn end_guard_retaliate(&mut self, _audio: &mut crate::game_logic::ObjectAudio<'_>) {
+        self.end_guard_retaliate_state();
     }
 
     /// Tick GuardRetaliate: drop when victim gone; return toward anchor if far.

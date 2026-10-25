@@ -659,7 +659,6 @@ impl CampaignManager {
             );
         }
         self.xfer_challenge_generals_player_template_num = state.generals_template;
-        self.load_post_process();
     }
 
     /// Xfer (save/load) method.
@@ -733,14 +732,6 @@ impl CampaignManager {
         }
 
         Ok(())
-    }
-
-    /// Post-load processing. Matches C++ CampaignManager::loadPostProcess().
-    pub fn load_post_process(&mut self) {
-        if let Some(mut generals) = crate::gui::challenge_generals::get_challenge_generals_mut() {
-            generals
-                .set_current_player_template_num(self.xfer_challenge_generals_player_template_num);
-        }
     }
 }
 

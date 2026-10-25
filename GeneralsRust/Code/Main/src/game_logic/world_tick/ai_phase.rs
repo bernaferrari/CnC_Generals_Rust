@@ -25,7 +25,7 @@ impl GameLogic {
         let object_ids: Vec<_> = self.objects.registered_keys().copied().collect();
         self.refresh_movement_goal_objects(&object_ids);
         self.reissue_pending_moves()?;
-        self.process_pathfind_queue();
+        self.process_pathfind_queue()?;
         let current_time = self.sim_time_seconds;
         crate::ai::AIManager::update_owned_with_effects(self, current_time, ui)?;
         Ok(())

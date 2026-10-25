@@ -275,10 +275,13 @@ impl CnCGameEngine {
     /// smoke keeps `quicksave`; this command drives the live Pause Save/Load
     /// controls through their real confirmation path.  The confirmed callback
     /// is then drained by Main's popup bridge into `SaveFileManager`.
-    pub(super) fn runtime_host_cmd_pause_save(&mut self, args: &HashMap<String, String>) {
+    pub(super) fn runtime_host_cmd_pause_save(
+        &mut self,
+        args: &HashMap<String, String>,
+    ) -> Result<(), String> {
         if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
             self.runtime_host_last_gameplay_cmd = "save_fail_not_ingame".into();
-            return;
+            return Ok(());
         }
         let slot = args
             .get("slot")
@@ -290,7 +293,7 @@ impl CnCGameEngine {
             .cloned()
             .unwrap_or_else(|| format!("PauseSave-{slot}"));
         if matches!(self.current_state, GameState::InGame) {
-            self.toggle_pause();
+            self.toggle_pause()?;
         }
         let mut wnd_ok = false;
         #[cfg(feature = "game_client")]
@@ -320,13 +323,13 @@ impl CnCGameEngine {
             }
             let quit_layout = ensure_live_quit_menu_layout();
             let quit_save_load = quit_layout
-                && self.game_client.with_window_event_effects(|effects| {
+                && self.with_receiving_menu_effects(|effects| {
                     drive_os_wnd_quit_menu_save_load_like_cpp(effects)
-                });
+                })?;
             let bind = ensure_live_popup_save_load_layout();
-            let save_confirm = self.game_client.with_window_event_effects(|effects| {
+            let save_confirm = self.with_receiving_menu_effects(|effects| {
                 drive_os_wnd_popup_save_load_save_and_confirm_like_cpp(effects)
-            });
+            })?;
             wnd_ok = quit_save_load && bind && save_confirm;
         }
         if !wnd_ok {
@@ -335,24 +338,29 @@ impl CnCGameEngine {
             // Layout, gadget, or confirmation rejected — fail closed rather
             // than treating a ButtonSave click as a completed snapshot.
             self.runtime_host_last_gameplay_cmd = "save_fail_wnd_missing".into();
-            return;
+            return Ok(());
         }
         self.runtime_host_last_gameplay_cmd = format!("save_pending_wnd_popup:{slot}");
+
+        Ok(())
     }
 
     /// Windowed sit-through step 8: Pause/QuitMenu → PopupSaveLoad.wnd Load.
-    pub(super) fn runtime_host_cmd_pause_load(&mut self, args: &HashMap<String, String>) {
+    pub(super) fn runtime_host_cmd_pause_load(
+        &mut self,
+        args: &HashMap<String, String>,
+    ) -> Result<(), String> {
         let slot = args
             .get("slot")
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty())
             .unwrap_or_else(|| "wnd_pause".to_string());
         if matches!(self.current_state, GameState::InGame) {
-            self.toggle_pause();
+            self.toggle_pause()?;
         }
         if !self.save_file_manager.save_exists(&slot) {
             self.runtime_host_last_gameplay_cmd = format!("load_fail_wnd_no_slot:{slot}");
-            return;
+            return Ok(());
         }
         let mut wnd_ok = false;
         #[cfg(feature = "game_client")]
@@ -373,22 +381,24 @@ impl CnCGameEngine {
             }
             let quit_layout = ensure_live_quit_menu_layout();
             let quit_save_load = quit_layout
-                && self.game_client.with_window_event_effects(|effects| {
+                && self.with_receiving_menu_effects(|effects| {
                     drive_os_wnd_quit_menu_save_load_like_cpp(effects)
-                });
+                })?;
             let bind = ensure_live_popup_save_load_layout();
-            let load_confirm = self.game_client.with_window_event_effects(|effects| {
+            let load_confirm = self.with_receiving_menu_effects(|effects| {
                 drive_os_wnd_popup_save_load_load_named_and_confirm_like_cpp(&slot, effects)
-            });
+            })?;
             // A named selection, real Load click, and real confirmation are
             // mandatory.  Preparing a layout is deliberately not success.
             wnd_ok = quit_save_load && bind && load_confirm;
         }
         if !wnd_ok {
             self.runtime_host_last_gameplay_cmd = "load_fail_wnd_missing".into();
-            return;
+            return Ok(());
         }
         self.runtime_host_last_gameplay_cmd = format!("load_pending_wnd_popup:{slot}");
+
+        Ok(())
     }
 
     pub(super) fn runtime_host_cmd_load_game(&mut self, args: &HashMap<String, String>) {
@@ -410,7 +420,10 @@ impl CnCGameEngine {
         }
     }
 
-    pub(super) fn runtime_host_cmd_replay(&mut self, args: &HashMap<String, String>) {
+    pub(super) fn runtime_host_cmd_replay(
+        &mut self,
+        args: &HashMap<String, String>,
+    ) -> Result<(), String> {
         let slot = args
             .get("slot")
             .cloned()
@@ -418,7 +431,9 @@ impl CnCGameEngine {
         warn!(
             "Runtime host replay command requested for slot '{slot}', replay startup path is not wired yet"
         );
-        self.enter_shell_screen_from_runtime_host(Some("Replay"), "Menus/ReplayMenu.wnd");
+        self.enter_shell_screen_from_runtime_host(Some("Replay"), "Menus/ReplayMenu.wnd")?;
+
+        Ok(())
     }
 
     pub(super) fn runtime_host_cmd_enqueue_production(&mut self, args: &HashMap<String, String>) {

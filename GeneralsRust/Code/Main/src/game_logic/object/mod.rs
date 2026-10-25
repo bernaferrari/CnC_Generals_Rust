@@ -3034,6 +3034,8 @@ pub enum AIState {
     JetReturningForLanding,
     JetReturnToDeadAirfield,
     JetCirclingDeadAirfield,
+    /// C++ AI_DEAD (AIUpdate.cpp:1085); entered at the next admitted AI update.
+    Dead,
 }
 
 /// C++ `SpecialAbilityUpdate::PackingState` subset for capture abilities.
@@ -3264,7 +3266,9 @@ mod update;
 pub mod visual;
 mod weapons;
 
-pub use entity_lifecycle_envelope::{decode_lifecycle_snapshot_block, encode_lifecycle_snapshot_block};
+pub use entity_lifecycle_envelope::{
+    decode_lifecycle_snapshot_block, encode_lifecycle_snapshot_block,
+};
 pub use entity_lifecycle_tags::INVENTORY_TAGS;
 pub(crate) use panic_runtime::{PanicRuntime, PanicSaveState};
 
@@ -3275,13 +3279,13 @@ pub(crate) use damage_context::{
     BodyPlayerEffect, DamageHitContext, LastDamageSourceObservation, OnDieInput,
 };
 
+pub(crate) use jets::SlowDeathStart;
 pub use jets::{
     HostJetAi, HostJetPendingResume, JET_AFTERBURNER_SOUND, JET_AFTERBURNER_SOUND_STOP,
     JET_LOCKON_TICK_SOUND, JET_RTB_PHASE_APPROACH, JET_RTB_PHASE_LANDING, JET_RTB_PHASE_TAXI,
     JET_WHEEL_SCREECH_SOUND, JET_WHEEL_SCREECH_Z_SLOP, JetAiTickAction,
     STEALTH_FIGHTER_LOCKON_CURSOR, STEALTH_FIGHTER_LOCKON_TIME_FRAMES,
 };
-pub(crate) use jets::SlowDeathStart;
 pub(crate) use stealth::DrawableTintEnvelopes;
 pub use stealth::{
     DRAWABLE_FADE_IN, DRAWABLE_FADE_NONE, DRAWABLE_FADE_OUT, DrawableTintEnvelopePersist,
@@ -3311,6 +3315,23 @@ pub(crate) mod unit_ai_runtime;
 pub use unit_ai_runtime::{BaseAiContinuation, GuardTargetType, TemporaryAiMove};
 
 impl Object {
+    pub(crate) fn mark_ai_dead(&mut self) {
+        let has_ai_update = self
+            .thing()
+            .template
+            .receiving_client_template
+            .as_ref()
+            .and_then(|template| template.receiving_ai_identity())
+            .is_some();
+        if has_ai_update {
+            self.status.effectively_dead = true;
+            self.unit_ai_runtime.mark_ai_dead();
+        }
+    }
+    pub(crate) fn ai_death_pending(&self) -> bool {
+        self.unit_ai_runtime.is_ai_dead()
+    }
+
     pub(crate) fn capture_base_ai_continuation(&self) -> BaseAiContinuation {
         self.unit_ai_runtime.capture_machine()
     }

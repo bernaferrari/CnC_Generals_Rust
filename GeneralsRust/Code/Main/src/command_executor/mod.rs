@@ -190,15 +190,15 @@ impl<'a> CommandExecutor<'a> {
             }
 
             // Combat commands
-            CommandType::Attack { target_id } => {
-                self.execute_attack(&command.selected_units, *target_id)
-            }
-            CommandType::AttackObject { target_id } => {
-                self.execute_attack_object(&command.selected_units, *target_id)
-            }
-            CommandType::ForceAttackObject { target_id } => {
-                self.execute_force_attack(&command.selected_units, *target_id)
-            }
+            CommandType::Attack { target_id } => self
+                .execute_attack(&command.selected_units, *target_id)
+                .map_err(|error| error.to_string())?,
+            CommandType::AttackObject { target_id } => self
+                .execute_attack_object(&command.selected_units, *target_id)
+                .map_err(|error| error.to_string())?,
+            CommandType::ForceAttackObject { target_id } => self
+                .execute_force_attack(&command.selected_units, *target_id)
+                .map_err(|error| error.to_string())?,
             CommandType::ForceAttackGround { location } => {
                 self.execute_attack_ground(&command.selected_units, Some(*location), -1)
             }
@@ -418,12 +418,14 @@ impl<'a> CommandExecutor<'a> {
                 center,
                 radius,
                 polygon_name,
-            } => self.execute_attack_area(
-                &command.selected_units,
-                *center,
-                *radius,
-                polygon_name.as_deref(),
-            ),
+            } => self
+                .execute_attack_area(
+                    &command.selected_units,
+                    *center,
+                    *radius,
+                    polygon_name.as_deref(),
+                )
+                .map_err(|error| error.to_string())?,
             CommandType::Dock { target_id } => self
                 .execute_dock(&command.selected_units, *target_id)
                 .map_err(|error| error.to_string())?,

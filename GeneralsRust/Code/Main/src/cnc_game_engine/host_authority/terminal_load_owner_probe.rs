@@ -401,7 +401,7 @@ pub(crate) fn run() -> anyhow::Result<()> {
     verify(&engine);
     for score in [false, true] {
         engine.current_state = GameState::InGame;
-        assert!(!engine.clear_receiving_game_data(score));
+        assert!(engine.clear_receiving_game_data(score).is_err());
         verify(&engine);
     }
     // Direct reset wrappers must return typed rejection before any callbacks.

@@ -289,7 +289,9 @@ fn recrew_enter_ignores_the_empty_vehicle() {
 
 #[test]
 fn water_cell_set_change_falls_back_to_ground_not_the_previous_member() {
-    use crate::game_logic::host_upgrade_module_residuals::{AuthoredLocomotorSet, HostLocomotorSetKind};
+    use crate::game_logic::host_upgrade_module_residuals::{
+        AuthoredLocomotorSet, HostLocomotorSetKind,
+    };
     use crate::game_logic::object::LOCO_SURFACE_CLIFF;
     use crate::game_logic::{KindOf, Player, ThingTemplate};
     use gamelogic::ai::pathfind_astar::PathfindCellType;
@@ -344,7 +346,9 @@ fn water_cell_set_change_falls_back_to_ground_not_the_previous_member() {
 
 #[test]
 fn missing_bridge_layer_uses_the_ground_cell_not_clear() {
-    use crate::game_logic::host_upgrade_module_residuals::{AuthoredLocomotorSet, HostLocomotorSetKind};
+    use crate::game_logic::host_upgrade_module_residuals::{
+        AuthoredLocomotorSet, HostLocomotorSetKind,
+    };
     use crate::game_logic::{KindOf, Player, ThingTemplate};
     use gamelogic::ai::pathfind_astar::PathfindCellType;
 
@@ -384,7 +388,9 @@ fn missing_bridge_layer_uses_the_ground_cell_not_clear() {
 
 #[test]
 fn bridge_deck_locomotor_ignores_the_water_underneath() {
-    use crate::game_logic::host_upgrade_module_residuals::{AuthoredLocomotorSet, HostLocomotorSetKind};
+    use crate::game_logic::host_upgrade_module_residuals::{
+        AuthoredLocomotorSet, HostLocomotorSetKind,
+    };
     use crate::game_logic::{KindOf, Player, ThingTemplate};
     use gamelogic::ai::pathfind_astar::PathfindCellType;
 
@@ -1241,7 +1247,9 @@ fn nuke_cannon_primary_residual_area_and_radiation() {
     use crate::game_logic::host_nuke_cannon::{
         NUKE_CANNON_PRIMARY_DAMAGE, NUKE_CANNON_PRIMARY_RADIUS, is_nuke_cannon_template,
     };
-    use crate::game_logic::weapon_bootstrap::{NUKE_CANNON_PRIMARY_WEAPON, ensure_host_weapon_store};
+    use crate::game_logic::weapon_bootstrap::{
+        NUKE_CANNON_PRIMARY_WEAPON, ensure_host_weapon_store,
+    };
 
     ensure_host_weapon_store();
 
@@ -2093,8 +2101,12 @@ fn deploy_style_sentry_must_unpack_before_fire_and_pack_before_move() {
 
 #[test]
 fn deploy_style_plays_authored_deploy_and_undeploy_sounds() {
-    use crate::game_logic::audio_dispatch_impl::{clear_test_template_voices, set_test_per_unit_sound};
-    use crate::game_logic::host_deploy_style::{DEPLOY_STYLE_DEPLOY_AUDIO, DEPLOY_STYLE_UNDEPLOY_AUDIO};
+    use crate::game_logic::audio_dispatch_impl::{
+        clear_test_template_voices, set_test_per_unit_sound,
+    };
+    use crate::game_logic::host_deploy_style::{
+        DEPLOY_STYLE_DEPLOY_AUDIO, DEPLOY_STYLE_UNDEPLOY_AUDIO,
+    };
 
     clear_test_template_voices();
     set_test_per_unit_sound(
@@ -2176,7 +2188,9 @@ fn deploy_style_plays_authored_deploy_and_undeploy_sounds() {
 #[test]
 fn deploy_style_missing_unit_sound_stays_silent() {
     use crate::game_logic::audio_dispatch_impl::clear_test_template_voices;
-    use crate::game_logic::host_deploy_style::{DEPLOY_STYLE_DEPLOY_AUDIO, DEPLOY_STYLE_UNDEPLOY_AUDIO};
+    use crate::game_logic::host_deploy_style::{
+        DEPLOY_STYLE_DEPLOY_AUDIO, DEPLOY_STYLE_UNDEPLOY_AUDIO,
+    };
 
     clear_test_template_voices();
     let mut game_logic = GameLogic::new();
@@ -2294,7 +2308,11 @@ fn deploy_style_nuke_launcher_normal_attack_waits_for_range_and_unpack() {
 
     // A normal player AttackObject remains accepted and approaches; it must
     // not begin the DeployStyle timer merely because the target is distant.
-    assert!(logic.unit_command_attack(launcher_id, target_id));
+    assert!(
+        logic
+            .unit_command_attack(launcher_id, target_id)
+            .expect("valid attack command fixture")
+    );
     tick_through_frame(&mut logic, &mut last_ticked_frame, 1);
     let launcher_after_oor = logic.host_object(launcher_id).unwrap();
     assert_eq!(launcher_after_oor.target, Some(target_id));
@@ -2835,7 +2853,9 @@ fn jet_airfield_rearm_waits_clip_reload_frames() {
 
 #[test]
 fn empty_jet_circles_last_airfield_instead_of_bleeding_in_place() {
-    use crate::game_logic::audio_dispatch_impl::{clear_test_template_voices, set_test_per_unit_sound};
+    use crate::game_logic::audio_dispatch_impl::{
+        clear_test_template_voices, set_test_per_unit_sound,
+    };
     use crate::game_logic::{KindOf, ParkingPlaceMetadata, Team, ThingTemplate, Weapon};
     use glam::Vec3;
 
@@ -2996,7 +3016,11 @@ fn command_button_hunt_hijack_issues_nearest_enemy_vehicle() {
         .expect("far");
     let _ = far;
 
-    assert!(logic.start_command_button_hunt(hijacker, HostCommandButtonHuntMode::HijackVehicle));
+    assert!(
+        logic
+            .start_command_button_hunt(hijacker, HostCommandButtonHuntMode::HijackVehicle)
+            .unwrap()
+    );
     logic.frame = 0;
     logic.tick_command_button_hunt_updates();
 
@@ -3040,6 +3064,7 @@ fn command_button_hunt_named_arms_capture_and_flashbang() {
     assert!(
         logic
             .start_command_button_hunt_named(ranger, Some("Command_AmericaRangerFlashBangGrenade"))
+            .unwrap()
     );
     {
         let r = logic.host_object(ranger).unwrap();
@@ -3071,7 +3096,9 @@ fn command_button_hunt_named_arms_capture_and_flashbang() {
         );
     }
     assert!(
-        logic.start_command_button_hunt_named(lotus, Some("Command_CaptureBuilding")),
+        logic
+            .start_command_button_hunt_named(lotus, Some("Command_CaptureBuilding"))
+            .unwrap(),
         "capture hunt must arm"
     );
 }
@@ -3103,6 +3130,7 @@ fn fire_weapon_command_button_hunt_rearms_lock_every_frame() {
     assert!(
         logic
             .start_command_button_hunt_named(ranger, Some("Command_AmericaRangerFlashBangGrenade"))
+            .unwrap()
     );
     logic.frame = 0;
     logic.tick_command_button_hunt_updates();
@@ -3140,7 +3168,9 @@ fn fire_weapon_command_button_hunt_rearms_lock_every_frame() {
 #[test]
 fn command_button_hunt_quits_after_player_move() {
     use crate::game_logic::Team;
-    use crate::game_logic::host_command_button_hunt::{HUNT_CMD_FROM_PLAYER, HostCommandButtonHuntMode};
+    use crate::game_logic::host_command_button_hunt::{
+        HUNT_CMD_FROM_PLAYER, HostCommandButtonHuntMode,
+    };
     use glam::Vec3;
 
     let mut logic = GameLogic::new();
@@ -3160,7 +3190,11 @@ fn command_button_hunt_quits_after_player_move() {
     let _tank = logic
         .create_object("TestTank", Team::USA, Vec3::new(40.0, 0.0, 0.0))
         .expect("tank");
-    assert!(logic.start_command_button_hunt(hijacker, HostCommandButtonHuntMode::HijackVehicle));
+    assert!(
+        logic
+            .start_command_button_hunt(hijacker, HostCommandButtonHuntMode::HijackVehicle)
+            .unwrap()
+    );
     assert!(logic.unit_command_move_to(hijacker, Vec3::new(10.0, 0.0, 0.0)));
     assert_eq!(
         logic.host_object(hijacker).unwrap().last_command_source,
@@ -3249,7 +3283,11 @@ fn command_button_hunt_enter_skips_stealth_ally_and_drone() {
         .expect("legal");
     logic.host_object_mut(legal).unwrap().owner_player_id = Some(2);
 
-    assert!(logic.start_command_button_hunt(usa_hunter, HostCommandButtonHuntMode::HijackVehicle));
+    assert!(
+        logic
+            .start_command_button_hunt(usa_hunter, HostCommandButtonHuntMode::HijackVehicle)
+            .unwrap()
+    );
     logic.frame = 0;
     logic.tick_command_button_hunt_updates();
     match logic.pending_special_abilities.get(&usa_hunter) {
@@ -3306,7 +3344,11 @@ fn command_button_hunt_special_skips_ally_mine_and_uses_priority() {
         .create_object("TestBuilding", Team::GLA, Vec3::new(90.0, 0.0, 0.0))
         .expect("enemy bldg");
     logic.host_object_mut(enemy_b).unwrap().owner_player_id = Some(2);
-    assert!(logic.start_command_button_hunt_named(lotus, Some("Command_CaptureBuilding")));
+    assert!(
+        logic
+            .start_command_button_hunt_named(lotus, Some("Command_CaptureBuilding"))
+            .unwrap()
+    );
     logic.frame = 0;
     logic.tick_command_button_hunt_updates();
     let lotus_obj = logic.host_object(lotus).unwrap();
@@ -3342,7 +3384,11 @@ fn command_button_hunt_special_skips_ally_mine_and_uses_priority() {
         .create_object("TestTank", Team::GLA, Vec3::new(-80.0, 0.0, 0.0))
         .expect("clean");
     logic.host_object_mut(clean).unwrap().owner_player_id = Some(2);
-    assert!(logic.start_command_button_hunt_named(hunter, Some("Command_ChinaTankHunterTNT")));
+    assert!(
+        logic
+            .start_command_button_hunt_named(hunter, Some("Command_ChinaTankHunterTNT"))
+            .unwrap()
+    );
     logic.frame = 0;
     logic.tick_command_button_hunt_updates();
     match logic.pending_special_abilities.get(&hunter) {
@@ -3380,7 +3426,11 @@ fn command_button_hunt_special_skips_ally_mine_and_uses_priority() {
         .create_object("TestDozer", Team::GLA, Vec3::new(220.0, 0.0, 0.0))
         .expect("far dozer");
     logic.host_object_mut(far_dozer).unwrap().owner_player_id = Some(2);
-    assert!(logic.start_command_button_hunt_named(prio_hunter, Some("Command_ChinaTankHunterTNT")));
+    assert!(
+        logic
+            .start_command_button_hunt_named(prio_hunter, Some("Command_ChinaTankHunterTNT"))
+            .unwrap()
+    );
     logic.frame = 0;
     logic.tick_command_button_hunt_updates();
     match logic.pending_special_abilities.get(&prio_hunter) {
@@ -3484,7 +3534,11 @@ fn command_button_hunt_tnt_and_booby_reject_neutral() {
         .expect("enemy");
     logic.host_object_mut(enemy).unwrap().owner_player_id = Some(1);
 
-    assert!(logic.start_command_button_hunt_named(hunter, Some("Command_ChinaTankHunterTNT")));
+    assert!(
+        logic
+            .start_command_button_hunt_named(hunter, Some("Command_ChinaTankHunterTNT"))
+            .unwrap()
+    );
     logic.frame = 0;
     logic.tick_command_button_hunt_updates();
     match logic.pending_special_abilities.get(&hunter) {
@@ -3506,7 +3560,11 @@ fn command_button_hunt_tnt_and_booby_reject_neutral() {
         );
         h.target = None;
     }
-    assert!(logic.start_command_button_hunt_named(hunter, Some("Command_BoobyTrapBuilding")));
+    assert!(
+        logic
+            .start_command_button_hunt_named(hunter, Some("Command_BoobyTrapBuilding"))
+            .unwrap()
+    );
     logic.frame = 0;
     logic.tick_command_button_hunt_updates();
     match logic.pending_special_abilities.get(&hunter) {

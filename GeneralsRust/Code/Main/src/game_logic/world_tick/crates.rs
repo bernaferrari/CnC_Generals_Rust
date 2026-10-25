@@ -186,26 +186,45 @@ impl GameLogic {
         self.usa_pilot.record_air_ejection();
     }
 
-    /// C++ CommandButtonHuntUpdate::setCommandButton residual (scripts/AI).
+    /// C++ CommandButtonHuntUpdate::setCommandButton: store the selected
+    /// button, then synchronously enter the installed AI provider's aiIdle.
     pub fn start_command_button_hunt(
         &mut self,
         unit_id: ObjectId,
         mode: crate::game_logic::host_command_button_hunt::HostCommandButtonHuntMode,
-    ) -> bool {
+    ) -> gamelogic::GameLogicResult<bool> {
+        self.start_command_button_hunt_with_effects(unit_id, mode, None, &mut Default::default())
+    }
+
+    pub(crate) fn start_command_button_hunt_with_effects(
+        &mut self,
+        unit_id: ObjectId,
+        mode: crate::game_logic::host_command_button_hunt::HostCommandButtonHuntMode,
+        button: Option<&str>,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<bool> {
         let frame = self.frame;
         let Some(unit) = self.objects.get_mut(&unit_id) else {
-            return false;
+            return Ok(false);
         };
         if !unit.is_alive() {
-            return false;
+            return Ok(false);
         }
-        unit.start_command_button_hunt(
-            mode,
-            frame,
-            &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
-        );
+        unit.arm_command_button_hunt(mode, frame);
+        if let Some(button) = button {
+            if let Some(hunt) = unit.command_button_hunt.as_mut() {
+                hunt.button_name = button.to_string();
+                hunt.weapon_slot =
+                    crate::game_logic::host_command_button_hunt::weapon_slot_from_button_name(
+                        button,
+                    );
+            }
+        }
+        // C++ returns early when there is no AIUpdateInterface. Its behavior
+        // component retains the selected button, but no AI command is issued.
+        let _entered = self.unit_command_ai_idle_owned_with_effects(unit_id, effects)?;
         self.command_button_hunt_reg.record_start();
-        true
+        Ok(true)
     }
 
     /// Arm CommandButtonHuntUpdate from a scripted button name (or unit template).
@@ -213,15 +232,24 @@ impl GameLogic {
         &mut self,
         unit_id: ObjectId,
         button: Option<&str>,
-    ) -> bool {
+    ) -> gamelogic::GameLogicResult<bool> {
+        self.start_command_button_hunt_named_with_effects(unit_id, button, &mut Default::default())
+    }
+
+    pub(crate) fn start_command_button_hunt_named_with_effects(
+        &mut self,
+        unit_id: ObjectId,
+        button: Option<&str>,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<bool> {
         use crate::game_logic::host_command_button_hunt::{
-            hunt_mode_from_button_name, hunt_mode_from_template, weapon_slot_from_button_name,
+            hunt_mode_from_button_name, hunt_mode_from_template,
         };
         let Some(unit) = self.objects.get(&unit_id) else {
-            return false;
+            return Ok(false);
         };
         if !unit.is_alive() {
-            return false;
+            return Ok(false);
         }
         // C++ doTeamHuntWithCommandButton has no template-name fallback.
         // Named button: leftover hunt_mode_from_button_name only; miss is a no-op.
@@ -230,22 +258,9 @@ impl GameLogic {
             None => hunt_mode_from_template(&unit.template_name),
         };
         let Some(mode) = mode else {
-            return false;
+            return Ok(false);
         };
-        if !self.start_command_button_hunt(unit_id, mode) {
-            return false;
-        }
-        if let Some(btn) = button {
-            if let Some(h) = self
-                .objects
-                .get_mut(&unit_id)
-                .and_then(|o| o.command_button_hunt.as_mut())
-            {
-                h.button_name = btn.to_string();
-                h.weapon_slot = weapon_slot_from_button_name(btn);
-            }
-        }
-        true
+        self.start_command_button_hunt_with_effects(unit_id, mode, button, effects)
     }
 
     /// C++ leftover `get_ai_update_interface().is_some()`.
@@ -2487,11 +2502,7 @@ mod hq_tb5nn_tests {
             can_target_ground: true,
             ..Weapon::default()
         });
-        ranger.start_command_button_hunt(
-            HostCommandButtonHuntMode::FireWeapon,
-            0,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
-        );
+        ranger.arm_command_button_hunt(HostCommandButtonHuntMode::FireWeapon, 0);
         if let Some(h) = ranger.command_button_hunt.as_mut() {
             h.weapon_slot = 1;
         }

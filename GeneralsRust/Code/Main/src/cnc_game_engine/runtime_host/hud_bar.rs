@@ -73,13 +73,16 @@ impl CnCGameEngine {
         };
     }
 
-    pub(super) fn runtime_host_cmd_toggle_in_game_chat(&mut self, _args: &HashMap<String, String>) {
+    pub(super) fn runtime_host_cmd_toggle_in_game_chat(
+        &mut self,
+        _args: &HashMap<String, String>,
+    ) -> Result<(), String> {
         let mut wnd_ok = false;
         #[cfg(feature = "game_client")]
         {
-            wnd_ok = self.game_client.with_window_event_effects(|effects| {
+            wnd_ok = self.with_receiving_menu_effects(|effects| {
                 game_client::gui::callbacks::drive_os_wnd_in_game_chat_toggle_like_cpp(effects)
-            });
+            })?;
             if !wnd_ok {
                 wnd_ok = game_client::gui::callbacks::simulate_in_game_chat_toggle();
             }
@@ -89,9 +92,14 @@ impl CnCGameEngine {
         } else {
             "toggle_in_game_chat_miss".into()
         };
+
+        Ok(())
     }
 
-    pub(super) fn runtime_host_cmd_click_in_game_chat(&mut self, args: &HashMap<String, String>) {
+    pub(super) fn runtime_host_cmd_click_in_game_chat(
+        &mut self,
+        args: &HashMap<String, String>,
+    ) -> Result<(), String> {
         let action = args
             .get("action")
             .map(|v| v.trim().to_ascii_lowercase())
@@ -118,31 +126,31 @@ impl CnCGameEngine {
             };
             wnd_ok = match action.as_str() {
                 "show" => {
-                    self.game_client.with_window_event_effects(|effects| {
+                    self.with_receiving_menu_effects(|effects| {
                         drive_os_wnd_in_game_chat_show_like_cpp(effects)
-                    }) || simulate_in_game_chat_show()
+                    })? || simulate_in_game_chat_show()
                 }
                 "hide" => {
-                    self.game_client.with_window_event_effects(|effects| {
+                    self.with_receiving_menu_effects(|effects| {
                         drive_os_wnd_in_game_chat_hide_like_cpp(effects)
-                    }) || simulate_in_game_chat_hide()
+                    })? || simulate_in_game_chat_hide()
                 }
                 "clear" => {
-                    self.game_client.with_window_event_effects(|effects| {
+                    self.with_receiving_menu_effects(|effects| {
                         drive_os_wnd_in_game_chat_clear_like_cpp(effects)
-                    }) || simulate_in_game_chat_clear_button_gadget_selected()
+                    })? || simulate_in_game_chat_clear_button_gadget_selected()
                 }
                 "type" => simulate_in_game_chat_set_type(chat_type),
                 "reset" => simulate_in_game_chat_reset(),
                 "prepare_submit" => {
-                    self.game_client.with_window_event_effects(|effects| {
+                    self.with_receiving_menu_effects(|effects| {
                         drive_os_wnd_in_game_chat_prepare_submit_like_cpp(&message, effects)
-                    }) || simulate_in_game_chat_prepare_submit(&message)
+                    })? || simulate_in_game_chat_prepare_submit(&message)
                 }
                 _ => {
-                    self.game_client.with_window_event_effects(|effects| {
+                    self.with_receiving_menu_effects(|effects| {
                         drive_os_wnd_in_game_chat_submit_like_cpp(&message, effects)
-                    }) || simulate_in_game_chat_submit(&message)
+                    })? || simulate_in_game_chat_submit(&message)
                 }
             };
         }
@@ -151,6 +159,8 @@ impl CnCGameEngine {
         } else {
             "click_in_game_chat_miss".into()
         };
+
+        Ok(())
     }
 
     pub(super) fn runtime_host_cmd_click_idle_worker(&mut self, args: &HashMap<String, String>) {

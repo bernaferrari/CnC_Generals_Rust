@@ -125,7 +125,7 @@ type ApplicationInitFuture = Pin<
 #[derive(Default)]
 struct ApplicationRunState {
     engine_init_future: Option<ApplicationInitFuture>,
-    engine: Option<CnCGameEngine>,
+    engine: Option<Box<CnCGameEngine>>,
     services: Option<crate::subsystem_manager::ApplicationServices>,
 }
 
@@ -200,27 +200,34 @@ pub async fn run_cnc_game(
     #[cfg(feature = "integration-diagnostics")]
     let runtime_handle = tokio::runtime::Handle::current();
 
+    // Winit's callback cannot return the application's error. Keep only the
+    // terminal outcome here, stop dispatch immediately on failure, then return
+    // it to GameMain after native teardown. No frame can consume a pending error.
+    let mut native_outcome: std::result::Result<(), String> = Ok(());
     #[allow(deprecated)]
-    event_loop.run(move |event, elwt| {
+    let loop_result = event_loop.run(|event, elwt| {
         let exiting = matches!(&event, Event::LoopExiting);
-        {
+        if native_outcome.is_err() && !exiting {
+            return;
+        }
+        let callback_result = {
         let ApplicationRunState { engine_init_future, engine, services } = &mut application;
         let window_manager_owner = engine
             .as_ref()
             .map(|engine| engine.game_client.window_manager_owner());
-        let mut event_callback = || {
+        let mut event_callback = || -> std::result::Result<(), String> {
         elwt.set_control_flow(control_flow_wait_until(next_redraw_at));
         let mut drive_frame = |
             engine: &mut CnCGameEngine,
             current_window: &Arc<Window>,
             runtime_host_bridge: &mut Option<RuntimeHostBridge>,
             render_frame: bool,
-        | {
+        | -> std::result::Result<(), String> {
             if let Some(bridge) = runtime_host_bridge.as_mut() {
                 let mut applied = 0u32;
                 for command in bridge.drain_commands() {
                     let cmd_label = command.clone();
-                    engine.apply_runtime_host_command(&command);
+                    engine.apply_runtime_host_command(&command)?;
                     applied = applied.saturating_add(1);
                     log::info!("runtime_host command applied: {cmd_label}");
                     // Publish after *each* command so menu_click + match_started
@@ -318,9 +325,9 @@ pub async fn run_cnc_game(
                         integration_bridge = None;
                     }
                 }
-                engine.update_with_timing(&timing);
+                engine.update_with_timing(&timing)?;
             } else {
-                engine.update_with_frame_clock();
+                engine.update_with_frame_clock()?;
             }
 
             let update_elapsed = update_started.elapsed();
@@ -439,30 +446,27 @@ pub async fn run_cnc_game(
                 engine.is_state_change_pending(GameState::Exiting),
             ) {
                 info!("Smoke test reached main menu; exiting successfully");
-                engine.transition_to_state(GameState::Exiting);
+                engine.transition_to_state(GameState::Exiting)?;
                 elwt.exit();
-                return;
+                return Ok(());
             }
 
             if let Some(bridge) = runtime_host_bridge.as_mut() {
                 let snapshot = engine.runtime_host_status_snapshot();
                 bridge.publish_runtime(&snapshot);
             }
+            Ok(())
         };
 
         if matches!(event, Event::Resumed) && engine.is_none() {
             let Some(attributes) = pending_window_attributes.take() else {
-                error!("Missing window attributes during startup resume");
-                elwt.exit();
-                return;
+                return Err("Missing window attributes during startup resume".to_owned());
             };
 
             let created_window = match elwt.create_window(attributes) {
                 Ok(window) => Arc::new(window),
                 Err(err) => {
-                    error!("Failed to create window: {err}");
-                    elwt.exit();
-                    return;
+                    return Err(format!("Failed to create window: {err}"));
                 }
             };
 
@@ -495,7 +499,7 @@ pub async fn run_cnc_game(
             startup_focus = Some(StartupWindowFocus::new(created_window.id()));
             window = Some(created_window.clone());
             pending_engine_window = Some(created_window);
-            return;
+            return Ok(());
         }
 
         if engine.is_none() {
@@ -510,7 +514,7 @@ pub async fn run_cnc_game(
                         {
                             info!("Close requested before engine startup completed");
                             elwt.exit();
-                            return;
+                            return Ok(());
                         }
                     }
                 }
@@ -528,7 +532,7 @@ pub async fn run_cnc_game(
                             if command.trim().eq_ignore_ascii_case("exit") {
                                 info!("Runtime host received exit command during startup");
                                 elwt.exit();
-                                return;
+                                return Ok(());
                             }
                         }
                     }
@@ -609,14 +613,14 @@ pub async fn run_cnc_game(
                                 *engine_init_future = None;
                                 engine_init_started_at = None;
                                 engine_init_last_log_at = None;
-                                let mut new_engine = new_engine;
+                                let mut new_engine = Box::new(new_engine);
+                                new_engine.game_client.republish_live_slot_after_engine_move();
                                 if let Some(event) = startup_focus
                                     .as_mut()
                                     .and_then(StartupWindowFocus::take_event)
                                 {
-                                    if let Err(err) = new_engine.process_platform_event(&event) {
-                                        error!("Failed to apply startup window focus: {err}");
-                                    }
+                                    new_engine.process_platform_event(&event)
+                                        .map_err(|err| format!("Failed to apply startup window focus: {err}"))?;
                                 }
                                 startup_focus = None;
                                 if let Some(bridge) = runtime_host_bridge.as_mut() {
@@ -625,17 +629,6 @@ pub async fn run_cnc_game(
                                 }
                                 *services = Some(application_services);
                                 *engine = Some(new_engine);
-                                // The engine was constructed inside the boxed
-                                // boot future; the live-snapshot slot still
-                                // holds the pre-move raw address (freed heap
-                                // once the box drops). Re-point it at the
-                                // final home BEFORE any frame can run —
-                                // otherwise the first
-                                // `with_live_game_client_mut` (InGame
-                                // particle FX pose resolve) faults.
-                                if let Some(placed) = engine.as_mut() {
-                                    placed.game_client.republish_live_slot_after_engine_move();
-                                }
                                 #[cfg(feature = "integration-diagnostics")]
                                 if cmd_args.wants_integration_diagnostics() {
                                     match pollster::block_on(IntegrationTelemetryBridge::new(
@@ -654,9 +647,8 @@ pub async fn run_cnc_game(
                                 }
                             }
                             Poll::Ready(Err(err)) => {
-                                error!("Failed to initialize C&C game engine: {err}");
                                 *engine_init_future = None;
-                                elwt.exit();
+                                return Err(format!("Failed to initialize C&C game engine: {err}"));
                             }
                             Poll::Pending => {
                                 if let Some(started_at) = engine_init_started_at {
@@ -682,14 +674,14 @@ pub async fn run_cnc_game(
                 }
                 _ => {}
             }
-            return;
+            return Ok(());
         }
 
         let Some(current_window) = window.as_ref() else {
-            return;
+            return Ok(());
         };
         let Some(engine) = engine.as_mut() else {
-            return;
+            return Ok(());
         };
 
         if engine.is_quitting() {
@@ -702,18 +694,16 @@ pub async fn run_cnc_game(
                 bridge.publish_runtime(&snapshot);
             }
             elwt.exit();
-            return;
+            return Ok(());
         }
 
         match engine.process_platform_event(&event) {
             Ok(handled) => {
                 if handled {
-                    return;
+                    return Ok(());
                 }
             }
-            Err(e) => {
-                error!("Platform message handling error: {}", e);
-            }
+            Err(error) => return Err(format!("Platform message handling failed: {error}")),
         }
 
         if engine.is_quit_requested() {
@@ -721,7 +711,7 @@ pub async fn run_cnc_game(
                 info!("Platform requested quit");
                 engine.request_state_change(GameState::Exiting);
             }
-            return;
+            return Ok(());
         }
 
         match event {
@@ -729,7 +719,7 @@ pub async fn run_cnc_game(
                 ref event,
                 window_id,
             } if window_id == current_window.id() => {
-                if !engine.input(event) {
+                if !engine.input(event)? {
                     match event {
                         WindowEvent::CloseRequested => {
                             info!("Close requested by window");
@@ -807,7 +797,7 @@ pub async fn run_cnc_game(
                                         current_window,
                                         &mut runtime_host_bridge,
                                         present_due,
-                                    );
+                                    )?;
                                     if present_due {
                                         next_headless_present_at =
                                             Instant::now() + HEADLESS_PRESENT_INTERVAL;
@@ -825,7 +815,7 @@ pub async fn run_cnc_game(
                                         current_window,
                                         &mut runtime_host_bridge,
                                         false,
-                                    );
+                                    )?;
                                 }
                             } else {
                                 let now = Instant::now();
@@ -836,7 +826,7 @@ pub async fn run_cnc_game(
                                         current_window,
                                         &mut runtime_host_bridge,
                                         true,
-                                    );
+                                    )?;
                                     next_redraw_at = execute_wait_deadline(
                                         prev_time,
                                         engine.live_present_interval(),
@@ -859,7 +849,7 @@ pub async fn run_cnc_game(
                 log::info!("DeviceEvent::Button button={button} state={state:?}");
                 if let Some((x, y)) = macos_cursor_client_if_in_window(current_window) {
                     let scale = current_window.scale_factor().max(0.0001) as f32;
-                    engine.apply_cursor_position(x * scale, y * scale);
+                    engine.apply_cursor_position(x * scale, y * scale)?;
                     log::info!("DeviceEvent in-window client=({x:.0},{y:.0})");
                     #[cfg(feature = "game_client")]
                     let receiving_window_manager = engine.game_client.window_manager_owner();
@@ -874,7 +864,7 @@ pub async fn run_cnc_game(
                         if matches!(state, winit::event::ElementState::Pressed)
                             && name.contains("SkirmishGameOptionsMenu.wnd:ButtonStart")
                         {
-                            let ok = engine.game_client.with_window_event_effects(|effects| game_client::gui::simulate_skirmish_start_button_gadget_selected(effects));
+                            let ok = engine.with_receiving_menu_effects(|effects| game_client::gui::simulate_skirmish_start_button_gadget_selected(effects))?;
                             log::info!("physical Skirmish Start GBM residual ok={ok}");
                             if ok {
                                 if let Some(request) = engine.take_pending_new_game_start_request() {
@@ -907,7 +897,7 @@ pub async fn run_cnc_game(
                             btn,
                             pressed,
                             super::input::MouseInputOrigin::Physical,
-                        );
+                        )?;
                     }
                 }
             }
@@ -930,17 +920,17 @@ pub async fn run_cnc_game(
                             current_window,
                             &mut runtime_host_bridge,
                             present_due,
-                        );
+                        )?;
                         if present_due {
                             next_headless_present_at = Instant::now() + HEADLESS_PRESENT_INTERVAL;
                         }
                         next_redraw_at = Instant::now() + HEADLESS_LOGIC_INTERVAL;
                         current_window.request_redraw();
                     } else if cmd_args.wants_smoke_test() {
-                        drive_frame(engine, current_window, &mut runtime_host_bridge, false);
+                        drive_frame(engine, current_window, &mut runtime_host_bridge, false)?;
                         if engine.is_quitting() {
                             elwt.exit();
-                            return;
+                            return Ok(());
                         }
                         next_redraw_at = now + STARTUP_POLL_INTERVAL;
                     } else if runtime_window_suspended {
@@ -948,7 +938,7 @@ pub async fn run_cnc_game(
                             // Prefer presentation game_mode residual when installed.
                             engine.presentation_or_live_game_mode(),
                         ) {
-                            drive_frame(engine, current_window, &mut runtime_host_bridge, false);
+                            drive_frame(engine, current_window, &mut runtime_host_bridge, false)?;
                         }
                         next_redraw_at = now + MINIMIZED_POLL_INTERVAL;
                     } else {
@@ -958,7 +948,7 @@ pub async fn run_cnc_game(
                         // C++ GameEngine::execute (GameEngine.cpp:856-866):
                         // (now - prevTime) includes the just-finished update()+draw.
                         let prev_time = Instant::now();
-                        drive_frame(engine, current_window, &mut runtime_host_bridge, true);
+                        drive_frame(engine, current_window, &mut runtime_host_bridge, true)?;
                         current_window.request_redraw();
                         next_redraw_at =
                             execute_wait_deadline(prev_time, engine.live_present_interval());
@@ -984,19 +974,29 @@ pub async fn run_cnc_game(
             }
             _ => {}
         }
+        Ok(())
         };
         if let Some(owner) = window_manager_owner {
-            owner.with_scope(event_callback);
+            owner.with_scope(event_callback)
         } else {
-            event_callback();
+            event_callback()
         }
-        }
+        };
         // Release all callback and native-window owner loans before teardown.
         if exiting {
             application.shutdown();
         }
-    })?;
-
+        if let Err(error) = callback_result {
+            if native_outcome.is_ok() {
+                error!("Native event operation failed: {error}");
+                native_outcome = Err(error);
+            }
+            elwt.exit();
+        }
+    });
+    application.shutdown();
+    loop_result?;
+    native_outcome.map_err(anyhow::Error::msg)?;
     info!("C&C Game ended successfully");
     Ok(())
 }

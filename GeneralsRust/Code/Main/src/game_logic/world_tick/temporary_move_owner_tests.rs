@@ -115,7 +115,11 @@ fn actual_ai_diversion_retains_base_body_through_strict_deadline_and_peer_reset(
 #[test]
 fn actual_attack_diversion_restores_absent_physical_goals() {
     let (mut world, id, enemy) = world();
-    assert!(world.unit_command_attack(id, enemy));
+    assert!(
+        world
+            .unit_command_attack(id, enemy)
+            .expect("valid attack command fixture")
+    );
     let saved = world
         .host_object(id)
         .map(|a| (a.requested_destination, a.path_goal_position))

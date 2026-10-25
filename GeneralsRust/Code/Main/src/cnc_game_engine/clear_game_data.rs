@@ -7,14 +7,16 @@ impl CnCGameEngine {
     /// Clear the receiving live game before Recorder opens the requested file.
     /// Ordinary playback passes true; Restart passes false before calling playback.
     /// The caller owns its later menu transition / NEW_GAME source phase.
-    pub(super) fn clear_receiving_game_data(&mut self, show_score_screen: bool) -> bool {
-        if self.require_native_world_boundary("ClearGameData").is_err() {
-            return false;
-        }
+    pub(super) fn clear_receiving_game_data(
+        &mut self,
+        show_score_screen: bool,
+    ) -> Result<bool, String> {
+        self.require_native_world_boundary("ClearGameData")
+            .map_err(|error| error.to_string())?;
         let mode = self.game_logic.game_mode();
         // Original isInGame is mode != GAME_NONE, including a shell/loading game.
         if mode == GameMode::None {
-            return false;
+            return Ok(false);
         }
         self.host_set_paused(false);
         // The source closes the outgoing win/lose window before score collection.
@@ -36,13 +38,12 @@ impl CnCGameEngine {
                 Default::default()
             };
             // Score callbacks must observe the outgoing game before reset.
-            self.host_push_score_screen_like_cpp(end_frame, advice, show_advice);
+            self.host_push_score_screen_like_cpp(end_frame, advice, show_advice)?;
         }
-        if self.host_reset_for_clear_game_data().is_err()
-            || self.reset_match_state_after_engine_reset().is_err()
-        {
-            return false;
-        }
+        self.host_reset_for_clear_game_data()
+            .map_err(|error| error.to_string())?;
+        self.reset_match_state_after_engine_reset()
+            .map_err(|error| error.to_string())?;
         self.game_logic.finish_clear_game_data_after_reset();
         self.control_groups.clear();
         self.render_pipeline.set_presentation_frame(None);
@@ -61,7 +62,7 @@ impl CnCGameEngine {
                 .set_visibility(true);
         }
         self.destroy_source_new_game_background();
-        true
+        Ok(true)
     }
 }
 

@@ -24,11 +24,11 @@ mod shell_core;
 mod skirmish;
 
 impl CnCGameEngine {
-    pub(super) fn apply_runtime_host_command(&mut self, raw_command: &str) {
+    pub(super) fn apply_runtime_host_command(&mut self, raw_command: &str) -> Result<(), String> {
         let mut parts = raw_command.split('|');
         let command = parts.next().unwrap_or_default().trim().to_ascii_lowercase();
         if command.is_empty() {
-            return;
+            return Ok(());
         }
 
         let mut args = HashMap::<String, String>::new();
@@ -50,63 +50,63 @@ impl CnCGameEngine {
                 };
             }
             "exit" => self.runtime_host_cmd_exit(&args),
-            "menu" | "quit_to_menu" | "exit_to_menu" => self.runtime_host_cmd_menu(&args),
-            "toggle_pause" | "pause" => self.runtime_host_cmd_toggle_pause(&args),
-            "open_message_of_the_day" | "open_motd" => self.runtime_host_cmd_open_message_of_the_day(&args),
-            "open_get_updates" | "open_updates" => self.runtime_host_cmd_open_get_updates(&args),
-            "open_world_builder" | "launch_world_builder" => self.runtime_host_cmd_open_world_builder(&args),
+            "menu" | "quit_to_menu" | "exit_to_menu" => self.runtime_host_cmd_menu(&args)?,
+            "toggle_pause" | "pause" => self.runtime_host_cmd_toggle_pause(&args)?,
+            "open_message_of_the_day" | "open_motd" => self.runtime_host_cmd_open_message_of_the_day(&args)?,
+            "open_get_updates" | "open_updates" => self.runtime_host_cmd_open_get_updates(&args)?,
+            "open_world_builder" | "launch_world_builder" => self.runtime_host_cmd_open_world_builder(&args)?,
             "options_probe" => self.runtime_host_cmd_options_probe(&args),
-            "open_options" | "options" => self.runtime_host_cmd_open_options(&args),
-            "open_credits" => self.runtime_host_cmd_open_credits(&args),
-            "click_credits_menu" => self.runtime_host_cmd_click_credits_menu(&args),
+            "open_options" | "options" => self.runtime_host_cmd_open_options(&args)?,
+            "open_credits" => self.runtime_host_cmd_open_credits(&args)?,
+            "click_credits_menu" => self.runtime_host_cmd_click_credits_menu(&args)?,
             "show_message_box" => self.runtime_host_cmd_show_message_box(&args),
-            "click_message_box" => self.runtime_host_cmd_click_message_box(&args),
-            "toggle_diplomacy" => self.runtime_host_cmd_toggle_diplomacy(&args),
-            "click_diplomacy" => self.runtime_host_cmd_click_diplomacy(&args),
-            "open_popup_replay" => self.runtime_host_cmd_open_popup_replay(&args),
+            "click_message_box" => self.runtime_host_cmd_click_message_box(&args)?,
+            "toggle_diplomacy" => self.runtime_host_cmd_toggle_diplomacy(&args)?,
+            "click_diplomacy" => self.runtime_host_cmd_click_diplomacy(&args)?,
+            "open_popup_replay" => self.runtime_host_cmd_open_popup_replay(&args)?,
             "click_popup_replay" => self.runtime_host_cmd_click_popup_replay(&args),
-            "open_single_player_menu" => self.runtime_host_cmd_open_single_player_menu(&args),
+            "open_single_player_menu" => self.runtime_host_cmd_open_single_player_menu(&args)?,
             "click_single_player_menu" => self.runtime_host_cmd_click_single_player_menu(&args),
-            "open_map_select_menu" => self.runtime_host_cmd_open_map_select_menu(&args),
+            "open_map_select_menu" => self.runtime_host_cmd_open_map_select_menu(&args)?,
             "click_map_select_menu" => self.runtime_host_cmd_click_map_select_menu(&args),
             "toggle_control_bar" => self.runtime_host_cmd_toggle_control_bar(&args),
             "click_control_bar" => self.runtime_host_cmd_click_control_bar(&args),
-            "open_single_player_menu" => self.runtime_host_cmd_open_single_player_menu_2(&args),
-            "open_multiplayer_menu" => self.runtime_host_cmd_open_multiplayer_menu(&args),
-            "open_load_replay_menu" => self.runtime_host_cmd_open_load_replay_menu(&args),
-            "click_replay_menu" => self.runtime_host_cmd_click_replay_menu(&args),
-            "toggle_quit_menu" => self.runtime_host_cmd_toggle_quit_menu(&args),
-            "click_quit_menu" => self.runtime_host_cmd_click_quit_menu(&args),
-            "open_keyboard_options" => self.runtime_host_cmd_open_keyboard_options(&args),
-            "click_keyboard_options" => self.runtime_host_cmd_click_keyboard_options(&args),
-            "open_score_screen" => self.runtime_host_cmd_open_score_screen(&args),
-            "click_score_screen" => self.runtime_host_cmd_click_score_screen(&args),
-            "open_options_menu" => self.runtime_host_cmd_open_options_menu(&args),
-            "click_options_menu" => self.runtime_host_cmd_click_options_menu(&args),
-            "open_difficulty_menu" => self.runtime_host_cmd_open_difficulty_menu(&args),
-            "click_difficulty_select" => self.runtime_host_cmd_click_difficulty_select(&args),
-            "show_loading_screen" => self.runtime_host_cmd_show_loading_screen(&args),
-            "click_loading_screen" => self.runtime_host_cmd_click_loading_screen(&args),
-            "toggle_in_game_chat" => self.runtime_host_cmd_toggle_in_game_chat(&args),
-            "click_in_game_chat" => self.runtime_host_cmd_click_in_game_chat(&args),
+            "open_single_player_menu" => self.runtime_host_cmd_open_single_player_menu_2(&args)?,
+            "open_multiplayer_menu" => self.runtime_host_cmd_open_multiplayer_menu(&args)?,
+            "open_load_replay_menu" => self.runtime_host_cmd_open_load_replay_menu(&args)?,
+            "click_replay_menu" => self.runtime_host_cmd_click_replay_menu(&args)?,
+            "toggle_quit_menu" => self.runtime_host_cmd_toggle_quit_menu(&args)?,
+            "click_quit_menu" => self.runtime_host_cmd_click_quit_menu(&args)?,
+            "open_keyboard_options" => self.runtime_host_cmd_open_keyboard_options(&args)?,
+            "click_keyboard_options" => self.runtime_host_cmd_click_keyboard_options(&args)?,
+            "open_score_screen" => self.runtime_host_cmd_open_score_screen(&args)?,
+            "click_score_screen" => self.runtime_host_cmd_click_score_screen(&args)?,
+            "open_options_menu" => self.runtime_host_cmd_open_options_menu(&args)?,
+            "click_options_menu" => self.runtime_host_cmd_click_options_menu(&args)?,
+            "open_difficulty_menu" => self.runtime_host_cmd_open_difficulty_menu(&args)?,
+            "click_difficulty_select" => self.runtime_host_cmd_click_difficulty_select(&args)?,
+            "show_loading_screen" => self.runtime_host_cmd_show_loading_screen(&args)?,
+            "click_loading_screen" => self.runtime_host_cmd_click_loading_screen(&args)?,
+            "toggle_in_game_chat" => self.runtime_host_cmd_toggle_in_game_chat(&args)?,
+            "click_in_game_chat" => self.runtime_host_cmd_click_in_game_chat(&args)?,
             "click_idle_worker" => self.runtime_host_cmd_click_idle_worker(&args),
             "open_generals_exp" => self.runtime_host_cmd_open_generals_exp(&args),
             "click_generals_exp" => self.runtime_host_cmd_click_generals_exp(&args),
             "open_popup_communicator" => self.runtime_host_cmd_open_popup_communicator(&args),
             "click_popup_communicator" => self.runtime_host_cmd_click_popup_communicator(&args),
-            "click_replay_control" => self.runtime_host_cmd_click_replay_control(&args),
+            "click_replay_control" => self.runtime_host_cmd_click_replay_control(&args)?,
             "toggle_shell_map" => self.runtime_host_cmd_toggle_shell_map(&args),
             "click_shell_map" => self.runtime_host_cmd_click_shell_map(&args),
             "click_beacon" => self.runtime_host_cmd_click_beacon(&args),
             "click_eva" => self.runtime_host_cmd_click_eva(&args),
-            "click_ime" => self.runtime_host_cmd_click_ime(&args),
+            "click_ime" => self.runtime_host_cmd_click_ime(&args)?,
             "click_smudge" => self.runtime_host_cmd_click_smudge(&args),
             "click_ocl_timer" => self.runtime_host_cmd_click_ocl_timer(&args),
             "click_control_bar_resizer" => self.runtime_host_cmd_click_control_bar_resizer(&args),
             "click_under_construction" => self.runtime_host_cmd_click_under_construction(&args),
             "click_structure_inventory" => self.runtime_host_cmd_click_structure_inventory(&args),
             "click_multi_select" => self.runtime_host_cmd_click_multi_select(&args),
-            "click_credits_roll" => self.runtime_host_cmd_click_credits_roll(&args),
+            "click_credits_roll" => self.runtime_host_cmd_click_credits_roll(&args)?,
             "click_challenge_generals" => self.runtime_host_cmd_click_challenge_generals(&args),
             "click_gameworld_authority" => self.runtime_host_cmd_click_gameworld_authority(&args),
             "click_window_video" => self.runtime_host_cmd_click_window_video(&args),
@@ -115,19 +115,19 @@ impl CnCGameEngine {
             "click_control_bar_print_positions" => self.runtime_host_cmd_click_control_bar_print_positions(&args),
             "click_main_menu_wnd" => self.runtime_host_cmd_click_main_menu_wnd(&args),
             "click_shell_skirmish_nav" => self.runtime_host_cmd_click_shell_skirmish_nav(&args),
-            "click_campaign_start" => self.runtime_host_cmd_click_campaign_start(&args),
-            "open_skirmish_menu" => self.runtime_host_cmd_open_skirmish_menu(&args),
-            "click_skirmish_start" => self.runtime_host_cmd_click_skirmish_start(&args),
+            "click_campaign_start" => self.runtime_host_cmd_click_campaign_start(&args)?,
+            "open_skirmish_menu" => self.runtime_host_cmd_open_skirmish_menu(&args)?,
+            "click_skirmish_start" => self.runtime_host_cmd_click_skirmish_start(&args)?,
             "click_skirmish_options_wnd" => self.runtime_host_cmd_click_skirmish_options_wnd(&args),
-            "open_load_game" => self.runtime_host_cmd_open_load_game(&args),
+            "open_load_game" => self.runtime_host_cmd_open_load_game(&args)?,
             "click_save_load" => self.runtime_host_cmd_click_save_load(&args),
-            "open_online" => self.runtime_host_cmd_open_online(&args),
-            "open_network" => self.runtime_host_cmd_open_network(&args),
-            "open_replay" => self.runtime_host_cmd_open_replay(&args),
-            "open_challenge_menu" => self.runtime_host_cmd_open_challenge_menu(&args),
-            "click_challenge_start" => self.runtime_host_cmd_click_challenge_start(&args),
-            "start_game" => self.runtime_host_cmd_start_game(&args),
-            "queue_new_game" => self.runtime_host_cmd_queue_new_game(&args),
+            "open_online" => self.runtime_host_cmd_open_online(&args)?,
+            "open_network" => self.runtime_host_cmd_open_network(&args)?,
+            "open_replay" => self.runtime_host_cmd_open_replay(&args)?,
+            "open_challenge_menu" => self.runtime_host_cmd_open_challenge_menu(&args)?,
+            "click_challenge_start" => self.runtime_host_cmd_click_challenge_start(&args)?,
+            "start_game" => self.runtime_host_cmd_start_game(&args)?,
+            "queue_new_game" => self.runtime_host_cmd_queue_new_game(&args)?,
             "click_start_game_loading" => self.runtime_host_cmd_click_start_game_loading(&args),
             "click_live_map_load" => self.runtime_host_cmd_click_live_map_load(&args),
             "click_single_authority" => self.runtime_host_cmd_click_single_authority(&args),
@@ -399,9 +399,9 @@ impl CnCGameEngine {
             "save_game" | "quicksave" => self.runtime_host_cmd_save_game(&args),
             "quickload" => self.runtime_host_cmd_quickload(&args),
             "load_game" => self.runtime_host_cmd_load_game(&args),
-            "pause_save" => self.runtime_host_cmd_pause_save(&args),
-            "pause_load" => self.runtime_host_cmd_pause_load(&args),
-            "replay" => self.runtime_host_cmd_replay(&args),
+            "pause_save" => self.runtime_host_cmd_pause_save(&args)?,
+            "pause_load" => self.runtime_host_cmd_pause_load(&args)?,
+            "replay" => self.runtime_host_cmd_replay(&args)?,
             "enqueue_production" | "train_unit" => self.runtime_host_cmd_enqueue_production(&args),
             "select_local_unit" => self.runtime_host_cmd_select_local_unit(&args),
             "move" | "move_selected" => self.runtime_host_cmd_move(&args),
@@ -465,8 +465,8 @@ impl CnCGameEngine {
             // Windowed sit-through inject: shared WM path, Injected origin
             // (does not latch playable_claim evidence).
             // Headless always fails closed; drive_os_wnd_* is deliberately NOT used.
-            "winit_click_named" => self.runtime_host_cmd_winit_click_named(&args),
-            "winit_menu_nav" => self.runtime_host_cmd_winit_menu_nav(&args),
+            "winit_click_named" => self.runtime_host_cmd_winit_click_named(&args)?,
+            "winit_menu_nav" => self.runtime_host_cmd_winit_menu_nav(&args)?,
             "winit_gameplay_order" => self.runtime_host_cmd_winit_gameplay_order(&args),
             "winit_click_at" => self.runtime_host_cmd_winit_click_at(&args),
             "window_move" | "move_window" => self.runtime_host_cmd_window_move(&args),
@@ -476,7 +476,7 @@ impl CnCGameEngine {
             // the retail UseAlternateMouse option (C++ OptionsMenu.cpp:1157
             // checkbox → CommandXlat.cpp:3656 RMB-context-command mode).
             "tick_main_menu_transitions" => {
-                self.runtime_host_cmd_tick_main_menu_transitions(&args)
+                self.runtime_host_cmd_tick_main_menu_transitions(&args)?
             }
             "alternate_mouse" | "use_alternate_mouse" => {
                 self.runtime_host_cmd_alternate_mouse(&args)
@@ -488,5 +488,6 @@ impl CnCGameEngine {
                 );
             }
         }
+        Ok(())
     }
 }

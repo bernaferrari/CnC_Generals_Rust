@@ -14,7 +14,7 @@ use crate::gui::options_host_bridge::{
     publish_host_alternate_mouse, publish_host_draw_rmb_scroll_anchor,
     publish_host_move_rmb_scroll_anchor,
 };
-use crate::gui::shell::main_menu::{DisplaySettings, get_main_menu};
+use crate::gui::shell::main_menu::DisplaySettings;
 use crate::gui::{
     AnimationType, GLM_DOUBLE_CLICKED, GameWindow, WindowLayout, WindowMessage, WindowMsgData,
     WindowMsgHandled, WindowWidget, queue_shell_operation, queue_shell_pop, queue_shell_push,
@@ -1110,11 +1110,11 @@ impl OptionsMenu {
         Self::set_window_hidden(self.advanced_window_id, true);
     }
 
-    fn apply_options(&mut self) -> bool {
+    fn apply_options(&mut self, effects: &mut WindowEventEffects<'_>) -> bool {
         let host = take_host_options_apply();
         let mut preferences = UserPreferences::new();
         let _ = preferences.load("Options.ini");
-        self.apply_options_with_preferences(host, &mut preferences, None, None)
+        self.apply_options_with_preferences(host, &mut preferences, None, None, effects)
     }
     fn apply_options_with_preferences(
         &mut self,
@@ -1122,6 +1122,7 @@ impl OptionsMenu {
         pref: &mut UserPreferences,
         owned_scroll: Option<Option<i32>>,
         terrain_lod: Option<&mut dyn FnMut(i32)>,
+        effects: &mut WindowEventEffects<'_>,
     ) -> bool {
         crate::display::display_fx::install_default_display_gamma_hook();
         let owns_camera_preferences = owned_scroll.is_some();
@@ -1469,7 +1470,9 @@ impl OptionsMenu {
             ) {
                 return false;
             }
-            get_main_menu().set_pending_resolution_change(old_settings, new_settings);
+            effects.with_main_menu(|menu, _| {
+                menu.set_pending_resolution_change(old_settings, new_settings)
+            });
         }
 
         resolution_changed
@@ -1512,12 +1515,13 @@ impl OptionsMenu {
         &mut self,
         owned: Option<(&mut UserPreferences, Option<i32>)>,
         terrain_lod: Option<&mut dyn FnMut(i32)>,
+        effects: &mut WindowEventEffects<'_>,
     ) {
         let resolution_changed = match owned {
             Some((pref, scroll)) => {
-                self.apply_options_with_preferences(None, pref, Some(scroll), terrain_lod)
+                self.apply_options_with_preferences(None, pref, Some(scroll), terrain_lod, effects)
             }
-            None => self.apply_options(),
+            None => self.apply_options(effects),
         };
         let options_overlay_open = options_overlay_is_open();
         if !TheGameLogic::is_in_game() || TheGameLogic::get_game_mode() == GAME_SHELL {
@@ -1525,7 +1529,7 @@ impl OptionsMenu {
         }
         self.close_menu();
         if resolution_changed && !options_overlay_open {
-            get_main_menu().do_resolution_dialog();
+            effects.with_main_menu(|menu, effects| menu.do_resolution_dialog(effects));
         }
     }
 
@@ -1619,6 +1623,16 @@ impl Default for OptionsMenu {
 }
 
 impl MenuCallbacks for OptionsMenu {
+    fn system(
+        &mut self,
+        _window: &GameWindow,
+        _msg: WindowMessage,
+        _data1: WindowMsgData,
+        _data2: WindowMsgData,
+    ) -> WindowMsgHandled {
+        panic!("OptionsMenu system callback requires receiving WindowEventEffects")
+    }
+
     fn init(
         &mut self,
         layout: &WindowLayout,
@@ -1655,12 +1669,13 @@ impl MenuCallbacks for OptionsMenu {
         Ok(())
     }
 
-    fn system(
+    fn system_with_effects(
         &mut self,
         _window: &GameWindow,
         msg: WindowMessage,
         data1: WindowMsgData,
         data2: WindowMsgData,
+        effects: &mut WindowEventEffects<'_>,
     ) -> WindowMsgHandled {
         match msg {
             WindowMessage::Create | WindowMessage::Destroy => WindowMsgHandled::Handled,
@@ -1684,7 +1699,7 @@ impl MenuCallbacks for OptionsMenu {
                 if control_id == self.button_back_id {
                     self.close_menu();
                 } else if control_id == self.button_accept_id {
-                    self.accept_options(None, None);
+                    self.accept_options(None, None, effects);
                 } else if control_id == self.button_defaults_id {
                     self.apply_default_controls();
                 } else if control_id == self.button_firewall_refresh_id {
@@ -2690,7 +2705,7 @@ fn parse_resolution_pref(raw: Option<&str>) -> Option<(i32, i32)> {
 }
 
 /// C++ Accept: `TheDisplay->setGamma` + flat Options.ini + live volumes.
-pub fn apply_options_menu_like_cpp() -> bool {
+pub fn apply_options_menu_like_cpp(effects: &mut WindowEventEffects<'_>) -> bool {
     crate::display::display_fx::install_default_display_gamma_hook();
     with_options_menu_mut(|menu| {
         if !menu.initialized {
@@ -2700,26 +2715,30 @@ pub fn apply_options_menu_like_cpp() -> bool {
             RESIDUAL_OPTIONS_BOUND.store(true, std::sync::atomic::Ordering::Relaxed);
         }
         residual_options_action_store(ResidualOptionsMenuAction::Accept);
-        let _ = menu.apply_options();
+        let _ = menu.apply_options(effects);
         true
     })
 }
 
 /// In-game stub / host Accept: same `apply_options` path with explicit values.
-pub fn apply_options_from_host(apply: HostOptionsApply) -> bool {
+pub fn apply_options_from_host(
+    apply: HostOptionsApply,
+    effects: &mut WindowEventEffects<'_>,
+) -> bool {
     crate::display::display_fx::install_default_display_gamma_hook();
     HOST_OPTIONS_APPLY.with(|slot| {
         *slot.borrow_mut() = Some(apply);
     });
-    apply_options_menu_like_cpp()
+    apply_options_menu_like_cpp(effects)
 }
 
 /// Actual host Options Apply; the same kernel mutates this application's store.
 pub fn apply_options_from_host_with_preferences(
     apply: HostOptionsApply,
     preferences: &mut UserPreferences,
+    effects: &mut WindowEventEffects<'_>,
 ) -> bool {
-    apply_options_from_host_with_preferences_and_terrain(apply, preferences, None)
+    apply_options_from_host_with_preferences_and_terrain(apply, preferences, None, effects)
 }
 
 /// Receiving fallback UI operation; applies synchronously through the same kernel.
@@ -2727,6 +2746,7 @@ pub fn apply_options_from_host_with_preferences_and_terrain(
     apply: HostOptionsApply,
     preferences: &mut UserPreferences,
     terrain_lod: Option<&mut dyn FnMut(i32)>,
+    effects: &mut WindowEventEffects<'_>,
 ) -> bool {
     let scroll = apply.scroll_speed;
     with_options_menu_mut(|menu| {
@@ -2741,6 +2761,7 @@ pub fn apply_options_from_host_with_preferences_and_terrain(
             preferences,
             Some(Some(scroll)),
             terrain_lod,
+            effects,
         );
         true
     })
@@ -2750,10 +2771,11 @@ pub(crate) fn complete_options_accept_with_preferences(
     preferences: &mut UserPreferences,
     scroll: Option<i32>,
     terrain_lod: Option<&mut dyn FnMut(i32)>,
+    effects: &mut WindowEventEffects<'_>,
 ) {
     with_options_menu_mut(|menu| {
         if !menu.ignore_selected {
-            menu.accept_options(Some((preferences, scroll)), terrain_lod);
+            menu.accept_options(Some((preferences, scroll)), terrain_lod, effects);
         }
     });
 }
@@ -2896,13 +2918,13 @@ pub fn simulate_options_menu_prepare_accept() -> bool {
 /// (C++ WindowXlat hit → GBM_SELECTED). Not `simulate_*` first.
 fn drive_os_wnd_options_named(
     name: &str,
-    latch: impl FnOnce() -> bool,
+    latch: impl FnOnce(&mut WindowEventEffects<'_>) -> bool,
     effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> bool {
     if !crate::gui::dispatch_os_click_named_window(name, effects) {
         return false;
     }
-    latch()
+    latch(effects)
 }
 
 pub fn drive_os_wnd_options_menu_accept_like_cpp(
@@ -2920,7 +2942,7 @@ pub fn drive_os_wnd_options_menu_back_like_cpp(
 ) -> bool {
     drive_os_wnd_options_named(
         "OptionsMenu.wnd:ButtonBack",
-        simulate_options_menu_back_button_gadget_selected,
+        |_| simulate_options_menu_back_button_gadget_selected(),
         effects,
     )
 }
@@ -2930,7 +2952,7 @@ pub fn drive_os_wnd_options_menu_defaults_like_cpp(
 ) -> bool {
     drive_os_wnd_options_named(
         "OptionsMenu.wnd:ButtonDefaults",
-        simulate_options_menu_defaults_button_gadget_selected,
+        |_| simulate_options_menu_defaults_button_gadget_selected(),
         effects,
     )
 }
@@ -2940,7 +2962,7 @@ pub fn drive_os_wnd_options_menu_keyboard_like_cpp(
 ) -> bool {
     drive_os_wnd_options_named(
         "OptionsMenu.wnd:ButtonKeyboardOptions",
-        simulate_options_menu_keyboard_button_gadget_selected,
+        |_| simulate_options_menu_keyboard_button_gadget_selected(),
         effects,
     )
 }
@@ -2950,7 +2972,7 @@ pub fn drive_os_wnd_options_menu_advanced_accept_like_cpp(
 ) -> bool {
     drive_os_wnd_options_named(
         "OptionsMenu.wnd:ButtonAdvanceAccept",
-        simulate_options_menu_advanced_accept_button_gadget_selected,
+        |_| simulate_options_menu_advanced_accept_button_gadget_selected(),
         effects,
     )
 }
@@ -2960,7 +2982,7 @@ pub fn drive_os_wnd_options_menu_advanced_back_like_cpp(
 ) -> bool {
     drive_os_wnd_options_named(
         "OptionsMenu.wnd:ButtonAdvanceBack",
-        simulate_options_menu_advanced_back_button_gadget_selected,
+        |_| simulate_options_menu_advanced_back_button_gadget_selected(),
         effects,
     )
 }
@@ -2970,7 +2992,7 @@ pub fn drive_os_wnd_options_menu_firewall_like_cpp(
 ) -> bool {
     drive_os_wnd_options_named(
         "OptionsMenu.wnd:ButtonFirewallRefresh",
-        simulate_options_menu_firewall_refresh_button_gadget_selected,
+        |_| simulate_options_menu_firewall_refresh_button_gadget_selected(),
         effects,
     )
 }
@@ -3024,7 +3046,7 @@ mod options_os_wnd_tests {
         apply.music_volume = 80;
         apply.gamma_slider = 100;
         apply.resolution = (1024, 768);
-        assert!(apply_options_from_host(apply));
+        assert!(apply_options_from_host(apply, effects));
         let gamma = crate::display::display_fx::gamma_state();
         assert!((gamma.gamma - 2.0).abs() < 0.01);
         assert!((runtime_global_data::read().music_volume_factor - 0.8).abs() < 0.01);
@@ -3069,7 +3091,7 @@ mod options_os_wnd_tests {
         let mut apply = HostOptionsApply::default();
         apply.detail_index = 3;
         apply.resolution = (1024, 768);
-        assert!(apply_options_from_host(apply));
+        assert!(apply_options_from_host(apply, effects));
         {
             let g = runtime_global_data::read();
             assert!(g.writable.use_shadow_volumes);
@@ -3118,7 +3140,7 @@ mod options_os_wnd_tests {
         apply.draw_anchor = true;
         apply.move_anchor = true;
         apply.resolution = (1024, 768);
-        assert!(apply_options_from_host(apply));
+        assert!(apply_options_from_host(apply, effects));
         let reqs = take_host_options_requests();
         assert!(
             reqs.contains(&HostOptionsRequest::DrawRmbScrollAnchor { enabled: true }),

@@ -1235,6 +1235,7 @@ impl XferData for AIState {
             AIState::JetReturningForLanding => 27,
             AIState::JetReturnToDeadAirfield => 28,
             AIState::JetCirclingDeadAirfield => 29,
+            AIState::Dead => 30,
         };
         xfer.xfer_u32(&mut value)?;
         *self = match value {
@@ -1268,6 +1269,7 @@ impl XferData for AIState {
             27 => AIState::JetReturningForLanding,
             28 => AIState::JetReturnToDeadAirfield,
             29 => AIState::JetCirclingDeadAirfield,
+            30 => AIState::Dead,
             other => {
                 return Err(SaveLoadError::Corrupted(format!(
                     "Invalid AIState value in object snapshot: {}",

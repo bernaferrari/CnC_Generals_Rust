@@ -50,6 +50,8 @@ struct WindowManagerOwnerState {
     residual_shell_map_action: Cell<ResidualShellMapAction>,
     residual_shell_map_on: Cell<bool>,
     deferred_shell_pushes: RefCell<Vec<String>>,
+    last_widget_tree_click_used: Cell<bool>,
+    widget_tree_navigation_observed: Cell<bool>,
 }
 
 /// Persistent owner for one native client's WND tree and its re-entry queues.
@@ -73,8 +75,37 @@ impl WindowManagerOwner {
                 residual_shell_map_action: Cell::new(ResidualShellMapAction::None),
                 residual_shell_map_on: Cell::new(false),
                 deferred_shell_pushes: RefCell::new(Vec::new()),
+                last_widget_tree_click_used: Cell::new(false),
+                widget_tree_navigation_observed: Cell::new(false),
             }),
         }
+    }
+
+    pub fn last_widget_tree_click_used(&self) -> bool {
+        self.state.last_widget_tree_click_used.get()
+    }
+    pub fn widget_tree_navigation_observed(&self) -> bool {
+        self.state.widget_tree_navigation_observed.get()
+    }
+    pub(crate) fn record_widget_tree_click_used(&self, used: bool) {
+        self.state.last_widget_tree_click_used.set(used);
+    }
+    pub(crate) fn record_widget_tree_navigation(&self) {
+        self.state.widget_tree_navigation_observed.set(true);
+    }
+    #[cfg(test)]
+    pub(crate) fn reset_widget_tree_observations(&self) {
+        self.state.last_widget_tree_click_used.set(false);
+        self.state.widget_tree_navigation_observed.set(false);
+    }
+
+    /// Called only after the driving host released all input/lifecycle loans.
+    /// Old-session continuations must not mutate a replacement world or WND tree.
+    pub(crate) fn discard_pending_event_operations_for_world_boundary(&self) {
+        self.state.operations.borrow_mut().clear();
+        self.state.deferred_operations.borrow_mut().clear();
+        self.state.shell_operations.borrow_mut().clear();
+        self.state.deferred_shell_pushes.borrow_mut().clear();
     }
 
     /// Run one synchronous operation with this owner selected for legacy nested
@@ -109,7 +140,7 @@ impl WindowManagerOwner {
     /// ambient callback owner. `None` means the manager is currently mutably
     /// borrowed by a synchronous operation.
     pub fn try_with_manager_ref<R>(&self, f: impl FnOnce(&WindowManager) -> R) -> Option<R> {
-        let owner = Rc::clone(&self.state);
+        let owner = &self.state;
         let borrow = owner.manager.try_borrow().ok()?;
         Some(f(&borrow))
     }
@@ -117,13 +148,13 @@ impl WindowManagerOwner {
     /// Attempt one owner-scoped mutable operation without a re-entry fallback.
     /// A live borrow means the callback must retry at its owning boundary.
     pub fn try_with_manager<R>(&self, f: impl FnOnce(&mut WindowManager) -> R) -> Option<R> {
-        let owner = Rc::clone(&self.state);
+        let owner = &self.state;
         self.with_scope(|| {
             let mut manager = owner.manager.try_borrow_mut().ok()?;
-            splice_deferred_window_manager_ops(&owner);
-            drain_window_manager_ops(&owner, &mut manager);
+            splice_deferred_window_manager_ops(owner);
+            drain_window_manager_ops(owner, &mut manager);
             let result = f(&mut manager);
-            drain_window_manager_ops(&owner, &mut manager);
+            drain_window_manager_ops(owner, &mut manager);
             Some(result)
         })
     }
@@ -792,6 +823,10 @@ pub fn dispatch_translated_window_input_for_owner(
                 .expect("native translator requires receiving stream"),
             pending_control_bar_clicks: Some(&mut context.control_bar.pending_command_clicks),
             campaign_manager: context.campaign_manager.as_deref_mut(),
+            main_menu: context.main_menu.as_deref_mut(),
+            menu_world: context.menu_world,
+            menu_host: context.menu_host.as_deref_mut(),
+            pending_main_menu_actions: Vec::new(),
         };
         owner.complete_event_callbacks(&mut effects);
     }

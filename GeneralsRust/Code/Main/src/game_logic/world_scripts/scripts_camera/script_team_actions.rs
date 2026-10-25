@@ -1367,11 +1367,16 @@ impl GameLogic {
     }
 
     /// C++ `ScriptActions::doTeamHuntWithCommandButton` live drain.
-    pub(super) fn host_script_team_hunt_with_command_button(&mut self, team: &str, button: &str) {
+    pub(super) fn host_script_team_hunt_with_command_button(
+        &mut self,
+        team: &str,
+        button: &str,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<()> {
         // C++ findCommandButton + command-type switch before any unit is armed.
         // Leftover `command_button_is_hunt_capable` is the same gate.
         if !Self::leftover_command_button_is_hunt_capable(button) {
-            return;
+            return Ok(());
         }
         let ids = self.host_script_hunt_guard_team_member_ids(team);
         let button = if button.is_empty() {
@@ -1381,9 +1386,10 @@ impl GameLogic {
         };
         for id in ids {
             if self.unit_can_team_hunt_with_command_button(id, button) {
-                let _ = self.start_command_button_hunt_named(id, button);
+                let _ = self.start_command_button_hunt_named_with_effects(id, button, effects)?;
             }
         }
+        Ok(())
     }
 
     /// C++ `Object::leaveGroup` before PLAYER_HUNT `aiHunt`.
@@ -2307,7 +2313,7 @@ impl GameLogic {
             .unwrap()
             .set_formation(0, glam::Vec2::ZERO);
         self.apply_unit_locomotor_set(id, "normal");
-        self.apply_owned_attack_team_member(id, team_id, force_normal);
+        self.apply_owned_attack_team_member(id, team_id, force_normal)?;
         Ok(())
     }
 
@@ -2316,7 +2322,7 @@ impl GameLogic {
         id: ObjectId,
         team_id: u32,
         force_normal: bool,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         self.drop_jet_targeters_on_attack_exit(id);
         self.clear_unit_movement_path(id);
         let (object, audio_events) = self.host_object_and_audio_events_mut(id).unwrap();
@@ -2332,7 +2338,7 @@ impl GameLogic {
         let identity = format!("owned:{team_id}");
         let target = self.choose_attack_team_victim_with_policy(id, &identity, false, force_normal);
         if let Some(target) = target {
-            self.unit_command_script_attack(id, target);
+            self.unit_command_script_attack(id, target)?;
         }
         if let Some(object) = self.host_object_mut(id) {
             object.set_max_shots_to_fire(-1);
@@ -2341,9 +2347,14 @@ impl GameLogic {
             object.last_command_source =
                 crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_SCRIPT;
         }
+        Ok(())
     }
 
-    pub(super) fn host_script_attack_team(&mut self, unit_id: ObjectId, victim_team: &str) {
+    pub(super) fn host_script_attack_team(
+        &mut self,
+        unit_id: ObjectId,
+        victim_team: &str,
+    ) -> gamelogic::GameLogicResult<()> {
         if let Some(team) = Self::resolve_host_team_name(victim_team) {
             if team != crate::game_logic::Team::Neutral {
                 if let Some(unit) = self.objects.get_mut(&unit_id) {
@@ -2355,7 +2366,7 @@ impl GameLogic {
             }
         }
         if let Some(vid) = self.host_script_nearest_team_victim(unit_id, victim_team) {
-            let _ = self.unit_command_attack(unit_id, vid);
+            self.unit_command_attack(unit_id, vid)?;
             if let Some(team) = Self::resolve_host_team_name(victim_team) {
                 if team != crate::game_logic::Team::Neutral {
                     if let Some(unit) = self.objects.get_mut(&unit_id) {
@@ -2367,6 +2378,7 @@ impl GameLogic {
                 }
             }
         }
+        Ok(())
     }
 
     /// CPP ScriptActions1336–1359: validate first, then leave/Normal/AttackArea.
@@ -2375,7 +2387,7 @@ impl GameLogic {
         unit: &str,
         area: &str,
         this_object: Option<ObjectId>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         self.apply_owned_named_attack_area_with_effects(
             unit,
             area,
@@ -2390,25 +2402,30 @@ impl GameLogic {
         area: &str,
         this_object: Option<ObjectId>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         let Some(id) = self.owned_named_script_object(unit, this_object) else {
-            return;
+            return Ok(());
         };
         if self.host_named_guard_area_polygon(area).is_none()
             || !self
                 .host_object(id)
                 .is_some_and(|object| object.has_ai_update_interface())
         {
-            return;
+            return Ok(());
         }
         self.host_object_mut(id)
             .unwrap()
             .set_formation(0, glam::Vec2::ZERO);
         self.apply_unit_locomotor_set(id, "normal");
-        self.host_script_attack_area_with_effects(id, area, effects);
+        self.host_script_attack_area_with_effects(id, area, effects)?;
+        Ok(())
     }
 
-    pub(super) fn host_script_attack_area(&mut self, unit_id: ObjectId, area_name: &str) {
+    pub(super) fn host_script_attack_area(
+        &mut self,
+        unit_id: ObjectId,
+        area_name: &str,
+    ) -> gamelogic::GameLogicResult<()> {
         self.host_script_attack_area_with_effects(unit_id, area_name, &mut Default::default())
     }
 
@@ -2417,7 +2434,7 @@ impl GameLogic {
         unit_id: ObjectId,
         area_name: &str,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         let tag = format!("AIGroup.AttackArea.poly:{area_name}");
         let center = self
             .host_named_guard_area_polygon(area_name)
@@ -2433,7 +2450,7 @@ impl GameLogic {
             Some(area_name),
         );
         if let Some(vid) = victim {
-            let _ = self.unit_command_script_attack(unit_id, vid);
+            self.unit_command_script_attack(unit_id, vid)?;
             if let Some(unit) = self.objects.get_mut(&unit_id) {
                 unit.set_auto_acquire_when_idle(true);
                 unit.attack_priority_set = Some(tag);
@@ -2444,6 +2461,7 @@ impl GameLogic {
                 unit.attack_priority_set = Some(tag);
             }
         }
+        Ok(())
     }
 }
 

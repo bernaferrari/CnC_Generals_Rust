@@ -182,6 +182,7 @@ impl GameWorldShadow {
             A::JetReturningForLanding => 27,
             A::JetReturnToDeadAirfield => 28,
             A::JetCirclingDeadAirfield => 29,
+            A::Dead => 30,
         }
     }
 
@@ -217,6 +218,7 @@ impl GameWorldShadow {
             27 => A::JetReturningForLanding,
             28 => A::JetReturnToDeadAirfield,
             29 => A::JetCirclingDeadAirfield,
+            30 => A::Dead,
             _ => A::Idle,
         }
     }

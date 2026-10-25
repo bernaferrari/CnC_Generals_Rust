@@ -370,13 +370,21 @@ impl GameLogic {
     }
 
     /// Wave 230/232: attack target (records host attack log).
-    pub fn unit_command_attack(&mut self, id: ObjectId, target_id: ObjectId) -> bool {
+    pub fn unit_command_attack(
+        &mut self,
+        id: ObjectId,
+        target_id: ObjectId,
+    ) -> gamelogic::GameLogicResult<bool> {
         self.stamp_player_command_source(id);
         self.unit_command_attack_with_source(id, target_id, true)
     }
 
     /// SCRIPT uses the same owned attack algorithm without player shroud gates.
-    pub(crate) fn unit_command_script_attack(&mut self, id: ObjectId, target_id: ObjectId) -> bool {
+    pub(crate) fn unit_command_script_attack(
+        &mut self,
+        id: ObjectId,
+        target_id: ObjectId,
+    ) -> gamelogic::GameLogicResult<bool> {
         if let Some(unit) = self.host_object_mut(id) {
             unit.last_command_source =
                 crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_SCRIPT;
@@ -389,12 +397,12 @@ impl GameLogic {
         id: ObjectId,
         target_id: ObjectId,
         from_player: bool,
-    ) -> bool {
+    ) -> gamelogic::GameLogicResult<bool> {
         if self.note_hacker_ai_command(
             id,
             crate::game_logic::host_hacker_income::PendingHackerCommand::Attack(target_id),
         ) {
-            return true;
+            return Ok(true);
         }
         // This is the authority boundary for a player AttackObject order.
         // Do not merely stamp `target`: C++ WeaponSet validates the concrete
@@ -409,11 +417,11 @@ impl GameLogic {
             ),
             CanAttackResult::Possible | CanAttackResult::PossibleAfterMoving
         ) {
-            return false;
+            return Ok(false);
         }
         let (can_attack, switch_away) = {
             let Some(unit) = self.objects.get(&id) else {
-                return false;
+                return Ok(false);
             };
             (
                 unit.can_attack(),
@@ -421,13 +429,13 @@ impl GameLogic {
             )
         };
         if !can_attack {
-            return false;
+            return Ok(false);
         }
         if switch_away {
             self.drop_jet_targeters_on_attack_exit(id);
         }
         let Some(unit) = self.objects.get_mut(&id) else {
-            return false;
+            return Ok(false);
         };
         unit.mark_jet_command_for_reload_interrupt(false);
         unit.clear_guard_chase();
@@ -437,7 +445,7 @@ impl GameLogic {
         // C++ privateAttackObject enters the attack machine and requests a
         // chase path. A weaponless order that already passed the command
         // legality check still stamps Attacking so existing callers keep it.
-        let engaged = self.private_attack_object(id, target_id, -1);
+        let engaged = self.private_attack_object(id, target_id, -1)?;
         if !engaged {
             if let Some(unit) = self.objects.get_mut(&id) {
                 unit.set_target_with_operation(
@@ -449,7 +457,7 @@ impl GameLogic {
                         .reborrow_for_object(&mut self.partition_manager),
                 );
             } else {
-                return false;
+                return Ok(false);
             }
         }
         if let Some(unit) = self.objects.get_mut(&id) {
@@ -462,7 +470,7 @@ impl GameLogic {
             tgt.add_jet_targeter(id, true, self.frame);
         }
         self.assault_transport_on_player_attack(id);
-        true
+        Ok(true)
     }
 
     /// Wave 230/232: force-attack target (records host attack log).
@@ -609,7 +617,9 @@ impl GameLogic {
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             );
             unit.end_guard_retaliate_state();
-            unit.clear_target_for_owned_idle_entry();
+            unit.clear_target(&mut crate::game_logic::ObjectAudio::queue(
+                &mut self.queued_audio_events,
+            ));
         }
         if let Some(unit) = self.objects.get_mut(&id) {
             unit.set_movement_goal_object(None);
@@ -675,9 +685,13 @@ impl GameLogic {
         unit.stop_moving_for_owned_idle_entry(&mut crate::game_logic::ObjectAudio::queue(
             &mut self.queued_audio_events,
         ));
-        unit.clear_attack_for_owned_idle_entry();
+        unit.stop_attack(&mut crate::game_logic::ObjectAudio::queue(
+            &mut self.queued_audio_events,
+        ));
         unit.ignored_obstacle_id = None;
-        unit.clear_target_for_owned_idle_entry();
+        unit.clear_target(&mut crate::game_logic::ObjectAudio::queue(
+            &mut self.queued_audio_events,
+        ));
         unit.set_force_attack(false);
         unit.set_guard_position(
             None,
@@ -3589,7 +3603,11 @@ mod tests {
     #[test]
     fn player_attack_ends_hunt_and_releases_temp_lock() {
         let (mut logic, hunter_id, enemy_id) = hunting_infantry_pair();
-        assert!(logic.unit_command_attack(hunter_id, enemy_id));
+        assert!(
+            logic
+                .unit_command_attack(hunter_id, enemy_id)
+                .expect("valid attack command fixture")
+        );
         let hunter = logic.objects.get(&hunter_id).expect("hunter");
         assert!(!hunter.is_hunting(), "player attack must end Hunt");
         assert_eq!(hunter.ai_state(), AIState::Attacking);

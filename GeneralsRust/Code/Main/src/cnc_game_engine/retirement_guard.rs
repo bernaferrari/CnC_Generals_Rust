@@ -38,7 +38,8 @@ impl CnCGameEngine {
                 error!("Rejecting {operation}: {failure}; retaining failed native owner");
                 // Normal Exiting may hide the loading overlay. It performs no
                 // gameplay reset, menu admission, or native destructor retry.
-                self.transition_to_state(GameState::Exiting);
+                self.pending_state = None;
+                self.current_state = GameState::Exiting;
                 Err(failure)
             }
         }

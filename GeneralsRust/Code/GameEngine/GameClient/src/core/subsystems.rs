@@ -1269,6 +1269,15 @@ pub struct InGameUISubsystem {
 }
 
 impl InGameUISubsystem {
+    pub(crate) fn reset_menu_placement(&mut self) {
+        self.pending_place_template = None;
+        self.pending_place_source_object_id = 0;
+        self.placement_start = None;
+        self.placement_end = None;
+        self.placement_angle = 0.0;
+        self.pending_special_power = None;
+    }
+
     pub fn tooltips_disabled_at(&self, frame: u32) -> bool {
         frame < self.tooltips_disabled_until
     }

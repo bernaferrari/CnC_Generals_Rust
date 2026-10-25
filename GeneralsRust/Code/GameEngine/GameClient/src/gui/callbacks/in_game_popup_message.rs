@@ -354,6 +354,10 @@ fn in_game_popup_message_system(
         emitted_messages: &mut emitted_messages,
         pending_control_bar_clicks: None,
         campaign_manager: None,
+        main_menu: None,
+        menu_world: None,
+        menu_host: None,
+        pending_main_menu_actions: Vec::new(),
     };
     let result = in_game_popup_message_system_with_sink(window, msg, data1, data2, &mut effects);
     if let Ok(mut stream) = THE_MESSAGE_STREAM.write() {
@@ -471,6 +475,10 @@ mod tests {
                     emitted_messages: &mut emitted,
                     pending_control_bar_clicks: None,
                     campaign_manager: None,
+                    main_menu: None,
+                    menu_world: None,
+                    menu_host: None,
+                    pending_main_menu_actions: Vec::new(),
                     selected_window: Some(selected_window.clone()),
                 };
                 assert_eq!(
@@ -516,6 +524,10 @@ mod tests {
                     emitted_messages: &mut emitted,
                     pending_control_bar_clicks: None,
                     campaign_manager: None,
+                    main_menu: None,
+                    menu_world: None,
+                    menu_host: None,
+                    pending_main_menu_actions: Vec::new(),
                 };
                 with_window_manager(|manager| {
                     manager.reset();

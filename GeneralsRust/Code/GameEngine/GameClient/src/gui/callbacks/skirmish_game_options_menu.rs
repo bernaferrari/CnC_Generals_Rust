@@ -1789,7 +1789,12 @@ pub fn drive_os_wnd_skirmish_start_like_cpp(effects: &mut WindowEventEffects<'_>
         "SkirmishGameOptionsMenu.wnd:ButtonStart",
         effects,
     );
-    if crate::gui::last_os_wnd_widget_tree_click_ok() && skirmish_button_pushed() {
+    if crate::gui::last_os_wnd_widget_tree_click_ok(
+        effects
+            .window_manager_owner
+            .expect("skirmish click requires receiving owner"),
+    ) && skirmish_button_pushed()
+    {
         return true;
     }
     if !clicked {
@@ -2144,6 +2149,10 @@ mod tests {
             emitted_messages: &mut emitted,
             pending_control_bar_clicks: None,
             campaign_manager: None,
+            main_menu: None,
+            menu_world: None,
+            menu_host: None,
+            pending_main_menu_actions: Vec::new(),
         };
         assert_eq!(
             skirmish_game_options_menu_system(
@@ -2211,6 +2220,10 @@ mod tests {
                 emitted_messages: &mut emitted,
                 pending_control_bar_clicks: None,
                 campaign_manager: None,
+                main_menu: None,
+                menu_world: None,
+                menu_host: None,
+                pending_main_menu_actions: Vec::new(),
             };
             assert!(
                 drive_os_wnd_skirmish_start_like_cpp(&mut effects),

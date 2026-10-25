@@ -572,7 +572,7 @@ impl<'a> GameClientLoadScreenHooks<'a> {
         if game_mode != gamelogic::system::game_logic::GAME_SHELL {
             return;
         }
-        self.client.with_receiving_shell(|shell, effects| {
+        self.client.with_receiving_shell(None, |shell, effects| {
             if let Err(err) = shell.show_main_menu_after_shell_game_start(effects) {
                 log::warn!("Failed to activate shell main menu after shell-map load: {err}");
             }

@@ -326,15 +326,12 @@ fn validate_skirmish_template(
         ));
     }
 
-    // C++ GameLogic.cpp:713-721 rejects Challenge personas that do not start
-    // unlocked. `hq-f6i` owns loading the authored ChallengeMode persona
-    // table into this Common store before offline setup; until then an empty
-    // table deliberately means there is no persona record to reject, rather
-    // than guessing a General is locked from its name.
-    let generals = game_engine::common::ini::ini_challenge_generals::get_challenge_generals();
-    if generals
-        .get_general_by_template_name(template.get_name())
-        .is_some_and(|general| !general.is_starting_enabled())
+    // C++ GameLogic.cpp:713-721 rejects authored Challenge personas that
+    // start locked; a failed ChallengeMode load fails closed for General names.
+    if game_engine::common::ini::ini_challenge_generals::get_authored_general_by_template_name(
+        template.get_name(),
+    )
+    .is_some_and(|general| !general.is_starting_enabled())
     {
         return Err(format!(
             "PlayerTemplate '{}' is a locked General persona",

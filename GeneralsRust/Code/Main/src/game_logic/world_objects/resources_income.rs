@@ -1082,7 +1082,7 @@ impl GameLogic {
                     let _ = self.unit_command_move_to(id, destination);
                 }
                 PendingHackerCommand::Attack(target_id) => {
-                    let _ = self.unit_command_attack(id, target_id);
+                    self.unit_command_attack(id, target_id)?;
                 }
                 PendingHackerCommand::AiIdle => {
                     self.unit_command_ai_idle_owned_with_effects(id, effects)?;

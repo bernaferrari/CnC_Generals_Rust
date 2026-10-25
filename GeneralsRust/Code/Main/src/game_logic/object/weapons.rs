@@ -355,6 +355,10 @@ impl Object {
     }
 
     pub fn sync_weapon_model_conditions_from_status(&mut self) {
+        if self.unit_ai_runtime.current_leaf_state() == crate::game_logic::AIState::Dead {
+            self.refresh_model_condition_bits();
+            return;
+        }
         use crate::game_logic::host_enum_table_residual::{
             MC_BIT_BETWEEN_FIRING_SHOTS_A, MC_BIT_BETWEEN_FIRING_SHOTS_B,
             MC_BIT_BETWEEN_FIRING_SHOTS_C, MC_BIT_FIRING_A, MC_BIT_FIRING_B, MC_BIT_FIRING_C,

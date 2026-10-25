@@ -525,8 +525,6 @@ impl CnCGameEngine {
         // commands captured for another authority boundary.
         #[cfg(feature = "game_client")]
         self.host_invalidate_active_popup_for_world_boundary();
-        #[cfg(feature = "game_client")]
-        game_client::gui::campaign_launch_host_bridge::clear_host_campaign_launch_descriptor();
 
         // Carrier provenance cannot cross reset/load/new-match boundaries: an
         // object ID from an earlier world must never qualify a later deposit.
@@ -1501,7 +1499,7 @@ impl CnCGameEngine {
         #[cfg(feature = "game_client")]
         self.control_bar.discard_pending_command_clicks();
         #[cfg(feature = "game_client")]
-        self.game_client.message_stream_mut().clear_messages();
+        self.game_client.clear_pending_client_messages();
         self.game_logic = logic;
         if let Some(local) = self.game_logic.local_player_id() {
             self.current_player_id = local;
@@ -1700,7 +1698,7 @@ impl CnCGameEngine {
         #[cfg(feature = "game_client")]
         self.control_bar.discard_pending_command_clicks();
         #[cfg(feature = "game_client")]
-        self.game_client.message_stream_mut().clear_messages();
+        self.game_client.clear_pending_client_messages();
         let old_logic = std::mem::replace(&mut self.game_logic, logic);
         self.commit_native_world_epoch(epoch);
         if let Some(local) = saved_local {
@@ -3117,7 +3115,7 @@ impl CnCGameEngine {
         );
         request.is_campaign_session = is_campaign_session;
         request.is_challenge_session = is_challenge_session;
-        self.start_game_from_ui(request);
+        self.start_game_from_ui(request)?;
         info!(
             "Mission save '{}' restarts map '{}' instead of restoring mid-world",
             save_info.filename, save_info.map_name
@@ -3357,7 +3355,7 @@ impl CnCGameEngine {
             // Retain the failed outgoing session/native owner pair. Earlier
             // destructor callbacks may already have completed; no reset/retry.
             error!("Load left an unrecoverable native owner: {retirement}");
-            self.transition_to_state(GameState::Exiting);
+            self.transition_to_state(GameState::Exiting)?;
             return Err(err);
         }
         if committed && self.rejected_native_worlds.validate_admission().is_err() {
@@ -3365,7 +3363,7 @@ impl CnCGameEngine {
             // rejection may preserve its healthy old world; after committed
             // failure that rollback is no longer guaranteed.
             error!("Load cannot reset while a failed native candidate remains retained");
-            self.transition_to_state(GameState::Exiting);
+            self.transition_to_state(GameState::Exiting)?;
             return Err(err);
         }
         if committed {
@@ -3374,9 +3372,9 @@ impl CnCGameEngine {
             // path can preserve an old match before commit, but once
             // a nested Drawable Xfer fails it must not expose the
             // partly installed world as a playable InGame state.
-            self.return_to_main_menu_after_match();
+            self.return_to_main_menu_after_match()?;
         } else {
-            self.transition_to_state(Self::staged_load_failure_return_state(prior_state));
+            self.transition_to_state(Self::staged_load_failure_return_state(prior_state))?;
         }
         // C++ GameState.cpp:695-712 resets the engine before showing
         // GUI:ErrorLoadingGame. A committed failure's menu teardown
@@ -3407,7 +3405,7 @@ impl CnCGameEngine {
             // Prefer presentation game_mode residual when installed.
             self.prepare_cpp_load_screen_for_mode(self.presentation_or_live_game_mode(), true);
         }
-        self.transition_to_state(GameState::Loading);
+        self.transition_to_state(GameState::Loading)?;
         match self.host_load_game_authority(slot) {
             Ok(save_info) => {
                 if self.pending_match_start.is_some() {
@@ -3473,7 +3471,7 @@ impl CnCGameEngine {
 
                 // Seed presentation before first InGame render (units/HUD identity).
                 self.seed_presentation_after_match_start()?;
-                self.transition_to_state(GameState::InGame);
+                self.transition_to_state(GameState::InGame)?;
                 Ok(())
             }
             Err(failure) => self.host_handle_load_failure(slot, prior_state, failure),

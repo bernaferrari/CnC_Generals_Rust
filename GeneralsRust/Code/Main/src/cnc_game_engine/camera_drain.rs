@@ -63,30 +63,34 @@ fn superweapon_countdown_text(remaining: f32) -> String {
 
 impl CnCGameEngine {
     /// Wave 602: via `host_route_shell_owned_screen_change`.
-    pub(super) fn route_shell_owned_screen_change(&mut self, screen: Screen) {
+    pub(super) fn route_shell_owned_screen_change(&mut self, screen: Screen) -> Result<(), String> {
         // Wave 602: thin wrapper — shell screen route via host helper.
-        self.host_route_shell_owned_screen_change(screen);
+        self.host_route_shell_owned_screen_change(screen)
     }
 
     /// Wave 602: host shell-owned screen route residual (MainMenu/Options/Credits/
     /// LoadGame/Skirmish WND push path).
-    pub(super) fn host_route_shell_owned_screen_change(&mut self, screen: Screen) {
+    pub(super) fn host_route_shell_owned_screen_change(
+        &mut self,
+        screen: Screen,
+    ) -> Result<(), String> {
         // Wave 602: host shell screen route residual.
         match screen {
-            Screen::MainMenu => self.enter_shell_menu_from_runtime_host(None),
-            Screen::Options => self.enter_shell_options_from_runtime_host(),
+            Screen::MainMenu => self.enter_shell_menu_from_runtime_host(None)?,
+            Screen::Options => self.enter_shell_options_from_runtime_host()?,
             Screen::Credits => {
-                self.enter_shell_screen_from_runtime_host(Some("Credits"), "Menus/CreditsMenu.wnd")
+                self.enter_shell_screen_from_runtime_host(Some("Credits"), "Menus/CreditsMenu.wnd")?
             }
             Screen::LoadGame => {
-                self.enter_shell_screen_from_runtime_host(Some("LoadGame"), "Menus/SaveLoad.wnd")
+                self.enter_shell_screen_from_runtime_host(Some("LoadGame"), "Menus/SaveLoad.wnd")?
             }
             Screen::Skirmish => self.enter_shell_screen_from_runtime_host(
                 Some("Skirmish"),
                 "Menus/SkirmishGameOptionsMenu.wnd",
-            ),
+            )?,
             _ => {}
         }
+        Ok(())
     }
 
     pub(super) fn apply_pending_script_camera_requests(&mut self) {
@@ -251,9 +255,9 @@ impl CnCGameEngine {
     }
 
     /// Wave 601: via `host_restart_mission_from_ui`.
-    pub(super) fn restart_mission_from_ui(&mut self) {
+    pub(super) fn restart_mission_from_ui(&mut self) -> Result<(), String> {
         // Wave 601: thin wrapper — restart via host helper.
-        self.host_restart_mission_from_ui();
+        self.host_restart_mission_from_ui()
     }
 
     /// Wave 605: Menu-state client residual.
@@ -355,7 +359,7 @@ impl CnCGameEngine {
         #[cfg(feature = "game_client")]
         {
             // Wave 588: Menu GameClient shell + NewGame drain residual via helper.
-            if self.host_tick_game_client_menu_shell() {
+            if self.host_tick_game_client_menu_shell()? {
                 return Ok(true);
             }
         }
@@ -369,7 +373,7 @@ impl CnCGameEngine {
                 );
                 return Ok(false);
             }
-            self.start_game_from_ui(request);
+            self.start_game_from_ui(request)?;
             let _ = Self::take_new_game_dispatch_from_common_stream(
                 self.game_client.message_stream_mut(),
             );
@@ -405,7 +409,8 @@ impl CnCGameEngine {
                 "Loading parked match start: mode={:?} map={}",
                 pending.request.mode, pending.request.map
             );
-            self.complete_parked_match_start(pending);
+            self.complete_parked_match_start(pending)
+                .map_err(anyhow::Error::msg)?;
             return Ok(());
         }
         // NewGame / start-new-game must drain on the load screen, not only Menu.
@@ -426,7 +431,8 @@ impl CnCGameEngine {
                     "Loading NewGame drain: mode={:?} faction={} map={}",
                     request.mode, request.faction, request.map
                 );
-                self.start_game_from_ui(request);
+                self.start_game_from_ui(request)
+                    .map_err(anyhow::Error::msg)?;
                 let _ = Self::take_new_game_dispatch_from_common_stream(
                     self.game_client.message_stream_mut(),
                 );
@@ -448,7 +454,8 @@ impl CnCGameEngine {
                         "Loading start_new_game flag drain: mode={:?} map={}",
                         request.mode, request.map
                     );
-                    self.start_game_from_ui(request);
+                    self.start_game_from_ui(request)
+                        .map_err(anyhow::Error::msg)?;
                     return Ok(());
                 }
             }
@@ -463,7 +470,8 @@ impl CnCGameEngine {
             self.update_shell_loading_progress(1.0, Some("Startup complete"));
             self.startup_last_reported_progress = 1.0;
             self.apply_shell_menu_window_chrome();
-            self.transition_to_state(GameState::Menu);
+            self.transition_to_state(GameState::Menu)
+                .map_err(anyhow::Error::msg)?;
             return Ok(());
         }
         self.set_runtime_ui_state_projection(Screen::Loading);
@@ -572,7 +580,7 @@ impl CnCGameEngine {
     /// C++ `restartMissionMenu` (QuitMenu.cpp:211-216) re-posts MSG_NEW_GAME
     /// with gameMode / difficulty / rankPoints. Keep the last Challenge
     /// PlayerTemplate instead of `without_player_template`.
-    pub(super) fn host_restart_mission_from_ui(&mut self) {
+    pub(super) fn host_restart_mission_from_ui(&mut self) -> Result<(), String> {
         if let Some(identity) = self.last_new_game_identity() {
             info!(
                 "UI requested restart: mode={:?} difficulty={} rank={} faction={} map={}",
@@ -582,8 +590,8 @@ impl CnCGameEngine {
                 identity.faction,
                 identity.map
             );
-            self.host_restart_mission_from_dispatch(identity.dispatch);
-            return;
+            self.host_restart_mission_from_dispatch(identity.dispatch)?;
+            return Ok(());
         }
         let map = self.presentation_or_boot_map_name();
         let mode = self.presentation_or_live_game_mode();
@@ -599,7 +607,8 @@ impl CnCGameEngine {
         );
         self.start_game_from_ui(HostStartRequest::without_player_template(
             mode, faction, map, None,
-        ));
+        ))?;
+        Ok(())
     }
 
     /// Prefer presentation-frozen game mode when a frame is installed.
@@ -1266,6 +1275,7 @@ impl CnCGameEngine {
         R,
         Vec<game_client::gui::callbacks::replay_menu::ingress::ReplayMenuStep>,
     ) {
+        let menu_world = self.receiving_menu_world_facts();
         let playback = self
             .game_logic
             .replay_pending
@@ -1304,6 +1314,8 @@ impl CnCGameEngine {
             let viewport = &mut self.game_logic.session_view.camera;
             let mut driver = |owner: &game_client::gui::window_manager::WindowManagerOwner,
                               campaign: &mut game_client::gui::campaign_manager::CampaignManager,
+                              main_menu: &mut game_client::gui::shell::main_menu::MainMenu,
+                              menu_host: &mut game_client::gui::campaign_launch_host_bridge::MenuHostMailbox,
                               request,
                               messages: &mut Vec<game_engine::common::message_stream::GameMessage>| {
                 let mut context = game_client::gui::window_manager::ControlBarInputContext {
@@ -1313,7 +1325,9 @@ impl CnCGameEngine {
                     camera_options: Some(game_client::gui::window_manager::CameraOptionsInputContext::new(&mut *preferences, camera_rules).with_terrain_lod(&mut terrain_lod)),
                     control_bar: &mut *control_bar, viewport: &mut *viewport,
                     replay, game_ending, tooltips_disabled, cursor_mouse: cursor_mouse.as_ref(),
-                    window_manager_owner: Some(owner), campaign_manager: Some(campaign), emitted_messages: Some(messages),
+                    window_manager_owner: Some(owner), campaign_manager: Some(campaign), main_menu: Some(main_menu),
+                    menu_world: Some(menu_world), menu_host: Some(menu_host),
+                    emitted_messages: Some(messages),
                 };
                 let result = game_client::gui::window_manager::dispatch_translated_window_input_for_owner(owner, request, &mut context);
                 drop(context);
@@ -1332,21 +1346,40 @@ impl CnCGameEngine {
 
     #[cfg(feature = "game_client")]
     pub(super) fn pump_native_client_commands(&mut self) -> Result<(), String> {
-        let (messages, steps) =
-            self.with_receiving_client_translation(|client, playback, driver, _manager| {
-                client.take_message_stream_with_native_input(playback, driver)
-            });
-        let result = messages
-            .map_err(|error| error.to_string())
-            .and_then(|messages| {
-                self.game_logic
-                    .replay_pending
-                    .receive_client_messages(messages)
-            });
-        for step in steps {
-            step.complete(self);
+        use game_engine::common::message_stream::PropagationProgress;
+        let mut cursor = None;
+        loop {
+            let (progress, steps) =
+                self.with_receiving_client_translation(|client, playback, driver, _manager| {
+                    client.take_message_stream_until_menu_host(playback, driver, cursor.take())
+                });
+            match progress.map_err(|error| error.to_string())? {
+                PropagationProgress::Complete(messages) => {
+                    let result = self
+                        .game_logic
+                        .replay_pending
+                        .receive_client_messages(messages);
+                    for step in steps {
+                        step.complete(self)?;
+                    }
+                    return result;
+                }
+                PropagationProgress::HostBoundary(next) => {
+                    for step in steps {
+                        step.complete(self)?;
+                    }
+                    let reset = self.complete_receiving_menu_host_requests()?;
+                    if self.is_quitting() {
+                        return Ok(());
+                    }
+                    cursor = Some(if reset {
+                        next.after_world_reset()
+                    } else {
+                        next
+                    });
+                }
+            }
         }
-        result
     }
 
     /// Wave 588: Menu GameClient shell tick + NewGame drain residual.
@@ -1358,7 +1391,7 @@ impl CnCGameEngine {
     /// Distinct from InGame `host_tick_game_client_presentation_shell` (no FOW/pose;
     /// NewGame intercept is Menu-only). Full `GameClient::update` stays disconnected.
     #[cfg(feature = "game_client")]
-    pub(super) fn host_tick_game_client_menu_shell(&mut self) -> bool {
+    pub(super) fn host_tick_game_client_menu_shell(&mut self) -> Result<bool, String> {
         // Peek/start MSG_NEW_GAME before update_input/propagateMessages
         // can destroy it. WND Skirmish Start posts here.
         if let Some(request) = self.take_pending_new_game_start_request() {
@@ -1375,17 +1408,19 @@ impl CnCGameEngine {
                     request.map,
                     request.skirmish.is_some()
                 );
-                self.start_game_from_ui(request);
+                self.start_game_from_ui(request)?;
                 let _ = Self::take_new_game_dispatch_from_common_stream(
                     self.game_client.message_stream_mut(),
                 );
                 gamelogic::helpers::TheGameLogic::clear_start_new_game_request();
-                return true;
+                return Ok(true);
             }
         }
         let early_menu_frame = self.menu_world_frames_rendered < 5;
         let t0 = std::time::Instant::now();
         let snow_dt = self.snow_anim2d_dt_for_present();
+        let post_draw_menu_world = self.receiving_menu_world_facts();
+        let shell_menu_world = self.receiving_menu_world_facts();
         {
             let gc = &mut self.game_client;
             if early_menu_frame {
@@ -1394,7 +1429,7 @@ impl CnCGameEngine {
                     self.menu_world_frames_rendered
                 );
             }
-            let _ = gc.ensure_shell_visible();
+            let _ = gc.ensure_shell_visible(Some(shell_menu_world));
             let _ = gc.create_frame_tick_message();
             let t1 = std::time::Instant::now();
             if early_menu_frame {
@@ -1416,8 +1451,13 @@ impl CnCGameEngine {
             if early_menu_frame {
                 debug!("Menu update_internal: calling gc.update_post_draw_ui");
             }
-            let _ = gc.update_post_draw_ui();
+            let _ = gc.update_post_draw_ui(Some(post_draw_menu_world));
             let _ = (t1, t2, t3);
+        }
+
+        self.complete_receiving_menu_host_requests()?;
+        if self.is_quitting() {
+            return Ok(true);
         }
 
         // Peek MSG_NEW_GAME before pump so WND Start reaches InGame, then
@@ -1439,20 +1479,18 @@ impl CnCGameEngine {
                     request.map,
                     request.skirmish.is_some()
                 );
-                self.start_game_from_ui(request);
+                self.start_game_from_ui(request)?;
                 {
                     if early_menu_frame {
                         debug!("Menu update_internal: receiving client command pump");
                     }
-                    if let Err(error) = self.pump_native_client_commands() {
-                        error!("Menu receiving command routing failed: {error}");
-                    }
+                    self.pump_native_client_commands()?;
                 }
                 let _ = Self::take_new_game_dispatch_from_common_stream(
                     self.game_client.message_stream_mut(),
                 );
                 gamelogic::helpers::TheGameLogic::clear_start_new_game_request();
-                return true;
+                return Ok(true);
             }
         }
 
@@ -1460,9 +1498,7 @@ impl CnCGameEngine {
             if early_menu_frame {
                 debug!("Menu update_internal: receiving client command pump");
             }
-            if let Err(error) = self.pump_native_client_commands() {
-                error!("Menu receiving command routing failed: {error}");
-            }
+            self.pump_native_client_commands()?;
         }
 
         // Secondary path: crate helpers may flag start after pump.
@@ -1484,8 +1520,8 @@ impl CnCGameEngine {
                         "Menu start_new_game flag drain: mode={:?} map={}",
                         request.mode, request.map
                     );
-                    self.start_game_from_ui(request);
-                    return true;
+                    self.start_game_from_ui(request)?;
+                    return Ok(true);
                 }
             }
         }
@@ -1500,7 +1536,7 @@ impl CnCGameEngine {
                 self.frame_counter,
             );
         }
-        false
+        Ok(false)
     }
 
     /// Wave 590: seed PresentationFrame after match start (no logic advance).

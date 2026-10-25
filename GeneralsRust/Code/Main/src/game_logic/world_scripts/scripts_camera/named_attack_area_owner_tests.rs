@@ -134,7 +134,9 @@ fn player_attack_area_resolves_owned_polygon_and_retains_player_source_on_rescan
     {
         let mut executor = crate::command_executor::CommandExecutor::new(&mut owner, 1);
         assert_eq!(
-            executor.execute_attack_area(&[unit], Vec3::ZERO, 1.0, Some("OwnedAttackArea")),
+            executor
+                .execute_attack_area(&[unit], Vec3::ZERO, 1.0, Some("OwnedAttackArea"))
+                .expect("valid owned attack-area fixture"),
             crate::command_system::CommandResult::Success
         );
     }

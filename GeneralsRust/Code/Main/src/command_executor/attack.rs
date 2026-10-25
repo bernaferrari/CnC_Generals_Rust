@@ -143,7 +143,7 @@ impl<'a> CommandExecutor<'a> {
         &mut self,
         units: &[ObjectId],
         target_id: ObjectId,
-    ) -> CommandResult {
+    ) -> gamelogic::GameLogicResult<CommandResult> {
         // Wave 232: attack last-writes via GameLogic unit_command_attack.
         self.execute_group_attack_object(units, target_id, false)
     }
@@ -152,7 +152,7 @@ impl<'a> CommandExecutor<'a> {
         &mut self,
         units: &[ObjectId],
         target_id: ObjectId,
-    ) -> CommandResult {
+    ) -> gamelogic::GameLogicResult<CommandResult> {
         self.execute_attack(units, target_id)
     }
 
@@ -160,7 +160,7 @@ impl<'a> CommandExecutor<'a> {
         &mut self,
         units: &[ObjectId],
         target_id: ObjectId,
-    ) -> CommandResult {
+    ) -> gamelogic::GameLogicResult<CommandResult> {
         // Wave 232: force-attack last-writes via GameLogic unit_command_force_attack.
         self.execute_group_attack_object(units, target_id, true)
     }
@@ -171,9 +171,9 @@ impl<'a> CommandExecutor<'a> {
         units: &[ObjectId],
         target_id: ObjectId,
         forced: bool,
-    ) -> CommandResult {
+    ) -> gamelogic::GameLogicResult<CommandResult> {
         if self.game_logic.host_object(target_id).is_none() {
-            return CommandResult::InvalidTarget;
+            return Ok(CommandResult::InvalidTarget);
         }
         // C++ `if (!victim) return` — a dead-but-present object still receives
         // `aiAttackObject` (AIGroup.cpp:2102-2105). Do not TargetDestroyed.
@@ -246,7 +246,7 @@ impl<'a> CommandExecutor<'a> {
             let ok = if forced {
                 self.game_logic.unit_command_force_attack(p, target_id)
             } else {
-                self.game_logic.unit_command_attack(p, target_id)
+                self.game_logic.unit_command_attack(p, target_id)?
             };
             if ok {
                 any_attacker = true;
@@ -262,7 +262,7 @@ impl<'a> CommandExecutor<'a> {
                 self.game_logic
                     .unit_command_force_attack(unit_id, target_id)
             } else {
-                self.game_logic.unit_command_attack(unit_id, target_id)
+                self.game_logic.unit_command_attack(unit_id, target_id)?
             };
             if ok {
                 any_attacker = true;
@@ -292,9 +292,9 @@ impl<'a> CommandExecutor<'a> {
             // C++ MSG_DO_ATTACK_OBJECT VoiceAttack / VoiceAttackAir, then specialty
             // upgrade (`CommandXlat.cpp:496-567`).
             self.game_logic.queue_picked_unit_voice(units, voice);
-            CommandResult::Success
+            Ok(CommandResult::Success)
         } else {
-            CommandResult::CannotAttackTarget
+            Ok(CommandResult::CannotAttackTarget)
         }
     }
 
@@ -703,11 +703,11 @@ impl<'a> CommandExecutor<'a> {
         center: Vec3,
         radius: f32,
         polygon_name: Option<&str>,
-    ) -> CommandResult {
+    ) -> gamelogic::GameLogicResult<CommandResult> {
         let (center, radius, tag) =
             resolve_attack_area(self.game_logic, center, radius, polygon_name);
         if !center.x.is_finite() || !center.z.is_finite() {
-            return CommandResult::InvalidLocation;
+            return Ok(CommandResult::InvalidLocation);
         }
         let radius = radius.max(1.0);
         let mut any = false;
@@ -731,7 +731,7 @@ impl<'a> CommandExecutor<'a> {
                 self.game_logic
                     .find_attack_area_victim(unit_id, center, radius, polygon_name)
             {
-                let _ = self.execute_attack_object(&[unit_id], enemy_id);
+                self.execute_attack_object(&[unit_id], enemy_id)?;
                 if let Some(u) = self.game_logic.host_object_mut(unit_id) {
                     u.attack_priority_set = Some(tag.clone());
                     u.set_auto_acquire_when_idle(true);
@@ -744,9 +744,9 @@ impl<'a> CommandExecutor<'a> {
             }
         }
         if any {
-            CommandResult::Success
+            Ok(CommandResult::Success)
         } else {
-            CommandResult::InvalidCommand
+            Ok(CommandResult::InvalidCommand)
         }
     }
 }

@@ -86,6 +86,24 @@ pub enum WindowInputDispatchResult {
     Used,
 }
 
+/// Position in the translator-major source pass. It owns no message/window/world loan.
+#[derive(Debug)]
+pub struct PropagationCursor {
+    translator_index: usize,
+    message_index: usize,
+}
+impl PropagationCursor {
+    /// Source clearGameData removed the old queue, but the translator pass remains active.
+    pub fn after_world_reset(mut self) -> Self {
+        self.message_index = 0;
+        self
+    }
+}
+pub enum PropagationProgress {
+    Complete(Vec<GameMessage>),
+    HostBoundary(PropagationCursor),
+}
+
 /// Borrowed receiver context supplied by the driving GameClient for one stream pass.
 pub type WindowInputDispatchFn<'a> =
     dyn FnMut(WindowInputDispatch, &mut Vec<GameMessage>) -> Option<WindowInputDispatchResult> + 'a;
@@ -336,7 +354,27 @@ impl MessageStream {
         &mut self,
         dispatch_window_input: &mut WindowInputDispatchFn<'_>,
     ) -> Result<Vec<GameMessage>, Box<dyn std::error::Error>> {
-        let _ = take_emitted_messages();
+        match self.propagate_messages_until_host_boundary(
+            dispatch_window_input,
+            None,
+            &mut || false,
+        )? {
+            PropagationProgress::Complete(messages) => Ok(messages),
+            PropagationProgress::HostBoundary(_) => {
+                unreachable!("generic propagation does not request a host boundary")
+            }
+        }
+    }
+
+    pub fn propagate_messages_until_host_boundary(
+        &mut self,
+        dispatch_window_input: &mut WindowInputDispatchFn<'_>,
+        cursor: Option<PropagationCursor>,
+        should_yield: &mut dyn FnMut() -> bool,
+    ) -> Result<PropagationProgress, Box<dyn std::error::Error>> {
+        if cursor.is_none() {
+            let _ = take_emitted_messages();
+        }
 
         debug!(
             "Propagating {} messages through {} translators",
@@ -345,12 +383,15 @@ impl MessageStream {
         );
 
         // Sort translators by priority (lower priority = higher precedence)
-        self.translators.sort_by_key(|t| t.priority);
-
-        for translator_idx in 0..self.translators.len() {
+        if cursor.is_none() {
+            self.translators.sort_by_key(|t| t.priority);
+        }
+        let mut translator_idx = cursor.as_ref().map_or(0, |cursor| cursor.translator_index);
+        let mut resume_index = cursor.map_or(0, |cursor| cursor.message_index);
+        while translator_idx < self.translators.len() {
             let translator = self.translators[translator_idx].translator.clone();
             let translator_id = self.translators[translator_idx].id;
-            let mut idx = 0usize;
+            let mut idx = std::mem::take(&mut resume_index);
             while idx < self.base.message_count() {
                 let Some(message) = self.base.messages.iter().nth(idx).cloned() else {
                     break;
@@ -397,7 +438,14 @@ impl MessageStream {
                         let _ = self.base.remove_message_at(idx);
                     }
                 }
+                if should_yield() {
+                    return Ok(PropagationProgress::HostBoundary(PropagationCursor {
+                        translator_index: translator_idx,
+                        message_index: idx,
+                    }));
+                }
             }
+            translator_idx += 1;
         }
 
         let completed_messages: Vec<GameMessage> =
@@ -408,7 +456,7 @@ impl MessageStream {
             "Propagation complete. {} messages remaining",
             completed_messages.len()
         );
-        Ok(completed_messages)
+        Ok(PropagationProgress::Complete(completed_messages))
     }
 
     /// Attach a translator to the stream at the specified priority
@@ -797,6 +845,68 @@ mod tests {
             second_seen,
             vec![GameMessageType::Invalid, GameMessageType::NewGame],
             "later translators must see survivors including same-pass appends"
+        );
+    }
+
+    #[test]
+    fn menu_owner_host_yield_releases_message_and_reset_discards_old_tail() {
+        if matches!(
+            crate::test_process::run_bounded(
+                module_path!(),
+                "menu_owner_host_yield_releases_message_and_reset_discards_old_tail"
+            ),
+            crate::test_process::TestProcess::ParentVerified
+        ) {
+            return;
+        }
+        let mut stream = MessageStream::new();
+        let first = Arc::new(RwLock::new(EmittingTranslator {
+            emit_on: GameMessageType::Invalid,
+            emitted: GameMessageType::NewGame,
+            seen: Vec::new(),
+        }));
+        let second = Arc::new(RwLock::new(EmittingTranslator {
+            emit_on: GameMessageType::ClearGameData,
+            emitted: GameMessageType::ClearGameData,
+            seen: Vec::new(),
+        }));
+        // The second translator must not emit during this regression test.
+        second.write().unwrap().emit_on = GameMessageType::LogicCRC(99);
+        stream.attach_translator(first.clone(), 10);
+        stream.attach_translator(second.clone(), 20);
+        stream.append_message(GameMessageType::Invalid);
+        stream.append_message(GameMessageType::LogicCRC(7));
+        let cursor = match stream
+            .propagate_messages_until_host_boundary(&mut |_, _| None, None, &mut || true)
+            .unwrap()
+        {
+            PropagationProgress::HostBoundary(cursor) => cursor,
+            PropagationProgress::Complete(_) => {
+                panic!("source message must yield before the old tail")
+            }
+        };
+        assert_eq!(first.read().unwrap().seen, vec![GameMessageType::Invalid]);
+        assert!(second.read().unwrap().seen.is_empty());
+        stream.clear_messages();
+        stream.append_message(GameMessageType::ClearGameData);
+        let complete = stream
+            .propagate_messages_until_host_boundary(
+                &mut |_, _| None,
+                Some(cursor.after_world_reset()),
+                &mut || false,
+            )
+            .unwrap();
+        let PropagationProgress::Complete(messages) = complete else {
+            panic!("resumed source pass did not finish");
+        };
+        assert_eq!(messages.len(), 1);
+        assert_eq!(
+            first.read().unwrap().seen,
+            vec![GameMessageType::Invalid, GameMessageType::ClearGameData]
+        );
+        assert_eq!(
+            second.read().unwrap().seen,
+            vec![GameMessageType::ClearGameData]
         );
     }
 

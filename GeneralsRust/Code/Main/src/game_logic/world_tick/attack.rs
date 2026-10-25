@@ -181,6 +181,7 @@ impl GameLogic {
     ///
     /// Units owned by the SM have is_aiming_weapon / is_firing_weapon or a non-Aim
     /// substate after approach. Legacy update_combat still owns plain Attacking units.
+    #[cfg(test)]
     pub(crate) fn tick_nested_attack_machines(
         &mut self,
         object_ids: &[ObjectId],
@@ -193,7 +194,7 @@ impl GameLogic {
             logic_frame,
             &mut crate::game_logic::ScriptPresentationEffects::default(),
         )
-        .expect("nested attack child transition");
+        .expect("valid nested attack fixture");
     }
 
     pub(crate) fn tick_nested_attack_machines_with_effects(
@@ -247,7 +248,7 @@ impl GameLogic {
                 logic_frame,
                 0.35,
                 presentation_effects,
-            ) {
+            )? {
                 AttackMachineResult::Continue => {}
                 AttackMachineResult::Success | AttackMachineResult::Failure => {
                     stop.push(id);
@@ -255,15 +256,34 @@ impl GameLogic {
             }
         }
         for id in stop {
-            let attack_move_child = self.objects.get(&id).is_some_and(|unit| {
-                unit.unit_ai_runtime.root_state() == AIState::AttackMoving
-                    && unit.unit_ai_runtime.parent_state() == Some(AIState::AttackMoving)
-            });
+            let (attack_move_child, has_parent) =
+                self.objects.get(&id).map_or((false, false), |unit| {
+                    (
+                        unit.unit_ai_runtime.root_state() == AIState::AttackMoving
+                            && unit.unit_ai_runtime.parent_state() == Some(AIState::AttackMoving),
+                        unit.unit_ai_runtime.parent_state().is_some(),
+                    )
+                });
             if attack_move_child {
                 self.complete_attack_move_child_attack_owned(id)?;
             } else {
                 self.attack_state_exit(id);
                 self.stop_attack_decision_aware(id);
+                if has_parent {
+                    if !self.enter_ai_idle_child_owned(id) {
+                        return Err(gamelogic::GameLogicError::Configuration(
+                            "nested attack could not return to its parent Idle child".into(),
+                        ));
+                    }
+                } else if !self.set_ai_state_decision_aware_with_effects(
+                    id,
+                    AIState::Idle,
+                    presentation_effects,
+                )? {
+                    return Err(gamelogic::GameLogicError::Configuration(
+                        "completed attack lost its receiving actor before Idle entry".into(),
+                    ));
+                }
             }
         }
         Ok(())
@@ -401,6 +421,7 @@ impl GameLogic {
         u.can_pursue_target(v)
     }
 
+    #[cfg(test)]
     pub fn tick_attack_state_machine(
         &mut self,
         unit_id: ObjectId,
@@ -417,6 +438,7 @@ impl GameLogic {
             max_turn_rad,
             &mut crate::game_logic::ScriptPresentationEffects::default(),
         )
+        .expect("valid attack machine fixture")
     }
 
     pub(crate) fn tick_attack_state_machine_with_effects(
@@ -427,32 +449,32 @@ impl GameLogic {
         logic_frame: u32,
         max_turn_rad: f32,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> AttackMachineResult {
+    ) -> gamelogic::GameLogicResult<AttackMachineResult> {
         {
             let Some(u) = self.objects.get(&unit_id) else {
-                return AttackMachineResult::Failure;
+                return Ok(AttackMachineResult::Failure);
             };
             if !u.is_alive() || u.status.under_construction {
-                return AttackMachineResult::Failure;
+                return Ok(AttackMachineResult::Failure);
             }
             if u.weapon.is_none() && u.secondary_weapon.is_none() && u.tertiary_weapon.is_none() {
-                return AttackMachineResult::Failure;
+                return Ok(AttackMachineResult::Failure);
             }
             if u.max_shots_to_fire == 0 {
-                return AttackMachineResult::Failure;
+                return Ok(AttackMachineResult::Failure);
             }
         }
         {
             let Some(v) = self.objects.get(&victim_id) else {
-                return AttackMachineResult::Success;
+                return Ok(AttackMachineResult::Success);
             };
             if !v.is_alive() || v.status.destroyed {
-                return AttackMachineResult::Success;
+                return Ok(AttackMachineResult::Success);
             }
         }
         // C++ cannotPossiblyAttackObject condition → EXIT_MACHINE_WITH_FAILURE.
         if self.cannot_possibly_attack_object(unit_id, victim_id, false) {
-            return AttackMachineResult::Failure;
+            return Ok(AttackMachineResult::Failure);
         }
         // Re-evaluate weapon choice every frame (C++ AIAttackState::update).
         let _ = self.choose_best_weapon_for_target(unit_id, Some(victim_id), current_time);
@@ -482,10 +504,10 @@ impl GameLogic {
 
         let in_range = {
             let Some(u) = self.objects.get(&unit_id) else {
-                return AttackMachineResult::Failure;
+                return Ok(AttackMachineResult::Failure);
             };
             let Some(v) = self.objects.get(&victim_id) else {
-                return AttackMachineResult::Success;
+                return Ok(AttackMachineResult::Success);
             };
             u.selected_weapon_slot()
                 .is_some_and(|slot| u.is_within_attack_range_for_slot(slot, v))
@@ -500,7 +522,7 @@ impl GameLogic {
             .unwrap_or(crate::game_logic::AttackSubState::AimAtTarget);
 
         use crate::game_logic::AttackSubState;
-        match sub {
+        Ok(match sub {
             AttackSubState::AimAtTarget => {
                 // C++ AIM conditions: outOfWeaponRangeObject OR wantToSquishTarget → CHASE.
                 if out_of_wr || self.want_to_squish_target(unit_id, victim_id) {
@@ -513,8 +535,8 @@ impl GameLogic {
                         });
                         u.status.is_aiming_weapon = false;
                     }
-                    let _ = self.attack_approach_compute_path(unit_id, Some(victim_id), None);
-                    return AttackMachineResult::Continue;
+                    self.attack_approach_compute_path(unit_id, Some(victim_id), None)?;
+                    return Ok(AttackMachineResult::Continue);
                 }
                 match self.attack_aim_at_target_update(unit_id, victim_id, max_turn_rad) {
                     AttackAimResult::Success => {
@@ -525,7 +547,7 @@ impl GameLogic {
                         let _ = self.attack_fire_weapon_enter(unit_id);
                     }
                     AttackAimResult::Continue => {}
-                    AttackAimResult::Failure => return AttackMachineResult::Failure,
+                    AttackAimResult::Failure => return Ok(AttackMachineResult::Failure),
                 }
                 AttackMachineResult::Continue
             }
@@ -541,8 +563,8 @@ impl GameLogic {
                         });
                         u.status.is_firing_weapon = false;
                     }
-                    let _ = self.attack_approach_compute_path(unit_id, Some(victim_id), None);
-                    return AttackMachineResult::Continue;
+                    self.attack_approach_compute_path(unit_id, Some(victim_id), None)?;
+                    return Ok(AttackMachineResult::Continue);
                 }
                 let fire = self.attack_fire_weapon_update_with_effects(
                     unit_id,
@@ -572,7 +594,7 @@ impl GameLogic {
                         u.set_status_moving(false);
                     }
                     let _ = self.attack_aim_at_target_enter(unit_id);
-                    return AttackMachineResult::Continue;
+                    return Ok(AttackMachineResult::Continue);
                 }
                 // Fleeing victim may upgrade Approach → Chase mid-path.
                 if self.should_chase_attack_target(unit_id, victim_id) {
@@ -580,7 +602,7 @@ impl GameLogic {
                         u.set_attack_substate(AttackSubState::ChaseTarget);
                     }
                 }
-                let _ = self.attack_approach_compute_path(unit_id, Some(victim_id), None);
+                self.attack_approach_compute_path(unit_id, Some(victim_id), None)?;
                 if let Some(u) = self.objects.get_mut(&unit_id) {
                     u.set_approach_timestamp(logic_frame);
                     u.set_status_moving(true);
@@ -603,16 +625,16 @@ impl GameLogic {
                         if let Some(u) = self.objects.get_mut(&unit_id) {
                             u.set_attack_substate(AttackSubState::ApproachTarget);
                         }
-                        return AttackMachineResult::Continue;
+                        return Ok(AttackMachineResult::Continue);
                     }
                 }
                 let (victim_spd, can_crush) = {
                     use gamelogic::common::Relationship;
                     let Some(victim) = self.objects.get(&victim_id) else {
-                        return AttackMachineResult::Success;
+                        return Ok(AttackMachineResult::Success);
                     };
                     let Some(attacker) = self.objects.get(&unit_id) else {
-                        return AttackMachineResult::Failure;
+                        return Ok(AttackMachineResult::Failure);
                     };
                     let is_ally =
                         self.object_relationship(attacker, victim) == Relationship::Allies;
@@ -636,7 +658,7 @@ impl GameLogic {
                         attacker.set_status_moving(false);
                     }
                     let _ = self.attack_aim_at_target_enter(unit_id);
-                    return AttackMachineResult::Continue;
+                    return Ok(AttackMachineResult::Continue);
                 }
                 // C++ AIStates.cpp:3058-3060: canCrushOrSquish → FAST_AS_POSSIBLE
                 // so tanks run over fleeing infantry instead of pacing at victim*0.95.
@@ -659,7 +681,7 @@ impl GameLogic {
                         u.is_final_goal = false;
                         u.is_attack_path = false;
                     }
-                    let _ = self.request_object_path(unit_id, pos);
+                    self.request_object_path(unit_id, pos);
                 }
                 if let Some(u) = self.objects.get_mut(&unit_id) {
                     u.set_approach_timestamp(logic_frame);
@@ -667,7 +689,7 @@ impl GameLogic {
                 }
                 AttackMachineResult::Continue
             }
-        }
+        })
     }
 
     /// C++ `TurretAI::removeSelfAsTargeter` (TurretAI.cpp:528-543).
@@ -2464,14 +2486,14 @@ impl GameLogic {
         unit_id: ObjectId,
         victim_id: Option<ObjectId>,
         fixed_pos: Option<glam::Vec3>,
-    ) -> bool {
+    ) -> gamelogic::GameLogicResult<bool> {
         let frame = self.frame;
         let (mobile, stuck, waiting, path_empty, approach_ts, prev_vic, has_weapon, from) = {
             let Some(u) = self.objects.get(&unit_id) else {
-                return false;
+                return Ok(false);
             };
             if !u.can_move() {
-                return false;
+                return Ok(false);
             }
             (
                 true,
@@ -2487,7 +2509,7 @@ impl GameLogic {
         let _ = mobile;
 
         if waiting {
-            return true;
+            return Ok(true);
         }
 
         let mut force_repath = stuck;
@@ -2497,18 +2519,18 @@ impl GameLogic {
         if !force_repath
             && frame.saturating_sub(approach_ts) < crate::game_logic::MIN_RECOMPUTE_TIME_RESIDUAL
         {
-            return true;
+            return Ok(true);
         }
 
         if let Some(vid) = victim_id {
             let Some(victim) = self.objects.get(&vid) else {
-                return false;
+                return Ok(false);
             };
             if !victim.is_alive() {
-                return false;
+                return Ok(false);
             }
             if !has_weapon {
-                return false;
+                return Ok(false);
             }
             let raw = victim.get_position();
             let bridge = victim.is_kind_of(KindOf::Bridge);
@@ -2559,7 +2581,7 @@ impl GameLogic {
             let cell = crate::game_logic::weapon_bootstrap::PATHFIND_CELL_SIZE;
             // C++ dist < 0.001: already there, unless the min-range back-off runs.
             if dist < 0.001 && !(min_range > cell && dist < min_range) {
-                return true;
+                return Ok(true);
             }
             let (mut dir_x, mut dir_z) = if center_dist > 1e-3 {
                 (dx / center_dist, dz / center_dist)
@@ -2613,7 +2635,7 @@ impl GameLogic {
             if !force_repath {
                 if let Some(prev) = prev_vic {
                     if crate::game_logic::is_same_position_residual(from, prev, center) {
-                        return true;
+                        return Ok(true);
                     }
                 }
             }
@@ -2630,7 +2652,7 @@ impl GameLogic {
                 }
                 u.is_final_goal = false;
             }
-            let path_ok = self.request_attack_path(unit_id, Some(vid), center);
+            let path_ok = self.request_attack_path(unit_id, Some(vid), center)?;
             // C++ AIAttackApproachTargetState::computePath (AIStates.cpp:
             // 2449–2466) returns after admission. The owned doPathfind phase
             // handles contact rejection and ordinary fallback; an old or empty
@@ -2640,27 +2662,27 @@ impl GameLogic {
                     u.set_adjust_destinations(true);
                 }
             }
-            true
+            Ok(true)
         } else if let Some(pos) = fixed_pos {
             if let Some(u) = self.objects.get_mut(&unit_id) {
                 // C++ sets this before the !forceRepath return (AIStates.cpp:2472-2478).
                 u.set_adjust_destinations(true);
             }
             if !force_repath {
-                return true; // fixed positions don't move
+                return Ok(true); // fixed positions don't move
             }
             if let Some(u) = self.objects.get_mut(&unit_id) {
                 u.set_approach_timestamp(frame);
             }
-            let path_ok = self.request_attack_path(unit_id, None, pos);
+            let path_ok = self.request_attack_path(unit_id, None, pos)?;
             if path_ok {
                 if let Some(u) = self.objects.get_mut(&unit_id) {
                     u.set_adjust_destinations(true);
                 }
             }
-            true
+            Ok(true)
         } else {
-            false
+            Ok(false)
         }
     }
 
@@ -2672,27 +2694,27 @@ impl GameLogic {
         unit_id: ObjectId,
         victim_id: Option<ObjectId>,
         victim_pos: glam::Vec3,
-    ) -> bool {
+    ) -> gamelogic::GameLogicResult<bool> {
         let frame = self.frame;
         let can_compute = {
             let Some(u) = self.objects.get_mut(&unit_id) else {
-                return false;
+                return Ok(false);
             };
             if !u.can_move() || !u.is_alive() {
-                return false;
+                return Ok(false);
             }
             u.begin_request_attack_path(victim_id, victim_pos, frame)
         };
         if !can_compute {
-            return false; // deferred
+            return Ok(false); // deferred
         }
         if self.map_loaded {
             // requestAttackPath queues even aircraft. Retain an old installed
             // path and waiting until doPathfind consumes this request.
-            return self.queue_initialized_path_request(unit_id);
+            return Ok(self.queue_initialized_path_request(unit_id));
         }
         let Some(request) = self.initialized_path_request(unit_id) else {
-            return false;
+            return Ok(false);
         };
         self.resolve_initialized_path_request(request)
     }
@@ -2703,19 +2725,19 @@ impl GameLogic {
         unit_id: ObjectId,
         victim_id: ObjectId,
         max_shots: i32,
-    ) -> bool {
+    ) -> gamelogic::GameLogicResult<bool> {
         let victim_pos = match self.objects.get(&victim_id) {
             Some(v) if v.is_alive() => v.get_position(),
-            _ => return false,
+            _ => return Ok(false),
         };
         if let Some(u) = self.objects.get_mut(&unit_id) {
             u.set_max_shots_to_fire(max_shots);
         } else {
-            return false;
+            return Ok(false);
         }
         // C++ AIAttackState::onEnter residual via nested AttackStateMachine.
         if self.attack_state_enter(unit_id, victim_id) == AttackMachineResult::Failure {
-            return false;
+            return Ok(false);
         }
         // AIUpdate.cpp:3395-3417 only installs the attack state/goal. An
         // already-in-range turning turret must not manufacture a movement path
@@ -2730,9 +2752,9 @@ impl GameLogic {
             && !self.out_of_weapon_range_object(unit_id, victim_id)
             && !self.want_to_squish_target(unit_id, victim_id);
         if !turret_aim_only {
-            let _ = self.request_attack_path(unit_id, Some(victim_id), victim_pos);
+            self.request_attack_path(unit_id, Some(victim_id), victim_pos)?;
         }
-        true
+        Ok(true)
     }
 
     #[cfg(test)]
@@ -2743,6 +2765,7 @@ impl GameLogic {
         max_shots: i32,
     ) -> bool {
         self.private_attack_object(unit_id, victim_id, max_shots)
+            .expect("valid attack fixture path")
     }
 
     /// C++ AIUpdateInterface::requestPath residual.

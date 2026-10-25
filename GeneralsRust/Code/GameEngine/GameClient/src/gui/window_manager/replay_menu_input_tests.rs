@@ -93,6 +93,8 @@ fn select(
         emitted_messages: None,
             campaign_manager: None,
             window_manager_owner: None,
+
+        main_menu: None,
     };
     for msg in [WindowMessage::LeftDown, WindowMessage::LeftUp] {
         assert_eq!(

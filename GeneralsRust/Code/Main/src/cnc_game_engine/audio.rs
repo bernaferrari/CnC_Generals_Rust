@@ -16,14 +16,14 @@ impl CnCGameEngine {
         }
     }
 
-    pub(super) fn toggle_pause(&mut self) {
+    pub(super) fn toggle_pause(&mut self) -> Result<(), String> {
         // C++ has no dedicated pause screen: in-match pause is ESC /
         // MSG_META_OPTIONS -> ToggleQuitMenu (CommandXlat.cpp:3091-3094,
         // QuitMenu.cpp:260) — the pause is a side effect of the live
         // QuitMenu WND being visible. Route the host pause to that same
         // retail projection; the legacy software PauseMenu remains only as
         // the damaged-install fallback for a failed WND toggle.
-        if self.host_toggle_retail_quit_menu() {
+        if self.host_toggle_retail_quit_menu()? {
             info!(
                 "Game {}",
                 if self.game_paused {
@@ -32,7 +32,7 @@ impl CnCGameEngine {
                     "RESUMED"
                 }
             );
-            return;
+            return Ok(());
         }
 
         self.host_set_paused(!self.game_paused);
@@ -52,6 +52,8 @@ impl CnCGameEngine {
         } else {
             UIEvent::ChangeScreen(Screen::GameHUD)
         });
+
+        Ok(())
     }
 
     pub(super) fn start_background_music(&mut self) {

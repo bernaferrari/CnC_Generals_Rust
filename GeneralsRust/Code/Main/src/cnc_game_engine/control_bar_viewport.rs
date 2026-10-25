@@ -105,6 +105,9 @@ impl CnCGameEngine {
         let (x, y) = self.mouse_position;
         let observer_roster = self.receiving_observer_roster();
         let upgrade_tooltip = self.game_logic.receiving_upgrade_tooltip_observer();
+        let menu_world = self.receiving_menu_world_facts();
+        let (receiving_window_manager, campaign_manager, main_menu) =
+            self.game_client.window_owner_campaign_and_menu_mut();
         let mut context = game_client::gui::window_manager::ControlBarInputContext {
             upgrade_tooltip: game_client::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource::Receiving(&upgrade_tooltip),
             replay_menu: None,
@@ -118,14 +121,15 @@ impl CnCGameEngine {
             tooltips_disabled,
             cursor_mouse: cursor_mouse.as_ref(),
             emitted_messages: None,
-            campaign_manager: None,
-            window_manager_owner: None,
+            campaign_manager: Some(campaign_manager),
+            main_menu: Some(main_menu),
+            window_manager_owner: Some(receiving_window_manager),
+            menu_world: Some(menu_world),
+            menu_host: None,
         };
-        self.game_client
-            .window_manager_owner()
-            .with_manager(|manager| {
-                manager.refresh_control_bar_tooltip(x as i32, y as i32, &mut context);
-            });
+        receiving_window_manager.with_manager(|manager| {
+            manager.refresh_control_bar_tooltip(x as i32, y as i32, &mut context);
+        });
         self.control_bar
             .update_build_tooltip_layout_owned(game_ending);
         let parent = self.control_bar_parent_handle();

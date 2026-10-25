@@ -6,17 +6,25 @@ impl CnCGameEngine {
         self.request_state_change(GameState::Exiting);
     }
 
-    pub(super) fn runtime_host_cmd_menu(&mut self, _args: &HashMap<String, String>) {
-        self.enter_shell_menu_from_runtime_host(None);
+    pub(super) fn runtime_host_cmd_menu(
+        &mut self,
+        _args: &HashMap<String, String>,
+    ) -> Result<(), String> {
+        self.enter_shell_menu_from_runtime_host(None)?;
         self.runtime_host_last_gameplay_cmd = "menu_ok".into();
+
+        Ok(())
     }
 
-    pub(super) fn runtime_host_cmd_toggle_pause(&mut self, _args: &HashMap<String, String>) {
+    pub(super) fn runtime_host_cmd_toggle_pause(
+        &mut self,
+        _args: &HashMap<String, String>,
+    ) -> Result<(), String> {
         if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
             self.runtime_host_last_gameplay_cmd = "pause_fail_bad_state".into();
         } else {
             let was_paused = self.game_paused || matches!(self.current_state, GameState::Paused);
-            self.toggle_pause();
+            self.toggle_pause()?;
             let now_paused = self.game_paused || matches!(self.current_state, GameState::Paused);
             self.runtime_host_last_gameplay_cmd = if !was_paused && now_paused {
                 "pause_ok:paused".into()
@@ -28,21 +36,35 @@ impl CnCGameEngine {
                 "pause_ok:resumed".into()
             };
         }
+
+        Ok(())
     }
 
     pub(super) fn runtime_host_cmd_open_message_of_the_day(
         &mut self,
         _args: &HashMap<String, String>,
-    ) {
-        self.enter_shell_menu_from_runtime_host(Some("MessageOfDay"));
+    ) -> Result<(), String> {
+        self.enter_shell_menu_from_runtime_host(Some("MessageOfDay"))?;
+
+        Ok(())
     }
 
-    pub(super) fn runtime_host_cmd_open_get_updates(&mut self, _args: &HashMap<String, String>) {
-        self.enter_shell_menu_from_runtime_host(Some("GetUpdates"));
+    pub(super) fn runtime_host_cmd_open_get_updates(
+        &mut self,
+        _args: &HashMap<String, String>,
+    ) -> Result<(), String> {
+        self.enter_shell_menu_from_runtime_host(Some("GetUpdates"))?;
+
+        Ok(())
     }
 
-    pub(super) fn runtime_host_cmd_open_world_builder(&mut self, _args: &HashMap<String, String>) {
-        self.enter_shell_menu_from_runtime_host(Some("WorldBuilder"));
+    pub(super) fn runtime_host_cmd_open_world_builder(
+        &mut self,
+        _args: &HashMap<String, String>,
+    ) -> Result<(), String> {
+        self.enter_shell_menu_from_runtime_host(Some("WorldBuilder"))?;
+
+        Ok(())
     }
 
     pub(super) fn runtime_host_cmd_options_probe(&mut self, _args: &HashMap<String, String>) {
@@ -55,7 +77,10 @@ impl CnCGameEngine {
         }
     }
 
-    pub(super) fn runtime_host_cmd_open_options(&mut self, _args: &HashMap<String, String>) {
+    pub(super) fn runtime_host_cmd_open_options(
+        &mut self,
+        _args: &HashMap<String, String>,
+    ) -> Result<(), String> {
         self.set_runtime_host_ui_screen_override(None);
         let mut wnd_ok = false;
         if matches!(self.current_state, GameState::InGame | GameState::Paused) {
@@ -66,33 +91,47 @@ impl CnCGameEngine {
         } else {
             #[cfg(feature = "game_client")]
             {
-                wnd_ok = game_client::gui::simulate_main_menu_options_button_gadget_selected();
+                wnd_ok = self.with_receiving_menu_effects(|effects| {
+                    game_client::gui::simulate_main_menu_options_button_gadget_selected(effects)
+                })?;
             }
-            self.enter_shell_options_from_runtime_host();
+            self.enter_shell_options_from_runtime_host()?;
         }
         self.runtime_host_last_gameplay_cmd = if wnd_ok {
             "open_options_ok_wnd".into()
         } else {
             "options_ok".into()
         };
+
+        Ok(())
     }
 
-    pub(super) fn runtime_host_cmd_open_credits(&mut self, _args: &HashMap<String, String>) {
+    pub(super) fn runtime_host_cmd_open_credits(
+        &mut self,
+        _args: &HashMap<String, String>,
+    ) -> Result<(), String> {
         let mut wnd_ok = false;
         #[cfg(feature = "game_client")]
         {
-            wnd_ok = game_client::gui::simulate_main_menu_credits_button_gadget_selected();
+            wnd_ok = self.with_receiving_menu_effects(|effects| {
+                game_client::gui::simulate_main_menu_credits_button_gadget_selected(effects)
+            })?;
             let _ = game_client::gui::callbacks::simulate_credits_menu_bind_controls();
         }
-        self.enter_shell_screen_from_runtime_host(Some("Credits"), "Menus/CreditsMenu.wnd");
+        self.enter_shell_screen_from_runtime_host(Some("Credits"), "Menus/CreditsMenu.wnd")?;
         self.runtime_host_last_gameplay_cmd = if wnd_ok {
             "open_credits_ok_wnd".into()
         } else {
             "open_credits_ok".into()
         };
+
+        Ok(())
     }
 
-    pub(super) fn runtime_host_cmd_click_credits_menu(&mut self, args: &HashMap<String, String>) {
+    pub(super) fn runtime_host_cmd_click_credits_menu(
+        &mut self,
+        args: &HashMap<String, String>,
+    ) -> Result<(), String> {
         // Retail CreditsMenu ESC skip / finished / shutdown residual.
         let action = args
             .get("action")
@@ -110,20 +149,20 @@ impl CnCGameEngine {
             };
             wnd_ok = match action.as_str() {
                 "finished" | "finish" => {
-                    self.game_client.with_window_event_effects(|effects| {
+                    self.with_receiving_menu_effects(|effects| {
                         drive_os_wnd_credits_menu_finished_like_cpp(effects)
-                    }) || simulate_credits_menu_finished()
+                    })? || simulate_credits_menu_finished()
                 }
                 "shutdown" => simulate_credits_menu_shutdown(),
                 "prepare_skip" => {
-                    self.game_client.with_window_event_effects(|effects| {
+                    self.with_receiving_menu_effects(|effects| {
                         drive_os_wnd_credits_menu_prepare_skip_like_cpp(effects)
-                    }) || simulate_credits_menu_prepare_skip()
+                    })? || simulate_credits_menu_prepare_skip()
                 }
                 _ => {
-                    self.game_client.with_window_event_effects(|effects| {
+                    self.with_receiving_menu_effects(|effects| {
                         drive_os_wnd_credits_menu_skip_like_cpp(effects)
-                    }) || simulate_credits_menu_skip()
+                    })? || simulate_credits_menu_skip()
                 }
             };
         }
@@ -132,6 +171,8 @@ impl CnCGameEngine {
         } else {
             "click_credits_menu_miss".into()
         };
+
+        Ok(())
     }
 
     /// Windowed sit-through: left-click a named WND gadget through the same
@@ -140,10 +181,13 @@ impl CnCGameEngine {
     ///
     /// Not `drive_os_wnd_*` — that path never enters `input` / evidence.
     /// Does **not** call `note_menu_wnd_click` directly.
-    pub(super) fn runtime_host_cmd_winit_click_named(&mut self, args: &HashMap<String, String>) {
+    pub(super) fn runtime_host_cmd_winit_click_named(
+        &mut self,
+        args: &HashMap<String, String>,
+    ) -> Result<(), String> {
         if self.runtime_host_headless {
             self.runtime_host_last_gameplay_cmd = "winit_click_named_fail_headless".into();
-            return;
+            return Ok(());
         }
         let name = args
             .get("name")
@@ -152,18 +196,18 @@ impl CnCGameEngine {
             .unwrap_or("");
         if name.is_empty() {
             self.runtime_host_last_gameplay_cmd = "winit_click_named_fail_no_name".into();
-            return;
+            return Ok(());
         }
         // Only push MainMenu when shell stack is empty — never re-enter an active
         // MainMenu (shutdown/init stall / SIGSEGV class failures).
         if self.current_state == GameState::Menu && !self.shell_menu_active {
-            self.enter_shell_screen_from_runtime_host(Some("MainMenu"), "Menus/MainMenu.wnd");
+            self.enter_shell_screen_from_runtime_host(Some("MainMenu"), "Menus/MainMenu.wnd")?;
         }
         #[cfg(feature = "game_client")]
         {
-            let _ = self.game_client.with_window_event_effects(|effects| {
+            let _ = self.with_receiving_menu_effects(|effects| {
                 game_client::gui::reveal_main_menu_first_input_like_cpp(effects)
-            });
+            })?;
         }
         let ok = self.inject_winit_equivalent_named_gadget_click(name);
         self.runtime_host_last_gameplay_cmd = if ok {
@@ -174,6 +218,8 @@ impl CnCGameEngine {
         } else {
             format!("winit_click_named_miss:{name}")
         };
+
+        Ok(())
     }
 
     /// Windowed sit-through: CHAR reveal + Single Player + Skirmish via
@@ -183,7 +229,10 @@ impl CnCGameEngine {
     /// Parent/Ruler/Options layout chrome **never** counts as nav success.
     /// Fails closed when shell is not active or gadgets are not under-cursor hittable.
     /// Never calls `note_menu_wnd_click` directly.
-    pub(super) fn runtime_host_cmd_winit_menu_nav(&mut self, _args: &HashMap<String, String>) {
+    pub(super) fn runtime_host_cmd_winit_menu_nav(
+        &mut self,
+        _args: &HashMap<String, String>,
+    ) -> Result<(), String> {
         log::info!(
             "winit_menu_nav: enter state={:?} shell_active={}",
             self.current_state,
@@ -191,7 +240,7 @@ impl CnCGameEngine {
         );
         if self.runtime_host_headless {
             self.runtime_host_last_gameplay_cmd = "winit_menu_nav_fail_headless".into();
-            return;
+            return Ok(());
         }
         // Require live shell WND tree. Prefer engine residual; also accept
         // GameClient shell active (status `shell_active` can be true from either).
@@ -205,12 +254,12 @@ impl CnCGameEngine {
                 "winit_menu_nav_miss:shell_not_active:state={:?}",
                 self.current_state
             );
-            return;
+            return Ok(());
         }
         if self.current_state != GameState::Menu {
             self.runtime_host_last_gameplay_cmd =
                 format!("winit_menu_nav_fail_not_menu:{:?}", self.current_state);
-            return;
+            return Ok(());
         }
         // Keep engine residual aligned with live shell for inject consume residual.
         self.shell_menu_active = true;
@@ -222,7 +271,9 @@ impl CnCGameEngine {
             // Soft reveal only — full GWM_CHAR path can hang in transition_set_group
             // / WM op drain while control commands are applied mid-frame.
             log::info!("winit_menu_nav: soft CHAR reveal for host inject");
-            let _ = game_client::gui::soft_reveal_main_menu_for_host_inject();
+            let _ = self.with_receiving_menu_effects(|effects| {
+                game_client::gui::soft_reveal_main_menu_for_host_inject(effects)
+            })?;
         }
         log::info!("winit_menu_nav: after soft reveal, probing menu→match gadgets");
         // Menu→match gadgets only — never Parent/Ruler/Options.
@@ -240,9 +291,9 @@ impl CnCGameEngine {
                 // After SP open, Skirmish may need a short transition.
                 if name.contains("Skirmish") {
                     #[cfg(feature = "game_client")]
-                    self.game_client.with_window_event_effects(|effects| {
+                    self.with_receiving_menu_effects(|effects| {
                         game_client::gui::tick_main_menu_transitions(2, effects)
-                    });
+                    })?;
                     if self.named_gadget_center_if_hittable(name).is_none() {
                         continue;
                     }
@@ -265,9 +316,9 @@ impl CnCGameEngine {
                 // Allow dropdown transition before Skirmish (bounded ticks).
                 if name.contains("SinglePlayer") {
                     #[cfg(feature = "game_client")]
-                    self.game_client.with_window_event_effects(|effects| {
+                    self.with_receiving_menu_effects(|effects| {
                         game_client::gui::tick_main_menu_transitions(2, effects)
-                    });
+                    })?;
                 }
             }
         }
@@ -293,6 +344,8 @@ impl CnCGameEngine {
         } else {
             "winit_menu_nav_miss:no_menu_match_gadget".into()
         };
+
+        Ok(())
     }
 
     /// Windowed sit-through: select (host) then RMB order through
@@ -422,15 +475,15 @@ impl CnCGameEngine {
     pub(super) fn runtime_host_cmd_tick_main_menu_transitions(
         &mut self,
         args: &HashMap<String, String>,
-    ) {
+    ) -> Result<(), String> {
         if self.runtime_host_headless {
             self.runtime_host_last_gameplay_cmd = "tick_transitions_fail_headless".into();
-            return;
+            return Ok(());
         }
         if self.current_state != GameState::Menu {
             self.runtime_host_last_gameplay_cmd =
                 format!("tick_transitions_fail_not_menu:{:?}", self.current_state);
-            return;
+            return Ok(());
         }
         let times: u32 = args
             .get("times")
@@ -438,11 +491,13 @@ impl CnCGameEngine {
             .unwrap_or(16)
             .clamp(1, 64);
         #[cfg(feature = "game_client")]
-        self.game_client.with_window_event_effects(|effects| {
+        self.with_receiving_menu_effects(|effects| {
             game_client::gui::tick_main_menu_transitions(times, effects)
-        });
+        })?;
         self.runtime_host_last_gameplay_cmd = format!("tick_transitions_ok:{times}");
         log::info!("tick_main_menu_transitions: advanced {times} WM updates");
+
+        Ok(())
     }
 
     /// Commit the retail `UseAlternateMouse` option through the exact

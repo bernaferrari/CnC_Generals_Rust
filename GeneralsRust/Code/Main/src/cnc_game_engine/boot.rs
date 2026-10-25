@@ -774,9 +774,7 @@ impl CnCGameEngine {
                 game_client::gui::control_bar::clear_host_control_bar_requests();
                 game_client::gui::control_bar::set_host_control_bar_bridge_enabled(true);
                 game_client::gui::options_host_bridge::set_host_options_bridge_enabled(true);
-                game_client::gui::campaign_launch_host_bridge::set_host_campaign_launch_bridge_enabled(
-                    true,
-                );
+
                 game_client::render_bridge::init_render_bridge();
                 let _ = gamelogic::helpers::register_scene_submission(std::sync::Arc::new(
                     game_client::render_bridge::RenderBridge::new(),

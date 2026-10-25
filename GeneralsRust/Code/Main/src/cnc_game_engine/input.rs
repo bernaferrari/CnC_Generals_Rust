@@ -1,6 +1,12 @@
 #![allow(unused_imports, unused_variables, dead_code, non_snake_case)]
 use super::*;
 
+#[cfg(feature = "game_client")]
+type HostWindowEventEffects<'borrow, 'receiver> =
+    Option<&'borrow mut game_client::gui::game_window::WindowEventEffects<'receiver>>;
+#[cfg(not(feature = "game_client"))]
+type HostWindowEventEffects<'borrow, 'receiver> = ();
+
 fn reset_pressed_keys_for_focus_event(
     keys: &mut HashSet<Key>,
     event: &Event<()>,
@@ -72,7 +78,14 @@ fn route_host_ui_key(
     chat_open: bool,
     input_enabled: bool,
 ) -> bool {
-    route_host_ui_key_with_terrain_lod(ui, key, chat_open, input_enabled, None)
+    #[cfg(feature = "game_client")]
+    {
+        route_host_ui_key_with_terrain_lod(ui, key, chat_open, input_enabled, None, None)
+    }
+    #[cfg(not(feature = "game_client"))]
+    {
+        route_host_ui_key_with_terrain_lod(ui, key, chat_open, input_enabled, None, ())
+    }
 }
 
 fn route_host_ui_key_with_terrain_lod(
@@ -81,6 +94,7 @@ fn route_host_ui_key_with_terrain_lod(
     chat_open: bool,
     input_enabled: bool,
     terrain_lod: Option<&mut dyn FnMut(i32)>,
+    effects: HostWindowEventEffects<'_, '_>,
 ) -> bool {
     // The host ChatPanel is not a focused WND. Let the existing mapped-key
     // handler close it before UIManager's global Escape opens the pause menu.
@@ -104,11 +118,24 @@ fn route_host_ui_key_with_terrain_lod(
         // would consume Escape without pausing or resuming the simulation.
         return false;
     }
-    ui.handle_key_press_with_hud_input_and_terrain_lod(
-        key,
-        !chat_open && input_enabled,
-        terrain_lod,
-    )
+    #[cfg(feature = "game_client")]
+    {
+        ui.handle_key_press_with_hud_input_and_terrain_lod_and_effects(
+            key,
+            !chat_open && input_enabled,
+            terrain_lod,
+            effects,
+        )
+    }
+    #[cfg(not(feature = "game_client"))]
+    {
+        let _ = effects;
+        ui.handle_key_press_with_hud_input_and_terrain_lod(
+            key,
+            !chat_open && input_enabled,
+            terrain_lod,
+        )
+    }
 }
 
 impl CnCGameEngine {
@@ -218,8 +245,8 @@ impl CnCGameEngine {
         self.message_processor.is_active()
     }
 
-    pub fn input(&mut self, event: &WindowEvent) -> bool {
-        match event {
+    pub fn input(&mut self, event: &WindowEvent) -> Result<bool, String> {
+        Ok(match event {
             WindowEvent::KeyboardInput {
                 event:
                     KeyEvent {
@@ -241,11 +268,11 @@ impl CnCGameEngine {
                 #[cfg(feature = "game_client")]
                 if pressed && self.current_state == GameState::Menu && !self.runtime_host_headless {
                     // C++ MainMenuInput GWM_CHAR first-run reveal on first real key.
-                    let _ = self.game_client.with_window_event_effects(|effects| {
+                    let _ = self.with_receiving_menu_effects(|effects| {
                         game_client::gui::reveal_main_menu_first_input_like_cpp(effects)
                     });
                 }
-                let wnd_used = self.dispatch_os_key_to_window_manager(physical_key, pressed);
+                let wnd_used = self.dispatch_os_key_to_window_manager(physical_key, pressed)?;
                 #[cfg(feature = "game_client")]
                 let escape_toggles_live_quit_menu = pressed
                     && matches!(
@@ -273,20 +300,43 @@ impl CnCGameEngine {
                                     // The UI manager owns the sole gameplay HUD. Keep the
                                     // legacy global/screen key route, but let WindowXlat's
                                     // chat editor or disabled input suppress HUD hotkeys.
-                                    let pipeline = &mut self.render_pipeline;
-                                    let mut terrain_lod = |reduction| {
-                                        #[cfg(feature = "game_client")]
-                                        if let Some(terrain) = pipeline.native_terrain_mut() {
-                                            terrain.apply_texture_lod_reduction(reduction);
-                                        }
-                                    };
-                                    construction_consumed = route_host_ui_key_with_terrain_lod(
-                                        &mut self.ui_manager,
-                                        ui_key,
-                                        chat_open,
-                                        input_enabled,
-                                        Some(&mut terrain_lod),
-                                    );
+                                    #[cfg(feature = "game_client")]
+                                    {
+                                        construction_consumed = self
+                                            .with_receiving_menu_effects_and_ui(
+                                                |ui_manager, render_pipeline, effects| {
+                                                    let mut terrain_lod = |reduction| {
+                                                        if let Some(terrain) =
+                                                            render_pipeline.native_terrain_mut()
+                                                        {
+                                                            terrain.apply_texture_lod_reduction(
+                                                                reduction,
+                                                            );
+                                                        }
+                                                    };
+                                                    route_host_ui_key_with_terrain_lod(
+                                                        ui_manager,
+                                                        ui_key,
+                                                        chat_open,
+                                                        input_enabled,
+                                                        Some(&mut terrain_lod),
+                                                        Some(effects),
+                                                    )
+                                                },
+                                            )?;
+                                    }
+                                    #[cfg(not(feature = "game_client"))]
+                                    {
+                                        let mut terrain_lod = |_reduction| {};
+                                        construction_consumed = route_host_ui_key_with_terrain_lod(
+                                            &mut self.ui_manager,
+                                            ui_key,
+                                            chat_open,
+                                            input_enabled,
+                                            Some(&mut terrain_lod),
+                                            None,
+                                        );
+                                    }
                                 }
                             }
                         }
@@ -342,7 +392,7 @@ impl CnCGameEngine {
                                 // Keep keypad keys separate: those are camera keys,
                                 // not control-group aliases in the retail map.
                                 if os_repeat {
-                                    self.handle_mapped_key_press(key, Some(*physical_key), true);
+                                    self.handle_mapped_key_press(key, Some(*physical_key), true)?;
                                 } else if let Some(group) =
                                     Self::control_group_from_physical_number_row(physical_key)
                                         .filter(|_| !chat_open)
@@ -358,7 +408,7 @@ impl CnCGameEngine {
                                     // CommandMap remaps in handle_mapped_key_press
                                     // (LookAtXlat.cpp:550-587). Do not steal
                                     // Ctrl+F1..F4 for debug overlays.
-                                    self.handle_mapped_key_press(key, Some(*physical_key), false);
+                                    self.handle_mapped_key_press(key, Some(*physical_key), false)?;
                                 }
                             }
                         }
@@ -417,17 +467,17 @@ impl CnCGameEngine {
                     self.mouse_position.0 as i32,
                     self.mouse_position.1 as i32
                 );
-                self.handle_mouse_button_input(*button, pressed, MouseInputOrigin::Physical);
+                self.handle_mouse_button_input(*button, pressed, MouseInputOrigin::Physical)?;
                 true
             }
             WindowEvent::CursorMoved { position, .. } => {
-                self.apply_cursor_position(position.x as f32, position.y as f32);
+                self.apply_cursor_position(position.x as f32, position.y as f32)?;
                 true
             }
             WindowEvent::MouseWheel { delta, .. } => {
                 let x = self.mouse_position.0 as i32;
                 let y = self.mouse_position.1 as i32;
-                let wnd_used = self.dispatch_os_mouse_wheel(delta, x, y);
+                let wnd_used = self.dispatch_os_mouse_wheel(delta, x, y)?;
                 // C++ WindowXlat.cpp:254-274: windows first, then DISABLE_INPUT eats zoom.
                 if matches!(self.current_state, GameState::InGame | GameState::Paused)
                     && !wnd_used
@@ -438,7 +488,7 @@ impl CnCGameEngine {
                 true
             }
             _ => false,
-        }
+        })
     }
 
     /// Return a retail control-group slot only for the physical number row.
@@ -465,7 +515,7 @@ impl CnCGameEngine {
         }
     }
 
-    pub(super) fn apply_cursor_position(&mut self, x: f32, y: f32) {
+    pub(super) fn apply_cursor_position(&mut self, x: f32, y: f32) -> Result<(), String> {
         let scale = self.window.scale_factor().max(0.0001) as f32;
         let logical_x = x / scale;
         let logical_y = y / scale;
@@ -477,7 +527,7 @@ impl CnCGameEngine {
         self.inject_game_client_mouse_move(logical_x, logical_y);
         let mx = logical_x as i32;
         let my = logical_y as i32;
-        let _ = self.dispatch_os_mouse_move(mx, my);
+        let _ = self.dispatch_os_mouse_move(mx, my)?;
         self.ui_manager.handle_mouse_move(mx, my);
         if matches!(self.current_state, GameState::InGame | GameState::Paused) {
             self.update_mouse_world_position();
@@ -485,6 +535,7 @@ impl CnCGameEngine {
             self.sync_host_selecting_flag();
             self.sync_context_mouse_cursor();
         }
+        Ok(())
     }
 
     /// Shared mouse-button path for physical winit `MouseInput` and host inject.
@@ -501,7 +552,7 @@ impl CnCGameEngine {
         button: MouseButton,
         pressed: bool,
         origin: MouseInputOrigin,
-    ) {
+    ) -> Result<(), String> {
         let x = self.mouse_position.0 as i32;
         let y = self.mouse_position.1 as i32;
         #[cfg(feature = "game_client")]
@@ -511,7 +562,7 @@ impl CnCGameEngine {
         #[cfg(feature = "game_client")]
         if pressed && self.current_state == GameState::Menu && !self.runtime_host_headless {
             // C++ first-run reveal on first real mouse (CHAR path).
-            let _ = self.game_client.with_window_event_effects(|effects| {
+            let _ = self.with_receiving_menu_effects(|effects| {
                 game_client::gui::reveal_main_menu_first_input_like_cpp(effects)
             });
         }
@@ -524,7 +575,7 @@ impl CnCGameEngine {
         let wnd_used_raw = if lookat_locked && !scrolling_lmb {
             false
         } else {
-            self.dispatch_os_mouse_to_window_manager(button, pressed, x, y, origin)
+            self.dispatch_os_mouse_to_window_manager(button, pressed, x, y, origin)?
         };
         #[cfg(feature = "game_client")]
         let receiving_window_manager = self.game_client.window_manager_owner();
@@ -593,7 +644,7 @@ impl CnCGameEngine {
                 if physical {
                     // C++ MainMenuInput first-run GWM_CHAR/mouse-move unhides
                     // DROPDOWN_MAIN (MapBorder2) before Solo Play is hittable.
-                    let _ = self.game_client.with_window_event_effects(|effects| {
+                    let _ = self.with_receiving_menu_effects(|effects| {
                         game_client::gui::reveal_main_menu_first_input_like_cpp(effects)
                     });
                 }
@@ -617,7 +668,7 @@ impl CnCGameEngine {
                             );
                         }
                         if name.starts_with("MainMenu.wnd:Button") {
-                            self.game_client.with_window_event_effects(|effects| {
+                            self.with_receiving_menu_effects(|effects| {
                                 game_client::gui::notify_physical_main_menu_gadget_gbm_selected(
                                     &name, effects,
                                 )
@@ -625,7 +676,7 @@ impl CnCGameEngine {
                         } else if name.contains("ButtonStart")
                             && name.contains("SkirmishGameOptionsMenu")
                         {
-                            let _ = self.game_client.with_window_event_effects(|effects| {
+                            let _ = self.with_receiving_menu_effects(|effects| {
                                 game_client::gui::simulate_skirmish_start_button_gadget_selected(
                                     effects,
                                 )
@@ -645,34 +696,73 @@ impl CnCGameEngine {
         #[cfg(not(feature = "game_client"))]
         let shell_active = self.shell_menu_active;
         let mut hud_cameo_consumed = false;
-        let pipeline = &mut self.render_pipeline;
-        let mut terrain_lod = |reduction| {
-            #[cfg(feature = "game_client")]
-            if let Some(terrain) = pipeline.native_terrain_mut() {
-                terrain.apply_texture_lod_reduction(reduction);
-            }
-        };
+        #[cfg(not(feature = "game_client"))]
+        let mut terrain_lod = |_reduction| {};
         if let Some(ui_button) = Self::to_ui_mouse_button(button) {
             if shell_active {
                 // Exclusive WND while shell is up.
             } else if in_world && !wnd_used {
                 if pressed {
-                    hud_cameo_consumed = self.ui_manager.handle_mouse_click_with_terrain_lod(
-                        x,
-                        y,
-                        ui_button,
-                        Some(&mut terrain_lod),
-                    );
+                    #[cfg(feature = "game_client")]
+                    {
+                        hud_cameo_consumed = self.with_receiving_menu_effects_and_ui(
+                            |ui_manager, render_pipeline, effects| {
+                                let mut terrain_lod = |reduction| {
+                                    if let Some(terrain) = render_pipeline.native_terrain_mut() {
+                                        terrain.apply_texture_lod_reduction(reduction);
+                                    }
+                                };
+                                ui_manager.handle_mouse_click_with_terrain_lod_and_effects(
+                                    x,
+                                    y,
+                                    ui_button,
+                                    Some(&mut terrain_lod),
+                                    Some(effects),
+                                )
+                            },
+                        )?;
+                    }
+                    #[cfg(not(feature = "game_client"))]
+                    {
+                        hud_cameo_consumed = self.ui_manager.handle_mouse_click_with_terrain_lod(
+                            x,
+                            y,
+                            ui_button,
+                            Some(&mut terrain_lod),
+                        );
+                    }
                 }
                 self.ui_manager.handle_mouse_move(x, y);
             } else if !in_world && !wnd_used {
                 if pressed {
-                    let _ = self.ui_manager.handle_mouse_click_with_terrain_lod(
-                        x,
-                        y,
-                        ui_button,
-                        Some(&mut terrain_lod),
-                    );
+                    #[cfg(feature = "game_client")]
+                    {
+                        let _ = self.with_receiving_menu_effects_and_ui(
+                            |ui_manager, render_pipeline, effects| {
+                                let mut terrain_lod = |reduction| {
+                                    if let Some(terrain) = render_pipeline.native_terrain_mut() {
+                                        terrain.apply_texture_lod_reduction(reduction);
+                                    }
+                                };
+                                ui_manager.handle_mouse_click_with_terrain_lod_and_effects(
+                                    x,
+                                    y,
+                                    ui_button,
+                                    Some(&mut terrain_lod),
+                                    Some(effects),
+                                )
+                            },
+                        );
+                    }
+                    #[cfg(not(feature = "game_client"))]
+                    {
+                        let _ = self.ui_manager.handle_mouse_click_with_terrain_lod(
+                            x,
+                            y,
+                            ui_button,
+                            Some(&mut terrain_lod),
+                        );
+                    }
                 }
                 self.ui_manager.handle_mouse_move(x, y);
             }
@@ -799,6 +889,7 @@ impl CnCGameEngine {
                 }
             }
         }
+        Ok(())
     }
 
     /// Move the logical cursor as if a physical winit `CursorMoved` arrived.
@@ -1083,17 +1174,18 @@ impl CnCGameEngine {
         }
     }
 
-    pub fn update_with_timing(&mut self, timing: &FrameTiming) {
+    pub fn update_with_timing(&mut self, timing: &FrameTiming) -> Result<(), String> {
         if matches!(self.current_state, GameState::Menu | GameState::Loading) {
             // C++ shell/loading progression is driven by the engine's fixed update cadence, not
             // by renderer timing. WW3D timing can remain effectively stuck during startup/menu
             // and starve shell scripts/model streaming if we trust it here.
-            self.update_with_frame_clock();
-            return;
+            self.update_with_frame_clock()?;
+            return Ok(());
         }
         let dt = self.apply_frame_timing(*timing);
-        self.update_internal(dt);
-        self.finish_display_after_update();
+        self.update_internal(dt)?;
+        self.finish_display_after_update()?;
+        Ok(())
     }
 
     /// Allows external orchestrators (e.g., integration diagnostics pipeline) to push
@@ -1114,7 +1206,7 @@ impl CnCGameEngine {
     }
 
     /// Advance simulation using the internal fallback clock (no WW3D timing).
-    pub fn update_with_frame_clock(&mut self) {
+    pub fn update_with_frame_clock(&mut self) -> Result<(), String> {
         const SHELL_MENU_STEP: Duration = Duration::from_nanos(33_333_333);
 
         let now = Instant::now();
@@ -1124,8 +1216,8 @@ impl CnCGameEngine {
             (self.menu_loading_tick_accumulator + elapsed).min(Duration::from_millis(250));
 
         if self.menu_loading_tick_accumulator < SHELL_MENU_STEP {
-            self.finish_display_after_update();
-            return;
+            self.finish_display_after_update()?;
+            return Ok(());
         }
         // C++ GameClient/TransitionHandler update once per logic frame (~30Hz).
         // A 220ms–1.4s Menu stall used to consume only one 33ms step, so
@@ -1144,26 +1236,26 @@ impl CnCGameEngine {
             let clock_timing = self.frame_clock.advance_fixed(SHELL_MENU_STEP);
             let timing = Self::to_engine_timing(clock_timing, Instant::now());
             let dt = self.apply_frame_timing(timing);
-            self.update_internal(dt);
+            self.update_internal(dt)?;
             // Each actual catch-up update completes its Client continuation
             // before the next update, preserving every scheduled logic step.
-            self.finish_display_after_update();
+            self.finish_display_after_update()?;
         }
+        Ok(())
     }
 
-    pub fn update(&mut self, dt: f32) {
+    pub fn update(&mut self, dt: f32) -> Result<(), String> {
         let delta = Duration::from_secs_f32(dt.max(0.0));
         let clock_timing = self.frame_clock.advance_fixed(delta);
         let timing = Self::to_engine_timing(clock_timing, Instant::now());
         let adjusted_dt = self.apply_frame_timing(timing);
-        self.update_internal(adjusted_dt);
-        self.finish_display_after_update();
+        self.update_internal(adjusted_dt)?;
+        self.finish_display_after_update()?;
+        Ok(())
     }
 
-    fn finish_display_after_update(&mut self) {
-        if let Err(error) = self.complete_native_display_step() {
-            log::error!("Native display phase failed: {error}");
-        }
+    fn finish_display_after_update(&mut self) -> Result<(), String> {
+        self.complete_native_display_step()
     }
 
     pub(super) fn apply_frame_timing(&mut self, timing: FrameTiming) -> f32 {
@@ -1216,23 +1308,25 @@ impl CnCGameEngine {
 
     /// Process pending state transitions
     /// Called at beginning of update cycle to handle state changes
-    pub(super) fn process_state_transitions(&mut self) {
+    pub(super) fn process_state_transitions(&mut self) -> Result<(), String> {
         if let Some(new_state) = self.pending_state.take() {
-            self.transition_to_state(new_state);
+            self.transition_to_state(new_state)?;
         }
+        Ok(())
     }
 
     /// Execute state transition with proper setup/cleanup
     /// Matches C++ GameEngine reset() and initialization patterns
     /// Wave 612: via `host_transition_to_state`.
-    pub(super) fn transition_to_state(&mut self, new_state: GameState) {
+    pub(super) fn transition_to_state(&mut self, new_state: GameState) -> Result<(), String> {
         // Wave 612: thin wrapper — residual via host helper.
-        self.host_transition_to_state(new_state)
+        self.host_transition_to_state(new_state)?;
+        Ok(())
     }
 
     /// Execute state transition with proper setup/cleanup
     /// Matches C++ GameEngine reset() and initialization patterns
-    pub(super) fn host_transition_to_state(&mut self, new_state: GameState) {
+    pub(super) fn host_transition_to_state(&mut self, new_state: GameState) -> Result<(), String> {
         if new_state == GameState::Exiting {
             self.abandon_startup_load_worker();
         }
@@ -1249,7 +1343,7 @@ impl CnCGameEngine {
                 // never hideShell / MainMenuShutdown. Menu→Menu after shell-map
                 // apply must keep MainMenu.wnd (hq-3vo4).
                 if new_state != GameState::Menu {
-                    self.hide_shell_menu();
+                    self.hide_shell_menu()?;
                 }
             }
             GameState::Loading => {
@@ -1294,8 +1388,11 @@ impl CnCGameEngine {
                 self.ui_manager.suspend_for_shell_overlay();
                 self.set_runtime_ui_state_projection(Screen::MainMenu);
                 info!("Menu transition: calling prime_subsystems_before_menu_transition");
-                self.prime_subsystems_before_menu_transition();
-                self.show_shell_menu();
+                self.prime_subsystems_before_menu_transition()?;
+                if self.is_quitting() {
+                    return Ok(());
+                }
+                self.show_shell_menu()?;
                 info!("Menu transition: prime_subsystems done. transition_to_state complete.");
                 self.last_slow_menu_tick_log = None;
             }
@@ -1385,6 +1482,7 @@ impl CnCGameEngine {
             self.last_shell_prewarm_log = None;
             self.shell_prewarm_completion_logged = false;
         }
+        Ok(())
     }
 
     /// Check if engine should quit
@@ -1440,33 +1538,68 @@ impl CnCGameEngine {
         }
     }
 
-    pub(super) fn update_runtime_subsystems(&mut self, dt: f32) {
+    pub(super) fn update_runtime_subsystems(&mut self, dt: f32) -> Result<(), String> {
         #[cfg(feature = "game_client")]
         {
             let timing = self.last_frame_timing;
-            let (messages, steps) =
-                self.with_receiving_client_translation(|client, playback, driver, manager| {
-                    let mut propagate = |client: &mut game_client::core::GameClient| {
-                        client
-                            .take_message_stream_with_native_input(playback, driver)
-                            .map_err(|error| anyhow::Error::msg(error.to_string()))
-                    };
-                    manager.update_all_receiving_client(dt, timing.as_ref(), client, &mut propagate)
-                });
-            match messages {
-                Ok(messages) => {
-                    if let Err(error) = self
-                        .game_logic
-                        .replay_pending
-                        .receive_client_messages(messages)
-                    {
-                        error!("Receiving command admission failed: {error}");
+            let mut resume = None;
+            loop {
+                let facts = self.receiving_menu_world_facts();
+                let (progress, steps) =
+                    self.with_receiving_client_translation(|client, playback, driver, manager| {
+                        let mut propagate =
+                            |client: &mut game_client::core::GameClient, stream_cursor| {
+                                client
+                                    .take_message_stream_until_menu_host(
+                                        playback,
+                                        driver,
+                                        stream_cursor,
+                                    )
+                                    .map_err(|error| anyhow::Error::msg(error.to_string()))
+                            };
+                        manager.update_all_receiving_client(
+                            dt,
+                            timing.as_ref(),
+                            client,
+                            facts,
+                            resume.take(),
+                            &mut propagate,
+                        )
+                    });
+                match progress {
+                    Ok(crate::subsystem_manager::ReceivingClientUpdateProgress::HostBoundary(
+                        cursor,
+                    )) => {
+                        for step in steps {
+                            step.complete(self)?;
+                        }
+                        let reset = self.complete_receiving_menu_host_requests()?;
+                        if self.is_quitting() {
+                            break;
+                        }
+                        resume = Some(if reset {
+                            cursor.after_world_reset()
+                        } else {
+                            cursor
+                        });
                     }
+                    Ok(crate::subsystem_manager::ReceivingClientUpdateProgress::Complete(
+                        messages,
+                    )) => {
+                        if let Err(error) = self
+                            .game_logic
+                            .replay_pending
+                            .receive_client_messages(messages)
+                        {
+                            return Err(format!("Receiving command admission failed: {error}"));
+                        }
+                        for step in steps {
+                            step.complete(self)?;
+                        }
+                        break;
+                    }
+                    Err(error) => return Err(error.to_string()),
                 }
-                Err(error) => error!("Error updating receiving subsystems: {error}"),
-            }
-            for step in steps {
-                step.complete(self);
             }
         }
         #[cfg(not(feature = "game_client"))]
@@ -1479,9 +1612,10 @@ impl CnCGameEngine {
                 error!("Error updating subsystems: {error}");
             }
         }
+        Ok(())
     }
 
-    pub(super) fn prime_subsystems_before_menu_transition(&mut self) {
+    pub(super) fn prime_subsystems_before_menu_transition(&mut self) -> Result<(), String> {
         let started = Instant::now();
         let mut max_step = Duration::ZERO;
         let mut steps = 0usize;
@@ -1489,7 +1623,7 @@ impl CnCGameEngine {
         // Keep warmup bounded. This should absorb one-time startup work, not become a new stall.
         while steps < 2 && started.elapsed() < Duration::from_millis(900) {
             let step_started = Instant::now();
-            self.update_runtime_subsystems(0.0);
+            self.update_runtime_subsystems(0.0)?;
             let elapsed = step_started.elapsed();
             max_step = max_step.max(elapsed);
             steps += 1;
@@ -1505,15 +1639,16 @@ impl CnCGameEngine {
             started.elapsed(),
             max_step
         );
+        Ok(())
     }
 
-    pub(super) fn update_internal(&mut self, dt: f32) {
+    pub(super) fn update_internal(&mut self, dt: f32) -> Result<(), String> {
         // Process any pending state transitions first
-        self.process_state_transitions();
+        self.process_state_transitions()?;
 
         // Early exit if we're shutting down
         if self.is_quitting() {
-            return;
+            return Ok(());
         }
 
         let dt = dt.max(0.0);
@@ -1529,7 +1664,10 @@ impl CnCGameEngine {
             );
         }
         // C++ parity: radar/audio/client/message/network/cd updates happen each frame.
-        self.update_runtime_subsystems(dt);
+        self.update_runtime_subsystems(dt)?;
+        if self.is_quitting() {
+            return Ok(());
+        }
         // A Control Bar click belongs to the world visible when the click was
         // made.  Drain it before a same-frame PopupSaveLoad request can swap
         // the authoritative world underneath it.
@@ -1555,14 +1693,14 @@ impl CnCGameEngine {
         // a real QuitMenu ButtonReturn/Exit/Restart cannot leave host time
         // paused (or running) independently of the rendered WND.
         #[cfg(feature = "game_client")]
-        self.host_tick_quit_menu_bridge();
+        self.host_tick_quit_menu_bridge()?;
         // C++ ScriptEngine.cpp:5514-5518 appends MSG_CLEAR_GAME_DATA when the
         // end-game timer expires. QuitMenu Exit uses the same message. Consume
         // it here so scripted VICTORY/DEFEAT actually ends the live match even
         // when QuitMenu is not the poster.
         self.host_consume_leftover_dispatch_messages();
-        if self.host_consume_clear_game_data() {
-            return;
+        if self.host_consume_clear_game_data()? {
+            return Ok(());
         }
         if self.current_state == GameState::InGame && self.game_logic.game_mode() == GameMode::None
         {
@@ -1572,9 +1710,9 @@ impl CnCGameEngine {
             // phase alive without a second reset or fabricated world.
             if let Err(error) = self.host_tick_menu_client_residuals(visual_dt, dt) {
                 error!("Native shell simulation failed: {error}");
-                self.request_state_change(GameState::Exiting);
+                return Err(error);
             }
-            return;
+            return Ok(());
         }
         if matches!(self.current_state, GameState::Menu) && self.menu_world_frames_rendered < 5 {
             debug!(
@@ -1589,49 +1727,48 @@ impl CnCGameEngine {
                 // ~1.5s so Single Player / Skirmish become visible.
                 #[cfg(feature = "game_client")]
                 if self.menu_world_frames_rendered == 45 {
-                    let _ = self.game_client.with_window_event_effects(|effects| {
+                    let _ = self.with_receiving_menu_effects(|effects| {
                         game_client::gui::reveal_main_menu_first_input_like_cpp(effects)
                     });
                 }
                 // Wave 605: Menu client residual via host helper.
                 match self.host_tick_menu_client_residuals(visual_dt, dt) {
-                    Ok(true) => return,
+                    Ok(true) => return Ok(()),
                     Ok(false) => {}
                     Err(error) => {
                         error!("Native shell simulation failed: {error}");
-                        self.request_state_change(GameState::Exiting);
-                        return;
+                        return Err(error);
                     }
                 }
-                return;
+                return Ok(());
             }
             GameState::Loading => {
                 // Wave 604: loading client residual via host helper.
                 if let Err(err) = self.host_tick_loading_client_residuals() {
                     error!("Startup loading failed: {}", err);
-                    self.request_state_change(GameState::Exiting);
+                    return Err(err.to_string());
                 }
-                return;
+                return Ok(());
             }
             GameState::Paused => {
                 // Wave 603: paused client residual via host helper.
                 self.host_tick_paused_client_residuals(visual_dt, dt);
-                return;
+                return Ok(());
             }
             GameState::InGame => {
                 // Full update - continue below
             }
             GameState::Exiting => {
                 // Exiting: no updates needed
-                return;
+                return Ok(());
             }
             GameState::Victory | GameState::Defeat => {
                 // Wave 603: endgame client residual via host helper.
                 self.host_tick_endgame_client_residuals(visual_dt, dt);
-                return;
+                return Ok(());
             }
             GameState::Initializing => {
-                return;
+                return Ok(());
             }
         }
 
@@ -1661,8 +1798,7 @@ impl CnCGameEngine {
             // Wave 602: host InGame logic+shadow+presentation residual via helper.
             if let Err(error) = self.host_run_ingame_logic_presentation_frame(dt) {
                 error!("Native simulation/presentation could not be published: {error}");
-                self.request_state_change(GameState::Exiting);
-                return;
+                return Err(error);
             }
         }
 
@@ -1672,6 +1808,7 @@ impl CnCGameEngine {
         self.host_tick_post_presentation_client_residuals(visual_dt, dt);
         // Wave 599: defeat/alliance/victory broadcast residual via host helper.
         self.host_broadcast_match_outcome_residuals();
+        Ok(())
     }
 
     /// Wave 542: mouse command classification is presentation-only when freeze installed.
@@ -1789,7 +1926,7 @@ impl CnCGameEngine {
             let mut ui_state = self.host_build_render_ui_state_from_presentation();
             // Wave 592: radar/script/clock/diag overlays via host helper.
             self.host_apply_render_ui_presentation_overlays(&mut ui_state);
-            self.process_ui_events();
+            self.process_ui_events().map_err(anyhow::Error::msg)?;
             // Wave 593: minimap/radar/victory UI residual via host helper.
             self.host_finalize_render_ui_state(&mut ui_state);
         }
@@ -2357,7 +2494,7 @@ impl CnCGameEngine {
     }
 
     /// Process UI events emitted by UIManager and apply to engine/game state.
-    pub(super) fn process_ui_events(&mut self) {
+    pub(super) fn process_ui_events(&mut self) -> Result<(), String> {
         while !self.is_quitting()
             && let Some(event) = self.ui_manager.pop_event()
         {
@@ -2370,7 +2507,7 @@ impl CnCGameEngine {
                 } => {
                     self.start_game_from_ui(HostStartRequest::without_player_template(
                         mode, faction, map, skirmish,
-                    ));
+                    ))?;
                 }
                 UIEvent::LoadGame(slot) => {
                     if slot == "quicksave" {
@@ -2387,17 +2524,17 @@ impl CnCGameEngine {
                     }
                 }
                 UIEvent::RestartMission => {
-                    self.restart_mission_from_ui();
+                    self.restart_mission_from_ui()?;
                 }
                 UIEvent::PlaySoundEffectPath(path) => {
                     self.play_ui_sound_effect(path);
                 }
                 UIEvent::TogglePause => {
-                    self.toggle_pause();
+                    self.toggle_pause()?;
                 }
                 UIEvent::ExitToMenu => {
                     info!("UI requested exit to menu");
-                    self.return_to_main_menu_after_match();
+                    self.return_to_main_menu_after_match()?;
                 }
                 UIEvent::ExitGame => {
                     info!("UI requested exit");
@@ -2415,7 +2552,7 @@ impl CnCGameEngine {
                     }
 
                     if self.current_state == GameState::Menu && screen.is_shell_owned_pregame() {
-                        self.route_shell_owned_screen_change(screen);
+                        self.route_shell_owned_screen_change(screen)?;
                         continue;
                     }
 
@@ -2505,6 +2642,7 @@ impl CnCGameEngine {
                 }
             }
         }
+        Ok(())
     }
 
     /// C++ ControlBar production cameo → QueueUnitCreate residual.
@@ -2827,5 +2965,225 @@ mod tests {
     #[test]
     fn quit_menu_destroys_world_left_click() {
         assert!(!super::selection_hud::world_lmb_selection_allowed(true));
+    }
+}
+
+#[cfg(feature = "game_client")]
+impl CnCGameEngine {
+    pub(super) fn receiving_menu_world_facts(
+        &self,
+    ) -> game_client::gui::campaign_launch_host_bridge::MenuWorldFacts {
+        let mode = self.game_logic.game_mode();
+        game_client::gui::campaign_launch_host_bridge::MenuWorldFacts {
+            in_game: mode != GameMode::None,
+            in_shell_game: mode == GameMode::Shell,
+        }
+    }
+    pub(super) fn with_receiving_menu_effects<R>(
+        &mut self,
+        operation: impl FnOnce(&mut game_client::gui::game_window::WindowEventEffects<'_>) -> R,
+    ) -> Result<R, String> {
+        let facts = self.receiving_menu_world_facts();
+        let result = self
+            .game_client
+            .with_window_event_effects(Some(facts), operation);
+        self.complete_receiving_menu_host_requests()?;
+        Ok(result)
+    }
+    pub(super) fn with_receiving_menu_effects_and_ui<R>(
+        &mut self,
+        operation: impl FnOnce(
+            &mut crate::ui::UIManager,
+            &mut crate::graphics::render_pipeline::RenderPipeline,
+            &mut game_client::gui::game_window::WindowEventEffects<'_>,
+        ) -> R,
+    ) -> Result<R, String> {
+        let facts = self.receiving_menu_world_facts();
+        let ui = &mut self.ui_manager;
+        let render = &mut self.render_pipeline;
+        let result = self
+            .game_client
+            .with_window_event_effects(Some(facts), |effects| operation(ui, render, effects));
+        self.complete_receiving_menu_host_requests()?;
+        Ok(result)
+    }
+    pub(super) fn with_receiving_menu_shell<R>(
+        &mut self,
+        operation: impl FnOnce(
+            &mut game_client::gui::shell::base::Shell,
+            &mut game_client::gui::game_window::WindowEventEffects<'_>,
+        ) -> R,
+    ) -> Result<Option<R>, String> {
+        let facts = self.receiving_menu_world_facts();
+        let result = self
+            .game_client
+            .with_receiving_shell(Some(facts), operation)
+            .ok_or_else(|| "menu operation requires released receiving Shell".to_string())?;
+        self.complete_receiving_menu_host_requests()?;
+        Ok(Some(result))
+    }
+    pub(super) fn complete_receiving_menu_event_messages(
+        &mut self,
+        messages: Vec<game_engine::common::message_stream::GameMessage>,
+    ) -> Result<(), String> {
+        let facts = self.receiving_menu_world_facts();
+        self.game_client
+            .complete_window_event_messages(messages, Some(facts));
+        self.complete_receiving_menu_host_requests()?;
+        Ok(())
+    }
+    fn complete_source_main_menu_update(
+        &mut self,
+        layout: Option<std::rc::Weak<std::cell::RefCell<game_client::gui::WindowLayout>>>,
+    ) -> Result<(), String> {
+        let owner = self.game_client.window_manager_owner_ref();
+        let shell_finished = owner
+            .with_shell_ref(|shell| shell.is_anim_finished())
+            .ok_or_else(|| "source Menu suffix requires released Shell".to_string())?;
+        let transition_finished = owner
+            .try_with_manager_ref(|manager| manager.transitions_finished())
+            .ok_or_else(|| "source Menu suffix requires released WindowManager".to_string())?;
+        if !shell_finished || !transition_finished {
+            return Ok(());
+        }
+        let layout = match layout {
+            None => None,
+            Some(weak) => {
+                let Some(layout) = weak.upgrade() else {
+                    return Ok(());
+                };
+                let valid = owner
+                    .try_with_manager_ref(|manager| {
+                        let Some(window) = layout.borrow().get_first_window() else {
+                            return false;
+                        };
+                        let guard = window.borrow();
+                        let Some(registered) = manager.get_window_by_id(guard.get_id()) else {
+                            return false;
+                        };
+                        std::rc::Rc::ptr_eq(&registered, &window)
+                            && !guard
+                                .get_status()
+                                .contains(game_client::gui::WindowStatus::DESTROYED)
+                            && guard
+                                .get_layout()
+                                .is_some_and(|actual| std::rc::Rc::ptr_eq(&actual, &layout))
+                    })
+                    .ok_or_else(|| {
+                        "source Menu suffix requires released WindowManager".to_string()
+                    })?;
+                if !valid {
+                    return Ok(());
+                }
+                Some(layout)
+            }
+        };
+        // MainMenu.cpp337: the flag changes before hide can release focus.
+        self.game_client.finish_source_menu_campaign_shutdown();
+        if let Some(layout) = layout {
+            self.game_client
+                .window_manager_owner_ref()
+                .try_with_manager(|manager| layout.borrow().hide_with_manager(manager, true))
+                .ok_or_else(|| "source Menu suffix requires released WindowManager".to_string())?;
+        }
+        let facts = self.receiving_menu_world_facts();
+        self.game_client
+            .with_receiving_shell(Some(facts), |shell, effects| {
+                shell.shutdown_complete(None, false, effects)
+            })
+            .ok_or_else(|| "source Menu suffix requires released Shell".to_string())?
+            .map_err(|error| error.to_string())?;
+        Ok(())
+    }
+
+    /// Complete source UI lifecycle actions only after all native UI/view loans end.
+    /// Returns whether the source reset invalidated the old message-list positions.
+    pub(super) fn complete_receiving_menu_host_requests(&mut self) -> Result<bool, String> {
+        use game_client::gui::campaign_launch_host_bridge::{
+            MenuHostMailbox, MenuHostRequest, MenuLaunchSource,
+        };
+        let mut reset = false;
+        loop {
+            let requests = self.game_client.take_menu_host_requests();
+            if requests.is_empty() {
+                break;
+            }
+            for request in requests {
+                match request {
+                    MenuHostRequest::StartCampaign {
+                        descriptor,
+                        clear_previous,
+                        source,
+                        main_menu_layout,
+                    } => {
+                        let mut cleared_here = false;
+                        if clear_previous && self.game_logic.game_mode() != GameMode::None {
+                            self.require_native_world_boundary("Menu source campaign clear")
+                                .map_err(|error| format!("{error:?}"))?;
+                            let cleared = self.clear_receiving_game_data(false)?;
+                            if !cleared {
+                                return Err(
+                                    "Source campaign clear failed on its receiving native world"
+                                        .into(),
+                                );
+                            }
+                            reset |= cleared;
+                            cleared_here = cleared;
+                        }
+                        // The immutable descriptor remains owned locally across reset.
+                        // Its message is published only after the original clear phase.
+                        self.game_client
+                            .message_stream_mut()
+                            .append_message_value(MenuHostMailbox::campaign_message(descriptor));
+                        game_engine::common::random_value::init_client_audio_random_with_seed(0);
+                        self.game_logic.set_logic_random_seed(0);
+                        if matches!(source, MenuLaunchSource::MainMenu) {
+                            self.game_client.finish_source_menu_campaign_start();
+                            self.complete_source_main_menu_update(main_menu_layout)?;
+                        }
+                        if cleared_here {
+                            // The iterator drops the unconsumed old-session tail.
+                            // Post-clear callbacks live in the receiving mailbox instead.
+                            break;
+                        }
+                    }
+                    MenuHostRequest::Quit => {
+                        self.pending_state = None;
+                        self.transition_to_state(GameState::Exiting)?;
+                        return Ok(reset);
+                    }
+                    MenuHostRequest::SignalUiInteract(hook) => {
+                        if let Some(engine) = self.game_logic.owned_script_engine.as_ref() {
+                            engine.signal_ui_interact(hook);
+                        }
+                    }
+                    MenuHostRequest::SetDifficulty(code) => {
+                        self.game_logic.prepare_native_command_difficulty(code)
+                    }
+                    MenuHostRequest::SetCursorVisibility(visible) => {
+                        self.game_client
+                            .set_receiving_menu_cursor_visibility(visible);
+                        self.window.set_cursor_visible(visible);
+                    }
+                    MenuHostRequest::ResetPlacement => {
+                        let owner = self.game_client.window_manager_owner_ref();
+                        owner.with_scope(|| self.control_bar.hide_purchase_science());
+                        self.pending_structure_placement = None;
+                        self.game_hud_mut()
+                            .construction_panel
+                            .clear_structure_placement();
+                        if matches!(
+                            self.pending_map_command,
+                            Some(PendingMapCommand::SpecialPower(_))
+                        ) {
+                            self.pending_map_command = None;
+                            self.clear_radius_cursor_overlays();
+                        }
+                        self.game_client.reset_receiving_menu_placement();
+                    }
+                }
+            }
+        }
+        Ok(reset)
     }
 }

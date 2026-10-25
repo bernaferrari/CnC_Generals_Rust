@@ -59,7 +59,7 @@ impl GameLogic {
                         CanAttackResult::Possible | CanAttackResult::PossibleAfterMoving
                     )
                 {
-                    self.unit_command_script_attack(passenger, target);
+                    self.unit_command_script_attack(passenger, target)?;
                 }
             }
             // Main's physical Stinger roster is the locked SpawnBehavior
@@ -77,7 +77,7 @@ impl GameLogic {
                     .host_object(id)
                     .is_some_and(|object| object.has_ai_update_interface())
             {
-                self.unit_command_script_attack(id, target);
+                self.unit_command_script_attack(id, target)?;
             }
         }
         Ok(())

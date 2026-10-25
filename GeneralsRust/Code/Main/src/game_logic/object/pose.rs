@@ -1099,7 +1099,8 @@ impl Object {
         } else {
             bits &= !(1u128 << MC_BIT_ATTACKING);
         }
-        if self.status.destroyed {
+        let ai_dead = self.unit_ai_runtime.current_leaf_state() == AIState::Dead;
+        if self.status.destroyed || ai_dead {
             bits |= 1u128 << MC_BIT_DYING;
         } else {
             bits &= !(1u128 << MC_BIT_DYING);
@@ -1310,12 +1311,64 @@ impl Object {
                 bits |= 1u128 << panic_b;
             }
         }
+        // C++ AIDeadState::onEnter clears all weapon animation flags and MOVING,
+        // then sets DYING. Keep that override authoritative across later pose
+        // and weapon-status refreshes while the retained machine remains dead.
+        if ai_dead {
+            use crate::game_logic::host_enum_table_residual::{
+                MC_BIT_DYING, MC_BIT_MOVING, between_firing_shots_a_model_bit,
+                between_firing_shots_b_model_bit, between_firing_shots_c_model_bit,
+                firing_a_model_bit, firing_b_model_bit, firing_c_model_bit, preattack_a_model_bit,
+                preattack_b_model_bit, preattack_c_model_bit, reloading_a_model_bit,
+                reloading_b_model_bit, reloading_c_model_bit, using_weapon_a_model_bit,
+                using_weapon_b_model_bit, using_weapon_c_model_bit,
+            };
+            let non_dying_bits: [u32; 16] = [
+                using_weapon_a_model_bit(),
+                using_weapon_b_model_bit(),
+                using_weapon_c_model_bit(),
+                firing_a_model_bit(),
+                firing_b_model_bit(),
+                firing_c_model_bit(),
+                between_firing_shots_a_model_bit(),
+                between_firing_shots_b_model_bit(),
+                between_firing_shots_c_model_bit(),
+                reloading_a_model_bit(),
+                reloading_b_model_bit(),
+                reloading_c_model_bit(),
+                preattack_a_model_bit(),
+                preattack_b_model_bit(),
+                preattack_c_model_bit(),
+                MC_BIT_MOVING,
+            ];
+            for bit in non_dying_bits {
+                bits &= !(1u128 << bit);
+            }
+            if let Some(surrender) =
+                crate::game_logic::host_enum_table_residual::model_condition_bit_name_index(
+                    "SURRENDER",
+                )
+            {
+                bits &= !(1u128 << surrender);
+            }
+            bits |= 1u128 << MC_BIT_DYING;
+        }
         if self.model_condition_bits != bits {
             self.visual_draw_state_revision =
                 self.visual_draw_state_revision.saturating_add(1).max(1);
         }
         self.model_condition_bits = bits;
         self.sync_overlord_addon_body_damage();
+    }
+
+    pub(crate) fn exit_ai_dead_model_condition(&mut self) {
+        let bit = crate::game_logic::host_enum_table_residual::MC_BIT_DYING;
+        let mask = 1u128 << bit;
+        if self.model_condition_bits & mask != 0 {
+            self.model_condition_bits &= !mask;
+            self.visual_draw_state_revision =
+                self.visual_draw_state_revision.saturating_add(1).max(1);
+        }
     }
 }
 

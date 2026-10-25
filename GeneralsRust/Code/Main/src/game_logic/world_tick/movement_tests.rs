@@ -1200,7 +1200,7 @@ fn failed_move_path_returns_to_idle() {
     unit.set_ai_state(AIState::Moving, &mut ObjectAudio::queue(&mut Vec::new()));
     unit.waiting_for_path = true;
     logic.objects.insert(ObjectId(9609), unit);
-    logic.on_waited_path_failed(ObjectId(9609));
+    logic.on_waited_path_failed(ObjectId(9609)).unwrap();
     let obj = logic.objects.get(&ObjectId(9609)).expect("ranger");
     assert!(!obj.waiting_for_path);
     assert_eq!(obj.ai_state(), AIState::Idle);
@@ -1209,7 +1209,7 @@ fn failed_move_path_returns_to_idle() {
     attacker.set_ai_state(AIState::Attacking, &mut ObjectAudio::queue(&mut Vec::new()));
     attacker.waiting_for_path = true;
     logic.objects.insert(ObjectId(9610), attacker);
-    logic.on_waited_path_failed(ObjectId(9610));
+    logic.on_waited_path_failed(ObjectId(9610)).unwrap();
     let obj = logic.objects.get(&ObjectId(9610)).expect("attacker");
     assert!(!obj.waiting_for_path);
     assert_eq!(obj.ai_state(), AIState::Attacking);
@@ -1515,12 +1515,14 @@ fn stopping_clears_the_moving_model_condition() {
     let mc = 1u128 << MC_BIT_MOVING;
     let dock = 1u128 << moving_model_bit();
     unit.model_condition_bits |= mc | dock;
+    unit.set_ai_state(AIState::Moving, &mut ObjectAudio::queue(&mut Vec::new()));
     unit.set_status_moving(true);
     assert_ne!(unit.model_condition_bits & mc, 0);
     unit.stop_moving(&mut ObjectAudio::queue(&mut Vec::new()));
     assert_eq!(unit.model_condition_bits & mc, 0);
     assert_eq!(unit.model_condition_bits & dock, 0);
     assert!(!unit.status.moving);
+    assert_eq!(unit.ai_state(), AIState::Moving);
 }
 
 #[test]

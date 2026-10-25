@@ -838,7 +838,11 @@ fn context_attack_plays_voice_attack_and_air() {
     logic.queued_audio_events.clear();
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
-        assert_eq!(exec.execute_attack(&[ranger], tank), CommandResult::Success);
+        assert_eq!(
+            exec.execute_attack(&[ranger], tank)
+                .expect("valid attack fixture"),
+            CommandResult::Success
+        );
     }
     assert!(
         logic
@@ -863,7 +867,11 @@ fn context_attack_plays_voice_attack_and_air() {
     logic.queued_audio_events.clear();
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
-        assert_eq!(exec.execute_attack(&[ranger], jet), CommandResult::Success);
+        assert_eq!(
+            exec.execute_attack(&[ranger], jet)
+                .expect("valid attack fixture"),
+            CommandResult::Success
+        );
     }
     assert!(
         logic
@@ -1242,7 +1250,8 @@ fn specialty_attack_voices_replace_voice_attack() {
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
         assert_eq!(
-            exec.execute_attack(&[ranger_id], bldg_id),
+            exec.execute_attack(&[ranger_id], bldg_id)
+                .expect("valid attack fixture"),
             CommandResult::Success
         );
     }
@@ -1294,7 +1303,8 @@ fn specialty_attack_voices_replace_voice_attack() {
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
         assert_eq!(
-            exec.execute_attack(&[ranger_id], inf_id),
+            exec.execute_attack(&[ranger_id], inf_id)
+                .expect("valid attack fixture"),
             CommandResult::Success
         );
     }
@@ -1318,7 +1328,9 @@ fn specialty_attack_voices_replace_voice_attack() {
     }
     logic.queued_audio_events.clear();
     assert_eq!(
-        CommandExecutor::new(&mut logic, 0).execute_attack(&[ranger_id], inf_id),
+        CommandExecutor::new(&mut logic, 0)
+            .execute_attack(&[ranger_id], inf_id)
+            .expect("valid attack fixture"),
         CommandResult::Success
     );
     assert!(
@@ -1331,7 +1343,8 @@ fn specialty_attack_voices_replace_voice_attack() {
     logic.queued_audio_events.clear();
     assert_eq!(
         CommandExecutor::new(&mut logic, 0)
-            .execute_attack(&[ranger_id], crate::game_logic::ObjectId(u32::MAX)),
+            .execute_attack(&[ranger_id], crate::game_logic::ObjectId(u32::MAX))
+            .expect("invalid target is an ordinary command result"),
         CommandResult::InvalidTarget
     );
     assert!(
@@ -1636,7 +1649,8 @@ fn group_attack_object_orders_weaponless_and_dead_victim() {
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
         assert_eq!(
-            exec.execute_attack(&[dozer_id], victim),
+            exec.execute_attack(&[dozer_id], victim)
+                .expect("valid attack fixture"),
             CommandResult::Success
         );
     }

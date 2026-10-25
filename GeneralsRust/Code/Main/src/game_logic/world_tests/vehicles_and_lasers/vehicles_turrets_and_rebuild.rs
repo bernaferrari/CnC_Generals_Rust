@@ -328,7 +328,9 @@ fn runway_reserve_requires_jet_stall() {
 
 #[test]
 fn private_attack_object_enters_attack_state_machine() {
-    use crate::game_logic::{AttackSubState, KindOf, Object, ObjectId, Team, ThingTemplate, Weapon};
+    use crate::game_logic::{
+        AttackSubState, KindOf, Object, ObjectId, Team, ThingTemplate, Weapon,
+    };
     use glam::Vec3;
     let mut logic = GameLogic::new();
     let mut at = ThingTemplate::new("PaA");
@@ -356,7 +358,11 @@ fn private_attack_object_enters_attack_state_machine() {
         o.set_position(Vec3::new(20.0, 0.0, 0.0));
         o
     });
-    assert!(logic.private_attack_object(aid, vid, -1));
+    assert!(
+        logic
+            .private_attack_object(aid, vid, -1)
+            .expect("valid private attack fixture")
+    );
     assert!(logic.objects[&aid].status.is_aiming_weapon);
     assert_eq!(
         logic.objects[&aid].attack_substate(),
@@ -404,7 +410,11 @@ fn nested_attack_machine_fires_an_explicit_tertiary_slot() {
         object
     });
 
-    assert!(logic.private_attack_object(attacker_id, victim_id, -1));
+    assert!(
+        logic
+            .private_attack_object(attacker_id, victim_id, -1)
+            .expect("valid private attack fixture")
+    );
     logic.tick_nested_attack_machines(&[attacker_id], 10.0, 1);
     logic.tick_nested_attack_machines(&[attacker_id], 10.1, 2);
 
@@ -683,7 +693,9 @@ fn tick_turret_aim_continues_while_turning() {
 
 #[test]
 fn turret_move_loop_plays_authored_event_and_stops() {
-    use crate::game_logic::audio_dispatch_impl::{clear_test_template_voices, set_test_per_unit_sound};
+    use crate::game_logic::audio_dispatch_impl::{
+        clear_test_template_voices, set_test_per_unit_sound,
+    };
     use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate, Weapon};
     use glam::Vec3;
     clear_test_template_voices();
@@ -804,7 +816,9 @@ fn turret_move_loop_missing_unit_sound_stays_silent() {
 
 #[test]
 fn voice_rapid_fire_plays_authored_per_unit_sound() {
-    use crate::game_logic::audio_dispatch_impl::{clear_test_template_voices, set_test_per_unit_sound};
+    use crate::game_logic::audio_dispatch_impl::{
+        clear_test_template_voices, set_test_per_unit_sound,
+    };
     use crate::game_logic::host_gattling_tank::GattlingFireLevel;
     use crate::game_logic::{KindOf, ObjectId, Team, ThingTemplate};
     use glam::Vec3;
@@ -948,7 +962,9 @@ fn continuous_fire_coast_deadline_uses_fired_shot_level() {
         GATTLING_BASE_DELAY_FRAMES, GATTLING_COAST_FRAMES, GATTLING_CONTINUOUS_FIRE_ONE,
         GattlingFireLevel, gattling_delay_frames_for_level,
     };
-    use crate::game_logic::host_minigunner::{MINIGUNNER_BASE_DELAY_FRAMES, MINIGUNNER_COAST_FRAMES};
+    use crate::game_logic::host_minigunner::{
+        MINIGUNNER_BASE_DELAY_FRAMES, MINIGUNNER_COAST_FRAMES,
+    };
     use crate::game_logic::{KindOf, ObjectId, Team, ThingTemplate};
     use glam::Vec3;
 
@@ -1223,7 +1239,9 @@ fn want_to_squish_honors_ally_computer_and_dont_auto_crush() {
 
 #[test]
 fn attack_state_machine_oor_chases_fleeing_victim() {
-    use crate::game_logic::{AttackSubState, KindOf, Object, ObjectId, Team, ThingTemplate, Weapon};
+    use crate::game_logic::{
+        AttackSubState, KindOf, Object, ObjectId, Team, ThingTemplate, Weapon,
+    };
     use glam::Vec3;
     let mut logic = GameLogic::new();
     let mut at = ThingTemplate::new("ChaseA");
@@ -1269,7 +1287,9 @@ fn attack_state_machine_oor_chases_fleeing_victim() {
 
 #[test]
 fn attack_state_machine_oor_approaches_stationary_victim() {
-    use crate::game_logic::{AttackSubState, KindOf, Object, ObjectId, Team, ThingTemplate, Weapon};
+    use crate::game_logic::{
+        AttackSubState, KindOf, Object, ObjectId, Team, ThingTemplate, Weapon,
+    };
     use glam::Vec3;
     let mut logic = GameLogic::new();
     let mut at = ThingTemplate::new("AppA");
@@ -1313,7 +1333,9 @@ fn attack_state_machine_oor_approaches_stationary_victim() {
 
 #[test]
 fn attack_chase_drops_when_victim_stops_fleeing() {
-    use crate::game_logic::{AttackSubState, KindOf, Object, ObjectId, Team, ThingTemplate, Weapon};
+    use crate::game_logic::{
+        AttackSubState, KindOf, Object, ObjectId, Team, ThingTemplate, Weapon,
+    };
     use glam::Vec3;
     let mut logic = GameLogic::new();
     let mut at = ThingTemplate::new("DropA");
@@ -1349,7 +1371,9 @@ fn attack_chase_drops_when_victim_stops_fleeing() {
 
 #[test]
 fn attack_chase_crush_floors_to_fast_as_possible() {
-    use crate::game_logic::{AttackSubState, KindOf, Object, ObjectId, Team, ThingTemplate, Weapon};
+    use crate::game_logic::{
+        AttackSubState, KindOf, Object, ObjectId, Team, ThingTemplate, Weapon,
+    };
     use glam::Vec3;
     let mut logic = GameLogic::new();
     let mut at = ThingTemplate::new("CrushTank");
@@ -1528,7 +1552,9 @@ fn update_combat_temp_lock_waits_instead_of_firing_primary() {
 fn choose_best_and_attack_ground_reset_primary_unless_locked() {
     // hq-xpdwb: unlocked chooseBest/attack-ground leftover-resets PRIMARY.
     // A leftover PreferMostDamage SECONDARY (Humvee TOW) must not stick.
-    use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate, Weapon, WeaponLockType};
+    use crate::game_logic::{
+        KindOf, Object, ObjectId, Team, ThingTemplate, Weapon, WeaponLockType,
+    };
     let mut logic = GameLogic::new();
     let mut at = ThingTemplate::new("GroundResetHumvee");
     at.add_kind_of(KindOf::Vehicle);

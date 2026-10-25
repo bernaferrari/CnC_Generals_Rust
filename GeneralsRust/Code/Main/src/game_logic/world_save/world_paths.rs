@@ -1485,7 +1485,7 @@ impl GameLogic {
     }
 
     /// C++ Pathfinder::processPathfindQueue residual (AI.cpp:332-339).
-    pub(crate) fn process_pathfind_queue(&mut self) {
+    pub(crate) fn process_pathfind_queue(&mut self) -> gamelogic::GameLogicResult<()> {
         // C++ queue5887-5897 refreshes the driving terrain's active boundary.
         let extent = self
             .world_services
@@ -1502,8 +1502,9 @@ impl GameLogic {
             let Some(req) = self.pathfinding_system.pop_pending_path() else {
                 break;
             };
-            self.resolve_initialized_path_request(req);
+            let _resolved = self.resolve_initialized_path_request(req)?;
         }
+        Ok(())
     }
 
     fn note_successful_move_path(&mut self, unit_id: ObjectId) {
@@ -1666,11 +1667,20 @@ impl GameLogic {
         unit.retry_path = closest_attempted;
     }
 
-    pub(crate) fn on_waited_path_failed(&mut self, unit_id: ObjectId) {
+    pub(crate) fn on_waited_path_failed(
+        &mut self,
+        unit_id: ObjectId,
+    ) -> gamelogic::GameLogicResult<()> {
         let Some(unit) = self.objects.get_mut(&unit_id) else {
-            return;
+            return Ok(());
         };
         let overlay = unit.has_temporary_ai_move() && !matches!(unit.ai_state(), AIState::Moving);
+        let completed_move = !overlay
+            && matches!(unit.ai_state(), AIState::Moving)
+            && !matches!(
+                unit.retained_ai_root_state(),
+                AIState::JetReturningForLanding | AIState::JetReturnToDeadAirfield
+            );
         unit.waiting_for_path = false;
         if overlay {
             unit.end_temporary_move_overlay(&mut crate::game_logic::ObjectAudio::queue(
@@ -1686,7 +1696,7 @@ impl GameLogic {
                 &mut self.queued_audio_events,
             ));
             unit.retry_path = true;
-        } else if matches!(unit.ai_state(), AIState::Moving) {
+        } else if completed_move {
             unit.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
                 &mut self.queued_audio_events,
             ));
@@ -1694,7 +1704,18 @@ impl GameLogic {
         drop(unit);
         if overlay {
             self.apply_arrival_goal_snap(unit_id, None);
+        } else if completed_move && self.objects.contains_key(&unit_id) {
+            let nested = self
+                .objects
+                .get(&unit_id)
+                .is_some_and(|object| object.unit_ai_runtime.parent_state().is_some());
+            if nested {
+                self.enter_ai_idle_child_owned(unit_id);
+            } else {
+                self.enter_base_ai_idle_owned(unit_id, &mut Default::default())?;
+            }
         }
+        Ok(())
     }
 
     /// C++ `AIInternalMoveToState::update` when a waited path arrives

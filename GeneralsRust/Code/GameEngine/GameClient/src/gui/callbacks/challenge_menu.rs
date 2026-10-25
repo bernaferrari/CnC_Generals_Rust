@@ -3,7 +3,7 @@
 use crate::display::image::get_mapped_image_collection;
 use crate::game_text::GameText;
 use crate::gui::campaign_launch_host_bridge::{
-    HostCampaignLaunchDescriptor, publish_host_campaign_launch,
+    HostCampaignLaunchDescriptor, MenuHostRequest, MenuLaunchSource,
 };
 use crate::gui::campaign_manager::{CampaignManager, GameDifficulty as CampaignDifficulty};
 use crate::gui::challenge_generals::{GameDifficulty, NUM_GENERALS, get_challenge_generals_mut};
@@ -398,7 +398,9 @@ fn start_challenge_game(effects: &mut crate::gui::game_window::WindowEventEffect
     if let Some(data) = get_global_data() {
         data.write().pending_file = selection.map_name.clone();
     }
-    TheScriptEngine::set_global_difficulty(challenge_to_logic_difficulty(difficulty));
+    effects.request_menu_host(MenuHostRequest::SetDifficulty(
+        challenge_to_logic_difficulty(difficulty),
+    ));
 
     {
         let state_handle = challenge_menu_state();
@@ -414,17 +416,12 @@ fn start_challenge_game(effects: &mut crate::gui::game_window::WindowEventEffect
         state.last_preview_sound = 0;
     }
 
-    if TheGameLogic::is_in_game() {
-        let _ = TheGameLogic::clear_game_data();
-    }
-
     // Keep both GlobalData residences coherent as hq-gyp/hq-c3w do, then
     // publish the C++ TheChallengeGameInfo selection atomically with the
     // NewGame payload for Main authority.
     game_engine::common::global_data::write().pending_file = selection.map_name.clone();
     let logic_difficulty = challenge_to_logic_difficulty(difficulty);
-    let _ = publish_host_campaign_launch(HostCampaignLaunchDescriptor {
-        generation: 0,
+    let descriptor = HostCampaignLaunchDescriptor {
         map_name: selection.map_name,
         campaign_name: selection.campaign_name,
         campaign_player_faction: String::new(),
@@ -436,15 +433,14 @@ fn start_challenge_game(effects: &mut crate::gui::game_window::WindowEventEffect
         difficulty_code: logic_difficulty,
         rank_points,
         max_fps: Some(LOGICFRAMES_PER_SECOND as i32),
+    };
+    let clear_previous = effects.menu_world().in_game;
+    effects.request_menu_host(MenuHostRequest::StartCampaign {
+        descriptor,
+        clear_previous,
+        source: MenuLaunchSource::ChallengeMenu,
+        main_menu_layout: None,
     });
-
-    let mut message = GameMessage::new(GameMessageType::NewGame);
-    message.append_integer_argument(GAME_SINGLE_PLAYER);
-    message.append_integer_argument(logic_difficulty);
-    message.append_integer_argument(rank_points);
-    message.append_integer_argument(LOGICFRAMES_PER_SECOND as i32);
-    effects.emitted_messages.push(message);
-    init_random_with_seed(0);
 }
 
 pub fn challenge_menu_init(
@@ -963,6 +959,10 @@ mod tests {
             emitted_messages: &mut messages,
             pending_control_bar_clicks: None,
             campaign_manager: Some(&mut campaign_manager),
+            main_menu: None,
+            menu_world: None,
+            menu_host: None,
+            pending_main_menu_actions: Vec::new(),
         };
         challenge_menu_init(&layout, None, &mut effects);
         drop(effects);
@@ -1023,6 +1023,10 @@ mod tests {
             emitted_messages: &mut messages,
             pending_control_bar_clicks: None,
             campaign_manager: Some(&mut campaign_manager),
+            main_menu: None,
+            menu_world: None,
+            menu_host: None,
+            pending_main_menu_actions: Vec::new(),
         };
         challenge_menu_shutdown(&layout, Some(&false), &mut effects);
         assert!(
@@ -1190,6 +1194,10 @@ mod tests {
                 emitted_messages: &mut messages,
                 pending_control_bar_clicks: None,
                 campaign_manager: Some(&mut campaign_manager),
+                main_menu: None,
+                menu_world: None,
+                menu_host: None,
+                pending_main_menu_actions: Vec::new(),
             };
             challenge_menu_shutdown(&layout, Some(&pop_immediate), &mut effects);
 

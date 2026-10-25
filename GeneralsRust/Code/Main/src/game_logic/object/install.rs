@@ -228,9 +228,6 @@ impl Object {
             if !self.is_kind_of(KindOf::Structure) {
                 self.set_status_moving(false);
                 self.stop_moving(audio);
-                if self.ai_state() != AIState::Idle {
-                    self.set_ai_state(AIState::Idle, audio);
-                }
             }
             // C++ ActiveBody::onSubdualChange: non-projectile contain
             // `orderAllPassengersToIdle`. Occupants are other HostObjects;
@@ -288,9 +285,6 @@ impl Object {
         self.target = None;
         self.target_location = None;
         self.set_status_force_attack(false);
-        if self.ai_state() != AIState::Idle {
-            self.set_ai_state(AIState::Idle, audio);
-        }
         // C++ TheGameLogic->deselectObject(obj, PLAYERMASK_ALL, TRUE).
         self.deselect();
         // C++ Object.cpp:2145-2179 non-drone unmanned enter:
@@ -378,9 +372,6 @@ impl Object {
         self.target = None;
         self.target_location = None;
         self.set_status_force_attack(false);
-        if self.ai_state() != AIState::Idle {
-            self.set_ai_state(AIState::Idle, audio);
-        }
         self.set_team_and_owner_with_partition_context(
             pilot_team,
             pilot_owner_player_id,
@@ -767,12 +758,13 @@ impl Object {
         }
     }
 
-    /// C++ CommandButtonHuntUpdate::setCommandButton residual.
-    pub fn start_command_button_hunt(
+    /// Store the selected command button data before its receiving AI callback.
+    /// C++ CommandButtonHuntUpdate::setCommandButton invokes aiIdle separately
+    /// through the object's selected AIUpdate module.
+    pub(crate) fn arm_command_button_hunt(
         &mut self,
         mode: crate::game_logic::host_command_button_hunt::HostCommandButtonHuntMode,
         current_frame: u32,
-        audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) {
         self.command_button_hunt = Some(
             crate::game_logic::host_command_button_hunt::HostCommandButtonHuntData::new(
@@ -780,11 +772,6 @@ impl Object {
                 current_frame,
             ),
         );
-        // C++ setCommandButton → aiIdle(CMD_FROM_AI).
-        self.last_command_source = crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_AI;
-        self.set_ai_state(AIState::Idle, audio);
-        self.target = None;
-        self.stop_moving(audio);
     }
 
     pub fn clear_command_button_hunt(&mut self) {
@@ -839,9 +826,6 @@ impl Object {
         self.target = None;
         self.target_location = None;
         self.set_status_force_attack(false);
-        if self.ai_state() != AIState::Idle {
-            self.set_ai_state(AIState::Idle, audio);
-        }
         // C++ setDisabledUntil: KINDOF_SPAWNS_ARE_THE_WEAPONS orderSlavesDisabledUntil.
         if self.is_spawns_are_the_weapons() {
             let _ = crate::game_logic::host_base_defense::order_hive_slaves_to_go_idle(
@@ -898,9 +882,6 @@ impl Object {
         self.target = None;
         self.target_location = None;
         self.set_status_force_attack(false);
-        if self.ai_state() != AIState::Idle {
-            self.set_ai_state(AIState::Idle, audio);
-        }
         if becoming {
             self.on_disabled_edge(true);
         }
@@ -948,9 +929,6 @@ impl Object {
         self.target = None;
         self.target_location = None;
         self.set_status_force_attack(false);
-        if self.ai_state() != AIState::Idle {
-            self.set_ai_state(AIState::Idle, audio);
-        }
         if becoming {
             self.on_disabled_edge(true);
         }

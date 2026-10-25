@@ -94,6 +94,23 @@ pub trait WindowLayout {
         self.run_shutdown(immediate_pop)
     }
 
+    /// Show/hide the layout using the receiving window manager.
+    fn hide_with_effects(
+        &mut self,
+        hide: bool,
+        _effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    ) {
+        self.hide(hide);
+    }
+
+    /// Bring the layout forward using the receiving window manager.
+    fn bring_forward_with_effects(
+        &mut self,
+        _effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    ) {
+        self.bring_forward();
+    }
+
     /// Show/hide the layout
     fn hide(&mut self, hide: bool);
 
@@ -151,6 +168,31 @@ impl BasicWindowLayout {
         self.layout = Some(layout.clone());
         Ok(layout)
     }
+
+    fn ensure_layout_with_effects(
+        &mut self,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    ) -> Result<Rc<RefCell<ManagerWindowLayout>>, ShellError> {
+        if let Some(layout) = &self.layout {
+            return Ok(layout.clone());
+        }
+        let filename = self.filename.clone();
+        let owner = effects.window_manager_owner.ok_or_else(|| {
+            ShellError::LayoutError(format!("{}: receiving window manager is missing", filename))
+        })?;
+        let created = owner
+            .try_with_manager(|manager| manager.create_layout_with_windows(&filename))
+            .ok_or_else(|| {
+                ShellError::LayoutError(format!(
+                    "{}: receiving window manager is busy during layout creation",
+                    filename
+                ))
+            })?;
+        let (layout, _info) =
+            created.map_err(|err| ShellError::LayoutError(format!("{}: {:?}", filename, err)))?;
+        self.layout = Some(layout.clone());
+        Ok(layout)
+    }
 }
 
 impl WindowLayout for BasicWindowLayout {
@@ -180,7 +222,9 @@ impl WindowLayout for BasicWindowLayout {
         data: Option<&dyn std::any::Any>,
         effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) -> Result<(), ShellError> {
-        if let Some(layout) = &self.layout {
+        log::debug!("Initializing layout: {}", self.filename);
+        let layout = self.ensure_layout_with_effects(effects)?;
+        {
             let layout_ref = layout.borrow();
             if let Some(snapshot) = data.and_then(|data| data.downcast_ref::<crate::gui::callbacks::score_screen::ScoreScreenAcademySnapshot>()) {
                 crate::gui::callbacks::score_screen::bind_score_screen_snapshot(&layout_ref, snapshot);
@@ -247,6 +291,33 @@ impl WindowLayout for BasicWindowLayout {
             LayoutState::ShuttingDown
         };
         Ok(())
+    }
+
+    fn hide_with_effects(
+        &mut self,
+        hide: bool,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    ) {
+        if let Some(layout) = self.layout.clone() {
+            effects.queue_window_operation(move |manager, _effects| {
+                layout.borrow().hide_with_manager(manager, hide);
+            });
+        }
+        self.hidden = hide;
+    }
+
+    fn bring_forward_with_effects(
+        &mut self,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    ) {
+        log::debug!("Bringing layout to front: {}", self.filename);
+        if let Some(layout) = self.layout.clone() {
+            effects.queue_window_operation(move |manager, _effects| {
+                if let Ok(layout) = layout.try_borrow() {
+                    manager.bring_layout_forward(&layout);
+                }
+            });
+        }
     }
 
     fn hide(&mut self, hide: bool) {

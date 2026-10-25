@@ -24,8 +24,9 @@ pub fn DownloadMenuSystem(
     msg: WindowMessage,
     data1: WindowMsgData,
     data2: WindowMsgData,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> WindowMsgHandled {
-    download_menu_system(window, msg, data1, data2)
+    download_menu_system(window, msg, data1, data2, effects)
 }
 
 pub fn DownloadMenuInput(
@@ -33,6 +34,7 @@ pub fn DownloadMenuInput(
     msg: WindowMessage,
     data1: WindowMsgData,
     data2: WindowMsgData,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> WindowMsgHandled {
-    download_menu_input(window, msg, data1, data2)
+    download_menu_input(window, msg, data1, data2, effects)
 }
