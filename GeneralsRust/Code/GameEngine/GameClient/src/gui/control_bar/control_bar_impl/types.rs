@@ -223,6 +223,8 @@ pub struct ControlBar {
     observer_mode: bool,
     multi_select_mode: bool,
     ui_dirty: bool,
+    /// Button clicks captured by this receiving ControlBar and replayed at its original update phase.
+    pub(crate) pending_command_clicks: Vec<crate::helpers::LiveControlBarClick>,
     build_queue_data: Vec<BuildQueueEntry>,
     displayed_queue_count: usize,
     current_frame: u32,

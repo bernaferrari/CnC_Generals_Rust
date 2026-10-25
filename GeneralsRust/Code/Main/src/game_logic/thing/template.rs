@@ -150,6 +150,17 @@ impl ReceivingClientTemplate {
         )
     }
 
+    pub(crate) fn receiving_ai_is_jet(&self) -> bool {
+        self.receiving_ai_source_index()
+            .and_then(|ordinal| self.0.behavior_modules().iter().nth(ordinal))
+            .is_some_and(|entry| {
+                entry
+                    .data
+                    .as_any()
+                    .is::<gamelogic::object::update::ai_update::JetAIUpdateModuleData>()
+            })
+    }
+
     pub(crate) fn dozer_ai_is_worker(&self) -> Option<bool> {
         let entry = self
             .0

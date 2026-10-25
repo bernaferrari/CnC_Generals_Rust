@@ -30,15 +30,15 @@ impl GameLogic {
     /// `m_movementComplete` in `AIUpdate::update`: it drops the path, clears
     /// the locomotor goal and ignored obstacle, and reconciles the pathfinder
     /// goal through the ordinary final-position snap.
-    fn finish_host_panic_movement(&mut self, id: ObjectId) {
-        {
-            let Some(unit) = self.objects.get_mut(&id) else {
-                return;
-            };
-            unit.set_ai_state(
-                AIState::Idle,
-                &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
-            );
+    fn finish_host_panic_movement(
+        &mut self,
+        id: ObjectId,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<()> {
+        if !self.set_ai_state_decision_aware_with_effects(id, AIState::Idle, effects)? {
+            return Ok(());
+        }
+        if let Some(unit) = self.objects.get_mut(&id) {
             unit.set_locomotor_goal_none();
         }
 
@@ -61,6 +61,7 @@ impl GameLogic {
             unit.set_status_moving(false);
             unit.set_locomotor_goal_none();
         }
+        Ok(())
     }
 
     /// Resolve the entry waypoint and the C++ AIFollowWaypointPath lookahead
@@ -216,7 +217,21 @@ impl GameLogic {
     /// AIUpdate::UPDATE before AIUpdate::doLocomotor. The path on Object is
     /// the single canonical path; this method only advances panic's waypoint
     /// continuation after the preceding locomotor pass completed it.
-    pub(in super::super::super) fn tick_host_panic_states(&mut self, object_ids: &[ObjectId]) {
+    pub(in super::super::super) fn tick_host_panic_states(
+        &mut self,
+        object_ids: &[ObjectId],
+    ) -> gamelogic::GameLogicResult<()> {
+        self.tick_host_panic_states_with_effects(
+            object_ids,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(in super::super::super) fn tick_host_panic_states_with_effects(
+        &mut self,
+        object_ids: &[ObjectId],
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<()> {
         for &id in object_ids {
             let Some((mut panic, can_be_repulsed, vision)) =
                 self.objects.get(&id).and_then(|unit| {
@@ -282,7 +297,6 @@ impl GameLogic {
                 if panic.timer < 0 {
                     panic.timer = panic.wait_frames;
                     if leftover_wander_has_repulsor(self, id, vision) {
-                        self.finish_host_panic_movement(id);
                         let _ = self.host_wander_fail_to_repulse(id);
                         continue;
                     }
@@ -401,7 +415,7 @@ impl GameLogic {
                     unit.stamp_pending_waypoint(panic.current_waypoint_id, labels);
                     unit.commit_completed_waypoint_labels();
                 }
-                self.finish_host_panic_movement(id);
+                self.finish_host_panic_movement(id, effects)?;
                 continue;
             };
 
@@ -445,5 +459,6 @@ impl GameLogic {
                 unit.is_panicking = true;
             }
         }
+        Ok(())
     }
 }

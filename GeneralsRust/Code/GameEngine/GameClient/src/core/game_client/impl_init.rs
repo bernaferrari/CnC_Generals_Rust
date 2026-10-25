@@ -33,6 +33,8 @@ impl GameClient {
         let window_manager_owner = WindowManagerOwner::new();
         let client = Self {
             window_manager_owner: window_manager_owner.clone(),
+            campaign_manager: crate::gui::campaign_manager::CampaignManager::new(),
+            message_stream: crate::message_stream::message_stream::MessageStream::new(),
             shell_game_first_load: true,
             frame: 0,
             owned_world_animations: OwnedWorldAnimations::default(),
@@ -84,6 +86,16 @@ impl GameClient {
     }
 
     /// Initializes all subsystems and resources
+    /// Borrow this client's live campaign progress.
+    pub fn campaign_manager(&self) -> &crate::gui::campaign_manager::CampaignManager {
+        &self.campaign_manager
+    }
+
+    /// Mutably borrow this client's live campaign progress.
+    pub fn campaign_manager_mut(&mut self) -> &mut crate::gui::campaign_manager::CampaignManager {
+        &mut self.campaign_manager
+    }
+
     /// Initialize a load screen using this client's persistent first-load state.
     /// Run a synchronous GameLogic operation with this client's load-screen recipient.
     /// The callback borrows both the adapter and client for the operation duration.
@@ -100,11 +112,12 @@ impl GameClient {
         kind: crate::gui::load_screen::LoadScreenKind,
         context: &crate::gui::load_screen::LoadScreenInitContext,
     ) -> bool {
-        let owner = self.window_manager_owner.clone();
+        let owner = &self.window_manager_owner;
         crate::gui::load_screen::init_load_screen_for_owner(
-            &owner,
+            owner,
             kind,
             context,
+            &self.campaign_manager,
             &mut self.shell_game_first_load,
         )
     }
@@ -142,8 +155,9 @@ impl GameClient {
         self.init_network_bridge();
         self.init_recorder_bridge();
         self.init_savegame_counter_bridge();
-        // C++ GameClient.cpp initializes TheCampaignManager during client init.
-        get_campaign_manager().init();
+        // Each receiving GameClient owns its own campaign runtime. Definitions
+        // are initialized here; construction itself remains inert.
+        self.campaign_manager.init();
 
         self.initialized = true;
 
@@ -158,7 +172,7 @@ impl GameClient {
         // `GameClient::init`, so published input frame state is live.
         register_live_game_client(self);
         Self::register_w3d_ghost_snapshot_bridges();
-        get_campaign_manager().init();
+        self.campaign_manager.init();
         self.initialized = true;
     }
 
@@ -336,32 +350,10 @@ impl GameClient {
                 // C++ GameState.cpp:699-700 — clearGameData(FALSE) only if isInGame.
                 let _ = TheGameLogic::clear_game_data();
             })),
-            Some(Arc::new(|| {
-                let campaign_manager = get_campaign_manager();
-                (
-                    campaign_manager.get_game_difficulty() as i32,
-                    campaign_manager.get_rank_points(),
-                )
-            })),
+            None,
         );
-        register_save_load_campaign_hooks(Some(Arc::new(|| {
-            let campaign_manager = get_campaign_manager();
-            let campaign = campaign_manager.get_current_campaign()?;
-            Some((
-                campaign.name.clone(),
-                campaign_manager.get_current_mission_number().unwrap_or(-1),
-                campaign_manager.get_current_map().unwrap_or_default(),
-            ))
-        })));
-        register_campaign_manager_runtime_hooks(
-            Some(Arc::new(|| {
-                get_campaign_manager().capture_logic_chunk_state()
-            })),
-            Some(Arc::new(|state| {
-                get_campaign_manager().apply_logic_chunk_state(state);
-            })),
-        );
-
+        // Campaign state is borrowed from the receiving GameClient at each
+        // save/load operation; do not publish an ambient campaign callback.
         register_save_load_skirmish_hooks(
             Some(Arc::new(|| {
                 // C++ GameStateMap.cpp:406 xferSnapshot(TheSkirmishGameInfo) v4.
@@ -636,6 +628,18 @@ impl GameClient {
         self.window_manager_owner.clone()
     }
 
+    /// Borrow this client's message pipeline for its synchronous producer/consumer operations.
+    pub fn message_stream(&self) -> &crate::message_stream::message_stream::MessageStream {
+        &self.message_stream
+    }
+
+    /// Borrow this client's message pipeline for an explicit producer operation.
+    pub fn message_stream_mut(
+        &mut self,
+    ) -> &mut crate::message_stream::message_stream::MessageStream {
+        &mut self.message_stream
+    }
+
     pub fn init_audio_subsystems(&mut self) -> GameClientResult<()> {
         if self.subsystem_manager.audio.is_none() {
             let mut audio = AudioSubsystem::new()
@@ -665,7 +669,6 @@ impl GameClient {
     }
 
     pub fn init_game_subsystems(&mut self) -> GameClientResult<()> {
-        register_campaign_snapshot_block();
         register_game_client_snapshot_block();
         crate::snow::register_weather_definition_parser();
         crate::eva::initialize_eva_system()
@@ -837,9 +840,8 @@ impl GameClient {
     }
 
     pub fn init_message_translators(&mut self) -> GameClientResult<()> {
-        let mut stream = THE_MESSAGE_STREAM
-            .write()
-            .map_err(|_| GameClientError::SubsystemError("Message stream lock poisoned".into()))?;
+        self.message_stream.clear_messages();
+        let stream = &mut self.message_stream;
 
         self.num_translators = 0;
 
@@ -902,26 +904,146 @@ impl GameClient {
 
     // Update methods
 
-    pub fn create_frame_tick_message(&self) -> GameClientResult<()> {
-        let mut stream = THE_MESSAGE_STREAM
-            .write()
-            .map_err(|_| GameClientError::SubsystemError("Message stream lock poisoned".into()))?;
-
+    pub fn create_frame_tick_message(&mut self) -> GameClientResult<()> {
         let frame = self.frame;
-        let message = stream.append_message(GameMessageType::FrameTick(frame));
+        let message = self
+            .message_stream
+            .append_message(GameMessageType::FrameTick(frame));
         message.append_timestamp_argument(frame);
         Ok(())
     }
 
-    fn take_completed_client_messages(&self, playback: bool) -> GameClientResult<Vec<GameMessage>> {
-        let mut completed_messages = {
-            let mut stream = THE_MESSAGE_STREAM.write().map_err(|_| {
-                GameClientError::SubsystemError("Message stream lock poisoned".into())
-            })?;
-            stream.propagate_messages().map_err(|e| {
-                GameClientError::SubsystemError(format!("Message stream update failed: {e}"))
-            })?
+    pub fn with_window_event_effects<R>(
+        &mut self,
+        operation: impl FnOnce(&mut crate::gui::game_window::WindowEventEffects<'_>) -> R,
+    ) -> R {
+        let owner = &self.window_manager_owner;
+        let mut messages = Vec::new();
+        let mut effects = crate::gui::game_window::WindowEventEffects {
+            window_manager_owner: Some(owner),
+            selected_window: None,
+            emitted_messages: &mut messages,
+            pending_control_bar_clicks: None,
+            campaign_manager: Some(&mut self.campaign_manager),
         };
+        let result = owner.with_scope(|| operation(&mut effects));
+        owner.complete_event_callbacks(&mut effects);
+        for message in messages {
+            self.message_stream.append_message_value(message);
+        }
+        result
+    }
+
+    pub fn with_receiving_shell<R>(
+        &mut self,
+        operation: impl FnOnce(
+            &mut crate::gui::shell::base::Shell,
+            &mut crate::gui::game_window::WindowEventEffects<'_>,
+        ) -> R,
+    ) -> Option<R> {
+        let owner = &self.window_manager_owner;
+        let mut messages = Vec::new();
+        let mut effects = crate::gui::game_window::WindowEventEffects {
+            window_manager_owner: Some(owner),
+            selected_window: None,
+            emitted_messages: &mut messages,
+            pending_control_bar_clicks: None,
+            campaign_manager: Some(&mut self.campaign_manager),
+        };
+        let result = owner.with_shell_effects_mut(&mut effects, operation);
+        owner.complete_event_callbacks(&mut effects);
+        for message in messages {
+            self.message_stream.append_message_value(message);
+        }
+        result
+    }
+
+    /// Finish the synchronous WND event before admitting its messages to this client's stream.
+    pub fn complete_window_event_messages(&mut self, mut messages: Vec<GameMessage>) {
+        let owner = &self.window_manager_owner;
+        let mut effects = crate::gui::game_window::WindowEventEffects {
+            window_manager_owner: Some(owner),
+            selected_window: None,
+            emitted_messages: &mut messages,
+            pending_control_bar_clicks: None,
+            campaign_manager: Some(&mut self.campaign_manager),
+        };
+        owner.complete_event_callbacks(&mut effects);
+        for message in messages {
+            self.message_stream.append_message_value(message);
+        }
+    }
+
+    fn take_completed_client_messages(
+        &mut self,
+        playback: bool,
+    ) -> GameClientResult<Vec<GameMessage>> {
+        let mut standalone =
+            |owner: &crate::gui::window_manager::WindowManagerOwner,
+             campaign_manager: &mut crate::gui::campaign_manager::CampaignManager,
+             request,
+             _emitted_messages: &mut Vec<GameMessage>| {
+                let mut pending_clicks = Vec::new();
+                let mut effects = crate::gui::game_window::WindowEventEffects {
+                    window_manager_owner: Some(&owner),
+                    selected_window: None,
+                    emitted_messages: _emitted_messages,
+                    pending_control_bar_clicks: Some(&mut pending_clicks),
+                    campaign_manager: Some(campaign_manager),
+                };
+                let result = owner.try_with_manager(|manager| match request {
+                    game_engine::common::message_stream::WindowInputDispatch::Mouse {
+                        message,
+                        x,
+                        y,
+                        data,
+                        delta,
+                    } => manager.process_mouse_event_with_delta_and_message_sink(
+                        crate::gui::game_window::WindowMessage::from(message),
+                        x,
+                        y,
+                        data as crate::gui::WindowMsgData,
+                        delta,
+                        &mut effects,
+                    ),
+                    game_engine::common::message_stream::WindowInputDispatch::Key {
+                        key,
+                        state,
+                    } => manager.process_key_event_with_message_sink(key, state, &mut effects),
+                });
+                owner.complete_event_callbacks(&mut effects);
+                drop(effects);
+                assert!(
+                    pending_clicks.is_empty(),
+                    "bound ControlBar commands require a receiving native input driver"
+                );
+                result.map(|code| {
+                    if code == crate::gui::game_window::WindowInputReturnCode::Used {
+                        game_engine::common::message_stream::WindowInputDispatchResult::Used
+                    } else {
+                        game_engine::common::message_stream::WindowInputDispatchResult::NotUsed
+                    }
+                })
+            };
+        self.take_message_stream_with_native_input(playback, &mut standalone)
+    }
+
+    pub fn take_message_stream_with_native_input(
+        &mut self,
+        playback: bool,
+        driver: &mut NativeWindowInputDriver<'_>,
+    ) -> GameClientResult<Vec<GameMessage>> {
+        let owner = &self.window_manager_owner;
+        let stream = &mut self.message_stream;
+        let campaign_manager = &mut self.campaign_manager;
+        let mut dispatch_window_input = |request, emitted_messages: &mut Vec<GameMessage>| {
+            driver(owner, campaign_manager, request, emitted_messages)
+        };
+        let mut completed_messages = stream
+            .propagate_messages_with_context(&mut dispatch_window_input)
+            .map_err(|e| {
+                GameClientError::SubsystemError(format!("Message stream update failed: {e}"))
+            })?;
 
         if playback {
             // C++ Recorder::updatePlayback culls live user network orders
@@ -936,7 +1058,7 @@ impl GameClient {
         Ok(completed_messages)
     }
 
-    pub fn pump_message_stream(&self) -> GameClientResult<()> {
+    pub fn pump_message_stream(&mut self) -> GameClientResult<()> {
         let playback =
             game_engine::common::recorder::with_recorder(|recorder| recorder.is_playback())
                 .unwrap_or(false);
@@ -954,7 +1076,7 @@ impl GameClient {
     /// Native Main lends the receiving command owner for this operation only.
     /// Do not also publish this batch to Core's independent player queues.
     pub fn pump_message_stream_to_receiving_owner(
-        &self,
+        &mut self,
         recorder: &game_engine::common::recorder::Recorder,
         receive: &mut dyn FnMut(Vec<GameMessage>) -> GameClientResult<()>,
     ) -> GameClientResult<()> {

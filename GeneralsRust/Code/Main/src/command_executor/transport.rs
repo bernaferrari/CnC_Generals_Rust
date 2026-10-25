@@ -167,9 +167,8 @@ impl<'a> CommandExecutor<'a> {
             }
 
             // Wave 233: stop-moving + order-target via GameLogic authority API.
-            let _ = self
-                .game_logic
-                .unit_command_stop_moving_order_target(unit_id, Some(target_id));
+            self.game_logic
+                .unit_command_stop_moving_order_target(unit_id, Some(target_id))?;
             // C++ AIEnterState enters immediately when the unit is already
             // close enough to the goal container — the same
             // `selection_radius + container_radius + 4.0` authority the

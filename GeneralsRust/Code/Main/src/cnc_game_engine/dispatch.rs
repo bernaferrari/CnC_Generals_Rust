@@ -231,24 +231,21 @@ impl CnCGameEngine {
     /// Host start still consumes the payload; `propagate_messages` can deliver
     /// the same message to crate GameLogic (C++ `logicMessageDispatcher`).
     pub(super) fn take_pending_new_game_start_request(&mut self) -> Option<HostStartRequest> {
-        let dispatch = Self::peek_new_game_dispatch_from_common_stream()?;
+        let dispatch =
+            Self::peek_new_game_dispatch_from_common_stream(self.game_client.message_stream())?;
         self.build_start_request_from_pending_globals(Some(dispatch))
     }
 
     /// Inspect every `NewGame` on the common stream without removing it.
     /// Prefers the last non-Shell NewGame so leftover GAME_SHELL from
     /// showShellMap cannot hide a later GAME_SKIRMISH Start.
-    pub(super) fn peek_new_game_dispatch_from_common_stream() -> Option<StartupNewGameDispatch> {
-        let stream = game_engine::common::message_stream::get_message_stream();
-        let stream_guard = match stream.read() {
-            Ok(g) => g,
-            Err(e) => e.into_inner(),
-        };
-
+    pub(super) fn peek_new_game_dispatch_from_common_stream(
+        stream: &game_engine::common::message_stream::MessageStream,
+    ) -> Option<StartupNewGameDispatch> {
         let mut last_any = None;
         let mut last_match = None;
         let mut n = 0u32;
-        for message in stream_guard.get_messages().iter() {
+        for message in stream.get_messages().iter() {
             if let Some(d) = Self::startup_new_game_dispatch_from_message(message) {
                 n += 1;
                 last_any = Some(d);
@@ -269,14 +266,10 @@ impl CnCGameEngine {
 
     /// Remove every `NewGame` message from the common stream, keeping others.
     /// Returns the last NewGame dispatch (C++ prefers the latest enqueue).
-    pub(super) fn take_new_game_dispatch_from_common_stream() -> Option<StartupNewGameDispatch> {
-        let stream = game_engine::common::message_stream::get_message_stream();
-        let mut stream_guard = match stream.write() {
-            Ok(g) => g,
-            Err(e) => e.into_inner(),
-        };
-
-        let messages: Vec<_> = stream_guard.get_messages().iter().cloned().collect();
+    pub(super) fn take_new_game_dispatch_from_common_stream(
+        stream: &mut game_engine::common::message_stream::MessageStream,
+    ) -> Option<StartupNewGameDispatch> {
+        let messages: Vec<_> = stream.get_messages().iter().cloned().collect();
         if messages.is_empty() {
             return None;
         }
@@ -297,21 +290,18 @@ impl CnCGameEngine {
         };
 
         // Drop leftover NewGame after host start if pump did not consume it.
-        stream_guard.clear_messages();
+        stream.clear_messages();
         for message in &kept {
-            Self::append_common_message_to_stream(&mut stream_guard, message);
+            Self::append_common_message_to_stream(stream, message);
         }
         Some(dispatch)
     }
 
     /// Drop leftover GAME_SHELL NewGame only. Keep GAME_SKIRMISH / campaign.
-    pub(super) fn take_shell_new_game_messages_from_common_stream() {
-        let stream = game_engine::common::message_stream::get_message_stream();
-        let mut stream_guard = match stream.write() {
-            Ok(g) => g,
-            Err(e) => e.into_inner(),
-        };
-        let messages: Vec<_> = stream_guard.get_messages().iter().cloned().collect();
+    pub(super) fn take_shell_new_game_messages_from_common_stream(
+        stream: &mut game_engine::common::message_stream::MessageStream,
+    ) {
+        let messages: Vec<_> = stream.get_messages().iter().cloned().collect();
         if messages.is_empty() {
             return;
         }
@@ -322,9 +312,9 @@ impl CnCGameEngine {
                 _ => kept.push(message),
             }
         }
-        stream_guard.clear_messages();
+        stream.clear_messages();
         for message in &kept {
-            Self::append_common_message_to_stream(&mut stream_guard, message);
+            Self::append_common_message_to_stream(stream, message);
         }
     }
 
@@ -334,9 +324,9 @@ impl CnCGameEngine {
     /// timer expires. QuitMenu Exit uses the same message. Main is the only
     /// offline InGame consumer, so scripted VICTORY/DEFEAT and QuitMenu both
     /// end the live match here.
-    pub(super) fn take_clear_game_data_from_common_stream() -> bool {
-        let stream = game_engine::common::message_stream::get_message_stream();
-        let mut stream = stream.write().unwrap_or_else(|e| e.into_inner());
+    pub(super) fn take_clear_game_data_from_common_stream(
+        stream: &mut game_engine::common::message_stream::MessageStream,
+    ) -> bool {
         let messages: Vec<_> = stream.get_messages().iter().cloned().collect();
 
         let mut found = false;
@@ -358,7 +348,7 @@ impl CnCGameEngine {
 
         stream.clear_messages();
         for message in &kept {
-            Self::append_common_message_to_stream(&mut stream, message);
+            Self::append_common_message_to_stream(stream, message);
         }
         true
     }
@@ -371,8 +361,10 @@ impl CnCGameEngine {
         }
         let player_id = self.local_player_id_for_ui();
         let selected = self.ui_selected_ids(player_id);
-        let commands =
-            crate::command_executor::take_leftover_dispatch_commands_from_common_stream(&selected);
+        let commands = crate::command_executor::take_leftover_dispatch_commands_from_common_stream(
+            self.game_client.message_stream_mut(),
+            &selected,
+        );
         for command in commands {
             self.host_queue_and_process_command_silent(command);
         }
@@ -407,12 +399,12 @@ impl CnCGameEngine {
             game_client::gui::with_window_manager(|manager| {
                 manager.transition_set_group("FadeWholeScreen", false);
             });
-            let result = game_client::gui::with_shell_mut(|shell| {
+            let result = self.game_client.with_receiving_shell(|shell, effects| {
                 if let Err(e) = game_client::system::SubsystemInterface::init(shell) {
                     return Err(e);
                 }
-                shell.push_score_screen(snapshot, false)?;
-                shell.show_shell(false)?;
+                shell.push_score_screen(snapshot, false, effects)?;
+                shell.show_shell(false, effects)?;
                 Ok(shell.get_screen_count())
             });
             match result {
@@ -423,15 +415,19 @@ impl CnCGameEngine {
                     warn!("clearGameData failed to push ScoreScreen.wnd: {e:?}");
                 }
                 None => {
-                    game_client::gui::queue_shell_operation(move |shell| {
-                        if let Err(e) = shell.push_score_screen(deferred_snapshot, false) {
-                            warn!("deferred ScoreScreen push failed: {e:?}");
-                            return;
-                        }
-                        if let Err(e) = shell.show_shell(false) {
-                            warn!("deferred showShell(FALSE) failed: {e:?}");
-                        }
-                    });
+                    game_client::gui::shell::base::queue_shell_operation_with_effects(
+                        move |shell, effects| {
+                            if let Err(e) =
+                                shell.push_score_screen(deferred_snapshot, false, effects)
+                            {
+                                warn!("deferred ScoreScreen push failed: {e:?}");
+                                return;
+                            }
+                            if let Err(e) = shell.show_shell(false, effects) {
+                                warn!("deferred showShell(FALSE) failed: {e:?}");
+                            }
+                        },
+                    );
                     self.shell_menu_active = true;
                 }
             }
@@ -470,7 +466,7 @@ impl CnCGameEngine {
         ) {
             return false;
         }
-        if !Self::take_clear_game_data_from_common_stream() {
+        if !Self::take_clear_game_data_from_common_stream(self.game_client.message_stream_mut()) {
             return false;
         }
         let show_score = self.game_logic.game_mode() != GameMode::Shell
@@ -512,6 +508,7 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "USA".to_string())
             });
         let game_info_starting_cash = identity.as_ref().and_then(|id| id.game_info_starting_cash);
+        let is_campaign_session = self.game_logic.has_campaign_session();
         let player_template = identity.and_then(|id| id.player_template);
         let mut request = match player_template {
             Some(player_template) => HostStartRequest::with_player_template(
@@ -526,6 +523,8 @@ impl CnCGameEngine {
             }
         };
         request.game_info_starting_cash = game_info_starting_cash;
+        request.is_campaign_session = is_campaign_session;
+        request.is_challenge_session = self.game_logic.is_challenge_session();
         request.difficulty_code = Some(dispatch.difficulty_code);
         request.recorder_dispatch = Some(dispatch);
         self.record_last_new_game_identity(LastNewGameIdentity {
@@ -605,6 +604,8 @@ impl CnCGameEngine {
             faction: campaign_launch_faction,
             player_template,
             game_info_starting_cash,
+            is_campaign_session,
+            is_challenge_session,
         } = campaign_launch_overrides;
 
         // Do not consume pending globals until a typed Challenge selection is
@@ -725,6 +726,8 @@ impl CnCGameEngine {
                         .game_info_starting_cash
                         .ok_or("the selected Challenge GameInfo cash is absent")?,
                 ),
+                is_campaign_session: true,
+                is_challenge_session: true,
             });
         }
 
@@ -754,6 +757,8 @@ impl CnCGameEngine {
             faction,
             player_template,
             game_info_starting_cash: None,
+            is_campaign_session: !descriptor.campaign_name.trim().is_empty(),
+            is_challenge_session: false,
         })
     }
 

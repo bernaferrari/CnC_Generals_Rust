@@ -22,6 +22,7 @@ fn initialize_kind_windows(
     wm: &mut WindowManager,
     kind: LoadScreenKind,
     context: &LoadScreenInitContext,
+    campaign_manager: &crate::gui::campaign_manager::CampaignManager,
     shell_game_first_load: &mut bool,
 ) {
     match kind {
@@ -33,10 +34,10 @@ fn initialize_kind_windows(
         // C++ uses the same GameLODManager::didMemPass gate for campaign and
         // Challenge movie preludes as it does for the first shell screen.
         LoadScreenKind::SinglePlayer => {
-            initialize_single_player_windows(wm, context.shell_game_did_mem_pass)
+            initialize_single_player_windows(wm, context.shell_game_did_mem_pass, campaign_manager)
         }
         LoadScreenKind::Challenge => {
-            initialize_challenge_windows(wm, context.shell_game_did_mem_pass)
+            initialize_challenge_windows(wm, context.shell_game_did_mem_pass, campaign_manager)
         }
         LoadScreenKind::Multiplayer => {
             initialize_multiplayer_windows(wm, "MultiplayerLoadScreen.wnd", context)

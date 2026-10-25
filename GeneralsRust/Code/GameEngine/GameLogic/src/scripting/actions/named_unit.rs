@@ -149,7 +149,8 @@ impl ScriptAction for NamedAttackTeamAction {
             return Ok(ScriptResult::Success(None));
         };
 
-        let resolved_team = resolve_team_name_token(&team_name);
+        let resolved_team =
+            resolve_team_name_token(&team_name, _context.is_generals_challenge_campaign());
         let team_exists = get_team_factory()
             .lock()
             .ok()

@@ -1796,7 +1796,9 @@ fn transfer_script_object_name_moves_host_name() {
 
 #[test]
 fn car_bomb_convert_endows_vision_and_veterancy() {
-    use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate, VeterancyLevel, Weapon};
+    use crate::game_logic::{
+        KindOf, Object, ObjectId, Team, ThingTemplate, VeterancyLevel, Weapon,
+    };
     let mut logic = GameLogic::new();
     let mut tt = ThingTemplate::new("Terrorist");
     tt.add_kind_of(KindOf::Infantry);
@@ -2442,7 +2444,9 @@ fn salvage_crate_only_salvager_picks_up() {
 
 #[test]
 fn salvage_money_floating_text_uses_player_color() {
-    use crate::game_logic::{KindOf, Object, ObjectId, Player, Team, ThingTemplate, VeterancyLevel};
+    use crate::game_logic::{
+        KindOf, Object, ObjectId, Player, Team, ThingTemplate, VeterancyLevel,
+    };
     let mut logic = GameLogic::new();
     let mut player = Player::new(0, Team::GLA, "G", true);
     player.color_rgb = (255, 0, 0);
@@ -2820,7 +2824,9 @@ fn guard_retaliate_returns_to_guard_not_idle() {
         e.status.destroyed = true;
         e.health.current = 0.0;
     }
-    logic.tick_guard_retaliate_states();
+    logic
+        .tick_guard_retaliate_states()
+        .expect("valid guard retaliation fixture");
     let o = &logic.objects[&id];
     assert_eq!(
         o.ai_state(),
@@ -2831,7 +2837,9 @@ fn guard_retaliate_returns_to_guard_not_idle() {
     assert!(o.movement.target_position.is_some());
     // Arrive at post.
     logic.set_fixture_object_position(id, glam::Vec3::ZERO);
-    logic.tick_guard_retaliate_states();
+    logic
+        .tick_guard_retaliate_states()
+        .expect("valid guard retaliation fixture");
     let o = &logic.objects[&id];
     assert_eq!(o.ai_state(), AIState::GuardingArea);
 }

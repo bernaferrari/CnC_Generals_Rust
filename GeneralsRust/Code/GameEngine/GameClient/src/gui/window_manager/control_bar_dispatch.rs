@@ -39,7 +39,7 @@ impl<'a> CameraOptionsInputContext<'a> {
         self.terrain_lod = Some(receiver);
         self
     }
-    fn complete(&mut self) {
+    fn complete(&mut self, effects: &mut crate::gui::game_window::WindowEventEffects<'_>) {
         match self.pending.take() {
             Some(PendingCameraOptions::ReplayPreference {
                 use_camera,
@@ -85,7 +85,7 @@ impl<'a> CameraOptionsInputContext<'a> {
                 );
                 let window_id = window.borrow().get_id() as u32;
                 let _ = crate::gui::shell::main_menu::get_main_menu()
-                    .select_options_with_camera_input(window_id, observation);
+                    .select_options_with_camera_input(window_id, observation, effects);
             }
             Some(PendingCameraOptions::OpenQuit(control_id)) => {
                 if let Some(path) = self
@@ -129,15 +129,53 @@ pub struct ControlBarInputContext<'a> {
     pub game_ending: bool,
     pub tooltips_disabled: bool,
     pub cursor_mouse: Option<&'a crate::core::subsystems::MouseHandle>,
+    pub window_manager_owner: Option<&'a crate::gui::window_manager::WindowManagerOwner>,
+    pub campaign_manager: Option<&'a mut crate::gui::campaign_manager::CampaignManager>,
+    pub emitted_messages: Option<&'a mut Vec<crate::message_stream::game_message::GameMessage>>,
 }
 impl ControlBarInputContext<'_> {
     pub(super) fn complete_options_accept(&mut self) {
         if let Some(options) = self.camera_options.as_mut() {
-            options.complete();
+            let mut effects = crate::gui::game_window::WindowEventEffects {
+                window_manager_owner: self.window_manager_owner,
+                selected_window: None,
+                emitted_messages: self
+                    .emitted_messages
+                    .as_deref_mut()
+                    .expect("native callback requires receiving message sink"),
+                pending_control_bar_clicks: Some(&mut self.control_bar.pending_command_clicks),
+                campaign_manager: self.campaign_manager.as_deref_mut(),
+            };
+            options.complete(&mut effects);
         }
     }
 }
 impl WindowManager {
+    pub(super) fn send_input_selected_with_message_sink(
+        &mut self,
+        window: &Rc<RefCell<GameWindow>>,
+        msg: WindowMessage,
+        data1: WindowMsgData,
+        data2: WindowMsgData,
+        routed: bool,
+        mut context: Option<&mut ControlBarInputContext<'_>>,
+        emitted_messages: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    ) -> WindowMsgHandled {
+        assert!(
+            context.is_none(),
+            "native input context and stream translator are distinct synchronous dispatch paths"
+        );
+        emitted_messages.selected_window = Some(Rc::downgrade(window));
+        window.borrow_mut().send_input_message_with_message_sink(
+            msg,
+            data1,
+            data2,
+            routed,
+            emitted_messages,
+            None,
+        )
+    }
+
     pub(super) fn send_input_selected(
         &mut self,
         window: &Rc<RefCell<GameWindow>>,
@@ -145,9 +183,9 @@ impl WindowManager {
         data1: WindowMsgData,
         data2: WindowMsgData,
         routed: bool,
-        context: Option<&mut ControlBarInputContext<'_>>,
+        mut context: Option<&mut ControlBarInputContext<'_>>,
     ) -> WindowMsgHandled {
-        let Some(context) = context else {
+        let Some(context) = context.as_deref_mut() else {
             return if routed {
                 window
                     .borrow_mut()
@@ -156,21 +194,50 @@ impl WindowManager {
                 window.borrow_mut().send_input_message(msg, data1, data2)
             };
         };
+        let owned_options = context.camera_options.is_some() || context.observer_roster.is_some();
+        let owned_replay = context.replay_menu.is_some();
+        let owned_restart = context
+            .replay_menu
+            .as_ref()
+            .is_some_and(|op| op.allow_offline_restart());
+        let click_start = context.control_bar.pending_command_clicks.len();
+        let mut effects = context
+            .emitted_messages
+            .as_deref_mut()
+            .map(
+                |emitted_messages| crate::gui::game_window::WindowEventEffects {
+                    window_manager_owner: context.window_manager_owner,
+                    selected_window: Some(Rc::downgrade(window)),
+                    emitted_messages,
+                    pending_control_bar_clicks: Some(
+                        &mut context.control_bar.pending_command_clicks,
+                    ),
+                    campaign_manager: context.campaign_manager.as_deref_mut(),
+                },
+            );
+        let emitted_messages = effects.as_mut();
         let (handled, notification) = {
+            let pending_control_bar_clicks = None;
             window
                 .borrow_mut()
                 .send_input_with_control_bar_notification(
                     msg,
                     data1,
                     data2,
-                    context.camera_options.is_some() || context.observer_roster.is_some(),
-                    context.replay_menu.is_some(),
-                    context
-                        .replay_menu
-                        .as_ref()
-                        .is_some_and(|op| op.allow_offline_restart()),
+                    owned_options,
+                    owned_replay,
+                    owned_restart,
+                    emitted_messages,
+                    pending_control_bar_clicks,
                 )
         };
+        drop(effects);
+        let target_id = window.borrow().get_id() as u32;
+        for click in &mut context.control_bar.pending_command_clicks[click_start..] {
+            if click.control_id == target_id {
+                click.target = Some(Rc::downgrade(window));
+            }
+        }
         if let Some(notification) = notification {
             if matches!(
                 notification.action,

@@ -352,3 +352,22 @@ fn register_game_logic_snapshot_block() {
         game_engine::System::SnapshotType::SaveLoad,
     );
 }
+
+/// Per-operation Core snapshot adapter with a serializer-owned campaign DTO.
+pub struct CampaignGameLogicSnapshot<'a> {
+    pub logic: &'a mut GameLogic,
+    pub campaign: &'a mut game_engine::System::CampaignManagerXferState,
+}
+impl XferSnapshotTrait for CampaignGameLogicSnapshot<'_> {
+    fn crc(&mut self, _xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
+        Ok(())
+    }
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
+        self.logic
+            .xfer_native_snapshot_with_campaign(xfer, self.campaign)
+    }
+    fn load_post_process(&mut self) -> Result<(), XferStatus> {
+        self.logic.load_post_process();
+        Ok(())
+    }
+}

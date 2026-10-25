@@ -21,7 +21,7 @@ use crate::helpers::{TheControlBar, TheInGameUI};
 
 use crate::input::{MouseButton, with_mouse};
 use crate::language_filter::get_language_filter;
-use crate::message_stream::{GameMessageType, get_message_stream};
+use crate::message_stream::{GameMessage, GameMessageType};
 use game_engine::common::ini::get_global_data;
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::radar::{ICoord2D, RADAR_CELL_HEIGHT, RADAR_CELL_WIDTH};
@@ -454,6 +454,8 @@ impl ControlBarCallbacks {
         msg: WindowMessage,
         data1: WindowMsgData,
         _data2: WindowMsgData,
+        emitted_messages: &mut Vec<GameMessage>,
+        pending_clicks: Option<&mut Vec<crate::helpers::LiveControlBarClick>>,
     ) -> WindowMsgHandled {
         if TheScriptEngine::is_game_ending() {
             return WindowMsgHandled::Ignored;
@@ -473,11 +475,16 @@ impl ControlBarCallbacks {
             }
             WindowMessage::GadgetSelected | WindowMessage::GadgetRightClick => {
                 let control_id = data1 as u32;
-                self.handle_button_selected(control_id, msg == WindowMessage::GadgetRightClick);
+                self.handle_button_selected(
+                    control_id,
+                    msg == WindowMessage::GadgetRightClick,
+                    emitted_messages,
+                    pending_clicks,
+                );
                 WindowMsgHandled::Handled
             }
             WindowMessage::GadgetEditDone => {
-                self.handle_edit_done(data1 as u32);
+                self.handle_edit_done(data1 as u32, emitted_messages);
                 WindowMsgHandled::Handled
             }
             WindowMessage::None => {
@@ -488,7 +495,13 @@ impl ControlBarCallbacks {
         }
     }
 
-    fn handle_button_selected(&mut self, control_id: u32, right_click: bool) {
+    fn handle_button_selected(
+        &mut self,
+        control_id: u32,
+        right_click: bool,
+        emitted_messages: &mut Vec<GameMessage>,
+        mut pending_clicks: Option<&mut Vec<crate::helpers::LiveControlBarClick>>,
+    ) {
         let beacon_place_id = NameKeyGenerator::name_to_key("ControlBar.wnd:ButtonPlaceBeacon");
         let beacon_delete_id = NameKeyGenerator::name_to_key("ControlBar.wnd:ButtonDeleteBeacon");
         let beacon_clear_text_id =
@@ -524,11 +537,9 @@ impl ControlBarCallbacks {
 
         if control_id == beacon_delete_id {
             if TheGameLogic::is_in_multiplayer_game() {
-                let message_stream = get_message_stream();
-                let mut stream = message_stream.write().unwrap_or_else(|e| e.into_inner());
-                stream.append_message(GameMessageType::RemoveBeacon(
+                emitted_messages.push(GameMessage::new(GameMessageType::RemoveBeacon(
                     crate::message_stream::game_message::Coord3D::default(),
-                ));
+                )));
             }
             return;
         }
@@ -570,9 +581,7 @@ impl ControlBarCallbacks {
                 return;
             }
             // Standalone GameClient retains its existing legacy route.
-            let message_stream = get_message_stream();
-            let mut stream = message_stream.write().unwrap_or_else(|e| e.into_inner());
-            stream.append_message(GameMessageType::MetaSelectNextWorker);
+            emitted_messages.push(GameMessage::new(GameMessageType::MetaSelectNextWorker));
             return;
         }
 
@@ -584,10 +593,14 @@ impl ControlBarCallbacks {
         } else {
             GBM_SELECTED
         };
-        TheControlBar::process_context_sensitive_button_click(control_id, msg);
+        if let Some(clicks) = pending_clicks.as_deref_mut() {
+            clicks.push(crate::helpers::LiveControlBarClick::from_current_dispatch(
+                control_id, msg,
+            ));
+        }
     }
 
-    fn handle_edit_done(&mut self, control_id: u32) {
+    fn handle_edit_done(&mut self, control_id: u32, emitted_messages: &mut Vec<GameMessage>) {
         let text_id = NameKeyGenerator::name_to_key("ControlBar.wnd:EditBeaconText");
         if control_id != text_id {
             return;
@@ -601,12 +614,10 @@ impl ControlBarCallbacks {
             })
             .unwrap_or_default();
             let text = filter_beacon_edit_text(text);
-            let message_stream = get_message_stream();
-            let mut stream = message_stream.write().unwrap_or_else(|e| e.into_inner());
-            stream.append_message(GameMessageType::SetBeaconText(
+            emitted_messages.push(GameMessage::new(GameMessageType::SetBeaconText(
                 crate::message_stream::game_message::Coord3D::default(),
                 text,
-            ));
+            )));
         }
     }
 
@@ -784,6 +795,8 @@ impl LeftHUDCallbacks {
         msg: WindowMessage,
         data1: WindowMsgData,
         _data2: WindowMsgData,
+        emitted_messages: &mut Vec<GameMessage>,
+        _pending_clicks: Option<&mut Vec<crate::helpers::LiveControlBarClick>>,
     ) -> WindowMsgHandled {
         let host_bridge = host_control_bar_bridge_enabled();
 
@@ -827,7 +840,7 @@ impl LeftHUDCallbacks {
                 WindowMsgHandled::Handled
             }
             WindowMessage::LeftDown | WindowMessage::RightDown => {
-                self.handle_mouse_down(window, msg, data1);
+                self.handle_mouse_down(window, msg, data1, emitted_messages);
                 WindowMsgHandled::Handled
             }
             WindowMessage::LeftUp | WindowMessage::RightUp => WindowMsgHandled::Handled,
@@ -882,7 +895,13 @@ impl LeftHUDCallbacks {
         });
     }
 
-    fn handle_mouse_down(&self, window: &GameWindow, msg: WindowMessage, data1: WindowMsgData) {
+    fn handle_mouse_down(
+        &self,
+        window: &GameWindow,
+        msg: WindowMessage,
+        data1: WindowMsgData,
+        emitted_messages: &mut Vec<GameMessage>,
+    ) {
         let (mouse_x, mouse_y) = decode_mouse_pos(data1);
         let (screen_x, screen_y) = window.get_screen_position();
         let (width, height) = window.get_size();
@@ -908,8 +927,6 @@ impl LeftHUDCallbacks {
                 view.look_at(&Point3::new(world.x, world.y, world.z));
             });
         } else {
-            let message_stream = get_message_stream();
-            let mut stream = message_stream.write().unwrap_or_else(|e| e.into_inner());
             let world_pos =
                 crate::message_stream::game_message::Coord3D::new(world.x, world.y, world.z);
 
@@ -917,13 +934,15 @@ impl LeftHUDCallbacks {
                 if (pending_power.options & (CMD_NEED_TARGET_POS | CMD_ATTACK_OBJECTS_POSITION))
                     != 0
                 {
-                    stream.append_message(GameMessageType::DoSpecialPowerAtLocation(
-                        pending_power.power_id,
-                        world_pos,
-                        0.0,
-                        0,
-                        pending_power.options,
-                        pending_power.source_object_id,
+                    emitted_messages.push(GameMessage::new(
+                        GameMessageType::DoSpecialPowerAtLocation(
+                            pending_power.power_id,
+                            world_pos,
+                            0.0,
+                            0,
+                            pending_power.options,
+                            pending_power.source_object_id,
+                        ),
                     ));
                     TheInGameUI::clear_pending_special_power();
                     TheInGameUI::clear_attack_move_to_mode();
@@ -956,7 +975,7 @@ impl LeftHUDCallbacks {
                     };
 
                     if let Some(message) = pending_message {
-                        stream.append_message(message);
+                        emitted_messages.push(GameMessage::new(message));
                         TheInGameUI::clear_pending_command();
                         TheInGameUI::clear_attack_move_to_mode();
                         return;
@@ -965,9 +984,11 @@ impl LeftHUDCallbacks {
             }
 
             if TheInGameUI::is_in_attack_move_to_mode() {
-                stream.append_message(GameMessageType::DoAttackMoveTo(world_pos.clone()));
+                emitted_messages.push(GameMessage::new(GameMessageType::DoAttackMoveTo(
+                    world_pos.clone(),
+                )));
             } else {
-                stream.append_message(GameMessageType::DoMoveTo(world_pos));
+                emitted_messages.push(GameMessage::new(GameMessageType::DoMoveTo(world_pos)));
             }
         }
 
@@ -1350,6 +1371,7 @@ mod tests {
         callbacks.handle_button_selected(
             NameKeyGenerator::name_to_key("ControlBar.wnd:ButtonIdleWorker"),
             false,
+            &mut Vec::new(),
         );
 
         assert!(matches!(
@@ -1379,7 +1401,14 @@ mod tests {
             let mut callbacks = LeftHUDCallbacks::new();
             let click = 42usize | (491usize << 16);
             assert_eq!(
-                callbacks.input(&window, WindowMessage::LeftDown, click, 0),
+                callbacks.input(
+                    &window,
+                    WindowMessage::LeftDown,
+                    click,
+                    0,
+                    &mut Vec::new(),
+                    None
+                ),
                 WindowMsgHandled::Handled
             );
 
@@ -1422,7 +1451,7 @@ mod tests {
             let click = 42usize | (491usize << 16);
             for message in [WindowMessage::LeftDown, WindowMessage::RightDown] {
                 assert_eq!(
-                    callbacks.input(&window, message, click, 0),
+                    callbacks.input(&window, message, click, 0, &mut Vec::new(), None),
                     WindowMsgHandled::Ignored,
                     "C++ LeftHUDInput yields to the held-middle route before {message:?}"
                 );

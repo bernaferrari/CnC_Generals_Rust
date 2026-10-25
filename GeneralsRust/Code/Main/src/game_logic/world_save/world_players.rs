@@ -782,7 +782,7 @@ impl GameLogic {
 
     /// Copy dummy ThePlayer alliances onto the local Challenge general.
     pub(in super::super) fn apply_challenge_the_player_relationships(&mut self) {
-        if !game_engine::System::capture_campaign_manager_runtime().is_challenge {
+        if !self.is_challenge_session() {
             return;
         }
         if !self.is_single_player_scenario() {

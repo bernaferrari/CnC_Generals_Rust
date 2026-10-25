@@ -925,9 +925,9 @@ fn start_lan_game(state: &mut LanGameOptionsState) {
         let mut data = data.write();
         data.pending_file = map_name;
     }
-    let _ = try_with_shell_mut(|shell| {
-        let _ = shell.pop();
-        let _ = shell.hide_shell();
+    crate::gui::shell::base::queue_shell_operation_with_effects(|shell, effects| {
+        let _ = shell.pop(effects);
+        let _ = shell.hide_shell(effects);
     });
     TheGameLogic::prepare_new_game(GAME_LAN, 1, 0);
 }
@@ -1026,7 +1026,9 @@ pub fn lan_game_options_menu_update(
         });
         set_lan_is_shutting_down(false);
         layout.hide(true);
-        let _ = try_with_shell_mut(|shell| shell.shutdown_complete(None, false));
+        crate::gui::shell::base::queue_shell_operation_with_effects(|shell, effects| {
+            let _ = shell.shutdown_complete(None, false, effects);
+        });
         return;
     }
 
@@ -1064,7 +1066,9 @@ pub fn lan_game_options_menu_shutdown(
             state.listbox_chat = None;
         });
         layout.hide(true);
-        let _ = try_with_shell_mut(|shell| shell.shutdown_complete(None, false));
+        crate::gui::shell::base::queue_shell_operation_with_effects(|shell, effects| {
+            let _ = shell.shutdown_complete(None, false, effects);
+        });
         return;
     }
 
@@ -1089,7 +1093,9 @@ pub fn lan_game_options_menu_system(
                 return;
             }
             if control_id == state.button_back_id {
-                let _ = try_with_shell_mut(|shell| shell.pop());
+                crate::gui::shell::base::queue_shell_operation_with_effects(|shell, effects| {
+                    let _ = shell.pop(effects);
+                });
                 handled = true;
                 return;
             }

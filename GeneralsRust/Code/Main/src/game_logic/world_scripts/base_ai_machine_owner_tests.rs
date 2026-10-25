@@ -36,6 +36,30 @@ fn control(world: &GameLogic, id: ObjectId) -> Vec<u8> {
     )
     .unwrap()
 }
+
+#[test]
+fn selected_authored_ai_provider_enters_default_idle_during_creation() {
+    let (world, id) = jet(false);
+    let actor = world.host_object(id).unwrap();
+    let selected = actor
+        .thing()
+        .template
+        .receiving_client_template
+        .as_ref()
+        .and_then(|template| template.receiving_ai_identity())
+        .expect("authored JetAIUpdate provider is selected");
+    assert_eq!(selected.0, 0);
+    assert_eq!(selected.1, "FirstJet");
+    assert_eq!(selected.2, "JetAIUpdate");
+    assert!(actor.unit_ai_runtime.machine().idle_initialized);
+    assert_eq!(actor.unit_ai_runtime.current_leaf_state(), AIState::Idle);
+    assert_eq!(
+        actor.next_mood_check_time,
+        world.ai_definitions.data().force_idle_frames_count
+    );
+    assert!(actor.randomly_offset_mood_check);
+}
+
 #[test]
 fn airborne_jet_idle_exits_guard_before_return_and_does_not_clear_same_id_peer() {
     let (mut world, id) = jet(false);

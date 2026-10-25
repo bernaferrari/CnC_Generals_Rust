@@ -9,7 +9,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn resolve_player_name_token(&self, raw: &str) -> String {
         match raw {
             THE_PLAYER => {
-                if !is_generals_challenge_campaign() {
+                if !self.context.is_generals_challenge_campaign() {
                     raw.to_string()
                 } else {
                     player_list()
@@ -60,7 +60,7 @@ impl ScriptActionDispatcher<'_> {
             },
             TEAM_THE_PLAYER => {
                 // C++ ScriptEngine::getTeamNamed (ScriptEngine.cpp:5935-5939).
-                if !is_generals_challenge_campaign() {
+                if !self.context.is_generals_challenge_campaign() {
                     return raw.to_string();
                 }
                 player_list()
@@ -2281,7 +2281,7 @@ impl ScriptActionDispatcher<'_> {
             };
             if player_guard.get_player_type() == PlayerType::Human {
                 // C++ ScriptEngine.cpp:5789-5791: Challenge dummy ThePlayer is not the enemy.
-                if is_generals_challenge_campaign() {
+                if self.context.is_generals_challenge_campaign() {
                     let is_dummy =
                         NameKeyGenerator::key_to_name(player_guard.get_player_name_key())
                             .as_deref()

@@ -46,7 +46,7 @@ pub use crate_tick::{
     PlayerStatistics, SimTimingSnapshot,
 };
 pub(crate) use host::PathfindingHeightSamples;
-pub use host::{GameLogic, RuntimeWeatherState};
+pub use host::{CampaignSessionKind, GameLogic, RuntimeWeatherState};
 pub use host_object_store::{HostObjectRead, HostObjectStore};
 pub(crate) use player::PlayerSideRole;
 pub(self) use player::{

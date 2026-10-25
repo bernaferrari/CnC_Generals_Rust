@@ -375,6 +375,16 @@ pub enum SessionControlOp {
         width: f32,
         height: f32,
     },
+    /// Validated campaign metadata accompanies the source player admission.
+    StartNewGameInCampaignSession {
+        mode: GameMode,
+        player_id: u32,
+        faction_team: Team,
+        player_template: Option<PlayerTemplateIdentity>,
+        setup_skirmish_ai: bool,
+        is_campaign: bool,
+        is_challenge: bool,
+    },
 }
 
 /// Wave 934: host-support residual authority payload (barracks/supplies/shell/template).

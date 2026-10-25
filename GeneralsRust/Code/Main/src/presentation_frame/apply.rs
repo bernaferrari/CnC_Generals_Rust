@@ -901,7 +901,10 @@ impl PresentationFrame {
 
     /// Dispatch presentation audio directly to the audio subsystem.
     /// Fail-closed boundary: does **not** mutate GameLogic mid-frame.
-    pub fn dispatch_audio_events_direct(&self) -> usize {
+    pub fn dispatch_audio_events_direct(
+        &self,
+        audio: &mut crate::subsystem_manager::AudioManagerSubsystem,
+    ) -> usize {
         self.refresh_live_audio_locality();
         let events = self.collect_audio_events();
         let n = events.len();
@@ -929,10 +932,7 @@ impl PresentationFrame {
             } else {
                 log::trace!("🔊 Presentation audio: {}", event.event_type);
             }
-            let _ = crate::subsystem_manager::with_subsystem_mut::<
-                crate::subsystem_manager::AudioManagerSubsystem,
-                _,
-            >(|audio| audio.queue_event(event.clone()));
+            audio.queue_event(event.clone());
         }
         n
     }

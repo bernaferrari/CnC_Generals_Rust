@@ -16,7 +16,7 @@ use std::any::{Any, TypeId};
 use std::collections::{HashMap, HashSet};
 use std::marker::PhantomData;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::Arc;
 use std::time::SystemTime;
 use ww3d_engine::FrameTiming;
 
@@ -492,18 +492,21 @@ impl AudioManagerSubsystem {
         }
     }
 
-    /// Install only the real audio delivery queue in an isolated test process.
+    /// Install the real audio delivery queue into a test-owned manager.
     /// Device initialization is unnecessary for checking logic-to-audio delivery.
     #[cfg(test)]
-    pub(crate) fn install_test_queue() {
-        let mut manager = SubsystemManager::new();
+    pub(crate) fn install_test_queue(manager: &mut SubsystemManager) {
         manager.add_subsystem(Self::new());
-        assert!(SUBSYSTEM_MANAGER.set(Arc::new(Mutex::new(manager))).is_ok());
     }
 
     #[cfg(test)]
-    pub(crate) fn take_test_queue() -> Vec<crate::game_logic::AudioEventRequest> {
-        with_subsystem_mut::<Self, _>(Self::drain_events).expect("installed audio subsystem")
+    pub(crate) fn take_test_queue(
+        manager: &mut SubsystemManager,
+    ) -> Vec<crate::game_logic::AudioEventRequest> {
+        manager
+            .get_mut::<Self>()
+            .expect("installed audio subsystem")
+            .drain_events()
     }
 
     pub fn queue_event(&mut self, event: crate::game_logic::AudioEventRequest) {
@@ -574,9 +577,8 @@ impl AudioManagerSubsystem {
     /// build/train/gather/combat/UI events accumulate without ever reaching
     /// the SoundEffectsTable/backend.
     fn drain_and_dispatch_queued_audio(&mut self) {
-        // Drain gameplay audio events (weapon fire, unit death) from the
-        // common dispatch before presentation/UI events, matching the old
-        // `update` order.
+        // Drain gameplay audio events (weapon fire, unit death) before the
+        // full requests queued by presentation and GameLogic at the app boundary.
         for event in self.gameplay_dispatch.drain_events() {
             let mut req = crate::game_logic::AudioEventRequest::new(&event.event_name);
             if let Some((x, y, z)) = event.position {
@@ -586,7 +588,6 @@ impl AudioManagerSubsystem {
             }
             self.queue_event(req);
         }
-
         // Apply high-level toggles/events that don't require archive lookups yet.
         // Wave 528: presentation FireSound loop stop is stop-only (no replay).
         for event in self.drain_events() {
@@ -932,6 +933,49 @@ impl GameClientSubsystem {
     #[cfg(not(feature = "game_client"))]
     fn update_legacy_client_singletons(&self) {}
 
+    #[cfg(feature = "game_client")]
+    fn update_receiving_client(
+        &mut self,
+        timing: Option<&FrameTiming>,
+        client: &mut game_client::core::GameClient,
+    ) -> Result<()> {
+        self.frame = timing.map_or_else(
+            || self.frame.wrapping_add(1),
+            |timing| timing.frame_number as u32,
+        );
+        // The receiving GameClient frame was admitted by the driving logic world.
+        client
+            .create_frame_tick_message()
+            .map_err(|error| anyhow!(error.to_string()))?;
+        let owner = client.window_manager_owner();
+        owner.with_scope(|| {
+            use game_client::system::SubsystemInterface as _;
+            use game_client::video_player::VideoPlayerInterface as _;
+            game_client::eva::update_eva_system();
+            game_client::gui::window_video_manager::with_window_video_manager(|manager| {
+                manager.update()
+            });
+            owner
+                .try_with_manager(|manager| manager.update())
+                .expect("native client update requires released manager loan");
+            if let Some(video_player) = game_client::video_player::get_video_player() {
+                if let Ok(mut guard) = video_player.lock() {
+                    if let Some(player) = guard.as_mut() {
+                        player.update();
+                    }
+                }
+            }
+            if let Err(error) = game_client::gui::get_display_string_manager().update() {
+                warn!("Display string manager update failed: {error}");
+            }
+            game_client::core::script_action_handler::apply_pending_script_display_state();
+        });
+        client
+            .with_receiving_shell(|shell, effects| shell.update_receiving(effects))
+            .ok_or_else(|| anyhow!("native Shell update requires released receiving owner"))?
+            .map_err(|error| anyhow!(error.to_string()))
+    }
+
     fn update_internal(&mut self, advance_frame: bool) -> Result<()> {
         if advance_frame {
             self.frame = self.frame.wrapping_add(1);
@@ -1022,6 +1066,29 @@ impl MessageStreamSubsystem {
             .propagate_messages()
             .map_err(|e| anyhow!("Message propagation failed: {:?}", e))?;
 
+        Ok(())
+    }
+}
+
+/// Native update-order marker. The receiving GameClient owns its MessageStream;
+/// this slot preserves C++ phase order without touching the process fallback.
+#[derive(Default)]
+pub(crate) struct NativeMessagePhase;
+
+impl SubsystemInterface for NativeMessagePhase {
+    fn name(&self) -> &'static str {
+        "MessageStream"
+    }
+    fn init(&mut self) -> Result<()> {
+        Ok(())
+    }
+    fn reset(&mut self) -> Result<()> {
+        Ok(())
+    }
+    fn update(&mut self, _dt: f32) -> Result<()> {
+        Ok(())
+    }
+    fn shutdown(&mut self) -> Result<()> {
         Ok(())
     }
 }
@@ -1588,6 +1655,127 @@ impl<T: 'static> SubsystemHandle<T> {
     }
 }
 
+/// Process services whose lifetime is the actual application run, not an engine.
+pub(crate) struct ApplicationServices {
+    message_stream: MessageStreamSubsystem,
+    game_state: GameStateSubsystem,
+    game_results_queue: GameResultsQueueSubsystem,
+    message_stream_initialized: bool,
+    game_state_initialized: bool,
+    game_results_queue_initialized: bool,
+    save_load_initialized: bool,
+    user_data_root: Option<std::path::PathBuf>,
+}
+
+impl ApplicationServices {
+    pub(crate) fn new() -> Self {
+        Self {
+            message_stream: MessageStreamSubsystem::new(),
+            game_state: GameStateSubsystem::new(),
+            game_results_queue: GameResultsQueueSubsystem::new(),
+            message_stream_initialized: false,
+            game_state_initialized: false,
+            game_results_queue_initialized: false,
+            save_load_initialized: false,
+            user_data_root: None,
+        }
+    }
+
+    fn owns_name(name: &str) -> bool {
+        matches!(name, "MessageStream" | "GameState" | "GameResultsQueue")
+    }
+
+    pub(crate) fn admit_user_data_root(&mut self, root: &std::path::Path) -> Result<()> {
+        match &self.user_data_root {
+            Some(admitted) if admitted != root => Err(anyhow!(
+                "ApplicationServices is already bound to user-data root {}; cannot rebind to {}",
+                admitted.display(),
+                root.display(),
+            )),
+            Some(_) => Ok(()),
+            None => {
+                self.user_data_root = Some(root.to_owned());
+                Ok(())
+            }
+        }
+    }
+
+    fn initialize_named(&mut self, name: &str) -> Result<bool> {
+        match name {
+            "MessageStream" => {
+                if !self.message_stream_initialized {
+                    self.message_stream.init()?;
+                    self.message_stream_initialized = true;
+                }
+            }
+            "GameState" => {
+                if !self.game_state_initialized {
+                    self.game_state.init()?;
+                    self.game_state_initialized = true;
+                }
+            }
+            "GameResultsQueue" => {
+                if !self.game_results_queue_initialized {
+                    self.game_results_queue.init()?;
+                    self.game_results_queue_initialized = true;
+                }
+            }
+            _ => return Ok(false),
+        }
+        Ok(true)
+    }
+
+    pub(crate) fn initialize_save_load_system(&mut self, root: &std::path::Path) -> Result<()> {
+        self.admit_user_data_root(root)?;
+        if self.save_load_initialized {
+            return Ok(());
+        }
+        crate::save_load::game_state::init_game_state_system_for_user_data(root)
+            .map_err(|error| anyhow!("Game state system init failed: {error}"))?;
+        self.save_load_initialized = true;
+        Ok(())
+    }
+
+    pub(crate) fn shutdown(&mut self) -> Result<()> {
+        let mut first_error = None;
+        if self.game_results_queue_initialized {
+            match self.game_results_queue.shutdown() {
+                Ok(()) => self.game_results_queue_initialized = false,
+                Err(error) => first_error = Some(error),
+            }
+        }
+        if self.game_state_initialized {
+            match self.game_state.shutdown() {
+                Ok(()) => self.game_state_initialized = false,
+                Err(error) => {
+                    if first_error.is_none() {
+                        first_error = Some(error);
+                    }
+                }
+            }
+        }
+        if self.message_stream_initialized {
+            match self.message_stream.shutdown() {
+                Ok(()) => self.message_stream_initialized = false,
+                Err(error) => {
+                    if first_error.is_none() {
+                        first_error = Some(error);
+                    }
+                }
+            }
+        }
+        first_error.map_or(Ok(()), Err)
+    }
+}
+
+impl Drop for ApplicationServices {
+    fn drop(&mut self) {
+        if let Err(error) = self.shutdown() {
+            error!("Failed to shut down application services: {error}");
+        }
+    }
+}
+
 pub struct SubsystemManager {
     subsystems: Vec<Box<dyn SubsystemStorage>>,
     indices_by_type: HashMap<TypeId, usize>,
@@ -1696,6 +1884,13 @@ impl SubsystemManager {
 
     /// Initialize all subsystems in the correct order
     pub fn initialize_all(&mut self) -> Result<()> {
+        self.initialize_all_with_application_services(None)
+    }
+
+    fn initialize_all_with_application_services(
+        &mut self,
+        mut application_services: Option<&mut ApplicationServices>,
+    ) -> Result<()> {
         info!("Starting subsystem initialization sequence");
         self.start_time = Some(SystemTime::now());
         self.initialized = false;
@@ -1707,6 +1902,11 @@ impl SubsystemManager {
             let start_time = SystemTime::now();
             match self.indices_by_name.get(target_name).copied() {
                 Some(index) => {
+                    if target_name == "MessageStream" {
+                        if let Some(services) = application_services.as_deref_mut() {
+                            services.initialize_named(target_name)?;
+                        }
+                    }
                     let slot = self
                         .subsystems
                         .get_mut(index)
@@ -1732,6 +1932,14 @@ impl SubsystemManager {
                     initialized.insert(index);
                 }
                 None => {
+                    if let Some(services) = application_services.as_deref_mut() {
+                        if services.initialize_named(target_name)? {
+                            continue;
+                        }
+                    } else if ApplicationServices::owns_name(target_name) {
+                        // Direct engine fixtures do not own application services.
+                        continue;
+                    }
                     let err = anyhow!("Subsystem {} not found during initialization", target_name);
                     error!("{}", err);
                     return Err(err);
@@ -1801,6 +2009,30 @@ impl SubsystemManager {
         Ok(())
     }
 
+    #[cfg(feature = "game_client")]
+    pub(crate) fn reset_all_receiving_client(
+        &mut self,
+        client: &mut game_client::core::GameClient,
+    ) -> Result<()> {
+        let stream_index = self
+            .indices_by_type
+            .get(&TypeId::of::<NativeMessagePhase>())
+            .copied();
+        for index in (0..self.subsystems.len()).rev() {
+            if Some(index) == stream_index {
+                client.message_stream_mut().clear_messages();
+                continue;
+            }
+            if let Err(error) = self.subsystems[index].reset() {
+                error!(
+                    "Failed to reset subsystem {}: {error}",
+                    self.subsystems[index].name()
+                );
+            }
+        }
+        Ok(())
+    }
+
     /// Update all subsystems in C++ GameEngine::update() order.
     pub fn update_all(&mut self, dt: f32) -> Result<()> {
         let mut updated = HashSet::new();
@@ -1853,6 +2085,59 @@ impl SubsystemManager {
         Ok(())
     }
 
+    /// Preserve the registered update phases while borrowing the actual native client.
+    #[cfg(feature = "game_client")]
+    pub(crate) fn update_all_receiving_client(
+        &mut self,
+        dt: f32,
+        timing: Option<&FrameTiming>,
+        client: &mut game_client::core::GameClient,
+        propagate: &mut dyn FnMut(
+            &mut game_client::core::GameClient,
+        )
+            -> Result<Vec<game_engine::common::message_stream::GameMessage>>,
+    ) -> Result<Vec<game_engine::common::message_stream::GameMessage>> {
+        let client_index = self
+            .indices_by_type
+            .get(&TypeId::of::<GameClientSubsystem>())
+            .copied();
+        let stream_index = self
+            .indices_by_type
+            .get(&TypeId::of::<NativeMessagePhase>())
+            .copied();
+        let mut order = Vec::new();
+        let mut admitted = HashSet::new();
+        for target in &self.update_order {
+            if let Some(&index) = self.indices_by_name.get(target) {
+                if admitted.insert(index) {
+                    order.push(index);
+                }
+            }
+        }
+        order.extend((0..self.subsystems.len()).filter(|index| !admitted.contains(index)));
+        let mut completed_messages = Vec::new();
+        for index in order {
+            let result = if Some(index) == client_index {
+                self.get_mut::<GameClientSubsystem>()
+                    .expect("typed GameClient registration changed")
+                    .update_receiving_client(timing, client)
+            } else if Some(index) == stream_index {
+                propagate(client).map(|messages| completed_messages.extend(messages))
+            } else if let Some(timing) = timing {
+                self.subsystems[index].update_with_timing(timing)
+            } else {
+                self.subsystems[index].update(dt)
+            };
+            if let Err(error) = result {
+                error!(
+                    "Error updating subsystem {}: {error}",
+                    self.subsystems[index].name()
+                );
+            }
+        }
+        Ok(completed_messages)
+    }
+
     /// Obtain a typed handle to a subsystem, if registered.
     pub fn handle_for<T: SubsystemInterface + 'static>(&self) -> Option<SubsystemHandle<T>> {
         self.indices_by_type
@@ -1880,11 +2165,26 @@ impl SubsystemManager {
 
     /// Shutdown all subsystems
     pub fn shutdown_all(&mut self) -> Result<()> {
-        info!("Shutting down all subsystems");
+        self.shutdown_with_application_services(true)
+    }
 
-        // Shutdown in reverse order
+    fn shutdown_engine_owned(&mut self) -> Result<()> {
+        self.shutdown_with_application_services(false)
+    }
+
+    fn shutdown_with_application_services(
+        &mut self,
+        include_application_services: bool,
+    ) -> Result<()> {
+        info!("Shutting down all owned subsystems");
+
+        // Shutdown in reverse order. Application singleton adapters belong to
+        // the run_loop ApplicationServices owner, never to an engine Drop.
         for slot in self.subsystems.iter_mut().rev() {
             let name = slot.name();
+            if !include_application_services && ApplicationServices::owns_name(name) {
+                continue;
+            }
             info!("Shutting down subsystem: {}", name);
             if let Err(e) = slot.shutdown() {
                 error!("Error shutting down subsystem {}: {}", name, e);
@@ -1960,136 +2260,69 @@ pub struct SubsystemStats {
     pub initialization_time: Option<std::time::Duration>,
 }
 
-/// Global subsystem manager instance stored in a thread-safe wrapper.
-static SUBSYSTEM_MANAGER: OnceLock<Arc<Mutex<SubsystemManager>>> = OnceLock::new();
-
-/// Lightweight handle used to acquire locked access to the subsystem manager.
-#[derive(Clone)]
-pub struct SubsystemManagerHandle {
-    inner: Arc<Mutex<SubsystemManager>>,
-}
-
-impl SubsystemManagerHandle {
-    fn new(inner: Arc<Mutex<SubsystemManager>>) -> Self {
-        Self { inner }
-    }
-
-    pub fn lock(&self) -> std::sync::MutexGuard<'_, SubsystemManager> {
-        self.inner.lock().unwrap_or_else(|e| e.into_inner())
-    }
-}
-
-/// Execute a closure with an immutable borrow of a registered subsystem.
-pub fn with_subsystem<T, R>(f: impl FnOnce(&T) -> R) -> Option<R>
-where
-    T: SubsystemInterface + 'static,
-{
-    let handle = SUBSYSTEM_MANAGER.get()?.clone();
-    let manager = handle.lock().ok()?;
-    let subsystem_handle = manager.handle_for::<T>()?;
-    let subsystem = subsystem_handle.get(&manager)?;
-    Some(f(subsystem))
-}
-
-/// Execute a closure with a mutable borrow of a registered subsystem.
-pub fn with_subsystem_mut<T, R>(f: impl FnOnce(&mut T) -> R) -> Option<R>
-where
-    T: SubsystemInterface + 'static,
-{
-    let handle = SUBSYSTEM_MANAGER.get()?.clone();
-    let mut manager = handle.lock().ok()?;
-    let subsystem_handle = manager.handle_for::<T>()?;
-    let subsystem = subsystem_handle.get_mut(&mut manager)?;
-    Some(f(subsystem))
-}
-
-/// Initialize the global subsystem manager.
-/// Also available as `initialize_subsystem_manager` for C++ naming compatibility.
-pub fn init_subsystem_manager() -> Result<()> {
-    init_subsystem_manager_for_user_data(None)
-}
-
-pub(crate) fn init_subsystem_manager_for_user_data(
-    user_data_root: Option<&std::path::Path>,
-) -> Result<()> {
-    fn register_default_subsystems(
-        manager: &mut SubsystemManager,
+/// Register native subsystems in C++ startup order and initialize them on the
+/// owning engine instance. The manager is never published globally.
+impl SubsystemManager {
+    pub(crate) fn initialize_for_user_data(
+        &mut self,
         user_data_root: Option<&std::path::Path>,
-    ) {
-        let _ = manager.add_subsystem(FileSystemSubsystem::new());
-        let _ = manager.add_subsystem(GlobalDataSubsystem::with_user_data_root(user_data_root));
-        let _ = manager.add_subsystem(ScienceStoreSubsystem::new());
-        let _ = manager.add_subsystem(TerrainTypesSubsystem::new());
-        let _ = manager.add_subsystem(TerrainRoadsSubsystem::new());
-        let _ = manager.add_subsystem(GlobalLanguageSubsystem::new());
-        let _ = manager.add_subsystem(CDManagerSubsystem::new());
-        let _ = manager.add_subsystem(AudioManagerSubsystem::new());
-        let _ = manager.add_subsystem(MessageStreamSubsystem::new());
-        let _ = manager.add_subsystem(RankInfoStoreSubsystem::new());
-        let _ = manager.add_subsystem(PlayerTemplateSubsystem::new());
-        let _ = manager.add_subsystem(FXListSubsystem::new());
-        let _ = manager.add_subsystem(LocomotorSubsystem::new());
-        let _ = manager.add_subsystem(ObjectCreationListSubsystem::new());
-        let _ = manager.add_subsystem(BuildAssistantSubsystem::new());
-        let _ = manager.add_subsystem(GameClientSubsystem::new());
-        let _ = manager.add_subsystem(InputSystemSubsystem::new());
-        let _ = manager.add_subsystem(GameLogicSubsystem::new());
-        let _ = manager.add_subsystem(RadarSubsystem::new());
-        let _ = manager.add_subsystem(MetaMapSubsystem::new());
-        let _ = manager.add_subsystem(ActionManagerSubsystem::new());
-        let _ = manager.add_subsystem(GameStateMapSubsystem::new());
-        let _ = manager.add_subsystem(GameStateSubsystem::new());
-        let _ = manager.add_subsystem(GameResultsQueueSubsystem::new());
+        application_services: &mut ApplicationServices,
+    ) -> Result<()> {
+        if let Some(root) = user_data_root {
+            application_services.admit_user_data_root(root)?;
+        }
+        if self.subsystems.is_empty() {
+            self.register_default_subsystems(user_data_root);
+        }
+        admit_global_data_user_data_root(self, user_data_root);
+        if !self.is_initialized() {
+            self.initialize_all_with_application_services(Some(application_services))?;
+            // C++ GameEngine::init() lines 674-676: initialize these after
+            // subsystem init and before the first reset/game start.
+            game_engine::common::system::kind_of::init_kind_of_masks();
+            game_engine::common::system::disabled_types::init_disabled_masks();
+            gamelogic::damage::init_damage_type_flags();
+        }
+        Ok(())
+    }
+
+    fn register_default_subsystems(&mut self, user_data_root: Option<&std::path::Path>) {
+        let _ = self.add_subsystem(FileSystemSubsystem::new());
+        let _ = self.add_subsystem(GlobalDataSubsystem::with_user_data_root(user_data_root));
+        let _ = self.add_subsystem(ScienceStoreSubsystem::new());
+        let _ = self.add_subsystem(TerrainTypesSubsystem::new());
+        let _ = self.add_subsystem(TerrainRoadsSubsystem::new());
+        let _ = self.add_subsystem(GlobalLanguageSubsystem::new());
+        let _ = self.add_subsystem(CDManagerSubsystem::new());
+        let _ = self.add_subsystem(AudioManagerSubsystem::new());
+        let _ = self.add_subsystem(NativeMessagePhase);
+        let _ = self.add_subsystem(RankInfoStoreSubsystem::new());
+        let _ = self.add_subsystem(PlayerTemplateSubsystem::new());
+        let _ = self.add_subsystem(FXListSubsystem::new());
+        let _ = self.add_subsystem(LocomotorSubsystem::new());
+        let _ = self.add_subsystem(ObjectCreationListSubsystem::new());
+        let _ = self.add_subsystem(BuildAssistantSubsystem::new());
+        let _ = self.add_subsystem(GameClientSubsystem::new());
+        let _ = self.add_subsystem(InputSystemSubsystem::new());
+        let _ = self.add_subsystem(GameLogicSubsystem::new());
+        let _ = self.add_subsystem(RadarSubsystem::new());
+        let _ = self.add_subsystem(MetaMapSubsystem::new());
+        let _ = self.add_subsystem(ActionManagerSubsystem::new());
+        let _ = self.add_subsystem(GameStateMapSubsystem::new());
+        // GameState and GameResultsQueue are process services owned by the
+        // application runner, not mutable slots owned by this engine.
         // Network is registered lazily when multiplayer startup actually needs it.
     }
+}
 
-    if SUBSYSTEM_MANAGER.get().is_none() {
-        let mut manager = SubsystemManager::new();
-
-        // Add subsystems in a C++-aligned startup order.
-        register_default_subsystems(&mut manager, user_data_root);
-
-        if let Err(err) = manager.initialize_all() {
-            warn!(
-                "Some subsystems failed to initialize: {err}. Continuing with available subsystems."
-            );
+impl Drop for SubsystemManager {
+    fn drop(&mut self) {
+        if !self.subsystems.is_empty() {
+            if let Err(error) = self.shutdown_engine_owned() {
+                error!("Failed to shut down engine-owned subsystems: {error}");
+            }
         }
-
-        // C++ parity: GameEngine::init() lines 674-676. These must run after all
-        // subsystems are initialized but before the first reset/game start.
-        game_engine::common::system::kind_of::init_kind_of_masks();
-        game_engine::common::system::disabled_types::init_disabled_masks();
-        gamelogic::damage::init_damage_type_flags();
-
-        let arc = Arc::new(Mutex::new(manager));
-        SUBSYSTEM_MANAGER
-            .set(arc.clone())
-            .map_err(|_| anyhow!("Subsystem manager already initialized"))?;
     }
-
-    let arc = SUBSYSTEM_MANAGER
-        .get()
-        .expect("Subsystem manager not initialized")
-        .clone();
-
-    let mut manager = arc
-        .lock()
-        .expect("SubsystemManager mutex poisoned during init");
-
-    if manager.subsystems.is_empty() {
-        // Add subsystems in a C++-aligned startup order.
-        register_default_subsystems(&mut manager, user_data_root);
-    }
-
-    // Reused slots retain their prior registration data after an initialization
-    // failure. Rebind the actual typed owner before any retry callback can read
-    // preferences; do not replace slots, ordering or their other runtime state.
-    admit_global_data_user_data_root(&mut manager, user_data_root);
-    if !manager.is_initialized() {
-        manager.initialize_all()?;
-    }
-
-    Ok(())
 }
 
 fn admit_global_data_user_data_root(
@@ -2097,36 +2330,10 @@ fn admit_global_data_user_data_root(
     root: Option<&std::path::Path>,
 ) {
     if let Some(root) = root {
-        if let Some(handle) = manager.handle_for::<GlobalDataSubsystem>() {
-            if let Some(data) = handle.get_mut(manager) {
-                data.user_data_root = Some(root.to_owned());
-            }
+        if let Some(data) = manager.get_mut::<GlobalDataSubsystem>() {
+            data.user_data_root = Some(root.to_owned());
         }
     }
-}
-
-/// Alias for `init_subsystem_manager` - C++ naming compatibility.
-pub fn initialize_subsystem_manager() -> Result<()> {
-    init_subsystem_manager()
-}
-
-/// Obtain a handle to the global subsystem manager.
-pub fn get_subsystem_manager() -> Option<SubsystemManagerHandle> {
-    SUBSYSTEM_MANAGER
-        .get()
-        .cloned()
-        .map(SubsystemManagerHandle::new)
-}
-
-/// Shutdown the global subsystem manager.
-pub fn shutdown_subsystem_manager() -> Result<()> {
-    if let Some(arc) = SUBSYSTEM_MANAGER.get() {
-        let mut manager = arc
-            .lock()
-            .expect("SubsystemManager mutex poisoned during shutdown");
-        manager.shutdown_all()?;
-    }
-    Ok(())
 }
 
 #[cfg(test)]
@@ -2135,6 +2342,59 @@ mod tests {
     use game_engine::common::audio::GameplayAudioDispatch;
     use game_engine::common::ini::ini_control_bar_scheme::get_control_bar_scheme_manager;
     use std::time::{Duration, Instant};
+
+    #[test]
+    fn independently_owned_managers_update_and_reset_only_their_own_subsystems() {
+        #[derive(Default)]
+        struct ProbeSubsystem {
+            updates: usize,
+            resets: usize,
+        }
+        impl SubsystemInterface for ProbeSubsystem {
+            fn init(&mut self) -> Result<()> {
+                Ok(())
+            }
+            fn reset(&mut self) -> Result<()> {
+                self.resets += 1;
+                Ok(())
+            }
+            fn update(&mut self, _: f32) -> Result<()> {
+                self.updates += 1;
+                Ok(())
+            }
+            fn shutdown(&mut self) -> Result<()> {
+                Ok(())
+            }
+            fn name(&self) -> &'static str {
+                "ProbeSubsystem"
+            }
+        }
+
+        let mut first = SubsystemManager::new();
+        let mut second = SubsystemManager::new();
+        first.add_subsystem(ProbeSubsystem::default());
+        second.add_subsystem(ProbeSubsystem::default());
+        first.initialize_all().unwrap();
+        second.initialize_all().unwrap();
+        first.update_all(1.0 / 30.0).unwrap();
+        second.update_all(1.0 / 30.0).unwrap();
+        first.update_all(1.0 / 30.0).unwrap();
+        first.reset_all().unwrap();
+        assert_eq!(
+            (
+                first.get::<ProbeSubsystem>().unwrap().updates,
+                first.get::<ProbeSubsystem>().unwrap().resets
+            ),
+            (2, 1),
+        );
+        assert_eq!(
+            (
+                second.get::<ProbeSubsystem>().unwrap().updates,
+                second.get::<ProbeSubsystem>().unwrap().resets
+            ),
+            (1, 0),
+        );
+    }
 
     #[test]
     fn retry_rebinds_existing_global_data_before_actual_preference_callbacks() {

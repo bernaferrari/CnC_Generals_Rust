@@ -1832,7 +1832,9 @@ impl GameClient {
         if let Some((is_night, is_snow)) =
             crate::message_stream::meta_event::take_host_model_condition_weather_residual()
         {
-            use game_engine::common::bit_flags::{ModelConditionFlags, create_model_condition_flags};
+            use game_engine::common::bit_flags::{
+                ModelConditionFlags, create_model_condition_flags,
+            };
             let mut clear = create_model_condition_flags();
             let mut set = create_model_condition_flags();
             clear.set(ModelConditionFlags::NIGHT, true);
@@ -2358,7 +2360,7 @@ impl GameClient {
         global.initial_file.is_empty()
     }
 
-    fn activate_shell_after_startup(&self) -> GameClientResult<()> {
+    fn activate_shell_after_startup(&mut self) -> GameClientResult<()> {
         if !self.should_activate_shell_after_startup() {
             return Ok(());
         }
@@ -2372,6 +2374,7 @@ impl GameClient {
                 err
             ))
         })?;
+        self.complete_window_event_messages(Vec::new());
         Ok(())
     }
 
@@ -2480,7 +2483,7 @@ impl GameClient {
         Ok(())
     }
 
-    pub fn ensure_shell_visible(&self) -> GameClientResult<()> {
+    pub fn ensure_shell_visible(&mut self) -> GameClientResult<()> {
         if !self.should_activate_shell_after_startup() {
             return Ok(());
         }
@@ -2502,6 +2505,7 @@ impl GameClient {
                 ))
             })?;
         }
+        self.complete_window_event_messages(Vec::new());
         Ok(())
     }
 
@@ -2523,9 +2527,20 @@ impl GameClient {
     pub fn update_post_draw_ui(&mut self) -> GameClientResult<()> {
         {
             let mut shell = self.window_manager_owner.shell_handle();
-            shell.update().map_err(|err| {
+            let mut messages = Vec::new();
+            let mut effects = crate::gui::game_window::WindowEventEffects {
+                window_manager_owner: Some(&self.window_manager_owner),
+                selected_window: None,
+                emitted_messages: &mut messages,
+                pending_control_bar_clicks: None,
+                campaign_manager: Some(&mut self.campaign_manager),
+            };
+            shell.update(&mut effects).map_err(|err| {
                 GameClientError::SubsystemError(format!("Shell update failed: {err}"))
             })?;
+            for message in messages {
+                self.message_stream.append_message_value(message);
+            }
         }
 
         if let Some(ref ui) = self.subsystem_manager.in_game_ui {
@@ -2545,9 +2560,20 @@ impl GameClient {
     fn update_ui(&mut self) -> GameClientResult<()> {
         {
             let mut shell = self.window_manager_owner.shell_handle();
-            shell.update().map_err(|err| {
+            let mut messages = Vec::new();
+            let mut effects = crate::gui::game_window::WindowEventEffects {
+                window_manager_owner: Some(&self.window_manager_owner),
+                selected_window: None,
+                emitted_messages: &mut messages,
+                pending_control_bar_clicks: None,
+                campaign_manager: Some(&mut self.campaign_manager),
+            };
+            shell.update(&mut effects).map_err(|err| {
                 GameClientError::SubsystemError(format!("Shell update failed: {err}"))
             })?;
+            for message in messages {
+                self.message_stream.append_message_value(message);
+            }
         }
 
         if let Some(ref ui) = self.subsystem_manager.in_game_ui {

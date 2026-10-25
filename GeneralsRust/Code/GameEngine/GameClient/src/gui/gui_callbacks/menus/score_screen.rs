@@ -7,12 +7,20 @@ use crate::gui::callbacks::score_screen::{
 };
 use crate::gui::{GameWindow, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled};
 
-pub fn ScoreScreenInit(layout: &WindowLayout, user_data: Option<&mut dyn std::any::Any>) {
-    score_screen_init(layout, user_data);
+pub fn ScoreScreenInit(
+    layout: &WindowLayout,
+    user_data: Option<&mut dyn std::any::Any>,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) {
+    score_screen_init(layout, user_data, effects);
 }
 
-pub fn ScoreScreenUpdate(layout: &WindowLayout, user_data: Option<&mut dyn std::any::Any>) {
-    score_screen_update(layout, user_data);
+pub fn ScoreScreenUpdate(
+    layout: &WindowLayout,
+    user_data: Option<&mut dyn std::any::Any>,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) {
+    score_screen_update(layout, user_data, effects);
 }
 
 pub fn ScoreScreenShutdown(layout: &WindowLayout, user_data: Option<&mut dyn std::any::Any>) {
@@ -24,8 +32,9 @@ pub fn ScoreScreenSystem(
     msg: WindowMessage,
     data1: WindowMsgData,
     data2: WindowMsgData,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> WindowMsgHandled {
-    score_screen_system(window, msg, data1, data2)
+    score_screen_system(window, msg, data1, data2, effects)
 }
 
 pub fn ScoreScreenInput(
@@ -33,6 +42,7 @@ pub fn ScoreScreenInput(
     msg: WindowMessage,
     data1: WindowMsgData,
     data2: WindowMsgData,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> WindowMsgHandled {
-    score_screen_input(window, msg, data1, data2)
+    score_screen_input(window, msg, data1, data2, effects)
 }

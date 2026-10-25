@@ -797,6 +797,7 @@ struct HostObjectTriggerState {
 
 #[derive(Default)]
 pub struct HostTriggerWorld {
+    campaign_is_challenge: bool,
     objects: HashMap<u32, HostObjectTriggerState>,
     team_entered_or_exited: HashMap<String, u32>,
     current_frame: u32,
@@ -821,6 +822,14 @@ fn host_flag_window(flag_frame: u32, now: u32) -> bool {
 }
 
 impl HostTriggerWorld {
+    /// Immutable session classification admitted by the driving world before script init.
+    pub fn admit_campaign_context(&mut self, is_challenge: bool) {
+        self.campaign_is_challenge = is_challenge;
+    }
+    pub fn is_generals_challenge_campaign(&self) -> bool {
+        self.campaign_is_challenge
+    }
+
     /// Install map-authored trigger geometry for this world. The caller owns
     /// map-load ordering; no terrain singleton lookup is performed here.
     pub fn set_trigger_areas(&mut self, triggers: &[crate::polygon_trigger::PolygonTrigger]) {

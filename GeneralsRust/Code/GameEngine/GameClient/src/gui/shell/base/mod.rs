@@ -43,7 +43,8 @@ use super::super::ime_manager::get_ime_manager;
 use super::super::window_manager::{
     WindowLayout as ManagerWindowLayout, with_window_manager, with_window_manager_ref,
 };
-use crate::message_stream::{GameMessageType, get_message_stream};
+use crate::gui::game_window::WindowEventEffects;
+use crate::message_stream::{GameMessage, GameMessageType};
 use crate::system::SubsystemInterface;
 use game_engine::common::ini::get_global_data;
 use game_engine::common::random_value::init_random_with_seed;

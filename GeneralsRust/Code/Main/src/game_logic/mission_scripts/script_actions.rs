@@ -777,8 +777,10 @@ impl ScriptActionHandler for MissionScriptActionHandler {
     }
 
     fn set_campaign_victorious(&self, victorious: bool) -> GameLogicResult<()> {
-        game_client::gui::campaign_manager::get_campaign_manager().set_victorious(victorious);
-        Ok(())
+        let _ = victorious;
+        Err(gamelogic::GameLogicError::Configuration(
+            "setCampaignVictorious requires the receiving script execution driver".into(),
+        ))
     }
 
     fn create_win_lose_window(&self, layout_filename: &str) -> GameLogicResult<()> {

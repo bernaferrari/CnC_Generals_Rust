@@ -136,6 +136,7 @@ impl GameLogic {
             next_visual_object_generation: 1,
             live_draw_playback_world,
             game_mode: GameMode::None,
+            campaign_session_kind: super::host::CampaignSessionKind::None,
             skirmish_rules: SkirmishRulesState::default(),
             world_width,
             world_height,
@@ -795,6 +796,11 @@ impl GameLogic {
 
     /// Reset method - matching C++ GameLogic interface
     pub fn reset(&mut self) {
+        self.campaign_session_kind = super::host::CampaignSessionKind::None;
+        self.host_trigger_world
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .admit_campaign_context(false);
         assert!(
             !self.has_unregistered_host_objects(),
             "GameLogic reset cannot discard an unfinished Object constructor"

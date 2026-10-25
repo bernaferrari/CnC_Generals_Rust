@@ -312,10 +312,10 @@ impl Drop for HostControlBarInputScope {
 /// Capture the current synchronous WND-dispatch provenance for an event that
 /// will be processed later by the live Control Bar tick.
 ///
-/// The WND callback first lands in `LiveControlBarEvents`; it does not publish
-/// the host request until that deferred event is replayed.  Carrying this
-/// value across that queue preserves the real physical/injected distinction
-/// without extending the scope beyond its original OS dispatch.
+/// The WND callback captures this value in the receiving ControlBar's owned
+/// click event; the host request is published when that event is replayed.
+/// Carrying the value preserves the physical/injected distinction without
+/// extending the scope beyond its original OS dispatch.
 pub(crate) fn host_control_bar_input_provenance_for_current_dispatch()
 -> HostControlBarInputProvenance {
     let thread_id = std::thread::current().id();

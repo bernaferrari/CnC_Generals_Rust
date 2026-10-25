@@ -5,11 +5,6 @@
 
 use super::*;
 
-/// C++ ScriptEngine.cpp:5810 / 5935 — THE_PLAYER aliases are Challenge-only.
-fn is_generals_challenge_context() -> bool {
-    crate::scripting::core::is_generals_challenge_campaign()
-}
-
 /// C++ Team.cpp:142-145 locoSetMatches — WB bit1 (air) shifts to locomotor AIR.
 fn loco_set_matches(lstm: u32, surface_bit_flags: u32) -> bool {
     let remapped = (surface_bit_flags & 0x01) | ((surface_bit_flags & 0x02) << 2);
@@ -30,7 +25,7 @@ impl ScriptConditionEvaluator<'_> {
             THE_PLAYER => {
                 // C++ ScriptEngine::getPlayerFromAsciiString (ScriptEngine.cpp:5809-5814):
                 // remap ThePlayer to the local player only in Generals Challenge.
-                if !is_generals_challenge_context() {
+                if !self.context.is_generals_challenge_campaign() {
                     raw.to_string()
                 } else {
                     player_list()
@@ -76,7 +71,7 @@ impl ScriptConditionEvaluator<'_> {
             TEAM_THE_PLAYER => {
                 // C++ ScriptEngine::getTeamNamed (ScriptEngine.cpp:5935-5939):
                 // remap teamThePlayer only in Generals Challenge campaigns.
-                if !is_generals_challenge_context() {
+                if !self.context.is_generals_challenge_campaign() {
                     return raw.to_string();
                 }
                 player_list()

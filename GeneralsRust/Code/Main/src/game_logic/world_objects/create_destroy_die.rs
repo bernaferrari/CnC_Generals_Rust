@@ -2365,7 +2365,9 @@ impl GameLogic {
             // Host residual: GLA Marauder PRIMARY MarauderTankGun residual (salvage tiers).
             // Fail-closed: not full SalvageCrate W3D turret subobject matrix.
             if crate::game_logic::host_marauder::is_marauder_template(template_name) {
-                use crate::game_logic::host_marauder::{MarauderWeaponTier, marauder_weapon_for_tier};
+                use crate::game_logic::host_marauder::{
+                    MarauderWeaponTier, marauder_weapon_for_tier,
+                };
                 object.weapon = Some(marauder_weapon_for_tier(MarauderWeaponTier::Base));
             }
 
@@ -2780,6 +2782,13 @@ impl GameLogic {
             self.try_admit_host_object(object)?;
             // C++ Object.cpp onCreate residual: inherit team prototype attitude + attack priority.
             self.inherit_team_ai_defaults(id);
+            // C++ Object.cpp:419-462 resolves the selected AIUpdateInterface,
+            // assigns attitude/experience, then calls each module's
+            // onObjectCreated before radar and GameLogic registration.  Rust
+            // admission makes the newborn lookup-visible first; initialize
+            // only the authored first AI provider here, before team admission
+            // can run callbacks or create another actor.
+            self.initialize_base_ai_on_object_created_owned(id)?;
             // C++ GameLogic map/create: team->setActive() once the team has members.
             self.admit_team_for_host_object_with_effects_checked(id, interpreter, false, ui)?;
 

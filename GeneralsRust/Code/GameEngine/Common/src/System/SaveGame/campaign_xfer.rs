@@ -2,8 +2,6 @@
 //! object list. GameLogic cannot depend on GameClient, so the live manager
 //! is captured/applied through these hooks.
 
-use std::sync::Arc;
-
 use super::super::xfer::{Xfer, XferMode, XferStatus, XferVersion};
 use super::super::xfer_load::XferLoad;
 use super::super::xfer_save::XferSave;
@@ -115,13 +113,15 @@ fn unique_skirmish_xfer_path(label: &str) -> PathBuf {
 #[derive(Clone, Debug, Default)]
 pub struct CampaignManagerXferState {
     pub campaign: String,
+    /// Localized campaign display label, derived from client definitions.
+    pub campaign_label: String,
     pub mission: String,
+    /// Resolved, zero-based definition index for header/UI metadata. This is
+    /// derived runtime metadata and is not part of C++ v5 Xfer bytes.
+    pub mission_number: Option<i32>,
     pub rank_points: i32,
     pub difficulty: i32,
     pub is_challenge: bool,
     pub challenge_info: Option<ChallengeGameInfoXfer>,
     pub generals_template: i32,
 }
-
-pub type CampaignManagerCaptureHook = Arc<dyn Fn() -> CampaignManagerXferState + Send + Sync>;
-pub type CampaignManagerApplyHook = Arc<dyn Fn(CampaignManagerXferState) + Send + Sync>;

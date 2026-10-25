@@ -1,19 +1,39 @@
 //! Window system translator for raw input messages.
 
 use super::game_message::{GameMessage, GameMessageType, ICoord2D};
-use super::message_stream::{GameMessageDisposition, GameMessageTranslator};
+use super::message_stream::{
+    GameMessageDisposition, GameMessageTranslator, WindowInputDispatch, WindowInputDispatchFn,
+    WindowInputDispatchResult,
+};
 use crate::core::script_action_handler::{
     is_script_display_movie_playing, stop_script_display_movie,
 };
 use crate::display::view::with_tactical_view_ref;
 use crate::gui::game_window::{WindowInputReturnCode, WindowMessage};
 use crate::gui::shell::get_shell;
-use crate::gui::window_manager::with_window_manager;
 use crate::helpers::TheInGameUI;
 use game_engine::common::ini::get_global_data;
 
 fn pack_legacy_mouse_data(x: i32, y: i32) -> u32 {
     ((y as u32) << 16) | ((x as u32) & 0xFFFF)
+}
+
+fn window_message_code(message: WindowMessage) -> u32 {
+    match message {
+        WindowMessage::None => 0,
+        WindowMessage::LeftDown => 5,
+        WindowMessage::LeftUp => 6,
+        WindowMessage::LeftDrag => 8,
+        WindowMessage::MiddleDown => 9,
+        WindowMessage::MiddleUp => 10,
+        WindowMessage::MiddleDrag => 12,
+        WindowMessage::RightDown => 13,
+        WindowMessage::RightUp => 14,
+        WindowMessage::RightDrag => 16,
+        WindowMessage::WheelUp => 19,
+        WindowMessage::WheelDown => 20,
+        _ => unreachable!("WindowTranslator dispatches only native mouse messages"),
+    }
 }
 
 const KEY_ESC: u32 = 0x1B;
@@ -139,6 +159,27 @@ impl WindowTranslator {
 
 impl GameMessageTranslator for WindowTranslator {
     fn translate_game_message(&mut self, msg: &GameMessage) -> GameMessageDisposition {
+        let mut no_dispatch = |_: WindowInputDispatch, _: &mut Vec<GameMessage>| None;
+        self.translate_with_dispatch(msg, &mut no_dispatch, &mut Vec::new())
+    }
+
+    fn translate_game_message_with_context(
+        &mut self,
+        msg: &GameMessage,
+        dispatch_window_input: &mut WindowInputDispatchFn<'_>,
+        emitted_messages: &mut Vec<GameMessage>,
+    ) -> GameMessageDisposition {
+        self.translate_with_dispatch(msg, dispatch_window_input, emitted_messages)
+    }
+}
+
+impl WindowTranslator {
+    fn translate_with_dispatch(
+        &mut self,
+        msg: &GameMessage,
+        dispatch_window_input: &mut WindowInputDispatchFn<'_>,
+        _emitted_messages: &mut Vec<GameMessage>,
+    ) -> GameMessageDisposition {
         let msg_type = msg.get_type();
         let mut return_code = WindowInputReturnCode::NotUsed;
         let mut force_keep_message = false;
@@ -151,14 +192,16 @@ impl GameMessageTranslator for WindowTranslator {
 
         match msg_type {
             GameMessageType::MetaToggleAttackMove => {
-                with_window_manager(|manager| {
-                    manager.process_mouse_event(
-                        WindowMessage::None,
-                        self.last_mouse_pos.x,
-                        self.last_mouse_pos.y,
-                        0,
-                    );
-                });
+                let _ = dispatch_window_input(
+                    WindowInputDispatch::Mouse {
+                        message: window_message_code(WindowMessage::None),
+                        x: self.last_mouse_pos.x,
+                        y: self.last_mouse_pos.y,
+                        data: 0,
+                        delta: None,
+                    },
+                    _emitted_messages,
+                );
                 return GameMessageDisposition::KeepMessage;
             }
             GameMessageType::RawMousePosition(..)
@@ -189,16 +232,21 @@ impl GameMessageTranslator for WindowTranslator {
                     return GameMessageDisposition::KeepMessage;
                 };
 
-                with_window_manager(|manager| {
-                    return_code = manager.process_mouse_event_with_delta(
-                        window_msg,
-                        self.last_mouse_pos.x,
-                        self.last_mouse_pos.y,
-                        pack_legacy_mouse_data(self.last_mouse_pos.x, self.last_mouse_pos.y)
-                            as crate::gui::WindowMsgData,
-                        extract_mouse_delta(msg_type),
-                    );
-                });
+                return_code = match dispatch_window_input(
+                    WindowInputDispatch::Mouse {
+                        message: window_message_code(window_msg),
+                        x: self.last_mouse_pos.x,
+                        y: self.last_mouse_pos.y,
+                        data: pack_legacy_mouse_data(self.last_mouse_pos.x, self.last_mouse_pos.y),
+                        delta: extract_mouse_delta(msg_type),
+                    },
+                    _emitted_messages,
+                ) {
+                    Some(WindowInputDispatchResult::Used) => WindowInputReturnCode::Used,
+                    Some(WindowInputDispatchResult::NotUsed) | None => {
+                        WindowInputReturnCode::NotUsed
+                    }
+                };
 
                 if get_shell().is_shell_active() {
                     return_code = WindowInputReturnCode::Used;
@@ -216,9 +264,18 @@ impl GameMessageTranslator for WindowTranslator {
                     _ => 0,
                 };
                 let state = (key_state & 0xFF) as u8;
-                with_window_manager(|manager| {
-                    return_code = manager.process_key_event(*key as u8, state);
-                });
+                return_code = match dispatch_window_input(
+                    WindowInputDispatch::Key {
+                        key: *key as u8,
+                        state,
+                    },
+                    _emitted_messages,
+                ) {
+                    Some(WindowInputDispatchResult::Used) => WindowInputReturnCode::Used,
+                    Some(WindowInputDispatchResult::NotUsed) | None => {
+                        WindowInputReturnCode::NotUsed
+                    }
+                };
 
                 if return_code != WindowInputReturnCode::Used
                     && *key == KEY_ESC

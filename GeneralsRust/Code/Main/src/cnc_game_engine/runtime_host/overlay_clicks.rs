@@ -26,21 +26,31 @@ impl CnCGameEngine {
             };
             wnd_ok = match action.as_str() {
                 "pause" => {
-                    drive_os_wnd_replay_control_pause_like_cpp() || simulate_replay_control_pause()
+                    self.game_client.with_window_event_effects(|effects| {
+                        drive_os_wnd_replay_control_pause_like_cpp(effects)
+                    }) || simulate_replay_control_pause()
                 }
                 "stop" => {
-                    drive_os_wnd_replay_control_stop_like_cpp() || simulate_replay_control_stop()
+                    self.game_client.with_window_event_effects(|effects| {
+                        drive_os_wnd_replay_control_stop_like_cpp(effects)
+                    }) || simulate_replay_control_stop()
                 }
                 "ff" | "fast_forward" => {
-                    drive_os_wnd_replay_control_fast_forward_like_cpp()
-                        || simulate_replay_control_toggle_fast_forward()
+                    self.game_client.with_window_event_effects(|effects| {
+                        drive_os_wnd_replay_control_fast_forward_like_cpp(effects)
+                    }) || simulate_replay_control_toggle_fast_forward()
                 }
                 "seek" => simulate_replay_control_seek(position),
                 "prepare" | "prepare_play" => {
-                    drive_os_wnd_replay_control_prepare_play_at_like_cpp(position)
-                        || simulate_replay_control_prepare_play_at(position)
+                    self.game_client.with_window_event_effects(|effects| {
+                        drive_os_wnd_replay_control_prepare_play_at_like_cpp(position, effects)
+                    }) || simulate_replay_control_prepare_play_at(position)
                 }
-                _ => drive_os_wnd_replay_control_play_like_cpp() || simulate_replay_control_play(),
+                _ => {
+                    self.game_client.with_window_event_effects(|effects| {
+                        drive_os_wnd_replay_control_play_like_cpp(effects)
+                    }) || simulate_replay_control_play()
+                }
             };
         }
         self.runtime_host_last_gameplay_cmd = if wnd_ok {
@@ -250,16 +260,21 @@ impl CnCGameEngine {
                 "start" => simulate_ime_start_composition(),
                 "update" => simulate_ime_update_composition(&text, text.chars().count()),
                 "result" => {
-                    drive_os_wnd_ime_result_like_cpp(&text) || simulate_ime_result_string(&text)
+                    self.game_client.with_window_event_effects(|effects| {
+                        drive_os_wnd_ime_result_like_cpp(&text, effects)
+                    }) || simulate_ime_result_string(&text)
                 }
                 "clear" => {
-                    drive_os_wnd_ime_clear_candidates_like_cpp() || simulate_ime_clear_candidates()
+                    self.game_client.with_window_event_effects(|effects| {
+                        drive_os_wnd_ime_clear_candidates_like_cpp(effects)
+                    }) || simulate_ime_clear_candidates()
                 }
                 "end" => simulate_ime_end_composition(),
                 "reset" => simulate_ime_reset(),
                 _ => {
-                    drive_os_wnd_ime_prepare_composition_cycle_like_cpp(&text)
-                        || simulate_ime_prepare_composition_cycle(&text)
+                    self.game_client.with_window_event_effects(|effects| {
+                        drive_os_wnd_ime_prepare_composition_cycle_like_cpp(&text, effects)
+                    }) || simulate_ime_prepare_composition_cycle(&text)
                 }
             };
         }
@@ -541,15 +556,19 @@ impl CnCGameEngine {
                 "add" => simulate_credits_add_text(&text),
                 "blank" => simulate_credits_add_blank(),
                 "update" => {
-                    drive_os_wnd_credits_roll_update_like_cpp() || simulate_credits_update()
+                    self.game_client.with_window_event_effects(|effects| {
+                        drive_os_wnd_credits_roll_update_like_cpp(effects)
+                    }) || simulate_credits_update()
                 }
                 "finished" => {
-                    drive_os_wnd_credits_roll_finished_like_cpp()
-                        || simulate_credits_is_finished_probe()
+                    self.game_client.with_window_event_effects(|effects| {
+                        drive_os_wnd_credits_roll_finished_like_cpp(effects)
+                    }) || simulate_credits_is_finished_probe()
                 }
                 _ => {
-                    drive_os_wnd_credits_roll_prepare_like_cpp()
-                        || simulate_credits_prepare_short_roll()
+                    self.game_client.with_window_event_effects(|effects| {
+                        drive_os_wnd_credits_roll_prepare_like_cpp(effects)
+                    }) || simulate_credits_prepare_short_roll()
                 }
             };
         }

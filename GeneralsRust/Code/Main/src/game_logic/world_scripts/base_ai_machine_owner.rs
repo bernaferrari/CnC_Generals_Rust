@@ -136,6 +136,69 @@ impl GameLogic {
         }
         Ok(true)
     }
+
+    /// C++ `AIUpdateInterface::onObjectCreated` initializes the selected
+    /// provider's default state machine after Object has an ID and team
+    /// defaults, but before later create callbacks can observe it.  The
+    /// receiving template chooses the first authored AI provider by ordinal;
+    /// do not infer this from kind, object name, or a synthesized fallback.
+    pub(crate) fn initialize_base_ai_on_object_created_owned(
+        &mut self,
+        id: ObjectId,
+    ) -> GameLogicResult<bool> {
+        let Some((provider, can_update_ai, current, initialized)) =
+            self.objects.get(&id).map(|unit| {
+                (
+                    unit.thing()
+                        .template
+                        .receiving_client_template
+                        .as_ref()
+                        .and_then(|template| template.receiving_ai_identity()),
+                    unit.has_ai_update_interface(),
+                    unit.unit_ai_runtime.current_leaf_state(),
+                    unit.unit_ai_runtime.machine().idle_initialized,
+                )
+            })
+        else {
+            return Ok(false);
+        };
+        let Some(provider) = provider.filter(|_| can_update_ai) else {
+            return Ok(false);
+        };
+
+        // AIUpdateInterface::makeStateMachine()->initDefaultState() enters
+        // AI_IDLE for the base machine. Specialized providers also retain
+        // this default base state; their derived phases live in their own
+        // module continuation. Do not consume RNG or overwrite a machine
+        // already initialized by an earlier admitted provider.
+        if current != AIState::Idle || initialized {
+            return Ok(false);
+        }
+
+        let offset = self.logic_random.next_int(0, 60) as u16;
+        let mood_delay = self.ai_definitions.data().force_idle_frames_count;
+        let frame = self.frame;
+        let Some(unit) = self.objects.get_mut(&id) else {
+            return Ok(false);
+        };
+        let still_selected = unit
+            .thing()
+            .template
+            .receiving_client_template
+            .as_ref()
+            .and_then(|template| template.receiving_ai_identity())
+            .as_ref()
+            == Some(&provider);
+        if !still_selected || !unit.has_ai_update_interface() {
+            return Err(GameLogicError::Configuration(
+                "selected AI provider changed during Object creation".into(),
+            ));
+        }
+        unit.enter_base_ai_idle_control(frame, offset);
+        unit.next_mood_check_time = frame.wrapping_add(mood_delay);
+        unit.randomly_offset_mood_check = true;
+        Ok(true)
+    }
     fn commit_base_ai_idle_entry_owned(&mut self, id: ObjectId) -> bool {
         if !self.objects.contains_key(&id) {
             return false;

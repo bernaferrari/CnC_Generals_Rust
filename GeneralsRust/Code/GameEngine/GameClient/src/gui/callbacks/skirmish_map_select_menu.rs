@@ -807,15 +807,20 @@ pub fn simulate_skirmish_map_select_and_confirm(map: impl Into<String>) -> bool 
 
 /// Human click-through: OS LeftDown/Up on `ButtonSelectMap` then overlay `ButtonOK`
 /// (C++ WindowXlat hit → GBM_SELECTED). Not `simulate_*` first.
-pub fn drive_os_wnd_skirmish_map_select_like_cpp(map: impl Into<String>) -> bool {
+pub fn drive_os_wnd_skirmish_map_select_like_cpp(
+    map: impl Into<String>,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
     let map = map.into();
     if map.trim().is_empty() {
         return false;
     }
-    let clicked_select =
-        crate::gui::dispatch_os_click_named_window("SkirmishGameOptionsMenu.wnd:ButtonSelectMap");
+    let clicked_select = crate::gui::dispatch_os_click_named_window(
+        "SkirmishGameOptionsMenu.wnd:ButtonSelectMap",
+        effects,
+    );
     let clicked_ok =
-        crate::gui::dispatch_os_click_named_window("SkirmishMapSelectMenu.wnd:ButtonOK");
+        crate::gui::dispatch_os_click_named_window("SkirmishMapSelectMenu.wnd:ButtonOK", effects);
     if !clicked_select && !clicked_ok {
         return false;
     }

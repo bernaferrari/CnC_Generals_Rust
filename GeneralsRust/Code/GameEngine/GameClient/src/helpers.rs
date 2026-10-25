@@ -14,7 +14,6 @@ use crate::display::view::{IPoint2, Point3, with_tactical_view, with_tactical_vi
 
 use crate::game_text::GameText;
 use crate::gui::callbacks::diplomacy::update_diplomacy_briefing_text;
-use crate::gui::campaign_manager::get_campaign_manager;
 use crate::gui::control_bar::{
     CommandOption, HostControlBarInputProvenance,
     host_control_bar_input_provenance_for_current_dispatch,
@@ -33,7 +32,9 @@ use crate::gui::{
 use crate::input::Mouse;
 use crate::message_stream::game_message::{Coord3D, ICoord2D};
 use game_engine::common::recorder::with_recorder;
-use gamelogic::helpers::{GamePauseHooks, TheGameLogic, TheScriptEngine, register_game_pause_hooks};
+use gamelogic::helpers::{
+    GamePauseHooks, TheGameLogic, TheScriptEngine, register_game_pause_hooks,
+};
 
 use log::info;
 use std::cell::RefCell;
@@ -238,7 +239,6 @@ pub fn is_mouse_cursor_visible() -> bool {
 /// forward into the Rust UI stack.
 pub trait ControlBarHooks: Send + Sync {
     fn hide_purchase_science(&self);
-    fn process_context_sensitive_button_click(&self, control_id: u32, msg: u32);
     fn process_context_sensitive_button_transition(&self, control_id: u32, entering: bool);
     fn toggle_purchase_science(&self);
     fn show_special_power_shortcut(&self);
@@ -269,11 +269,12 @@ pub fn register_control_bar_backend(hooks: Arc<dyn ControlBarHooks>) {
 /// The actual command request is published during the later tick, not inside
 /// the WND callback.  Capture the callback's input provenance here so that a
 /// runtime-host injected click cannot be mistaken for an OS mouse event.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone)]
 pub struct LiveControlBarClick {
     pub control_id: u32,
     pub msg: u32,
     pub input_provenance: HostControlBarInputProvenance,
+    pub target: Option<std::rc::Weak<RefCell<crate::gui::GameWindow>>>,
 }
 
 impl LiveControlBarClick {
@@ -281,20 +282,20 @@ impl LiveControlBarClick {
     ///
     /// This must happen while the WindowManager callback is still executing;
     /// `ControlBar::update` publishes the eventual host request later.
-    fn from_current_dispatch(control_id: u32, msg: u32) -> Self {
+    pub(crate) fn from_current_dispatch(control_id: u32, msg: u32) -> Self {
         Self {
             control_id,
             msg,
             input_provenance: host_control_bar_input_provenance_for_current_dispatch(),
+            target: None,
         }
     }
 }
 
-/// Pending WND clicks / UI dirty bits for the live `ControlBar` (not Send).
+/// Pending non-click UI notifications for the live `ControlBar` (not Send).
 #[derive(Debug, Default)]
 pub struct LiveControlBarEvents {
     pub ui_dirty: bool,
-    pub clicks: Vec<LiveControlBarClick>,
     pub transitions: Vec<(u32, bool)>,
     pub hide_purchase_science: bool,
     pub toggle_purchase_science: bool,
@@ -358,14 +359,6 @@ struct LiveControlBarBackend;
 impl ControlBarHooks for LiveControlBarBackend {
     fn hide_purchase_science(&self) {
         with_live_control_bar_events(|events| events.hide_purchase_science = true);
-    }
-
-    fn process_context_sensitive_button_click(&self, control_id: u32, msg: u32) {
-        with_live_control_bar_events(|events| {
-            events
-                .clicks
-                .push(LiveControlBarClick::from_current_dispatch(control_id, msg));
-        });
     }
 
     fn process_context_sensitive_button_transition(&self, control_id: u32, entering: bool) {
@@ -579,9 +572,8 @@ impl<'a> GameClientLoadScreenHooks<'a> {
         if game_mode != gamelogic::system::game_logic::GAME_SHELL {
             return;
         }
-        let owner = self.client.window_manager_owner();
-        owner.with_shell_mut(|shell| {
-            if let Err(err) = shell.show_main_menu_after_shell_game_start() {
+        self.client.with_receiving_shell(|shell, effects| {
+            if let Err(err) = shell.show_main_menu_after_shell_game_start(effects) {
                 log::warn!("Failed to activate shell main menu after shell-map load: {err}");
             }
         });
@@ -594,7 +586,7 @@ impl<'a> GameClientLoadScreenHooks<'a> {
 impl gamelogic::helpers::LoadScreenHooks for GameClientLoadScreenHooks<'_> {
     fn begin_load_screen(&mut self, game_mode: i32, loading_save_game: bool) {
         let (has_current_campaign, current_campaign_is_challenge) = {
-            let campaign_manager = get_campaign_manager();
+            let campaign_manager = self.client.campaign_manager();
             let campaign = campaign_manager.get_current_campaign();
             (
                 campaign.is_some(),
@@ -668,10 +660,10 @@ impl gamelogic::helpers::LoadScreenHooks for GameClientLoadScreenHooks<'_> {
 #[cfg(test)]
 mod load_screen_hook_tests {
     use super::*;
-    use gamelogic::helpers::LoadScreenHooks;
     use crate::gui::load_screen::{
         clear_load_screen_presentation_pump, register_load_screen_presentation_pump,
     };
+    use gamelogic::helpers::LoadScreenHooks;
     use std::cell::Cell;
     use std::rc::Rc;
     use std::sync::OnceLock;
@@ -2160,14 +2152,6 @@ impl TheControlBar {
     pub fn hide_purchase_science() {
         if !with_control_bar_backend(|backend| backend.hide_purchase_science()) {
             info!("Request to hide purchase science UI");
-        }
-    }
-
-    pub fn process_context_sensitive_button_click(control_id: u32, msg: u32) {
-        if !with_control_bar_backend(|backend| {
-            backend.process_context_sensitive_button_click(control_id, msg)
-        }) {
-            info!("Process context-sensitive control bar click on {control_id} msg={msg}");
         }
     }
 

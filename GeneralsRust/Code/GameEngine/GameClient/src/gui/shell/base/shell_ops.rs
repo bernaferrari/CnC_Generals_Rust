@@ -9,6 +9,15 @@ pub fn queue_shell_operation(operation: impl FnOnce(&mut Shell) + 'static) {
     }
 }
 
+pub fn queue_shell_operation_with_effects(
+    operation: impl for<'a> FnOnce(&mut Shell, &mut crate::gui::game_window::WindowEventEffects<'a>)
+    + 'static,
+) {
+    let owner = crate::gui::window_manager::current_window_manager_owner()
+        .expect("Shell lifecycle operation requires receiving WindowManagerOwner");
+    owner.queue_shell_operation_with_effects(operation);
+}
+
 /// Mutate the currently selected owner's Shell. Re-entrant access returns `None`.
 pub fn with_shell_mut<F, R>(f: F) -> Option<R>
 where
@@ -119,11 +128,11 @@ impl ShellHandle {
     }
 
     pub fn show_shell_map(&mut self, on: bool) {
-        if let Some(owner) = self.owner() {
-            owner.queue_shell_operation(move |shell| shell.show_shell_map(on));
-        } else {
-            log::warn!("Shell-map change has no receiving WindowManagerOwner; ignored");
-        }
+        self.owner()
+            .expect("Shell-map change requires receiving owner")
+            .queue_shell_operation_with_effects(move |shell, effects| {
+                shell.show_shell_map(on, effects)
+            });
     }
 
     pub fn reverse_animate_window(&mut self) {
@@ -135,55 +144,36 @@ impl ShellHandle {
     }
 
     pub fn push(&mut self, filename: &str, shutdown_immediate: bool) -> Result<(), ShellError> {
-        let Some(owner) = self.owner() else {
-            return Err(Self::unavailable());
-        };
-        let filename = filename.to_string();
-        match owner.with_shell_mut(|shell| shell.push(&filename, shutdown_immediate)) {
-            Some(result) => result,
-            None => {
-                owner.queue_shell_operation(move |shell| {
-                    if let Err(error) = shell.push(&filename, shutdown_immediate) {
-                        log::warn!("deferred Shell::push({filename}) failed: {error}");
-                    }
-                });
-                Ok(())
+        let owner = self.owner().ok_or_else(Self::unavailable)?;
+        let filename = filename.to_owned();
+        owner.queue_shell_operation_with_effects(move |shell, effects| {
+            if let Err(error) = shell.push(&filename, shutdown_immediate, effects) {
+                log::warn!("Shell::push failed: {error}");
             }
-        }
+        });
+        Ok(())
     }
 
     pub fn pop(&mut self) -> Result<(), ShellError> {
-        let Some(owner) = self.owner() else {
-            return Err(Self::unavailable());
-        };
-        match owner.with_shell_mut(Shell::pop) {
-            Some(result) => result,
-            None => {
-                owner.queue_shell_operation(|shell| {
-                    if let Err(error) = shell.pop() {
-                        log::warn!("deferred Shell::pop failed: {error}");
-                    }
-                });
-                Ok(())
+        let owner = self.owner().ok_or_else(Self::unavailable)?;
+
+        owner.queue_shell_operation_with_effects(move |shell, effects| {
+            if let Err(error) = shell.pop(effects) {
+                log::warn!("Shell::pop failed: {error}");
             }
-        }
+        });
+        Ok(())
     }
 
     pub fn pop_immediate(&mut self) -> Result<(), ShellError> {
-        let Some(owner) = self.owner() else {
-            return Err(Self::unavailable());
-        };
-        match owner.with_shell_mut(Shell::pop_immediate) {
-            Some(result) => result,
-            None => {
-                owner.queue_shell_operation(|shell| {
-                    if let Err(error) = shell.pop_immediate() {
-                        log::warn!("deferred Shell::pop_immediate failed: {error}");
-                    }
-                });
-                Ok(())
+        let owner = self.owner().ok_or_else(Self::unavailable)?;
+
+        owner.queue_shell_operation_with_effects(move |shell, effects| {
+            if let Err(error) = shell.pop_immediate(effects) {
+                log::warn!("Shell::pop_immediate failed: {error}");
             }
-        }
+        });
+        Ok(())
     }
 
     pub fn shutdown_complete(
@@ -191,54 +181,35 @@ impl ShellHandle {
         _layout: Option<&dyn WindowLayout>,
         impending_push: bool,
     ) -> Result<(), ShellError> {
-        let Some(owner) = self.owner() else {
-            return Err(Self::unavailable());
-        };
-        match owner.with_shell_mut(|shell| shell.shutdown_complete(None, impending_push)) {
-            Some(result) => result,
-            None => {
-                owner.queue_shell_operation(move |shell| {
-                    if let Err(error) = shell.shutdown_complete(None, impending_push) {
-                        log::warn!("deferred Shell::shutdown_complete failed: {error}");
-                    }
-                });
-                Ok(())
+        let owner = self.owner().ok_or_else(Self::unavailable)?;
+        owner.queue_shell_operation_with_effects(move |shell, effects| {
+            if let Err(error) = shell.shutdown_complete(None, impending_push, effects) {
+                log::warn!("Shell::shutdown_complete failed: {error}");
             }
-        }
+        });
+        Ok(())
     }
 
     pub fn show_shell(&mut self, run_init: bool) -> Result<(), ShellError> {
-        let Some(owner) = self.owner() else {
-            return Err(Self::unavailable());
-        };
-        match owner.with_shell_mut(|shell| shell.show_shell(run_init)) {
-            Some(result) => result,
-            None => {
-                owner.queue_shell_operation(move |shell| {
-                    if let Err(error) = shell.show_shell(run_init) {
-                        log::warn!("deferred Shell::show_shell failed: {error}");
-                    }
-                });
-                Ok(())
+        let owner = self.owner().ok_or_else(Self::unavailable)?;
+
+        owner.queue_shell_operation_with_effects(move |shell, effects| {
+            if let Err(error) = shell.show_shell(run_init, effects) {
+                log::warn!("Shell::show_shell failed: {error}");
             }
-        }
+        });
+        Ok(())
     }
 
     pub fn hide_shell(&mut self) -> Result<(), ShellError> {
-        let Some(owner) = self.owner() else {
-            return Err(Self::unavailable());
-        };
-        match owner.with_shell_mut(Shell::hide_shell) {
-            Some(result) => result,
-            None => {
-                owner.queue_shell_operation(|shell| {
-                    if let Err(error) = shell.hide_shell() {
-                        log::warn!("deferred Shell::hide_shell failed: {error}");
-                    }
-                });
-                Ok(())
+        let owner = self.owner().ok_or_else(Self::unavailable)?;
+
+        owner.queue_shell_operation_with_effects(move |shell, effects| {
+            if let Err(error) = shell.hide_shell(effects) {
+                log::warn!("Shell::hide_shell failed: {error}");
             }
-        }
+        });
+        Ok(())
     }
 
     pub fn init(&mut self) -> Result<(), Box<dyn std::error::Error>> {
@@ -262,26 +233,29 @@ impl ShellHandle {
         let owner = self
             .owner()
             .ok_or_else(|| Box::new(Self::unavailable()) as Box<dyn std::error::Error>)?;
-        match owner.with_shell_mut(|shell| shell.reset()) {
-            Some(result) => result,
-            None => {
-                owner.queue_shell_operation(|shell| {
-                    if let Err(error) = shell.reset() {
-                        log::warn!("deferred Shell::reset failed: {error}");
-                    }
-                });
-                Ok(())
+        owner.queue_shell_operation_with_effects(|shell, effects| {
+            if let Err(error) = shell.reset_receiving(effects) {
+                log::warn!("Shell reset failed: {error}");
             }
-        }
+        });
+        Ok(())
     }
 
-    pub fn update(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn update(
+        &mut self,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let owner = self
             .owner()
             .ok_or_else(|| Box::new(Self::unavailable()) as Box<dyn std::error::Error>)?;
-        match owner.with_shell_mut(|shell| shell.update()) {
+        match owner
+            .with_shell_effects_mut(effects, |shell, effects| shell.update_receiving(effects))
+        {
             Some(result) => result,
-            None => Ok(()),
+            None => Err(Box::new(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "Shell::update requires same-frame message effects; owner borrow was unavailable",
+            ))),
         }
     }
 }
@@ -304,7 +278,7 @@ impl crate::gui::window_manager::WindowManagerOwner {
 /// Enable shell map.  Nested lifecycle calls retain the request in the owned
 /// operation queue instead of making a second mutable borrow.
 pub fn show_shell_map_if_available(on: bool) {
-    queue_shell_operation(move |shell| shell.show_shell_map(on));
+    get_shell().show_shell_map(on);
 }
 
 /// Queue the C++ `TheShell->reverseAnimateWindow()` side effect.
@@ -314,8 +288,8 @@ pub fn queue_shell_reverse_animate_window() {
 
 /// Queue the C++ `TheShell->shutdownComplete()` side effect.
 pub fn queue_shell_shutdown_complete(impending_push: bool) {
-    queue_shell_operation(move |shell| {
-        if let Err(error) = shell.shutdown_complete(None, impending_push) {
+    queue_shell_operation_with_effects(move |shell, effects| {
+        if let Err(error) = shell.shutdown_complete(None, impending_push, effects) {
             log::warn!("deferred Shell::shutdown_complete failed: {error}");
         }
     });
@@ -324,8 +298,8 @@ pub fn queue_shell_shutdown_complete(impending_push: bool) {
 /// Queue the C++ `TheShell->push()` side effect with owned layout data.
 pub fn queue_shell_push(filename: impl Into<String>, shutdown_immediate: bool) {
     let filename = filename.into();
-    queue_shell_operation(move |shell| {
-        if let Err(error) = shell.push(&filename, shutdown_immediate) {
+    queue_shell_operation_with_effects(move |shell, effects| {
+        if let Err(error) = shell.push(&filename, shutdown_immediate, effects) {
             log::warn!("deferred Shell::push({filename}) failed: {error}");
         }
     });
@@ -333,8 +307,8 @@ pub fn queue_shell_push(filename: impl Into<String>, shutdown_immediate: bool) {
 
 /// Queue the C++ `TheShell->pop()` side effect.
 pub fn queue_shell_pop() {
-    queue_shell_operation(|shell| {
-        if let Err(error) = shell.pop() {
+    queue_shell_operation_with_effects(|shell, effects| {
+        if let Err(error) = shell.pop(effects) {
             log::warn!("deferred Shell::pop failed: {error}");
         }
     });
@@ -342,8 +316,8 @@ pub fn queue_shell_pop() {
 
 /// Queue the C++ `TheShell->hideShell()` side effect.
 pub fn queue_shell_hide() {
-    queue_shell_operation(|shell| {
-        if let Err(error) = shell.hide_shell() {
+    queue_shell_operation_with_effects(|shell, effects| {
+        if let Err(error) = shell.hide_shell(effects) {
             log::warn!("deferred Shell::hide_shell failed: {error}");
         }
     });
@@ -351,8 +325,8 @@ pub fn queue_shell_hide() {
 
 /// Queue the C++ `TheShell->showShell()` side effect.
 pub fn queue_shell_show(run_init: bool) {
-    queue_shell_operation(move |shell| {
-        if let Err(error) = shell.show_shell(run_init) {
+    queue_shell_operation_with_effects(move |shell, effects| {
+        if let Err(error) = shell.show_shell(run_init, effects) {
             log::warn!("deferred Shell::show_shell failed: {error}");
         }
     });

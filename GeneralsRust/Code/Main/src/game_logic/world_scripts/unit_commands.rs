@@ -565,6 +565,41 @@ impl GameLogic {
         source: u32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<bool> {
+        // JetAIUpdate::doCommand handles airborne Idle before the base
+        // AIUpdateInterface::privateIdle path. It clears the retained machine,
+        // enters RETURNING_FOR_LANDING, and does not recursively idle riders.
+        // Resolve the selected provider's typed module data, not KindOf/name.
+        let jet_idle = self.objects.get(&id).and_then(|unit| {
+            unit.thing()
+                .template
+                .receiving_client_template
+                .as_ref()
+                .filter(|template| template.receiving_ai_is_jet())
+                .map(|_| {
+                    (
+                        unit.jet_ai.takeoff_in_progress
+                            || unit.jet_ai.landing_in_progress
+                            || unit.airfield_rearm_ready_frame.is_some(),
+                        unit.status.airborne_target && !Self::object_is_produced_at_helipad(unit),
+                    )
+                })
+        });
+        if let Some((pending, airborne)) = jet_idle {
+            if let Some(unit) = self.objects.get_mut(&id) {
+                unit.jet_ai.pending_resume =
+                    crate::game_logic::object::HostJetPendingResume::AiIdle;
+                if pending {
+                    unit.jet_ai.has_pending_command = true;
+                    return Ok(true);
+                }
+                unit.jet_ai.has_pending_command = false;
+                unit.jet_ai.allow_interrupt_for_reload = false;
+            }
+            if airborne {
+                return self.clear_base_ai_for_jet_return_owned(id, effects);
+            }
+        }
+
         // C++ AIGroup::groupIdle / AICommandInterface::idle: stop clears the
         // latched target and guard anchors up front, then runs the idle state.
         self.drop_jet_targeters_on_attack_exit(id);
@@ -573,12 +608,8 @@ impl GameLogic {
                 None,
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             );
-            unit.end_guard_retaliate(&mut crate::game_logic::ObjectAudio::queue(
-                &mut self.queued_audio_events,
-            ));
-            unit.clear_target(&mut crate::game_logic::ObjectAudio::queue(
-                &mut self.queued_audio_events,
-            ));
+            unit.end_guard_retaliate_state();
+            unit.clear_target_for_owned_idle_entry();
         }
         if let Some(unit) = self.objects.get_mut(&id) {
             unit.set_movement_goal_object(None);
@@ -591,12 +622,22 @@ impl GameLogic {
             .unwrap_or_default();
         let ok = self.unit_command_stop_self_with_effects(id, effects)?;
         if ok {
-            if let Some(unit) = self.objects.get_mut(&id) {
-                unit.last_command_source = source;
-            }
-            for occ in occupants {
-                if occ != id {
-                    self.unit_command_stop_with_source_with_effects(occ, source, effects)?;
+            let jet_airborne_return = self.objects.get(&id).is_some_and(|unit| {
+                unit.thing()
+                    .template
+                    .receiving_client_template
+                    .as_ref()
+                    .is_some_and(|template| template.receiving_ai_is_jet())
+                    && unit.retained_ai_root_state() == AIState::JetReturningForLanding
+            });
+            if !jet_airborne_return {
+                if let Some(unit) = self.objects.get_mut(&id) {
+                    unit.last_command_source = source;
+                }
+                for occ in occupants {
+                    if occ != id {
+                        self.unit_command_stop_with_source_with_effects(occ, source, effects)?;
+                    }
                 }
             }
         }
@@ -626,52 +667,17 @@ impl GameLogic {
         ) {
             return Ok(true);
         }
-        let should_land = self.objects.get(&id).is_some_and(|unit| {
-            unit.is_alive()
-                && (unit.is_kind_of(KindOf::Aircraft) || unit.object_type == ObjectType::Aircraft)
-                && unit.status.airborne_target
-                && !Self::object_is_produced_at_helipad(unit)
-        });
-        if should_land {
-            if let Some(unit) = self.objects.get_mut(&id) {
-                unit.stop(&mut crate::game_logic::ObjectAudio::queue(
-                    &mut self.queued_audio_events,
-                ));
-                unit.ignored_obstacle_id = None;
-                unit.clear_target(&mut crate::game_logic::ObjectAudio::queue(
-                    &mut self.queued_audio_events,
-                ));
-                unit.set_force_attack(false);
-                unit.set_guard_position(
-                    None,
-                    &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
-                );
-                unit.set_guard_target(
-                    None,
-                    &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
-                );
-
-                unit.end_guard_retaliate(&mut crate::game_logic::ObjectAudio::queue(
-                    &mut self.queued_audio_events,
-                ));
-                unit.set_hunting(false);
-                unit.return_to_base_requested = true;
-                unit.jet_ai.allow_interrupt_for_reload = false;
-            }
-            let _ = self.try_return_to_base_rearm_with_effects(id, effects);
-            return Ok(true);
-        }
         let Some(unit) = self.objects.get_mut(&id) else {
             return Ok(false);
         };
         let needs_idle_entry = unit.ai_state() != AIState::Idle;
-        unit.stop(&mut crate::game_logic::ObjectAudio::queue(
+        unit.pending_move = None;
+        unit.stop_moving_for_owned_idle_entry(&mut crate::game_logic::ObjectAudio::queue(
             &mut self.queued_audio_events,
         ));
+        unit.clear_attack_for_owned_idle_entry();
         unit.ignored_obstacle_id = None;
-        unit.clear_target(&mut crate::game_logic::ObjectAudio::queue(
-            &mut self.queued_audio_events,
-        ));
+        unit.clear_target_for_owned_idle_entry();
         unit.set_force_attack(false);
         unit.set_guard_position(
             None,
@@ -682,9 +688,7 @@ impl GameLogic {
             &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
         );
 
-        unit.end_guard_retaliate(&mut crate::game_logic::ObjectAudio::queue(
-            &mut self.queued_audio_events,
-        ));
+        unit.end_guard_retaliate_state();
         unit.set_hunting(false);
         // C++ SupplyTruckAIUpdate::privateIdle(CMD_FROM_PLAYER) setForceBusyState.
         // Workers omit the latch (WorkerAIUpdate.cpp:516-526).
@@ -1804,7 +1808,7 @@ impl GameLogic {
                 }
             };
             if transitioned {
-                unit.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
+                unit.stop_moving_for_owned_idle_entry(&mut crate::game_logic::ObjectAudio::queue(
                     &mut self.queued_audio_events,
                 ));
                 unit.set_status_moving(false);
@@ -2061,22 +2065,31 @@ impl GameLogic {
         &mut self,
         id: ObjectId,
         target: Option<ObjectId>,
-    ) -> bool {
-        let Some(unit) = self.objects.get_mut(&id) else {
-            return false;
+    ) -> gamelogic::GameLogicResult<bool> {
+        let should_enter_idle = {
+            let Some(unit) = self.objects.get_mut(&id) else {
+                return Ok(false);
+            };
+            unit.stop_moving_for_owned_idle_entry(&mut crate::game_logic::ObjectAudio::queue(
+                &mut self.queued_audio_events,
+            ))
         };
-        unit.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
-            &mut self.queued_audio_events,
-        ));
+        if should_enter_idle && !self.enter_base_ai_idle_owned(id, &mut Default::default())? {
+            return Ok(false);
+        }
+        let frame = self.frame;
+        let Some(unit) = self.objects.get_mut(&id) else {
+            return Ok(false);
+        };
         unit.set_order_target_with_operation(
             target,
             &mut self.attack_events,
             &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
-            self.frame,
+            frame,
             &mut crate::game_logic::ScriptPresentationEffects::default()
                 .reborrow_for_object(&mut self.partition_manager),
         );
-        true
+        Ok(true)
     }
 
     /// Begin the C++ `SpecialAbilityUpdate` capture intent.  This records an

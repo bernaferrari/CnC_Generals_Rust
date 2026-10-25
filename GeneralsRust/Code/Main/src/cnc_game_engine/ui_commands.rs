@@ -1428,16 +1428,36 @@ impl CnCGameEngine {
         faction_team: crate::game_logic::Team,
         setup_skirmish_ai: bool,
     ) {
+        self.host_start_new_game_with_faction_in_session(
+            mode,
+            faction_team,
+            setup_skirmish_ai,
+            false,
+            false,
+        );
+    }
+
+    pub(super) fn host_start_new_game_with_faction_in_session(
+        &mut self,
+        mode: crate::game_logic::GameMode,
+        faction_team: crate::game_logic::Team,
+        setup_skirmish_ai: bool,
+        is_campaign: bool,
+        is_challenge: bool,
+    ) {
         // Wave 577/871/921/933: start_new_game via session-control authority.
         // Clear prior match residuals; stamp mode/team immediately for peels.
         self.host_clear_match_residuals();
         let player_id = self.current_player_id;
         self.host_game_logic_mut().apply_session_control_op(
-            crate::game_logic::SessionControlOp::StartNewGameWithFaction {
+            crate::game_logic::SessionControlOp::StartNewGameInCampaignSession {
                 mode,
                 player_id,
                 faction_team,
                 setup_skirmish_ai,
+                player_template: None,
+                is_campaign,
+                is_challenge,
             },
         );
         self.host_match_game_mode = Some(mode);
@@ -1457,14 +1477,19 @@ impl CnCGameEngine {
         mode: crate::game_logic::GameMode,
         faction_team: crate::game_logic::Team,
         player_template: crate::game_logic::PlayerTemplateIdentity,
+        is_challenge: bool,
     ) -> bool {
         self.host_clear_match_residuals();
         let player_id = self.current_player_id;
         self.host_game_logic_mut().apply_session_control_op(
-            crate::game_logic::SessionControlOp::StartNewGameWithPlayerTemplate {
+            crate::game_logic::SessionControlOp::StartNewGameInCampaignSession {
                 mode,
                 player_id,
-                player_template,
+                player_template: Some(player_template),
+                faction_team,
+                setup_skirmish_ai: false,
+                is_campaign: true,
+                is_challenge,
             },
         );
         if self
@@ -1500,7 +1525,8 @@ impl CnCGameEngine {
         #[cfg(feature = "game_client")]
         let window_manager_owner = self.game_client.window_manager_owner();
         #[cfg(feature = "game_client")]
-        let (_frame, snow, presence) = self.game_client.split_frame_snow_and_drawable_owner();
+        let (_frame, snow, presence, campaign_manager) =
+            self.game_client.split_frame_snow_drawable_and_campaign();
         #[cfg(feature = "game_client")]
         let cinematic_window = &self.window;
         #[cfg(feature = "game_client")]
@@ -1536,7 +1562,8 @@ impl CnCGameEngine {
             &mut self.control_bar_callbacks,
             window_manager_owner,
         )
-        .with_cinematic_input(cinematic_input);
+        .with_cinematic_input(cinematic_input)
+        .with_campaign_manager(campaign_manager);
         let mut audio = super::native_audio_effects::NativeAudioService::live();
         #[cfg(feature = "game_client")]
         let (poses, terrain) = self
@@ -2875,7 +2902,9 @@ mod tests {
 
     #[test]
     fn retail_superweapon_button_family_keeps_exact_parsed_variant_and_cursor() {
-        use crate::command_system::{SpecialPowerType as Power, special_power_type_from_template_name};
+        use crate::command_system::{
+            SpecialPowerType as Power, special_power_type_from_template_name,
+        };
 
         let supw_particle =
             special_power_type_from_template_name("SupW_SuperweaponParticleUplinkCannon")

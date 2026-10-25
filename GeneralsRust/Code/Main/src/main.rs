@@ -37,7 +37,6 @@
 use game_engine::common::game_engine::clear_game_engine;
 use game_engine::common::system::game_memory::init_memory_manager;
 use generals_main::command_line::{self, CommandLineArgs};
-use generals_main::subsystem_manager;
 use log::{LevelFilter, debug, error, info, warn};
 use std::io::Write;
 use std::path::Path;
@@ -442,14 +441,7 @@ fn cleanup_and_exit() {
     // The entry point keeps its guard through cleanup, then drops it.
     debug!("Single instance mutex remains held through cleanup");
 
-    // =========================================================================
-    // STEP 3: Shutdown Subsystems
-    // =========================================================================
-    if let Err(e) = subsystem_manager::shutdown_subsystem_manager() {
-        error!("Failed to shutdown subsystem manager: {}", e);
-    } else {
-        debug!("Subsystem manager shutdown complete");
-    }
+    // The native engine's owned subsystem manager shuts down with its engine.
 
     // =========================================================================
     // STEP 4: Reset the shared GameEngine slot (matches C++ TheGameEngine = NULL)

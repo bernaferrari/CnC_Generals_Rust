@@ -4,6 +4,13 @@
 //! driving application lends this interface during execution instead of storing
 //! window resources or selecting another session's UI inside GameLogic.
 pub(crate) trait ScriptUiEffects {
+    /// Apply `setCampaignVictorious` to this invocation's receiving application.
+    /// UI-less paths reject the operation instead of mutating ambient state.
+    fn set_campaign_victorious(&mut self, _victorious: bool) -> gamelogic::GameLogicResult<()> {
+        Err(gamelogic::GameLogicError::Configuration(
+            "campaign victory requires its receiving CampaignManager".into(),
+        ))
+    }
     /// CPP ProductionUpdate marks selected upgrade cameos after Academy callbacks.
     fn mark_control_bar_dirty(&mut self) {}
     fn has_cinematic_input(&self) -> bool {

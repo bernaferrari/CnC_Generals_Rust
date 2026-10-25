@@ -1,6 +1,10 @@
 // Split from `gui/load_screen.rs` dump. Included by `load_screen/mod.rs`.
 
-fn initialize_single_player_windows(wm: &mut WindowManager, did_mem_pass: bool) {
+fn initialize_single_player_windows(
+    wm: &mut WindowManager,
+    did_mem_pass: bool,
+    campaign_manager: &crate::gui::campaign_manager::CampaignManager,
+) {
     with_single_player_load_screen_state(|state| *state = SinglePlayerLoadScreenState::default());
     with_window_video_manager(|manager| manager.init());
 
@@ -25,7 +29,6 @@ fn initialize_single_player_windows(wm: &mut WindowManager, did_mem_pass: bool) 
     }
 
     let (movie_label, voice_length) = {
-        let campaign_manager = get_campaign_manager();
         let mut movie_label = None;
         let mut voice_length = 0;
         if let Some(mission) = campaign_manager.get_current_mission() {
@@ -74,7 +77,7 @@ fn initialize_single_player_windows(wm: &mut WindowManager, did_mem_pass: bool) 
         return;
     }
 
-    apply_single_player_campaign_images(wm);
+    apply_single_player_campaign_images(wm, campaign_manager);
     let delay = campaign_voice_delay_duration(voice_length);
     let deadline = Instant::now().checked_add(delay);
     with_single_player_load_screen_state(|state| {
@@ -106,8 +109,10 @@ fn campaign_voice_delay_duration(voice_length: i32) -> Duration {
     }
 }
 
-fn apply_single_player_campaign_images(wm: &mut WindowManager) {
-    let campaign_manager = get_campaign_manager();
+fn apply_single_player_campaign_images(
+    wm: &mut WindowManager,
+    campaign_manager: &crate::gui::campaign_manager::CampaignManager,
+) {
     let Some(campaign) = campaign_manager.get_current_campaign() else {
         return;
     };

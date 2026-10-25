@@ -7,7 +7,7 @@ use crate::game_text::GameText;
 use crate::input::with_mouse;
 use crate::map_util::{find_draw_positions, get_map_cache_manager, get_map_preview_image};
 
-use super::campaign_manager::{MAX_DISPLAYED_UNITS, MAX_OBJECTIVE_LINES, Mission, get_campaign_manager};
+use super::campaign_manager::{MAX_DISPLAYED_UNITS, MAX_OBJECTIVE_LINES, Mission};
 use super::challenge_generals::{
     ChallengeGenerals, GeneralPersona, get_challenge_generals, get_challenge_generals_mut,
     init_challenge_generals,

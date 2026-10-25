@@ -42,7 +42,11 @@ impl GameLogic {
                     // inspect the path completed by the preceding locomotor
                     // pass, then install the next waypoint before this pass.
                     self.begin_host_waypoint_ai_observations(&object_ids);
-                    self.tick_host_panic_states(&object_ids);
+                    if let Err(error) =
+                        self.tick_host_panic_states_with_effects(&object_ids, &mut ui)
+                    {
+                        return SimulationStepOutcome::Failed(error);
+                    }
                     self.tick_host_guard_states_with_effects(&object_ids, &mut ui);
                     self.update_movement_with_effects(&object_ids, dt, &mut ui);
                 }
@@ -1092,7 +1096,6 @@ impl GameLogic {
         // -----------------------------------------------------------------------
         // Post-phase: Audio events
         // -----------------------------------------------------------------------
-        self.process_audio_events();
 
         // C++ GameLogic.cpp:3795-3803: the full update completed, so the step
         // loop owns the m_frame++ / sim-time advancement.

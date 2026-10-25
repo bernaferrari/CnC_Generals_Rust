@@ -1290,7 +1290,10 @@ impl GameLogic {
     }
 
     /// C++ `ParkingPlaceBehavior::defectAllParkedUnits`.
-    pub(in super::super) fn defect_all_parked_units(&mut self, airfield_id: ObjectId) {
+    pub(in super::super) fn defect_all_parked_units(
+        &mut self,
+        airfield_id: ObjectId,
+    ) -> gamelogic::GameLogicResult<()> {
         self.defect_all_parked_units_with_effects(
             airfield_id,
             &mut crate::game_logic::ScriptPresentationEffects::default(),
@@ -1301,23 +1304,24 @@ impl GameLogic {
         &mut self,
         airfield_id: ObjectId,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         let Some(owner) = self
             .objects
             .get(&airfield_id)
             .and_then(|object| object.owner_player_id)
         else {
-            return;
+            return Ok(());
         };
         let Some(destination) = self.host_default_team_id(owner) else {
-            return;
+            return Ok(());
         };
         self.defect_parked_units_owned_with_effects(
             airfield_id,
             destination,
             crate::game_logic::host_defection_helper::DEFAULT_DEFECTION_PROTECTION_FRAMES,
             presentation_effects,
-        );
+        )?;
+        Ok(())
     }
 
     /// ParkingPlaceBehavior.cpp:575–610: preserve the caller's exact Team and
@@ -1327,7 +1331,7 @@ impl GameLogic {
         airfield_id: ObjectId,
         destination: u32,
         frames: u32,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         self.defect_parked_units_owned_with_effects(
             airfield_id,
             destination,
@@ -1342,14 +1346,14 @@ impl GameLogic {
         destination: u32,
         frames: u32,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         let Some(spaces) = self.airfield_parking_spaces.get(&airfield_id).cloned() else {
-            return;
+            return Ok(());
         };
         let new_owner = {
             let factory = self.team_factory.lock().unwrap_or_else(|e| e.into_inner());
             let Some(team) = factory.find_team_by_id(destination) else {
-                return;
+                return Ok(());
             };
             let owner = team
                 .read()
@@ -1382,7 +1386,7 @@ impl GameLogic {
                     destination,
                     frames,
                     presentation_effects,
-                );
+                )?;
             }
         }
         for jet_id in release {
@@ -1393,6 +1397,7 @@ impl GameLogic {
                 }
             }
         }
+        Ok(())
     }
 
     /// Exact C++ `getPP` eligibility for the compact host path.  `FSAirfield`

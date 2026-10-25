@@ -1,8 +1,11 @@
 //! QuitMenu.cpp callback port.
 
 use crate::game_text::GameText;
-use crate::gui::callbacks::message_box::{MessageBoxFunc, message_box_yes_no, quit_message_box_yes_no};
+use crate::gui::callbacks::message_box::{
+    MessageBoxFunc, message_box_yes_no, quit_message_box_yes_no,
+};
 use crate::gui::callbacks::popup_save_load::show_live_popup_save_load_layout;
+use crate::gui::game_window::WindowEventEffects;
 use crate::gui::{
     GameWindow, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled,
     queue_window_manager_op, with_window_manager,
@@ -12,7 +15,7 @@ use crate::gui::{
     queue_shell_operation, show_shell_map_if_available, try_with_shell_mut,
 };
 use crate::helpers::{TheControlBar, TheInGameUI};
-use crate::message_stream::{GameMessageType, get_message_stream};
+use crate::message_stream::{GameMessage, GameMessageType};
 use game_engine::common::game_engine::get_game_engine;
 use game_engine::common::ini::get_global_data;
 use game_engine::common::name_key_generator::NameKeyGenerator;
@@ -146,7 +149,7 @@ pub fn destroy_quit_menu() {
     }
 }
 
-fn exit_quit_menu() {
+fn exit_quit_menu(effects: &mut WindowEventEffects<'_>) {
     destroy_quit_menu();
 
     if TheGameLogic::is_in_multiplayer_game()
@@ -154,14 +157,16 @@ fn exit_quit_menu() {
         && !session_is_sandbox()
     {
         let local_player = crate::message_stream::player_state::get_local_player_id() as u32;
-        let message_stream = get_message_stream();
-        let mut stream = message_stream.write().unwrap_or_else(|e| e.into_inner());
-        stream.append_message(GameMessageType::SelfDestruct(local_player));
+        effects
+            .emitted_messages
+            .push(GameMessage::new(GameMessageType::SelfDestruct(
+                local_player,
+            )));
     }
 
-    let message_stream = get_message_stream();
-    let mut stream = message_stream.write().unwrap_or_else(|e| e.into_inner());
-    stream.append_message(GameMessageType::ClearGameData);
+    effects
+        .emitted_messages
+        .push(GameMessage::new(GameMessageType::ClearGameData));
 
     if !TheGameLogic::is_in_multiplayer_game() {
         TheGameLogic::set_game_paused(false, true);
@@ -169,7 +174,7 @@ fn exit_quit_menu() {
     TheInGameUI::set_client_quiet(true);
 }
 
-fn no_exit_quit_menu() {
+fn no_exit_quit_menu(_effects: &mut WindowEventEffects<'_>) {
     let state_handle = quit_menu_state();
     let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
     state.quit_confirmation_window = None;
@@ -195,7 +200,7 @@ fn quit_to_desktop_quit_menu() {
     TheInGameUI::set_client_quiet(true);
 }
 
-fn surrender_quit_menu() {
+fn surrender_quit_menu(effects: &mut WindowEventEffects<'_>) {
     destroy_quit_menu();
 
     if TheVictoryConditions::is_local_allied_victory() {
@@ -203,14 +208,16 @@ fn surrender_quit_menu() {
     }
 
     let local_player = crate::message_stream::player_state::get_local_player_id() as u32;
-    let message_stream = get_message_stream();
-    let mut stream = message_stream.write().unwrap_or_else(|e| e.into_inner());
-    stream.append_message(GameMessageType::SelfDestruct(local_player));
+    effects
+        .emitted_messages
+        .push(GameMessage::new(GameMessageType::SelfDestruct(
+            local_player,
+        )));
 
     TheInGameUI::set_client_quiet(true);
 }
 
-fn restart_mission_menu() {
+fn restart_mission_menu(effects: &mut WindowEventEffects<'_>) {
     destroy_quit_menu();
 
     let game_mode = TheGameLogic::get_game_mode();
@@ -249,13 +256,12 @@ fn restart_mission_menu() {
             let mut data = data.write();
             data.pending_file = map_name.clone();
         }
-        let message_stream = get_message_stream();
-        let mut stream = message_stream.write().unwrap_or_else(|e| e.into_inner());
-        let msg = stream.append_message(GameMessageType::NewGame);
+        let mut msg = GameMessage::new(GameMessageType::NewGame);
         msg.append_integer_argument(game_mode);
         msg.append_integer_argument(diff);
         msg.append_integer_argument(rank_points);
         msg.append_integer_argument(fps);
+        effects.emitted_messages.push(msg);
         init_random_with_seed(0);
     }
 
@@ -593,6 +599,7 @@ pub fn quit_menu_system(
     msg: WindowMessage,
     data1: WindowMsgData,
     _data2: WindowMsgData,
+    _effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> WindowMsgHandled {
     quit_menu_system_with_camera_input(msg, data1, None)
 }
@@ -891,45 +898,64 @@ pub fn simulate_quit_menu_prepare_exit() -> bool {
 
 /// Human click-through: OS LeftDown/Up on a retail `QuitMenu.wnd:*` gadget
 /// (C++ WindowXlat hit → GBM_SELECTED). Not `simulate_*` first.
-fn drive_os_wnd_quit_named(name: &str, latch: impl FnOnce() -> bool) -> bool {
-    if !crate::gui::dispatch_os_click_named_window(name) {
+fn drive_os_wnd_quit_named(
+    name: &str,
+    latch: impl FnOnce() -> bool,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
+    if !crate::gui::dispatch_os_click_named_window(name, effects) {
         return false;
     }
     latch()
 }
 
-pub fn drive_os_wnd_quit_menu_exit_like_cpp() -> bool {
+pub fn drive_os_wnd_quit_menu_exit_like_cpp(
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
     drive_os_wnd_quit_named(
         "QuitMenu.wnd:ButtonExit",
         simulate_quit_menu_exit_button_gadget_selected,
+        effects,
     )
 }
 
-pub fn drive_os_wnd_quit_menu_return_like_cpp() -> bool {
+pub fn drive_os_wnd_quit_menu_return_like_cpp(
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
     drive_os_wnd_quit_named(
         "QuitMenu.wnd:ButtonReturn",
         simulate_quit_menu_return_button_gadget_selected,
+        effects,
     )
 }
 
-pub fn drive_os_wnd_quit_menu_options_like_cpp() -> bool {
+pub fn drive_os_wnd_quit_menu_options_like_cpp(
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
     drive_os_wnd_quit_named(
         "QuitMenu.wnd:ButtonOptions",
         simulate_quit_menu_options_button_gadget_selected,
+        effects,
     )
 }
 
-pub fn drive_os_wnd_quit_menu_restart_like_cpp() -> bool {
+pub fn drive_os_wnd_quit_menu_restart_like_cpp(
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
     drive_os_wnd_quit_named(
         "QuitMenu.wnd:ButtonRestart",
         simulate_quit_menu_restart_button_gadget_selected,
+        effects,
     )
 }
 
-pub fn drive_os_wnd_quit_menu_save_load_like_cpp() -> bool {
+pub fn drive_os_wnd_quit_menu_save_load_like_cpp(
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
     drive_os_wnd_quit_named(
         "QuitMenu.wnd:ButtonSaveLoad",
         simulate_quit_menu_save_load_button_gadget_selected,
+        effects,
     )
 }
 
@@ -959,8 +985,10 @@ pub fn ensure_live_quit_menu_layout() -> bool {
 }
 
 /// Human click-through: ButtonExit then confirm residual (C++ exit + yes).
-pub fn drive_os_wnd_quit_menu_prepare_exit_like_cpp() -> bool {
-    let clicked = drive_os_wnd_quit_menu_exit_like_cpp();
+pub fn drive_os_wnd_quit_menu_prepare_exit_like_cpp(
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
+    let clicked = drive_os_wnd_quit_menu_exit_like_cpp(effects);
     if !clicked {
         return false;
     }

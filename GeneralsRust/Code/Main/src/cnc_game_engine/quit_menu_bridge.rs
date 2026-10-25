@@ -78,7 +78,9 @@ impl CnCGameEngine {
         // with gameMode / difficulty / rankPoints (QuitMenu.cpp:211-216).
         // Drain that payload into the host restart so Challenge general and
         // selected difficulty survive.
-        if let Some(dispatch) = Self::take_new_game_dispatch_from_common_stream() {
+        if let Some(dispatch) =
+            Self::take_new_game_dispatch_from_common_stream(self.game_client.message_stream_mut())
+        {
             self.host_set_paused(false);
             self.host_restart_mission_from_dispatch(dispatch);
             return;
@@ -113,7 +115,7 @@ impl CnCGameEngine {
     /// Remove only the ClearGameData request produced by QuitMenu's confirmed
     /// Exit button.  Delegates to the shared InGame consumer used by scripted
     /// end-game timers (ScriptEngine.cpp:5514-5518 MSG_CLEAR_GAME_DATA).
-    fn take_quit_menu_clear_game_data_from_common_stream() -> bool {
-        Self::take_clear_game_data_from_common_stream()
+    fn take_quit_menu_clear_game_data_from_common_stream(&mut self) -> bool {
+        Self::take_clear_game_data_from_common_stream(self.game_client.message_stream_mut())
     }
 }

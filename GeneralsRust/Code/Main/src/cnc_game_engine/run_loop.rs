@@ -114,6 +114,41 @@ impl StartupWindowFocus {
 }
 
 /// Run the actual C&C game
+type ApplicationInitFuture = Pin<
+    Box<
+        dyn Future<Output = Result<(CnCGameEngine, crate::subsystem_manager::ApplicationServices)>>,
+    >,
+>;
+
+/// The handler owns application compatibility services separately from the engine.
+/// Explicit teardown also covers event-loop errors and cancelled startup futures.
+#[derive(Default)]
+struct ApplicationRunState {
+    engine_init_future: Option<ApplicationInitFuture>,
+    engine: Option<CnCGameEngine>,
+    services: Option<crate::subsystem_manager::ApplicationServices>,
+}
+
+impl ApplicationRunState {
+    fn shutdown(&mut self) {
+        // Cancellation releases any partially constructed engine before its
+        // future-owned application services. A completed engine follows next.
+        drop(self.engine_init_future.take());
+        drop(self.engine.take());
+        if let Some(mut services) = self.services.take() {
+            if let Err(error) = services.shutdown() {
+                error!("Application services shutdown failed: {error}");
+            }
+        }
+    }
+}
+
+impl Drop for ApplicationRunState {
+    fn drop(&mut self) {
+        self.shutdown();
+    }
+}
+
 pub async fn run_cnc_game(
     event_loop: EventLoop<()>,
     window_attributes: WindowAttributes,
@@ -127,10 +162,9 @@ pub async fn run_cnc_game(
     let mut window: Option<Arc<Window>> = None;
     let mut pending_engine_window: Option<Arc<Window>> = None;
     let mut startup_focus: Option<StartupWindowFocus> = None;
-    let mut engine_init_future: Option<Pin<Box<dyn Future<Output = Result<CnCGameEngine>>>>> = None;
+    let mut application = ApplicationRunState::default();
     let mut engine_init_started_at: Option<Instant> = None;
     let mut engine_init_last_log_at: Option<Instant> = None;
-    let mut engine: Option<CnCGameEngine> = None;
     let mut shutdown_logged = false;
     let mut next_redraw_at = Instant::now();
     let mut last_slow_frame_log = None::<Instant>;
@@ -168,6 +202,9 @@ pub async fn run_cnc_game(
 
     #[allow(deprecated)]
     event_loop.run(move |event, elwt| {
+        let exiting = matches!(&event, Event::LoopExiting);
+        {
+        let ApplicationRunState { engine_init_future, engine, services } = &mut application;
         let window_manager_owner = engine
             .as_ref()
             .map(|engine| engine.game_client.window_manager_owner());
@@ -526,10 +563,21 @@ pub async fn run_cnc_game(
                             engine_init_last_log_at = None;
                             created_window
                                 .set_title("Command & Conquer Generals Zero Hour - Initializing");
-                            engine_init_future = Some(Box::pin(CnCGameEngine::new(
-                                created_window.clone(),
-                                cmd_args.clone(),
-                            )));
+                            let startup_window = created_window.clone();
+                            let startup_args = cmd_args.clone();
+                            *engine_init_future = Some(Box::pin(async move {
+                                let startup_sources = CnCGameEngine::load_startup_game_data_texts()
+                                    .await.map_err(anyhow::Error::msg)?;
+                                let paths = crate::config::startup_paths::StartupUserData::admit(
+                                    &startup_sources.iter().map(|(_, text)| text.clone()).collect::<Vec<_>>(),
+                                    &startup_args,
+                                )?;
+                                let mut services = crate::subsystem_manager::ApplicationServices::new();
+                                let engine = CnCGameEngine::new_for_application(
+                                    startup_window, startup_args, startup_sources, paths, &mut services,
+                                ).await?;
+                                Ok((engine, services))
+                            }));
                         }
                     }
 
@@ -537,7 +585,7 @@ pub async fn run_cnc_game(
                         let waker: Waker = Waker::from(Arc::new(NoopWake));
                         let mut cx = Context::from_waker(&waker);
                         match init_future.as_mut().poll(&mut cx) {
-                            Poll::Ready(Ok(new_engine)) => {
+                            Poll::Ready(Ok((new_engine, application_services))) => {
                                 if let Some(created_window) = window.as_ref() {
                                     info!("C&C Game engine initialized successfully!");
                                     if runtime_headless_mode {
@@ -558,7 +606,7 @@ pub async fn run_cnc_game(
                                     }
                                     created_window.request_redraw();
                                 }
-                                engine_init_future = None;
+                                *engine_init_future = None;
                                 engine_init_started_at = None;
                                 engine_init_last_log_at = None;
                                 let mut new_engine = new_engine;
@@ -575,7 +623,8 @@ pub async fn run_cnc_game(
                                     let snapshot = new_engine.runtime_host_status_snapshot();
                                     bridge.publish_runtime(&snapshot);
                                 }
-                                engine = Some(new_engine);
+                                *services = Some(application_services);
+                                *engine = Some(new_engine);
                                 // The engine was constructed inside the boxed
                                 // boot future; the live-snapshot slot still
                                 // holds the pre-move raw address (freed heap
@@ -606,7 +655,7 @@ pub async fn run_cnc_game(
                             }
                             Poll::Ready(Err(err)) => {
                                 error!("Failed to initialize C&C game engine: {err}");
-                                engine_init_future = None;
+                                *engine_init_future = None;
                                 elwt.exit();
                             }
                             Poll::Pending => {
@@ -723,6 +772,7 @@ pub async fn run_cnc_game(
                             update_iconic_state_and_wake_audio(
                                 current_window,
                                 &mut runtime_window_minimized,
+                                &mut engine.subsystem_manager,
                             );
                             if !runtime_window_minimized {
                                 engine.resize(*physical_size);
@@ -733,6 +783,7 @@ pub async fn run_cnc_game(
                             update_iconic_state_and_wake_audio(
                                 current_window,
                                 &mut runtime_window_minimized,
+                                &mut engine.subsystem_manager,
                             );
                             if !runtime_window_minimized {
                                 engine.resize(current_window.inner_size());
@@ -742,6 +793,7 @@ pub async fn run_cnc_game(
                             update_iconic_state_and_wake_audio(
                                 current_window,
                                 &mut runtime_window_minimized,
+                                &mut engine.subsystem_manager,
                             );
                             let runtime_window_suspended = runtime_window_minimized;
                             if runtime_headless_mode {
@@ -822,7 +874,7 @@ pub async fn run_cnc_game(
                         if matches!(state, winit::event::ElementState::Pressed)
                             && name.contains("SkirmishGameOptionsMenu.wnd:ButtonStart")
                         {
-                            let ok = game_client::gui::simulate_skirmish_start_button_gadget_selected();
+                            let ok = engine.game_client.with_window_event_effects(|effects| game_client::gui::simulate_skirmish_start_button_gadget_selected(effects));
                             log::info!("physical Skirmish Start GBM residual ok={ok}");
                             if ok {
                                 if let Some(request) = engine.take_pending_new_game_start_request() {
@@ -833,9 +885,9 @@ pub async fn run_cnc_game(
                                             request.map
                                         );
                                         engine.start_game_from_ui(request);
-                                        let _ = super::CnCGameEngine::take_new_game_dispatch_from_common_stream();
+                                        let _ = super::CnCGameEngine::take_new_game_dispatch_from_common_stream(engine.game_client.message_stream_mut());
                                     } else {
-                                        super::CnCGameEngine::take_shell_new_game_messages_from_common_stream();
+                                        super::CnCGameEngine::take_shell_new_game_messages_from_common_stream(engine.game_client.message_stream_mut());
                                     }
                                 }
                             }
@@ -865,6 +917,7 @@ pub async fn run_cnc_game(
                     update_iconic_state_and_wake_audio(
                         current_window,
                         &mut runtime_window_minimized,
+                        &mut engine.subsystem_manager,
                     );
                     let runtime_window_suspended = runtime_window_minimized;
                     if runtime_headless_mode {
@@ -936,6 +989,11 @@ pub async fn run_cnc_game(
             owner.with_scope(event_callback);
         } else {
             event_callback();
+        }
+        }
+        // Release all callback and native-window owner loans before teardown.
+        if exiting {
+            application.shutdown();
         }
     })?;
 

@@ -18,7 +18,6 @@ use crate::{
     drawable::Drawable,
     effects::particle_manager::xfer_particle_system_manager_state,
     game_text::GameText,
-    gui::campaign_manager::{XferHelper as CampaignXferHelper, get_campaign_manager},
     gui::window_video_manager::{WindowVideoPlayType, with_window_video_manager},
     helpers::{InGameUiHooks, PendingCommand, PendingSpecialPower},
     message_stream::game_message::{ICoord2D, ObjectID},
@@ -41,7 +40,9 @@ use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::{Snapshot as XferSnapshotTrait, Xfer, XferMode, XferStatus};
 use gamelogic::commands::command::CommandType;
 use gamelogic::common::audio::AudioEventRts as LogicAudioEventRts;
-use gamelogic::helpers::{TerrainTreeRegistration, TheAudio, TheFXList, TheGameLogic, TheScriptEngine};
+use gamelogic::helpers::{
+    TerrainTreeRegistration, TheAudio, TheFXList, TheGameLogic, TheScriptEngine,
+};
 use gamelogic::object::draw::W3DTreeDrawModuleData;
 use glam::{Mat4, Vec3};
 
@@ -91,86 +92,6 @@ fn xfer_ascii_value(xfer: &mut dyn Xfer, value: &mut AsciiString) -> Result<(), 
     xfer.xfer_string(&mut as_string)?;
     *value = AsciiString::from(as_string.as_str());
     Ok(())
-}
-
-fn runtime_xfer_status_to_io(status: XferStatus) -> io::Error {
-    io::Error::new(io::ErrorKind::InvalidData, format!("{status:?}"))
-}
-
-struct CampaignRuntimeXferAdapter<'a> {
-    xfer: &'a mut dyn Xfer,
-}
-
-impl<'a> CampaignRuntimeXferAdapter<'a> {
-    fn new(xfer: &'a mut dyn Xfer) -> Self {
-        Self { xfer }
-    }
-}
-
-impl CampaignXferHelper for CampaignRuntimeXferAdapter<'_> {
-    fn xfer_version(&mut self, version: &mut u16, current: u16) -> io::Result<()> {
-        let mut runtime_version = u8::try_from(*version)
-            .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "campaign version overflow"))?;
-        let runtime_current = u8::try_from(current)
-            .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "campaign version overflow"))?;
-        self.xfer
-            .xfer_version(&mut runtime_version, runtime_current)
-            .map_err(runtime_xfer_status_to_io)?;
-        *version = runtime_version as u16;
-        Ok(())
-    }
-
-    fn xfer_ascii_string(&mut self, s: &mut String) -> io::Result<()> {
-        self.xfer
-            .xfer_ascii_string(s)
-            .map_err(runtime_xfer_status_to_io)
-    }
-
-    fn xfer_int(&mut self, value: &mut i32) -> io::Result<()> {
-        self.xfer.xfer_int(value).map_err(runtime_xfer_status_to_io)
-    }
-
-    fn xfer_bool(&mut self, value: &mut bool) -> io::Result<()> {
-        self.xfer
-            .xfer_bool(value)
-            .map_err(runtime_xfer_status_to_io)
-    }
-
-    fn xfer_user<T>(&mut self, value: &mut T) -> io::Result<()> {
-        let len = std::mem::size_of::<T>();
-        let ptr = value as *mut T as *mut u8;
-        // SAFETY: `ptr` is derived from a valid mutable reference and `len` matches `T`.
-        unsafe { self.xfer.xfer_user(ptr, len) }.map_err(runtime_xfer_status_to_io)
-    }
-
-    fn is_loading(&self) -> bool {
-        self.xfer.get_xfer_mode() == XferMode::Load
-    }
-
-    fn xfer_unsigned_int(&mut self, value: &mut u32) -> io::Result<()> {
-        self.xfer
-            .xfer_unsigned_int(value)
-            .map_err(runtime_xfer_status_to_io)
-    }
-
-    fn xfer_unsigned_short(&mut self, value: &mut u16) -> io::Result<()> {
-        self.xfer
-            .xfer_unsigned_short(value)
-            .map_err(runtime_xfer_status_to_io)
-    }
-
-    fn xfer_unicode_string(&mut self, s: &mut String) -> io::Result<()> {
-        self.xfer
-            .xfer_unicode_string(s)
-            .map_err(runtime_xfer_status_to_io)
-    }
-
-    fn xfer_challenge_game_info(
-        &mut self,
-        info: &mut game_engine::System::ChallengeGameInfoXfer,
-    ) -> io::Result<()> {
-        info.xfer(self.xfer).map_err(runtime_xfer_status_to_io)
-    }
 }
 
 fn xfer_w3d_tree_draw_module_data(
@@ -978,37 +899,6 @@ pub fn register_radar_snapshot_block(ui: Arc<Mutex<InGameUISubsystem>>) {
     state.add_snapshot_block(
         "CHUNK_Radar".to_string(),
         Box::new(RadarSnapshotBridge::new(ui)),
-        game_engine::System::SnapshotType::SaveLoad,
-    );
-}
-
-struct CampaignSnapshotBridge;
-
-impl XferSnapshotTrait for CampaignSnapshotBridge {
-    fn crc(&mut self, xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
-        self.xfer(xfer)
-    }
-
-    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
-        let mut manager = get_campaign_manager();
-        let mut adapter = CampaignRuntimeXferAdapter::new(xfer);
-        manager
-            .xfer(&mut adapter)
-            .map_err(|_| XferStatus::InvalidData)
-    }
-
-    fn load_post_process(&mut self) -> Result<(), XferStatus> {
-        let mut manager = get_campaign_manager();
-        manager.load_post_process();
-        Ok(())
-    }
-}
-
-pub fn register_campaign_snapshot_block() {
-    let mut state = game_engine::System::get_game_state();
-    state.add_snapshot_block(
-        "CHUNK_Campaign".to_string(),
-        Box::new(CampaignSnapshotBridge),
         game_engine::System::SnapshotType::SaveLoad,
     );
 }
@@ -3503,7 +3393,9 @@ mod tests {
 #[cfg(test)]
 mod radar_presentation_tests {
     use super::*;
-    use game_engine::common::system::radar::{Coord3D as RadarPosition, RadarEventType, RadarSystem};
+    use game_engine::common::system::radar::{
+        Coord3D as RadarPosition, RadarEventType, RadarSystem,
+    };
 
     #[test]
     fn radar_draw_admits_chirp_once_and_acks_only_supplied_owner() {
@@ -3559,7 +3451,9 @@ mod missing_client_snapshot_tests {
         ) {
             return;
         }
-        use crate::core::game_client::{GameClient, clear_live_game_client, register_live_game_client};
+        use crate::core::game_client::{
+            GameClient, clear_live_game_client, register_live_game_client,
+        };
         use game_engine::System::SaveGame::{
             AvailableGameInfo, BorrowedSnapshotBlock, GameState, SaveCode, SaveFileType,
             SaveGameInfo, SnapshotType,

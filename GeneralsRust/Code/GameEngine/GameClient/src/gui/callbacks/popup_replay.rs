@@ -3,8 +3,8 @@
 use crate::game_text::GameText;
 use crate::gui::callbacks::score_screen::score_screen_enable_controls;
 use crate::gui::{
+    GLM_SELECTED, GameWindow, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled,
     message_box_ok, message_box_ok_cancel, with_window_manager, write_input_focus_response,
-    GameWindow, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled, GLM_SELECTED,
 };
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::recorder::with_recorder;
@@ -126,7 +126,7 @@ fn save_replay(filename: &str) {
     state.message_box_window = None;
 
     if full_path.exists() {
-        let ok = Box::new(|| {
+        let ok: crate::gui::callbacks::message_box::MessageBoxFunc = Box::new(|_effects| {
             really_save_replay();
         });
         state.message_box_window = message_box_ok_cancel(
@@ -362,8 +362,8 @@ pub fn popup_replay_system(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::gui::gadgets::{ListBox, TextEntry};
     use crate::gui::WindowWidget;
+    use crate::gui::gadgets::{ListBox, TextEntry};
     use std::cell::RefCell;
     use std::rc::Rc;
 
@@ -567,11 +567,7 @@ pub fn residual_popup_replay_last_action() -> ResidualPopupReplayAction {
 /// Residual: last selected ListboxGames slot (-1 if none).
 pub fn residual_popup_replay_selected_slot() -> Option<i32> {
     let slot = RESIDUAL_POPUP_REPLAY_SLOT.load(std::sync::atomic::Ordering::Relaxed);
-    if slot < 0 {
-        None
-    } else {
-        Some(slot)
-    }
+    if slot < 0 { None } else { Some(slot) }
 }
 
 /// Residual: last residual replay name text.

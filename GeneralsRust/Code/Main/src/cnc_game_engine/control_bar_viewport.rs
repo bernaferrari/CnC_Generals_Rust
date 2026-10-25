@@ -37,20 +37,42 @@ impl CnCGameEngine {
         let game_ending = self.game_logic.owned_script_game_ending();
         let upgrade_observer = self.game_logic.receiving_upgrade_tooltip_observer();
         let upgrade_source = game_client::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource::Receiving(&upgrade_observer);
+        let mut emitted_messages = Vec::new();
+        let window_manager_owner = self.game_client.window_manager_owner();
         if !receiving_local_player_is_observer(&self.game_logic) {
             // A regular ControlBar update does not require replay metadata.
-            return self.control_bar.update_owned_receiving(
+            let result = self.control_bar.update_owned_receiving(
                 delta,
                 None,
                 upgrade_source,
                 game_ending,
+                &window_manager_owner,
+                &mut emitted_messages,
             );
+            for message in emitted_messages {
+                self.game_client
+                    .message_stream_mut()
+                    .append_message_value(message);
+            }
+            return result;
         }
         let roster = self
             .receiving_observer_roster()
             .ok_or("receiving Recorder metadata unavailable for native observer")?;
-        self.control_bar
-            .update_owned_receiving(delta, Some(&roster), upgrade_source, game_ending)
+        let result = self.control_bar.update_owned_receiving(
+            delta,
+            Some(&roster),
+            upgrade_source,
+            game_ending,
+            &window_manager_owner,
+            &mut emitted_messages,
+        );
+        for message in emitted_messages {
+            self.game_client
+                .message_stream_mut()
+                .append_message_value(message);
+        }
+        result
     }
     fn control_bar_parent_handle(
         &self,
@@ -95,6 +117,9 @@ impl CnCGameEngine {
             game_ending,
             tooltips_disabled,
             cursor_mouse: cursor_mouse.as_ref(),
+            emitted_messages: None,
+            campaign_manager: None,
+            window_manager_owner: None,
         };
         self.game_client
             .window_manager_owner()
@@ -214,6 +239,7 @@ pub(super) struct NativeScriptUi<'a> {
     snow: &'a mut game_client::snow::SnowManager,
     bar: &'a mut game_client::gui::control_bar::ControlBar,
     callbacks: &'a mut game_client::gui::callbacks::control_bar_callbacks::ControlBarCallbacks,
+    campaign_manager: Option<&'a mut game_client::gui::campaign_manager::CampaignManager>,
 }
 
 #[cfg(feature = "game_client")]
@@ -230,7 +256,16 @@ impl<'a> NativeScriptUi<'a> {
             snow,
             bar,
             callbacks,
+            campaign_manager: None,
         }
+    }
+
+    pub(super) fn with_campaign_manager(
+        mut self,
+        campaign_manager: &'a mut game_client::gui::campaign_manager::CampaignManager,
+    ) -> Self {
+        self.campaign_manager = Some(campaign_manager);
+        self
     }
 
     pub(super) fn with_cinematic_input(
@@ -272,6 +307,15 @@ impl<'a> NativeScriptUi<'a> {
 
 #[cfg(feature = "game_client")]
 impl crate::game_logic::ScriptUiEffects for NativeScriptUi<'_> {
+    fn set_campaign_victorious(&mut self, victorious: bool) -> gamelogic::GameLogicResult<()> {
+        let manager = self.campaign_manager.as_deref_mut().ok_or_else(|| {
+            gamelogic::GameLogicError::Configuration(
+                "native script action has no receiving CampaignManager".into(),
+            )
+        })?;
+        manager.set_victorious(victorious);
+        Ok(())
+    }
     fn mark_control_bar_dirty(&mut self) {
         self.bar.mark_ui_dirty();
     }

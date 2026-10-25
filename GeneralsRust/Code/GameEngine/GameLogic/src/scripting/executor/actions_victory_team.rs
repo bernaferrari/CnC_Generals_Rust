@@ -6,6 +6,35 @@
 use super::*;
 
 impl ScriptActionDispatcher<'_> {
+    fn apply_campaign_victory(
+        &mut self,
+        driver: &mut dyn ScriptExecutionDriver,
+        victorious: bool,
+    ) -> Result<(), ScriptError> {
+        if let Some(result) = driver.set_campaign_victorious(victorious) {
+            return result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()));
+        }
+        let _ = self
+            .context
+            .with_engine_mut(|engine| engine.set_campaign_victorious(victorious));
+        Ok(())
+    }
+
+    fn create_win_lose_window_now(
+        &mut self,
+        driver: &mut dyn ScriptExecutionDriver,
+        layout_filename: &str,
+    ) -> Result<(), ScriptError> {
+        if let Some(result) = driver.create_win_lose_window(layout_filename) {
+            return result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()));
+        }
+        let layout = layout_filename.to_string();
+        let _ = self
+            .context
+            .with_engine_mut(|engine| engine.create_win_lose_window(&layout));
+        Ok(())
+    }
+
     // ============================================================================
     // VICTORY/DEFEAT ACTIONS
     // C++ Reference: ScriptActions.cpp lines 215-276
@@ -31,26 +60,32 @@ impl ScriptActionDispatcher<'_> {
             engine.close_game_windows();
         });
         self.do_disable_input(driver)?;
-        let _ = self.context.with_engine_mut(|engine| {
-            let layout = if match driver.local_player_observer() {
-                crate::scripting::engine::ScriptOwnerQuery::Present(observer) => {
-                    observer || engine.has_shown_mp_local_defeat_window()
-                }
-                crate::scripting::engine::ScriptOwnerQuery::Missing => {
-                    engine.has_shown_mp_local_defeat_window()
-                }
-                crate::scripting::engine::ScriptOwnerQuery::Unavailable => {
-                    engine.should_show_observer_quit_window()
-                }
-            } {
-                "Menus/ObserverQuit.wnd"
-            } else {
-                "Menus/Victorious.wnd"
-            };
-            engine.create_win_lose_window(layout);
-            engine.set_campaign_victorious(true);
-            engine.start_end_game_timer();
-        });
+        let layout = self
+            .context
+            .with_engine_mut(|engine| {
+                let layout = if match driver.local_player_observer() {
+                    crate::scripting::engine::ScriptOwnerQuery::Present(observer) => {
+                        observer || engine.has_shown_mp_local_defeat_window()
+                    }
+                    crate::scripting::engine::ScriptOwnerQuery::Missing => {
+                        engine.has_shown_mp_local_defeat_window()
+                    }
+                    crate::scripting::engine::ScriptOwnerQuery::Unavailable => {
+                        engine.should_show_observer_quit_window()
+                    }
+                } {
+                    "Menus/ObserverQuit.wnd"
+                } else {
+                    "Menus/Victorious.wnd"
+                };
+                layout
+            })
+            .unwrap_or("Menus/Victorious.wnd");
+        self.create_win_lose_window_now(driver, layout)?;
+        self.apply_campaign_victory(driver, true)?;
+        let _ = self
+            .context
+            .with_engine_mut(|engine| engine.start_end_game_timer());
 
         Ok(ScriptActionResult::Success)
     }
@@ -74,10 +109,10 @@ impl ScriptActionDispatcher<'_> {
             engine.close_game_windows();
         });
         self.do_disable_input(driver)?;
-        let _ = self.context.with_engine_mut(|engine| {
-            engine.set_campaign_victorious(true);
-            engine.start_quick_end_game_timer();
-        });
+        self.apply_campaign_victory(driver, true)?;
+        let _ = self
+            .context
+            .with_engine_mut(|engine| engine.start_quick_end_game_timer());
 
         Ok(ScriptActionResult::Success)
     }
@@ -102,26 +137,32 @@ impl ScriptActionDispatcher<'_> {
             engine.close_game_windows();
         });
         self.do_disable_input(driver)?;
-        let _ = self.context.with_engine_mut(|engine| {
-            let layout = if match driver.local_player_observer() {
-                crate::scripting::engine::ScriptOwnerQuery::Present(observer) => {
-                    observer || engine.has_shown_mp_local_defeat_window()
-                }
-                crate::scripting::engine::ScriptOwnerQuery::Missing => {
-                    engine.has_shown_mp_local_defeat_window()
-                }
-                crate::scripting::engine::ScriptOwnerQuery::Unavailable => {
-                    engine.should_show_observer_quit_window()
-                }
-            } {
-                "Menus/ObserverQuit.wnd"
-            } else {
-                "Menus/Defeat.wnd"
-            };
-            engine.create_win_lose_window(layout);
-            engine.set_campaign_victorious(false);
-            engine.start_end_game_timer();
-        });
+        let layout = self
+            .context
+            .with_engine_mut(|engine| {
+                let layout = if match driver.local_player_observer() {
+                    crate::scripting::engine::ScriptOwnerQuery::Present(observer) => {
+                        observer || engine.has_shown_mp_local_defeat_window()
+                    }
+                    crate::scripting::engine::ScriptOwnerQuery::Missing => {
+                        engine.has_shown_mp_local_defeat_window()
+                    }
+                    crate::scripting::engine::ScriptOwnerQuery::Unavailable => {
+                        engine.should_show_observer_quit_window()
+                    }
+                } {
+                    "Menus/ObserverQuit.wnd"
+                } else {
+                    "Menus/Defeat.wnd"
+                };
+                layout
+            })
+            .unwrap_or("Menus/Defeat.wnd");
+        self.create_win_lose_window_now(driver, layout)?;
+        self.apply_campaign_victory(driver, false)?;
+        let _ = self
+            .context
+            .with_engine_mut(|engine| engine.start_end_game_timer());
 
         Ok(ScriptActionResult::Success)
     }
@@ -136,7 +177,7 @@ impl ScriptActionDispatcher<'_> {
         // C++ ScriptActions.cpp:241-251: markMPLocalDefeatWindowShown,
         // closeWindows, GameLogic::closeWindows, LocalDefeat.wnd when not
         // observer, SetVictorious(FALSE), startCloseWindowTimer.
-        let _ = self.context.with_engine_mut(|engine| {
+        let layout = self.context.with_engine_mut(|engine| {
             engine.set_shown_mp_local_defeat_window(true);
             engine.close_windows(false);
             engine.close_game_windows();
@@ -147,11 +188,18 @@ impl ScriptActionDispatcher<'_> {
                     engine.should_show_local_defeat_window()
                 }
             } {
-                engine.create_win_lose_window("Menus/LocalDefeat.wnd");
+                Some("Menus/LocalDefeat.wnd")
+            } else {
+                None
             }
-            engine.set_campaign_victorious(false);
-            engine.start_close_window_timer();
         });
+        if let Some(layout) = layout.flatten() {
+            self.create_win_lose_window_now(driver, layout)?;
+        }
+        self.apply_campaign_victory(driver, false)?;
+        let _ = self
+            .context
+            .with_engine_mut(|engine| engine.start_close_window_timer());
 
         Ok(ScriptActionResult::Success)
     }

@@ -61,7 +61,9 @@ fn strategy_center_turret_mood_matrix_sleep_passive_residual() {
     }
     let frame = game_logic.frame;
     let _ = game_logic.tick_turret_state_machine(sc_id, frame as f32 * LOGIC_FRAME_TIMESTEP, frame);
-    game_logic.tick_battle_plan_door_residuals();
+    game_logic
+        .tick_battle_plan_door_residuals()
+        .expect("valid battle-plan test state");
     {
         let sc = game_logic.host_object(sc_id).expect("sc");
         assert!(
@@ -86,7 +88,9 @@ fn strategy_center_turret_mood_matrix_sleep_passive_residual() {
     }
     let frame = game_logic.frame;
     let _ = game_logic.tick_turret_state_machine(sc_id, frame as f32 * LOGIC_FRAME_TIMESTEP, frame);
-    game_logic.tick_battle_plan_door_residuals();
+    game_logic
+        .tick_battle_plan_door_residuals()
+        .expect("valid battle-plan test state");
     {
         let sc = game_logic.host_object(sc_id).expect("sc");
         assert!(
@@ -110,7 +114,9 @@ fn strategy_center_turret_mood_matrix_sleep_passive_residual() {
     }
     let frame = game_logic.frame;
     let _ = game_logic.tick_turret_state_machine(sc_id, frame as f32 * LOGIC_FRAME_TIMESTEP, frame);
-    game_logic.tick_battle_plan_door_residuals();
+    game_logic
+        .tick_battle_plan_door_residuals()
+        .expect("valid battle-plan test state");
     {
         let sc = game_logic.host_object(sc_id).expect("sc");
         assert!(
@@ -506,7 +512,9 @@ fn strategy_center_bombardment_turret_fire_residual() {
         let frame = game_logic.frame;
         let _ =
             game_logic.tick_turret_state_machine(sc_id, frame as f32 * LOGIC_FRAME_TIMESTEP, frame);
-        game_logic.tick_battle_plan_door_residuals();
+        game_logic
+            .tick_battle_plan_door_residuals()
+            .expect("valid battle-plan test state");
         if game_logic.honesty_battle_plan_turret_fire_ok() {
             break;
         }
@@ -645,7 +653,9 @@ fn strategy_center_gun_scatter_misses_infantry_residual() {
     for _ in 0..90 {
         let frame = logic.frame;
         let _ = logic.tick_turret_state_machine(sc_id, frame as f32 * LOGIC_FRAME_TIMESTEP, frame);
-        logic.tick_battle_plan_door_residuals();
+        logic
+            .tick_battle_plan_door_residuals()
+            .expect("valid battle-plan test state");
         if logic.strategy_center_gun_scatter_applied > 0
             || logic.strategy_center_gun_scatter_misses > 0
             || logic.honesty_strategy_center_gun_scatter_ok()
@@ -683,7 +693,9 @@ fn strategy_center_gun_scatter_misses_infantry_residual() {
     for _ in 0..90 {
         let frame = logic.frame;
         let _ = logic.tick_turret_state_machine(sc_id, frame as f32 * LOGIC_FRAME_TIMESTEP, frame);
-        logic.tick_battle_plan_door_residuals();
+        logic
+            .tick_battle_plan_door_residuals()
+            .expect("valid battle-plan test state");
         if logic.strategy_center_gun_scatter_applied > before_applied
             || logic.honesty_strategy_center_gun_scatter_ok()
         {
@@ -1033,7 +1045,9 @@ fn strategy_center_battle_plan_door_animation_residual() {
     game_logic.frame = game_logic
         .frame
         .saturating_add(BATTLE_PLAN_ANIMATION_FRAMES);
-    game_logic.tick_battle_plan_door_residuals();
+    game_logic
+        .tick_battle_plan_door_residuals()
+        .expect("valid battle-plan test state");
     assert!(
         game_logic.honesty_battle_plan_door_active_ok(),
         "door residual must reach ACTIVE after AnimationTime"
@@ -1079,7 +1093,9 @@ fn strategy_center_battle_plan_door_animation_residual() {
 
     // Pack complete (TransitionIdleTime 0) → unpack HoldTheLine DOOR_2 OPENING.
     game_logic.frame = pack_frame.saturating_add(BATTLE_PLAN_ANIMATION_FRAMES);
-    game_logic.tick_battle_plan_door_residuals();
+    game_logic
+        .tick_battle_plan_door_residuals()
+        .expect("valid battle-plan test state");
     {
         let state = game_logic
             .battle_plans()
@@ -1093,7 +1109,9 @@ fn strategy_center_battle_plan_door_animation_residual() {
     game_logic.frame = game_logic
         .frame
         .saturating_add(BATTLE_PLAN_ANIMATION_FRAMES);
-    game_logic.tick_battle_plan_door_residuals();
+    game_logic
+        .tick_battle_plan_door_residuals()
+        .expect("valid battle-plan test state");
     // HoldTheLine now ACTIVE.
     assert!(
         game_logic
@@ -1113,7 +1131,9 @@ fn strategy_center_battle_plan_door_animation_residual() {
     game_logic.frame = game_logic
         .frame
         .saturating_add(BATTLE_PLAN_ANIMATION_FRAMES);
-    game_logic.tick_battle_plan_door_residuals();
+    game_logic
+        .tick_battle_plan_door_residuals()
+        .expect("valid battle-plan test state");
     {
         let state = game_logic
             .battle_plans()
@@ -1275,7 +1295,9 @@ fn strategy_center_delayed_set_battle_plan_and_turret_recenter_residual() {
     // Recenter complete → PACKING clears buffs + paralyzes.
     // tick_battle_plan_door_residuals also steps angles once more (harmless at natural).
     game_logic.frame = switch_frame.saturating_add(BATTLE_PLAN_TURRET_RECENTER_FRAMES);
-    game_logic.tick_battle_plan_door_residuals();
+    game_logic
+        .tick_battle_plan_door_residuals()
+        .expect("valid battle-plan test state");
     assert!(game_logic.honesty_battle_plan_pack_clear_ok());
     {
         let state = game_logic
@@ -1305,11 +1327,15 @@ fn strategy_center_delayed_set_battle_plan_and_turret_recenter_residual() {
     game_logic.frame = game_logic
         .frame
         .saturating_add(BATTLE_PLAN_ANIMATION_FRAMES);
-    game_logic.tick_battle_plan_door_residuals();
+    game_logic
+        .tick_battle_plan_door_residuals()
+        .expect("valid battle-plan test state");
     game_logic.frame = game_logic
         .frame
         .saturating_add(BATTLE_PLAN_ANIMATION_FRAMES);
-    game_logic.tick_battle_plan_door_residuals();
+    game_logic
+        .tick_battle_plan_door_residuals()
+        .expect("valid battle-plan test state");
     assert!(
         game_logic
             .host_object(ally_id)

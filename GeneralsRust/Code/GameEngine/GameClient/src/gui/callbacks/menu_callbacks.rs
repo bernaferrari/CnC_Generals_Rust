@@ -6,9 +6,9 @@
 use crate::core::game_client::apply_lod_texture_reduction;
 use crate::game_text::GameText;
 use crate::gui::callbacks::quit_menu::destroy_quit_menu;
-use crate::gui::campaign_manager::get_campaign_manager;
 use crate::gui::gadgets::ComboBoxItem;
 use crate::gui::gadgets::ListBoxItemData;
+use crate::gui::game_window::WindowEventEffects;
 use crate::gui::header_template::get_header_template_manager;
 use crate::gui::options_host_bridge::{
     publish_host_alternate_mouse, publish_host_draw_rmb_scroll_anchor,
@@ -24,7 +24,7 @@ use crate::gui::{
 };
 use crate::helpers::TheInGameUI;
 use crate::map_util::{get_map_cache_manager, populate_map_listbox};
-use crate::message_stream::{GameMessageType, get_message_stream};
+use crate::message_stream::{GameMessage, GameMessageType};
 use game_engine::common::audio::AudioAffect as EngineAudioAffect;
 use game_engine::common::audio::game_audio::{
     get_global_audio_manager, initialize_global_audio_manager,
@@ -70,12 +70,31 @@ pub trait MenuCallbacks {
         user_data: Option<&mut dyn std::any::Any>,
     ) -> Result<(), Box<dyn std::error::Error>>;
 
+    fn init_with_effects(
+        &mut self,
+        layout: &WindowLayout,
+        user_data: Option<&mut dyn std::any::Any>,
+        _effects: &mut WindowEventEffects<'_>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        self.init(layout, user_data)
+    }
+
     /// Update the menu (called every frame)
     fn update(
         &mut self,
         layout: &WindowLayout,
         user_data: Option<&mut dyn std::any::Any>,
     ) -> Result<(), Box<dyn std::error::Error>>;
+
+    /// Update using the receiving GameClient's borrowed event effects.
+    fn update_with_effects(
+        &mut self,
+        layout: &WindowLayout,
+        user_data: Option<&mut dyn std::any::Any>,
+        _effects: &mut WindowEventEffects<'_>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        self.update(layout, user_data)
+    }
 
     /// Shutdown the menu
     fn shutdown(
@@ -93,6 +112,18 @@ pub trait MenuCallbacks {
         data2: WindowMsgData,
     ) -> WindowMsgHandled;
 
+    /// Dispatch using the receiving GameClient's borrowed event effects.
+    fn system_with_effects(
+        &mut self,
+        window: &GameWindow,
+        msg: WindowMessage,
+        data1: WindowMsgData,
+        data2: WindowMsgData,
+        _effects: &mut WindowEventEffects<'_>,
+    ) -> WindowMsgHandled {
+        self.system(window, msg, data1, data2)
+    }
+
     /// Handle input messages
     fn input(
         &mut self,
@@ -101,6 +132,16 @@ pub trait MenuCallbacks {
         data1: WindowMsgData,
         data2: WindowMsgData,
     ) -> WindowMsgHandled;
+    fn input_with_effects(
+        &mut self,
+        window: &GameWindow,
+        msg: WindowMessage,
+        data1: WindowMsgData,
+        data2: WindowMsgData,
+        _effects: &mut WindowEventEffects<'_>,
+    ) -> WindowMsgHandled {
+        self.input(window, msg, data1, data2)
+    }
 }
 
 /// Main Menu implementation
@@ -205,26 +246,10 @@ impl SinglePlayerMenu {
         }
     }
 
-    fn shutdown_complete(&mut self, layout: &WindowLayout) {
-        self.is_shutting_down = false;
-        layout.hide(true);
-        self.initialized = false;
-        self.parent = None;
-        queue_shell_shutdown_complete(false);
-    }
-}
-
-impl Default for SinglePlayerMenu {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl MenuCallbacks for SinglePlayerMenu {
-    fn init(
+    fn initialize_with_effects(
         &mut self,
         layout: &WindowLayout,
-        _user_data: Option<&mut dyn std::any::Any>,
+        mut effects: Option<&mut WindowEventEffects<'_>>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         info!(
             "Initializing Single Player Menu for layout: {}",
@@ -240,7 +265,9 @@ impl MenuCallbacks for SinglePlayerMenu {
         self.button_pushed = false;
         self.is_shutting_down = false;
 
-        show_shell_map_if_available(true);
+        if effects.is_some() {
+            show_shell_map_if_available(true);
+        }
         layout.hide(false);
 
         with_window_manager(|manager| {
@@ -267,6 +294,39 @@ impl MenuCallbacks for SinglePlayerMenu {
 
         self.initialized = true;
         Ok(())
+    }
+
+    fn shutdown_complete(&mut self, layout: &WindowLayout) {
+        self.is_shutting_down = false;
+        layout.hide(true);
+        self.initialized = false;
+        self.parent = None;
+        queue_shell_shutdown_complete(false);
+    }
+}
+
+impl Default for SinglePlayerMenu {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl MenuCallbacks for SinglePlayerMenu {
+    fn init(
+        &mut self,
+        layout: &WindowLayout,
+        _user_data: Option<&mut dyn std::any::Any>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        self.initialize_with_effects(layout, None)
+    }
+
+    fn init_with_effects(
+        &mut self,
+        layout: &WindowLayout,
+        _user_data: Option<&mut dyn std::any::Any>,
+        effects: &mut WindowEventEffects<'_>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        self.initialize_with_effects(layout, Some(effects))
     }
 
     fn update(
@@ -342,9 +402,20 @@ impl MenuCallbacks for SinglePlayerMenu {
     fn input(
         &mut self,
         _window: &GameWindow,
+        _msg: WindowMessage,
+        _data1: WindowMsgData,
+        _data2: WindowMsgData,
+    ) -> WindowMsgHandled {
+        panic!("menu input dispatch requires receiving event effects");
+    }
+
+    fn input_with_effects(
+        &mut self,
+        _window: &GameWindow,
         msg: WindowMessage,
         data1: WindowMsgData,
         data2: WindowMsgData,
+        effects: &mut WindowEventEffects<'_>,
     ) -> WindowMsgHandled {
         if msg != WindowMessage::Char || self.button_pushed || data1 != 0x1B {
             return WindowMsgHandled::Ignored;
@@ -353,8 +424,9 @@ impl MenuCallbacks for SinglePlayerMenu {
             return WindowMsgHandled::Handled;
         }
 
-        if let Some(parent) = self.parent.as_ref() {
-            let _ = parent.borrow_mut().send_system_message(
+        if let Some(parent) = self.parent.clone() {
+            effects.queue_system_message(
+                Rc::downgrade(&parent),
                 WindowMessage::GadgetSelected,
                 self.button_back_id as WindowMsgData,
                 self.button_back_id as WindowMsgData,
@@ -1819,18 +1891,17 @@ impl MapSelectMenu {
         queue_shell_reverse_animate_window();
     }
 
-    fn do_game_start(&mut self) {
+    fn do_game_start(&mut self, effects: &mut WindowEventEffects<'_>) {
         if TheGameLogic::is_in_game() {
             let _ = TheGameLogic::clear_game_data();
         }
 
         self.start_game = false;
-        let message_stream = get_message_stream();
-        let mut stream = message_stream.write().unwrap_or_else(|e| e.into_inner());
-        let msg = stream.append_message(GameMessageType::NewGame);
+        let mut msg = GameMessage::new(GameMessageType::NewGame);
         msg.append_integer_argument(GAME_SINGLE_PLAYER);
         msg.append_integer_argument(self.difficulty);
         msg.append_integer_argument(0);
+        effects.emitted_messages.push(msg);
         init_random_with_seed(0);
         self.is_shutting_down = true;
     }
@@ -1963,9 +2034,23 @@ impl MenuCallbacks for MapSelectMenu {
         layout: &WindowLayout,
         _user_data: Option<&mut dyn std::any::Any>,
     ) -> Result<(), Box<dyn std::error::Error>> {
+        if self.is_shutting_down
+            && try_with_shell_mut(|shell| shell.is_anim_finished()).unwrap_or(false)
+        {
+            self.shutdown_complete(layout);
+        }
+        Ok(())
+    }
+
+    fn update_with_effects(
+        &mut self,
+        layout: &WindowLayout,
+        _user_data: Option<&mut dyn std::any::Any>,
+        effects: &mut WindowEventEffects<'_>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         if self.start_game && try_with_shell_mut(|shell| shell.is_anim_finished()).unwrap_or(false)
         {
-            self.do_game_start();
+            self.do_game_start(effects);
         }
         if self.is_shutting_down
             && try_with_shell_mut(|shell| shell.is_anim_finished()).unwrap_or(false)
@@ -2002,9 +2087,20 @@ impl MenuCallbacks for MapSelectMenu {
     fn system(
         &mut self,
         _window: &GameWindow,
+        _msg: WindowMessage,
+        _data1: WindowMsgData,
+        _data2: WindowMsgData,
+    ) -> WindowMsgHandled {
+        panic!("MapSelectMenu system dispatch requires receiving event effects");
+    }
+
+    fn system_with_effects(
+        &mut self,
+        _window: &GameWindow,
         msg: WindowMessage,
         data1: WindowMsgData,
         data2: WindowMsgData,
+        effects: &mut WindowEventEffects<'_>,
     ) -> WindowMsgHandled {
         match msg {
             WindowMessage::Create | WindowMessage::Destroy => WindowMsgHandled::Handled,
@@ -2019,7 +2115,11 @@ impl MenuCallbacks for MapSelectMenu {
                     self.update_selected_map();
                     if self.current_map_selection().is_some() {
                         self.button_pushed = true;
-                        get_campaign_manager().set_campaign("");
+                        if let Some(manager) = effects.campaign_manager.as_deref_mut() {
+                            manager.set_campaign("");
+                        } else {
+                            return WindowMsgHandled::Handled;
+                        }
                         self.start_game();
                         return WindowMsgHandled::Handled;
                     }
@@ -2088,7 +2188,8 @@ impl MenuCallbacks for MapSelectMenu {
                     self.update_selected_map();
                     if self.current_map_selection().is_some() {
                         if let Some(parent) = self.parent.as_ref() {
-                            let _ = parent.borrow_mut().send_system_message(
+                            effects.queue_system_message(
+                                Rc::downgrade(parent),
                                 WindowMessage::GadgetSelected,
                                 self.button_ok_id as WindowMsgData,
                                 self.button_ok_id as WindowMsgData,
@@ -2106,9 +2207,20 @@ impl MenuCallbacks for MapSelectMenu {
     fn input(
         &mut self,
         _window: &GameWindow,
+        _msg: WindowMessage,
+        _data1: WindowMsgData,
+        _data2: WindowMsgData,
+    ) -> WindowMsgHandled {
+        panic!("menu input dispatch requires receiving event effects");
+    }
+
+    fn input_with_effects(
+        &mut self,
+        _window: &GameWindow,
         msg: WindowMessage,
         data1: WindowMsgData,
         data2: WindowMsgData,
+        effects: &mut WindowEventEffects<'_>,
     ) -> WindowMsgHandled {
         if msg != WindowMessage::Char || self.button_pushed {
             return WindowMsgHandled::Ignored;
@@ -2121,8 +2233,9 @@ impl MenuCallbacks for MapSelectMenu {
         if (state & 0x0001) == 0 {
             return WindowMsgHandled::Handled;
         }
-        if let Some(parent) = self.parent.as_ref() {
-            let _ = parent.borrow_mut().send_system_message(
+        if let Some(parent) = self.parent.clone() {
+            effects.queue_system_message(
+                Rc::downgrade(&parent),
                 WindowMessage::GadgetSelected,
                 self.button_back_id as WindowMsgData,
                 self.button_back_id as WindowMsgData,
@@ -2781,56 +2894,84 @@ pub fn simulate_options_menu_prepare_accept() -> bool {
 
 /// Human click-through: OS LeftDown/Up on a retail `OptionsMenu.wnd:*` gadget
 /// (C++ WindowXlat hit → GBM_SELECTED). Not `simulate_*` first.
-fn drive_os_wnd_options_named(name: &str, latch: impl FnOnce() -> bool) -> bool {
-    if !crate::gui::dispatch_os_click_named_window(name) {
+fn drive_os_wnd_options_named(
+    name: &str,
+    latch: impl FnOnce() -> bool,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
+    if !crate::gui::dispatch_os_click_named_window(name, effects) {
         return false;
     }
     latch()
 }
 
-pub fn drive_os_wnd_options_menu_accept_like_cpp() -> bool {
-    drive_os_wnd_options_named("OptionsMenu.wnd:ButtonAccept", apply_options_menu_like_cpp)
+pub fn drive_os_wnd_options_menu_accept_like_cpp(
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
+    drive_os_wnd_options_named(
+        "OptionsMenu.wnd:ButtonAccept",
+        apply_options_menu_like_cpp,
+        effects,
+    )
 }
 
-pub fn drive_os_wnd_options_menu_back_like_cpp() -> bool {
+pub fn drive_os_wnd_options_menu_back_like_cpp(
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
     drive_os_wnd_options_named(
         "OptionsMenu.wnd:ButtonBack",
         simulate_options_menu_back_button_gadget_selected,
+        effects,
     )
 }
 
-pub fn drive_os_wnd_options_menu_defaults_like_cpp() -> bool {
+pub fn drive_os_wnd_options_menu_defaults_like_cpp(
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
     drive_os_wnd_options_named(
         "OptionsMenu.wnd:ButtonDefaults",
         simulate_options_menu_defaults_button_gadget_selected,
+        effects,
     )
 }
 
-pub fn drive_os_wnd_options_menu_keyboard_like_cpp() -> bool {
+pub fn drive_os_wnd_options_menu_keyboard_like_cpp(
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
     drive_os_wnd_options_named(
         "OptionsMenu.wnd:ButtonKeyboardOptions",
         simulate_options_menu_keyboard_button_gadget_selected,
+        effects,
     )
 }
 
-pub fn drive_os_wnd_options_menu_advanced_accept_like_cpp() -> bool {
+pub fn drive_os_wnd_options_menu_advanced_accept_like_cpp(
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
     drive_os_wnd_options_named(
         "OptionsMenu.wnd:ButtonAdvanceAccept",
         simulate_options_menu_advanced_accept_button_gadget_selected,
+        effects,
     )
 }
 
-pub fn drive_os_wnd_options_menu_advanced_back_like_cpp() -> bool {
+pub fn drive_os_wnd_options_menu_advanced_back_like_cpp(
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
     drive_os_wnd_options_named(
         "OptionsMenu.wnd:ButtonAdvanceBack",
         simulate_options_menu_advanced_back_button_gadget_selected,
+        effects,
     )
 }
 
-pub fn drive_os_wnd_options_menu_firewall_like_cpp() -> bool {
+pub fn drive_os_wnd_options_menu_firewall_like_cpp(
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
     drive_os_wnd_options_named(
         "OptionsMenu.wnd:ButtonFirewallRefresh",
         simulate_options_menu_firewall_refresh_button_gadget_selected,
+        effects,
     )
 }
 
@@ -3120,24 +3261,32 @@ pub fn simulate_credits_menu_prepare_skip() -> bool {
 
 /// Human click-through: OS LeftDown/Up on `CreditsMenu.wnd:ParentCreditsWindow`
 /// (C++ named layout hit; ESC skip latches via residual). Not `simulate_*` first.
-pub fn drive_os_wnd_credits_menu_skip_like_cpp() -> bool {
-    let clicked = crate::gui::dispatch_os_click_named_window("CreditsMenu.wnd:ParentCreditsWindow");
+pub fn drive_os_wnd_credits_menu_skip_like_cpp(
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
+    let clicked =
+        crate::gui::dispatch_os_click_named_window("CreditsMenu.wnd:ParentCreditsWindow", effects);
     if !clicked {
         return false;
     }
     simulate_credits_menu_skip()
 }
 
-pub fn drive_os_wnd_credits_menu_finished_like_cpp() -> bool {
-    let clicked = crate::gui::dispatch_os_click_named_window("CreditsMenu.wnd:ParentCreditsWindow");
+pub fn drive_os_wnd_credits_menu_finished_like_cpp(
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
+    let clicked =
+        crate::gui::dispatch_os_click_named_window("CreditsMenu.wnd:ParentCreditsWindow", effects);
     if !clicked {
         return false;
     }
     simulate_credits_menu_finished()
 }
 
-pub fn drive_os_wnd_credits_menu_prepare_skip_like_cpp() -> bool {
-    let clicked = drive_os_wnd_credits_menu_skip_like_cpp();
+pub fn drive_os_wnd_credits_menu_prepare_skip_like_cpp(
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
+    let clicked = drive_os_wnd_credits_menu_skip_like_cpp(effects);
     if !clicked {
         return false;
     }

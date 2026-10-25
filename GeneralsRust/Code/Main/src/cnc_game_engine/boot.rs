@@ -23,7 +23,8 @@ impl CnCGameEngine {
     }
     /// One application-boundary loose-file/archive resolver; constructors
     /// consume private parsed content and never select ambient game data.
-    async fn load_startup_game_data_texts() -> Result<Vec<(&'static str, String)>, String> {
+    pub(super) async fn load_startup_game_data_texts() -> Result<Vec<(&'static str, String)>, String>
+    {
         let mut paths = vec!["Data/INI/Default/GameData.ini", "Data/INI/GameData.ini"];
         #[cfg(any(debug_assertions, feature = "internal"))]
         paths.push("Data/INI/GameDataDebug.ini");
@@ -157,7 +158,55 @@ impl CnCGameEngine {
         rules
     }
 
-    pub async fn new(window: Arc<Window>, command_line: Arc<CommandLineArgs>) -> Result<Self> {
+    pub async fn new(
+        window: Arc<Window>,
+        command_line: Arc<CommandLineArgs>,
+        application_services: &mut crate::subsystem_manager::ApplicationServices,
+    ) -> Result<Self> {
+        let startup_sources = Self::load_startup_game_data_texts()
+            .await
+            .map_err(anyhow::Error::msg)?;
+        let application_paths = crate::config::startup_paths::StartupUserData::admit(
+            &startup_sources
+                .iter()
+                .map(|(_, text)| text.clone())
+                .collect::<Vec<_>>(),
+            &command_line,
+        )?;
+        Self::new_with_startup(
+            window,
+            command_line,
+            startup_sources,
+            application_paths,
+            application_services,
+        )
+        .await
+    }
+
+    pub(super) async fn new_for_application(
+        window: Arc<Window>,
+        command_line: Arc<CommandLineArgs>,
+        startup_sources: Vec<(&'static str, String)>,
+        application_paths: crate::config::startup_paths::StartupUserData,
+        application_services: &mut crate::subsystem_manager::ApplicationServices,
+    ) -> Result<Self> {
+        Self::new_with_startup(
+            window,
+            command_line,
+            startup_sources,
+            application_paths,
+            application_services,
+        )
+        .await
+    }
+
+    async fn new_with_startup(
+        window: Arc<Window>,
+        command_line: Arc<CommandLineArgs>,
+        startup_sources: Vec<(&'static str, String)>,
+        application_paths: crate::config::startup_paths::StartupUserData,
+        application_services: &mut crate::subsystem_manager::ApplicationServices,
+    ) -> Result<Self> {
         let total_timer = InitTimer::new("🎮 Engine initialization");
         info!("🎮 Initializing Command & Conquer Generals Zero Hour Game Engine");
         info!("📋 Starting subsystem initialization sequence...");
@@ -171,23 +220,15 @@ impl CnCGameEngine {
             info!("⚡ QuickStart enabled: skipping intro sequences (handled by SAGE runtime).");
         }
 
-        // Resolve one application-owned root before subsystems can open Options,
-        // campaign progress, saves or replays. No environment override is involved.
-        let startup_sources = Self::load_startup_game_data_texts()
-            .await
-            .map_err(anyhow::Error::msg)?;
-        let application_paths = crate::config::startup_paths::StartupUserData::admit(
-            &startup_sources
-                .iter()
-                .map(|(_, text)| text.clone())
-                .collect::<Vec<_>>(),
-            &command_line,
-        )?;
+        // Bind the application owner before publishing compatibility paths or
+        // registering any subsystem; later engines must use this same root.
+        application_services.admit_user_data_root(application_paths.root())?;
+        // Publish that accepted root around callbacks that still read common preferences.
+        let mut subsystem_manager = crate::subsystem_manager::SubsystemManager::new();
         application_paths
             .initialize_with_admitted_paths(|| {
-                crate::subsystem_manager::init_subsystem_manager_for_user_data(Some(
-                    application_paths.root(),
-                ))
+                subsystem_manager
+                    .initialize_for_user_data(Some(application_paths.root()), application_services)
             })
             .map_err(|err| warn!("Subsystem manager initialization failed: {err}"))
             .ok();
@@ -209,27 +250,21 @@ impl CnCGameEngine {
             warn!("Eva.ini load failed: {err}");
         }
 
-        Self::apply_startup_audio_channel_flags();
+        Self::apply_startup_audio_channel_flags(&mut subsystem_manager);
         // C++ parity: initialize startup RNG stream during engine init.
         game_engine::common::random_value::init_random();
         Self::remove_legacy_duplicate_inizh_big_best_effort();
 
-        crate::save_load::game_state::init_game_state_system_for_user_data(
-            application_paths.root(),
-        )
-        .map_err(|err| warn!("Game state system init failed: {err}"))
-        .ok();
+        application_services
+            .initialize_save_load_system(application_paths.root())
+            .map_err(|err| warn!("Game state system init failed: {err}"))
+            .ok();
 
-        // Initialize subsystems first (matches C++ GameEngine initialization order)
-        if let Some(handle) = get_subsystem_manager() {
-            let manager = handle.lock();
-            if manager.is_initialized() {
-                info!("✅ Core subsystems initialized");
-            } else {
-                warn!("Subsystem manager available but not initialized");
-            }
+        // Subsystems are initialized on this engine-owned manager, in source order.
+        if subsystem_manager.is_initialized() {
+            info!("✅ Core subsystems initialized");
         } else {
-            warn!("Subsystem manager missing after initialization attempt");
+            warn!("Subsystem manager available but not initialized");
         }
 
         let runtime_host_headless = RuntimeHostBridge::is_headless_mode(command_line.as_ref());
@@ -686,6 +721,7 @@ impl CnCGameEngine {
 
         let mut engine = Self {
             application_assets,
+            subsystem_manager,
             window: window.clone(),
             command_line,
 
@@ -694,6 +730,8 @@ impl CnCGameEngine {
             render_pipeline,
 
             message_processor,
+            subsystem_app_active: false,
+            subsystem_audio_has_focus: true,
             audio_output,
             audio_handle,
             background_music: None,
@@ -1032,11 +1070,14 @@ impl CnCGameEngine {
             .admit_promotion_definitions(promotion_definitions)
             .map_err(anyhow::Error::msg)?;
 
-        if let Some(subsystem_manager) = get_subsystem_manager() {
-            let mut manager = subsystem_manager.lock();
-            if let Err(err) = manager.reset_all() {
-                warn!("Subsystem reset after startup init failed: {}", err);
-            }
+        #[cfg(feature = "game_client")]
+        let reset_result = engine
+            .subsystem_manager
+            .reset_all_receiving_client(&mut engine.game_client);
+        #[cfg(not(feature = "game_client"))]
+        let reset_result = engine.subsystem_manager.reset_all();
+        if let Err(err) = reset_result {
+            warn!("Subsystem reset after startup init failed: {}", err);
         }
 
         engine.hide_control_bar();
@@ -1057,13 +1098,11 @@ impl CnCGameEngine {
         // engine.start_background_music();
 
         // Display subsystem status
-        if let Some(subsystem_manager) = get_subsystem_manager() {
-            let stats = subsystem_manager.lock().get_stats();
-            info!("📊 Subsystem Status:");
-            info!("  ✅ {} subsystems initialized", stats.total_subsystems);
-            if let Some(init_time) = stats.initialization_time {
-                info!("  ⏱️ Total init time: {:.2}ms", init_time.as_millis());
-            }
+        let stats = engine.subsystem_manager.get_stats();
+        info!("📊 Subsystem Status:");
+        info!("  ✅ {} subsystems initialized", stats.total_subsystems);
+        if let Some(init_time) = stats.initialization_time {
+            info!("  ⏱️ Total init time: {:.2}ms", init_time.as_millis());
         }
 
         info!("🎉 C&C Game Engine with Enhanced Subsystem Architecture initialized successfully!");
@@ -1351,7 +1390,9 @@ impl CnCGameEngine {
         !no_audio && !audio_ready
     }
 
-    pub(super) fn apply_startup_audio_channel_flags() {
+    pub(super) fn apply_startup_audio_channel_flags(
+        subsystem_manager: &mut crate::subsystem_manager::SubsystemManager,
+    ) {
         let global = game_engine::common::global_data::read();
         let audio_on = global.writable.audio_on;
         let music_on = global.writable.music_on;
@@ -1382,7 +1423,7 @@ impl CnCGameEngine {
             }
         }
 
-        with_subsystem_mut::<AudioManagerSubsystem, _>(|audio| {
+        if let Some(audio) = subsystem_manager.get_mut::<AudioManagerSubsystem>() {
             audio.apply_startup_channel_flags(
                 audio_on,
                 music_on,
@@ -1390,7 +1431,7 @@ impl CnCGameEngine {
                 sounds_3d_on,
                 speech_on,
             );
-        });
+        }
     }
 
     pub(super) fn allow_debug_startup_flags() -> bool {

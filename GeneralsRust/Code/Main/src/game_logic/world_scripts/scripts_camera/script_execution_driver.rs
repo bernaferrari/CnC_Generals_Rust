@@ -118,7 +118,9 @@ impl<'a> HostScriptExecutionDriver<'a> {
     }
 
     fn script_player_id(&self, token: &str, current_player: Option<&str>) -> Option<u32> {
-        use gamelogic::scripting::core::{LOCAL_PLAYER, THE_PLAYER, THIS_PLAYER, THIS_PLAYER_ENEMY};
+        use gamelogic::scripting::core::{
+            LOCAL_PLAYER, THE_PLAYER, THIS_PLAYER, THIS_PLAYER_ENEMY,
+        };
         match token {
             THIS_PLAYER => self.named_player_id(current_player?),
             LOCAL_PLAYER => self
@@ -141,8 +143,8 @@ impl<'a> HostScriptExecutionDriver<'a> {
                             .values()
                             .filter(|p| {
                                 p.is_human
-                                    && !(gamelogic::scripting::core::is_generals_challenge_campaign(
-                                    ) && Self::player_script_name(p) == THE_PLAYER)
+                                    && !(self.world.is_challenge_session()
+                                        && Self::player_script_name(p) == THE_PLAYER)
                             })
                             .min_by_key(|p| p.id)
                             .map(|p| p.id)
@@ -150,7 +152,7 @@ impl<'a> HostScriptExecutionDriver<'a> {
             }
             // Retain the existing Challenge classification. Campaign metadata
             // ownership is separate from this query's player/geometry owner.
-            THE_PLAYER if gamelogic::scripting::core::is_generals_challenge_campaign() => self
+            THE_PLAYER if self.world.is_challenge_session() => self
                 .world
                 .players
                 .values()
@@ -227,6 +229,31 @@ impl HostScriptExecutionDriver<'_> {
 }
 
 impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
+    fn set_campaign_victorious(
+        &mut self,
+        victorious: bool,
+    ) -> Option<gamelogic::GameLogicResult<()>> {
+        Some(match self.ui.ui.as_deref_mut() {
+            Some(ui) => ui.set_campaign_victorious(victorious),
+            None if self.world.has_campaign_session() => {
+                Err(gamelogic::GameLogicError::Configuration(
+                    "campaign victory requires the receiving application's UI owner".into(),
+                ))
+            }
+            None => Ok(()),
+        })
+    }
+
+    fn create_win_lose_window(
+        &mut self,
+        layout_filename: &str,
+    ) -> Option<gamelogic::GameLogicResult<()>> {
+        Some(match self.ui.ui.as_deref_mut() {
+            Some(ui) => ui.create_win_lose_window(layout_filename),
+            None => Ok(()),
+        })
+    }
+
     fn initialize_named_cache(&mut self) -> Option<()> {
         self.world.initialize_receiving_named_script_cache();
         Some(())
@@ -1467,8 +1494,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         // That identity is not yet admitted by Main (hq-dryhs/hq-9bqdm);
         // retain the existing adapter for this capability rather than invent
         // a team from a display name or choose an unrelated same-name instance.
-        if team == gamelogic::scripting::core::TEAM_THE_PLAYER
-            && gamelogic::scripting::core::is_generals_challenge_campaign()
+        if team == gamelogic::scripting::core::TEAM_THE_PLAYER && self.world.is_challenge_session()
         {
             return None;
         }
@@ -1510,8 +1536,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         condition_team: Option<u32>,
         mood: i32,
     ) -> Option<gamelogic::GameLogicResult<()>> {
-        if team == gamelogic::scripting::core::TEAM_THE_PLAYER
-            && gamelogic::scripting::core::is_generals_challenge_campaign()
+        if team == gamelogic::scripting::core::TEAM_THE_PLAYER && self.world.is_challenge_session()
         {
             return None;
         }
@@ -1529,8 +1554,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         script: Option<(gamelogic::scripting::core::Script, i32)>,
         engine: &gamelogic::scripting::engine::ScriptEngine,
     ) -> Option<gamelogic::GameLogicResult<()>> {
-        if team == gamelogic::scripting::core::TEAM_THE_PLAYER
-            && gamelogic::scripting::core::is_generals_challenge_campaign()
+        if team == gamelogic::scripting::core::TEAM_THE_PLAYER && self.world.is_challenge_session()
         {
             return None;
         }
@@ -2474,7 +2498,8 @@ impl GameLogic {
         engine: &gamelogic::scripting::engine::ScriptEngine,
     ) -> gamelogic::GameLogicResult<()> {
         engine.update_with_driver(
-            gamelogic::scripting::executor::ScriptContext::at_frame(self.frame),
+            gamelogic::scripting::executor::ScriptContext::at_frame(self.frame)
+                .with_session_world(self.host_trigger_world.clone()),
             &mut HostScriptExecutionDriver::with_interpreter(self, engine),
         )
     }
@@ -2534,7 +2559,8 @@ impl GameLogic {
         object: ObjectId,
         ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
-        let context = gamelogic::scripting::executor::ScriptContext::at_frame(self.frame);
+        let context = gamelogic::scripting::executor::ScriptContext::at_frame(self.frame)
+            .with_session_world(self.host_trigger_world.clone());
         if let Err(error) = engine.run_object_script_with_driver(
             name,
             object.0,
@@ -2595,7 +2621,8 @@ impl GameLogic {
         script: &mut gamelogic::scripting::core::Script,
         player_name: Option<&str>,
     ) -> bool {
-        let mut context = gamelogic::scripting::executor::ScriptContext::at_frame(self.frame);
+        let mut context = gamelogic::scripting::executor::ScriptContext::at_frame(self.frame)
+            .with_session_world(self.host_trigger_world.clone());
         context.host_trigger_world = self.host_trigger_world.clone();
         let mut driver = HostScriptExecutionDriver::with_interpreter(self, engine);
         engine.evaluate_conditions_with_driver(script, None, player_name, context, &mut driver)

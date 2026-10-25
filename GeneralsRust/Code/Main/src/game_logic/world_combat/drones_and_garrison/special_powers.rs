@@ -47,7 +47,9 @@ impl GameLogic {
         location: glam::Vec3,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> bool {
-        use crate::game_logic::host_baikonur_launch::{BAIKONUR_DETONATION_OBJECT, BAIKONUR_NUKE_FX};
+        use crate::game_logic::host_baikonur_launch::{
+            BAIKONUR_DETONATION_OBJECT, BAIKONUR_NUKE_FX,
+        };
         let Some(src) = self.objects.get(&source_id) else {
             return false;
         };
@@ -709,7 +711,10 @@ impl GameLogic {
 
     /// Retain or clear Strategy mood ownership at the existing late AI boundary.
     /// Acquisition is the turret Idle/Hold operation; AIM alone changes angles.
-    pub(in crate::game_logic) fn tick_strategy_center_turret_mood_target(&mut self) {
+    pub(in crate::game_logic) fn tick_strategy_center_turret_mood_target(
+        &mut self,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<()> {
         use crate::game_logic::host_strategy_center::{
             HostBattlePlan, HostBattlePlanTransition, is_strategy_center_template,
             strategy_center_gun_in_range, strategy_center_mood_target_enemy_legal_with_vision,
@@ -804,21 +809,21 @@ impl GameLogic {
                 }
                 if clear {
                     self.set_turret_target_object(cid, None, false);
-                    if let Some(o) = self.objects.get_mut(&cid) {
+                    let was_attacking = if let Some(o) = self.objects.get_mut(&cid) {
                         o.turret_mood_target = false;
                         o.set_status_attacking(false);
                         o.target = None;
-                        if matches!(o.ai_state(), AIState::Attacking) {
-                            o.set_ai_state(
-                                AIState::Idle,
-                                &mut crate::game_logic::ObjectAudio::queue(
-                                    &mut self.queued_audio_events,
-                                ),
-                            );
-                            {}
-                        }
+                        matches!(o.ai_state(), AIState::Attacking)
+                    } else {
+                        false
+                    };
+                    if was_attacking {
+                        self.set_ai_state_decision_aware_with_effects(
+                            cid,
+                            AIState::Idle,
+                            presentation_effects,
+                        )?;
                     }
-                    {}
                     clears = clears.saturating_add(1);
                 } else {
                     // AIM owns continuous rate-limited rotation. Keep only the
@@ -842,6 +847,7 @@ impl GameLogic {
         for _ in 0..clears {
             self.battle_plans.record_turret_mood_target_clear();
         }
+        Ok(())
     }
 }
 

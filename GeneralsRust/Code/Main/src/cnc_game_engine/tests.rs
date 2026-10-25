@@ -530,29 +530,27 @@ fn startup_new_game_dispatch_ignores_unrelated_messages() {
 
 #[test]
 fn take_new_game_dispatch_drains_stream_and_keeps_other_messages() {
-    use game_engine::common::message_stream::{GameMessage, GameMessageType, get_message_stream};
+    use game_engine::common::message_stream::{GameMessage, GameMessageType, MessageStream};
 
-    let stream = get_message_stream();
-    {
-        let mut g = stream.write().unwrap_or_else(|e| e.into_inner());
-        g.clear_messages();
-        g.append_message(GameMessageType::ClearGameData);
-        let ng = g.append_message(GameMessageType::NewGame);
-        ng.append_integer_argument(2); // GAME_SKIRMISH
-        ng.append_integer_argument(1);
-        ng.append_integer_argument(0);
-        ng.append_integer_argument(30);
-        g.append_message(GameMessageType::Invalid);
-    }
+    let mut stream = MessageStream::new();
+    stream.append_message(GameMessageType::ClearGameData);
+    let ng = stream.append_message(GameMessageType::NewGame);
+    ng.append_integer_argument(2); // GAME_SKIRMISH
+    ng.append_integer_argument(1);
+    ng.append_integer_argument(0);
+    ng.append_integer_argument(30);
+    stream.append_message(GameMessageType::Invalid);
 
-    let dispatch = CnCGameEngine::take_new_game_dispatch_from_common_stream()
+    let dispatch = CnCGameEngine::take_new_game_dispatch_from_common_stream(&mut stream)
         .expect("NewGame must be drained");
     assert_eq!(dispatch.game_mode, GameMode::Skirmish);
     assert_eq!(dispatch.max_fps, Some(30));
-
-    let g = stream.read().unwrap_or_else(|e| e.into_inner());
-    assert_eq!(g.message_count(), 2, "non-NewGame messages must remain");
-    let types: Vec<_> = g
+    assert_eq!(
+        stream.message_count(),
+        2,
+        "non-NewGame messages must remain"
+    );
+    let types: Vec<_> = stream
         .get_messages()
         .iter()
         .map(|m| m.get_type().clone())
@@ -564,41 +562,34 @@ fn take_new_game_dispatch_drains_stream_and_keeps_other_messages() {
     );
     assert!(types.iter().any(|t| matches!(t, GameMessageType::Invalid)));
     assert!(!types.iter().any(|t| matches!(t, GameMessageType::NewGame)));
-    // silence unused import if GameMessage only used above via type
     let _ = GameMessage::new(GameMessageType::Invalid);
 }
 
 #[test]
 fn take_clear_game_data_drains_stream_and_keeps_other_messages() {
-    // C++ ScriptEngine.cpp:5514-5518 appends MSG_CLEAR_GAME_DATA; Main must
-    // consume it so scripted VICTORY/DEFEAT actually ends the live match.
-    use game_engine::common::message_stream::{GameMessageType, get_message_stream};
+    use game_engine::common::message_stream::{GameMessageType, MessageStream};
 
-    let stream = get_message_stream();
-    {
-        let mut g = stream.write().unwrap_or_else(|e| e.into_inner());
-        g.clear_messages();
-        g.append_message(GameMessageType::Invalid);
-        g.append_message(GameMessageType::ClearGameData);
-    }
+    let mut stream = MessageStream::new();
+    stream.append_message(GameMessageType::Invalid);
+    stream.append_message(GameMessageType::ClearGameData);
 
-    assert!(CnCGameEngine::take_clear_game_data_from_common_stream());
-    {
-        let g = stream.read().unwrap_or_else(|e| e.into_inner());
-        let types: Vec<_> = g
-            .get_messages()
+    assert!(CnCGameEngine::take_clear_game_data_from_common_stream(
+        &mut stream
+    ));
+    let types: Vec<_> = stream
+        .get_messages()
+        .iter()
+        .map(|m| m.get_type().clone())
+        .collect();
+    assert!(
+        !types
             .iter()
-            .map(|m| m.get_type().clone())
-            .collect();
-        assert!(
-            !types
-                .iter()
-                .any(|t| matches!(t, GameMessageType::ClearGameData)),
-            "ClearGameData must be consumed so the match can end"
-        );
-        assert!(types.iter().any(|t| matches!(t, GameMessageType::Invalid)));
-    }
-    assert!(!CnCGameEngine::take_clear_game_data_from_common_stream());
+            .any(|t| matches!(t, GameMessageType::ClearGameData))
+    );
+    assert!(types.iter().any(|t| matches!(t, GameMessageType::Invalid)));
+    assert!(!CnCGameEngine::take_clear_game_data_from_common_stream(
+        &mut stream
+    ));
 }
 
 #[test]
@@ -622,36 +613,32 @@ fn peek_new_game_leaves_message_for_propagate_messages() {
     // (GameLogicDispatch.cpp:396-423) consumes the streamed message after
     // MessageStream::propagateMessages. Host start peeks so pump can still
     // deliver NewGame to crate GameLogic.
-    use game_engine::common::message_stream::{GameMessageType, get_message_stream};
+    use game_engine::common::message_stream::{GameMessageType, MessageStream};
 
-    let stream = get_message_stream();
-    {
-        let mut g = stream.write().unwrap_or_else(|e| e.into_inner());
-        g.clear_messages();
-        g.append_message(GameMessageType::ClearGameData);
-        let ng = g.append_message(GameMessageType::NewGame);
-        ng.append_integer_argument(2); // GAME_SKIRMISH
-        ng.append_integer_argument(1);
-        ng.append_integer_argument(0);
-        ng.append_integer_argument(30);
-    }
+    let mut stream = MessageStream::new();
+    stream.append_message(GameMessageType::ClearGameData);
+    let ng = stream.append_message(GameMessageType::NewGame);
+    ng.append_integer_argument(2); // GAME_SKIRMISH
+    ng.append_integer_argument(1);
+    ng.append_integer_argument(0);
+    ng.append_integer_argument(30);
 
-    let peeked = CnCGameEngine::peek_new_game_dispatch_from_common_stream()
+    let peeked = CnCGameEngine::peek_new_game_dispatch_from_common_stream(&stream)
         .expect("NewGame must be visible without removing it");
     assert_eq!(peeked.game_mode, GameMode::Skirmish);
     assert_eq!(peeked.max_fps, Some(30));
 
     {
-        let g = stream.read().unwrap_or_else(|e| e.into_inner());
         assert!(
-            g.get_messages()
+            stream
+                .get_messages()
                 .iter()
                 .any(|m| matches!(m.get_type(), GameMessageType::NewGame)),
             "peek must leave MSG_NEW_GAME on the stream for pump_message_stream"
         );
     }
 
-    let _ = CnCGameEngine::take_new_game_dispatch_from_common_stream();
+    let _ = CnCGameEngine::take_new_game_dispatch_from_common_stream(&mut stream);
 }
 
 #[test]

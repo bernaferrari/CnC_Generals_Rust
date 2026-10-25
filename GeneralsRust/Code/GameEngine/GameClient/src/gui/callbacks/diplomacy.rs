@@ -6,8 +6,8 @@
 use crate::game_text::GameText;
 use crate::gui::gadgets::{ListBoxAddEntry, ListBoxItemData};
 use crate::gui::{
-    get_disconnect_menu, with_window_manager, AnimateWindowManager, AnimationType, Color,
-    GameWindow, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled, WindowWidget,
+    AnimateWindowManager, AnimationType, Color, GameWindow, WindowLayout, WindowMessage,
+    WindowMsgData, WindowMsgHandled, WindowWidget, get_disconnect_menu, with_window_manager,
 };
 use crate::helpers::TheInGameUI;
 use game_engine::common::ini::ini_game_data::get_global_data;
@@ -920,15 +920,19 @@ mod tests {
         diplomacy.update_player_info(0, player_info).unwrap();
 
         // Test setting relationship
-        assert!(diplomacy
-            .set_relationship(0, DiplomaticRelationship::Ally)
-            .is_ok());
+        assert!(
+            diplomacy
+                .set_relationship(0, DiplomaticRelationship::Ally)
+                .is_ok()
+        );
         assert_eq!(diplomacy.get_relationship(0), DiplomaticRelationship::Ally);
 
         // Test setting relationship for non-existent player
-        assert!(diplomacy
-            .set_relationship(99, DiplomaticRelationship::Enemy)
-            .is_err());
+        assert!(
+            diplomacy
+                .set_relationship(99, DiplomaticRelationship::Enemy)
+                .is_err()
+        );
 
         // Test default relationship for non-existent player
         assert_eq!(
@@ -1060,9 +1064,11 @@ mod tests {
             ..PlayerInfo::default()
         };
         assert!(system.update_player_info(0, player_info).is_ok());
-        assert!(system
-            .set_relationship(0, DiplomaticRelationship::Ally)
-            .is_ok());
+        assert!(
+            system
+                .set_relationship(0, DiplomaticRelationship::Ally)
+                .is_ok()
+        );
         assert!(system.set_player_muted(0, true).is_ok());
     }
 
@@ -1144,11 +1150,7 @@ pub fn residual_diplomacy_is_active() -> bool {
 /// Residual: last mute/unmute slot (-1 if none).
 pub fn residual_diplomacy_mute_slot() -> Option<i32> {
     let slot = RESIDUAL_DIPLOMACY_MUTE_SLOT.load(std::sync::atomic::Ordering::Relaxed);
-    if slot < 0 {
-        None
-    } else {
-        Some(slot)
-    }
+    if slot < 0 { None } else { Some(slot) }
 }
 
 /// Residual: bind Diplomacy control name keys (no layout load).
@@ -1271,60 +1273,77 @@ pub fn simulate_diplomacy_prepare_ingame() -> bool {
 }
 
 /// Human click-through: OS LeftDown/Up on `Diplomacy.wnd:RadioButtonInGame`.
-pub fn drive_os_wnd_diplomacy_radio_ingame_like_cpp() -> bool {
-    let clicked = crate::gui::dispatch_os_click_named_window("Diplomacy.wnd:RadioButtonInGame");
+pub fn drive_os_wnd_diplomacy_radio_ingame_like_cpp(
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
+    let clicked =
+        crate::gui::dispatch_os_click_named_window("Diplomacy.wnd:RadioButtonInGame", effects);
     if !clicked {
         return false;
     }
     simulate_diplomacy_radio_ingame()
 }
 
-pub fn drive_os_wnd_diplomacy_radio_buddies_like_cpp() -> bool {
-    let clicked = crate::gui::dispatch_os_click_named_window("Diplomacy.wnd:RadioButtonBuddies");
+pub fn drive_os_wnd_diplomacy_radio_buddies_like_cpp(
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
+    let clicked =
+        crate::gui::dispatch_os_click_named_window("Diplomacy.wnd:RadioButtonBuddies", effects);
     if !clicked {
         return false;
     }
     simulate_diplomacy_radio_buddies()
 }
 
-pub fn drive_os_wnd_diplomacy_hide_like_cpp() -> bool {
-    let clicked = crate::gui::dispatch_os_click_named_window("Diplomacy.wnd:ButtonHide");
+pub fn drive_os_wnd_diplomacy_hide_like_cpp(
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
+    let clicked = crate::gui::dispatch_os_click_named_window("Diplomacy.wnd:ButtonHide", effects);
     if !clicked {
         return false;
     }
     simulate_diplomacy_hide()
 }
 
-pub fn drive_os_wnd_diplomacy_mute_like_cpp(slot: i32) -> bool {
+pub fn drive_os_wnd_diplomacy_mute_like_cpp(
+    slot: i32,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
     if slot < 0 {
         return false;
     }
     let name = format!("Diplomacy.wnd:ButtonMute{slot}");
-    let clicked = crate::gui::dispatch_os_click_named_window(&name);
+    let clicked = crate::gui::dispatch_os_click_named_window(&name, effects);
     if !clicked {
         return false;
     }
     simulate_diplomacy_mute_slot(slot)
 }
 
-pub fn drive_os_wnd_diplomacy_unmute_like_cpp(slot: i32) -> bool {
+pub fn drive_os_wnd_diplomacy_unmute_like_cpp(
+    slot: i32,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
     if slot < 0 {
         return false;
     }
     let name = format!("Diplomacy.wnd:ButtonUnMute{slot}");
-    let clicked = crate::gui::dispatch_os_click_named_window(&name);
+    let clicked = crate::gui::dispatch_os_click_named_window(&name, effects);
     if !clicked {
         return false;
     }
     simulate_diplomacy_unmute_slot(slot)
 }
 
-pub fn drive_os_wnd_diplomacy_prepare_ingame_like_cpp() -> bool {
-    let clicked_parent = crate::gui::dispatch_os_click_named_window("Diplomacy.wnd:InGameParent");
+pub fn drive_os_wnd_diplomacy_prepare_ingame_like_cpp(
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
+    let clicked_parent =
+        crate::gui::dispatch_os_click_named_window("Diplomacy.wnd:InGameParent", effects);
     if clicked_parent {
         let _ = simulate_diplomacy_toggle_show();
     }
-    let clicked_radio = drive_os_wnd_diplomacy_radio_ingame_like_cpp();
+    let clicked_radio = drive_os_wnd_diplomacy_radio_ingame_like_cpp(effects);
     if !clicked_parent && !clicked_radio {
         return false;
     }

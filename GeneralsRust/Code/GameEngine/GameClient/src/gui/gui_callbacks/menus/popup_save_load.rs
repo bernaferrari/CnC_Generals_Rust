@@ -28,8 +28,9 @@ pub fn SaveLoadMenuSystem(
     msg: WindowMessage,
     data1: WindowMsgData,
     data2: WindowMsgData,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> WindowMsgHandled {
-    save_load_menu_system(window, msg, data1, data2)
+    save_load_menu_system(window, msg, data1, data2, effects)
 }
 
 pub fn SaveLoadMenuInput(

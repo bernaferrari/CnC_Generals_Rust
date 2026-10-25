@@ -160,7 +160,27 @@ impl CnCGameEngine {
         if reset_keys {
             self.game_client.reset_keyboard_keys();
         }
-        self.message_processor.process_event(event)
+        let result = self.message_processor.process_event(event);
+        if let Event::WindowEvent {
+            window_id,
+            event: WindowEvent::Focused(active),
+        } = event
+        {
+            if *window_id == self.window.id() {
+                let active = *active;
+                if active != self.subsystem_app_active {
+                    self.subsystem_app_active = active;
+                    let _ = self.subsystem_manager.notify_focus_change(active);
+                }
+                if active != self.subsystem_audio_has_focus {
+                    self.subsystem_audio_has_focus = active;
+                    let _ = self.subsystem_manager.notify_audio_focus_change(active);
+                }
+                // The original input-focus callback resets on both gain and loss.
+                let _ = self.subsystem_manager.notify_focus_change(false);
+            }
+        }
+        result
     }
 
     /// Check if quit has been requested through platform message handling
@@ -221,7 +241,9 @@ impl CnCGameEngine {
                 #[cfg(feature = "game_client")]
                 if pressed && self.current_state == GameState::Menu && !self.runtime_host_headless {
                     // C++ MainMenuInput GWM_CHAR first-run reveal on first real key.
-                    let _ = game_client::gui::reveal_main_menu_first_input_like_cpp();
+                    let _ = self.game_client.with_window_event_effects(|effects| {
+                        game_client::gui::reveal_main_menu_first_input_like_cpp(effects)
+                    });
                 }
                 let wnd_used = self.dispatch_os_key_to_window_manager(physical_key, pressed);
                 #[cfg(feature = "game_client")]
@@ -489,7 +511,9 @@ impl CnCGameEngine {
         #[cfg(feature = "game_client")]
         if pressed && self.current_state == GameState::Menu && !self.runtime_host_headless {
             // C++ first-run reveal on first real mouse (CHAR path).
-            let _ = game_client::gui::reveal_main_menu_first_input_like_cpp();
+            let _ = self.game_client.with_window_event_effects(|effects| {
+                game_client::gui::reveal_main_menu_first_input_like_cpp(effects)
+            });
         }
         // C++ WindowXlat.cpp:147-172 (Kris Aug-15-2003): while mouse-locked,
         // KEEP the stream message except LMB down/up when InGameUI is scrolling
@@ -569,7 +593,9 @@ impl CnCGameEngine {
                 if physical {
                     // C++ MainMenuInput first-run GWM_CHAR/mouse-move unhides
                     // DROPDOWN_MAIN (MapBorder2) before Solo Play is hittable.
-                    let _ = game_client::gui::reveal_main_menu_first_input_like_cpp();
+                    let _ = self.game_client.with_window_event_effects(|effects| {
+                        game_client::gui::reveal_main_menu_first_input_like_cpp(effects)
+                    });
                 }
                 if let Some(Some(name)) =
                     game_client::gui::os_wnd_widget_under_cursor_name_for_owner(
@@ -591,12 +617,19 @@ impl CnCGameEngine {
                             );
                         }
                         if name.starts_with("MainMenu.wnd:Button") {
-                            game_client::gui::notify_physical_main_menu_gadget_gbm_selected(&name);
+                            self.game_client.with_window_event_effects(|effects| {
+                                game_client::gui::notify_physical_main_menu_gadget_gbm_selected(
+                                    &name, effects,
+                                )
+                            });
                         } else if name.contains("ButtonStart")
                             && name.contains("SkirmishGameOptionsMenu")
                         {
-                            let _ =
-                                game_client::gui::simulate_skirmish_start_button_gadget_selected();
+                            let _ = self.game_client.with_window_event_effects(|effects| {
+                                game_client::gui::simulate_skirmish_start_button_gadget_selected(
+                                    effects,
+                                )
+                            });
                         }
                     }
                 }
@@ -1360,7 +1393,10 @@ impl CnCGameEngine {
         self.current_state == GameState::Exiting
     }
 
-    pub(super) fn network_frame_data_ready_gate(multiplayer_session_active: bool) -> Option<bool> {
+    pub(super) fn network_frame_data_ready_gate(
+        &mut self,
+        multiplayer_session_active: bool,
+    ) -> Option<bool> {
         if !multiplayer_session_active {
             // C++ startup leaves `TheNetwork` unset until a live multiplayer session exists.
             return None;
@@ -1373,11 +1409,7 @@ impl CnCGameEngine {
 
         let frame_ready = crate::network::active_session_frame_data_ready().unwrap_or(true);
 
-        let Some(subsystem_manager) = get_subsystem_manager() else {
-            return Some(frame_ready);
-        };
-
-        let mut manager = subsystem_manager.lock();
+        let manager = &mut self.subsystem_manager;
         if manager.get::<NetworkSubsystem>().is_none() {
             let mut network = NetworkSubsystem::new();
             if let Err(err) = <NetworkSubsystem as SubsystemInterface>::init(&mut network) {
@@ -1409,14 +1441,42 @@ impl CnCGameEngine {
     }
 
     pub(super) fn update_runtime_subsystems(&mut self, dt: f32) {
-        if let Some(subsystem_manager) = get_subsystem_manager() {
-            let mut guard = subsystem_manager.lock();
-            if let Some(timing) = self.last_frame_timing {
-                if let Err(e) = guard.update_all_with_timing(&timing) {
-                    error!("Error updating subsystems: {}", e);
+        #[cfg(feature = "game_client")]
+        {
+            let timing = self.last_frame_timing;
+            let (messages, steps) =
+                self.with_receiving_client_translation(|client, playback, driver, manager| {
+                    let mut propagate = |client: &mut game_client::core::GameClient| {
+                        client
+                            .take_message_stream_with_native_input(playback, driver)
+                            .map_err(|error| anyhow::Error::msg(error.to_string()))
+                    };
+                    manager.update_all_receiving_client(dt, timing.as_ref(), client, &mut propagate)
+                });
+            match messages {
+                Ok(messages) => {
+                    if let Err(error) = self
+                        .game_logic
+                        .replay_pending
+                        .receive_client_messages(messages)
+                    {
+                        error!("Receiving command admission failed: {error}");
+                    }
                 }
-            } else if let Err(e) = guard.update_all(dt) {
-                error!("Error updating subsystems: {}", e);
+                Err(error) => error!("Error updating receiving subsystems: {error}"),
+            }
+            for step in steps {
+                step.complete(self);
+            }
+        }
+        #[cfg(not(feature = "game_client"))]
+        {
+            if let Some(timing) = self.last_frame_timing {
+                if let Err(error) = self.subsystem_manager.update_all_with_timing(&timing) {
+                    error!("Error updating subsystems: {error}");
+                }
+            } else if let Err(error) = self.subsystem_manager.update_all(dt) {
+                error!("Error updating subsystems: {error}");
             }
         }
     }
@@ -1529,7 +1589,9 @@ impl CnCGameEngine {
                 // ~1.5s so Single Player / Skirmish become visible.
                 #[cfg(feature = "game_client")]
                 if self.menu_world_frames_rendered == 45 {
-                    let _ = game_client::gui::reveal_main_menu_first_input_like_cpp();
+                    let _ = self.game_client.with_window_event_effects(|effects| {
+                        game_client::gui::reveal_main_menu_first_input_like_cpp(effects)
+                    });
                 }
                 // Wave 605: Menu client residual via host helper.
                 match self.host_tick_menu_client_residuals(visual_dt, dt) {
@@ -1578,7 +1640,7 @@ impl CnCGameEngine {
         // C++ parity gate:
         //   (Network == NULL && !isGamePaused()) || (Network && Network->isFrameDataReady()).
         let network_frame_data_ready =
-            Self::network_frame_data_ready_gate(self.host_is_in_multiplayer_game());
+            self.network_frame_data_ready_gate(self.host_is_in_multiplayer_game());
         if self.frame_counter.is_multiple_of(30) {
             info!(
                 "ingame_logic_gate paused={} gl_paused={} net={:?} dt={:.4} logic_frame={} pres_frame={}",
@@ -2498,10 +2560,12 @@ impl CnCGameEngine {
             .add_radar_message(message, None, crate::ui::RadarPingKind::Generic);
         let req =
             crate::game_logic::AudioEventRequest::new("GUIMessageReceived").with_priority(150);
-        let _ = crate::subsystem_manager::with_subsystem_mut::<
-            crate::subsystem_manager::AudioManagerSubsystem,
-            _,
-        >(|audio| audio.queue_event(req));
+        if let Some(audio) = self
+            .subsystem_manager
+            .get_mut::<crate::subsystem_manager::AudioManagerSubsystem>()
+        {
+            audio.queue_event(req);
+        }
     }
 
     /// Wave 566/603: boot residual radar + GUIMessageReceived via host GameLogic.
@@ -2677,7 +2741,9 @@ mod tests {
 
     #[test]
     fn focus_transitions_release_camera_keys_and_modifiers_for_only_the_owner() {
-        use super::{Event, HashSet, Key, NamedKey, WindowEvent, reset_pressed_keys_for_focus_event};
+        use super::{
+            Event, HashSet, Key, NamedKey, WindowEvent, reset_pressed_keys_for_focus_event,
+        };
         let window = winit::window::WindowId::from(1);
         let other_window = winit::window::WindowId::from(2);
         let held = HashSet::from([

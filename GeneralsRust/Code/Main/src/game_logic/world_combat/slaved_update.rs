@@ -73,7 +73,10 @@ impl GameLogic {
             );
         }
     }
-    pub(in crate::game_logic) fn update_owned_slaved_object(&mut self, id: ObjectId) {
+    pub(in crate::game_logic) fn update_owned_slaved_object(
+        &mut self,
+        id: ObjectId,
+    ) -> gamelogic::GameLogicResult<()> {
         self.update_owned_slaved_object_with_effects(
             id,
             &mut crate::game_logic::ScriptPresentationEffects::default(),
@@ -84,7 +87,7 @@ impl GameLogic {
         &mut self,
         id: ObjectId,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         let Some((data, mut state)) = self
             .objects
             .get(&id)
@@ -96,7 +99,7 @@ impl GameLogic {
                 ))
             })
         else {
-            return;
+            return Ok(());
         };
         if state.frames_to_wait > 0 {
             state.frames_to_wait -= 1;
@@ -104,13 +107,13 @@ impl GameLogic {
         if state.repair_state == Repair::None {
             if state.frames_to_wait > 0 {
                 self.store_slave_state(id, state);
-                return;
+                return Ok(());
             }
             state.frames_to_wait = 7;
         }
         let Some(master_id) = state.master else {
             self.store_slave_state(id, state);
-            return;
+            return Ok(());
         };
         let Some(master) = self
             .objects
@@ -126,14 +129,11 @@ impl GameLogic {
                 drone.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
                     &mut self.queued_audio_events,
                 ));
-                drone.set_ai_state(
-                    AIState::Idle,
-                    &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
-                );
             }
+            self.set_ai_state_decision_aware_with_effects(id, AIState::Idle, presentation_effects)?;
             self.admit_host_radar_disabled_edges(id);
             self.store_slave_state(id, state);
-            return;
+            return Ok(());
         };
         let mpos = master.get_position();
         let master_identity = master.team_instance_id;
@@ -157,7 +157,7 @@ impl GameLogic {
             if self.host_team_relationship(master_team, drone_team)
                 != Some(gamelogic::common::Relationship::Allies)
             {
-                self.defect_host_object_with_effects(id, master_team, 0, presentation_effects);
+                self.defect_host_object_with_effects(id, master_team, 0, presentation_effects)?;
             }
         }
         if let Some(drone) = self.objects.get_mut(&id) {
@@ -172,7 +172,7 @@ impl GameLogic {
         if hp_percent <= data.repair_priority_percent {
             self.slave_repair_with_effects(id, master_id, &data, &mut state, presentation_effects);
             self.store_slave_state(id, state);
-            return;
+            return Ok(());
         }
         if let Some((_target, position)) = victim.filter(|_| data.attack_range != 0.0) {
             self.slave_end_repair(id, &mut state);
@@ -186,7 +186,7 @@ impl GameLogic {
                     master.set_weapon_bonus_drone_spotting(true);
                 }
             }
-            return;
+            return Ok(());
         }
         if let Some(destination) = destination.filter(|destination| {
             data.scout_range != 0.0
@@ -202,12 +202,12 @@ impl GameLogic {
             self.slave_wander(&mut goal, &mut state, data.scout_wander_range);
             self.store_slave_state(id, state);
             self.slave_move(id, goal);
-            return;
+            return Ok(());
         }
         if hp_percent < 100 {
             self.slave_repair_with_effects(id, master_id, &data, &mut state, presentation_effects);
             self.store_slave_state(id, state);
-            return;
+            return Ok(());
         }
         let mut pinned = mpos + Vec3::new(state.guard_offset.x, 0.0, state.guard_offset.z);
         state.guard_offset.y = self.terrain_height_at(pinned).unwrap_or(0.0);
@@ -228,7 +228,9 @@ impl GameLogic {
         } else {
             self.store_slave_state(id, state);
         }
+        Ok(())
     }
+
     fn store_slave_state(&mut self, id: ObjectId, state: State) {
         if let Some(object) = self.objects.get_mut(&id) {
             object.slaved_update = Some(state);

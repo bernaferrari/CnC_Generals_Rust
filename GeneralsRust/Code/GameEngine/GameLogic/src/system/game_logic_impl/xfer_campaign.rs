@@ -1,14 +1,11 @@
 /// C++ `GameLogic::xfer` → `xferSnapshot(TheCampaignManager)` (CampaignManager::xfer v5).
-fn xfer_campaign_manager_snapshot(xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
+fn xfer_campaign_manager_snapshot(
+    xfer: &mut dyn Xfer,
+    state: &mut game_engine::System::CampaignManagerXferState,
+) -> Result<(), XferStatus> {
     let current_version: XferVersion = 5;
     let mut version = current_version;
     xfer.xfer_version(&mut version, current_version)?;
-
-    let mut state = if matches!(xfer.get_xfer_mode(), XferMode::Save | XferMode::Crc) {
-        game_engine::System::capture_campaign_manager_runtime()
-    } else {
-        game_engine::System::CampaignManagerXferState::default()
-    };
 
     xfer.xfer_ascii_string(&mut state.campaign)?;
     xfer.xfer_ascii_string(&mut state.mission)?;
@@ -23,8 +20,7 @@ fn xfer_campaign_manager_snapshot(xfer: &mut dyn Xfer) -> Result<(), XferStatus>
         xfer.xfer_bool(&mut state.is_challenge)?;
         if state.is_challenge {
             if state.challenge_info.is_none() {
-                state.challenge_info =
-                    Some(game_engine::System::ChallengeGameInfoXfer::default());
+                state.challenge_info = Some(game_engine::System::ChallengeGameInfoXfer::default());
             }
             if let Some(info) = state.challenge_info.as_mut() {
                 info.xfer(xfer)?;
@@ -37,8 +33,5 @@ fn xfer_campaign_manager_snapshot(xfer: &mut dyn Xfer) -> Result<(), XferStatus>
         xfer.xfer_int(&mut state.generals_template)?;
     }
 
-    if xfer.get_xfer_mode() == XferMode::Load {
-        game_engine::System::apply_campaign_manager_runtime(state);
-    }
     Ok(())
 }

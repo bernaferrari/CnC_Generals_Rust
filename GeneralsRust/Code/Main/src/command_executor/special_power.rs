@@ -725,7 +725,7 @@ impl<'a> CommandExecutor<'a> {
                 };
                 if !self
                     .game_logic
-                    .activate_defector_with_effects(unit_id, *tid, &mut self.ui)
+                    .activate_defector_with_effects(unit_id, *tid, &mut self.ui)?
                 {
                     continue;
                 }
@@ -1218,9 +1218,8 @@ impl<'a> CommandExecutor<'a> {
         }
         let target_pos = target.get_position();
         // Wave 233: stop-moving + order-target via GameLogic authority API.
-        let _ = self
-            .game_logic
-            .unit_command_stop_moving_order_target(unit_id, Some(target_id));
+        self.game_logic
+            .unit_command_stop_moving_order_target(unit_id, Some(target_id))?;
         let _ = self.path_to_goal_with_state(unit_id, target_pos, AIState::SpecialAbility)?;
         self.game_logic.queue_pending_special_ability_with_effects(
             unit_id,
@@ -1258,9 +1257,8 @@ impl<'a> CommandExecutor<'a> {
         }
         let target_pos = target.get_position();
         // Wave 233: stop-moving + order-target via GameLogic authority API.
-        let _ = self
-            .game_logic
-            .unit_command_stop_moving_order_target(unit_id, Some(target_id));
+        self.game_logic
+            .unit_command_stop_moving_order_target(unit_id, Some(target_id))?;
         let _ = self.path_to_goal_with_state(unit_id, target_pos, AIState::SpecialAbility)?;
         self.game_logic.queue_pending_special_ability_with_effects(
             unit_id,
@@ -1307,9 +1305,8 @@ impl<'a> CommandExecutor<'a> {
         let target_pos = target.get_position();
         // Always queue walk-to; plant resolves on reach (StartAbilityRange 5 residual).
         // Wave 233: stop-moving + order-target via GameLogic authority API.
-        let _ = self
-            .game_logic
-            .unit_command_stop_moving_order_target(unit_id, Some(target_id));
+        self.game_logic
+            .unit_command_stop_moving_order_target(unit_id, Some(target_id))?;
         if !self.path_to_goal_with_state(unit_id, target_pos, AIState::SpecialAbility)? {
             // If already in range, still queue plant.
             let unit_pos = self
@@ -1360,9 +1357,8 @@ impl<'a> CommandExecutor<'a> {
         if !helix_napalm_unlocked(&unit.template_name, has_upgrade) {
             return Ok(false);
         }
-        let _ = self
-            .game_logic
-            .unit_command_stop_moving_order_target(unit_id, None);
+        self.game_logic
+            .unit_command_stop_moving_order_target(unit_id, None)?;
         let _ = self.path_to_goal_with_state(unit_id, pos, AIState::SpecialAbility)?;
         self.game_logic.queue_pending_special_ability_with_effects(
             unit_id,

@@ -63,6 +63,7 @@ impl ControlBar {
         &self,
         button: &CommandButton,
         context: &ControlBarContext,
+        emitted_messages: &mut Vec<crate::message_stream::game_message::GameMessage>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let source_id = context.selected_objects.first().copied().unwrap_or(0);
         TheInGameUI::place_build_available(None, None);
@@ -72,9 +73,9 @@ impl ControlBar {
         TheInGameUI::set_prefer_selection_mode(false);
 
         if (button.options & CommandOption::UsesMineClearingWeaponSet as u32) != 0 {
-            if let Ok(mut stream) = THE_MESSAGE_STREAM.write() {
-                stream.append_message(GameMessageType::SetMineClearingDetail(0));
-            }
+            emitted_messages.push(crate::message_stream::game_message::GameMessage::new(
+                GameMessageType::SetMineClearingDetail(0),
+            ));
         }
 
         if button.command_type == CommandType::DozerConstruct && !button.object.is_empty() {
@@ -185,6 +186,7 @@ impl ControlBar {
         &self,
         button: &CommandButton,
         context: &ControlBarContext,
+        emitted_messages: &mut Vec<crate::message_stream::game_message::GameMessage>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let template_id = if !button.object.is_empty() {
             gamelogic::helpers::TheThingFactory::find_template(button.object.as_str())
@@ -223,9 +225,9 @@ impl ControlBar {
             return Ok(());
         }
 
-        if let Ok(mut stream) = THE_MESSAGE_STREAM.write() {
-            stream.append_message(GameMessageType::CreateSelectedGroup(true, matches));
-        }
+        emitted_messages.push(crate::message_stream::game_message::GameMessage::new(
+            GameMessageType::CreateSelectedGroup(true, matches),
+        ));
         Ok(())
     }
 
@@ -259,6 +261,7 @@ impl ControlBar {
         button: &CommandButton,
         context: &ControlBarContext,
         source: CommandSourceType,
+        emitted_messages: &mut Vec<crate::message_stream::game_message::GameMessage>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         // Dual-world residual: live modules via OBJECT_REGISTRY when bound.
         let mut applied = 0usize;
@@ -287,9 +290,9 @@ impl ControlBar {
         };
         let template_id = thing_template.get_id();
         let production_id = 0u32;
-        if let Ok(mut stream) = THE_MESSAGE_STREAM.write() {
-            stream.append_message(GameMessageType::QueueUnitCreate(template_id, production_id));
-        }
+        emitted_messages.push(crate::message_stream::game_message::GameMessage::new(
+            GameMessageType::QueueUnitCreate(template_id, production_id),
+        ));
         Ok(())
     }
 
@@ -298,6 +301,7 @@ impl ControlBar {
         button: &CommandButton,
         context: &ControlBarContext,
         source: CommandSourceType,
+        emitted_messages: &mut Vec<crate::message_stream::game_message::GameMessage>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let mut applied = 0usize;
         if let Ok(button_id) = self.resolve_command_button_id(button) {
@@ -326,13 +330,9 @@ impl ControlBar {
         let sp_id = sp_template.get_id();
         let options = logic_button.get_options_bits();
         let source_obj_id = context.selected_objects.first().copied().unwrap_or(0);
-        if let Ok(mut stream) = THE_MESSAGE_STREAM.write() {
-            stream.append_message(GameMessageType::DoSpecialPower(
-                sp_id,
-                options,
-                source_obj_id,
-            ));
-        }
+        emitted_messages.push(crate::message_stream::game_message::GameMessage::new(
+            GameMessageType::DoSpecialPower(sp_id, options, source_obj_id),
+        ));
         Ok(())
     }
 
@@ -341,6 +341,7 @@ impl ControlBar {
         button: &CommandButton,
         context: &ControlBarContext,
         source: CommandSourceType,
+        emitted_messages: &mut Vec<crate::message_stream::game_message::GameMessage>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         if button.command_type == CommandType::Exit {
             let occupant = button
@@ -349,9 +350,9 @@ impl ControlBar {
             let Some(occupant) = occupant else {
                 return Ok(());
             };
-            if let Ok(mut stream) = THE_MESSAGE_STREAM.write() {
-                stream.append_message(GameMessageType::Exit(occupant));
-            }
+            emitted_messages.push(crate::message_stream::game_message::GameMessage::new(
+                GameMessageType::Exit(occupant),
+            ));
             return Ok(());
         }
         if context.selected_objects.is_empty() {
@@ -403,6 +404,7 @@ impl ControlBar {
         &self,
         queue_index: usize,
         context: &ControlBarContext,
+        emitted_messages: &mut Vec<crate::message_stream::game_message::GameMessage>,
     ) -> Result<bool, Box<dyn std::error::Error>> {
         if queue_index >= self.build_queue_data.len() {
             return Ok(false);
@@ -431,15 +433,15 @@ impl ControlBar {
             return Ok(true);
         }
         // Host/presentation residual: message-stream cancel (no OBJECT_REGISTRY modules).
-        if let Ok(mut stream) = THE_MESSAGE_STREAM.write() {
-            match entry.production_type {
-                QueueProductionType::Upgrade => {
-                    stream.append_message(GameMessageType::CancelUpgrade(entry.production_id));
-                }
-                _ => {
-                    stream.append_message(GameMessageType::CancelUnitCreate(entry.production_id));
-                }
+        match entry.production_type {
+            QueueProductionType::Upgrade => {
+                emitted_messages.push(crate::message_stream::game_message::GameMessage::new(
+                    GameMessageType::CancelUpgrade(entry.production_id),
+                ))
             }
+            _ => emitted_messages.push(crate::message_stream::game_message::GameMessage::new(
+                GameMessageType::CancelUnitCreate(entry.production_id),
+            )),
         }
         Ok(true)
     }
@@ -711,7 +713,12 @@ mod host_bridge_execution_tests {
         };
 
         ControlBar::new()
-            .execute_command(&button, CommandSourceType::FromUser, &context)
+            .execute_command(
+                &button,
+                CommandSourceType::FromUser,
+                &context,
+                &mut Vec::new(),
+            )
             .expect("host bridge request");
 
         assert!(matches!(
@@ -773,7 +780,12 @@ mod host_bridge_execution_tests {
             ..ControlBarContext::default()
         };
         ControlBar::new()
-            .execute_command(&button, CommandSourceType::FromUser, &context)
+            .execute_command(
+                &button,
+                CommandSourceType::FromUser,
+                &context,
+                &mut Vec::new(),
+            )
             .expect("host bridge request from parsed command button");
 
         assert!(matches!(
@@ -813,7 +825,12 @@ mod host_bridge_execution_tests {
             ..ControlBarContext::default()
         };
         ControlBar::new()
-            .execute_command(&button, CommandSourceType::FromUser, &context)
+            .execute_command(
+                &button,
+                CommandSourceType::FromUser,
+                &context,
+                &mut Vec::new(),
+            )
             .expect("host bridge request from parsed retail switch button");
 
         let requests = crate::gui::control_bar::take_host_control_bar_requests();

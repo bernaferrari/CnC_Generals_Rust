@@ -419,7 +419,7 @@ impl GameLogic {
                 }
                 self.host_object_mut(id).unwrap().last_command_source =
                     crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_SCRIPT;
-                self.unit_command_stop_moving_order_target(id, Some(target));
+                self.unit_command_stop_moving_order_target(id, Some(target))?;
                 if !self.unit_command_path_with_state_ignoring(
                     id,
                     position,

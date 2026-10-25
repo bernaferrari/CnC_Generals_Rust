@@ -5,10 +5,7 @@ use crate::game_text::GameText;
 use crate::gui::campaign_launch_host_bridge::{
     HostCampaignLaunchDescriptor, publish_host_campaign_launch,
 };
-use crate::gui::campaign_manager::{GameDifficulty as CampaignDifficulty, get_campaign_manager};
-use crate::gui::challenge_game_info::{
-    clear_challenge_game_info, init_challenge_game_info, set_challenge_slot0_and_map,
-};
+use crate::gui::campaign_manager::{CampaignManager, GameDifficulty as CampaignDifficulty};
 use crate::gui::challenge_generals::{GameDifficulty, NUM_GENERALS, get_challenge_generals_mut};
 use crate::gui::game_window::Image as WindowImage;
 use crate::gui::window_video_manager::with_window_video_manager;
@@ -17,7 +14,7 @@ use crate::gui::{
     get_shell, queue_shell_pop, queue_shell_shutdown_complete, show_shell_map_if_available,
     try_with_shell_mut, with_window_manager, write_input_focus_response,
 };
-use crate::message_stream::{GameMessageType, get_message_stream};
+use crate::message_stream::{GameMessage, GameMessageType};
 use game_engine::common::game_common::LOGICFRAMES_PER_SECOND;
 use game_engine::common::ini::{ensure_player_templates_loaded, get_global_data};
 use game_engine::common::name_key_generator::NameKeyGenerator;
@@ -313,7 +310,10 @@ struct ChallengeSelection {
     player_template_index: i32,
 }
 
-fn set_general_campaign(button_index: usize) -> Option<ChallengeSelection> {
+fn set_general_campaign(
+    button_index: usize,
+    campaign_manager: &mut CampaignManager,
+) -> Option<ChallengeSelection> {
     if button_index >= NUM_GENERALS {
         return None;
     }
@@ -338,18 +338,17 @@ fn set_general_campaign(button_index: usize) -> Option<ChallengeSelection> {
         (template_num, player_display_name)
     };
 
-    if let Some(mut generals) = get_challenge_generals_mut() {
-        generals.set_current_player_template_num(template_num);
-    }
+    campaign_manager.set_xfer_challenge_generals_player_template_num(template_num);
 
-    let current_map = {
-        let mut campaign_manager = get_campaign_manager();
-        campaign_manager.set_campaign(&campaign_name);
-        campaign_manager.get_current_map().unwrap_or_default()
-    };
+    campaign_manager.set_campaign(&campaign_name);
+    let current_map = campaign_manager.get_current_map().unwrap_or_default();
 
     if !current_map.is_empty() {
-        set_challenge_slot0_and_map(current_map.clone(), player_display_name, template_num);
+        campaign_manager.set_challenge_slot0_and_map(
+            current_map.clone(),
+            player_display_name,
+            template_num,
+        );
     }
 
     Some(ChallengeSelection {
@@ -360,7 +359,7 @@ fn set_general_campaign(button_index: usize) -> Option<ChallengeSelection> {
     })
 }
 
-fn start_challenge_game() {
+fn start_challenge_game(effects: &mut crate::gui::game_window::WindowEventEffects<'_>) {
     let selected_index = {
         let state_handle = challenge_menu_state();
         let state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
@@ -370,21 +369,20 @@ fn start_challenge_game() {
         }
     };
 
-    let difficulty = {
-        let Some(generals) = get_challenge_generals_mut() else {
-            return;
-        };
-        generals.current_difficulty()
-    };
-
-    let Some(selection) = set_general_campaign(selected_index) else {
+    let Some(campaign_manager) = effects.campaign_manager.as_deref_mut() else {
         return;
     };
-    let rank_points = {
-        let mut campaign_manager = get_campaign_manager();
-        campaign_manager.set_game_difficulty(challenge_to_campaign_difficulty(difficulty));
-        campaign_manager.get_rank_points()
+    let difficulty = match campaign_manager.get_game_difficulty() {
+        CampaignDifficulty::Easy => GameDifficulty::Easy,
+        CampaignDifficulty::Hard => GameDifficulty::Hard,
+        CampaignDifficulty::Normal => GameDifficulty::Normal,
     };
+    let Some(selection) = set_general_campaign(selected_index, campaign_manager) else {
+        return;
+    };
+
+    campaign_manager.set_game_difficulty(challenge_to_campaign_difficulty(difficulty));
+    let rank_points = campaign_manager.get_rank_points();
 
     if selection.map_name.is_empty() {
         return;
@@ -393,10 +391,9 @@ fn start_challenge_game() {
     // The selected Challenge GameInfo belongs to this queued launch. Freeze
     // its unsigned money before clearing the previous match or resetting the
     // application can replace the shell's GameInfo.
-    let game_info_starting_cash =
-        crate::gui::challenge_game_info::with_challenge_game_info(|info| {
-            info.game_info().get_starting_cash().count_money()
-        });
+    let game_info_starting_cash = campaign_manager
+        .challenge_game_info()
+        .map(|info| info.game_info().get_starting_cash().count_money());
 
     if let Some(data) = get_global_data() {
         data.write().pending_file = selection.map_name.clone();
@@ -441,18 +438,23 @@ fn start_challenge_game() {
         max_fps: Some(LOGICFRAMES_PER_SECOND as i32),
     });
 
-    let message_stream = get_message_stream();
-    let mut stream = message_stream.write().unwrap_or_else(|e| e.into_inner());
-    let msg = stream.append_message(GameMessageType::NewGame);
-    msg.append_integer_argument(GAME_SINGLE_PLAYER);
-    msg.append_integer_argument(logic_difficulty);
-    msg.append_integer_argument(rank_points);
-    msg.append_integer_argument(LOGICFRAMES_PER_SECOND as i32);
+    let mut message = GameMessage::new(GameMessageType::NewGame);
+    message.append_integer_argument(GAME_SINGLE_PLAYER);
+    message.append_integer_argument(logic_difficulty);
+    message.append_integer_argument(rank_points);
+    message.append_integer_argument(LOGICFRAMES_PER_SECOND as i32);
+    effects.emitted_messages.push(message);
     init_random_with_seed(0);
 }
 
-pub fn challenge_menu_init(layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>) {
-    init_challenge_game_info();
+pub fn challenge_menu_init(
+    layout: &WindowLayout,
+    _user_data: Option<&dyn std::any::Any>,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) {
+    if let Some(manager) = effects.campaign_manager.as_deref_mut() {
+        manager.init_challenge_game_info();
+    }
 
     let state_handle = challenge_menu_state();
     let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
@@ -569,7 +571,11 @@ pub fn challenge_menu_update(layout: &WindowLayout, _user_data: Option<&dyn std:
     with_window_video_manager(|manager| manager.update());
 }
 
-pub fn challenge_menu_shutdown(layout: &WindowLayout, user_data: Option<&dyn std::any::Any>) {
+pub fn challenge_menu_shutdown(
+    layout: &WindowLayout,
+    user_data: Option<&dyn std::any::Any>,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) {
     let pop_immediate = user_data
         .and_then(|data| data.downcast_ref::<bool>())
         .copied()
@@ -593,7 +599,9 @@ pub fn challenge_menu_shutdown(layout: &WindowLayout, user_data: Option<&dyn std
     let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
     state.is_shutting_down = true;
     // C++ ChallengeMenuShutdown: delete TheChallengeGameInfo (fade path only).
-    clear_challenge_game_info();
+    if let Some(manager) = effects.campaign_manager.as_deref_mut() {
+        manager.clear_challenge_game_info();
+    }
     if let Some(audio) = TheAudio::get() {
         audio.remove_audio_event(state.last_selection_sound);
         audio.remove_audio_event(state.last_preview_sound);
@@ -609,6 +617,7 @@ pub fn challenge_menu_system(
     msg: WindowMessage,
     data1: WindowMsgData,
     data2: WindowMsgData,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> WindowMsgHandled {
     let state_handle = challenge_menu_state();
     let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
@@ -686,7 +695,7 @@ pub fn challenge_menu_system(
                     return WindowMsgHandled::Handled;
                 }
                 drop(state);
-                start_challenge_game();
+                start_challenge_game(effects);
                 return WindowMsgHandled::Handled;
             }
             if control_id == state.button_back_id {
@@ -705,6 +714,7 @@ pub fn challenge_menu_input(
     msg: WindowMessage,
     data1: WindowMsgData,
     data2: WindowMsgData,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> WindowMsgHandled {
     if msg != WindowMessage::Char || data1 != KEY_ESC {
         return WindowMsgHandled::Ignored;
@@ -714,7 +724,8 @@ pub fn challenge_menu_input(
         let state_handle = challenge_menu_state();
         let state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(parent) = state.parent.as_ref() {
-            let _ = parent.borrow_mut().send_system_message(
+            effects.queue_system_message(
+                Rc::downgrade(parent),
                 WindowMessage::GadgetSelected,
                 state.button_back_id as WindowMsgData,
                 state.button_back_id as WindowMsgData,
@@ -782,7 +793,9 @@ pub fn residual_challenge_play_requested() -> bool {
 
 /// Residual: fire retail `ChallengeMenu.wnd:ButtonPlay` via state latch.
 /// C++ path calls startChallengeGame (campaign map + difficulty + MSG_NEW_GAME).
-pub fn simulate_challenge_menu_play_button_gadget_selected() -> bool {
+pub fn simulate_challenge_menu_play_button_gadget_selected(
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
     let state_handle = challenge_menu_state();
     let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
     ensure_challenge_control_ids(&mut state);
@@ -799,7 +812,7 @@ pub fn simulate_challenge_menu_play_button_gadget_selected() -> bool {
     RESIDUAL_CHALLENGE_PLAY_REQUESTED.store(true, std::sync::atomic::Ordering::Relaxed);
     drop(state);
     // C++ ChallengeMenu ButtonPlay → startChallengeGame (pendingFile + MSG_NEW_GAME).
-    start_challenge_game();
+    start_challenge_game(effects);
     true
 }
 
@@ -817,22 +830,29 @@ pub fn simulate_challenge_menu_back_button_gadget_selected() -> bool {
 }
 
 /// Residual: select general + ButtonPlay composite (pre-start honesty).
-pub fn simulate_challenge_menu_prepare_start(index: usize) -> bool {
+pub fn simulate_challenge_menu_prepare_start(
+    index: usize,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
     if !simulate_challenge_menu_select_general(index) {
         return false;
     }
-    simulate_challenge_menu_play_button_gadget_selected()
+    simulate_challenge_menu_play_button_gadget_selected(effects)
 }
 
 /// Human click-through: OS LeftDown/Up on `GeneralPositionN` then `ButtonPlay`
 /// (C++ WindowXlat hit → GBM_SELECTED → startChallengeGame). Not `simulate_*`.
-pub fn drive_os_wnd_challenge_start_like_cpp(index: usize) -> bool {
+pub fn drive_os_wnd_challenge_start_like_cpp(
+    index: usize,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
     if index >= NUM_GENERALS {
         return false;
     }
     let general_name = format!("ChallengeMenu.wnd:GeneralPosition{index}");
-    let clicked_general = crate::gui::dispatch_os_click_named_window(&general_name);
-    let clicked_play = crate::gui::dispatch_os_click_named_window("ChallengeMenu.wnd:ButtonPlay");
+    let clicked_general = crate::gui::dispatch_os_click_named_window(&general_name, effects);
+    let clicked_play =
+        crate::gui::dispatch_os_click_named_window("ChallengeMenu.wnd:ButtonPlay", effects);
     if !clicked_general && !clicked_play {
         return false;
     }
@@ -840,7 +860,7 @@ pub fn drive_os_wnd_challenge_start_like_cpp(index: usize) -> bool {
         return false;
     }
     if clicked_play || clicked_general {
-        return simulate_challenge_menu_play_button_gadget_selected();
+        return simulate_challenge_menu_play_button_gadget_selected(effects);
     }
     residual_challenge_play_requested()
 }
@@ -924,12 +944,10 @@ mod tests {
 
     #[test]
     fn challenge_menu_init_uses_challenge_game_info_not_skirmish() {
-        use crate::gui::challenge_game_info::{
-            challenge_game_info_exists, clear_challenge_game_info, with_challenge_game_info,
-        };
+        use crate::gui::campaign_manager::CampaignManager;
         use crate::gui::get_skirmish_setup;
 
-        clear_challenge_game_info();
+        let mut campaign_manager = CampaignManager::new();
         {
             let mut setup = get_skirmish_setup();
             let info = setup.game_info_mut().game_info_mut();
@@ -938,13 +956,24 @@ mod tests {
         }
 
         let layout = WindowLayout::new("Menus/ChallengeMenu.wnd".to_string());
-        challenge_menu_init(&layout, None);
+        let mut messages = Vec::new();
+        let mut effects = crate::gui::game_window::WindowEventEffects {
+            window_manager_owner: None,
+            selected_window: None,
+            emitted_messages: &mut messages,
+            pending_control_bar_clicks: None,
+            campaign_manager: Some(&mut campaign_manager),
+        };
+        challenge_menu_init(&layout, None, &mut effects);
+        drop(effects);
 
         assert!(
-            challenge_game_info_exists(),
+            campaign_manager.challenge_game_info().is_some(),
             "C++ ChallengeMenuInit allocates TheChallengeGameInfo"
         );
-        let challenge_map = with_challenge_game_info(|info| info.game_info().get_map().to_string())
+        let challenge_map = campaign_manager
+            .challenge_game_info()
+            .map(|info| info.game_info().get_map().to_string())
             .unwrap_or_default();
         assert_ne!(
             challenge_map, "maps\\skirmish_only.map",
@@ -960,17 +989,23 @@ mod tests {
             "TheSkirmishGameInfo must stay untouched by ChallengeMenuInit"
         );
 
-        set_challenge_slot0_and_map("maps\\GC_ChemGeneral.map".into(), "Test".into(), 3);
-        let after = with_challenge_game_info(|info| {
-            (
-                info.game_info().get_map().to_string(),
-                info.game_info()
-                    .get_slot(0)
-                    .map(|s| s.get_player_template())
-                    .unwrap_or(-1),
-            )
-        })
-        .unwrap();
+        campaign_manager.set_challenge_slot0_and_map(
+            "maps\\GC_ChemGeneral.map".into(),
+            "Test".into(),
+            3,
+        );
+        let after = campaign_manager
+            .challenge_game_info()
+            .map(|info| {
+                (
+                    info.game_info().get_map().to_string(),
+                    info.game_info()
+                        .get_slot(0)
+                        .map(|s| s.get_player_template())
+                        .unwrap_or(-1),
+                )
+            })
+            .unwrap();
         assert_eq!(after.0, "maps\\GC_ChemGeneral.map");
         assert_eq!(after.1, 3);
         let skirmish_map = get_skirmish_setup()
@@ -981,9 +1016,21 @@ mod tests {
         assert_eq!(skirmish_map, "maps\\skirmish_only.map");
 
         let layout = WindowLayout::new("Menus/ChallengeMenu.wnd".to_string());
-        challenge_menu_shutdown(&layout, Some(&false));
+        let mut messages = Vec::new();
+        let mut effects = crate::gui::game_window::WindowEventEffects {
+            window_manager_owner: None,
+            selected_window: None,
+            emitted_messages: &mut messages,
+            pending_control_bar_clicks: None,
+            campaign_manager: Some(&mut campaign_manager),
+        };
+        challenge_menu_shutdown(&layout, Some(&false), &mut effects);
         assert!(
-            !challenge_game_info_exists(),
+            effects
+                .campaign_manager
+                .as_deref()
+                .and_then(CampaignManager::challenge_game_info)
+                .is_none(),
             "C++ ChallengeMenuShutdown deletes TheChallengeGameInfo on fade path"
         );
     }
@@ -1007,12 +1054,12 @@ mod tests {
                 let _ = play.borrow_mut().hide(false);
             });
             assert!(
-                drive_os_wnd_challenge_start_like_cpp(0),
+                drive_os_wnd_challenge_start_like_cpp(0, &mut Vec::new()),
                 "OS WND clicks on ChallengeMenu gadgets must startChallengeGame"
             );
             assert!(residual_challenge_play_requested());
             assert_eq!(residual_challenge_selected_general(), Some(0));
-            assert!(!drive_os_wnd_challenge_start_like_cpp(99));
+            assert!(!drive_os_wnd_challenge_start_like_cpp(99, &mut Vec::new()));
         });
     }
 
@@ -1106,6 +1153,7 @@ mod tests {
                     WindowMessage::GadgetSelected,
                     selected_id as WindowMsgData,
                     selected_id as WindowMsgData,
+                    &mut Vec::new(),
                 ),
                 WindowMsgHandled::Handled
             );
@@ -1135,7 +1183,15 @@ mod tests {
                 state.is_shutting_down = false;
             }
 
-            challenge_menu_shutdown(&layout, Some(&pop_immediate));
+            let mut messages = Vec::new();
+            let mut effects = crate::gui::game_window::WindowEventEffects {
+                window_manager_owner: None,
+                selected_window: None,
+                emitted_messages: &mut messages,
+                pending_control_bar_clicks: None,
+                campaign_manager: Some(&mut campaign_manager),
+            };
+            challenge_menu_shutdown(&layout, Some(&pop_immediate), &mut effects);
 
             let state_handle = challenge_menu_state();
             let state = state_handle.lock().unwrap_or_else(|e| e.into_inner());

@@ -22,6 +22,7 @@
 //! - [`WindowDefaults`] — per-file default state (colors, fonts) matching C++ globals
 
 use crate::gui::callbacks as cb;
+use crate::gui::callbacks::menu_callbacks::MenuCallbacks;
 use crate::gui::game_window::{
     GameWindow, WindowCallbacks as GwCallbacks, WindowInstanceData, WindowMessage, WindowMsgData,
     WindowMsgHandled, WindowWidget,
@@ -355,9 +356,17 @@ fn unquote(s: &str) -> &str {
 /// Callback types for layout-level lifecycle events.
 /// PARITY_NOTE: mirrors C++ `WindowLayoutInfo` function pointers resolved
 /// from `TheFunctionLexicon->winLayoutInitFunc()` etc.
-pub type LayoutInitFn = Box<dyn Fn(&WindowLayout)>;
-pub type LayoutUpdateFn = Box<dyn Fn(&WindowLayout)>;
-pub type LayoutShutdownFn = Box<dyn Fn(&WindowLayout, Option<&dyn Any>)>;
+pub type LayoutInitFn =
+    Box<dyn for<'a> Fn(&WindowLayout, &mut crate::gui::game_window::WindowEventEffects<'a>)>;
+pub type LayoutUpdateFn =
+    Box<dyn for<'a> Fn(&WindowLayout, &mut crate::gui::game_window::WindowEventEffects<'a>)>;
+pub type LayoutShutdownFn = Box<
+    dyn for<'a> Fn(
+        &WindowLayout,
+        Option<&dyn Any>,
+        &mut crate::gui::game_window::WindowEventEffects<'a>,
+    ),
+>;
 
 /// Callback types for window-level events.
 /// PARITY_NOTE: mirrors C++ `GameWinSystemFunc`, `GameWinInputFunc`,
@@ -367,13 +376,30 @@ pub type LayoutShutdownFn = Box<dyn Fn(&WindowLayout, Option<&dyn Any>)>;
 /// siblings can clone the handler into a `'static` box. That matches C++
 /// function-pointer lexicon semantics: a resolved pointer stays valid if the
 /// table entry is later replaced or dropped.
-pub type WinSystemFn = Arc<
+type LegacyWinCallback = Arc<
     dyn Fn(&GameWindow, WindowMessage, WindowMsgData, WindowMsgData) -> WindowMsgHandled
         + Send
         + Sync,
 >;
+pub type WinSystemFn = Arc<
+    dyn for<'a> Fn(
+            &GameWindow,
+            WindowMessage,
+            WindowMsgData,
+            WindowMsgData,
+            &mut crate::gui::game_window::WindowEventEffects<'a>,
+        ) -> WindowMsgHandled
+        + Send
+        + Sync,
+>;
 pub type WinInputFn = Arc<
-    dyn Fn(&GameWindow, WindowMessage, WindowMsgData, WindowMsgData) -> WindowMsgHandled
+    dyn for<'a> Fn(
+            &GameWindow,
+            WindowMessage,
+            WindowMsgData,
+            WindowMsgData,
+            &mut crate::gui::game_window::WindowEventEffects<'a>,
+        ) -> WindowMsgHandled
         + Send
         + Sync,
 >;
@@ -396,7 +422,9 @@ pub struct ScriptCallbackRegistry {
     layout_update: HashMap<String, LayoutUpdateFn>,
     layout_shutdown: HashMap<String, LayoutShutdownFn>,
     win_system: HashMap<String, WinSystemFn>,
+    win_system_legacy: HashMap<String, LegacyWinCallback>,
     win_input: HashMap<String, WinInputFn>,
+    win_input_legacy: HashMap<String, LegacyWinCallback>,
     win_tooltip: HashMap<String, WinTooltipFn>,
     win_draw: HashMap<String, WinDrawFn>,
 }
@@ -409,7 +437,9 @@ impl ScriptCallbackRegistry {
             layout_update: HashMap::new(),
             layout_shutdown: HashMap::new(),
             win_system: HashMap::new(),
+            win_system_legacy: HashMap::new(),
             win_input: HashMap::new(),
+            win_input_legacy: HashMap::new(),
             win_tooltip: HashMap::new(),
             win_draw: HashMap::new(),
         }
@@ -424,8 +454,10 @@ impl ScriptCallbackRegistry {
         name: &str,
         callback: F,
     ) {
-        self.layout_init
-            .insert(name.to_string(), Box::new(callback));
+        self.layout_init.insert(
+            name.to_string(),
+            Box::new(move |layout, _effects| callback(layout)),
+        );
     }
 
     /// Register a layout update callback by name.
@@ -435,8 +467,10 @@ impl ScriptCallbackRegistry {
         name: &str,
         callback: F,
     ) {
-        self.layout_update
-            .insert(name.to_string(), Box::new(callback));
+        self.layout_update.insert(
+            name.to_string(),
+            Box::new(move |layout, _effects| callback(layout)),
+        );
     }
 
     /// Register a layout shutdown callback by name.
@@ -446,8 +480,10 @@ impl ScriptCallbackRegistry {
         name: &str,
         callback: F,
     ) {
-        self.layout_shutdown
-            .insert(name.to_string(), Box::new(callback));
+        self.layout_shutdown.insert(
+            name.to_string(),
+            Box::new(move |layout, data, _effects| callback(layout, data)),
+        );
     }
 
     pub fn register_layout_shutdown_without_data<F: Fn(&WindowLayout) + 'static>(
@@ -472,7 +508,13 @@ impl ScriptCallbackRegistry {
         name: &str,
         callback: F,
     ) {
-        self.win_system.insert(name.to_string(), Arc::new(callback));
+        let callback: LegacyWinCallback = Arc::new(callback);
+        self.win_system_legacy
+            .insert(name.to_string(), Arc::clone(&callback));
+        self.win_system.insert(
+            name.to_string(),
+            Arc::new(move |win, msg, d1, d2, _effects| callback(win, msg, d1, d2)),
+        );
     }
 
     /// Register a window input callback by name.
@@ -487,6 +529,46 @@ impl ScriptCallbackRegistry {
         name: &str,
         callback: F,
     ) {
+        let callback: LegacyWinCallback = Arc::new(callback);
+        self.win_input_legacy
+            .insert(name.to_string(), Arc::clone(&callback));
+        self.win_input.insert(
+            name.to_string(),
+            Arc::new(move |win, msg, d1, d2, _effects| callback(win, msg, d1, d2)),
+        );
+    }
+
+    pub fn register_win_system_with_effects<F>(&mut self, name: &str, callback: F)
+    where
+        F: for<'a> Fn(
+                &GameWindow,
+                WindowMessage,
+                WindowMsgData,
+                WindowMsgData,
+                &mut crate::gui::game_window::WindowEventEffects<'a>,
+            ) -> WindowMsgHandled
+            + Send
+            + Sync
+            + 'static,
+    {
+        self.win_system_legacy.remove(name);
+        self.win_system.insert(name.to_string(), Arc::new(callback));
+    }
+
+    pub fn register_win_input_with_effects<F>(&mut self, name: &str, callback: F)
+    where
+        F: for<'a> Fn(
+                &GameWindow,
+                WindowMessage,
+                WindowMsgData,
+                WindowMsgData,
+                &mut crate::gui::game_window::WindowEventEffects<'a>,
+            ) -> WindowMsgHandled
+            + Send
+            + Sync
+            + 'static,
+    {
+        self.win_input_legacy.remove(name);
         self.win_input.insert(name.to_string(), Arc::new(callback));
     }
 
@@ -642,23 +724,26 @@ impl ScriptCallbackRegistry {
         self.register_win_system("GadgetStaticTextSystem", gadget_static_text_system);
         self.register_win_system("GadgetTextEntrySystem", gadget_text_entry_system);
 
-        self.register_win_system("MessageBoxSystem", message_box_system);
-        self.register_win_system("QuitMessageBoxSystem", quit_message_box_system);
-        self.register_win_system("ExtendedMessageBoxSystem", extended_message_box_system);
+        self.register_win_system_with_effects("MessageBoxSystem", message_box_system);
+        self.register_win_system_with_effects("QuitMessageBoxSystem", quit_message_box_system);
+        self.register_win_system_with_effects(
+            "ExtendedMessageBoxSystem",
+            extended_message_box_system,
+        );
 
         self.register_win_system("MOTDSystem", cb::motd_system);
 
-        self.register_win_system("MainMenuSystem", main_menu_system);
+        self.register_win_system_with_effects("MainMenuSystem", main_menu_system);
         self.register_win_system("OptionsMenuSystem", options_menu_system);
-        self.register_win_system("SinglePlayerMenuSystem", single_player_menu_system);
-        self.register_win_system("QuitMenuSystem", cb::quit_menu_system);
-        self.register_win_system("MapSelectMenuSystem", map_select_menu_system);
+        self.register_win_system_with_effects("SinglePlayerMenuSystem", single_player_menu_system);
+        self.register_win_system_with_effects("QuitMenuSystem", cb::quit_menu_system);
+        self.register_win_system_with_effects("MapSelectMenuSystem", map_select_menu_system);
         self.register_win_system("ReplayMenuSystem", cb::replay_menu_system);
         self.register_win_system("CreditsMenuSystem", credits_menu_system);
         self.register_win_system("LanLobbyMenuSystem", lan_lobby_menu_system);
         self.register_win_system("LanGameOptionsMenuSystem", cb::lan_game_options_menu_system);
         self.register_win_system("LanMapSelectMenuSystem", cb::lan_map_select_menu_system);
-        self.register_win_system(
+        self.register_win_system_with_effects(
             "SkirmishGameOptionsMenuSystem",
             cb::skirmish_game_options_menu_system,
         );
@@ -666,8 +751,8 @@ impl ScriptCallbackRegistry {
             "SkirmishMapSelectMenuSystem",
             cb::skirmish_map_select_menu_system,
         );
-        self.register_win_system("ChallengeMenuSystem", cb::challenge_menu_system);
-        self.register_win_system("SaveLoadMenuSystem", cb::save_load_menu_system);
+        self.register_win_system_with_effects("ChallengeMenuSystem", cb::challenge_menu_system);
+        self.register_win_system_with_effects("SaveLoadMenuSystem", cb::save_load_menu_system);
         self.register_win_system("PopupCommunicatorSystem", cb::popup_communicator_system);
         self.register_win_system("PopupBuddyNotificationSystem", |_win, _msg, _d1, _d2| {
             WindowMsgHandled::Ignored
@@ -746,9 +831,12 @@ impl ScriptCallbackRegistry {
             cb::popup_ladder_select_system
         );
 
-        self.register_win_system("InGamePopupMessageSystem", cb::in_game_popup_message_system);
+        self.register_win_system_with_effects(
+            "InGamePopupMessageSystem",
+            cb::in_game_popup_message_system_with_sink,
+        );
 
-        self.register_win_system("ControlBarSystem", control_bar_system);
+        self.register_win_system_with_effects("ControlBarSystem", control_bar_system);
         self.register_win_system("ControlBarObserverSystem", control_bar_observer_system);
         self.register_win_system("IMECandidateWindowSystem", cb::ime_candidate_window_system);
         self.register_win_system("ReplayControlSystem", cb::replay_control_system);
@@ -757,14 +845,17 @@ impl ScriptCallbackRegistry {
         self.register_win_system("DisconnectControlSystem", disconnect_control_system);
         self.register_win_system("DiplomacySystem", diplomacy_system);
         self.register_win_system("GeneralsExpPointsSystem", cb::generals_exp_points_system);
-        self.register_win_system("DifficultySelectSystem", cb::difficulty_select_system);
+        self.register_win_system_with_effects(
+            "DifficultySelectSystem",
+            cb::difficulty_select_system,
+        );
         self.register_win_system("IdleWorkerSystem", idle_worker_system);
         self.register_win_system(
             "EstablishConnectionsControlSystem",
             establish_connections_control_system,
         );
         self.register_win_system("GameInfoWindowSystem", cb::game_info_window_system);
-        self.register_win_system("ScoreScreenSystem", cb::score_screen_system);
+        self.register_win_system_with_effects("ScoreScreenSystem", cb::score_screen_system);
         self.register_win_system("DownloadMenuSystem", cb::download_menu_system);
     }
 
@@ -791,10 +882,10 @@ impl ScriptCallbackRegistry {
         self.register_win_input("GadgetStaticTextInput", gadget_static_text_input);
         self.register_win_input("GadgetTextEntryInput", gadget_text_entry_input);
 
-        self.register_win_input("MainMenuInput", main_menu_input);
-        self.register_win_input("MapSelectMenuInput", map_select_menu_input);
+        self.register_win_input_with_effects("MainMenuInput", main_menu_input);
+        self.register_win_input_with_effects("MapSelectMenuInput", map_select_menu_input);
         self.register_win_input("OptionsMenuInput", options_menu_input);
-        self.register_win_input("SinglePlayerMenuInput", single_player_menu_input);
+        self.register_win_input_with_effects("SinglePlayerMenuInput", single_player_menu_input);
         self.register_win_input("LanLobbyMenuInput", lan_lobby_menu_input);
         self.register_win_input("ReplayMenuInput", cb::replay_menu_input);
         self.register_win_input("CreditsMenuInput", credits_menu_input);
@@ -810,7 +901,7 @@ impl ScriptCallbackRegistry {
             "SkirmishMapSelectMenuInput",
             cb::skirmish_map_select_menu_input,
         );
-        self.register_win_input("ChallengeMenuInput", cb::challenge_menu_input);
+        self.register_win_input_with_effects("ChallengeMenuInput", cb::challenge_menu_input);
 
         // WOL/GameSpy callback bindings.  Offline builds use the same
         // fail-closed stubs as the original deferred network path.
@@ -853,20 +944,23 @@ impl ScriptCallbackRegistry {
             cb::popup_ladder_select_input
         );
 
-        self.register_win_input("InGamePopupMessageInput", cb::in_game_popup_message_input);
+        self.register_win_input_with_effects(
+            "InGamePopupMessageInput",
+            cb::in_game_popup_message_input,
+        );
 
-        self.register_win_input("ControlBarInput", control_bar_input);
+        self.register_win_input_with_effects("ControlBarInput", control_bar_input);
         self.register_win_input("ReplayControlInput", cb::replay_control_input);
 
         self.register_win_input("InGameChatInput", in_game_chat_input);
         self.register_win_input("DisconnectControlInput", default_input_callback);
         self.register_win_input("DiplomacyInput", diplomacy_input);
         self.register_win_input("EstablishConnectionsControlInput", default_input_callback);
-        self.register_win_input("LeftHUDInput", left_hud_input);
-        self.register_win_input("ScoreScreenInput", cb::score_screen_input);
+        self.register_win_input_with_effects("LeftHUDInput", left_hud_input);
+        self.register_win_input_with_effects("ScoreScreenInput", cb::score_screen_input);
         self.register_win_input("SaveLoadMenuInput", cb::save_load_menu_input);
         self.register_win_input("BeaconWindowInput", cb::beacon_window_input);
-        self.register_win_input("DifficultySelectInput", cb::difficulty_select_input);
+        self.register_win_input_with_effects("DifficultySelectInput", cb::difficulty_select_input);
         self.register_win_input("PopupReplayInput", cb::popup_replay_input);
         self.register_win_input("GeneralsExpPointsInput", cb::generals_exp_points_input);
         self.register_win_input("DownloadMenuInput", cb::download_menu_input);
@@ -878,11 +972,14 @@ impl ScriptCallbackRegistry {
     }
 
     fn populate_layout_init_table(&mut self) {
-        self.register_layout_init("MainMenuInit", |layout| {
-            if let Err(err) = get_main_menu().init(layout, None) {
-                log::warn!("MainMenuInit failed: {}", err);
-            }
-        });
+        self.layout_init.insert(
+            "MainMenuInit".into(),
+            Box::new(|layout, effects| {
+                if let Err(err) = get_main_menu().init(layout, None, effects) {
+                    log::warn!("MainMenuInit failed: {}", err);
+                }
+            }),
+        );
         self.register_layout_init("OptionsMenuInit", options_menu_init);
         self.register_layout_init("SaveLoadMenuInit", |layout| {
             cb::save_load_menu_init(layout, None)
@@ -896,7 +993,14 @@ impl ScriptCallbackRegistry {
         self.register_layout_init("KeyboardOptionsMenuInit", |layout| {
             cb::keyboard_options_menu_init(layout, None)
         });
-        self.register_layout_init("SinglePlayerMenuInit", single_player_menu_init);
+        self.layout_init.insert(
+            "SinglePlayerMenuInit".into(),
+            Box::new(|layout, effects| {
+                let _ = cb::with_single_player_menu(|menu| {
+                    menu.init_with_effects(layout, None, effects)
+                });
+            }),
+        );
         self.register_layout_init("MapSelectMenuInit", map_select_menu_init);
         self.register_layout_init("LanLobbyMenuInit", lan_lobby_menu_init);
         self.register_layout_init("ReplayMenuInit", |layout| {
@@ -915,9 +1019,10 @@ impl ScriptCallbackRegistry {
         self.register_layout_init("SkirmishMapSelectMenuInit", |layout| {
             cb::skirmish_map_select_menu_init(layout, None)
         });
-        self.register_layout_init("ChallengeMenuInit", |layout| {
-            cb::challenge_menu_init(layout, None)
-        });
+        self.layout_init.insert(
+            "ChallengeMenuInit".into(),
+            Box::new(|layout, effects| cb::challenge_menu_init(layout, None, effects)),
+        );
 
         register_online_layout_init!(self, "WOLLadderScreenInit", cb::wol_ladder_screen_init);
         register_online_layout_init!(self, "WOLLoginMenuInit", cb::wol_login_menu_init);
@@ -962,29 +1067,48 @@ impl ScriptCallbackRegistry {
         self.register_layout_init("GameInfoWindowInit", |layout| {
             cb::game_info_window_init(layout, None)
         });
-        self.register_layout_init("ScoreScreenInit", |layout| {
-            cb::score_screen_init(layout, None)
-        });
+        self.layout_init.insert(
+            "ScoreScreenInit".into(),
+            Box::new(|layout, effects| cb::score_screen_init(layout, None, effects)),
+        );
         self.register_layout_init("DownloadMenuInit", |layout| {
             cb::download_menu_init(layout, None)
         });
-        self.register_layout_init("DifficultySelectInit", |layout| {
-            cb::difficulty_select_init(layout, None)
-        });
+        self.layout_init.insert(
+            "DifficultySelectInit".into(),
+            Box::new(|layout, effects| cb::difficulty_select_init(layout, None)),
+        );
         self.register_layout_init("PopupReplayInit", |layout| {
             cb::popup_replay_init(layout, None)
         });
     }
 
     fn populate_layout_update_table(&mut self) {
-        self.register_layout_update("MainMenuUpdate", |layout| {
-            if let Err(err) = get_main_menu().update(layout, None) {
-                log::warn!("MainMenuUpdate failed: {}", err);
-            }
-        });
+        self.layout_update.insert(
+            "MainMenuUpdate".into(),
+            Box::new(|layout, effects| {
+                if let Err(err) = get_main_menu().update(layout, None, effects) {
+                    log::warn!("MainMenuUpdate failed: {}", err);
+                }
+            }),
+        );
         self.register_layout_update("OptionsMenuUpdate", options_menu_update);
-        self.register_layout_update("SinglePlayerMenuUpdate", single_player_menu_update);
-        self.register_layout_update("MapSelectMenuUpdate", map_select_menu_update);
+        self.layout_update.insert(
+            "SinglePlayerMenuUpdate".into(),
+            Box::new(|layout, effects| {
+                let _ = cb::with_single_player_menu(|menu| {
+                    menu.update_with_effects(layout, None, effects)
+                });
+            }),
+        );
+        self.layout_update.insert(
+            "MapSelectMenuUpdate".into(),
+            Box::new(|layout, effects| {
+                let _ = cb::with_map_select_menu(|menu| {
+                    menu.update_with_effects(layout, None, effects)
+                });
+            }),
+        );
         self.register_layout_update("LanLobbyMenuUpdate", lan_lobby_menu_update);
         self.register_layout_update("ReplayMenuUpdate", |layout| {
             cb::replay_menu_update(layout, None)
@@ -1058,9 +1182,10 @@ impl ScriptCallbackRegistry {
             cb::network_direct_connect_update
         );
 
-        self.register_layout_update("ScoreScreenUpdate", |layout| {
-            cb::score_screen_update(layout, None)
-        });
+        self.layout_update.insert(
+            "ScoreScreenUpdate".into(),
+            Box::new(|layout, effects| cb::score_screen_update(layout, None, effects)),
+        );
         self.register_layout_update("DownloadMenuUpdate", |layout| {
             cb::download_menu_update(layout, None)
         });
@@ -1110,9 +1235,10 @@ impl ScriptCallbackRegistry {
         self.register_layout_shutdown_without_data("SkirmishMapSelectMenuShutdown", |layout| {
             cb::skirmish_map_select_menu_shutdown(layout, None)
         });
-        self.register_layout_shutdown_without_data("ChallengeMenuShutdown", |layout| {
-            cb::challenge_menu_shutdown(layout, None)
-        });
+        self.layout_shutdown.insert(
+            "ChallengeMenuShutdown".into(),
+            Box::new(|layout, data, effects| cb::challenge_menu_shutdown(layout, data, effects)),
+        );
 
         register_online_layout_shutdown!(
             self,
@@ -1412,12 +1538,14 @@ fn main_menu_system(
     msg: WindowMessage,
     data1: WindowMsgData,
     data2: WindowMsgData,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> WindowMsgHandled {
     if get_main_menu().system(
         window.get_id() as u32,
         legacy_main_menu_message(msg),
         data1,
         data2,
+        effects,
     ) {
         WindowMsgHandled::Handled
     } else {
@@ -1430,12 +1558,14 @@ fn main_menu_input(
     msg: WindowMessage,
     data1: WindowMsgData,
     data2: WindowMsgData,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> WindowMsgHandled {
     if get_main_menu().input(
         window.get_id() as u32,
         legacy_main_menu_message(msg),
         data1,
         data2,
+        effects,
     ) {
         WindowMsgHandled::Handled
     } else {
@@ -1461,12 +1591,20 @@ fn control_bar_system(
     msg: WindowMessage,
     data1: WindowMsgData,
     data2: WindowMsgData,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> WindowMsgHandled {
     let system = cb::get_control_bar_system();
     let system = system.read().unwrap_or_else(|e| e.into_inner());
     let callbacks = system.get_callbacks();
     with_arc_write(&callbacks, |callbacks| {
-        callbacks.system(window, msg, data1, data2)
+        callbacks.system(
+            window,
+            msg,
+            data1,
+            data2,
+            effects.emitted_messages,
+            effects.pending_control_bar_clicks.as_deref_mut(),
+        )
     })
 }
 
@@ -1489,12 +1627,20 @@ fn control_bar_input(
     msg: WindowMessage,
     data1: WindowMsgData,
     data2: WindowMsgData,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> WindowMsgHandled {
     let system = cb::get_control_bar_system();
     let system = system.read().unwrap_or_else(|e| e.into_inner());
     let callbacks = system.get_callbacks();
     with_arc_write(&callbacks, |callbacks| {
-        callbacks.system(window, msg, data1, data2)
+        callbacks.system(
+            window,
+            msg,
+            data1,
+            data2,
+            effects.emitted_messages,
+            effects.pending_control_bar_clicks.as_deref_mut(),
+        )
     })
 }
 
@@ -1503,12 +1649,20 @@ fn left_hud_input(
     msg: WindowMessage,
     data1: WindowMsgData,
     data2: WindowMsgData,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> WindowMsgHandled {
     let system = cb::get_control_bar_system();
     let system = system.read().unwrap_or_else(|e| e.into_inner());
     let callbacks = system.get_left_hud();
     with_arc_write(&callbacks, |callbacks| {
-        callbacks.input(window, msg, data1, data2)
+        callbacks.input(
+            window,
+            msg,
+            data1,
+            data2,
+            effects.emitted_messages,
+            effects.pending_control_bar_clicks.as_deref_mut(),
+        )
     })
 }
 
@@ -1583,12 +1737,13 @@ fn message_box_system(
     msg: WindowMessage,
     data1: WindowMsgData,
     data2: WindowMsgData,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> WindowMsgHandled {
     let system = cb::get_message_box_system();
     let system = system.read().unwrap_or_else(|e| e.into_inner());
     let standard = system.get_standard();
     with_arc_write(&standard, |standard| {
-        standard.system(window, msg, data1, data2)
+        standard.system(window, msg, data1, data2, effects)
     })
 }
 
@@ -1597,12 +1752,13 @@ fn extended_message_box_system(
     msg: WindowMessage,
     data1: WindowMsgData,
     data2: WindowMsgData,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> WindowMsgHandled {
     let system = cb::get_message_box_system();
     let system = system.read().unwrap_or_else(|e| e.into_inner());
     let extended = system.get_extended();
     with_arc_write(&extended, |extended| {
-        extended.system(window, msg, data1, data2)
+        extended.system(window, msg, data1, data2, effects)
     })
 }
 
@@ -1611,11 +1767,14 @@ fn quit_message_box_system(
     msg: WindowMessage,
     data1: WindowMsgData,
     data2: WindowMsgData,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> WindowMsgHandled {
     let system = cb::get_message_box_system();
     let system = system.read().unwrap_or_else(|e| e.into_inner());
     let quit = system.get_quit();
-    with_arc_write(&quit, |quit| quit.system(window, msg, data1, data2))
+    with_arc_write(&quit, |quit| {
+        quit.system(window, msg, data1, data2, effects)
+    })
 }
 
 fn disconnect_control_system(
@@ -1749,15 +1908,9 @@ fn single_player_menu_system(
     msg: WindowMessage,
     data1: WindowMsgData,
     data2: WindowMsgData,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> WindowMsgHandled {
-    menu_system(
-        single_player_menu,
-        "SinglePlayerMenuSystem",
-        window,
-        msg,
-        data1,
-        data2,
-    )
+    cb::with_single_player_menu(|menu| menu.system_with_effects(window, msg, data1, data2, effects))
 }
 
 fn options_menu_system(
@@ -1774,15 +1927,9 @@ fn map_select_menu_system(
     msg: WindowMessage,
     data1: WindowMsgData,
     data2: WindowMsgData,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> WindowMsgHandled {
-    menu_system(
-        map_select_menu,
-        "MapSelectMenuSystem",
-        window,
-        msg,
-        data1,
-        data2,
-    )
+    cb::with_map_select_menu(|menu| menu.system_with_effects(window, msg, data1, data2, effects))
 }
 
 fn credits_menu_system(
@@ -1815,15 +1962,9 @@ fn single_player_menu_input(
     msg: WindowMessage,
     data1: WindowMsgData,
     data2: WindowMsgData,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> WindowMsgHandled {
-    menu_input(
-        single_player_menu,
-        "SinglePlayerMenuInput",
-        window,
-        msg,
-        data1,
-        data2,
-    )
+    cb::with_single_player_menu(|menu| menu.input_with_effects(window, msg, data1, data2, effects))
 }
 
 fn options_menu_input(
@@ -1840,15 +1981,9 @@ fn map_select_menu_input(
     msg: WindowMessage,
     data1: WindowMsgData,
     data2: WindowMsgData,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> WindowMsgHandled {
-    menu_input(
-        map_select_menu,
-        "MapSelectMenuInput",
-        window,
-        msg,
-        data1,
-        data2,
-    )
+    cb::with_map_select_menu(|menu| menu.input_with_effects(window, msg, data1, data2, effects))
 }
 
 fn credits_menu_input(
@@ -2087,28 +2222,48 @@ impl ScriptCallbackRegistry {
         &self,
         name: &str,
     ) -> Option<
-        Box<dyn Fn(&GameWindow, WindowMessage, WindowMsgData, WindowMsgData) -> WindowMsgHandled>,
+        Box<
+            dyn for<'a> Fn(
+                &GameWindow,
+                WindowMessage,
+                WindowMsgData,
+                WindowMsgData,
+                &mut crate::gui::game_window::WindowEventEffects<'a>,
+            ) -> WindowMsgHandled,
+        >,
     > {
         let normalized = normalize_callback_name(name);
         if normalized.is_empty() {
             return None;
         }
         let cb = Arc::clone(self.win_system.get(&normalized)?);
-        Some(Box::new(move |win, msg, d1, d2| cb(win, msg, d1, d2)))
+        Some(Box::new(move |win, msg, d1, d2, effects| {
+            cb(win, msg, d1, d2, effects)
+        }))
     }
 
     pub fn create_input_callback(
         &self,
         name: &str,
     ) -> Option<
-        Box<dyn Fn(&GameWindow, WindowMessage, WindowMsgData, WindowMsgData) -> WindowMsgHandled>,
+        Box<
+            dyn for<'a> Fn(
+                &GameWindow,
+                WindowMessage,
+                WindowMsgData,
+                WindowMsgData,
+                &mut crate::gui::game_window::WindowEventEffects<'a>,
+            ) -> WindowMsgHandled,
+        >,
     > {
         let normalized = normalize_callback_name(name);
         if normalized.is_empty() {
             return None;
         }
         let cb = Arc::clone(self.win_input.get(&normalized)?);
-        Some(Box::new(move |win, msg, d1, d2| cb(win, msg, d1, d2)))
+        Some(Box::new(move |win, msg, d1, d2, effects| {
+            cb(win, msg, d1, d2, effects)
+        }))
     }
 
     pub fn create_tooltip_callback(&self, name: &str) -> Option<Box<dyn Fn(&GameWindow, u32)>> {
@@ -2143,11 +2298,23 @@ impl ScriptCallbackRegistry {
         draw_name: &str,
     ) -> GwCallbacks {
         let mut callbacks = GwCallbacks::default();
-        if let Some(cb) = self.create_system_callback(system_name) {
-            callbacks.system = Some(cb);
+        if let Some(callback) = self
+            .win_system_legacy
+            .get(&normalize_callback_name(system_name))
+        {
+            let callback = Arc::clone(callback);
+            callbacks.system = Some(Box::new(move |win, msg, d1, d2| callback(win, msg, d1, d2)));
+        } else if let Some(cb) = self.create_system_callback(system_name) {
+            callbacks.system_with_message_sink = Some(cb);
         }
-        if let Some(cb) = self.create_input_callback(input_name) {
-            callbacks.input = Some(cb);
+        if let Some(callback) = self
+            .win_input_legacy
+            .get(&normalize_callback_name(input_name))
+        {
+            let callback = Arc::clone(callback);
+            callbacks.input = Some(Box::new(move |win, msg, d1, d2| callback(win, msg, d1, d2)));
+        } else if let Some(cb) = self.create_input_callback(input_name) {
+            callbacks.input_with_message_sink = Some(cb);
         }
         if let Some(cb) = self.create_tooltip_callback(tooltip_name) {
             // Adapt from Fn(&GameWindow, u32) to Fn(&GameWindow, &WindowInstanceData, u32)

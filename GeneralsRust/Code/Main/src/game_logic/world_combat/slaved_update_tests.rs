@@ -99,7 +99,8 @@ fn receiving_repair_runs_unpack_extend_then_real_healing_once_without_peer_influ
     game.host_object_mut(master)
         .unwrap()
         .internal_change_health(-60.0);
-    game.update_owned_slaved_object(drone);
+    game.update_owned_slaved_object(drone)
+        .expect("valid slaved fixture");
     assert_eq!(
         game.host_object(drone)
             .unwrap()
@@ -111,7 +112,8 @@ fn receiving_repair_runs_unpack_extend_then_real_healing_once_without_peer_influ
     );
     assert_eq!(game.host_object(master).unwrap().health.current, 40.0);
     for _ in 0..15 {
-        game.update_owned_slaved_object(drone);
+        game.update_owned_slaved_object(drone)
+            .expect("valid slaved fixture");
     }
     assert_eq!(
         game.host_object(drone)
@@ -123,7 +125,8 @@ fn receiving_repair_runs_unpack_extend_then_real_healing_once_without_peer_influ
         Repair::Ready
     );
     for _ in 0..2 {
-        game.update_owned_slaved_object(drone);
+        game.update_owned_slaved_object(drone)
+            .expect("valid slaved fixture");
     }
     assert_eq!(
         game.host_object(drone)
@@ -135,7 +138,8 @@ fn receiving_repair_runs_unpack_extend_then_real_healing_once_without_peer_influ
         Repair::Extending
     );
     for _ in 0..5 {
-        game.update_owned_slaved_object(drone);
+        game.update_owned_slaved_object(drone)
+            .expect("valid slaved fixture");
     }
     assert_eq!(
         game.host_object(drone)
@@ -148,7 +152,8 @@ fn receiving_repair_runs_unpack_extend_then_real_healing_once_without_peer_influ
     );
     assert_eq!(game.host_object(master).unwrap().health.current, 41.0);
     assert_eq!(game.battle_drone_residual_repairs, 1);
-    peer.update_owned_slaved_object(peer_drone);
+    peer.update_owned_slaved_object(peer_drone)
+        .expect("valid slaved fixture");
     assert_eq!(peer.host_object(peer_master).unwrap().health.current, 100.0);
     assert_eq!(game.host_object(master).unwrap().health.current, 41.0);
 }
@@ -163,7 +168,8 @@ fn missing_master_stops_slave_effects_before_unmanned_idle() {
     game.take_object_for_physical_retirement(master, &mut Default::default())
         .unwrap()
         .expect("installed master at physical removal");
-    game.update_owned_slaved_object(drone);
+    game.update_owned_slaved_object(drone)
+        .expect("valid slaved fixture");
     let owner = game.host_object(drone).unwrap();
     assert!(!owner.status.unselectable);
     assert!(!owner.status.disabled_held);
@@ -182,9 +188,11 @@ fn normal_encoded_save_preserves_exact_repair_wait_and_resumed_body_healing() {
     game.host_object_mut(master)
         .unwrap()
         .internal_change_health(-60.0);
-    game.update_owned_slaved_object(drone);
+    game.update_owned_slaved_object(drone)
+        .expect("valid slaved fixture");
     for _ in 0..7 {
-        game.update_owned_slaved_object(drone);
+        game.update_owned_slaved_object(drone)
+            .expect("valid slaved fixture");
     }
     let saved = game
         .host_object(drone)
@@ -230,8 +238,11 @@ fn normal_encoded_save_preserves_exact_repair_wait_and_resumed_body_healing() {
     assert_eq!(actual.repair_state, saved.repair_state);
     assert_eq!(actual.repairing, saved.repairing);
     for _ in 0..15 {
-        game.update_owned_slaved_object(drone);
-        restored.update_owned_slaved_object(drone);
+        game.update_owned_slaved_object(drone)
+            .expect("valid slaved fixture");
+        restored
+            .update_owned_slaved_object(drone)
+            .expect("valid slaved fixture");
     }
     assert_eq!(
         restored.host_object(master).unwrap().health.current,
@@ -261,7 +272,8 @@ fn normal_encoded_save_preserves_exact_repair_wait_and_resumed_body_healing() {
         Some(master)
     );
     assert!(!lost.host_object(drone).unwrap().status.disabled_unmanned);
-    lost.update_owned_slaved_object(drone);
+    lost.update_owned_slaved_object(drone)
+        .expect("valid slaved fixture");
     assert_eq!(
         lost.host_object(drone)
             .unwrap()
@@ -280,7 +292,8 @@ fn captured_master_transfers_actual_slave_owner_before_repair_observation() {
     let (peer, _, peer_drone) = world();
     game.add_player(Player::new(1, Team::China, "captor", false));
     assert!(game.transfer_object_to_player(master, 1));
-    game.update_owned_slaved_object(drone);
+    game.update_owned_slaved_object(drone)
+        .expect("valid slaved fixture");
     let slave = game.host_object(drone).unwrap();
     assert_eq!(slave.team, Team::China);
     assert_eq!(slave.owner_player_id, Some(1));
@@ -306,7 +319,8 @@ fn missing_selected_locomotor_does_not_run_or_mutate_slave_callback() {
         .slaved_update
         .clone()
         .unwrap();
-    game.update_owned_slaved_object(drone);
+    game.update_owned_slaved_object(drone)
+        .expect("valid slaved fixture");
     let after = game
         .host_object(drone)
         .unwrap()
@@ -344,7 +358,8 @@ fn slaved_update_recalls_past_two_times_guard_max() {
         .as_mut()
         .unwrap()
         .guard_offset = Vec3::ZERO;
-    game.update_owned_slaved_object(drone);
+    game.update_owned_slaved_object(drone)
+        .expect("valid slaved fixture");
     assert_eq!(move_goal(&game, drone), [100.0, 0.0, 0.0]);
     assert_eq!(
         game.host_object(drone).unwrap().ai_state(),
@@ -356,7 +371,8 @@ fn slaved_update_scouts_ahead_of_actual_master_path() {
     let (mut game, master, drone) = world();
     game.host_object_mut(master).unwrap().movement.path =
         vec![Vec3::ZERO, Vec3::new(200.0, 0.0, 0.0)];
-    game.update_owned_slaved_object(drone);
+    game.update_owned_slaved_object(drone)
+        .expect("valid slaved fixture");
     assert_eq!(move_goal(&game, drone), [75.0, 0.0, 0.0]);
 }
 #[test]
@@ -371,7 +387,8 @@ fn slaved_update_moves_toward_master_victim_not_nearest_enemy() {
         .create_object_for_player("SlaveVictim", 1, Vec3::new(10.0, 0.0, 0.0))
         .unwrap();
     game.host_object_mut(master).unwrap().target = Some(far);
-    game.update_owned_slaved_object(drone);
+    game.update_owned_slaved_object(drone)
+        .expect("valid slaved fixture");
     assert_eq!(move_goal(&game, drone), [75.0, 0.0, 0.0]);
     assert_eq!(
         game.host_object(drone).unwrap().target,
@@ -667,7 +684,8 @@ fn same_player_hostile_team_slave_defects_to_exact_master_instance_before_repair
         .unwrap()
         .set_override_team_relationship(old, gamelogic::common::Relationship::Enemies);
     game.host_object_mut(drone).unwrap().set_ai_attitude_i8(2);
-    game.update_owned_slaved_object(drone);
+    game.update_owned_slaved_object(drone)
+        .expect("valid slaved fixture");
     let slave = game.host_object(drone).unwrap();
     assert_eq!(slave.team_instance_id, Some(destination));
     assert_eq!(slave.team_instance_name, "SlaveMasterTeam");
@@ -722,7 +740,8 @@ fn slave_defect_uses_original_contained_sold_and_construction_status_gates() {
             1 => object.status.sold = true,
             _ => object.status.under_construction = true,
         }
-        game.update_owned_slaved_object(drone);
+        game.update_owned_slaved_object(drone)
+            .expect("valid slaved fixture");
         assert_eq!(game.host_object(drone).unwrap().team_instance_id, Some(old));
         assert!(game.host_object(drone).unwrap().defection_helper.is_none());
     }

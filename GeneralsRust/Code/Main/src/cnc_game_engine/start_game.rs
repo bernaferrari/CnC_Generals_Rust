@@ -500,6 +500,8 @@ impl CnCGameEngine {
             skirmish,
             player_template,
             game_info_starting_cash,
+            is_campaign_session,
+            is_challenge_session,
             difficulty_code,
             recorder_dispatch,
         } = request;
@@ -591,6 +593,8 @@ impl CnCGameEngine {
                 skirmish,
                 player_template,
                 game_info_starting_cash,
+                is_campaign_session,
+                is_challenge_session,
                 difficulty_code,
                 recorder_dispatch,
             },
@@ -619,6 +623,8 @@ impl CnCGameEngine {
             skirmish,
             player_template,
             game_info_starting_cash,
+            is_campaign_session,
+            is_challenge_session,
             difficulty_code,
             recorder_dispatch,
         } = pending.request;
@@ -766,6 +772,7 @@ impl CnCGameEngine {
                         mode,
                         faction_team,
                         player_template,
+                        is_challenge_session,
                     ) {
                         // C++ never substitutes a base Team after a selected
                         // GameSlot PlayerTemplate fails to resolve.  Return to
@@ -780,13 +787,33 @@ impl CnCGameEngine {
                     info!(
                         "host_start_game_from_ui: host_start_new_game_with_faction(non-skirmish)"
                     );
-                    self.host_start_new_game_with_faction(mode, faction_team, false);
+                    self.host_start_new_game_with_faction_in_session(
+                        mode,
+                        faction_team,
+                        false,
+                        is_campaign_session,
+                        is_challenge_session,
+                    );
                 }
             }
         }
         if let Some(code) = difficulty_code {
             self.host_game_logic_mut()
                 .prepare_native_command_difficulty(code);
+        }
+        self.game_logic
+            .admit_campaign_session(is_campaign_session, is_challenge_session);
+        #[cfg(feature = "game_client")]
+        if !is_campaign_session {
+            let campaign_manager = self.game_client.campaign_manager_mut();
+            campaign_manager.set_campaign("");
+            campaign_manager.clear_challenge_game_info();
+            campaign_manager.set_victorious(false);
+        } else {
+            #[cfg(feature = "game_client")]
+            self.game_client
+                .campaign_manager_mut()
+                .set_victorious(false);
         }
         self.destroy_source_new_game_background();
         if !matches!(mode, GameMode::Replay | GameMode::Shell) {
@@ -2172,15 +2199,20 @@ impl CnCGameEngine {
             });
         }
 
-        if let Some(subsystem_manager) = get_subsystem_manager() {
-            let mut manager = subsystem_manager.lock();
-            if let Err(err) = manager.reset_all() {
-                warn!("GameEngine::reset TheSubsystemList->resetAll failed: {err}");
-            }
+        #[cfg(feature = "game_client")]
+        let reset_result = self
+            .subsystem_manager
+            .reset_all_receiving_client(&mut self.game_client);
+        #[cfg(not(feature = "game_client"))]
+        let reset_result = self.subsystem_manager.reset_all();
+        if let Err(err) = reset_result {
+            warn!("GameEngine::reset TheSubsystemList->resetAll failed: {err}");
         }
 
         #[cfg(feature = "game_client")]
         self.reset_native_filter_selection();
+        #[cfg(feature = "game_client")]
+        self.control_bar.discard_pending_command_clicks();
         #[cfg(feature = "game_client")]
         if let Err(err) = self.game_client.reset() {
             warn!("GameEngine::reset GameClient::reset failed: {err}");

@@ -652,7 +652,6 @@ impl GameLogic {
         }
 
         // C++ GameLogic.cpp:1254-1256 — always clear campaign win before map load.
-        clear_campaign_victorious_for_new_game();
 
         if !loading_save_game {
             let mut state = game_engine::System::get_game_state();
@@ -728,7 +727,7 @@ impl GameLogic {
                 .map_err(|err| format!("Game initialization failed: {}", err));
         if init_result.is_ok() {
             // C++ GameLogic.cpp:2073-2119 after PlayerList::newMap.
-            apply_challenge_the_player_relationships();
+            apply_challenge_the_player_relationships(self.campaign_session_is_challenge);
             if let Some(hooks) = load_screen_hooks
                 .as_mut()
                 .map(|hook| &mut **hook as &mut dyn crate::helpers::LoadScreenHooks)
@@ -1131,7 +1130,6 @@ impl GameLogic {
                 return;
             }
         }
-        clear_campaign_victorious_for_new_game();
 
         self.rank_level_limit = 1000;
         publish_rank_cap_if_live(self);
@@ -1171,18 +1169,9 @@ impl GameLogic {
     }
 }
 
-/// C++ GameLogic.cpp:1254-1256 TheCampaignManager->SetVictorious(FALSE).
-fn clear_campaign_victorious_for_new_game() {
-    if let Ok(mut guard) = get_script_engine().write() {
-        if let Some(engine) = guard.as_mut() {
-            engine.set_campaign_victorious(false);
-        }
-    }
-}
-
 /// C++ GameLogic.cpp:2073-2119 Challenge copies ThePlayer alliances onto the local general.
-fn apply_challenge_the_player_relationships() {
-    if !crate::scripting::core::is_generals_challenge_campaign() {
+fn apply_challenge_the_player_relationships(is_challenge: bool) {
+    if !is_challenge {
         return;
     }
     let Ok(list) = player_list().read() else {

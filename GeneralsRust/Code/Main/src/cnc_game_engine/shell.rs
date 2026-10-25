@@ -29,19 +29,10 @@ impl CnCGameEngine {
                 .unwrap_or(true);
             if push_wnd {
                 self.show_shell_menu();
-                let push_result = game_client::gui::with_shell_mut(|shell| {
-                    shell.push(layout_file, false)
-                })
-                .unwrap_or_else(|| {
-                    game_client::gui::queue_shell_operation(move |shell| {
-                        if let Err(error) = shell.push(layout_file, false) {
-                            warn!(
-                                "Runtime host deferred shell screen {layout_file} failed: {error:?}"
-                            );
-                        }
-                    });
-                    Ok(())
-                });
+                let push_result = self
+                    .game_client
+                    .with_receiving_shell(|shell, effects| shell.push(layout_file, false, effects))
+                    .expect("shell navigation requires the outer shell loan released");
                 if let Err(err) = push_result {
                     warn!("Runtime host failed to push shell screen {layout_file}: {err:?}");
                 }
@@ -145,7 +136,7 @@ impl CnCGameEngine {
         loading_save_game: bool,
     ) -> Option<game_client::gui::load_screen::LoadScreenKind> {
         let (has_current_campaign, current_campaign_is_challenge) = {
-            let campaign_manager = game_client::gui::campaign_manager::get_campaign_manager();
+            let campaign_manager = self.game_client.campaign_manager();
             campaign_manager
                 .get_current_campaign()
                 .map(|campaign| (true, campaign.is_challenge_campaign()))
@@ -427,19 +418,21 @@ impl CnCGameEngine {
             let size = self.window.inner_size();
             let logical_w = ((size.width as f64) / scale).round().max(1.0) as i32;
             let logical_h = ((size.height as f64) / scale).round().max(1.0) as i32;
-            game_client::gui::with_window_manager(|manager| {
-                manager.set_screen_size(logical_w, logical_h);
-            });
+            self.game_client
+                .window_manager_owner()
+                .with_manager(|manager| {
+                    manager.set_screen_size(logical_w, logical_h);
+                });
 
             // C++ TheShell is initialized via SubsystemInterface before GAME_SHELL push.
             // Thread-local Shell starts uninitialized; push() fails without init.
-            let result = game_client::gui::with_shell_mut(|shell| {
+            let result = self.game_client.with_receiving_shell(|shell, effects| {
                 if let Err(e) = game_client::system::SubsystemInterface::init(shell) {
                     return Err(e);
                 }
-                shell.show_shell_map(true);
+                shell.show_shell_map(true, effects);
                 if shell.get_screen_count() == 0 {
-                    shell.push("Menus/MainMenu.wnd", false)?;
+                    shell.push("Menus/MainMenu.wnd", false, effects)?;
                 } else if let Some(top) = shell.top() {
                     top.hide(false);
                     top.bring_forward();
@@ -485,7 +478,10 @@ impl CnCGameEngine {
                 return;
             }
 
-            if let Some(Err(err)) = game_client::gui::with_shell_mut(|shell| shell.hide_shell()) {
+            if let Some(Err(err)) = self
+                .game_client
+                .with_receiving_shell(|shell, effects| shell.hide_shell(effects))
+            {
                 warn!("Failed to hide shell menu: {:?}", err);
             }
 

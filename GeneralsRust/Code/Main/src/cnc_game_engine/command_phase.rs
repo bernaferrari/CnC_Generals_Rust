@@ -111,8 +111,8 @@ impl CnCGameEngine {
         #[cfg(feature = "game_client")]
         let window_manager_owner = self.game_client.window_manager_owner();
         #[cfg(feature = "game_client")]
-        let (mut client_frame, snow, presence) =
-            self.game_client.split_frame_snow_and_drawable_owner();
+        let (mut client_frame, snow, presence, campaign_manager) =
+            self.game_client.split_frame_snow_drawable_and_campaign();
         #[cfg(feature = "game_client")]
         let cinematic_window = &self.window;
         #[cfg(feature = "game_client")]
@@ -148,7 +148,8 @@ impl CnCGameEngine {
             &mut self.control_bar_callbacks,
             window_manager_owner,
         )
-        .with_cinematic_input(cinematic_input);
+        .with_cinematic_input(cinematic_input)
+        .with_campaign_manager(campaign_manager);
         let mut audio = super::native_audio_effects::NativeAudioService::live();
         #[cfg(feature = "game_client")]
         let (poses, terrain) = self

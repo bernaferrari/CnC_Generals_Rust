@@ -77,7 +77,9 @@ impl CnCGameEngine {
         let mut wnd_ok = false;
         #[cfg(feature = "game_client")]
         {
-            wnd_ok = game_client::gui::callbacks::drive_os_wnd_in_game_chat_toggle_like_cpp();
+            wnd_ok = self.game_client.with_window_event_effects(|effects| {
+                game_client::gui::callbacks::drive_os_wnd_in_game_chat_toggle_like_cpp(effects)
+            });
             if !wnd_ok {
                 wnd_ok = game_client::gui::callbacks::simulate_in_game_chat_toggle();
             }
@@ -115,21 +117,32 @@ impl CnCGameEngine {
                 simulate_in_game_chat_submit,
             };
             wnd_ok = match action.as_str() {
-                "show" => drive_os_wnd_in_game_chat_show_like_cpp() || simulate_in_game_chat_show(),
-                "hide" => drive_os_wnd_in_game_chat_hide_like_cpp() || simulate_in_game_chat_hide(),
+                "show" => {
+                    self.game_client.with_window_event_effects(|effects| {
+                        drive_os_wnd_in_game_chat_show_like_cpp(effects)
+                    }) || simulate_in_game_chat_show()
+                }
+                "hide" => {
+                    self.game_client.with_window_event_effects(|effects| {
+                        drive_os_wnd_in_game_chat_hide_like_cpp(effects)
+                    }) || simulate_in_game_chat_hide()
+                }
                 "clear" => {
-                    drive_os_wnd_in_game_chat_clear_like_cpp()
-                        || simulate_in_game_chat_clear_button_gadget_selected()
+                    self.game_client.with_window_event_effects(|effects| {
+                        drive_os_wnd_in_game_chat_clear_like_cpp(effects)
+                    }) || simulate_in_game_chat_clear_button_gadget_selected()
                 }
                 "type" => simulate_in_game_chat_set_type(chat_type),
                 "reset" => simulate_in_game_chat_reset(),
                 "prepare_submit" => {
-                    drive_os_wnd_in_game_chat_prepare_submit_like_cpp(&message)
-                        || simulate_in_game_chat_prepare_submit(&message)
+                    self.game_client.with_window_event_effects(|effects| {
+                        drive_os_wnd_in_game_chat_prepare_submit_like_cpp(&message, effects)
+                    }) || simulate_in_game_chat_prepare_submit(&message)
                 }
                 _ => {
-                    drive_os_wnd_in_game_chat_submit_like_cpp(&message)
-                        || simulate_in_game_chat_submit(&message)
+                    self.game_client.with_window_event_effects(|effects| {
+                        drive_os_wnd_in_game_chat_submit_like_cpp(&message, effects)
+                    }) || simulate_in_game_chat_submit(&message)
                 }
             };
         }

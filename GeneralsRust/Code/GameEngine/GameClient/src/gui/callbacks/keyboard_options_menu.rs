@@ -792,9 +792,14 @@ pub fn simulate_keyboard_options_prepare_assign(
 
 /// Human click-through: OS LeftDown/Up on `ComboBoxCategoryList`
 /// (C++ WindowXlat hit → GBM_SELECTED / combo select). Not `simulate_*` first.
-pub fn drive_os_wnd_keyboard_options_category_like_cpp(category_index: usize) -> bool {
-    let clicked =
-        crate::gui::dispatch_os_click_named_window("KeyboardOptionsMenu.wnd:ComboBoxCategoryList");
+pub fn drive_os_wnd_keyboard_options_category_like_cpp(
+    category_index: usize,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
+    let clicked = crate::gui::dispatch_os_click_named_window(
+        "KeyboardOptionsMenu.wnd:ComboBoxCategoryList",
+        effects,
+    );
     if !clicked {
         return false;
     }
@@ -802,9 +807,14 @@ pub fn drive_os_wnd_keyboard_options_category_like_cpp(category_index: usize) ->
 }
 
 /// Human click-through: OS LeftDown/Up on `ListBoxCommandList`.
-pub fn drive_os_wnd_keyboard_options_command_like_cpp(command_index: usize) -> bool {
-    let clicked =
-        crate::gui::dispatch_os_click_named_window("KeyboardOptionsMenu.wnd:ListBoxCommandList");
+pub fn drive_os_wnd_keyboard_options_command_like_cpp(
+    command_index: usize,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
+    let clicked = crate::gui::dispatch_os_click_named_window(
+        "KeyboardOptionsMenu.wnd:ListBoxCommandList",
+        effects,
+    );
     if !clicked {
         return false;
     }
@@ -812,9 +822,11 @@ pub fn drive_os_wnd_keyboard_options_command_like_cpp(command_index: usize) -> b
 }
 
 /// Human click-through: OS LeftDown/Up on `ButtonAssign`.
-pub fn drive_os_wnd_keyboard_options_assign_like_cpp() -> bool {
+pub fn drive_os_wnd_keyboard_options_assign_like_cpp(
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
     let clicked =
-        crate::gui::dispatch_os_click_named_window("KeyboardOptionsMenu.wnd:ButtonAssign");
+        crate::gui::dispatch_os_click_named_window("KeyboardOptionsMenu.wnd:ButtonAssign", effects);
     if !clicked {
         return false;
     }
@@ -822,9 +834,13 @@ pub fn drive_os_wnd_keyboard_options_assign_like_cpp() -> bool {
 }
 
 /// Human click-through: OS LeftDown/Up on `ButtonResetAll`.
-pub fn drive_os_wnd_keyboard_options_reset_like_cpp() -> bool {
-    let clicked =
-        crate::gui::dispatch_os_click_named_window("KeyboardOptionsMenu.wnd:ButtonResetAll");
+pub fn drive_os_wnd_keyboard_options_reset_like_cpp(
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
+    let clicked = crate::gui::dispatch_os_click_named_window(
+        "KeyboardOptionsMenu.wnd:ButtonResetAll",
+        effects,
+    );
     if !clicked {
         return false;
     }
@@ -832,8 +848,11 @@ pub fn drive_os_wnd_keyboard_options_reset_like_cpp() -> bool {
 }
 
 /// Human click-through: OS LeftDown/Up on `ButtonBack`.
-pub fn drive_os_wnd_keyboard_options_back_like_cpp() -> bool {
-    let clicked = crate::gui::dispatch_os_click_named_window("KeyboardOptionsMenu.wnd:ButtonBack");
+pub fn drive_os_wnd_keyboard_options_back_like_cpp(
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
+    let clicked =
+        crate::gui::dispatch_os_click_named_window("KeyboardOptionsMenu.wnd:ButtonBack", effects);
     if !clicked {
         return false;
     }
@@ -844,10 +863,11 @@ pub fn drive_os_wnd_keyboard_options_back_like_cpp() -> bool {
 pub fn drive_os_wnd_keyboard_options_prepare_assign_like_cpp(
     category_index: usize,
     command_index: usize,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> bool {
-    let clicked_cat = drive_os_wnd_keyboard_options_category_like_cpp(category_index);
-    let clicked_cmd = drive_os_wnd_keyboard_options_command_like_cpp(command_index);
-    let clicked_assign = drive_os_wnd_keyboard_options_assign_like_cpp();
+    let clicked_cat = drive_os_wnd_keyboard_options_category_like_cpp(category_index, effects);
+    let clicked_cmd = drive_os_wnd_keyboard_options_command_like_cpp(command_index, effects);
+    let clicked_assign = drive_os_wnd_keyboard_options_assign_like_cpp(effects);
     if !clicked_cat && !clicked_cmd && !clicked_assign {
         return false;
     }

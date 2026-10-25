@@ -36,7 +36,7 @@ impl GameLogic {
         let dense_world = object_ids.len() > 400;
 
         // BattlePlan pack/unpack door residual (AnimationTime 7000ms → 210 frames).
-        self.tick_battle_plan_door_residuals();
+        self.tick_battle_plan_door_residuals_with_effects(presentation_effects)?;
         // C++ ActiveBody.cpp:574-581 Player::setAttackedBy for PLAYER_ATTACKED_BY.
 
         #[cfg(feature = "game_client")]
@@ -869,7 +869,7 @@ impl GameLogic {
         }
 
         // GuardRetaliate victim-death / return residual.
-        self.tick_guard_retaliate_states();
+        self.tick_guard_retaliate_states_with_effects(presentation_effects)?;
         // HijackerUpdate ride residual.
         self.tick_hijacker_updates_with_effects(presentation_effects);
         // C++ UndeadBody + BattleBusSlowDeathBehavior residual.
@@ -878,7 +878,7 @@ impl GameLogic {
         self.tick_chinook_ai_with_effects(1.0 / 30.0, presentation_effects)?;
 
         // C++ AssaultTransportAIUpdate wounded-retrieve residual.
-        self.tick_assault_transport_updates_with_effects(presentation_effects);
+        self.tick_assault_transport_updates_with_effects(presentation_effects)?;
         // C++ DeployStyleAIUpdate pack/unpack residual.
         self.tick_deploy_style_updates();
         // C++ CommandButtonHuntUpdate residual.
@@ -886,7 +886,7 @@ impl GameLogic {
 
         // Resolve command-driven support states (guard/repair/docking/garrison) after AI decisions.
         // C++ SlavedUpdate.cpp:91-261 follow / guard / 2x GuardMaxRange recall.
-        self.update_slaved_drone_follow_with_effects(object_ids, presentation_effects);
+        self.update_slaved_drone_follow_with_effects(object_ids, presentation_effects)?;
         self.sync_all_spawn_behavior_veterancy();
         // C++ DemoTrapUpdate.cpp:124-130 isEffectivelyDead + DetonateWhenKilled.
         self.update_demo_trap_detonate_when_killed_with_effects(presentation_effects);
@@ -896,7 +896,10 @@ impl GameLogic {
     }
 
     /// C++ SlavedUpdate::update — drones follow/guard/recall their producer master.
-    pub(in super::super) fn update_slaved_drone_follow(&mut self, object_ids: &[ObjectId]) {
+    pub(in super::super) fn update_slaved_drone_follow(
+        &mut self,
+        object_ids: &[ObjectId],
+    ) -> gamelogic::GameLogicResult<()> {
         self.update_slaved_drone_follow_with_effects(
             object_ids,
             &mut crate::game_logic::ScriptPresentationEffects::default(),
@@ -907,10 +910,11 @@ impl GameLogic {
         &mut self,
         object_ids: &[ObjectId],
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         for &object in object_ids {
-            self.update_owned_slaved_object_with_effects(object, presentation_effects);
+            self.update_owned_slaved_object_with_effects(object, presentation_effects)?;
         }
+        Ok(())
     }
 
     /// C++ DemoTrapUpdate.cpp:124-130 isEffectivelyDead + DetonateWhenKilled.

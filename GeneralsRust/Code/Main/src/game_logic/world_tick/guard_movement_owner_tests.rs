@@ -56,7 +56,9 @@ fn guard_return_movement_receipts_stay_with_same_id_owner() {
             let id = returning_guard(&mut first, first_anchor);
             first.frame = 72;
             let first_session = first.movement_events.session().clone();
-            first.tick_guard_retaliate_states();
+            first
+                .tick_guard_retaliate_states()
+                .expect("valid guard retaliation fixture");
             let first_receipts = first.movement_events.snapshot_pending().to_vec();
             assert_eq!(first_receipts.len(), 1);
             assert_eq!(first_receipts[0].session, first_session);
@@ -73,7 +75,9 @@ fn guard_return_movement_receipts_stay_with_same_id_owner() {
             let foreign_anchor = glam::Vec3::new(301.0, 0.0, 401.0);
             assert_eq!(returning_guard(&mut foreign, foreign_anchor), id);
             foreign.frame = 91;
-            foreign.tick_guard_retaliate_states();
+            foreign
+                .tick_guard_retaliate_states()
+                .expect("valid guard retaliation fixture");
             let foreign_receipts = foreign.movement_events.snapshot_pending();
             assert_eq!(foreign_receipts.len(), 1);
             assert_ne!(foreign_receipts[0].session, first_session);
@@ -89,7 +93,9 @@ fn guard_return_movement_receipts_stay_with_same_id_owner() {
             assert_eq!(first.movement_events.snapshot_pending(), first_receipts);
 
             first.frame = 73;
-            first.tick_guard_retaliate_states();
+            first
+                .tick_guard_retaliate_states()
+                .expect("valid guard retaliation fixture");
             let receipts = first.movement_events.drain_for_host_boundary();
             assert_eq!(receipts.len(), 2);
             assert_eq!(receipts[0], first_receipts[0]);
@@ -105,7 +111,9 @@ fn guard_return_movement_receipts_stay_with_same_id_owner() {
                 AIState::GuardRetaliating
             );
             first.set_fixture_object_position(id, first_anchor);
-            first.tick_guard_retaliate_states();
+            first
+                .tick_guard_retaliate_states()
+                .expect("valid guard retaliation fixture");
             assert_eq!(
                 first.host_object(id).unwrap().ai_state(),
                 AIState::GuardingArea

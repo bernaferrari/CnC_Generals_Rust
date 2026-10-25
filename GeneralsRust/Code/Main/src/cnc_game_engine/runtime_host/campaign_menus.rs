@@ -219,24 +219,30 @@ impl CnCGameEngine {
             };
             wnd_ok = match action.as_str() {
                 "delete" => {
-                    drive_os_wnd_replay_menu_delete_like_cpp(slot) || {
+                    self.game_client.with_window_event_effects(|effects| {
+                        drive_os_wnd_replay_menu_delete_like_cpp(slot, effects)
+                    }) || {
                         let _ = simulate_replay_menu_select_slot(slot);
                         simulate_replay_menu_delete_button_gadget_selected()
                     }
                 }
                 "copy" => {
-                    drive_os_wnd_replay_menu_copy_like_cpp(slot) || {
+                    self.game_client.with_window_event_effects(|effects| {
+                        drive_os_wnd_replay_menu_copy_like_cpp(slot, effects)
+                    }) || {
                         let _ = simulate_replay_menu_select_slot(slot);
                         simulate_replay_menu_copy_button_gadget_selected()
                     }
                 }
                 "back" => {
-                    drive_os_wnd_replay_menu_back_like_cpp()
-                        || simulate_replay_menu_back_button_gadget_selected()
+                    self.game_client.with_window_event_effects(|effects| {
+                        drive_os_wnd_replay_menu_back_like_cpp(effects)
+                    }) || simulate_replay_menu_back_button_gadget_selected()
                 }
                 _ => {
-                    drive_os_wnd_replay_menu_prepare_load_like_cpp(slot)
-                        || simulate_replay_menu_prepare_load(slot)
+                    self.game_client.with_window_event_effects(|effects| {
+                        drive_os_wnd_replay_menu_prepare_load_like_cpp(slot, effects)
+                    }) || simulate_replay_menu_prepare_load(slot)
                 }
             };
         }
@@ -289,31 +295,38 @@ impl CnCGameEngine {
             };
             wnd_ok = match action.as_str() {
                 "return" => {
-                    drive_os_wnd_quit_menu_return_like_cpp()
-                        || simulate_quit_menu_return_button_gadget_selected()
+                    self.game_client.with_window_event_effects(|effects| {
+                        drive_os_wnd_quit_menu_return_like_cpp(effects)
+                    }) || simulate_quit_menu_return_button_gadget_selected()
                 }
                 "options" => {
-                    drive_os_wnd_quit_menu_options_like_cpp()
-                        || simulate_quit_menu_options_button_gadget_selected()
+                    self.game_client.with_window_event_effects(|effects| {
+                        drive_os_wnd_quit_menu_options_like_cpp(effects)
+                    }) || simulate_quit_menu_options_button_gadget_selected()
                 }
                 "restart" => {
-                    drive_os_wnd_quit_menu_restart_like_cpp()
-                        || simulate_quit_menu_restart_button_gadget_selected()
+                    self.game_client.with_window_event_effects(|effects| {
+                        drive_os_wnd_quit_menu_restart_like_cpp(effects)
+                    }) || simulate_quit_menu_restart_button_gadget_selected()
                 }
                 "save_load" | "saveload" => {
-                    drive_os_wnd_quit_menu_save_load_like_cpp()
-                        || simulate_quit_menu_save_load_button_gadget_selected()
+                    self.game_client.with_window_event_effects(|effects| {
+                        drive_os_wnd_quit_menu_save_load_like_cpp(effects)
+                    }) || simulate_quit_menu_save_load_button_gadget_selected()
                 }
                 "hide" => simulate_quit_menu_toggle_hide(),
                 "show" => simulate_quit_menu_toggle_show(),
                 "destroy" => simulate_quit_menu_destroy(),
                 "confirm_exit" | "confirm" => simulate_quit_menu_confirm_exit(),
                 "prepare_exit" => {
-                    drive_os_wnd_quit_menu_prepare_exit_like_cpp()
-                        || simulate_quit_menu_prepare_exit()
+                    self.game_client.with_window_event_effects(|effects| {
+                        drive_os_wnd_quit_menu_prepare_exit_like_cpp(effects)
+                    }) || simulate_quit_menu_prepare_exit()
                 }
                 _ => {
-                    drive_os_wnd_quit_menu_exit_like_cpp() || {
+                    self.game_client.with_window_event_effects(|effects| {
+                        drive_os_wnd_quit_menu_exit_like_cpp(effects)
+                    }) || {
                         let _ = simulate_quit_menu_toggle_show();
                         simulate_quit_menu_exit_button_gadget_selected()
                     }
@@ -379,26 +392,34 @@ impl CnCGameEngine {
             };
             wnd_ok = match action.as_str() {
                 "category" => {
-                    drive_os_wnd_keyboard_options_category_like_cpp(category)
-                        || simulate_keyboard_options_select_category(category)
+                    self.game_client.with_window_event_effects(|effects| {
+                        drive_os_wnd_keyboard_options_category_like_cpp(category, effects)
+                    }) || simulate_keyboard_options_select_category(category)
                 }
                 "command" => {
-                    let _ = drive_os_wnd_keyboard_options_category_like_cpp(category)
-                        || simulate_keyboard_options_select_category(category);
-                    drive_os_wnd_keyboard_options_command_like_cpp(command)
-                        || simulate_keyboard_options_select_command(command)
+                    let _ = self.game_client.with_window_event_effects(|effects| {
+                        drive_os_wnd_keyboard_options_category_like_cpp(category, effects)
+                    }) || simulate_keyboard_options_select_category(category);
+                    self.game_client.with_window_event_effects(|effects| {
+                        drive_os_wnd_keyboard_options_command_like_cpp(command, effects)
+                    }) || simulate_keyboard_options_select_command(command)
                 }
                 "reset" | "reset_all" => {
-                    drive_os_wnd_keyboard_options_reset_like_cpp()
-                        || simulate_keyboard_options_reset_all_button_gadget_selected()
+                    self.game_client.with_window_event_effects(|effects| {
+                        drive_os_wnd_keyboard_options_reset_like_cpp(effects)
+                    }) || simulate_keyboard_options_reset_all_button_gadget_selected()
                 }
                 "back" => {
-                    drive_os_wnd_keyboard_options_back_like_cpp()
-                        || simulate_keyboard_options_back_button_gadget_selected()
+                    self.game_client.with_window_event_effects(|effects| {
+                        drive_os_wnd_keyboard_options_back_like_cpp(effects)
+                    }) || simulate_keyboard_options_back_button_gadget_selected()
                 }
                 _ => {
-                    drive_os_wnd_keyboard_options_prepare_assign_like_cpp(category, command)
-                        || simulate_keyboard_options_prepare_assign(category, command)
+                    self.game_client.with_window_event_effects(|effects| {
+                        drive_os_wnd_keyboard_options_prepare_assign_like_cpp(
+                            category, command, effects,
+                        )
+                    }) || simulate_keyboard_options_prepare_assign(category, command)
                 }
             };
         }
@@ -448,32 +469,40 @@ impl CnCGameEngine {
             };
             wnd_ok = match action.as_str() {
                 "continue" => {
-                    drive_os_wnd_score_screen_continue_like_cpp()
-                        || simulate_score_screen_continue_button_gadget_selected()
+                    self.game_client.with_window_event_effects(|effects| {
+                        drive_os_wnd_score_screen_continue_like_cpp(effects)
+                    }) || simulate_score_screen_continue_button_gadget_selected()
                 }
                 "finish" | "prepare_finish" => {
                     let _ = simulate_score_screen_set_finish_campaign(true);
-                    drive_os_wnd_score_screen_continue_like_cpp()
-                        || simulate_score_screen_prepare_finish()
+                    self.game_client.with_window_event_effects(|effects| {
+                        drive_os_wnd_score_screen_continue_like_cpp(effects)
+                    }) || simulate_score_screen_prepare_finish()
                 }
                 "save_replay" | "replay" => {
-                    drive_os_wnd_score_screen_save_replay_like_cpp()
-                        || simulate_score_screen_save_replay_button_gadget_selected()
+                    self.game_client.with_window_event_effects(|effects| {
+                        drive_os_wnd_score_screen_save_replay_like_cpp(effects)
+                    }) || simulate_score_screen_save_replay_button_gadget_selected()
                 }
                 "buddy" => {
-                    drive_os_wnd_score_screen_buddy_like_cpp()
-                        || simulate_score_screen_buddy_button_gadget_selected()
+                    self.game_client.with_window_event_effects(|effects| {
+                        drive_os_wnd_score_screen_buddy_like_cpp(effects)
+                    }) || simulate_score_screen_buddy_button_gadget_selected()
                 }
                 "emote" => {
-                    drive_os_wnd_score_screen_emote_like_cpp()
-                        || simulate_score_screen_emote_button_gadget_selected()
+                    self.game_client.with_window_event_effects(|effects| {
+                        drive_os_wnd_score_screen_emote_like_cpp(effects)
+                    }) || simulate_score_screen_emote_button_gadget_selected()
                 }
                 "prepare_ok" => {
-                    drive_os_wnd_score_screen_ok_like_cpp() || simulate_score_screen_prepare_ok()
+                    self.game_client.with_window_event_effects(|effects| {
+                        drive_os_wnd_score_screen_ok_like_cpp(effects)
+                    }) || simulate_score_screen_prepare_ok()
                 }
                 _ => {
-                    drive_os_wnd_score_screen_ok_like_cpp()
-                        || simulate_score_screen_ok_button_gadget_selected()
+                    self.game_client.with_window_event_effects(|effects| {
+                        drive_os_wnd_score_screen_ok_like_cpp(effects)
+                    }) || simulate_score_screen_ok_button_gadget_selected()
                 }
             };
         }
@@ -527,36 +556,44 @@ impl CnCGameEngine {
             };
             wnd_ok = match action.as_str() {
                 "back" => {
-                    drive_os_wnd_options_menu_back_like_cpp()
-                        || simulate_options_menu_back_button_gadget_selected()
+                    self.game_client.with_window_event_effects(|effects| {
+                        drive_os_wnd_options_menu_back_like_cpp(effects)
+                    }) || simulate_options_menu_back_button_gadget_selected()
                 }
                 "defaults" | "default" => {
-                    drive_os_wnd_options_menu_defaults_like_cpp()
-                        || simulate_options_menu_defaults_button_gadget_selected()
+                    self.game_client.with_window_event_effects(|effects| {
+                        drive_os_wnd_options_menu_defaults_like_cpp(effects)
+                    }) || simulate_options_menu_defaults_button_gadget_selected()
                 }
                 "keyboard" => {
-                    drive_os_wnd_options_menu_keyboard_like_cpp()
-                        || simulate_options_menu_keyboard_button_gadget_selected()
+                    self.game_client.with_window_event_effects(|effects| {
+                        drive_os_wnd_options_menu_keyboard_like_cpp(effects)
+                    }) || simulate_options_menu_keyboard_button_gadget_selected()
                 }
                 "advanced_accept" => {
-                    drive_os_wnd_options_menu_advanced_accept_like_cpp()
-                        || simulate_options_menu_advanced_accept_button_gadget_selected()
+                    self.game_client.with_window_event_effects(|effects| {
+                        drive_os_wnd_options_menu_advanced_accept_like_cpp(effects)
+                    }) || simulate_options_menu_advanced_accept_button_gadget_selected()
                 }
                 "advanced_back" => {
-                    drive_os_wnd_options_menu_advanced_back_like_cpp()
-                        || simulate_options_menu_advanced_back_button_gadget_selected()
+                    self.game_client.with_window_event_effects(|effects| {
+                        drive_os_wnd_options_menu_advanced_back_like_cpp(effects)
+                    }) || simulate_options_menu_advanced_back_button_gadget_selected()
                 }
                 "firewall" | "firewall_refresh" => {
-                    drive_os_wnd_options_menu_firewall_like_cpp()
-                        || simulate_options_menu_firewall_refresh_button_gadget_selected()
+                    self.game_client.with_window_event_effects(|effects| {
+                        drive_os_wnd_options_menu_firewall_like_cpp(effects)
+                    }) || simulate_options_menu_firewall_refresh_button_gadget_selected()
                 }
                 "prepare_accept" => {
-                    drive_os_wnd_options_menu_accept_like_cpp()
-                        || simulate_options_menu_prepare_accept()
+                    self.game_client.with_window_event_effects(|effects| {
+                        drive_os_wnd_options_menu_accept_like_cpp(effects)
+                    }) || simulate_options_menu_prepare_accept()
                 }
                 _ => {
-                    drive_os_wnd_options_menu_accept_like_cpp()
-                        || simulate_options_menu_accept_button_gadget_selected()
+                    self.game_client.with_window_event_effects(|effects| {
+                        drive_os_wnd_options_menu_accept_like_cpp(effects)
+                    }) || simulate_options_menu_accept_button_gadget_selected()
                 }
             };
         }
@@ -632,36 +669,43 @@ impl CnCGameEngine {
             };
             wnd_ok = match action.as_str() {
                 "easy" => {
-                    drive_os_wnd_difficulty_select_radio_like_cpp(0)
-                        || simulate_difficulty_select_radio_easy()
+                    self.game_client.with_window_event_effects(|effects| {
+                        drive_os_wnd_difficulty_select_radio_like_cpp(0, effects)
+                    }) || simulate_difficulty_select_radio_easy()
                 }
                 "medium" | "normal" => {
-                    drive_os_wnd_difficulty_select_radio_like_cpp(1)
-                        || simulate_difficulty_select_radio_medium()
+                    self.game_client.with_window_event_effects(|effects| {
+                        drive_os_wnd_difficulty_select_radio_like_cpp(1, effects)
+                    }) || simulate_difficulty_select_radio_medium()
                 }
                 "hard" => {
-                    drive_os_wnd_difficulty_select_radio_like_cpp(2)
-                        || simulate_difficulty_select_radio_hard()
+                    self.game_client.with_window_event_effects(|effects| {
+                        drive_os_wnd_difficulty_select_radio_like_cpp(2, effects)
+                    }) || simulate_difficulty_select_radio_hard()
                 }
                 "cancel" => {
-                    drive_os_wnd_difficulty_select_cancel_like_cpp()
-                        || simulate_difficulty_select_cancel_button_gadget_selected()
+                    self.game_client.with_window_event_effects(|effects| {
+                        drive_os_wnd_difficulty_select_cancel_like_cpp(effects)
+                    }) || simulate_difficulty_select_cancel_button_gadget_selected()
                 }
                 "prepare_ok" => {
-                    drive_os_wnd_difficulty_select_like_cpp(level)
-                        || simulate_difficulty_select_prepare_ok(level)
+                    self.game_client.with_window_event_effects(|effects| {
+                        drive_os_wnd_difficulty_select_like_cpp(level, effects)
+                    }) || simulate_difficulty_select_prepare_ok(level)
                 }
                 _ => {
-                    drive_os_wnd_difficulty_select_like_cpp(level)
-                        || drive_os_wnd_difficulty_select_ok_like_cpp()
-                        || {
-                            let _ = match level {
-                                0 => simulate_difficulty_select_radio_easy(),
-                                2 => simulate_difficulty_select_radio_hard(),
-                                _ => simulate_difficulty_select_radio_medium(),
-                            };
-                            simulate_difficulty_select_ok_button_gadget_selected()
-                        }
+                    self.game_client.with_window_event_effects(|effects| {
+                        drive_os_wnd_difficulty_select_like_cpp(level, effects)
+                    }) || self.game_client.with_window_event_effects(|effects| {
+                        drive_os_wnd_difficulty_select_ok_like_cpp(effects)
+                    }) || {
+                        let _ = match level {
+                            0 => simulate_difficulty_select_radio_easy(),
+                            2 => simulate_difficulty_select_radio_hard(),
+                            _ => simulate_difficulty_select_radio_medium(),
+                        };
+                        simulate_difficulty_select_ok_button_gadget_selected()
+                    }
                 }
             };
         }
@@ -681,9 +725,11 @@ impl CnCGameEngine {
         let mut wnd_ok = false;
         #[cfg(feature = "game_client")]
         {
-            wnd_ok = game_client::gui::loading_screen::drive_os_wnd_loading_screen_prepare_like_cpp(
-                &map, 0,
-            );
+            wnd_ok = self.game_client.with_window_event_effects(|effects| {
+                game_client::gui::loading_screen::drive_os_wnd_loading_screen_prepare_like_cpp(
+                    &map, 0, effects,
+                )
+            });
             if !wnd_ok {
                 wnd_ok = game_client::gui::loading_screen::simulate_loading_screen_prepare_map_load(
                     &map, 0,
@@ -726,24 +772,31 @@ impl CnCGameEngine {
             };
             wnd_ok = match action.as_str() {
                 "show" => {
-                    drive_os_wnd_loading_screen_show_like_cpp() || simulate_loading_screen_show()
+                    self.game_client.with_window_event_effects(|effects| {
+                        drive_os_wnd_loading_screen_show_like_cpp(effects)
+                    }) || simulate_loading_screen_show()
                 }
                 "hide" => {
-                    drive_os_wnd_loading_screen_hide_like_cpp() || simulate_loading_screen_hide()
+                    self.game_client.with_window_event_effects(|effects| {
+                        drive_os_wnd_loading_screen_hide_like_cpp(effects)
+                    }) || simulate_loading_screen_hide()
                 }
                 "map" => simulate_loading_screen_set_map(&map),
                 "next" | "next_stage" => simulate_loading_screen_next_stage(),
                 "finish" => {
-                    drive_os_wnd_loading_screen_finish_like_cpp()
-                        || simulate_loading_screen_finish()
+                    self.game_client.with_window_event_effects(|effects| {
+                        drive_os_wnd_loading_screen_finish_like_cpp(effects)
+                    }) || simulate_loading_screen_finish()
                 }
                 "prepare" => {
-                    drive_os_wnd_loading_screen_prepare_like_cpp(&map, percent)
-                        || simulate_loading_screen_prepare_map_load(&map, percent)
+                    self.game_client.with_window_event_effects(|effects| {
+                        drive_os_wnd_loading_screen_prepare_like_cpp(&map, percent, effects)
+                    }) || simulate_loading_screen_prepare_map_load(&map, percent)
                 }
                 _ => {
-                    drive_os_wnd_loading_screen_progress_like_cpp(percent)
-                        || simulate_loading_screen_set_progress(percent)
+                    self.game_client.with_window_event_effects(|effects| {
+                        drive_os_wnd_loading_screen_progress_like_cpp(percent, effects)
+                    }) || simulate_loading_screen_set_progress(percent)
                 }
             };
         }
@@ -778,7 +831,9 @@ impl CnCGameEngine {
                 "hard" => GameDifficulty::Hard,
                 _ => GameDifficulty::Normal,
             };
-            wnd_ok = game_client::gui::drive_os_wnd_start_campaign_like_cpp(side, diff);
+            wnd_ok = self.game_client.with_window_event_effects(|effects| {
+                game_client::gui::drive_os_wnd_start_campaign_like_cpp(side, diff, effects)
+            });
             if !wnd_ok {
                 wnd_ok = game_client::gui::simulate_main_menu_campaign_start_residual(side, diff);
             }
@@ -798,7 +853,9 @@ impl CnCGameEngine {
                 .get("map")
                 .map(|v| v.trim().to_string())
                 .filter(|s| !s.is_empty());
-            if let Some(dispatch) = Self::take_new_game_dispatch_from_common_stream() {
+            if let Some(dispatch) = Self::take_new_game_dispatch_from_common_stream(
+                self.game_client.message_stream_mut(),
+            ) {
                 let Some(mut request) =
                     self.build_start_request_from_pending_globals(Some(dispatch))
                 else {

@@ -10,28 +10,28 @@ use crate::gui::callbacks::{
     generals_exp_points_input, generals_exp_points_system, get_control_bar_system,
     get_diplomacy_system, get_ingame_ui_system, get_message_box_system, ime_candidate_main_draw,
     ime_candidate_text_area_draw, ime_candidate_window_input, ime_candidate_window_system,
-    in_game_popup_message_init, in_game_popup_message_input, in_game_popup_message_system,
-    keyboard_options_menu_init, keyboard_options_menu_input, keyboard_options_menu_shutdown,
-    keyboard_options_menu_system, keyboard_options_menu_update, lan_game_options_menu_init,
-    lan_game_options_menu_input, lan_game_options_menu_shutdown, lan_game_options_menu_system,
-    lan_game_options_menu_update, lan_map_select_menu_init, lan_map_select_menu_input,
-    lan_map_select_menu_shutdown, lan_map_select_menu_system, lan_map_select_menu_update,
-    network_direct_connect_init, network_direct_connect_input, network_direct_connect_shutdown,
-    network_direct_connect_system, network_direct_connect_update, popup_buddy_notification_system,
-    popup_communicator_init, popup_communicator_input, popup_communicator_shutdown,
-    popup_communicator_system, popup_communicator_update, popup_host_game_init,
-    popup_host_game_input, popup_host_game_system, popup_host_game_update, popup_join_game_init,
-    popup_join_game_input, popup_join_game_system, popup_ladder_select_init,
-    popup_ladder_select_input, popup_ladder_select_shutdown, popup_ladder_select_system,
-    popup_ladder_select_update, popup_player_info_init, popup_player_info_input,
-    popup_player_info_shutdown, popup_player_info_system, popup_player_info_update,
-    popup_replay_init, popup_replay_input, popup_replay_shutdown, popup_replay_system,
-    popup_replay_update, quit_menu_system, rc_game_details_menu_init, rc_game_details_menu_system,
-    replay_menu_init, replay_menu_input, replay_menu_shutdown, replay_menu_system,
-    replay_menu_update, save_load_menu_full_screen_init, save_load_menu_init, save_load_menu_input,
-    save_load_menu_shutdown, save_load_menu_system, save_load_menu_update, score_screen_init,
-    score_screen_input, score_screen_shutdown, score_screen_system, score_screen_update,
-    skirmish_game_options_menu_init, skirmish_game_options_menu_input,
+    in_game_popup_message_init, in_game_popup_message_input,
+    in_game_popup_message_system_with_sink, keyboard_options_menu_init,
+    keyboard_options_menu_input, keyboard_options_menu_shutdown, keyboard_options_menu_system,
+    keyboard_options_menu_update, lan_game_options_menu_init, lan_game_options_menu_input,
+    lan_game_options_menu_shutdown, lan_game_options_menu_system, lan_game_options_menu_update,
+    lan_map_select_menu_init, lan_map_select_menu_input, lan_map_select_menu_shutdown,
+    lan_map_select_menu_system, lan_map_select_menu_update, network_direct_connect_init,
+    network_direct_connect_input, network_direct_connect_shutdown, network_direct_connect_system,
+    network_direct_connect_update, popup_buddy_notification_system, popup_communicator_init,
+    popup_communicator_input, popup_communicator_shutdown, popup_communicator_system,
+    popup_communicator_update, popup_host_game_init, popup_host_game_input, popup_host_game_system,
+    popup_host_game_update, popup_join_game_init, popup_join_game_input, popup_join_game_system,
+    popup_ladder_select_init, popup_ladder_select_input, popup_ladder_select_shutdown,
+    popup_ladder_select_system, popup_ladder_select_update, popup_player_info_init,
+    popup_player_info_input, popup_player_info_shutdown, popup_player_info_system,
+    popup_player_info_update, popup_replay_init, popup_replay_input, popup_replay_shutdown,
+    popup_replay_system, popup_replay_update, quit_menu_system, rc_game_details_menu_init,
+    rc_game_details_menu_system, replay_menu_init, replay_menu_input, replay_menu_shutdown,
+    replay_menu_system, replay_menu_update, save_load_menu_full_screen_init, save_load_menu_init,
+    save_load_menu_input, save_load_menu_shutdown, save_load_menu_system, save_load_menu_update,
+    score_screen_init, score_screen_input, score_screen_shutdown, score_screen_system,
+    score_screen_update, skirmish_game_options_menu_init, skirmish_game_options_menu_input,
     skirmish_game_options_menu_shutdown, skirmish_game_options_menu_system,
     skirmish_game_options_menu_update, skirmish_map_select_menu_init,
     skirmish_map_select_menu_input, skirmish_map_select_menu_shutdown,
@@ -89,6 +89,8 @@ use crate::gui::window_script::{
     parse_window_script,
 };
 use crate::gui::{get_disconnect_menu, get_establish_connections_menu};
+use crate::helpers::TheControlBar;
+use game_engine::common::name_key_generator::NameKeyGenerator;
 use log::warn;
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, VecDeque};
@@ -109,18 +111,26 @@ impl WindowManager {
     ) {
         if !layout_def.init_callback.is_empty() {
             layout.init_callback = match layout_def.init_callback.as_str() {
-                "W3DMainMenuInit" | "MainMenuInit" => Some(Box::new(|layout, _| {
-                    apply_w3d_main_menu_runtime_draw_overrides();
-                    let mut menu = get_main_menu();
-                    if let Err(err) = menu.init(layout, None) {
-                        warn!("Main menu init failed: {}", err);
-                    }
-                })),
-                "SinglePlayerMenuInit" => Some(Box::new(|layout, _| {
-                    if let Err(err) = with_single_player_menu(|menu| menu.init(layout, None)) {
-                        warn!("Single player menu init failed: {}", err);
-                    }
-                })),
+                "W3DMainMenuInit" | "MainMenuInit" => {
+                    layout.init_callback_with_effects = Some(Box::new(|layout, _, effects| {
+                        apply_w3d_main_menu_runtime_draw_overrides();
+                        let mut menu = get_main_menu();
+                        if let Err(err) = menu.init(layout, None, effects) {
+                            warn!("Main menu init failed: {}", err);
+                        }
+                    }));
+                    None
+                }
+                "SinglePlayerMenuInit" => {
+                    layout.init_callback_with_effects = Some(Box::new(|layout, _, effects| {
+                        if let Err(err) = with_single_player_menu(|menu| {
+                            menu.init_with_effects(layout, None, effects)
+                        }) {
+                            warn!("Single player menu init failed: {}", err);
+                        }
+                    }));
+                    None
+                }
                 "OptionsMenuInit" => {
                     Some(Box::new(|layout, data| {
                         let camera=data.and_then(|data|data.downcast_ref::<crate::gui::callbacks::OptionsCameraInputObservation>());
@@ -167,21 +177,30 @@ impl WindowManager {
                 "ReplayMenuInit" => Some(Box::new(|layout, data| {
                     replay_menu_init(layout, data);
                 })),
-                "ChallengeMenuInit" => Some(Box::new(|layout, data| {
-                    challenge_menu_init(layout, data);
-                })),
-                "DifficultySelectInit" => Some(Box::new(|layout, data| {
-                    difficulty_select_init(layout, data);
-                })),
+                "ChallengeMenuInit" => {
+                    layout.init_callback_with_effects = Some(Box::new(|layout, data, effects| {
+                        challenge_menu_init(layout, data, effects);
+                    }));
+                    None
+                }
+                "DifficultySelectInit" => {
+                    layout.init_callback_with_effects = Some(Box::new(|layout, data, effects| {
+                        difficulty_select_init(layout, data);
+                    }));
+                    None
+                }
                 "KeyboardOptionsMenuInit" => Some(Box::new(|layout, data| {
                     keyboard_options_menu_init(layout, data);
                 })),
                 "GameSpyPlayerInfoOverlayInit" => Some(Box::new(|layout, data| {
                     popup_player_info_init(layout, data);
                 })),
-                "ScoreScreenInit" => Some(Box::new(|layout, data| {
-                    score_screen_init(layout, None);
-                })),
+                "ScoreScreenInit" => {
+                    layout.init_callback_with_effects = Some(Box::new(|layout, data, effects| {
+                        score_screen_init(layout, None, effects);
+                    }));
+                    None
+                }
                 "SkirmishMapSelectMenuInit" => Some(Box::new(|layout, data| {
                     skirmish_map_select_menu_init(layout, None);
                 })),
@@ -264,27 +283,40 @@ impl WindowManager {
 
         if !layout_def.update_callback.is_empty() {
             layout.update_callback = match layout_def.update_callback.as_str() {
-                "MainMenuUpdate" => Some(Box::new(|layout, _| {
-                    let mut menu = get_main_menu();
-                    if let Err(err) = menu.update(layout, None) {
-                        warn!("Main menu update failed: {}", err);
-                    }
-                })),
-                "SinglePlayerMenuUpdate" => Some(Box::new(|layout, _| {
-                    if let Err(err) = with_single_player_menu(|menu| menu.update(layout, None)) {
-                        warn!("Single player menu update failed: {}", err);
-                    }
-                })),
+                "MainMenuUpdate" => {
+                    layout.update_callback_with_effects = Some(Box::new(|layout, _, effects| {
+                        let mut menu = get_main_menu();
+                        if let Err(err) = menu.update(layout, None, effects) {
+                            warn!("Main menu update failed: {}", err);
+                        }
+                    }));
+                    None
+                }
+                "SinglePlayerMenuUpdate" => {
+                    layout.update_callback_with_effects = Some(Box::new(|layout, _, effects| {
+                        if let Err(err) = with_single_player_menu(|menu| {
+                            menu.update_with_effects(layout, None, effects)
+                        }) {
+                            warn!("Single player menu update failed: {}", err);
+                        }
+                    }));
+                    None
+                }
                 "OptionsMenuUpdate" => Some(Box::new(|layout, _| {
                     if let Err(err) = with_options_menu(|menu| menu.update(layout, None)) {
                         warn!("Options menu update failed: {}", err);
                     }
                 })),
-                "MapSelectMenuUpdate" => Some(Box::new(|layout, _| {
-                    if let Err(err) = with_map_select_menu(|menu| menu.update(layout, None)) {
-                        warn!("Map select menu update failed: {}", err);
-                    }
-                })),
+                "MapSelectMenuUpdate" => {
+                    layout.update_callback_with_effects = Some(Box::new(|layout, _, effects| {
+                        if let Err(err) = with_map_select_menu(|menu| {
+                            menu.update_with_effects(layout, None, effects)
+                        }) {
+                            warn!("Map select menu update failed: {}", err);
+                        }
+                    }));
+                    None
+                }
                 "CreditsMenuUpdate" => Some(Box::new(|layout, _| {
                     if let Err(err) = with_credits_menu(|menu| menu.update(layout, None)) {
                         warn!("Credits menu update failed: {}", err);
@@ -325,9 +357,13 @@ impl WindowManager {
                 "DownloadMenuUpdate" => Some(Box::new(|layout, data| {
                     download_menu_update(layout, None);
                 })),
-                "ScoreScreenUpdate" => Some(Box::new(|layout, data| {
-                    score_screen_update(layout, None);
-                })),
+                "ScoreScreenUpdate" => {
+                    layout.update_callback_with_effects =
+                        Some(Box::new(|layout, data, effects| {
+                            score_screen_update(layout, None, effects);
+                        }));
+                    None
+                }
                 "SkirmishMapSelectMenuUpdate" => Some(Box::new(|layout, data| {
                     skirmish_map_select_menu_update(layout, None);
                 })),
@@ -435,9 +471,13 @@ impl WindowManager {
                 "ReplayMenuShutdown" => Some(Box::new(|layout, data| {
                     replay_menu_shutdown(layout, as_any_ref(data));
                 })),
-                "ChallengeMenuShutdown" => Some(Box::new(|layout, data| {
-                    challenge_menu_shutdown(layout, as_any_ref(data));
-                })),
+                "ChallengeMenuShutdown" => {
+                    layout.shutdown_callback_with_effects =
+                        Some(Box::new(|layout, data, effects| {
+                            challenge_menu_shutdown(layout, as_any_ref(data), effects);
+                        }));
+                    None
+                }
                 "KeyboardOptionsMenuShutdown" => Some(Box::new(|layout, data| {
                     keyboard_options_menu_shutdown(layout, as_any_ref(data));
                 })),
@@ -547,14 +587,23 @@ impl WindowManager {
                     window.set_system_callback(default_system_callback);
                 }
                 "ControlBarSystem" => {
-                    window.set_system_callback(|window, msg, data1, data2| {
-                        let system = get_control_bar_system();
-                        let system = system.read().unwrap_or_else(|e| e.into_inner());
-                        let callbacks = system.get_callbacks();
-                        with_arc_write(&callbacks, |callbacks| {
-                            callbacks.system(window, msg, data1, data2)
-                        })
-                    });
+                    window.set_system_callback_with_message_sink(
+                        |window, msg, data1, data2, effects| {
+                            let system = get_control_bar_system();
+                            let system = system.read().unwrap_or_else(|e| e.into_inner());
+                            let callbacks = system.get_callbacks();
+                            with_arc_write(&callbacks, |callbacks| {
+                                callbacks.system(
+                                    window,
+                                    msg,
+                                    data1,
+                                    data2,
+                                    effects.emitted_messages,
+                                    effects.pending_control_bar_clicks.as_deref_mut(),
+                                )
+                            })
+                        },
+                    );
                     window.mark_control_bar_system_callback();
                 }
                 "ControlBarObserverSystem" => {
@@ -618,24 +667,28 @@ impl WindowManager {
                     });
                 }
                 "MessageBoxSystem" => {
-                    window.set_system_callback(|window, msg, data1, data2| {
-                        let system = get_message_box_system();
-                        let system = system.read().unwrap_or_else(|e| e.into_inner());
-                        let standard = system.get_standard();
-                        with_arc_write(&standard, |standard| {
-                            standard.system(window, msg, data1, data2)
-                        })
-                    });
+                    window.set_system_callback_with_message_sink(
+                        |window, msg, data1, data2, effects| {
+                            let system = get_message_box_system();
+                            let system = system.read().unwrap_or_else(|e| e.into_inner());
+                            let standard = system.get_standard();
+                            with_arc_write(&standard, |standard| {
+                                standard.system(window, msg, data1, data2, effects)
+                            })
+                        },
+                    );
                 }
                 "ExtendedMessageBoxSystem" => {
-                    window.set_system_callback(|window, msg, data1, data2| {
-                        let system = get_message_box_system();
-                        let system = system.read().unwrap_or_else(|e| e.into_inner());
-                        let extended = system.get_extended();
-                        with_arc_write(&extended, |extended| {
-                            extended.system(window, msg, data1, data2)
-                        })
-                    });
+                    window.set_system_callback_with_message_sink(
+                        |window, msg, data1, data2, effects| {
+                            let system = get_message_box_system();
+                            let system = system.read().unwrap_or_else(|e| e.into_inner());
+                            let extended = system.get_extended();
+                            with_arc_write(&extended, |extended| {
+                                extended.system(window, msg, data1, data2, effects)
+                            })
+                        },
+                    );
                 }
                 "EstablishConnectionsControlSystem" => {
                     window.set_system_callback(|window, msg, data1, data2| {
@@ -652,24 +705,30 @@ impl WindowManager {
                     });
                 }
                 "MainMenuSystem" => {
-                    window.set_system_callback(|window, msg, data1, data2| {
-                        let mut menu = get_main_menu();
-                        let raw_msg = map_window_message_to_main_menu(msg);
-                        if raw_msg == 0 {
-                            return WindowMsgHandled::Ignored;
-                        }
-                        if menu.system(window.get_id() as u32, raw_msg, data1, data2) {
-                            WindowMsgHandled::Handled
-                        } else {
-                            WindowMsgHandled::Ignored
-                        }
-                    });
+                    window.set_system_callback_with_message_sink(
+                        |window, msg, data1, data2, effects| {
+                            let mut menu = get_main_menu();
+                            let raw_msg = map_window_message_to_main_menu(msg);
+                            if raw_msg == 0 {
+                                return WindowMsgHandled::Ignored;
+                            }
+                            if menu.system(window.get_id() as u32, raw_msg, data1, data2, effects) {
+                                WindowMsgHandled::Handled
+                            } else {
+                                WindowMsgHandled::Ignored
+                            }
+                        },
+                    );
                     window.mark_main_menu_system_callback();
                 }
                 "SinglePlayerMenuSystem" => {
-                    window.set_system_callback(|window, msg, data1, data2| {
-                        with_single_player_menu(|menu| menu.system(window, msg, data1, data2))
-                    });
+                    window.set_system_callback_with_message_sink(
+                        |window, msg, data1, data2, effects| {
+                            with_single_player_menu(|menu| {
+                                menu.system_with_effects(window, msg, data1, data2, effects)
+                            })
+                        },
+                    );
                 }
                 "OptionsMenuSystem" => {
                     window.set_system_callback(|window, msg, data1, data2| {
@@ -678,9 +737,13 @@ impl WindowManager {
                     window.mark_options_menu_system_callback();
                 }
                 "MapSelectMenuSystem" => {
-                    window.set_system_callback(|window, msg, data1, data2| {
-                        with_map_select_menu(|menu| menu.system(window, msg, data1, data2))
-                    });
+                    window.set_system_callback_with_message_sink(
+                        |window, msg, data1, data2, effects| {
+                            with_map_select_menu(|menu| {
+                                menu.system_with_effects(window, msg, data1, data2, effects)
+                            })
+                        },
+                    );
                 }
                 "CreditsMenuSystem" => {
                     window.set_system_callback(|window, msg, data1, data2| {
@@ -693,17 +756,43 @@ impl WindowManager {
                     });
                 }
                 "QuitMessageBoxSystem" => {
-                    window.set_system_callback(|window, msg, data1, data2| {
-                        let system = get_message_box_system();
-                        let system = system.read().unwrap_or_else(|e| e.into_inner());
-                        let quit = system.get_quit();
-                        with_arc_write(&quit, |quit| quit.system(window, msg, data1, data2))
-                    });
+                    window.set_system_callback_with_message_sink(
+                        |window, msg, data1, data2, effects| {
+                            let system = get_message_box_system();
+                            let system = system.read().unwrap_or_else(|e| e.into_inner());
+                            let quit = system.get_quit();
+                            with_arc_write(&quit, |quit| {
+                                quit.system(window, msg, data1, data2, effects)
+                            })
+                        },
+                    );
                 }
                 "GeneralsExpPointsSystem" => {
-                    window.set_system_callback(|window, msg, data1, data2| {
-                        generals_exp_points_system(window, msg, data1, data2)
-                    });
+                    window.set_system_callback_with_message_sink(
+                        |window, msg, data1, data2, effects| {
+                            if msg == WindowMessage::GadgetSelected {
+                                let control_id = data1 as u32;
+                                let button_exit_id = NameKeyGenerator::name_to_key(
+                                    "GeneralsExpPoints.wnd:ButtonExit",
+                                );
+                                if control_id == button_exit_id {
+                                    TheControlBar::hide_purchase_science();
+                                } else if let Some(clicks) =
+                                    effects.pending_control_bar_clicks.as_deref_mut()
+                                {
+                                    const GBM_SELECTED: u32 = 16384 + 8;
+                                    clicks.push(
+                                        crate::helpers::LiveControlBarClick::from_current_dispatch(
+                                            control_id,
+                                            GBM_SELECTED,
+                                        ),
+                                    );
+                                }
+                                return WindowMsgHandled::Handled;
+                            }
+                            generals_exp_points_system(window, msg, data1, data2)
+                        },
+                    );
                 }
                 "IMECandidateWindowSystem" => {
                     window.set_system_callback(|window, msg, data1, data2| {
@@ -711,9 +800,13 @@ impl WindowManager {
                     });
                 }
                 "InGamePopupMessageSystem" => {
-                    window.set_system_callback(|window, msg, data1, data2| {
-                        in_game_popup_message_system(window, msg, data1, data2)
-                    });
+                    window.set_system_callback_with_message_sink(
+                        |window, msg, data1, data2, effects| {
+                            in_game_popup_message_system_with_sink(
+                                window, msg, data1, data2, effects,
+                            )
+                        },
+                    );
                 }
                 "PopupCommunicatorSystem" => {
                     window.set_system_callback(|window, msg, data1, data2| {
@@ -746,15 +839,19 @@ impl WindowManager {
                     });
                 }
                 "QuitMenuSystem" => {
-                    window.set_system_callback(|window, msg, data1, data2| {
-                        quit_menu_system(window, msg, data1, data2)
-                    });
+                    window.set_system_callback_with_message_sink(
+                        |window, msg, data1, data2, effects| {
+                            quit_menu_system(window, msg, data1, data2, effects)
+                        },
+                    );
                     window.mark_quit_menu_system_callback();
                 }
                 "SaveLoadMenuSystem" => {
-                    window.set_system_callback(|window, msg, data1, data2| {
-                        save_load_menu_system(window, msg, data1, data2)
-                    });
+                    window.set_system_callback_with_message_sink(
+                        |window, msg, data1, data2, effects| {
+                            save_load_menu_system(window, msg, data1, data2, effects)
+                        },
+                    );
                 }
                 "PopupReplaySystem" => {
                     window.set_system_callback(|window, msg, data1, data2| {
@@ -771,14 +868,18 @@ impl WindowManager {
                     }
                 }
                 "ChallengeMenuSystem" => {
-                    window.set_system_callback(|window, msg, data1, data2| {
-                        challenge_menu_system(window, msg, data1, data2)
-                    });
+                    window.set_system_callback_with_message_sink(
+                        |window, msg, data1, data2, effects| {
+                            challenge_menu_system(window, msg, data1, data2, effects)
+                        },
+                    );
                 }
                 "DifficultySelectSystem" => {
-                    window.set_system_callback(|window, msg, data1, data2| {
-                        difficulty_select_system(window, msg, data1, data2)
-                    });
+                    window.set_system_callback_with_message_sink(
+                        |window, msg, data1, data2, effects| {
+                            difficulty_select_system(window, msg, data1, data2, effects)
+                        },
+                    );
                 }
                 "KeyboardOptionsMenuSystem" => {
                     window.set_system_callback(|window, msg, data1, data2| {
@@ -791,9 +892,11 @@ impl WindowManager {
                     });
                 }
                 "ScoreScreenSystem" => {
-                    window.set_system_callback(|window, msg, data1, data2| {
-                        score_screen_system(window, msg, data1, data2)
-                    });
+                    window.set_system_callback_with_message_sink(
+                        |window, msg, data1, data2, effects| {
+                            score_screen_system(window, msg, data1, data2, effects)
+                        },
+                    );
                 }
                 "SkirmishMapSelectMenuSystem" => {
                     window.set_system_callback(|window, msg, data1, data2| {
@@ -801,9 +904,11 @@ impl WindowManager {
                     });
                 }
                 "SkirmishGameOptionsMenuSystem" => {
-                    window.set_system_callback(|window, msg, data1, data2| {
-                        skirmish_game_options_menu_system(window, msg, data1, data2)
-                    });
+                    window.set_system_callback_with_message_sink(
+                        |window, msg, data1, data2, effects| {
+                            skirmish_game_options_menu_system(window, msg, data1, data2, effects)
+                        },
+                    );
                 }
                 "LanMapSelectMenuSystem" => {
                     window.set_system_callback(|window, msg, data1, data2| {
@@ -984,24 +1089,42 @@ impl WindowManager {
                     });
                 }
                 "ControlBarInput" => {
-                    window.set_input_callback(|window, msg, data1, data2| {
-                        let system = get_control_bar_system();
-                        let system = system.read().unwrap_or_else(|e| e.into_inner());
-                        let callbacks = system.get_callbacks();
-                        with_arc_write(&callbacks, |callbacks| {
-                            callbacks.system(window, msg, data1, data2)
-                        })
-                    });
+                    window.set_input_callback_with_message_sink(
+                        |window, msg, data1, data2, effects| {
+                            let system = get_control_bar_system();
+                            let system = system.read().unwrap_or_else(|e| e.into_inner());
+                            let callbacks = system.get_callbacks();
+                            with_arc_write(&callbacks, |callbacks| {
+                                callbacks.system(
+                                    window,
+                                    msg,
+                                    data1,
+                                    data2,
+                                    effects.emitted_messages,
+                                    effects.pending_control_bar_clicks.as_deref_mut(),
+                                )
+                            })
+                        },
+                    );
                 }
                 "LeftHUDInput" => {
-                    window.set_input_callback(|window, msg, data1, data2| {
-                        let system = get_control_bar_system();
-                        let system = system.read().unwrap_or_else(|e| e.into_inner());
-                        let callbacks = system.get_left_hud();
-                        with_arc_write(&callbacks, |callbacks| {
-                            callbacks.input(window, msg, data1, data2)
-                        })
-                    });
+                    window.set_input_callback_with_message_sink(
+                        |window, msg, data1, data2, effects| {
+                            let system = get_control_bar_system();
+                            let system = system.read().unwrap_or_else(|e| e.into_inner());
+                            let callbacks = system.get_left_hud();
+                            with_arc_write(&callbacks, |callbacks| {
+                                callbacks.input(
+                                    window,
+                                    msg,
+                                    data1,
+                                    data2,
+                                    effects.emitted_messages,
+                                    effects.pending_control_bar_clicks.as_deref_mut(),
+                                )
+                            })
+                        },
+                    );
                 }
                 "DiplomacyInput" => {
                     window.set_input_callback(|window, msg, data1, data2| {
@@ -1041,23 +1164,29 @@ impl WindowManager {
                     });
                 }
                 "MainMenuInput" => {
-                    window.set_input_callback(|window, msg, data1, data2| {
-                        let mut menu = get_main_menu();
-                        let raw_msg = map_window_message_to_main_menu(msg);
-                        if raw_msg == 0 {
-                            return WindowMsgHandled::Ignored;
-                        }
-                        if menu.input(window.get_id() as u32, raw_msg, data1, data2) {
-                            WindowMsgHandled::Handled
-                        } else {
-                            WindowMsgHandled::Ignored
-                        }
-                    });
+                    window.set_input_callback_with_message_sink(
+                        |window, msg, data1, data2, effects| {
+                            let mut menu = get_main_menu();
+                            let raw_msg = map_window_message_to_main_menu(msg);
+                            if raw_msg == 0 {
+                                return WindowMsgHandled::Ignored;
+                            }
+                            if menu.input(window.get_id() as u32, raw_msg, data1, data2, effects) {
+                                WindowMsgHandled::Handled
+                            } else {
+                                WindowMsgHandled::Ignored
+                            }
+                        },
+                    );
                 }
                 "SinglePlayerMenuInput" => {
-                    window.set_input_callback(|window, msg, data1, data2| {
-                        with_single_player_menu(|menu| menu.input(window, msg, data1, data2))
-                    });
+                    window.set_input_callback_with_message_sink(
+                        |window, msg, data1, data2, effects| {
+                            with_single_player_menu(|menu| {
+                                menu.input_with_effects(window, msg, data1, data2, effects)
+                            })
+                        },
+                    );
                 }
                 "OptionsMenuInput" => {
                     window.set_input_callback(|window, msg, data1, data2| {
@@ -1065,9 +1194,13 @@ impl WindowManager {
                     });
                 }
                 "MapSelectMenuInput" => {
-                    window.set_input_callback(|window, msg, data1, data2| {
-                        with_map_select_menu(|menu| menu.input(window, msg, data1, data2))
-                    });
+                    window.set_input_callback_with_message_sink(
+                        |window, msg, data1, data2, effects| {
+                            with_map_select_menu(|menu| {
+                                menu.input_with_effects(window, msg, data1, data2, effects)
+                            })
+                        },
+                    );
                 }
                 "CreditsMenuInput" => {
                     window.set_input_callback(|window, msg, data1, data2| {
@@ -1090,9 +1223,11 @@ impl WindowManager {
                     });
                 }
                 "InGamePopupMessageInput" => {
-                    window.set_input_callback(|window, msg, data1, data2| {
-                        in_game_popup_message_input(window, msg, data1, data2)
-                    });
+                    window.set_input_callback_with_message_sink(
+                        |window, msg, data1, data2, effects| {
+                            in_game_popup_message_input(window, msg, data1, data2, effects)
+                        },
+                    );
                 }
                 "PopupCommunicatorInput" => {
                     window.set_input_callback(|window, msg, data1, data2| {
@@ -1135,14 +1270,18 @@ impl WindowManager {
                     });
                 }
                 "ChallengeMenuInput" => {
-                    window.set_input_callback(|window, msg, data1, data2| {
-                        challenge_menu_input(window, msg, data1, data2)
-                    });
+                    window.set_input_callback_with_message_sink(
+                        |window, msg, data1, data2, effects| {
+                            challenge_menu_input(window, msg, data1, data2, effects)
+                        },
+                    );
                 }
                 "DifficultySelectInput" => {
-                    window.set_input_callback(|window, msg, data1, data2| {
-                        difficulty_select_input(window, msg, data1, data2)
-                    });
+                    window.set_input_callback_with_message_sink(
+                        |window, msg, data1, data2, effects| {
+                            difficulty_select_input(window, msg, data1, data2, effects)
+                        },
+                    );
                 }
                 "KeyboardOptionsMenuInput" => {
                     window.set_input_callback(|window, msg, data1, data2| {
@@ -1155,9 +1294,11 @@ impl WindowManager {
                     });
                 }
                 "ScoreScreenInput" => {
-                    window.set_input_callback(|window, msg, data1, data2| {
-                        score_screen_input(window, msg, data1, data2)
-                    });
+                    window.set_input_callback_with_message_sink(
+                        |window, msg, data1, data2, effects| {
+                            score_screen_input(window, msg, data1, data2, effects)
+                        },
+                    );
                 }
                 "SkirmishMapSelectMenuInput" => {
                     window.set_input_callback(|window, msg, data1, data2| {

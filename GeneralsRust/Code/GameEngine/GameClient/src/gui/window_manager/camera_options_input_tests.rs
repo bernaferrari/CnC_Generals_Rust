@@ -106,6 +106,9 @@ fn click_options(
         game_ending: false,
         tooltips_disabled: false,
         cursor_mouse: None,
+        emitted_messages: None,
+            campaign_manager: None,
+            window_manager_owner: None,
     };
     for message in [WindowMessage::LeftDown, WindowMessage::LeftUp] {
         assert_eq!(
@@ -279,6 +282,7 @@ fn actual_quit_and_no_save_options_buttons_select_borrowed_camera_admission() {
                 true,
                 false,
                 false,
+                None,
             );
         assert!(down.is_none());
         let (_, up) = button
@@ -290,6 +294,7 @@ fn actual_quit_and_no_save_options_buttons_select_borrowed_camera_admission() {
                 true,
                 false,
                 false,
+                None,
             );
         let up = up.expect("actual push button must produce the selected pause Options action");
         assert!(matches!(up.action, SelectedOwnerAction::ShowQuitOptions));

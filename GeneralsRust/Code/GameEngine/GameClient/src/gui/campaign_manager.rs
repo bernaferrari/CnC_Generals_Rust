@@ -185,6 +185,7 @@ pub struct CampaignManager {
     campaign_list: Vec<Campaign>,
     current_campaign: Option<usize>,
     current_mission: Option<usize>,
+    challenge_game_info: Option<game_network::SkirmishGameInfo>,
     victorious: bool,
     current_rank_points: i32,
     difficulty: GameDifficulty,
@@ -203,6 +204,7 @@ impl CampaignManager {
             campaign_list: Vec::new(),
             current_campaign: None,
             current_mission: None,
+            challenge_game_info: None,
             victorious: false,
             current_rank_points: 0,
             difficulty: GameDifficulty::Normal,
@@ -214,6 +216,7 @@ impl CampaignManager {
     /// Matches C++ CampaignManager::init() which calls:
     ///   ini.load( AsciiString( "Data\\INI\\Campaign.ini" ), INI_LOAD_OVERWRITE, NULL );
     pub fn init(&mut self) {
+        self.challenge_game_info = None;
         init_campaign_store();
 
         let sources = discover_campaign_ini_files();
@@ -359,6 +362,9 @@ impl CampaignManager {
         for (idx, campaign) in self.campaign_list.iter().enumerate() {
             if campaign.name == name_lower {
                 self.current_campaign = Some(idx);
+                if !campaign.is_challenge_campaign {
+                    self.challenge_game_info = None;
+                }
 
                 if !campaign.first_mission.is_empty() {
                     let first_lower = campaign.first_mission.to_lowercase();
@@ -378,6 +384,7 @@ impl CampaignManager {
         self.current_mission = None;
         self.current_rank_points = 0;
         self.difficulty = GameDifficulty::Normal;
+        self.challenge_game_info = None;
     }
 
     pub fn new_campaign(&mut self, name: String) -> &mut Campaign {
@@ -387,6 +394,12 @@ impl CampaignManager {
 
         self.campaign_list.push(Campaign::with_name(name_lower));
         self.campaign_list.last_mut().unwrap()
+    }
+
+    /// Current session classification used when Main admits Challenge starts or restarts.
+    pub fn is_current_challenge(&self) -> bool {
+        self.get_current_campaign()
+            .is_some_and(Campaign::is_challenge_campaign)
     }
 
     pub fn get_current_campaign(&self) -> Option<&Campaign> {
@@ -497,6 +510,36 @@ impl CampaignManager {
         self.xfer_challenge_generals_player_template_num
     }
 
+    pub fn challenge_game_info(&self) -> Option<&game_network::SkirmishGameInfo> {
+        self.challenge_game_info.as_ref()
+    }
+
+    pub fn challenge_game_info_mut(&mut self) -> Option<&mut game_network::SkirmishGameInfo> {
+        self.challenge_game_info.as_mut()
+    }
+
+    pub fn init_challenge_game_info(&mut self) {
+        crate::gui::challenge_game_info::init_challenge_game_info(&mut self.challenge_game_info);
+    }
+
+    pub fn clear_challenge_game_info(&mut self) {
+        crate::gui::challenge_game_info::clear_challenge_game_info(&mut self.challenge_game_info);
+    }
+
+    pub fn set_challenge_slot0_and_map(
+        &mut self,
+        map: String,
+        display_name: String,
+        template_num: i32,
+    ) {
+        crate::gui::challenge_game_info::set_challenge_slot0_and_map(
+            &mut self.challenge_game_info,
+            map,
+            display_name,
+            template_num,
+        );
+    }
+
     /// C++ `CampaignManager::xfer` fields written inside `GameLogic::xfer`.
     pub fn capture_logic_chunk_state(&self) -> game_engine::System::CampaignManagerXferState {
         let campaign = self
@@ -512,24 +555,79 @@ impl CampaignManager {
             .map(|campaign| campaign.is_challenge_campaign)
             .unwrap_or(false);
         let challenge_info = if is_challenge {
-            Some(crate::gui::challenge_game_info::snapshot_challenge_game_info())
+            Some(
+                crate::gui::challenge_game_info::snapshot_challenge_game_info(
+                    self.challenge_game_info.as_ref(),
+                ),
+            )
         } else {
             None
         };
-        // C++ v5 always reads the live ChallengeGenerals singleton.
-        let generals_template = crate::gui::challenge_generals::get_challenge_generals()
-            .and_then(|m| m.lock().ok())
-            .map(|g| g.current_player_template_num())
-            .unwrap_or(self.xfer_challenge_generals_player_template_num);
+        // The challenge template is retained on this receiving manager when
+        // selection is admitted; capture must not sample another session.
+        let generals_template = self.xfer_challenge_generals_player_template_num;
+        let campaign_label = self
+            .get_current_campaign()
+            .map(|campaign| campaign.campaign_name_label.clone())
+            .unwrap_or_default();
         game_engine::System::CampaignManagerXferState {
             campaign,
+            campaign_label,
             mission,
+            mission_number: self.get_current_mission_number(),
             rank_points: self.current_rank_points,
             difficulty: self.difficulty as i32,
             is_challenge,
             challenge_info,
             generals_template,
         }
+    }
+
+    /// Validate an archived campaign payload against this receiving client's
+    /// campaign definitions before any live world commit. Applying a validated
+    /// payload below is then infallible at the admission boundary.
+    pub fn validate_logic_chunk_state(
+        &self,
+        state: &game_engine::System::CampaignManagerXferState,
+    ) -> Result<(), String> {
+        if state.campaign.trim().is_empty() {
+            if state.mission.trim().is_empty() && !state.is_challenge {
+                return Ok(());
+            }
+            return Err("campaign payload has mission state without a campaign".into());
+        }
+        let campaign_name = state.campaign.to_lowercase();
+        let campaign = self
+            .campaign_list
+            .iter()
+            .find(|campaign| campaign.name == campaign_name)
+            .ok_or_else(|| {
+                format!(
+                    "campaign '{}' is unavailable to the receiving client",
+                    state.campaign
+                )
+            })?;
+        if !state.mission.trim().is_empty()
+            && !campaign
+                .missions
+                .iter()
+                .any(|mission| mission.name == state.mission.to_lowercase())
+        {
+            return Err(format!(
+                "mission '{}' is unavailable in campaign '{}'",
+                state.mission, state.campaign
+            ));
+        }
+        if state.is_challenge != campaign.is_challenge_campaign {
+            return Err(format!(
+                "campaign '{}' challenge classification does not match receiving definitions",
+                state.campaign
+            ));
+        }
+        if state.is_challenge && state.challenge_info.is_none() {
+            return Err("challenge campaign payload is missing challenge game info".into());
+        }
+        Ok(())
     }
 
     /// Apply `GameLogic::xfer`'s CampaignManager snapshot after load.
@@ -546,12 +644,19 @@ impl CampaignManager {
         };
         if state.is_challenge {
             if let Some(info) = state.challenge_info {
-                crate::gui::challenge_game_info::restore_challenge_game_info(info);
+                crate::gui::challenge_game_info::restore_challenge_game_info(
+                    &mut self.challenge_game_info,
+                    info,
+                );
             } else {
-                crate::gui::challenge_game_info::ensure_challenge_game_info();
+                crate::gui::challenge_game_info::ensure_challenge_game_info(
+                    &mut self.challenge_game_info,
+                );
             }
         } else {
-            crate::gui::challenge_game_info::clear_challenge_game_info();
+            crate::gui::challenge_game_info::clear_challenge_game_info(
+                &mut self.challenge_game_info,
+            );
         }
         self.xfer_challenge_generals_player_template_num = state.generals_template;
         self.load_post_process();
@@ -598,24 +703,31 @@ impl CampaignManager {
             xfer.xfer_bool(&mut is_challenge)?;
             if is_challenge {
                 if xfer.is_loading() {
-                    crate::gui::challenge_game_info::ensure_challenge_game_info();
+                    crate::gui::challenge_game_info::ensure_challenge_game_info(
+                        &mut self.challenge_game_info,
+                    );
                 }
-                let mut info = crate::gui::challenge_game_info::snapshot_challenge_game_info();
+                let mut info = crate::gui::challenge_game_info::snapshot_challenge_game_info(
+                    self.challenge_game_info.as_ref(),
+                );
                 xfer.xfer_challenge_game_info(&mut info)?;
                 if xfer.is_loading() {
-                    crate::gui::challenge_game_info::restore_challenge_game_info(info);
+                    crate::gui::challenge_game_info::restore_challenge_game_info(
+                        &mut self.challenge_game_info,
+                        info,
+                    );
                 }
             } else if xfer.is_loading() {
-                crate::gui::challenge_game_info::clear_challenge_game_info();
+                crate::gui::challenge_game_info::clear_challenge_game_info(
+                    &mut self.challenge_game_info,
+                );
             }
         }
 
         if version >= 5 {
-            // C++ always reads the live singleton, then stores into the xfer field.
-            let mut player_template_num = crate::gui::challenge_generals::get_challenge_generals()
-                .and_then(|m| m.lock().ok())
-                .map(|g| g.current_player_template_num())
-                .unwrap_or(self.xfer_challenge_generals_player_template_num);
+            // The receiving CampaignManager owns the selected Challenge
+            // template; never sample a process-global ChallengeGenerals slot.
+            let mut player_template_num = self.xfer_challenge_generals_player_template_num;
             xfer.xfer_int(&mut player_template_num)?;
             self.xfer_challenge_generals_player_template_num = player_template_num;
         }
@@ -762,11 +874,16 @@ fn push_ini_file(files: &mut Vec<PathBuf>, seen: &mut HashSet<PathBuf>, path: Pa
     }
 }
 
-static CAMPAIGN_MANAGER: std::sync::OnceLock<std::sync::Mutex<CampaignManager>> =
+#[cfg(test)]
+static CAMPAIGN_MANAGER_TEST_FIXTURE: std::sync::OnceLock<std::sync::Mutex<CampaignManager>> =
     std::sync::OnceLock::new();
 
+/// Compatibility fixture for legacy tests only. Production callers borrow the
+/// receiving `GameClient`'s manager directly.
+#[cfg(test)]
 pub fn get_campaign_manager() -> std::sync::MutexGuard<'static, CampaignManager> {
-    let lock = CAMPAIGN_MANAGER.get_or_init(|| std::sync::Mutex::new(CampaignManager::new()));
+    let lock =
+        CAMPAIGN_MANAGER_TEST_FIXTURE.get_or_init(|| std::sync::Mutex::new(CampaignManager::new()));
     lock.lock().unwrap_or_else(|e| e.into_inner())
 }
 

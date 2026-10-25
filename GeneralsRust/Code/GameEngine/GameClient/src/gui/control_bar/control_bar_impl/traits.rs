@@ -21,6 +21,7 @@ impl SubsystemInterface for ControlBar {
 
     fn reset(&mut self) -> Result<(), Box<dyn Error>> {
         log::info!("Resetting Control Bar");
+        self.discard_pending_command_clicks();
         crate::gui::gui_callbacks::control_bar_popup_description::reset_build_tooltip_layout_owned(
             &mut self.tooltip,
         );

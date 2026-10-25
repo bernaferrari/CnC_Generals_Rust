@@ -981,101 +981,114 @@ impl ControlBar {
     // ---------------------------------------------------------------------------
 
     /// C++ ControlBar::processContextSensitiveButtonClick → processCommandUI.
-    pub fn process_context_sensitive_button_click(&mut self, control_id: u32, _msg: u32) {
-        let command_name = with_window_manager(|wm| {
-            wm.get_window_by_id(control_id as crate::gui::WindowId)
-                .and_then(|win| {
-                    let win = win.borrow();
-                    if let Some(cmd) = win.get_user_data::<CommandButton>() {
-                        return Some(cmd.command_name.clone());
-                    }
-                    if let Some(name) = win.get_user_data::<String>() {
-                        return Some(name.clone());
-                    }
-                    win.get_user_data::<IniCommandButton>()
-                        .map(|button| button.name.clone())
-                })
-        });
-        let mut queue_slot = None;
-        with_window_manager(|wm| {
-            for i in 0..MAX_BUILD_QUEUE_BUTTONS {
-                let name = format!("ControlBar.wnd:ButtonQueue{:02}", i + 1);
-                if let Some(win) = wm.find_window_by_name(&name) {
-                    if win.borrow().get_id() as u32 == control_id {
-                        queue_slot = Some(i);
-                        return;
-                    }
-                }
+    pub fn process_context_sensitive_button_click(
+        &mut self,
+        click: crate::helpers::LiveControlBarClick,
+        window_manager_owner: &crate::gui::window_manager::WindowManagerOwner,
+        emitted_messages: &mut Vec<crate::message_stream::game_message::GameMessage>,
+    ) -> bool {
+        let Some(resolved) = window_manager_owner.try_with_manager_ref(|manager| {
+            let Some(target) = click.target.as_ref().and_then(std::rc::Weak::upgrade) else {
+                return None;
+            };
+            let Some(registered) =
+                manager.get_window_by_id(click.control_id as crate::gui::WindowId)
+            else {
+                return None;
+            };
+            if !std::rc::Rc::ptr_eq(&target, &registered) {
+                return None;
             }
-        });
+            let window = registered.borrow();
+            if window
+                .get_status()
+                .contains(crate::gui::WindowStatus::DESTROYED)
+            {
+                return None;
+            }
+            let command_name = window
+                .get_user_data::<CommandButton>()
+                .map(|button| button.command_name.clone())
+                .or_else(|| window.get_user_data::<String>().cloned())
+                .or_else(|| {
+                    window
+                        .get_user_data::<IniCommandButton>()
+                        .map(|button| button.name.clone())
+                });
+            Some((window.get_name().to_owned(), command_name))
+        }) else {
+            panic!("receiving WindowManager must be released before ControlBar callback replay");
+        };
+        let Some((target_name, command_name)) = resolved else {
+            return true;
+        };
+        let queue_slot = target_name
+            .strip_prefix("ControlBar.wnd:ButtonQueue")
+            .and_then(|suffix| suffix.parse::<usize>().ok())
+            .and_then(|slot| slot.checked_sub(1));
         if let Some(i) = queue_slot {
-            // C++ processCommand: only cancel a filled m_queueData slot.
             if i < self.build_queue_data.len() {
                 if let Ok(ctx) = self.context.read() {
-                    let _ = self.cancel_build_queue_item(i, &ctx);
+                    let _ = self.cancel_build_queue_item(i, &ctx, emitted_messages);
                 }
             }
-            return;
+            return true;
         }
-        if let Some(command_name) = command_name {
-            if command_name.is_empty() {
-                return;
-            }
-            let mut slot = None;
-            with_window_manager(|wm| {
-                for i in 0..14 {
-                    let name = format!("ControlBar.wnd:ButtonCommand{:02}", i + 1);
-                    if let Some(win) = wm.find_window_by_name(&name) {
-                        if win.borrow().get_id() as u32 == control_id {
-                            slot = Some(i);
-                            return;
-                        }
-                    }
-                }
+        let Some(command_name) = command_name.filter(|name| !name.is_empty()) else {
+            return true;
+        };
+        let slot = target_name
+            .strip_prefix("ControlBar.wnd:ButtonCommand")
+            .and_then(|suffix| suffix.parse::<usize>().ok())
+            .and_then(|slot| slot.checked_sub(1));
+        let slot_button = self
+            .context
+            .read()
+            .ok()
+            .and_then(|ctx| slot.and_then(|i| ctx.available_commands.get(i).cloned()));
+        if command_name.eq_ignore_ascii_case("Command_StructureExit")
+            || slot_button
+                .as_ref()
+                .is_some_and(|button| button.command_type == CommandType::Exit)
+        {
+            let occupant = slot.and_then(|i| {
+                self.context
+                    .read()
+                    .ok()
+                    .and_then(|ctx| ctx.contain_data.get(i).copied().flatten())
             });
-            let slot_button = self
-                .context
-                .read()
-                .ok()
-                .and_then(|ctx| slot.and_then(|i| ctx.available_commands.get(i).cloned()));
-            if command_name.eq_ignore_ascii_case("Command_StructureExit")
-                || slot_button
-                    .as_ref()
-                    .is_some_and(|button| button.command_type == CommandType::Exit)
-            {
-                let occupant = slot.and_then(|i| {
-                    self.context
-                        .read()
-                        .ok()
-                        .and_then(|ctx| ctx.contain_data.get(i).copied().flatten())
-                });
-                if occupant.is_none() {
-                    return;
-                }
-                if let Some(i) = slot {
-                    let button = self
-                        .context
-                        .read()
-                        .ok()
-                        .and_then(|ctx| ctx.available_commands.get(i).cloned());
-                    if let Some(mut button) = button {
-                        button.exit_object_id = occupant;
-                        let source = CommandSourceType::FromUser;
-                        if let Ok(ctx) = self.context.read() {
-                            let _ = self.execute_command(&button, source, &ctx);
-                        }
-                        return;
+            let Some(occupant) = occupant else {
+                return true;
+            };
+            if let Some(i) = slot {
+                let button = self
+                    .context
+                    .read()
+                    .ok()
+                    .and_then(|ctx| ctx.available_commands.get(i).cloned());
+                if let Some(mut button) = button {
+                    button.exit_object_id = Some(occupant);
+                    if let Ok(ctx) = self.context.read() {
+                        let _ = self.execute_command(
+                            &button,
+                            CommandSourceType::FromUser,
+                            &ctx,
+                            emitted_messages,
+                        );
                     }
+                    return true;
                 }
             }
-            let _ = self.process_command(&command_name, CommandSourceType::FromUser);
         }
+        let _ = self.process_command(&command_name, CommandSourceType::FromUser, emitted_messages);
+        true
     }
 
     pub fn process_command(
         &mut self,
         command_name: &str,
         source: CommandSourceType,
+        emitted_messages: &mut Vec<crate::message_stream::game_message::GameMessage>,
     ) -> Result<bool, Box<dyn std::error::Error>> {
         let context = self
             .context
@@ -1097,12 +1110,12 @@ impl ControlBar {
                 return Ok(false);
             }
 
-            self.execute_command(button, source, &context)?;
+            self.execute_command(button, source, &context, emitted_messages)?;
             Ok(true)
         } else if let Some(button) = Self::leftover_lookup_command_button(command_name) {
             // C++ processCommandUI uses GadgetButtonGetData (setControlCommand).
             // Purchase-science cameos are not in the 14-slot available_commands.
-            self.execute_command(&button, source, &context)?;
+            self.execute_command(&button, source, &context, emitted_messages)?;
             Ok(true)
         } else {
             Ok(false)
@@ -1114,6 +1127,7 @@ impl ControlBar {
         button: &CommandButton,
         source: CommandSourceType,
         context: &ControlBarContext,
+        emitted_messages: &mut Vec<crate::message_stream::game_message::GameMessage>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         // C++ processCommandUI plays UnitSpecificSound before dispatch.
         crate::gui::control_bar::commands::play_command_button_unit_specific_sound(button);
@@ -1126,7 +1140,7 @@ impl ControlBar {
         }
 
         if Self::command_needs_target(button.options) {
-            self.enter_targeting_mode(button, context)?;
+            self.enter_targeting_mode(button, context, emitted_messages)?;
             return Ok(());
         }
 
@@ -1136,7 +1150,7 @@ impl ControlBar {
         }
 
         if button.command_type == CommandType::MetaSelectMatchingUnits {
-            self.select_all_units_of_type(button, context)?;
+            self.select_all_units_of_type(button, context, emitted_messages)?;
             return Ok(());
         }
 
@@ -1146,11 +1160,11 @@ impl ControlBar {
         }
 
         if !button.object.is_empty() {
-            self.execute_production_command(button, context, source)?;
+            self.execute_production_command(button, context, source, emitted_messages)?;
         } else if !button.special_power.is_empty() {
-            self.execute_special_power_command(button, context, source)?;
+            self.execute_special_power_command(button, context, source, emitted_messages)?;
         } else {
-            self.execute_direct_command(button, context, source)?;
+            self.execute_direct_command(button, context, source, emitted_messages)?;
         }
 
         Ok(())

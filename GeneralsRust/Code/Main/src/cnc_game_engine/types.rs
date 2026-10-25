@@ -356,15 +356,19 @@ pub(super) fn device_button_to_mouse(button: u32) -> Option<MouseButton> {
     }
 }
 
-pub(super) fn update_iconic_state_and_wake_audio(window: &Window, minimized: &mut bool) {
+pub(super) fn update_iconic_state_and_wake_audio(
+    window: &Window,
+    minimized: &mut bool,
+    manager: &mut crate::subsystem_manager::SubsystemManager,
+) {
     let was_minimized = *minimized;
     *minimized = query_window_is_iconic(window, *minimized);
 
     if was_minimized && !*minimized {
         info!("Window exited iconic/minimized state");
-        with_subsystem_mut::<AudioManagerSubsystem, _>(|audio| {
+        if let Some(audio) = manager.get_mut::<AudioManagerSubsystem>() {
             audio.wake_after_iconic_return();
-        });
+        }
     } else if !was_minimized && *minimized {
         info!("Window entered iconic/minimized state");
     }
@@ -614,6 +618,9 @@ pub(super) struct HostStartRequest {
     pub(super) skirmish: Option<crate::skirmish_config::SkirmishMatchConfig>,
     pub(super) player_template: Option<crate::game_logic::PlayerTemplateIdentity>,
     pub(super) game_info_starting_cash: Option<u32>,
+    /// Validated campaign descriptor mode; carried through Loading to GameLogic.
+    pub(super) is_campaign_session: bool,
+    pub(super) is_challenge_session: bool,
     pub(super) difficulty_code: Option<i32>,
     /// Actual MSG_NEW_GAME fields retained through Loading; never recover rank/FPS from a prior match.
     pub(super) recorder_dispatch: Option<StartupNewGameDispatch>,
@@ -633,6 +640,8 @@ impl HostStartRequest {
             skirmish,
             player_template: None,
             game_info_starting_cash: None,
+            is_campaign_session: false,
+            is_challenge_session: false,
             difficulty_code: None,
             recorder_dispatch: None,
         }
@@ -652,6 +661,8 @@ impl HostStartRequest {
             skirmish,
             player_template: Some(player_template),
             game_info_starting_cash: None,
+            is_campaign_session: false,
+            is_challenge_session: false,
             difficulty_code: None,
             recorder_dispatch: None,
         }
@@ -683,6 +694,8 @@ pub(super) struct CampaignLaunchStartOverrides {
     pub(super) faction: Option<String>,
     pub(super) player_template: Option<crate::game_logic::PlayerTemplateIdentity>,
     pub(super) game_info_starting_cash: Option<u32>,
+    pub(super) is_campaign_session: bool,
+    pub(super) is_challenge_session: bool,
 }
 
 /// Parsed `FIRE_WEAPON` data retained while the player chooses a target.
@@ -1014,6 +1027,8 @@ pub struct CnCGameEngine {
     /// Application archive service shared with actual loading workers. Mutable
     /// match state never belongs to this service.
     pub(crate) application_assets: Arc<std::sync::Mutex<crate::assets::manager::AssetManager>>,
+    /// Native subsystems share this engine's lifetime and are updated in C++ order.
+    pub(crate) subsystem_manager: crate::subsystem_manager::SubsystemManager,
     pub(crate) camera_rule_base: game_engine::common::ini::ini_game_data::CameraContentRules,
     pub(crate) window: Arc<Window>,
     #[allow(dead_code)] // C++ parity: stored for future command-line query access
@@ -1025,6 +1040,10 @@ pub struct CnCGameEngine {
 
     // Platform message handling
     pub(crate) message_processor: WindowMessageProcessor,
+    /// Mirrors the message processor's focus transition so subsystem callbacks
+    /// remain transition-triggered while their manager stays engine-owned.
+    pub(crate) subsystem_app_active: bool,
+    pub(crate) subsystem_audio_has_focus: bool,
 
     // Audio system
     #[allow(dead_code)] // C++ parity: audio stream handle kept alive to prevent drop

@@ -589,7 +589,18 @@ impl GameLogic {
     /// (setBattlePlan NONE + paralyze). Recenter residual may delay pack.
     /// While recentering, steps Strategy Center turret pitch/yaw toward natural.
     /// Also ticks TurretAI idle-scan residual for Bombardment ACTIVE centers.
-    pub(in super::super) fn tick_battle_plan_door_residuals(&mut self) {
+    pub(in super::super) fn tick_battle_plan_door_residuals(
+        &mut self,
+    ) -> gamelogic::GameLogicResult<()> {
+        self.tick_battle_plan_door_residuals_with_effects(
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(in super::super) fn tick_battle_plan_door_residuals_with_effects(
+        &mut self,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<()> {
         use crate::game_logic::host_strategy_center::{
             HostBattlePlanDoorEvent, step_turret_toward_natural,
         };
@@ -618,7 +629,7 @@ impl GameLogic {
         // TurretAI idle-scan residual (Bombardment ACTIVE, idle gun).
         self.tick_strategy_center_turret_idle_scan();
         // TurretAI idle mood-target residual (friend_checkForIdleMoodTarget).
-        self.tick_strategy_center_turret_mood_target();
+        self.tick_strategy_center_turret_mood_target(presentation_effects)?;
 
         let frame = self.frame;
         let events = self.battle_plans.tick_door_residuals(frame);
@@ -678,6 +689,7 @@ impl GameLogic {
             }
         }
         self.stamp_battle_plan_door_model_conditions();
+        Ok(())
     }
 
     /// C++ BattlePlanUpdate::setStatus door OPENING/CLOSING/WAITING_TO_CLOSE.

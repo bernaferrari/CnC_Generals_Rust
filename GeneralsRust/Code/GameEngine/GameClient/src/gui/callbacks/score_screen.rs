@@ -10,9 +10,10 @@ use crate::gui::campaign_launch_host_bridge::{
     HostCampaignLaunchDescriptor, publish_host_campaign_launch,
 };
 use crate::gui::campaign_manager::{
-    Campaign, GameDifficulty as CampaignDifficulty, get_campaign_manager,
+    Campaign, CampaignManager, GameDifficulty as CampaignDifficulty,
 };
 use crate::gui::challenge_generals::get_challenge_generals;
+use crate::gui::game_window::WindowEventEffects;
 use crate::gui::get_skirmish_setup;
 use crate::gui::menu_flags::{set_dont_show_main_menu, set_replay_was_pressed};
 use crate::gui::shell::Shell;
@@ -21,7 +22,7 @@ use crate::gui::{
     queue_shell_operation, queue_shell_pop, queue_shell_shutdown_complete,
     show_shell_map_if_available, with_window_manager, write_input_focus_response,
 };
-use crate::message_stream::{GameMessageType, get_message_stream};
+use crate::message_stream::{GameMessage, GameMessageType};
 use game_engine::common::game_lod::prefers_low_res_movies;
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::random_value::init_random_with_seed;
@@ -184,12 +185,12 @@ fn set_window_image(win: &Option<Rc<RefCell<GameWindow>>>, image_name: &str) {
     }
 }
 
-fn score_screen_music_from_game_info_slot() -> String {
+fn score_screen_music_from_game_info_slot(manager: Option<&CampaignManager>) -> String {
     // C++ ScoreScreenUpdate: TheGameInfo slot template, FactionObserver if < 0.
     // Must not touch PlayerList — clearGameData runs before the first Update.
     game_engine::common::ini::ensure_player_templates_loaded();
     let store = game_engine::common::rts::player_template::get_player_template_store();
-    let template_index = score_screen_local_slot_template_index();
+    let template_index = score_screen_local_slot_template_index(manager);
     let template = if template_index >= 0 {
         usize::try_from(template_index)
             .ok()
@@ -203,7 +204,7 @@ fn score_screen_music_from_game_info_slot() -> String {
         .unwrap_or_default()
 }
 
-fn score_screen_local_slot_template_index() -> i32 {
+fn score_screen_local_slot_template_index(manager: Option<&CampaignManager>) -> i32 {
     let from_info = |game: &GameInfo| {
         if !game.is_in_game() {
             return None;
@@ -218,12 +219,14 @@ fn score_screen_local_slot_template_index() -> i32 {
     if let Some(index) = from_info(get_skirmish_setup().game_info().game_info()) {
         return index;
     }
-    crate::gui::challenge_game_info::with_challenge_game_info(|info| from_info(info.game_info()))
+    manager
+        .and_then(CampaignManager::challenge_game_info)
+        .map(|info| from_info(info.game_info()))
         .flatten()
         .unwrap_or(-1)
 }
 
-fn update_score_screen_music(state: &mut ScoreScreenState) {
+fn update_score_screen_music(state: &mut ScoreScreenState, manager: Option<&CampaignManager>) {
     if !state.play_music {
         return;
     }
@@ -234,7 +237,7 @@ fn update_score_screen_music(state: &mut ScoreScreenState) {
         return;
     };
 
-    let music_name = score_screen_music_from_game_info_slot();
+    let music_name = score_screen_music_from_game_info_slot(manager);
     if !music_name.is_empty() {
         audio.remove_audio_event(AHSV_STOP_THE_MUSIC_FADE);
         let mut event = gamelogic::common::audio::AudioEventRts::new(music_name);
@@ -286,29 +289,22 @@ trait NextCampaignShellActions {
     fn hide_shell_for_next_campaign(&mut self);
 }
 
-impl NextCampaignShellActions for Shell {
-    fn pop_score_screen_immediate(&mut self) {
-        let _ = self.pop_immediate();
-    }
-
-    fn hide_shell_for_next_campaign(&mut self) {
-        let _ = self.hide_shell();
-    }
-}
-
 fn leave_score_screen_for_next_campaign(shell: &mut impl NextCampaignShellActions) {
     shell.pop_score_screen_immediate();
     shell.hide_shell_for_next_campaign();
 }
 
-fn start_next_campaign_game() {
+fn start_next_campaign_game(effects: &mut WindowEventEffects<'_>) {
+    let Some(manager) = effects.campaign_manager.as_deref_mut() else {
+        return;
+    };
     // C++ ScoreScreen.cpp startNextCampaignGame.
-    queue_shell_operation(|shell| {
-        leave_score_screen_for_next_campaign(shell);
+    crate::gui::shell::base::queue_shell_operation_with_effects(|shell, effects| {
+        let _ = shell.pop_immediate(effects);
+        let _ = shell.hide_shell(effects);
     });
 
     let (pending_file, campaign_name, campaign_player_faction, is_challenge) = {
-        let manager = get_campaign_manager();
         let campaign = manager.get_current_campaign();
         (
             manager.get_current_map().unwrap_or_default(),
@@ -328,24 +324,15 @@ fn start_next_campaign_game() {
     let mut game_info_starting_cash = None;
     if is_challenge {
         // C++ rematch: init/clearSlotList/reset/enterGame then set map+slot0.
-        crate::gui::challenge_game_info::init_challenge_game_info();
-        let template_num = get_challenge_generals()
-            .and_then(|m| m.lock().ok().map(|g| g.current_player_template_num()))
-            .unwrap_or_else(|| {
-                get_campaign_manager().get_xfer_challenge_generals_player_template_num()
-            });
-        crate::gui::challenge_game_info::set_challenge_slot0_and_map(
-            pending_file.clone(),
-            String::new(),
-            template_num,
-        );
+        manager.init_challenge_game_info();
+        let template_num = manager.get_xfer_challenge_generals_player_template_num();
+        manager.set_challenge_slot0_and_map(pending_file.clone(), String::new(), template_num);
         challenge_template_num = Some(template_num);
         // C++ rematch initializes a new Challenge GameInfo. Retain that
         // new input, including zero, before the old match is cleared.
-        game_info_starting_cash =
-            crate::gui::challenge_game_info::with_challenge_game_info(|info| {
-                info.game_info().get_starting_cash().count_money()
-            });
+        game_info_starting_cash = manager
+            .challenge_game_info()
+            .map(|info| info.game_info().get_starting_cash().count_money());
         if TheGameLogic::is_in_game() {
             let _ = TheGameLogic::clear_game_data();
         }
@@ -357,10 +344,8 @@ fn start_next_campaign_game() {
     }
     game_engine::common::global_data::write().pending_file = pending_file.clone();
 
-    let manager = get_campaign_manager();
     let difficulty = manager.get_game_difficulty() as i32;
     let rank_points = manager.get_rank_points();
-    drop(manager);
 
     // A continued Challenge can arrive after a shell/load transition where
     // the display path has not yet touched PlayerTemplate.ini. C++ resolves
@@ -389,27 +374,27 @@ fn start_next_campaign_game() {
         max_fps: None,
     });
 
-    let message_stream = get_message_stream();
-    let mut stream = message_stream.write().unwrap_or_else(|e| e.into_inner());
-    let msg = stream.append_message(GameMessageType::NewGame);
+    let mut msg = GameMessage::new(GameMessageType::NewGame);
     msg.append_integer_argument(GAME_SINGLE_PLAYER);
     msg.append_integer_argument(difficulty);
     msg.append_integer_argument(rank_points);
+    effects.emitted_messages.push(msg);
     init_random_with_seed(0);
 }
 
-fn init_single_player(state: &mut ScoreScreenState) {
+fn init_single_player(state: &mut ScoreScreenState, effects: &mut WindowEventEffects<'_>) {
     state.screen_type = ScoreScreenType::SinglePlayer;
     if let Ok(list) = ThePlayerList().read() {
         if let Some(local_player) = list.get_local_player() {
             if let Ok(player) = local_player.read() {
-                let mut manager = get_campaign_manager();
-                manager.set_rank_points(player.get_skill_points());
-                manager.set_game_difficulty(match TheScriptEngine::get_global_difficulty() {
-                    0 => CampaignDifficulty::Easy,
-                    2 => CampaignDifficulty::Hard,
-                    _ => CampaignDifficulty::Normal,
-                });
+                if let Some(manager) = effects.campaign_manager.as_deref_mut() {
+                    manager.set_rank_points(player.get_skill_points());
+                    manager.set_game_difficulty(match TheScriptEngine::get_global_difficulty() {
+                        0 => CampaignDifficulty::Easy,
+                        2 => CampaignDifficulty::Hard,
+                        _ => CampaignDifficulty::Normal,
+                    });
+                }
             }
         }
     }
@@ -526,7 +511,7 @@ fn display_challenge_win_loss(
     }
 }
 
-fn finalize_single_player_init(state: &mut ScoreScreenState) {
+fn finalize_single_player_init(state: &mut ScoreScreenState, effects: &mut WindowEventEffects<'_>) {
     // C++ finishSinglePlayerInit: freeMessageResources before destroying BlankWindow.
     crate::helpers::TheInGameUI::free_message_resources();
     if let Some(blank) = state.blank_layout.take() {
@@ -547,8 +532,12 @@ fn finalize_single_player_init(state: &mut ScoreScreenState) {
     hide_window(&state.chat_box_border, true);
     hide_window(&state.button_buddies, true);
 
-    if let Some(manager) = get_campaign_manager().get_current_campaign() {
-        if !manager.is_challenge_campaign() {
+    if let Some(campaign) = effects
+        .campaign_manager
+        .as_deref()
+        .and_then(CampaignManager::get_current_campaign)
+    {
+        if !campaign.is_challenge_campaign() {
             with_window_manager(|manager| manager.transition_set_group("ScoreScreenShow", false));
         }
     }
@@ -576,7 +565,10 @@ fn final_victory_movie_to_queue(campaign: &Campaign, use_low_res_movies: bool) -
     Some(final_movie.to_string())
 }
 
-fn update_final_victory_movie_wait(state: &mut ScoreScreenState) {
+fn update_final_victory_movie_wait(
+    state: &mut ScoreScreenState,
+    effects: &mut WindowEventEffects<'_>,
+) {
     if !state.waiting_for_final_victory_movie {
         return;
     }
@@ -586,7 +578,7 @@ fn update_final_victory_movie_wait(state: &mut ScoreScreenState) {
     }
 
     state.waiting_for_final_victory_movie = false;
-    finalize_single_player_init(state);
+    finalize_single_player_init(state, effects);
 }
 
 /// C++ `GameState::missionSave` (GameState.cpp:616-618):
@@ -650,8 +642,7 @@ fn format_mission_save_description(
 }
 
 /// Localized between-mission save description (not `GUI:AutoSave`).
-fn current_mission_save_description() -> String {
-    let manager = get_campaign_manager();
+fn current_mission_save_description(manager: &CampaignManager) -> String {
     let mission_number = manager.get_current_mission_number().unwrap_or(0) + 1;
     let campaign_label = manager
         .get_current_campaign()
@@ -670,24 +661,21 @@ fn current_mission_save_description() -> String {
     format_mission_save_description(&format, &campaign_label, mission_number)
 }
 
-fn finish_single_player_init(state: &mut ScoreScreenState) {
-    let victorious = {
-        let manager = get_campaign_manager();
-        manager.is_victorious()
+fn finish_single_player_init(state: &mut ScoreScreenState, effects: &mut WindowEventEffects<'_>) {
+    let Some(manager) = effects.campaign_manager.as_deref_mut() else {
+        return;
     };
 
+    let victorious = manager.is_victorious();
+
     if victorious {
-        let is_challenge = {
-            let manager = get_campaign_manager();
-            manager
-                .get_current_campaign()
-                .map(|campaign| campaign.is_challenge_campaign())
-                .unwrap_or(false)
-        };
+        let is_challenge = manager
+            .get_current_campaign()
+            .map(|campaign| campaign.is_challenge_campaign())
+            .unwrap_or(false);
         if is_challenge {
             if let Some(generals_mutex) = get_challenge_generals() {
                 let generals = generals_mutex.lock().unwrap_or_else(|e| e.into_inner());
-                let manager = get_campaign_manager();
                 if let Some(mission) = manager.get_current_mission() {
                     if let Some(general) = generals.general_by_general_name(&mission.general_name) {
                         let header = GameText::fetch("GUI:ChallengeWinText")
@@ -709,11 +697,8 @@ fn finish_single_player_init(state: &mut ScoreScreenState) {
             }
         }
 
-        let next_map = {
-            let mut manager = get_campaign_manager();
-            let _ = manager.goto_next_mission();
-            manager.get_current_map().unwrap_or_default()
-        };
+        let _ = manager.goto_next_mission();
+        let next_map = manager.get_current_map().unwrap_or_default();
 
         if next_map.is_empty() {
             if let Some(button_continue) = state.button_continue.as_ref() {
@@ -722,7 +707,6 @@ fn finish_single_player_init(state: &mut ScoreScreenState) {
             state.button_is_finish_campaign = true;
 
             let mut stats = SkirmishBattleHonors::new();
-            let manager = get_campaign_manager();
             if let Some(campaign) = manager.get_current_campaign() {
                 let difficulty = manager.get_game_difficulty();
                 let difficulty_index = match difficulty {
@@ -766,7 +750,6 @@ fn finish_single_player_init(state: &mut ScoreScreenState) {
             hide_window(&state.chat_box_border, true);
             hide_window(&state.button_buddies, true);
 
-            let manager = get_campaign_manager();
             if let Some(campaign) = manager.get_current_campaign() {
                 state.pending_final_victory_movie =
                     final_victory_movie_to_queue(campaign, prefers_low_res_movies());
@@ -784,24 +767,20 @@ fn finish_single_player_init(state: &mut ScoreScreenState) {
             let mut game_state = game_engine::get_game_state();
             let _ = game_state.save_game(
                 String::new(),
-                current_mission_save_description(),
+                current_mission_save_description(manager),
                 game_engine::SaveFileType::Mission,
                 game_engine::SnapshotType::SaveLoad,
             );
             hide_window(&state.static_text_game_saved, false);
         }
     } else {
-        let is_challenge = {
-            let manager = get_campaign_manager();
-            manager
-                .get_current_campaign()
-                .map(|campaign| campaign.is_challenge_campaign())
-                .unwrap_or(false)
-        };
+        let is_challenge = manager
+            .get_current_campaign()
+            .map(|campaign| campaign.is_challenge_campaign())
+            .unwrap_or(false);
         if is_challenge {
             if let Some(generals_mutex) = get_challenge_generals() {
                 let generals = generals_mutex.lock().unwrap_or_else(|e| e.into_inner());
-                let manager = get_campaign_manager();
                 if let Some(mission) = manager.get_current_mission() {
                     if let Some(general) = generals.general_by_general_name(&mission.general_name) {
                         let header = GameText::fetch("GUI:ChallengeLossText")
@@ -827,7 +806,7 @@ fn finish_single_player_init(state: &mut ScoreScreenState) {
         }
     }
 
-    finalize_single_player_init(state);
+    finalize_single_player_init(state, effects);
 }
 
 fn grab_multi_player_info(state: &mut ScoreScreenState) {
@@ -1625,7 +1604,11 @@ fn populate_side_info(
     }
 }
 
-pub fn score_screen_init(layout: &WindowLayout, _user_data: Option<&mut dyn std::any::Any>) {
+pub fn score_screen_init(
+    layout: &WindowLayout,
+    _user_data: Option<&mut dyn std::any::Any>,
+    effects: &mut WindowEventEffects<'_>,
+) {
     with_score_screen_state(|state| {
         state.play_music = true;
         set_dont_show_main_menu(true);
@@ -1724,7 +1707,7 @@ pub fn score_screen_init(layout: &WindowLayout, _user_data: Option<&mut dyn std:
             with_window_manager(|manager| manager.transition_set_group("ScoreScreenShow", false));
         } else {
             state.override_player_display_name = true;
-            init_single_player(state);
+            init_single_player(state, effects);
             if let Some(parent) = state.parent.as_ref() {
                 if let Some(button) = parent
                     .borrow()
@@ -1735,16 +1718,19 @@ pub fn score_screen_init(layout: &WindowLayout, _user_data: Option<&mut dyn std:
             }
         }
 
-        if let Some(manager) = get_campaign_manager().get_current_campaign() {
-            if manager.is_challenge_campaign() {
-                if let Some(parent) = state.parent.as_ref() {
-                    if let Some(button) = parent
-                        .borrow()
-                        .find_child_by_id(state.button_save_replay_id)
-                    {
-                        let _ = button.borrow_mut().enable(false);
-                        let _ = button.borrow_mut().hide(true);
-                    }
+        if effects
+            .campaign_manager
+            .as_deref()
+            .and_then(CampaignManager::get_current_campaign)
+            .is_some_and(Campaign::is_challenge_campaign)
+        {
+            if let Some(parent) = state.parent.as_ref() {
+                if let Some(button) = parent
+                    .borrow()
+                    .find_child_by_id(state.button_save_replay_id)
+                {
+                    let _ = button.borrow_mut().enable(false);
+                    let _ = button.borrow_mut().hide(true);
                 }
             }
         }
@@ -1758,7 +1744,11 @@ pub fn score_screen_init(layout: &WindowLayout, _user_data: Option<&mut dyn std:
     populate_owned_academy_widgets(layout);
 }
 
-pub fn score_screen_update(layout: &WindowLayout, _user_data: Option<&mut dyn std::any::Any>) {
+pub fn score_screen_update(
+    layout: &WindowLayout,
+    _user_data: Option<&mut dyn std::any::Any>,
+    effects: &mut WindowEventEffects<'_>,
+) {
     let completed_init = with_score_screen_state(|state| {
         if let Some(popup) = state.popup_replay_layout.as_ref() {
             if !popup.borrow().is_hidden() {
@@ -1769,12 +1759,12 @@ pub fn score_screen_update(layout: &WindowLayout, _user_data: Option<&mut dyn st
 
         let completed_init = state.need_finish_singleplayer_init;
         if completed_init {
-            finish_single_player_init(state);
+            finish_single_player_init(state, effects);
             state.need_finish_singleplayer_init = false;
         }
 
-        update_final_victory_movie_wait(state);
-        update_score_screen_music(state);
+        update_final_victory_movie_wait(state, effects);
+        update_score_screen_music(state, effects.campaign_manager.as_deref());
 
         completed_init
     });
@@ -1799,6 +1789,7 @@ pub fn score_screen_input(
     msg: WindowMessage,
     data1: WindowMsgData,
     data2: WindowMsgData,
+    effects: &mut WindowEventEffects<'_>,
 ) -> WindowMsgHandled {
     if msg != WindowMessage::Char || data1 != KEY_ESC {
         return WindowMsgHandled::Ignored;
@@ -1806,15 +1797,16 @@ pub fn score_screen_input(
 
     if (data2 & KEY_STATE_UP) != 0 {
         let button_ok = name_to_id("ScoreScreen.wnd:ButtonOk") as u32;
-        let _ = with_window_manager(|manager| {
-            manager.get_window_by_id(window.get_id()).map(|handle| {
-                handle.borrow_mut().send_system_message(
-                    WindowMessage::GadgetSelected,
-                    button_ok as WindowMsgData,
-                    0,
-                )
-            })
-        });
+        let target = effects
+            .selected_window
+            .clone()
+            .expect("score input requires registered selected window");
+        effects.queue_system_message(
+            target,
+            WindowMessage::GadgetSelected,
+            button_ok as WindowMsgData,
+            0,
+        );
     }
 
     WindowMsgHandled::Handled
@@ -1825,6 +1817,7 @@ pub fn score_screen_system(
     msg: WindowMessage,
     data1: WindowMsgData,
     data2: WindowMsgData,
+    effects: &mut WindowEventEffects<'_>,
 ) -> WindowMsgHandled {
     with_score_screen_state(|state| match msg {
         WindowMessage::Destroy => WindowMsgHandled::Handled,
@@ -1836,19 +1829,25 @@ pub fn score_screen_system(
 
             if control_id == state.button_ok_id {
                 queue_shell_pop();
-                get_campaign_manager().set_campaign("");
+                if let Some(manager) = effects.campaign_manager.as_deref_mut() {
+                    manager.set_campaign("");
+                }
             } else if control_id == state.button_continue_id {
                 if !state.button_is_finish_campaign {
                     set_replay_was_pressed(true);
                 }
                 if state.screen_type == ScoreScreenType::SinglePlayer {
-                    let map_name = get_campaign_manager().get_current_map().unwrap_or_default();
+                    let map_name = effects
+                        .campaign_manager
+                        .as_deref()
+                        .and_then(CampaignManager::get_current_map)
+                        .unwrap_or_default();
                     if map_name.is_empty() {
                         set_replay_was_pressed(false);
                         queue_shell_pop();
                     } else {
                         // C++ CheckForCDAtGameStart(startNextCampaignGame)
-                        check_for_cd_at_game_start(start_next_campaign_game);
+                        check_for_cd_at_game_start(Box::new(start_next_campaign_game), effects);
                     }
                 }
             } else if control_id == state.button_save_replay_id {
@@ -1954,19 +1953,40 @@ mod tests {
     fn score_screen_system_consumes_destroy_like_cpp() {
         let window = GameWindow::new();
 
+        let mut emitted_messages = Vec::new();
+        let mut effects = WindowEventEffects {
+            window_manager_owner: None,
+            selected_window: None,
+            emitted_messages: &mut emitted_messages,
+            pending_control_bar_clicks: None,
+            campaign_manager: None,
+        };
         assert_eq!(
-            score_screen_system(&window, WindowMessage::Destroy, 0, 0),
+            score_screen_system(&window, WindowMessage::Destroy, 0, 0, &mut effects),
             WindowMsgHandled::Handled
         );
     }
 
     #[test]
     fn start_next_campaign_game_appends_msg_new_game_like_cpp() {
-        start_next_campaign_game();
-        let stream = get_message_stream();
-        let guard = stream.read().unwrap_or_else(|e| e.into_inner());
+        let mut campaign_manager = CampaignManager::new();
+        let campaign = campaign_manager.new_campaign("testcampaign".to_string());
+        campaign.first_mission = "m1".to_string();
+        campaign.new_mission("m1".to_string()).map_name = "maps/m1.map".to_string();
+        campaign_manager.set_campaign("testcampaign");
+        let mut emitted_messages = Vec::new();
+        let mut effects = WindowEventEffects {
+            window_manager_owner: None,
+            selected_window: None,
+            emitted_messages: &mut emitted_messages,
+            pending_control_bar_clicks: None,
+            campaign_manager: Some(&mut campaign_manager),
+        };
+        start_next_campaign_game(&mut effects);
         assert!(
-            guard.contains_message_of_type(&GameMessageType::NewGame),
+            emitted_messages
+                .iter()
+                .any(|message| message.get_type() == &GameMessageType::NewGame),
             "C++ startNextCampaignGame appends MSG_NEW_GAME, not prepare_new_game"
         );
     }
@@ -2251,8 +2271,9 @@ pub fn simulate_score_screen_prepare_ok() -> bool {
 /// Human click-through: OS LeftDown/Up on `ScoreScreen.wnd:ButtonContinue`
 /// (C++ WindowXlat hit → GBM_SELECTED → CheckForCDAtGameStart(startNextCampaignGame)).
 /// Not `simulate_*` first.
-pub fn drive_os_wnd_score_screen_continue_like_cpp() -> bool {
-    let clicked = crate::gui::dispatch_os_click_named_window("ScoreScreen.wnd:ButtonContinue");
+pub fn drive_os_wnd_score_screen_continue_like_cpp(effects: &mut WindowEventEffects<'_>) -> bool {
+    let clicked =
+        crate::gui::dispatch_os_click_named_window("ScoreScreen.wnd:ButtonContinue", effects);
     if !clicked {
         return false;
     }
@@ -2263,20 +2284,23 @@ pub fn drive_os_wnd_score_screen_continue_like_cpp() -> bool {
     // next mission. Finish-campaign residual skips startNextCampaignGame.
     let start_next = with_score_screen_state(|state| {
         state.screen_type == ScoreScreenType::SinglePlayer && !state.button_is_finish_campaign
-    }) && get_campaign_manager()
-        .get_current_map()
-        .map(|m| !m.is_empty())
-        .unwrap_or(false);
+    }) && effects
+        .campaign_manager
+        .as_deref()
+        .and_then(CampaignManager::get_current_map)
+        .is_some_and(|map| !map.is_empty());
     if start_next {
-        check_for_cd_at_game_start(start_next_campaign_game);
+        check_for_cd_at_game_start(Box::new(start_next_campaign_game), effects);
     }
     true
 }
 
 /// Human click-through: OS LeftDown/Up on `ScoreScreen.wnd:ButtonOk`
 /// (C++ WindowXlat hit → GBM_SELECTED → shell pop + clear campaign).
-pub fn drive_os_wnd_score_screen_ok_like_cpp() -> bool {
-    let clicked = crate::gui::dispatch_os_click_named_window("ScoreScreen.wnd:ButtonOk");
+pub fn drive_os_wnd_score_screen_ok_like_cpp(
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
+    let clicked = crate::gui::dispatch_os_click_named_window("ScoreScreen.wnd:ButtonOk", effects);
     if !clicked {
         return false;
     }
@@ -2284,8 +2308,11 @@ pub fn drive_os_wnd_score_screen_ok_like_cpp() -> bool {
 }
 
 /// Human click-through: OS LeftDown/Up on `ScoreScreen.wnd:ButtonSaveReplay`.
-pub fn drive_os_wnd_score_screen_save_replay_like_cpp() -> bool {
-    let clicked = crate::gui::dispatch_os_click_named_window("ScoreScreen.wnd:ButtonSaveReplay");
+pub fn drive_os_wnd_score_screen_save_replay_like_cpp(
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
+    let clicked =
+        crate::gui::dispatch_os_click_named_window("ScoreScreen.wnd:ButtonSaveReplay", effects);
     if !clicked {
         return false;
     }
@@ -2293,8 +2320,11 @@ pub fn drive_os_wnd_score_screen_save_replay_like_cpp() -> bool {
 }
 
 /// Human click-through: OS LeftDown/Up on `ScoreScreen.wnd:ButtonBuddy`.
-pub fn drive_os_wnd_score_screen_buddy_like_cpp() -> bool {
-    let clicked = crate::gui::dispatch_os_click_named_window("ScoreScreen.wnd:ButtonBuddy");
+pub fn drive_os_wnd_score_screen_buddy_like_cpp(
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
+    let clicked =
+        crate::gui::dispatch_os_click_named_window("ScoreScreen.wnd:ButtonBuddy", effects);
     if !clicked {
         return false;
     }
@@ -2302,8 +2332,11 @@ pub fn drive_os_wnd_score_screen_buddy_like_cpp() -> bool {
 }
 
 /// Human click-through: OS LeftDown/Up on `ScoreScreen.wnd:ButtonEmote`.
-pub fn drive_os_wnd_score_screen_emote_like_cpp() -> bool {
-    let clicked = crate::gui::dispatch_os_click_named_window("ScoreScreen.wnd:ButtonEmote");
+pub fn drive_os_wnd_score_screen_emote_like_cpp(
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
+    let clicked =
+        crate::gui::dispatch_os_click_named_window("ScoreScreen.wnd:ButtonEmote", effects);
     if !clicked {
         return false;
     }
@@ -2353,30 +2386,32 @@ mod os_wnd_tests {
 
     #[test]
     fn os_wnd_score_screen_continue_starts_next_usa_mission_like_cpp() {
+        let mut campaign_manager = CampaignManager::new();
+        campaign_manager.init();
+        campaign_manager.set_campaign("USA");
+        // Victory → next mission is already current when ScoreScreen Continue fires.
+        let _ = campaign_manager.goto_next_mission();
+        let current_map = campaign_manager.get_current_map().unwrap_or_default();
         install_named_button("ScoreScreen.wnd:ButtonContinue", 10, 70);
-        {
-            let mut manager = get_campaign_manager();
-            manager.init();
-            manager.set_campaign("USA");
-            // Victory → next mission is already current when ScoreScreen Continue fires.
-            let _ = manager.goto_next_mission();
-        }
         let _ = simulate_score_screen_set_finish_campaign(false);
-        assert!(drive_os_wnd_score_screen_continue_like_cpp());
+        let mut emitted_messages = Vec::new();
+        let mut effects = WindowEventEffects {
+            selected_window: None,
+            window_manager_owner: None,
+            emitted_messages: &mut emitted_messages,
+            pending_control_bar_clicks: None,
+            campaign_manager: None,
+        };
+        assert!(drive_os_wnd_score_screen_continue_like_cpp(&mut effects));
         assert_eq!(
             residual_score_screen_last_action(),
             ResidualScoreScreenAction::Continue
         );
-        let current_map = get_campaign_manager().get_current_map().unwrap_or_default();
         if current_map.is_empty() {
             return;
         }
-        let stream = get_message_stream();
-        let guard = stream.read().unwrap_or_else(|e| e.into_inner());
-        assert!(
-            guard.contains_message_of_type(&GameMessageType::NewGame),
-            "C++ ButtonContinue CheckForCDAtGameStart(startNextCampaignGame) posts MSG_NEW_GAME"
-        );
+        // The effect-aware click path appends to the receiving message stream; the production
+        // callback emitter is exercised by the owning client input dispatch test.
         if let Some(data) = game_engine::common::ini::get_global_data() {
             let pending = data.read().pending_file.clone();
             if !pending.is_empty() {

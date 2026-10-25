@@ -652,33 +652,43 @@ const IME_CANDIDATE_GADGETS: &[&str] = &[
     "IMECandidateWindow.wnd:DownArrow",
 ];
 
-fn click_any_ime_candidate_gadget() -> bool {
+fn click_any_ime_candidate_gadget(
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
     IME_CANDIDATE_GADGETS
         .iter()
-        .any(|name| crate::gui::dispatch_os_click_named_window(name))
+        .any(|name| crate::gui::dispatch_os_click_named_window(name, effects))
 }
 
 /// Human click-through: OS LeftDown/Up on `IMECandidateWindow.wnd:TextArea`
 /// (C++ candidate list hit) then composition cycle residual.
-pub fn drive_os_wnd_ime_prepare_composition_cycle_like_cpp(text: &str) -> bool {
+pub fn drive_os_wnd_ime_prepare_composition_cycle_like_cpp(
+    text: &str,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
     if text.is_empty() {
         return false;
     }
-    if !click_any_ime_candidate_gadget() {
+    if !click_any_ime_candidate_gadget(effects) {
         return false;
     }
     simulate_ime_prepare_composition_cycle(text)
 }
 
-pub fn drive_os_wnd_ime_clear_candidates_like_cpp() -> bool {
-    if !click_any_ime_candidate_gadget() {
+pub fn drive_os_wnd_ime_clear_candidates_like_cpp(
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
+    if !click_any_ime_candidate_gadget(effects) {
         return false;
     }
     simulate_ime_clear_candidates()
 }
 
-pub fn drive_os_wnd_ime_result_like_cpp(text: &str) -> bool {
-    if !click_any_ime_candidate_gadget() {
+pub fn drive_os_wnd_ime_result_like_cpp(
+    text: &str,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
+    if !click_any_ime_candidate_gadget(effects) {
         return false;
     }
     simulate_ime_result_string(text)

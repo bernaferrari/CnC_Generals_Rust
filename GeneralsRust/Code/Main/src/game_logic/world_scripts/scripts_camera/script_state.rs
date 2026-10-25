@@ -113,12 +113,12 @@ impl GameLogic {
         self.queue_audio_event(AudioEventRequest::new(translated));
     }
 
-    /// Process all queued audio events (called once per frame).
-    /// Also invoked after presentation `apply_events_to_audio` so same-frame
-    /// presentation residual is not delayed one tick.
-    pub(crate) fn process_audio_events(&mut self) {
+    /// Resolve queued audio events after a native logic step and return the
+    /// complete requests to the owning application audio subsystem.
+    pub(crate) fn process_audio_events(&mut self) -> Vec<crate::game_logic::AudioEventRequest> {
         self.refresh_live_audio_locality();
         self.retry_dropped_ambient_sounds();
+        let mut outgoing = Vec::new();
 
         for event in self.queued_audio_events.drain(..) {
             let names = crate::game_logic::resolve_audio_event_names(&event.event_type);
@@ -145,12 +145,10 @@ impl GameLogic {
                     log::trace!("🔊 Audio: {}", event.event_type);
                 }
 
-                let _ = crate::subsystem_manager::with_subsystem_mut::<
-                    crate::subsystem_manager::AudioManagerSubsystem,
-                    _,
-                >(|audio| audio.queue_event(event.clone()));
+                outgoing.push(event);
             }
         }
+        outgoing
     }
 
     pub(super) fn refresh_live_audio_locality(&self) {

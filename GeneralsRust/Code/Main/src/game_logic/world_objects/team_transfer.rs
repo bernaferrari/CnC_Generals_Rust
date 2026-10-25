@@ -262,6 +262,7 @@ impl GameLogic {
 
     /// Object.cpp:6111–6220. Defect has stronger admission gates and before/
     /// after-switch effects than a direct team assignment.
+    #[cfg(test)]
     pub(in crate::game_logic) fn defect_host_object(
         &mut self,
         id: ObjectId,
@@ -269,6 +270,7 @@ impl GameLogic {
         frames: u32,
     ) -> bool {
         self.defect_host_object_with_effects(id, destination, frames, &mut Default::default())
+            .expect("valid defect test fixture")
     }
 
     pub(in crate::game_logic) fn defect_host_object_with_effects(
@@ -277,26 +279,26 @@ impl GameLogic {
         destination: u32,
         frames: u32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> bool {
+    ) -> gamelogic::GameLogicResult<bool> {
         let Some(object) = self.objects.get(&id) else {
-            return false;
+            return Ok(false);
         };
         if object.contained_by.is_some() || object.status.under_construction || object.status.sold {
-            return false;
+            return Ok(false);
         }
         let Some(old_owner) = object.owner_player_id else {
-            return false;
+            return Ok(false);
         };
         let Some(default) = self.host_default_team_id(old_owner) else {
-            return false;
+            return Ok(false);
         };
         if default == destination {
-            return false;
+            return Ok(false);
         }
         let target_owner = {
             let factory = self.team_factory.lock().unwrap_or_else(|e| e.into_inner());
             let Some(team) = factory.find_team_by_id(destination) else {
-                return false;
+                return Ok(false);
             };
             let owner = team
                 .read()
@@ -305,7 +307,7 @@ impl GameLogic {
             owner
         };
         let Some(new_owner) = target_owner.filter(|owner| self.players.contains_key(owner)) else {
-            return false;
+            return Ok(false);
         };
         let position = object.get_position();
         let voice_defect = object.thing().template.voice_defect.clone();
@@ -318,29 +320,28 @@ impl GameLogic {
             .expect("admitted defector")
             .begin_undetected_defection(self.frame, frames, true);
         if !self.set_host_object_team_with_effects(id, destination, effects) {
-            return false;
+            return Ok(false);
         }
-        if let Some(object) = self.objects.get_mut(&id) {
+        let has_ai = if let Some(object) = self.objects.get_mut(&id) {
             object.handle_partition_cell_maintenance_with_partition_owner(
                 &mut self.partition_manager,
             );
-            if object.has_ai_update_interface() {
+            let has_ai = object.has_ai_update_interface();
+            if has_ai {
                 object.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
                     &mut self.queued_audio_events,
                 ));
                 object.set_status_moving(false);
                 object.set_status_attacking(false);
-                object.set_ai_state(
-                    AIState::Idle,
-                    &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
-                );
             }
+            has_ai
+        } else {
+            false
+        };
+        if has_ai {
+            self.set_ai_state_decision_aware_with_effects(id, AIState::Idle, effects)?;
         }
-        if self
-            .objects
-            .get(&id)
-            .is_some_and(Object::has_ai_update_interface)
-        {
+        if has_ai {
             self.stop_attack_decision_aware(id);
             self.clear_target_decision_aware(id);
         }
@@ -365,7 +366,7 @@ impl GameLogic {
         );
         let faction = self.objects.get(&id).expect("receiving defector").team;
         self.on_defect_kick_passengers_owned_with_effects(id, faction, effects);
-        self.defect_parked_units_owned_with_effects(id, destination, frames, effects);
+        self.defect_parked_units_owned_with_effects(id, destination, frames, effects)?;
         // Object.cpp:6203 visits produced mines in the canonical Object list.
         let mines: Vec<_> = self
             .objects
@@ -381,6 +382,6 @@ impl GameLogic {
         for mine in mines {
             self.set_host_object_team_with_effects(mine, destination, effects);
         }
-        true
+        Ok(true)
     }
 }

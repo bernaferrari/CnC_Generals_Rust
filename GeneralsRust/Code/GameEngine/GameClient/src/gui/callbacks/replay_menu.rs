@@ -255,7 +255,7 @@ fn confirm_delete_replay(state_handle: Rc<RefCell<ReplayMenuState>>) {
         return;
     }
     drop(state);
-    let yes = Box::new(move || {
+    let yes: crate::gui::callbacks::message_box::MessageBoxFunc = Box::new(move |_effects| {
         let mut state = state_handle.borrow_mut();
         state.menu.delete_replay();
         populate_replay_listbox(&mut state);
@@ -281,7 +281,7 @@ fn confirm_copy_replay(state_handle: Rc<RefCell<ReplayMenuState>>) {
         return;
     }
     drop(state);
-    let yes = Box::new(move || {
+    let yes: crate::gui::callbacks::message_box::MessageBoxFunc = Box::new(move |_effects| {
         let mut state = state_handle.borrow_mut();
         state.menu.copy_replay();
         populate_replay_listbox(&mut state);
@@ -696,14 +696,17 @@ pub fn simulate_replay_menu_prepare_load(slot_index: i32) -> bool {
 }
 
 /// Human click-through: OS LeftDown/Up on `ListboxReplayFiles` then `ButtonLoadReplay`.
-pub fn drive_os_wnd_replay_menu_prepare_load_like_cpp(slot_index: i32) -> bool {
+pub fn drive_os_wnd_replay_menu_prepare_load_like_cpp(
+    slot_index: i32,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
     if slot_index < 0 {
         return false;
     }
     let clicked_list =
-        crate::gui::dispatch_os_click_named_window("ReplayMenu.wnd:ListboxReplayFiles");
+        crate::gui::dispatch_os_click_named_window("ReplayMenu.wnd:ListboxReplayFiles", effects);
     let clicked_load =
-        crate::gui::dispatch_os_click_named_window("ReplayMenu.wnd:ButtonLoadReplay");
+        crate::gui::dispatch_os_click_named_window("ReplayMenu.wnd:ButtonLoadReplay", effects);
     if !clicked_list && !clicked_load {
         return false;
     }
@@ -717,19 +720,24 @@ pub fn drive_os_wnd_replay_menu_prepare_load_like_cpp(slot_index: i32) -> bool {
     false
 }
 
-pub fn drive_os_wnd_replay_menu_back_like_cpp() -> bool {
-    let clicked = crate::gui::dispatch_os_click_named_window("ReplayMenu.wnd:ButtonBack");
+pub fn drive_os_wnd_replay_menu_back_like_cpp(
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
+    let clicked = crate::gui::dispatch_os_click_named_window("ReplayMenu.wnd:ButtonBack", effects);
     if !clicked {
         return false;
     }
     simulate_replay_menu_back_button_gadget_selected()
 }
 
-pub fn drive_os_wnd_replay_menu_delete_like_cpp(slot_index: i32) -> bool {
+pub fn drive_os_wnd_replay_menu_delete_like_cpp(
+    slot_index: i32,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
     let clicked_list =
-        crate::gui::dispatch_os_click_named_window("ReplayMenu.wnd:ListboxReplayFiles");
+        crate::gui::dispatch_os_click_named_window("ReplayMenu.wnd:ListboxReplayFiles", effects);
     let clicked_del =
-        crate::gui::dispatch_os_click_named_window("ReplayMenu.wnd:ButtonDeleteReplay");
+        crate::gui::dispatch_os_click_named_window("ReplayMenu.wnd:ButtonDeleteReplay", effects);
     if !clicked_list && !clicked_del {
         return false;
     }
@@ -739,11 +747,14 @@ pub fn drive_os_wnd_replay_menu_delete_like_cpp(slot_index: i32) -> bool {
     simulate_replay_menu_delete_button_gadget_selected()
 }
 
-pub fn drive_os_wnd_replay_menu_copy_like_cpp(slot_index: i32) -> bool {
+pub fn drive_os_wnd_replay_menu_copy_like_cpp(
+    slot_index: i32,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
     let clicked_list =
-        crate::gui::dispatch_os_click_named_window("ReplayMenu.wnd:ListboxReplayFiles");
+        crate::gui::dispatch_os_click_named_window("ReplayMenu.wnd:ListboxReplayFiles", effects);
     let clicked_copy =
-        crate::gui::dispatch_os_click_named_window("ReplayMenu.wnd:ButtonCopyReplay");
+        crate::gui::dispatch_os_click_named_window("ReplayMenu.wnd:ButtonCopyReplay", effects);
     if !clicked_list && !clicked_copy {
         return false;
     }

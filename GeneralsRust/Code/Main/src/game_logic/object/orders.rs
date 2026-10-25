@@ -87,6 +87,15 @@ impl Object {
         self.set_target_state(None, audio);
     }
 
+    /// Remove the visible target projection while preserving the old retained
+    /// AI state for a World-owned Idle transition.
+    pub(crate) fn clear_target_for_owned_idle_entry(&mut self) {
+        self.target = None;
+        self.target_location = None;
+        self.set_status_force_attack(false);
+        self.set_status_attacking(false);
+    }
+
     pub fn set_target(
         &mut self,
         target: Option<ObjectId>,
@@ -867,19 +876,27 @@ impl Object {
         attack_events.record(self.id, victim);
     }
 
-    /// Clear GuardRetaliate residual and return to guard/idle.
-    pub fn end_guard_retaliate(&mut self, audio: &mut crate::game_logic::ObjectAudio<'_>) {
+    /// Clear GuardRetaliate data and report the C++ state-machine successor.
+    /// The World applies the returned transition after this Object borrow ends.
+    pub(crate) fn end_guard_retaliate_state(&mut self) -> AIState {
         self.guard_retaliate_victim = None;
         self.guard_retaliate_anchor = None;
         self.target = None;
         self.status.attacking = false;
         if self.active_guard_target().is_some() {
-            self.set_ai_state(AIState::GuardingObject, audio);
+            AIState::GuardingObject
         } else if self.active_guard_position().is_some() {
-            self.set_ai_state(AIState::GuardingArea, audio);
+            AIState::GuardingArea
         } else {
-            self.set_ai_state(AIState::Idle, audio);
+            AIState::Idle
         }
+    }
+
+    /// Compatibility state-machine call for object-local command paths that
+    /// have not yet been lifted to a World owner operation.
+    pub fn end_guard_retaliate(&mut self, audio: &mut crate::game_logic::ObjectAudio<'_>) {
+        let state = self.end_guard_retaliate_state();
+        self.set_ai_state(state, audio);
     }
 
     /// Tick GuardRetaliate: drop when victim gone; return toward anchor if far.
@@ -891,10 +908,9 @@ impl Object {
         victim_alive: bool,
         victim_pos: Option<glam::Vec3>,
         movement_events: &mut crate::game_logic::movement_events::MovementEventWriter<'_>,
-        audio: &mut crate::game_logic::ObjectAudio<'_>,
-    ) {
+    ) -> Option<AIState> {
         if !matches!(self.ai_state(), AIState::GuardRetaliating) {
-            return;
+            return None;
         }
         if !victim_alive || self.guard_retaliate_victim.is_none() {
             if let Some(anchor) = self.guard_retaliate_anchor {
@@ -908,11 +924,10 @@ impl Object {
                     self.target = None;
                     self.status.attacking = false;
                     movement_events.record(self.id, Some([anchor.x, anchor.y, anchor.z]));
-                    return;
+                    return None;
                 }
             }
-            self.end_guard_retaliate(audio);
-            return;
+            return Some(self.end_guard_retaliate_state());
         }
         // Keep target locked on victim.
         if let Some(vid) = self.guard_retaliate_victim {
@@ -922,6 +937,7 @@ impl Object {
             }
         }
         let _ = victim_pos;
+        None
     }
 
     pub fn can_repair(&self) -> bool {

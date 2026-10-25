@@ -27,7 +27,9 @@ impl GameWindow {
                 draw: Some(Box::new(legacy_default_draw_callback)),
                 tooltip: None,
                 input: Some(Box::new(default_input_callback)),
+                input_with_message_sink: None,
                 system: Some(Box::new(default_system_callback)),
+                system_with_message_sink: None,
                 control_bar_system: false,
                 control_bar_observer_system: false,
                 options_menu_system: false,
@@ -1704,6 +1706,22 @@ impl GameWindow {
             + 'static,
     {
         self.callbacks.input = Some(Box::new(callback));
+        self.callbacks.input_with_message_sink = None;
+    }
+
+    pub fn set_input_callback_with_message_sink<F>(&mut self, callback: F)
+    where
+        F: for<'a> Fn(
+                &GameWindow,
+                WindowMessage,
+                WindowMsgData,
+                WindowMsgData,
+                &mut crate::gui::game_window::WindowEventEffects<'a>,
+            ) -> WindowMsgHandled
+            + 'static,
+    {
+        self.callbacks.input_with_message_sink = Some(Box::new(callback));
+        self.callbacks.input = None;
     }
 
     /// Get input callback.
@@ -1717,6 +1735,7 @@ impl GameWindow {
     /// Reset input callback to the default handler.
     pub fn reset_input_callback(&mut self) {
         self.callbacks.input = Some(Box::new(default_input_callback));
+        self.callbacks.input_with_message_sink = None;
     }
 
     /// Set system callback
@@ -1726,6 +1745,30 @@ impl GameWindow {
             + 'static,
     {
         self.callbacks.system = Some(Box::new(callback));
+        self.callbacks.system_with_message_sink = None;
+        self.callbacks.control_bar_system = false;
+        self.callbacks.control_bar_observer_system = false;
+        self.callbacks.options_menu_system = false;
+        self.callbacks.main_menu_system = false;
+        self.callbacks.quit_menu_system = false;
+        self.callbacks.replay_menu_system = false;
+    }
+
+    /// Set the synchronous callback used when the driving message pass supplies
+    /// its receiving stream emission buffer.
+    pub fn set_system_callback_with_message_sink<F>(&mut self, callback: F)
+    where
+        F: for<'a> Fn(
+                &GameWindow,
+                WindowMessage,
+                WindowMsgData,
+                WindowMsgData,
+                &mut crate::gui::game_window::WindowEventEffects<'a>,
+            ) -> WindowMsgHandled
+            + 'static,
+    {
+        self.callbacks.system_with_message_sink = Some(Box::new(callback));
+        self.callbacks.system = None;
         self.callbacks.control_bar_system = false;
         self.callbacks.control_bar_observer_system = false;
         self.callbacks.options_menu_system = false;
@@ -1745,6 +1788,7 @@ impl GameWindow {
     /// Reset system callback to the default handler.
     pub fn reset_system_callback(&mut self) {
         self.callbacks.system = Some(Box::new(default_system_callback));
+        self.callbacks.system_with_message_sink = None;
         self.callbacks.control_bar_system = false;
         self.callbacks.control_bar_observer_system = false;
         self.callbacks.options_menu_system = false;
@@ -1793,6 +1837,7 @@ impl GameWindow {
         tooltip: Option<TooltipCallback>,
     ) {
         self.callbacks.input = input.or_else(|| Some(Box::new(default_input_callback)));
+        self.callbacks.input_with_message_sink = None;
         self.callbacks.owned_radar_draw = false;
         self.callbacks.draw = draw.or_else(|| Some(Box::new(legacy_default_draw_callback)));
         self.callbacks.owned_control_bar_tooltip = false;
@@ -1845,24 +1890,45 @@ impl GameWindow {
         owned_options: bool,
         owned_replay: bool,
         owned_restart: bool,
+        mut emitted_messages: Option<&mut crate::gui::game_window::WindowEventEffects<'_>>,
+        mut pending_control_bar_clicks: Option<&mut Vec<crate::helpers::LiveControlBarClick>>,
     ) -> (WindowMsgHandled, Option<ControlBarNotification>) {
         if msg != WindowMessage::Destroy && self.status.contains(WindowStatus::DESTROYED) {
             return (WindowMsgHandled::Ignored, None);
         }
-        if let Some(callback) = self.callbacks.input.as_ref() {
+        if let Some(emitted_messages) = emitted_messages.as_deref_mut() {
+            if let Some(callback) = self.callbacks.input_with_message_sink.as_ref() {
+                let result = callback(self, msg, data1, data2, emitted_messages);
+                if !result.is_ignored() {
+                    return (result, None);
+                }
+            } else if let Some(callback) = self.callbacks.input.as_ref() {
+                let result = callback(self, msg, data1, data2);
+                if !result.is_ignored() {
+                    return (result, None);
+                }
+            }
+        } else if let Some(callback) = self.callbacks.input.as_ref() {
             let result = callback(self, msg, data1, data2);
             if !result.is_ignored() {
                 return (result, None);
             }
         }
-        self.handle_widget_input_with_control_bar_notification(
+        let mut notification = None;
+        let mut emitted_messages = emitted_messages;
+        let result = self.handle_widget_input_phase(
             msg,
             data1,
             data2,
+            true,
             owned_options,
             owned_replay,
             owned_restart,
-        )
+            &mut notification,
+            emitted_messages.as_deref_mut(),
+            pending_control_bar_clicks.as_deref_mut(),
+        );
+        (result, notification)
     }
     pub(crate) fn mark_replay_menu_system_callback(&mut self) {
         self.callbacks.replay_menu_system = true;
@@ -1925,6 +1991,29 @@ impl GameWindow {
             }
         } else {
             self.handle_widget_system(msg, data1, data2)
+        }
+    }
+
+    pub(crate) fn send_system_message_with_message_sink(
+        &mut self,
+        msg: WindowMessage,
+        data1: WindowMsgData,
+        data2: WindowMsgData,
+        emitted_messages: &mut crate::gui::game_window::WindowEventEffects<'_>,
+        pending_control_bar_clicks: Option<&mut Vec<crate::helpers::LiveControlBarClick>>,
+    ) -> WindowMsgHandled {
+        if msg != WindowMessage::Destroy && self.status.contains(WindowStatus::DESTROYED) {
+            return WindowMsgHandled::Ignored;
+        }
+        if let Some(callback) = self.callbacks.system_with_message_sink.as_ref() {
+            let result = callback(self, msg, data1, data2, emitted_messages);
+            if result.is_ignored() {
+                self.handle_widget_system(msg, data1, data2)
+            } else {
+                result
+            }
+        } else {
+            self.send_system_message(msg, data1, data2)
         }
     }
 }

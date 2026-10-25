@@ -1111,13 +1111,13 @@ impl GameLogic {
     }
 
     /// C++ AssaultTransportAIUpdate wounded-retrieve + healthy re-exit residual.
-    pub fn tick_assault_transport_updates(&mut self) {
-        self.tick_assault_transport_updates_with_effects(&mut Default::default());
+    pub fn tick_assault_transport_updates(&mut self) -> gamelogic::GameLogicResult<()> {
+        self.tick_assault_transport_updates_with_effects(&mut Default::default())
     }
     pub(crate) fn tick_assault_transport_updates_with_effects(
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         use crate::game_logic::host_troop_crawler::{
             is_assault_member_healthy, is_assault_member_wounded,
         };
@@ -1152,11 +1152,8 @@ impl GameLogic {
 
             if self.assault_transport_is_attack_pointless(crawler_id) {
                 // C++ aiIdle(CMD_FROM_AI) — idle the transport only.
+                self.set_ai_state_decision_aware_with_effects(crawler_id, AIState::Idle, effects)?;
                 if let Some(c) = self.objects.get_mut(&crawler_id) {
-                    c.set_ai_state(
-                        AIState::Idle,
-                        &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
-                    );
                     c.set_status_attacking(false);
                 }
                 continue;
@@ -1265,6 +1262,7 @@ impl GameLogic {
                 self.assault_transport_retrieve_members(crawler_id);
             }
         }
+        Ok(())
     }
 
     /// C++ `aiDoCommand` Attack — reset new-member flags so a fresh order can eject.
@@ -2461,8 +2459,12 @@ fn leftover_template_command_set(template_name: &str) -> Option<String> {
 #[cfg(test)]
 mod hq_tb5nn_tests {
     use super::*;
-    use crate::game_logic::host_command_button_hunt::{HUNT_CMD_FROM_AI, HostCommandButtonHuntMode};
-    use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate, Weapon, WeaponLockType};
+    use crate::game_logic::host_command_button_hunt::{
+        HUNT_CMD_FROM_AI, HostCommandButtonHuntMode,
+    };
+    use crate::game_logic::{
+        KindOf, Object, ObjectId, Team, ThingTemplate, Weapon, WeaponLockType,
+    };
 
     /// hq-tb5nn: C++ huntWeapon UPDATE_SLEEP_NONE re-arms LOCKED_TEMPORARILY
     /// every frame after fireCurrentWeapon releases the temp lock on clip reload.

@@ -256,7 +256,11 @@ fn xfer_polygon_snapshot(poly: &mut crate::polygon_trigger::PolygonTrigger, xfer
     crate::common::types::Snapshot::xfer(poly, &mut bridge);
 }
 
-fn xfer_game_logic_state(logic: &mut GameLogic, xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
+fn xfer_game_logic_state_with_campaign(
+    logic: &mut GameLogic,
+    xfer: &mut dyn Xfer,
+    campaign: &mut game_engine::System::CampaignManagerXferState,
+) -> Result<(), XferStatus> {
     // C++ GameLogic::xfer currentVersion = 10 (GameLogic.cpp).
     let current_version: XferVersion = 10;
     let mut version = current_version;
@@ -308,7 +312,7 @@ fn xfer_game_logic_state(logic: &mut GameLogic, xfer: &mut dyn Xfer) -> Result<(
         xfer_game_logic_objects_load(logic, xfer, object_count)?;
     }
 
-    xfer_campaign_manager_snapshot(xfer)?;
+    xfer_campaign_manager_snapshot(xfer, campaign)?;
     xfer_cave_system_snapshot(xfer)?;
 
     if version >= 2 {
@@ -752,4 +756,11 @@ fn xfer_terrain_logic_runtime_state(xfer: &mut dyn Xfer) -> Result<(), XferStatu
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+fn xfer_game_logic_state(logic: &mut GameLogic, xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
+    // Existing empty standalone byte-layout controls supply an explicit DTO.
+    assert!(!logic.campaign_session_requires_recipient);
+    xfer_game_logic_state_with_campaign(logic, xfer, &mut Default::default())
 }

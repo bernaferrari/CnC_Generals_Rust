@@ -78,7 +78,9 @@ pub(crate) fn run() -> anyhow::Result<()> {
             std::path::PathBuf::from(private).join("userdata").display()
         ),
     ])?);
-    let mut engine = pollster::block_on(CnCGameEngine::new(window, args))?;
+    let mut application_services = crate::subsystem_manager::ApplicationServices::new();
+    let mut engine =
+        pollster::block_on(CnCGameEngine::new(window, args, &mut application_services))?;
     // Startup progression is outside this handler regression. Invalidate its
     // existing worker before manually driving the real receiving Engine.
     engine.abandon_startup_load_worker();

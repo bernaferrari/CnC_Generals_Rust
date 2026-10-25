@@ -432,11 +432,11 @@ impl GameStateManager {
     }
 
     fn get_campaign_side(&self) -> Option<String> {
-        crate::save_load::campaign_header_from_campaign_manager().0
+        None
     }
 
     fn get_mission_number(&self) -> Option<u32> {
-        crate::save_load::campaign_header_from_campaign_manager().1
+        None
     }
 
     fn cleanup_auto_saves(&mut self) -> SaveLoadResult<()> {

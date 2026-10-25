@@ -16,8 +16,35 @@ pub struct WindowLayout {
     pub(crate) default_text_color: Option<Color>,
     pub(crate) default_font: Option<GameFont>,
     // Layout callbacks would be function pointers in the original
+    pub(crate) init_callback_with_effects: Option<
+        Box<
+            dyn for<'a> Fn(
+                &WindowLayout,
+                Option<&dyn std::any::Any>,
+                &mut crate::gui::game_window::WindowEventEffects<'a>,
+            ),
+        >,
+    >,
     pub(crate) init_callback: Option<Box<dyn Fn(&WindowLayout, Option<&dyn std::any::Any>)>>,
+    pub(crate) update_callback_with_effects: Option<
+        Box<
+            dyn for<'a> Fn(
+                &WindowLayout,
+                Option<&dyn std::any::Any>,
+                &mut crate::gui::game_window::WindowEventEffects<'a>,
+            ),
+        >,
+    >,
     pub(crate) update_callback: Option<Box<dyn Fn(&WindowLayout, Option<&dyn std::any::Any>)>>,
+    pub(crate) shutdown_callback_with_effects: Option<
+        Box<
+            dyn for<'a> Fn(
+                &WindowLayout,
+                Option<&mut dyn std::any::Any>,
+                &mut crate::gui::game_window::WindowEventEffects<'a>,
+            ),
+        >,
+    >,
     pub(crate) shutdown_callback:
         Option<Box<dyn Fn(&WindowLayout, Option<&mut dyn std::any::Any>)>>,
 }
@@ -42,8 +69,11 @@ impl WindowLayout {
             default_text_color: None,
             default_font: None,
             init_callback: None,
+            init_callback_with_effects: None,
             update_callback: None,
+            update_callback_with_effects: None,
             shutdown_callback: None,
+            shutdown_callback_with_effects: None,
         }
     }
 
@@ -180,6 +210,18 @@ impl WindowLayout {
         }
     }
 
+    pub(crate) fn run_init_with_effects(
+        &self,
+        user_data: Option<&dyn std::any::Any>,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    ) {
+        if let Some(callback) = &self.init_callback_with_effects {
+            callback(self, user_data, effects);
+        } else {
+            self.run_init(user_data);
+        }
+    }
+
     /// Run update callback
     pub fn run_update(&self, user_data: Option<&dyn std::any::Any>) {
         if let Some(ref callback) = self.update_callback {
@@ -187,10 +229,34 @@ impl WindowLayout {
         }
     }
 
+    pub(crate) fn run_update_with_effects(
+        &self,
+        user_data: Option<&dyn std::any::Any>,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    ) {
+        if let Some(callback) = &self.update_callback_with_effects {
+            callback(self, user_data, effects);
+        } else {
+            self.run_update(user_data);
+        }
+    }
+
     /// Run shutdown callback
     pub fn run_shutdown(&self, user_data: Option<&mut dyn std::any::Any>) {
         if let Some(ref callback) = self.shutdown_callback {
             callback(self, user_data);
+        }
+    }
+
+    pub(crate) fn run_shutdown_with_effects(
+        &self,
+        user_data: Option<&mut dyn std::any::Any>,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    ) {
+        if let Some(callback) = &self.shutdown_callback_with_effects {
+            callback(self, user_data, effects);
+        } else {
+            self.run_shutdown(user_data);
         }
     }
 

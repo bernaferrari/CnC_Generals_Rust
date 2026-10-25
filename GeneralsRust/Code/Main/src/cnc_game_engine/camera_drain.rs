@@ -364,11 +364,15 @@ impl CnCGameEngine {
         if let Some(request) = self.take_pending_new_game_start_request() {
             if matches!(request.mode, GameMode::Shell) {
                 info!("Menu NewGame drain: ignore GAME_SHELL (shell map already live)");
-                Self::take_shell_new_game_messages_from_common_stream();
+                Self::take_shell_new_game_messages_from_common_stream(
+                    self.game_client.message_stream_mut(),
+                );
                 return Ok(false);
             }
             self.start_game_from_ui(request);
-            let _ = Self::take_new_game_dispatch_from_common_stream();
+            let _ = Self::take_new_game_dispatch_from_common_stream(
+                self.game_client.message_stream_mut(),
+            );
             return Ok(true);
         }
         Ok(false)
@@ -413,7 +417,9 @@ impl CnCGameEngine {
                 // match and do not return — fall through so the worker can
                 // release Loading → Menu (hq-akj0).
                 info!("Loading NewGame drain: ignore GAME_SHELL (shell map, not a match)");
-                Self::take_shell_new_game_messages_from_common_stream();
+                Self::take_shell_new_game_messages_from_common_stream(
+                    self.game_client.message_stream_mut(),
+                );
                 gamelogic::helpers::TheGameLogic::clear_start_new_game_request();
             } else {
                 info!(
@@ -421,7 +427,9 @@ impl CnCGameEngine {
                     request.mode, request.faction, request.map
                 );
                 self.start_game_from_ui(request);
-                let _ = Self::take_new_game_dispatch_from_common_stream();
+                let _ = Self::take_new_game_dispatch_from_common_stream(
+                    self.game_client.message_stream_mut(),
+                );
                 gamelogic::helpers::TheGameLogic::clear_start_new_game_request();
                 return Ok(());
             }
@@ -1231,9 +1239,9 @@ impl CnCGameEngine {
 
     /// Route surviving client messages into the driving world's existing queue.
     /// Menu and runtime-host start paths share the native receiving boundary.
-    #[cfg(feature = "game_client")]
+    #[cfg(all(test, feature = "game_client"))]
     pub(super) fn pump_receiving_client_commands(
-        client: &game_client::core::GameClient,
+        client: &mut game_client::core::GameClient,
         pending: &mut crate::command_system::ReplayPendingState,
     ) -> Result<(), String> {
         client
@@ -1243,6 +1251,102 @@ impl CnCGameEngine {
                     .map_err(game_client::core::GameClientError::InvalidOperation)
             })
             .map_err(|error| error.to_string())
+    }
+
+    #[cfg(feature = "game_client")]
+    pub(super) fn with_receiving_client_translation<R>(
+        &mut self,
+        operation: impl FnOnce(
+            &mut game_client::core::GameClient,
+            bool,
+            &mut game_client::core::game_client::NativeWindowInputDriver<'_>,
+            &mut crate::subsystem_manager::SubsystemManager,
+        ) -> R,
+    ) -> (
+        R,
+        Vec<game_client::gui::callbacks::replay_menu::ingress::ReplayMenuStep>,
+    ) {
+        let playback = self
+            .game_logic
+            .replay_pending
+            .recorder_owned()
+            .is_playback();
+        let replay = matches!(
+            self.game_logic.game_mode(),
+            crate::game_logic::GameMode::Replay
+        );
+        let game_ending = self.game_logic.owned_script_game_ending();
+        let tooltips_disabled = self.receiving_tooltips_disabled();
+        let cursor_mouse = self.game_client.input_mouse_handle();
+        let observer_roster = self.receiving_observer_roster();
+        let camera_rules = self.game_logic.camera_input_rules();
+        let upgrade_observer = self.game_logic.receiving_upgrade_tooltip_observer();
+        let mut replay_operation =
+            game_client::gui::callbacks::replay_menu::ingress::ReplayMenuOperation::new(
+                !self.game_logic.isInNetworkGame(),
+            );
+        let mut steps = Vec::new();
+        let result = {
+            let pending = &mut self.game_logic.replay_pending;
+            let mut replay_version = |filename: &str| {
+                pending
+                    .replay_version_differs_owned(filename.to_owned())
+                    .unwrap_or(false)
+            };
+            let render_pipeline = &mut self.render_pipeline;
+            let mut terrain_lod = |reduction| {
+                if let Some(terrain) = render_pipeline.native_terrain_mut() {
+                    terrain.apply_texture_lod_reduction(reduction);
+                }
+            };
+            let preferences = self.ui_manager.options_preferences_mut();
+            let control_bar = &mut self.control_bar;
+            let viewport = &mut self.game_logic.session_view.camera;
+            let mut driver = |owner: &game_client::gui::window_manager::WindowManagerOwner,
+                              campaign: &mut game_client::gui::campaign_manager::CampaignManager,
+                              request,
+                              messages: &mut Vec<game_engine::common::message_stream::GameMessage>| {
+                let mut context = game_client::gui::window_manager::ControlBarInputContext {
+                    upgrade_tooltip: game_client::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource::Receiving(&upgrade_observer),
+                    replay_menu: Some(&mut replay_operation), replay_version: Some(&mut replay_version),
+                    observer_roster: observer_roster.as_ref(),
+                    camera_options: Some(game_client::gui::window_manager::CameraOptionsInputContext::new(&mut *preferences, camera_rules).with_terrain_lod(&mut terrain_lod)),
+                    control_bar: &mut *control_bar, viewport: &mut *viewport,
+                    replay, game_ending, tooltips_disabled, cursor_mouse: cursor_mouse.as_ref(),
+                    window_manager_owner: Some(owner), campaign_manager: Some(campaign), emitted_messages: Some(messages),
+                };
+                let result = game_client::gui::window_manager::dispatch_translated_window_input_for_owner(owner, request, &mut context);
+                drop(context);
+                if let Some(step) = replay_operation.take() { steps.push(step); }
+                result
+            };
+            operation(
+                &mut self.game_client,
+                playback,
+                &mut driver,
+                &mut self.subsystem_manager,
+            )
+        };
+        (result, steps)
+    }
+
+    #[cfg(feature = "game_client")]
+    pub(super) fn pump_native_client_commands(&mut self) -> Result<(), String> {
+        let (messages, steps) =
+            self.with_receiving_client_translation(|client, playback, driver, _manager| {
+                client.take_message_stream_with_native_input(playback, driver)
+            });
+        let result = messages
+            .map_err(|error| error.to_string())
+            .and_then(|messages| {
+                self.game_logic
+                    .replay_pending
+                    .receive_client_messages(messages)
+            });
+        for step in steps {
+            step.complete(self);
+        }
+        result
     }
 
     /// Wave 588: Menu GameClient shell tick + NewGame drain residual.
@@ -1260,7 +1364,9 @@ impl CnCGameEngine {
         if let Some(request) = self.take_pending_new_game_start_request() {
             if matches!(request.mode, GameMode::Shell) {
                 info!("Menu NewGame drain: ignore GAME_SHELL (shell map already live)");
-                Self::take_shell_new_game_messages_from_common_stream();
+                Self::take_shell_new_game_messages_from_common_stream(
+                    self.game_client.message_stream_mut(),
+                );
             } else {
                 info!(
                     "Menu NewGame drain: mode={:?} faction={} map={} skirmish={}",
@@ -1270,7 +1376,9 @@ impl CnCGameEngine {
                     request.skirmish.is_some()
                 );
                 self.start_game_from_ui(request);
-                let _ = Self::take_new_game_dispatch_from_common_stream();
+                let _ = Self::take_new_game_dispatch_from_common_stream(
+                    self.game_client.message_stream_mut(),
+                );
                 gamelogic::helpers::TheGameLogic::clear_start_new_game_request();
                 return true;
             }
@@ -1320,7 +1428,9 @@ impl CnCGameEngine {
                 // C++ MSG_NEW_GAME GAME_SHELL is the shell map, already applied
                 // by finalize. Treating it as a match start loads Defcon6.
                 info!("Menu NewGame drain: ignore GAME_SHELL (shell map already live)");
-                Self::take_shell_new_game_messages_from_common_stream();
+                Self::take_shell_new_game_messages_from_common_stream(
+                    self.game_client.message_stream_mut(),
+                );
             } else {
                 info!(
                     "Menu NewGame drain: mode={:?} faction={} map={} skirmish={}",
@@ -1331,31 +1441,26 @@ impl CnCGameEngine {
                 );
                 self.start_game_from_ui(request);
                 {
-                    let gc = &mut self.game_client;
                     if early_menu_frame {
                         debug!("Menu update_internal: receiving client command pump");
                     }
-                    if let Err(error) = Self::pump_receiving_client_commands(
-                        gc,
-                        &mut self.game_logic.replay_pending,
-                    ) {
+                    if let Err(error) = self.pump_native_client_commands() {
                         error!("Menu receiving command routing failed: {error}");
                     }
                 }
-                let _ = Self::take_new_game_dispatch_from_common_stream();
+                let _ = Self::take_new_game_dispatch_from_common_stream(
+                    self.game_client.message_stream_mut(),
+                );
                 gamelogic::helpers::TheGameLogic::clear_start_new_game_request();
                 return true;
             }
         }
 
         {
-            let gc = &mut self.game_client;
             if early_menu_frame {
                 debug!("Menu update_internal: receiving client command pump");
             }
-            if let Err(error) =
-                Self::pump_receiving_client_commands(gc, &mut self.game_logic.replay_pending)
-            {
+            if let Err(error) = self.pump_native_client_commands() {
                 error!("Menu receiving command routing failed: {error}");
             }
         }
@@ -2298,6 +2403,7 @@ impl CnCGameEngine {
                 false,
                 owned_observer.as_deref_mut(),
             )?;
+            self.dispatch_game_logic_audio_events();
             if interrupted {
                 break;
             }
@@ -2342,7 +2448,11 @@ impl CnCGameEngine {
         .unwrap_or(0);
         let mut pres = self.host_sync_shadow_and_build_presentation(true)?;
         // Presentation → audio subsystem directly (no GameLogic dual-write mid-frame).
-        let audio_n = pres.dispatch_audio_events_direct();
+        let audio_n = pres.dispatch_audio_events_direct(
+            self.subsystem_manager
+                .get_mut::<crate::subsystem_manager::AudioManagerSubsystem>()
+                .expect("initialized engine audio subsystem"),
+        );
         if audio_n > 0 {
             log::trace!("presentation audio events dispatched: {audio_n}");
         }
@@ -2772,7 +2882,11 @@ mod replay_fast_forward_probe {
     use std::sync::Arc;
     use winit::{event_loop::EventLoop, window::WindowAttributes};
 
-    fn replay_fixture_engine() -> anyhow::Result<(EventLoop<()>, CnCGameEngine)> {
+    fn replay_fixture_engine() -> anyhow::Result<(
+        EventLoop<()>,
+        crate::subsystem_manager::ApplicationServices,
+        CnCGameEngine,
+    )> {
         let event_loop = EventLoop::new()?;
         let window = Arc::new(
             event_loop.create_window(
@@ -2809,11 +2923,16 @@ mod replay_fast_forward_probe {
             "--noaudio".to_string(),
             format!("--userdata={}", private_root.join("userdata").display()),
         ])?;
-        let mut engine = pollster::block_on(CnCGameEngine::new(window, Arc::new(args)))?;
+        let mut application_services = crate::subsystem_manager::ApplicationServices::new();
+        let mut engine = pollster::block_on(CnCGameEngine::new(
+            window,
+            Arc::new(args),
+            &mut application_services,
+        ))?;
         engine
             .game_logic
             .admit_camera_application_movement(movement);
-        Ok((event_loop, engine))
+        Ok((event_loop, application_services, engine))
     }
 
     fn replay_factory_template() -> ThingTemplate {
@@ -3658,7 +3777,7 @@ mod replay_fast_forward_probe {
             crate::gameworld_shadow::gameworld_shadow_enabled(),
             "replay fast-forward probe requires shadow enabled at process launch"
         );
-        let (_event_loop, mut engine) = replay_fixture_engine()?;
+        let (_event_loop, _application_services, mut engine) = replay_fixture_engine()?;
         // Keep the real startup producer owned outside synthetic command fixtures,
         // whose reset paths legitimately cancel their own pending startup work.
         let startup_catalogs = std::mem::replace(

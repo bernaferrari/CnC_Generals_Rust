@@ -486,7 +486,9 @@ fn host_upgrade_complete_uranium_and_black_napalm() {
 #[test]
 fn host_upgrade_complete_scorpion_rocket_and_laser_missiles() {
     use crate::game_logic::host_raptor::{UPGRADE_AMERICA_LASER_MISSILES, is_raptor_template};
-    use crate::game_logic::host_scorpion::{UPGRADE_GLA_SCORPION_ROCKET, has_scorpion_rocket_upgrade};
+    use crate::game_logic::host_scorpion::{
+        UPGRADE_GLA_SCORPION_ROCKET, has_scorpion_rocket_upgrade,
+    };
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
     logic
@@ -1208,7 +1210,9 @@ fn capture_sets_private_captured_and_score() {
     {
         o.set_team_with_partition_owner(Team::GLA, ownership_events, fixture_partition_o);
     }
-    logic.on_capture_object_residual(id, Team::USA, Team::GLA);
+    logic
+        .on_capture_object_residual(id, Team::USA, Team::GLA)
+        .expect("valid capture test fixture");
 
     assert!(logic.host_object(id).unwrap().is_private_captured());
     let captured = logic
@@ -1448,7 +1452,9 @@ fn capture_tech_building_sets_captured_model_condition() {
     {
         o.set_team_with_partition_owner(Team::USA, ownership_events, fixture_partition_o);
     }
-    logic.on_capture_object_residual(id, Team::Neutral, Team::USA);
+    logic
+        .on_capture_object_residual(id, Team::Neutral, Team::USA)
+        .expect("valid capture test fixture");
     assert!(logic.capture_tech_model_updates > 0);
     assert!(
         logic
@@ -1464,7 +1470,9 @@ fn capture_tech_building_sets_captured_model_condition() {
     {
         o.set_team_with_partition_owner(Team::Neutral, ownership_events, fixture_partition_o);
     }
-    logic.on_capture_object_residual(id, Team::USA, Team::Neutral);
+    logic
+        .on_capture_object_residual(id, Team::USA, Team::Neutral)
+        .expect("valid capture test fixture");
     assert!(
         !logic
             .host_object(id)
@@ -1521,7 +1529,9 @@ fn capture_last_tunnel_ejects_shared_pool_for_old_owner() {
             fixture_partition_o,
         );
     }
-    logic.on_capture_object_residual(tnl, Team::GLA, Team::USA);
+    logic
+        .on_capture_object_residual(tnl, Team::GLA, Team::USA)
+        .expect("valid capture test fixture");
 
     assert!(logic.capture_tunnel_transfers > 0);
     assert!(logic.capture_tunnel_last_ejects > 0);
@@ -1594,7 +1604,9 @@ fn capture_non_last_tunnel_keeps_old_team_pool() {
             fixture_partition_o,
         );
     }
-    logic.on_capture_object_residual(t1, Team::GLA, Team::USA);
+    logic
+        .on_capture_object_residual(t1, Team::GLA, Team::USA)
+        .expect("valid capture test fixture");
 
     assert!(logic.capture_tunnel_transfers > 0);
     assert_eq!(logic.capture_tunnel_last_ejects, 0);
@@ -1655,7 +1667,9 @@ fn capture_object_residual_idle_deselect_ai_sell() {
         obj.set_status_attacking(true);
     }
 
-    logic.on_capture_object_residual(id, Team::USA, Team::GLA);
+    logic
+        .on_capture_object_residual(id, Team::USA, Team::GLA)
+        .expect("valid capture test fixture");
 
     let obj = logic.host_object(id).expect("barracks");
     assert_eq!(obj.ai_state(), AIState::Idle);
@@ -1728,7 +1742,9 @@ fn create_stamps_threat_value_not_build_cost_and_capture_restamps_mask() {
             fixture_partition_obj,
         );
     }
-    logic.on_capture_object_residual(id, Team::USA, Team::GLA);
+    logic
+        .on_capture_object_residual(id, Team::USA, Team::GLA)
+        .expect("valid capture test fixture");
     let stamp = logic
         .host_object(id)
         .and_then(|o| o.partition_last_affect)
@@ -1830,7 +1846,9 @@ fn capture_kicks_transport_passengers_but_not_tunnel_pool() {
 #[test]
 fn capture_team_flips_overlord_helix_portable_addon() {
     // hq-96958: C++ OverlordContain.cpp:227-235 / HelixContain.cpp:217-222.
-    use crate::game_logic::host_overlord_addons::{UPGRADE_HELIX_GATTLING, UPGRADE_OVERLORD_GATTLING};
+    use crate::game_logic::host_overlord_addons::{
+        UPGRADE_HELIX_GATTLING, UPGRADE_OVERLORD_GATTLING,
+    };
     let mut logic = GameLogic::new();
     logic
         .players

@@ -413,6 +413,7 @@ impl CnCGameEngine {
             return Ok(());
         }
         self.drive_native_command_phase(dt, Some(budget), true, None)?;
+        self.dispatch_game_logic_audio_events();
         Ok(())
     }
 
@@ -1312,8 +1313,16 @@ impl CnCGameEngine {
         let difficulty = Self::map_ai_difficulty_to_save(self.presentation_or_boot_ai_difficulty());
         let play_time =
             std::time::Duration::from_secs_f32(self.presentation_or_boot_total_play_time());
+        #[cfg(feature = "game_client")]
+        let campaign_state = Some(
+            self.game_client
+                .campaign_manager()
+                .capture_logic_chunk_state(),
+        );
+        #[cfg(not(feature = "game_client"))]
+        let campaign_state = None;
         let (campaign_side, mission_number) =
-            crate::save_load::campaign_header_from_campaign_manager();
+            crate::save_load::campaign_header_from_campaign_manager(campaign_state.as_ref());
 
         SaveGameInfo {
             pristine_map_name: self.host_game_logic().map_definition_source.clone(),
@@ -1489,6 +1498,10 @@ impl CnCGameEngine {
             &mut self.game_logic.session_view,
             &mut logic.session_view,
         );
+        #[cfg(feature = "game_client")]
+        self.control_bar.discard_pending_command_clicks();
+        #[cfg(feature = "game_client")]
+        self.game_client.message_stream_mut().clear_messages();
         self.game_logic = logic;
         if let Some(local) = self.game_logic.local_player_id() {
             self.current_player_id = local;
@@ -1684,6 +1697,10 @@ impl CnCGameEngine {
             .initial_skirmish_admission
             .as_ref()
             .and_then(|initial| initial.local_slot);
+        #[cfg(feature = "game_client")]
+        self.control_bar.discard_pending_command_clicks();
+        #[cfg(feature = "game_client")]
+        self.game_client.message_stream_mut().clear_messages();
         let old_logic = std::mem::replace(&mut self.game_logic, logic);
         self.commit_native_world_epoch(epoch);
         if let Some(local) = saved_local {
@@ -1898,7 +1915,24 @@ impl CnCGameEngine {
         // client/camera/presentation admission. Emit once at the successful tail.
         self.game_logic.finish_saved_snapshot_admission()?;
         pending_map_audio.admit_to_live();
-        crate::save_load::commit_campaign_state(campaign_state);
+        #[cfg(feature = "game_client")]
+        if let Some(state) = campaign_state.as_ref() {
+            self.game_client
+                .campaign_manager_mut()
+                .apply_logic_chunk_state(state.clone());
+        } else {
+            let manager = self.game_client.campaign_manager_mut();
+            manager.set_campaign("");
+            manager.clear_challenge_game_info();
+        }
+        self.game_logic.admit_campaign_session(
+            campaign_state
+                .as_ref()
+                .is_some_and(crate::save_load::campaign_state_requires_owner),
+            campaign_state
+                .as_ref()
+                .is_some_and(|state| state.is_challenge),
+        );
         Ok(())
     }
 
@@ -2143,6 +2177,7 @@ impl CnCGameEngine {
             &snapshot,
             save_info,
             saved_game_mode,
+            campaign_state.as_ref(),
             game_client_xfer_bytes,
             terrain_visual_xfer,
             slot,
@@ -2215,6 +2250,7 @@ impl CnCGameEngine {
             &snapshot,
             save_info,
             saved_game_mode,
+            campaign_state.as_ref(),
             game_client_xfer,
             terrain_visual_xfer,
             slot,
@@ -2294,7 +2330,14 @@ impl CnCGameEngine {
         let previous = std::mem::replace(live, logic);
         drop(previous);
         committed.finish_after_logic_commit();
-        crate::save_load::commit_campaign_state(campaign_state);
+        live.admit_campaign_session(
+            campaign_state
+                .as_ref()
+                .is_some_and(crate::save_load::campaign_state_requires_owner),
+            campaign_state
+                .as_ref()
+                .is_some_and(|state| state.is_challenge),
+        );
         Ok((info, terrain_visual))
     }
 
@@ -2332,7 +2375,17 @@ impl CnCGameEngine {
         );
         let mut candidate = crate::game_logic::GameLogic::new();
         let preparation = (|| -> Result<_, String> {
-            candidate.start_new_game_for_restore(live.game_mode());
+            candidate.start_new_game_for_restore_in_campaign_session(
+                live.game_mode(),
+                decoded
+                    .campaign_state
+                    .as_ref()
+                    .is_some_and(crate::save_load::campaign_state_requires_owner),
+                decoded
+                    .campaign_state
+                    .as_ref()
+                    .is_some_and(|state| state.is_challenge),
+            );
             candidate.begin_saved_snapshot_admission()?;
             // The receiving loaded catalog owns name/mask allocation order; the
             // snapshot carries purchased/pending state, not UpgradeTemplate INI.
@@ -2442,7 +2495,16 @@ impl CnCGameEngine {
         let previous = std::mem::replace(live, candidate);
         drop(previous);
         committed.finish_after_logic_commit();
-        crate::save_load::commit_campaign_state(decoded.campaign_state);
+        live.admit_campaign_session(
+            decoded
+                .campaign_state
+                .as_ref()
+                .is_some_and(crate::save_load::campaign_state_requires_owner),
+            decoded
+                .campaign_state
+                .as_ref()
+                .is_some_and(|state| state.is_challenge),
+        );
         Ok((decoded.save_info, terrain))
     }
 
@@ -2450,6 +2512,7 @@ impl CnCGameEngine {
         snapshot: &crate::save_load::WorldSnapshot,
         save_info: SaveGameInfo,
         saved_game_mode: Option<i32>,
+        campaign_state: Option<&game_engine::System::CampaignManagerXferState>,
         game_client_xfer_bytes: Option<Vec<u8>>,
         terrain_visual_xfer_bytes: Option<Vec<u8>>,
         slot: &str,
@@ -2485,6 +2548,7 @@ impl CnCGameEngine {
             snapshot,
             save_info,
             saved_game_mode,
+            campaign_state,
             game_client_xfer_bytes,
             terrain_visual_xfer_bytes,
             slot,
@@ -2513,6 +2577,7 @@ impl CnCGameEngine {
         snapshot: &crate::save_load::WorldSnapshot,
         save_info: SaveGameInfo,
         saved_game_mode: Option<i32>,
+        campaign_state: Option<&game_engine::System::CampaignManagerXferState>,
         game_client_xfer_bytes: Option<Vec<u8>>,
         terrain_visual_xfer_bytes: Option<Vec<u8>>,
         slot: &str,
@@ -2626,7 +2691,11 @@ impl CnCGameEngine {
         if let Some(catalog) = armor_definition_seed {
             staged.admit_armor_definitions(Arc::clone(catalog));
         }
-        staged.start_new_game_for_restore(mode);
+        staged.start_new_game_for_restore_in_campaign_session(
+            mode,
+            campaign_state.is_some_and(crate::save_load::campaign_state_requires_owner),
+            campaign_state.is_some_and(|state| state.is_challenge),
+        );
         staged.begin_saved_snapshot_admission()?;
         if native.is_some() {
             staged.require_native_drawable_owner();
@@ -2807,7 +2876,6 @@ impl CnCGameEngine {
         self.rejected_native_worlds
             .validate_admission()
             .map_err(HostLoadFailure::Staging)?;
-        let prior_campaign = crate::save_load::capture_live_campaign_state();
         let active_mode = self.game_logic.game_mode();
         let template_catalog = self.game_logic.templates.clone();
 
@@ -2898,7 +2966,6 @@ impl CnCGameEngine {
         let staged = match staged_result {
             Ok(staged) => staged,
             Err(err) => {
-                crate::save_load::rollback_campaign_after_failed_load(prior_campaign);
                 return Err(HostLoadFailure::Staging(err));
             }
         };
@@ -2908,17 +2975,47 @@ impl CnCGameEngine {
             if let Err(cleanup) =
                 self.reject_receiving_world_candidate(staged.logic, staged.native_map)
             {
-                crate::save_load::rollback_campaign_after_failed_load(prior_campaign);
                 return Err(HostLoadFailure::Staging(format!(
                     "{failure:?}; rejecting saved native candidate: {cleanup}"
                 )));
             }
-            crate::save_load::rollback_campaign_after_failed_load(prior_campaign);
             return Err(failure);
+        }
+        #[cfg(feature = "game_client")]
+        if let Some(state) = staged.campaign_state.as_ref() {
+            if let Err(reason) = self
+                .game_client
+                .campaign_manager()
+                .validate_logic_chunk_state(state)
+            {
+                if let Err(cleanup) =
+                    self.reject_receiving_world_candidate(staged.logic, staged.native_map)
+                {
+                    return Err(HostLoadFailure::Staging(format!(
+                        "{reason}; rejecting campaign candidate: {cleanup}"
+                    )));
+                }
+                return Err(HostLoadFailure::Staging(reason));
+            }
+        }
+        #[cfg(not(feature = "game_client"))]
+        if staged
+            .campaign_state
+            .as_ref()
+            .is_some_and(crate::save_load::campaign_state_requires_owner)
+        {
+            let reason = "campaign save requires a receiving campaign owner".to_string();
+            if let Err(cleanup) =
+                self.reject_receiving_world_candidate(staged.logic, staged.native_map)
+            {
+                return Err(HostLoadFailure::Staging(format!(
+                    "{reason}; rejecting campaign candidate: {cleanup}"
+                )));
+            }
+            return Err(HostLoadFailure::Staging(reason));
         }
         let save_info = staged.info.clone();
         if let Err(err) = self.host_replace_staged_restore_world(staged) {
-            crate::save_load::rollback_campaign_after_failed_load(prior_campaign);
             return Err(HostLoadFailure::Committed(err));
         }
         info!(
@@ -2951,7 +3048,17 @@ impl CnCGameEngine {
         mut save_info: SaveGameInfo,
     ) -> Result<SaveGameInfo, String> {
         let mut rank_points = 0;
+        let mut is_campaign_session = false;
+        let mut is_challenge_session = false;
         if let Ok(state) = self.save_file_manager.read_campaign_state(slot) {
+            #[cfg(not(feature = "game_client"))]
+            if crate::save_load::campaign_state_requires_owner(&state) {
+                return Err("mission campaign save requires a receiving campaign owner".into());
+            }
+            #[cfg(feature = "game_client")]
+            self.game_client
+                .campaign_manager()
+                .validate_logic_chunk_state(&state)?;
             save_info.difficulty = match state.difficulty {
                 0 => GameDifficulty::Easy,
                 2 => GameDifficulty::Hard,
@@ -2961,8 +3068,11 @@ impl CnCGameEngine {
                 save_info.campaign_side = Some(state.campaign.clone());
             }
             rank_points = state.rank_points;
-            game_engine::System::apply_campaign_manager_runtime(state.clone());
-            game_client::gui::campaign_manager::get_campaign_manager()
+            is_campaign_session = crate::save_load::campaign_state_requires_owner(&state);
+            is_challenge_session = state.is_challenge;
+            #[cfg(feature = "game_client")]
+            self.game_client
+                .campaign_manager_mut()
                 .apply_logic_chunk_state(state);
         }
         game_engine::common::random_value::init_client_audio_random_with_seed(0);
@@ -2976,6 +3086,17 @@ impl CnCGameEngine {
             GameDifficulty::Medium => 1,
             GameDifficulty::Hard => 2,
         };
+        #[cfg(feature = "game_client")]
+        {
+            let msg = self
+                .game_client
+                .message_stream_mut()
+                .append_message(game_engine::common::message_stream::GameMessageType::NewGame);
+            msg.append_integer_argument(0);
+            msg.append_integer_argument(difficulty);
+            msg.append_integer_argument(rank_points);
+        }
+        #[cfg(not(feature = "game_client"))]
         if let Ok(mut stream) = game_engine::common::message_stream::get_message_stream().write() {
             let msg = stream
                 .append_message(game_engine::common::message_stream::GameMessageType::NewGame);
@@ -2988,12 +3109,15 @@ impl CnCGameEngine {
             .clone()
             .filter(|side| !side.trim().is_empty())
             .unwrap_or_else(|| "USA".to_string());
-        self.start_game_from_ui(HostStartRequest::without_player_template(
+        let mut request = HostStartRequest::without_player_template(
             crate::game_logic::GameMode::SinglePlayer,
             faction,
             save_info.map_name.clone(),
             None,
-        ));
+        );
+        request.is_campaign_session = is_campaign_session;
+        request.is_challenge_session = is_challenge_session;
+        self.start_game_from_ui(request);
         info!(
             "Mission save '{}' restarts map '{}' instead of restoring mid-world",
             save_info.filename, save_info.map_name
@@ -3169,7 +3293,7 @@ impl CnCGameEngine {
         // C++ GameState::missionSave uses GUI:MissionSave. PopupSaveLoad
         // setEditDescription never invents "Save {slot}".
         let description = if display_name.trim().is_empty() {
-            Self::default_ui_save_description(&self.presentation_or_boot_map_name())
+            self.default_ui_save_description(&self.presentation_or_boot_map_name())
         } else {
             display_name.to_string()
         };
@@ -3185,12 +3309,20 @@ impl CnCGameEngine {
 
     /// Empty UI names: `GUI:MissionSave` while a campaign is live, else
     /// C++ `setEditDescription` map-leaf / campaign+number.
-    fn default_ui_save_description(map_name: &str) -> String {
-        let mission = crate::save_load::current_mission_save_description();
+    fn default_ui_save_description(&self, map_name: &str) -> String {
+        #[cfg(feature = "game_client")]
+        let campaign_state = Some(
+            self.game_client
+                .campaign_manager()
+                .capture_logic_chunk_state(),
+        );
+        #[cfg(not(feature = "game_client"))]
+        let campaign_state = None;
+        let mission = crate::save_load::current_mission_save_description(campaign_state.as_ref());
         if !mission.is_empty() && !mission.contains("MISSING:") {
             return mission;
         }
-        crate::save_load::default_save_edit_description(map_name)
+        crate::save_load::default_save_edit_description(map_name, campaign_state.as_ref())
     }
 
     /// Wave 611: via `host_load_game_from_ui`.

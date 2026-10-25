@@ -81,24 +81,31 @@ impl Shell {
         &mut self,
         snapshot: crate::gui::callbacks::score_screen::ScoreScreenAcademySnapshot,
         shutdown_immediate: bool,
+        effects: &mut WindowEventEffects<'_>,
     ) -> Result<(), ShellError> {
         self.pending_score_snapshot = Some(snapshot);
-        let result = self.push_internal("Menus/ScoreScreen.wnd", shutdown_immediate);
+        let result = self.push_internal("Menus/ScoreScreen.wnd", shutdown_immediate, effects);
         if result.is_err() {
             self.pending_score_snapshot = None;
         }
         result
     }
 
-    pub fn push(&mut self, filename: &str, shutdown_immediate: bool) -> Result<(), ShellError> {
+    pub fn push(
+        &mut self,
+        filename: &str,
+        shutdown_immediate: bool,
+        effects: &mut WindowEventEffects<'_>,
+    ) -> Result<(), ShellError> {
         self.pending_score_snapshot = None;
-        self.push_internal(filename, shutdown_immediate)
+        self.push_internal(filename, shutdown_immediate, effects)
     }
 
     fn push_internal(
         &mut self,
         filename: &str,
         shutdown_immediate: bool,
+        effects: &mut WindowEventEffects<'_>,
     ) -> Result<(), ShellError> {
         if !self.initialized {
             return Err(ShellError::NotInitialized);
@@ -130,27 +137,27 @@ impl Shell {
         if let Some(current_top) = self.screen_stack.last_mut() {
             if !current_top.is_hidden() {
                 let mut immediate = shutdown_immediate;
-                current_top.run_shutdown(&mut immediate)?;
+                current_top.run_shutdown_with_effects(&mut immediate, effects)?;
 
                 if immediate {
                     // Complete the shutdown immediately
-                    self.shutdown_complete(None, true)?;
+                    self.shutdown_complete(None, true, effects)?;
                 }
             } else {
                 // Match C++ Shell::push(): if the top is already hidden, complete the pending
                 // push immediately instead of leaving the shell stuck with a latent push request.
-                self.shutdown_complete(None, false)?;
+                self.shutdown_complete(None, false, effects)?;
             }
         } else {
             // No current top, do push immediately
-            self.shutdown_complete(None, false)?;
+            self.shutdown_complete(None, false, effects)?;
         }
 
         Ok(())
     }
 
     /// Pop the top screen from the stack
-    pub fn pop(&mut self) -> Result<(), ShellError> {
+    pub fn pop(&mut self, effects: &mut WindowEventEffects<'_>) -> Result<(), ShellError> {
         if self.screen_stack.is_empty() {
             return Err(ShellError::EmptyStack);
         }
@@ -168,10 +175,10 @@ impl Shell {
         // Shutdown the top screen
         if let Some(top) = self.screen_stack.last_mut() {
             let mut immediate_pop = false;
-            top.run_shutdown(&mut immediate_pop)?;
+            top.run_shutdown_with_effects(&mut immediate_pop, effects)?;
 
             if immediate_pop {
-                self.shutdown_complete(None, false)?;
+                self.shutdown_complete(None, false, effects)?;
             }
         }
 
@@ -183,7 +190,10 @@ impl Shell {
     }
 
     /// Immediately pop the top screen without waiting for shutdown completion
-    pub fn pop_immediate(&mut self) -> Result<(), ShellError> {
+    pub fn pop_immediate(
+        &mut self,
+        effects: &mut WindowEventEffects<'_>,
+    ) -> Result<(), ShellError> {
         if self.screen_stack.is_empty() {
             return Err(ShellError::EmptyStack);
         }
@@ -200,10 +210,10 @@ impl Shell {
         // then perform the actual pop through the normal workhorse.
         if let Some(top) = self.screen_stack.last_mut() {
             let mut immediate_pop = true;
-            top.run_shutdown(&mut immediate_pop)?;
+            top.run_shutdown_with_effects(&mut immediate_pop, effects)?;
         }
 
-        self.do_pop(false)?;
+        self.do_pop(false, effects)?;
 
         if let Ok(mut ime_manager) = get_ime_manager().lock() {
             ime_manager.detach();
@@ -259,7 +269,11 @@ impl Shell {
     }
 
     /// Show the shell (initialize top screen)
-    pub fn show_shell(&mut self, run_init: bool) -> Result<(), ShellError> {
+    pub fn show_shell(
+        &mut self,
+        run_init: bool,
+        effects: &mut WindowEventEffects<'_>,
+    ) -> Result<(), ShellError> {
         log::debug!("Shell::show_shell(run_init: {})", run_init);
 
         if get_global_data()
@@ -271,7 +285,7 @@ impl Shell {
 
         if run_init {
             if let Some(layout) = self.screen_stack.last_mut() {
-                layout.run_init(None)?;
+                layout.run_init_with_effects(None, effects)?;
             }
         }
 
@@ -279,7 +293,7 @@ impl Shell {
             .map(|data| data.read().shell_map_on)
             .unwrap_or(false);
         if !shell_map_enabled && self.screen_stack.is_empty() {
-            self.push("Menus/MainMenu.wnd", false)?;
+            self.push("Menus/MainMenu.wnd", false, effects)?;
         }
 
         self.is_shell_active = true;
@@ -288,9 +302,12 @@ impl Shell {
 
     /// C++ GameLogic::startNewGame shell completion branch:
     /// push MainMenu when the shell stack is empty, otherwise reveal the top screen.
-    pub fn show_main_menu_after_shell_game_start(&mut self) -> Result<(), ShellError> {
+    pub fn show_main_menu_after_shell_game_start(
+        &mut self,
+        effects: &mut WindowEventEffects<'_>,
+    ) -> Result<(), ShellError> {
         if self.screen_stack.is_empty() {
-            self.push("Menus/MainMenu.wnd", false)
+            self.push("Menus/MainMenu.wnd", false, effects)
         } else {
             if let Some(top) = self.top() {
                 top.hide(false);
@@ -301,14 +318,14 @@ impl Shell {
     }
 
     /// Hide the shell (shutdown top screen without popping)
-    pub fn hide_shell(&mut self) -> Result<(), ShellError> {
+    pub fn hide_shell(&mut self, effects: &mut WindowEventEffects<'_>) -> Result<(), ShellError> {
         log::debug!("Shell::hide_shell()");
 
         self.clear_background = true;
 
         if let Some(layout) = self.screen_stack.last_mut() {
             let mut immediate_pop = true;
-            layout.run_shutdown(&mut immediate_pop)?;
+            layout.run_shutdown_with_effects(&mut immediate_pop, effects)?;
         }
 
         if let Ok(mut ime_manager) = get_ime_manager().lock() {
@@ -324,18 +341,19 @@ impl Shell {
         &mut self,
         _layout: Option<&dyn WindowLayout>,
         impending_push: bool,
+        effects: &mut WindowEventEffects<'_>,
     ) -> Result<(), ShellError> {
         // Reset animation manager
         self.animate_window_manager.reset();
 
         if self.pending_push {
             // Do the push
-            self.do_push(&self.pending_push_name.clone())?;
+            self.do_push(&self.pending_push_name.clone(), effects)?;
             self.pending_push = false;
             self.pending_push_name.clear();
         } else if self.pending_pop {
             // Do the pop
-            self.do_pop(impending_push)?;
+            self.do_pop(impending_push, effects)?;
             self.pending_pop = false;
         }
 
@@ -461,7 +479,7 @@ impl Shell {
     }
 
     /// Show or hide the shell map
-    pub fn show_shell_map(&mut self, use_shell_map: bool) {
+    pub fn show_shell_map(&mut self, use_shell_map: bool, effects: &mut WindowEventEffects<'_>) {
         let Some(global) = get_global_data() else {
             return;
         };
@@ -477,9 +495,9 @@ impl Shell {
             }
 
             if TheGameLogic::is_in_game() {
-                let message_stream = get_message_stream();
-                let mut stream = message_stream.write().unwrap_or_else(|e| e.into_inner());
-                stream.append_message(GameMessageType::ClearGameData);
+                effects
+                    .emitted_messages
+                    .push(GameMessage::new(GameMessageType::ClearGameData));
             }
 
             let shell_map_name = global.read().shell_map_name.clone();
@@ -488,16 +506,15 @@ impl Shell {
                 data.pending_file = shell_map_name;
             }
             init_random_with_seed(0);
-            let message_stream = get_message_stream();
-            let mut stream = message_stream.write().unwrap_or_else(|e| e.into_inner());
-            let msg = stream.append_message(GameMessageType::NewGame);
+            let mut msg = GameMessage::new(GameMessageType::NewGame);
             msg.append_integer_argument(GAME_SHELL);
+            effects.emitted_messages.push(msg);
             self.shell_map_on = true;
         } else {
             if TheGameLogic::is_in_game() && TheGameLogic::get_game_mode() == GAME_SHELL {
-                let message_stream = get_message_stream();
-                let mut stream = message_stream.write().unwrap_or_else(|e| e.into_inner());
-                stream.append_message(GameMessageType::ClearGameData);
+                effects
+                    .emitted_messages
+                    .push(GameMessage::new(GameMessageType::ClearGameData));
             }
 
             if !self.is_shell_active {
@@ -509,7 +526,7 @@ impl Shell {
                 )));
             }
             if let Some(ref mut bg) = self.background {
-                if let Err(err) = bg.run_init(None) {
+                if let Err(err) = bg.run_init_with_effects(None, effects) {
                     log::warn!("Failed to initialize shell background layout: {}", err);
                 }
                 bg.set_first_window_image();
@@ -525,7 +542,11 @@ impl Shell {
         log::debug!("Shell map enabled: {}", self.shell_map_on);
     }
 
-    fn do_push(&mut self, layout_file: &str) -> Result<(), ShellError> {
+    fn do_push(
+        &mut self,
+        layout_file: &str,
+        effects: &mut WindowEventEffects<'_>,
+    ) -> Result<(), ShellError> {
         log::debug!("Shell::do_push({})", layout_file);
 
         // Create new layout - in a real implementation, this would load from file
@@ -544,18 +565,30 @@ impl Shell {
         // Initialize the new screen
         if let Some(screen) = self.screen_stack.last_mut() {
             let snapshot = self.pending_score_snapshot.take();
-            screen.run_init(
+            screen.run_init_with_effects(
                 snapshot
                     .as_ref()
                     .map(|snapshot| snapshot as &dyn std::any::Any),
+                effects,
             )?;
+        }
+        let owner = effects
+            .window_manager_owner
+            .cloned()
+            .expect("Shell init requires receiving owner");
+        owner.drain_driving_shell(self, effects);
+        if let Some(screen) = self.screen_stack.last_mut() {
             screen.bring_forward();
         }
 
         Ok(())
     }
 
-    fn do_pop(&mut self, impending_push: bool) -> Result<(), ShellError> {
+    fn do_pop(
+        &mut self,
+        impending_push: bool,
+        effects: &mut WindowEventEffects<'_>,
+    ) -> Result<(), ShellError> {
         log::debug!("Shell::do_pop(impending_push: {})", impending_push);
 
         // Remove and destroy the top screen
@@ -566,7 +599,7 @@ impl Shell {
         // Initialize the new top if present and not doing an impending push
         if !impending_push {
             if let Some(new_top) = self.screen_stack.last_mut() {
-                new_top.run_init(None)?;
+                new_top.run_init_with_effects(None, effects)?;
             }
         }
 
@@ -608,6 +641,19 @@ impl SubsystemInterface for Shell {
     }
 
     fn reset(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        Err("Shell reset requires the receiving GameClient callback context".into())
+    }
+
+    fn update(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        Err("Shell update requires the receiving GameClient callback context".into())
+    }
+}
+
+impl Shell {
+    pub fn reset_receiving(
+        &mut self,
+        effects: &mut WindowEventEffects<'_>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         log::info!("Resetting shell system");
         self.pending_score_snapshot = None;
 
@@ -618,7 +664,7 @@ impl SubsystemInterface for Shell {
         // Pop all screens. The local test layouts don't model the C++ callback chain,
         // so we use the immediate pop path to keep the stack teardown deterministic here.
         while !self.screen_stack.is_empty() {
-            self.pop_immediate()?;
+            self.pop_immediate(effects)?;
         }
 
         // Reset animation manager
@@ -628,7 +674,10 @@ impl SubsystemInterface for Shell {
         Ok(())
     }
 
-    fn update(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn update_receiving(
+        &mut self,
+        effects: &mut WindowEventEffects<'_>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let now = Instant::now();
         if now.duration_since(self.last_update) >= self.update_interval {
             if let Some(name) = take_pending_shell_scheme_for_layout() {
@@ -642,7 +691,12 @@ impl SubsystemInterface for Shell {
 
             // Update all layouts on the stack (from top to bottom)
             for i in (0..self.screen_stack.len()).rev() {
-                self.screen_stack[i].run_update(None)?;
+                self.screen_stack[i].run_update_with_effects(None, effects)?;
+                let owner = effects
+                    .window_manager_owner
+                    .cloned()
+                    .expect("Shell callback requires receiving owner");
+                owner.drain_driving_shell(self, effects);
             }
 
             let global_shell_map_on = get_global_data()

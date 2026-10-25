@@ -243,10 +243,10 @@ pub(super) fn create_radar_event_for_position(
     Ok(())
 }
 
-pub(super) fn resolve_player_name_token(raw: &str) -> String {
+pub(super) fn resolve_player_name_token(raw: &str, is_challenge: bool) -> String {
     match raw {
         THE_PLAYER => {
-            if !crate::scripting::core::is_generals_challenge_campaign() {
+            if !is_challenge {
                 raw.to_string()
             } else {
                 player_list()
@@ -311,7 +311,7 @@ pub(super) fn resolve_named_object_id(name: &str) -> Option<u32> {
     object_id
 }
 
-pub(super) fn resolve_team_name_token(raw: &str) -> String {
+pub(super) fn resolve_team_name_token(raw: &str, is_challenge: bool) -> String {
     match raw {
         THIS_TEAM => get_script_engine()
             .read()
@@ -325,7 +325,7 @@ pub(super) fn resolve_team_name_token(raw: &str) -> String {
             })
             .unwrap_or_else(|| raw.to_string()),
         TEAM_THE_PLAYER => {
-            if !crate::scripting::core::is_generals_challenge_campaign() {
+            if !is_challenge {
                 return raw.to_string();
             }
             player_list()
@@ -340,8 +340,11 @@ pub(super) fn resolve_team_name_token(raw: &str) -> String {
     }
 }
 
-pub(super) fn create_ai_group_from_team(team_name: &str) -> GameLogicResult<Arc<RwLock<AiGroup>>> {
-    let resolved_team = resolve_team_name_token(team_name);
+pub(super) fn create_ai_group_from_team(
+    team_name: &str,
+    is_challenge: bool,
+) -> GameLogicResult<Arc<RwLock<AiGroup>>> {
+    let resolved_team = resolve_team_name_token(team_name, is_challenge);
     let factory = get_team_factory();
     let team_arc = factory
         .lock()

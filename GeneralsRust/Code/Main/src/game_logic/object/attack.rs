@@ -983,10 +983,27 @@ impl Object {
     }
 
     pub fn stop_moving(&mut self, audio: &mut crate::game_logic::ObjectAudio<'_>) {
+        self.stop_moving_with_idle_transition(audio, true);
+    }
+
+    /// Stop locomotion while leaving the AI machine untouched so the owning
+    /// World operation can enter Idle at the original synchronous boundary.
+    pub(crate) fn stop_moving_for_owned_idle_entry(
+        &mut self,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
+    ) -> bool {
+        self.stop_moving_with_idle_transition(audio, false)
+    }
+
+    fn stop_moving_with_idle_transition(
+        &mut self,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
+        enter_idle: bool,
+    ) -> bool {
         let overlay = self.has_temporary_ai_move();
         self.end_temporary_move_overlay(audio);
         if overlay {
-            return;
+            return false;
         }
         self.movement_goal_object = None;
         audio.stop_loop(self);
@@ -1013,15 +1030,16 @@ impl Object {
         // Interaction states (Capturing, Repairing, SpecialAbility, Entering, …)
         // set a destination while remaining in-state; clobbering them to Idle
         // aborted capture/repair on arrival before support-state resolution.
-        if !overlay
+        let should_enter_idle = !overlay
             && !matches!(
                 self.retained_ai_root_state(),
                 AIState::JetReturningForLanding | AIState::JetReturnToDeadAirfield
             )
-            && matches!(self.ai_state(), AIState::Moving | AIState::AttackMoving)
-        {
+            && matches!(self.ai_state(), AIState::Moving | AIState::AttackMoving);
+        if should_enter_idle && enter_idle {
             self.set_ai_state(AIState::Idle, audio);
         }
+        should_enter_idle
     }
 
     pub fn attack_target(
@@ -1168,27 +1186,33 @@ impl Object {
         self.leech_range_active_secondary = false;
     }
 
-    pub fn stop_attack(&mut self, audio: &mut crate::game_logic::ObjectAudio<'_>) {
+    fn clear_attack_scalar_state(&mut self) {
         // C++ WeaponSet::releaseWeaponLock: any non-special player order and
         // an exited attack state release a temporary special-weapon lock.
         // Permanent user locks remain intact.
         self.release_weapon_lock(WeaponLockType::LockedTemporarily);
         self.target = None;
         self.target_location = None;
-
         self.set_status_force_attack(false);
         self.pre_attack_target = None;
-
         self.pre_attack_ready_at = 0.0;
-
         self.consecutive_shot_target = None;
         self.consecutive_shots_at_target = 0;
-
         self.clear_leech_range_mode_for_all_weapons();
         self.status.attacking = false;
         self.set_status_aiming_weapon(false);
         self.set_status_firing_weapon(false);
         self.set_attack_substate(crate::game_logic::AttackSubState::AimAtTarget);
+    }
+
+    /// Clear attack scalars while leaving the retained machine in its old
+    /// state until the owning World performs the synchronous Idle transition.
+    pub(crate) fn clear_attack_for_owned_idle_entry(&mut self) {
+        self.clear_attack_scalar_state();
+    }
+
+    pub fn stop_attack(&mut self, audio: &mut crate::game_logic::ObjectAudio<'_>) {
+        self.clear_attack_scalar_state();
 
         let retained_parent = self.capture_base_ai_continuation().parent_state();
         self.unit_ai_runtime.set_machine_goal_object(None);

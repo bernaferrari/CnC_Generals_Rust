@@ -2,25 +2,26 @@
 
 use crate::game_text::GameText;
 use crate::gui::callbacks::quit_menu::destroy_quit_menu;
-use crate::gui::campaign_manager::get_campaign_manager;
+
 use crate::gui::control_bar::{
-    host_control_bar_input_provenance_for_current_dispatch, HostControlBarInputProvenance,
+    HostControlBarInputProvenance, host_control_bar_input_provenance_for_current_dispatch,
 };
 use crate::gui::gadgets::ListBoxItemData;
-use crate::gui::menu_flags::{get_dont_show_main_menu, get_replay_was_pressed, set_replay_was_pressed};
+use crate::gui::menu_flags::{
+    get_dont_show_main_menu, get_replay_was_pressed, set_replay_was_pressed,
+};
 use crate::gui::shell::Color as WindowColor;
 use crate::gui::{
-    queue_set_focus, queue_shell_hide, queue_shell_pop, queue_shell_show,
+    GLM_DOUBLE_CLICKED, GameWindow, KeyModifiers, WindowLayout, WindowMessage, WindowMsgData,
+    WindowMsgHandled, queue_set_focus, queue_shell_hide, queue_shell_pop, queue_shell_show,
     queue_shell_shutdown_complete, queue_window_manager_op, queue_window_manager_op_deferred,
     show_shell_map_if_available, with_shell_ref, with_window_manager, write_input_focus_response,
-    GameWindow, KeyModifiers, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled,
-    GLM_DOUBLE_CLICKED,
 };
 use game_engine::common::game_engine::get_game_engine;
 use game_engine::common::ini::get_global_data;
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::{
-    get_game_state, AvailableGameInfo, SaveCode, SaveFileType, SaveLoadLayoutType, SnapshotType,
+    AvailableGameInfo, SaveCode, SaveFileType, SaveLoadLayoutType, SnapshotType, get_game_state,
 };
 use gamelogic::helpers::TheGameLogic;
 use gamelogic::system::game_logic::GAME_SINGLE_PLAYER;
@@ -329,23 +330,27 @@ fn normalize_default_save_description_from_map_name(mut default_desc: String) ->
     default_desc
 }
 
-fn set_edit_description(edit_control: &Rc<RefCell<GameWindow>>) {
+fn set_edit_description(
+    edit_control: &Rc<RefCell<GameWindow>>,
+    campaign_manager: Option<&crate::gui::campaign_manager::CampaignManager>,
+) {
     let mut default_desc = String::new();
     let mut used_campaign = false;
     {
-        let manager = get_campaign_manager();
-        if let (Some(campaign), Some(mission_number)) = (
-            manager.get_current_campaign(),
-            manager.get_current_mission_number(),
-        ) {
-            let campaign_label = GameText::fetch(&campaign.campaign_name_label);
-            let label = if campaign_label.is_empty() {
-                campaign.campaign_name_label.clone()
-            } else {
-                campaign_label
-            };
-            default_desc = format!("{} {}", label, mission_number + 1);
-            used_campaign = true;
+        if let Some(manager) = campaign_manager {
+            if let (Some(campaign), Some(mission_number)) = (
+                manager.get_current_campaign(),
+                manager.get_current_mission_number(),
+            ) {
+                let campaign_label = GameText::fetch(&campaign.campaign_name_label);
+                let label = if campaign_label.is_empty() {
+                    campaign.campaign_name_label.clone()
+                } else {
+                    campaign_label
+                };
+                default_desc = format!("{} {}", label, mission_number + 1);
+                used_campaign = true;
+            }
         }
     }
 
@@ -1445,6 +1450,7 @@ pub fn save_load_menu_system(
     msg: WindowMessage,
     data1: WindowMsgData,
     data2: WindowMsgData,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> WindowMsgHandled {
     let state_handle = save_load_menu_state();
     let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
@@ -1497,7 +1503,7 @@ pub fn save_load_menu_system(
                         hide_save_load_window(save_desc, false);
                     }
                     if let Some(edit_desc) = state.edit_desc.as_ref() {
-                        set_edit_description(edit_desc);
+                        set_edit_description(edit_desc, effects.campaign_manager.as_deref());
                         queue_set_focus(edit_desc.clone());
                     }
                     if let Some(listbox) = state.listbox_games_window.as_ref() {
@@ -2047,64 +2053,77 @@ pub fn select_live_popup_save_game_named_like_cpp(filename: &str) -> bool {
 }
 
 /// OS click on live `PopupSaveLoad.wnd:ButtonSave` (not `simulate_*`).
-pub fn drive_os_wnd_popup_save_load_save_like_cpp() -> bool {
+pub fn drive_os_wnd_popup_save_load_save_like_cpp(
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
     let _ = prepare_live_popup_save_load_for_click();
-    crate::gui::dispatch_os_click_named_window("PopupSaveLoad.wnd:ButtonSave")
+    crate::gui::dispatch_os_click_named_window("PopupSaveLoad.wnd:ButtonSave", effects)
 }
 
 /// Complete the retail save interaction: Save then the visible description or
 /// overwrite confirmation. The actual `SaveLoadMenuSystem` callback performs
 /// the GameState save; this helper only drives its live WND buttons.
-pub fn drive_os_wnd_popup_save_load_save_and_confirm_like_cpp() -> bool {
-    if !drive_os_wnd_popup_save_load_save_like_cpp() {
+pub fn drive_os_wnd_popup_save_load_save_and_confirm_like_cpp(
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
+    if !drive_os_wnd_popup_save_load_save_like_cpp(effects) {
         return false;
     }
     if live_popup_save_load_window_visible("PopupSaveLoad.wnd:SaveDescParent") {
         return crate::gui::dispatch_os_click_named_window(
             "PopupSaveLoad.wnd:ButtonSaveDescConfirm",
+            effects,
         );
     }
     if live_popup_save_load_window_visible("PopupSaveLoad.wnd:OverwriteConfirmParent") {
         return crate::gui::dispatch_os_click_named_window(
             "PopupSaveLoad.wnd:ButtonOverwriteConfirm",
+            effects,
         );
     }
     false
 }
 
 /// OS click on live `PopupSaveLoad.wnd:ButtonLoad` (not `simulate_*`).
-pub fn drive_os_wnd_popup_save_load_load_like_cpp() -> bool {
+pub fn drive_os_wnd_popup_save_load_load_like_cpp(
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
     let _ = prepare_live_popup_save_load_for_click();
-    crate::gui::dispatch_os_click_named_window("PopupSaveLoad.wnd:ButtonLoad")
+    crate::gui::dispatch_os_click_named_window("PopupSaveLoad.wnd:ButtonLoad", effects)
 }
 
 /// Complete the retail load interaction: re-open, select a real save row,
 /// click Load, then accept LoadConfirm. It intentionally returns false when
 /// no real save exists rather than enabling ButtonLoad or inventing a row.
-pub fn drive_os_wnd_popup_save_load_load_and_confirm_like_cpp() -> bool {
+pub fn drive_os_wnd_popup_save_load_load_and_confirm_like_cpp(
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
     if !select_first_live_popup_save_game_like_cpp()
-        || !crate::gui::dispatch_os_click_named_window("PopupSaveLoad.wnd:ButtonLoad")
+        || !crate::gui::dispatch_os_click_named_window("PopupSaveLoad.wnd:ButtonLoad", effects)
     {
         return false;
     }
     if !live_popup_save_load_window_visible("PopupSaveLoad.wnd:LoadConfirmParent") {
         return false;
     }
-    crate::gui::dispatch_os_click_named_window("PopupSaveLoad.wnd:ButtonLoadConfirm")
+    crate::gui::dispatch_os_click_named_window("PopupSaveLoad.wnd:ButtonLoadConfirm", effects)
 }
 
 /// Complete the retail load interaction for one exact filename: re-open,
 /// select that genuine row, click Load, and accept LoadConfirm.
-pub fn drive_os_wnd_popup_save_load_load_named_and_confirm_like_cpp(filename: &str) -> bool {
+pub fn drive_os_wnd_popup_save_load_load_named_and_confirm_like_cpp(
+    filename: &str,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
     if !select_live_popup_save_game_named_like_cpp(filename)
-        || !crate::gui::dispatch_os_click_named_window("PopupSaveLoad.wnd:ButtonLoad")
+        || !crate::gui::dispatch_os_click_named_window("PopupSaveLoad.wnd:ButtonLoad", effects)
     {
         return false;
     }
     if !live_popup_save_load_window_visible("PopupSaveLoad.wnd:LoadConfirmParent") {
         return false;
     }
-    crate::gui::dispatch_os_click_named_window("PopupSaveLoad.wnd:ButtonLoadConfirm")
+    crate::gui::dispatch_os_click_named_window("PopupSaveLoad.wnd:ButtonLoadConfirm", effects)
 }
 
 /// Residual: full-screen LoadOnly path: bind + select slot + Load.

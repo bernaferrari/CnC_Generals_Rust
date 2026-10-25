@@ -48,11 +48,7 @@ fn multiplayer_local_general_presentation(
 }
 
 fn multiplayer_local_general_text_fallback<'a>(text: &'a str, fallback: &'a str) -> &'a str {
-    if text.is_empty() {
-        fallback
-    } else {
-        text
-    }
+    if text.is_empty() { fallback } else { text }
 }
 
 fn play_multiplayer_load_screen_music(music_name: &str) {
@@ -212,8 +208,9 @@ fn challenge_persona_text_for_current_mission(
     ))
 }
 
-fn current_challenge_persona_text() -> Option<(ChallengePersonaText, ChallengePersonaText)> {
-    let campaign_manager = get_campaign_manager();
+fn current_challenge_persona_text(
+    campaign_manager: &crate::gui::campaign_manager::CampaignManager,
+) -> Option<(ChallengePersonaText, ChallengePersonaText)> {
     let campaign = campaign_manager.get_current_campaign()?;
     let mission = campaign_manager.get_current_mission()?;
     if get_challenge_generals().is_none() {
@@ -224,15 +221,17 @@ fn current_challenge_persona_text() -> Option<(ChallengePersonaText, ChallengePe
     challenge_persona_text_for_current_mission(&campaign.name, &mission.general_name, &generals)
 }
 
-fn current_challenge_movie_label() -> Option<String> {
-    let campaign_manager = get_campaign_manager();
+fn current_challenge_movie_label(
+    campaign_manager: &crate::gui::campaign_manager::CampaignManager,
+) -> Option<String> {
     let mission = campaign_manager.get_current_mission()?;
     let movie_label = mission.movie_label.trim();
     (!movie_label.is_empty()).then(|| movie_label.to_string())
 }
 
-fn current_challenge_voice_length() -> i32 {
-    let campaign_manager = get_campaign_manager();
+fn current_challenge_voice_length(
+    campaign_manager: &crate::gui::campaign_manager::CampaignManager,
+) -> i32 {
     campaign_manager
         .get_current_mission()
         .map(|mission| mission.voice_length)

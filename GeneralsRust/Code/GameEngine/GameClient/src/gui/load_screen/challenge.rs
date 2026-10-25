@@ -1,6 +1,10 @@
 // Split from `gui/load_screen.rs` dump. Included by `load_screen/mod.rs`.
 
-fn initialize_challenge_windows(wm: &mut WindowManager, did_mem_pass: bool) {
+fn initialize_challenge_windows(
+    wm: &mut WindowManager,
+    did_mem_pass: bool,
+    campaign_manager: &crate::gui::campaign_manager::CampaignManager,
+) {
     with_challenge_load_screen_state(|state| *state = ChallengeLoadScreenState::default());
     with_window_video_manager(|manager| manager.init());
 
@@ -31,11 +35,11 @@ fn initialize_challenge_windows(wm: &mut WindowManager, did_mem_pass: bool) {
         hide_window(wm, name, true);
     }
 
-    let Some((player, opponent)) = current_challenge_persona_text() else {
+    let Some((player, opponent)) = current_challenge_persona_text(campaign_manager) else {
         return;
     };
-    let movie_label = current_challenge_movie_label();
-    let voice_length = current_challenge_voice_length();
+    let movie_label = current_challenge_movie_label(campaign_manager);
+    let voice_length = current_challenge_voice_length(campaign_manager);
     with_challenge_load_screen_state(|state| {
         state.player = Some(player.clone());
         state.opponent = Some(opponent.clone());

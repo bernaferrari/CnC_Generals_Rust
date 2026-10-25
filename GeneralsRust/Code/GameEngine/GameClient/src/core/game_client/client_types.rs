@@ -25,6 +25,9 @@ pub struct GameClient {
     // Core state
     /// The single native WND tree owned for this client's lifetime.
     window_manager_owner: crate::gui::window_manager::WindowManagerOwner,
+    /// This client's ordered message pipeline and its translator-local state.
+    pub(crate) campaign_manager: crate::gui::campaign_manager::CampaignManager,
+    message_stream: crate::message_stream::message_stream::MessageStream,
     /// C++ shell-game load-screen first-load latch for this receiving client.
     shell_game_first_load: bool,
     frame: u32,
@@ -100,3 +103,12 @@ pub struct GameClient {
     startup_sizzle_pending: bool,
     initialized: bool,
 }
+
+/// Borrowed native window-input driver. The receiving client supplies its identities.
+pub type NativeWindowInputDriver<'a> = dyn FnMut(
+        &crate::gui::window_manager::WindowManagerOwner,
+        &mut crate::gui::campaign_manager::CampaignManager,
+        game_engine::common::message_stream::WindowInputDispatch,
+        &mut Vec<crate::message_stream::game_message::GameMessage>,
+    ) -> Option<game_engine::common::message_stream::WindowInputDispatchResult>
+    + 'a;

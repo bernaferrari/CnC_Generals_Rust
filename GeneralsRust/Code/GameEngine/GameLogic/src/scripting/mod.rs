@@ -124,6 +124,15 @@ pub struct ScriptContext {
     pub host_trigger_world: Arc<Mutex<HostTriggerWorld>>,
 }
 
+impl ScriptContext {
+    pub fn is_generals_challenge_campaign(&self) -> bool {
+        self.host_trigger_world
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .is_generals_challenge_campaign()
+    }
+}
+
 /// Game state context for scripts
 #[derive(Debug, Clone)]
 pub struct GameStateContext {

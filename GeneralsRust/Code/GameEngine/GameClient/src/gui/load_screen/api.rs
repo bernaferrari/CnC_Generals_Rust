@@ -91,14 +91,18 @@ pub fn init_load_screen_for_owner(
     owner: &crate::gui::window_manager::WindowManagerOwner,
     kind: LoadScreenKind,
     context: &LoadScreenInitContext,
+    campaign_manager: &crate::gui::campaign_manager::CampaignManager,
     shell_game_first_load: &mut bool,
 ) -> bool {
-    owner.with_scope(|| init_load_screen_with_state(kind, context, shell_game_first_load))
+    owner.with_scope(|| {
+        init_load_screen_with_state(kind, context, campaign_manager, shell_game_first_load)
+    })
 }
 
 pub(crate) fn init_load_screen_with_state(
     kind: LoadScreenKind,
     context: &LoadScreenInitContext,
+    campaign_manager: &crate::gui::campaign_manager::CampaignManager,
     shell_game_first_load: &mut bool,
 ) -> bool {
     let descriptor = descriptor_for_kind(kind);
@@ -114,7 +118,13 @@ pub(crate) fn init_load_screen_with_state(
         }
 
         initialize_progress_windows(wm, descriptor);
-        initialize_kind_windows(wm, descriptor.kind, context, shell_game_first_load);
+        initialize_kind_windows(
+            wm,
+            descriptor.kind,
+            context,
+            campaign_manager,
+            shell_game_first_load,
+        );
         true
     })
 }

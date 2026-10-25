@@ -20,8 +20,48 @@ impl GameWindow {
             false,
             false,
             &mut notification,
+            None,
+            None,
         )
     }
+    pub(crate) fn send_input_message_with_message_sink(
+        &mut self,
+        msg: WindowMessage,
+        data1: WindowMsgData,
+        data2: WindowMsgData,
+        _routed: bool,
+        emitted_messages: &mut crate::gui::game_window::WindowEventEffects<'_>,
+        mut pending_control_bar_clicks: Option<&mut Vec<crate::helpers::LiveControlBarClick>>,
+    ) -> WindowMsgHandled {
+        if msg != WindowMessage::Destroy && self.status.contains(WindowStatus::DESTROYED) {
+            return WindowMsgHandled::Ignored;
+        }
+        if let Some(callback) = self.callbacks.input_with_message_sink.as_ref() {
+            let result = callback(self, msg, data1, data2, emitted_messages);
+            if !result.is_ignored() {
+                return result;
+            }
+        } else if let Some(callback) = self.callbacks.input.as_ref() {
+            let result = callback(self, msg, data1, data2);
+            if !result.is_ignored() {
+                return result;
+            }
+        }
+        let mut notification = None;
+        self.handle_widget_input_phase(
+            msg,
+            data1,
+            data2,
+            false,
+            false,
+            false,
+            false,
+            &mut notification,
+            Some(emitted_messages),
+            pending_control_bar_clicks,
+        )
+    }
+
     pub(crate) fn handle_widget_input_with_control_bar_notification(
         &mut self,
         msg: WindowMessage,
@@ -30,6 +70,7 @@ impl GameWindow {
         owned_options: bool,
         owned_replay: bool,
         owned_restart: bool,
+        pending_control_bar_clicks: Option<&mut Vec<crate::helpers::LiveControlBarClick>>,
     ) -> (WindowMsgHandled, Option<ControlBarNotification>) {
         let mut notification = None;
         let result = self.handle_widget_input_phase(
@@ -41,10 +82,12 @@ impl GameWindow {
             owned_replay,
             owned_restart,
             &mut notification,
+            None,
+            pending_control_bar_clicks,
         );
         (result, notification)
     }
-    fn handle_widget_input_phase(
+    pub(crate) fn handle_widget_input_phase(
         &mut self,
         msg: WindowMessage,
         data1: WindowMsgData,
@@ -54,6 +97,8 @@ impl GameWindow {
         owned_replay: bool,
         owned_restart: bool,
         notification: &mut Option<ControlBarNotification>,
+        mut emitted_messages: Option<&mut crate::gui::game_window::WindowEventEffects<'_>>,
+        mut pending_control_bar_clicks: Option<&mut Vec<crate::helpers::LiveControlBarClick>>,
     ) -> WindowMsgHandled {
         self.sync_listbox_content_top_inset();
         if matches!(self.widget, Some(WindowWidget::ComboBox(_)))
@@ -261,11 +306,21 @@ impl GameWindow {
                 // winSetFocus delivers GWM_INPUT_FOCUS to the gadget itself;
                 // its system callback then sends GGM_FOCUS_CHANGE to the owner.
                 // Sending raw InputFocus to the owner skips that C++ sequence.
-                let result = self.send_system_message(
-                    WindowMessage::InputFocus,
-                    if has_focus { 1 } else { 0 },
-                    0,
-                );
+                let result = if let Some(emitted) = emitted_messages.as_deref_mut() {
+                    self.send_system_message_with_message_sink(
+                        WindowMessage::InputFocus,
+                        if has_focus { 1 } else { 0 },
+                        0,
+                        emitted,
+                        pending_control_bar_clicks.as_deref_mut(),
+                    )
+                } else {
+                    self.send_system_message(
+                        WindowMessage::InputFocus,
+                        if has_focus { 1 } else { 0 },
+                        0,
+                    )
+                };
                 handled |= result.is_handled();
                 continue;
             }
@@ -594,7 +649,25 @@ impl GameWindow {
                     return WindowMsgHandled::Handled;
                 }
             }
-            let result = if let Some(ref owner) = target_owner {
+            let result = if let Some(emitted) = emitted_messages.as_deref_mut() {
+                if let Some(owner) = target_owner.as_ref() {
+                    owner.borrow_mut().send_system_message_with_message_sink(
+                        msg,
+                        data1,
+                        data2,
+                        emitted,
+                        pending_control_bar_clicks.as_deref_mut(),
+                    )
+                } else {
+                    self.send_system_message_with_message_sink(
+                        msg,
+                        data1,
+                        data2,
+                        emitted,
+                        pending_control_bar_clicks.as_deref_mut(),
+                    )
+                }
+            } else if let Some(ref owner) = target_owner {
                 owner.borrow_mut().send_system_message(msg, data1, data2)
             } else {
                 self.send_system_message(msg, data1, data2)

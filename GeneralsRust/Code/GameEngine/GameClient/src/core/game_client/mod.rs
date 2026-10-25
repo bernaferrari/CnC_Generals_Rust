@@ -58,9 +58,8 @@ use crate::core::subsystems::{
     AudioSubsystem, DisplayStringManagerSubsystem, FontLibrarySubsystem,
     HeaderTemplateManagerSubsystem, HotKeyManagerSubsystem, InGameUISubsystem, InGameUiHandle,
     MouseHandle, TerrainVisualStub, VideoPlayerSubsystem, WindowManagerSubsystem, create_keyboard,
-    create_mouse, register_campaign_snapshot_block, register_game_client_snapshot_block,
-    register_particle_system_snapshot_block, register_radar_snapshot_block,
-    register_terrain_visual_snapshot_block,
+    create_mouse, register_game_client_snapshot_block, register_particle_system_snapshot_block,
+    register_radar_snapshot_block, register_terrain_visual_snapshot_block,
 };
 use crate::display::DisplayInterface;
 use crate::display::display::Display as GraphicsDisplay;
@@ -70,22 +69,21 @@ use crate::drawable::*;
 use crate::effects::{DecalManager, EffectsConfig};
 use crate::fx_list::{init_fx_list_store, register_decal_manager, register_fx_audio};
 use crate::game_text::GameText;
-use crate::gui::campaign_manager::get_campaign_manager;
+
 use crate::gui::gadgets::register_button_audio_hook;
 use crate::gui::ime_manager::get_ime_manager;
 use crate::gui::load_screen::{
     clear_load_screen_presentation_pump, register_load_screen_presentation_pump,
 };
+use crate::gui::window_manager::WindowManagerOwner;
 use crate::gui::{
     UIRenderer, WindowStatus, get_shell, get_skirmish_setup, set_ui_renderer, with_window_manager,
 };
-use crate::gui::window_manager::WindowManagerOwner;
 use crate::helpers::{register_in_game_ui_backend, register_mouse_backend};
 use crate::input::*;
 use crate::message_stream::command_list::get_command_list;
 use crate::message_stream::command_router::route_commands_to_gamelogic;
 use crate::message_stream::game_message::GameMessageType;
-use crate::message_stream::message_stream::THE_MESSAGE_STREAM;
 use crate::message_stream::player_state::set_local_player_id;
 use crate::message_stream::translators::{
     CommandTranslator as CommandTranslatorImpl, TranslatorFactory,
@@ -94,14 +92,16 @@ use crate::message_stream::{GameMessage, GameMessageDisposition, GameMessageTran
 use crate::network::{NetworkBridgeHandle, is_network_command_message};
 use crate::platform::PlatformContext;
 use crate::system::beacon_display;
-use crate::system::{BeaconNotification, Coord3D, GameMessageResult, SubsystemInterface, TimeOfDay};
+use crate::system::{
+    BeaconNotification, Coord3D, GameMessageResult, SubsystemInterface, TimeOfDay,
+};
 use crate::video_player::{
     VideoPlayerInterface as GlobalVideoPlayerInterface, get_video_player, init_video_player,
     shutdown_video_player,
 };
 use game_engine::System::{
-    register_campaign_manager_runtime_hooks, register_save_load_campaign_hooks,
-    register_save_load_mission_hooks, register_save_load_skirmish_hooks,
+    register_save_load_campaign_hooks, register_save_load_mission_hooks,
+    register_save_load_skirmish_hooks,
 };
 use game_engine::common::game_common::SECONDS_PER_LOGICFRAME_REAL;
 use game_engine::common::game_lod::prefers_low_res_movies;
@@ -117,7 +117,9 @@ use game_engine::common::system::{
 use game_engine::common::thing::{ThingTemplate, get_thing_factory};
 use game_engine::common::user_preferences::UserPreferences;
 
-use game_engine::{Xfer as RuntimeXfer, XferMode as RuntimeXferMode, XferStatus as RuntimeXferStatus};
+use game_engine::{
+    Xfer as RuntimeXfer, XferMode as RuntimeXferMode, XferStatus as RuntimeXferStatus,
+};
 
 // GameLogic integration for object iteration
 // Note: gamelogic is the crate name (from Cargo.toml)

@@ -685,6 +685,27 @@ impl GameClient {
             },
         )
     }
+    pub fn split_frame_snow_drawable_and_campaign(
+        &mut self,
+    ) -> (
+        ClientFrameWriter<'_>,
+        &mut crate::snow::SnowManager,
+        NativeDrawableOwner<'_>,
+        &mut crate::gui::campaign_manager::CampaignManager,
+    ) {
+        let identity = std::ptr::from_mut(self) as usize;
+        (
+            ClientFrameWriter {
+                frame: &mut self.frame,
+                identity,
+            },
+            &mut self.snow,
+            NativeDrawableOwner {
+                drawables: &mut self.drawables,
+            },
+            &mut self.campaign_manager,
+        )
+    }
     pub fn snow_mut(&mut self) -> &mut crate::snow::SnowManager {
         &mut self.snow
     }

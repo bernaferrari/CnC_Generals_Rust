@@ -305,7 +305,7 @@ impl GameLogic {
                         unit.preferred_dock_id = Some(center);
                     }
                     if let Some(source) = source {
-                        let _ = self.unit_command_stop_moving_order_target(unit_id, Some(source));
+                        self.unit_command_stop_moving_order_target(unit_id, Some(source))?;
                         self.unit_command_set_ai_state_with_effects(
                             unit_id,
                             AIState::Gathering,

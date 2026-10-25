@@ -1604,7 +1604,7 @@ impl GameLogic {
         };
         self.host_object_leave_group(unit);
         let _ = self.apply_unit_locomotor_set(unit, "normal");
-        self.unit_command_stop_moving_order_target(unit, Some(dest));
+        self.unit_command_stop_moving_order_target(unit, Some(dest))?;
         if !self.unit_command_path_with_state_ignoring(unit, pos, AIState::Entering, Some(dest))? {
             if let Some((obj, audio_events)) = self.host_object_and_audio_events_mut(unit) {
                 obj.ignored_obstacle_id = Some(dest);

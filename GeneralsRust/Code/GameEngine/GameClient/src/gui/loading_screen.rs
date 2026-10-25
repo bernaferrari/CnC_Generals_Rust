@@ -655,11 +655,7 @@ pub fn residual_loading_screen_progress() -> u8 {
 /// Residual: last map name residual.
 pub fn residual_loading_screen_map_name() -> Option<String> {
     let name = RESIDUAL_LOADING_MAP.with_borrow(Clone::clone);
-    if name.is_empty() {
-        None
-    } else {
-        Some(name)
-    }
+    if name.is_empty() { None } else { Some(name) }
 }
 
 /// Residual: show loading screen without full asset pipeline.
@@ -748,47 +744,62 @@ const LOADING_PROGRESS_GADGETS: &[&str] = &[
     "ChallengeLoadScreen.wnd:ProgressLoad",
 ];
 
-fn click_any_loading_progress_gadget() -> bool {
+fn click_any_loading_progress_gadget(
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
     LOADING_PROGRESS_GADGETS
         .iter()
-        .any(|name| crate::gui::dispatch_os_click_named_window(name))
+        .any(|name| crate::gui::dispatch_os_click_named_window(name, effects))
 }
 
 /// Human click-through: OS LeftDown/Up on retail `ProgressLoad` then show+map+progress.
 /// C++ LoadScreen uses those named gadgets (not `simulate_*` first).
-pub fn drive_os_wnd_loading_screen_prepare_like_cpp(map_name: &str, percent: u8) -> bool {
+pub fn drive_os_wnd_loading_screen_prepare_like_cpp(
+    map_name: &str,
+    percent: u8,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
     if map_name.trim().is_empty() {
         return false;
     }
-    if !click_any_loading_progress_gadget() {
+    if !click_any_loading_progress_gadget(effects) {
         return false;
     }
     simulate_loading_screen_prepare_map_load(map_name, percent)
 }
 
-pub fn drive_os_wnd_loading_screen_progress_like_cpp(percent: u8) -> bool {
-    if !click_any_loading_progress_gadget() {
+pub fn drive_os_wnd_loading_screen_progress_like_cpp(
+    percent: u8,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
+    if !click_any_loading_progress_gadget(effects) {
         return false;
     }
     simulate_loading_screen_set_progress(percent)
 }
 
-pub fn drive_os_wnd_loading_screen_show_like_cpp() -> bool {
-    if !click_any_loading_progress_gadget() {
+pub fn drive_os_wnd_loading_screen_show_like_cpp(
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
+    if !click_any_loading_progress_gadget(effects) {
         return false;
     }
     simulate_loading_screen_show()
 }
 
-pub fn drive_os_wnd_loading_screen_hide_like_cpp() -> bool {
-    if !click_any_loading_progress_gadget() {
+pub fn drive_os_wnd_loading_screen_hide_like_cpp(
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
+    if !click_any_loading_progress_gadget(effects) {
         return false;
     }
     simulate_loading_screen_hide()
 }
 
-pub fn drive_os_wnd_loading_screen_finish_like_cpp() -> bool {
-    if !click_any_loading_progress_gadget() {
+pub fn drive_os_wnd_loading_screen_finish_like_cpp(
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
+    if !click_any_loading_progress_gadget(effects) {
         return false;
     }
     simulate_loading_screen_finish()

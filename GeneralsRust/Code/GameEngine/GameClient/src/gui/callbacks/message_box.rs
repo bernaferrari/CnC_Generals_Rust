@@ -25,8 +25,14 @@ pub enum MessageBoxReturnType {
     KeepOpen,
 }
 
-pub type MessageBoxFunc = Box<dyn FnMut()>;
-pub type ExtendedMessageBoxFunc = Box<dyn FnMut(Option<&mut dyn Any>) -> MessageBoxReturnType>;
+pub type MessageBoxFunc =
+    Box<dyn for<'a> FnMut(&mut crate::gui::game_window::WindowEventEffects<'a>)>;
+pub type ExtendedMessageBoxFunc = Box<
+    dyn for<'a> FnMut(
+        Option<&mut dyn Any>,
+        &mut crate::gui::game_window::WindowEventEffects<'a>,
+    ) -> MessageBoxReturnType,
+>;
 
 #[derive(Default)]
 pub struct WindowMessageBoxData {
@@ -74,27 +80,27 @@ impl WindowMessageBoxData {
         self.owned_replay.borrow_mut().take()
     }
 
-    fn call_yes(&self) {
+    fn call_yes(&self, effects: &mut crate::gui::game_window::WindowEventEffects<'_>) {
         if let Some(callback) = self.yes_callback.borrow_mut().as_mut() {
-            callback();
+            callback(effects);
         }
     }
 
-    fn call_no(&self) {
+    fn call_no(&self, effects: &mut crate::gui::game_window::WindowEventEffects<'_>) {
         if let Some(callback) = self.no_callback.borrow_mut().as_mut() {
-            callback();
+            callback(effects);
         }
     }
 
-    fn call_ok(&self) {
+    fn call_ok(&self, effects: &mut crate::gui::game_window::WindowEventEffects<'_>) {
         if let Some(callback) = self.ok_callback.borrow_mut().as_mut() {
-            callback();
+            callback(effects);
         }
     }
 
-    fn call_cancel(&self) {
+    fn call_cancel(&self, effects: &mut crate::gui::game_window::WindowEventEffects<'_>) {
         if let Some(callback) = self.cancel_callback.borrow_mut().as_mut() {
-            callback();
+            callback(effects);
         }
     }
 }
@@ -125,30 +131,42 @@ impl WindowExMessageBoxData {
         }
     }
 
-    fn call_yes(&self) -> MessageBoxReturnType {
+    fn call_yes(
+        &self,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    ) -> MessageBoxReturnType {
         if let Some(callback) = self.yes_callback.borrow_mut().as_mut() {
-            return callback(self.user_data.borrow_mut().as_deref_mut());
+            return callback(self.user_data.borrow_mut().as_deref_mut(), effects);
         }
         MessageBoxReturnType::Close
     }
 
-    fn call_no(&self) -> MessageBoxReturnType {
+    fn call_no(
+        &self,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    ) -> MessageBoxReturnType {
         if let Some(callback) = self.no_callback.borrow_mut().as_mut() {
-            return callback(self.user_data.borrow_mut().as_deref_mut());
+            return callback(self.user_data.borrow_mut().as_deref_mut(), effects);
         }
         MessageBoxReturnType::Close
     }
 
-    fn call_ok(&self) -> MessageBoxReturnType {
+    fn call_ok(
+        &self,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    ) -> MessageBoxReturnType {
         if let Some(callback) = self.ok_callback.borrow_mut().as_mut() {
-            return callback(self.user_data.borrow_mut().as_deref_mut());
+            return callback(self.user_data.borrow_mut().as_deref_mut(), effects);
         }
         MessageBoxReturnType::Close
     }
 
-    fn call_cancel(&self) -> MessageBoxReturnType {
+    fn call_cancel(
+        &self,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    ) -> MessageBoxReturnType {
         if let Some(callback) = self.cancel_callback.borrow_mut().as_mut() {
-            return callback(self.user_data.borrow_mut().as_deref_mut());
+            return callback(self.user_data.borrow_mut().as_deref_mut(), effects);
         }
         MessageBoxReturnType::Close
     }
@@ -219,6 +237,7 @@ impl MessageBoxCallbacks {
         msg: WindowMessage,
         data1: WindowMsgData,
         data2: WindowMsgData,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) -> WindowMsgHandled {
         debug!(
             "Message box system message: {:?} for window: {}",
@@ -252,16 +271,16 @@ impl MessageBoxCallbacks {
 
                 if let Some(callbacks) = window.get_user_data::<WindowMessageBoxData>() {
                     if control_id == button_ok_id {
-                        callbacks.call_ok();
+                        callbacks.call_ok(effects);
                         self.result = Some(MessageBoxResult::Ok);
                     } else if control_id == button_yes_id {
-                        callbacks.call_yes();
+                        callbacks.call_yes(effects);
                         self.result = Some(MessageBoxResult::Yes);
                     } else if control_id == button_no_id {
-                        callbacks.call_no();
+                        callbacks.call_no(effects);
                         self.result = Some(MessageBoxResult::No);
                     } else if control_id == button_cancel_id {
-                        callbacks.call_cancel();
+                        callbacks.call_cancel(effects);
                         self.result = Some(MessageBoxResult::Cancel);
                     }
                 } else if control_id == button_ok_id {
@@ -420,6 +439,7 @@ impl ExtendedMessageBoxCallbacks {
         msg: WindowMessage,
         data1: WindowMsgData,
         data2: WindowMsgData,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) -> WindowMsgHandled {
         debug!(
             "Extended message box system message: {:?} for window: {}",
@@ -429,7 +449,7 @@ impl ExtendedMessageBoxCallbacks {
 
         match msg {
             WindowMessage::Destroy => {
-                self.base.system(window, msg, data1, data2);
+                self.base.system(window, msg, data1, data2, effects);
                 WindowMsgHandled::Handled
             }
             WindowMessage::InputFocus => {
@@ -454,16 +474,16 @@ impl ExtendedMessageBoxCallbacks {
                 if let Some(callbacks) = window.get_user_data::<WindowExMessageBoxData>() {
                     let result = if control_id == button_ok_id {
                         self.base.result = Some(MessageBoxResult::Ok);
-                        callbacks.call_ok()
+                        callbacks.call_ok(effects)
                     } else if control_id == button_yes_id {
                         self.base.result = Some(MessageBoxResult::Yes);
-                        callbacks.call_yes()
+                        callbacks.call_yes(effects)
                     } else if control_id == button_no_id {
                         self.base.result = Some(MessageBoxResult::No);
-                        callbacks.call_no()
+                        callbacks.call_no(effects)
                     } else if control_id == button_cancel_id {
                         self.base.result = Some(MessageBoxResult::Cancel);
-                        callbacks.call_cancel()
+                        callbacks.call_cancel(effects)
                     } else {
                         MessageBoxReturnType::Close
                     };
@@ -493,7 +513,7 @@ impl ExtendedMessageBoxCallbacks {
 
                 WindowMsgHandled::Handled
             }
-            _ => self.base.system(window, msg, data1, data2),
+            _ => self.base.system(window, msg, data1, data2, effects),
         }
     }
 
@@ -625,6 +645,7 @@ impl QuitMessageBoxCallbacks {
         msg: WindowMessage,
         data1: WindowMsgData,
         data2: WindowMsgData,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) -> WindowMsgHandled {
         debug!(
             "Quit message box system message: {:?} for window: {}",
@@ -634,7 +655,7 @@ impl QuitMessageBoxCallbacks {
 
         match msg {
             WindowMessage::Destroy => {
-                self.base.system(window, msg, data1, data2);
+                self.base.system(window, msg, data1, data2, effects);
                 WindowMsgHandled::Handled
             }
             WindowMessage::InputFocus => {
@@ -657,16 +678,16 @@ impl QuitMessageBoxCallbacks {
 
                 if let Some(callbacks) = window.get_user_data::<WindowMessageBoxData>() {
                     if control_id == button_ok_id {
-                        callbacks.call_ok();
+                        callbacks.call_ok(effects);
                         self.base.result = Some(MessageBoxResult::Ok);
                     } else if control_id == button_yes_id {
-                        callbacks.call_yes();
+                        callbacks.call_yes(effects);
                         self.base.result = Some(MessageBoxResult::Yes);
                     } else if control_id == button_no_id {
-                        callbacks.call_no();
+                        callbacks.call_no(effects);
                         self.base.result = Some(MessageBoxResult::No);
                     } else if control_id == button_cancel_id {
-                        callbacks.call_cancel();
+                        callbacks.call_cancel(effects);
                         self.base.result = Some(MessageBoxResult::Cancel);
                     }
                 } else if control_id == button_ok_id {
@@ -1114,15 +1135,15 @@ fn gogo_ex_message_box(
                 cancel_callback,
                 user_data,
             ));
-        parent
-            .borrow_mut()
-            .set_system_callback(|window, msg, data1, data2| {
+        parent.borrow_mut().set_system_callback_with_message_sink(
+            |window, msg, data1, data2, effects| {
                 let system = get_message_box_system();
                 let system = system.read().unwrap_or_else(|e| e.into_inner());
                 let extended = system.get_extended().clone();
                 let mut extended_guard = extended.write().unwrap_or_else(|e| e.into_inner());
-                extended_guard.system(window, msg, data1, data2)
-            });
+                extended_guard.system(window, msg, data1, data2, effects)
+            },
+        );
 
         let _ = parent.borrow_mut().show();
         let _ = parent.borrow_mut().bring_to_front();
@@ -1947,71 +1968,95 @@ pub fn simulate_message_box_prepare_ok(title: &str, body: &str) -> bool {
 
 /// Human click-through: OS LeftDown/Up on a retail `MessageBox.wnd:*` gadget
 /// (C++ WindowXlat hit → GBM_SELECTED). Not `simulate_*` first.
-fn drive_os_wnd_message_box_named(name: &str, latch: impl FnOnce() -> bool) -> bool {
-    if !crate::gui::dispatch_os_click_named_window(name) {
+fn drive_os_wnd_message_box_named(
+    name: &str,
+    latch: impl FnOnce() -> bool,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
+    if !crate::gui::dispatch_os_click_named_window(name, effects) {
         return false;
     }
     latch()
 }
 
-pub fn drive_os_wnd_message_box_ok_like_cpp() -> bool {
+pub fn drive_os_wnd_message_box_ok_like_cpp(
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
     drive_os_wnd_message_box_named(
         "MessageBox.wnd:ButtonOk",
         simulate_message_box_ok_button_gadget_selected,
+        effects,
     )
 }
 
-pub fn drive_os_wnd_message_box_yes_like_cpp() -> bool {
+pub fn drive_os_wnd_message_box_yes_like_cpp(
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
     drive_os_wnd_message_box_named(
         "MessageBox.wnd:ButtonYes",
         simulate_message_box_yes_button_gadget_selected,
+        effects,
     )
 }
 
-pub fn drive_os_wnd_message_box_no_like_cpp() -> bool {
+pub fn drive_os_wnd_message_box_no_like_cpp(
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
     drive_os_wnd_message_box_named(
         "MessageBox.wnd:ButtonNo",
         simulate_message_box_no_button_gadget_selected,
+        effects,
     )
 }
 
-pub fn drive_os_wnd_message_box_cancel_like_cpp() -> bool {
+pub fn drive_os_wnd_message_box_cancel_like_cpp(
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
     drive_os_wnd_message_box_named(
         "MessageBox.wnd:ButtonCancel",
         simulate_message_box_cancel_button_gadget_selected,
+        effects,
     )
 }
 
 /// Human click-through: show Yes/No via title/body gadgets then ButtonYes.
-pub fn drive_os_wnd_message_box_prepare_yes_like_cpp(title: &str, body: &str) -> bool {
+pub fn drive_os_wnd_message_box_prepare_yes_like_cpp(
+    title: &str,
+    body: &str,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
     let clicked_title =
-        crate::gui::dispatch_os_click_named_window("MessageBox.wnd:StaticTextTitle");
+        crate::gui::dispatch_os_click_named_window("MessageBox.wnd:StaticTextTitle", effects);
     let clicked_body =
-        crate::gui::dispatch_os_click_named_window("MessageBox.wnd:StaticTextMessage");
-    let clicked_yes = drive_os_wnd_message_box_yes_like_cpp();
+        crate::gui::dispatch_os_click_named_window("MessageBox.wnd:StaticTextMessage", effects);
+    let clicked_yes = drive_os_wnd_message_box_yes_like_cpp(effects);
     if !clicked_title && !clicked_body && !clicked_yes {
         return false;
     }
     if !clicked_yes {
         let _ = simulate_message_box_show_yes_no(title, body);
-        return drive_os_wnd_message_box_yes_like_cpp()
+        return drive_os_wnd_message_box_yes_like_cpp(effects)
             || simulate_message_box_prepare_yes(title, body);
     }
     true
 }
 
-pub fn drive_os_wnd_message_box_prepare_ok_like_cpp(title: &str, body: &str) -> bool {
+pub fn drive_os_wnd_message_box_prepare_ok_like_cpp(
+    title: &str,
+    body: &str,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
     let clicked_title =
-        crate::gui::dispatch_os_click_named_window("MessageBox.wnd:StaticTextTitle");
+        crate::gui::dispatch_os_click_named_window("MessageBox.wnd:StaticTextTitle", effects);
     let clicked_body =
-        crate::gui::dispatch_os_click_named_window("MessageBox.wnd:StaticTextMessage");
-    let clicked_ok = drive_os_wnd_message_box_ok_like_cpp();
+        crate::gui::dispatch_os_click_named_window("MessageBox.wnd:StaticTextMessage", effects);
+    let clicked_ok = drive_os_wnd_message_box_ok_like_cpp(effects);
     if !clicked_title && !clicked_body && !clicked_ok {
         return false;
     }
     if !clicked_ok {
         let _ = simulate_message_box_show_ok(title, body);
-        return drive_os_wnd_message_box_ok_like_cpp()
+        return drive_os_wnd_message_box_ok_like_cpp(effects)
             || simulate_message_box_prepare_ok(title, body);
     }
     true

@@ -808,7 +808,16 @@ impl GameLogic {
         n
     }
     /// Tick all GuardRetaliating units (victim death / return / inner scan).
-    pub fn tick_guard_retaliate_states(&mut self) {
+    pub fn tick_guard_retaliate_states(&mut self) -> gamelogic::GameLogicResult<()> {
+        self.tick_guard_retaliate_states_with_effects(
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(crate) fn tick_guard_retaliate_states_with_effects(
+        &mut self,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<()> {
         let ids: Vec<ObjectId> = self
             .objects
             .registered()
@@ -886,7 +895,7 @@ impl GameLogic {
                     self.set_host_team_common_target(id, None);
                     continue;
                 }
-                if let Some(o) = self.objects.get_mut(&id) {
+                let transition = self.objects.get_mut(&id).and_then(|o| {
                     o.guard_retaliate_victim = None;
                     o.target = None;
                     o.status.attacking = false;
@@ -895,8 +904,10 @@ impl GameLogic {
                         false,
                         None,
                         &mut self.movement_events.writer(self.frame),
-                        &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
-                    );
+                    )
+                });
+                if let Some(state) = transition {
+                    self.set_ai_state_decision_aware_with_effects(id, state, effects)?;
                 }
                 // C++ AIGuardRetaliate Inner/Aggressor onExit:
                 // getTeam()->setTeamTargetObject(NULL).
@@ -977,15 +988,14 @@ impl GameLogic {
                     }
                 }
             }
-            if let Some(o) = self.objects.get_mut(&id) {
-                o.tick_guard_retaliate(
-                    alive,
-                    vpos,
-                    &mut self.movement_events.writer(self.frame),
-                    &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
-                );
+            let transition = self.objects.get_mut(&id).and_then(|o| {
+                o.tick_guard_retaliate(alive, vpos, &mut self.movement_events.writer(self.frame))
+            });
+            if let Some(state) = transition {
+                self.set_ai_state_decision_aware_with_effects(id, state, effects)?;
             }
         }
+        Ok(())
     }
 
     pub fn set_unit_repulsor(&mut self, unit_id: ObjectId, repulsor: bool) -> bool {
@@ -1572,7 +1582,7 @@ impl GameLogic {
             return Ok(());
         };
         for id in members {
-            let _ = self.unit_command_stop_moving_order_target(id, Some(target_id));
+            self.unit_command_stop_moving_order_target(id, Some(target_id))?;
             if !self.unit_command_path_with_state_ignoring(
                 id,
                 target_pos,
@@ -1634,7 +1644,7 @@ impl GameLogic {
                 continue;
             };
             let _ = self.apply_unit_locomotor_set(unit, "normal");
-            let _ = self.unit_command_stop_moving_order_target(unit, Some(trans));
+            self.unit_command_stop_moving_order_target(unit, Some(trans))?;
             if !self.unit_command_path_with_state_ignoring(
                 unit,
                 pos,
@@ -2769,7 +2779,9 @@ mod tests {
             .unit_ai_runtime_mut(id)
             .expect("unit")
             .set_guard_scan_deadline(Some(scan_deadline));
-        logic.tick_guard_retaliate_states();
+        logic
+            .tick_guard_retaliate_states()
+            .expect("valid guard retaliation fixture");
         assert_eq!(
             logic.objects[&id].guard_retaliate_victim,
             Some(shared),

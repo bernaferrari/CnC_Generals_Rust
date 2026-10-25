@@ -345,6 +345,18 @@ pub struct ScriptSelectionStatus {
 }
 
 pub trait ScriptExecutionDriver {
+    /// Receiving application handles CampaignManager mutations at the authored
+    /// action phase. `None` preserves standalone handler behavior.
+    fn set_campaign_victorious(&mut self, _victorious: bool) -> Option<GameLogicResult<()>> {
+        None
+    }
+
+    /// Native host applies this window operation immediately when it can lend
+    /// the receiving UI; standalone handlers retain their existing path.
+    fn create_win_lose_window(&mut self, _layout_filename: &str) -> Option<GameLogicResult<()>> {
+        None
+    }
+
     fn initialize_named_cache(&mut self) -> Option<()> {
         None
     }

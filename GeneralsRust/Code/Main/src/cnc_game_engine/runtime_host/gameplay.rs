@@ -107,21 +107,43 @@ impl CnCGameEngine {
                                 description.clone()
                             } else if matches!(save_file_type, ::game_engine::SaveFileType::Mission)
                             {
-                                crate::save_load::current_mission_save_description()
+                                crate::save_load::current_mission_save_description(Some(
+                                    &self
+                                        .game_client
+                                        .campaign_manager()
+                                        .capture_logic_chunk_state(),
+                                ))
                             } else {
                                 crate::save_load::default_save_edit_description(
                                     &self.presentation_or_boot_map_name(),
+                                    Some(
+                                        &self
+                                            .game_client
+                                            .campaign_manager()
+                                            .capture_logic_chunk_state(),
+                                    ),
                                 )
                             }
                         });
                     let description = if description.trim().is_empty() {
                         if matches!(save_file_type, ::game_engine::SaveFileType::Mission) {
-                            crate::save_load::current_mission_save_description()
+                            crate::save_load::current_mission_save_description(Some(
+                                &self
+                                    .game_client
+                                    .campaign_manager()
+                                    .capture_logic_chunk_state(),
+                            ))
                         } else if !display_name.trim().is_empty() {
                             display_name.clone()
                         } else {
                             crate::save_load::default_save_edit_description(
                                 &self.presentation_or_boot_map_name(),
+                                Some(
+                                    &self
+                                        .game_client
+                                        .campaign_manager()
+                                        .capture_logic_chunk_state(),
+                                ),
                             )
                         }
                     } else {
@@ -297,9 +319,14 @@ impl CnCGameEngine {
                 );
             }
             let quit_layout = ensure_live_quit_menu_layout();
-            let quit_save_load = quit_layout && drive_os_wnd_quit_menu_save_load_like_cpp();
+            let quit_save_load = quit_layout
+                && self.game_client.with_window_event_effects(|effects| {
+                    drive_os_wnd_quit_menu_save_load_like_cpp(effects)
+                });
             let bind = ensure_live_popup_save_load_layout();
-            let save_confirm = drive_os_wnd_popup_save_load_save_and_confirm_like_cpp();
+            let save_confirm = self.game_client.with_window_event_effects(|effects| {
+                drive_os_wnd_popup_save_load_save_and_confirm_like_cpp(effects)
+            });
             wnd_ok = quit_save_load && bind && save_confirm;
         }
         if !wnd_ok {
@@ -345,9 +372,14 @@ impl CnCGameEngine {
                 );
             }
             let quit_layout = ensure_live_quit_menu_layout();
-            let quit_save_load = quit_layout && drive_os_wnd_quit_menu_save_load_like_cpp();
+            let quit_save_load = quit_layout
+                && self.game_client.with_window_event_effects(|effects| {
+                    drive_os_wnd_quit_menu_save_load_like_cpp(effects)
+                });
             let bind = ensure_live_popup_save_load_layout();
-            let load_confirm = drive_os_wnd_popup_save_load_load_named_and_confirm_like_cpp(&slot);
+            let load_confirm = self.game_client.with_window_event_effects(|effects| {
+                drive_os_wnd_popup_save_load_load_named_and_confirm_like_cpp(&slot, effects)
+            });
             // A named selection, real Load click, and real confirmation are
             // mandatory.  Preparing a layout is deliberately not success.
             wnd_ok = quit_save_load && bind && load_confirm;

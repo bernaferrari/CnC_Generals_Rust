@@ -411,6 +411,28 @@ impl GameLogic {
             } => {
                 self.start_new_game_with_player_template(mode, player_id, player_template);
             }
+            SessionControlOp::StartNewGameInCampaignSession {
+                mode,
+                player_id,
+                faction_team,
+                player_template,
+                setup_skirmish_ai,
+                is_campaign,
+                is_challenge,
+            } => {
+                self.start_new_game_in_campaign_session(mode, is_campaign, is_challenge);
+                if let Some(identity) = player_template {
+                    if !self.bind_player_template_identity(player_id, identity) {
+                        self.players.remove(&player_id);
+                        self.player_template_bindings.remove(&player_id);
+                    }
+                } else {
+                    let _ = self.set_player_team(player_id, faction_team);
+                }
+                if setup_skirmish_ai {
+                    self.setup_skirmish_ai(player_id);
+                }
+            }
             SessionControlOp::Reset => {
                 self.reset();
             }

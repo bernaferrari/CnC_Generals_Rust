@@ -15,7 +15,12 @@ pub(super) fn run() -> anyhow::Result<()> {
         "--runtime_host=headless".to_string(),
         "--noaudio".to_string(),
     ])?);
-    let mut first = pollster::block_on(CnCGameEngine::new(Arc::clone(&window), Arc::clone(&args)))?;
+    let mut application_services = crate::subsystem_manager::ApplicationServices::new();
+    let mut first = pollster::block_on(CnCGameEngine::new(
+        Arc::clone(&window),
+        Arc::clone(&args),
+        &mut application_services,
+    ))?;
     first.current_state = GameState::Menu;
     // A future fixed observation also remains after any incidental constructor
     // clock observation. All later assertions use this exact injected Instant.
@@ -25,7 +30,8 @@ pub(super) fn run() -> anyhow::Result<()> {
 
     // Use the actual constructor while the first engine owns a live timestamp.
     // No second Engine/GameClient/Object surrogate is installed in a registry.
-    let mut second = pollster::block_on(CnCGameEngine::new(window, args))?;
+    let mut second =
+        pollster::block_on(CnCGameEngine::new(window, args, &mut application_services))?;
     second.current_state = GameState::Menu;
     assert_eq!(first.game_logic.get_frame(), 0);
     assert_eq!(second.game_logic.get_frame(), 0);

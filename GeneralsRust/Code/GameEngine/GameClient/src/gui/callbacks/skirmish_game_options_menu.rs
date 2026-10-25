@@ -10,6 +10,7 @@ mod skirmish_map_preview;
 use crate::display::image::get_mapped_image_collection;
 use crate::game_text::GameText;
 use crate::gui::game_window::Image as WindowImage;
+use crate::gui::game_window::WindowEventEffects;
 use crate::gui::{
     GLM_RIGHT_CLICKED, GameWindow, SkirmishPreferences, WindowLayout, WindowMessage, WindowMsgData,
     WindowMsgHandled, WindowStatus, get_shell, get_skirmish_setup, message_box_ok,
@@ -18,7 +19,7 @@ use crate::gui::{
     with_window_manager, write_input_focus_response,
 };
 use crate::map_util::{find_draw_positions, get_map_cache_manager, get_map_preview_image};
-use crate::message_stream::{GameMessageType, get_message_stream};
+use crate::message_stream::{GameMessage, GameMessageType};
 use crate::shell_hooks::{
     SHELL_SCRIPT_HOOK_SKIRMISH_CLOSED, SHELL_SCRIPT_HOOK_SKIRMISH_ENTERED_FROM_GAME,
     SHELL_SCRIPT_HOOK_SKIRMISH_OPENED, signal_ui_interaction,
@@ -1253,7 +1254,7 @@ fn parse_map_header_meta(map_name: &str, path: &std::path::Path) -> Option<MapMe
     Some(meta)
 }
 
-fn start_skirmish_game(state: &mut SkirmishGameOptionsState) {
+fn start_skirmish_game(state: &mut SkirmishGameOptionsState, effects: &mut WindowEventEffects<'_>) {
     ensure_default_slots();
     // Wave 837/840: prefer options/map-select residual over a stale shell/default map.
     // ShellMapMD must never beat a non-shell control/setup selection.
@@ -1351,7 +1352,7 @@ fn start_skirmish_game(state: &mut SkirmishGameOptionsState) {
         let _ = message_box_ok(&GameText::fetch("GUI:ErrorStartingGame"), &body, None);
         return;
     }
-    if !check_for_cd_at_game_start(state) {
+    if !check_for_cd_at_game_start(state, effects) {
         return;
     }
 
@@ -1403,9 +1404,7 @@ fn start_skirmish_game(state: &mut SkirmishGameOptionsState) {
         game_engine::common::global_data::write().pending_file = pending;
     }
 
-    let message_stream = get_message_stream();
-    let mut stream = message_stream.write().unwrap_or_else(|e| e.into_inner());
-    let msg = stream.append_message(GameMessageType::NewGame);
+    let mut msg = GameMessage::new(GameMessageType::NewGame);
     msg.append_integer_argument(if is_skirmish {
         GAME_SKIRMISH
     } else {
@@ -1414,6 +1413,7 @@ fn start_skirmish_game(state: &mut SkirmishGameOptionsState) {
     msg.append_integer_argument(DIFFICULTY_NORMAL);
     msg.append_integer_argument(0);
     msg.append_integer_argument(max_fps);
+    effects.emitted_messages.push(msg);
     log::info!("Skirmish Start posted NewGame skirmish={is_skirmish} fps={max_fps} map={map_name}");
     TheGameLogic::request_start_new_game();
 }
@@ -1423,15 +1423,21 @@ fn is_first_cd_present() -> bool {
     crate::cd_check::is_first_cd_present()
 }
 
-fn check_for_cd_at_game_start(state: &mut SkirmishGameOptionsState) -> bool {
+fn check_for_cd_at_game_start(
+    state: &mut SkirmishGameOptionsState,
+    effects: &mut WindowEventEffects<'_>,
+) -> bool {
     if is_first_cd_present() {
         return true;
     }
     state.button_pushed = false;
     set_skirmish_button_pushed(false);
-    crate::cd_check::check_for_cd_at_game_start(|| {
-        with_state(|state| start_skirmish_game(state));
-    });
+    crate::cd_check::check_for_cd_at_game_start(
+        Box::new(|effects| {
+            with_state(|state| start_skirmish_game(state, effects));
+        }),
+        effects,
+    );
     false
 }
 
@@ -1700,7 +1706,9 @@ pub fn set_skirmish_menu_selected_map(map: impl Into<String>) {
     ensure_default_slots();
 }
 
-pub fn simulate_skirmish_start_button_gadget_selected() -> bool {
+pub fn simulate_skirmish_start_button_gadget_selected(
+    effects: &mut WindowEventEffects<'_>,
+) -> bool {
     ensure_default_slots();
     set_skirmish_button_pushed(false);
     let mut button_id = name_to_id("SkirmishGameOptionsMenu.wnd:ButtonStart");
@@ -1751,6 +1759,7 @@ pub fn simulate_skirmish_start_button_gadget_selected() -> bool {
                 WindowMessage::GadgetSelected,
                 button_id as WindowMsgData,
                 0 as WindowMsgData,
+                effects,
             )
         };
         if matches!(handled, WindowMsgHandled::Handled) || skirmish_button_pushed() {
@@ -1767,7 +1776,7 @@ pub fn simulate_skirmish_start_button_gadget_selected() -> bool {
         }
         state.button_pushed = true;
         set_skirmish_button_pushed(true);
-        start_skirmish_game(state);
+        start_skirmish_game(state, effects);
     });
     // start_skirmish_game clears button_pushed on map-missing / too-many-players fail.
     skirmish_button_pushed()
@@ -1775,16 +1784,18 @@ pub fn simulate_skirmish_start_button_gadget_selected() -> bool {
 
 /// Human click-through: OS LeftDown/Up on retail `ButtonStart`
 /// (C++ WindowXlat hit → GBM_SELECTED → startPressed). Not `simulate_*` first.
-pub fn drive_os_wnd_skirmish_start_like_cpp() -> bool {
-    let clicked =
-        crate::gui::dispatch_os_click_named_window("SkirmishGameOptionsMenu.wnd:ButtonStart");
+pub fn drive_os_wnd_skirmish_start_like_cpp(effects: &mut WindowEventEffects<'_>) -> bool {
+    let clicked = crate::gui::dispatch_os_click_named_window(
+        "SkirmishGameOptionsMenu.wnd:ButtonStart",
+        effects,
+    );
     if crate::gui::last_os_wnd_widget_tree_click_ok() && skirmish_button_pushed() {
         return true;
     }
     if !clicked {
         return false;
     }
-    simulate_skirmish_start_button_gadget_selected()
+    simulate_skirmish_start_button_gadget_selected(effects)
 }
 
 /// Retail skirmish player-combo AI labels residual (ComboBoxPlayer entries).
@@ -1970,6 +1981,7 @@ pub fn skirmish_game_options_menu_system(
     msg: WindowMessage,
     data1: WindowMsgData,
     data2: WindowMsgData,
+    effects: &mut WindowEventEffects<'_>,
 ) -> WindowMsgHandled {
     // C++ SkirmishGameOptionsMenuSystem handles GWM_INPUT_FOCUS by accepting
     // focus without changing WIN_STATE_HILITED. Letting the generic USER
@@ -1989,7 +2001,7 @@ pub fn skirmish_game_options_menu_system(
             if control_id == state.button_start_id {
                 state.button_pushed = true;
                 set_skirmish_button_pushed(true);
-                start_skirmish_game(state);
+                start_skirmish_game(state, effects);
                 handled = true;
                 return;
             }
@@ -2125,8 +2137,22 @@ mod tests {
 
         let window = GameWindow::new();
         let token = push_payload(WindowMsgPayload::Bool(false));
+        let mut emitted = Vec::new();
+        let mut effects = WindowEventEffects {
+            selected_window: None,
+            window_manager_owner: None,
+            emitted_messages: &mut emitted,
+            pending_control_bar_clicks: None,
+            campaign_manager: None,
+        };
         assert_eq!(
-            skirmish_game_options_menu_system(&window, WindowMessage::InputFocus, 1, token),
+            skirmish_game_options_menu_system(
+                &window,
+                WindowMessage::InputFocus,
+                1,
+                token,
+                &mut effects
+            ),
             WindowMsgHandled::Handled
         );
         assert_eq!(pop_payload(token), Some(WindowMsgPayload::Bool(true)));
@@ -2178,9 +2204,22 @@ mod tests {
                     .set_name("SkirmishGameOptionsMenu.wnd:ButtonStart");
                 let _ = start.borrow_mut().hide(false);
             });
+            let mut emitted = Vec::new();
+            let mut effects = WindowEventEffects {
+                selected_window: None,
+                window_manager_owner: None,
+                emitted_messages: &mut emitted,
+                pending_control_bar_clicks: None,
+                campaign_manager: None,
+            };
             assert!(
-                drive_os_wnd_skirmish_start_like_cpp(),
+                drive_os_wnd_skirmish_start_like_cpp(&mut effects),
                 "OS WND click on ButtonStart must run startPressed/start_skirmish_game"
+            );
+            assert!(
+                emitted
+                    .iter()
+                    .any(|message| message.get_type() == &GameMessageType::NewGame)
             );
             assert!(!crate::gui::dispatch_os_click_named_window(
                 "SkirmishGameOptionsMenu.wnd:ButtonStartMissing"

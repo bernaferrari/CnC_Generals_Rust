@@ -306,6 +306,8 @@ pub struct GameLogic {
 
     // Game state
     game_mode: Int,
+    campaign_session_requires_recipient: bool,
+    campaign_session_is_challenge: bool,
     game_paused: Bool,
     loading_map: Bool,
     loading_save: Bool,
@@ -400,6 +402,8 @@ impl Default for GameLogic {
             frame_objects_changed_trigger_areas: 0,
 
             game_mode: GAME_NONE,
+            campaign_session_requires_recipient: false,
+            campaign_session_is_challenge: false,
             game_paused: false,
             loading_map: false,
             loading_save: false,

@@ -5,11 +5,14 @@ use std::cell::{Cell, RefCell};
 use std::fmt;
 use std::rc::{Rc, Weak};
 
+use crate::gui::campaign_manager::CampaignManager;
 use crate::gui::display_string::DisplayStringHandle;
 use crate::gui::gadgets::{
     CheckBox, ComboBox, HorizontalSlider, ListBox, ProgressBar, PushButton, RadioButton,
     StaticText, TabControl, TextEntry, VerticalSlider,
 };
+use crate::helpers::LiveControlBarClick;
+use crate::message_stream::game_message::GameMessage;
 use crate::video_buffer::VideoBufferHandle;
 
 use super::callbacks::{
@@ -29,6 +32,78 @@ pub type InputCallback =
     Box<dyn Fn(&GameWindow, WindowMessage, WindowMsgData, WindowMsgData) -> WindowMsgHandled>;
 pub type SystemCallback =
     Box<dyn Fn(&GameWindow, WindowMessage, WindowMsgData, WindowMsgData) -> WindowMsgHandled>;
+/// Effects borrowed from the receiving GameClient for one synchronous window event.
+/// The effects never outlive callback delivery or enter a queued continuation.
+pub struct WindowEventEffects<'a> {
+    pub(crate) window_manager_owner: Option<&'a crate::gui::window_manager::WindowManagerOwner>,
+    pub(crate) selected_window: Option<Weak<RefCell<GameWindow>>>,
+    pub(crate) emitted_messages: &'a mut Vec<GameMessage>,
+    pub(crate) pending_control_bar_clicks: Option<&'a mut Vec<LiveControlBarClick>>,
+    pub(crate) campaign_manager: Option<&'a mut CampaignManager>,
+}
+impl WindowEventEffects<'_> {
+    pub(crate) fn queue_window_operation(
+        &self,
+        operation: impl for<'a> FnOnce(
+            &mut crate::gui::window_manager::WindowManager,
+            &mut WindowEventEffects<'a>,
+        ) + 'static,
+    ) {
+        self.window_manager_owner
+            .expect("WND continuation requires receiving owner")
+            .queue_window_operation_with_effects(operation);
+    }
+
+    pub(crate) fn queue_system_message(
+        &self,
+        target: Weak<RefCell<GameWindow>>,
+        msg: WindowMessage,
+        data1: WindowMsgData,
+        data2: WindowMsgData,
+    ) {
+        self.queue_window_operation(move |manager, effects| {
+            let Some(target) = target.upgrade() else {
+                return;
+            };
+            let id = target.borrow().get_id();
+            let Some(registered) = manager.get_window_by_id(id) else {
+                return;
+            };
+            if !Rc::ptr_eq(&target, &registered)
+                || target
+                    .borrow()
+                    .get_status()
+                    .contains(WindowStatus::DESTROYED)
+            {
+                return;
+            }
+            let previous = effects.selected_window.replace(Rc::downgrade(&target));
+            target
+                .borrow_mut()
+                .send_system_message_with_message_sink(msg, data1, data2, effects, None);
+            effects.selected_window = previous;
+        });
+    }
+}
+
+pub type InputCallbackWithMessageSink = Box<
+    dyn for<'a> Fn(
+        &GameWindow,
+        WindowMessage,
+        WindowMsgData,
+        WindowMsgData,
+        &mut WindowEventEffects<'a>,
+    ) -> WindowMsgHandled,
+>;
+pub type SystemCallbackWithMessageSink = Box<
+    dyn for<'a> Fn(
+        &GameWindow,
+        WindowMessage,
+        WindowMsgData,
+        WindowMsgData,
+        &mut WindowEventEffects<'a>,
+    ) -> WindowMsgHandled,
+>;
 
 /// Data attached to each window specifically for the GUI editor.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -45,7 +120,9 @@ pub struct WindowCallbacks {
     pub draw: Option<DrawCallback>,
     pub tooltip: Option<TooltipCallback>,
     pub input: Option<InputCallback>,
+    pub input_with_message_sink: Option<InputCallbackWithMessageSink>,
     pub system: Option<SystemCallback>,
+    pub system_with_message_sink: Option<SystemCallbackWithMessageSink>,
     pub(crate) control_bar_system: bool,
     pub(crate) control_bar_observer_system: bool,
     pub(crate) options_menu_system: bool,

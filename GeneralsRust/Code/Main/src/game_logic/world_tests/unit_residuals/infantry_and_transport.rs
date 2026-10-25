@@ -2729,7 +2729,9 @@ fn troop_crawler_assault_keeps_wounded_and_retrieves_outside() {
         let h = game_logic.host_object_mut(healthy_id).unwrap();
         h.health.current = 30.0;
     }
-    game_logic.tick_assault_transport_updates();
+    game_logic
+        .tick_assault_transport_updates()
+        .expect("valid assault transport fixture");
     {
         let h = game_logic.host_object(healthy_id).expect("wounded walker");
         assert!(
@@ -2750,7 +2752,9 @@ fn troop_crawler_assault_keeps_wounded_and_retrieves_outside() {
     assert!(game_logic.honesty_troop_crawler_wounded_retrieve_ok());
     // Second tick must not re-issue (already AI_ENTER).
     let retrieves = game_logic.troop_crawler.wounded_retrieves;
-    game_logic.tick_assault_transport_updates();
+    game_logic
+        .tick_assault_transport_updates()
+        .expect("valid assault transport fixture");
     assert_eq!(
         game_logic.troop_crawler.wounded_retrieves, retrieves,
         "already-Entering members skip a second aiEnter"
@@ -2772,7 +2776,9 @@ fn troop_crawler_assault_keeps_wounded_and_retrieves_outside() {
         );
         h.health.current = 100.0;
     }
-    game_logic.tick_assault_transport_updates();
+    game_logic
+        .tick_assault_transport_updates()
+        .expect("valid assault transport fixture");
     {
         let crawler_pos = game_logic
             .host_object(crawler_id)
@@ -2899,7 +2905,9 @@ fn troop_crawler_new_members_do_not_eject_until_new_attack() {
         let (e, fixture_partition_e) = game_logic.host_object_and_partition_mut(extra_id).unwrap();
         e.set_contained_by_with_partition_owner(Some(crawler_id), true, fixture_partition_e);
     }
-    game_logic.tick_assault_transport_updates();
+    game_logic
+        .tick_assault_transport_updates()
+        .expect("valid assault transport fixture");
     assert_eq!(
         game_logic
             .host_object(extra_id)
@@ -2909,7 +2917,9 @@ fn troop_crawler_new_members_do_not_eject_until_new_attack() {
     );
 
     game_logic.assault_transport_on_player_attack(crawler_id);
-    game_logic.tick_assault_transport_updates();
+    game_logic
+        .tick_assault_transport_updates()
+        .expect("valid assault transport fixture");
     assert!(
         game_logic
             .host_object(extra_id)
@@ -2961,7 +2971,9 @@ fn troop_crawler_target_death_retrieves_members() {
     );
 
     game_logic.destroy_object(enemy);
-    game_logic.tick_assault_transport_updates();
+    game_logic
+        .tick_assault_transport_updates()
+        .expect("valid assault transport fixture");
     {
         let h = game_logic.host_object(healthy_id).expect("retrieve");
         assert!(
@@ -3014,7 +3026,9 @@ fn troop_crawler_attack_move_continues_after_target_death() {
     );
 
     game_logic.destroy_object(enemy);
-    game_logic.tick_assault_transport_updates();
+    game_logic
+        .tick_assault_transport_updates()
+        .expect("valid assault transport fixture");
     let crawler = game_logic.host_object(crawler_id).expect("crawler");
     assert!(
         matches!(crawler.ai_state, AIState::AttackMoving),
@@ -3125,7 +3139,9 @@ fn troop_crawler_assault_walks_enter_and_exit() {
         let h = game_logic.host_object_mut(fighter).unwrap();
         h.health.current = 20.0;
     }
-    game_logic.tick_assault_transport_updates();
+    game_logic
+        .tick_assault_transport_updates()
+        .expect("valid assault transport fixture");
     {
         let h = game_logic.host_object(fighter).expect("enter walk");
         assert!(h.contained_by.is_none());
@@ -3150,7 +3166,9 @@ fn troop_crawler_assault_walks_enter_and_exit() {
         );
         h.health.current = 100.0;
     }
-    game_logic.tick_assault_transport_updates();
+    game_logic
+        .tick_assault_transport_updates()
+        .expect("valid assault transport fixture");
     let crawler_pos = game_logic
         .host_object(crawler_id)
         .map(|c| c.get_position())

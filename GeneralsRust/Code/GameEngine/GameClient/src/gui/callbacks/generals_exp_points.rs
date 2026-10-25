@@ -47,7 +47,7 @@ pub fn generals_exp_points_system(
             if control_id == button_exit_id {
                 TheControlBar::hide_purchase_science();
             } else {
-                TheControlBar::process_context_sensitive_button_click(control_id, GBM_SELECTED);
+                // The registered owner-aware callback queues this click on its receiving ControlBar.
             }
 
             WindowMsgHandled::Handled

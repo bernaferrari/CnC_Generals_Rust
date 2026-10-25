@@ -2652,21 +2652,21 @@ impl GameLogic {
         &mut self,
         container_id: ObjectId,
         entering_id: ObjectId,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         self.eject_foreign_occupants_on_enter_with_effects(
             container_id,
             entering_id,
             &mut Default::default(),
-        );
+        )
     }
     pub(super) fn eject_foreign_occupants_on_enter_with_effects(
         &mut self,
         container_id: ObjectId,
         entering_id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         let Some(enterer) = self.objects.get(&entering_id) else {
-            return;
+            return Ok(());
         };
         let enterer_owner = enterer.owner_player_id;
         let enterer_team = enterer.team;
@@ -2675,7 +2675,7 @@ impl GameLogic {
             .get(&container_id)
             .map(|container| (container.get_position(), container.contained_units()))
         else {
-            return;
+            return Ok(());
         };
 
         let mut kicked = Vec::new();
@@ -2694,7 +2694,7 @@ impl GameLogic {
             kicked.push((occupant_id, stealth_garrison));
         }
         if kicked.is_empty() {
-            return;
+            return Ok(());
         }
 
         if let Some(container) = self.objects.get_mut(&container_id) {
@@ -2707,7 +2707,7 @@ impl GameLogic {
             }
         }
         for (occupant_id, stealth_garrison) in kicked {
-            let _ = self.unit_command_exit_drop_with_effects(occupant_id, position, effects);
+            self.unit_command_exit_drop_with_effects(occupant_id, position, effects)?;
             if stealth_garrison {
                 if let Some(occupant) = self.objects.get_mut(&occupant_id) {
                     occupant.set_status_detected(true);
@@ -2715,25 +2715,29 @@ impl GameLogic {
             }
         }
         self.recalc_garrison_apparent_controller(container_id);
+        Ok(())
     }
 
     /// C++ `GarrisonContain::removeAllContained(TRUE)` on a capture trigger.
     /// It exposes and ejects occupants; it does not kill them and it does not
     /// defect the garrisonable structure in that same ability use.
-    pub(super) fn evacuate_garrison_for_capture(&mut self, structure_id: ObjectId) {
-        self.evacuate_garrison_for_capture_with_effects(structure_id, &mut Default::default());
+    pub(super) fn evacuate_garrison_for_capture(
+        &mut self,
+        structure_id: ObjectId,
+    ) -> gamelogic::GameLogicResult<()> {
+        self.evacuate_garrison_for_capture_with_effects(structure_id, &mut Default::default())
     }
     pub(super) fn evacuate_garrison_for_capture_with_effects(
         &mut self,
         structure_id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         let Some((position, occupants)) = self
             .objects
             .get(&structure_id)
             .map(|structure| (structure.get_position(), structure.contained_units()))
         else {
-            return;
+            return Ok(());
         };
 
         if let Some(structure) = self.objects.get_mut(&structure_id) {
@@ -2751,13 +2755,14 @@ impl GameLogic {
                 .objects
                 .get(&occupant_id)
                 .is_some_and(|occupant| occupant.status.stealthed);
-            let _ = self.unit_command_exit_drop_with_effects(occupant_id, position, effects);
+            self.unit_command_exit_drop_with_effects(occupant_id, position, effects)?;
             if expose_stealth {
                 if let Some(occupant) = self.objects.get_mut(&occupant_id) {
                     occupant.set_status_detected(true);
                 }
             }
         }
+        Ok(())
     }
 
     /// C++ `SpecialAbilityUpdate::startPreparation` for a capture power.

@@ -27,6 +27,16 @@ impl<'engine> ExecutionContext<'engine> {
         self.engine
     }
 
+    pub(super) fn is_generals_challenge_campaign(&self) -> bool {
+        self.with_state(|context| {
+            context
+                .host_trigger_world
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .is_generals_challenge_campaign()
+        })
+    }
+
     pub(super) fn with_state<R>(&self, f: impl FnOnce(&ScriptContext) -> R) -> R {
         f(&self.state.borrow())
     }

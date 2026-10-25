@@ -1,10 +1,10 @@
 //! DifficultySelect.cpp callback port.
 
-use crate::gui::campaign_manager::{get_campaign_manager, GameDifficulty};
-use crate::gui::shell::main_menu::{get_main_menu, GameDifficulty as MainMenuDifficulty};
+use crate::gui::campaign_manager::{CampaignManager, GameDifficulty};
+use crate::gui::shell::main_menu::{GameDifficulty as MainMenuDifficulty, get_main_menu};
 use crate::gui::{
-    with_window_manager, write_input_focus_response, GameWindow, WindowLayout, WindowMessage,
-    WindowMsgData, WindowMsgHandled, WindowWidget,
+    GameWindow, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled, WindowWidget,
+    with_window_manager, write_input_focus_response,
 };
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::user_preferences::UserPreferences;
@@ -131,11 +131,8 @@ fn destroy_current_layout(window: &GameWindow) {
     }
 }
 
-fn cancel_difficulty_select(window: &GameWindow) {
-    {
-        let mut campaign_manager = get_campaign_manager();
-        campaign_manager.set_campaign("");
-    }
+fn cancel_difficulty_select(window: &GameWindow, campaign_manager: &mut CampaignManager) {
+    campaign_manager.set_campaign("");
 
     if let Some(parent) = DIFFICULTY_SELECT_STATE.with_borrow(|state| state.parent.clone()) {
         with_window_manager(|manager| {
@@ -146,14 +143,22 @@ fn cancel_difficulty_select(window: &GameWindow) {
     destroy_current_layout(window);
 }
 
-fn start_campaign_game(window: &GameWindow, difficulty: GameDifficulty) {
+fn start_campaign_game(
+    window: &GameWindow,
+    difficulty: GameDifficulty,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) {
     let current_map = {
-        let campaign_manager = get_campaign_manager();
+        let Some(campaign_manager) = effects.campaign_manager.as_deref_mut() else {
+            return;
+        };
         campaign_manager.get_current_map().unwrap_or_default()
     };
 
     if current_map.is_empty() {
-        cancel_difficulty_select(window);
+        if let Some(campaign_manager) = effects.campaign_manager.as_deref_mut() {
+            cancel_difficulty_select(window, campaign_manager);
+        }
         return;
     }
 
@@ -170,7 +175,11 @@ fn start_campaign_game(window: &GameWindow, difficulty: GameDifficulty) {
     // C++ DifficultySelect calls MainMenu::setupGameStart() instead of
     // preparing gameplay directly, so route through the same startup pipeline.
     let mut main_menu = get_main_menu();
-    main_menu.setup_game_start_from_callback(&current_map, difficulty_to_main_menu(difficulty));
+    main_menu.setup_game_start_from_callback(
+        &current_map,
+        difficulty_to_main_menu(difficulty),
+        effects,
+    );
 }
 
 pub fn difficulty_select_init(layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>) {
@@ -201,7 +210,8 @@ pub fn difficulty_select_system(
     window: &GameWindow,
     msg: WindowMessage,
     data1: WindowMsgData,
-    _data2: WindowMsgData,
+    data2: WindowMsgData,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> WindowMsgHandled {
     // Decide inside the cell borrow, then act outside it — the Ok/Cancel paths
     // re-enter this state through start/cancel_difficulty_select.
@@ -214,7 +224,7 @@ pub fn difficulty_select_system(
     let choice = DIFFICULTY_SELECT_STATE.with_borrow_mut(|state| match msg {
         WindowMessage::Create | WindowMessage::Destroy => DifficultyChoice::Handled,
         WindowMessage::InputFocus => {
-            write_input_focus_response(data1, _data2, true);
+            write_input_focus_response(data1, data2, true);
             DifficultyChoice::Handled
         }
         WindowMessage::GadgetSelected => {
@@ -245,11 +255,13 @@ pub fn difficulty_select_system(
         DifficultyChoice::Ignored => WindowMsgHandled::Ignored,
         DifficultyChoice::Handled => WindowMsgHandled::Handled,
         DifficultyChoice::Start(difficulty) => {
-            start_campaign_game(window, difficulty);
+            start_campaign_game(window, difficulty, effects);
             WindowMsgHandled::Handled
         }
         DifficultyChoice::Cancel => {
-            cancel_difficulty_select(window);
+            if let Some(manager) = effects.campaign_manager.as_deref_mut() {
+                cancel_difficulty_select(window, manager);
+            }
             WindowMsgHandled::Handled
         }
     }
@@ -260,6 +272,7 @@ pub fn difficulty_select_input(
     _msg: WindowMessage,
     _data1: WindowMsgData,
     _data2: WindowMsgData,
+    _effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> WindowMsgHandled {
     WindowMsgHandled::Ignored
 }
@@ -430,13 +443,16 @@ pub fn simulate_difficulty_select_prepare_ok(level: u8) -> bool {
 
 /// Human click-through: OS LeftDown/Up on a DifficultySelect radio
 /// (`RadioButtonEasy` / `Medium` / `Hard`). Not `simulate_*` first.
-pub fn drive_os_wnd_difficulty_select_radio_like_cpp(level: u8) -> bool {
+pub fn drive_os_wnd_difficulty_select_radio_like_cpp(
+    level: u8,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
     let name = match level {
         0 => "DifficultySelect.wnd:RadioButtonEasy",
         2 => "DifficultySelect.wnd:RadioButtonHard",
         _ => "DifficultySelect.wnd:RadioButtonMedium",
     };
-    let clicked = crate::gui::dispatch_os_click_named_window(name);
+    let clicked = crate::gui::dispatch_os_click_named_window(name, effects);
     if !clicked {
         return false;
     }
@@ -449,8 +465,11 @@ pub fn drive_os_wnd_difficulty_select_radio_like_cpp(level: u8) -> bool {
 
 /// Human click-through: OS LeftDown/Up on `DifficultySelect.wnd:ButtonOk`
 /// (C++ WindowXlat hit → GBM_SELECTED → setupGameStart). Not `simulate_*` first.
-pub fn drive_os_wnd_difficulty_select_ok_like_cpp() -> bool {
-    let clicked = crate::gui::dispatch_os_click_named_window("DifficultySelect.wnd:ButtonOk");
+pub fn drive_os_wnd_difficulty_select_ok_like_cpp(
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
+    let clicked =
+        crate::gui::dispatch_os_click_named_window("DifficultySelect.wnd:ButtonOk", effects);
     if !clicked {
         return false;
     }
@@ -458,8 +477,11 @@ pub fn drive_os_wnd_difficulty_select_ok_like_cpp() -> bool {
 }
 
 /// Human click-through: OS LeftDown/Up on `DifficultySelect.wnd:ButtonCancel`.
-pub fn drive_os_wnd_difficulty_select_cancel_like_cpp() -> bool {
-    let clicked = crate::gui::dispatch_os_click_named_window("DifficultySelect.wnd:ButtonCancel");
+pub fn drive_os_wnd_difficulty_select_cancel_like_cpp(
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
+    let clicked =
+        crate::gui::dispatch_os_click_named_window("DifficultySelect.wnd:ButtonCancel", effects);
     if !clicked {
         return false;
     }
@@ -467,9 +489,12 @@ pub fn drive_os_wnd_difficulty_select_cancel_like_cpp() -> bool {
 }
 
 /// Human click-through: radio then OK (C++ DifficultySelect Easy/Med/Hard + ButtonOk).
-pub fn drive_os_wnd_difficulty_select_like_cpp(level: u8) -> bool {
-    let clicked_radio = drive_os_wnd_difficulty_select_radio_like_cpp(level);
-    let clicked_ok = drive_os_wnd_difficulty_select_ok_like_cpp();
+pub fn drive_os_wnd_difficulty_select_like_cpp(
+    level: u8,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
+    let clicked_radio = drive_os_wnd_difficulty_select_radio_like_cpp(level, effects);
+    let clicked_ok = drive_os_wnd_difficulty_select_ok_like_cpp(effects);
     if !clicked_radio && !clicked_ok {
         return false;
     }

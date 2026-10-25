@@ -19,6 +19,20 @@ fn advance_owned(logic: &mut GameLogic, shadow: Option<&mut GameWorldShadow>) {
     assert_eq!(snapshot.steps_run, 1);
 }
 
+fn advance_owned_with_test_audio(
+    logic: &mut GameLogic,
+    shadow: Option<&mut GameWorldShadow>,
+    manager: &mut crate::subsystem_manager::SubsystemManager,
+) {
+    advance_owned(logic, shadow);
+    let requests = logic.process_audio_events();
+    if let Some(audio) = manager.get_mut::<crate::subsystem_manager::AudioManagerSubsystem>() {
+        for request in requests {
+            audio.queue_event(request);
+        }
+    }
+}
+
 fn author_timers(logic: &mut GameLogic, id: ObjectId) -> u32 {
     let (object, health_events) = logic.host_object_and_health_events_mut(id).unwrap();
     object.flash_as_selected_with_color([0.1, 0.2, 0.3]);
@@ -408,7 +422,8 @@ fn ordinary_disabled_producer_resumes_only_after_the_expiry_frame() {
 
 fn ordinary_expiry_restores_radar_and_generation_in_the_same_completed_frame_case() {
     use crate::subsystem_manager::AudioManagerSubsystem;
-    AudioManagerSubsystem::install_test_queue();
+    let mut audio_manager = crate::subsystem_manager::SubsystemManager::new();
+    AudioManagerSubsystem::install_test_queue(&mut audio_manager);
     for disable_generator in [false, true] {
         let (mut logic, _, mut shadow) = fixture("OwnedExpiryEffects", 100.0);
         let owner = logic.get_player_by_team(Team::USA).unwrap().id;
@@ -454,7 +469,7 @@ fn ordinary_expiry_restores_radar_and_generation_in_the_same_completed_frame_cas
             )
             .unwrap();
         shadow.sync_from_host(&logic);
-        advance_owned(&mut logic, Some(&mut shadow));
+        advance_owned_with_test_audio(&mut logic, Some(&mut shadow), &mut audio_manager);
         assert_eq!(logic.get_frame(), 1);
         assert!(logic.get_player(owner).unwrap().has_radar());
         assert_eq!(logic.host_radar.online_transitions, 1);
@@ -465,7 +480,7 @@ fn ordinary_expiry_restores_radar_and_generation_in_the_same_completed_frame_cas
             foreign.power_consumed,
             foreign.power_available,
         );
-        AudioManagerSubsystem::take_test_queue();
+        AudioManagerSubsystem::take_test_queue(&mut audio_manager);
         {
             let (object, health_events) = logic
                 .host_object_and_health_events_mut(if disable_generator { plant } else { cc })
@@ -476,7 +491,7 @@ fn ordinary_expiry_restores_radar_and_generation_in_the_same_completed_frame_cas
                 &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
             );
         };
-        advance_owned(&mut logic, Some(&mut shadow));
+        advance_owned_with_test_audio(&mut logic, Some(&mut shadow), &mut audio_manager);
         assert_eq!(logic.get_frame(), 2, "processed expiry frame 1 completed");
         assert!(!logic.host_object(cc).unwrap().status.disabled_emp);
         assert!(!logic.host_object(plant).unwrap().status.disabled_emp);
@@ -512,7 +527,7 @@ fn ordinary_expiry_restores_radar_and_generation_in_the_same_completed_frame_cas
         );
         assert_eq!(logic.host_radar.online_transitions, 2);
         assert_eq!(logic.host_radar.offline_transitions, 1);
-        let delivered_audio = AudioManagerSubsystem::take_test_queue();
+        let delivered_audio = AudioManagerSubsystem::take_test_queue(&mut audio_manager);
         for sound in [
             crate::game_logic::host_radar::RADAR_OFFLINE_AUDIO,
             crate::game_logic::host_radar::RADAR_ONLINE_AUDIO,
@@ -526,7 +541,7 @@ fn ordinary_expiry_restores_radar_and_generation_in_the_same_completed_frame_cas
                 "exactly one expiry-frame radar sound {sound}"
             );
         }
-        advance_owned(&mut logic, Some(&mut shadow));
+        advance_owned_with_test_audio(&mut logic, Some(&mut shadow), &mut audio_manager);
         assert_eq!(logic.get_player(owner).unwrap().radar_count, 1);
         assert_eq!(
             logic.host_radar.online_transitions, 2,
@@ -534,7 +549,7 @@ fn ordinary_expiry_restores_radar_and_generation_in_the_same_completed_frame_cas
         );
         assert_eq!(logic.host_radar.offline_transitions, 1);
         assert!(
-            AudioManagerSubsystem::take_test_queue()
+            AudioManagerSubsystem::take_test_queue(&mut audio_manager)
                 .iter()
                 .all(|event| {
                     event.event_type != crate::game_logic::host_radar::RADAR_OFFLINE_AUDIO

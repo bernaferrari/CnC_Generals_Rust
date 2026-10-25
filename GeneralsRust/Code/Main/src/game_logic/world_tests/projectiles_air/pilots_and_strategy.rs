@@ -1248,7 +1248,9 @@ fn strategy_center_turret_idle_scan_residual() {
     }
 
     // Observe the actual admitted scan; CPP permits even zero/short offsets.
-    game_logic.tick_battle_plan_door_residuals();
+    game_logic
+        .tick_battle_plan_door_residuals()
+        .expect("valid battle-plan test state");
     assert!(
         game_logic.honesty_strategy_center_turret_idle_scan_ok(),
         "idle-scan residual must record start honesty"
@@ -1290,7 +1292,9 @@ fn strategy_center_turret_idle_scan_residual() {
         sc.turret_idle_scan_next_frame = 0;
     }
     game_logic.frame = game_logic.frame.wrapping_add(1);
-    game_logic.tick_battle_plan_door_residuals();
+    game_logic
+        .tick_battle_plan_door_residuals()
+        .expect("valid battle-plan test state");
     {
         let sc = game_logic.host_object(sc_id).expect("sc");
         assert!(
@@ -1311,7 +1315,9 @@ fn strategy_center_turret_idle_scan_residual() {
     // Advance enough frames for remaining offset at 2 deg/frame.
     for _ in 0..30 {
         game_logic.frame = game_logic.frame.saturating_add(1);
-        game_logic.tick_battle_plan_door_residuals();
+        game_logic
+            .tick_battle_plan_door_residuals()
+            .expect("valid battle-plan test state");
         let sc = game_logic.host_object(sc_id).unwrap();
         if !sc.turret_idle_scanning
             && game_logic.battle_plans().turret_idle_scan_complete_count() > 0
@@ -1363,7 +1369,9 @@ fn strategy_center_turret_idle_scan_residual() {
         );
     }
     game_logic.frame = game_logic.frame.saturating_add(1);
-    game_logic.tick_battle_plan_door_residuals();
+    game_logic
+        .tick_battle_plan_door_residuals()
+        .expect("valid battle-plan test state");
     {
         let sc = game_logic.host_object(sc_id).expect("sc");
         assert!(
@@ -1430,7 +1438,9 @@ fn strategy_center_turret_hold_and_idle_recenter_residual() {
         sc.turret_hold_until_frame = 0;
         sc.turret_idle_scan_next_frame = 0;
     }
-    game_logic.tick_battle_plan_door_residuals();
+    game_logic
+        .tick_battle_plan_door_residuals()
+        .expect("valid battle-plan test state");
     {
         let sc = game_logic.host_object(sc_id).expect("sc");
         assert!(sc.turret_holding, "scan complete → HoldTurret residual");
@@ -1448,7 +1458,9 @@ fn strategy_center_turret_hold_and_idle_recenter_residual() {
 
     // Mid-hold: angles still frozen, not recentering yet.
     game_logic.frame = hold_start.saturating_add(30);
-    game_logic.tick_battle_plan_door_residuals();
+    game_logic
+        .tick_battle_plan_door_residuals()
+        .expect("valid battle-plan test state");
     {
         let sc = game_logic.host_object(sc_id).expect("sc");
         assert!(sc.turret_holding, "must still be holding mid RecenterTime");
@@ -1458,7 +1470,9 @@ fn strategy_center_turret_hold_and_idle_recenter_residual() {
 
     // Hold elapses → idle-recenter residual starts toward natural.
     game_logic.frame = hold_turret_until_frame(hold_start);
-    game_logic.tick_battle_plan_door_residuals();
+    game_logic
+        .tick_battle_plan_door_residuals()
+        .expect("valid battle-plan test state");
     assert!(
         game_logic.battle_plans().turret_hold_complete_count() >= 1,
         "HoldTurret residual must complete after RecenterTime"
@@ -1491,7 +1505,9 @@ fn strategy_center_turret_hold_and_idle_recenter_residual() {
     // Step enough frames for 30° at 2 deg/frame to restore natural.
     for _ in 0..40 {
         game_logic.frame = game_logic.frame.saturating_add(1);
-        game_logic.tick_battle_plan_door_residuals();
+        game_logic
+            .tick_battle_plan_door_residuals()
+            .expect("valid battle-plan test state");
         let sc = game_logic.host_object(sc_id).unwrap();
         if !sc.turret_idle_recentering
             && turret_angles_are_natural(sc.turret_angle_deg, sc.turret_pitch_deg)
@@ -1587,7 +1603,9 @@ fn strategy_center_turret_mood_target_residual() {
     }
     let frame = game_logic.frame;
     let _ = game_logic.tick_turret_state_machine(sc_id, frame as f32 * LOGIC_FRAME_TIMESTEP, frame);
-    game_logic.tick_battle_plan_door_residuals();
+    game_logic
+        .tick_battle_plan_door_residuals()
+        .expect("valid battle-plan test state");
     {
         let sc = game_logic.host_object(sc_id).expect("sc");
         assert!(
@@ -1636,7 +1654,9 @@ fn strategy_center_turret_mood_target_residual() {
             fixture_partition_e,
         );
     }
-    game_logic.tick_battle_plan_door_residuals();
+    game_logic
+        .tick_battle_plan_door_residuals()
+        .expect("valid battle-plan test state");
     {
         let sc = game_logic.host_object(sc_id).expect("sc");
         assert!(

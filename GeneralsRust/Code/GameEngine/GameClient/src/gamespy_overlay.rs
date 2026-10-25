@@ -99,7 +99,7 @@ fn clear_gs_message_boxes() {
     }
 }
 
-fn message_box_ok_clicked() {
+fn message_box_ok_clicked(effects: &mut crate::gui::game_window::WindowEventEffects<'_>) {
     let callback = {
         let state_slot = overlay_state();
         let mut state = state_slot.borrow_mut();
@@ -107,11 +107,11 @@ fn message_box_ok_clicked() {
         state.message_box_ok.take()
     };
     if let Some(mut cb) = callback {
-        cb();
+        cb(effects);
     }
 }
 
-fn message_box_cancel_clicked() {
+fn message_box_cancel_clicked(effects: &mut crate::gui::game_window::WindowEventEffects<'_>) {
     let callback = {
         let state_slot = overlay_state();
         let mut state = state_slot.borrow_mut();
@@ -119,7 +119,7 @@ fn message_box_cancel_clicked() {
         state.message_box_cancel.take()
     };
     if let Some(mut cb) = callback {
-        cb();
+        cb(effects);
     }
 }
 
@@ -181,7 +181,7 @@ pub fn raise_gs_message_box() {
     }
 }
 
-fn buddy_try_reconnect() {
+fn buddy_try_reconnect(_effects: &mut crate::gui::game_window::WindowEventEffects<'_>) {
     let Some(queue) = get_buddy_message_queue() else {
         return;
     };

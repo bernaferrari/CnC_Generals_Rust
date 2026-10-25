@@ -86,6 +86,9 @@ fn click(
         game_ending: false,
         tooltips_disabled: false,
         cursor_mouse: None,
+        emitted_messages: None,
+            campaign_manager: None,
+            window_manager_owner: None,
     };
     for message in [WindowMessage::LeftDown, WindowMessage::LeftUp] {
         assert_eq!(
@@ -164,6 +167,9 @@ fn wnd_large_button_keyboard_and_ending_replay_guards_use_receiving_context() {
             game_ending: true,
             tooltips_disabled: false,
             cursor_mouse: None,
+            emitted_messages: None,
+            campaign_manager: None,
+            window_manager_owner: None,
         };
         for state in [0x02, 0x01] {
             let _ = manager.process_key_event_with_control_bar(0x20, state, &mut context);
@@ -184,6 +190,9 @@ fn wnd_large_button_keyboard_and_ending_replay_guards_use_receiving_context() {
             game_ending: false,
             tooltips_disabled: false,
             cursor_mouse: None,
+            emitted_messages: None,
+            campaign_manager: None,
+            window_manager_owner: None,
         };
         for state in [0x02, 0x01] {
             let _ = manager.process_key_event_with_control_bar(0x20, state, &mut context);
@@ -203,6 +212,9 @@ fn wnd_large_button_keyboard_and_ending_replay_guards_use_receiving_context() {
             game_ending: false,
             tooltips_disabled: false,
             cursor_mouse: None,
+            emitted_messages: None,
+            campaign_manager: None,
+            window_manager_owner: None,
         };
         for state in [0x02, 0x01] {
             let _ = manager.process_key_event_with_control_bar(0x20, state, &mut context);
@@ -384,6 +396,9 @@ fn native_observer_button_and_cancel_admit_only_receiving_roster_target() {
             game_ending: false,
             tooltips_disabled: false,
             cursor_mouse: None,
+            emitted_messages: None,
+            campaign_manager: None,
+            window_manager_owner: None,
         };
         // Actual gadget consumes down/up and selected native notification.
         for message in [WindowMessage::LeftDown, WindowMessage::LeftUp] {
@@ -432,6 +447,9 @@ fn native_observer_button_and_cancel_admit_only_receiving_roster_target() {
             game_ending: false,
             tooltips_disabled: false,
             cursor_mouse: None,
+            emitted_messages: None,
+            campaign_manager: None,
+            window_manager_owner: None,
         };
         for message in [WindowMessage::LeftDown, WindowMessage::LeftUp] {
             let _ = manager.send_input_selected(&cancel, message, 0, 0, false, Some(&mut context));

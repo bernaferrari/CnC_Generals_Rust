@@ -89,7 +89,18 @@ impl WindowManager {
         data: WindowMsgData,
         mouse_delta: Option<(i32, i32)>,
     ) -> WindowInputReturnCode {
-        self.process_mouse_event_phase(msg, x, y, data, mouse_delta, None)
+        self.process_mouse_event_phase(msg, x, y, data, mouse_delta, None, None)
+    }
+    pub(crate) fn process_mouse_event_with_delta_and_message_sink(
+        &mut self,
+        msg: WindowMessage,
+        x: i32,
+        y: i32,
+        data: WindowMsgData,
+        mouse_delta: Option<(i32, i32)>,
+        emitted_messages: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    ) -> WindowInputReturnCode {
+        self.process_mouse_event_phase(msg, x, y, data, mouse_delta, None, Some(emitted_messages))
     }
     pub fn process_mouse_event_with_control_bar(
         &mut self,
@@ -99,7 +110,19 @@ impl WindowManager {
         data: WindowMsgData,
         context: &mut super::ControlBarInputContext<'_>,
     ) -> WindowInputReturnCode {
-        self.process_mouse_event_phase(msg, x, y, data, None, Some(context))
+        self.process_mouse_event_with_delta_and_control_bar(msg, x, y, data, None, context)
+    }
+
+    pub(crate) fn process_mouse_event_with_delta_and_control_bar(
+        &mut self,
+        msg: WindowMessage,
+        x: i32,
+        y: i32,
+        data: WindowMsgData,
+        delta: Option<(i32, i32)>,
+        context: &mut super::ControlBarInputContext<'_>,
+    ) -> WindowInputReturnCode {
+        self.process_mouse_event_phase(msg, x, y, data, delta, Some(context), None)
     }
     fn process_mouse_event_phase(
         &mut self,
@@ -109,6 +132,7 @@ impl WindowManager {
         data: WindowMsgData,
         mouse_delta: Option<(i32, i32)>,
         mut context: Option<&mut super::ControlBarInputContext<'_>>,
+        mut emitted_messages: Option<&mut crate::gui::game_window::WindowEventEffects<'_>>,
     ) -> WindowInputReturnCode {
         const GGM_LEFT_DRAG: u32 = 16384;
         const GGM_CLOSE: u32 = GGM_LEFT_DRAG + 5;
@@ -137,14 +161,26 @@ impl WindowManager {
                         };
 
                         if should_send_release {
-                            let _ = self.send_input_selected(
-                                &grab_window,
-                                msg,
-                                data,
-                                0,
-                                false,
-                                context.as_deref_mut(),
-                            );
+                            let _ = if let Some(emitted) = emitted_messages.as_deref_mut() {
+                                self.send_input_selected_with_message_sink(
+                                    &grab_window,
+                                    msg,
+                                    data,
+                                    0,
+                                    false,
+                                    context.as_deref_mut(),
+                                    emitted,
+                                )
+                            } else {
+                                self.send_input_selected(
+                                    &grab_window,
+                                    msg,
+                                    data,
+                                    0,
+                                    false,
+                                    context.as_deref_mut(),
+                                )
+                            };
                         }
                         self.set_grab_window(None);
                         return WindowInputReturnCode::Used;
@@ -153,14 +189,26 @@ impl WindowManager {
                         if let Some((dx, dy)) = mouse_delta {
                             self.move_grabbed_draggable_window(&grab_window, dx, dy);
                         }
-                        let _ = self.send_input_selected(
-                            &grab_window,
-                            msg,
-                            data,
-                            0,
-                            false,
-                            context.as_deref_mut(),
-                        );
+                        let _ = if let Some(emitted) = emitted_messages.as_deref_mut() {
+                            self.send_input_selected_with_message_sink(
+                                &grab_window,
+                                msg,
+                                data,
+                                0,
+                                false,
+                                context.as_deref_mut(),
+                                emitted,
+                            )
+                        } else {
+                            self.send_input_selected(
+                                &grab_window,
+                                msg,
+                                data,
+                                0,
+                                false,
+                                context.as_deref_mut(),
+                            )
+                        };
                         return WindowInputReturnCode::Used;
                     }
                     _ => {
@@ -179,6 +227,7 @@ impl WindowManager {
                 y,
                 capture_window.as_ref(),
                 context.as_deref_mut(),
+                emitted_messages.as_deref_mut(),
             );
 
             self.update_current_mouse_region(Some(&window), capture_window.as_ref(), x, y);
@@ -318,7 +367,7 @@ impl WindowManager {
         y: i32,
         stop_at: Option<&Rc<RefCell<GameWindow>>>,
     ) -> Option<Rc<RefCell<GameWindow>>> {
-        self.send_mouse_message_up_chain_phase(start, msg, data, x, y, stop_at, None)
+        self.send_mouse_message_up_chain_phase(start, msg, data, x, y, stop_at, None, None)
     }
     fn send_mouse_message_up_chain_phase(
         &mut self,
@@ -329,6 +378,7 @@ impl WindowManager {
         y: i32,
         stop_at: Option<&Rc<RefCell<GameWindow>>>,
         mut context: Option<&mut super::ControlBarInputContext<'_>>,
+        mut emitted_messages: Option<&mut crate::gui::game_window::WindowEventEffects<'_>>,
     ) -> Option<Rc<RefCell<GameWindow>>> {
         let mut current = Some(start.clone());
         while let Some(window) = current {
@@ -336,14 +386,26 @@ impl WindowManager {
             {
                 let _ = window.borrow_mut().set_cursor_position(x - wx, y - wy);
             }
-            let result = self.send_input_selected(
-                &window,
-                msg,
-                data,
-                0,
-                stop_at.is_some(),
-                context.as_deref_mut(),
-            );
+            let result = if let Some(emitted) = emitted_messages.as_deref_mut() {
+                self.send_input_selected_with_message_sink(
+                    &window,
+                    msg,
+                    data,
+                    0,
+                    stop_at.is_some(),
+                    context.as_deref_mut(),
+                    emitted,
+                )
+            } else {
+                self.send_input_selected(
+                    &window,
+                    msg,
+                    data,
+                    0,
+                    stop_at.is_some(),
+                    context.as_deref_mut(),
+                )
+            };
 
             if result.is_handled() {
                 return Some(window);
@@ -551,6 +613,28 @@ impl WindowManager {
             state,
             &mut |manager, window, message, data1, data2, routed| {
                 manager.send_input_selected(window, message, data1, data2, routed, None)
+            },
+        )
+    }
+    pub(crate) fn process_key_event_with_message_sink(
+        &mut self,
+        key: u8,
+        state: u8,
+        emitted_messages: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    ) -> WindowInputReturnCode {
+        self.process_key_event_phase(
+            key,
+            state,
+            &mut |manager, window, message, data1, data2, routed| {
+                manager.send_input_selected_with_message_sink(
+                    window,
+                    message,
+                    data1,
+                    data2,
+                    routed,
+                    None,
+                    emitted_messages,
+                )
             },
         )
     }

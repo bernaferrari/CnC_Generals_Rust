@@ -353,7 +353,7 @@ impl GameLogic {
         object_id: ObjectId,
         old_team: Team,
         new_team: Team,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         self.on_capture_object_residual_with_effects(
             object_id,
             old_team,
@@ -368,7 +368,7 @@ impl GameLogic {
         old_team: Team,
         new_team: Team,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         // Compatibility entrypoint for callers that still identify owners by faction.
         self.on_capture_object_owned_with_effects(
             object_id,
@@ -379,7 +379,7 @@ impl GameLogic {
         );
         if old_team != new_team {
             // Object::defect owns this phase; retain it only for unmigrated callers.
-            self.defect_all_parked_units_with_effects(object_id, effects);
+            self.defect_all_parked_units_with_effects(object_id, effects)?;
             if let Some(object) = self.objects.get_mut(&object_id) {
                 object.set_private_captured(true);
                 object.deselect();
@@ -393,6 +393,7 @@ impl GameLogic {
                 }
             }
         }
+        Ok(())
     }
 
     /// Receiving Object::onCapture callback after the exact team transition.

@@ -313,11 +313,51 @@ impl GameLogic {
         self.start_new_game_state(mode, NewGamePlayerAdmission::Resolved);
     }
 
+    pub(crate) fn start_new_game_in_campaign_session(
+        &mut self,
+        mode: GameMode,
+        is_campaign: bool,
+        is_challenge: bool,
+    ) {
+        self.start_new_game_state_with_campaign(
+            mode,
+            NewGamePlayerAdmission::Bootstrap,
+            is_campaign,
+            is_challenge,
+        );
+    }
+
+    pub(crate) fn start_new_game_for_restore_in_campaign_session(
+        &mut self,
+        mode: GameMode,
+        is_campaign: bool,
+        is_challenge: bool,
+    ) {
+        self.start_new_game_state_with_campaign(
+            mode,
+            NewGamePlayerAdmission::Resolved,
+            is_campaign,
+            is_challenge,
+        );
+    }
+
     fn start_new_game_state(&mut self, mode: GameMode, admission: NewGamePlayerAdmission) {
+        self.start_new_game_state_with_campaign(mode, admission, false, false);
+    }
+
+    fn start_new_game_state_with_campaign(
+        &mut self,
+        mode: GameMode,
+        admission: NewGamePlayerAdmission,
+        is_campaign: bool,
+        is_challenge: bool,
+    ) {
         log::info!("Starting new game: {:?}", mode);
         // C++ GameLogic.cpp:1254-1256 TheCampaignManager->SetVictorious(FALSE).
         clear_live_campaign_victorious_for_new_game(self);
         self.reset();
+        // Source metadata is admitted after reset and before template/player/onCreate work.
+        self.admit_campaign_session(is_campaign, is_challenge);
         // C++ TheAI already holds AIData.ini EnableRepulsors after GameEngine init.
         // Live GameLogic ctor stays false (TAiData default); apply on the player path.
         self.apply_aidata_enable_repulsors();
@@ -382,6 +422,47 @@ impl GameLogic {
             }
         }
         log::info!("New game started successfully");
+    }
+
+    /// Whether this world was admitted from a Challenge campaign descriptor.
+    pub fn is_challenge_session(&self) -> bool {
+        self.campaign_session_kind == super::host::CampaignSessionKind::Challenge
+    }
+
+    pub fn campaign_session_kind(&self) -> super::host::CampaignSessionKind {
+        self.campaign_session_kind
+    }
+
+    pub fn has_campaign_session(&self) -> bool {
+        self.campaign_session_kind != super::host::CampaignSessionKind::None
+    }
+
+    /// Install Challenge classification from the validated launch or restore
+    /// payload before new-map relationship setup observes the session.
+    pub(crate) fn admit_challenge_session(&mut self, is_challenge: bool) {
+        self.host_trigger_world
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .admit_campaign_context(is_challenge);
+        self.campaign_session_kind = if is_challenge {
+            super::host::CampaignSessionKind::Challenge
+        } else {
+            super::host::CampaignSessionKind::None
+        };
+    }
+
+    pub(crate) fn admit_campaign_session(&mut self, is_campaign: bool, is_challenge: bool) {
+        self.host_trigger_world
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .admit_campaign_context(is_challenge);
+        self.campaign_session_kind = if is_challenge {
+            super::host::CampaignSessionKind::Challenge
+        } else if is_campaign {
+            super::host::CampaignSessionKind::Campaign
+        } else {
+            super::host::CampaignSessionKind::None
+        };
     }
 
     pub fn game_mode(&self) -> GameMode {

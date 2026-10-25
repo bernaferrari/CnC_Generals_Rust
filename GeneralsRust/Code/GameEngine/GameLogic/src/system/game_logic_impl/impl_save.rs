@@ -3,7 +3,38 @@ impl GameLogic {
     /// registered bridge. Errors do not roll back earlier mutations or construction
     /// side effects; this is not the host WorldSnapshot format.
     pub fn xfer_native_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
-        xfer_game_logic_state(self, xfer)
+        // Without a recipient, no load may mutate the world before discovering
+        // an active Campaign chunk. Explicit standalone readers pass an empty DTO.
+        if xfer.get_xfer_mode() == XferMode::Load
+            || self.campaign_session_requires_recipient
+            || self.game_mode == GAME_SINGLE_PLAYER
+        {
+            return Err(XferStatus::InvalidData);
+        }
+        self.xfer_native_snapshot_with_campaign(xfer, &mut Default::default())
+    }
+
+    /// Borrow the serializer's canonical campaign DTO for the original v5 byte codec.
+    /// Native Main uses its separate WorldSnapshot serializer with the same owner DTO.
+    pub fn xfer_native_snapshot_with_campaign(
+        &mut self,
+        xfer: &mut dyn Xfer,
+        campaign: &mut game_engine::System::CampaignManagerXferState,
+    ) -> Result<(), XferStatus> {
+        xfer_game_logic_state_with_campaign(self, xfer, campaign)?;
+        self.admit_campaign_context(campaign);
+        Ok(())
+    }
+
+    pub fn admit_campaign_context(
+        &mut self,
+        campaign: &game_engine::System::CampaignManagerXferState,
+    ) {
+        self.campaign_session_is_challenge = campaign.is_challenge;
+        self.campaign_session_requires_recipient = campaign.is_challenge
+            || !campaign.campaign.is_empty()
+            || !campaign.mission.is_empty()
+            || campaign.challenge_info.is_some();
     }
 
     pub fn prepare_logic_for_object_load(&mut self) {

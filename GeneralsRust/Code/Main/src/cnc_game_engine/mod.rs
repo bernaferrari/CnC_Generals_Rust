@@ -23,10 +23,7 @@ use crate::runtime::attachments::dispatch_attachments;
 use crate::save_load::{
     GameDifficulty, SaveFileManager, SaveFileType, SaveGameInfo, init_game_state_system,
 };
-use crate::subsystem_manager::{
-    AudioManagerSubsystem, NetworkSubsystem, SubsystemInterface, get_subsystem_manager,
-    init_subsystem_manager, with_subsystem_mut,
-};
+use crate::subsystem_manager::{AudioManagerSubsystem, NetworkSubsystem, SubsystemInterface};
 use crate::ui::{
     DiagnosticsOverlayStats, GameHUD, GameUIState, MinimapActionKind, MinimapInteraction, Screen,
     UIEvent, UIManager,

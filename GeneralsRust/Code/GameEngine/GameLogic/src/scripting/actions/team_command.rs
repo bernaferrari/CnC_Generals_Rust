@@ -66,10 +66,15 @@ impl ScriptAction for TeamAttackTeamAction {
         // In C++: theTeam->attackTeam(targetTeam)
         // Integration: Requires team system to resolve team names and issue AI group attack commands
 
-        let resolved_attacker = resolve_team_name_token(&attacker_team);
-        let resolved_target = resolve_team_name_token(&target_team);
+        let resolved_attacker =
+            resolve_team_name_token(&attacker_team, _context.is_generals_challenge_campaign());
+        let resolved_target =
+            resolve_team_name_token(&target_team, _context.is_generals_challenge_campaign());
 
-        let group_arc = match create_ai_group_from_team(&resolved_attacker) {
+        let group_arc = match create_ai_group_from_team(
+            &resolved_attacker,
+            _context.is_generals_challenge_campaign(),
+        ) {
             Ok(group) => group,
             Err(err) => {
                 log::warn!(
@@ -162,8 +167,12 @@ impl ScriptAction for TeamFollowWaypointsAction {
             return Ok(ScriptResult::Success(None));
         };
 
-        let resolved_team = resolve_team_name_token(&team_name);
-        let group_arc = match create_ai_group_from_team(&resolved_team) {
+        let resolved_team =
+            resolve_team_name_token(&team_name, _context.is_generals_challenge_campaign());
+        let group_arc = match create_ai_group_from_team(
+            &resolved_team,
+            _context.is_generals_challenge_campaign(),
+        ) {
             Ok(group) => group,
             Err(err) => {
                 log::warn!(
@@ -231,7 +240,8 @@ impl ScriptAction for TeamGuardAction {
             log::info!("Team '{}' guarding current position", team_name);
         }
 
-        let resolved_team = resolve_team_name_token(&team_name);
+        let resolved_team =
+            resolve_team_name_token(&team_name, _context.is_generals_challenge_campaign());
         let guard_pos = if let (Some(x_pos), Some(y_pos)) = (x, y) {
             let terrain_owner_handle = get_terrain_logic();
             let z = terrain_owner_handle
@@ -287,7 +297,10 @@ impl ScriptAction for TeamGuardAction {
             return Ok(ScriptResult::Success(None));
         };
 
-        let group_arc = match create_ai_group_from_team(&resolved_team) {
+        let group_arc = match create_ai_group_from_team(
+            &resolved_team,
+            _context.is_generals_challenge_campaign(),
+        ) {
             Ok(group) => group,
             Err(err) => {
                 log::warn!(
@@ -348,8 +361,12 @@ impl ScriptAction for TeamHuntAction {
         // Different from guard - doesn't return to position, keeps hunting
         // Uses CommandButtonHuntUpdate module behavior
 
-        let resolved_team = resolve_team_name_token(&team_name);
-        let group_arc = match create_ai_group_from_team(&resolved_team) {
+        let resolved_team =
+            resolve_team_name_token(&team_name, _context.is_generals_challenge_campaign());
+        let group_arc = match create_ai_group_from_team(
+            &resolved_team,
+            _context.is_generals_challenge_campaign(),
+        ) {
             Ok(group) => group,
             Err(err) => {
                 log::warn!(
@@ -427,8 +444,12 @@ impl ScriptAction for TeamMoveToWaypointAction {
             return Ok(ScriptResult::Success(None));
         };
 
-        let resolved_team = resolve_team_name_token(&team_name);
-        let group_arc = match create_ai_group_from_team(&resolved_team) {
+        let resolved_team =
+            resolve_team_name_token(&team_name, _context.is_generals_challenge_campaign());
+        let group_arc = match create_ai_group_from_team(
+            &resolved_team,
+            _context.is_generals_challenge_campaign(),
+        ) {
             Ok(group) => group,
             Err(err) => {
                 log::warn!(
@@ -499,7 +520,8 @@ impl ScriptAction for TeamGarrisonBuildingAction {
         // 5. Building shows garrison indicators, units can fire from inside
         // Uses: GarrisonContain from object/contain/garrison_contain.rs
 
-        let resolved_team = resolve_team_name_token(&team_name);
+        let resolved_team =
+            resolve_team_name_token(&team_name, _context.is_generals_challenge_campaign());
         let Some(building_id) = resolve_named_object_id(&building_name) else {
             log::warn!(
                 "TeamGarrisonBuildingAction: building '{}' not found",
@@ -603,7 +625,8 @@ impl ScriptAction for TeamExitBuildingAction {
         // 3. Team members reform after exiting
         // Uses: GarrisonContain::evacuate() from object/contain/garrison_contain.rs
 
-        let resolved_team = resolve_team_name_token(&team_name);
+        let resolved_team =
+            resolve_team_name_token(&team_name, _context.is_generals_challenge_campaign());
         let members = get_team_factory()
             .lock()
             .ok()
@@ -678,7 +701,8 @@ impl ScriptAction for TeamCaptureBuildingAction {
             building_name
         );
 
-        let resolved_team = resolve_team_name_token(&team_name);
+        let resolved_team =
+            resolve_team_name_token(&team_name, _context.is_generals_challenge_campaign());
         let Some(building_id) = resolve_named_object_id(&building_name) else {
             log::warn!(
                 "TeamCaptureBuildingAction: building '{}' not found",
@@ -792,7 +816,8 @@ impl ScriptAction for TeamRepairAction {
         // 6. Repair cost: consumes player resources proportional to damage
         // In C++: Uses SpecialAbilityUpdate::Repair or RepairModule
 
-        let resolved_team = resolve_team_name_token(&team_name);
+        let resolved_team =
+            resolve_team_name_token(&team_name, _context.is_generals_challenge_campaign());
         let Some(target_id) = resolve_named_object_id(&target_name) else {
             log::warn!("TeamRepairAction: target '{}' not found", target_name);
             return Ok(ScriptResult::Success(None));
@@ -878,8 +903,12 @@ impl ScriptAction for TeamWanderAction {
         // Wander radius typically 100-200 game units from current position
         // In C++: AI state WANDER with periodic random destination selection
 
-        let resolved_team = resolve_team_name_token(&team_name);
-        let group_arc = match create_ai_group_from_team(&resolved_team) {
+        let resolved_team =
+            resolve_team_name_token(&team_name, _context.is_generals_challenge_campaign());
+        let group_arc = match create_ai_group_from_team(
+            &resolved_team,
+            _context.is_generals_challenge_campaign(),
+        ) {
             Ok(group) => group,
             Err(err) => {
                 log::warn!(
@@ -940,8 +969,12 @@ impl ScriptAction for TeamIdleAction {
         // 4. Will still defend if attacked (return fire)
         // In C++: theTeam->stopAllActions() clears all AI update queues
 
-        let resolved_team = resolve_team_name_token(&team_name);
-        let group_arc = match create_ai_group_from_team(&resolved_team) {
+        let resolved_team =
+            resolve_team_name_token(&team_name, _context.is_generals_challenge_campaign());
+        let group_arc = match create_ai_group_from_team(
+            &resolved_team,
+            _context.is_generals_challenge_campaign(),
+        ) {
             Ok(group) => group,
             Err(err) => {
                 log::warn!(
@@ -1002,7 +1035,8 @@ impl ScriptAction for TeamSetStateAction {
         // State stored in Team::m_state (AsciiString)
         // Rust: team.set_state(state.clone())
 
-        let resolved_team = resolve_team_name_token(&team_name);
+        let resolved_team =
+            resolve_team_name_token(&team_name, _context.is_generals_challenge_campaign());
         let factory = get_team_factory();
         let Some(team_arc) = factory
             .lock()
@@ -1063,7 +1097,8 @@ impl ScriptAction for TeamDeleteAction {
         // 4. Free team memory
         // WARNING: Destructive operation, cannot be undone
 
-        let resolved_team = resolve_team_name_token(&team_name);
+        let resolved_team =
+            resolve_team_name_token(&team_name, _context.is_generals_challenge_campaign());
         let factory = get_team_factory();
         let team_arc = {
             let mut guard = factory
@@ -1141,8 +1176,10 @@ impl ScriptAction for TeamFollowTeamAction {
         // 7. If target engages enemies, follower assists
         // In C++: theTeam->followTeam(targetTeam)
 
-        let resolved_follower = resolve_team_name_token(&follower_team);
-        let resolved_target = resolve_team_name_token(&target_team);
+        let resolved_follower =
+            resolve_team_name_token(&follower_team, _context.is_generals_challenge_campaign());
+        let resolved_target =
+            resolve_team_name_token(&target_team, _context.is_generals_challenge_campaign());
 
         let target_id = get_team_factory()
             .lock()
@@ -1163,7 +1200,10 @@ impl ScriptAction for TeamFollowTeamAction {
             return Ok(ScriptResult::Success(None));
         };
 
-        let group_arc = match create_ai_group_from_team(&resolved_follower) {
+        let group_arc = match create_ai_group_from_team(
+            &resolved_follower,
+            _context.is_generals_challenge_campaign(),
+        ) {
             Ok(group) => group,
             Err(err) => {
                 log::warn!(
@@ -1217,7 +1257,8 @@ impl ScriptAction for TeamGuardInTunnelAction {
 
         log::info!("Team '{}' guarding in tunnel network", team_name);
 
-        let resolved_team = resolve_team_name_token(&team_name);
+        let resolved_team =
+            resolve_team_name_token(&team_name, _context.is_generals_challenge_campaign());
         let team_arc = get_team_factory()
             .lock()
             .ok()
@@ -1393,13 +1434,17 @@ impl ScriptAction for TeamAttackAction {
         // All team members attack same target
         // Rust: team_manager.get_team(team_name).attack_target(target)
 
-        let resolved_team = resolve_team_name_token(&team_name);
+        let resolved_team =
+            resolve_team_name_token(&team_name, _context.is_generals_challenge_campaign());
         let Some(target_id) = resolve_named_object_id(&target) else {
             log::warn!("TeamAttackAction: target '{}' not found", target);
             return Ok(ScriptResult::Success(None));
         };
 
-        let group_arc = match create_ai_group_from_team(&resolved_team) {
+        let group_arc = match create_ai_group_from_team(
+            &resolved_team,
+            _context.is_generals_challenge_campaign(),
+        ) {
             Ok(group) => group,
             Err(err) => {
                 log::warn!(
@@ -1453,7 +1498,8 @@ impl ScriptAction for TeamAttackAreaAction {
 
         log::info!("Team '{}' attacking area '{}'", team_name, area);
 
-        let resolved_team = resolve_team_name_token(&team_name);
+        let resolved_team =
+            resolve_team_name_token(&team_name, _context.is_generals_challenge_campaign());
         let (center, trigger_id) = if let Ok(terrain_guard) = get_terrain_logic().read() {
             if let Some(trigger) = terrain_guard.get_trigger_area_by_name(&area) {
                 (trigger.get_center_point(), trigger.get_id())
@@ -1466,7 +1512,10 @@ impl ScriptAction for TeamAttackAreaAction {
             return Ok(ScriptResult::Success(None));
         };
 
-        let group_arc = match create_ai_group_from_team(&resolved_team) {
+        let group_arc = match create_ai_group_from_team(
+            &resolved_team,
+            _context.is_generals_challenge_campaign(),
+        ) {
             Ok(group) => group,
             Err(err) => {
                 log::warn!(
@@ -1531,7 +1580,8 @@ impl ScriptAction for TeamGuardAreaAction {
         // Engages enemies that enter area
         // Rust: team_manager.get_team(team_name).guard_area(area)
 
-        let resolved_team = resolve_team_name_token(&team_name);
+        let resolved_team =
+            resolve_team_name_token(&team_name, _context.is_generals_challenge_campaign());
         let (center, trigger_id) = if let Ok(terrain_guard) = get_terrain_logic().read() {
             if let Some(trigger) = terrain_guard.get_trigger_area_by_name(&area) {
                 (trigger.get_center_point(), trigger.get_id())
@@ -1544,7 +1594,10 @@ impl ScriptAction for TeamGuardAreaAction {
             return Ok(ScriptResult::Success(None));
         };
 
-        let group_arc = match create_ai_group_from_team(&resolved_team) {
+        let group_arc = match create_ai_group_from_team(
+            &resolved_team,
+            _context.is_generals_challenge_campaign(),
+        ) {
             Ok(group) => group,
             Err(err) => {
                 log::warn!(
@@ -1610,14 +1663,18 @@ impl ScriptAction for TeamFollowAction {
         // Updates position as target moves
         // Rust: team_manager.get_team(team_name).follow_target(target)
 
-        let resolved_team = resolve_team_name_token(&team_name);
+        let resolved_team =
+            resolve_team_name_token(&team_name, _context.is_generals_challenge_campaign());
         let target_id = resolve_named_object_id(&target).or_else(|| {
             let factory = get_team_factory();
             factory
                 .lock()
                 .ok()
                 .and_then(|mut factory_guard| {
-                    factory_guard.find_team(&resolve_team_name_token(&target))
+                    factory_guard.find_team(&resolve_team_name_token(
+                        &target,
+                        _context.is_generals_challenge_campaign(),
+                    ))
                 })
                 .and_then(|team_arc| {
                     team_arc
@@ -1632,7 +1689,10 @@ impl ScriptAction for TeamFollowAction {
             return Ok(ScriptResult::Success(None));
         };
 
-        let group_arc = match create_ai_group_from_team(&resolved_team) {
+        let group_arc = match create_ai_group_from_team(
+            &resolved_team,
+            _context.is_generals_challenge_campaign(),
+        ) {
             Ok(group) => group,
             Err(err) => {
                 log::warn!(

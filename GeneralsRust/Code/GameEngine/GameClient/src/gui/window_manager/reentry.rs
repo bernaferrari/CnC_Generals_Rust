@@ -18,8 +18,26 @@ use std::time::Instant;
 
 use super::*;
 
-type WindowManagerOperation = Box<dyn FnOnce(&mut WindowManager) + 'static>;
-type ShellOperation = Box<dyn FnOnce(&mut Shell) + 'static>;
+enum WindowManagerOperation {
+    Legacy(Box<dyn FnOnce(&mut WindowManager) + 'static>),
+    WithEffects(
+        Box<
+            dyn for<'a> FnOnce(
+                    &mut WindowManager,
+                    &mut crate::gui::game_window::WindowEventEffects<'a>,
+                ) + 'static,
+        >,
+    ),
+}
+enum ShellOperation {
+    Legacy(Box<dyn FnOnce(&mut Shell) + 'static>),
+    WithEffects(
+        Box<
+            dyn for<'a> FnOnce(&mut Shell, &mut crate::gui::game_window::WindowEventEffects<'a>)
+                + 'static,
+        >,
+    ),
+}
 
 struct WindowManagerOwnerState {
     manager: RefCell<WindowManager>,
@@ -110,6 +128,57 @@ impl WindowManagerOwner {
         })
     }
 
+    pub(crate) fn queue_window_operation_with_effects(
+        &self,
+        operation: impl for<'a> FnOnce(
+            &mut WindowManager,
+            &mut crate::gui::game_window::WindowEventEffects<'a>,
+        ) + 'static,
+    ) {
+        self.state
+            .operations
+            .borrow_mut()
+            .push(WindowManagerOperation::WithEffects(Box::new(operation)));
+    }
+
+    pub(crate) fn drain_driving_shell(
+        &self,
+        shell: &mut Shell,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    ) {
+        drain_shell_operations_with_effects(&self.state, shell, effects);
+    }
+
+    pub(crate) fn complete_event_callbacks(
+        &self,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    ) {
+        loop {
+            self.complete_window_callbacks(effects);
+            self.with_shell_effects_mut(effects, |_, _| ())
+                .expect("WND event must release receiving Shell before callback replay");
+            if self.state.operations.borrow().is_empty()
+                && self.state.shell_operations.borrow().is_empty()
+            {
+                return;
+            }
+        }
+    }
+
+    pub(crate) fn complete_window_callbacks(
+        &self,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    ) {
+        let owner = Rc::clone(&self.state);
+        self.with_scope(|| {
+            let mut manager = owner
+                .manager
+                .try_borrow_mut()
+                .expect("WND callback replay requires outer manager loan released");
+            drain_window_manager_ops_with_effects(&owner, &mut manager, effects);
+        });
+    }
+
     /// Read this exact owner's manager for one synchronous operation.
     pub fn with_manager_ref<R: ReentryFallback>(&self, f: impl FnOnce(&WindowManager) -> R) -> R {
         let owner = Rc::clone(&self.state);
@@ -130,6 +199,9 @@ impl WindowManagerOwner {
         self.with_scope(|| {
             let mut shell = owner.shell.try_borrow_mut().ok()?;
             drain_shell_operations(&owner, &mut shell);
+            if !owner.shell_operations.borrow().is_empty() {
+                return None;
+            }
             let mut drain = ShellOperationDrain {
                 owner: Rc::clone(&owner),
                 shell: &mut shell,
@@ -138,6 +210,33 @@ impl WindowManagerOwner {
             drop(drain);
             Some(result)
         })
+    }
+
+    /// Complete the receiving client's queued lifecycle effects in their original event phase.
+    pub(crate) fn with_shell_effects_mut<R>(
+        &self,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+        f: impl FnOnce(&mut Shell, &mut crate::gui::game_window::WindowEventEffects<'_>) -> R,
+    ) -> Option<R> {
+        let owner = Rc::clone(&self.state);
+        self.with_scope(|| {
+            let mut shell = owner.shell.try_borrow_mut().ok()?;
+            drain_shell_operations_with_effects(&owner, &mut shell, effects);
+            let result = f(&mut shell, effects);
+            drain_shell_operations_with_effects(&owner, &mut shell, effects);
+            Some(result)
+        })
+    }
+
+    pub(crate) fn queue_shell_operation_with_effects(
+        &self,
+        operation: impl for<'a> FnOnce(&mut Shell, &mut crate::gui::game_window::WindowEventEffects<'a>)
+        + 'static,
+    ) {
+        self.state
+            .shell_operations
+            .borrow_mut()
+            .push_back(ShellOperation::WithEffects(Box::new(operation)));
     }
 
     /// Read this client's Shell when no mutable lifecycle operation is active.
@@ -149,6 +248,13 @@ impl WindowManagerOwner {
     /// Run or queue work on this owner's Shell, preserving the same re-entry boundary.
     pub fn queue_shell_operation(&self, operation: impl FnOnce(&mut Shell) + 'static) {
         let owner = Rc::clone(&self.state);
+        if !owner.shell_operations.borrow().is_empty() {
+            owner
+                .shell_operations
+                .borrow_mut()
+                .push_back(ShellOperation::Legacy(Box::new(operation)));
+            return;
+        }
         self.with_scope(|| match owner.shell.try_borrow_mut() {
             Ok(mut shell) => {
                 drain_shell_operations(&owner, &mut shell);
@@ -158,7 +264,7 @@ impl WindowManagerOwner {
             Err(_) => owner
                 .shell_operations
                 .borrow_mut()
-                .push_back(Box::new(operation)),
+                .push_back(ShellOperation::Legacy(Box::new(operation))),
         });
     }
 
@@ -221,18 +327,30 @@ impl Default for WindowManagerOwner {
 
 fn drain_shell_operations(owner: &Rc<WindowManagerOwnerState>, shell: &mut Shell) {
     loop {
-        let mut operations = std::mem::take(&mut *owner.shell_operations.borrow_mut());
-        if operations.is_empty() {
-            return;
-        }
-        while let Some(operation) = operations.pop_front() {
-            let mut restore_remaining = RestoreShellOperationsOnUnwind {
-                owner,
-                pending: &mut operations,
-                armed: true,
-            };
+        let operation = {
+            let mut operations = owner.shell_operations.borrow_mut();
+            if !matches!(operations.front(), Some(ShellOperation::Legacy(_))) {
+                return;
+            }
+            operations.pop_front().unwrap()
+        };
+        if let ShellOperation::Legacy(operation) = operation {
             operation(shell);
-            restore_remaining.armed = false;
+        }
+    }
+}
+
+fn drain_shell_operations_with_effects(
+    owner: &Rc<WindowManagerOwnerState>,
+    shell: &mut Shell,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) {
+    loop {
+        let operation = owner.shell_operations.borrow_mut().pop_front();
+        match operation {
+            Some(ShellOperation::Legacy(operation)) => operation(shell),
+            Some(ShellOperation::WithEffects(operation)) => operation(shell, effects),
+            None => return,
         }
     }
 }
@@ -306,12 +424,35 @@ fn active_window_manager_owner() -> Option<Rc<WindowManagerOwnerState>> {
 
 fn drain_window_manager_ops(owner: &WindowManagerOwnerState, manager: &mut WindowManager) {
     loop {
-        let ops = owner.operations.replace(Vec::new());
-        if ops.is_empty() {
-            break;
+        let op = {
+            let mut operations = owner.operations.borrow_mut();
+            if !matches!(operations.first(), Some(WindowManagerOperation::Legacy(_))) {
+                return;
+            }
+            operations.remove(0)
+        };
+        if let WindowManagerOperation::Legacy(operation) = op {
+            operation(manager);
         }
-        for op in ops {
-            op(manager);
+    }
+}
+
+fn drain_window_manager_ops_with_effects(
+    owner: &WindowManagerOwnerState,
+    manager: &mut WindowManager,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) {
+    loop {
+        let op = {
+            let mut operations = owner.operations.borrow_mut();
+            if operations.is_empty() {
+                return;
+            }
+            operations.remove(0)
+        };
+        match op {
+            WindowManagerOperation::Legacy(operation) => operation(manager),
+            WindowManagerOperation::WithEffects(operation) => operation(manager, effects),
         }
     }
 }
@@ -328,7 +469,10 @@ fn splice_deferred_window_manager_ops(owner: &WindowManagerOwnerState) {
 /// Used when a window RefCell is still borrowed during drain.
 pub fn queue_window_manager_op_deferred(f: impl FnOnce(&mut WindowManager) + 'static) {
     if let Some(owner) = active_window_manager_owner() {
-        owner.deferred_operations.borrow_mut().push(Box::new(f));
+        owner
+            .deferred_operations
+            .borrow_mut()
+            .push(WindowManagerOperation::Legacy(Box::new(f)));
     }
 }
 
@@ -359,12 +503,22 @@ pub fn queue_window_manager_op(f: impl FnOnce(&mut WindowManager) + 'static) {
         return;
     };
     {
+        if !owner.operations.borrow().is_empty() {
+            owner
+                .operations
+                .borrow_mut()
+                .push(WindowManagerOperation::Legacy(Box::new(f)));
+            return;
+        }
         if let Ok(mut borrow) = owner.manager.try_borrow_mut() {
             f(&mut borrow);
             drain_window_manager_ops(&owner, &mut borrow);
             return;
         }
-        owner.operations.borrow_mut().push(Box::new(f));
+        owner
+            .operations
+            .borrow_mut()
+            .push(WindowManagerOperation::Legacy(Box::new(f)));
     }
 }
 
@@ -593,6 +747,67 @@ pub fn dispatch_os_mouse_to_window_manager_for_owner(
     )
 }
 
+/// Registered WindowTranslator input uses the same receiving UI owners as physical input.
+pub fn dispatch_translated_window_input_for_owner(
+    owner: &WindowManagerOwner,
+    request: game_engine::common::message_stream::WindowInputDispatch,
+    context: &mut super::ControlBarInputContext<'_>,
+) -> Option<game_engine::common::message_stream::WindowInputDispatchResult> {
+    let result = owner.try_with_manager(|manager| match request {
+        game_engine::common::message_stream::WindowInputDispatch::Mouse {
+            message,
+            x,
+            y,
+            data,
+            delta,
+        } => manager.process_mouse_event_with_delta_and_control_bar(
+            WindowMessage::from(message),
+            x,
+            y,
+            data as WindowMsgData,
+            delta,
+            context,
+        ),
+        game_engine::common::message_stream::WindowInputDispatch::Key { key, state } => {
+            manager.process_key_event_with_control_bar(key, state, context)
+        }
+    });
+    {
+        let messages = context
+            .emitted_messages
+            .as_deref_mut()
+            .expect("native translator requires receiving stream");
+        context
+            .control_bar
+            .replay_pending_command_clicks_receiving(owner, messages);
+    }
+    context.complete_options_accept();
+    {
+        let mut effects = crate::gui::game_window::WindowEventEffects {
+            window_manager_owner: Some(owner),
+            selected_window: None,
+            emitted_messages: context
+                .emitted_messages
+                .as_deref_mut()
+                .expect("native translator requires receiving stream"),
+            pending_control_bar_clicks: Some(&mut context.control_bar.pending_command_clicks),
+            campaign_manager: context.campaign_manager.as_deref_mut(),
+        };
+        owner.complete_event_callbacks(&mut effects);
+    }
+    context.control_bar.replay_pending_command_clicks_receiving(
+        owner,
+        context.emitted_messages.as_deref_mut().unwrap(),
+    );
+    result.map(|code| {
+        if code == WindowInputReturnCode::Used {
+            game_engine::common::message_stream::WindowInputDispatchResult::Used
+        } else {
+            game_engine::common::message_stream::WindowInputDispatchResult::NotUsed
+        }
+    })
+}
+
 /// Native mouse dispatch with Main's receiving ControlBar context.
 pub fn dispatch_os_mouse_to_window_manager_with_control_bar_for_owner(
     owner: &WindowManagerOwner,
@@ -618,6 +833,16 @@ pub fn dispatch_os_mouse_to_window_manager_with_control_bar_for_owner(
                 .unwrap_or(false)
         },
     );
+    if let Some(messages) = context.emitted_messages.as_deref_mut() {
+        context
+            .control_bar
+            .replay_pending_command_clicks_receiving(owner, messages);
+    } else {
+        assert!(
+            context.control_bar.pending_command_clicks.is_empty(),
+            "native command input requires receiving stream"
+        );
+    }
     context.complete_options_accept();
     result
 }
@@ -746,6 +971,16 @@ pub fn dispatch_os_key_to_window_manager_with_control_bar_for_owner(
 ) -> WindowInputReturnCode {
     let result = owner
         .with_manager(|manager| manager.process_key_event_with_control_bar(key, state, context));
+    if let Some(messages) = context.emitted_messages.as_deref_mut() {
+        context
+            .control_bar
+            .replay_pending_command_clicks_receiving(owner, messages);
+    } else {
+        assert!(
+            context.control_bar.pending_command_clicks.is_empty(),
+            "native command input requires receiving stream"
+        );
+    }
     context.complete_options_accept();
     result
 }

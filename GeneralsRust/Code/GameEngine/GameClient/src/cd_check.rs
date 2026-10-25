@@ -11,7 +11,8 @@
 use crate::game_text::GameText;
 use crate::gui::callbacks::message_box_ok_cancel;
 
-pub type GameStartCallback = fn();
+pub type GameStartCallback =
+    Box<dyn for<'a> FnMut(&mut crate::gui::game_window::WindowEventEffects<'a>)>;
 
 /// C++ `IsFirstCDPresent`.
 ///
@@ -34,9 +35,12 @@ pub fn are_music_files_on_cd() -> bool {
     game_engine::common::system::file_system::are_music_files_on_cd()
 }
 
-pub fn check_for_cd_at_game_start(callback: GameStartCallback) {
+pub fn check_for_cd_at_game_start(
+    mut callback: GameStartCallback,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) {
     if is_first_cd_present() {
-        callback();
+        callback(effects);
         return;
     }
 
@@ -44,12 +48,12 @@ pub fn check_for_cd_at_game_start(callback: GameStartCallback) {
     let _ = message_box_ok_cancel(
         &GameText::fetch("GUI:InsertCDPrompt"),
         &GameText::fetch("GUI:InsertCDMessage"),
-        Some(Box::new(move || {
+        Some(Box::new(move |effects| {
             if is_first_cd_present() {
-                callback();
+                callback(effects);
             }
         })),
-        Some(Box::new(|| {})),
+        Some(Box::new(|_| {})),
     );
 }
 

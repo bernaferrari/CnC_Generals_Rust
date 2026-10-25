@@ -245,6 +245,8 @@ impl CnCGameEngine {
                     terrain.apply_texture_lod_reduction(reduction);
                 }
             };
+            let receiving_window_manager = self.game_client.window_manager_owner();
+            let mut emitted_messages = Vec::new();
             let mut context = game_client::gui::window_manager::ControlBarInputContext {
             upgrade_tooltip: game_client::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource::Receiving(&upgrade_tooltip),
                 replay_menu: Some(&mut replay_operation),
@@ -263,8 +265,10 @@ impl CnCGameEngine {
                 game_ending,
                 tooltips_disabled,
                 cursor_mouse: cursor_mouse.as_ref(),
+                emitted_messages: Some(&mut emitted_messages),
+                campaign_manager: Some(self.game_client.campaign_manager_mut()),
+                window_manager_owner: Some(&receiving_window_manager),
             };
-            let receiving_window_manager = self.game_client.window_manager_owner();
             let result = game_client::gui::window_manager::dispatch_os_key_to_window_manager_with_control_bar_for_owner(
                 &receiving_window_manager,
                 vk,
@@ -273,6 +277,8 @@ impl CnCGameEngine {
             );
             drop(context);
             drop(replay_version);
+            self.game_client
+                .complete_window_event_messages(emitted_messages);
             if let Some(step) = replay_operation.take() {
                 step.complete(self);
             }
@@ -401,7 +407,7 @@ impl CnCGameEngine {
     }
 
     #[cfg(feature = "game_client")]
-    fn receiving_tooltips_disabled(&self) -> bool {
+    pub(in crate::cnc_game_engine) fn receiving_tooltips_disabled(&self) -> bool {
         self.game_client
             .in_game_ui_subsystem()
             .and_then(|ui| {
@@ -446,6 +452,8 @@ impl CnCGameEngine {
                 terrain.apply_texture_lod_reduction(reduction);
             }
         };
+        let receiving_window_manager = self.game_client.window_manager_owner();
+        let mut emitted_messages = Vec::new();
         let mut context = game_client::gui::window_manager::ControlBarInputContext {
             upgrade_tooltip: game_client::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource::Receiving(&upgrade_tooltip),
             replay_menu: Some(&mut replay_operation),
@@ -464,8 +472,10 @@ impl CnCGameEngine {
             game_ending,
             tooltips_disabled,
             cursor_mouse: cursor_mouse.as_ref(),
+            emitted_messages: Some(&mut emitted_messages),
+            campaign_manager: Some(self.game_client.campaign_manager_mut()),
+                window_manager_owner: Some(&receiving_window_manager),
         };
-        let receiving_window_manager = self.game_client.window_manager_owner();
         let result = game_client::gui::window_manager::dispatch_os_mouse_to_window_manager_with_control_bar_for_owner(
             &receiving_window_manager,
             msg,
@@ -476,6 +486,8 @@ impl CnCGameEngine {
         );
         drop(context);
         drop(replay_version);
+        self.game_client
+            .complete_window_event_messages(emitted_messages);
         if let Some(step) = replay_operation.take() {
             step.complete(self);
         }

@@ -350,7 +350,9 @@ fn guard_retaliate_ends_when_victim_dead() {
         e.status.destroyed = true;
         e.health.current = 0.0;
     }
-    logic.tick_guard_retaliate_states();
+    logic
+        .tick_guard_retaliate_states()
+        .expect("valid guard retaliation fixture");
     let o = &logic.objects[&id];
     // Victim dead near anchor → end_guard_retaliate → GuardingArea (anchor preserved)
     assert!(
@@ -692,13 +694,17 @@ fn guard_retaliate_chase_gives_up_on_timer() {
         GUARD_CHASE_PHASE_RETALIATE
     );
 
-    logic.tick_guard_retaliate_states();
+    logic
+        .tick_guard_retaliate_states()
+        .expect("valid guard retaliation fixture");
     let give = logic.objects[&id].guard_chase_give_up_frame;
     assert!(give > 0, "first tick must stamp give-up frame");
     assert_eq!(logic.objects[&id].guard_retaliate_victim, Some(vid));
 
     logic.frame = give;
-    logic.tick_guard_retaliate_states();
+    logic
+        .tick_guard_retaliate_states()
+        .expect("valid guard retaliation fixture");
     let o = &logic.objects[&id];
     assert!(
         o.guard_retaliate_victim.is_none(),
@@ -771,7 +777,9 @@ fn guard_retaliate_inner_scan_allows_base_defense() {
     logic.objects.get_mut(&vid).unwrap().status.destroyed = true;
     logic.objects.get_mut(&vid).unwrap().health.current = 0.0;
     mark_guard_scan_due(&mut logic, id);
-    logic.tick_guard_retaliate_states();
+    logic
+        .tick_guard_retaliate_states()
+        .expect("valid guard retaliation fixture");
     assert_eq!(
         logic.objects[&id].guard_retaliate_victim,
         Some(pid),
@@ -827,7 +835,9 @@ fn guard_retaliate_computer_scan_allows_any_enemy_structure() {
     logic.objects.get_mut(&vid).unwrap().status.destroyed = true;
     logic.objects.get_mut(&vid).unwrap().health.current = 0.0;
     mark_guard_scan_due(&mut logic, id);
-    logic.tick_guard_retaliate_states();
+    logic
+        .tick_guard_retaliate_states()
+        .expect("valid guard retaliation fixture");
     assert_eq!(
         logic.objects[&id].guard_retaliate_victim,
         Some(wid),
@@ -1126,7 +1136,9 @@ fn retaliate_chase_exit_clears_team_attack_common_target() {
         .team_common_attack_targets
         .insert("USA_RetSquad".into(), eid);
 
-    logic.tick_guard_retaliate_states();
+    logic
+        .tick_guard_retaliate_states()
+        .expect("valid guard retaliation fixture");
     assert!(
         !logic
             .team_common_attack_targets
@@ -1407,7 +1419,9 @@ fn guard_retaliate_scan_victim_uses_inner_1_5x_not_aggressor() {
     // then walk it out to the 1.5x..aggressor band.
     logic.set_fixture_object_position(sid, glam::Vec3::new(inner * 0.5, 0.0, 0.0));
     mark_guard_scan_due(&mut logic, id);
-    logic.tick_guard_retaliate_states();
+    logic
+        .tick_guard_retaliate_states()
+        .expect("valid guard retaliation fixture");
     assert_eq!(
         logic.objects[&id].guard_retaliate_victim,
         Some(sid),
@@ -1423,7 +1437,9 @@ fn guard_retaliate_scan_victim_uses_inner_1_5x_not_aggressor() {
     );
 
     logic.set_fixture_object_position(sid, glam::Vec3::new(between, 0.0, 0.0));
-    logic.tick_guard_retaliate_states();
+    logic
+        .tick_guard_retaliate_states()
+        .expect("valid guard retaliation fixture");
     assert_eq!(
         logic.objects[&id].guard_chase_phase, 2,
         "INNER leash fail must escalate to OUTER (C++ success AND failure → OUTER)"
@@ -1438,7 +1454,9 @@ fn guard_retaliate_scan_victim_uses_inner_1_5x_not_aggressor() {
         "OUTER must stamp GuardChaseUnitsDuration"
     );
 
-    logic.tick_guard_retaliate_states();
+    logic
+        .tick_guard_retaliate_states()
+        .expect("valid guard retaliation fixture");
     assert!(
         logic.objects[&id].guard_retaliate_victim.is_none(),
         "scan victim past OUTER 0.67*(vision+std) must then drop"
@@ -1582,7 +1600,9 @@ fn guard_retaliate_outer_refreshes_timer_while_victim_in_std_guard() {
         o.target = Some(vid);
     }
     let frames = logic.host_guard_chase_unit_frames();
-    logic.tick_guard_retaliate_states();
+    logic
+        .tick_guard_retaliate_states()
+        .expect("valid guard retaliation fixture");
     assert_eq!(
         logic.objects[&id].guard_chase_give_up_frame,
         logic.frame.saturating_add(frames),

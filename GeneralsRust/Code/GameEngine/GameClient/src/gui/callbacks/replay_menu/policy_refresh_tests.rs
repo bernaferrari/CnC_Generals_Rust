@@ -192,6 +192,7 @@ fn admitted_content_crc_refresh_preserves_active_native_selection_and_release() 
             game_ending: false,
             tooltips_disabled: false,
             cursor_mouse: None,
+            emitted_messages: None,
         };
         assert_eq!(
             manager.process_mouse_event_with_control_bar(

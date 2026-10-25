@@ -577,7 +577,10 @@ impl ScriptAction for TeamCreateRadarEventAction {
         parameters: &HashMap<String, ScriptValue>,
         _context: &ScriptContext,
     ) -> GameLogicResult<ScriptResult> {
-        let team_name = resolve_team_name_token(&get_string_param(parameters, "team_name")?);
+        let team_name = resolve_team_name_token(
+            &get_string_param(parameters, "team_name")?,
+            _context.is_generals_challenge_campaign(),
+        );
         let event_type = get_int_param(parameters, "event_type")? as i32;
 
         let Some(position) = get_team_factory()

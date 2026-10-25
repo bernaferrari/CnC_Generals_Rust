@@ -158,11 +158,14 @@ fn write_cpp_game_state_header<W: Write + Seek>(
 }
 
 /// C++ `CampaignManager::xfer` v5 (`CampaignManager.cpp`) for CHUNK_Campaign.
-fn write_campaign_block<W: Write + Seek>(xfer: &mut CommonXferSave<W>) -> SaveLoadResult<()> {
+fn write_campaign_block<W: Write + Seek>(
+    xfer: &mut CommonXferSave<W>,
+    state: &game_engine::System::CampaignManagerXferState,
+) -> SaveLoadResult<()> {
     let mut version = 5u8;
     xfer.xfer_version(&mut version, 5)
         .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
-    let mut state = game_engine::System::capture_campaign_manager_runtime();
+    let mut state = state.clone();
     write_ascii(xfer, &state.campaign)?;
     write_ascii(xfer, &state.mission)?;
     xfer.xfer_int(&mut state.rank_points)
@@ -212,6 +215,12 @@ fn parse_campaign_block(
             .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
     }
     Ok(state)
+}
+
+pub(crate) fn campaign_state_requires_owner(
+    state: &game_engine::System::CampaignManagerXferState,
+) -> bool {
+    !state.campaign.trim().is_empty() || !state.mission.trim().is_empty() || state.is_challenge
 }
 
 fn campaign_difficulty(state: &game_engine::System::CampaignManagerXferState) -> GameDifficulty {
@@ -299,32 +308,6 @@ fn xfer_challenge_game_info<X: CommonXfer>(
             .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
     }
     Ok(())
-}
-
-fn apply_campaign_manager_state(state: game_engine::System::CampaignManagerXferState) {
-    game_engine::System::apply_campaign_manager_runtime(state.clone());
-    game_client::gui::campaign_manager::get_campaign_manager().apply_logic_chunk_state(state);
-}
-
-pub(crate) fn capture_live_campaign_state() -> game_engine::System::CampaignManagerXferState {
-    game_client::gui::campaign_manager::get_campaign_manager().capture_logic_chunk_state()
-}
-
-/// Apply only the payload belonging to the admitted archive. Decoding another
-/// archive cannot replace or discard it.
-pub(crate) fn commit_campaign_state(state: Option<game_engine::System::CampaignManagerXferState>) {
-    if let Some(state) = state {
-        apply_campaign_manager_state(state);
-    }
-}
-
-/// C++ `GameState::loadGame` (`GameState.cpp:695-712`) `clearGameData` on
-/// xfer/loadPostProcess failure. Restore the pre-load campaign so a failed
-/// CHUNK_Campaign decode cannot stick on the still-playable match.
-pub(crate) fn rollback_campaign_after_failed_load(
-    prior: game_engine::System::CampaignManagerXferState,
-) {
-    apply_campaign_manager_state(prior);
 }
 
 pub(crate) fn parse_named_chunk_save_info(data: &[u8]) -> SaveLoadResult<SaveGameInfo> {
@@ -997,6 +980,22 @@ impl SaveFileManager {
             )?;
         }
         // C++ GameState writes the logic chunk before GameClient::xfer.
+        let campaign_state = if let Some(client) = client.as_deref() {
+            client.campaign_manager().capture_logic_chunk_state()
+        } else if game_logic.has_campaign_session() {
+            return Err(SaveLoadError::Serialization(
+                "active campaign save has no receiving campaign owner".into(),
+            ));
+        } else {
+            game_engine::System::CampaignManagerXferState::default()
+        };
+        if client.is_some()
+            && campaign_state_requires_owner(&campaign_state) != game_logic.has_campaign_session()
+        {
+            return Err(SaveLoadError::Serialization(
+                "receiving campaign owner and admitted session kind disagree".into(),
+            ));
+        }
         let client_xfer_bytes = if let Some(client) = client {
             capture_game_client_xfer_bytes(client)?
         } else {
@@ -1036,6 +1035,7 @@ impl SaveFileManager {
             &client_xfer_bytes,
             Some(&terrain_visual_bytes),
             cpp_game_mode_from_live(game_logic.game_mode()),
+            &campaign_state,
         );
         write_result?;
 
@@ -1070,17 +1070,21 @@ impl SaveFileManager {
     ) -> SaveLoadResult<(SaveGameInfo, Option<PreparedTerrainVisual>)> {
         self.validate_logical_restore_admission()
             .map_err(SaveLoadError::Serialization)?;
-        let prior_campaign = capture_live_campaign_state();
-        let mut decoded = match self.load_game_snapshot(filename) {
-            Ok(decoded) => decoded,
-            Err(error) => {
-                rollback_campaign_after_failed_load(prior_campaign);
-                return Err(error);
-            }
-        };
+        let mut decoded = self.load_game_snapshot(filename)?;
+        if decoded
+            .campaign_state
+            .as_ref()
+            .is_some_and(campaign_state_requires_owner)
+        {
+            return Err(SaveLoadError::Serialization(
+                "campaign save requires a receiving campaign owner".into(),
+            ));
+        }
         // Mission metadata launches a later mission-start operation, as before.
         if decoded.save_info.save_type == SaveFileType::Mission {
-            commit_campaign_state(decoded.campaign_state.take());
+            // Logical-only API has no active campaign receiver. Its archive
+            // payload remains detached and cannot mutate another application.
+            decoded.campaign_state.take();
             return Ok((decoded.save_info, None));
         }
         match crate::cnc_game_engine::CnCGameEngine::restore_decoded_logical_save(
@@ -1089,10 +1093,7 @@ impl SaveFileManager {
         .map_err(SaveLoadError::Serialization)
         {
             Ok(restored) => Ok(restored),
-            Err(error) => {
-                rollback_campaign_after_failed_load(prior_campaign);
-                Err(error)
-            }
+            Err(error) => Err(error),
         }
     }
 
@@ -1265,6 +1266,7 @@ impl SaveFileManager {
         client_xfer_bytes: &[u8],
         terrain_visual_bytes: Option<&[u8]>,
         supplied_game_mode: i32,
+        campaign_state: &game_engine::System::CampaignManagerXferState,
     ) -> SaveLoadResult<()> {
         let file = OpenOptions::new()
             .create(true)
@@ -1279,6 +1281,7 @@ impl SaveFileManager {
             terrain_visual_bytes,
             &self.save_directory,
             supplied_game_mode,
+            campaign_state,
         )?;
         writer.write_all(&encoded)?;
         writer.flush()?;
@@ -1349,6 +1352,7 @@ impl SaveFileManager {
             None,
             save_directory,
             supplied_game_mode,
+            &game_engine::System::CampaignManagerXferState::default(),
         )
     }
 
@@ -1359,6 +1363,7 @@ impl SaveFileManager {
         terrain_visual_bytes: Option<&[u8]>,
         save_directory: &Path,
         supplied_game_mode: i32,
+        campaign_state: &game_engine::System::CampaignManagerXferState,
     ) -> SaveLoadResult<Vec<u8>> {
         validate_direct_world_snapshot_version(world_snapshot.version)?;
         let logic_payload = bincode_legacy::serialize(world_snapshot)
@@ -1371,6 +1376,7 @@ impl SaveFileManager {
             terrain_visual_bytes,
             save_directory,
             supplied_game_mode,
+            campaign_state,
         )
     }
 
@@ -1392,6 +1398,7 @@ impl SaveFileManager {
             None,
             save_directory,
             supplied_game_mode,
+            &game_engine::System::CampaignManagerXferState::default(),
         )
     }
 
@@ -1403,6 +1410,7 @@ impl SaveFileManager {
         supplied_terrain_visual_bytes: Option<&[u8]>,
         save_directory: &Path,
         supplied_game_mode: i32,
+        campaign_state: &game_engine::System::CampaignManagerXferState,
     ) -> SaveLoadResult<Vec<u8>> {
         let initial = crate::save_load::snapshot::initial_skirmish::read(world_snapshot)?;
         let source_game_info =
@@ -1516,7 +1524,7 @@ impl SaveFileManager {
                             }
                         }
                     }
-                    CHUNK_CAMPAIGN => write_campaign_block(xfer),
+                    CHUNK_CAMPAIGN => write_campaign_block(xfer, campaign_state),
                     CHUNK_INGAME_UI => {
                         crate::save_load::snapshot::persist_v18::write_ingame_ui_block(
                             xfer,

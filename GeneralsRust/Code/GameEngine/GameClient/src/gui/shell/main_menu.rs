@@ -38,10 +38,8 @@ use crate::gui::callbacks::message_box::{
 use crate::gui::campaign_launch_host_bridge::{
     HostCampaignLaunchDescriptor, publish_host_campaign_launch,
 };
-use crate::gui::campaign_manager::{GameDifficulty as CampaignDifficulty, get_campaign_manager};
-use crate::gui::challenge_generals::{
-    GameDifficulty as ChallengeGameDifficulty, get_challenge_generals_mut,
-};
+use crate::gui::campaign_manager::GameDifficulty as CampaignDifficulty;
+use crate::gui::game_window::WindowEventEffects;
 use crate::gui::header_template::get_header_template_manager;
 use crate::gui::menu_flags::get_dont_show_main_menu;
 use crate::gui::shell::{
@@ -57,7 +55,7 @@ use crate::gui::write_input_focus_response;
 use crate::helpers::set_mouse_cursor_visibility;
 use crate::helpers::{TheControlBar, TheInGameUI};
 use crate::map_util::get_map_cache_manager;
-use crate::message_stream::{GameMessageType, get_message_stream};
+use crate::message_stream::{GameMessage, GameMessageType};
 use crate::shell_hooks::{
     SHELL_SCRIPT_HOOK_MAIN_MENU_EXIT_SELECTED, SHELL_SCRIPT_HOOK_MAIN_MENU_NETWORK_SELECTED,
     SHELL_SCRIPT_HOOK_MAIN_MENU_ONLINE_SELECTED, SHELL_SCRIPT_HOOK_MAIN_MENU_OPTIONS_SELECTED,
@@ -674,6 +672,7 @@ impl MainMenu {
         &mut self,
         layout: &dyn std::any::Any,
         user_data: Option<&dyn std::any::Any>,
+        effects: &mut WindowEventEffects<'_>,
     ) -> MainMenuResult<()> {
         log::info!("MainMenuInit: Initializing main menu");
 
@@ -848,6 +847,7 @@ impl MainMenu {
         &mut self,
         layout: &dyn std::any::Any,
         user_data: Option<&dyn std::any::Any>,
+        effects: &mut WindowEventEffects<'_>,
     ) -> MainMenuResult<()> {
         let mut state = self.state.write().unwrap_or_else(|e| e.into_inner());
         let mut focus_target = None;
@@ -961,7 +961,7 @@ impl MainMenu {
             && crate::gui::shell::base::shell_anim_finished_for_layout()
             && self.transitions_finished()
         {
-            self.do_game_start(&mut state)?;
+            self.do_game_start(&mut state, effects)?;
         }
 
         // Check if shutdown is complete - matches C++ lines 939-942
@@ -981,7 +981,7 @@ impl MainMenu {
         if let Some(id) = focus_target {
             self.focus_window(id);
         }
-        self.execute_pending_actions(pending_actions);
+        self.execute_pending_actions(pending_actions, effects);
         // C++ TheShell->push is synchronous from GBM_SELECTED. We queue
         // during process_mouse_event; drain here so the next Shell::update
         // boundary applies Options/Load/Credits/Skirmish/Challenge.
@@ -998,6 +998,7 @@ impl MainMenu {
         msg: u32,
         data1: WindowMsgData,
         data2: WindowMsgData,
+        effects: &mut WindowEventEffects<'_>,
     ) -> bool {
         let mut state = self.state.write().unwrap_or_else(|e| e.into_inner());
 
@@ -1052,13 +1053,15 @@ impl MainMenu {
         msg: u32,
         data1: WindowMsgData,
         data2: WindowMsgData,
+        effects: &mut WindowEventEffects<'_>,
     ) -> bool {
-        self.system_with_camera_input(window, msg, data1, data2, None)
+        self.system_with_camera_input(window, msg, data1, data2, None, effects)
     }
     pub(crate) fn select_options_with_camera_input(
         &mut self,
         window: u32,
         observation: crate::gui::callbacks::OptionsCameraInputObservation,
+        effects: &mut WindowEventEffects<'_>,
     ) -> bool {
         self.system_with_camera_input(
             window,
@@ -1066,6 +1069,7 @@ impl MainMenu {
             build_window_ids().options_id as WindowMsgData,
             0,
             Some(observation),
+            effects,
         )
     }
     fn system_with_camera_input(
@@ -1075,6 +1079,7 @@ impl MainMenu {
         data1: WindowMsgData,
         data2: WindowMsgData,
         camera_input: Option<crate::gui::callbacks::OptionsCameraInputObservation>,
+        effects: &mut WindowEventEffects<'_>,
     ) -> bool {
         let mut state = self.state.write().unwrap_or_else(|e| e.into_inner());
         let mut pending_actions = Vec::new();
@@ -1129,7 +1134,11 @@ impl MainMenu {
                 self.handle_mouse_entering(&mut state, control_id);
                 pending_actions.append(&mut state.pending_actions);
                 drop(state);
-                self.execute_pending_actions_with_camera_input(pending_actions, camera_input);
+                self.execute_pending_actions_with_camera_input(
+                    pending_actions,
+                    camera_input,
+                    effects,
+                );
                 return true;
             }
 
@@ -1139,7 +1148,11 @@ impl MainMenu {
                 self.handle_mouse_leaving(&mut state, control_id);
                 pending_actions.append(&mut state.pending_actions);
                 drop(state);
-                self.execute_pending_actions_with_camera_input(pending_actions, camera_input);
+                self.execute_pending_actions_with_camera_input(
+                    pending_actions,
+                    camera_input,
+                    effects,
+                );
                 return true;
             }
 
@@ -1157,12 +1170,16 @@ impl MainMenu {
                     return true;
                 }
 
-                if let Err(e) = self.handle_button_selected(&mut state, control_id) {
+                if let Err(e) = self.handle_button_selected(&mut state, control_id, effects) {
                     log::error!("Error handling button selection: {}", e);
                 }
                 pending_actions.append(&mut state.pending_actions);
                 drop(state);
-                self.execute_pending_actions_with_camera_input(pending_actions, camera_input);
+                self.execute_pending_actions_with_camera_input(
+                    pending_actions,
+                    camera_input,
+                    effects,
+                );
                 return true;
             }
 
@@ -1196,13 +1213,18 @@ impl MainMenu {
         state.pending_actions.push(action);
     }
 
-    fn execute_pending_actions(&self, actions: Vec<PendingMainMenuAction>) {
-        self.execute_pending_actions_with_camera_input(actions, None);
+    fn execute_pending_actions(
+        &self,
+        actions: Vec<PendingMainMenuAction>,
+        effects: &mut WindowEventEffects<'_>,
+    ) {
+        self.execute_pending_actions_with_camera_input(actions, None, effects);
     }
     fn execute_pending_actions_with_camera_input(
         &self,
         actions: Vec<PendingMainMenuAction>,
         camera_input: Option<crate::gui::callbacks::OptionsCameraInputObservation>,
+        effects: &mut WindowEventEffects<'_>,
     ) {
         for action in actions {
             match action {
@@ -1243,23 +1265,23 @@ impl MainMenu {
                     self.start_downloading_patches();
                 }
                 PendingMainMenuAction::LaunchWorldBuilder => self.launch_world_builder(),
-                PendingMainMenuAction::QuitRequest => self.perform_quit_request(),
+                PendingMainMenuAction::QuitRequest => self.perform_quit_request(effects),
             }
         }
     }
 
-    fn perform_quit_request(&self) {
+    fn perform_quit_request(&self, effects: &mut WindowEventEffects<'_>) {
         let windowed = get_global_data()
             .map(|data| data.read().windowed)
             .unwrap_or(true);
         if windowed {
-            self.confirm_quit();
+            self.confirm_quit(effects);
             return;
         }
 
-        let yes: MessageBoxFunc = Box::new(|| {
+        let yes: MessageBoxFunc = Box::new(|effects| {
             let menu = get_main_menu();
-            menu.confirm_quit();
+            menu.confirm_quit(effects);
         });
         let _ = quit_message_box_yes_no(
             &crate::game_text::GameText::fetch("GUI:QuitPopupTitle"),
@@ -1269,15 +1291,15 @@ impl MainMenu {
         );
     }
 
-    fn confirm_quit(&self) {
+    fn confirm_quit(&self, effects: &mut WindowEventEffects<'_>) {
         let mut state = self.state.write().unwrap_or_else(|e| e.into_inner());
         state.button_pushed = true;
         drop(state);
 
-        Self::perform_quit_now();
+        Self::perform_quit_now(effects);
     }
 
-    fn perform_quit_now() {
+    fn perform_quit_now(effects: &mut WindowEventEffects<'_>) {
         TheScriptEngine::signal_ui_interact(
             THE_SHELL_HOOK_NAMES[SHELL_SCRIPT_HOOK_MAIN_MENU_EXIT_SELECTED as usize],
         );
@@ -1286,9 +1308,9 @@ impl MainMenu {
             engine.lock().set_quitting(true);
         }
         if TheGameLogic::is_in_game() {
-            let message_stream = get_message_stream();
-            let mut stream = message_stream.write().unwrap_or_else(|e| e.into_inner());
-            stream.append_message(GameMessageType::ClearGameData);
+            effects
+                .emitted_messages
+                .push(GameMessage::new(GameMessageType::ClearGameData));
         }
     }
 
@@ -1366,14 +1388,6 @@ impl MainMenu {
             GameDifficulty::Easy => CampaignDifficulty::Easy,
             GameDifficulty::Normal => CampaignDifficulty::Normal,
             GameDifficulty::Hard => CampaignDifficulty::Hard,
-        }
-    }
-
-    fn to_challenge_difficulty(diff: GameDifficulty) -> ChallengeGameDifficulty {
-        match diff {
-            GameDifficulty::Easy => ChallengeGameDifficulty::Easy,
-            GameDifficulty::Normal => ChallengeGameDifficulty::Normal,
-            GameDifficulty::Hard => ChallengeGameDifficulty::Hard,
         }
     }
 
@@ -1572,6 +1586,7 @@ impl MainMenu {
         &self,
         state: &mut MainMenuState,
         control_id: u32,
+        effects: &mut WindowEventEffects<'_>,
     ) -> MainMenuResult<()> {
         if state.button_pushed {
             return Ok(());
@@ -1816,7 +1831,11 @@ impl MainMenu {
             }
             state.launch_challenge_menu = false;
             state.drop_down = DropdownType::Difficulty;
-            get_campaign_manager().set_campaign("USA");
+            if let Some(manager) = effects.campaign_manager.as_deref_mut() {
+                manager.set_campaign("USA");
+            } else {
+                return Ok(());
+            }
             self.transition_set_group("MainMenuFactionUS", false);
             self.transition_remove("MainMenuFactionUS", true);
             self.hide_window_by_name(state, "MainMenu.wnd:WinFactionUS", true);
@@ -1834,7 +1853,11 @@ impl MainMenu {
             }
             state.launch_challenge_menu = false;
             state.drop_down = DropdownType::Difficulty;
-            get_campaign_manager().set_campaign("GLA");
+            if let Some(manager) = effects.campaign_manager.as_deref_mut() {
+                manager.set_campaign("GLA");
+            } else {
+                return Ok(());
+            }
             self.transition_set_group("MainMenuFactionGLA", false);
             self.transition_remove("MainMenuFactionGLA", true);
             self.hide_window_by_name(state, "MainMenu.wnd:WinFactionGLA", true);
@@ -1852,7 +1875,11 @@ impl MainMenu {
             }
             state.launch_challenge_menu = false;
             state.drop_down = DropdownType::Difficulty;
-            get_campaign_manager().set_campaign("China");
+            if let Some(manager) = effects.campaign_manager.as_deref_mut() {
+                manager.set_campaign("China");
+            } else {
+                return Ok(());
+            }
             self.transition_set_group("MainMenuFactionChina", false);
             self.transition_remove("MainMenuFactionChina", true);
             self.hide_window_by_name(state, "MainMenu.wnd:WinFactionChina", true);
@@ -1868,21 +1895,21 @@ impl MainMenu {
             if state.dont_allow_transitions {
                 return Ok(());
             }
-            self.check_cd_before_campaign(state, GameDifficulty::Easy);
+            self.check_cd_before_campaign(state, GameDifficulty::Easy, effects);
             log::info!("Easy difficulty selected");
         } else if control_id == state.window_ids.button_medium_id {
             // Medium difficulty - C++ lines 1651-1657
             if state.dont_allow_transitions {
                 return Ok(());
             }
-            self.check_cd_before_campaign(state, GameDifficulty::Normal);
+            self.check_cd_before_campaign(state, GameDifficulty::Normal, effects);
             log::info!("Medium difficulty selected");
         } else if control_id == state.window_ids.button_hard_id {
             // Hard difficulty - C++ lines 1658-1664
             if state.dont_allow_transitions {
                 return Ok(());
             }
-            self.check_cd_before_campaign(state, GameDifficulty::Hard);
+            self.check_cd_before_campaign(state, GameDifficulty::Hard, effects);
             log::info!("Hard difficulty selected");
         } else if control_id == state.window_ids.button_diff_back_id {
             // Difficulty Back button - C++ lines 1665-1673
@@ -1892,7 +1919,11 @@ impl MainMenu {
             state.dont_allow_transitions = true;
             state.launch_challenge_menu = false;
             state.drop_down = DropdownType::Single;
-            get_campaign_manager().set_campaign("");
+            if let Some(manager) = effects.campaign_manager.as_deref_mut() {
+                manager.set_campaign("");
+            } else {
+                return Ok(());
+            }
             self.diff_reverse_side(state);
             state.campaign_selected = false;
             log::info!("Difficulty Back button selected");
@@ -1977,16 +2008,19 @@ impl MainMenu {
 
     /// Setup game start
     /// Port of setupGameStart() - C++ lines 253-273
-    fn setup_game_start(&self, state: &mut MainMenuState, map_name: &str, diff: GameDifficulty) {
-        {
-            let mut campaign_manager = get_campaign_manager();
-            campaign_manager.set_game_difficulty(Self::to_campaign_difficulty(diff));
-        }
+    fn setup_game_start(
+        &self,
+        state: &mut MainMenuState,
+        map_name: &str,
+        diff: GameDifficulty,
+        effects: &mut WindowEventEffects<'_>,
+    ) {
+        let Some(campaign_manager) = effects.campaign_manager.as_deref_mut() else {
+            return;
+        };
+        campaign_manager.set_game_difficulty(Self::to_campaign_difficulty(diff));
 
         if state.launch_challenge_menu {
-            if let Some(mut generals) = get_challenge_generals_mut() {
-                generals.set_current_difficulty(Self::to_challenge_difficulty(diff));
-            }
             state.campaign_selected = true;
             Self::queue_action(
                 state,
@@ -2016,20 +2050,32 @@ impl MainMenu {
 
     /// Public wrapper used by external menu callbacks that must follow
     /// MainMenu::setupGameStart behavior (for example DifficultySelect popup flow).
-    pub fn setup_game_start_from_callback(&mut self, map_name: &str, diff: GameDifficulty) {
+    pub fn setup_game_start_from_callback(
+        &mut self,
+        map_name: &str,
+        diff: GameDifficulty,
+        effects: &mut WindowEventEffects<'_>,
+    ) {
         let mut state = self.state.write().unwrap_or_else(|e| e.into_inner());
-        self.setup_game_start(&mut state, map_name, diff);
+        self.setup_game_start(&mut state, map_name, diff, effects);
     }
 
     /// Prepare campaign game
     /// Port of prepareCampaignGame() - C++ lines 275-286
-    fn prepare_campaign_game(&self, state: &mut MainMenuState, diff: GameDifficulty) {
+    fn prepare_campaign_game(
+        &self,
+        state: &mut MainMenuState,
+        diff: GameDifficulty,
+        effects: &mut WindowEventEffects<'_>,
+    ) {
         state.dont_allow_transitions = true;
-
-        {
-            let mut campaign_manager = get_campaign_manager();
+        let map_name = {
+            let Some(campaign_manager) = effects.campaign_manager.as_deref_mut() else {
+                return;
+            };
             campaign_manager.set_game_difficulty(Self::to_campaign_difficulty(diff));
-        }
+            campaign_manager.get_current_map().unwrap_or_default()
+        };
         let mut prefs = UserPreferences::new();
         let _ = prefs.load("Options.ini");
         prefs.set_int("CampaignDifficulty", diff as i32);
@@ -2040,34 +2086,43 @@ impl MainMenu {
         self.transition_reverse("MainMenuDifficultyMenuBack");
         // C++ setupGameStart(TheCampaignManager->getCurrentMap(), diff)
         // even when the map string is empty (Challenge uses launchChallengeMenu).
-        let map_name = get_campaign_manager().get_current_map().unwrap_or_default();
-        self.setup_game_start(state, &map_name, diff);
+        self.setup_game_start(state, &map_name, diff, effects);
 
         log::info!("Preparing campaign game with difficulty: {:?}", diff);
     }
 
-    fn run_campaign_start_after_cd_check(&mut self, diff: GameDifficulty) {
+    fn run_campaign_start_after_cd_check(
+        &mut self,
+        diff: GameDifficulty,
+        effects: &mut WindowEventEffects<'_>,
+    ) {
         let mut state = self.state.write().unwrap_or_else(|e| e.into_inner());
-        self.prepare_campaign_game(&mut state, diff);
+        self.prepare_campaign_game(&mut state, diff, effects);
     }
 
     fn retry_campaign_start_after_cd_check(
         &mut self,
         diff: GameDifficulty,
+        effects: &mut WindowEventEffects<'_>,
     ) -> ExMessageBoxReturnType {
-        self.retry_campaign_start_after_cd_check_with_status(diff, Self::is_first_cd_present())
+        self.retry_campaign_start_after_cd_check_with_status(
+            diff,
+            Self::is_first_cd_present(),
+            effects,
+        )
     }
 
     fn retry_campaign_start_after_cd_check_with_status(
         &mut self,
         diff: GameDifficulty,
         cd_present: bool,
+        effects: &mut WindowEventEffects<'_>,
     ) -> ExMessageBoxReturnType {
         if !cd_present {
             return ExMessageBoxReturnType::KeepOpen;
         }
 
-        self.run_campaign_start_after_cd_check(diff);
+        self.run_campaign_start_after_cd_check(diff, effects);
         ExMessageBoxReturnType::Close
     }
 
@@ -2083,14 +2138,19 @@ impl MainMenu {
 
     /// Check CD before starting campaign
     /// Port of checkCDBeforeCampaign() - C++ lines 323-335
-    fn check_cd_before_campaign(&self, state: &mut MainMenuState, diff: GameDifficulty) {
+    fn check_cd_before_campaign(
+        &self,
+        state: &mut MainMenuState,
+        diff: GameDifficulty,
+        effects: &mut WindowEventEffects<'_>,
+    ) {
         if !Self::is_first_cd_present() {
             state.button_pushed = false;
-            let ok: ExtendedMessageBoxFunc = Box::new(move |_| {
+            let ok: ExtendedMessageBoxFunc = Box::new(move |_user_data, effects| {
                 let mut menu = get_main_menu();
-                menu.retry_campaign_start_after_cd_check(diff)
+                menu.retry_campaign_start_after_cd_check(diff, effects)
             });
-            let cancel: ExtendedMessageBoxFunc = Box::new(|_| {
+            let cancel: ExtendedMessageBoxFunc = Box::new(|_user_data, _effects| {
                 let mut menu = get_main_menu();
                 menu.cancel_campaign_start_after_cd_check();
                 ExMessageBoxReturnType::Close
@@ -2105,21 +2165,27 @@ impl MainMenu {
             return;
         }
 
-        self.prepare_campaign_game(state, diff);
+        self.prepare_campaign_game(state, diff, effects);
         log::info!("Checking CD before campaign start");
     }
 
     /// Do game start
     /// Port of doGameStart() - C++ lines 306-321
-    fn do_game_start(&self, state: &mut MainMenuState) -> MainMenuResult<()> {
+    fn do_game_start(
+        &self,
+        state: &mut MainMenuState,
+        effects: &mut WindowEventEffects<'_>,
+    ) -> MainMenuResult<()> {
         state.start_game = false;
 
         if TheGameLogic::is_in_game() {
             let _ = TheGameLogic::clear_game_data();
         }
 
+        let Some(campaign_manager) = effects.campaign_manager.as_deref_mut() else {
+            return Ok(());
+        };
         let (difficulty, rank_points, campaign_name, campaign_player_faction, map_name) = {
-            let campaign_manager = get_campaign_manager();
             let campaign = campaign_manager.get_current_campaign();
             (
                 campaign_manager.get_game_difficulty() as i32,
@@ -2152,12 +2218,11 @@ impl MainMenu {
             rank_points,
             max_fps: None,
         });
-        let message_stream = get_message_stream();
-        let mut stream = message_stream.write().unwrap_or_else(|e| e.into_inner());
-        let msg = stream.append_message(GameMessageType::NewGame);
+        let mut msg = GameMessage::new(GameMessageType::NewGame);
         msg.append_integer_argument(gamelogic::system::game_logic::GAME_SINGLE_PLAYER);
         msg.append_integer_argument(difficulty);
         msg.append_integer_argument(rank_points);
+        effects.emitted_messages.push(msg);
         init_random_with_seed(0);
 
         state.is_shutting_down = true;
@@ -2227,7 +2292,10 @@ impl MainMenu {
 
     /// Decline resolution change
     /// Port of DeclineResolution() - C++ lines 715-752
-    pub fn decline_resolution(&mut self) -> MainMenuResult<()> {
+    pub fn decline_resolution(
+        &mut self,
+        effects: &mut WindowEventEffects<'_>,
+    ) -> MainMenuResult<()> {
         let new_disp_settings = self.rollback_resolution_state();
 
         if let Some(global) = get_global_data() {
@@ -2249,18 +2317,21 @@ impl MainMenu {
         // TheShell then TheShell->push("Menus/MainMenu.wnd"). Rust
         // show_shell only pushes when shell map is OFF, so reset+show_shell
         // leaves an empty stack on the live GAME_SHELL menu (hq-90rl).
-        queue_shell_operation(|shell| {
-            let _ = shell.reset();
-            if let Err(err) = crate::system::SubsystemInterface::init(shell) {
-                log::warn!("DeclineResolution Shell::init failed: {err}");
-                return;
-            }
-            if let Err(err) = shell.push("Menus/MainMenu.wnd", false) {
-                log::warn!("DeclineResolution push MainMenu.wnd failed: {err}");
-                return;
-            }
-            shell.set_shell_active(true);
-        });
+        effects
+            .window_manager_owner
+            .expect("resolution change requires receiving window owner")
+            .queue_shell_operation_with_effects(|shell, effects| {
+                let _ = shell.reset();
+                if let Err(err) = crate::system::SubsystemInterface::init(shell) {
+                    log::warn!("DeclineResolution Shell::init failed: {err}");
+                    return;
+                }
+                if let Err(err) = shell.push("Menus/MainMenu.wnd", false, effects) {
+                    log::warn!("DeclineResolution push MainMenu.wnd failed: {err}");
+                    return;
+                }
+                shell.set_shell_active(true);
+            });
 
         TheControlBar::hide_purchase_science();
         TheInGameUI::place_build_available(None, None);
@@ -2310,11 +2381,11 @@ impl MainMenu {
         };
         let title = crate::game_text::GameText::fetch("GUI:Resolution");
         let body = format!("{}: {}x{}", title, x_res, y_res);
-        let ok: MessageBoxFunc = Box::new(|| {
+        let ok: MessageBoxFunc = Box::new(|_| {
             get_main_menu().accept_resolution();
         });
-        let cancel: MessageBoxFunc = Box::new(|| {
-            if let Err(err) = get_main_menu().decline_resolution() {
+        let cancel: MessageBoxFunc = Box::new(|effects| {
+            if let Err(err) = get_main_menu().decline_resolution(effects) {
                 log::warn!("DeclineResolution callback failed: {}", err);
             }
         });
@@ -2442,7 +2513,9 @@ impl Default for MainMenu {
 /// Host/runtime-host uses this so shell navigation is not only soft UI override.
 /// Returns true when the button latch fired (skirmish selected residual).
 /// Fail-closed: does not claim full W3D interactive retail navigation.
-pub fn simulate_main_menu_skirmish_button_gadget_selected() -> bool {
+pub fn simulate_main_menu_skirmish_button_gadget_selected(
+    effects: &mut WindowEventEffects<'_>,
+) -> bool {
     let ids = build_window_ids();
     let skirmish_id = if ids.skirmish_id != 0 {
         ids.skirmish_id
@@ -2474,7 +2547,13 @@ pub fn simulate_main_menu_skirmish_button_gadget_selected() -> bool {
                 state.window_ids.main_menu_id = main_menu_id;
             }
         }
-        let _ = menu.system(main_menu_id, GBM_SELECTED, skirmish_id as WindowMsgData, 0);
+        let _ = menu.system(
+            main_menu_id,
+            GBM_SELECTED,
+            skirmish_id as WindowMsgData,
+            0,
+            effects,
+        );
     }
 
     let menu = get_main_menu();
@@ -2601,7 +2680,10 @@ pub fn simulate_main_menu_single_player_button_gadget_selected() -> bool {
 /// Physical OS click hit a live MainMenu gadget. Deliver C++ GBM_SELECTED
 /// into MainMenuSystem even when the WND [None] system callback did not
 /// bubble PassSelectedButtonsToParentSystem (live HQ sit-through).
-pub fn notify_physical_main_menu_gadget_gbm_selected(name: &str) {
+pub fn notify_physical_main_menu_gadget_gbm_selected(
+    name: &str,
+    effects: &mut WindowEventEffects<'_>,
+) {
     if !name.starts_with("MainMenu.wnd:Button") {
         return;
     }
@@ -2624,7 +2706,13 @@ pub fn notify_physical_main_menu_gadget_gbm_selected(name: &str) {
         }
     }
     log::info!("physical GBM_SELECTED notify name={name} id={control_id}");
-    let _ = menu.system(main_menu_id, GBM_SELECTED, control_id as WindowMsgData, 0);
+    let _ = menu.system(
+        main_menu_id,
+        GBM_SELECTED,
+        control_id as WindowMsgData,
+        0,
+        effects,
+    );
 }
 
 /// Residual: fire retail `MainMenu.wnd:ButtonMultiplayer` via `GBM_SELECTED`.
@@ -2821,10 +2909,10 @@ pub fn get_main_menu() -> std::sync::MutexGuard<'static, MainMenu> {
 
 /// C++ MainMenuInput `GWM_CHAR` first-run reveal (notShown → DROPDOWN_MAIN).
 /// Does not skip first-run; this *is* the first human keypress.
-pub fn reveal_main_menu_first_input_like_cpp() -> bool {
+pub fn reveal_main_menu_first_input_like_cpp(effects: &mut WindowEventEffects<'_>) -> bool {
     let ids = build_window_ids();
     let mut menu = get_main_menu();
-    let handled = menu.input(ids.main_menu_id, GWM_CHAR, 0, 0);
+    let handled = menu.input(ids.main_menu_id, GWM_CHAR, 0, 0, effects);
     let (not_shown, drop_down) = {
         let state = menu.state.read().unwrap_or_else(|e| e.into_inner());
         (state.not_shown, state.drop_down)
@@ -2908,11 +2996,15 @@ pub fn clear_deferred_shell_pushes() {
 }
 
 /// Advance MainMenu transition timers (used by drive_os_wnd_* and winit inject).
-pub fn tick_main_menu_transitions(times: u32) {
+pub fn tick_main_menu_transitions(times: u32, effects: &mut WindowEventEffects<'_>) {
+    let owner = effects
+        .window_manager_owner
+        .expect("menu tick requires receiving window owner");
     for _ in 0..times {
-        with_window_manager(|manager| manager.update());
+        owner.with_manager(|manager| manager.update());
         let dummy = ();
-        let _ = get_main_menu().update(&dummy, None);
+        let _ = get_main_menu().update(&dummy, None, effects);
+        owner.complete_event_callbacks(effects);
         drain_deferred_shell_pushes();
     }
 }
@@ -3099,14 +3191,16 @@ fn window_is_named_or_descendant(
 /// of `dispatch_os_mouse_to_window_manager` is not treated as a successful click.
 /// Return value is hit-test success; `last_os_wnd_widget_tree_click_ok` is Used.
 /// Used is never latched without this hit-test.
-pub fn dispatch_os_click_named_window(name: &str) -> bool {
+pub fn dispatch_os_click_named_window(name: &str, effects: &mut WindowEventEffects<'_>) -> bool {
     use crate::gui::game_window::WindowInputReturnCode;
-    use crate::gui::window_manager::with_window_manager;
     use crate::gui::{WindowMessage, WindowMsgData};
 
+    let owner = effects
+        .window_manager_owner
+        .expect("named click requires receiving window owner");
     LAST_OS_WND_WIDGET_TREE_CLICK_OK.store(false, Ordering::SeqCst);
 
-    let Some((x, y)) = with_window_manager(|manager| {
+    let Some((x, y)) = owner.with_manager(|manager| {
         let window = manager.find_window_by_name(name)?;
         let (sx, sy, w, h) = {
             let guard = window.borrow();
@@ -3131,9 +3225,23 @@ pub fn dispatch_os_click_named_window(name: &str) -> bool {
     let data = (((y as u32) << 16) | ((x as u32) & 0xFFFF)) as WindowMsgData;
     // Named dispatch and live OS mouse share the same sticky nav latch.
     let _ = note_os_wnd_widget_tree_hit(x, y);
-    let (down, up) = with_window_manager(|manager| {
-        let down = manager.process_mouse_event(WindowMessage::LeftDown, x, y, data);
-        let up = manager.process_mouse_event(WindowMessage::LeftUp, x, y, data);
+    let (down, up) = owner.with_manager(|manager| {
+        let down = manager.process_mouse_event_with_delta_and_message_sink(
+            WindowMessage::LeftDown,
+            x,
+            y,
+            data,
+            None,
+            effects,
+        );
+        let up = manager.process_mouse_event_with_delta_and_message_sink(
+            WindowMessage::LeftUp,
+            x,
+            y,
+            data,
+            None,
+            effects,
+        );
         (down, up)
     });
     let used = down == WindowInputReturnCode::Used || up == WindowInputReturnCode::Used;
@@ -3141,6 +3249,7 @@ pub fn dispatch_os_click_named_window(name: &str) -> bool {
     if used {
         OS_WND_WIDGET_TREE_NAV_OK.store(true, Ordering::SeqCst);
     }
+    owner.complete_event_callbacks(effects);
     // Hit-test succeeded. Used is LAST_OS_WND_WIDGET_TREE_CLICK_OK only — never
     // without the get_window_under_cursor gate above.
     true
@@ -3162,8 +3271,12 @@ fn main_menu_challenge_latched() -> bool {
 /// keep ButtonUSA hidden until SP-group frame 16 and ButtonEasy until the
 /// Difficulty FLASH unhide. Fixed `tick(8)` misses those; C++ waits for the
 /// gadget. Missing windows fail immediately (unit fixtures).
-fn dispatch_os_click_named_window_when_hittable(name: &str, max_ticks: u32) -> bool {
-    if dispatch_os_click_named_window(name) {
+fn dispatch_os_click_named_window_when_hittable(
+    name: &str,
+    max_ticks: u32,
+    effects: &mut WindowEventEffects<'_>,
+) -> bool {
+    if dispatch_os_click_named_window(name, effects) {
         return true;
     }
     let exists = with_window_manager(|manager| manager.find_window_by_name(name).is_some());
@@ -3171,8 +3284,8 @@ fn dispatch_os_click_named_window_when_hittable(name: &str, max_ticks: u32) -> b
         return false;
     }
     for _ in 0..max_ticks {
-        tick_main_menu_transitions(1);
-        if dispatch_os_click_named_window(name) {
+        tick_main_menu_transitions(1, effects);
+        if dispatch_os_click_named_window(name, effects) {
             return true;
         }
     }
@@ -3180,12 +3293,17 @@ fn dispatch_os_click_named_window_when_hittable(name: &str, max_ticks: u32) -> b
 }
 
 /// Human click-through: CHAR reveal → Single Player → Skirmish (not `simulate_*`).
-pub fn drive_os_wnd_open_skirmish_like_cpp() -> bool {
-    let _ = reveal_main_menu_first_input_like_cpp();
-    tick_main_menu_transitions(4);
-    let _ = dispatch_os_click_named_window_when_hittable("MainMenu.wnd:ButtonSinglePlayer", 16);
-    let _ = dispatch_os_click_named_window_when_hittable("MainMenu.wnd:ButtonSkirmish", 32);
-    tick_main_menu_transitions(4);
+pub fn drive_os_wnd_open_skirmish_like_cpp(effects: &mut WindowEventEffects<'_>) -> bool {
+    let _ = reveal_main_menu_first_input_like_cpp(effects);
+    tick_main_menu_transitions(4, effects);
+    let _ = dispatch_os_click_named_window_when_hittable(
+        "MainMenu.wnd:ButtonSinglePlayer",
+        16,
+        effects,
+    );
+    let _ =
+        dispatch_os_click_named_window_when_hittable("MainMenu.wnd:ButtonSkirmish", 32, effects);
+    tick_main_menu_transitions(4, effects);
     main_menu_skirmish_latched()
 }
 
@@ -3201,14 +3319,21 @@ fn campaign_start_latched(side: ShowSide) -> bool {
 /// Human click-through: CHAR reveal → Single Player → USA/GLA/China → Easy/Medium/Hard
 /// (C++ WindowXlat hit → setCampaign + checkCDBeforeCampaign → setupGameStart).
 /// Not `simulate_*` first.
-pub fn drive_os_wnd_start_campaign_like_cpp(side: ShowSide, diff: GameDifficulty) -> bool {
+pub fn drive_os_wnd_start_campaign_like_cpp(
+    side: ShowSide,
+    diff: GameDifficulty,
+    effects: &mut WindowEventEffects<'_>,
+) -> bool {
     if !matches!(side, ShowSide::USA | ShowSide::GLA | ShowSide::China) {
         return false;
     }
-    let _ = reveal_main_menu_first_input_like_cpp();
-    tick_main_menu_transitions(4);
-    let clicked_sp =
-        dispatch_os_click_named_window_when_hittable("MainMenu.wnd:ButtonSinglePlayer", 16);
+    let _ = reveal_main_menu_first_input_like_cpp(effects);
+    tick_main_menu_transitions(4, effects);
+    let clicked_sp = dispatch_os_click_named_window_when_hittable(
+        "MainMenu.wnd:ButtonSinglePlayer",
+        16,
+        effects,
+    );
     let faction = match side {
         ShowSide::USA => "MainMenu.wnd:ButtonUSA",
         ShowSide::GLA => "MainMenu.wnd:ButtonGLA",
@@ -3216,14 +3341,14 @@ pub fn drive_os_wnd_start_campaign_like_cpp(side: ShowSide, diff: GameDifficulty
         _ => return false,
     };
     // SP BUTTONFLASH unhides USA at frame 16; Difficulty FLASH unhides Easy ~28.
-    let clicked_faction = dispatch_os_click_named_window_when_hittable(faction, 32);
+    let clicked_faction = dispatch_os_click_named_window_when_hittable(faction, 32, effects);
     let diff_btn = match diff {
         GameDifficulty::Easy => "MainMenu.wnd:ButtonEasy",
         GameDifficulty::Hard => "MainMenu.wnd:ButtonHard",
         _ => "MainMenu.wnd:ButtonMedium",
     };
-    let clicked_diff = dispatch_os_click_named_window_when_hittable(diff_btn, 40);
-    tick_main_menu_transitions(4);
+    let clicked_diff = dispatch_os_click_named_window_when_hittable(diff_btn, 40, effects);
+    tick_main_menu_transitions(4, effects);
     if !clicked_sp && !clicked_faction && !clicked_diff {
         return false;
     }
@@ -3239,32 +3364,37 @@ pub fn drive_os_wnd_start_campaign_like_cpp(side: ShowSide, diff: GameDifficulty
 }
 
 /// Human USA campaign start (retail Medium / Normal).
-pub fn drive_os_wnd_start_usa_campaign_like_cpp() -> bool {
-    drive_os_wnd_start_campaign_like_cpp(ShowSide::USA, GameDifficulty::Normal)
+pub fn drive_os_wnd_start_usa_campaign_like_cpp(effects: &mut WindowEventEffects<'_>) -> bool {
+    drive_os_wnd_start_campaign_like_cpp(ShowSide::USA, GameDifficulty::Normal, effects)
 }
 
 /// Human GLA campaign start (retail Medium / Normal).
-pub fn drive_os_wnd_start_gla_campaign_like_cpp() -> bool {
-    drive_os_wnd_start_campaign_like_cpp(ShowSide::GLA, GameDifficulty::Normal)
+pub fn drive_os_wnd_start_gla_campaign_like_cpp(effects: &mut WindowEventEffects<'_>) -> bool {
+    drive_os_wnd_start_campaign_like_cpp(ShowSide::GLA, GameDifficulty::Normal, effects)
 }
 
 /// Human China campaign start (retail Medium / Normal).
-pub fn drive_os_wnd_start_china_campaign_like_cpp() -> bool {
-    drive_os_wnd_start_campaign_like_cpp(ShowSide::China, GameDifficulty::Normal)
+pub fn drive_os_wnd_start_china_campaign_like_cpp(effects: &mut WindowEventEffects<'_>) -> bool {
+    drive_os_wnd_start_campaign_like_cpp(ShowSide::China, GameDifficulty::Normal, effects)
 }
 
 /// Human click-through: CHAR reveal → Single Player → Challenge → Medium
-pub fn drive_os_wnd_open_challenge_menu_like_cpp() -> bool {
-    let _ = reveal_main_menu_first_input_like_cpp();
-    tick_main_menu_transitions(4);
-    let _ = dispatch_os_click_named_window_when_hittable("MainMenu.wnd:ButtonSinglePlayer", 16);
-    let _ = dispatch_os_click_named_window_when_hittable("MainMenu.wnd:ButtonChallenge", 32);
-    tick_main_menu_transitions(8);
+pub fn drive_os_wnd_open_challenge_menu_like_cpp(effects: &mut WindowEventEffects<'_>) -> bool {
+    let _ = reveal_main_menu_first_input_like_cpp(effects);
+    tick_main_menu_transitions(4, effects);
+    let _ = dispatch_os_click_named_window_when_hittable(
+        "MainMenu.wnd:ButtonSinglePlayer",
+        16,
+        effects,
+    );
+    let _ =
+        dispatch_os_click_named_window_when_hittable("MainMenu.wnd:ButtonChallenge", 32, effects);
+    tick_main_menu_transitions(8, effects);
     if !main_menu_challenge_latched() {
         return false;
     }
-    let _ = dispatch_os_click_named_window("MainMenu.wnd:ButtonMedium");
-    tick_main_menu_transitions(4);
+    let _ = dispatch_os_click_named_window("MainMenu.wnd:ButtonMedium", effects);
+    tick_main_menu_transitions(4, effects);
     let on_challenge = with_shell_ref(|shell| {
         shell
             .top_filename()

@@ -173,6 +173,7 @@ mod tests {
             campaign_name: "CHALLENGE_1".into(),
             campaign_player_faction: String::new(),
             is_challenge: true,
+            is_campaign_session: true,
             game_info_starting_cash: Some(0),
             player_template_name: Some("FactionChinaTankGeneral".into()),
             player_template_index: Some(7),

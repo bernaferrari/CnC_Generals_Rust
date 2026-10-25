@@ -4,11 +4,12 @@ use crate::gui::control_bar::publish_host_dismiss_in_game_popup_message;
 use crate::gui::{
     GameWindow, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled, WindowMsgPayload,
     get_display_string_manager, get_font_library, payload, pop_payload, push_payload,
-    queue_window_manager_op, with_window_manager, write_input_focus_response,
+    with_window_manager, write_input_focus_response,
 };
 use crate::helpers::TheInGameUI;
-use crate::message_stream::game_message::GameMessageType;
-use crate::message_stream::message_stream::append_message_to_stream;
+use crate::message_stream::game_message::{GameMessage, GameMessageType};
+#[cfg(test)]
+use crate::message_stream::message_stream::THE_MESSAGE_STREAM;
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use log::warn;
 use std::cell::RefCell;
@@ -183,6 +184,7 @@ pub fn in_game_popup_message_input(
     msg: WindowMessage,
     data1: WindowMsgData,
     data2: WindowMsgData,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> WindowMsgHandled {
     if msg != WindowMessage::Char {
         return WindowMsgHandled::Ignored;
@@ -203,6 +205,18 @@ pub fn in_game_popup_message_input(
     // synchronous GadgetSelected delivery for that outer borrow's drain. A
     // nested `with_window_manager` would otherwise fail closed, while holding
     // this mutex across direct delivery would re-enter the popup system lock.
+    let selected_window = effects
+        .selected_window
+        .clone()
+        .expect("popup keyboard callback requires the receiving selected-window identity");
+    let Some(selected) = selected_window.upgrade() else {
+        return WindowMsgHandled::Handled;
+    };
+    if selected.borrow().get_id() != window.get_id() {
+        return WindowMsgHandled::Handled;
+    }
+    drop(selected);
+
     let state_handle = popup_ui_state();
     let (window_id, button_ok_id, popup_instance_generation) = {
         let mut state_guard = state_handle.lock().unwrap_or_else(|e| e.into_inner());
@@ -220,20 +234,31 @@ pub fn in_game_popup_message_input(
         )
     };
 
-    queue_window_manager_op(move |manager| {
+    effects.queue_window_operation(move |manager, effects| {
         // Always use a typed token, including for standalone popups.  A raw
         // zero is indistinguishable from an ordinary mouse selection and
         // could let a delayed legacy keyboard event A acknowledge a tagged
         // replacement popup B. The UI-instance generation distinguishes the
         // deferred keyboard path without repurposing C++'s raw message data.
         let instance_payload = push_payload(WindowMsgPayload::UInt(popup_instance_generation));
-        if let Some(handle) = manager.get_window_by_id(window_id) {
-            let _ = manager.send_system_message(
-                &handle,
-                WindowMessage::GadgetSelected,
-                button_ok_id as WindowMsgData,
-                instance_payload,
-            );
+        let selected = selected_window.upgrade();
+        let handle = manager.get_window_by_id(window_id);
+        if let (Some(selected), Some(handle)) = (selected, handle) {
+            if std::rc::Rc::ptr_eq(&selected, &handle) {
+                drop(selected);
+                let _ = handle.borrow_mut().send_system_message_with_message_sink(
+                    WindowMessage::GadgetSelected,
+                    button_ok_id as WindowMsgData,
+                    instance_payload,
+                    effects,
+                    None,
+                );
+            } else {
+                let mut state_guard = state_handle.lock().unwrap_or_else(|e| e.into_inner());
+                if state_guard.popup_instance_generation == popup_instance_generation {
+                    state_guard.dismissal_queued = false;
+                }
+            }
         } else {
             // A layout can disappear between the keyboard callback and the
             // deferred delivery. Do not disturb a replacement popup's queued
@@ -249,11 +274,12 @@ pub fn in_game_popup_message_input(
     WindowMsgHandled::Handled
 }
 
-pub fn in_game_popup_message_system(
+pub fn in_game_popup_message_system_with_sink(
     _window: &GameWindow,
     msg: WindowMessage,
     data1: WindowMsgData,
     data2: WindowMsgData,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> WindowMsgHandled {
     match msg {
         WindowMessage::Create => WindowMsgHandled::Handled,
@@ -303,13 +329,39 @@ pub fn in_game_popup_message_system(
             if pause {
                 TheInGameUI::clear_popup_message_data();
             } else {
-                let _ = append_message_to_stream(GameMessageType::ClearInGamePopupMessage);
+                effects
+                    .emitted_messages
+                    .push(GameMessage::new(GameMessageType::ClearInGamePopupMessage));
             }
 
             WindowMsgHandled::Handled
         }
         _ => WindowMsgHandled::Ignored,
     }
+}
+
+#[cfg(test)]
+fn in_game_popup_message_system(
+    window: &GameWindow,
+    msg: WindowMessage,
+    data1: WindowMsgData,
+    data2: WindowMsgData,
+) -> WindowMsgHandled {
+    let mut emitted_messages = Vec::new();
+    let mut effects = crate::gui::game_window::WindowEventEffects {
+        window_manager_owner: None,
+        selected_window: None,
+        emitted_messages: &mut emitted_messages,
+        pending_control_bar_clicks: None,
+        campaign_manager: None,
+    };
+    let result = in_game_popup_message_system_with_sink(window, msg, data1, data2, &mut effects);
+    if let Ok(mut stream) = THE_MESSAGE_STREAM.write() {
+        for message in emitted_messages {
+            stream.append_message_value(message);
+        }
+    }
+    result
 }
 
 #[cfg(test)]
@@ -390,7 +442,7 @@ mod tests {
             const BUTTON_OK_ID: u32 = 913_702;
             let popup_mutex_was_available = Arc::new(AtomicBool::new(false));
 
-            with_window_manager(|manager| {
+            let selected_window = with_window_manager(|manager| {
                 let target = manager
                     .create_window_with_id(None, 0, 0, 1, 1, WINDOW_ID)
                     .expect("synthetic popup target");
@@ -404,22 +456,34 @@ mod tests {
                         }
                         WindowMsgHandled::Handled
                     });
-            });
+                std::rc::Rc::downgrade(&target)
+            })
+            .expect("receiving popup target");
 
             let mut dispatch_window = GameWindow::new();
             dispatch_window.set_id(WINDOW_ID);
             for key in [KEY_ENTER, KEY_ESC] {
                 set_popup_button_ok_id(BUTTON_OK_ID, false, None);
                 popup_mutex_was_available.store(false, Ordering::SeqCst);
+                let mut emitted = Vec::new();
+                let mut effects = crate::gui::game_window::WindowEventEffects {
+                    window_manager_owner: None,
+                    emitted_messages: &mut emitted,
+                    pending_control_bar_clicks: None,
+                    campaign_manager: None,
+                    selected_window: Some(selected_window.clone()),
+                };
                 assert_eq!(
                     in_game_popup_message_input(
                         &dispatch_window,
                         WindowMessage::Char,
                         key as WindowMsgData,
                         KEY_STATE_UP as WindowMsgData,
+                        &mut effects,
                     ),
                     WindowMsgHandled::Handled
                 );
+                owner.complete_window_callbacks(&mut effects);
                 assert!(
                     popup_mutex_was_available.load(Ordering::SeqCst),
                     "{key:#x} delivery must not re-enter the popup mutex"
@@ -445,6 +509,14 @@ mod tests {
             for key in [KEY_ENTER, KEY_ESC] {
                 clear_host_control_bar_requests();
                 set_popup_button_ok_id(BUTTON_OK_ID, false, Some(HOST_POPUP_GENERATION));
+                let mut emitted = Vec::new();
+                let mut effects = crate::gui::game_window::WindowEventEffects {
+                    window_manager_owner: None,
+                    selected_window: None,
+                    emitted_messages: &mut emitted,
+                    pending_control_bar_clicks: None,
+                    campaign_manager: None,
+                };
                 with_window_manager(|manager| {
                     manager.reset();
                     let popup = manager
@@ -452,20 +524,28 @@ mod tests {
                         .expect("synthetic popup window");
                     popup
                         .borrow_mut()
-                        .set_input_callback(in_game_popup_message_input);
-                    popup
-                        .borrow_mut()
-                        .set_system_callback(in_game_popup_message_system);
+                        .set_input_callback_with_message_sink(in_game_popup_message_input);
+                    popup.borrow_mut().set_system_callback_with_message_sink(
+                        in_game_popup_message_system_with_sink,
+                    );
                     manager
                         .set_focus(Some(&popup))
                         .expect("focus synthetic popup");
 
                     assert_eq!(
-                        manager.process_key_event(key as u8, KEY_STATE_UP as u8),
+                        manager.process_key_event_with_message_sink(
+                            key as u8,
+                            KEY_STATE_UP as u8,
+                            &mut effects,
+                        ),
                         WindowInputReturnCode::Used
                     );
                     assert_eq!(
-                        manager.process_key_event(key as u8, KEY_STATE_UP as u8),
+                        manager.process_key_event_with_message_sink(
+                            key as u8,
+                            KEY_STATE_UP as u8,
+                            &mut effects,
+                        ),
                         WindowInputReturnCode::Used,
                         "repeat key before deferred delivery must not publish a duplicate ACK"
                     );
@@ -474,6 +554,7 @@ mod tests {
                         "delivery stays deferred until the outer manager borrow drains"
                     );
                 });
+                owner.complete_window_callbacks(&mut effects);
                 assert!(matches!(
                     take_host_control_bar_requests().as_slice(),
                     [HostControlBarRequest::DismissInGamePopupMessage {

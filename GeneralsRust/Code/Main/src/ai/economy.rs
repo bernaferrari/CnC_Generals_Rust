@@ -1399,7 +1399,7 @@ impl AIPlayer {
         if !valid_collector {
             return Ok(false);
         }
-        if !game_logic.unit_command_stop_moving_order_target(collector_id, Some(source_id)) {
+        if !game_logic.unit_command_stop_moving_order_target(collector_id, Some(source_id))? {
             return Ok(false);
         }
         let routed = game_logic.unit_command_set_ai_state(collector_id, AIState::Gathering)?;

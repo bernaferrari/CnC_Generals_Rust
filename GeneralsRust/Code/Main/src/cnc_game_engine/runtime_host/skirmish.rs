@@ -40,8 +40,8 @@ impl CnCGameEngine {
                             .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
                             .unwrap_or(false);
                         if allow_heavy {
-                            let _ = game_client::gui::with_shell_mut(|shell| {
-                                shell.push("Menus/SkirmishGameOptionsMenu.wnd", false)
+                            let _ = self.game_client.with_receiving_shell(|shell, effects| {
+                                shell.push("Menus/SkirmishGameOptionsMenu.wnd", false, effects)
                             });
                         }
                     }
@@ -52,15 +52,21 @@ impl CnCGameEngine {
                 // transition_to_screen(Screen::Skirmish) on this path.
                 // First-run CHAR reveal + OS WND clicks SinglePlayer → Skirmish.
                 self.enter_shell_screen_from_runtime_host(Some("MainMenu"), "Menus/MainMenu.wnd");
-                let _ = game_client::gui::reveal_main_menu_first_input_like_cpp();
-                main_menu_skirmish_wnd_ok = game_client::gui::drive_os_wnd_open_skirmish_like_cpp();
+                let _ = self.game_client.with_window_event_effects(|effects| {
+                    game_client::gui::reveal_main_menu_first_input_like_cpp(effects)
+                });
+                main_menu_skirmish_wnd_ok = self.game_client.with_window_event_effects(|effects| {
+                    game_client::gui::drive_os_wnd_open_skirmish_like_cpp(effects)
+                });
                 // Always parse/push SkirmishGameOptionsMenu.wnd on interactive
                 // (cached parse; do not skip). Soft Screen::Skirmish only if
                 // WND push failed AND we are not claiming wnd_widget_tree_nav.
-                let push_ok = game_client::gui::with_shell_mut(|shell| {
-                    shell.push("Menus/SkirmishGameOptionsMenu.wnd", false)
-                })
-                .is_some_and(|result| result.is_ok());
+                let push_ok = self
+                    .game_client
+                    .with_receiving_shell(|shell, effects| {
+                        shell.push("Menus/SkirmishGameOptionsMenu.wnd", false, effects)
+                    })
+                    .is_some_and(|result| result.is_ok());
                 if push_ok {
                     main_menu_skirmish_wnd_ok = true;
                     self.set_runtime_host_ui_screen_override(Some("Skirmish"));
@@ -178,10 +184,12 @@ impl CnCGameEngine {
                 // Listbox/OK) before Start, matching C++ player map pick.
                 let mut map_select_wnd_ok = false;
                 if let Some(map) = args.get("map") {
-                    map_select_wnd_ok =
+                    map_select_wnd_ok = self.game_client.with_window_event_effects(|effects| {
                         game_client::gui::callbacks::drive_os_wnd_skirmish_map_select_like_cpp(
                             map.clone(),
-                        );
+                            effects,
+                        )
+                    });
                     if !map_select_wnd_ok {
                         map_select_wnd_ok =
                             game_client::gui::callbacks::simulate_skirmish_map_select_and_confirm(
@@ -234,11 +242,15 @@ impl CnCGameEngine {
                         );
                     }
                 }
-                wnd_start_ok = game_client::gui::callbacks::drive_os_wnd_skirmish_start_like_cpp();
+                wnd_start_ok = self.game_client.with_window_event_effects(|effects| {
+                    game_client::gui::callbacks::drive_os_wnd_skirmish_start_like_cpp(effects)
+                });
                 if !wnd_start_ok {
-                    wnd_start_ok =
+                    wnd_start_ok = self.game_client.with_window_event_effects(|effects| {
                         game_client::gui::callbacks::simulate_skirmish_start_button_gadget_selected(
-                        );
+                            effects,
+                        )
+                    });
                 }
                 if map_select_wnd_ok && wnd_start_ok {
                     // Preserve map-select residual in cmd when both peels fire.
@@ -275,7 +287,9 @@ impl CnCGameEngine {
                         };
                         request.map = map;
                         self.start_game_from_ui(request);
-                        let _ = Self::take_new_game_dispatch_from_common_stream();
+                        let _ = Self::take_new_game_dispatch_from_common_stream(
+                            self.game_client.message_stream_mut(),
+                        );
                         self.runtime_host_last_gameplay_cmd = start_cmd.into();
                     } else if gamelogic::helpers::TheGameLogic::is_start_new_game_requested() {
                         gamelogic::helpers::TheGameLogic::clear_start_new_game_request();
@@ -469,8 +483,12 @@ impl CnCGameEngine {
         #[cfg(feature = "game_client")]
         {
             self.enter_shell_screen_from_runtime_host(Some("MainMenu"), "Menus/MainMenu.wnd");
-            let _ = game_client::gui::reveal_main_menu_first_input_like_cpp();
-            wnd_ok = game_client::gui::drive_os_wnd_open_challenge_menu_like_cpp();
+            let _ = self.game_client.with_window_event_effects(|effects| {
+                game_client::gui::reveal_main_menu_first_input_like_cpp(effects)
+            });
+            wnd_ok = self.game_client.with_window_event_effects(|effects| {
+                game_client::gui::drive_os_wnd_open_challenge_menu_like_cpp(effects)
+            });
             if !wnd_ok {
                 wnd_ok = game_client::gui::simulate_main_menu_challenge_button_gadget_selected();
             }
@@ -495,10 +513,15 @@ impl CnCGameEngine {
         let mut wnd_ok = false;
         #[cfg(feature = "game_client")]
         {
-            wnd_ok = game_client::gui::callbacks::drive_os_wnd_challenge_start_like_cpp(general);
+            wnd_ok = self.game_client.with_window_event_effects(|effects| {
+                game_client::gui::callbacks::drive_os_wnd_challenge_start_like_cpp(general, effects)
+            });
             if !wnd_ok {
-                wnd_ok =
-                    game_client::gui::callbacks::simulate_challenge_menu_prepare_start(general);
+                wnd_ok = self.game_client.with_window_event_effects(|effects| {
+                    game_client::gui::callbacks::simulate_challenge_menu_prepare_start(
+                        general, effects,
+                    )
+                });
             }
         }
         self.runtime_host_last_gameplay_cmd = if wnd_ok {
@@ -596,16 +619,15 @@ impl CnCGameEngine {
                 }
             }
         }
-        if let Ok(mut stream) = get_message_stream().write() {
-            let msg = stream.append_message(GameMessageType::NewGame);
-            msg.append_integer_argument(mode_code);
-            msg.append_integer_argument(1); // DIFFICULTY_NORMAL
-            msg.append_integer_argument(0); // rank points
-            msg.append_integer_argument(30); // max fps residual
-            info!("Runtime host queued NewGame mode_code={mode_code} map={map}");
-        } else {
-            warn!("Runtime host failed to lock message stream for NewGame");
-        }
+        let msg = self
+            .game_client
+            .message_stream_mut()
+            .append_message(GameMessageType::NewGame);
+        msg.append_integer_argument(mode_code);
+        msg.append_integer_argument(1); // DIFFICULTY_NORMAL
+        msg.append_integer_argument(0); // rank points
+        msg.append_integer_argument(30); // max fps residual
+        info!("Runtime host queued NewGame mode_code={mode_code} map={map}");
         // Peek + host start, then deliver all surviving client messages to
         // the newly installed Main owner before dropping NewGame leftovers.
         if let Some(request) = self.take_pending_new_game_start_request() {
@@ -617,14 +639,13 @@ impl CnCGameEngine {
             self.start_game_from_ui(request);
             #[cfg(feature = "game_client")]
             {
-                if let Err(error) = Self::pump_receiving_client_commands(
-                    &self.game_client,
-                    &mut self.game_logic.replay_pending,
-                ) {
+                if let Err(error) = self.pump_native_client_commands() {
                     error!("Runtime host receiving command routing failed: {error}");
                 }
             }
-            let _ = Self::take_new_game_dispatch_from_common_stream();
+            let _ = Self::take_new_game_dispatch_from_common_stream(
+                self.game_client.message_stream_mut(),
+            );
         } else {
             warn!("Runtime host queued NewGame but drain produced no start request");
             if self.current_state != GameState::Menu {

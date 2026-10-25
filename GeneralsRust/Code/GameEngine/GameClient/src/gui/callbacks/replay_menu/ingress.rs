@@ -181,11 +181,12 @@ impl ReplayMenuReceiver for CompatibilityReplayReceiver {
     }
     fn confirm_older(&mut self, playback: ReplayPlayback) {
         let mut playback = Some(playback);
-        let callback = Box::new(move || {
-            if let Some(playback) = playback.take() {
-                playback.playback(&mut CompatibilityReplayReceiver);
-            }
-        });
+        let callback: crate::gui::callbacks::message_box::MessageBoxFunc =
+            Box::new(move |_effects| {
+                if let Some(playback) = playback.take() {
+                    playback.playback(&mut CompatibilityReplayReceiver);
+                }
+            });
         let _ = super::super::message_box::message_box_ok_cancel(
             &GameText::fetch("GUI:OlderReplayVersionTitle"),
             &GameText::fetch("GUI:OlderReplayVersion"),
@@ -401,6 +402,7 @@ mod tests {
                 game_ending: false,
                 tooltips_disabled: false,
                 cursor_mouse: None,
+                emitted_messages: None,
             };
             assert_eq!(
                 manager.process_mouse_event_with_control_bar(

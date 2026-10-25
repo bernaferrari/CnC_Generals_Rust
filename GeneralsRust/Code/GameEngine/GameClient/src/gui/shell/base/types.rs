@@ -65,13 +65,34 @@ pub trait WindowLayout {
 
     /// Initialize the layout - called when pushed or when becoming top of stack
     fn run_init(&mut self, data: Option<&dyn std::any::Any>) -> Result<(), ShellError>;
+    fn run_init_with_effects(
+        &mut self,
+        data: Option<&dyn std::any::Any>,
+        _effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    ) -> Result<(), ShellError> {
+        self.run_init(data)
+    }
 
     /// Update the layout - called every frame for all layouts on stack
     fn run_update(&mut self, data: Option<&dyn std::any::Any>) -> Result<(), ShellError>;
+    fn run_update_with_effects(
+        &mut self,
+        data: Option<&dyn std::any::Any>,
+        _effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    ) -> Result<(), ShellError> {
+        self.run_update(data)
+    }
 
     /// Shutdown the layout - called when being popped or when new layout pushed on top
     /// The immediate_pop parameter indicates if the layout should shutdown immediately
     fn run_shutdown(&mut self, immediate_pop: &mut bool) -> Result<(), ShellError>;
+    fn run_shutdown_with_effects(
+        &mut self,
+        immediate_pop: &mut bool,
+        _effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    ) -> Result<(), ShellError> {
+        self.run_shutdown(immediate_pop)
+    }
 
     /// Show/hide the layout
     fn hide(&mut self, hide: bool);
@@ -154,9 +175,37 @@ impl WindowLayout for BasicWindowLayout {
         Ok(())
     }
 
+    fn run_init_with_effects(
+        &mut self,
+        data: Option<&dyn std::any::Any>,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    ) -> Result<(), ShellError> {
+        if let Some(layout) = &self.layout {
+            let layout_ref = layout.borrow();
+            if let Some(snapshot) = data.and_then(|data| data.downcast_ref::<crate::gui::callbacks::score_screen::ScoreScreenAcademySnapshot>()) {
+                crate::gui::callbacks::score_screen::bind_score_screen_snapshot(&layout_ref, snapshot);
+            }
+            layout_ref.run_init_with_effects(data, effects);
+        }
+        self.state = LayoutState::Active;
+        self.hidden = false;
+        Ok(())
+    }
+
     fn run_update(&mut self, data: Option<&dyn std::any::Any>) -> Result<(), ShellError> {
         if let Some(layout) = &self.layout {
             layout.borrow().run_update(data);
+        }
+        Ok(())
+    }
+
+    fn run_update_with_effects(
+        &mut self,
+        data: Option<&dyn std::any::Any>,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    ) -> Result<(), ShellError> {
+        if let Some(layout) = &self.layout {
+            layout.borrow().run_update_with_effects(data, effects);
         }
         Ok(())
     }
@@ -179,6 +228,24 @@ impl WindowLayout for BasicWindowLayout {
             self.state = LayoutState::ShuttingDown;
         }
 
+        Ok(())
+    }
+
+    fn run_shutdown_with_effects(
+        &mut self,
+        immediate_pop: &mut bool,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    ) -> Result<(), ShellError> {
+        if let Some(layout) = &self.layout {
+            layout
+                .borrow()
+                .run_shutdown_with_effects(Some(immediate_pop as &mut dyn std::any::Any), effects);
+        }
+        self.state = if *immediate_pop {
+            LayoutState::Destroying
+        } else {
+            LayoutState::ShuttingDown
+        };
         Ok(())
     }
 

@@ -58,28 +58,28 @@ use crate::gui::callbacks::{
     generals_exp_points_input, generals_exp_points_system, get_control_bar_system,
     get_diplomacy_system, get_ingame_ui_system, get_message_box_system, ime_candidate_main_draw,
     ime_candidate_text_area_draw, ime_candidate_window_input, ime_candidate_window_system,
-    in_game_popup_message_init, in_game_popup_message_input, in_game_popup_message_system,
-    keyboard_options_menu_init, keyboard_options_menu_input, keyboard_options_menu_shutdown,
-    keyboard_options_menu_system, keyboard_options_menu_update, lan_game_options_menu_init,
-    lan_game_options_menu_input, lan_game_options_menu_shutdown, lan_game_options_menu_system,
-    lan_game_options_menu_update, lan_map_select_menu_init, lan_map_select_menu_input,
-    lan_map_select_menu_shutdown, lan_map_select_menu_system, lan_map_select_menu_update,
-    network_direct_connect_init, network_direct_connect_input, network_direct_connect_shutdown,
-    network_direct_connect_system, network_direct_connect_update, popup_buddy_notification_system,
-    popup_communicator_init, popup_communicator_input, popup_communicator_shutdown,
-    popup_communicator_system, popup_communicator_update, popup_host_game_init,
-    popup_host_game_input, popup_host_game_system, popup_host_game_update, popup_join_game_init,
-    popup_join_game_input, popup_join_game_system, popup_ladder_select_init,
-    popup_ladder_select_input, popup_ladder_select_shutdown, popup_ladder_select_system,
-    popup_ladder_select_update, popup_player_info_init, popup_player_info_input,
-    popup_player_info_shutdown, popup_player_info_system, popup_player_info_update,
-    popup_replay_init, popup_replay_input, popup_replay_shutdown, popup_replay_system,
-    popup_replay_update, quit_menu_system, rc_game_details_menu_init, rc_game_details_menu_system,
-    replay_menu_init, replay_menu_input, replay_menu_shutdown, replay_menu_system,
-    replay_menu_update, save_load_menu_full_screen_init, save_load_menu_init, save_load_menu_input,
-    save_load_menu_shutdown, save_load_menu_system, save_load_menu_update, score_screen_init,
-    score_screen_input, score_screen_shutdown, score_screen_system, score_screen_update,
-    skirmish_game_options_menu_init, skirmish_game_options_menu_input,
+    in_game_popup_message_init, in_game_popup_message_input,
+    in_game_popup_message_system_with_sink, keyboard_options_menu_init,
+    keyboard_options_menu_input, keyboard_options_menu_shutdown, keyboard_options_menu_system,
+    keyboard_options_menu_update, lan_game_options_menu_init, lan_game_options_menu_input,
+    lan_game_options_menu_shutdown, lan_game_options_menu_system, lan_game_options_menu_update,
+    lan_map_select_menu_init, lan_map_select_menu_input, lan_map_select_menu_shutdown,
+    lan_map_select_menu_system, lan_map_select_menu_update, network_direct_connect_init,
+    network_direct_connect_input, network_direct_connect_shutdown, network_direct_connect_system,
+    network_direct_connect_update, popup_buddy_notification_system, popup_communicator_init,
+    popup_communicator_input, popup_communicator_shutdown, popup_communicator_system,
+    popup_communicator_update, popup_host_game_init, popup_host_game_input, popup_host_game_system,
+    popup_host_game_update, popup_join_game_init, popup_join_game_input, popup_join_game_system,
+    popup_ladder_select_init, popup_ladder_select_input, popup_ladder_select_shutdown,
+    popup_ladder_select_system, popup_ladder_select_update, popup_player_info_init,
+    popup_player_info_input, popup_player_info_shutdown, popup_player_info_system,
+    popup_player_info_update, popup_replay_init, popup_replay_input, popup_replay_shutdown,
+    popup_replay_system, popup_replay_update, quit_menu_system, rc_game_details_menu_init,
+    rc_game_details_menu_system, replay_menu_init, replay_menu_input, replay_menu_shutdown,
+    replay_menu_system, replay_menu_update, save_load_menu_full_screen_init, save_load_menu_init,
+    save_load_menu_input, save_load_menu_shutdown, save_load_menu_system, save_load_menu_update,
+    score_screen_init, score_screen_input, score_screen_shutdown, score_screen_system,
+    score_screen_update, skirmish_game_options_menu_init, skirmish_game_options_menu_input,
     skirmish_game_options_menu_shutdown, skirmish_game_options_menu_system,
     skirmish_game_options_menu_update, skirmish_map_select_menu_init,
     skirmish_map_select_menu_input, skirmish_map_select_menu_shutdown,
@@ -135,19 +135,19 @@ mod wnd_parse;
 
 pub use control_bar_dispatch::{CameraOptionsInputContext, ControlBarInputContext};
 pub use layout::{WindowLayout, WindowLayoutInfo};
+pub(crate) use reentry::current_window_manager_owner;
 pub use reentry::{
     ReentryFallback, WindowManagerOwner, WindowMouseFacts, dispatch_os_key_to_window_manager,
     dispatch_os_key_to_window_manager_for_owner,
     dispatch_os_key_to_window_manager_with_control_bar,
     dispatch_os_key_to_window_manager_with_control_bar_for_owner,
-    dispatch_os_mouse_to_window_manager, dispatch_os_mouse_to_window_manager_with_control_bar,
-    dispatch_os_mouse_to_window_manager_for_owner,
+    dispatch_os_mouse_to_window_manager, dispatch_os_mouse_to_window_manager_for_owner,
+    dispatch_os_mouse_to_window_manager_with_control_bar,
     dispatch_os_mouse_to_window_manager_with_control_bar_for_owner,
     dispatch_os_mouse_to_window_manager_with_facts, hide_window_rc, queue_create_layout,
     queue_set_focus, queue_window_manager_op, queue_window_manager_op_deferred,
     window_manager_try_borrow_free, with_window_manager, with_window_manager_ref,
 };
-pub(crate) use reentry::current_window_manager_owner;
 pub use types::{CaptureFlags, ModalWindow, TabDirection};
 
 pub(crate) use reentry::apply_w3d_main_menu_runtime_draw_overrides;
@@ -449,3 +449,5 @@ mod replay_menu_input_tests;
 
 #[cfg(test)]
 mod receiving_key_delivery_tests;
+
+pub use reentry::dispatch_translated_window_input_for_owner;

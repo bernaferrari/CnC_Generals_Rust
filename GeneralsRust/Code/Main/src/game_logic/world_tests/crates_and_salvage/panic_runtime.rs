@@ -540,7 +540,9 @@ fn panic_failure_does_not_advance_the_waypoint_and_terminal_uses_terminal_labels
         unit.waiting_for_path = false;
         unit.retry_path = true;
     }
-    logic.tick_host_panic_states(&[PANIC_UNIT]);
+    logic
+        .tick_host_panic_states(&[PANIC_UNIT])
+        .expect("valid panic fixture");
     assert_panic_state(&logic.objects[&PANIC_UNIT].ai_state());
     assert_panic_runtime(&logic.objects[&PANIC_UNIT], WAYPOINT_START, None);
 
@@ -562,7 +564,9 @@ fn panic_failure_does_not_advance_the_waypoint_and_terminal_uses_terminal_labels
     assert_panic_arrival_preconditions(unit);
     let rng_before = game_engine::common::random_value::get_game_logic_random_seed_state();
     let _restore_rng = RestoreLogicRng(rng_before);
-    logic.tick_host_panic_states(&[PANIC_UNIT]);
+    logic
+        .tick_host_panic_states(&[PANIC_UNIT])
+        .expect("valid panic fixture");
 
     let unit = &logic.objects[&PANIC_UNIT];
     assert_eq!(unit.ai_state(), AIState::Idle);
@@ -614,7 +618,9 @@ fn panic_arrival_uses_selected_locomotor_close_enough_distance() {
 
     let rng_before = game_engine::common::random_value::get_game_logic_random_seed_state();
     let _restore_rng = RestoreLogicRng(rng_before);
-    logic.tick_host_panic_states(&[PANIC_UNIT]);
+    logic
+        .tick_host_panic_states(&[PANIC_UNIT])
+        .expect("valid panic fixture");
 
     assert_panic_runtime(&logic.objects[&PANIC_UNIT], WAYPOINT_START, None);
     assert_eq!(
@@ -663,7 +669,9 @@ fn blocked_panic_repath_runs_before_arrival_and_timer_processing() {
 
     let rng_before = game_engine::common::random_value::get_game_logic_random_seed_state();
     let _restore_rng = RestoreLogicRng(rng_before);
-    logic.tick_host_panic_states(&[PANIC_UNIT]);
+    logic
+        .tick_host_panic_states(&[PANIC_UNIT])
+        .expect("valid panic fixture");
 
     let unit = &logic.objects[&PANIC_UNIT];
     assert_eq!(

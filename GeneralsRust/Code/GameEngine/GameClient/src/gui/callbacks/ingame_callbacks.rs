@@ -1226,24 +1226,33 @@ pub fn simulate_in_game_chat_prepare_submit(message: &str) -> bool {
 
 /// Human click-through: OS LeftDown/Up on `InGameChat.wnd:ParentInGameChat`
 /// (C++ WindowXlat hit). Not `simulate_*` first.
-pub fn drive_os_wnd_in_game_chat_toggle_like_cpp() -> bool {
-    let clicked = crate::gui::dispatch_os_click_named_window("InGameChat.wnd:ParentInGameChat");
+pub fn drive_os_wnd_in_game_chat_toggle_like_cpp(
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
+    let clicked =
+        crate::gui::dispatch_os_click_named_window("InGameChat.wnd:ParentInGameChat", effects);
     if !clicked {
         return false;
     }
     simulate_in_game_chat_toggle()
 }
 
-pub fn drive_os_wnd_in_game_chat_show_like_cpp() -> bool {
-    let clicked = crate::gui::dispatch_os_click_named_window("InGameChat.wnd:ParentInGameChat");
+pub fn drive_os_wnd_in_game_chat_show_like_cpp(
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
+    let clicked =
+        crate::gui::dispatch_os_click_named_window("InGameChat.wnd:ParentInGameChat", effects);
     if !clicked {
         return false;
     }
     simulate_in_game_chat_show()
 }
 
-pub fn drive_os_wnd_in_game_chat_hide_like_cpp() -> bool {
-    let clicked = crate::gui::dispatch_os_click_named_window("InGameChat.wnd:ParentInGameChat");
+pub fn drive_os_wnd_in_game_chat_hide_like_cpp(
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
+    let clicked =
+        crate::gui::dispatch_os_click_named_window("InGameChat.wnd:ParentInGameChat", effects);
     if !clicked {
         return false;
     }
@@ -1251,8 +1260,10 @@ pub fn drive_os_wnd_in_game_chat_hide_like_cpp() -> bool {
 }
 
 /// Human click-through: OS LeftDown/Up on `InGameChat.wnd:ButtonClear`.
-pub fn drive_os_wnd_in_game_chat_clear_like_cpp() -> bool {
-    let clicked = crate::gui::dispatch_os_click_named_window("InGameChat.wnd:ButtonClear");
+pub fn drive_os_wnd_in_game_chat_clear_like_cpp(
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
+    let clicked = crate::gui::dispatch_os_click_named_window("InGameChat.wnd:ButtonClear", effects);
     if !clicked {
         return false;
     }
@@ -1261,11 +1272,15 @@ pub fn drive_os_wnd_in_game_chat_clear_like_cpp() -> bool {
 
 /// Human click-through: OS LeftDown/Up on `TextEntryChat` then submit
 /// (C++ GEM_EDIT_DONE on TextEntryChat).
-pub fn drive_os_wnd_in_game_chat_submit_like_cpp(message: &str) -> bool {
+pub fn drive_os_wnd_in_game_chat_submit_like_cpp(
+    message: &str,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
     if message.trim().is_empty() {
         return false;
     }
-    let clicked = crate::gui::dispatch_os_click_named_window("InGameChat.wnd:TextEntryChat");
+    let clicked =
+        crate::gui::dispatch_os_click_named_window("InGameChat.wnd:TextEntryChat", effects);
     if !clicked {
         return false;
     }
@@ -1273,15 +1288,19 @@ pub fn drive_os_wnd_in_game_chat_submit_like_cpp(message: &str) -> bool {
 }
 
 /// Human click-through: show parent + type label + TextEntryChat submit.
-pub fn drive_os_wnd_in_game_chat_prepare_submit_like_cpp(message: &str) -> bool {
+pub fn drive_os_wnd_in_game_chat_prepare_submit_like_cpp(
+    message: &str,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
     if message.trim().is_empty() {
         return false;
     }
     let clicked_parent =
-        crate::gui::dispatch_os_click_named_window("InGameChat.wnd:ParentInGameChat");
+        crate::gui::dispatch_os_click_named_window("InGameChat.wnd:ParentInGameChat", effects);
     let clicked_type =
-        crate::gui::dispatch_os_click_named_window("InGameChat.wnd:StaticTextChatType");
-    let clicked_entry = crate::gui::dispatch_os_click_named_window("InGameChat.wnd:TextEntryChat");
+        crate::gui::dispatch_os_click_named_window("InGameChat.wnd:StaticTextChatType", effects);
+    let clicked_entry =
+        crate::gui::dispatch_os_click_named_window("InGameChat.wnd:TextEntryChat", effects);
     if !clicked_parent && !clicked_type && !clicked_entry {
         return false;
     }
@@ -1561,43 +1580,62 @@ pub fn simulate_replay_control_prepare_play_at(position: f64) -> bool {
 }
 
 /// Human click-through: OS LeftDown/Up on retail `ReplayControls.wnd:Button*`.
-fn drive_os_wnd_replay_control_named(name: &str, latch: impl FnOnce() -> bool) -> bool {
-    if !crate::gui::dispatch_os_click_named_window(name) {
+fn drive_os_wnd_replay_control_named(
+    name: &str,
+    latch: impl FnOnce() -> bool,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
+    if !crate::gui::dispatch_os_click_named_window(name, effects) {
         return false;
     }
     latch()
 }
 
-pub fn drive_os_wnd_replay_control_play_like_cpp() -> bool {
+pub fn drive_os_wnd_replay_control_play_like_cpp(
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
     drive_os_wnd_replay_control_named(
         "ReplayControls.wnd:ButtonPlay",
         simulate_replay_control_play,
+        effects,
     )
 }
 
-pub fn drive_os_wnd_replay_control_pause_like_cpp() -> bool {
+pub fn drive_os_wnd_replay_control_pause_like_cpp(
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
     drive_os_wnd_replay_control_named(
         "ReplayControls.wnd:ButtonPause",
         simulate_replay_control_pause,
+        effects,
     )
 }
 
-pub fn drive_os_wnd_replay_control_stop_like_cpp() -> bool {
+pub fn drive_os_wnd_replay_control_stop_like_cpp(
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
     drive_os_wnd_replay_control_named(
         "ReplayControls.wnd:ButtonStop",
         simulate_replay_control_stop,
+        effects,
     )
 }
 
-pub fn drive_os_wnd_replay_control_fast_forward_like_cpp() -> bool {
+pub fn drive_os_wnd_replay_control_fast_forward_like_cpp(
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
     drive_os_wnd_replay_control_named(
         "ReplayControls.wnd:ButtonFastForward",
         simulate_replay_control_toggle_fast_forward,
+        effects,
     )
 }
 
-pub fn drive_os_wnd_replay_control_prepare_play_at_like_cpp(position: f64) -> bool {
-    let clicked_play = drive_os_wnd_replay_control_play_like_cpp();
+pub fn drive_os_wnd_replay_control_prepare_play_at_like_cpp(
+    position: f64,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
+    let clicked_play = drive_os_wnd_replay_control_play_like_cpp(effects);
     if !clicked_play {
         return false;
     }

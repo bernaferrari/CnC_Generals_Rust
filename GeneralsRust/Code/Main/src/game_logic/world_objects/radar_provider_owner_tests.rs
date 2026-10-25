@@ -40,7 +40,9 @@ fn same_id_sessions_keep_provider_capture_deletion_and_snapshots_local() {
     assert_eq!(first.players[&1].radar_count, 1);
     let peer_before = peer.host_radar_snapshot();
     set_radar_fixture_owner(&mut first, id, Team::GLA, Some(2), &mut _ownership_output);
-    first.on_capture_object_residual(id, Team::GLA, Team::GLA);
+    first
+        .on_capture_object_residual(id, Team::GLA, Team::GLA)
+        .expect("valid capture test fixture");
     assert_eq!(first.players[&1].radar_count, 0);
     assert_eq!(first.players[&2].radar_count, 1);
     assert_eq!(peer.host_radar_snapshot(), peer_before);
@@ -144,7 +146,9 @@ fn snapshot_restores_provider_admission_before_resumed_capture() {
         "load must not grant twice"
     );
     set_radar_fixture_owner(&mut world, id, Team::GLA, Some(2), &mut _ownership_output);
-    world.on_capture_object_residual(id, Team::GLA, Team::GLA);
+    world
+        .on_capture_object_residual(id, Team::GLA, Team::GLA)
+        .expect("valid capture test fixture");
     assert_eq!(world.players[&1].radar_count, 0);
     assert_eq!(world.players[&2].radar_count, 1);
 }
@@ -160,7 +164,9 @@ fn capture_emits_remove_then_add_at_the_actual_logic_boundary() {
         .set_victory_conditions(crate::game_logic::victory_conditions::VictoryType::empty());
     world.with_host_logic_step(|world| {
         set_radar_fixture_owner(world, id, Team::GLA, Some(2), &mut _ownership_output);
-        world.on_capture_object_residual(id, Team::GLA, Team::GLA);
+        world
+            .on_capture_object_residual(id, Team::GLA, Team::GLA)
+            .expect("valid capture test fixture");
     });
     assert_eq!(world.queued_audio_events.len(), 2);
     assert_eq!(
@@ -354,7 +360,9 @@ fn authored_executed_save_survives_removed_trigger_and_capture() {
         "executed is state, not current trigger availability"
     );
     set_radar_fixture_owner(&mut world, id, Team::GLA, Some(2), &mut _ownership_output);
-    world.on_capture_object_residual(id, Team::GLA, Team::GLA);
+    world
+        .on_capture_object_residual(id, Team::GLA, Team::GLA)
+        .expect("valid capture test fixture");
     assert_eq!(world.players[&1].radar_count, 0);
     assert_eq!(world.players[&2].radar_count, 1);
     world.destroy_live_object(id);
@@ -435,7 +443,9 @@ fn disabled_grant_capture_and_future_callbacks_preserve_exact_contributors() {
         let (object, events, partition) = world.host_object_ownership_partition_mut(id).unwrap();
         object.set_team_and_owner_with_partition_owner(Team::GLA, Some(2), events, partition);
     }
-    world.on_capture_object_residual(id, Team::GLA, Team::GLA);
+    world
+        .on_capture_object_residual(id, Team::GLA, Team::GLA)
+        .expect("valid capture test fixture");
     assert_eq!(
         world.players[&1].radar_count, 1,
         "disabled onCapture returns without moving contribution"

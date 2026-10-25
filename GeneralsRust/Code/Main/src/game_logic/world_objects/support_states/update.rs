@@ -812,7 +812,7 @@ impl GameLogic {
                             container_id,
                             object_id,
                             effects,
-                        );
+                        )?;
                     }
                     if normal_enter
                         && !self.can_unit_enter_normal_target(object_id, requested_container_id)
@@ -1662,7 +1662,7 @@ impl GameLogic {
                                 self.evacuate_garrison_for_capture_with_effects(
                                     capture_target_id,
                                     effects,
-                                );
+                                )?;
                                 false
                             } else {
                                 // C++ SpecialAbilityUpdate.cpp:1436-1442:
@@ -1679,14 +1679,16 @@ impl GameLogic {
                                     .objects
                                     .get(&object_id)
                                     .and_then(|capturer| capturer.team_instance_id);
-                                destination.is_some_and(|team| {
+                                if let Some(team) = destination {
                                     self.defect_host_object_with_effects(
                                         capture_target_id,
                                         team,
                                         1,
                                         effects,
-                                    )
-                                })
+                                    )?
+                                } else {
+                                    false
+                                }
                             }
                         } else {
                             false

@@ -110,15 +110,21 @@ impl CnCGameEngine {
             };
             wnd_ok = match action.as_str() {
                 "finished" | "finish" => {
-                    drive_os_wnd_credits_menu_finished_like_cpp()
-                        || simulate_credits_menu_finished()
+                    self.game_client.with_window_event_effects(|effects| {
+                        drive_os_wnd_credits_menu_finished_like_cpp(effects)
+                    }) || simulate_credits_menu_finished()
                 }
                 "shutdown" => simulate_credits_menu_shutdown(),
                 "prepare_skip" => {
-                    drive_os_wnd_credits_menu_prepare_skip_like_cpp()
-                        || simulate_credits_menu_prepare_skip()
+                    self.game_client.with_window_event_effects(|effects| {
+                        drive_os_wnd_credits_menu_prepare_skip_like_cpp(effects)
+                    }) || simulate_credits_menu_prepare_skip()
                 }
-                _ => drive_os_wnd_credits_menu_skip_like_cpp() || simulate_credits_menu_skip(),
+                _ => {
+                    self.game_client.with_window_event_effects(|effects| {
+                        drive_os_wnd_credits_menu_skip_like_cpp(effects)
+                    }) || simulate_credits_menu_skip()
+                }
             };
         }
         self.runtime_host_last_gameplay_cmd = if wnd_ok {
@@ -155,7 +161,9 @@ impl CnCGameEngine {
         }
         #[cfg(feature = "game_client")]
         {
-            let _ = game_client::gui::reveal_main_menu_first_input_like_cpp();
+            let _ = self.game_client.with_window_event_effects(|effects| {
+                game_client::gui::reveal_main_menu_first_input_like_cpp(effects)
+            });
         }
         let ok = self.inject_winit_equivalent_named_gadget_click(name);
         self.runtime_host_last_gameplay_cmd = if ok {
@@ -232,7 +240,9 @@ impl CnCGameEngine {
                 // After SP open, Skirmish may need a short transition.
                 if name.contains("Skirmish") {
                     #[cfg(feature = "game_client")]
-                    game_client::gui::tick_main_menu_transitions(2);
+                    self.game_client.with_window_event_effects(|effects| {
+                        game_client::gui::tick_main_menu_transitions(2, effects)
+                    });
                     if self.named_gadget_center_if_hittable(name).is_none() {
                         continue;
                     }
@@ -255,7 +265,9 @@ impl CnCGameEngine {
                 // Allow dropdown transition before Skirmish (bounded ticks).
                 if name.contains("SinglePlayer") {
                     #[cfg(feature = "game_client")]
-                    game_client::gui::tick_main_menu_transitions(2);
+                    self.game_client.with_window_event_effects(|effects| {
+                        game_client::gui::tick_main_menu_transitions(2, effects)
+                    });
                 }
             }
         }
@@ -426,7 +438,9 @@ impl CnCGameEngine {
             .unwrap_or(16)
             .clamp(1, 64);
         #[cfg(feature = "game_client")]
-        game_client::gui::tick_main_menu_transitions(times);
+        self.game_client.with_window_event_effects(|effects| {
+            game_client::gui::tick_main_menu_transitions(times, effects)
+        });
         self.runtime_host_last_gameplay_cmd = format!("tick_transitions_ok:{times}");
         log::info!("tick_main_menu_transitions: advanced {times} WM updates");
     }

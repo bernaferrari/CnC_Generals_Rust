@@ -267,9 +267,8 @@ impl<'a> CommandExecutor<'a> {
                 continue;
             }
 
-            let _ = self
-                .game_logic
-                .unit_command_stop_moving_order_target(unit_id, Some(target_id));
+            self.game_logic
+                .unit_command_stop_moving_order_target(unit_id, Some(target_id))?;
             let slots = self.game_logic.host_object(target_id).map(|dock| {
                 crate::game_logic::host_supply_gather::number_approach_positions_for_dock(
                     &dock.template_name,
@@ -1642,10 +1641,9 @@ pub fn leftover_command_from_common_message(
 
 /// Drain leftover dispatch messages from TheMessageStream into host commands.
 pub fn take_leftover_dispatch_commands_from_common_stream(
+    stream: &mut game_engine::common::message_stream::MessageStream,
     selected: &[ObjectId],
 ) -> Vec<crate::command_system::GameCommand> {
-    let stream = game_engine::common::message_stream::get_message_stream();
-    let mut stream = stream.write().unwrap_or_else(|e| e.into_inner());
     let messages: Vec<_> = stream.get_messages().iter().cloned().collect();
     let mut kept = Vec::new();
     let mut commands = Vec::new();

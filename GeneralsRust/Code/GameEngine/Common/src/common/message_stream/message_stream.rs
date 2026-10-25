@@ -63,10 +63,47 @@ pub fn take_emitted_messages() -> Vec<GameMessage> {
     EMITTED_MESSAGES.with(|slot| slot.borrow_mut().drain(..).collect())
 }
 
+/// One native window input operation requested by the WindowTranslator.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WindowInputDispatch {
+    Mouse {
+        message: u32,
+        x: i32,
+        y: i32,
+        data: u32,
+        delta: Option<(i32, i32)>,
+    },
+    Key {
+        key: u8,
+        state: u8,
+    },
+}
+
+/// Result returned by the receiving WindowManager for one input operation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WindowInputDispatchResult {
+    NotUsed,
+    Used,
+}
+
+/// Borrowed receiver context supplied by the driving GameClient for one stream pass.
+pub type WindowInputDispatchFn<'a> =
+    dyn FnMut(WindowInputDispatch, &mut Vec<GameMessage>) -> Option<WindowInputDispatchResult> + 'a;
+
 /// Trait for game message translators
 pub trait GameMessageTranslator: Send + Sync {
     /// Translate a game message and return what to do with it
     fn translate_game_message(&mut self, msg: &GameMessage) -> GameMessageDisposition;
+
+    /// Translate with a receiving window operation and the translator-pass-local emission sink.
+    fn translate_game_message_with_context(
+        &mut self,
+        msg: &GameMessage,
+        _dispatch_window_input: &mut WindowInputDispatchFn<'_>,
+        _emitted_messages: &mut Vec<GameMessage>,
+    ) -> GameMessageDisposition {
+        self.translate_game_message(msg)
+    }
 }
 
 /// Internal translator data structure
@@ -265,6 +302,11 @@ impl MessageStream {
         self.base.messages.back_mut().unwrap()
     }
 
+    /// Append a message materialized by a synchronous receiving callback.
+    pub fn append_message_value(&mut self, message: GameMessage) {
+        self.base.append_message(message);
+    }
+
     /// Insert a message after another message
     pub fn insert_message(
         &mut self,
@@ -285,6 +327,15 @@ impl MessageStream {
     /// of that same pass. Survivors transfer to TheCommandList and the stream
     /// is then cleared.
     pub fn propagate_messages(&mut self) -> Result<Vec<GameMessage>, Box<dyn std::error::Error>> {
+        let mut no_window_dispatch = |_: WindowInputDispatch, _: &mut Vec<GameMessage>| None;
+        self.propagate_messages_with_context(&mut no_window_dispatch)
+    }
+
+    /// Propagate using the driving client's synchronous window dispatcher.
+    pub fn propagate_messages_with_context(
+        &mut self,
+        dispatch_window_input: &mut WindowInputDispatchFn<'_>,
+    ) -> Result<Vec<GameMessage>, Box<dyn std::error::Error>> {
         let _ = take_emitted_messages();
 
         debug!(
@@ -304,15 +355,22 @@ impl MessageStream {
                 let Some(message) = self.base.messages.iter().nth(idx).cloned() else {
                     break;
                 };
+                let mut emitted = Vec::new();
                 let disposition = match translator.write() {
-                    Ok(mut translator) => translator.translate_game_message(&message),
+                    Ok(mut translator) => translator.translate_game_message_with_context(
+                        &message,
+                        dispatch_window_input,
+                        &mut emitted,
+                    ),
                     Err(e) => {
                         error!("Failed to acquire translator lock: {}", e);
                         GameMessageDisposition::KeepMessage
                     }
                 };
 
-                let emitted = take_emitted_messages();
+                // Legacy translators still emit through the compatibility helper. Drain it at
+                // the same per-translator/per-message boundary and append after borrowed emits.
+                emitted.extend(take_emitted_messages());
                 if !emitted.is_empty() {
                     // C++ appends to the list tail; later iterations of this
                     // translator's pass see the newly appended messages.

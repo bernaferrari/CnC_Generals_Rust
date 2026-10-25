@@ -90,6 +90,9 @@ fn select(
         game_ending: false,
         tooltips_disabled: false,
         cursor_mouse: None,
+        emitted_messages: None,
+            campaign_manager: None,
+            window_manager_owner: None,
     };
     for msg in [WindowMessage::LeftDown, WindowMessage::LeftUp] {
         assert_eq!(

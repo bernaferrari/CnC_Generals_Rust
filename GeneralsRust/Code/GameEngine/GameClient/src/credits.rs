@@ -810,24 +810,33 @@ pub fn simulate_credits_prepare_short_roll() -> bool {
 
 /// Human click-through: OS LeftDown/Up on `CreditsMenu.wnd:ParentCreditsWindow`
 /// (C++ CreditsMenuUpdate / TheCredits::update). Not `simulate_*` first.
-pub fn drive_os_wnd_credits_roll_prepare_like_cpp() -> bool {
-    let clicked = crate::gui::dispatch_os_click_named_window("CreditsMenu.wnd:ParentCreditsWindow");
+pub fn drive_os_wnd_credits_roll_prepare_like_cpp(
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
+    let clicked =
+        crate::gui::dispatch_os_click_named_window("CreditsMenu.wnd:ParentCreditsWindow", effects);
     if !clicked {
         return false;
     }
     simulate_credits_prepare_short_roll()
 }
 
-pub fn drive_os_wnd_credits_roll_update_like_cpp() -> bool {
-    let clicked = crate::gui::dispatch_os_click_named_window("CreditsMenu.wnd:ParentCreditsWindow");
+pub fn drive_os_wnd_credits_roll_update_like_cpp(
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
+    let clicked =
+        crate::gui::dispatch_os_click_named_window("CreditsMenu.wnd:ParentCreditsWindow", effects);
     if !clicked {
         return false;
     }
     simulate_credits_update()
 }
 
-pub fn drive_os_wnd_credits_roll_finished_like_cpp() -> bool {
-    let clicked = crate::gui::dispatch_os_click_named_window("CreditsMenu.wnd:ParentCreditsWindow");
+pub fn drive_os_wnd_credits_roll_finished_like_cpp(
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
+    let clicked =
+        crate::gui::dispatch_os_click_named_window("CreditsMenu.wnd:ParentCreditsWindow", effects);
     if !clicked {
         return false;
     }

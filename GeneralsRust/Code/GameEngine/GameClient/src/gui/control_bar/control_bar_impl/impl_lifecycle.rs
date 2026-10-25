@@ -14,6 +14,7 @@ impl ControlBar {
             observer_mode: false,
             multi_select_mode: false,
             ui_dirty: false,
+            pending_command_clicks: Vec::new(),
             build_queue_data: Vec::new(),
             displayed_queue_count: 0,
             current_frame: 0,
@@ -143,27 +144,22 @@ impl ControlBar {
         }
         Ok(())
     }
-    pub fn update_owned_with_upgrade_source(
-        &mut self,
-        delta_time: Duration,
-        roster: Option<&super::control_bar_observer::NativeObserverRoster>,
-        upgrade_source: crate::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource<'_>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        self.update_owned_receiving(
-            delta_time,
-            roster,
-            upgrade_source,
-            gamelogic::helpers::TheScriptEngine::is_game_ending(),
-        )
-    }
     pub fn update_owned_receiving(
         &mut self,
         delta_time: Duration,
         roster: Option<&super::control_bar_observer::NativeObserverRoster>,
         upgrade_source: crate::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource<'_>,
         game_ending: bool,
+        window_manager_owner: &crate::gui::window_manager::WindowManagerOwner,
+        emitted_messages: &mut Vec<crate::message_stream::game_message::GameMessage>,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        self.apply_live_hook_events_receiving(false, upgrade_source, game_ending);
+        self.apply_live_hook_events_receiving(
+            false,
+            upgrade_source,
+            game_ending,
+            Some(window_manager_owner),
+            emitted_messages,
+        );
         self.update_body(delta_time, false, roster, upgrade_source)?;
         if self.observer_mode {
             if let Some(roster) = roster {
@@ -506,15 +502,41 @@ impl ControlBar {
             standalone_viewport,
             upgrade_source,
             gamelogic::helpers::TheScriptEngine::is_game_ending(),
+            None,
+            &mut Vec::new(),
         );
     }
+    /// Finish command continuations immediately after the WND loan, before input returns.
+    pub fn replay_pending_command_clicks_receiving(
+        &mut self,
+        owner: &crate::gui::window_manager::WindowManagerOwner,
+        messages: &mut Vec<crate::message_stream::game_message::GameMessage>,
+    ) {
+        for click in std::mem::take(&mut self.pending_command_clicks) {
+            super::with_host_control_bar_input_provenance(click.input_provenance, || {
+                self.process_context_sensitive_button_click(click, owner, messages)
+            });
+        }
+    }
+
+    pub fn discard_pending_command_clicks(&mut self) {
+        self.pending_command_clicks.clear();
+    }
+
     fn apply_live_hook_events_receiving(
         &mut self,
         standalone_viewport: bool,
         upgrade_source: crate::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource<'_>,
         game_ending: bool,
+        window_manager_owner: Option<&crate::gui::window_manager::WindowManagerOwner>,
+        emitted_messages: &mut Vec<crate::message_stream::game_message::GameMessage>,
     ) {
         let events = drain_live_control_bar_events();
+        let clicks = if window_manager_owner.is_some() {
+            std::mem::take(&mut self.pending_command_clicks)
+        } else {
+            Vec::new()
+        };
         if events.ui_dirty {
             self.mark_ui_dirty();
         }
@@ -542,13 +564,17 @@ impl ControlBar {
         if standalone_viewport && events.set_scheme_by_player.is_some() {
             self.set_control_bar_scheme_by_player();
         }
-        for click in events.clicks {
-            // A WND callback is deferred through LiveControlBarEvents. Replay
-            // its captured origin only while publishing this exact command;
-            // it must not leak to a later unrelated request.
-            super::with_host_control_bar_input_provenance(click.input_provenance, || {
-                self.process_context_sensitive_button_click(click.control_id, click.msg);
-            });
+        if let Some(window_manager_owner) = window_manager_owner {
+            for click in clicks {
+                // Replay the receiving bar's owned click at the original update phase.
+                super::with_host_control_bar_input_provenance(click.input_provenance, || {
+                    self.process_context_sensitive_button_click(
+                        click,
+                        window_manager_owner,
+                        emitted_messages,
+                    )
+                });
+            }
         }
         let _ = events.transitions;
     }

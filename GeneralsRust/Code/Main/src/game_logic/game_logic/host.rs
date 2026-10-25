@@ -9,6 +9,14 @@ use super::prelude::*;
 use super::script_camera::*;
 use super::*;
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum CampaignSessionKind {
+    #[default]
+    None,
+    Campaign,
+    Challenge,
+}
+
 pub struct GameLogic {
     /// Single logical camera target and native impulse, shared by client input
     /// and synchronous FX. Construction never publishes this session state.
@@ -177,6 +185,9 @@ pub struct GameLogic {
 
     /// Game mode
     pub(super) game_mode: GameMode,
+    /// Read-only admission classification for the current campaign session.
+    /// This is not duplicated campaign progress; it survives until reset/restore.
+    pub(crate) campaign_session_kind: CampaignSessionKind,
 
     /// Active skirmish/match rules (from skirmish UI config).
     pub(super) skirmish_rules: SkirmishRulesState,

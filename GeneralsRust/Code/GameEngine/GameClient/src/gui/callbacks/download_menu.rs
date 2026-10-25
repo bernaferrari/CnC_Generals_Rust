@@ -111,7 +111,7 @@ fn update_static_text(window: &Option<Rc<RefCell<GameWindow>>>, text: &str) {
 fn handle_download_error() {
     let error_key = {
         let download_slot = download_manager();
-    let mut guard = download_slot
+        let mut guard = download_slot
             .lock()
             .expect("download manager slot re-entered on the GUI thread");
         guard
@@ -124,7 +124,7 @@ fn handle_download_error() {
     message_box_ok(
         &title,
         &body,
-        Some(Box::new(|| {
+        Some(Box::new(|_| {
             crate::gui::shell::main_menu::get_main_menu().handle_canceled_download(true);
             close_download_window();
         })),
@@ -142,7 +142,7 @@ fn handle_download_success(should_quit: bool) {
     message_box_ok(
         &title,
         &body,
-        Some(Box::new(move || {
+        Some(Box::new(move |_| {
             if should_quit {
                 if let Some(engine) = get_game_engine() {
                     let mut engine = engine.lock();
@@ -200,9 +200,9 @@ fn update_from_event(state: &mut DownloadMenuState, event: DownloadEvent) {
         DownloadEvent::StatusUpdate(_) => {
             let status_key = {
                 let download_slot = download_manager();
-    let mut guard = download_slot
-            .lock()
-            .expect("download manager slot re-entered on the GUI thread");
+                let mut guard = download_slot
+                    .lock()
+                    .expect("download manager slot re-entered on the GUI thread");
                 guard
                     .as_mut()
                     .map(|manager| manager.status_key().to_string())
@@ -236,9 +236,9 @@ fn update_from_event(state: &mut DownloadMenuState, event: DownloadEvent) {
         DownloadEvent::End => {
             let (should_start_next, should_quit) = {
                 let download_slot = download_manager();
-    let mut guard = download_slot
-            .lock()
-            .expect("download manager slot re-entered on the GUI thread");
+                let mut guard = download_slot
+                    .lock()
+                    .expect("download manager slot re-entered on the GUI thread");
                 guard
                     .as_mut()
                     .map(|manager| {
@@ -286,8 +286,8 @@ pub fn download_menu_init(_layout: &WindowLayout, _user_data: Option<&mut dyn st
 
     let download_slot = download_manager();
     let mut guard = download_slot
-            .lock()
-            .expect("download manager slot re-entered on the GUI thread");
+        .lock()
+        .expect("download manager slot re-entered on the GUI thread");
     if guard.is_none() {
         *guard = Some(DownloadManager::new());
     }
@@ -312,7 +312,7 @@ pub fn download_menu_update(_layout: &WindowLayout, _user_data: Option<&mut dyn 
     let mut state = state_handle.borrow_mut();
     let events = {
         let download_slot = download_manager();
-    let mut guard = download_slot
+        let mut guard = download_slot
             .lock()
             .expect("download manager slot re-entered on the GUI thread");
         guard
@@ -400,8 +400,8 @@ mod tests {
 pub fn queue_download(download: QueuedDownload) {
     let download_slot = download_manager();
     let mut guard = download_slot
-            .lock()
-            .expect("download manager slot re-entered on the GUI thread");
+        .lock()
+        .expect("download manager slot re-entered on the GUI thread");
     if let Some(manager) = guard.as_mut() {
         manager.queue_file_for_download(download);
     }
@@ -410,8 +410,8 @@ pub fn queue_download(download: QueuedDownload) {
 pub fn start_next_download() {
     let download_slot = download_manager();
     let mut guard = download_slot
-            .lock()
-            .expect("download manager slot re-entered on the GUI thread");
+        .lock()
+        .expect("download manager slot re-entered on the GUI thread");
     if let Some(manager) = guard.as_mut() {
         let _ = manager.download_next_queued_file();
     }

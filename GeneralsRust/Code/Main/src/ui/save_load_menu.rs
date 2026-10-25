@@ -369,11 +369,11 @@ impl SaveLoadMenu {
         // C++ setEditDescription pre-fills campaign+mission (or map leaf).
         // Mission/auto names use GUI:MissionSave when a campaign is live.
         if self.save_name_input.trim().is_empty() {
-            let mission = crate::save_load::current_mission_save_description();
+            let mission = crate::save_load::current_mission_save_description(None);
             self.save_name_input = if !mission.is_empty() {
                 mission
             } else {
-                crate::save_load::default_save_edit_description("")
+                crate::save_load::default_save_edit_description("", None)
             };
         }
         self.dialog_state = SaveLoadDialogState::SaveDescription;
@@ -1087,11 +1087,11 @@ mod tests {
         assert!(menu.handle_mouse_click(x, y, MouseButton::Left).is_none());
         assert_eq!(menu.dialog_state(), SaveLoadDialogState::SaveDescription);
         let expected = {
-            let mission = crate::save_load::current_mission_save_description();
+            let mission = crate::save_load::current_mission_save_description(None);
             if !mission.is_empty() {
                 mission
             } else {
-                crate::save_load::default_save_edit_description("")
+                crate::save_load::default_save_edit_description("", None)
             }
         };
         assert_eq!(menu.save_name_input(), expected);

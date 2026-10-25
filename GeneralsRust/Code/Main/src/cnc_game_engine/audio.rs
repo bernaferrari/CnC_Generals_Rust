@@ -1,6 +1,21 @@
 #![allow(unused_imports, unused_variables, dead_code, non_snake_case)]
 use super::*;
 impl CnCGameEngine {
+    /// Move full resolved GameLogic requests into this engine's AudioManager
+    /// after a completed logic step. The audio subsystem drains them next frame,
+    /// preserving C++ GameEngine::update ordering and request metadata.
+    pub(super) fn dispatch_game_logic_audio_events(&mut self) {
+        let events = self.game_logic.process_audio_events();
+        if let Some(audio) = self
+            .subsystem_manager
+            .get_mut::<crate::subsystem_manager::AudioManagerSubsystem>()
+        {
+            for event in events {
+                audio.queue_event(event);
+            }
+        }
+    }
+
     pub(super) fn toggle_pause(&mut self) {
         // C++ has no dedicated pause screen: in-match pause is ESC /
         // MSG_META_OPTIONS -> ToggleQuitMenu (CommandXlat.cpp:3091-3094,
@@ -134,10 +149,12 @@ impl CnCGameEngine {
             // TheAudio produced no live handle. No GameLogic dual-write.
             let event = crate::game_logic::AudioEventRequest::new(kind);
             log::trace!("🔊 UI presentation audio: {}", event.event_type);
-            let _ = crate::subsystem_manager::with_subsystem_mut::<
-                crate::subsystem_manager::AudioManagerSubsystem,
-                _,
-            >(|audio| audio.queue_event(event));
+            if let Some(audio) = self
+                .subsystem_manager
+                .get_mut::<crate::subsystem_manager::AudioManagerSubsystem>()
+            {
+                audio.queue_event(event);
+            }
             return;
         }
 

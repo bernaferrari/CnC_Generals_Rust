@@ -68,6 +68,7 @@ fn actual_owned_command_tooltip_hover_and_delete_use_receiving_bar_and_window_tr
             game_ending: false,
             tooltips_disabled: false,
             cursor_mouse: Some(&mouse),
+            emitted_messages: None,
         };
         windows.process_mouse_event_with_control_bar(
             WindowMessage::MousePos,
@@ -126,6 +127,7 @@ fn actual_owned_command_tooltip_hover_and_delete_use_receiving_bar_and_window_tr
             game_ending: false,
             tooltips_disabled: false,
             cursor_mouse: Some(&mouse),
+            emitted_messages: None,
         };
         windows.refresh_control_bar_tooltip(20, 20, &mut context);
         drop(context);
@@ -154,6 +156,7 @@ fn actual_owned_command_tooltip_hover_and_delete_use_receiving_bar_and_window_tr
             game_ending: false,
             tooltips_disabled: false,
             cursor_mouse: Some(&mouse),
+            emitted_messages: None,
         };
         windows.refresh_control_bar_tooltip(400, 400, &mut context);
     }

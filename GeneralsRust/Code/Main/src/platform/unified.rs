@@ -6,9 +6,7 @@
 */
 
 use super::*;
-use crate::subsystem_manager::{
-    GameMessageType, MessageStreamSubsystem, get_subsystem_manager, with_subsystem_mut,
-};
+use crate::subsystem_manager::GameMessageType;
 use anyhow::Result;
 use log::{debug, info, warn};
 use std::sync::{Arc, Weak};
@@ -73,7 +71,7 @@ impl GameMessageHandler {
 
     fn push_message(&self, message_type: GameMessageType) {
         use game_engine::common::message_stream::{
-            append_message_to_stream, GameMessageType as EngineMessage,
+            GameMessageType as EngineMessage, append_message_to_stream,
         };
 
         // C++ WinMain.cpp:361 and :373 append MSG_META_DEMO_INSTANT_QUIT.
@@ -90,26 +88,6 @@ impl GameMessageHandler {
                 "Message stream subsystem unavailable for {:?}",
                 message_type
             );
-        }
-    }
-
-    /// Notify the rendering subsystem that focus has changed.
-    fn notify_graphics_focus_change(&self, active: bool) {
-        if let Some(subsystem_manager) = get_subsystem_manager() {
-            let _ = subsystem_manager.lock().notify_focus_change(active);
-        }
-    }
-
-    fn notify_audio_focus_change(&self, active: bool) {
-        if let Some(subsystem_manager) = get_subsystem_manager() {
-            let _ = subsystem_manager.lock().notify_audio_focus_change(active);
-        }
-    }
-
-    /// Reset input state across subsystems (matches TheKeyboard->resetKeys()).
-    fn notify_input_reset(&self) {
-        if let Some(subsystem_manager) = get_subsystem_manager() {
-            let _ = subsystem_manager.lock().notify_focus_change(false);
         }
     }
 
@@ -140,7 +118,6 @@ impl WindowMessageHandler for GameMessageHandler {
 
         if active != self.is_app_active {
             self.is_app_active = active;
-            self.notify_graphics_focus_change(active);
         }
 
         // WM_ACTIVATE equivalent (audio focus gain/lose).
@@ -152,7 +129,6 @@ impl WindowMessageHandler for GameMessageHandler {
                 // restore mouse limits / cursor grab on activate.
                 if !self.audio_has_focus {
                     self.audio_has_focus = true;
-                    self.notify_audio_focus_change(true);
                 }
             }
             ApplicationFocusState::Inactive => {
@@ -166,7 +142,6 @@ impl WindowMessageHandler for GameMessageHandler {
                 }
                 if self.audio_has_focus {
                     self.audio_has_focus = false;
-                    self.notify_audio_focus_change(false);
                 }
             }
             _ => {}
@@ -293,7 +268,6 @@ impl WindowMessageHandler for GameMessageHandler {
 
         // Reset all pressed keys so the game doesn't see stale key state after
         // focus returns (matches TheKeyboard->resetKeys()).
-        self.notify_input_reset();
 
         // Release cursor grab on focus loss, matching TheWin32Mouse->lostFocus(TRUE).
         if !gained && self.cursor_locked {
@@ -342,7 +316,6 @@ impl WindowMessageHandler for GameMessageHandler {
         }
         if self.audio_has_focus {
             self.audio_has_focus = false;
-            self.notify_audio_focus_change(false);
         }
         self.is_app_active = false;
         Ok(())

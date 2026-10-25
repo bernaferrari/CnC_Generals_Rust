@@ -99,9 +99,8 @@ impl<'a> CommandExecutor<'a> {
             }
 
             // Wave 233: stop-moving + order-target via GameLogic authority API.
-            let _ = self
-                .game_logic
-                .unit_command_stop_moving_order_target(unit_id, Some(target_id));
+            self.game_logic
+                .unit_command_stop_moving_order_target(unit_id, Some(target_id))?;
             if self.path_to_goal_with_state(unit_id, target_pos, AIState::SpecialAbility)? {
                 issued_units.push(unit_id);
                 any = true;
@@ -164,9 +163,8 @@ impl<'a> CommandExecutor<'a> {
             }
 
             // Wave 233: stop-moving + order-target via GameLogic authority API.
-            let _ = self
-                .game_logic
-                .unit_command_stop_moving_order_target(unit_id, Some(target_id));
+            self.game_logic
+                .unit_command_stop_moving_order_target(unit_id, Some(target_id))?;
             if self.path_to_goal_with_state(unit_id, target_pos, AIState::SpecialAbility)? {
                 issued_units.push(unit_id);
                 any = true;
@@ -232,9 +230,8 @@ impl<'a> CommandExecutor<'a> {
             }
 
             // Wave 233: stop-moving + order-target via GameLogic authority API.
-            let _ = self
-                .game_logic
-                .unit_command_stop_moving_order_target(unit_id, Some(target_id));
+            self.game_logic
+                .unit_command_stop_moving_order_target(unit_id, Some(target_id))?;
             if self.path_to_goal_with_state(unit_id, target_pos, AIState::SpecialAbility)? {
                 issued_units.push(unit_id);
                 any = true;
@@ -324,9 +321,8 @@ impl<'a> CommandExecutor<'a> {
             {
                 any = true;
             } else {
-                let _ = self
-                    .game_logic
-                    .unit_command_stop_moving_order_target(unit_id, None);
+                self.game_logic
+                    .unit_command_stop_moving_order_target(unit_id, None)?;
                 let _ = self
                     .game_logic
                     .unit_command_set_ai_state(unit_id, AIState::Idle);
@@ -394,9 +390,8 @@ impl<'a> CommandExecutor<'a> {
             }
 
             // Wave 233: stop-moving + order-target via GameLogic authority API.
-            let _ = self
-                .game_logic
-                .unit_command_stop_moving_order_target(unit_id, Some(target_id));
+            self.game_logic
+                .unit_command_stop_moving_order_target(unit_id, Some(target_id))?;
             // C++ CommandXlat.cpp:548-556 VoiceSnipePilot + ActionManager.cpp:1944-1950
             // MSG_DO_WEAPON_AT_OBJECT DAMAGE_KILLPILOT. Retail
             // GLAJarmenKellVehiclePilotSniperRifle AttackRange is 225, not
@@ -495,9 +490,8 @@ impl<'a> CommandExecutor<'a> {
             }
 
             // Wave 233: stop-moving + order-target via GameLogic authority API.
-            let _ = self
-                .game_logic
-                .unit_command_stop_moving_order_target(unit_id, Some(target_id));
+            self.game_logic
+                .unit_command_stop_moving_order_target(unit_id, Some(target_id))?;
             if self.path_to_goal_with_state(unit_id, target_pos, AIState::SpecialAbility)? {
                 issued_units.push(unit_id);
                 any = true;
@@ -571,9 +565,8 @@ impl<'a> CommandExecutor<'a> {
             }
 
             // Wave 233: stop-moving + order-target via GameLogic authority API.
-            let _ = self
-                .game_logic
-                .unit_command_stop_moving_order_target(unit_id, Some(target_id));
+            self.game_logic
+                .unit_command_stop_moving_order_target(unit_id, Some(target_id))?;
             if self.path_to_goal_with_state(unit_id, target_pos, AIState::SpecialAbility)? {
                 issued_units.push(unit_id);
                 any = true;
@@ -649,9 +642,8 @@ impl<'a> CommandExecutor<'a> {
             }
 
             // Wave 233: stop-moving + order-target via GameLogic authority API.
-            let _ = self
-                .game_logic
-                .unit_command_stop_moving_order_target(unit_id, Some(target_id));
+            self.game_logic
+                .unit_command_stop_moving_order_target(unit_id, Some(target_id))?;
             if self.path_to_goal_with_state(unit_id, target_pos, AIState::SpecialAbility)? {
                 issued_units.push(unit_id);
                 any = true;
@@ -794,9 +786,8 @@ impl<'a> CommandExecutor<'a> {
             }
 
             // Wave 233: stop-moving + order-target via GameLogic authority API.
-            let _ = self
-                .game_logic
-                .unit_command_stop_moving_order_target(unit_id, Some(target_id));
+            self.game_logic
+                .unit_command_stop_moving_order_target(unit_id, Some(target_id))?;
             if self.path_to_goal_with_state(unit_id, target_pos, AIState::SpecialAbility)? {
                 issued_units.push(unit_id);
                 any = true;
@@ -885,9 +876,8 @@ impl<'a> CommandExecutor<'a> {
             }
 
             // Wave 233: stop-moving + order-target via GameLogic authority API.
-            let _ = self
-                .game_logic
-                .unit_command_stop_moving_order_target(unit_id, Some(target_id));
+            self.game_logic
+                .unit_command_stop_moving_order_target(unit_id, Some(target_id))?;
             if self.path_to_goal_with_state(unit_id, target_pos, AIState::SpecialAbility)? {
                 issued_units.push(unit_id);
                 any = true;
@@ -1013,9 +1003,8 @@ impl<'a> CommandExecutor<'a> {
             }
 
             // Wave 233: stop-moving + order-target via GameLogic authority API.
-            let _ = self
-                .game_logic
-                .unit_command_stop_moving_order_target(unit_id, Some(target_id));
+            self.game_logic
+                .unit_command_stop_moving_order_target(unit_id, Some(target_id))?;
             // C++ SpecialAbilityDisguiseAsVehicle StartAbilityRange = 1e6
             // residual: the ability arms and completes without an approach
             // walk, so a failed A* allocation (e.g. no loaded map in a bare

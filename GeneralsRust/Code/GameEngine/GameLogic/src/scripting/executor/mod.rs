@@ -1373,6 +1373,14 @@ pub struct ScriptContext {
 }
 
 impl ScriptContext {
+    pub fn with_session_world(
+        mut self,
+        world: Arc<Mutex<crate::scripting::HostTriggerWorld>>,
+    ) -> Self {
+        self.host_trigger_world = world;
+        self
+    }
+
     /// An installed owner is authoritative, including an installed empty
     /// map. Only standalone, uninitialized contexts retain ambient fallback.
     fn owned_trigger_area(

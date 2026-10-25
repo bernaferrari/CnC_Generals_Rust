@@ -15,7 +15,10 @@ impl ScriptEvaluator {
                 .flatten()
                 .unwrap_or_else(|| raw.to_string()),
             TEAM_THE_PLAYER => {
-                if !is_generals_challenge_campaign() {
+                if !self
+                    .with_host_trigger_world(|context| context.is_generals_challenge_campaign())
+                    .unwrap_or(false)
+                {
                     return raw.to_string();
                 }
                 player_list()
@@ -81,7 +84,10 @@ impl ScriptEvaluator {
         let raw = param.get_string();
         let resolved = match raw {
             THE_PLAYER => {
-                if !is_generals_challenge_campaign() {
+                if !self
+                    .with_host_trigger_world(|context| context.is_generals_challenge_campaign())
+                    .unwrap_or(false)
+                {
                     raw.to_string()
                 } else {
                     player_list()
