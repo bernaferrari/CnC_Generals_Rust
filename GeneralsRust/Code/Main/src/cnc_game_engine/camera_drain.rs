@@ -131,7 +131,7 @@ impl CnCGameEngine {
             }
             if let Some(ref name) = pres.pending_radar_movie {
                 // Radar movies use InGameUI path when available.
-                let started = game_client::helpers::TheInGameUI::play_movie(name);
+                let started = self.game_client.play_radar_movie(name);
                 if !started {
                     let _ = game_client::core::script_action_handler::play_script_display_movie(
                         self.game_client.script_display_receiver(),
@@ -1298,6 +1298,13 @@ impl CnCGameEngine {
         let cursor_mouse = self.game_client.input_mouse_handle();
         let observer_roster = self.receiving_observer_roster();
         let camera_rules = self.game_logic.camera_input_rules();
+        self.control_bar.set_receiving_upgrade_definitions(
+            &self.game_logic.upgrade_definitions,
+            self.game_logic
+                .receiving_module_content
+                .as_ref()
+                .map(|content| content.action_definitions_shared()),
+        );
         let upgrade_observer = self.game_logic.receiving_upgrade_tooltip_observer();
         let mut replay_operation =
             game_client::gui::callbacks::replay_menu::ingress::ReplayMenuOperation::new(
@@ -1325,6 +1332,7 @@ impl CnCGameEngine {
                               main_menu: &mut game_client::gui::shell::main_menu::MainMenu,
                               menu_host: &mut game_client::gui::campaign_launch_host_bridge::MenuHostMailbox,
                               display: &mut game_client::core::script_action_handler::ScriptDisplayReceiver,
+                              videos: &mut game_client::gui::window_video_manager::WindowVideoManager,
                               request,
                               messages: &mut Vec<game_engine::common::message_stream::GameMessage>| {
                 let mut context = game_client::gui::window_manager::ControlBarInputContext {
@@ -1335,7 +1343,7 @@ impl CnCGameEngine {
                     control_bar: &mut *control_bar, viewport: &mut *viewport,
                     replay, game_ending, tooltips_disabled, cursor_mouse: cursor_mouse.as_ref(),
                     window_manager_owner: Some(owner), campaign_manager: Some(campaign), main_menu: Some(main_menu),
-                    menu_world: Some(menu_world), menu_host: Some(menu_host), script_display: Some(display),
+                    menu_world: Some(menu_world), menu_host: Some(menu_host), script_display: Some(display), window_videos: Some(videos),
                     emitted_messages: Some(messages),
                 };
                 let result = game_client::gui::window_manager::dispatch_translated_window_input_for_owner(owner, request, &mut context);
@@ -1659,6 +1667,13 @@ impl CnCGameEngine {
             #[cfg(feature = "game_client")]
             {
                 self.update_owned_control_bar_animations();
+                self.control_bar.set_receiving_upgrade_definitions(
+                    &self.game_logic.upgrade_definitions,
+                    self.game_logic
+                        .receiving_module_content
+                        .as_ref()
+                        .map(|content| content.action_definitions_shared()),
+                );
                 pres.apply_to_control_bar(&mut self.control_bar);
                 let _ = self
                     .update_receiving_observer_control_bar(std::time::Duration::from_millis(33));
@@ -1782,6 +1797,13 @@ impl CnCGameEngine {
         #[cfg(feature = "game_client")]
         {
             self.update_owned_control_bar_animations();
+            self.control_bar.set_receiving_upgrade_definitions(
+                &self.game_logic.upgrade_definitions,
+                self.game_logic
+                    .receiving_module_content
+                    .as_ref()
+                    .map(|content| content.action_definitions_shared()),
+            );
             pres.apply_to_control_bar(&mut self.control_bar);
             let _ =
                 self.update_receiving_observer_control_bar(std::time::Duration::from_millis(33));
@@ -2446,6 +2468,13 @@ impl CnCGameEngine {
             #[cfg(feature = "game_client")]
             {
                 self.update_owned_control_bar_animations();
+                self.control_bar.set_receiving_upgrade_definitions(
+                    &self.game_logic.upgrade_definitions,
+                    self.game_logic
+                        .receiving_module_content
+                        .as_ref()
+                        .map(|content| content.action_definitions_shared()),
+                );
                 pres.apply_to_control_bar(&mut self.control_bar);
                 let _ = self
                     .update_receiving_observer_control_bar(std::time::Duration::from_millis(33));

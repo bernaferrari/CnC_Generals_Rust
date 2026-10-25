@@ -80,6 +80,7 @@ fn select(
     let mut view = View;
     let mut context = ControlBarInputContext {
             script_display: None,
+            window_videos: None,
             upgrade_tooltip: crate::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource::Standalone,
         replay_version: None,
         replay_menu: Some(&mut operation),

@@ -4,13 +4,13 @@ fn initialize_single_player_windows(
     wm: &mut WindowManager,
     did_mem_pass: bool,
     campaign_manager: &crate::gui::campaign_manager::CampaignManager,
-    runtime: &mut LoadScreenRuntime,
+    runtime: &mut LoadScreenOperation<'_>,
 ) {
     with_single_player_load_screen_state(
         |state| *state = SinglePlayerLoadScreenState::default(),
         runtime,
     );
-    with_window_video_manager(|manager| manager.init());
+    with_window_video_manager(runtime.videos, |manager| manager.init());
 
     set_window_text(wm, "SinglePlayerLoadScreen.wnd:Percent", "0%");
     hide_window(wm, "SinglePlayerLoadScreen.wnd:Percent", true);
@@ -77,6 +77,7 @@ fn initialize_single_player_windows(
         wm,
         "SinglePlayerLoadScreen.wnd:ParentSinglePlayerLoadScreen",
         &movie_label,
+        runtime,
     ) {
         with_single_player_load_screen_state(
             |state| {
@@ -151,12 +152,12 @@ fn apply_single_player_campaign_images(
 
 fn with_single_player_load_screen_state<R>(
     f: impl FnOnce(&mut SinglePlayerLoadScreenState) -> R,
-    runtime: &mut LoadScreenRuntime,
+    runtime: &mut LoadScreenOperation<'_>,
 ) -> R {
-    f(&mut runtime.single_player)
+    f(&mut runtime.state.single_player)
 }
 
-fn finish_single_player_load_screen_audio_prelude(runtime: &mut LoadScreenRuntime) {
+fn finish_single_player_load_screen_audio_prelude(runtime: &mut LoadScreenOperation<'_>) {
     // C++ LoadScreen.cpp:532-533 `// PULLED FROM THE MISSION DISK` — the movie
     // loop never calls `moveWindows` (the only BriefingVoice caller at :217-220).
     // After the movie / VoiceLength delay, only `LoadScreenAmbient` plays (:590).
@@ -186,7 +187,7 @@ fn single_player_prelude_outcome(state: LoadScreenPreludeState) -> LoadScreenPre
 fn complete_single_player_load_screen_prelude(
     wm: &mut WindowManager,
     outcome: LoadScreenPreludeOutcome,
-    runtime: &mut LoadScreenRuntime,
+    runtime: &mut LoadScreenOperation<'_>,
 ) {
     let should_play_audio = with_single_player_load_screen_state(
         |state| {
@@ -218,7 +219,7 @@ fn complete_single_player_load_screen_prelude(
 
 fn advance_single_player_load_screen_prelude(
     wm: &mut WindowManager,
-    runtime: &mut LoadScreenRuntime,
+    runtime: &mut LoadScreenOperation<'_>,
 ) -> LoadScreenPreludeStep {
     let (prelude_state, movie_label, deadline, duration) = with_single_player_load_screen_state(
         |state| {
@@ -240,8 +241,8 @@ fn advance_single_player_load_screen_prelude(
             LoadScreenPreludeStep::Finished(single_player_prelude_outcome(prelude_state))
         }
         LoadScreenPreludeState::Movie => {
-            with_window_video_manager(|manager| manager.update());
-            if is_single_player_movie_playing(&movie_label) {
+            with_window_video_manager(runtime.videos, |manager| manager.update());
+            if is_single_player_movie_playing(&movie_label, runtime) {
                 LoadScreenPreludeStep::Pending(LOAD_SCREEN_PRELUDE_MOVIE_IDLE_INTERVAL)
             } else {
                 complete_single_player_load_screen_prelude(
@@ -280,7 +281,7 @@ fn advance_single_player_load_screen_prelude(
 
 fn skip_single_player_load_screen_prelude(
     wm: &mut WindowManager,
-    runtime: &mut LoadScreenRuntime,
+    runtime: &mut LoadScreenOperation<'_>,
 ) -> LoadScreenPreludeOutcome {
     let state = with_single_player_load_screen_state(|state| state.prelude_state, runtime);
     if matches!(

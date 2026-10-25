@@ -1419,20 +1419,24 @@ impl HostSpecialPowerStrikeRegistry {
         current_frame: u32,
         view: &mut crate::game_logic::host_fx_list_dispatch::ObjectFxServices<'_, '_>,
     ) {
-        self.advance_particle_intensity_schedule_with_dispatch(
-            current_frame,
-            &mut |name, position, secondary, speed, radius, matrix| {
-                crate::game_logic::GameLogic::dispatch_fx_list_at_position_with_view(
-                    name, position, secondary, speed, radius, matrix, view,
-                )
-            },
-        )
+        self.advance_particle_intensity_schedule_with_effects(current_frame, view)
     }
 
     pub fn advance_particle_intensity_schedule_with_dispatch(
         &mut self,
         current_frame: u32,
         dispatch_fx: &mut dyn FnMut(&str, Vec3, Option<Vec3>, f32, f32, Option<glam::Mat4>) -> bool,
+    ) {
+        self.advance_particle_intensity_schedule_with_effects(
+            current_frame,
+            &mut DispatchOnlyUplinkEffects(dispatch_fx),
+        )
+    }
+
+    fn advance_particle_intensity_schedule_with_effects(
+        &mut self,
+        current_frame: u32,
+        effects: &mut dyn ParticleUplinkEffects,
     ) {
         // Pre-fire charge residual on queued ParticleCannon strikes.
         let particle_ids: Vec<u32> = self
@@ -1515,11 +1519,7 @@ impl HostSpecialPowerStrikeRegistry {
                 } else {
                     field.position
                 };
-                spawn_particle_outer_node_flares(
-                    field.source_object,
-                    flare_origin,
-                    field.outer_intensity,
-                );
+                effects.outer_flares(field.source_object, flare_origin, field.outer_intensity);
                 match next_status {
                     ParticleUplinkStatus::Postfire => {
                         field.postfire_applications = field.postfire_applications.saturating_add(1);
@@ -1559,7 +1559,7 @@ impl HostSpecialPowerStrikeRegistry {
                 } else {
                     field.position
                 };
-                play_particle_beam_launch_fx_with_dispatch(origin, dispatch_fx);
+                effects.dispatch(PARTICLE_BEAM_LAUNCH_FX, origin, None, 0.0, 0.0, None);
             }
         }
     }

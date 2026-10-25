@@ -247,7 +247,7 @@ impl CnCGameEngine {
                 }
             };
             let mut emitted_messages = Vec::new();
-            let (window_manager_owner, campaign_manager, main_menu, menu_host, display) =
+            let (window_manager_owner, campaign_manager, main_menu, menu_host, display, videos) =
                 self.game_client.window_owner_campaign_menu_and_host_mut();
             let mut context = game_client::gui::window_manager::ControlBarInputContext {
             upgrade_tooltip: game_client::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource::Receiving(&upgrade_tooltip),
@@ -274,6 +274,7 @@ impl CnCGameEngine {
                 menu_world: Some(menu_world),
                 menu_host: Some(menu_host),
                 script_display: Some(display),
+                window_videos: Some(videos),
             };
             let result = game_client::gui::window_manager::dispatch_os_key_to_window_manager_with_control_bar_for_owner(
                 window_manager_owner,
@@ -459,7 +460,7 @@ impl CnCGameEngine {
             }
         };
         let mut emitted_messages = Vec::new();
-        let (receiving_window_manager, campaign_manager, main_menu, menu_host, display) =
+        let (receiving_window_manager, campaign_manager, main_menu, menu_host, display, videos) =
             self.game_client.window_owner_campaign_menu_and_host_mut();
         let mut context = game_client::gui::window_manager::ControlBarInputContext {
             upgrade_tooltip: game_client::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource::Receiving(&upgrade_tooltip),
@@ -486,6 +487,7 @@ impl CnCGameEngine {
             menu_world: Some(menu_world),
             menu_host: Some(menu_host),
             script_display: Some(display),
+            window_videos: Some(videos),
         };
         let result = game_client::gui::window_manager::dispatch_os_mouse_to_window_manager_with_control_bar_for_owner(
             receiving_window_manager,

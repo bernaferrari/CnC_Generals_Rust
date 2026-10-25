@@ -16,7 +16,7 @@ const SHELL_GAME_LEGAL_UPDATE_INTERVAL: Duration = Duration::from_millis(100);
 // C++ runs the campaign/Challenge prelude synchronously before map work.  Rust
 // must retain a finite escape hatch when a video backend never becomes ready;
 // otherwise this non-event-loop pump could livelock the UI thread forever.
-const LOAD_SCREEN_PRELUDE_MAX_PUMPS: usize = 4_096;
+pub(crate) const LOAD_SCREEN_PRELUDE_MAX_PUMPS: usize = 4_096;
 #[cfg(not(test))]
 const LOAD_SCREEN_PRELUDE_MOVIE_IDLE_INTERVAL: Duration = Duration::from_millis(1);
 #[cfg(test)]
@@ -303,17 +303,16 @@ impl<'a> LoadScreenPresentationPump<'a> {
 }
 /// Disjoint load-screen initialization loan, independent of its UI/device loan.
 pub struct LoadScreenOwner<'a> {
-    pub(crate) owner: &'a WindowManagerOwner,
     pub(crate) campaign: &'a crate::gui::campaign_manager::CampaignManager,
     pub(crate) first_load: &'a mut bool,
-    pub(crate) runtime: &'a mut LoadScreenRuntime,
+    pub(crate) runtime: LoadScreenOperation<'a>,
 }
 impl<'a> LoadScreenOwner<'a> {
-    pub fn runtime_mut(&mut self) -> &mut LoadScreenRuntime {
-        self.runtime
+    pub fn runtime_mut(&mut self) -> &mut LoadScreenOperation<'a> {
+        &mut self.runtime
     }
     pub fn windows(&self) -> &'a WindowManagerOwner {
-        self.owner
+        self.runtime.windows
     }
     pub fn init(
         &mut self,
@@ -321,14 +320,13 @@ impl<'a> LoadScreenOwner<'a> {
         context: &LoadScreenInitContext,
         pump: &mut LoadScreenPresentationPump<'_>,
     ) -> Result<bool, String> {
-        init_load_screen_for_owner_with_pump(
-            self.owner,
+        init_load_screen_with_state(
             kind,
             context,
             self.campaign,
             self.first_load,
             Some(pump),
-            self.runtime,
+            &mut self.runtime,
         )
     }
 }
@@ -448,4 +446,24 @@ pub struct LoadScreenRuntime {
     multiplayer: MultiplayerLoadScreenState,
     map_transfer: MapTransferLoadScreenState,
     challenge: ChallengeLoadScreenState,
+}
+
+/// One bounded loading operation borrows its client's state and window streams.
+pub struct LoadScreenOperation<'a> {
+    pub state: &'a mut LoadScreenRuntime,
+    pub videos: &'a mut super::window_video_manager::WindowVideoManager,
+    pub windows: &'a WindowManagerOwner,
+}
+impl<'a> LoadScreenOperation<'a> {
+    pub fn new(
+        state: &'a mut LoadScreenRuntime,
+        videos: &'a mut super::window_video_manager::WindowVideoManager,
+        windows: &'a WindowManagerOwner,
+    ) -> Self {
+        Self {
+            state,
+            videos,
+            windows,
+        }
+    }
 }

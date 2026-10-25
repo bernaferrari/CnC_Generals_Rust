@@ -1955,6 +1955,7 @@ mod tests {
         let mut emitted_messages = Vec::new();
         let mut effects = WindowEventEffects {
             script_display: None,
+            window_videos: None,
             window_manager_owner: None,
             selected_window: None,
             emitted_messages: &mut emitted_messages,
@@ -1981,6 +1982,7 @@ mod tests {
         let mut emitted_messages = Vec::new();
         let mut effects = WindowEventEffects {
             script_display: None,
+            window_videos: None,
             window_manager_owner: None,
             selected_window: None,
             emitted_messages: &mut emitted_messages,
@@ -2406,6 +2408,7 @@ mod os_wnd_tests {
         let mut emitted_messages = Vec::new();
         let mut effects = WindowEventEffects {
             script_display: None,
+            window_videos: None,
             selected_window: None,
             window_manager_owner: None,
             emitted_messages: &mut emitted_messages,

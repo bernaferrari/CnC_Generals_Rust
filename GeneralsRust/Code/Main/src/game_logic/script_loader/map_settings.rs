@@ -231,11 +231,8 @@ pub fn extract_map_ini_particle_system_blocks(contents: &str) -> String {
 
 /// Overlay map.ini ParticleSystem blocks onto the live GameClient manager
 /// (C++ INIParticleSys.cpp via INI::load CREATE_OVERRIDES).
-pub fn overlay_map_ini_particle_systems(contents: &str) -> usize {
+pub fn collect_map_ini_particle_systems(contents: &str, receiving: &mut Vec<String>) -> usize {
     let extracted = extract_map_ini_particle_system_blocks(contents);
-    if extracted.is_empty() {
-        return 0;
-    }
     let count = extracted
         .lines()
         .filter(|line| {
@@ -245,23 +242,8 @@ pub fn overlay_map_ini_particle_systems(contents: &str) -> usize {
                 .is_some_and(|token| token.eq_ignore_ascii_case("ParticleSystem"))
         })
         .count();
-    // Common INI dispatch hits the live overlay hook when GameClient registered it.
-    let mut ini = INI::new();
-    if let Err(err) = ini.with_inline_source(&extracted, |ini| ini.parse_current_file()) {
-        warn!("map.ini ParticleSystem Common dispatch failed: {err}");
-    }
-    #[cfg(feature = "game_client")]
-    {
-        use game_client::effects::{
-            ParticleSystemINIParser, ParticleSystemManager, get_particle_system_manager_mut,
-        };
-        if let Ok(mut guard) = get_particle_system_manager_mut() {
-            let manager = guard.get_or_insert_with(ParticleSystemManager::new);
-            let parser = ParticleSystemINIParser::default();
-            if let Err(err) = parser.overlay_mixed_source(&extracted, manager) {
-                warn!("map.ini ParticleSystem live overlay failed: {err}");
-            }
-        }
+    if count != 0 {
+        receiving.push(extracted);
     }
     count
 }
@@ -493,11 +475,13 @@ pub(crate) fn parse_map_settings_from_chunky_with_owned_definition_catalogs(
     terrain_definitions: std::sync::Arc<game_engine::common::ini::ini_terrain::TerrainTypes>,
     armor_definitions: Option<std::sync::Arc<gamelogic::object::armor::ArmorDefinitions>>,
     admitted_object_sources: Option<&[(PathBuf, String)]>,
+    upgrade_definitions: gamelogic::upgrade::center::UpgradeCenter,
 ) -> LoaderResult<MapMetadata> {
     parse_map_settings_from_loaded_chunky(
         definition_source,
         chunky,
         MapMetadata {
+            upgrade_definitions: Some(upgrade_definitions),
             terrain_definitions: Some(terrain_definitions),
             armor_definitions,
             camera_clip_rules,
@@ -526,6 +510,12 @@ fn parse_map_settings_from_loaded_chunky(
         .as_deref()
         .cloned()
         .unwrap_or_else(game_engine::common::ini::ini_terrain::TerrainTypes::new);
+    let mut upgrade_definitions = meta.upgrade_definitions.take().unwrap_or_else(|| {
+        game_engine::common::system::upgrade::process_lifetime_upgrade_center()
+            .read()
+            .unwrap_or_else(|error| error.into_inner())
+            .clone()
+    });
     let mut armor_definitions = meta
         .armor_definitions
         .as_deref()
@@ -645,21 +635,22 @@ fn parse_map_settings_from_loaded_chunky(
                     parse_map_default_starting_cash(&contents)?.or(meta.default_starting_cash);
                 // C++ GameLogic.cpp:2404-2408 loadMapINI — full block table
                 // via INI_LOAD_CREATE_OVERRIDES (CommandSet/CommandButton/Upgrade).
-                let (_, updated, armor) =
-                    gamelogic::system::game_initialization::load_map_ini_ui_overrides_with_receiving_definitions(
+                let (_, updated, armor, upgrades) =
+                    gamelogic::system::game_initialization::load_map_ini_ui_overrides_with_owned_upgrade_definitions(
                         &contents,
                         ai_data_target.as_ref().map(std::sync::Arc::clone),
                         terrain_definitions,
                         armor_definitions.to_parsed(),
                         admitted_object_sources.is_some(),
+                        upgrade_definitions,
                     )
                     .map_err(GameLogicError::Configuration)?;
+                upgrade_definitions = upgrades;
                 terrain_definitions = updated;
                 armor_definitions
                     .overlay_parsed(&armor)
                     .map_err(|error| GameLogicError::Configuration(error.to_string()))?;
-                // ParticleSystem still needs the live GameClient manager hook.
-                let _ = overlay_map_ini_particle_systems(&contents);
+                collect_map_ini_particle_systems(&contents, &mut meta.particle_definition_overlays);
                 // Weather CREATE_OVERRIDES + SnowManager flake spacing.
                 overlay_owned_map_weather(
                     &contents,
@@ -744,19 +735,22 @@ fn parse_map_settings_from_loaded_chunky(
                 }
                 meta.default_starting_cash =
                     parse_map_default_starting_cash(&contents)?.or(meta.default_starting_cash);
-                let (_, updated, armor) =
-                    gamelogic::system::game_initialization::load_map_ini_ui_overrides_with_receiving_definitions(
+                let (_, updated, armor, upgrades) =
+                    gamelogic::system::game_initialization::load_map_ini_ui_overrides_with_owned_upgrade_definitions(
                         &contents,
                         ai_data_target.as_ref().map(std::sync::Arc::clone),
                         terrain_definitions,
                         armor_definitions.to_parsed(),
                         admitted_object_sources.is_some(),
+                        upgrade_definitions,
                     )
                     .map_err(GameLogicError::Configuration)?;
+                upgrade_definitions = upgrades;
                 terrain_definitions = updated;
                 armor_definitions
                     .overlay_parsed(&armor)
                     .map_err(|error| GameLogicError::Configuration(error.to_string()))?;
+                collect_map_ini_particle_systems(&contents, &mut meta.particle_definition_overlays);
                 overlay_owned_map_weather(
                     &contents,
                     &mut meta.weather_definition,
@@ -816,6 +810,7 @@ fn parse_map_settings_from_loaded_chunky(
     // None is the explicit mapless residual profile. A map without Armor
     // blocks does not silently change it into an authored empty catalogue.
     // Native startup always supplies Some, including an intentionally empty set.
+    meta.upgrade_definitions = Some(upgrade_definitions);
     if meta.armor_definitions.is_some() || !armor_definitions.is_empty() {
         meta.armor_definitions = Some(std::sync::Arc::new(armor_definitions));
     }

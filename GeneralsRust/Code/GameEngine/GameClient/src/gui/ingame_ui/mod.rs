@@ -23,7 +23,7 @@ use thiserror::Error;
 use wgpu::TextureView;
 
 use super::ui_renderer::{UIRect, UIRenderer, UIRendererError};
-use super::window_video_manager::with_window_video_manager;
+
 use crate::display::view::{IPoint2, Point3, with_tactical_view, with_tactical_view_ref};
 use crate::game_text::GameText;
 use crate::gui::callbacks::diplomacy::update_diplomacy_briefing_text;

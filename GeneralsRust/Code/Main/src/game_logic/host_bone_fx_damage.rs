@@ -295,6 +295,126 @@ impl HostBoneFxDamageData {
         self.pending.last().cloned()
     }
 
+    pub(crate) fn prepare_body_state_retirement(
+        &mut self,
+        state: HostBodyDamageType,
+    ) -> BoneParticleRetirement {
+        // C++ publishes the new BoneFX body state before killing old systems.
+        self.cur_state = state.ordinal();
+        self.take_running_particle_systems()
+    }
+    pub(crate) fn change_body_state_with_random(
+        &mut self,
+        new_state: HostBodyDamageType,
+        frame: u32,
+        mut draw: impl FnMut(f32, f32) -> f32,
+    ) {
+        if self.authored.is_empty() {
+            return;
+        }
+        self.cur_state = new_state.ordinal();
+        // Source retirement receipt was already consumed by the Body receiver.
+        self.init_times_with_random(frame as i32, &mut draw);
+        // C++ changeBodyDamageState leaves m_active unchanged; first update
+        // still performs its own initTimes when damage preceded that update.
+        self.transitions = self.transitions.saturating_add(1);
+    }
+    fn init_times_with_random(&mut self, now: i32, draw: &mut dyn FnMut(f32, f32) -> f32) {
+        let state = self.cur_state as usize;
+        if state >= BODY_DAMAGE_TYPE_COUNT {
+            return;
+        }
+        for i in 0..BONE_FX_MAX_BONES {
+            self.next_fx_frame[state][i] =
+                next_from_now_with_random(self.authored.fx[state][i].as_ref(), now, draw);
+            self.next_ocl_frame[state][i] =
+                next_from_now_with_random(self.authored.ocl[state][i].as_ref(), now, draw);
+            self.next_ps_frame[state][i] =
+                next_from_now_with_random(self.authored.psys[state][i].as_ref(), now, draw);
+        }
+    }
+    fn source_due_event(&self, kind: FireKind, index: usize, now: i32) -> Option<HostBoneFxEvent> {
+        let state = self.cur_state as usize;
+        if state >= BODY_DAMAGE_TYPE_COUNT {
+            return None;
+        }
+        let (deadline, slot) = match kind {
+            FireKind::Fx => (
+                self.next_fx_frame[state][index],
+                self.authored.fx[state][index].as_ref(),
+            ),
+            FireKind::Ocl => (
+                self.next_ocl_frame[state][index],
+                self.authored.ocl[state][index].as_ref(),
+            ),
+            FireKind::Psys => (
+                self.next_ps_frame[state][index],
+                self.authored.psys[state][index].as_ref(),
+            ),
+        };
+        if !due(deadline, now) {
+            return None;
+        }
+        let slot = slot?;
+        let name = nonempty_name(slot.name.trim());
+        let state = state_from_ordinal(self.cur_state);
+        Some(HostBoneFxEvent {
+            old_state: state,
+            new_state: state,
+            bone: slot.bone.clone(),
+            slot_index: Some(index),
+            kind,
+            fx_list: if matches!(kind, FireKind::Fx) {
+                name.clone()
+            } else {
+                None
+            },
+            ocl: if matches!(kind, FireKind::Ocl) {
+                name.clone()
+            } else {
+                None
+            },
+            particle_system: if matches!(kind, FireKind::Psys) {
+                name
+            } else {
+                None
+            },
+        })
+    }
+    fn complete_source_event(
+        &mut self,
+        kind: FireKind,
+        index: usize,
+        now: i32,
+        draw: &mut dyn FnMut(f32, f32) -> f32,
+    ) {
+        // C++ re-reads m_curBodyState AFTER the effect callback for both the
+        // definition and destination timer; OCL may have changed it.
+        let state = self.cur_state as usize;
+        if state >= BODY_DAMAGE_TYPE_COUNT {
+            return;
+        }
+        let (slot, timer) = match kind {
+            FireKind::Fx => (
+                self.authored.fx[state][index].as_ref(),
+                &mut self.next_fx_frame[state][index],
+            ),
+            FireKind::Ocl => (
+                self.authored.ocl[state][index].as_ref(),
+                &mut self.next_ocl_frame[state][index],
+            ),
+            FireKind::Psys => (
+                self.authored.psys[state][index].as_ref(),
+                &mut self.next_ps_frame[state][index],
+            ),
+        };
+        *timer = match slot {
+            Some(slot) if !slot.only_once => {
+                now.wrapping_add(delay_with_random(slot.delay_min, slot.delay_max, draw))
+            }
+            _ => -1,
+        };
+    }
     /// C++ `BoneFXUpdate::update` — first call inits Pristine times.
     pub fn tick(&mut self, now: i32) {
         if !self.active {
@@ -507,6 +627,25 @@ fn nonempty_name(name: &str) -> Option<String> {
     }
 }
 
+fn delay_with_random(lo: f32, hi: f32, draw: &mut dyn FnMut(f32, f32) -> f32) -> i32 {
+    if lo == hi {
+        lo as i32
+    } else {
+        draw(lo, hi) as i32
+    }
+}
+fn next_from_now_with_random(
+    slot: Option<&HostBoneFxSlot>,
+    now: i32,
+    draw: &mut dyn FnMut(f32, f32) -> f32,
+) -> i32 {
+    match slot {
+        Some(slot) if !slot.bone.is_empty() => {
+            now.wrapping_add(delay_with_random(slot.delay_min, slot.delay_max, draw))
+        }
+        _ => -1,
+    }
+}
 fn delay_frames(min: f32, max: f32) -> i32 {
     if (min - max).abs() <= f32::EPSILON {
         min as i32
@@ -820,6 +959,89 @@ pub fn bone_local_pos(model: &str, scale: f32, bone: &str) -> Vec3 {
 /// C++ `convertBonePosToWorldPos` residual.
 pub fn bone_world_pos(origin: Vec3, yaw: f32, model: &str, scale: f32, bone: &str) -> Vec3 {
     rotate_yaw_host(origin, yaw, bone_local_pos(model, scale, bone))
+}
+
+impl crate::game_logic::GameLogic {
+    pub(crate) fn update_owned_bone_fx_with_effects(
+        &mut self,
+        id: crate::game_logic::ObjectId,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<()> {
+        let now = self.frame as i32;
+        if let Some(object) = self.objects.get_mut(&id) {
+            if object.bone_fx_damage.is_none() {
+                object.bone_fx_damage = HostBoneFxDamageData::from_template(&object.template_name);
+            }
+            if let Some(bfx) = object.bone_fx_damage.as_mut() {
+                bfx.stamp_last_damage_type(object.last_damage_info_type);
+                if !bfx.active {
+                    bfx.init_times_with_random(now, &mut |lo, hi| {
+                        self.logic_random.next_real(lo, hi)
+                    });
+                    bfx.active = true;
+                }
+            }
+        }
+        // Old host snapshots may contain already-admitted pending receipts.
+        // Consume them once; new source callbacks never populate this list.
+        let saved = self
+            .objects
+            .get_mut(&id)
+            .and_then(|object| object.bone_fx_damage.as_mut())
+            .map(|bfx| bfx.drain_pending())
+            .unwrap_or_default();
+        for event in saved {
+            self.execute_owned_bone_fx_step(id, &event, effects)?;
+        }
+        for index in 0..BONE_FX_MAX_BONES {
+            for kind in [FireKind::Fx, FireKind::Ocl, FireKind::Psys] {
+                let event = self
+                    .objects
+                    .get(&id)
+                    .and_then(|object| object.bone_fx_damage.as_ref())
+                    .and_then(|bfx| bfx.source_due_event(kind, index, now));
+                let Some(event) = event else {
+                    continue;
+                };
+                self.execute_owned_bone_fx_step(id, &event, effects)?;
+                let frame = self.frame as i32;
+                if let Some(bfx) = self
+                    .objects
+                    .get_mut(&id)
+                    .and_then(|object| object.bone_fx_damage.as_mut())
+                {
+                    match kind {
+                        FireKind::Psys => {
+                            bfx.complete_source_event(kind, index, frame, &mut |lo, hi| {
+                                self.session_view.client_random.next_real(lo, hi)
+                            })
+                        }
+                        _ => bfx.complete_source_event(kind, index, frame, &mut |lo, hi| {
+                            self.logic_random.next_real(lo, hi)
+                        }),
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+    fn execute_owned_bone_fx_step(
+        &mut self,
+        id: crate::game_logic::ObjectId,
+        event: &HostBoneFxEvent,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<()> {
+        if let Some(system) = play_bone_fx_event_with_effects(self, event, id.0, effects)? {
+            if let Some(bfx) = self
+                .objects
+                .get_mut(&id)
+                .and_then(|object| object.bone_fx_damage.as_mut())
+            {
+                bfx.track_particle_with_owner(system, effects);
+            }
+        }
+        Ok(())
+    }
 }
 
 fn pristine_bone_local(

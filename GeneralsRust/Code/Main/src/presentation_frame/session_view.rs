@@ -17,6 +17,8 @@ use glam::Vec3;
 
 #[derive(Debug, Default)]
 pub(crate) struct SessionView {
+    pub(crate) client_random: game_engine::common::random_value::RandomState,
+    pub(crate) audio_random: game_engine::common::random_value::RandomState,
     #[cfg(feature = "game_client")]
     pub(crate) fx: crate::game_logic::host_fx_list_dispatch::HostFxState,
     /// C++ Display's script border override belongs to this session's view.

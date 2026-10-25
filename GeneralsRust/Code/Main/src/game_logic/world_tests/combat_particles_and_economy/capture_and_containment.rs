@@ -10,7 +10,7 @@ fn capture_building_upgrade_queue_complete_unlocks_capture_ability() {
     // Supply explicit rules so another fixture's catalog cannot change this
     // C++ ProductionUpdate completion boundary.
     crate::game_logic::host_upgrade_rules::register_test_upgrade(
-        &game_logic,
+        &mut game_logic,
         UPGRADE_INFANTRY_CAPTURE,
         "PLAYER",
         1000,
@@ -512,7 +512,7 @@ fn flashbang_upgrade_queue_complete_equips_ranger_secondary() {
     // Supply explicit rules so another fixture's catalog cannot change this
     // C++ ProductionUpdate completion boundary.
     crate::game_logic::host_upgrade_rules::register_test_upgrade(
-        &game_logic,
+        &mut game_logic,
         UPGRADE_AMERICA_FLASHBANG,
         "PLAYER",
         800,
@@ -640,7 +640,7 @@ fn supply_lines_upgrade_queue_complete_tags_supply_center() {
     // Supply explicit rules so another fixture's catalog cannot change this
     // C++ ProductionUpdate completion boundary.
     crate::game_logic::host_upgrade_rules::register_test_upgrade(
-        &game_logic,
+        &mut game_logic,
         UPGRADE_AMERICA_SUPPLY_LINES,
         "PLAYER",
         800,
@@ -1285,7 +1285,7 @@ fn supply_lines_drop_off_yields_more_cash_than_without() {
     fn run_one_drop_off(with_supply_lines: bool) -> (u32, u32, u32, bool) {
         let mut game_logic = GameLogic::new();
         crate::game_logic::host_upgrade_rules::register_test_upgrade(
-            &game_logic,
+            &mut game_logic,
             UPGRADE_AMERICA_SUPPLY_LINES,
             "PLAYER",
             800,
@@ -1454,7 +1454,7 @@ fn supply_lines_does_not_boost_non_chinook_collector() {
 
     let mut game_logic = GameLogic::new();
     crate::game_logic::host_upgrade_rules::register_test_upgrade(
-        &game_logic,
+        &mut game_logic,
         UPGRADE_AMERICA_SUPPLY_LINES,
         "PLAYER",
         800,

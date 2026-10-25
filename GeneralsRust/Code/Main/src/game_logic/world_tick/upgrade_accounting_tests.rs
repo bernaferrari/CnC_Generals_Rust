@@ -6,7 +6,13 @@ use crate::save_load::snapshot::SnapshotBuilder;
 
 fn world(cost: u32, kind: &str) -> (GameLogic, crate::game_logic::ObjectId) {
     let mut world = GameLogic::new();
-    register_test_upgrade(&world, "Upgrade_OwnedProductionAccounting", kind, cost, 1);
+    register_test_upgrade(
+        &mut world,
+        "Upgrade_OwnedProductionAccounting",
+        kind,
+        cost,
+        1,
+    );
     let mut first = Player::new(0, Team::USA, "owner", true);
     first.resources.supplies = 5000;
     world.add_player(first);

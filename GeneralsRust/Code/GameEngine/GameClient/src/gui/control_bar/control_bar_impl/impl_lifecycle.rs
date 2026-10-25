@@ -1,8 +1,24 @@
 // Split from `gui/control_bar/control_bar.rs` dump. Included by `control_bar_impl/mod.rs`.
 
 impl ControlBar {
+    /// Admit immutable UI definitions from the driving match before its input/
+    /// frame operation. Cloned templates retain identity; no live game state
+    /// is mirrored or discovered through a singleton.
+    pub fn set_receiving_upgrade_definitions(
+        &mut self,
+        catalog: &gamelogic::upgrade::center::UpgradeCenter,
+        actions: Option<
+            Arc<game_engine::common::thing::receiving_module_content::ReceivingActionDefinitions>,
+        >,
+    ) {
+        self.receiving_upgrade_catalog = Some(catalog.clone());
+        self.receiving_upgrade_actions = actions;
+    }
+
     pub fn new() -> Self {
         Self {
+            receiving_upgrade_catalog: None,
+            receiving_upgrade_actions: None,
             tooltip: Default::default(),
             context: Arc::new(RwLock::new(ControlBarContext::default())),
             window_manager: None,

@@ -65,6 +65,11 @@ impl GameLogic {
         // Hoisting this one allocation creates no additional identity owner.
         let live_draw_playback_world = std::sync::Arc::new(());
         let world_services = gamelogic::system::engine_stores::new_world_services();
+        let upgrade_definitions =
+            game_engine::common::system::upgrade::process_lifetime_upgrade_center()
+                .read()
+                .unwrap_or_else(|error| error.into_inner())
+                .clone();
         let mut instance = Self {
             w3d_ghosts: Default::default(),
             host_ghosts: Default::default(),
@@ -82,6 +87,8 @@ impl GameLogic {
             weapon_effect_definitions: Default::default(),
             production_energy: Default::default(),
             ai_definitions,
+            upgrade_definition_base: upgrade_definitions.clone(),
+            upgrade_definitions,
             map_definition_source: None,
             weather_definition_updates: Vec::new(),
             health_events: crate::game_logic::HostHealthEvents::default(),
@@ -844,6 +851,7 @@ impl GameLogic {
         self.w3d_ghosts = Default::default();
         self.host_ghosts = Default::default();
         self.ai_definitions.reset();
+        self.upgrade_definitions = self.upgrade_definition_base.clone();
         self.production_energy.effective = self.production_energy.base;
         self.physics_definitions.effective = self.physics_definitions.base;
         self.body_damage_definitions.effective = self.body_damage_definitions.base;

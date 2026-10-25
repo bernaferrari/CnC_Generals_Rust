@@ -148,7 +148,10 @@ mod tests {
 
     #[test]
     fn multiplayer_init_compacts_visible_context_slots_like_cpp() {
-        let runtime = &mut LoadScreenRuntime::default();
+        let operation_windows = crate::gui::window_manager::WindowManagerOwner::new();
+        let state = &mut LoadScreenRuntime::default();
+        let videos = &mut crate::gui::window_video_manager::WindowVideoManager::new();
+        let runtime = &mut LoadScreenOperation::new(state, videos, &operation_windows);
         #[cfg(not(target_arch = "wasm32"))]
         if let crate::test_process::TestProcess::ParentVerified = crate::test_process::run_bounded(
             module_path!(),
@@ -267,7 +270,10 @@ mod tests {
 
     #[test]
     fn multiplayer_row_team_text_is_localized_like_cpp() {
-        let runtime = &mut LoadScreenRuntime::default();
+        let operation_windows = crate::gui::window_manager::WindowManagerOwner::new();
+        let state = &mut LoadScreenRuntime::default();
+        let videos = &mut crate::gui::window_video_manager::WindowVideoManager::new();
+        let runtime = &mut LoadScreenOperation::new(state, videos, &operation_windows);
         #[cfg(not(target_arch = "wasm32"))]
         if let crate::test_process::TestProcess::ParentVerified = crate::test_process::run_bounded(
             module_path!(),
@@ -340,7 +346,10 @@ mod tests {
 
     #[test]
     fn multiplayer_init_uses_context_general_portrait_features_and_name_like_cpp() {
-        let runtime = &mut LoadScreenRuntime::default();
+        let operation_windows = crate::gui::window_manager::WindowManagerOwner::new();
+        let state = &mut LoadScreenRuntime::default();
+        let videos = &mut crate::gui::window_video_manager::WindowVideoManager::new();
+        let runtime = &mut LoadScreenOperation::new(state, videos, &operation_windows);
         let _state_guard = lock_test_load_screen_state();
         let mut wm = WindowManager::new();
         create_multiplayer_slot_windows(&mut wm, "MultiplayerLoadScreen.wnd", 1);
@@ -382,7 +391,10 @@ mod tests {
 
     #[test]
     fn gamespy_init_keeps_player_row_for_ai_but_hides_ai_stats() {
-        let runtime = &mut LoadScreenRuntime::default();
+        let operation_windows = crate::gui::window_manager::WindowManagerOwner::new();
+        let state = &mut LoadScreenRuntime::default();
+        let videos = &mut crate::gui::window_video_manager::WindowVideoManager::new();
+        let runtime = &mut LoadScreenOperation::new(state, videos, &operation_windows);
         let _state_guard = lock_test_load_screen_state();
         let mut wm = WindowManager::new();
         create_multiplayer_slot_windows(&mut wm, "GameSpyLoadScreen.wnd", 3);
@@ -434,7 +446,10 @@ mod tests {
 
     #[test]
     fn map_transfer_init_compacts_human_slots_and_hides_done_progress_like_cpp() {
-        let runtime = &mut LoadScreenRuntime::default();
+        let operation_windows = crate::gui::window_manager::WindowManagerOwner::new();
+        let state = &mut LoadScreenRuntime::default();
+        let videos = &mut crate::gui::window_video_manager::WindowVideoManager::new();
+        let runtime = &mut LoadScreenOperation::new(state, videos, &operation_windows);
         let _state_guard = lock_test_load_screen_state();
         reset_map_transfer_load_screen_state(runtime);
         let mut wm = WindowManager::new();
@@ -531,9 +546,12 @@ mod tests {
 
     #[test]
     fn map_transfer_progress_timeout_and_filename_cache_like_cpp() {
-        let runtime = &mut LoadScreenRuntime::default();
-        let owner = crate::gui::window_manager::WindowManagerOwner::new();
-        owner.with_scope(|| {
+        let operation_windows = crate::gui::window_manager::WindowManagerOwner::new();
+        let state = &mut LoadScreenRuntime::default();
+        let videos = &mut crate::gui::window_video_manager::WindowVideoManager::new();
+        let runtime = &mut LoadScreenOperation::new(state, videos, &operation_windows);
+        let owner = operation_windows.clone();
+        (|| {
             #[cfg(not(target_arch = "wasm32"))]
             if let crate::test_process::TestProcess::ParentVerified =
                 crate::test_process::run_bounded(
@@ -591,7 +609,7 @@ mod tests {
                 )],
             };
             initialize_map_transfer_windows(&mut wm, &context, runtime);
-            with_window_manager(|global_wm| {
+            runtime.windows.with_manager(|global_wm| {
                 *global_wm = wm;
             });
 
@@ -608,10 +626,10 @@ mod tests {
                 runtime
             ));
             assert_eq!(
-                progress_value("MapTransferScreen.wnd:ProgressLoad0"),
+                progress_value("MapTransferScreen.wnd:ProgressLoad0", runtime),
                 Some(0.47)
             );
-            with_window_manager(|wm| {
+            runtime.windows.with_manager(|wm| {
                 assert_eq!(
                     window_text(wm, "MapTransferScreen.wnd:StaticTextProgress0"),
                     "Unpacking map"
@@ -631,7 +649,7 @@ mod tests {
             ));
 
             assert!(process_map_transfer_timeout(125, runtime));
-            with_window_manager(|wm| {
+            runtime.windows.with_manager(|wm| {
                 assert_eq!(
                     window_text(wm, "MapTransferScreen.wnd:StaticTextTimeout"),
                     "2:5 remaining"
@@ -639,21 +657,24 @@ mod tests {
             });
             assert!(!process_map_transfer_timeout(125, runtime));
 
-            set_map_transfer_current_filename("Maps\\Official\\Tournament.map");
-            with_window_manager(|wm| {
+            set_map_transfer_current_filename("Maps\\Official\\Tournament.map", runtime);
+            runtime.windows.with_manager(|wm| {
                 assert_eq!(
                     window_text(wm, "MapTransferScreen.wnd:StaticTextCurrentFile"),
                     "Current: Tournament.map"
                 );
             });
-        });
+        })();
     }
 
     #[test]
     fn multiplayer_process_progress_uses_cpp_player_lookup_mapping() {
-        let runtime = &mut LoadScreenRuntime::default();
-        let owner = crate::gui::window_manager::WindowManagerOwner::new();
-        owner.with_scope(|| {
+        let operation_windows = crate::gui::window_manager::WindowManagerOwner::new();
+        let state = &mut LoadScreenRuntime::default();
+        let videos = &mut crate::gui::window_video_manager::WindowVideoManager::new();
+        let runtime = &mut LoadScreenOperation::new(state, videos, &operation_windows);
+        let owner = operation_windows.clone();
+        (|| {
             let _state_guard = lock_test_load_screen_state();
             reset_multiplayer_load_screen_state(runtime);
             let mut wm = WindowManager::new();
@@ -682,7 +703,7 @@ mod tests {
             };
 
             initialize_multiplayer_windows(&mut wm, "MultiplayerLoadScreen.wnd", &context, runtime);
-            with_window_manager(|global_wm| {
+            runtime.windows.with_manager(|global_wm| {
                 *global_wm = wm;
             });
 
@@ -693,11 +714,11 @@ mod tests {
                 runtime
             ));
             assert_eq!(
-                progress_value("MultiplayerLoadScreen.wnd:ProgressLoad1"),
+                progress_value("MultiplayerLoadScreen.wnd:ProgressLoad1", runtime),
                 Some(0.62)
             );
             assert_eq!(
-                progress_value("MultiplayerLoadScreen.wnd:ProgressLoad0"),
+                progress_value("MultiplayerLoadScreen.wnd:ProgressLoad0", runtime),
                 Some(0.0)
             );
             assert!(!process_load_screen_progress(
@@ -706,14 +727,17 @@ mod tests {
                 30.0,
                 runtime
             ));
-        });
+        })();
     }
 
     #[test]
     fn multiplayer_update_without_lookup_does_not_fallback_to_slot_zero() {
-        let runtime = &mut LoadScreenRuntime::default();
-        let owner = crate::gui::window_manager::WindowManagerOwner::new();
-        owner.with_scope(|| {
+        let operation_windows = crate::gui::window_manager::WindowManagerOwner::new();
+        let state = &mut LoadScreenRuntime::default();
+        let videos = &mut crate::gui::window_video_manager::WindowVideoManager::new();
+        let runtime = &mut LoadScreenOperation::new(state, videos, &operation_windows);
+        let owner = operation_windows.clone();
+        (|| {
             let _state_guard = lock_test_load_screen_state();
             reset_multiplayer_load_screen_state(runtime);
             let mut wm = WindowManager::new();
@@ -738,24 +762,27 @@ mod tests {
             };
 
             initialize_multiplayer_windows(&mut wm, "MultiplayerLoadScreen.wnd", &context, runtime);
-            with_window_manager(|global_wm| {
+            runtime.windows.with_manager(|global_wm| {
                 *global_wm = wm;
             });
 
             update_load_screen(LoadScreenKind::Multiplayer, 41.0, runtime);
 
             assert_eq!(
-                progress_value("MultiplayerLoadScreen.wnd:ProgressLoad0"),
+                progress_value("MultiplayerLoadScreen.wnd:ProgressLoad0", runtime),
                 Some(0.0)
             );
-        });
+        })();
     }
 
     #[test]
     fn multiplayer_update_reports_progress_before_local_ui_like_cpp() {
-        let runtime = &mut LoadScreenRuntime::default();
-        let owner = crate::gui::window_manager::WindowManagerOwner::new();
-        owner.with_scope(|| {
+        let operation_windows = crate::gui::window_manager::WindowManagerOwner::new();
+        let state = &mut LoadScreenRuntime::default();
+        let videos = &mut crate::gui::window_video_manager::WindowVideoManager::new();
+        let runtime = &mut LoadScreenOperation::new(state, videos, &operation_windows);
+        let owner = operation_windows.clone();
+        (|| {
             let _state_guard = lock_test_load_screen_state();
             reset_multiplayer_load_screen_state(runtime);
             clear_multiplayer_load_progress_hook();
@@ -790,7 +817,7 @@ mod tests {
             };
 
             initialize_multiplayer_windows(&mut wm, "MultiplayerLoadScreen.wnd", &context, runtime);
-            with_window_manager(|global_wm| {
+            runtime.windows.with_manager(|global_wm| {
                 *global_wm = wm;
             });
 
@@ -798,18 +825,21 @@ mod tests {
 
             assert_eq!(*calls.lock().unwrap(), vec![(1, 41)]);
             assert_eq!(
-                progress_value("MultiplayerLoadScreen.wnd:ProgressLoad1"),
+                progress_value("MultiplayerLoadScreen.wnd:ProgressLoad1", runtime),
                 Some(0.41)
             );
             clear_multiplayer_load_progress_hook();
-        });
+        })();
     }
 
     #[test]
     fn multiplayer_update_above_complete_only_pumps_like_cpp() {
-        let runtime = &mut LoadScreenRuntime::default();
-        let owner = crate::gui::window_manager::WindowManagerOwner::new();
-        owner.with_scope(|| {
+        let operation_windows = crate::gui::window_manager::WindowManagerOwner::new();
+        let state = &mut LoadScreenRuntime::default();
+        let videos = &mut crate::gui::window_video_manager::WindowVideoManager::new();
+        let runtime = &mut LoadScreenOperation::new(state, videos, &operation_windows);
+        let owner = operation_windows.clone();
+        (|| {
             let _state_guard = lock_test_load_screen_state();
             reset_multiplayer_load_screen_state(runtime);
             clear_multiplayer_load_progress_hook();
@@ -841,7 +871,7 @@ mod tests {
             };
 
             initialize_multiplayer_windows(&mut wm, "MultiplayerLoadScreen.wnd", &context, runtime);
-            with_window_manager(|global_wm| {
+            runtime.windows.with_manager(|global_wm| {
                 *global_wm = wm;
             });
 
@@ -849,18 +879,21 @@ mod tests {
 
             assert!(calls.lock().unwrap().is_empty());
             assert_eq!(
-                progress_value("MultiplayerLoadScreen.wnd:ProgressLoad0"),
+                progress_value("MultiplayerLoadScreen.wnd:ProgressLoad0", runtime),
                 Some(0.0)
             );
             clear_multiplayer_load_progress_hook();
-        });
+        })();
     }
 
     #[test]
     fn gamespy_update_reports_progress_like_cpp() {
-        let runtime = &mut LoadScreenRuntime::default();
-        let owner = crate::gui::window_manager::WindowManagerOwner::new();
-        owner.with_scope(|| {
+        let operation_windows = crate::gui::window_manager::WindowManagerOwner::new();
+        let state = &mut LoadScreenRuntime::default();
+        let videos = &mut crate::gui::window_video_manager::WindowVideoManager::new();
+        let runtime = &mut LoadScreenOperation::new(state, videos, &operation_windows);
+        let owner = operation_windows.clone();
+        (|| {
             let _state_guard = lock_test_load_screen_state();
             reset_multiplayer_load_screen_state(runtime);
             clear_multiplayer_load_progress_hook();
@@ -890,7 +923,7 @@ mod tests {
             };
 
             initialize_gamespy_windows(&mut wm, &context, runtime);
-            with_window_manager(|global_wm| {
+            runtime.windows.with_manager(|global_wm| {
                 *global_wm = wm;
             });
 
@@ -898,18 +931,21 @@ mod tests {
 
             assert_eq!(*calls.lock().unwrap(), vec![(0, 77)]);
             assert_eq!(
-                progress_value("GameSpyLoadScreen.wnd:ProgressLoad0"),
+                progress_value("GameSpyLoadScreen.wnd:ProgressLoad0", runtime),
                 Some(0.77)
             );
             clear_multiplayer_load_progress_hook();
-        });
+        })();
     }
 
     #[test]
     fn multiplayer_init_resets_all_progress_bars_like_cpp() {
-        let runtime = &mut LoadScreenRuntime::default();
-        let owner = crate::gui::window_manager::WindowManagerOwner::new();
-        owner.with_scope(|| {
+        let operation_windows = crate::gui::window_manager::WindowManagerOwner::new();
+        let state = &mut LoadScreenRuntime::default();
+        let videos = &mut crate::gui::window_video_manager::WindowVideoManager::new();
+        let runtime = &mut LoadScreenOperation::new(state, videos, &operation_windows);
+        let owner = operation_windows.clone();
+        (|| {
             let _state_guard = lock_test_load_screen_state();
             reset_multiplayer_load_screen_state(runtime);
             let mut wm = WindowManager::new();
@@ -944,23 +980,23 @@ mod tests {
             };
 
             initialize_multiplayer_windows(&mut wm, "MultiplayerLoadScreen.wnd", &context, runtime);
-            with_window_manager(|global_wm| {
+            runtime.windows.with_manager(|global_wm| {
                 *global_wm = wm;
             });
 
             assert_eq!(
-                progress_value("MultiplayerLoadScreen.wnd:ProgressLoad0"),
+                progress_value("MultiplayerLoadScreen.wnd:ProgressLoad0", runtime),
                 Some(0.0)
             );
             assert_eq!(
-                progress_value("MultiplayerLoadScreen.wnd:ProgressLoad1"),
+                progress_value("MultiplayerLoadScreen.wnd:ProgressLoad1", runtime),
                 Some(0.0)
             );
             assert_eq!(
-                progress_value("MultiplayerLoadScreen.wnd:ProgressLoad2"),
+                progress_value("MultiplayerLoadScreen.wnd:ProgressLoad2", runtime),
                 Some(0.0)
             );
-        });
+        })();
     }
 
     #[test]
@@ -1413,7 +1449,10 @@ mod tests {
 
     #[test]
     fn update_load_screen_clears_cursor_tooltip_like_cpp() {
-        let runtime = &mut LoadScreenRuntime::default();
+        let operation_windows = crate::gui::window_manager::WindowManagerOwner::new();
+        let state = &mut LoadScreenRuntime::default();
+        let videos = &mut crate::gui::window_video_manager::WindowVideoManager::new();
+        let runtime = &mut LoadScreenOperation::new(state, videos, &operation_windows);
         let _mouse_guard = lock_test_mouse();
         with_mouse(|mouse| {
             mouse.set_cursor_tooltip("Stale tooltip".to_string(), Some(0), None, None);
@@ -1431,7 +1470,10 @@ mod tests {
 
     #[test]
     fn map_transfer_update_pumps_liteupdate_before_clearing_tooltip_like_cpp() {
-        let runtime = &mut LoadScreenRuntime::default();
+        let operation_windows = crate::gui::window_manager::WindowManagerOwner::new();
+        let state = &mut LoadScreenRuntime::default();
+        let videos = &mut crate::gui::window_video_manager::WindowVideoManager::new();
+        let runtime = &mut LoadScreenOperation::new(state, videos, &operation_windows);
         let _state_guard = lock_test_load_screen_state();
         let _mouse_guard = lock_test_mouse();
         let calls = Arc::new(AtomicUsize::new(0));
@@ -1461,7 +1503,10 @@ mod tests {
 
     #[test]
     fn non_map_transfer_updates_do_not_pump_liteupdate() {
-        let runtime = &mut LoadScreenRuntime::default();
+        let operation_windows = crate::gui::window_manager::WindowManagerOwner::new();
+        let state = &mut LoadScreenRuntime::default();
+        let videos = &mut crate::gui::window_video_manager::WindowVideoManager::new();
+        let runtime = &mut LoadScreenOperation::new(state, videos, &operation_windows);
         let _state_guard = lock_test_load_screen_state();
         let calls = Arc::new(AtomicUsize::new(0));
         let hook_calls = Arc::clone(&calls);
@@ -1478,7 +1523,10 @@ mod tests {
 
     #[test]
     fn non_multiplayer_updates_do_not_report_load_progress() {
-        let runtime = &mut LoadScreenRuntime::default();
+        let operation_windows = crate::gui::window_manager::WindowManagerOwner::new();
+        let state = &mut LoadScreenRuntime::default();
+        let videos = &mut crate::gui::window_video_manager::WindowVideoManager::new();
+        let runtime = &mut LoadScreenOperation::new(state, videos, &operation_windows);
         let _state_guard = lock_test_load_screen_state();
         clear_multiplayer_load_progress_hook();
         let calls = Arc::new(AtomicUsize::new(0));
@@ -1497,7 +1545,10 @@ mod tests {
 
     #[test]
     fn update_load_screen_finishes_every_branch_after_local_work_like_cpp() {
-        let runtime = &mut LoadScreenRuntime::default();
+        let operation_windows = crate::gui::window_manager::WindowManagerOwner::new();
+        let state = &mut LoadScreenRuntime::default();
+        let videos = &mut crate::gui::window_video_manager::WindowVideoManager::new();
+        let runtime = &mut LoadScreenOperation::new(state, videos, &operation_windows);
         let _state_guard = lock_test_load_screen_state();
         let _mouse_guard = lock_test_mouse();
         clear_map_transfer_liteupdate_hook();
@@ -1541,7 +1592,10 @@ mod tests {
 
     #[test]
     fn single_player_audio_prelude_plays_only_ambient_like_zh_md() {
-        let runtime = &mut LoadScreenRuntime::default();
+        let operation_windows = crate::gui::window_manager::WindowManagerOwner::new();
+        let state = &mut LoadScreenRuntime::default();
+        let videos = &mut crate::gui::window_video_manager::WindowVideoManager::new();
+        let runtime = &mut LoadScreenOperation::new(state, videos, &operation_windows);
         // C++ LoadScreen.cpp:532-533 PULLED FROM THE MISSION DISK — BriefingVoice
         // is never force-played after the prelude. Only LoadScreenAmbient (:590).
         let _state_guard = lock_test_load_screen_state();
@@ -1597,9 +1651,12 @@ mod tests {
 
     #[test]
     fn single_player_movie_open_failure_returns_before_audio_like_cpp() {
-        let runtime = &mut LoadScreenRuntime::default();
-        let owner = crate::gui::window_manager::WindowManagerOwner::new();
-        owner.with_scope(|| {
+        let operation_windows = crate::gui::window_manager::WindowManagerOwner::new();
+        let state = &mut LoadScreenRuntime::default();
+        let videos = &mut crate::gui::window_video_manager::WindowVideoManager::new();
+        let runtime = &mut LoadScreenOperation::new(state, videos, &operation_windows);
+        let owner = operation_windows.clone();
+        (|| {
             let _state_guard = lock_test_load_screen_state();
             reset_single_player_load_screen_audio_state(runtime);
             clear_single_player_movie_play_hook();
@@ -1672,7 +1729,7 @@ mod tests {
                 None
             );
 
-            with_window_manager(|global_wm| *global_wm = wm);
+            runtime.windows.with_manager(|global_wm| *global_wm = wm);
             assert_eq!(
                 run_load_screen_prelude_with_limit(LoadScreenKind::SinglePlayer, 1, runtime),
                 LoadScreenPreludeOutcome::Failed,
@@ -1682,14 +1739,17 @@ mod tests {
             clear_single_player_movie_play_hook();
             clear_single_player_movie_playing_hook();
             reset_single_player_load_screen_audio_state(runtime);
-        });
+        })();
     }
 
     #[test]
     fn single_player_movie_prelude_defers_ambient_until_movie_finishes_like_cpp() {
-        let runtime = &mut LoadScreenRuntime::default();
-        let owner = crate::gui::window_manager::WindowManagerOwner::new();
-        owner.with_scope(|| {
+        let operation_windows = crate::gui::window_manager::WindowManagerOwner::new();
+        let state = &mut LoadScreenRuntime::default();
+        let videos = &mut crate::gui::window_video_manager::WindowVideoManager::new();
+        let runtime = &mut LoadScreenOperation::new(state, videos, &operation_windows);
+        let owner = operation_windows.clone();
+        (|| {
             let _state_guard = lock_test_load_screen_state();
             reset_single_player_load_screen_audio_state(runtime);
             clear_single_player_movie_play_hook();
@@ -1754,7 +1814,7 @@ mod tests {
                 Some("LoadingBar_ProgressCenter1".to_string())
             );
 
-            with_window_manager(|global_wm| {
+            runtime.windows.with_manager(|global_wm| {
                 *global_wm = wm;
             });
 
@@ -1766,10 +1826,10 @@ mod tests {
             assert!(prelude_active);
             assert_eq!(ambient_handle, 0);
             assert_eq!(
-                progress_value("SinglePlayerLoadScreen.wnd:ProgressLoad"),
+                progress_value("SinglePlayerLoadScreen.wnd:ProgressLoad", runtime),
                 Some(0.42)
             );
-            with_window_manager(|wm| {
+            runtime.windows.with_manager(|wm| {
                 assert_eq!(window_text(wm, "SinglePlayerLoadScreen.wnd:Percent"), "42%");
                 assert!(
                     wm.find_window_by_name("SinglePlayerLoadScreen.wnd:Percent")
@@ -1788,10 +1848,10 @@ mod tests {
             assert!(!prelude_active);
             assert_eq!(ambient_handle, add_audio_event("LoadScreenAmbient"));
             assert_eq!(
-                progress_value("SinglePlayerLoadScreen.wnd:ProgressLoad"),
+                progress_value("SinglePlayerLoadScreen.wnd:ProgressLoad", runtime),
                 Some(0.61)
             );
-            with_window_manager(|wm| {
+            runtime.windows.with_manager(|wm| {
                 assert_eq!(window_text(wm, "SinglePlayerLoadScreen.wnd:Percent"), "61%");
                 assert!(
                     wm.find_window_by_name("SinglePlayerLoadScreen.wnd:Percent")
@@ -1804,14 +1864,17 @@ mod tests {
             reset_single_player_load_screen_audio_state(runtime);
             clear_single_player_movie_play_hook();
             clear_single_player_movie_playing_hook();
-        });
+        })();
     }
 
     #[test]
     fn single_player_prelude_driver_pumps_until_movie_completion_before_map_work() {
-        let runtime = &mut LoadScreenRuntime::default();
-        let owner = crate::gui::window_manager::WindowManagerOwner::new();
-        owner.with_scope(|| {
+        let operation_windows = crate::gui::window_manager::WindowManagerOwner::new();
+        let state = &mut LoadScreenRuntime::default();
+        let videos = &mut crate::gui::window_video_manager::WindowVideoManager::new();
+        let runtime = &mut LoadScreenOperation::new(state, videos, &operation_windows);
+        let owner = operation_windows.clone();
+        (|| {
             let _state_guard = lock_test_load_screen_state();
             reset_single_player_load_screen_audio_state(runtime);
             clear_single_player_movie_play_hook();
@@ -1842,7 +1905,7 @@ mod tests {
             named_progress_test_window(&mut wm, "SinglePlayerLoadScreen.wnd:ProgressLoad");
             named_test_window(&mut wm, "SinglePlayerLoadScreen.wnd:Percent");
             initialize_single_player_windows(&mut wm, true, &get_campaign_manager(), runtime);
-            with_window_manager(|global_wm| *global_wm = wm);
+            runtime.windows.with_manager(|global_wm| *global_wm = wm);
 
             let presentation_pumps = Rc::new(Cell::new(0));
             let hook_pumps = Rc::clone(&presentation_pumps);
@@ -1878,14 +1941,17 @@ mod tests {
             clear_single_player_movie_play_hook();
             clear_single_player_movie_playing_hook();
             reset_single_player_load_screen_audio_state(runtime);
-        });
+        })();
     }
 
     #[test]
     fn single_player_prelude_driver_forces_terminal_skip_when_movie_never_finishes() {
-        let runtime = &mut LoadScreenRuntime::default();
-        let owner = crate::gui::window_manager::WindowManagerOwner::new();
-        owner.with_scope(|| {
+        let operation_windows = crate::gui::window_manager::WindowManagerOwner::new();
+        let state = &mut LoadScreenRuntime::default();
+        let videos = &mut crate::gui::window_video_manager::WindowVideoManager::new();
+        let runtime = &mut LoadScreenOperation::new(state, videos, &operation_windows);
+        let owner = operation_windows.clone();
+        (|| {
             let _state_guard = lock_test_load_screen_state();
             reset_single_player_load_screen_audio_state(runtime);
             clear_single_player_movie_play_hook();
@@ -1910,7 +1976,7 @@ mod tests {
             named_progress_test_window(&mut wm, "SinglePlayerLoadScreen.wnd:ProgressLoad");
             named_test_window(&mut wm, "SinglePlayerLoadScreen.wnd:Percent");
             initialize_single_player_windows(&mut wm, true, &get_campaign_manager(), runtime);
-            with_window_manager(|global_wm| *global_wm = wm);
+            runtime.windows.with_manager(|global_wm| *global_wm = wm);
 
             let presentation_pumps = Rc::new(Cell::new(0));
             let hook_pumps = Rc::clone(&presentation_pumps);
@@ -1934,7 +2000,7 @@ mod tests {
             clear_single_player_movie_play_hook();
             clear_single_player_movie_playing_hook();
             reset_single_player_load_screen_audio_state(runtime);
-        });
+        })();
     }
 
     #[test]
@@ -1976,7 +2042,10 @@ mod tests {
 
     #[test]
     fn single_player_mission_text_fetches_cpp_labels() {
-        let runtime = &mut LoadScreenRuntime::default();
+        let operation_windows = crate::gui::window_manager::WindowManagerOwner::new();
+        let state = &mut LoadScreenRuntime::default();
+        let videos = &mut crate::gui::window_video_manager::WindowVideoManager::new();
+        let runtime = &mut LoadScreenOperation::new(state, videos, &operation_windows);
         Language::clear_localized_strings();
         Language::register_localized_string("MISSION:Objective0", "Capture the base");
         Language::register_localized_string("MISSION:Objective2", "Hold position");
@@ -2286,8 +2355,8 @@ mod tests {
             .get_status()
     }
 
-    fn progress_value(name: &str) -> Option<f32> {
-        with_window_manager(|wm| {
+    fn progress_value(name: &str, runtime: &mut LoadScreenOperation<'_>) -> Option<f32> {
+        runtime.windows.with_manager(|wm| {
             let window = wm.find_window_by_name(name)?;
             let mut window = window.borrow_mut();
             Some(window.progress_bar_mut()?.value())
@@ -2497,7 +2566,7 @@ mod tests {
         manager.set_campaign_and_mission("challengecampaign", "mission1");
     }
 
-    fn cache_challenge_test_personas(runtime: &mut LoadScreenRuntime) {
+    fn cache_challenge_test_personas(runtime: &mut LoadScreenOperation<'_>) {
         with_challenge_load_screen_state(
             |state| {
                 *state = ChallengeLoadScreenState {
@@ -2540,7 +2609,10 @@ mod tests {
 
     #[test]
     fn challenge_init_with_movie_waits_for_frame_activation_like_cpp_high_spec() {
-        let runtime = &mut LoadScreenRuntime::default();
+        let operation_windows = crate::gui::window_manager::WindowManagerOwner::new();
+        let state = &mut LoadScreenRuntime::default();
+        let videos = &mut crate::gui::window_video_manager::WindowVideoManager::new();
+        let runtime = &mut LoadScreenOperation::new(state, videos, &operation_windows);
         let _state_guard = lock_test_load_screen_state();
         clear_challenge_movie_play_hook();
         clear_challenge_movie_advance_hook();
@@ -2586,9 +2658,12 @@ mod tests {
 
     #[test]
     fn challenge_init_resets_window_video_manager_like_cpp() {
-        let runtime = &mut LoadScreenRuntime::default();
-        let owner = crate::gui::window_manager::WindowManagerOwner::new();
-        owner.with_scope(|| {
+        let operation_windows = crate::gui::window_manager::WindowManagerOwner::new();
+        let state = &mut LoadScreenRuntime::default();
+        let videos = &mut crate::gui::window_video_manager::WindowVideoManager::new();
+        let runtime = &mut LoadScreenOperation::new(state, videos, &operation_windows);
+        let owner = operation_windows.clone();
+        (|| {
             let _state_guard = lock_test_load_screen_state();
             clear_challenge_movie_play_hook();
             clear_challenge_movie_advance_hook();
@@ -2596,17 +2671,21 @@ mod tests {
             setup_current_challenge_for_tests("ChallengeIntro");
             let mut wm = WindowManager::new();
             challenge_test_windows(&mut wm);
-            with_window_video_manager(|manager| manager.set_global_flags_for_tests(true, true));
+            with_window_video_manager(runtime.videos, |manager| {
+                manager.set_global_flags_for_tests(true, true)
+            });
 
             initialize_challenge_windows(&mut wm, true, &get_campaign_manager(), runtime);
 
-            let flags = with_window_video_manager(|manager| manager.global_flags_for_tests());
+            let flags = with_window_video_manager(runtime.videos, |manager| {
+                manager.global_flags_for_tests()
+            });
             assert_eq!(flags, (false, false));
             assert_eq!(
                 with_challenge_load_screen_state(|state| state.prelude_state, runtime),
                 LoadScreenPreludeState::Failed
             );
-            with_window_manager(|global_wm| *global_wm = wm);
+            runtime.windows.with_manager(|global_wm| *global_wm = wm);
             assert_eq!(
                 run_load_screen_prelude_with_limit(LoadScreenKind::Challenge, 1, runtime),
                 LoadScreenPreludeOutcome::Failed
@@ -2622,12 +2701,15 @@ mod tests {
             clear_challenge_movie_advance_hook();
             reset_challenge_load_screen_audio_state(runtime);
             Language::clear_localized_strings();
-        });
+        })();
     }
 
     #[test]
     fn challenge_init_without_movie_returns_without_synthetic_reveal_like_cpp() {
-        let runtime = &mut LoadScreenRuntime::default();
+        let operation_windows = crate::gui::window_manager::WindowManagerOwner::new();
+        let state = &mut LoadScreenRuntime::default();
+        let videos = &mut crate::gui::window_video_manager::WindowVideoManager::new();
+        let runtime = &mut LoadScreenOperation::new(state, videos, &operation_windows);
         let _state_guard = lock_test_load_screen_state();
         clear_challenge_movie_play_hook();
         clear_challenge_movie_advance_hook();
@@ -2667,9 +2749,12 @@ mod tests {
 
     #[test]
     fn challenge_prelude_driver_pumps_authored_frames_before_completion() {
-        let runtime = &mut LoadScreenRuntime::default();
-        let owner = crate::gui::window_manager::WindowManagerOwner::new();
-        owner.with_scope(|| {
+        let operation_windows = crate::gui::window_manager::WindowManagerOwner::new();
+        let state = &mut LoadScreenRuntime::default();
+        let videos = &mut crate::gui::window_video_manager::WindowVideoManager::new();
+        let runtime = &mut LoadScreenOperation::new(state, videos, &operation_windows);
+        let owner = operation_windows.clone();
+        (|| {
             let _state_guard = lock_test_load_screen_state();
             reset_challenge_load_screen_audio_state(runtime);
             clear_challenge_movie_play_hook();
@@ -2702,7 +2787,7 @@ mod tests {
             let mut wm = WindowManager::new();
             challenge_test_windows(&mut wm);
             initialize_challenge_windows(&mut wm, true, &get_campaign_manager(), runtime);
-            with_window_manager(|global_wm| *global_wm = wm);
+            runtime.windows.with_manager(|global_wm| *global_wm = wm);
 
             let presentation_pumps = Rc::new(Cell::new(0));
             let hook_pumps = Rc::clone(&presentation_pumps);
@@ -2716,7 +2801,7 @@ mod tests {
             );
             assert_eq!(advances.load(Ordering::SeqCst), 2);
             assert_eq!(presentation_pumps.get(), 2);
-            with_window_manager(|wm| {
+            runtime.windows.with_manager(|wm| {
                 for name in CHALLENGE_BIO_LABEL_WINDOWS {
                     assert!(!window_hidden(wm, name), "{name}");
                 }
@@ -2750,12 +2835,15 @@ mod tests {
             clear_challenge_movie_advance_hook();
             reset_challenge_load_screen_audio_state(runtime);
             Language::clear_localized_strings();
-        });
+        })();
     }
 
     #[test]
     fn challenge_postlude_audio_fires_once_and_selects_opponent_taunt() {
-        let runtime = &mut LoadScreenRuntime::default();
+        let operation_windows = crate::gui::window_manager::WindowManagerOwner::new();
+        let state = &mut LoadScreenRuntime::default();
+        let videos = &mut crate::gui::window_video_manager::WindowVideoManager::new();
+        let runtime = &mut LoadScreenOperation::new(state, videos, &operation_windows);
         cache_challenge_test_personas(runtime);
 
         assert_eq!(
@@ -2808,7 +2896,10 @@ mod tests {
 
     #[test]
     fn challenge_frame_activation_matches_cpp_teletype_gates() {
-        let runtime = &mut LoadScreenRuntime::default();
+        let operation_windows = crate::gui::window_manager::WindowManagerOwner::new();
+        let state = &mut LoadScreenRuntime::default();
+        let videos = &mut crate::gui::window_video_manager::WindowVideoManager::new();
+        let runtime = &mut LoadScreenOperation::new(state, videos, &operation_windows);
         cache_challenge_test_personas(runtime);
         let mut wm = WindowManager::new();
         challenge_test_windows(&mut wm);
@@ -2859,7 +2950,10 @@ mod tests {
 
     #[test]
     fn challenge_min_spec_activation_matches_cpp_final_reveal() {
-        let runtime = &mut LoadScreenRuntime::default();
+        let operation_windows = crate::gui::window_manager::WindowManagerOwner::new();
+        let state = &mut LoadScreenRuntime::default();
+        let videos = &mut crate::gui::window_video_manager::WindowVideoManager::new();
+        let runtime = &mut LoadScreenOperation::new(state, videos, &operation_windows);
         cache_challenge_test_personas(runtime);
         let mut wm = WindowManager::new();
         challenge_test_windows(&mut wm);
@@ -2923,7 +3017,10 @@ mod tests {
 
     #[test]
     fn nonblocking_campaign_presents_last_frame_then_background_before_audio() {
-        let runtime = &mut LoadScreenRuntime::default();
+        let operation_windows = crate::gui::window_manager::WindowManagerOwner::new();
+        let state = &mut LoadScreenRuntime::default();
+        let videos = &mut crate::gui::window_video_manager::WindowVideoManager::new();
+        let runtime = &mut LoadScreenOperation::new(state, videos, &operation_windows);
         let _state_guard = lock_test_load_screen_state();
         reset_single_player_load_screen_audio_state(runtime);
         clear_load_screen_presentation_pump();
@@ -2935,7 +3032,7 @@ mod tests {
             },
             runtime,
         );
-        let (_, trace) = with_window_video_manager(|manager| {
+        let (_, trace) = with_window_video_manager(runtime.videos, |manager| {
             super::super::window_video_manager::load_movie_tests::insert(
                 manager,
                 usize::MAX,
@@ -2965,7 +3062,7 @@ mod tests {
                 ..
             }
         ));
-        pump_load_screen_prelude_presentation(LoadScreenKind::SinglePlayer);
+        pump_load_screen_prelude_presentation(LoadScreenKind::SinglePlayer, runtime);
         assert!(matches!(
             advance_load_screen_prelude(LoadScreenKind::SinglePlayer, true, runtime),
             LoadScreenPreludeStepResult::Finished {
@@ -3007,6 +3104,7 @@ mod runtime_owner_tests {
     use super::*;
     #[test]
     fn peer_loading_state_and_retirement_are_independent() {
+        let operation_windows = crate::gui::window_manager::WindowManagerOwner::new();
         let mut owner = LoadScreenRuntime::default();
         owner.single_player.movie_label = "owner-intro".into();
         owner.multiplayer.player_lookup[3] = 5;
@@ -3014,10 +3112,34 @@ mod runtime_owner_tests {
             let mut peer = LoadScreenRuntime::default();
             peer.single_player.movie_label = "peer-intro".into();
             peer.multiplayer.player_lookup[3] = 1;
-            reset_multiplayer_load_screen_state(&mut peer);
+            reset_multiplayer_load_screen_state(&mut LoadScreenOperation::new(
+                &mut peer,
+                &mut crate::gui::window_video_manager::WindowVideoManager::new(),
+                &operation_windows,
+            ));
             assert_eq!(peer.multiplayer.player_lookup[3], -1);
         }
         assert_eq!(owner.single_player.movie_label, "owner-intro");
         assert_eq!(owner.multiplayer.player_lookup[3], 5);
+    }
+    #[test]
+    fn reset_visits_only_the_receiving_window_tree() {
+        let first = crate::gui::window_manager::WindowManagerOwner::new();
+        let second = crate::gui::window_manager::WindowManagerOwner::new();
+        let root_name = descriptor_for_kind(LoadScreenKind::Multiplayer).root;
+        for owner in [&first, &second] {
+            owner.with_manager(|wm| {
+                let root = wm.create_window(None, 0, 0, 100, 100).unwrap();
+                root.borrow_mut().set_name(root_name);
+            });
+        }
+        let mut state = LoadScreenRuntime::default();
+        let mut videos = crate::gui::window_video_manager::WindowVideoManager::new();
+        reset_load_screen(
+            LoadScreenKind::Multiplayer,
+            &mut LoadScreenOperation::new(&mut state, &mut videos, &second),
+        );
+        assert!(first.with_manager(|wm| wm.find_window_by_name(root_name).is_some()));
+        assert!(second.with_manager(|wm| wm.find_window_by_name(root_name).is_none()));
     }
 }

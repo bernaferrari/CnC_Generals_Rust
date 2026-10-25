@@ -4,7 +4,7 @@ fn initialize_multiplayer_windows(
     wm: &mut WindowManager,
     prefix: &str,
     context: &LoadScreenInitContext,
-    runtime: &mut LoadScreenRuntime,
+    runtime: &mut LoadScreenOperation<'_>,
 ) {
     let has_team_windows = load_screen_has_team_windows(prefix);
     if let Some(portrait_image) = context
@@ -283,7 +283,7 @@ fn apply_multiplayer_start_position_labels(
 fn initialize_gamespy_windows(
     wm: &mut WindowManager,
     context: &LoadScreenInitContext,
-    runtime: &mut LoadScreenRuntime,
+    runtime: &mut LoadScreenOperation<'_>,
 ) {
     initialize_multiplayer_windows(wm, "GameSpyLoadScreen.wnd", context, runtime);
 

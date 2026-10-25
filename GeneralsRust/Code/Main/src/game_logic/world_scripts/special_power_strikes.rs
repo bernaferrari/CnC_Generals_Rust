@@ -2200,7 +2200,7 @@ impl GameLogic {
                 continue;
             }
             let terrain = self.world_services.terrain();
-            let random = self.session_view.fx.client_random_mut();
+            let random = &mut self.session_view.client_random;
             let impact = spectre_gattling_strafe_smoke_impact(
                 aim,
                 |x, z| {

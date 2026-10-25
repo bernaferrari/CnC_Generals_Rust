@@ -1240,8 +1240,9 @@ impl ScriptActionHandler for GameClientScriptActionHandler {
             return Ok(());
         }
 
-        let _ = TheInGameUI::play_movie(filename);
-        Ok(())
+        Err(gamelogic::GameLogicError::Configuration(
+            "radar movie requires receiving presentation execution driver".into(),
+        ))
     }
 
     fn freeze_time(&self) -> GameLogicResult<()> {

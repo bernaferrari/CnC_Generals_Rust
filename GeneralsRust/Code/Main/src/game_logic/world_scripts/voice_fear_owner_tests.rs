@@ -267,7 +267,11 @@ fn callback_completion_rereads_late_values_and_is_consumed_once_before_damage_fx
                         audio.push(request);
                     }
                     effect => GameLogic::execute_body_state_fx_without_view(
-                        object, effect, source, &mut audio,
+                        object,
+                        effect,
+                        source,
+                        &mut audio,
+                        &game_engine::common::random_value::SessionRandom::default(),
                     ),
                 }
             };

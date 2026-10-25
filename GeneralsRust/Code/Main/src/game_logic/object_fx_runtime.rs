@@ -412,10 +412,10 @@ impl GameClientFxRuntime for ObjectFxRuntime<'_, '_, '_, '_> {
             .unwrap_or(false)
     }
     fn random_real(&mut self, lo: f32, hi: f32) -> f32 {
-        self.services.session.fx.client_random.next_real(lo, hi)
+        self.services.session.client_random.next_real(lo, hi)
     }
     fn random_u32(&mut self) -> u32 {
-        self.services.session.fx.client_random.next_u32()
+        self.services.session.client_random.next_u32()
     }
     fn frame(&self) -> u32 {
         self.services.environment.frame
@@ -434,7 +434,7 @@ impl GameClientFxRuntime for ObjectFxRuntime<'_, '_, '_, '_> {
             .ok_or("receiving audio locality absent")?;
         let mut selection = super::receiving::FxAudioSelection {
             logic: self.services.logic_random,
-            audio: &mut self.services.session.fx.audio_random,
+            audio: &mut self.services.session.audio_random,
         };
         if let Some(audio) = self.services.effects.audio.as_deref_mut() {
             audio.submit_fx_sound(
@@ -458,7 +458,7 @@ impl GameClientFxRuntime for ObjectFxRuntime<'_, '_, '_, '_> {
             return Ok(());
         };
         let services = &mut *self.services;
-        let random = &mut services.session.fx.client_random;
+        let random = &mut services.session.client_random;
         let terrain = services.terrain;
         let manager = services
             .effects
@@ -510,7 +510,7 @@ impl GameClientFxRuntime for ObjectFxRuntime<'_, '_, '_, '_> {
             session.target,
             kind.into(),
             &rules,
-            &mut |lo, hi| session.fx.client_random.next_real(lo, hi),
+            &mut |lo, hi| session.client_random.next_real(lo, hi),
         );
     }
     fn scorch(&mut self, position: gamelogic::common::Coord3D, radius: f32, kind: i32) {
@@ -566,5 +566,35 @@ impl GameClientFxRuntime for ObjectFxRuntime<'_, '_, '_, '_> {
             .as_deref_mut()
             .ok_or("receiving FX bone view absent")?
             .current_client_bone_transforms(&source, name, start, limit)
+    }
+}
+
+impl crate::game_logic::combat::ProjectilePresentationRuntime for ObjectFxServices<'_, '_> {
+    fn fx(&mut self, name: &str, source: crate::game_logic::combat::ProjectileFxObject<'_>) {
+        match source {
+            crate::game_logic::combat::ProjectileFxObject::Object(object) => {
+                self.object(name, object, None);
+            }
+            crate::game_logic::combat::ProjectileFxObject::Projectile(projectile) => {
+                self.projectile(name, projectile);
+            }
+        }
+    }
+    fn pose(&mut self, _: &crate::game_logic::combat::Projectile) {}
+    fn attach_exhaust(
+        &mut self,
+        projectile: &crate::game_logic::combat::Projectile,
+    ) -> Option<u32> {
+        let manager = self.particle_systems_mut()?;
+        if let Err(error) = manager.admit_effective_definitions() {
+            log::error!("receiving missile exhaust definitions: {error}");
+            return None;
+        }
+        let template = manager.find_template(&projectile.exhaust_name)?;
+        let id = manager.create_particle_system(&template, true).ok()?;
+        manager
+            .find_particle_system_mut(id)?
+            .attach_to_object(projectile.id.0);
+        Some(id)
     }
 }

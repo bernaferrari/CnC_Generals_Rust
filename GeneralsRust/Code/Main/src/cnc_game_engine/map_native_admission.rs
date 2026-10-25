@@ -165,6 +165,14 @@ impl crate::game_logic::NativeMapAdmission for NativeMapCandidate {
         metadata: Option<&crate::game_logic::script_loader::MapMetadata>,
     ) -> Result<(), String> {
         self.time_of_day = world.native_lighting_time_of_day();
+        self.drawables
+            .borrow_native()
+            .particle_systems_mut()
+            .admit_map_definition_overlays(
+                metadata
+                    .map(|meta| meta.particle_definition_overlays.as_slice())
+                    .unwrap_or(&[]),
+            )?;
         prepare_native_map_visual(&mut self.visual, world, metadata)
     }
     fn admit_restored_heights(
@@ -427,6 +435,11 @@ impl crate::game_logic::NativeMapAdmission for NativeMapAttempt<'_> {
             *self.retirement = CandidateRetirement::MayOwnResources;
         }
         self.view.admit_lighting_policy(world);
+        self.view.admit_map_particle_definitions(
+            metadata
+                .map(|meta| meta.particle_definition_overlays.as_slice())
+                .unwrap_or(&[]),
+        )?;
         prepare_native_map_visual(self.visual, world, metadata)
     }
     fn admit_restored_heights(

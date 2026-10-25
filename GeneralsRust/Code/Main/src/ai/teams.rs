@@ -1333,6 +1333,9 @@ impl AIPlayer {
     }
 
     pub(super) fn building_can_queue_upgrade(
+        definitions: Option<
+            &game_engine::common::thing::receiving_module_content::ReceivingActionDefinitions,
+        >,
         overrides: &crate::game_logic::game_logic::command_overrides::ControlBarOverrides,
         object: &crate::game_logic::Object,
         upgrade_name: &str,
@@ -1352,7 +1355,8 @@ impl AIPlayer {
         {
             return false;
         }
-        if !crate::game_logic::host_upgrades::object_can_produce_upgrade(
+        if !crate::game_logic::host_upgrades::object_can_produce_upgrade_receiving(
+            definitions,
             overrides,
             object,
             upgrade_name,
@@ -1390,6 +1394,7 @@ impl AIPlayer {
                 (game_logic.object_owned_by_player(object, self.player_id)
                     && name_ok
                     && Self::building_can_queue_upgrade(
+                        game_logic.upgrade_action_definitions(),
                         game_logic.control_bar_overrides(),
                         object,
                         upgrade_name,

@@ -3,7 +3,7 @@
 fn initialize_map_transfer_windows(
     wm: &mut WindowManager,
     context: &LoadScreenInitContext,
-    runtime: &mut LoadScreenRuntime,
+    runtime: &mut LoadScreenOperation<'_>,
 ) {
     set_window_text(wm, "MapTransferScreen.wnd:StaticTextCurrentFile", "");
     set_window_text(wm, "MapTransferScreen.wnd:StaticTextTimeout", "");
@@ -101,8 +101,9 @@ pub fn process_map_transfer_progress(
     player_id: i32,
     percentage: i32,
     state_label: &str,
-    runtime: &mut LoadScreenRuntime,
+    runtime: &mut LoadScreenOperation<'_>,
 ) -> bool {
+    let windows = runtime.windows;
     if !(0..=100).contains(&percentage)
         || player_id < 0
         || player_id as usize >= MAX_LOAD_SCREEN_SLOTS
@@ -125,7 +126,7 @@ pub fn process_map_transfer_progress(
         return false;
     };
 
-    with_window_manager(|wm| {
+    windows.with_manager(|wm| {
         set_progress_window(
             wm,
             &format!("MapTransferScreen.wnd:ProgressLoad{translated_slot}"),
@@ -140,7 +141,11 @@ pub fn process_map_transfer_progress(
     true
 }
 
-pub fn process_map_transfer_timeout(seconds_left: i32, runtime: &mut LoadScreenRuntime) -> bool {
+pub fn process_map_transfer_timeout(
+    seconds_left: i32,
+    runtime: &mut LoadScreenOperation<'_>,
+) -> bool {
+    let windows = runtime.windows;
     let changed = with_map_transfer_load_screen_state(
         |state| {
             if state.old_timeout == seconds_left {
@@ -156,15 +161,16 @@ pub fn process_map_transfer_timeout(seconds_left: i32, runtime: &mut LoadScreenR
     }
 
     let text = format_map_transfer_timeout(seconds_left);
-    with_window_manager(|wm| {
+    windows.with_manager(|wm| {
         set_window_text(wm, "MapTransferScreen.wnd:StaticTextTimeout", &text);
     });
     true
 }
 
-pub fn set_map_transfer_current_filename(filename: &str) {
+pub fn set_map_transfer_current_filename(filename: &str, runtime: &mut LoadScreenOperation<'_>) {
+    let windows = runtime.windows;
     let text = format_map_transfer_current_file(filename);
-    with_window_manager(|wm| {
+    windows.with_manager(|wm| {
         set_window_text(wm, "MapTransferScreen.wnd:StaticTextCurrentFile", &text);
     });
 }

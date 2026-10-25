@@ -24,7 +24,7 @@ fn initialize_kind_windows(
     context: &LoadScreenInitContext,
     campaign_manager: &crate::gui::campaign_manager::CampaignManager,
     shell_game_first_load: &mut bool,
-    runtime: &mut LoadScreenRuntime,
+    runtime: &mut LoadScreenOperation<'_>,
 ) -> bool {
     match kind {
         LoadScreenKind::ShellGame => {
@@ -97,12 +97,12 @@ fn prepare_shell_game_windows(
 
 fn with_multiplayer_load_screen_state<R>(
     f: impl FnOnce(&mut MultiplayerLoadScreenState) -> R,
-    runtime: &mut LoadScreenRuntime,
+    runtime: &mut LoadScreenOperation<'_>,
 ) -> R {
-    f(&mut runtime.multiplayer)
+    f(&mut runtime.state.multiplayer)
 }
 
-fn reset_multiplayer_load_screen_state(runtime: &mut LoadScreenRuntime) {
+fn reset_multiplayer_load_screen_state(runtime: &mut LoadScreenOperation<'_>) {
     with_multiplayer_load_screen_state(
         |state| *state = MultiplayerLoadScreenState::default(),
         runtime,
@@ -111,19 +111,19 @@ fn reset_multiplayer_load_screen_state(runtime: &mut LoadScreenRuntime) {
 
 fn with_map_transfer_load_screen_state<R>(
     f: impl FnOnce(&mut MapTransferLoadScreenState) -> R,
-    runtime: &mut LoadScreenRuntime,
+    runtime: &mut LoadScreenOperation<'_>,
 ) -> R {
-    f(&mut runtime.map_transfer)
+    f(&mut runtime.state.map_transfer)
 }
 
-fn reset_map_transfer_load_screen_state(runtime: &mut LoadScreenRuntime) {
+fn reset_map_transfer_load_screen_state(runtime: &mut LoadScreenOperation<'_>) {
     with_map_transfer_load_screen_state(
         |state| *state = MapTransferLoadScreenState::default(),
         runtime,
     );
 }
 
-fn reset_single_player_load_screen_audio_state(runtime: &mut LoadScreenRuntime) {
+fn reset_single_player_load_screen_audio_state(runtime: &mut LoadScreenOperation<'_>) {
     let ambient_handle = with_single_player_load_screen_state(
         |state| {
             let handle = state.ambient_loop_handle;
@@ -173,11 +173,13 @@ fn run_shell_game_legal_hold(wm: &mut WindowManager) {
 
 fn run_shell_game_legal_hold_with_pump(
     mut presentation_pump: Option<&mut LoadScreenPresentationPump<'_>>,
+    runtime: &mut LoadScreenOperation<'_>,
 ) -> Result<(), String> {
+    let windows = runtime.windows;
     let duration = shell_game_legal_hold_duration();
     let begin = Instant::now();
     loop {
-        with_window_manager(|wm| wm.update());
+        windows.with_manager(|wm| wm.update());
         let result = pump_load_screen_presentation(presentation_pump.as_deref_mut());
         gamelogic::system::game_logic::set_fp_mode();
         result?;

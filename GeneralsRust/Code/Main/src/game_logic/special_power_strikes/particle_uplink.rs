@@ -883,22 +883,37 @@ pub fn spawn_particle_outer_node_flares(
     source: ObjectId,
     building_origin: Vec3,
     intensity: ParticleIntensity,
+    particle_owner: &mut dyn crate::game_logic::combat_particles::ParticleBindingAccess,
 ) {
     let name = intensity.outer_flare_name();
     if name.is_empty() {
         return;
     }
-    for i in 0..PARTICLE_OUTER_EFFECT_NUM_BONES {
-        let world = particle_outer_node_bone_position(building_origin, i);
-        let local = world - building_origin;
-        let cpp = gamelogic::common::Coord3D::new(local.x, local.z, local.y);
-        let _ = gamelogic::helpers::attach_particle_system_to_object_local(
-            name,
-            source.0,
-            Some(&cpp),
-            None,
-        );
+    #[cfg(feature = "game_client")]
+    {
+        let Some(manager) = particle_owner.particle_systems_mut() else {
+            return;
+        };
+        if let Err(error) = manager.admit_effective_definitions() {
+            log::error!("receiving Particle Uplink definitions unavailable: {error}");
+            return;
+        }
+        let Some(template) = manager.find_template(name) else {
+            return;
+        };
+        for i in 0..PARTICLE_OUTER_EFFECT_NUM_BONES {
+            let local = particle_outer_node_bone_position(building_origin, i) - building_origin;
+            let Ok(id) = manager.create_particle_system(&template, true) else {
+                continue;
+            };
+            if let Some(system) = manager.find_particle_system_mut(id) {
+                system.set_position(Vec3::new(local.x, local.z, local.y));
+                system.attach_to_object(source.0);
+            }
+        }
     }
+    #[cfg(not(feature = "game_client"))]
+    let _ = (source, building_origin, particle_owner);
 }
 
 /// C++ `ParticleUplinkCannonUpdate.cpp:711-721` BeamLaunchFX at laser origin.
@@ -1415,4 +1430,54 @@ pub fn apply_particle_beam_scorch_and_ground_hit_fx_with_view(
         None,
         view,
     );
+}
+
+/// One immediate Uplink operation recipient; both effects borrow the same
+/// driving source. Separate closures would hold overlapping mutable loans.
+pub trait ParticleUplinkEffects {
+    fn dispatch(
+        &mut self,
+        name: &str,
+        position: Vec3,
+        secondary: Option<Vec3>,
+        speed: f32,
+        radius: f32,
+        matrix: Option<glam::Mat4>,
+    ) -> bool;
+    fn outer_flares(&mut self, _source: ObjectId, _position: Vec3, _intensity: ParticleIntensity) {}
+}
+pub struct DispatchOnlyUplinkEffects<'a>(
+    pub &'a mut dyn FnMut(&str, Vec3, Option<Vec3>, f32, f32, Option<glam::Mat4>) -> bool,
+);
+impl ParticleUplinkEffects for DispatchOnlyUplinkEffects<'_> {
+    fn dispatch(
+        &mut self,
+        name: &str,
+        position: Vec3,
+        secondary: Option<Vec3>,
+        speed: f32,
+        radius: f32,
+        matrix: Option<glam::Mat4>,
+    ) -> bool {
+        (self.0)(name, position, secondary, speed, radius, matrix)
+    }
+}
+#[cfg(feature = "game_client")]
+impl ParticleUplinkEffects for crate::game_logic::host_fx_list_dispatch::ObjectFxServices<'_, '_> {
+    fn dispatch(
+        &mut self,
+        name: &str,
+        position: Vec3,
+        secondary: Option<Vec3>,
+        speed: f32,
+        radius: f32,
+        matrix: Option<glam::Mat4>,
+    ) -> bool {
+        crate::game_logic::GameLogic::dispatch_fx_list_at_position_with_view(
+            name, position, secondary, speed, radius, matrix, self,
+        )
+    }
+    fn outer_flares(&mut self, source: ObjectId, position: Vec3, intensity: ParticleIntensity) {
+        spawn_particle_outer_node_flares(source, position, intensity, self);
+    }
 }

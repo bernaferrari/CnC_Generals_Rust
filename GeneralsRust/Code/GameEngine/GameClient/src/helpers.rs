@@ -21,8 +21,8 @@ use crate::gui::control_bar::{
 
 use crate::gui::load_screen::{
     LoadScreenGameMode, LoadScreenInitContext, LoadScreenKind, LoadScreenRequest,
-    reset_load_screen_for_owner, run_load_screen_prelude_for_owner_with_pump, select_load_screen,
-    update_load_screen_for_owner_with_pump,
+    reset_load_screen, run_load_screen_prelude_with_pump, select_load_screen,
+    update_load_screen_with_pump,
 };
 use crate::gui::{
     HintData, HintType, MouseCursor, MouseMode, WindowLayout, WindowStatus, hide_control_bar,
@@ -143,14 +143,6 @@ pub trait InGameUiHooks: Send + Sync {
         -1
     }
 
-    fn play_movie(&self, _movie_name: &str) -> bool {
-        // Optional backend-specific playback (e.g., radar/in-game movie windows).
-        false
-    }
-
-    fn is_movie_playing(&self, _movie_name: &str) -> bool {
-        false
-    }
     fn trigger_double_click_attack_move_guard_hint(&self) {}
 }
 
@@ -601,7 +593,7 @@ impl gamelogic::helpers::LoadScreenHooks for GameClientLoadScreenHooks<'_> {
         };
         let owner = self.client.window_manager_owner();
         if let Some(active) = self.active_load_screen.take() {
-            reset_load_screen_for_owner(&owner, active.kind, self.client.load_screen_runtime_mut());
+            reset_load_screen(active.kind, &mut self.client.load_screen_runtime_mut());
         }
         self.pending_game_mode = Some(game_mode);
         let Some(kind) = select_load_screen(request) else {
@@ -612,15 +604,16 @@ impl gamelogic::helpers::LoadScreenHooks for GameClientLoadScreenHooks<'_> {
         // exact owner receipt before initialization so end_load_screen cleans it.
         self.active_load_screen = Some(ActiveLoadScreen { kind, game_mode });
         if self.client.init_owned_load_screen(kind, &context)? {
-            let (runtime, mut presentation_pump) = self.client.split_load_screen_runtime_and_pump();
-            let _ = run_load_screen_prelude_for_owner_with_pump(
-                &owner,
+            let (mut runtime, mut presentation_pump) =
+                self.client.split_load_screen_runtime_and_pump();
+            let _ = run_load_screen_prelude_with_pump(
                 kind,
+                crate::gui::load_screen::LOAD_SCREEN_PRELUDE_MAX_PUMPS,
                 Some(&mut presentation_pump),
-                runtime,
+                &mut runtime,
             )?;
         } else {
-            reset_load_screen_for_owner(&owner, kind, self.client.load_screen_runtime_mut());
+            reset_load_screen(kind, &mut self.client.load_screen_runtime_mut());
             self.active_load_screen = None;
         }
 
@@ -630,13 +623,13 @@ impl gamelogic::helpers::LoadScreenHooks for GameClientLoadScreenHooks<'_> {
     fn update_load_screen(&mut self, progress: i32) -> Result<(), String> {
         if let Some(active) = self.active_load_screen {
             let owner = self.client.window_manager_owner();
-            let (runtime, mut presentation_pump) = self.client.split_load_screen_runtime_and_pump();
-            update_load_screen_for_owner_with_pump(
-                &owner,
+            let (mut runtime, mut presentation_pump) =
+                self.client.split_load_screen_runtime_and_pump();
+            update_load_screen_with_pump(
                 active.kind,
                 progress as f32,
                 Some(&mut presentation_pump),
-                runtime,
+                &mut runtime,
             )?;
         }
 
@@ -652,21 +645,20 @@ impl gamelogic::helpers::LoadScreenHooks for GameClientLoadScreenHooks<'_> {
         }
         let owner = self.client.window_manager_owner();
         let mut presentation_pump = self.client.load_screen_presentation_pump();
-        owner.with_scope(|| -> Result<(), String> {
-            with_window_manager(|wm| {
+        {
+            owner.with_manager(|wm| {
                 wm.transition_set_group(LOAD_SCREEN_COMPLETION_TRANSITION_GROUP, false)
             });
             for _ in 0..LOAD_SCREEN_COMPLETION_TRANSITION_MAX_FRAMES {
-                if with_window_manager(|wm| wm.transitions_finished()) {
+                if owner.with_manager(|wm| wm.transitions_finished()) {
                     break;
                 }
-                with_window_manager(|wm| wm.update());
+                owner.with_manager(|wm| wm.update());
                 let result = presentation_pump.pump();
                 gamelogic::system::game_logic::set_fp_mode();
                 result?;
             }
-            Ok(())
-        })?;
+        }
 
         Ok(())
     }
@@ -679,7 +671,7 @@ impl gamelogic::helpers::LoadScreenHooks for GameClientLoadScreenHooks<'_> {
         if let Some(active) = active {
             set_mouse_cursor_visibility(true);
             let owner = self.client.window_manager_owner();
-            reset_load_screen_for_owner(&owner, active.kind, self.client.load_screen_runtime_mut());
+            reset_load_screen(active.kind, &mut self.client.load_screen_runtime_mut());
         }
         if let Some(game_mode) = game_mode {
             self.reveal_shell_main_menu_after_start(game_mode);
@@ -1668,22 +1660,6 @@ impl TheInGameUI {
     /// C++ InGameUI::freeMessageResources.
     pub fn free_message_resources() {
         let _ = with_backend(|backend| backend.free_message_resources());
-    }
-
-    pub fn play_movie(movie_name: &str) -> bool {
-        if let Some(started) = with_backend_result(|backend| backend.play_movie(movie_name)) {
-            if !started {
-                info!("Play movie request failed: {movie_name}");
-            }
-            return started;
-        }
-
-        info!("Play movie request without active backend: {movie_name}");
-        false
-    }
-
-    pub fn is_movie_playing(movie_name: &str) -> bool {
-        with_backend_result(|backend| backend.is_movie_playing(movie_name)).unwrap_or(false)
     }
 
     pub fn military_subtitle(label: &str, duration_ms: i32) {

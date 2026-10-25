@@ -37,6 +37,14 @@ impl<'a> NativeRendererViewEffects<'a> {
             local_player_id,
         }
     }
+    pub(super) fn admit_map_particle_definitions(
+        &mut self,
+        sources: &[String],
+    ) -> Result<(), String> {
+        self.drawables
+            .particle_systems_mut()
+            .admit_map_definition_overlays(sources)
+    }
     pub(super) fn discard_map_attempt(&mut self) -> Result<(), String> {
         self.retirement
             .retire(&mut self.drawables, None)

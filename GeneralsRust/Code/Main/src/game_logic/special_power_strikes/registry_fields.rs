@@ -1398,20 +1398,24 @@ impl HostSpecialPowerStrikeRegistry {
         object_positions: &[(ObjectId, Vec3, crate::game_logic::Team, bool)],
         view: &mut crate::game_logic::host_fx_list_dispatch::ObjectFxServices<'_, '_>,
     ) {
-        self.bind_beam_source_axes_with_dispatch(
-            object_positions,
-            &mut |name, position, secondary, speed, radius, matrix| {
-                crate::game_logic::GameLogic::dispatch_fx_list_at_position_with_view(
-                    name, position, secondary, speed, radius, matrix, view,
-                )
-            },
-        )
+        self.bind_beam_source_axes_with_effects(object_positions, view)
     }
 
     pub fn bind_beam_source_axes_with_dispatch(
         &mut self,
         object_positions: &[(ObjectId, Vec3, crate::game_logic::Team, bool)],
         dispatch_fx: &mut dyn FnMut(&str, Vec3, Option<Vec3>, f32, f32, Option<glam::Mat4>) -> bool,
+    ) {
+        self.bind_beam_source_axes_with_effects(
+            object_positions,
+            &mut DispatchOnlyUplinkEffects(dispatch_fx),
+        )
+    }
+
+    fn bind_beam_source_axes_with_effects(
+        &mut self,
+        object_positions: &[(ObjectId, Vec3, crate::game_logic::Team, bool)],
+        effects: &mut dyn ParticleUplinkEffects,
     ) {
         for field in &mut self.beam_fields {
             if let Some((_, pos, _, _)) = object_positions
@@ -1421,12 +1425,8 @@ impl HostSpecialPowerStrikeRegistry {
                 let first_bind = !field.source_axis_set;
                 field.bind_source_axis(*pos);
                 if first_bind {
-                    spawn_particle_outer_node_flares(
-                        field.source_object,
-                        *pos,
-                        field.outer_intensity,
-                    );
-                    play_particle_beam_launch_fx_with_dispatch(*pos, dispatch_fx);
+                    effects.outer_flares(field.source_object, *pos, field.outer_intensity);
+                    effects.dispatch(PARTICLE_BEAM_LAUNCH_FX, *pos, None, 0.0, 0.0, None);
                 }
             }
         }

@@ -68,6 +68,10 @@ pub fn take_emitted_messages() -> Vec<GameMessage> {
 pub enum DisplayInputAction {
     IsMoviePlaying,
     StopMovie,
+    StopWindowMovies,
+    NextObjectiveMovie,
+    PlayObjectiveMovie(u8),
+    ToggleCameoMovie,
     ToggleLetterbox,
     ToggleMovieCapture,
     ToggleDebug(DisplayDebugKind),

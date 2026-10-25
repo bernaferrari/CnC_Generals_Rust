@@ -314,7 +314,7 @@ fn authored_letterbox_receives_current_upgrade_observation_at_each_action() {
     let (mut owner, _, _) = world(120.);
     let (peer, _, _) = world(320.);
     crate::game_logic::host_upgrade_rules::register_test_upgrade(
-        &owner,
+        &mut owner,
         "Upgrade_LetterboxObservation",
         "PLAYER",
         1,

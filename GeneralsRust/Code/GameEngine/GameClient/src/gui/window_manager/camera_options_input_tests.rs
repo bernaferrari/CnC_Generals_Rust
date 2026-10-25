@@ -96,6 +96,7 @@ fn click_options(
     };
     let mut context = ControlBarInputContext {
             script_display: None,
+            window_videos: None,
             upgrade_tooltip: crate::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource::Standalone,
         replay_version: None,
         replay_menu: None,

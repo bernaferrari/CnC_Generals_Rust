@@ -1,6 +1,11 @@
 // Split from `gui/load_screen.rs` dump. Included by `load_screen/mod.rs`.
 
-fn play_single_player_movie(wm: &mut WindowManager, window_name: &str, movie_name: &str) -> bool {
+fn play_single_player_movie(
+    wm: &mut WindowManager,
+    window_name: &str,
+    movie_name: &str,
+    runtime: &mut LoadScreenOperation<'_>,
+) -> bool {
     if movie_name.is_empty() {
         return false;
     }
@@ -11,23 +16,26 @@ fn play_single_player_movie(wm: &mut WindowManager, window_name: &str, movie_nam
     let Some(window) = wm.find_window_by_name(window_name) else {
         return false;
     };
-    with_window_video_manager(|manager| {
+    with_window_video_manager(runtime.videos, |manager| {
         manager.play_movie(window, movie_name.to_string(), WindowVideoPlayType::Once)
     })
 }
 
-fn is_single_player_movie_playing(movie_name: &str) -> bool {
+fn is_single_player_movie_playing(movie_name: &str, runtime: &mut LoadScreenOperation<'_>) -> bool {
     #[cfg(test)]
     if let Some(hook) = single_player_movie_playing_hook() {
         return hook(movie_name);
     }
-    with_window_video_manager(|manager| manager.is_movie_playing(movie_name))
+    with_window_video_manager(runtime.videos, |manager| {
+        manager.is_movie_playing(movie_name)
+    })
 }
 
 fn play_challenge_background_movie(
     wm: &mut WindowManager,
     window_name: &str,
     movie_name: &str,
+    runtime: &mut LoadScreenOperation<'_>,
 ) -> bool {
     if movie_name.is_empty() {
         return false;
@@ -39,19 +47,24 @@ fn play_challenge_background_movie(
     let Some(window) = wm.find_window_by_name(window_name) else {
         return false;
     };
-    with_window_video_manager(|manager| {
+    with_window_video_manager(runtime.videos, |manager| {
         manager.play_movie(window, movie_name.to_string(), WindowVideoPlayType::Once)
     })
 }
 
-fn play_challenge_movie(wm: &mut WindowManager, window_name: &str, movie_name: &str) -> bool {
+fn play_challenge_movie(
+    wm: &mut WindowManager,
+    window_name: &str,
+    movie_name: &str,
+    runtime: &mut LoadScreenOperation<'_>,
+) -> bool {
     if movie_name.is_empty() {
         return false;
     }
     let Some(window) = wm.find_window_by_name(window_name) else {
         return false;
     };
-    with_window_video_manager(|manager| {
+    with_window_video_manager(runtime.videos, |manager| {
         manager.play_movie(
             window,
             movie_name.to_string(),
@@ -64,13 +77,16 @@ fn play_challenge_movie(wm: &mut WindowManager, window_name: &str, movie_name: &
 /// frame when a one-shot entry removes itself from WindowVideoManager. A frame
 /// that is not decoder-ready remains pending, matching C++'s short Sleep(1)
 /// retry instead of treating it as a rendered animation step.
-fn advance_challenge_background_movie(movie_name: &str) -> Option<LoadScreenMovieAdvance> {
+fn advance_challenge_background_movie(
+    movie_name: &str,
+    runtime: &mut LoadScreenOperation<'_>,
+) -> Option<LoadScreenMovieAdvance> {
     #[cfg(test)]
     if let Some(hook) = challenge_movie_advance_hook() {
         return hook(movie_name);
     }
 
-    with_window_video_manager(|manager| {
+    with_window_video_manager(runtime.videos, |manager| {
         let before = manager.movie_progress(movie_name);
         if let Some(before) = before {
             if !before.frame_ready {

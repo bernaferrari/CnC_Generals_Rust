@@ -10,13 +10,11 @@ use crate::video_stream::VideoStreamInterface;
 
 use super::game_window::GameWindow;
 
-thread_local! {
-    static WINDOW_VIDEO_MANAGER: RefCell<WindowVideoManager> =
-        RefCell::new(WindowVideoManager::new());
-}
-
-pub fn with_window_video_manager<R>(f: impl FnOnce(&mut WindowVideoManager) -> R) -> R {
-    WINDOW_VIDEO_MANAGER.with(|manager| f(&mut manager.borrow_mut()))
+pub fn with_window_video_manager<R>(
+    manager: &mut WindowVideoManager,
+    f: impl FnOnce(&mut WindowVideoManager) -> R,
+) -> R {
+    f(manager)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -146,6 +144,8 @@ pub struct WindowVideoManager {
     playing_videos: HashMap<usize, WindowVideo>,
     stop_all_movies: bool,
     pause_all_movies: bool,
+    objective_movie_index: u8,
+    residual_action: ResidualWindowVideoAction,
 }
 
 impl Default for WindowVideoManager {
@@ -160,11 +160,14 @@ impl WindowVideoManager {
             playing_videos: HashMap::new(),
             stop_all_movies: false,
             pause_all_movies: false,
+            objective_movie_index: 0,
+            residual_action: ResidualWindowVideoAction::None,
         }
     }
 
     pub fn init(&mut self) {
         self.playing_videos.clear();
+        self.objective_movie_index = 0;
         self.stop_all_movies = false;
         self.pause_all_movies = false;
     }
@@ -182,6 +185,7 @@ impl WindowVideoManager {
 
     pub fn reset(&mut self) {
         self.playing_videos.clear();
+        self.objective_movie_index = 0;
         self.stop_all_movies = false;
         self.pause_all_movies = false;
     }
@@ -424,119 +428,77 @@ pub enum ResidualWindowVideoAction {
     Update = 6,
 }
 
-static RESIDUAL_WV_ACTION: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
-static RESIDUAL_WV_STOP_ALL: std::sync::atomic::AtomicBool =
-    std::sync::atomic::AtomicBool::new(false);
-static RESIDUAL_WV_PAUSE_ALL: std::sync::atomic::AtomicBool =
-    std::sync::atomic::AtomicBool::new(false);
-static RESIDUAL_WV_PLAYING_COUNT: std::sync::atomic::AtomicUsize =
-    std::sync::atomic::AtomicUsize::new(0);
-
-fn residual_wv_action_store(action: ResidualWindowVideoAction) {
-    RESIDUAL_WV_ACTION.store(action as u8, std::sync::atomic::Ordering::Relaxed);
+/// Diagnostics belong to the same receiving manager as their stream observations.
+fn residual_wv_action_store(manager: &mut WindowVideoManager, action: ResidualWindowVideoAction) {
+    manager.residual_action = action;
 }
-
-/// Residual: last WindowVideo residual action.
-pub fn residual_window_video_last_action() -> ResidualWindowVideoAction {
-    match RESIDUAL_WV_ACTION.load(std::sync::atomic::Ordering::Relaxed) {
-        1 => ResidualWindowVideoAction::Init,
-        2 => ResidualWindowVideoAction::Reset,
-        3 => ResidualWindowVideoAction::PauseAll,
-        4 => ResidualWindowVideoAction::ResumeAll,
-        5 => ResidualWindowVideoAction::StopAll,
-        6 => ResidualWindowVideoAction::Update,
-        _ => ResidualWindowVideoAction::None,
-    }
+pub fn residual_window_video_last_action(
+    manager: &WindowVideoManager,
+) -> ResidualWindowVideoAction {
+    manager.residual_action
 }
-
-/// Residual: stop-all latch.
-pub fn residual_window_video_stop_all() -> bool {
-    RESIDUAL_WV_STOP_ALL.load(std::sync::atomic::Ordering::Relaxed)
+pub fn residual_window_video_stop_all(manager: &WindowVideoManager) -> bool {
+    manager.stop_all_movies
 }
-
-/// Residual: pause-all latch.
-pub fn residual_window_video_pause_all() -> bool {
-    RESIDUAL_WV_PAUSE_ALL.load(std::sync::atomic::Ordering::Relaxed)
+pub fn residual_window_video_pause_all(manager: &WindowVideoManager) -> bool {
+    manager.pause_all_movies
 }
-
-/// Residual: playing video count latch.
-pub fn residual_window_video_playing_count() -> usize {
-    RESIDUAL_WV_PLAYING_COUNT.load(std::sync::atomic::Ordering::Relaxed)
-}
-
-fn residual_wv_sync(manager: &WindowVideoManager) {
-    RESIDUAL_WV_STOP_ALL.store(
-        manager.stop_all_movies,
-        std::sync::atomic::Ordering::Relaxed,
-    );
-    RESIDUAL_WV_PAUSE_ALL.store(
-        manager.pause_all_movies,
-        std::sync::atomic::Ordering::Relaxed,
-    );
-    RESIDUAL_WV_PLAYING_COUNT.store(
-        manager.playing_videos.len(),
-        std::sync::atomic::Ordering::Relaxed,
-    );
+pub fn residual_window_video_playing_count(manager: &WindowVideoManager) -> usize {
+    manager.playing_videos.len()
 }
 
 /// Residual: init window video manager without movies.
-pub fn simulate_window_video_init() -> bool {
-    with_window_video_manager(|manager| {
+pub fn simulate_window_video_init(manager: &mut WindowVideoManager) -> bool {
+    with_window_video_manager(manager, |manager| {
         manager.init();
-        residual_wv_sync(manager);
-        residual_wv_action_store(ResidualWindowVideoAction::Init);
-        residual_window_video_playing_count() == 0
-            && !residual_window_video_stop_all()
-            && !residual_window_video_pause_all()
+        residual_wv_action_store(manager, ResidualWindowVideoAction::Init);
+        residual_window_video_playing_count(manager) == 0
+            && !residual_window_video_stop_all(manager)
+            && !residual_window_video_pause_all(manager)
     })
 }
 
 /// Residual: reset window video manager residual.
-pub fn simulate_window_video_reset() -> bool {
-    with_window_video_manager(|manager| {
+pub fn simulate_window_video_reset(manager: &mut WindowVideoManager) -> bool {
+    with_window_video_manager(manager, |manager| {
         manager.reset();
-        residual_wv_sync(manager);
-        residual_wv_action_store(ResidualWindowVideoAction::Reset);
-        residual_window_video_playing_count() == 0
+        residual_wv_action_store(manager, ResidualWindowVideoAction::Reset);
+        residual_window_video_playing_count(manager) == 0
     })
 }
 
 /// Residual: pause all movies residual (global flag).
-pub fn simulate_window_video_pause_all() -> bool {
-    with_window_video_manager(|manager| {
+pub fn simulate_window_video_pause_all(manager: &mut WindowVideoManager) -> bool {
+    with_window_video_manager(manager, |manager| {
         manager.pause_all_movies();
-        residual_wv_sync(manager);
-        residual_wv_action_store(ResidualWindowVideoAction::PauseAll);
-        residual_window_video_pause_all()
+        residual_wv_action_store(manager, ResidualWindowVideoAction::PauseAll);
+        residual_window_video_pause_all(manager)
     })
 }
 
 /// Residual: resume all movies residual.
-pub fn simulate_window_video_resume_all() -> bool {
-    with_window_video_manager(|manager| {
+pub fn simulate_window_video_resume_all(manager: &mut WindowVideoManager) -> bool {
+    with_window_video_manager(manager, |manager| {
         manager.resume_all_movies();
-        residual_wv_sync(manager);
-        residual_wv_action_store(ResidualWindowVideoAction::ResumeAll);
-        !residual_window_video_pause_all()
+        residual_wv_action_store(manager, ResidualWindowVideoAction::ResumeAll);
+        !residual_window_video_pause_all(manager)
     })
 }
 
 /// Residual: stop all movies residual.
-pub fn simulate_window_video_stop_all() -> bool {
-    with_window_video_manager(|manager| {
+pub fn simulate_window_video_stop_all(manager: &mut WindowVideoManager) -> bool {
+    with_window_video_manager(manager, |manager| {
         manager.stop_all_movies();
-        residual_wv_sync(manager);
-        residual_wv_action_store(ResidualWindowVideoAction::StopAll);
-        residual_window_video_stop_all()
+        residual_wv_action_store(manager, ResidualWindowVideoAction::StopAll);
+        residual_window_video_stop_all(manager)
     })
 }
 
 /// Residual: update window video manager residual.
-pub fn simulate_window_video_update() -> bool {
-    with_window_video_manager(|manager| {
+pub fn simulate_window_video_update(manager: &mut WindowVideoManager) -> bool {
+    with_window_video_manager(manager, |manager| {
         manager.update();
-        residual_wv_sync(manager);
-        residual_wv_action_store(ResidualWindowVideoAction::Update);
+        residual_wv_action_store(manager, ResidualWindowVideoAction::Update);
         true
     })
 }
@@ -548,23 +510,23 @@ pub const WINDOW_VIDEO_PLAY_TYPE_NAMES: &[&str] = &["Once", "Loop", "ShowLastFra
 pub const WINDOW_VIDEO_STATE_NAMES: &[&str] = &["Start", "Stop", "Pause", "Play", "Hidden"];
 
 /// Residual: init + pause + resume + stop composite.
-pub fn simulate_window_video_prepare_control_cycle() -> bool {
-    if !simulate_window_video_init() {
+pub fn simulate_window_video_prepare_control_cycle(manager: &mut WindowVideoManager) -> bool {
+    if !simulate_window_video_init(manager) {
         return false;
     }
-    if !simulate_window_video_pause_all() {
+    if !simulate_window_video_pause_all(manager) {
         return false;
     }
-    if !simulate_window_video_resume_all() {
+    if !simulate_window_video_resume_all(manager) {
         return false;
     }
-    if !simulate_window_video_stop_all() {
+    if !simulate_window_video_stop_all(manager) {
         return false;
     }
-    if !simulate_window_video_update() {
+    if !simulate_window_video_update(manager) {
         return false;
     }
-    residual_window_video_stop_all() && residual_window_video_playing_count() == 0
+    residual_window_video_stop_all(manager) && residual_window_video_playing_count(manager) == 0
 }
 
 #[cfg(test)]
@@ -577,6 +539,7 @@ mod tests {
 
     #[test]
     fn stop_movie_keeps_entry_and_sets_stop_state() {
+        let manager = &mut WindowVideoManager::new();
         let window = make_window();
         let mut manager = WindowVideoManager::new();
         let mut video = WindowVideo::new();
@@ -595,6 +558,7 @@ mod tests {
 
     #[test]
     fn stop_all_movies_marks_entries_stopped_without_removal() {
+        let manager = &mut WindowVideoManager::new();
         let window_a = make_window();
         let window_b = make_window();
         let mut manager = WindowVideoManager::new();
@@ -622,6 +586,7 @@ mod tests {
 
     #[test]
     fn resume_all_movies_restores_play_state_for_stopped_entries() {
+        let manager = &mut WindowVideoManager::new();
         let window = make_window();
         let mut manager = WindowVideoManager::new();
         let mut video = WindowVideo::new();
@@ -638,6 +603,7 @@ mod tests {
 
     #[test]
     fn update_returns_early_when_pause_all_movies_is_set() {
+        let manager = &mut WindowVideoManager::new();
         let window = make_window();
         let mut manager = WindowVideoManager::new();
         manager.pause_all_movies = true;
@@ -655,6 +621,7 @@ mod tests {
 
     #[test]
     fn update_does_not_hide_paused_window_when_window_is_hidden() {
+        let manager = &mut WindowVideoManager::new();
         let window = make_window();
         window
             .borrow_mut()
@@ -674,6 +641,7 @@ mod tests {
 
     #[test]
     fn update_resumes_hidden_video_when_window_becomes_visible() {
+        let manager = &mut WindowVideoManager::new();
         let window = make_window();
 
         let mut manager = WindowVideoManager::new();
@@ -868,6 +836,7 @@ pub(crate) mod load_movie_tests {
 
     #[test]
     fn load_movie_single_player_waits_then_skips_without_decoding_after_focus_loss() {
+        let manager = &mut WindowVideoManager::new();
         let mut manager = WindowVideoManager::new();
         let (ready, trace) = insert(&mut manager, 1, "Campaign");
         manager.hold_load_movie("Campaign");
@@ -900,6 +869,7 @@ pub(crate) mod load_movie_tests {
 
     #[test]
     fn load_movie_challenge_preserves_inactive_decoder_order_and_final_frame_boundary() {
+        let manager = &mut WindowVideoManager::new();
         let mut manager = WindowVideoManager::new();
         let (_, selected) = insert(&mut manager, 1, "Challenge");
         let (_, unrelated) = insert(&mut manager, 2, "Portrait");
@@ -941,5 +911,80 @@ pub(crate) mod load_movie_tests {
         manager.finish_load_movie("Challenge", false);
         assert!(manager.movie_progress("Challenge").is_some());
         assert_eq!(manager.playing_videos[&1].state, WindowVideoState::Pause);
+    }
+}
+
+/// Resolve the receiving client's authored radar window at the operation boundary.
+pub fn play_radar_movie_for_owner(
+    owner: &crate::gui::window_manager::WindowManagerOwner,
+    videos: &mut WindowVideoManager,
+    name: &str,
+) -> bool {
+    let window = owner.with_manager(|wm| wm.find_window_by_name("ControlBar.wnd:LeftHUD"));
+    window
+        .is_some_and(|window| videos.play_movie(window, name.to_owned(), WindowVideoPlayType::Once))
+}
+
+impl WindowVideoManager {
+    pub(crate) fn advance_objective_movie(
+        &mut self,
+        owner: &crate::gui::window_manager::WindowManagerOwner,
+    ) -> bool {
+        let next = if self.objective_movie_index >= 6 {
+            1
+        } else {
+            self.objective_movie_index + 1
+        };
+        self.play_objective_movie(owner, next)
+    }
+    pub(crate) fn play_objective_movie(
+        &mut self,
+        owner: &crate::gui::window_manager::WindowManagerOwner,
+        index: u8,
+    ) -> bool {
+        self.objective_movie_index = index;
+        play_radar_movie_for_owner(owner, self, &format!("DemoObjective{index:02}"))
+    }
+    pub(crate) fn toggle_cameo_movie(
+        &mut self,
+        owner: &crate::gui::window_manager::WindowManagerOwner,
+    ) -> bool {
+        let target = owner.with_manager(|wm| {
+            ["ControlBar.wnd:CameoMovieWindow", "ControlBar.wnd:RightHUD"]
+                .into_iter()
+                .find_map(|name| wm.find_window_by_name(name))
+        });
+        let Some(target) = target else {
+            return false;
+        };
+        if self.is_movie_playing("CameoMovie") {
+            self.stop_movie(&target);
+            true
+        } else {
+            self.play_movie(target, "CameoMovie".into(), WindowVideoPlayType::Once)
+        }
+    }
+}
+
+#[cfg(test)]
+mod receiving_video_diagnostics_tests {
+    use super::*;
+    #[test]
+    fn peer_diagnostics_and_reset_do_not_change_owner() {
+        let mut owner = WindowVideoManager::new();
+        assert!(simulate_window_video_pause_all(&mut owner));
+        {
+            let mut peer = WindowVideoManager::new();
+            assert!(simulate_window_video_reset(&mut peer));
+            assert_eq!(
+                residual_window_video_last_action(&peer),
+                ResidualWindowVideoAction::Reset
+            );
+        }
+        assert!(residual_window_video_pause_all(&owner));
+        assert_eq!(
+            residual_window_video_last_action(&owner),
+            ResidualWindowVideoAction::PauseAll
+        );
     }
 }

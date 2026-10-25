@@ -930,47 +930,48 @@ impl CnCGameEngine {
 
     #[cfg(feature = "game_client")]
     pub(super) fn named_gadget_center_if_hittable(&self, name: &str) -> Option<(i32, i32)> {
-        use game_client::gui::window_manager::with_window_manager_ref;
         use std::rc::Rc;
 
-        with_window_manager_ref(|manager| {
-            let window = manager.find_window_by_name(name)?;
-            let (hidden, enabled, sx, sy, w, h) = {
-                let guard = window.try_borrow().ok()?;
-                let (sx, sy) = guard.get_screen_position();
-                let (w, h) = guard.get_size();
-                (guard.is_hidden(), guard.is_enabled(), sx, sy, w, h)
-            };
-            let sized = w > 0 && h > 0;
-            let x = sx + w / 2;
-            let y = sy + h / 2;
-            let geometric_gate = !hidden && enabled && sized;
-            if !geometric_gate {
-                return None;
-            }
-            let hit = manager.get_window_under_cursor(x, y, false);
-            // Named gadget or a descendant under its own center (C++ hit residual).
-            let is_named_or_desc = hit.as_ref().is_some_and(|hit| {
-                if Rc::ptr_eq(&window, hit) {
-                    true
-                } else {
-                    let mut current = hit.try_borrow().ok().and_then(|g| g.get_parent());
-                    let mut found = false;
-                    while let Some(parent) = current {
-                        if Rc::ptr_eq(&parent, &window) {
-                            found = true;
-                            break;
-                        }
-                        current = parent.try_borrow().ok().and_then(|g| g.get_parent());
-                    }
-                    found
+        self.game_client
+            .window_manager_owner()
+            .with_manager_ref(|manager| {
+                let window = manager.find_window_by_name(name)?;
+                let (hidden, enabled, sx, sy, w, h) = {
+                    let guard = window.try_borrow().ok()?;
+                    let (sx, sy) = guard.get_screen_position();
+                    let (w, h) = guard.get_size();
+                    (guard.is_hidden(), guard.is_enabled(), sx, sy, w, h)
+                };
+                let sized = w > 0 && h > 0;
+                let x = sx + w / 2;
+                let y = sy + h / 2;
+                let geometric_gate = !hidden && enabled && sized;
+                if !geometric_gate {
+                    return None;
                 }
-            });
-            if !geometric_gate || !is_named_or_desc {
-                return None;
-            }
-            Some((x, y))
-        })
+                let hit = manager.get_window_under_cursor(x, y, false);
+                // Named gadget or a descendant under its own center (C++ hit residual).
+                let is_named_or_desc = hit.as_ref().is_some_and(|hit| {
+                    if Rc::ptr_eq(&window, hit) {
+                        true
+                    } else {
+                        let mut current = hit.try_borrow().ok().and_then(|g| g.get_parent());
+                        let mut found = false;
+                        while let Some(parent) = current {
+                            if Rc::ptr_eq(&parent, &window) {
+                                found = true;
+                                break;
+                            }
+                            current = parent.try_borrow().ok().and_then(|g| g.get_parent());
+                        }
+                        found
+                    }
+                });
+                if !geometric_gate || !is_named_or_desc {
+                    return None;
+                }
+                Some((x, y))
+            })
     }
 
     #[cfg(not(feature = "game_client"))]
@@ -1854,6 +1855,13 @@ impl CnCGameEngine {
         #[cfg(feature = "game_client")]
         {
             self.update_owned_control_bar_animations();
+            self.control_bar.set_receiving_upgrade_definitions(
+                &self.game_logic.upgrade_definitions,
+                self.game_logic
+                    .receiving_module_content
+                    .as_ref()
+                    .map(|content| content.action_definitions_shared()),
+            );
             pres.apply_to_control_bar(&mut self.control_bar);
             let _ =
                 self.update_receiving_observer_control_bar(std::time::Duration::from_millis(33));

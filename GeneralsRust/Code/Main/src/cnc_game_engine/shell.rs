@@ -92,7 +92,9 @@ impl CnCGameEngine {
     pub(super) fn ui_window_manager_has_windows(&self) -> bool {
         #[cfg(feature = "game_client")]
         {
-            game_client::gui::with_window_manager_ref(|wm| wm.window_count() > 0)
+            self.game_client
+                .window_manager_owner()
+                .with_manager_ref(|wm| wm.window_count() > 0)
         }
         #[cfg(not(feature = "game_client"))]
         {
@@ -300,20 +302,18 @@ impl CnCGameEngine {
             {
                 Ok(created) => created,
                 Err(error) => {
-                    game_client::gui::load_screen::reset_load_screen_for_owner(
-                        &owner,
+                    game_client::gui::load_screen::reset_load_screen(
                         kind,
-                        self.game_client.load_screen_runtime_mut(),
+                        &mut self.game_client.load_screen_runtime_mut(),
                     );
                     self.active_load_screen = None;
                     return Err(error);
                 }
             };
             if !created {
-                game_client::gui::load_screen::reset_load_screen_for_owner(
-                    &owner,
+                game_client::gui::load_screen::reset_load_screen(
                     kind,
-                    self.game_client.load_screen_runtime_mut(),
+                    &mut self.game_client.load_screen_runtime_mut(),
                 );
                 self.active_load_screen = None;
                 return Err(format!(
@@ -365,8 +365,8 @@ impl CnCGameEngine {
         pending: &mut PendingMatchStart,
     ) -> Result<bool, String> {
         use game_client::gui::load_screen::{
-            LoadScreenPreludeStepResult, advance_load_screen_prelude_for_owner_with_pump,
-            pump_load_screen_prelude_presentation_for_owner_with_pump,
+            LoadScreenPreludeStepResult, advance_load_screen_prelude_with_pump,
+            pump_load_screen_prelude_presentation_with_pump,
         };
         if !self.loading_overlay_active {
             return Ok(true);
@@ -380,13 +380,7 @@ impl CnCGameEngine {
         }
         let focused = self.message_processor.is_active();
         let step = self.with_native_load_screen_presentation(|load, pump| {
-            advance_load_screen_prelude_for_owner_with_pump(
-                load.windows(),
-                kind,
-                focused,
-                Some(pump),
-                load.runtime_mut(),
-            )
+            advance_load_screen_prelude_with_pump(kind, focused, Some(pump), load.runtime_mut())
         })?;
         let (finished, presentation_needed) = match step {
             LoadScreenPreludeStepResult::Pending {
@@ -403,10 +397,10 @@ impl CnCGameEngine {
         };
         if presentation_needed {
             self.with_native_load_screen_presentation(|load, pump| {
-                pump_load_screen_prelude_presentation_for_owner_with_pump(
-                    load.windows(),
+                pump_load_screen_prelude_presentation_with_pump(
                     kind,
                     Some(pump),
+                    load.runtime_mut(),
                 )
             })?;
         }
@@ -425,10 +419,9 @@ impl CnCGameEngine {
             // ShellGameLoadScreen.wnd (92%) stacked over MainMenu.
             let owner = self.game_client.window_manager_owner();
             if let Some(kind) = self.active_load_screen.take() {
-                game_client::gui::load_screen::reset_load_screen_for_owner(
-                    &owner,
+                game_client::gui::load_screen::reset_load_screen(
                     kind,
-                    self.game_client.load_screen_runtime_mut(),
+                    &mut self.game_client.load_screen_runtime_mut(),
                 );
             }
             for kind in [
@@ -439,10 +432,9 @@ impl CnCGameEngine {
                 game_client::gui::load_screen::LoadScreenKind::GameSpy,
                 game_client::gui::load_screen::LoadScreenKind::MapTransfer,
             ] {
-                game_client::gui::load_screen::reset_load_screen_for_owner(
-                    &owner,
+                game_client::gui::load_screen::reset_load_screen(
                     kind,
-                    self.game_client.load_screen_runtime_mut(),
+                    &mut self.game_client.load_screen_runtime_mut(),
                 );
             }
             self.loading_overlay_active = false;
@@ -551,8 +543,7 @@ impl CnCGameEngine {
             if let Some(kind) = self.active_load_screen {
                 let percent = self.startup_last_reported_progress * 100.0;
                 self.with_native_load_screen_presentation(|load, pump| {
-                    game_client::gui::load_screen::update_load_screen_for_owner_with_pump(
-                        load.windows(),
+                    game_client::gui::load_screen::update_load_screen_with_pump(
                         kind,
                         percent,
                         Some(pump),
@@ -574,11 +565,10 @@ impl CnCGameEngine {
         presentation_pump: &mut game_client::gui::load_screen::LoadScreenPresentationPump<'_>,
         kind: game_client::gui::load_screen::LoadScreenKind,
         progress: f32,
-        runtime: &mut game_client::gui::load_screen::LoadScreenRuntime,
+        runtime: &mut game_client::gui::load_screen::LoadScreenOperation<'_>,
     ) -> Result<(), String> {
         let progress = progress.clamp(0.0, 1.0);
-        game_client::gui::load_screen::update_load_screen_for_owner_with_pump(
-            owner,
+        game_client::gui::load_screen::update_load_screen_with_pump(
             kind,
             progress * 100.0,
             Some(presentation_pump),

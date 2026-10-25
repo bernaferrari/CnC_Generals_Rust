@@ -40,6 +40,7 @@ impl GameClient {
             script_display: crate::core::script_action_handler::ScriptDisplayReceiver::default(),
             message_stream: crate::message_stream::message_stream::MessageStream::new(),
             shell_game_first_load: true,
+            window_videos: crate::gui::window_video_manager::WindowVideoManager::new(),
             load_screen_runtime: crate::gui::load_screen::LoadScreenRuntime::default(),
             frame: 0,
             command_hints: Default::default(),
@@ -159,14 +160,17 @@ impl GameClient {
                 owner,
             )
             .with_mouse(self.subsystem_manager.input_mouse.clone());
-        crate::gui::load_screen::init_load_screen_for_owner_with_pump(
-            owner,
+        crate::gui::load_screen::init_load_screen_with_state(
             kind,
             context,
             &self.campaign_manager,
             &mut self.shell_game_first_load,
             Some(&mut presentation_pump),
-            &mut self.load_screen_runtime,
+            &mut crate::gui::load_screen::LoadScreenOperation::new(
+                &mut self.load_screen_runtime,
+                &mut self.window_videos,
+                &self.window_manager_owner,
+            ),
         )
     }
 
@@ -314,6 +318,7 @@ impl GameClient {
 
     /// Resets the game client for a new game
     pub fn reset(&mut self) -> GameClientResult<()> {
+        self.window_videos.reset();
         let owner = self.window_manager_owner.clone();
         owner.with_scope(|| self.reset_with_window_owner())
     }
@@ -960,6 +965,7 @@ impl GameClient {
         &mut crate::gui::shell::main_menu::MainMenu,
         &mut crate::gui::campaign_launch_host_bridge::MenuHostMailbox,
         &mut crate::core::script_action_handler::ScriptDisplayReceiver,
+        &mut crate::gui::window_video_manager::WindowVideoManager,
     ) {
         self.script_display
             .bind(self.subsystem_manager.display.as_ref());
@@ -969,6 +975,7 @@ impl GameClient {
             &mut self.main_menu,
             &mut self.menu_host,
             &mut self.script_display,
+            &mut self.window_videos,
         )
     }
     pub fn main_menu(&self) -> &crate::gui::shell::main_menu::MainMenu {
@@ -1058,6 +1065,7 @@ impl GameClient {
             menu_world,
             menu_host: Some(&mut self.menu_host),
             script_display: Some(&mut self.script_display),
+            window_videos: Some(&mut self.window_videos),
             pending_main_menu_actions: Vec::new(),
         };
         let result = owner.with_scope(|| operation(&mut effects));
@@ -1090,6 +1098,7 @@ impl GameClient {
             menu_world,
             menu_host: Some(&mut self.menu_host),
             script_display: Some(&mut self.script_display),
+            window_videos: Some(&mut self.window_videos),
             pending_main_menu_actions: Vec::new(),
         };
         let result = owner.with_shell_effects_mut(&mut effects, operation);
@@ -1119,6 +1128,7 @@ impl GameClient {
             menu_world,
             menu_host: Some(&mut self.menu_host),
             script_display: Some(&mut self.script_display),
+            window_videos: Some(&mut self.window_videos),
             pending_main_menu_actions: Vec::new(),
         };
         owner.complete_event_callbacks(&mut effects);
@@ -1137,6 +1147,7 @@ impl GameClient {
              main_menu: &mut crate::gui::shell::main_menu::MainMenu,
              menu_host: &mut crate::gui::campaign_launch_host_bridge::MenuHostMailbox,
              display: &mut crate::core::script_action_handler::ScriptDisplayReceiver,
+             videos: &mut crate::gui::window_video_manager::WindowVideoManager,
              request,
              _emitted_messages: &mut Vec<GameMessage>| {
                 let mut pending_clicks = Vec::new();
@@ -1150,6 +1161,7 @@ impl GameClient {
                     menu_world: None,
                     menu_host: Some(menu_host),
                     script_display: Some(display),
+                    window_videos: Some(videos),
                     pending_main_menu_actions: Vec::new(),
                 };
                 let result = owner.try_with_manager(|manager| match request {
@@ -1225,6 +1237,7 @@ impl GameClient {
         let menu = &mut self.main_menu;
         let host = &mut self.menu_host;
         let display = &mut self.script_display;
+        let videos = &mut self.window_videos;
         let mut dispatch = |request, emitted: &mut Vec<GameMessage>| {
             if let game_engine::common::message_stream::WindowInputDispatch::Display(action) =
                 request
@@ -1232,12 +1245,14 @@ impl GameClient {
                 return Some(
                     game_engine::common::message_stream::WindowInputDispatchResult::Display(
                         crate::message_stream::meta_event::execute_display_input_action(
-                            action, display,
+                            action, display, owner, videos,
                         ),
                     ),
                 );
             }
-            let result = driver(owner, campaign, menu, host, display, request, emitted);
+            let result = driver(
+                owner, campaign, menu, host, display, videos, request, emitted,
+            );
             yielded.set(host.has_requests());
             result
         };

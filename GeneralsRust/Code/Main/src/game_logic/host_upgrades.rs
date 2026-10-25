@@ -194,6 +194,59 @@ pub fn object_can_produce_upgrade(
     }
 }
 
+/// Receiving Object::canProduceUpgrade: authored slots plus this session's
+/// dynamic overrides. No ControlBar or INI singleton participates.
+pub(crate) fn object_can_produce_upgrade_receiving(
+    definitions: Option<
+        &game_engine::common::thing::receiving_module_content::ReceivingActionDefinitions,
+    >,
+    overrides: &crate::game_logic::game_logic::command_overrides::ControlBarOverrides,
+    object: &Object,
+    upgrade_name: &str,
+) -> bool {
+    let Some(definitions) = definitions else {
+        return residual_command_set_allows_upgrade(object, upgrade_name);
+    };
+    let Some(set_name) = host_object_command_set_name(object) else {
+        return false;
+    };
+    let Some(set) = definitions
+        .sets
+        .find_command_set_resolved(&set_name)
+        .or_else(|| {
+            definitions
+                .sets
+                .iter_resolved_sets()
+                .into_iter()
+                .find(|(name, _)| name.eq_ignore_ascii_case(&set_name))
+                .map(|(_, set)| set)
+        })
+    else {
+        return false;
+    };
+    for index in 0..gamelogic::command_button::MAX_COMMANDS_PER_SET {
+        let Some(key) = crate::game_logic::game_logic::command_overrides::control_bar_override_key(
+            &set_name,
+            index as i32,
+        ) else {
+            continue;
+        };
+        let name = match overrides.get(&key) {
+            Some(value) => value.as_ref(),
+            None => set.get_button_at_position(index),
+        };
+        let Some(button) =
+            name.and_then(|name| definitions.buttons.find_command_button_resolved(name))
+        else {
+            continue;
+        };
+        if !button.upgrade.is_empty() && upgrade_names_match(&button.upgrade, upgrade_name) {
+            return true;
+        }
+    }
+    false
+}
+
 fn host_object_command_set_name(object: &Object) -> Option<String> {
     if let Some(cs) = object
         .command_set_override

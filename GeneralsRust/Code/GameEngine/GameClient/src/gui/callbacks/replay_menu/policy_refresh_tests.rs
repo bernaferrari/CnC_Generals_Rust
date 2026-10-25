@@ -182,6 +182,7 @@ fn admitted_content_crc_refresh_preserves_active_native_selection_and_release() 
         };
         let mut context = ControlBarInputContext {
             script_display: None,
+            window_videos: None,
             upgrade_tooltip: crate::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource::Standalone,
             replay_menu: Some(&mut operation),
             replay_version: Some(&mut probe),

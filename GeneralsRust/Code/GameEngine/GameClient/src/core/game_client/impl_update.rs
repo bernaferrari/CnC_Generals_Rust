@@ -2485,6 +2485,7 @@ impl GameClient {
             let mut messages = Vec::new();
             let mut effects = crate::gui::game_window::WindowEventEffects {
                 script_display: None,
+                window_videos: None,
                 window_manager_owner: Some(&self.window_manager_owner),
                 selected_window: None,
                 emitted_messages: &mut messages,
@@ -2504,6 +2505,7 @@ impl GameClient {
         }
 
         if let Some(ref ui) = self.subsystem_manager.in_game_ui {
+            self.window_videos.update();
             ui.lock().unwrap_or_else(|e| e.into_inner()).update()?;
         }
 
@@ -2523,6 +2525,7 @@ impl GameClient {
             let mut messages = Vec::new();
             let mut effects = crate::gui::game_window::WindowEventEffects {
                 script_display: None,
+                window_videos: None,
                 window_manager_owner: Some(&self.window_manager_owner),
                 selected_window: None,
                 emitted_messages: &mut messages,
@@ -2542,6 +2545,7 @@ impl GameClient {
         }
 
         if let Some(ref ui) = self.subsystem_manager.in_game_ui {
+            self.window_videos.update();
             ui.lock().unwrap_or_else(|e| e.into_inner()).update()?;
         }
 

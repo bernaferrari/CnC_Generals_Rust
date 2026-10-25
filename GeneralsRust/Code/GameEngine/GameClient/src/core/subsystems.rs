@@ -18,7 +18,6 @@ use crate::{
     drawable::Drawable,
     effects::particle_manager::xfer_particle_system_manager_state,
     game_text::GameText,
-    gui::window_video_manager::{WindowVideoPlayType, with_window_video_manager},
     helpers::{InGameUiHooks, PendingCommand, PendingSpecialPower},
     message_stream::game_message::{ICoord2D, ObjectID},
     message_stream::hot_key::with_hot_key_manager,
@@ -1574,27 +1573,6 @@ impl InGameUISubsystem {
         TheGameLogic::get_frame() < self.tooltips_disabled_until
     }
 
-    fn play_radar_movie(&mut self, movie_name: &str) -> bool {
-        let window_id = NameKeyGenerator::name_to_key("ControlBar.wnd:LeftHUD") as i32;
-        let Some(window) =
-            crate::gui::with_window_manager_ref(|manager| manager.get_window_by_id(window_id))
-        else {
-            return false;
-        };
-
-        with_window_video_manager(|manager| {
-            manager.play_movie(window, movie_name.to_string(), WindowVideoPlayType::Once)
-        })
-    }
-
-    fn update_radar_movie_playback(&mut self) {
-        with_window_video_manager(|manager| manager.update());
-    }
-
-    fn is_radar_movie_playing(&self, movie_name: &str) -> bool {
-        with_window_video_manager(|manager| manager.is_movie_playing(movie_name))
-    }
-
     fn get_pending_place_template(&self) -> Option<String> {
         self.pending_place_template.clone()
     }
@@ -1872,13 +1850,11 @@ impl InGameUISubsystem {
 
 impl SubsystemInterface for InGameUISubsystem {
     fn init(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        with_window_video_manager(|manager| manager.init());
         self.clear_runtime_state();
         Ok(())
     }
 
     fn reset(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        with_window_video_manager(|manager| manager.reset());
         self.clear_runtime_state();
         self.clear_tooltips_disabled();
         Ok(())
@@ -1886,7 +1862,6 @@ impl SubsystemInterface for InGameUISubsystem {
 
     fn update(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         self.update_money_and_power_windows();
-        self.update_radar_movie_playback();
         // C++ InGameUI::update runs every registered window layout's update
         // func (InGameUI.cpp:1825-1829); the live Diplomacy layout's update
         // func ticks its WIN_ANIMATION_SLIDE_TOP (Diplomacy.cpp:124-133,
@@ -2482,20 +2457,6 @@ impl InGameUiHooks for InGameUiHandle {
             .map(|ui| ui.get_max_select_count())
             .unwrap_or(-1)
     }
-
-    fn play_movie(&self, movie_name: &str) -> bool {
-        self.inner
-            .lock()
-            .map(|mut ui| ui.play_radar_movie(movie_name))
-            .unwrap_or(false)
-    }
-
-    fn is_movie_playing(&self, movie_name: &str) -> bool {
-        self.inner
-            .lock()
-            .map(|ui| ui.is_radar_movie_playing(movie_name))
-            .unwrap_or(false)
-    }
 }
 
 /// Client audio bridge. Playback is delivered through the existing Common
@@ -2816,14 +2777,7 @@ impl SubsystemInterface for VideoPlayerSubsystem {
     }
 
     fn reset(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        with_window_video_manager(|manager| manager.reset());
-        if let Some(player) = get_video_player() {
-            if let Ok(mut guard) = player.lock() {
-                if let Some(player) = guard.as_mut() {
-                    player.reset();
-                }
-            }
-        }
+        // Decoder pool is application-owned; client window/display handles retire themselves.
         Ok(())
     }
 

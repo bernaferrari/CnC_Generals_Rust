@@ -128,7 +128,9 @@ End\n";
         assert!(extracted.contains("Priority = NONE"));
         assert!(!extracted.contains("Object SomeUnit"));
         assert!(!extracted.contains("Weather"));
-        assert_eq!(overlay_map_ini_particle_systems(mixed), 1);
+        let mut owned = Vec::new();
+        assert_eq!(collect_map_ini_particle_systems(mixed, &mut owned), 1);
+        assert_eq!(owned, vec![extracted]);
     }
 
     #[test]

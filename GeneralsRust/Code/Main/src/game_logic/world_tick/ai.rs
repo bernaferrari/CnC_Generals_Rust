@@ -609,45 +609,8 @@ impl GameLogic {
                     }
                 }
             }
-            // C++ BoneFXUpdate::update — leftover authored FXList/OCL/PSys at bone pos.
-            {
-                let events = if let Some(o) = self.objects.get_mut(&object_id) {
-                    if o.bone_fx_damage.is_none() {
-                        o.bone_fx_damage = crate::game_logic::host_bone_fx_damage::HostBoneFxDamageData::from_template(
-                            &o.template_name,
-                        );
-                    }
-                    if let Some(bfx) = o.bone_fx_damage.as_mut() {
-                        bfx.stamp_last_damage_type(o.last_damage_info_type);
-                        bfx.tick(self.frame as i32);
-                        bfx.drain_pending()
-                    } else {
-                        Vec::new()
-                    }
-                } else {
-                    Vec::new()
-                };
-                {
-                    for ev in events {
-                        let leftover_id =
-                            crate::game_logic::host_bone_fx_damage::play_bone_fx_event_with_effects(
-                                self,
-                                &ev,
-                                object_id.0,
-                                presentation_effects,
-                            )?;
-                        if let Some(id) = leftover_id {
-                            #[cfg(feature = "game_client")]
-                            let fx_operation_environment = self.observe_object_fx_environment();
-                            if let Some(o) = self.objects.get_mut(&object_id) {
-                                if let Some(bfx) = o.bone_fx_damage.as_mut() {
-                                    bfx.track_particle_with_owner(id, presentation_effects);
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+            // C++ BoneFXUpdate::update: bounded borrow -> effect -> timer -> next slot.
+            self.update_owned_bone_fx_with_effects(object_id, presentation_effects)?;
             // C++ CreateObjectDie residual (spawn after death FX).
             self.apply_pending_create_object_die_with_effects(object_id, presentation_effects);
             // C++ AIUpdateInterface::update transitions a marked AI to AI_DEAD

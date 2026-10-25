@@ -8,7 +8,7 @@ use crate::gui::campaign_launch_host_bridge::{
 use crate::gui::campaign_manager::{CampaignManager, GameDifficulty as CampaignDifficulty};
 use crate::gui::challenge_generals::{GameDifficulty, NUM_GENERALS, get_challenge_generals_mut};
 use crate::gui::game_window::Image as WindowImage;
-use crate::gui::window_video_manager::with_window_video_manager;
+
 use crate::gui::{
     GameWindow, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled, WindowStatus,
     get_shell, queue_shell_pop, queue_shell_shutdown_complete, show_shell_map_if_available,
@@ -523,10 +523,14 @@ pub fn challenge_menu_init(
 
     show_shell_map_if_available(true, effects);
     layout.hide(false);
-    with_window_video_manager(|manager| manager.init());
+    effects.window_videos().init();
 }
 
-pub fn challenge_menu_update(layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>) {
+pub fn challenge_menu_update(
+    layout: &WindowLayout,
+    _user_data: Option<&dyn std::any::Any>,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) {
     let state_handle = challenge_menu_state();
     let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
 
@@ -564,7 +568,7 @@ pub fn challenge_menu_update(layout: &WindowLayout, _user_data: Option<&dyn std:
         queue_shell_shutdown_complete(false);
     }
 
-    with_window_video_manager(|manager| manager.update());
+    effects.window_videos().update();
 }
 
 pub fn challenge_menu_shutdown(
@@ -577,7 +581,7 @@ pub fn challenge_menu_shutdown(
         .copied()
         .unwrap_or(false);
 
-    with_window_video_manager(|manager| manager.reset());
+    effects.window_videos().reset();
 
     let state_handle = challenge_menu_state();
     {
@@ -880,6 +884,7 @@ mod tests {
 
     #[test]
     fn esc_char_is_consumed_before_key_up_like_cpp() {
+        let mut owned_videos = crate::gui::window_video_manager::WindowVideoManager::new();
         let window = GameWindow::new();
 
         assert_eq!(
@@ -894,6 +899,7 @@ mod tests {
 
     #[test]
     fn general_button_medallions_match_cpp_draw_slots_and_size() {
+        let mut owned_videos = crate::gui::window_video_manager::WindowVideoManager::new();
         add_test_mapped_image("TestMedallionNormal", 64, 48);
         add_test_mapped_image("TestMedallionSelected", 66, 50);
         add_test_mapped_image("TestMedallionHilite", 68, 52);
@@ -940,6 +946,7 @@ mod tests {
 
     #[test]
     fn challenge_menu_init_uses_challenge_game_info_not_skirmish() {
+        let mut owned_videos = crate::gui::window_video_manager::WindowVideoManager::new();
         use crate::gui::campaign_manager::CampaignManager;
         use crate::gui::get_skirmish_setup;
 
@@ -955,6 +962,7 @@ mod tests {
         let mut messages = Vec::new();
         let mut effects = crate::gui::game_window::WindowEventEffects {
             script_display: None,
+            window_videos: Some(&mut owned_videos),
             window_manager_owner: None,
             selected_window: None,
             emitted_messages: &mut messages,
@@ -1020,6 +1028,7 @@ mod tests {
         let mut messages = Vec::new();
         let mut effects = crate::gui::game_window::WindowEventEffects {
             script_display: None,
+            window_videos: Some(&mut owned_videos),
             window_manager_owner: None,
             selected_window: None,
             emitted_messages: &mut messages,
@@ -1043,6 +1052,7 @@ mod tests {
 
     #[test]
     fn os_wnd_challenge_start_hits_named_gadgets_then_start_challenge_game() {
+        let mut owned_videos = crate::gui::window_video_manager::WindowVideoManager::new();
         let owner = crate::gui::window_manager::WindowManagerOwner::new();
         owner.with_scope(|| {
             with_window_manager(|manager| {
@@ -1071,6 +1081,7 @@ mod tests {
 
     #[test]
     fn general_bio_uses_localized_text_like_cpp() {
+        let mut owned_videos = crate::gui::window_video_manager::WindowVideoManager::new();
         init_challenge_generals();
         Language::clear_localized_strings();
         Language::register_localized_string("TEST:ChallengeBioName", "General Localized");
@@ -1105,6 +1116,7 @@ mod tests {
 
     #[test]
     fn dedicated_gadget_hover_messages_match_cpp_hover_handlers() {
+        let mut owned_videos = crate::gui::window_video_manager::WindowVideoManager::new();
         assert!(is_general_mouse_entering(
             WindowMessage::GadgetMouseEntering
         ));
@@ -1126,6 +1138,7 @@ mod tests {
 
     #[test]
     fn selecting_current_general_keeps_checkbox_checked_like_cpp() {
+        let mut owned_videos = crate::gui::window_video_manager::WindowVideoManager::new();
         let owner = crate::gui::window_manager::WindowManagerOwner::new();
         owner.with_scope(|| {
             let selected_id = name_to_id("ChallengeMenu.test:SelectedGeneral");
@@ -1179,6 +1192,7 @@ mod tests {
 
     #[test]
     fn shutdown_clears_selected_general_before_pop_branch_like_cpp() {
+        let mut owned_videos = crate::gui::window_video_manager::WindowVideoManager::new();
         let layout = WindowLayout::new("ChallengeMenu.wnd".to_string());
 
         for pop_immediate in [false, true] {
@@ -1192,6 +1206,7 @@ mod tests {
             let mut messages = Vec::new();
             let mut effects = crate::gui::game_window::WindowEventEffects {
                 script_display: None,
+                window_videos: Some(&mut owned_videos),
                 window_manager_owner: None,
                 selected_window: None,
                 emitted_messages: &mut messages,

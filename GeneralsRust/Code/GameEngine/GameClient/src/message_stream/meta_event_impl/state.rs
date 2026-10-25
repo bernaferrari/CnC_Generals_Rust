@@ -10,7 +10,6 @@ use std::thread::LocalKey;
 thread_local! {
     static LOWER_DETAIL_TOGGLE_STATE: RefCell<LowerDetailToggleState> =
         RefCell::new(LowerDetailToggleState::default());
-    static OBJECTIVE_MOVIE_INDEX: Cell<i32> = Cell::new(1);
     static MOTION_BLUR_ZOOM_SATURATE: Cell<bool> = Cell::new(false);
     static DEMO_CAMERA_ADJUST_STATE: RefCell<DemoCameraAdjustState> =
         RefCell::new(DemoCameraAdjustState::default());

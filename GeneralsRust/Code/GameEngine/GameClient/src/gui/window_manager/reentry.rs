@@ -797,7 +797,12 @@ pub fn dispatch_translated_window_input_for_owner(
         let display = context.script_display.as_deref_mut()?;
         return Some(
             game_engine::common::message_stream::WindowInputDispatchResult::Display(
-                crate::message_stream::meta_event::execute_display_input_action(action, display),
+                crate::message_stream::meta_event::execute_display_input_action(
+                    action,
+                    display,
+                    owner,
+                    context.window_videos.as_deref_mut()?,
+                ),
             ),
         );
     }
@@ -847,6 +852,7 @@ pub fn dispatch_translated_window_input_for_owner(
             menu_world: context.menu_world,
             menu_host: context.menu_host.as_deref_mut(),
             script_display: context.script_display.as_deref_mut(),
+            window_videos: context.window_videos.as_deref_mut(),
             pending_main_menu_actions: Vec::new(),
         };
         owner.complete_event_callbacks(&mut effects);

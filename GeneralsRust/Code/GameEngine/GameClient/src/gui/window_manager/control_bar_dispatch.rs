@@ -135,6 +135,7 @@ pub struct ControlBarInputContext<'a> {
     pub campaign_manager: Option<&'a mut crate::gui::campaign_manager::CampaignManager>,
     pub menu_world: Option<crate::gui::campaign_launch_host_bridge::MenuWorldFacts>,
     pub menu_host: Option<&'a mut crate::gui::campaign_launch_host_bridge::MenuHostMailbox>,
+    pub window_videos: Option<&'a mut crate::gui::window_video_manager::WindowVideoManager>,
     pub script_display: Option<&'a mut crate::core::script_action_handler::ScriptDisplayReceiver>,
     pub main_menu: Option<&'a mut crate::gui::shell::main_menu::MainMenu>,
     pub emitted_messages: Option<&'a mut Vec<crate::message_stream::game_message::GameMessage>>,
@@ -155,6 +156,7 @@ impl ControlBarInputContext<'_> {
                 menu_world: self.menu_world,
                 menu_host: self.menu_host.as_deref_mut(),
                 script_display: self.script_display.as_deref_mut(),
+                window_videos: self.window_videos.as_deref_mut(),
                 pending_main_menu_actions: Vec::new(),
             };
             options.complete(&mut effects);
@@ -228,6 +230,7 @@ impl WindowManager {
                     menu_world: context.menu_world,
                     menu_host: context.menu_host.as_deref_mut(),
                     script_display: context.script_display.as_deref_mut(),
+                    window_videos: context.window_videos.as_deref_mut(),
                     pending_main_menu_actions: Vec::new(),
                 },
             );

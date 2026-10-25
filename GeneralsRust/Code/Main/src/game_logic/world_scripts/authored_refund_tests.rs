@@ -402,10 +402,7 @@ fn parsed_upgrade_ledger_cancel_refunds_once() {
         ini.with_inline_source(source, |ini| {
             ini.read_line()?;
             logic
-                .world_services
-                .upgrade_center()
-                .write()
-                .unwrap()
+                .upgrade_definitions
                 .parse_upgrade_definition(ini)
                 .map_err(|_| game_engine::common::ini::INIError::InvalidData)
         })

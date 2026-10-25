@@ -87,6 +87,32 @@ impl CombatSystem {
         fx: &mut dyn FnMut(&str, ProjectileFxObject<'_>),
         publish: &mut dyn FnMut(&Projectile),
     ) -> (Vec<DamageEvent>, Vec<ObjectId>) {
+        self.prepare_projectile_impact_with_runtime(
+            proj_id,
+            dt,
+            objects,
+            countermeasures,
+            frame,
+            terrain,
+            ownership_events,
+            historic_damage_limit,
+            &mut ProjectileFxCallbacks { fx, pose: publish },
+        )
+    }
+    pub(in crate::game_logic) fn prepare_projectile_impact_with_runtime(
+        &mut self,
+        proj_id: ObjectId,
+        dt: f32,
+        objects: &mut crate::game_logic::HostObjectStore,
+        mut countermeasures: Option<
+            &mut crate::game_logic::host_countermeasures::HostCountermeasuresRegistry,
+        >,
+        frame: u32,
+        terrain: Option<&crate::game_logic::game_logic::FlightTerrainView<'_>>,
+        ownership_events: &mut crate::game_logic::host_owner_log::OwnershipEvents,
+        historic_damage_limit: u32,
+        runtime: &mut dyn ProjectilePresentationRuntime,
+    ) -> (Vec<DamageEvent>, Vec<ObjectId>) {
         let mut damage_events = Vec::new();
         let mut projectiles_to_remove = Vec::new();
         if let Some(projectile) = self.projectiles.get_mut(&proj_id) {
@@ -130,13 +156,7 @@ impl CombatSystem {
                     }
                 }
             }
-            match projectile.update_with_terrain_fx_and_pose(
-                dt,
-                target_exists,
-                terrain,
-                fx,
-                publish,
-            ) {
+            match projectile.update_with_terrain_runtime(dt, target_exists, terrain, runtime) {
                 ProjectileStep::Alive => {
                     if !projectile.is_warhead_armed() {
                         return (damage_events, projectiles_to_remove);
@@ -297,7 +317,7 @@ impl CombatSystem {
                             objects.read(),
                             sid,
                             flight.garrison_hit_kill_fx(),
-                            fx,
+                            &mut |name, object| runtime.fx(name, object),
                         );
                         projectiles_to_remove.push(proj_id);
                         return (damage_events, projectiles_to_remove);
@@ -365,7 +385,7 @@ impl CombatSystem {
                                     objects.read(),
                                     target_id,
                                     flight.garrison_hit_kill_fx(),
-                                    fx,
+                                    &mut |name, object| runtime.fx(name, object),
                                 );
                                 projectiles_to_remove.push(proj_id);
                                 return (damage_events, projectiles_to_remove);

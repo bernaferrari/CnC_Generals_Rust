@@ -89,57 +89,17 @@ pub fn transformed_progress_percent(descriptor: LoadScreenDescriptor, raw_percen
     }
 }
 
-pub fn init_load_screen_for_owner(
-    owner: &crate::gui::window_manager::WindowManagerOwner,
-    kind: LoadScreenKind,
-    context: &LoadScreenInitContext,
-    campaign_manager: &crate::gui::campaign_manager::CampaignManager,
-    shell_game_first_load: &mut bool,
-    runtime: &mut LoadScreenRuntime,
-) -> bool {
-    init_load_screen_for_owner_with_pump(
-        owner,
-        kind,
-        context,
-        campaign_manager,
-        shell_game_first_load,
-        None,
-        runtime,
-    )
-    .expect("no presentation recipient in non-pump adapter")
-}
-
-pub fn init_load_screen_for_owner_with_pump(
-    owner: &crate::gui::window_manager::WindowManagerOwner,
-    kind: LoadScreenKind,
-    context: &LoadScreenInitContext,
-    campaign_manager: &crate::gui::campaign_manager::CampaignManager,
-    shell_game_first_load: &mut bool,
-    mut presentation_pump: Option<&mut LoadScreenPresentationPump<'_>>,
-    runtime: &mut LoadScreenRuntime,
-) -> Result<bool, String> {
-    owner.with_scope(|| {
-        init_load_screen_with_state(
-            kind,
-            context,
-            campaign_manager,
-            shell_game_first_load,
-            presentation_pump,
-            runtime,
-        )
-    })
-}
-
 pub(crate) fn init_load_screen_with_state(
     kind: LoadScreenKind,
     context: &LoadScreenInitContext,
     campaign_manager: &crate::gui::campaign_manager::CampaignManager,
     shell_game_first_load: &mut bool,
     mut presentation_pump: Option<&mut LoadScreenPresentationPump<'_>>,
-    runtime: &mut LoadScreenRuntime,
+    runtime: &mut LoadScreenOperation<'_>,
 ) -> Result<bool, String> {
+    let windows = runtime.windows;
     let descriptor = descriptor_for_kind(kind);
-    let prepared = with_window_manager(|wm| {
+    let prepared = windows.with_manager(|wm| {
         if wm.create_layout_with_windows(descriptor.layout).is_err() {
             return None;
         }
@@ -162,9 +122,9 @@ pub(crate) fn init_load_screen_with_state(
         return Ok(false);
     };
     if hold_legal {
-        run_shell_game_legal_hold_with_pump(presentation_pump.as_deref_mut())?;
+        run_shell_game_legal_hold_with_pump(presentation_pump.as_deref_mut(), runtime)?;
         *shell_game_first_load = false;
-        with_window_manager(|wm| hide_window(wm, "ShellGameLoadScreen.wnd:ProgressLoad", false));
+        windows.with_manager(|wm| hide_window(wm, "ShellGameLoadScreen.wnd:ProgressLoad", false));
     }
     Ok(true)
 }
@@ -186,7 +146,7 @@ pub enum LoadScreenPreludeStepResult {
 /// Hand movie advancement to the nonblocking driver before the first Loading tick.
 pub fn begin_nonblocking_load_screen_prelude(
     kind: LoadScreenKind,
-    runtime: &mut LoadScreenRuntime,
+    runtime: &mut LoadScreenOperation<'_>,
 ) {
     let movie = match kind {
         LoadScreenKind::SinglePlayer => {
@@ -197,35 +157,13 @@ pub fn begin_nonblocking_load_screen_prelude(
         }
         _ => return,
     };
-    with_window_video_manager(|manager| manager.hold_load_movie(&movie));
-}
-
-pub fn advance_load_screen_prelude_for_owner(
-    owner: &crate::gui::window_manager::WindowManagerOwner,
-    kind: LoadScreenKind,
-    focused: bool,
-    runtime: &mut LoadScreenRuntime,
-) -> LoadScreenPreludeStepResult {
-    advance_load_screen_prelude_for_owner_with_pump(owner, kind, focused, None, runtime)
-        .expect("no presentation recipient in non-pump adapter")
-}
-
-pub fn advance_load_screen_prelude_for_owner_with_pump(
-    owner: &crate::gui::window_manager::WindowManagerOwner,
-    kind: LoadScreenKind,
-    focused: bool,
-    mut presentation_pump: Option<&mut LoadScreenPresentationPump<'_>>,
-    runtime: &mut LoadScreenRuntime,
-) -> Result<LoadScreenPreludeStepResult, String> {
-    owner.with_scope(|| {
-        advance_load_screen_prelude_with_pump(kind, focused, presentation_pump, runtime)
-    })
+    with_window_video_manager(runtime.videos, |manager| manager.hold_load_movie(&movie));
 }
 
 pub fn advance_load_screen_prelude(
     kind: LoadScreenKind,
     focused: bool,
-    runtime: &mut LoadScreenRuntime,
+    runtime: &mut LoadScreenOperation<'_>,
 ) -> LoadScreenPreludeStepResult {
     advance_load_screen_prelude_with_pump(kind, focused, None, runtime)
         .expect("no presentation recipient in non-pump adapter")
@@ -235,8 +173,9 @@ pub fn advance_load_screen_prelude_with_pump(
     kind: LoadScreenKind,
     focused: bool,
     mut presentation_pump: Option<&mut LoadScreenPresentationPump<'_>>,
-    runtime: &mut LoadScreenRuntime,
+    runtime: &mut LoadScreenOperation<'_>,
 ) -> Result<LoadScreenPreludeStepResult, String> {
+    let windows = runtime.windows;
     Ok({
         use super::window_video_manager::{LoadMovieAction, LoadMovieStep};
         let (state, movie) = match kind {
@@ -257,7 +196,7 @@ pub fn advance_load_screen_prelude_with_pump(
         };
         clear_load_screen_cursor_tooltip(presentation_pump.as_deref_mut())?;
         if state != LoadScreenPreludeState::Movie {
-            let step = with_window_manager(|wm| match kind {
+            let step = windows.with_manager(|wm| match kind {
                 LoadScreenKind::SinglePlayer => {
                     advance_single_player_load_screen_prelude(wm, runtime)
                 }
@@ -279,7 +218,7 @@ pub fn advance_load_screen_prelude_with_pump(
                 },
             });
         }
-        let frame_count_before = with_window_video_manager(|manager| {
+        let frame_count_before = with_window_video_manager(runtime.videos, |manager| {
             manager
                 .movie_progress(&movie)
                 .map(|progress| progress.frame_count)
@@ -291,7 +230,9 @@ pub fn advance_load_screen_prelude_with_pump(
         } else {
             LoadMovieAction::AdvanceHidden
         };
-        let step = with_window_video_manager(|manager| manager.advance_load_movie(&movie, action));
+        let step = with_window_video_manager(runtime.videos, |manager| {
+            manager.advance_load_movie(&movie, action)
+        });
         let (outcome, presentation_needed) = match step {
             LoadMovieStep::Waiting => {
                 return Ok(LoadScreenPreludeStepResult::Pending {
@@ -308,13 +249,13 @@ pub fn advance_load_screen_prelude_with_pump(
             } => {
                 if presented {
                     if let Some(frame_count) = frame_count_before {
-                        update_movie_prelude_progress(kind, frame_index, frame_count);
+                        update_movie_prelude_progress(kind, frame_index, frame_count, runtime);
                     }
                 }
                 if kind == LoadScreenKind::Challenge && presented {
                     let previous =
                         with_challenge_load_screen_state(|state| state.current_frame, runtime);
-                    with_window_manager(|wm| {
+                    windows.with_manager(|wm| {
                         activate_challenge_pieces_through_windows(
                             wm,
                             previous,
@@ -340,9 +281,10 @@ pub fn advance_load_screen_prelude_with_pump(
                 pump_load_screen_prelude_presentation_with_pump(
                     kind,
                     presentation_pump.as_deref_mut(),
+                    runtime,
                 )?;
             }
-            with_window_video_manager(|manager| {
+            with_window_video_manager(runtime.videos, |manager| {
                 manager.finish_load_movie(&movie, kind == LoadScreenKind::SinglePlayer)
             });
             if kind == LoadScreenKind::SinglePlayer {
@@ -352,7 +294,7 @@ pub fn advance_load_screen_prelude_with_pump(
             }
             gamelogic::system::game_logic::set_fp_mode();
             match kind {
-                LoadScreenKind::SinglePlayer => with_window_manager(|wm| {
+                LoadScreenKind::SinglePlayer => windows.with_manager(|wm| {
                     complete_single_player_load_screen_prelude(wm, outcome, runtime)
                 }),
                 LoadScreenKind::Challenge => {
@@ -373,7 +315,13 @@ pub fn advance_load_screen_prelude_with_pump(
     })
 }
 
-fn update_movie_prelude_progress(kind: LoadScreenKind, frame_index: i32, frame_count: i32) {
+fn update_movie_prelude_progress(
+    kind: LoadScreenKind,
+    frame_index: i32,
+    frame_count: i32,
+    runtime: &mut LoadScreenOperation<'_>,
+) {
+    let windows = runtime.windows;
     let progress_update_count = (frame_count / FRAME_FUDGE_ADD as i32).max(1);
     if frame_index.rem_euclid(progress_update_count) != 0 {
         return;
@@ -381,7 +329,7 @@ fn update_movie_prelude_progress(kind: LoadScreenKind, frame_index: i32, frame_c
     let shifted_percent =
         ((frame_index / progress_update_count) - FRAME_FUDGE_ADD as i32 + 2).min(0);
     let percent = ((shifted_percent + FRAME_FUDGE_ADD as i32) as f32 / 1.3).floor();
-    with_window_manager(|wm| {
+    windows.with_manager(|wm| {
         let progress_window = descriptor_for_kind(kind).primary_progress;
         set_progress_window(wm, progress_window, percent);
         if kind == LoadScreenKind::SinglePlayer {
@@ -394,32 +342,20 @@ fn update_movie_prelude_progress(kind: LoadScreenKind, frame_index: i32, frame_c
     });
 }
 
-pub fn pump_load_screen_prelude_presentation_for_owner(
-    owner: &crate::gui::window_manager::WindowManagerOwner,
+pub fn pump_load_screen_prelude_presentation(
     kind: LoadScreenKind,
+    runtime: &mut LoadScreenOperation<'_>,
 ) {
-    pump_load_screen_prelude_presentation_for_owner_with_pump(owner, kind, None)
-        .expect("no presentation recipient in non-pump adapter");
-}
-
-pub fn pump_load_screen_prelude_presentation_for_owner_with_pump(
-    owner: &crate::gui::window_manager::WindowManagerOwner,
-    kind: LoadScreenKind,
-    mut presentation_pump: Option<&mut LoadScreenPresentationPump<'_>>,
-) -> Result<(), String> {
-    owner.with_scope(|| pump_load_screen_prelude_presentation_with_pump(kind, presentation_pump))
-}
-
-pub fn pump_load_screen_prelude_presentation(kind: LoadScreenKind) {
-    pump_load_screen_prelude_presentation_with_pump(kind, None)
+    pump_load_screen_prelude_presentation_with_pump(kind, None, runtime)
         .expect("no presentation recipient in non-pump adapter");
 }
 
 pub fn pump_load_screen_prelude_presentation_with_pump(
     kind: LoadScreenKind,
     mut presentation_pump: Option<&mut LoadScreenPresentationPump<'_>>,
+    runtime: &mut LoadScreenOperation<'_>,
 ) -> Result<(), String> {
-    finish_load_screen_update(presentation_pump.as_deref_mut())?;
+    finish_load_screen_update(presentation_pump.as_deref_mut(), runtime)?;
     if kind == LoadScreenKind::Challenge {
         pump_challenge_load_screen_audio();
     }
@@ -431,45 +367,22 @@ pub fn pump_load_screen_prelude_presentation_with_pump(
 /// initializer starts.  This deliberately pumps only the already-installed
 /// WindowManager/display callback and FP mode; it never re-enters winit or the
 /// platform event loop from a synchronous map-start call.
-pub fn run_load_screen_prelude_for_owner(
-    owner: &crate::gui::window_manager::WindowManagerOwner,
-    kind: LoadScreenKind,
-    runtime: &mut LoadScreenRuntime,
-) -> LoadScreenPreludeOutcome {
-    run_load_screen_prelude_for_owner_with_pump(owner, kind, None, runtime)
-        .expect("no presentation recipient in non-pump adapter")
-}
-
-pub fn run_load_screen_prelude_for_owner_with_pump(
-    owner: &crate::gui::window_manager::WindowManagerOwner,
-    kind: LoadScreenKind,
-    mut presentation_pump: Option<&mut LoadScreenPresentationPump<'_>>,
-    runtime: &mut LoadScreenRuntime,
-) -> Result<LoadScreenPreludeOutcome, String> {
-    owner.with_scope(|| {
-        run_load_screen_prelude_with_pump(
-            kind,
-            LOAD_SCREEN_PRELUDE_MAX_PUMPS,
-            presentation_pump,
-            runtime,
-        )
-    })
-}
 
 pub fn run_load_screen_prelude(
     kind: LoadScreenKind,
-    runtime: &mut LoadScreenRuntime,
+    runtime: &mut LoadScreenOperation<'_>,
 ) -> LoadScreenPreludeOutcome {
     run_load_screen_prelude_with_pump(kind, LOAD_SCREEN_PRELUDE_MAX_PUMPS, None, runtime)
         .expect("no presentation recipient in non-pump adapter")
 }
 
-fn run_load_screen_prelude_with_pump(
+pub fn run_load_screen_prelude_with_pump(
     kind: LoadScreenKind,
     max_pumps: usize,
     mut presentation_pump: Option<&mut LoadScreenPresentationPump<'_>>,
-    runtime: &mut LoadScreenRuntime,
+    runtime: &mut LoadScreenOperation<'_>,
 ) -> Result<LoadScreenPreludeOutcome, String> {
+    let windows = runtime.windows;
     Ok({
         if !matches!(
             kind,
@@ -481,7 +394,7 @@ fn run_load_screen_prelude_with_pump(
         let max_pumps = max_pumps.max(1);
         for pump_index in 0..max_pumps {
             clear_load_screen_cursor_tooltip(presentation_pump.as_deref_mut())?;
-            let mut step = with_window_manager(|wm| match kind {
+            let mut step = windows.with_manager(|wm| match kind {
                 LoadScreenKind::SinglePlayer => {
                     advance_single_player_load_screen_prelude(wm, runtime)
                 }
@@ -493,7 +406,7 @@ fn run_load_screen_prelude_with_pump(
             // The Rust host owns focus outside GameClient, so its bounded guard is
             // the equivalent safe terminal path when a decoder never completes.
             if matches!(step, LoadScreenPreludeStep::Pending(_)) && pump_index + 1 == max_pumps {
-                step = with_window_manager(|wm| match kind {
+                step = windows.with_manager(|wm| match kind {
                     LoadScreenKind::SinglePlayer => LoadScreenPreludeStep::Finished(
                         skip_single_player_load_screen_prelude(wm, runtime),
                     ),
@@ -506,7 +419,7 @@ fn run_load_screen_prelude_with_pump(
 
             // This is the exact safe subset of C++ LoadScreen::update ordering:
             // window update → registered display update/draw → setFPMode.
-            finish_load_screen_update(presentation_pump.as_deref_mut())?;
+            finish_load_screen_update(presentation_pump.as_deref_mut(), runtime)?;
             if kind == LoadScreenKind::Challenge {
                 // C++ ChallengeLoadScreen additionally advances audio after its
                 // display draw during the blocking prelude.
@@ -531,7 +444,7 @@ fn run_load_screen_prelude_with_pump(
 fn run_load_screen_prelude_with_limit(
     kind: LoadScreenKind,
     max_pumps: usize,
-    runtime: &mut LoadScreenRuntime,
+    runtime: &mut LoadScreenOperation<'_>,
 ) -> LoadScreenPreludeOutcome {
     run_load_screen_prelude_with_pump(kind, max_pumps, None, runtime)
         .expect("no presentation recipient in non-pump adapter")
@@ -635,17 +548,10 @@ fn load_screen_map_name_from_game_info(
     Some(map_name.to_string())
 }
 
-pub fn reset_load_screen_for_owner(
-    owner: &crate::gui::window_manager::WindowManagerOwner,
-    kind: LoadScreenKind,
-    runtime: &mut LoadScreenRuntime,
-) {
-    owner.with_scope(|| reset_load_screen(kind, runtime));
-}
-
-pub fn reset_load_screen(kind: LoadScreenKind, runtime: &mut LoadScreenRuntime) {
+pub fn reset_load_screen(kind: LoadScreenKind, runtime: &mut LoadScreenOperation<'_>) {
+    let windows = runtime.windows;
     let descriptor = descriptor_for_kind(kind);
-    with_window_manager(|wm| {
+    windows.with_manager(|wm| {
         if let Some(root) = wm.find_window_by_name(descriptor.root) {
             let _ = wm.destroy_window(root);
             wm.flush_destroy_queue();
@@ -662,27 +568,11 @@ pub fn reset_load_screen(kind: LoadScreenKind, runtime: &mut LoadScreenRuntime) 
     }
 }
 
-pub fn update_load_screen_for_owner(
-    owner: &crate::gui::window_manager::WindowManagerOwner,
+pub fn update_load_screen(
     kind: LoadScreenKind,
     raw_percent: f32,
-    runtime: &mut LoadScreenRuntime,
+    runtime: &mut LoadScreenOperation<'_>,
 ) {
-    update_load_screen_for_owner_with_pump(owner, kind, raw_percent, None, runtime)
-        .expect("no presentation recipient in non-pump adapter");
-}
-
-pub fn update_load_screen_for_owner_with_pump(
-    owner: &crate::gui::window_manager::WindowManagerOwner,
-    kind: LoadScreenKind,
-    raw_percent: f32,
-    mut presentation_pump: Option<&mut LoadScreenPresentationPump<'_>>,
-    runtime: &mut LoadScreenRuntime,
-) -> Result<(), String> {
-    owner.with_scope(|| update_load_screen_with_pump(kind, raw_percent, presentation_pump, runtime))
-}
-
-pub fn update_load_screen(kind: LoadScreenKind, raw_percent: f32, runtime: &mut LoadScreenRuntime) {
     update_load_screen_with_pump(kind, raw_percent, None, runtime)
         .expect("no presentation recipient in non-pump adapter");
 }
@@ -691,8 +581,9 @@ pub fn update_load_screen_with_pump(
     kind: LoadScreenKind,
     raw_percent: f32,
     mut presentation_pump: Option<&mut LoadScreenPresentationPump<'_>>,
-    runtime: &mut LoadScreenRuntime,
+    runtime: &mut LoadScreenOperation<'_>,
 ) -> Result<(), String> {
+    let windows = runtime.windows;
     let descriptor = descriptor_for_kind(kind);
     let percent = transformed_progress_percent(descriptor, raw_percent);
     if kind == LoadScreenKind::MapTransfer {
@@ -700,7 +591,7 @@ pub fn update_load_screen_with_pump(
     }
     clear_load_screen_cursor_tooltip(presentation_pump.as_deref_mut())?;
     if kind == LoadScreenKind::MapTransfer {
-        finish_load_screen_update(presentation_pump.as_deref_mut())?;
+        finish_load_screen_update(presentation_pump.as_deref_mut(), runtime)?;
         return Ok(());
     }
     if descriptor.slot_count > 0 {
@@ -710,10 +601,10 @@ pub fn update_load_screen_with_pump(
             report_multiplayer_load_progress(local_player_id, percent);
             let _ = process_load_screen_progress(kind, local_player_id, percent, runtime);
         }
-        finish_load_screen_update(presentation_pump.as_deref_mut())?;
+        finish_load_screen_update(presentation_pump.as_deref_mut(), runtime)?;
         return Ok(());
     }
-    with_window_manager(|wm| {
+    windows.with_manager(|wm| {
         set_progress_window(wm, descriptor.primary_progress, percent);
         if kind == LoadScreenKind::SinglePlayer {
             set_window_text(
@@ -729,7 +620,7 @@ pub fn update_load_screen_with_pump(
             }
         }
     });
-    finish_load_screen_update(presentation_pump.as_deref_mut())?;
+    finish_load_screen_update(presentation_pump.as_deref_mut(), runtime)?;
 
     Ok(())
 }
@@ -745,8 +636,10 @@ fn clear_load_screen_cursor_tooltip(
 
 fn finish_load_screen_update(
     mut presentation_pump: Option<&mut LoadScreenPresentationPump<'_>>,
+    runtime: &mut LoadScreenOperation<'_>,
 ) -> Result<(), String> {
-    with_window_manager(|wm| wm.update());
+    let windows = runtime.windows;
+    windows.with_manager(|wm| wm.update());
     let result = pump_load_screen_presentation(presentation_pump.as_deref_mut());
     gamelogic::system::game_logic::set_fp_mode();
     result
@@ -844,8 +737,9 @@ pub fn process_load_screen_progress(
     kind: LoadScreenKind,
     player_id: i32,
     percentage: f32,
-    runtime: &mut LoadScreenRuntime,
+    runtime: &mut LoadScreenOperation<'_>,
 ) -> bool {
+    let windows = runtime.windows;
     if kind == LoadScreenKind::MapTransfer {
         return false;
     }
@@ -870,7 +764,7 @@ pub fn process_load_screen_progress(
         return false;
     };
 
-    with_window_manager(|wm| {
+    windows.with_manager(|wm| {
         set_progress_window(
             wm,
             &format!("{}{}", descriptor.progress_prefix, compact_slot),

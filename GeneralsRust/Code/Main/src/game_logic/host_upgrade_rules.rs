@@ -28,19 +28,13 @@ impl GameLogic {
             .and_then(|player| player.selected_objects.first())
             .and_then(|id| self.objects.get(id))
             .map(|object| object.applied_upgrades.clone());
-        let services = Arc::clone(&self.world_services);
+        let definitions = self.upgrade_definitions.clone();
         let commands = self
             .receiving_module_content
             .as_ref()
             .map(|content| content.action_definitions_shared());
         move |command, name| {
-            let template = {
-                let center = services
-                    .upgrade_center()
-                    .read()
-                    .unwrap_or_else(|error| error.into_inner());
-                center.find_upgrade(name)
-            };
+            let template = definitions.find_upgrade(name);
             let completed = completed
                 .iter()
                 .any(|owned| owned.eq_ignore_ascii_case(name));
@@ -117,11 +111,7 @@ impl GameLogic {
     }
 
     pub(crate) fn upgrade_template(&self, name: &str) -> Option<Arc<UpgradeTemplate>> {
-        self.world_services
-            .upgrade_center()
-            .read()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .find_upgrade(name)
+        self.upgrade_definitions.find_upgrade(name)
     }
 
     pub(crate) fn is_object_scoped_upgrade(&self, name: &str) -> bool {
@@ -154,15 +144,15 @@ impl GameLogic {
 
 #[cfg(test)]
 pub(crate) fn register_test_upgrade(
-    logic: &GameLogic,
+    logic: &mut GameLogic,
     name: &str,
     kind: &str,
     cost: u32,
     seconds: u32,
 ) {
-    let source =
+    let mut source =
         format!("Upgrade {name}\nType = {kind}\nBuildCost = {cost}\nBuildTime = {seconds}\nEnd\n");
-    let mut center = logic.world_services.upgrade_center().write().unwrap();
+    let center = &mut logic.upgrade_definitions;
     let mut ini = game_engine::common::ini::INI::new();
     ini.with_inline_source(&source, |ini| {
         ini.read_line()?;
@@ -171,6 +161,8 @@ pub(crate) fn register_test_upgrade(
             .map_err(|_| game_engine::common::ini::INIError::InvalidData)
     })
     .expect("register world upgrade");
+    // Fixture authoring supplies baseline content, not a map override.
+    logic.upgrade_definition_base = logic.upgrade_definitions.clone();
 }
 
 #[cfg(test)]
@@ -183,10 +175,10 @@ mod tests {
 
     #[test]
     fn upgrade_definitions_follow_driving_world_with_equal_names() {
-        let a = GameLogic::new();
-        register_test_upgrade(&a, NAME, "PLAYER", 321, 7);
-        let b = GameLogic::new();
-        register_test_upgrade(&b, NAME, "OBJECT", 654, 19);
+        let mut a = GameLogic::new();
+        register_test_upgrade(&mut a, NAME, "PLAYER", 321, 7);
+        let mut b = GameLogic::new();
+        register_test_upgrade(&mut b, NAME, "OBJECT", 654, 19);
         let a_template = a.upgrade_template(NAME).unwrap();
         let b_template = b.upgrade_template(NAME).unwrap();
         assert!(!Arc::ptr_eq(&a_template, &b_template));
@@ -197,7 +189,7 @@ mod tests {
             assert_eq!(b.upgrade_research_time_secs(NAME), 19.0);
             assert_eq!(a.upgrade_template(NAME).unwrap().get_cost(), 321);
         }
-        register_test_upgrade(&b, NAME, "PLAYER", 900, 11);
+        register_test_upgrade(&mut b, NAME, "PLAYER", 900, 11);
         assert_eq!(a.upgrade_research_time_secs(NAME), 7.0);
         assert_eq!(b.upgrade_research_time_secs(NAME), 11.0);
         drop(b);
@@ -208,14 +200,14 @@ mod tests {
     #[test]
     fn completed_upgrade_snapshot_uses_source_world_type() {
         let mut source = GameLogic::new();
-        register_test_upgrade(&source, NAME, "PLAYER", 321, 7);
+        register_test_upgrade(&mut source, NAME, "PLAYER", 321, 7);
         source.add_player(Player::new(1, Team::USA, "RulesSource", true));
         source
             .host_upgrades_mut()
             .record_queue(NAME, Team::USA, 1, 0, None);
         source.host_upgrades_mut().record_complete(NAME, 1, 10, 0);
-        let other = GameLogic::new();
-        register_test_upgrade(&other, NAME, "OBJECT", 654, 19);
+        let mut other = GameLogic::new();
+        register_test_upgrade(&mut other, NAME, "OBJECT", 654, 19);
         let snapshot = SnapshotBuilder::new()
             .create_world_snapshot(&source)
             .unwrap();

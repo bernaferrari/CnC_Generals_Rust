@@ -68,6 +68,15 @@ impl<'a> AiWorldView<'a> {
             .get_player(id)
             .is_some_and(|player| player.map_side.is_skirmish_ai)
     }
+    pub(super) fn upgrade_action_definitions(
+        &self,
+    ) -> Option<&'a game_engine::common::thing::receiving_module_content::ReceivingActionDefinitions>
+    {
+        self.world
+            .receiving_module_content
+            .as_ref()
+            .map(|content| content.action_definitions())
+    }
     pub(super) fn control_bar_overrides(
         &self,
     ) -> &crate::game_logic::game_logic::command_overrides::ControlBarOverrides {

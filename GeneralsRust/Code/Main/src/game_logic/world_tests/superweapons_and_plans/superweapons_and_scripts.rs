@@ -1397,7 +1397,9 @@ fn china_barracks_quantity_modifier_spawns_two_redguards_residual() {
 #[test]
 fn queue_factory_exit_follows_snapped_production_path() {
     use crate::game_logic::buildings::BuildingType;
-    use crate::game_logic::{KindOf, ProductionExitMetadata, ProductionExitStyle, Team, ThingTemplate};
+    use crate::game_logic::{
+        KindOf, ProductionExitMetadata, ProductionExitStyle, Team, ThingTemplate,
+    };
 
     let mut logic = GameLogic::new();
     ensure_test_player_for_team(&mut logic, Team::China);
@@ -1531,7 +1533,9 @@ fn queue_factory_exit_follows_snapped_production_path() {
 #[test]
 fn queue_exit_with_a_rally_keeps_the_next_segment() {
     use crate::game_logic::buildings::BuildingType;
-    use crate::game_logic::{KindOf, ProductionExitMetadata, ProductionExitStyle, Team, ThingTemplate};
+    use crate::game_logic::{
+        KindOf, ProductionExitMetadata, ProductionExitStyle, Team, ThingTemplate,
+    };
     let mut logic = GameLogic::new();
     ensure_test_player_for_team(&mut logic, Team::China);
     let mut bar = ThingTemplate::new("ChinaBarracks");
@@ -1614,7 +1618,9 @@ fn queue_exit_with_a_rally_keeps_the_next_segment() {
 #[test]
 fn factory_spawn_keeps_unit_create_point_without_selection_radius_jitter() {
     use crate::game_logic::buildings::BuildingType;
-    use crate::game_logic::{KindOf, ProductionExitMetadata, ProductionExitStyle, Team, ThingTemplate};
+    use crate::game_logic::{
+        KindOf, ProductionExitMetadata, ProductionExitStyle, Team, ThingTemplate,
+    };
 
     let mut logic = GameLogic::new();
     ensure_test_player_for_team(&mut logic, Team::China);
@@ -1854,7 +1860,9 @@ fn queue_exit_airborne_kick_keeps_y_when_allow_airborne() {
 #[test]
 fn queue_exit_ground_spawn_skips_airborne_kick() {
     use crate::game_logic::buildings::BuildingType;
-    use crate::game_logic::{KindOf, ProductionExitMetadata, ProductionExitStyle, Team, ThingTemplate};
+    use crate::game_logic::{
+        KindOf, ProductionExitMetadata, ProductionExitStyle, Team, ThingTemplate,
+    };
 
     let mut logic = GameLogic::new();
     ensure_test_player_for_team(&mut logic, Team::China);
@@ -1963,7 +1971,9 @@ fn attack_move_to_command_sets_moving_residual() {
 #[test]
 fn parsed_queue_exit_runtime_uses_authored_initial_burst_and_delay() {
     use crate::game_logic::buildings::BuildingType;
-    use crate::game_logic::{KindOf, ProductionExitMetadata, ProductionExitStyle, Team, ThingTemplate};
+    use crate::game_logic::{
+        KindOf, ProductionExitMetadata, ProductionExitStyle, Team, ThingTemplate,
+    };
 
     let mut logic = GameLogic::new();
     admit_china_queue_timing_power_supply(&mut logic);
@@ -2355,7 +2365,9 @@ fn can_make_unit_residual_gates_prereq_money_queue_disabled() {
 
 #[test]
 fn can_make_unit_missing_or_dead_producer_is_no_prereq() {
-    use crate::game_logic::host_production_buildable_command_residual::{CANMAKE_NO_PREREQ, CANMAKE_OK};
+    use crate::game_logic::host_production_buildable_command_residual::{
+        CANMAKE_NO_PREREQ, CANMAKE_OK,
+    };
     use crate::game_logic::{ObjectId, Team};
 
     let mut logic = GameLogic::new();
@@ -2534,7 +2546,7 @@ fn script_named_receive_upgrade_writes_live_object() {
 
     logic.initialize_receiving_named_cache_for_fixture();
     crate::game_logic::host_upgrade_rules::register_test_upgrade(
-        &logic,
+        &mut logic,
         "Upgrade_AmericaChemicalSuits",
         "OBJECT",
         0,
@@ -2971,7 +2983,9 @@ fn script_wait_for_not_contained_uses_live_contained_by_census() {
     let dispatch_engine = gamelogic::scripting::engine::ScriptEngine::new().expect("script engine");
 
     use gamelogic::scripting::core::{Parameter, ParameterType, ScriptAction, ScriptActionType};
-    use gamelogic::scripting::executor::{ScriptActionDispatcher, ScriptActionResult, ScriptContext};
+    use gamelogic::scripting::executor::{
+        ScriptActionDispatcher, ScriptActionResult, ScriptContext,
+    };
     use std::sync::{Arc, RwLock};
 
     let mut logic = GameLogic::new();

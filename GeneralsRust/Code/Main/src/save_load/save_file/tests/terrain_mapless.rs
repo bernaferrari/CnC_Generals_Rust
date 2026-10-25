@@ -97,7 +97,7 @@ fn mapless_bad_tail_and_late_snapshot_failure_preserve_live_grid_factory_and_cac
             let directory = tempfile::tempdir().unwrap();
             let mut manager = SaveFileManager::with_save_directory(directory.path());
             manager.init().unwrap();
-            let source = world(40, false);
+            let mut source = world(40, false);
             source
                 .team_factory
                 .lock()
@@ -245,31 +245,39 @@ fn mapless_restore_keeps_receiving_upgrade_catalog_masks_without_mutable_center_
             let directory = tempfile::tempdir().unwrap();
             let mut manager = SaveFileManager::with_save_directory(directory.path());
             manager.init().unwrap();
-            let source = world(40, false);
+            let mut source = world(40, false);
             crate::game_logic::host_upgrade_rules::register_test_upgrade(
-                &source, NAME, "PLAYER", 321, 7,
+                &mut source,
+                NAME,
+                "PLAYER",
+                321,
+                7,
             );
             manager
                 .save_game("catalog", &source, &fixture_save_info())
                 .unwrap();
             let mut receiver = world(90, false);
             crate::game_logic::host_upgrade_rules::register_test_upgrade(
-                &receiver,
+                &mut receiver,
                 "Upgrade_ReceivingFirst",
                 "PLAYER",
                 1,
                 1,
             );
             crate::game_logic::host_upgrade_rules::register_test_upgrade(
-                &receiver, NAME, "OBJECT", 654, 19,
+                &mut receiver,
+                NAME,
+                "OBJECT",
+                654,
+                19,
             );
             let retained = receiver.upgrade_template(NAME).unwrap();
-            let old_center = receiver.world_services.upgrade_center().clone();
-            let peer = world(80, false);
+            let old_center = receiver.upgrade_definitions.clone();
+            let mut peer = world(80, false);
             crate::game_logic::host_upgrade_rules::register_test_upgrade(
-                &peer, NAME, "PLAYER", 999, 23,
+                &mut peer, NAME, "PLAYER", 999, 23,
             );
-            let peer_center = peer.world_services.upgrade_center().write().unwrap();
+            let peer_center = peer.upgrade_definitions.clone();
             manager.load_game("catalog", &mut receiver).unwrap();
             let admitted = receiver.upgrade_template(NAME).unwrap();
             assert_eq!(admitted.get_cost(), 654);
@@ -279,24 +287,18 @@ fn mapless_restore_keeps_receiving_upgrade_catalog_masks_without_mutable_center_
                 std::sync::Arc::ptr_eq(&admitted, &retained),
                 "only immutable templates may be shared"
             );
-            assert!(
-                !std::sync::Arc::ptr_eq(&old_center, receiver.world_services.upgrade_center()),
-                "the mutable definition center belongs to the candidate"
+            assert_eq!(
+                old_center.find_upgrade(NAME).unwrap().get_mask(),
+                retained.get_mask()
             );
             crate::game_logic::host_upgrade_rules::register_test_upgrade(
-                &receiver,
+                &mut receiver,
                 "Upgrade_AfterRestore",
                 "PLAYER",
                 3,
                 1,
             );
-            assert!(
-                old_center
-                    .read()
-                    .unwrap()
-                    .find_upgrade("Upgrade_AfterRestore")
-                    .is_none()
-            );
+            assert!(old_center.find_upgrade("Upgrade_AfterRestore").is_none());
             assert!(peer_center.find_upgrade("Upgrade_AfterRestore").is_none());
             assert_eq!(peer_center.find_upgrade(NAME).unwrap().get_cost(), 999);
             assert_eq!(source.upgrade_template(NAME).unwrap().get_cost(), 321);

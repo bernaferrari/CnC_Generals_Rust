@@ -19,7 +19,7 @@ fn world(admit: bool) -> (GameLogic, ObjectId) {
     owner.templates.insert(template.name.clone(), template);
     if admit {
         crate::game_logic::host_upgrade_rules::register_test_upgrade(
-            &owner, KEY, "OBJECT", 500, 30,
+            &mut owner, KEY, "OBJECT", 500, 30,
         );
     }
     let id = owner
@@ -187,7 +187,7 @@ fn unknown_own_definition_and_missing_object_are_authoritative_while_this_uses_a
             assert!(!owner.host_object(id).unwrap().has_upgrade_tag(KEY));
             assert!(!peer.host_object(peer_id).unwrap().has_upgrade_tag(KEY));
             crate::game_logic::host_upgrade_rules::register_test_upgrade(
-                &owner, KEY, "OBJECT", 500, 30,
+                &mut owner, KEY, "OBJECT", 500, 30,
             );
             {
                 let mut driver = HostScriptExecutionDriver::with_interpreter(&mut owner, &engine);
@@ -308,7 +308,7 @@ fn immediate_replacement_uses_existing_exact_team_while_interpreter_is_held() {
             owner.initialize_receiving_named_cache_for_fixture();
             let upgrade = "Upgrade_FakeGLABecomeReal";
             crate::game_logic::host_upgrade_rules::register_test_upgrade(
-                &owner, upgrade, "OBJECT", 0, 1,
+                &mut owner, upgrade, "OBJECT", 0, 1,
             );
             owner
                 .with_owned_script_engine(|engine, receiving| {

@@ -76,6 +76,7 @@ fn click(
     let data = (((y as u32) << 16) | ((x as u32) & 0xffff)) as WindowMsgData;
     let mut context = ControlBarInputContext {
             script_display: None,
+            window_videos: None,
             upgrade_tooltip: crate::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource::Standalone,
         replay_version: None,
         replay_menu: None,
@@ -160,6 +161,7 @@ fn wnd_large_button_keyboard_and_ending_replay_guards_use_receiving_context() {
     {
         let mut context = ControlBarInputContext {
             script_display: None,
+            window_videos: None,
             upgrade_tooltip: crate::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource::Standalone,
             replay_version: None,
             replay_menu: None,
@@ -186,6 +188,7 @@ fn wnd_large_button_keyboard_and_ending_replay_guards_use_receiving_context() {
     {
         let mut context = ControlBarInputContext {
             script_display: None,
+            window_videos: None,
             upgrade_tooltip: crate::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource::Standalone,
             replay_version: None,
             replay_menu: None,
@@ -211,6 +214,7 @@ fn wnd_large_button_keyboard_and_ending_replay_guards_use_receiving_context() {
     {
         let mut context = ControlBarInputContext {
             script_display: None,
+            window_videos: None,
             upgrade_tooltip: crate::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource::Standalone,
             replay_version: None,
             replay_menu: None,
@@ -398,6 +402,7 @@ fn native_observer_button_and_cancel_admit_only_receiving_roster_target() {
     {
         let mut context = ControlBarInputContext {
             script_display: None,
+            window_videos: None,
             upgrade_tooltip: crate::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource::Standalone,
             replay_version: None,
             replay_menu: None,
@@ -452,6 +457,7 @@ fn native_observer_button_and_cancel_admit_only_receiving_roster_target() {
     {
         let mut context = ControlBarInputContext {
             script_display: None,
+            window_videos: None,
             upgrade_tooltip: crate::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource::Standalone,
             replay_version: None,
             replay_menu: None,

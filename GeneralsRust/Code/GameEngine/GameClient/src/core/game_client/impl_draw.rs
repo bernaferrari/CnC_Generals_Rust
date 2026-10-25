@@ -67,14 +67,30 @@ impl GameClient {
         .with_mouse(self.subsystem_manager.input_mouse.clone())
     }
 
-    pub fn load_screen_runtime_mut(&mut self) -> &mut crate::gui::load_screen::LoadScreenRuntime {
-        &mut self.load_screen_runtime
+    pub fn load_screen_runtime_mut(&mut self) -> crate::gui::load_screen::LoadScreenOperation<'_> {
+        crate::gui::load_screen::LoadScreenOperation::new(
+            &mut self.load_screen_runtime,
+            &mut self.window_videos,
+            &self.window_manager_owner,
+        )
+    }
+    pub fn window_video_manager_mut(
+        &mut self,
+    ) -> &mut crate::gui::window_video_manager::WindowVideoManager {
+        &mut self.window_videos
+    }
+    pub fn play_radar_movie(&mut self, name: &str) -> bool {
+        crate::gui::window_video_manager::play_radar_movie_for_owner(
+            &self.window_manager_owner,
+            &mut self.window_videos,
+            name,
+        )
     }
 
     pub fn split_load_screen_runtime_and_pump(
         &mut self,
     ) -> (
-        &mut crate::gui::load_screen::LoadScreenRuntime,
+        crate::gui::load_screen::LoadScreenOperation<'_>,
         crate::gui::load_screen::LoadScreenPresentationPump<'_>,
     ) {
         let pump = crate::gui::load_screen::LoadScreenPresentationPump::for_display(
@@ -84,7 +100,14 @@ impl GameClient {
             &self.window_manager_owner,
         )
         .with_mouse(self.subsystem_manager.input_mouse.clone());
-        (&mut self.load_screen_runtime, pump)
+        (
+            crate::gui::load_screen::LoadScreenOperation::new(
+                &mut self.load_screen_runtime,
+                &mut self.window_videos,
+                &self.window_manager_owner,
+            ),
+            pump,
+        )
     }
 
     pub fn split_load_screen_services(
@@ -98,10 +121,13 @@ impl GameClient {
             &mut self.script_display,
             self.ui_renderer.as_mut(),
             crate::gui::load_screen::LoadScreenOwner {
-                owner: &self.window_manager_owner,
                 campaign: &self.campaign_manager,
                 first_load: &mut self.shell_game_first_load,
-                runtime: &mut self.load_screen_runtime,
+                runtime: crate::gui::load_screen::LoadScreenOperation::new(
+                    &mut self.load_screen_runtime,
+                    &mut self.window_videos,
+                    &self.window_manager_owner,
+                ),
             },
         )
     }

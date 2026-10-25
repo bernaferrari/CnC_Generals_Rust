@@ -781,16 +781,11 @@ impl GameLogic {
         // C++ Weapon.ini ProjectileDetonationFX/OCL residual at real impact
         // (not fire-time), for either host or GameWorld flight ownership.
         self.flush_projectile_impact_fx_with_effects(&mut ui);
-        // C++ Weapon.ini ProjectileExhaust: MissileAI attaches at IGNITION
-        // (`createAttachedParticleSystemID`). Publish leftover host poses so
-        // attached systems follow; world-space sync is the fallback when
-        // leftover attach is unavailable.
+        // MissileAI exhaust attaches at IGNITION to this native manager;
+        // its receiving lifecycle resolves actual Object/projectile poses.
         {
             let frame = self.frame;
             let snaps = self.combat_system.projectiles_snapshot();
-            for p in &snaps {
-                p.publish_attached_exhaust_pose(self.host_fx_object_is_shrouded(p.id.0));
-            }
             let mut exhausts: Vec<_> = snaps
                 .into_iter()
                 .map(|p| {

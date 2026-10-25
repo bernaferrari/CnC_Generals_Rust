@@ -75,6 +75,9 @@ pub struct SideBuildEntry {
 /// Top-level metadata parsed from a map file.
 #[derive(Debug, Clone, Default)]
 pub struct MapMetadata {
+    pub(crate) upgrade_definitions: Option<gamelogic::upgrade::center::UpgradeCenter>,
+    /// Ordered Map.ini/Solo.ini ParticleSystem sources owned by this candidate.
+    pub(crate) particle_definition_overlays: Vec<String>,
     pub(crate) lighting: Option<crate::game_logic::lighting_rules::MapLighting>,
     pub(crate) armor_definitions:
         Option<std::sync::Arc<gamelogic::object::armor::ArmorDefinitions>>,

@@ -6,7 +6,13 @@ use gamelogic::system::engine_stores::with_world_services;
 
 fn upgrade_world(kind: &str, cost: u32, seconds: u32) -> (GameLogic, AIPlayer, ObjectId) {
     let mut world = GameLogic::new();
-    register_test_upgrade(&world, UPGRADE_AMERICA_SUPPLY_LINES, kind, cost, seconds);
+    register_test_upgrade(
+        &mut world,
+        UPGRADE_AMERICA_SUPPLY_LINES,
+        kind,
+        cost,
+        seconds,
+    );
     world.add_player(Player::new(1, Team::USA, "Owned upgrade AI", false));
     // This is the actual retail producer identity and the ordinary authored
     // CommandSet/residual checks remain enabled. Do not bypass canProduceUpgrade.

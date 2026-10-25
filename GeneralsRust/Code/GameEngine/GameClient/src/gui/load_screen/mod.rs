@@ -17,7 +17,7 @@ use super::game_window::{
     GPM_SET_PROGRESS, GameWindow, Image as WindowImage, WindowMessage, WindowMsgData,
 };
 use super::window_video_manager::{WindowVideoPlayType, with_window_video_manager};
-use super::{WindowManager, WindowStatus, with_window_manager};
+use super::{WindowManager, WindowStatus};
 use crate::gui::window_manager::WindowManagerOwner;
 use game_engine::common::ini::ini_map_cache::MapMetaData;
 use game_engine::common::ini::ini_multiplayer::with_multiplayer_settings;

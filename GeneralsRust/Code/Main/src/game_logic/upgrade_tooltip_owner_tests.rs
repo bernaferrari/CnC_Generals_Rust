@@ -11,7 +11,7 @@ fn world(cost: u32) -> GameLogic {
     let mut world = GameLogic::new();
     world.add_player(Player::new(0, Team::USA, "command player", false));
     world.add_player(Player::new(7, Team::USA, "actual local", true));
-    register_test_upgrade(&world, UPGRADE, "PLAYER", cost, 1);
+    register_test_upgrade(&mut world, UPGRADE, "PLAYER", cost, 1);
     let mut definitions = ReceivingActionDefinitions::default();
     let command = definitions.buttons.new_command_button(COMMAND.into());
     command.upgrade = UPGRADE.into();

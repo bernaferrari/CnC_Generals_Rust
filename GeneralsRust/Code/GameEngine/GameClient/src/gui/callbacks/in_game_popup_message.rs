@@ -350,6 +350,7 @@ fn in_game_popup_message_system(
     let mut emitted_messages = Vec::new();
     let mut effects = crate::gui::game_window::WindowEventEffects {
         script_display: None,
+        window_videos: None,
         window_manager_owner: None,
         selected_window: None,
         emitted_messages: &mut emitted_messages,
@@ -473,6 +474,7 @@ mod tests {
                 let mut emitted = Vec::new();
                 let mut effects = crate::gui::game_window::WindowEventEffects {
                     script_display: None,
+                    window_videos: None,
                     window_manager_owner: None,
                     emitted_messages: &mut emitted,
                     pending_control_bar_clicks: None,
@@ -522,6 +524,7 @@ mod tests {
                 let mut emitted = Vec::new();
                 let mut effects = crate::gui::game_window::WindowEventEffects {
                     script_display: None,
+                    window_videos: None,
                     window_manager_owner: None,
                     selected_window: None,
                     emitted_messages: &mut emitted,

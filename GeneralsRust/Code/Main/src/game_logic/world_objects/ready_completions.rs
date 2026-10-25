@@ -7,10 +7,7 @@ pub(in crate::game_logic) fn allocate_live_object_id(
 ) -> ObjectId {
     loop {
         let id = *next;
-        next.0 = next
-            .0
-            .checked_add(1)
-            .expect("world ObjectID space exhausted");
+        next.0 = next.0.wrapping_add(1);
         // Restored older saves retain their IDs. Skip live saved carriers rather
         // than renumbering references or reserving an arbitrary numeric range.
         if id.0 != 0 && objects.lookup(&id).is_none() && !combat.get_projectiles().contains_key(&id)

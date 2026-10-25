@@ -590,7 +590,7 @@ impl CnCGameEngine {
         if let Some(kind) = self.active_load_screen {
             game_client::gui::load_screen::begin_nonblocking_load_screen_prelude(
                 kind,
-                self.game_client.load_screen_runtime_mut(),
+                &mut self.game_client.load_screen_runtime_mut(),
             );
         }
         // Park the blocking map load for the next Loading tick. Runtime-host

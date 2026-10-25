@@ -35,6 +35,13 @@ impl CnCGameEngine {
         delta: std::time::Duration,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let game_ending = self.game_logic.owned_script_game_ending();
+        self.control_bar.set_receiving_upgrade_definitions(
+            &self.game_logic.upgrade_definitions,
+            self.game_logic
+                .receiving_module_content
+                .as_ref()
+                .map(|content| content.action_definitions_shared()),
+        );
         let upgrade_observer = self.game_logic.receiving_upgrade_tooltip_observer();
         let upgrade_source = game_client::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource::Receiving(&upgrade_observer);
         let mut emitted_messages = Vec::new();
@@ -106,7 +113,7 @@ impl CnCGameEngine {
         let observer_roster = self.receiving_observer_roster();
         let upgrade_tooltip = self.game_logic.receiving_upgrade_tooltip_observer();
         let menu_world = self.receiving_menu_world_facts();
-        let (receiving_window_manager, campaign_manager, main_menu, menu_host, display) =
+        let (receiving_window_manager, campaign_manager, main_menu, menu_host, display, videos) =
             self.game_client.window_owner_campaign_menu_and_host_mut();
         let mut context = game_client::gui::window_manager::ControlBarInputContext {
             upgrade_tooltip: game_client::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource::Receiving(&upgrade_tooltip),
@@ -127,6 +134,7 @@ impl CnCGameEngine {
             menu_world: Some(menu_world),
             menu_host: Some(menu_host),
             script_display: Some(display),
+            window_videos: Some(videos),
         };
         receiving_window_manager.with_manager(|manager| {
             manager.refresh_control_bar_tooltip(x as i32, y as i32, &mut context);
@@ -157,6 +165,13 @@ impl CnCGameEngine {
 
     pub(super) fn show_owned_control_bar(&mut self, immediate: bool) {
         let game_ending = self.game_logic.owned_script_game_ending();
+        self.control_bar.set_receiving_upgrade_definitions(
+            &self.game_logic.upgrade_definitions,
+            self.game_logic
+                .receiving_module_content
+                .as_ref()
+                .map(|content| content.action_definitions_shared()),
+        );
         let upgrade_observer = self.game_logic.receiving_upgrade_tooltip_observer();
         let upgrade_source = game_client::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource::Receiving(&upgrade_observer);
         let replay = matches!(
@@ -208,6 +223,13 @@ impl CnCGameEngine {
 
     pub(super) fn toggle_owned_control_bar(&mut self, immediate: bool) {
         let game_ending = self.game_logic.owned_script_game_ending();
+        self.control_bar.set_receiving_upgrade_definitions(
+            &self.game_logic.upgrade_definitions,
+            self.game_logic
+                .receiving_module_content
+                .as_ref()
+                .map(|content| content.action_definitions_shared()),
+        );
         let upgrade_observer = self.game_logic.receiving_upgrade_tooltip_observer();
         let upgrade_source = game_client::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource::Receiving(&upgrade_observer);
         let replay = matches!(

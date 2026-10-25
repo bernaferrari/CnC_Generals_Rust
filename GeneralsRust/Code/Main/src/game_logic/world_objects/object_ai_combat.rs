@@ -1296,7 +1296,7 @@ mod live_upgrade_mux_tests {
     }
 
     fn register_upgrade_completion_sounds(
-        logic: &GameLogic,
+        logic: &mut GameLogic,
         name: &str,
         research_sound: Option<&str>,
         unit_specific_sound: Option<&str>,
@@ -1309,7 +1309,7 @@ mod live_upgrade_mux_tests {
             source.push_str(&format!("UnitSpecificSound = {sound}\n"));
         }
         source.push_str("End\n");
-        let mut center = logic.world_services.upgrade_center().write().unwrap();
+        let center = &mut logic.upgrade_definitions;
         {
             let mut ini = game_engine::common::ini::INI::new();
             ini.with_inline_source(&source, |ini| {
@@ -1347,7 +1347,7 @@ mod live_upgrade_mux_tests {
         const RESEARCH: &str = "TestResearchComplete_hq_ib5c9";
         const UNIT: &str = "TestUnitSpecificComplete_hq_ib5c9";
         let (mut logic, producer) = upgrade_audio_fixture(UPGRADE);
-        register_upgrade_completion_sounds(&logic, UPGRADE, Some(RESEARCH), Some(UNIT));
+        register_upgrade_completion_sounds(&mut logic, UPGRADE, Some(RESEARCH), Some(UNIT));
 
         logic.apply_host_upgrade_complete(Team::USA, 0, UPGRADE);
 
@@ -1385,7 +1385,7 @@ mod live_upgrade_mux_tests {
         const UPGRADE: &str = "Upgrade_TestUnitOnlyCompletionSound_hq_ib5c9";
         const UNIT: &str = "TestUnitOnlyComplete_hq_ib5c9";
         let (mut logic, producer) = upgrade_audio_fixture(UPGRADE);
-        register_upgrade_completion_sounds(&logic, UPGRADE, None, Some(UNIT));
+        register_upgrade_completion_sounds(&mut logic, UPGRADE, None, Some(UNIT));
 
         logic.apply_host_upgrade_complete(Team::USA, 0, UPGRADE);
 

@@ -483,50 +483,35 @@ fn dispatch_map_entry(
         .eq_ignore_ascii_case("DEMO_NEXT_OBJECTIVE_MOVIE")
     {
         if TheGameLogic::is_in_game() {
-            let next = OBJECTIVE_MOVIE_INDEX.with(|objective| {
-                let next = objective.get() + 1;
-                if next > 6 {
-                    objective.set(1);
-                    1
-                } else {
-                    objective.set(next);
-                    next
-                }
-            });
-            let _ = TheInGameUI::play_movie(&format!("DemoObjective{next:02}"));
+            let _ = dispatch_display_input(
+                game_engine::common::message_stream::DisplayInputAction::NextObjectiveMovie,
+                display_dispatch,
+                emitted,
+            );
         }
         return Some(GameMessageDisposition::DestroyMessage);
     }
 
     if let Some(movie_index) = parse_objective_movie_alias(&record.name) {
         if TheGameLogic::is_in_game() {
-            OBJECTIVE_MOVIE_INDEX.set(movie_index);
-            let _ = TheInGameUI::play_movie(&format!("DemoObjective{movie_index:02}"));
+            let _ = dispatch_display_input(
+                game_engine::common::message_stream::DisplayInputAction::PlayObjectiveMovie(
+                    movie_index as u8,
+                ),
+                display_dispatch,
+                emitted,
+            );
         }
         return Some(GameMessageDisposition::DestroyMessage);
     }
 
     if record.name.eq_ignore_ascii_case("DEMO_PLAY_CAMEO_MOVIE") {
         if TheGameLogic::is_in_game() {
-            const CAMEO_MOVIE: &str = "CameoMovie";
-            if !TheInGameUI::is_movie_playing(CAMEO_MOVIE) {
-                let _ = TheInGameUI::play_movie(CAMEO_MOVIE);
-            } else {
-                let target_window = ["ControlBar.wnd:CameoMovieWindow", "ControlBar.wnd:RightHUD"]
-                    .into_iter()
-                    .find_map(|window_name| {
-                        let window_id =
-                            game_engine::common::name_key_generator::NameKeyGenerator::name_to_key(
-                                window_name,
-                            ) as i32;
-                        crate::gui::with_window_manager_ref(|manager| {
-                            manager.get_window_by_id(window_id)
-                        })
-                    });
-                if let Some(window) = target_window {
-                    with_window_video_manager(|manager| manager.stop_movie(&window));
-                }
-            }
+            let _ = dispatch_display_input(
+                game_engine::common::message_stream::DisplayInputAction::ToggleCameoMovie,
+                display_dispatch,
+                emitted,
+            );
         }
         return Some(GameMessageDisposition::DestroyMessage);
     }

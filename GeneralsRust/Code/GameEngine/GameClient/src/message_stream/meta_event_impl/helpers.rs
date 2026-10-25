@@ -455,6 +455,8 @@ fn report_drawable_id_lookup_performance() {
 pub(crate) fn execute_display_input_action(
     action: game_engine::common::message_stream::DisplayInputAction,
     receiver: &mut crate::core::script_action_handler::ScriptDisplayReceiver,
+    owner: &crate::gui::window_manager::WindowManagerOwner,
+    videos: &mut crate::gui::window_video_manager::WindowVideoManager,
 ) -> bool {
     use game_engine::common::message_stream::{
         DisplayDebugKind as Kind, DisplayInputAction as Action,
@@ -464,6 +466,13 @@ pub(crate) fn execute_display_input_action(
             crate::core::script_action_handler::is_script_display_movie_playing(receiver)
         }
         Action::StopMovie => stop_script_display_movie(receiver),
+        Action::StopWindowMovies => {
+            videos.stop_all_movies();
+            true
+        }
+        Action::NextObjectiveMovie => videos.advance_objective_movie(owner),
+        Action::PlayObjectiveMovie(index) => videos.play_objective_movie(owner, index),
+        Action::ToggleCameoMovie => videos.toggle_cameo_movie(owner),
         Action::ToggleLetterbox => toggle_script_display_letter_box(receiver),
         Action::ToggleMovieCapture => toggle_script_display_movie_capture(receiver),
         Action::ToggleDebug(kind) => {

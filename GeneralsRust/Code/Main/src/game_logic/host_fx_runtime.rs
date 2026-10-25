@@ -8,14 +8,8 @@ use game_engine::common::random_value::RandomState;
 #[derive(Default)]
 pub(crate) struct HostFxState {
     pub(super) catalog: Option<game_client::fx_list::FXListStore>,
-    pub(super) client_random: RandomState,
-    pub(super) audio_random: RandomState,
 }
-impl HostFxState {
-    pub(crate) fn client_random_mut(&mut self) -> &mut RandomState {
-        &mut self.client_random
-    }
-}
+
 impl std::fmt::Debug for HostFxState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("HostFxState")
@@ -29,17 +23,16 @@ pub(crate) struct HostFxRuntime<'a, 's> {
 }
 impl crate::game_logic::GameLogic {
     pub(crate) fn seed_fx_random(&mut self, seed: u32) {
-        self.session_view.fx.client_random.seed_random(seed);
-        self.session_view.fx.audio_random.seed_random(seed);
+        self.session_view.client_random.seed_random(seed);
+        self.session_view.audio_random.seed_random(seed);
     }
     pub(crate) fn append_fx_random_capsule(&self, bytes: &mut Vec<u8>) {
         for word in self
             .session_view
-            .fx
             .client_random
             .seed_words()
             .into_iter()
-            .chain(self.session_view.fx.audio_random.seed_words())
+            .chain(self.session_view.audio_random.seed_words())
         {
             bytes.extend_from_slice(&word.to_le_bytes());
         }
@@ -47,8 +40,8 @@ impl crate::game_logic::GameLogic {
     }
     pub(crate) fn restore_fx_random_capsule(&mut self, words: Option<[[u32; 6]; 2]>) {
         if let Some(words) = words {
-            self.session_view.fx.client_random.set_seed_words(words[0]);
-            self.session_view.fx.audio_random.set_seed_words(words[1]);
+            self.session_view.client_random.set_seed_words(words[0]);
+            self.session_view.audio_random.set_seed_words(words[1]);
         }
     }
     pub(crate) fn split_fx_random_capsule(
@@ -177,14 +170,10 @@ impl GameClientFxRuntime for HostFxRuntime<'_, '_> {
             .unwrap_or(false)
     }
     fn random_real(&mut self, low: f32, high: f32) -> f32 {
-        self.world
-            .session_view
-            .fx
-            .client_random
-            .next_real(low, high)
+        self.world.session_view.client_random.next_real(low, high)
     }
     fn random_u32(&mut self) -> u32 {
-        self.world.session_view.fx.client_random.next_u32()
+        self.world.session_view.client_random.next_u32()
     }
     fn frame(&self) -> u32 {
         self.world.frame
@@ -202,7 +191,7 @@ impl GameClientFxRuntime for HostFxRuntime<'_, '_> {
             .receiving_audio_locality_for_player(player.unwrap_or(-1));
         let mut selection = FxAudioSelection {
             logic: &self.world.logic_random,
-            audio: &mut self.world.session_view.fx.audio_random,
+            audio: &mut self.world.session_view.audio_random,
         };
         let Some(audio) = self.effects.audio.as_deref_mut() else {
             return Ok(());
@@ -225,7 +214,7 @@ impl GameClientFxRuntime for HostFxRuntime<'_, '_> {
             return Ok(());
         };
         let world = &mut *self.world;
-        let random = &mut world.session_view.fx.client_random;
+        let random = &mut world.session_view.client_random;
         let terrain = world.world_services.terrain();
         let view = self
             .effects
@@ -274,7 +263,7 @@ impl GameClientFxRuntime for HostFxRuntime<'_, '_> {
             target,
             kind.into(),
             &rules,
-            &mut |low, high| view.fx.client_random.next_real(low, high),
+            &mut |low, high| view.client_random.next_real(low, high),
         );
     }
     fn scorch(&mut self, position: gamelogic::common::Coord3D, radius: f32, kind: i32) {

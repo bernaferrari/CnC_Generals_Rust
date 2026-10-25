@@ -8,6 +8,11 @@ pub(in crate::game_logic) enum BodyStateFx {
     NativeVisualState(crate::game_logic::host_enum_table_residual::HostBodyDamageType),
     Transition(HostTransitionDamageFxEvent),
     BoneParticleRetirement(crate::game_logic::host_bone_fx_damage::BoneParticleRetirement),
+    BoneStateChange {
+        old_state: crate::game_logic::host_enum_table_residual::HostBodyDamageType,
+        new_state: crate::game_logic::host_enum_table_residual::HostBodyDamageType,
+        frame: u32,
+    },
     VoiceFear(crate::game_logic::AudioEventRequest),
     MovementStop(crate::game_logic::AudioEventRequest),
     FxListDie,
@@ -68,6 +73,14 @@ impl Object {
         source: Option<&crate::game_logic::host_transition_damage_fx::HostDamageFxVictim>,
     ) {
         match effect {
+            BodyStateFx::BoneStateChange {
+                new_state, frame, ..
+            } => {
+                if let Some(bfx) = object.bone_fx_damage.as_mut() {
+                    let old = new_state;
+                    bfx.on_body_damage_state_change(&object.template_name, old, new_state, frame);
+                }
+            }
             // Detached Object fixtures have no AudioManager owner. A caller
             // observing presentation supplies its BodyStateFxReceiver; admitted
             // objects use the receiving session operations below.
@@ -241,8 +254,18 @@ impl crate::game_logic::GameLogic {
         effect: BodyStateFx,
         source: Option<&crate::game_logic::host_transition_damage_fx::HostDamageFxVictim>,
         audio: &mut Vec<crate::game_logic::AudioEventRequest>,
+        random: &game_engine::common::random_value::SessionRandom,
     ) {
         match effect {
+            BodyStateFx::BoneStateChange {
+                new_state, frame, ..
+            } => {
+                if let Some(bfx) = object.bone_fx_damage.as_mut() {
+                    bfx.change_body_state_with_random(new_state, frame, |lo, hi| {
+                        random.next_real(lo, hi)
+                    });
+                }
+            }
             BodyStateFx::VoiceFear(request) | BodyStateFx::MovementStop(request) => {
                 audio.push(request)
             }
@@ -264,6 +287,15 @@ impl crate::game_logic::GameLogic {
         view: &mut crate::game_logic::host_fx_list_dispatch::ObjectFxServices<'_, '_>,
     ) {
         match effect {
+            BodyStateFx::BoneStateChange {
+                new_state, frame, ..
+            } => {
+                if let Some(bfx) = object.bone_fx_damage.as_mut() {
+                    bfx.change_body_state_with_random(new_state, frame, |lo, hi| {
+                        view.logic_random.next_real(lo, hi)
+                    });
+                }
+            }
             BodyStateFx::BoneParticleRetirement(ids) => view.retire_particles(ids),
             BodyStateFx::VoiceFear(request) | BodyStateFx::MovementStop(request) => {
                 audio.push(request)

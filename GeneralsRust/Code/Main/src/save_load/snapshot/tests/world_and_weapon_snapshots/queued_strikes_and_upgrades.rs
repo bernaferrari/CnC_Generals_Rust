@@ -401,7 +401,7 @@ fn host_upgrade_capture_mid_flight_save_load_completes_unlock() {
     // C++ save admission requires the named UpgradeTemplate in the loaded
     // catalog; this fixture supplies the retail PLAYER rule to each world.
     crate::game_logic::host_upgrade_rules::register_test_upgrade(
-        &source,
+        &mut source,
         UPGRADE_INFANTRY_CAPTURE,
         "PLAYER",
         1000,
@@ -489,7 +489,7 @@ fn host_upgrade_capture_mid_flight_save_load_completes_unlock() {
     restored.add_player(Player::new(0, Team::USA, "USA", true));
     restored.templates = source.templates.clone();
     crate::game_logic::host_upgrade_rules::register_test_upgrade(
-        &restored,
+        &mut restored,
         UPGRADE_INFANTRY_CAPTURE,
         "PLAYER",
         1000,
@@ -644,7 +644,7 @@ fn save_file_roundtrip_preserves_pending_host_upgrade() {
     // C++ save admission requires the named UpgradeTemplate in the loaded
     // catalog; this fixture supplies the retail PLAYER rule to each world.
     crate::game_logic::host_upgrade_rules::register_test_upgrade(
-        &source,
+        &mut source,
         UPGRADE_INFANTRY_CAPTURE,
         "PLAYER",
         1000,
@@ -694,7 +694,7 @@ fn save_file_roundtrip_preserves_pending_host_upgrade() {
     loaded.add_player(Player::new(0, Team::USA, "USA", true));
     loaded.templates = source.templates.clone();
     crate::game_logic::host_upgrade_rules::register_test_upgrade(
-        &loaded,
+        &mut loaded,
         UPGRADE_INFANTRY_CAPTURE,
         "PLAYER",
         1000,

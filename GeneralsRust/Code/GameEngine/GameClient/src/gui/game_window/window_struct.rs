@@ -48,6 +48,7 @@ pub struct WindowEventEffects<'a> {
     pub(crate) campaign_manager: Option<&'a mut CampaignManager>,
     pub(crate) menu_world: Option<crate::gui::campaign_launch_host_bridge::MenuWorldFacts>,
     pub(crate) menu_host: Option<&'a mut crate::gui::campaign_launch_host_bridge::MenuHostMailbox>,
+    pub(crate) window_videos: Option<&'a mut crate::gui::window_video_manager::WindowVideoManager>,
     pub(crate) script_display:
         Option<&'a mut crate::core::script_action_handler::ScriptDisplayReceiver>,
     pub(crate) main_menu: Option<&'a mut crate::gui::shell::main_menu::MainMenu>,
@@ -57,6 +58,13 @@ pub struct WindowEventEffects<'a> {
     )>,
 }
 impl WindowEventEffects<'_> {
+    pub(crate) fn window_videos(
+        &mut self,
+    ) -> &mut crate::gui::window_video_manager::WindowVideoManager {
+        self.window_videos
+            .as_deref_mut()
+            .expect("window movie callback requires receiving client video owner")
+    }
     pub(crate) fn script_display(
         &mut self,
     ) -> &mut crate::core::script_action_handler::ScriptDisplayReceiver {

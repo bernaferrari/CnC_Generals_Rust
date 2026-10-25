@@ -866,26 +866,21 @@ mod tests {
         if let Ok(mut logic) = get_game_logic().lock() {
             logic.set_game_mode(GAME_SINGLE_PLAYER);
         }
-        OBJECTIVE_MOVIE_INDEX.set(1);
 
         assert_eq!(
             dispatch_map_entry(&alias_record("DEMO_PLAY_OBJECTIVE_MOVIE4")),
             Some(GameMessageDisposition::DestroyMessage)
         );
-        assert_eq!(OBJECTIVE_MOVIE_INDEX.with(Cell::get), 4);
 
         assert_eq!(
             dispatch_map_entry(&alias_record("DEMO_NEXT_OBJECTIVE_MOVIE")),
             Some(GameMessageDisposition::DestroyMessage)
         );
-        assert_eq!(OBJECTIVE_MOVIE_INDEX.with(Cell::get), 5);
 
-        OBJECTIVE_MOVIE_INDEX.set(6);
         assert_eq!(
             dispatch_map_entry(&alias_record("DEMO_NEXT_OBJECTIVE_MOVIE")),
             Some(GameMessageDisposition::DestroyMessage)
         );
-        assert_eq!(OBJECTIVE_MOVIE_INDEX.with(Cell::get), 1);
 
         if let Ok(mut logic) = get_game_logic().lock() {
             logic.set_game_mode(GAME_NONE);

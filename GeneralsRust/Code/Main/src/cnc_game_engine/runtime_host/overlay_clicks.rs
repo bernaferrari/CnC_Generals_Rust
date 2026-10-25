@@ -652,13 +652,23 @@ impl CnCGameEngine {
                 simulate_window_video_update,
             };
             wnd_ok = match action.as_str() {
-                "init" => simulate_window_video_init(),
-                "reset" => simulate_window_video_reset(),
-                "pause" => simulate_window_video_pause_all(),
-                "resume" => simulate_window_video_resume_all(),
-                "stop" => simulate_window_video_stop_all(),
-                "update" => simulate_window_video_update(),
-                _ => simulate_window_video_prepare_control_cycle(),
+                "init" => simulate_window_video_init(self.game_client.window_video_manager_mut()),
+                "reset" => simulate_window_video_reset(self.game_client.window_video_manager_mut()),
+                "pause" => {
+                    simulate_window_video_pause_all(self.game_client.window_video_manager_mut())
+                }
+                "resume" => {
+                    simulate_window_video_resume_all(self.game_client.window_video_manager_mut())
+                }
+                "stop" => {
+                    simulate_window_video_stop_all(self.game_client.window_video_manager_mut())
+                }
+                "update" => {
+                    simulate_window_video_update(self.game_client.window_video_manager_mut())
+                }
+                _ => simulate_window_video_prepare_control_cycle(
+                    self.game_client.window_video_manager_mut(),
+                ),
             };
         }
         self.runtime_host_last_gameplay_cmd = if wnd_ok {

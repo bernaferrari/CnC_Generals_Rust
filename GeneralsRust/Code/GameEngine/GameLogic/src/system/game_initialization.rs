@@ -708,6 +708,7 @@ pub fn load_map_ini_ui_overrides_with_receiving_definitions(
     String,
 > {
     let mut ini = INI::new();
+    ini.set_particle_definitions_admitted();
     if object_definitions_admitted {
         ini.set_object_definitions_admitted();
     }
@@ -730,6 +731,54 @@ pub fn load_map_ini_ui_overrides_with_receiving_definitions(
         count_map_ini_blocks(contents, &["CommandButton", "CommandSet", "Upgrade"]),
         terrain,
         armor,
+    ))
+}
+
+pub fn load_map_ini_ui_overrides_with_owned_upgrade_definitions(
+    contents: &str,
+    target: Option<
+        std::sync::Arc<std::sync::RwLock<game_engine::common::ini::ini_ai_data::AIDataStore>>,
+    >,
+    terrain: game_engine::common::ini::ini_terrain::TerrainTypes,
+    armor: game_engine::common::ini::ini::armor_definitions::ArmorDefinitions,
+    object_definitions_admitted: bool,
+    upgrades: game_engine::common::system::upgrade::UpgradeCenter,
+) -> Result<
+    (
+        usize,
+        game_engine::common::ini::ini_terrain::TerrainTypes,
+        game_engine::common::ini::ini::armor_definitions::ArmorDefinitions,
+        game_engine::common::system::upgrade::UpgradeCenter,
+    ),
+    String,
+> {
+    let mut ini = INI::new();
+    ini.set_owned_upgrade_center_target(upgrades);
+    ini.set_particle_definitions_admitted();
+    if object_definitions_admitted {
+        ini.set_object_definitions_admitted();
+    }
+    if let Some(target) = target {
+        ini.set_ai_data_store_target(target);
+    }
+    ini.set_terrain_types_target(terrain);
+    ini.set_armor_definitions_target(armor);
+    ini.with_inline_source_and_load_type(contents, INILoadType::CreateOverrides, |ini| {
+        ini.parse_current_file()
+    })
+    .map_err(|error| error.to_string())?;
+    let terrain = ini
+        .take_terrain_types_target()
+        .expect("operation owns terrain definition target");
+    let armor = ini
+        .take_armor_definitions_target()
+        .expect("operation owns armor target");
+    Ok((
+        count_map_ini_blocks(contents, &["CommandButton", "CommandSet", "Upgrade"]),
+        terrain,
+        armor,
+        ini.take_owned_upgrade_center_target()
+            .expect("operation owns upgrade draft"),
     ))
 }
 

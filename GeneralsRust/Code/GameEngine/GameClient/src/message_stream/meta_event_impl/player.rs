@@ -285,7 +285,11 @@ fn stop_movies_for_sound_toggle(
         dispatch,
         emitted,
     );
-    with_window_video_manager(|manager| manager.stop_all_movies());
+    let _ = dispatch_display_input(
+        game_engine::common::message_stream::DisplayInputAction::StopWindowMovies,
+        dispatch,
+        emitted,
+    );
 }
 
 fn cycle_music_track(next: bool) -> Option<String> {

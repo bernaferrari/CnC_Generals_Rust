@@ -640,7 +640,7 @@ fn queued_duration_restore_keeps_upgrade_authored_frames_without_general_or_powe
             ini.with_inline_source("PlayerTemplate Owner48WorkerGeneral\n ProductionTimeChange = Upgrade_Owner48Timing 100%\nEnd\n",
                 |ini| ini.parse_current_file()).unwrap();
             let (mut source, producer) = production_world("Owner48WorkerGeneral");
-            register_test_upgrade(&source, UPGRADE, "PLAYER", 40, 3);
+            register_test_upgrade(&mut source, UPGRADE, "PLAYER", 40, 3);
             let cost = Resources {
                 supplies: 40,
                 power: 0,
@@ -672,7 +672,7 @@ fn queued_duration_restore_keeps_upgrade_authored_frames_without_general_or_powe
             let bytes = bincode_legacy::serialize(&snapshot).unwrap();
             let decoded = decode_bincode_world_snapshot(&bytes).unwrap();
             let mut restored = production_restore_receiver(&source);
-            register_test_upgrade(&restored, UPGRADE, "PLAYER", 40, 3);
+            register_test_upgrade(&mut restored, UPGRADE, "PLAYER", 40, 3);
             builder
                 .restore_from_snapshot(&decoded, &mut restored)
                 .unwrap();
@@ -905,21 +905,22 @@ fn queued_duration_restore_rejects_missing_unit_definition_and_stale_or_ambiguou
 // already preserve every zero/fractional rule (that remains hq-ax77l).
 #[cfg(not(target_arch = "wasm32"))]
 fn register_upgrade_restore_rule(
-    world: &GameLogic,
+    world: &mut GameLogic,
     name: &str,
     kind: &str,
     cost: u32,
     seconds: f32,
 ) {
-    let source =
+    let mut source =
         format!("Upgrade {name}\nType = {kind}\nBuildCost = {cost}\nBuildTime = {seconds}\nEnd\n");
-    let mut center = world.world_services.upgrade_center().write().unwrap();
+    let center = &mut world.upgrade_definitions;
     let mut ini = game_engine::common::ini::INI::new();
     ini.with_inline_source(&source, |ini| {
         ini.read_line()?;
         center.parse_upgrade_definition(ini)
     })
     .expect("actual candidate-owned Upgrade INI parser");
+    world.upgrade_definition_base = world.upgrade_definitions.clone();
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -972,7 +973,7 @@ fn queued_upgrade_restore_rejects_missing_definition_from_foreign_catalog() {
             const NAME: &str = "Upgrade_Owner50MissingDefinition";
             worker_production_definition();
             let (mut live, producer) = production_world("Owner48WorkerGeneral");
-            register_upgrade_restore_rule(&live, NAME, "PLAYER", 37, 1.25);
+            register_upgrade_restore_rule(&mut live, NAME, "PLAYER", 37, 1.25);
             queue_upgrade_restore_rule(&mut live, producer, NAME);
             for _ in 0..7 {
                 live.update_production(1.0 / 30.0);
@@ -984,12 +985,12 @@ fn queued_upgrade_restore_rejects_missing_definition_from_foreign_catalog() {
             let decoded = decode_bincode_world_snapshot(&bytes).unwrap();
             let (mut foreign, foreign_producer) = production_world("Owner48ForeignGeneral");
             assert_eq!(foreign_producer, producer);
-            register_upgrade_restore_rule(&foreign, NAME, "OBJECT", 911, 9.75);
+            register_upgrade_restore_rule(&mut foreign, NAME, "OBJECT", 911, 9.75);
             for case_only in [false, true] {
                 let mut candidate = production_restore_receiver(&live);
                 if case_only {
                     register_upgrade_restore_rule(
-                        &candidate,
+                        &mut candidate,
                         &NAME.to_ascii_lowercase(),
                         "PLAYER",
                         37,
@@ -1053,7 +1054,7 @@ fn queued_upgrade_restore_preserves_authored_zero_and_fractional_continuation() 
             ];
             for (name, seconds, paid_cost, elapsed, terminal) in cases {
                 let (mut source, producer) = production_world("Owner48WorkerGeneral");
-                register_upgrade_restore_rule(&source, name, "PLAYER", paid_cost, seconds);
+                register_upgrade_restore_rule(&mut source, name, "PLAYER", paid_cost, seconds);
                 let starting_wallet = queue_upgrade_restore_rule(&mut source, producer, name);
                 for _ in 0..elapsed {
                     source.update_production(1.0 / 30.0);
@@ -1063,10 +1064,10 @@ fn queued_upgrade_restore_preserves_authored_zero_and_fractional_continuation() 
                 let bytes = bincode_legacy::serialize(&snapshot).unwrap();
                 let decoded = decode_bincode_world_snapshot(&bytes).unwrap();
                 let mut restored = production_restore_receiver(&source);
-                register_upgrade_restore_rule(&restored, name, "PLAYER", paid_cost, seconds);
+                register_upgrade_restore_rule(&mut restored, name, "PLAYER", paid_cost, seconds);
                 let (mut foreign, foreign_producer) = production_world("Owner48ForeignGeneral");
                 assert_eq!(foreign_producer, producer);
-                register_upgrade_restore_rule(&foreign, name, "OBJECT", 901, 9.75);
+                register_upgrade_restore_rule(&mut foreign, name, "OBJECT", 901, 9.75);
                 gamelogic::system::engine_stores::with_world_services(
                     &foreign.world_services,
                     || builder.restore_from_snapshot(&decoded, &mut restored),
@@ -1152,7 +1153,7 @@ fn queued_upgrade_restore_cancellation_ignores_same_name_object_power() {
             };
             collision.build_time = 99.0;
             source.templates.insert(NAME.into(), collision);
-            register_upgrade_restore_rule(&source, NAME, "PLAYER", 37, 1.25);
+            register_upgrade_restore_rule(&mut source, NAME, "PLAYER", 37, 1.25);
             source.players.get_mut(&0).unwrap().power_available = 41;
             let initial_wallet = queue_upgrade_restore_rule(&mut source, producer, NAME);
             for _ in 0..7 {
@@ -1163,7 +1164,7 @@ fn queued_upgrade_restore_cancellation_ignores_same_name_object_power() {
             let bytes = bincode_legacy::serialize(&saved).unwrap();
             let decoded = decode_bincode_world_snapshot(&bytes).unwrap();
             let mut restored = production_restore_receiver(&source);
-            register_upgrade_restore_rule(&restored, NAME, "PLAYER", 37, 1.25);
+            register_upgrade_restore_rule(&mut restored, NAME, "PLAYER", 37, 1.25);
             builder
                 .restore_from_snapshot(&decoded, &mut restored)
                 .unwrap();
@@ -1174,7 +1175,7 @@ fn queued_upgrade_restore_cancellation_ignores_same_name_object_power() {
             assert_eq!(foreign_producer, producer);
             foreign.players.get_mut(&0).unwrap().resources.supplies = 901;
             foreign.players.get_mut(&0).unwrap().power_available = 82;
-            register_upgrade_restore_rule(&foreign, NAME, "OBJECT", 911, 9.75);
+            register_upgrade_restore_rule(&mut foreign, NAME, "OBJECT", 911, 9.75);
             assert!(gamelogic::system::engine_stores::with_world_services(
                 &foreign.world_services,
                 || restored.cancel_production_at_index(producer, 0),

@@ -4,13 +4,13 @@ fn initialize_challenge_windows(
     wm: &mut WindowManager,
     did_mem_pass: bool,
     campaign_manager: &crate::gui::campaign_manager::CampaignManager,
-    runtime: &mut LoadScreenRuntime,
+    runtime: &mut LoadScreenOperation<'_>,
 ) {
     with_challenge_load_screen_state(
         |state| *state = ChallengeLoadScreenState::default(),
         runtime,
     );
-    with_window_video_manager(|manager| manager.init());
+    with_window_video_manager(runtime.videos, |manager| manager.init());
 
     for name in [
         "ChallengeLoadScreen.wnd:PortraitLeft",
@@ -70,6 +70,7 @@ fn initialize_challenge_windows(
         wm,
         "ChallengeLoadScreen.wnd:ParentChallengeLoadScreen",
         &movie_label,
+        runtime,
     ) {
         // Matches C++'s video-buffer/open failure return: do not create a
         // synthetic min-spec reveal or ambient/taunt audio.
@@ -109,17 +110,19 @@ fn initialize_challenge_windows(
 
 fn with_challenge_load_screen_state<R>(
     f: impl FnOnce(&mut ChallengeLoadScreenState) -> R,
-    runtime: &mut LoadScreenRuntime,
+    runtime: &mut LoadScreenOperation<'_>,
 ) -> R {
-    f(&mut runtime.challenge)
+    f(&mut runtime.state.challenge)
 }
 
-pub fn activate_challenge_load_screen_frame(frame: i32, runtime: &mut LoadScreenRuntime) {
-    with_window_manager(|wm| activate_challenge_pieces_frame_windows(wm, frame, runtime));
+pub fn activate_challenge_load_screen_frame(frame: i32, runtime: &mut LoadScreenOperation<'_>) {
+    let windows = runtime.windows;
+    windows.with_manager(|wm| activate_challenge_pieces_frame_windows(wm, frame, runtime));
 }
 
-pub fn activate_challenge_load_screen_min_spec(runtime: &mut LoadScreenRuntime) {
-    with_window_manager(|wm| activate_challenge_pieces_min_spec_windows(wm, runtime));
+pub fn activate_challenge_load_screen_min_spec(runtime: &mut LoadScreenOperation<'_>) {
+    let windows = runtime.windows;
+    windows.with_manager(|wm| activate_challenge_pieces_min_spec_windows(wm, runtime));
 }
 
 fn challenge_prelude_outcome(state: LoadScreenPreludeState) -> LoadScreenPreludeOutcome {
@@ -136,7 +139,7 @@ fn challenge_prelude_outcome(state: LoadScreenPreludeState) -> LoadScreenPrelude
 
 fn complete_challenge_load_screen_prelude(
     outcome: LoadScreenPreludeOutcome,
-    runtime: &mut LoadScreenRuntime,
+    runtime: &mut LoadScreenOperation<'_>,
 ) {
     let should_play_audio = with_challenge_load_screen_state(
         |state| {
@@ -168,7 +171,7 @@ fn activate_challenge_pieces_through_windows(
     wm: &mut WindowManager,
     previous_frame: i32,
     frame: i32,
-    runtime: &mut LoadScreenRuntime,
+    runtime: &mut LoadScreenOperation<'_>,
 ) {
     if frame <= previous_frame {
         return;
@@ -180,7 +183,7 @@ fn activate_challenge_pieces_through_windows(
 
 fn advance_challenge_load_screen_prelude(
     wm: &mut WindowManager,
-    runtime: &mut LoadScreenRuntime,
+    runtime: &mut LoadScreenOperation<'_>,
 ) -> LoadScreenPreludeStep {
     let (prelude_state, movie_label, current_frame, deadline, duration) =
         with_challenge_load_screen_state(
@@ -204,7 +207,7 @@ fn advance_challenge_load_screen_prelude(
             LoadScreenPreludeStep::Finished(challenge_prelude_outcome(prelude_state))
         }
         LoadScreenPreludeState::Movie => {
-            let advance = advance_challenge_background_movie(&movie_label);
+            let advance = advance_challenge_background_movie(&movie_label, runtime);
             let Some(advance) = advance else {
                 // A successfully-opened one-shot disappearing before an
                 // observed frame is still a completed/skipped presentation,
@@ -247,7 +250,9 @@ fn advance_challenge_load_screen_prelude(
     }
 }
 
-fn skip_challenge_load_screen_prelude(runtime: &mut LoadScreenRuntime) -> LoadScreenPreludeOutcome {
+fn skip_challenge_load_screen_prelude(
+    runtime: &mut LoadScreenOperation<'_>,
+) -> LoadScreenPreludeOutcome {
     let state = with_challenge_load_screen_state(|state| state.prelude_state, runtime);
     if matches!(
         state,
@@ -260,7 +265,7 @@ fn skip_challenge_load_screen_prelude(runtime: &mut LoadScreenRuntime) -> LoadSc
     }
 }
 
-fn finish_challenge_load_screen_audio_postlude(runtime: &mut LoadScreenRuntime) {
+fn finish_challenge_load_screen_audio_postlude(runtime: &mut LoadScreenOperation<'_>) {
     let postlude = with_challenge_load_screen_state(
         |state| {
             // C++ returns from init when the background stream/buffer cannot be
@@ -301,7 +306,7 @@ fn pump_challenge_load_screen_audio() {
     }
 }
 
-fn reset_challenge_load_screen_audio_state(runtime: &mut LoadScreenRuntime) {
+fn reset_challenge_load_screen_audio_state(runtime: &mut LoadScreenOperation<'_>) {
     let ambient_handle = with_challenge_load_screen_state(
         |state| {
             let handle = state.ambient_loop_handle;
@@ -338,7 +343,7 @@ fn challenge_taunt_sound(persona: &ChallengePersonaText, seed: usize) -> Option<
 fn activate_challenge_pieces_frame_windows(
     wm: &mut WindowManager,
     frame: i32,
-    runtime: &mut LoadScreenRuntime,
+    runtime: &mut LoadScreenOperation<'_>,
 ) {
     let personas = with_challenge_load_screen_state(
         |state| {
@@ -373,11 +378,13 @@ fn activate_challenge_pieces_frame_windows(
                 wm,
                 "ChallengeLoadScreen.wnd:PortraitMovieLeft",
                 &player.portrait_movie_left,
+                runtime,
             );
             let _ = play_challenge_movie(
                 wm,
                 "ChallengeLoadScreen.wnd:PortraitMovieRight",
                 &opponent.portrait_movie_right,
+                runtime,
             );
             hide_window(wm, "ChallengeLoadScreen.wnd:PortraitMovieLeft", false);
             hide_window(wm, "ChallengeLoadScreen.wnd:PortraitMovieRight", false);
@@ -395,7 +402,8 @@ fn activate_challenge_pieces_frame_windows(
         FRAME_VS_ANIM_START => {
             hide_window(wm, "ChallengeLoadScreen.wnd:VersusBackdrop", false);
             hide_window(wm, "ChallengeLoadScreen.wnd:OverlayVs", false);
-            let _ = play_challenge_movie(wm, "ChallengeLoadScreen.wnd:OverlayVs", "VSSmall");
+            let _ =
+                play_challenge_movie(wm, "ChallengeLoadScreen.wnd:OverlayVs", "VSSmall", runtime);
             play_audio_event("Taunts_GCAnnouncer12");
         }
         FRAME_RIGHT_VOICE => {
@@ -463,7 +471,7 @@ fn activate_challenge_pieces_frame_windows(
 
 fn activate_challenge_pieces_min_spec_windows(
     wm: &mut WindowManager,
-    runtime: &mut LoadScreenRuntime,
+    runtime: &mut LoadScreenOperation<'_>,
 ) {
     let personas = with_challenge_load_screen_state(
         |state| {
@@ -499,7 +507,7 @@ fn activate_challenge_pieces_min_spec_windows(
     hide_window(wm, "ChallengeLoadScreen.wnd:CircleAlphaInner", false);
     hide_window(wm, "ChallengeLoadScreen.wnd:VersusBackdrop", false);
     hide_window(wm, "ChallengeLoadScreen.wnd:OverlayVs", false);
-    let _ = play_challenge_movie(wm, "ChallengeLoadScreen.wnd:OverlayVs", "VSSmall");
+    let _ = play_challenge_movie(wm, "ChallengeLoadScreen.wnd:OverlayVs", "VSSmall", runtime);
 }
 
 fn set_challenge_bio_entry_text(

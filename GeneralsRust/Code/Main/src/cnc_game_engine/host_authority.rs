@@ -2391,17 +2391,8 @@ impl CnCGameEngine {
             // The receiving loaded catalog owns name/mask allocation order; the
             // snapshot carries purchased/pending state, not UpgradeTemplate INI.
             // Clone the value-owned catalog before admitting that runtime state.
-            let upgrade_definitions = live
-                .world_services
-                .upgrade_center()
-                .read()
-                .unwrap_or_else(|error| error.into_inner())
-                .clone();
-            *candidate
-                .world_services
-                .upgrade_center()
-                .write()
-                .unwrap_or_else(|error| error.into_inner()) = upgrade_definitions;
+            candidate.upgrade_definitions = live.upgrade_definitions.clone();
+            candidate.upgrade_definition_base = live.upgrade_definition_base.clone();
             candidate.receiving_module_content = live.receiving_module_content.clone();
             candidate.receiving_object_definitions = live.receiving_object_definitions.clone();
             candidate.receiving_template_baseline = live.receiving_template_baseline.clone();

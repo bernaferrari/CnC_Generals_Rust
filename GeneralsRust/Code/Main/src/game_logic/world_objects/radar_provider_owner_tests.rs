@@ -222,7 +222,7 @@ fn authored_world_with_initial_health(initial_health: Option<f32>) -> (GameLogic
     world.add_player(Player::new(1, Team::GLA, "First", true));
     world.add_player(Player::new(2, Team::GLA, "Second", true));
     crate::game_logic::host_upgrade_rules::register_test_upgrade(
-        &world,
+        &mut world,
         "Upgrade_GLARadar",
         "OBJECT",
         0,
@@ -242,7 +242,7 @@ fn authored_world_with_initial_health(initial_health: Option<f32>) -> (GameLogic
 
 #[test]
 fn arbitrary_authored_radar_uses_real_grant_module_and_own_duration() {
-    let (world, id) = authored_world();
+    let (mut world, id) = authored_world();
     assert_eq!(world.players[&1].radar_count, 1);
     assert_eq!(world.players[&1].disable_proof_radar_count, 1);
     assert_eq!(world.players[&2].radar_count, 0);
@@ -305,7 +305,7 @@ fn authored_absence_and_invalid_boolean_never_infer_a_provider_from_its_name() {
 #[test]
 fn owned_disabled_operations_are_observable_before_the_next_operation() {
     let (mut world, id) = authored_world();
-    let (peer, peer_id) = authored_world();
+    let (mut peer, peer_id) = authored_world();
     assert_eq!(id, peer_id);
     world.frame = 10;
     world
@@ -374,7 +374,9 @@ fn authored_module_order_preserves_all_conflict_and_removal_observation() {
     let mut world = GameLogic::new();
     world.add_player(Player::new(1, Team::GLA, "First", true));
     for name in ["Upgrade_First", "Upgrade_Second", "Upgrade_Blocked"] {
-        crate::game_logic::host_upgrade_rules::register_test_upgrade(&world, name, "OBJECT", 0, 1);
+        crate::game_logic::host_upgrade_rules::register_test_upgrade(
+            &mut world, name, "OBJECT", 0, 1,
+        );
     }
     let _template = authored_template(
         &mut world,
@@ -417,7 +419,7 @@ fn disabled_grant_capture_and_future_callbacks_preserve_exact_contributors() {
     world.add_player(Player::new(1, Team::GLA, "First", true));
     world.add_player(Player::new(2, Team::GLA, "Second", true));
     crate::game_logic::host_upgrade_rules::register_test_upgrade(
-        &world,
+        &mut world,
         "Upgrade_ExplicitRadar",
         "OBJECT",
         0,
@@ -473,9 +475,9 @@ fn disabled_grant_capture_and_future_callbacks_preserve_exact_contributors() {
 fn unknown_authored_upgrade_names_cannot_be_supplied_by_another_world() {
     let mut world = GameLogic::new();
     world.add_player(Player::new(1, Team::GLA, "First", true));
-    let peer = GameLogic::new();
+    let mut peer = GameLogic::new();
     crate::game_logic::host_upgrade_rules::register_test_upgrade(
-        &peer,
+        &mut peer,
         "Upgrade_PeerOnly",
         "OBJECT",
         0,
@@ -492,7 +494,7 @@ fn unknown_authored_upgrade_names_cannot_be_supplied_by_another_world() {
     world.apply_upgrade_to_object(id, "Upgrade_PeerOnly");
     assert_eq!(world.players[&1].radar_count, 0);
     crate::game_logic::host_upgrade_rules::register_test_upgrade(
-        &world,
+        &mut world,
         "Upgrade_PeerOnly",
         "OBJECT",
         0,
@@ -507,7 +509,7 @@ fn actual_emp_field_admits_radar_before_impact_presentation_and_next_operation()
     // CPP ActiveBodyModuleData defaults InitialHealth to zero independently
     // of MaxHealth. This real EMP candidate must explicitly start alive.
     let (mut world, id) = authored_world_with_initial_health(Some(500.0));
-    let (peer, peer_id) = authored_world_with_initial_health(Some(500.0));
+    let (mut peer, peer_id) = authored_world_with_initial_health(Some(500.0));
     assert_eq!(id, peer_id);
     for object in [&world.objects[&id], &peer.objects[&peer_id]] {
         assert_eq!(object.health.current, 500.0);

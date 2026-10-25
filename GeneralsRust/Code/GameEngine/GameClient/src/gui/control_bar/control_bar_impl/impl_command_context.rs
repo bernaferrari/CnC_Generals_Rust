@@ -1296,6 +1296,8 @@ fn leftover_queue_slot_image(
         return resolve_upgrade_cameo_button_image(
             &entry.upgrade_name,
             Some(&context.available_commands),
+            bar.receiving_upgrade_catalog.as_ref(),
+            bar.receiving_upgrade_actions.as_deref(),
         );
     }
     if !entry.upgrade_name.is_empty() {

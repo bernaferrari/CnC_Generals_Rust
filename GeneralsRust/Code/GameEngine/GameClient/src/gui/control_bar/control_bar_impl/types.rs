@@ -77,6 +77,10 @@ pub struct UpgradeCameoState {
 fn resolve_upgrade_cameo_button_image(
     upgrade_name: &str,
     context_commands: Option<&[CommandButton]>,
+    receiving_catalog: Option<&gamelogic::upgrade::center::UpgradeCenter>,
+    receiving_actions: Option<
+        &game_engine::common::thing::receiving_module_content::ReceivingActionDefinitions,
+    >,
 ) -> String {
     let trimmed = upgrade_name.trim();
     if trimmed.is_empty() {
@@ -85,27 +89,42 @@ fn resolve_upgrade_cameo_button_image(
 
     // 1) C++ TheUpgradeCenter->findUpgrade + getButtonImage()
     //    (cacheButtonImage clears the name once the image is resolved).
-    let logic_image = with_upgrade_center(|center| {
+    let image = |center: &gamelogic::upgrade::center::UpgradeCenter| {
         center
             .find_upgrade(trimmed)
             .map(|template| match template.get_button_image() {
                 Some(image) => image.get_name().trim().to_string(),
                 None => template.get_button_image_name().as_str().trim().to_string(),
             })
-    });
+    };
+    let logic_image = match receiving_catalog {
+        Some(catalog) => image(catalog),
+        None => with_upgrade_center(image),
+    };
     if let Some(image) = logic_image {
         if !image.is_empty() {
             return image;
         }
     }
 
-    // 2) CommandButton.ButtonImage where Upgrade= matches
-    if let Some(control_bar) = get_ini_control_bar() {
-        for (_, button) in control_bar.iter_resolved_buttons() {
-            if button.upgrade.eq_ignore_ascii_case(trimmed)
-                && !button.button_image.trim().is_empty()
-            {
-                return button.button_image.clone();
+    // Receiving content never falls back to a peer's registered button store.
+    let button_image = |bar: &game_engine::common::ini::ini_command_button::ControlBar| {
+        bar.iter_resolved_buttons()
+            .into_iter()
+            .find_map(|(_, button)| {
+                (button.upgrade.eq_ignore_ascii_case(trimmed)
+                    && !button.button_image.trim().is_empty())
+                .then(|| button.button_image.clone())
+            })
+    };
+    if let Some(actions) = receiving_actions {
+        if let Some(image) = button_image(&actions.buttons) {
+            return image;
+        }
+    } else if receiving_catalog.is_none() {
+        if let Some(bar) = get_ini_control_bar() {
+            if let Some(image) = button_image(&bar) {
+                return image;
             }
         }
     }
@@ -212,6 +231,12 @@ pub fn clear_host_production_pause_requests() {
 }
 
 pub struct ControlBar {
+    /// Immutable presentation content from this receiving engine, never purchase state.
+    receiving_upgrade_catalog: Option<gamelogic::upgrade::center::UpgradeCenter>,
+    receiving_upgrade_actions: Option<
+        Arc<game_engine::common::thing::receiving_module_content::ReceivingActionDefinitions>,
+    >,
+
     pub(crate) tooltip: crate::gui::gui_callbacks::control_bar_popup_description::TooltipState,
     context: Arc<RwLock<ControlBarContext>>,
     window_manager: Option<Arc<WindowManager>>,

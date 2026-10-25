@@ -153,6 +153,14 @@ impl SessionRandom {
         logic_integer_with_draw(lo, hi, || self.next_u32())
     }
 
+    pub fn next_real(&self, lo: f32, hi: f32) -> f32 {
+        let delta = hi - lo;
+        if delta <= 0. {
+            return hi;
+        }
+        (self.next_u32() as f32 * MULT_FACTOR) * delta + lo
+    }
+
     /// Linearize one library draw; retries have no gameplay side effects.
     pub fn next_u32(&self) -> u32 {
         let mut before = self.state.load(Ordering::Relaxed);

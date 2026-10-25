@@ -514,11 +514,13 @@ impl CnCGameEngine {
         {
             let x = self.mouse_position.0 as i32;
             let y = self.mouse_position.1 as i32;
-            game_client::gui::with_window_manager_ref(|manager| {
-                crate::pick_ray::opaque_window_chain_blocks_pick(&opaque_see_thru_chain(
-                    manager.get_window_under_cursor(x, y, false),
-                ))
-            })
+            self.game_client
+                .window_manager_owner()
+                .with_manager_ref(|manager| {
+                    crate::pick_ray::opaque_window_chain_blocks_pick(&opaque_see_thru_chain(
+                        manager.get_window_under_cursor(x, y, false),
+                    ))
+                })
         }
         #[cfg(not(feature = "game_client"))]
         {
@@ -543,11 +545,13 @@ impl CnCGameEngine {
         };
         #[cfg(feature = "game_client")]
         {
-            game_client::gui::with_window_manager_ref(|manager| {
-                crate::pick_ray::opaque_window_chain_blocks_pick(&opaque_see_thru_chain(
-                    manager.get_window_under_cursor(screen.x as i32, screen.y as i32, false),
-                ))
-            })
+            self.game_client
+                .window_manager_owner()
+                .with_manager_ref(|manager| {
+                    crate::pick_ray::opaque_window_chain_blocks_pick(&opaque_see_thru_chain(
+                        manager.get_window_under_cursor(screen.x as i32, screen.y as i32, false),
+                    ))
+                })
         }
         #[cfg(not(feature = "game_client"))]
         {

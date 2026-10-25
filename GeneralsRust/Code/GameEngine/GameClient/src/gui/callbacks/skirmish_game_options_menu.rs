@@ -2146,6 +2146,7 @@ mod tests {
         let mut emitted = Vec::new();
         let mut effects = WindowEventEffects {
             script_display: None,
+            window_videos: None,
             selected_window: None,
             window_manager_owner: None,
             emitted_messages: &mut emitted,
@@ -2218,6 +2219,7 @@ mod tests {
             let mut emitted = Vec::new();
             let mut effects = WindowEventEffects {
                 script_display: None,
+                window_videos: None,
                 selected_window: None,
                 window_manager_owner: None,
                 emitted_messages: &mut emitted,

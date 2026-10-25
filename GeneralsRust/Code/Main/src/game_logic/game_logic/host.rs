@@ -70,7 +70,11 @@ pub struct GameLogic {
         Vec<game_engine::common::ini::ini_weather::WeatherSetting>,
     /// Immutable AI definitions admitted by this match, including map overrides.
     pub(crate) ai_definitions: crate::game_logic::ai_definitions::AiDefinitions,
-    /// Main-owned upgrade, terrain, shroud and visual services; no Core AI.
+    /// Immutable runtime lookup catalog plus pristine map-restart baseline.
+    /// Purchased/completed upgrades remain on receiving Players/Objects.
+    pub(crate) upgrade_definitions: gamelogic::upgrade::center::UpgradeCenter,
+    pub(crate) upgrade_definition_base: gamelogic::upgrade::center::UpgradeCenter,
+    /// Main-owned terrain, shroud and visual services; no Core AI.
     /// Created inertly and installed as the active bundle at the world-start
     /// boundaries (`reset` for
     /// staged candidates, staged-world commit); on world drop the bundle is

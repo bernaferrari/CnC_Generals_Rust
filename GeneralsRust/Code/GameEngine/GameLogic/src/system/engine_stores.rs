@@ -17,7 +17,6 @@ use std::sync::{Arc, LazyLock, Mutex, RwLock};
 
 /// Service values shared by Main and the standalone Core runtime. No Core AI.
 pub struct WorldServices {
-    upgrade_center: Arc<RwLock<UpgradeCenter>>,
     shroud: Arc<Mutex<ShroudManager>>,
     client_visuals: ClientVisualState,
     terrain: Arc<RwLock<crate::terrain::TerrainLogic>>,
@@ -25,7 +24,6 @@ pub struct WorldServices {
 impl WorldServices {
     fn engine_defaults() -> Self {
         Self {
-            upgrade_center: common_upgrade::process_lifetime_upgrade_center(),
             shroud: Arc::new(Mutex::new(ShroudManager::new())),
             client_visuals: ClientVisualState::default(),
             terrain: Arc::clone(&crate::terrain::THE_TERRAIN_LOGIC),
@@ -33,12 +31,7 @@ impl WorldServices {
     }
     /// Snapshot engine content; fresh mutable per-world services. Inert.
     pub fn new_for_world() -> Self {
-        let upgrades = common_upgrade::process_lifetime_upgrade_center()
-            .read()
-            .unwrap_or_else(|e| e.into_inner())
-            .clone();
         Self {
-            upgrade_center: Arc::new(RwLock::new(upgrades)),
             // Only definitions are inherited. Visibility, cells and queued
             // reveals belong to this match (CPP PartitionManager.cpp:2515).
             shroud: Arc::new(Mutex::new(ShroudManager::new())),
@@ -49,9 +42,6 @@ impl WorldServices {
     pub fn terrain(&self) -> &Arc<RwLock<crate::terrain::TerrainLogic>> {
         &self.terrain
     }
-    pub fn upgrade_center(&self) -> &Arc<RwLock<UpgradeCenter>> {
-        &self.upgrade_center
-    }
     pub fn shroud(&self) -> &Arc<Mutex<ShroudManager>> {
         &self.shroud
     }
@@ -61,6 +51,7 @@ impl WorldServices {
 }
 /// Standalone Core runtime; AI is mandatory, never optional or deferred.
 pub struct EngineStores {
+    upgrade_center: Arc<RwLock<UpgradeCenter>>,
     services: Arc<WorldServices>,
     ai: Arc<RwLock<AI>>,
     ai_data: Arc<RwLock<AIDataStore>>,
@@ -68,6 +59,7 @@ pub struct EngineStores {
 impl EngineStores {
     fn engine_defaults() -> Self {
         Self {
+            upgrade_center: common_upgrade::process_lifetime_upgrade_center(),
             services: Arc::clone(&PROCESS_SERVICES),
             ai: Arc::new(RwLock::new(AI::new())),
             ai_data: ini_ai_data::process_lifetime_ai_data_store(),
@@ -79,6 +71,12 @@ impl EngineStores {
             .unwrap_or_else(|e| e.into_inner())
             .clone();
         Self {
+            upgrade_center: Arc::new(RwLock::new(
+                common_upgrade::process_lifetime_upgrade_center()
+                    .read()
+                    .unwrap_or_else(|error| error.into_inner())
+                    .clone(),
+            )),
             services: new_world_services(),
             ai: Arc::new(RwLock::new(AI::new())),
             ai_data: Arc::new(RwLock::new(snapshot)),
@@ -88,7 +86,7 @@ impl EngineStores {
         &self.services
     }
     pub fn upgrade_center(&self) -> &Arc<RwLock<UpgradeCenter>> {
-        self.services.upgrade_center()
+        &self.upgrade_center
     }
     pub fn shroud(&self) -> &Arc<Mutex<ShroudManager>> {
         self.services.shroud()
@@ -129,14 +127,14 @@ impl PublishedOwner {
         }
     }
     fn install_common(&self) {
-        common_upgrade::install_upgrade_center(Arc::clone(self.services().upgrade_center()));
         if let Self::Core(core) = self {
+            common_upgrade::install_upgrade_center(Arc::clone(core.upgrade_center()));
             ini_ai_data::install_ai_data_store(Arc::clone(core.ai_data()));
         }
     }
     fn uninstall_common(&self) {
-        common_upgrade::uninstall_upgrade_center_if_current(self.services().upgrade_center());
         if let Self::Core(core) = self {
+            common_upgrade::uninstall_upgrade_center_if_current(core.upgrade_center());
             ini_ai_data::uninstall_ai_data_store_if_current(core.ai_data());
         }
     }
@@ -274,12 +272,14 @@ fn with_owner<R>(owner: PublishedOwner, f: impl FnOnce() -> R) -> R {
                     stack.pop();
                 }
             });
-            let upgrade = self.owner.services().upgrade_center();
-            if Arc::ptr_eq(&common_upgrade::get_upgrade_center(), upgrade) {
-                if let Some(previous) = self.prior_upgrade.take() {
-                    common_upgrade::install_upgrade_center(previous);
-                } else {
-                    common_upgrade::uninstall_upgrade_center_if_current(upgrade);
+            if let PublishedOwner::Core(core) = &self.owner {
+                let upgrade = core.upgrade_center();
+                if Arc::ptr_eq(&common_upgrade::get_upgrade_center(), upgrade) {
+                    if let Some(previous) = self.prior_upgrade.take() {
+                        common_upgrade::install_upgrade_center(previous);
+                    } else {
+                        common_upgrade::uninstall_upgrade_center_if_current(upgrade);
+                    }
                 }
             }
             if let PublishedOwner::Core(core) = &self.owner {
@@ -293,8 +293,12 @@ fn with_owner<R>(owner: PublishedOwner, f: impl FnOnce() -> R) -> R {
             }
         }
     }
-    let prior_upgrade =
-        common_upgrade::install_upgrade_center(Arc::clone(owner.services().upgrade_center()));
+    let prior_upgrade = match &owner {
+        PublishedOwner::Core(core) => {
+            common_upgrade::install_upgrade_center(Arc::clone(core.upgrade_center()))
+        }
+        PublishedOwner::Services(_) => None,
+    };
     let prior_ai_data = match &owner {
         PublishedOwner::Core(core) => {
             ini_ai_data::install_ai_data_store(Arc::clone(core.ai_data()))
@@ -324,7 +328,7 @@ pub fn new_world_services() -> Arc<WorldServices> {
     Arc::new(WorldServices::new_for_world())
 }
 pub fn upgrade_center() -> Arc<RwLock<UpgradeCenter>> {
-    Arc::clone(active_services().upgrade_center())
+    Arc::clone(active().upgrade_center())
 }
 pub fn shroud_manager() -> Arc<Mutex<ShroudManager>> {
     Arc::clone(active_services().shroud())

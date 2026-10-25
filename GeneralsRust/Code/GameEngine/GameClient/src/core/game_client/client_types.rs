@@ -34,6 +34,7 @@ pub struct GameClient {
     message_stream: crate::message_stream::message_stream::MessageStream,
     /// C++ shell-game load-screen first-load latch for this receiving client.
     shell_game_first_load: bool,
+    window_videos: crate::gui::window_video_manager::WindowVideoManager,
     load_screen_runtime: crate::gui::load_screen::LoadScreenRuntime,
     frame: u32,
     command_hints: crate::gui::command_hints::CommandHintState,
@@ -118,6 +119,7 @@ pub type NativeWindowInputDriver<'a> = dyn FnMut(
         &mut crate::gui::shell::main_menu::MainMenu,
         &mut crate::gui::campaign_launch_host_bridge::MenuHostMailbox,
         &mut crate::core::script_action_handler::ScriptDisplayReceiver,
+        &mut crate::gui::window_video_manager::WindowVideoManager,
         game_engine::common::message_stream::WindowInputDispatch,
         &mut Vec<crate::message_stream::game_message::GameMessage>,
     ) -> Option<game_engine::common::message_stream::WindowInputDispatchResult>

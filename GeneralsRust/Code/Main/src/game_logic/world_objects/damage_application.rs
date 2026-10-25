@@ -610,6 +610,7 @@ impl GameLogic {
                             effect,
                             source,
                             &mut self.queued_audio_events,
+                            &self.logic_random,
                         )
                     },
                     self.frame,
@@ -773,6 +774,7 @@ impl GameLogic {
                         effect,
                         source,
                         &mut self.queued_audio_events,
+                        &self.logic_random,
                     )
                 },
             );
@@ -888,6 +890,7 @@ impl GameLogic {
                         effect,
                         source,
                         &mut self.queued_audio_events,
+                        &self.logic_random,
                     )
                 },
             )
@@ -959,6 +962,7 @@ impl GameLogic {
                         effect,
                         source,
                         &mut self.queued_audio_events,
+                        &self.logic_random,
                     )
                 },
                 self.frame,
@@ -1140,39 +1144,22 @@ impl GameLogic {
                 self.world_services.terrain(),
                 &self.logic_random,
                 |view| {
-                    self.combat_system
-                        .prepare_projectile_impact_with_fx_and_pose(
-                            id,
-                            dt,
-                            &mut self.objects,
-                            Some(&mut self.countermeasures),
-                            self.frame,
-                            Some(&terrain),
-                            &mut self.ownership_events,
-                            historic_damage_limit,
-                            &mut |name, object| match object {
-                                crate::game_logic::combat::ProjectileFxObject::Object(object) => {
-                                    view.object(name, object, None);
-                                }
-                                crate::game_logic::combat::ProjectileFxObject::Projectile(
-                                    projectile,
-                                ) => {
-                                    view.projectile(name, projectile);
-                                }
-                            },
-                            &mut |_projectile| {
-                                // Each synchronous FX callback reads its borrowed carrier;
-                                // no process-wide pose publication is needed.
-                            },
-                        )
+                    self.combat_system.prepare_projectile_impact_with_runtime(
+                        id,
+                        dt,
+                        &mut self.objects,
+                        Some(&mut self.countermeasures),
+                        self.frame,
+                        Some(&terrain),
+                        &mut self.ownership_events,
+                        historic_damage_limit,
+                        view,
+                    )
                 },
             )
         };
         #[cfg(not(feature = "game_client"))]
-        let (events, retired) = {
-            let player = self.local_player_id();
-            let shroud = self.world_services.shroud();
-            self.combat_system.prepare_projectile_impact_with_fx_and_pose(
+        let (events, retired) = self.combat_system.prepare_projectile_impact_with_runtime(
             id,
             dt,
             &mut self.objects,
@@ -1181,18 +1168,8 @@ impl GameLogic {
             Some(&terrain),
             &mut self.ownership_events,
             historic_damage_limit,
-            &mut |name,object| {
-                let (id,pos,yaw,owner)=match object {
-                    crate::game_logic::combat::ProjectileFxObject::Object(object)=>(object.id.0,object.get_position(),object.get_orientation(),object.owner_player_id),
-                    crate::game_logic::combat::ProjectileFxObject::Projectile(projectile)=>(projectile.id.0,projectile.position,projectile.velocity.z.atan2(projectile.velocity.x),projectile.source_owner_player_id),
-                };
-                crate::game_logic::host_fx_list_dispatch::publish_host_fx_object_with_visibility(id,pos,yaw,owner.map(|id| id as i32).unwrap_or(-1),0.0,Self::host_fx_visibility_for(player,shroud,id));
-                crate::game_logic::dispatch_fx_list_at_object(name,id,None);
-            }, &mut |projectile| {
-            crate::game_logic::host_fx_list_dispatch::publish_host_fx_object_with_visibility(projectile.id.0,projectile.position,projectile.velocity.z.atan2(projectile.velocity.x),projectile.source_owner_player_id.map(|id| id as i32).unwrap_or(-1),0.0,Self::host_fx_visibility_for(player,shroud,projectile.id.0));
-        }
-)
-        };
+            &mut (),
+        );
 
         for event in events {
             self.apply_owned_combat_damage_with_effects(

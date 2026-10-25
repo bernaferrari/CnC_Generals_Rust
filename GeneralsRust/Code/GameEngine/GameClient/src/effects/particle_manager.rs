@@ -493,6 +493,25 @@ impl ParticleSystemManager {
         Ok(())
     }
 
+    /// Admit one detached map's ordered overrides before any system birth.
+    /// A failed/reused candidate never inherits a previous map's templates.
+    pub fn admit_map_definition_overlays(&mut self, sources: &[String]) -> Result<(), String> {
+        if !self.active_systems.is_empty() {
+            return Err("map particle definitions require a pristine receiving manager".into());
+        }
+        self.templates.clear();
+        self.definitions_admitted = false;
+        self.admit_effective_definitions()
+            .map_err(|error| error.to_string())?;
+        let parser = ParticleSystemINIParser::default();
+        for source in sources {
+            parser
+                .overlay_mixed_source(source, self)
+                .map_err(|error| error.to_string())?;
+        }
+        Ok(())
+    }
+
     /// Find a template by name
     pub fn find_template(&self, name: &str) -> Option<Arc<ParticleSystemTemplate>> {
         self.templates.get(name).cloned()

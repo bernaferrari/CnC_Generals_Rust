@@ -34,7 +34,7 @@ use crate::display::display::DebugDisplayCallback;
 use crate::display::view::{FilterMode, FilterType, with_tactical_view};
 use crate::drawable::drawable_manager::with_drawable_manager_ref;
 use crate::gui::shell::get_shell;
-use crate::gui::window_video_manager::with_window_video_manager;
+
 use crate::gui::with_shell_ref;
 use crate::helpers::{TheControlBar, TheInGameUI};
 use crate::message_stream::player_state::{get_local_player_id, set_local_player_id};

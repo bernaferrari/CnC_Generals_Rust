@@ -735,13 +735,7 @@ impl InGameUI {
             stream.close();
         }
         self.video_buffer = None;
-        let completed = self.currently_playing_movie.take();
-        if completed.is_some() {
-            with_window_video_manager(|manager| manager.stop_all_movies());
-        }
-        if let Some(name) = completed {
-            TheScriptEngine::notify_of_completed_video(&name);
-        }
+        self.currently_playing_movie = None;
     }
 
     pub fn is_movie_playing(&self) -> bool {
@@ -786,9 +780,6 @@ impl InGameUI {
             stream.close();
         }
         self.cameo_video_buffer = None;
-        if self.cameo_movie_playing.is_some() {
-            with_window_video_manager(|manager| manager.stop_all_movies());
-        }
         self.cameo_movie_playing = None;
     }
 

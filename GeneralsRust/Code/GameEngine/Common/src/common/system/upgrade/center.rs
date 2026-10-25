@@ -20,7 +20,7 @@ use crate::common::name_key_generator::{NameKeyGenerator, NameKeyType};
 const DEFAULT_UPGRADE_NAME: &str = "DefaultUpgrade";
 
 /// Central registry for upgrade templates (C++ `UpgradeCenter`).
-#[derive(Clone, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct UpgradeCenter {
     /// Exact authored name -> template. C++ looks up by
     /// `NAMEKEY(name)`; `nameToKey` is case-sensitive, so exact-name lookup

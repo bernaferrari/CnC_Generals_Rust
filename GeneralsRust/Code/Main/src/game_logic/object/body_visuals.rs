@@ -274,7 +274,7 @@ impl Object {
             let retired = self
                 .bone_fx_damage
                 .as_mut()
-                .map(|bfx| bfx.take_running_particle_systems())
+                .map(|bfx| bfx.prepare_body_state_retirement(state))
                 .unwrap_or_else(
                     crate::game_logic::host_bone_fx_damage::BoneParticleRetirement::empty,
                 );
@@ -283,9 +283,16 @@ impl Object {
             }
             if let Some(bfx) = self.bone_fx_damage.as_mut() {
                 bfx.stamp_last_damage_type(self.last_damage_info_type);
-                let _ =
-                    bfx.on_body_damage_state_change(&self.template_name, old_state, state, frame);
             }
+            body_fx(
+                self,
+                BodyStateFx::BoneStateChange {
+                    old_state,
+                    new_state: state,
+                    frame,
+                },
+                source,
+            );
         }
         if old_state != state && show_health_visuals {
             self.ensure_transition_damage_fx();

@@ -58,6 +58,7 @@ fn actual_owned_command_tooltip_hover_and_delete_use_receiving_bar_and_window_tr
     {
         let mut context = ControlBarInputContext {
             script_display: None,
+            window_videos: None,
             upgrade_tooltip: crate::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource::Standalone,
             replay_menu: None,
             replay_version: None,
@@ -120,6 +121,7 @@ fn actual_owned_command_tooltip_hover_and_delete_use_receiving_bar_and_window_tr
     for _ in 0..4 {
         let mut context = ControlBarInputContext {
             script_display: None,
+            window_videos: None,
             upgrade_tooltip: crate::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource::Standalone,
             replay_menu: None,
             replay_version: None,
@@ -152,6 +154,7 @@ fn actual_owned_command_tooltip_hover_and_delete_use_receiving_bar_and_window_tr
     {
         let mut context = ControlBarInputContext {
             script_display: None,
+            window_videos: None,
             upgrade_tooltip: crate::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource::Standalone,
             replay_menu: None,
             replay_version: None,

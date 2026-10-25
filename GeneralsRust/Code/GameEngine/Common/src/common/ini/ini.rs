@@ -221,6 +221,7 @@ pub struct INI {
     tolerant_blocks: bool,
     // This operation receives Object definitions already admitted by its owner.
     object_definitions_admitted: bool,
+    particle_definitions_admitted: bool,
     /// C++ INI.cpp:458-463 feeds the active load's CRC, in line order.
     /// This parser already has exclusive access through `&mut self`.
     xfer: Option<XferCRC<XferLoad<Cursor<Vec<u8>>>>>,
@@ -235,6 +236,7 @@ pub struct INI {
     challenge_generals_target: Option<super::ini_challenge_generals::ChallengeGenerals>,
     // Explicit engine-owner target for `Upgrade` block parsing.
     upgrade_center_target: Option<Arc<RwLock<crate::common::system::upgrade::UpgradeCenter>>>,
+    owned_upgrade_center_target: Option<crate::common::system::upgrade::UpgradeCenter>,
     #[cfg(debug_assertions)]
     cur_block_start: String,
 }
@@ -740,6 +742,9 @@ fn parse_eva_event_block(ini: &mut INI) -> INIResult<()> {
 
 fn parse_particle_system_block(ini: &mut INI) -> INIResult<()> {
     let (name, properties) = parse_named_property_block(ini)?;
+    if ini.particle_definitions_admitted {
+        return Ok(());
+    }
     // C++ INIParticleSys.cpp:24-32 — find-or-create on TheParticleSystemManager.
     if let Some(overlay) = particle_system_live_overlay() {
         overlay(&name, &properties, ini.get_load_type());
@@ -786,6 +791,11 @@ fn parse_terrain_block(ini: &mut INI) -> INIResult<()> {
 /// C++ `INI::parseUpgradeDefinition` -> `UpgradeCenter::parseUpgradeDefinition`
 /// (Upgrade.cpp:451-473): the one load path for every `Upgrade` block.
 fn parse_upgrade_block(ini: &mut INI) -> INIResult<()> {
+    if let Some(mut center) = ini.owned_upgrade_center_target.take() {
+        let result = center.parse_upgrade_definition(ini);
+        ini.owned_upgrade_center_target = Some(center);
+        return result;
+    }
     let center = ini.upgrade_center_target();
     let mut center = center
         .write()
@@ -1259,6 +1269,12 @@ impl INI {
     /// The receiving content producer has already validated and committed these
     /// Object blocks. Consume their grammar without re-parsing ModuleData or
     /// publishing a compatibility factory/override registry.
+    /// The driving map decoder retained these definitions for its receiving
+    /// particle owner. Still parse the block, but never publish a peer overlay.
+    pub fn set_particle_definitions_admitted(&mut self) {
+        self.particle_definitions_admitted = true;
+    }
+
     pub fn set_object_definitions_admitted(&mut self) {
         self.object_definitions_admitted = true;
     }
@@ -1288,10 +1304,12 @@ impl INI {
             eof_pending: false,
             tolerant_blocks: false,
             object_definitions_admitted: false,
+            particle_definitions_admitted: false,
             xfer: None,
             script_template_definitions: Vec::new(),
             ai_data_store_target: None,
             upgrade_center_target: None,
+            owned_upgrade_center_target: None,
             terrain_types_target: None,
             armor_definitions_target: None,
             challenge_generals_target: None,
@@ -1343,6 +1361,20 @@ impl INI {
     }
     pub fn take_terrain_types_target(&mut self) -> Option<super::ini_terrain::TerrainTypes> {
         self.terrain_types_target.take()
+    }
+
+    /// Transfer one receiving definition draft through this parse operation.
+    /// The allocator and authored override order stay on this single value.
+    pub fn set_owned_upgrade_center_target(
+        &mut self,
+        center: crate::common::system::upgrade::UpgradeCenter,
+    ) {
+        self.owned_upgrade_center_target = Some(center);
+    }
+    pub fn take_owned_upgrade_center_target(
+        &mut self,
+    ) -> Option<crate::common::system::upgrade::UpgradeCenter> {
+        self.owned_upgrade_center_target.take()
     }
 
     /// Bind `Upgrade` block parsing in this INI operation to an explicit

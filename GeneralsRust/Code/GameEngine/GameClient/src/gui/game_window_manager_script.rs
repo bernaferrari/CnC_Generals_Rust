@@ -1178,9 +1178,10 @@ impl ScriptCallbackRegistry {
         self.register_layout_update("SkirmishMapSelectMenuUpdate", |layout| {
             cb::skirmish_map_select_menu_update(layout, None)
         });
-        self.register_layout_update("ChallengeMenuUpdate", |layout| {
-            cb::challenge_menu_update(layout, None)
-        });
+        self.layout_update.insert(
+            "ChallengeMenuUpdate".into(),
+            Box::new(|layout, effects| cb::challenge_menu_update(layout, None, effects)),
+        );
 
         register_online_layout_update!(self, "WOLLadderScreenUpdate", cb::wol_ladder_screen_update);
         register_online_layout_update!(self, "WOLLoginMenuUpdate", cb::wol_login_menu_update);

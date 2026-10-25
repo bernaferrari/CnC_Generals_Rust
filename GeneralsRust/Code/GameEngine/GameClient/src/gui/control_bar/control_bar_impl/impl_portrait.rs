@@ -304,6 +304,8 @@ impl ControlBar {
                     button_image: resolve_upgrade_cameo_button_image(
                         &name,
                         context_commands.as_deref(),
+                        self.receiving_upgrade_catalog.as_ref(),
+                        self.receiving_upgrade_actions.as_deref(),
                     ),
                     upgrade_name: name,
                     is_completed,
@@ -568,6 +570,8 @@ impl ControlBar {
                     button_image: resolve_upgrade_cameo_button_image(
                         &name,
                         context_commands.as_deref(),
+                        self.receiving_upgrade_catalog.as_ref(),
+                        self.receiving_upgrade_actions.as_deref(),
                     ),
                     upgrade_name: name,
                     is_completed,

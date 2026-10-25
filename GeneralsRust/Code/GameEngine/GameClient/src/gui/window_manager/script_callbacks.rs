@@ -365,9 +365,13 @@ impl WindowManager {
                 "ReplayMenuUpdate" => Some(Box::new(|layout, data| {
                     replay_menu_update(layout, data);
                 })),
-                "ChallengeMenuUpdate" => Some(Box::new(|layout, data| {
-                    challenge_menu_update(layout, data);
-                })),
+                "ChallengeMenuUpdate" => {
+                    layout.update_callback_with_effects =
+                        Some(Box::new(|layout, data, effects| {
+                            challenge_menu_update(layout, data, effects)
+                        }));
+                    None
+                }
                 "KeyboardOptionsMenuUpdate" => Some(Box::new(|layout, data| {
                     keyboard_options_menu_update(layout, data);
                 })),

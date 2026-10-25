@@ -42,7 +42,7 @@ fn test_command_creation() {
         drag_end_world: None,
     };
 
-    let game_logic = GameLogic::new();
+    let mut game_logic = GameLogic::new();
     let selected_units = vec![ObjectId(1)];
 
     if let Some(command) =
@@ -1912,7 +1912,7 @@ fn queued_upgrade_completes_during_simulation_update() {
     // Supply explicit rules so another fixture's catalog cannot change this
     // C++ ProductionUpdate completion boundary.
     crate::game_logic::host_upgrade_rules::register_test_upgrade(
-        &game_logic,
+        &mut game_logic,
         "Upgrade_AmericaSupplyLines",
         "PLAYER",
         800,

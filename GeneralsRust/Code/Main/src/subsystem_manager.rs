@@ -920,15 +920,11 @@ impl GameClientSubsystem {
     fn update_legacy_client_singletons(&self) {
         use game_client::core::script_action_handler::apply_pending_script_display_state;
         use game_client::eva::update_eva_system;
-        use game_client::gui::{
-            get_display_string_manager, window_video_manager::with_window_video_manager,
-            with_shell_mut, with_window_manager,
-        };
+        use game_client::gui::{get_display_string_manager, with_shell_mut, with_window_manager};
         use game_client::system::SubsystemInterface as GameClientSubsystemInterface;
         use game_client::video_player::{VideoPlayerInterface as _, get_video_player};
 
         update_eva_system();
-        with_window_video_manager(|manager| manager.update());
         with_window_manager(|manager| manager.update());
 
         if let Some(video_player) = get_video_player() {
@@ -974,9 +970,7 @@ impl GameClientSubsystem {
             use game_client::system::SubsystemInterface as _;
             use game_client::video_player::VideoPlayerInterface as _;
             game_client::eva::update_eva_system();
-            game_client::gui::window_video_manager::with_window_video_manager(|manager| {
-                manager.update()
-            });
+            client.window_video_manager_mut().update();
             owner
                 .try_with_manager(|manager| manager.update())
                 .expect("native client update requires released manager loan");

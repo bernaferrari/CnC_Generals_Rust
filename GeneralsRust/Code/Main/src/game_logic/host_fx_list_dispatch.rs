@@ -1,11 +1,12 @@
-//! Live-host FXList nugget dispatch + Sound-nugget audio names.
+//! Authored FXList execution at explicit receiving operation boundaries.
 //!
-//! C++ `FXList::doFXPos` / `doFXObj` (FXList.cpp:782-805) run every nugget.
-//! `SoundFXNugget` plays `AudioEventRTS(m_soundName)` — the name *inside*
-//! the FXList, never the FXList template name (FXList.cpp:79-100).
+//! Native Main uses `HostFxRuntime` for world operations and `ObjectFxServices`
+//! while an Object is borrowed. Both execute the same C++ nugget-order kernel.
+//! The standalone Core helpers below retain their separate component API;
+//! native callers must not discover a receiver through those global bridges.
 //!
-//! The GameClient runner is registered via `register_fx_list_manager_bridge`.
-//! This module is the live-host call into that runner.
+//! C++ `FXList.cpp:79-100,782-805`: a Sound nugget plays its audio-event name,
+//! never the FXList template name.
 
 use glam::Vec3;
 #[cfg(feature = "game_client")]

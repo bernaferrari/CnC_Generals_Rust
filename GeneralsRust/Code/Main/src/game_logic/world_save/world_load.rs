@@ -451,12 +451,16 @@ impl GameLogic {
                         Arc::clone(self.effective_terrain_definitions()),
                         self.current_armor_definitions().cloned(),
                         self.receiving_module_content.as_ref().map(|_| companion_sources.as_slice()),
+                        self.upgrade_definition_base.clone(),
                     );
                 let parsed_settings = match parsed {
                     Ok(meta) => match self.admit_ai_map_overrides(ai_draft) {
                         Ok(()) => {
                             if let Some(lighting) = &meta.lighting {
                                 self.apply_map_lighting(lighting);
+                            }
+                            if let Some(definitions) = &meta.upgrade_definitions {
+                                self.upgrade_definitions = definitions.clone();
                             }
                             if let Some(definitions) = &meta.armor_definitions {
                                 self.admit_armor_definitions(Arc::clone(definitions));
