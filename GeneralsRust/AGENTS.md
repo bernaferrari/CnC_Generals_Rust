@@ -29,7 +29,7 @@ must not change observable behavior.
 
 4. Prefer compatibility adapters over speculative redesign.
 - C++ callback tables -> Rust dispatch maps
-- C++ globals/singletons -> thin adapters
+- C++ globals/singletons (`TheXxx`) -> fields on the per-game-instance owner (no process statics)
 - C++ asset search order -> exact ordered candidate lists
 - C++ draw callbacks -> semantic bridge, not replacement UI
 
@@ -47,6 +47,17 @@ Every ported file should be explainable in terms of:
 - mirrored state and defaults
 - identical side effects
 - verification method used
+
+## Instance Isolation (project goal)
+- The target is the C++ game, faithfully, in Rust + wgpu, with multiple independent game instances able to run in parallel in one process.
+- Do not add process-wide mutable state: no new `static` Mutex/RwLock/Atomic/OnceLock-with-interior-mutability, `thread_local!` game state, or `lazy_static!` for per-game data. Immutable constant tables are fine.
+- When touching a subsystem that still uses a mutable global, move that state onto its owning instance (see `OWNERSHIP_AND_AUTHORITY.md`) instead of extending the global.
+
+## Verification Hygiene
+- Verify behavior by running real game logic (fixtures, deterministic traces, runtime probes against retail assets), not by scanning Rust source text.
+- Do not create "residual", "wave", "honesty", or "hunt" audit modules, string tables of method names, or tests that assert a file contains its own constants. Such code was removed; do not reintroduce it.
+- Do not commit scratch reports, findings JSON, or probe output to the repo root. Put durable notes in the issue tracker.
+- Before opening a new issue, check that it blocks playing a skirmish faithfully or breaks instance isolation; prefer closing or updating an existing issue.
 
 ## Rendering and UI Rules
 - Exact draw dispatch matters more than prettier code.
@@ -72,7 +83,7 @@ Every ported file should be explainable in terms of:
 ## Practical Working Rules
 - Compare the original C++ source before changing Rust behavior.
 - Preserve enum ordering, flag layouts, frame timing, and save/load format behavior.
-- Prefer thin adapters around legacy singleton patterns instead of changing subsystem ownership semantics.
+- C++ singletons become state owned by one game instance; C++ `reset()`/`init()` points map to creating or resetting that instance's state, so single-instance behavior is unchanged.
 - Add focused regression tests for fixed parity bugs whenever practical.
 - Keep temporary startup/runtime probes small and targeted.
 

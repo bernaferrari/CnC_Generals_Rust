@@ -85,8 +85,7 @@ pub(crate) fn gameplay_to_render_transform(matrix: Mat4) -> Mat4 {
 /// lane: resolve a W3D texture name against the archive-backed TextureManager
 /// raw cache and hand the ww3d renderer decoded RGBA8 pixels. The mesh lane's
 /// `MaterialPassClass` textures are W3D placeholders (name only), so without
-/// this bridge every unit/building material binds the white fallback
-/// (windowed-smoke-report.md § TextureProvision).
+/// this bridge every unit/building material binds the white fallback.
 fn resolve_archive_pass_texture(name: &str) -> Option<TextureClass> {
     let requested = name.trim();
     let (data, width, height) = archive_texture_rgba8(name)?;

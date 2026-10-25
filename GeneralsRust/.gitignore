@@ -65,3 +65,12 @@ rust-project.json
 # Authored launcher sources, not Cargo build output.
 !/Code/Tools/Launcher/Toolkit/Debug/
 GeneralsRust/Code/GameEngine/GameClient/UserData/
+
+# Agent scratch (keep out of the repo)
+/hunt*-findings.json
+/hunt*-bead-ids.json
+/*-context.md
+/*-report.md
+/*.rlib
+/check.log
+/crashes/

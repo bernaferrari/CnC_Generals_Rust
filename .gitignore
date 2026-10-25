@@ -91,3 +91,4 @@ daemon/*.log
 
 # Isolated dependencies for C++ parity tooling
 /.venv-parity/
+/.agent-scratch-archive/
