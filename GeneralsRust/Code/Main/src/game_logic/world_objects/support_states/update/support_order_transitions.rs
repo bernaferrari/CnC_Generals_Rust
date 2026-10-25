@@ -43,7 +43,11 @@ impl GameLogic {
         Ok(())
     }
 
-    pub(super) fn release_rejected_special(&mut self, object_id: ObjectId) {
+    pub(super) fn release_rejected_special(
+        &mut self,
+        object_id: ObjectId,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<()> {
         self.pending_special_abilities.remove(&object_id);
         if let Some(obj) = self.objects.get_mut(&object_id) {
             obj.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
@@ -53,12 +57,8 @@ impl GameLogic {
             obj.clear_target(&mut crate::game_logic::ObjectAudio::queue(
                 &mut self.queued_audio_events,
             ));
-            if obj.ai_state() != AIState::Idle {
-                obj.set_ai_state(
-                    AIState::Idle,
-                    &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
-                );
-            }
         }
+        self.set_ai_state_decision_aware_with_effects(object_id, AIState::Idle, effects)?;
+        Ok(())
     }
 }

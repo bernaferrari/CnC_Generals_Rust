@@ -942,7 +942,7 @@ impl GameLogic {
         &mut self,
         object_id: ObjectId,
         ability: crate::game_logic::PendingSpecialAbility,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         self.update_helix_napalm_bomb_channel_with_effects(
             object_id,
             ability,
@@ -955,13 +955,13 @@ impl GameLogic {
         object_id: ObjectId,
         ability: crate::game_logic::PendingSpecialAbility,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         use crate::command_system::SpecialPowerType;
         use crate::game_logic::host_helix_napalm::helix_napalm_in_start_range;
 
         let Some(target) = ability.helix_napalm_target() else {
             self.pending_special_abilities.remove(&object_id);
-            return;
+            return Ok(());
         };
         let Some((position, selection_radius, can_move, alive)) =
             self.objects.get(&object_id).map(|o| {
@@ -974,17 +974,17 @@ impl GameLogic {
             })
         else {
             self.pending_special_abilities.remove(&object_id);
-            return;
+            return Ok(());
         };
         if !alive {
             self.pending_special_abilities.remove(&object_id);
-            return;
+            return Ok(());
         }
         if !helix_napalm_in_start_range(position, selection_radius, target) {
             if can_move {
                 self.path_approach_with_state(object_id, target, AIState::SpecialAbility);
             }
-            return;
+            return Ok(());
         }
         let power = self.objects.get(&object_id).and_then(|o| {
             [
@@ -1002,7 +1002,7 @@ impl GameLogic {
         if let Some(power) = power {
             if !self.consume_special_power_charge_for(object_id, &power) {
                 // C++ PersistenceRequiresRecharge: freeze until SPM ready.
-                return;
+                return Ok(());
             }
             self.notify_script_engine_special_power_event_with_recipient(
                 object_id,
@@ -1024,14 +1024,11 @@ impl GameLogic {
         self.pending_special_abilities.remove(&object_id);
         if let Some(obj) = self.objects.get_mut(&object_id) {
             obj.set_status_using_ability(false);
-            if dropped {
-                obj.set_ai_state(
-                    AIState::Idle,
-                    &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
-                );
-            }
         }
-        let _ = dropped;
+        if dropped {
+            self.set_ai_state_decision_aware_with_effects(object_id, AIState::Idle, effects)?;
+        }
+        Ok(())
     }
 
     /// C++ `PartitionFilterLineOfSight` residual used after the 2D range gate.
@@ -1740,7 +1737,7 @@ impl GameLogic {
         target_id: ObjectId,
         kind: crate::game_logic::host_hero_abilities::LeftoverSaKind,
         dt: f32,
-    ) -> LeftoverSaTick {
+    ) -> gamelogic::GameLogicResult<LeftoverSaTick> {
         self.tick_leftover_special_ability_with_effects(
             object_id,
             target_id,
@@ -1757,7 +1754,7 @@ impl GameLogic {
         kind: crate::game_logic::host_hero_abilities::LeftoverSaKind,
         dt: f32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> LeftoverSaTick {
+    ) -> gamelogic::GameLogicResult<LeftoverSaTick> {
         use crate::game_logic::host_hero_abilities::{
             LeftoverSaChannel, LeftoverSaPhase, leftover_should_unstealth_during_unpack,
         };
@@ -1780,13 +1777,13 @@ impl GameLogic {
                         object_id,
                         LeftoverSaChannel::new(kind, target_id, LeftoverSaPhase::Facing, 0),
                     );
-                    return LeftoverSaTick::Waiting;
+                    return Ok(LeftoverSaTick::Waiting);
                 }
                 let unpack_ms =
                     crate::game_logic::vary_pack_unpack_duration_ms(timings.unpack_ms, variation);
                 if unpack_ms > 0 {
                     self.leftover_begin_unpacking(object_id, target_id, kind, unpack_ms);
-                    return LeftoverSaTick::Waiting;
+                    return Ok(LeftoverSaTick::Waiting);
                 }
                 if !self.leftover_start_sa_preparation_with_effects(
                     object_id,
@@ -1797,24 +1794,24 @@ impl GameLogic {
                 ) {
                     self.abort_leftover_sa_channel_on_new_order_with_effects(object_id, effects);
                     self.pending_special_abilities.remove(&object_id);
-                    return LeftoverSaTick::Finished;
+                    return Ok(LeftoverSaTick::Finished);
                 }
                 if timings.prep_ms == 0 {
-                    LeftoverSaTick::Trigger
+                    Ok(LeftoverSaTick::Trigger)
                 } else {
-                    LeftoverSaTick::Waiting
+                    Ok(LeftoverSaTick::Waiting)
                 }
             }
             Some(channel) if channel.phase == LeftoverSaPhase::Facing => {
                 if self.leftover_continue_facing_with_effects(object_id, target_id, dt, effects) {
                     self.hero_abilities.set_leftover_channel(object_id, channel);
-                    return LeftoverSaTick::Waiting;
+                    return Ok(LeftoverSaTick::Waiting);
                 }
                 let unpack_ms =
                     crate::game_logic::vary_pack_unpack_duration_ms(timings.unpack_ms, variation);
                 if unpack_ms > 0 {
                     self.leftover_begin_unpacking(object_id, target_id, kind, unpack_ms);
-                    return LeftoverSaTick::Waiting;
+                    return Ok(LeftoverSaTick::Waiting);
                 }
                 if !self.leftover_start_sa_preparation_with_effects(
                     object_id,
@@ -1825,12 +1822,12 @@ impl GameLogic {
                 ) {
                     self.abort_leftover_sa_channel_on_new_order_with_effects(object_id, effects);
                     self.pending_special_abilities.remove(&object_id);
-                    return LeftoverSaTick::Finished;
+                    return Ok(LeftoverSaTick::Finished);
                 }
                 if timings.prep_ms == 0 {
-                    LeftoverSaTick::Trigger
+                    Ok(LeftoverSaTick::Trigger)
                 } else {
-                    LeftoverSaTick::Waiting
+                    Ok(LeftoverSaTick::Waiting)
                 }
             }
             Some(mut channel) if channel.phase == LeftoverSaPhase::Unpacking => {
@@ -1849,7 +1846,7 @@ impl GameLogic {
                 }
                 if channel.remaining_seconds > EPS {
                     self.hero_abilities.set_leftover_channel(object_id, channel);
-                    return LeftoverSaTick::Waiting;
+                    return Ok(LeftoverSaTick::Waiting);
                 }
                 self.leftover_finish_unpack(object_id, &timings);
                 if !self.leftover_start_sa_preparation_with_effects(
@@ -1861,12 +1858,12 @@ impl GameLogic {
                 ) {
                     self.abort_leftover_sa_channel_on_new_order_with_effects(object_id, effects);
                     self.pending_special_abilities.remove(&object_id);
-                    return LeftoverSaTick::Finished;
+                    return Ok(LeftoverSaTick::Finished);
                 }
                 if timings.prep_ms == 0 {
-                    LeftoverSaTick::Trigger
+                    Ok(LeftoverSaTick::Trigger)
                 } else {
-                    LeftoverSaTick::Waiting
+                    Ok(LeftoverSaTick::Waiting)
                 }
             }
             Some(channel) if channel.phase == LeftoverSaPhase::Preparing => {
@@ -1881,12 +1878,12 @@ impl GameLogic {
                     if pack_ms > 0 {
                         self.leftover_begin_packing_with_effects(
                             object_id, target_id, kind, pack_ms, effects,
-                        );
-                        return LeftoverSaTick::Waiting;
+                        )?;
+                        return Ok(LeftoverSaTick::Waiting);
                     }
                     self.abort_leftover_sa_channel_on_new_order_with_effects(object_id, effects);
                     self.pending_special_abilities.remove(&object_id);
-                    return LeftoverSaTick::Finished;
+                    return Ok(LeftoverSaTick::Finished);
                 }
                 if kind == crate::game_logic::host_hero_abilities::LeftoverSaKind::DisableVehicle {
                     // C++ continuePreparation re-initLaser each prep frame.
@@ -1907,9 +1904,9 @@ impl GameLogic {
                             ..channel
                         },
                     );
-                    LeftoverSaTick::Waiting
+                    Ok(LeftoverSaTick::Waiting)
                 } else {
-                    LeftoverSaTick::Trigger
+                    Ok(LeftoverSaTick::Trigger)
                 }
             }
             Some(channel) if channel.phase == LeftoverSaPhase::Packing => {
@@ -1922,7 +1919,7 @@ impl GameLogic {
                             ..channel
                         },
                     );
-                    LeftoverSaTick::Waiting
+                    Ok(LeftoverSaTick::Waiting)
                 } else {
                     self.hero_abilities.take_leftover_channel(object_id);
                     self.pending_special_abilities.remove(&object_id);
@@ -1935,17 +1932,16 @@ impl GameLogic {
                         obj.clear_target(&mut crate::game_logic::ObjectAudio::queue(
                             &mut self.queued_audio_events,
                         ));
-                        obj.set_ai_state(
-                            AIState::Idle,
-                            &mut crate::game_logic::ObjectAudio::queue(
-                                &mut self.queued_audio_events,
-                            ),
-                        );
                     }
-                    LeftoverSaTick::Finished
+                    self.set_ai_state_decision_aware_with_effects(
+                        object_id,
+                        AIState::Idle,
+                        effects,
+                    )?;
+                    Ok(LeftoverSaTick::Finished)
                 }
             }
-            Some(_) => LeftoverSaTick::Finished,
+            Some(_) => Ok(LeftoverSaTick::Finished),
         }
     }
     pub(super) fn leftover_begin_packing(
@@ -1954,7 +1950,7 @@ impl GameLogic {
         target_id: ObjectId,
         kind: crate::game_logic::host_hero_abilities::LeftoverSaKind,
         pack_ms: u32,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         self.leftover_begin_packing_with_effects(
             object_id,
             target_id,
@@ -1971,7 +1967,7 @@ impl GameLogic {
         kind: crate::game_logic::host_hero_abilities::LeftoverSaKind,
         pack_ms: u32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         use crate::game_logic::host_hero_abilities::{LeftoverSaChannel, LeftoverSaPhase};
         self.stop_lotus_prep_sound_loop(object_id);
         self.leftover_kill_special_objects_with_effects(object_id, effects);
@@ -1987,12 +1983,9 @@ impl GameLogic {
                 obj.clear_target(&mut crate::game_logic::ObjectAudio::queue(
                     &mut self.queued_audio_events,
                 ));
-                obj.set_ai_state(
-                    AIState::Idle,
-                    &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
-                );
             }
-            return;
+            self.set_ai_state_decision_aware_with_effects(object_id, AIState::Idle, effects)?;
+            return Ok(());
         }
         if let Some(obj) = self.objects.get_mut(&object_id) {
             obj.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
@@ -2048,6 +2041,7 @@ impl GameLogic {
             object_id,
             LeftoverSaChannel::new(kind, target_id, LeftoverSaPhase::Packing, pack_ms),
         );
+        Ok(())
     }
 
     pub(super) fn apply_leftover_capture_fx(
@@ -2257,7 +2251,7 @@ impl GameLogic {
         &mut self,
         rider_id: ObjectId,
         container_id: ObjectId,
-    ) -> bool {
+    ) -> gamelogic::GameLogicResult<bool> {
         self.rider_change_enter_at_arrival_with_effects(
             rider_id,
             container_id,
@@ -2270,10 +2264,10 @@ impl GameLogic {
         rider_id: ObjectId,
         container_id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> bool {
+    ) -> gamelogic::GameLogicResult<bool> {
         let tree_move_frame = self.frame;
         let Some(plan) = self.rider_change_enter_plan(rider_id, container_id) else {
-            return false;
+            return Ok(false);
         };
 
         // Idempotent duplicate: retain the valid existing relation but repair
@@ -2309,7 +2303,7 @@ impl GameLogic {
                 rider.set_status_attacking(false);
             }
             self.admit_object_drawable_deselection(rider_id);
-            return true;
+            return Ok(true);
         }
 
         // C++ OpenContain::addToContain checkAndDetonateBoobyTrap(rider).
@@ -2318,7 +2312,7 @@ impl GameLogic {
             rider_id,
             effects,
         ) {
-            return false;
+            return Ok(false);
         }
 
         // Phase 1: eject the old rider.  All IDs/list membership were checked
@@ -2353,7 +2347,7 @@ impl GameLogic {
                 );
             debug_assert!(removed, "RiderChange preflight must make eject infallible");
             if !removed {
-                return false;
+                return Ok(false);
             }
             if let Some(previous) = self.objects.get_mut(&previous_rider_id) {
                 previous.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
@@ -2384,10 +2378,13 @@ impl GameLogic {
                 previous.clear_target(&mut crate::game_logic::ObjectAudio::queue(
                     &mut self.queued_audio_events,
                 ));
-                previous.set_ai_state(
-                    AIState::Idle,
-                    &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
-                );
+                let previous_id = previous.id;
+                drop(previous);
+                self.set_ai_state_decision_aware_with_effects(previous_id, AIState::Idle, effects)?;
+                let previous = self
+                    .objects
+                    .get_mut(&previous_id)
+                    .expect("RiderChange ejected actor remains installed");
                 previous.set_status_moving(false);
                 previous.set_status_attacking(false);
                 previous.deselect();
@@ -2504,7 +2501,7 @@ impl GameLogic {
             }
         }
         self.record_combat_cycle_residual_load();
-        true
+        Ok(true)
     }
 
     /// C++ `RiderChangeContain::onRemoving` for an ordinary player Exit (or
@@ -2581,9 +2578,6 @@ impl GameLogic {
         }
 
         if let Some(rider) = self.objects.get_mut(&rider_id) {
-            rider.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
-                &mut self.queued_audio_events,
-            ));
             rider.set_position_with_effects(
                 position,
                 tree_move_frame,
@@ -2601,15 +2595,8 @@ impl GameLogic {
                 .objects
                 .get_mut(&containment_actor_id)
                 .expect("containment operation preserves this birth");
-            rider.clear_target(&mut crate::game_logic::ObjectAudio::queue(
-                &mut self.queued_audio_events,
-            ));
-            rider.set_ai_state(
-                AIState::Idle,
-                &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
-            );
-            rider.set_status_moving(false);
-            rider.set_status_attacking(false);
+            // CPP RiderChangeContain::onRemoving does not issue an AI order.
+            // AIExitState and the exit interface own the rider's continuation.
             if rider_has_controller {
                 rider.set_rider_change_veterancy_level(bike_veterancy);
             }
@@ -2923,7 +2910,10 @@ impl GameLogic {
     /// is no longer able to pack).  Keep the order, channel and visible
     /// `IS_USING_ABILITY` state in one place so a later command cannot inherit
     /// an old physical channel.
-    fn finish_hacker_disable_building_channel(&mut self, object_id: ObjectId) {
+    fn finish_hacker_disable_building_channel(
+        &mut self,
+        object_id: ObjectId,
+    ) -> gamelogic::GameLogicResult<()> {
         self.finish_hacker_disable_building_channel_with_effects(object_id, &mut Default::default())
     }
 
@@ -2931,7 +2921,7 @@ impl GameLogic {
         &mut self,
         object_id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         self.stop_hacker_disable_prep_sound_loop(object_id);
         self.leftover_kill_special_objects_with_effects(object_id, effects);
         self.pending_special_abilities.remove(&object_id);
@@ -2945,11 +2935,9 @@ impl GameLogic {
             object.clear_target(&mut crate::game_logic::ObjectAudio::queue(
                 &mut self.queued_audio_events,
             ));
-            object.set_ai_state(
-                AIState::Idle,
-                &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
-            );
         }
+        self.set_ai_state_decision_aware_with_effects(object_id, AIState::Idle, effects)?;
+        Ok(())
     }
 
     /// Begin the parsed HDB `PackTime` after an interrupted or completed
@@ -2961,7 +2949,7 @@ impl GameLogic {
         object_id: ObjectId,
         target_id: ObjectId,
         pack_time_ms: u32,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         self.begin_hacker_disable_building_packing_with_effects(
             object_id,
             target_id,
@@ -2976,7 +2964,7 @@ impl GameLogic {
         target_id: ObjectId,
         pack_time_ms: u32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         self.stop_hacker_disable_prep_sound_loop(object_id);
         self.leftover_kill_special_objects_with_effects(object_id, effects);
         let mut finish_now = false;
@@ -3017,8 +3005,9 @@ impl GameLogic {
             self.queue_hacker_disable_pack_unpack_sound(object_id, true);
         }
         if finish_now || pack_time_ms == 0 {
-            self.finish_hacker_disable_building_channel_with_effects(object_id, effects);
+            self.finish_hacker_disable_building_channel_with_effects(object_id, effects)?;
         }
+        Ok(())
     }
 
     /// Resolve the live ownership relationship for a channel already in
@@ -3237,7 +3226,7 @@ impl GameLogic {
         object_id: ObjectId,
         target_id: ObjectId,
         metadata: &crate::game_logic::HackerDisableBuildingMetadata,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         self.trigger_hacker_disable_building_with_effects(
             object_id,
             target_id,
@@ -3252,7 +3241,7 @@ impl GameLogic {
         target_id: ObjectId,
         metadata: &crate::game_logic::HackerDisableBuildingMetadata,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         let duration_frames =
             ((metadata.effect_duration_ms as u64 * 30 + 999) / 1_000).min(u32::MAX as u64) as u32;
         let until = self.frame.saturating_add(duration_frames);
@@ -3268,8 +3257,8 @@ impl GameLogic {
                 target_id,
                 metadata.pack_time_ms,
                 effects,
-            );
-            return;
+            )?;
+            return Ok(());
         }
         self.admit_host_radar_disabled_edges(target_id);
         let do_fx = *self
@@ -3305,8 +3294,8 @@ impl GameLogic {
                 target_id,
                 metadata.pack_time_ms,
                 effects,
-            );
-            return;
+            )?;
+            return Ok(());
         }
         if let Some(object) = self.objects.get_mut(&object_id) {
             object.hacker_disable_channel =
@@ -3321,6 +3310,7 @@ impl GameLogic {
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             );
         }
+        Ok(())
     }
 
     /// Dedicated C++ `SpecialAbilityUpdate` HDB state machine.  This lives
@@ -3332,7 +3322,7 @@ impl GameLogic {
         object_id: ObjectId,
         pending_target_id: ObjectId,
         dt: f32,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         self.update_hacker_disable_building_channel_with_effects(
             object_id,
             pending_target_id,
@@ -3347,7 +3337,7 @@ impl GameLogic {
         pending_target_id: ObjectId,
         dt: f32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         const COMPLETE_EPSILON: f32 = 0.000_1;
 
         let Some((metadata, channel)) = self.objects.get(&object_id).and_then(|object| {
@@ -3358,12 +3348,12 @@ impl GameLogic {
                 .clone()
                 .map(|metadata| (metadata, object.hacker_disable_channel))
         }) else {
-            self.finish_hacker_disable_building_channel_with_effects(object_id, effects);
-            return;
+            self.finish_hacker_disable_building_channel_with_effects(object_id, effects)?;
+            return Ok(());
         };
         let Some(channel) = channel else {
-            self.finish_hacker_disable_building_channel_with_effects(object_id, effects);
-            return;
+            self.finish_hacker_disable_building_channel_with_effects(object_id, effects)?;
+            return Ok(());
         };
         if channel.target_id != pending_target_id {
             self.begin_hacker_disable_building_packing_with_effects(
@@ -3371,8 +3361,8 @@ impl GameLogic {
                 channel.target_id,
                 metadata.pack_time_ms,
                 effects,
-            );
-            return;
+            )?;
+            return Ok(());
         }
 
         // Packing remains meaningful after its target dies, defects, or
@@ -3390,9 +3380,9 @@ impl GameLogic {
                         });
                 }
             } else {
-                self.finish_hacker_disable_building_channel_with_effects(object_id, effects);
+                self.finish_hacker_disable_building_channel_with_effects(object_id, effects)?;
             }
-            return;
+            return Ok(());
         }
 
         let source_valid = self.objects.get(&object_id).is_some_and(|source| {
@@ -3402,8 +3392,8 @@ impl GameLogic {
                 && !metadata.scripted_special_power_only
         });
         if !source_valid {
-            self.finish_hacker_disable_building_channel_with_effects(object_id, effects);
-            return;
+            self.finish_hacker_disable_building_channel_with_effects(object_id, effects)?;
+            return Ok(());
         }
         let target_alive = self
             .objects
@@ -3418,8 +3408,8 @@ impl GameLogic {
                 channel.target_id,
                 metadata.pack_time_ms,
                 effects,
-            );
-            return;
+            )?;
+            return Ok(());
         }
 
         match channel.phase {
@@ -3433,8 +3423,8 @@ impl GameLogic {
                         channel.target_id,
                         metadata.pack_time_ms,
                         effects,
-                    );
-                    return;
+                    )?;
+                    return Ok(());
                 }
                 if self.hacker_disable_building_within_start_range(
                     object_id,
@@ -3458,7 +3448,7 @@ impl GameLogic {
                             )
                         })
                     {
-                        return;
+                        return Ok(());
                     }
                     if metadata.unpack_time_ms == 0 {
                         if self.start_hacker_disable_building_preparation_with_effects(
@@ -3473,7 +3463,7 @@ impl GameLogic {
                                 channel.target_id,
                                 &metadata,
                                 effects,
-                            );
+                            )?;
                         } else if self
                             .objects
                             .get(&object_id)
@@ -3484,7 +3474,7 @@ impl GameLogic {
                                 channel.target_id,
                                 metadata.pack_time_ms,
                                 effects,
-                            );
+                            )?;
                         }
                     } else {
                         let unpack_ms = crate::game_logic::vary_pack_unpack_duration_ms(
@@ -3533,7 +3523,7 @@ impl GameLogic {
                         channel.target_id,
                         metadata.pack_time_ms,
                         effects,
-                    );
+                    )?;
                 }
             }
             crate::game_logic::HackerDisableChannelPhase::Unpacking => {
@@ -3559,7 +3549,7 @@ impl GameLogic {
                         channel.target_id,
                         &metadata,
                         effects,
-                    );
+                    )?;
                 } else if self
                     .objects
                     .get(&object_id)
@@ -3570,7 +3560,7 @@ impl GameLogic {
                         channel.target_id,
                         metadata.pack_time_ms,
                         effects,
-                    );
+                    )?;
                 }
             }
             crate::game_logic::HackerDisableChannelPhase::Preparing => {
@@ -3590,15 +3580,15 @@ impl GameLogic {
                         channel.target_id,
                         metadata.pack_time_ms,
                         effects,
-                    );
-                    return;
+                    )?;
+                    return Ok(());
                 }
                 // Source C++ waits at the persistent preparation boundary
                 // only when this exact module opted into recharge gating.
                 if metadata.persistence_requires_recharge
                     && !self.is_hacker_disable_building_ready(object_id)
                 {
-                    return;
+                    return Ok(());
                 }
                 let remaining = (channel.remaining_seconds - dt.max(0.0)).max(0.0);
                 if remaining > COMPLETE_EPSILON {
@@ -3616,12 +3606,13 @@ impl GameLogic {
                         channel.target_id,
                         &metadata,
                         effects,
-                    );
+                    )?;
                 }
             }
             crate::game_logic::HackerDisableChannelPhase::Packing => {
                 unreachable!("packing is handled before HDB participant validation")
             }
         }
+        Ok(())
     }
 }

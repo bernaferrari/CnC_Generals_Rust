@@ -1063,7 +1063,7 @@ impl GameLogic {
                             object_id,
                             container_id,
                             effects,
-                        ) {
+                        )? {
                             if let Some(obj) = self.objects.get_mut(&object_id) {
                                 obj.clear_target(&mut crate::game_logic::ObjectAudio::queue(
                                     &mut self.queued_audio_events,
@@ -1796,7 +1796,7 @@ impl GameLogic {
                     if matches!(ability, PendingSpecialAbility::HelixNapalmBomb { .. }) {
                         self.update_helix_napalm_bomb_channel_with_effects(
                             object_id, ability, effects,
-                        );
+                        )?;
                         continue;
                     }
 
@@ -1813,7 +1813,7 @@ impl GameLogic {
                             special_target_id,
                             dt,
                             effects,
-                        );
+                        )?;
                         continue;
                     }
 
@@ -1845,7 +1845,7 @@ impl GameLogic {
                         )
                     })
                     else {
-                        self.release_rejected_special(object_id);
+                        self.release_rejected_special(object_id, effects)?;
                         continue;
                     };
 
@@ -1956,7 +1956,7 @@ impl GameLogic {
                             })
                             .unwrap_or(false);
                         if !legal {
-                            self.release_rejected_special(object_id);
+                            self.release_rejected_special(object_id, effects)?;
                             continue;
                         }
                     }
@@ -1970,7 +1970,7 @@ impl GameLogic {
                             .map(crate::game_logic::host_car_bomb::carbomb_target_rejected)
                             .unwrap_or(true);
                         if reject {
-                            self.release_rejected_special(object_id);
+                            self.release_rejected_special(object_id, effects)?;
                             continue;
                         }
                     }
@@ -1984,7 +1984,7 @@ impl GameLogic {
                             .map(crate::game_logic::host_car_bomb::hijack_target_rejected)
                             .unwrap_or(true);
                         if reject {
-                            self.release_rejected_special(object_id);
+                            self.release_rejected_special(object_id, effects)?;
                             continue;
                         }
                     }
@@ -1994,14 +1994,14 @@ impl GameLogic {
                     if matches!(ability, PendingSpecialAbility::DisableVehicleHack { .. })
                         && target_is_unmanned
                     {
-                        self.release_rejected_special(object_id);
+                        self.release_rejected_special(object_id, effects)?;
                         continue;
                     }
 
                     if matches!(ability, PendingSpecialAbility::Sabotage { .. })
                         && !target_is_structure
                     {
-                        self.release_rejected_special(object_id);
+                        self.release_rejected_special(object_id, effects)?;
                         continue;
                     }
 
@@ -2110,7 +2110,7 @@ impl GameLogic {
                             kind,
                             dt,
                             effects,
-                        ) {
+                        )? {
                             LeftoverSaTick::Waiting | LeftoverSaTick::Finished => continue,
                             LeftoverSaTick::Trigger => {
                                 self.leftover_sa_queue_trigger_sound(object_id, kind);
@@ -2124,7 +2124,7 @@ impl GameLogic {
                                 unit.template_name.to_ascii_lowercase().contains("hijacker")
                             });
                             if !is_hijacker {
-                                self.release_rejected_special(object_id);
+                                self.release_rejected_special(object_id, effects)?;
                                 continue;
                             }
                             // C++ ConvertToHijackedVehicleCrateCollide residual:
@@ -3062,7 +3062,7 @@ impl GameLogic {
                                 kind,
                                 pack_ms,
                                 effects,
-                            );
+                            )?;
                         }
                     } else {
                         self.pending_special_abilities.remove(&object_id);
