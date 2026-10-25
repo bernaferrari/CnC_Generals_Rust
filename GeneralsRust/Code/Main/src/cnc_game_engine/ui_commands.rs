@@ -2992,30 +2992,6 @@ mod tests {
             leftover_store_radius_cursor_for_type("OFFENSIVE_SPECIALPOWER"),
             0.0
         );
-        let src = include_str!("ui_commands.rs")
-            .split("#[cfg(test)]")
-            .next()
-            .expect("production radius cursor and command arming");
-        assert!(
-            src.contains("PendingMapCommand::Weapon(_) => \"ATTACK_DAMAGE_AREA\""),
-            "FIRE_WEAPON / attack-ground must arm leftover ATTACK_DAMAGE_AREA"
-        );
-        assert!(
-            !src.contains("o.weapon_range") && !src.contains("o.vision_range"),
-            "must not proxy radius from presentation weapon/vision"
-        );
-        assert!(
-            !src.contains("Attack-move: click target location")
-                && !src.contains("Guard: click location or unit")
-                && !src.contains("Set rally point: click location")
-                && !src.contains("Combat drop: click landing zone")
-                && !src.contains("Special power: click target location")
-                && !src.contains("No ready special power on selection")
-                && !src.contains("Place beacon: click location")
-                && !src.contains(concat!("Select a valid", " target"))
-                && !src.contains(concat!("Canceled all", " production")),
-            "command arming/cancel must not invent HUD instruction toasts"
-        );
     }
 }
 

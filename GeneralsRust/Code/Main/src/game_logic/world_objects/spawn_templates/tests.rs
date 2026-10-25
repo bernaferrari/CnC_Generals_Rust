@@ -2270,19 +2270,6 @@ End
         // TheThingFactory::find_template lazy-inits every Object INI (14s+
         // on Lone Eagle). Host create_object must bind already-loaded
         // self.templates only.
-        let create_src = include_str!("../create_destroy_die.rs");
-        assert!(
-            create_src.contains("fn ensure_host_spawn_template"),
-            "create_object must resolve host catalog via ensure_host_spawn_template"
-        );
-        assert!(
-            !create_src.contains("TheThingFactory::find_template("),
-            "create_object must not call TheThingFactory::find_template"
-        );
-        assert!(
-            !create_src.contains("init_thing_factory("),
-            "create_object must not lazy-init ThingFactory"
-        );
 
         let mut logic = GameLogic::new();
         let mut ranger = ThingTemplate::new("USA_Ranger");

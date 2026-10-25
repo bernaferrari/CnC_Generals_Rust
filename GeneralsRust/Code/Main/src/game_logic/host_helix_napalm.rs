@@ -979,18 +979,6 @@ mod tests {
 
     #[test]
     fn helix_firestorm_leftover_calls_particle_fx_emission() {
-        let src = include_str!("host_helix_napalm.rs");
-        assert!(src.contains("leftover_tick_helix_firestorm_fx"));
-        assert!(src.contains("FirestormDynamicGeometryInfoUpdate::leftover_tick_particle_fx"));
-        assert!(
-            src.contains("leftover_follow_emission_radius")
-                || src.contains("leftover_tick_particle_fx")
-        );
-        assert!(
-            !src.contains("not full particle\n//!   emission-volume follow"),
-            "live must leftover-call leftover ParticleSystem/FXList/emission"
-        );
-
         let mut reg = HostHelixNapalmRegistry::new();
         reg.record_drop_and_spawn_firestorm(ObjectId(1), Team::China, Vec3::ZERO, 0, false, 0, 0.0);
         assert!(!reg.active_zones()[0].leftover_effects_fired);

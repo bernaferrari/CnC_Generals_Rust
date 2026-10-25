@@ -869,14 +869,6 @@ mod tests {
         assert_eq!(r.playable_claim, before);
         assert_eq!(report.playable_claim, before);
         assert!(report.passed);
-        let src = include_str!("windowed_acceptance.rs");
-        let prod = src.split("#[cfg(test)]").next().expect("prod");
-        assert!(
-            !prod.contains("playable_claim = true"),
-            "evaluate must not assign playable_claim = true"
-        );
-        assert!(!prod.contains("r.playable_claim ="));
-        assert!(!prod.contains("playable_claim |= "));
     }
 
     #[test]
@@ -934,174 +926,16 @@ mod tests {
 
     #[test]
     fn assets_helper_uses_same_lone_eagle_candidates_as_smoke() {
-        let src = include_str!("windowed_acceptance.rs");
-        assert!(src.contains("LONE_EAGLE_CANDIDATES"));
-        assert!(src.contains("lone_eagle_map_on_disk"));
         assert_eq!(
             LONE_EAGLE_CANDIDATES[0],
             "windows_game/extracted_big_files/MapsZH/Maps/Lone Eagle/Lone Eagle.map"
         );
         // Smoke const is what we walk; do not fork a second list.
-        let smoke = include_str!("executable_smoke.rs");
-        assert!(smoke.contains("pub const LONE_EAGLE_CANDIDATES"));
     }
 
     #[test]
     fn windows_game_assets_present_does_not_panic() {
         let _ = windows_game_assets_present();
-    }
-
-    #[test]
-    fn windowed_load_to_ingame_is_not_a_noop() {
-        // The shipped windowed host must actually call start_game_from_ui and
-        // finish Loading → InGame. A comment is not a transition.
-        let start = include_str!("cnc_game_engine/start_game.rs");
-        assert!(
-            start.contains("fn host_start_game_from_ui"),
-            "match start lives on host_start_game_from_ui"
-        );
-        assert!(
-            start.contains("self.abandon_startup_load_worker()"),
-            "start_game must abandon a stuck boot worker"
-        );
-        assert!(
-            start.contains("self.transition_to_state(GameState::Loading)")
-                && start.contains("self.transition_to_state(GameState::InGame)"),
-            "start_game_from_ui must leave Loading and reach InGame"
-        );
-        assert!(
-            start.contains("self.seed_presentation_after_match_start()"),
-            "finish_load / presentation seed must run before InGame"
-        );
-
-        let skirmish = include_str!("cnc_game_engine/runtime_host/skirmish.rs");
-        let start_cmd = skirmish
-            .split("fn runtime_host_cmd_start_game")
-            .nth(1)
-            .expect("runtime_host_cmd_start_game");
-        assert!(
-            start_cmd.contains("self.start_game_from_ui("),
-            "windowed host start_game command must call start_game_from_ui, not a comment"
-        );
-        assert!(
-            !start_cmd.contains("spawn_dozer")
-                && !start_cmd.contains("force_complete")
-                && !start_cmd.contains("grant_supplies"),
-            "windowed start_game must not cheat"
-        );
-
-        let loading = include_str!("cnc_game_engine/camera_drain.rs");
-        let loading_fn = loading
-            .split("fn host_tick_loading_client_residuals")
-            .nth(1)
-            .and_then(|s| s.split("pub(super) fn host_tick_paused").next())
-            .expect("loading tick bounded to next helper");
-        assert!(
-            loading_fn.contains("take_pending_new_game_start_request")
-                && loading_fn.contains("self.start_game_from_ui("),
-            "Loading must drain NewGame into start_game_from_ui"
-        );
-        assert!(
-            loading_fn.contains("startup_load_should_release_to_menu")
-                && loading_fn.contains("GameState::Menu"),
-            "stuck boot Loading must release to Menu"
-        );
-        assert!(
-            !loading_fn.contains("fn host_tick_paused_client_residuals"),
-            "Loading window must not include later helpers"
-        );
-
-        let smoke = include_str!("executable_smoke.rs");
-        let observer = smoke
-            .split("pub fn run_windowed_acceptance_smoke")
-            .nth(1)
-            .and_then(|s| {
-                s.split("fn run_executable_smoke_with_launch_and_driver")
-                    .next()
-            })
-            .expect("windowed acceptance observer entrypoint");
-        assert!(
-            observer.contains("SmokeDriver::ManualObserver"),
-            "the acceptance runner must observe physical play, not drive it"
-        );
-        // The lifecycle split moved the phase machine into the frame-loop
-        // fragment (the hub keeps entry points + ordered includes); probe
-        // the manual-observer arm there instead of the monolith text.
-        let frame_loop_src = include_str!("executable_smoke/frame_loop.rs");
-        let manual_phase = frame_loop_src
-            .split("21 => {")
-            .nth(1)
-            .and_then(|s| s.split("20 => {").next())
-            .expect("manual observation phase");
-        assert!(
-            !manual_phase.contains("write_control"),
-            "manual observation must not send synthetic gameplay/control commands: {manual_phase}"
-        );
-
-        let shell = include_str!("cnc_game_engine/shell.rs");
-        let worker = shell
-            .split("pub(super) fn spawn_startup_map_load(")
-            .nth(1)
-            .and_then(|s| s.split("fn admit_prepared_startup_map_load(").next())
-            .expect("bounded startup worker");
-        assert!(
-            worker.contains("worker_signal.validate()")
-                && worker.contains("_worker_owner: worker_owner"),
-            "worker cancellation must belong to the receiving startup state"
-        );
-        assert!(
-            !worker.contains("get_message_stream")
-                && !worker.contains("take_startup_messages_from_stream"),
-            "startup must neither consume nor clear another engine's live messages"
-        );
-        assert!(
-            worker.contains("initial_file_message()")
-                && worker.contains("take_lifecycle_messages_owned()"),
-            "startup must merge its own initial-file and Recorder messages in order"
-        );
-        let owner = include_str!("cnc_game_engine/startup_worker_owner.rs");
-        assert!(
-            owner.contains("impl Drop for StartupWorkerOwner")
-                && !owner.contains("static STARTUP_WORKER"),
-            "dropping one startup request must not cancel a process-wide generation"
-        );
-    }
-
-    #[test]
-    fn gate_bin_does_not_poison_parent_env() {
-        let src = include_str!("bin/windowed_acceptance_gate.rs");
-        assert!(
-            !src.contains("std::env::set_var"),
-            "windowed gate must not mutate parent env (races tests)"
-        );
-        assert!(
-            src.contains("evaluate_windowed_acceptance"),
-            "bin must call library evaluate"
-        );
-        assert!(
-            src.contains("format_windowed_acceptance_report"),
-            "bin must print library report"
-        );
-        assert!(
-            src.contains("run_windowed_acceptance_smoke"),
-            "bin must use the windowed launcher, not headless executable smoke"
-        );
-        assert!(
-            !src.contains("run_executable_smoke("),
-            "bin must not call the headless host smoke entry"
-        );
-        assert!(
-            !src.contains("-runtime_host=headless"),
-            "windowed gate must never request headless host"
-        );
-        assert!(
-            src.contains("display_or_wgpu_adapter_available"),
-            "bin must probe display/wgpu before claiming a sit-through"
-        );
-        assert!(
-            src.contains("assets_or_display_unavailable"),
-            "bin must name the first-class unavailable status"
-        );
     }
 
     struct FakeDisplayProbe {

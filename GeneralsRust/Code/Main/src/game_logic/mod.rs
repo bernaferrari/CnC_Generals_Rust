@@ -1,17 +1,7 @@
-//! Host gameplay modules.
-//!
-//! Residual/wave audit packs live in `residuals/` and are gated with
-//! `#[cfg(any(test, feature = "host-residuals"))]` so the shipped `generals`
-//! binary does not compile ~1000 audit-only files. Public paths stay
-//! `crate::game_logic::host_*` via re-export. Real host gameplay modules
-//! (and a small keep-list of residual helpers still wired into production)
-//! stay in this directory and in the default build.
+//! Game logic, owned runtime adapters, and executable behavioral regressions.
 
-#[cfg(any(test, feature = "host-residuals"))]
-#[path = "residuals/mod.rs"]
-mod residuals;
-#[cfg(any(test, feature = "host-residuals"))]
-pub use residuals::*;
+#[cfg(test)]
+mod runtime_regressions;
 
 pub(crate) mod armor_definitions;
 pub mod audio_dispatch_impl;
@@ -20,8 +10,8 @@ pub mod buildings;
 pub mod combat;
 pub mod combat_particles;
 pub(crate) mod crate_object_bridge;
-#[path = "game_logic/mod.rs"]
 pub mod game_logic;
+
 pub mod host_transport_return;
 pub(crate) mod lighting_rules;
 pub(crate) mod native_die_definition;
@@ -65,6 +55,15 @@ pub use host_mods_special_powers::*;
 mod host_mods_structures;
 pub use host_mods_structures::*;
 mod host_mods_residuals_on;
+pub use host_mods_residuals_on::presentation_command_filters::presentation_selected_sellable_structure_ids;
+pub use host_mods_residuals_on::presentation_mouse_input::mouse_game_logic_for_process_mouse_input;
+pub use host_mods_residuals_on::presentation_selection::host_ui_selected_ids_from_residuals;
+pub use host_mods_residuals_on::retail_map_resolution::{
+    DEFAULT_SKIRMISH_MAP_WAVE169, LONE_EAGLE_MAP_WAVE169, resolve_retail_map_path,
+};
+pub use host_mods_residuals_on::retail_map_resolution::{
+    honesty_default_skirmish_map_resolves, honesty_lone_eagle_map_resolves,
+};
 pub use host_mods_residuals_on::*;
 mod host_mods_units;
 pub use host_mods_units::*;
@@ -185,21 +184,6 @@ pub use weapon_bootstrap::{
     primary_weapon_name_for_unit, secondary_weapon_name_for_unit,
 };
 
-mod host_reexports;
-pub use host_reexports::*;
-mod host_reexports_residuals_a;
-pub use host_reexports_residuals_a::*;
-mod host_reexports_residuals_b;
-pub use host_reexports_residuals_b::*;
-mod host_reexports_residuals_c;
-pub use host_reexports_residuals_c::*;
-mod host_reexports_residuals_d;
-pub use host_reexports_residuals_d::*;
-mod host_reexports_residuals_e;
-pub use host_reexports_residuals_e::*;
-mod host_reexports_residuals_f;
-pub use host_reexports_residuals_f::*;
-
 #[cfg(test)]
 mod production_construction_rules_tests;
 
@@ -210,3 +194,6 @@ pub(crate) mod containment_audio_test_support;
 pub(crate) use game_logic::containment_audio_owner_tests;
 
 pub(crate) mod player_controllers;
+
+mod host_reexports;
+pub use host_reexports::*;

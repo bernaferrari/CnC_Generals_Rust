@@ -1242,6 +1242,8 @@ fn physical_service_commands_use_player_relationship_and_revalidate_owner_change
         capture_power_ready: false,
         is_salvager: false,
         can_override_special_power_destination: false,
+
+        reject_unmanned: false,
     };
     let service_context =
         |target_id, team, is_enemy_of_local, is_friendly_of_local| MouseCommandContext {
@@ -1289,6 +1291,8 @@ fn physical_service_commands_use_player_relationship_and_revalidate_owner_change
                 is_carbomb: false,
                 is_unmanned: false,
                 is_mine: false,
+
+                authors_carbomb_weapon_set: false,
             }),
             selected_presentation: vec![selected_hint()],
             presentation_box_select_units: Vec::new(),

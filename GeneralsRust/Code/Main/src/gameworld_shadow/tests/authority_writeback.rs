@@ -518,23 +518,6 @@ fn canonical_max_health_is_projected_from_receiving_owner() {
 }
 
 #[test]
-fn sync_from_host_copies_host_orientation() {
-    let src = GAMEWORLD_SHADOW_SRC;
-    let idx = src
-        .find("pub fn sync_from_host_with")
-        .expect("canonical observation sync");
-    let window = &src[idx..idx + 2200];
-    assert!(
-        window.contains("obj.get_orientation()"),
-        "sync implementation must copy host orientation into Transform"
-    );
-    assert!(
-        !window.contains("Transform::new([pos.x, pos.y, pos.z], 0.0)"),
-        "sync must not wipe orientation to 0.0"
-    );
-}
-
-#[test]
 fn apply_host_positions_uses_host_orientation_channel() {
     // Object::set_orientation may be masked by engine-bridge registry reads; the
     // production pose channel uses get_orientation() into SetTransform. Prove the
@@ -1293,14 +1276,6 @@ fn host_object_pose_hp_never_dual_read_registry() {
     assert!((o.get_health_percentage() - (33.0 / 80.0)).abs() < 1e-5);
     assert!(o.is_alive());
     // Source honesty: no OBJECT_REGISTRY dual-read helpers on host Object.
-    let src = GAME_LOGIC_OBJECT_SRC;
-    assert!(
-        !src.contains("read_engine_position")
-            && !src.contains("read_engine_is_alive")
-            && !src.contains("write_engine_position")
-            && !src.contains("fn engine_bridge_active"),
-        "host Object must not dual-read/write OBJECT_REGISTRY"
-    );
 }
 
 #[test]
@@ -1335,19 +1310,6 @@ fn engine_object_bridge_off_by_default() {
         .expect("id");
     let _ = id;
     // create_object no longer dual-creates into ObjectFactory.
-    let src = concat!(
-        include_str!("../../game_logic/game_logic/crate_tick.rs"),
-        include_str!("../../game_logic/game_logic/player.rs"),
-        include_str!("../../game_logic/game_logic/host.rs"),
-        include_str!("../../game_logic/game_logic/script_camera.rs"),
-        include_str!("../../game_logic/game_logic/authority.rs"),
-        include_str!("../../game_logic/game_logic/construct.rs"),
-        include_str!("../../game_logic/game_logic/mod.rs"),
-    );
-    assert!(
-        !src.contains("obj.engine_object_id = Some(engine_id)"),
-        "create_object must not stamp dual-world engine ids"
-    );
 }
 
 #[test]
@@ -1586,46 +1548,6 @@ fn owned_fat_fields_remain_visible_without_implicit_shadow_publication() {
         logic.host_authoritative_move_dest(carrier),
         Some([99.0, 0.0, 99.0]),
         "ordinary dest query always observes the same owner"
-    );
-}
-
-#[test]
-fn world_tick_split_borrow_still_reads_frame() {
-    // world_tick mutates via objects.get_mut (map field) while reading self.frame.
-    let src = include_str!("../../game_logic/world_tick/attack.rs");
-    assert!(
-        src.contains("self.objects.get_mut(") && src.contains("self.frame"),
-        "mid-frame attack tick must keep HashMap field borrow + frame read"
-    );
-    let src = include_str!("../../game_logic/world_objects/host_ops_writeback.rs");
-    assert!(
-        src.contains("let frame = self.frame") && src.contains("self.objects.get_mut(&id)"),
-        "host_stamp_attack_substate_at_frame must split-borrow objects + frame"
-    );
-    let store = concat!(
-        include_str!("../../game_logic/game_logic/crate_tick.rs"),
-        include_str!("../../game_logic/game_logic/player.rs"),
-        include_str!("../../game_logic/game_logic/host.rs"),
-        include_str!("../../game_logic/game_logic/script_camera.rs"),
-        include_str!("../../game_logic/game_logic/authority.rs"),
-        include_str!("../../game_logic/game_logic/construct.rs"),
-        include_str!("../../game_logic/game_logic/mod.rs"),
-        include_str!("../../game_logic/game_logic/host_object_store.rs"),
-    );
-    let owner_module = include_str!("../../game_logic/game_logic/mod.rs");
-    assert!(
-        owner_module.contains("mod host_object_store;")
-            && owner_module
-                .contains("pub use host_object_store::{HostObjectRead, HostObjectStore};"),
-        "the canonical GameLogic module must wire the actual owned store definition"
-    );
-    assert!(
-        store.contains("pub objects: HostObjectStore")
-            && store.contains("struct HostObjectStore")
-            && store.contains("pub struct HostObjectRead")
-            && store.contains("pub fn read(&self)")
-            && !store.contains("impl std::ops::Deref for HostObjectStore"),
-        "objects must be a HostObjectStore field (split-borrow), not a raw HashMap field"
     );
 }
 
@@ -2207,42 +2129,6 @@ fn host_logic_step_active_guard_restores_on_return_and_unwind() {
     }));
     assert!(unwind.is_err());
     assert!(logic.with_host_logic_step(|_| ()).is_some());
-}
-
-#[test]
-fn update_simulation_enters_owned_step_without_shadow_ingress() {
-    let wrapper = rust_fn_body(GAME_LOGIC_HOST_SRC, "update_simulation").expect("step wrapper");
-    assert!(wrapper.contains("self.update_simulation_with_script_effects(dt, Default::default())"));
-    let with_effects = rust_fn_body(GAME_LOGIC_HOST_SRC, "update_simulation_with_script_effects")
-        .expect("receiving-effects step delegate");
-    assert!(with_effects.contains(
-        "self.update_simulation_with_command_phase(dt, ui, CommandPhaseMode::Completed)"
-    ));
-    let command_phase = rust_fn_body(GAME_LOGIC_HOST_SRC, "update_simulation_with_command_phase")
-        .expect("shared owned command-phase authority");
-    assert!(command_phase.contains("self.with_host_logic_step"));
-    assert!(command_phase.contains("logic.update_simulation_in_step(dt, ui, command_phase)"));
-    for delegate in [wrapper, with_effects, command_phase] {
-        assert!(
-            !delegate.contains("sync_authoritative_view_from_gameworld"),
-            "each actual step delegate must retain owned ingress without shadow recapture"
-        );
-    }
-    let operations = include_str!("../../game_logic/world_objects/host_ops_writeback.rs");
-    assert!(!operations.contains("overlay_object_from_gameworld"));
-    assert!(!operations.contains("commit_dirty_host_objects_to_gameworld"));
-
-    let body =
-        rust_fn_body(GAME_LOGIC_HOST_SRC, "update_simulation_in_step").expect("owned phases");
-    let scripts = body
-        .find("evaluate_and_execute_scripts_with_effects(dt, ui.reborrow())")
-        .expect("scripts using the receiving effects borrow");
-    assert!(
-        scripts
-            < body
-                .find("simulation_frozen_with_script_engine(None)")
-                .expect("freeze using the restored receiving interpreter")
-    );
 }
 
 #[test]

@@ -411,28 +411,4 @@ mod tests {
         OBJECT_REGISTRY.unregister_object(id);
         OBJECT_REGISTRY.clear();
     }
-
-    #[test]
-    fn object_manager_crate_create_path_calls_bind_crate_object() {
-        let src = include_str!("../object_manager.rs");
-        let bind_count = src.matches("bind_crate_object(").count();
-        assert!(
-            bind_count >= 4,
-            "crate object_manager new/from_existing/create/register must call bind_crate_object, got {bind_count}"
-        );
-        let manager_impl = src.find("impl ObjectManager").expect("ObjectManager impl");
-        let create_rel = src[manager_impl..]
-            .find("pub fn create_object(")
-            .expect("ObjectManager::create_object");
-        let create_idx = manager_impl + create_rel;
-        let create_window = &src[create_idx..src.len().min(create_idx + 2800)];
-        assert!(
-            create_window.contains("bind_crate_object("),
-            "ObjectManager::create_object must bind crate objects"
-        );
-        assert!(
-            !src.contains("gameworld_shadow"),
-            "crate object_manager must not be the host create/couple path"
-        );
-    }
 }

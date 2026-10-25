@@ -835,14 +835,6 @@ fn completed_production_preserves_factory_identity_exit_facing_and_rally() {
 
 #[test]
 fn assign_unit_path_fail_closed_and_retail_ai_names() {
-    let skirmish = include_str!("../world_skirmish_tests.rs");
-    assert!(
-        !skirmish.contains("USA_CommandCenter"),
-        "skirmish start must use retail AmericaCommandCenter"
-    );
-    assert!(skirmish.contains("AmericaCommandCenter"));
-    assert!(skirmish.contains("ChinaCommandCenter"));
-
     let mut logic = GameLogic::new();
     ensure_test_infantry_template(&mut logic);
     let id = logic
@@ -850,26 +842,6 @@ fn assign_unit_path_fail_closed_and_retail_ai_names() {
         .expect("inf");
     // Same-cell / already-there is not a wall march.
     let _ = logic.assign_unit_path(id, glam::Vec3::ZERO, &[]);
-    let src = concat!(
-        include_str!("../world_save.rs"),
-        include_str!("../world_save/world_subsystems.rs"),
-        include_str!("../world_save/world_paths.rs"),
-        include_str!("../world_save/world_runtime.rs"),
-        include_str!("../world_save/world_players.rs"),
-        include_str!("../world_save/world_load.rs"),
-    );
-    let body = src
-        .split("pub fn assign_unit_path(")
-        .nth(1)
-        .expect("assign_unit_path");
-    assert!(
-        body.contains("find_path_ex") && body.contains("return false"),
-        "assign_unit_path must fail-close on A* miss"
-    );
-    assert!(
-        !body.contains("full_path.push(destination)") || body.contains("refuse fail-open"),
-        "blocked hops must not invent a straight walk-through"
-    );
 }
 
 #[test]

@@ -55,24 +55,6 @@ mod team_identity_tests;
 #[cfg(test)]
 mod tests;
 
-/// Concatenated live sources for residual `include_str!` scans.
-pub const SCRIPT_ENGINE_SRC: &str = concat!(
-    include_str!("mod.rs"),
-    include_str!("attack_priorities.rs"),
-    include_str!("template_names.rs"),
-    include_str!("template_labels.rs"),
-    include_str!("template_metadata/mod.rs"),
-    include_str!("template_metadata/actions.rs"),
-    include_str!("template_metadata/conditions.rs"),
-    include_str!("init.rs"),
-    include_str!("leftover.rs"),
-    include_str!("named_trackers.rs"),
-    include_str!("condition_queries.rs"),
-    include_str!("types.rs"),
-    include_str!("camera_requests.rs"),
-    include_str!("update.rs"),
-);
-
 #[cfg(test)]
 mod condition_cursor_tests;
 

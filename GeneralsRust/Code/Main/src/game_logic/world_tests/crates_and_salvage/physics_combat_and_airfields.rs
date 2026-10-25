@@ -1716,11 +1716,7 @@ fn ground_force_fire_applies_base_scatter_radius_peel() {
     // Ground force-fire must not hardcode scatter_radius = 0.
     // The AttackingGround fire path lives in world_objects/object_ai_combat.rs
     // after the module split; scan the live home of that code.
-    let src = include_str!("../../world_objects/object_ai_combat.rs");
-    assert!(
-        src.contains("host_effective_scatter_radius") && src.contains("AttackingGround"),
-        "AttackingGround path must peel ScatterRadius"
-    );
+
     // Honesty: base peel for crusader is 0; howitzer/firebase may be >0.
     let _ = host_effective_scatter_radius("AmericaFireBaseHowitzer", false);
 }

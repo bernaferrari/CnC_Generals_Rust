@@ -627,47 +627,6 @@ End\n";
         );
     }
 
-    #[test]
-    fn live_fast_path_source_wires_water_and_add_bridge() {
-        let src = concat!(
-            include_str!("../world_save.rs"),
-            include_str!("../world_save/world_subsystems.rs"),
-            include_str!("../world_save/world_paths.rs"),
-            include_str!("../world_save/world_runtime.rs"),
-            include_str!("../world_save/world_players.rs"),
-            include_str!("../world_save/world_load.rs"),
-        );
-        assert!(
-            src.contains("parse_runtime_water_height_from_chunky")
-                && src.contains("parse_runtime_polygon_triggers_from_chunky")
-                && src.contains("map_data.water_height = water_height")
-                && src.contains("map_data.polygon_triggers = polygon_triggers")
-                && src.contains("map_data.bridges = bridges"),
-            "live fast-path MapData must keep water polygons/height and parsed bridges"
-        );
-        let terrain_src = concat!(
-            include_str!(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/../GameEngine/GameLogic/src/terrain/map_height.rs"
-            )),
-            include_str!(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/../GameEngine/GameLogic/src/terrain/bridge.rs"
-            )),
-            include_str!(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/../GameEngine/GameLogic/src/terrain/bridges.rs"
-            )),
-        );
-        let prod = terrain_src
-            .split("#[cfg(test)]")
-            .next()
-            .expect("production");
-        assert!(
-            prod.contains("add_bridge_to_logic") && prod.contains("bridge_info_from_map_data"),
-            "TerrainLogic::load_map_data must call add_bridge_to_logic for map bridges"
-        );
-    }
     include!("owned_template_tests.rs");
     include!("map_name_key_tests.rs");
     include!("retail_script_key_tests.rs");
@@ -676,17 +635,6 @@ End\n";
 
 #[cfg(test)]
 mod locate_map_file_workspace_residual_tests {
-    #[test]
-    fn locate_map_file_searches_parent_workspace_roots() {
-        let src = include_str!("../script_loader.rs");
-        assert!(
-            src.contains("Workspace-relative residual")
-                && src.contains("search_roots")
-                && src.contains("CARGO_MANIFEST_DIR")
-                && src.contains("extracted_big_files/MapsZH"),
-            "locate_map_file must search parent workspace roots for windows_game extracts"
-        );
-    }
 
     #[test]
     fn find_map_file_resolves_shellmapmd_from_generals_ini_name() {

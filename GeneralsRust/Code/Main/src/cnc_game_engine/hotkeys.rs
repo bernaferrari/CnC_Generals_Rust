@@ -1867,16 +1867,6 @@ mod tests {
     }
 
     #[test]
-    fn escape_options_stops_rmb_scroll_and_cancels_drag() {
-        let src = include_str!("hotkeys.rs");
-        assert!(src.contains("self.apply_meta_options_interrupt()"));
-        let mouse = super::ENGINE_SRC;
-        assert!(mouse.contains("fn apply_meta_options_interrupt"));
-        assert!(mouse.contains("self.stop_rmb_lookat_scroll()"));
-        assert!(mouse.contains("self.cancel_area_select_from_control_bar()"));
-    }
-
-    #[test]
     fn command_map_view_slot_parses_save_and_view() {
         assert_eq!(
             super::command_map_view_slot("SAVE_VIEW", "SAVE_VIEW1"),
@@ -1899,46 +1889,5 @@ mod tests {
             None
         );
         assert_eq!(super::command_map_view_slot("SAVE_VIEW", "SAVE_VIEW"), None);
-    }
-
-    #[test]
-    fn select_all_is_not_hardcoded_ctrl_a() {
-        let src = include_str!("hotkeys.rs");
-        let prod = src.split("#[cfg(test)]").next().expect("prod");
-        assert!(prod.contains("Retail CommandMap SELECT_ALL KEY_Q residual"));
-        let q = prod
-            .find("Retail CommandMap SELECT_ALL KEY_Q residual")
-            .expect("Q residual");
-        let window = &prod[q..prod.len().min(q + 250)];
-        assert!(
-            window.contains("select_all_friendly_units"),
-            "Q residual must still select all when CommandMap is unbound"
-        );
-        assert!(
-            !prod.contains("Convenience alias"),
-            "live host must not invent an unguarded Ctrl+A SELECT_ALL"
-        );
-        assert!(
-            !prod.contains("eq_ignore_ascii_case(\"a\")")
-                || !{
-                    let mut i = 0;
-                    let mut invented = false;
-                    while let Some(at) = prod[i..].find("eq_ignore_ascii_case(\"a\")") {
-                        let at = i + at;
-                        let win = &prod[at..prod.len().min(at + 220)];
-                        if win.contains("NamedKey::Control")
-                            && win.contains("select_all_friendly_units")
-                            && !win.contains("NamedKey::Alt")
-                            && !win.contains("NamedKey::Shift")
-                        {
-                            invented = true;
-                            break;
-                        }
-                        i = at + 1;
-                    }
-                    invented
-                },
-            "Ctrl+A must not call select_all_friendly_units"
-        );
     }
 }

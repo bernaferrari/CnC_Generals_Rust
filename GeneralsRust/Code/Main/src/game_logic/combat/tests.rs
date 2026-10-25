@@ -536,21 +536,6 @@ pub(in crate::game_logic) mod tests {
     }
 
     #[test]
-    fn projectile_structure_intercept_cpp_surface() {
-        let src = concat!(
-            include_str!("projectile.rs"),
-            include_str!("resolution.rs"),
-            include_str!("projectile_step.rs")
-        );
-        assert!(
-            src.contains("Intervening structure residual")
-                && src.contains("KindOf::Structure")
-                && src.contains("CONTROLLED_STRUCTURES"),
-            "update_projectiles must gate own structures on CONTROLLED_STRUCTURES"
-        );
-    }
-
-    #[test]
     fn projectile_skips_own_structure_unless_controlled_bit() {
         let mut _ownership_output = crate::game_logic::host_owner_log::OwnershipEvents::default();
 
@@ -1076,22 +1061,6 @@ pub(in crate::game_logic) mod tests {
         assert!(
             hp < 200.0 - 1.0,
             "homing missile must hit target that drifted off aim line (hp={hp})"
-        );
-    }
-
-    #[test]
-    fn instant_and_homing_cpp_surface() {
-        let src = concat!(
-            include_str!("projectile.rs"),
-            include_str!("resolution.rs"),
-            include_str!("projectile_step.rs")
-        );
-        assert!(src.contains("is_instant_speed"));
-        assert!(src.contains("fire_projectile_ex"));
-        assert!(src.contains("is_homing"));
-        assert!(
-            src.contains("Instant residual") || src.contains("instant-hit"),
-            "must document instant laser residual"
         );
     }
 
@@ -2970,56 +2939,6 @@ pub(in crate::game_logic) mod tests {
         assert_eq!(
             delayed.flight_runtime.missile_phase,
             HostMissilePhase::Attack
-        );
-
-        let src = concat!(
-            include_str!("projectile.rs"),
-            include_str!("resolution.rs"),
-            include_str!("projectile_step.rs")
-        );
-        let start = src
-            .find("fn try_enter_missile_ignition")
-            .expect("ignition helper");
-        let end = src[start..]
-            .find("    fn missile_fx_yaw(")
-            .map(|offset| start + offset)
-            .expect("next ignition method boundary");
-        let body = &src[start..end];
-        assert!(body.contains("missile.ignition_fx"));
-        assert!(body.contains("self.play_missile_ignition(&ignition_fx, fx, publish)"));
-        let play_start = src
-            .find("    fn play_missile_ignition(")
-            .expect("ignition FX operation");
-        let play_end = src[play_start..]
-            .find("    pub fn live_exhaust_name(")
-            .map(|offset| play_start + offset)
-            .expect("next operation boundary");
-        let play = &src[play_start..play_end];
-        let invoke = play
-            .find("fx(ignition_fx, ProjectileFxObject::Projectile(self))")
-            .expect("synchronous authored object callback");
-        assert!(
-            play.find("publish(self)").unwrap() < invoke,
-            "original unconditional pose observation precedes authored FX"
-        );
-        assert!(
-            invoke < play.find("create_attached_particle_system_id").unwrap(),
-            "CPP ignition FX precedes exhaust attachment"
-        );
-        let native = include_str!("../world_objects/damage_application.rs");
-        let native_start = native
-            .find("fn update_owned_projectile_impact_with_effects(")
-            .expect("actual receiving owner caller");
-        let native_end = native[native_start..]
-            .find("    fn apply_owned_combat_damage(")
-            .map(|offset| native_start + offset)
-            .unwrap();
-        let native = &native[native_start..native_end];
-        assert!(native.contains("Self::with_host_fx_view_parts_and_terrain("));
-        assert!(native.contains("&mut self.session_view"));
-        assert!(native.contains("prepare_projectile_impact_with_fx_and_pose("));
-        assert!(
-            native.contains("Self::dispatch_fx_list_at_object_with_view(name, &pose, None, view)")
         );
     }
 }

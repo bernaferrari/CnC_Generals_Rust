@@ -60,19 +60,4 @@ pub struct GameWorldShadow {
 #[cfg(test)]
 mod tests;
 
-/// Concatenated live gameworld_shadow sources for residual `include_str` scans.
-pub const GAMEWORLD_SHADOW_SRC: &str = concat!(
-    include_str!("mod.rs"),
-    include_str!("construct.rs"),
-    include_str!("object_observation.rs"),
-    include_str!("construction_observation.rs"),
-    include_str!("counts.rs"),
-    include_str!("observation_metrics.rs"),
-    include_str!("weapon_observation.rs"),
-    include_str!("projectile_observation.rs"),
-    include_str!("presentation.rs"),
-    include_str!("session.rs"),
-    include_str!("types.rs"),
-    include_str!("tick/env.rs"),
-    include_str!("tick/mod.rs"),
-);
+// Concatenated live gameworld_shadow sources for residual `include_str` scans.

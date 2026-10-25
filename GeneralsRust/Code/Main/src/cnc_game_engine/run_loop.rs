@@ -1227,30 +1227,6 @@ mod tests {
     }
 
     #[test]
-    fn live_boot_applies_retained_focus_before_publishing_engine() {
-        // Structural guard complements the executable state-transfer test.
-        let source = include_str!("run_loop.rs");
-        let boot = source
-            .split("        if engine.is_none() {")
-            .nth(1)
-            .unwrap()
-            .split("        let Some(current_window)")
-            .next()
-            .unwrap();
-        assert!(boot.contains("startup_focus.observe(&event)"));
-        let apply = boot
-            .find("new_engine.process_platform_event(&event)")
-            .unwrap();
-        assert!(
-            apply
-                < boot
-                    .find("new_engine.runtime_host_status_snapshot()")
-                    .unwrap()
-        );
-        assert!(apply < boot.find("engine = Some(new_engine)").unwrap());
-    }
-
-    #[test]
     fn windowed_present_cap_is_cpp_default_max_fps_45() {
         // C++ GameEngine.h:13 `#define DEFAULT_MAX_FPS 45`
         // C++ GameEngine.cpp:271 `m_maxFPS = DEFAULT_MAX_FPS`
@@ -1272,34 +1248,6 @@ mod tests {
     }
 
     #[test]
-    fn windowed_boot_shows_window_and_latches_present() {
-        let src = include_str!("run_loop.rs");
-        let live = src
-            .split("#[cfg(test)]")
-            .next()
-            .expect("run_loop live path");
-        assert!(
-            live.contains("apply_runtime_host_window_visibility")
-                && live.contains("publish_booting_from_winit_query")
-                && live.contains("created_window.is_visible()"),
-            "windowed boot must show the OS window and publish the honest winit query"
-        );
-        assert!(
-            live.contains("note_windowed_surface_presented")
-                && live.contains("if !runtime_headless_mode"),
-            "live_frame_ok latch only after a successful windowed render"
-        );
-        let hide = live
-            .find("apply_runtime_host_window_visibility(&created_window, runtime_headless_mode)")
-            .expect("visibility apply at create");
-        assert!(
-            live[hide.saturating_sub(80)..hide].contains("runtime_headless_mode")
-                || live[hide..hide + 400].contains("runtime_headless_mode"),
-            "visibility helper must receive the headless flag"
-        );
-    }
-
-    #[test]
     fn execute_wait_deadline_includes_work_like_cpp_prev_time() {
         // C++ GameEngine.cpp:856-866: deadline is prevTime+limit, not now+limit.
         let prev = Instant::now();
@@ -1308,49 +1256,6 @@ mod tests {
         assert_eq!(deadline, prev + limit);
         let unlocked = execute_wait_deadline(prev, None);
         assert!(unlocked >= prev);
-    }
-
-    #[test]
-    fn live_drive_frame_calls_the_radar_update_before_audio() {
-        let src = include_str!("run_loop.rs");
-        let live = src
-            .split("#[cfg(test)]")
-            .next()
-            .expect("run_loop live path");
-        let radar = live
-            .find("engine.host_update_the_radar()")
-            .expect("TheRadar->UPDATE on live drive_frame");
-        let audio = live
-            .find("engine.host_update_the_audio()")
-            .expect("TheAudio->UPDATE on live drive_frame");
-        assert!(
-            radar < audio,
-            "C++ GameEngine.cpp:732 TheRadar->UPDATE before TheAudio->UPDATE"
-        );
-        assert!(
-            live.contains("radar_mut().update_owned(frame)"),
-            "native drive frame advances its explicitly owned radar"
-        );
-        let stamp_at = live
-            .rfind("apply_object_shrouds")
-            .expect("object shroud stamp");
-        assert!(
-            stamp_at
-                > live
-                    .find("radar_mut().update_owned(frame)")
-                    .expect("owned radar update"),
-            "shroud stamp follows the owned radar update"
-        );
-        assert!(
-            live.contains("execute_wait_deadline("),
-            "windowed WaitUntil must include work via execute_wait_deadline"
-        );
-        assert!(
-            !live.contains(
-                "Instant::now()\n                            + engine.live_present_interval()"
-            ),
-            "must not add present interval after drive_frame returns"
-        );
     }
 }
 

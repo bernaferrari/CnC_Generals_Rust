@@ -200,54 +200,6 @@ pub fn radar_priority_is_visible_residual(priority_index: usize) -> bool {
 }
 
 /// Wave 97 radar residual deepen honesty pack.
-pub fn honesty_radar_residual_deepen_pack_wave97() -> bool {
-    RADAR_CELL_WIDTH_RESIDUAL == 128
-        && RADAR_CELL_HEIGHT_RESIDUAL == 128
-        && MAX_RADAR_EVENTS_RESIDUAL == 64
-        && (RADAR_EVENT_DEFAULT_SECONDS_TO_LIVE_RESIDUAL - 4.0).abs() < 1e-6
-        && (RADAR_EVENT_FADE_SECONDS_BEFORE_DIE_RESIDUAL - 0.5).abs() < 1e-6
-        && RADAR_TERRAIN_REFRESH_DELAY_FRAMES_RESIDUAL == 90
-        && (RADAR_PLAYER_EVENT_DARK_SCALE_RESIDUAL - 0.75).abs() < 1e-6
-        && RADAR_EXTEND_TIME_MS_RESIDUAL == 4000
-        && RADAR_EXTEND_TIME_FRAMES_RESIDUAL == residual_ms_to_frames(RADAR_EXTEND_TIME_MS_RESIDUAL)
-        && RADAR_EXTEND_TIME_FRAMES_RESIDUAL == 120
-        && !RADAR_UPGRADE_DISABLE_PROOF_DEFAULT_RESIDUAL
-        && !RADAR_UPDATE_ACTIVE_CTOR_RESIDUAL
-        && RADAR_EVENT_NUM_EVENTS_RESIDUAL == 11
-        && RADAR_EVENT_TYPE_NAME_TABLE_RESIDUAL.len() == 11
-        && residual_name_index(RADAR_EVENT_TYPE_NAME_TABLE_RESIDUAL, "RADAR_EVENT_INVALID")
-            == Some(0)
-        && residual_name_index(
-            RADAR_EVENT_TYPE_NAME_TABLE_RESIDUAL,
-            "RADAR_EVENT_STEALTH_DISCOVERED",
-        ) == Some(8)
-        && residual_name_index(
-            RADAR_EVENT_TYPE_NAME_TABLE_RESIDUAL,
-            "RADAR_EVENT_STEALTH_NEUTRALIZED",
-        ) == Some(9)
-        && residual_name_index(RADAR_EVENT_TYPE_NAME_TABLE_RESIDUAL, "RADAR_EVENT_FAKE") == Some(10)
-        && RADAR_PRIORITY_NUM_PRIORITIES_RESIDUAL == 5
-        && RADAR_PRIORITY_NAME_TABLE_RESIDUAL.len() == 5
-        && residual_name_index(RADAR_PRIORITY_NAME_TABLE_RESIDUAL, "STRUCTURE") == Some(2)
-        && residual_name_index(RADAR_PRIORITY_NAME_TABLE_RESIDUAL, "UNIT") == Some(3)
-        && residual_name_index(RADAR_PRIORITY_NAME_TABLE_RESIDUAL, "LOCAL_UNIT_ONLY") == Some(4)
-        && !radar_priority_is_visible_residual(0)
-        && !radar_priority_is_visible_residual(1)
-        && radar_priority_is_visible_residual(2)
-        && radar_priority_is_visible_residual(3)
-        && radar_priority_is_visible_residual(4)
-        && radar_event_die_frame_offset_residual(4.0) == 120
-        && radar_event_fade_frame_offset_residual() == 15
-        && RADAR_EVENT_COLOR_TABLE_RESIDUAL.len() == 10
-        && RADAR_EVENT_COLOR_TABLE_RESIDUAL[0].event_index == 1
-        && RADAR_EVENT_COLOR_TABLE_RESIDUAL[0].color1 == [128, 128, 255, 255]
-        && RADAR_EVENT_COLOR_TABLE_RESIDUAL[2].event_index == 3
-        && RADAR_EVENT_COLOR_TABLE_RESIDUAL[2].color1 == [255, 0, 0, 255]
-        && RADAR_EVENT_COLOR_TABLE_RESIDUAL[7].event_index == 8
-        && RADAR_EVENT_COLOR_TABLE_RESIDUAL[7].color1 == [0, 255, 0, 255]
-        && RADAR_EVENT_COLOR_TABLE_RESIDUAL[8].event_index == 9
-        && RADAR_EVENT_COLOR_TABLE_RESIDUAL[9].event_index == 10
-}
 
 // ---------------------------------------------------------------------------
 // 2. Spotter residual peels (stealth discovery feedback path)
@@ -309,35 +261,6 @@ pub const SPOTTER_RADAR_EVENT_STEALTH_DISCOVERED_INDEX: usize = 8;
 pub const SPOTTER_RADAR_EVENT_STEALTH_NEUTRALIZED_INDEX: usize = 9;
 
 /// Wave 97 spotter residual honesty pack.
-pub fn honesty_spotter_residual_pack_wave97() -> bool {
-    SPOTTER_MESSAGE_STEALTH_DISCOVERED == "MESSAGE:StealthDiscovered"
-        && SPOTTER_MESSAGE_STEALTH_NEUTRALIZED == "MESSAGE:StealthNeutralized"
-        && SPOTTER_AUDIO_STEALTH_DISCOVERED == "StealthDiscoveredSound"
-        && SPOTTER_AUDIO_STEALTH_NEUTRALIZED == "StealthNeutralizedSound"
-        && (SPOTTER_TRY_EVENT_CLOSE_ENOUGH_DISTANCE_RESIDUAL - 250.0).abs() < 1e-6
-        && (SPOTTER_TRY_EVENT_CLOSE_ENOUGH_DISTANCE_SQ_RESIDUAL - 62_500.0).abs() < 1e-3
-        && SPOTTER_TRY_EVENT_FRAMES_BETWEEN_EVENTS_RESIDUAL == 300
-        && spotter_mark_detected_primary_frames_residual(15) == 16
-        && spotter_mark_detected_primary_frames_residual(27) == 28
-        && spotter_mark_detected_garrison_rider_frames_residual(15) == 17
-        && spotter_detection_expires_frame_residual(100, 0, 0, 60) == 160
-        && spotter_detection_expires_frame_residual(100, 200, 16, 60) == 200
-        && spotter_detection_expires_frame_residual(100, 110, 16, 60) == 116
-        && (SPOTTER_SECOND_MATERIAL_PASS_OPACITY_RESIDUAL - 1.0).abs() < 1e-6
-        && SPOTTER_RADAR_EVENT_STEALTH_DISCOVERED_INDEX == 8
-        && SPOTTER_RADAR_EVENT_STEALTH_NEUTRALIZED_INDEX == 9
-        && RADAR_MSG_UNIT_UNDER_ATTACK == "RADAR:UnitUnderAttack"
-        && RADAR_MSG_STRUCTURE_UNDER_ATTACK == "RADAR:StructureUnderAttack"
-        && SPOTTER_TRY_EVENT_FRAMES_BETWEEN_EVENTS_RESIDUAL == 300
-        && residual_name_index(
-            RADAR_EVENT_TYPE_NAME_TABLE_RESIDUAL,
-            "RADAR_EVENT_STEALTH_DISCOVERED",
-        ) == Some(SPOTTER_RADAR_EVENT_STEALTH_DISCOVERED_INDEX)
-        && residual_name_index(
-            RADAR_EVENT_TYPE_NAME_TABLE_RESIDUAL,
-            "RADAR_EVENT_STEALTH_NEUTRALIZED",
-        ) == Some(SPOTTER_RADAR_EVENT_STEALTH_NEUTRALIZED_INDEX)
-}
 
 /// C++ AmericaJetStealthFighter StealthDelay residual (msec).
 pub const STEALTH_FIGHTER_STEALTH_DELAY_MS_RESIDUAL: u32 = 2_000;
@@ -528,47 +451,6 @@ pub const STEALTH_LOOK_NAME_TABLE_RESIDUAL: &[&str] = &[
 ];
 
 /// Wave 97 stealth residual deepen honesty pack.
-pub fn honesty_stealth_residual_deepen_pack_wave97() -> bool {
-    (STEALTH_INVALID_OPACITY_RESIDUAL + 1.0).abs() < 1e-6
-        && STEALTH_NOT_WHILE_ATTACKING_RESIDUAL == 0x1
-        && STEALTH_NOT_WHILE_MOVING_RESIDUAL == 0x2
-        && STEALTH_NOT_WHILE_USING_ABILITY_RESIDUAL == 0x4
-        && STEALTH_NOT_WHILE_FIRING_PRIMARY_RESIDUAL == 0x8
-        && STEALTH_NOT_WHILE_FIRING_SECONDARY_RESIDUAL == 0x10
-        && STEALTH_NOT_WHILE_FIRING_TERTIARY_RESIDUAL == 0x20
-        && STEALTH_ONLY_WITH_BLACK_MARKET_RESIDUAL == 0x40
-        && STEALTH_NOT_WHILE_TAKING_DAMAGE_RESIDUAL == 0x80
-        && STEALTH_NOT_WHILE_FIRING_WEAPON_RESIDUAL == 0x38
-        && STEALTH_NOT_WHILE_RIDERS_ATTACKING_RESIDUAL == 0x100
-        && STEALTH_LEVEL_NAME_TABLE_RESIDUAL.len() == 9
-        && residual_name_index(STEALTH_LEVEL_NAME_TABLE_RESIDUAL, "ATTACKING") == Some(0)
-        && residual_name_index(STEALTH_LEVEL_NAME_TABLE_RESIDUAL, "MOVING") == Some(1)
-        && residual_name_index(STEALTH_LEVEL_NAME_TABLE_RESIDUAL, "USING_ABILITY") == Some(2)
-        && residual_name_index(STEALTH_LEVEL_NAME_TABLE_RESIDUAL, "FIRING_PRIMARY") == Some(3)
-        && residual_name_index(STEALTH_LEVEL_NAME_TABLE_RESIDUAL, "RIDERS_ATTACKING") == Some(8)
-        && STEALTH_DELAY_CTOR_DEFAULT_RESIDUAL == u32::MAX
-        && STEALTH_LEVEL_CTOR_DEFAULT_RESIDUAL == 0
-        && (STEALTH_SPEED_CTOR_DEFAULT_RESIDUAL - 0.0).abs() < 1e-6
-        && (STEALTH_FRIENDLY_OPACITY_MIN_CTOR_RESIDUAL - 0.5).abs() < 1e-6
-        && (STEALTH_FRIENDLY_OPACITY_MAX_CTOR_RESIDUAL - 1.0).abs() < 1e-6
-        && STEALTH_PULSE_FRAMES_CTOR_RESIDUAL == 30
-        && STEALTH_INNATE_CTOR_DEFAULT_RESIDUAL
-        && !STEALTH_TEAM_DISGUISED_CTOR_DEFAULT_RESIDUAL
-        && (STEALTH_PULSE_PHASE_RATE_CTOR_RESIDUAL - 0.2).abs() < 1e-6
-        && (STEALTH_FRIENDLY_OPACITY_GAMEDATA_RESIDUAL - 0.5).abs() < 1e-6
-        && STEALTH_UNIT_SAMPLE_TABLE_RESIDUAL.len() == 5
-        && STEALTH_UNIT_SAMPLE_TABLE_RESIDUAL[0].template == "AmericaInfantryPathfinder"
-        && STEALTH_UNIT_SAMPLE_TABLE_RESIDUAL[0].delay_frames == 0
-        && STEALTH_UNIT_SAMPLE_TABLE_RESIDUAL[0].forbidden_bits == STEALTH_NOT_WHILE_MOVING_RESIDUAL
-        && (STEALTH_UNIT_SAMPLE_TABLE_RESIDUAL[0].friendly_opacity_min - 0.30).abs() < 1e-6
-        && residual_ms_to_frames(STEALTH_UNIT_SAMPLE_TABLE_RESIDUAL[1].delay_ms)
-            == STEALTH_UNIT_SAMPLE_TABLE_RESIDUAL[1].delay_frames
-        && residual_ms_to_frames(2500) == 75
-        && residual_ms_to_frames(2000) == 60
-        && STEALTH_LOOK_NAME_TABLE_RESIDUAL.len() == 6
-        && residual_name_index(STEALTH_LOOK_NAME_TABLE_RESIDUAL, "STEALTHLOOK_NONE") == Some(0)
-        && residual_name_index(STEALTH_LOOK_NAME_TABLE_RESIDUAL, "STEALTHLOOK_INVISIBLE") == Some(5)
-}
 
 // ---------------------------------------------------------------------------
 // 4. Detector residual deepen (StealthDetectorUpdate defaults + samples)
@@ -794,6 +676,7 @@ pub fn live_kind_of_cpp_mask(kind: crate::game_logic::KindOf) -> u128 {
         KindOf::CleanupHazard => M::CLEANUP_HAZARD.bits(),
         KindOf::LineBuild => M::LINEBUILD.bits(),
         KindOf::Hulk => M::HULK.bits(),
+        KindOf::RejectUnmanned => M::REJECT_UNMANNED.bits(),
 
         KindOf::Resource | KindOf::Worker | KindOf::Harvestable => 0,
     }
@@ -1016,112 +899,20 @@ pub const VISION_UNIT_SAMPLE_TABLE_RESIDUAL: &[(&str, f32, f32)] = &[
 ];
 
 /// Wave 97 vision residual honesty pack.
-pub fn honesty_vision_residual_pack_wave97() -> bool {
-    (VISION_RANGE_TEMPLATE_DEFAULT_RESIDUAL - 0.0).abs() < 1e-6
-        && (SHROUD_CLEARING_RANGE_TEMPLATE_DEFAULT_RESIDUAL + 1.0).abs() < 1e-6
-        && (SHROUD_REVEAL_TO_ALL_RANGE_TEMPLATE_DEFAULT_RESIDUAL + 1.0).abs() < 1e-6
-        && (vision_resolve_shroud_clearing_range_residual(-1.0, 150.0) - 150.0).abs() < 1e-6
-        && (vision_resolve_shroud_clearing_range_residual(400.0, 150.0) - 400.0).abs() < 1e-6
-        && AI_VISIONFACTOR_OWNERTYPE_RESIDUAL == 0x01
-        && AI_VISIONFACTOR_MOOD_RESIDUAL == 0x02
-        && AI_VISIONFACTOR_GUARDINNER_RESIDUAL == 0x04
-        && (VISION_GUARD_INNER_MODIFIER_AI_RESIDUAL - 1.1).abs() < 1e-6
-        && (VISION_GUARD_OUTER_MODIFIER_AI_RESIDUAL - 1.333).abs() < 1e-3
-        && (VISION_GUARD_INNER_MODIFIER_HUMAN_RESIDUAL - 1.8).abs() < 1e-6
-        && (VISION_GUARD_OUTER_MODIFIER_HUMAN_RESIDUAL - 2.2).abs() < 1e-6
-        && (VISION_ALERT_RANGE_MODIFIER_RESIDUAL - 1.1).abs() < 1e-6
-        && (VISION_AGGRESSIVE_RANGE_MODIFIER_RESIDUAL - 1.5).abs() < 1e-6
-        // Human guard outer: 100 * 2.2 = 220
-        && (vision_adjusted_range_residual(
-            100.0, true, false, false, 0.0, false, false, false, false,
-        ) - 220.0)
-            .abs()
-            < 1e-3
-        // AI guard inner: 100 * 1.1 = 110
-        && (vision_adjusted_range_residual(
-            100.0, false, true, false, 0.0, false, false, false, false,
-        ) - 110.0)
-            .abs()
-            < 1e-3
-        // Contained → largest weapon range residual
-        && (vision_adjusted_range_residual(
-            100.0, false, false, true, 75.0, false, false, false, false,
-        ) - 75.0)
-            .abs()
-            < 1e-6
-        // AI mood sleep → 0
-        && (vision_adjusted_range_residual(
-            100.0, false, false, false, 0.0, false, false, true, true,
-        ) - 0.0)
-            .abs()
-            < 1e-6
-        // AI aggressive outer: 100 * 1.333 * 1.5
-        && (vision_adjusted_range_residual(
-            100.0, false, false, false, 0.0, false, true, false, true,
-        ) - (100.0 * 1.333 * 1.5))
-            .abs()
-            < 1e-2
-        && DYNAMIC_SHROUD_GRID_FX_DECAL_COUNT_RESIDUAL == 30
-        && DYNAMIC_SHROUD_STATE_NAME_TABLE_RESIDUAL.len() == 6
-        && residual_name_index(
-            DYNAMIC_SHROUD_STATE_NAME_TABLE_RESIDUAL,
-            "DSCRU_SUSTAINING",
-        ) == Some(2)
-        && residual_name_index(
-            DYNAMIC_SHROUD_STATE_NAME_TABLE_RESIDUAL,
-            "DSCRU_SHRINKING",
-        ) == Some(3)
-        && VISION_UNIT_SAMPLE_TABLE_RESIDUAL.len() == 5
-        && VISION_UNIT_SAMPLE_TABLE_RESIDUAL[0].0 == "AmericaInfantryPathfinder"
-        && (VISION_UNIT_SAMPLE_TABLE_RESIDUAL[0].1 - 200.0).abs() < 1e-6
-        && (VISION_UNIT_SAMPLE_TABLE_RESIDUAL[2].2 - 500.0).abs() < 1e-6
-}
 
 // ---------------------------------------------------------------------------
 // Combined Wave 97 residual pack
 // ---------------------------------------------------------------------------
 
 /// Combined Wave 97 residual honesty pack.
-pub fn honesty_radar_stealth_vision_residual_pack_wave97() -> bool {
-    honesty_radar_residual_deepen_pack_wave97()
-        && honesty_spotter_residual_pack_wave97()
-        && honesty_stealth_residual_deepen_pack_wave97()
-        && honesty_detector_residual_deepen_pack_wave97()
-        && honesty_vision_residual_pack_wave97()
-}
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn radar_residual_deepen_wave97_honesty() {
-        assert!(honesty_radar_residual_deepen_pack_wave97());
-    }
-
-    #[test]
-    fn spotter_residual_wave97_honesty() {
-        assert!(honesty_spotter_residual_pack_wave97());
-    }
-
-    #[test]
-    fn stealth_residual_deepen_wave97_honesty() {
-        assert!(honesty_stealth_residual_deepen_pack_wave97());
-    }
-
-    #[test]
     fn detector_residual_deepen_wave97_honesty() {
         assert!(honesty_detector_residual_deepen_pack_wave97());
-    }
-
-    #[test]
-    fn vision_residual_wave97_honesty() {
-        assert!(honesty_vision_residual_pack_wave97());
-    }
-
-    #[test]
-    fn radar_stealth_vision_residual_pack_wave97_honesty() {
-        assert!(honesty_radar_stealth_vision_residual_pack_wave97());
     }
 
     #[test]

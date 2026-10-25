@@ -78,22 +78,3 @@ pub use map_preview::*;
 
 #[cfg(test)]
 mod tests;
-
-/// Concatenated live sources for residual `include_str!` scans.
-pub const W3D_GADGET_DRAW_SRC: &str = concat!(
-    include_str!("mod.rs"),
-    include_str!("common.rs"),
-    include_str!("main_menu.rs"),
-    include_str!("hud.rs"),
-    include_str!("power.rs"),
-    include_str!("command_bar.rs"),
-    include_str!("push_button.rs"),
-    include_str!("static_text.rs"),
-    include_str!("progress.rs"),
-    include_str!("check_radio.rs"),
-    include_str!("slider.rs"),
-    include_str!("text_entry.rs"),
-    include_str!("list_box.rs"),
-    include_str!("tab_combo.rs"),
-    include_str!("map_preview.rs"),
-);

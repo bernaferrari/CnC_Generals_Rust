@@ -148,33 +148,12 @@ pub fn has_disguises_as_team_stealth_residual(template_name: &str) -> bool {
 /// vehicle && !aircraft && !boat && !cliff_jumper && no `RailroadBehavior`.
 /// The same-template bomb-truck reject is commented out in retail, so bomb
 /// trucks are legal disguise targets.
-pub fn is_legal_disguise_target_template(template_name: &str) -> bool {
-    let n = alnum_lower(template_name);
-    if n.is_empty() {
-        return false;
-    }
-    // C++ `RailroadBehavior` module reject (no KINDOF_TRAIN).
-    if n.contains("train") {
-        return false;
-    }
-    // C++ `KINDOF_BOAT` — KindOf bit, INI token, or name residual.
-    if n.contains("boat")
-        || n.contains("battleship")
-        || crate::game_logic::host_car_bomb::object_definition_has_kind(template_name, "BOAT")
-    {
-        return false;
-    }
-    // C++ `KINDOF_CLIFF_JUMPER` (same ActionManager conjunction).
-    if n.contains("combatbike")
-        || n.contains("cliffjumper")
-        || crate::game_logic::host_car_bomb::object_definition_has_kind(
-            template_name,
-            "CLIFF_JUMPER",
-        )
-    {
-        return false;
-    }
-    true
+pub fn is_legal_disguise_target_flags(
+    is_boat: bool,
+    is_cliff_jumper: bool,
+    has_railroad_behavior: bool,
+) -> bool {
+    !is_boat && !is_cliff_jumper && !has_railroad_behavior
 }
 
 /// Runtime legal target residual (kind + status).
@@ -186,13 +165,14 @@ pub fn is_legal_disguise_target(
     is_vehicle: bool,
     is_aircraft: bool,
     is_boat: bool,
-    template_name: &str,
+    is_cliff_jumper: bool,
+    has_railroad_behavior: bool,
     _is_already_disguised: bool,
 ) -> bool {
     if !is_alive || !is_vehicle || is_aircraft || is_boat {
         return false;
     }
-    is_legal_disguise_target_template(template_name)
+    is_legal_disguise_target_flags(is_boat, is_cliff_jumper, has_railroad_behavior)
 }
 
 /// Whether reveal-distance residual triggers (2D distance).
@@ -394,49 +374,24 @@ mod tests {
     #[test]
     fn legal_disguise_target_allows_bomb_truck_rejects_boats() {
         assert!(is_legal_disguise_target(
-            true,
-            true,
-            false,
-            false,
-            "AmericaTankCrusader",
-            false
+            true, true, false, false, false, false, false
         ));
         // C++ bomb-truck same-template reject is commented out.
         assert!(is_legal_disguise_target(
-            true,
-            true,
-            false,
-            false,
-            "GLAVehicleBombTruck",
-            false
+            true, true, false, false, false, false, false
         ));
-        assert!(is_legal_disguise_target_template("GLAVehicleBombTruck"));
+        assert!(is_legal_disguise_target_flags(false, false, false));
         assert!(!is_legal_disguise_target(
-            true,
-            true,
-            true,
-            false,
-            "AmericaJetRaptor",
-            false
+            true, true, true, false, false, false, false
         ));
         assert!(!is_legal_disguise_target(
-            false,
-            true,
-            false,
-            false,
-            "AmericaTankCrusader",
-            false
+            false, true, false, false, false, false, false
         ));
         assert!(!is_legal_disguise_target(
-            true,
-            true,
-            false,
-            true,
-            "AmericaVehicleBattleship",
-            false
+            true, true, false, true, false, false, false
         ));
-        assert!(!is_legal_disguise_target_template("CivilianFishingBoat"));
-        assert!(!is_legal_disguise_target_template("CivilianTrainEngine"));
+        assert!(!is_legal_disguise_target_flags(true, false, false));
+        assert!(!is_legal_disguise_target_flags(false, false, true));
     }
 
     #[test]

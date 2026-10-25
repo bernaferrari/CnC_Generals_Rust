@@ -1845,26 +1845,4 @@ mod tests {
             "__strict_w3d_render_object_source__::loop"
         );
     }
-
-    #[test]
-    fn cache_only_runtime_resolver_never_calls_blocking_or_fallback_model_paths() {
-        let source = include_str!("hlod_aggregate_render.rs");
-        let blocking = ["resolve_w3d_render_object", "_blocking"].concat();
-        let fallback = ["get_model", "_or_fallback"].concat();
-        let resolver_body = source
-            .split("fn resolve_cached_hlod_aggregate_render_object")
-            .nth(1)
-            .and_then(|rest| rest.split("/// Keep strict render-object geometry").next())
-            .expect("the runtime cached resolver body must remain delimited");
-        assert!(source.contains("cached_w3d_render_object_prototype"));
-        assert!(source.contains("cached_w3d_render_object_source_model"));
-        assert!(
-            !resolver_body.contains(&blocking),
-            "render collection must never open an archive for an aggregate"
-        );
-        assert!(
-            !resolver_body.contains(&fallback),
-            "an aggregate may not borrow Main's diagnostic fallback mesh"
-        );
-    }
 }

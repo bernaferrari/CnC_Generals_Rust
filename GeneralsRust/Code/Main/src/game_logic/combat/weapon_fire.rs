@@ -755,7 +755,7 @@ pub(in crate::game_logic) fn materialize_accepted_projectile(
         if profile.is_some() || definition_mode == crate::game_logic::projectile_definitions::ProjectileDefinitionMode::LegacyBootstrap {
             proj.bind_authored_flight(p.shooter_pos, target_pos, flight_speed_per_second, terrain);
         }
-        proj.is_small_missile = host_projectile_is_small_missile(proj);
+        proj.is_small_missile = profile.is_some_and(|profile| profile.is_small_missile);
     }
     None
 }

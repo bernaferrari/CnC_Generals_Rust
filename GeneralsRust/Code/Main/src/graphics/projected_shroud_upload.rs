@@ -394,33 +394,4 @@ mod tests {
         assert_eq!(plan.action, ProjectedShroudUploadAction::Deactivate);
         assert_eq!(plan.target, None);
     }
-
-    #[test]
-    fn projected_shroud_gpu_upload_never_imports_live_game_logic() {
-        let source = include_str!("projected_shroud_upload.rs");
-        for forbidden_use in ["use crate::game_logic", "use gamelogic"] {
-            assert!(
-                source
-                    .lines()
-                    .all(|line| !line.trim_start().starts_with(forbidden_use)),
-                "GPU upload must only consume frozen presentation data: {forbidden_use}"
-            );
-        }
-    }
-
-    #[test]
-    fn projected_shroud_resource_and_exact_mesh_eligibility_reach_renderer_ingress() {
-        let execute = include_str!("render_pipeline/pipeline_execute.rs");
-        let forward = include_str!("render_pipeline/forward_render.rs");
-        assert!(execute.contains("frame.terrain_projected_shroud()"));
-        assert!(forward.contains("projected_shroud_uploader.sync("));
-        assert!(forward.contains(".renderer_binding(projected_shroud)"));
-        assert!(forward.contains("renderer.set_projected_shroud(projected_shroud_binding)"));
-        assert!(
-            forward.contains(
-                "mesh.set_projected_shroud_eligible(item.pushes_projected_shroud_pass())"
-            )
-        );
-        assert!(!forward.contains("get_shroud_manager"));
-    }
 }

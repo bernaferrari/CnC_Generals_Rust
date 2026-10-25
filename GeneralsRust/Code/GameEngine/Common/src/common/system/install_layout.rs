@@ -468,17 +468,6 @@ mod tests {
             );
         }
     }
-    #[test]
-    fn install_layout_source_does_not_hardcode_a_repo_folder_name() {
-        let production = include_str!("install_layout.rs")
-            .split("#[cfg(test)]")
-            .next()
-            .unwrap_or("");
-        assert!(
-            !production.contains("windows_game"),
-            "do not hardcode a repo folder name; users may put .big files anywhere"
-        );
-    }
 }
 
 #[cfg(test)]

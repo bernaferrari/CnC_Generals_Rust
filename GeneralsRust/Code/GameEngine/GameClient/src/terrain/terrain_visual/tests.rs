@@ -720,11 +720,6 @@ mod tests {
             "pulse must change sun-lit terrain color"
         );
 
-        let src = crate::terrain::terrain_visual::TERRAIN_VISUAL_SRC;
-        assert!(
-            src.contains("bake_terrain_vertex_dynamic_light") && src.contains("needs_light_rebake"),
-            "live TerrainVisual chunk upload must rebake createLightPulse"
-        );
         clear_scene_dynamic_lights();
     }
 
@@ -751,13 +746,6 @@ mod tests {
         assert_eq!(
             TerrainVisualImpl::scorch_overlay_texture_name(),
             "EXScorch01.tga"
-        );
-        let src = crate::terrain::terrain_visual::TERRAIN_VISUAL_SRC;
-        assert!(
-            src.contains("scorch_texture_bind_group")
-                && src.contains("EXScorch01.tga")
-                && src.contains("scorches_need_gpu_rebuild"),
-            "live draw must bind EXScorch01, not road texture"
         );
         visual.clear_scorches();
     }

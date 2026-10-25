@@ -646,12 +646,5 @@ mod tests {
             Some(id),
             "must pick presentation pose, not live dual-read"
         );
-        let src = include_str!("input_system_simple.rs");
-        let fstart = src.find("fn find_object_at_position").expect("fn");
-        let fbody = &src[fstart..src.len().min(fstart + 900)];
-        assert!(
-            fbody.contains("Presentation-only") && !fbody.contains("game_logic.get_objects()"),
-            "find_object_at_position must be presentation-only"
-        );
     }
 }

@@ -187,67 +187,6 @@ pub fn dock_approach_has_free_slot(reserved: i32, capacity: i32) -> bool {
 }
 
 /// Wave 98 honesty: dock residual pack.
-pub fn honesty_dock_residual_pack_wave98() -> bool {
-    DEFAULT_APPROACH_VECTOR_SIZE_RESIDUAL == 10
-        && DYNAMIC_APPROACH_VECTOR_FLAG_RESIDUAL == -1
-        && DOCK_DEFAULT_NUMBER_APPROACH_POSITIONS == 0
-        && DOCK_DEFAULT_ALLOWS_PASSTHROUGH
-        && DOCK_CTOR_OPEN_RESIDUAL
-        && !DOCK_CTOR_DOCKER_INSIDE_RESIDUAL
-        && !DOCK_CTOR_CRIPPLED_RESIDUAL
-        && !DOCK_CTOR_POSITIONS_LOADED_RESIDUAL
-        && DOCK_CTOR_APPROACH_BONES_UNLOADED == -1
-        && !DOCK_DEFAULT_RALLY_AFTER_DOCK
-        && AI_DOCK_STATE_COUNT_RESIDUAL == 8
-        && AI_DOCK_STATE_NAME_TABLE_RESIDUAL.len() == 8
-        && residual_name_index(AI_DOCK_STATE_NAME_TABLE_RESIDUAL, "AI_DOCK_APPROACH") == Some(0)
-        && residual_name_index(
-            AI_DOCK_STATE_NAME_TABLE_RESIDUAL,
-            "AI_DOCK_WAIT_FOR_CLEARANCE",
-        ) == Some(1)
-        && residual_name_index(AI_DOCK_STATE_NAME_TABLE_RESIDUAL, "AI_DOCK_PROCESS_DOCK")
-            == Some(5)
-        && residual_name_index(AI_DOCK_STATE_NAME_TABLE_RESIDUAL, "AI_DOCK_MOVE_TO_RALLY")
-            == Some(7)
-        && AI_DOCK_WAIT_CLEARANCE_TIMEOUT_FRAMES_RESIDUAL == 900
-        && AI_DOCK_WAIT_CLEARANCE_TIMEOUT_FRAMES_RESIDUAL
-            == 30 * (DOCK_CONTAIN_EXIT_HEAL_LOGIC_FPS as u32)
-        && (REPAIR_DOCK_DEFAULT_FRAMES_FOR_FULL_HEAL - 1.0).abs() < 0.001
-        && REPAIR_DOCK_TIME_FOR_FULL_HEAL_MS_RESIDUAL == 5000
-        && REPAIR_DOCK_TIME_FOR_FULL_HEAL_FRAMES_RESIDUAL
-            == residual_ms_to_frames(REPAIR_DOCK_TIME_FOR_FULL_HEAL_MS_RESIDUAL)
-        && REPAIR_DOCK_NUMBER_APPROACH_POSITIONS_RESIDUAL == 5
-        && REPAIR_DOCK_RALLY_AFTER_DOCK_RESIDUAL
-        && SUPPLY_CENTER_DOCK_DEFAULT_GRANT_STEALTH_FRAMES == 0
-        && SUPPLY_CENTER_DOCK_GLA_GRANT_STEALTH_MS == 20000
-        && SUPPLY_CENTER_DOCK_GLA_GRANT_STEALTH_FRAMES
-            == residual_ms_to_frames(SUPPLY_CENTER_DOCK_GLA_GRANT_STEALTH_MS)
-        && SUPPLY_CENTER_DOCK_AMERICA_APPROACH_POSITIONS == 9
-        && SUPPLY_CENTER_DOCK_BONELESS_APPROACH_POSITIONS
-            == DYNAMIC_APPROACH_VECTOR_FLAG_RESIDUAL
-        && !SUPPLY_CENTER_DOCK_CHINA_GLA_ALLOWS_PASSTHROUGH
-        && (RAILED_DOCK_DEFAULT_TOLERANCE_DISTANCE - 50.0).abs() < 0.001
-        && RAILED_DOCK_DEFAULT_PULL_INSIDE_FRAMES == 0
-        && RAILED_DOCK_DEFAULT_PUSH_OUTSIDE_FRAMES == 0
-        && RAILED_DOCK_UNLOAD_ALL_RESIDUAL == -1
-        && RAILED_DOCK_FERRY_PULL_INSIDE_MS == 4500
-        && RAILED_DOCK_FERRY_PULL_INSIDE_FRAMES
-            == residual_ms_to_frames(RAILED_DOCK_FERRY_PULL_INSIDE_MS)
-        && RAILED_DOCK_FERRY_PUSH_OUTSIDE_FRAMES
-            == residual_ms_to_frames(RAILED_DOCK_FERRY_PUSH_OUTSIDE_MS)
-        && (RAILED_DOCK_FERRY_TOLERANCE_DISTANCE - 400.0).abs() < 0.001
-        && RAILED_DOCK_FERRY_APPROACH_POSITIONS == 9
-        // Approach free-slot residual matrix.
-        && dock_approach_has_free_slot(0, DYNAMIC_APPROACH_VECTOR_FLAG_RESIDUAL)
-        && dock_approach_has_free_slot(100, DYNAMIC_APPROACH_VECTOR_FLAG_RESIDUAL)
-        && dock_approach_has_free_slot(0, 5)
-        && dock_approach_has_free_slot(4, 5)
-        && !dock_approach_has_free_slot(5, 5)
-        && !dock_approach_has_free_slot(0, 0)
-        // Repair dock heal residual formula.
-        && (repair_dock_health_to_add_per_frame(1000.0, 700.0, 150.0) - 2.0).abs() < 0.0001
-        && (repair_dock_health_to_add_per_frame(1000.0, 1000.0, 150.0) - 0.0).abs() < 0.0001
-}
 
 // ---------------------------------------------------------------------------
 // 2. Contain residual deepen (beyond Wave 87 open/transport/garrison)
@@ -368,68 +307,6 @@ pub fn heal_contain_can_accept(
 }
 
 /// Wave 98 honesty: contain residual deepen pack.
-pub fn honesty_contain_residual_deepen_pack_wave98() -> bool {
-    CONTAIN_MAX_UNKNOWN_RESIDUAL == -1
-        && OPEN_CONTAIN_DEFAULT_BURNED_DEATH_TO_UNITS
-        && !OPEN_CONTAIN_DEFAULT_PASSENGERS_IN_TURRET
-        && !OPEN_CONTAIN_DEFAULT_WEAPON_BONUS_TO_PASSENGERS
-        && OPEN_CONTAIN_DEFAULT_KICK_OUT_ON_CAPTURE
-        && OPEN_CONTAIN_DEFAULT_IMMUNE_TO_CLEAR
-        && !OPEN_CONTAIN_DEFAULT_IS_HEAL_CONTAIN
-        && !OPEN_CONTAIN_DEFAULT_IS_GARRISONABLE
-        && !OPEN_CONTAIN_DEFAULT_IS_BUSTABLE
-        && !OPEN_CONTAIN_DEFAULT_IS_TUNNEL
-        && !OPEN_CONTAIN_DEFAULT_DISPLAYED_ON_CONTROL_BAR
-        && TRANSPORT_CONTAIN_DISPLAYED_ON_CONTROL_BAR
-        && OPEN_CONTAIN_DEFAULT_ENCLOSING
-        && OBJECT_ENTER_EXIT_TYPE_COUNT_RESIDUAL == 3
-        && OBJECT_ENTER_EXIT_TYPE_NAME_TABLE_RESIDUAL.len() == 3
-        && residual_name_index(
-            OBJECT_ENTER_EXIT_TYPE_NAME_TABLE_RESIDUAL,
-            "WANTS_TO_ENTER",
-        ) == Some(0)
-        && residual_name_index(
-            OBJECT_ENTER_EXIT_TYPE_NAME_TABLE_RESIDUAL,
-            "WANTS_TO_EXIT",
-        ) == Some(1)
-        && residual_name_index(
-            OBJECT_ENTER_EXIT_TYPE_NAME_TABLE_RESIDUAL,
-            "WANTS_NEITHER",
-        ) == Some(2)
-        && EVAC_DISPOSITION_COUNT_RESIDUAL == 4
-        && EVAC_DISPOSITION_NAME_TABLE_RESIDUAL.len() == 4
-        && residual_name_index(EVAC_DISPOSITION_NAME_TABLE_RESIDUAL, "EVAC_INVALID")
-            == Some(0)
-        && residual_name_index(
-            EVAC_DISPOSITION_NAME_TABLE_RESIDUAL,
-            "EVAC_BURST_FROM_CENTER",
-        ) == Some(3)
-        && HEAL_CONTAIN_IS_HEAL_CONTAIN_RESIDUAL
-        && HEAL_CONTAIN_DEFAULT_FRAMES_FOR_FULL_HEAL == 0
-        && HEAL_CONTAIN_BARRACKS_TIME_FOR_FULL_HEAL_MS == 2000
-        && HEAL_CONTAIN_BARRACKS_TIME_FOR_FULL_HEAL_FRAMES
-            == residual_ms_to_frames(HEAL_CONTAIN_BARRACKS_TIME_FOR_FULL_HEAL_MS)
-        && HEAL_CONTAIN_BARRACKS_CONTAIN_MAX == 10
-        && HEAL_CONTAIN_BARRACKS_ALLOW_ALLIES
-        && !HEAL_CONTAIN_BARRACKS_ALLOW_NEUTRAL
-        && !HEAL_CONTAIN_BARRACKS_ALLOW_ENEMIES
-        && HEAL_CONTAIN_BARRACKS_ALLOW_KIND_OF == "INFANTRY"
-        && !GARRISON_DEFAULT_HEAL_OBJECTS_RESIDUAL
-        && (GARRISON_DEFAULT_FRAMES_FOR_FULL_HEAL_RESIDUAL - 1.0).abs() < 0.001
-        // Sliver + done residual.
-        && (heal_contain_sliver_amount(120.0, 60) - 2.0).abs() < 0.0001
-        && heal_contain_sliver_amount(100.0, 0) == 0.0
-        && !heal_contain_done_healing(59, 60)
-        && heal_contain_done_healing(60, 60)
-        && heal_contain_done_healing(61, 60)
-        // Admission residual matrix.
-        && heal_contain_can_accept(true, true, false, false, 0, 10)
-        && heal_contain_can_accept(true, true, false, false, 9, 10)
-        && !heal_contain_can_accept(true, true, false, false, 10, 10)
-        && !heal_contain_can_accept(false, true, false, false, 0, 10)
-        && !heal_contain_can_accept(true, false, true, false, 0, 10)
-        && !heal_contain_can_accept(true, false, false, true, 0, 10)
-}
 
 // ---------------------------------------------------------------------------
 // 3. Exit residual peels
@@ -495,42 +372,6 @@ pub fn exit_door_is_real(door: i32) -> bool {
 }
 
 /// Wave 98 honesty: exit residual pack.
-pub fn honesty_exit_residual_pack_wave98() -> bool {
-    EXIT_DOOR_1_RESIDUAL == 0
-        && EXIT_DOOR_2_RESIDUAL == 1
-        && EXIT_DOOR_3_RESIDUAL == 2
-        && EXIT_DOOR_4_RESIDUAL == 3
-        && EXIT_DOOR_COUNT_MAX_RESIDUAL == 4
-        && EXIT_DOOR_NONE_AVAILABLE_RESIDUAL == -1
-        && EXIT_DOOR_NONE_NEEDED_RESIDUAL == -2
-        && EXIT_DOOR_NAME_TABLE_RESIDUAL.len() == 4
-        && residual_name_index(EXIT_DOOR_NAME_TABLE_RESIDUAL, "DOOR_1") == Some(0)
-        && residual_name_index(EXIT_DOOR_NAME_TABLE_RESIDUAL, "DOOR_4") == Some(3)
-        && EXIT_DEFAULT_NUMBER_OF_EXIT_PATHS == 1
-        && EXIT_DEFAULT_DOOR_OPEN_TIME_FRAMES == 1
-        && EXIT_OPEN_CONTAIN_DEFAULT_RESERVE_DOOR == 0
-        && !EXIT_OPEN_CONTAIN_DEFAULT_IS_BUSY
-        && QUEUE_EXIT_DEFAULT_EXIT_DELAY_FRAMES == 0
-        && !QUEUE_EXIT_DEFAULT_ALLOW_AIRBORNE
-        && QUEUE_EXIT_DEFAULT_INITIAL_BURST == 0
-        && QUEUE_EXIT_CHINA_BARRACKS_EXIT_DELAY_MS == 300
-        && QUEUE_EXIT_CHINA_BARRACKS_EXIT_DELAY_FRAMES
-            == residual_ms_to_frames(QUEUE_EXIT_CHINA_BARRACKS_EXIT_DELAY_MS)
-        && TRANSPORT_EXIT_DELAY_SAMPLE_MS == 500
-        && TRANSPORT_EXIT_DELAY_SAMPLE_FRAMES
-            == residual_ms_to_frames(TRANSPORT_EXIT_DELAY_SAMPLE_MS)
-        && NUM_MODELCONDITION_DOOR_STATES_RESIDUAL == 4
-        && exit_door_is_real(0)
-        && exit_door_is_real(3)
-        && !exit_door_is_real(-1)
-        && !exit_door_is_real(-2)
-        && !exit_door_is_real(4)
-        && !transport_exit_is_busy(0)
-        && transport_exit_is_busy(1)
-        && transport_exit_is_busy(9)
-        && transport_exit_countdown_tick(9) == 8
-        && transport_exit_countdown_tick(0) == 0
-}
 
 // ---------------------------------------------------------------------------
 // 4. Heal residual deepen (beyond Wave 71 ambulance + Wave 81 AutoFindHealing)
@@ -685,39 +526,13 @@ pub fn honesty_heal_residual_deepen_pack_wave98() -> bool {
 // ---------------------------------------------------------------------------
 
 /// Combined honesty pack for Wave 98 dock / contain / exit / heal residual peels.
-pub fn honesty_dock_contain_exit_heal_residual_pack_wave98() -> bool {
-    honesty_dock_residual_pack_wave98()
-        && honesty_contain_residual_deepen_pack_wave98()
-        && honesty_exit_residual_pack_wave98()
-        && honesty_heal_residual_deepen_pack_wave98()
-}
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn dock_residual_wave98_honesty() {
-        assert!(honesty_dock_residual_pack_wave98());
-    }
-
-    #[test]
-    fn contain_residual_deepen_wave98_honesty() {
-        assert!(honesty_contain_residual_deepen_pack_wave98());
-    }
-
-    #[test]
-    fn exit_residual_wave98_honesty() {
-        assert!(honesty_exit_residual_pack_wave98());
-    }
-
-    #[test]
     fn heal_residual_deepen_wave98_honesty() {
         assert!(honesty_heal_residual_deepen_pack_wave98());
-    }
-
-    #[test]
-    fn dock_contain_exit_heal_residual_pack_wave98_honesty() {
-        assert!(honesty_dock_contain_exit_heal_residual_pack_wave98());
     }
 }

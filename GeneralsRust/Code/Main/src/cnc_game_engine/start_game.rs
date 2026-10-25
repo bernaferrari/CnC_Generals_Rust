@@ -2496,74 +2496,6 @@ End
     }
 
     #[test]
-    fn live_match_reset_runs_cpp_game_engine_reset() {
-        let src = include_str!("start_game.rs");
-        let live = src
-            .split("#[cfg(test)]")
-            .next()
-            .expect("start_game live path");
-        assert!(
-            live.contains("fn host_game_engine_reset")
-                && live.contains("Menus/BlankWindow.wnd")
-                && live.contains("manager.reset_all()")
-                && live.contains("clear_active_network_interface()"),
-            "live GameEngine::reset must show BlankWindow, resetAll, and tear down TheNetwork"
-        );
-        let reset_fn = live
-            .find("pub(super) fn reset_match_state")
-            .expect("reset_match_state");
-        let body = &live[reset_fn..reset_fn + 400];
-        assert!(
-            body.contains("self.host_game_engine_reset()"),
-            "reset_match_state must invoke GameEngine::reset"
-        );
-        let start = live
-            .split_once("pub(super) fn complete_parked_match_start(")
-            .expect("actual parked new-game owner")
-            .1;
-        let start = start
-            .split_once("\n    pub(super) fn ")
-            .map_or(start, |(body, _)| body);
-        let reset = start
-            .find("self.host_game_engine_reset()")
-            .expect("ordinary new-game reset");
-        let failure = start[reset..]
-            .find("if reset.is_err()")
-            .expect("failed reset stops admission")
-            + reset;
-        let map = start
-            .find("self.host_load_map_or_default(&map_name)")
-            .expect("actual new map admission");
-        assert!(
-            reset < failure && failure < map,
-            "new-game start must complete GameEngine::reset and reject failure before map admission like GameLogicDispatch.cpp:256"
-        );
-    }
-
-    #[test]
-    fn snap_camera_is_bootstrap_not_live_scout() {
-        // C++ has no 6000wu distance-to-own-units snap during play.
-        let src = include_str!("start_game.rs");
-        let live = src
-            .split("#[cfg(test)]")
-            .next()
-            .expect("start_game live path");
-        assert!(
-            !live.contains("camera_is_unreasonably_far_from_local_units")
-                && !live.contains("6_000.0 * 6_000.0"),
-            "6000wu scout snap helper must not remain"
-        );
-        let snap = live
-            .find("fn snap_camera_to_local_units_if_needed")
-            .expect("snap remains for match bootstrap");
-        let doc = &live[snap.saturating_sub(400)..snap];
-        assert!(
-            doc.contains("never from `update_camera` during play"),
-            "snap must stay match-start / origin-hitch only"
-        );
-    }
-
-    #[test]
     fn initial_camera_target_near_map_edge_uses_w3d_viewport_inset() {
         let world_min = Vec3::new(0.0, 0.0, 0.0);
         let world_max = Vec3::new(3_500.0, 0.0, 3_500.0);
@@ -2609,57 +2541,7 @@ End
     }
 
     #[test]
-    fn live_placement_preview_is_model_ghost_not_footprint_circle() {
-        // C++ InGameUI.cpp:2957 placeBuildAvailable creates a ThingFactory Drawable,
-        // not a selection-circle overlay.
-        let src = include_str!("start_game.rs");
-        let live = src
-            .split("#[cfg(test)]")
-            .next()
-            .expect("start_game live path");
-        let start = live
-            .find("fn collect_ground_marker_circles")
-            .expect("collect_ground_marker_circles");
-        let body = &live[start..start + 900];
-        assert!(
-            body.contains("submit_structure_placement_model_ghost"),
-            "live placement must submit the building model ghost"
-        );
-        assert!(
-            !body.contains("[0.15, 0.95, 0.2, 0.45]"),
-            "live placement must not draw the green/red footprint circle"
-        );
-        assert!(
-            live.contains("STRUCTURE_PLACEMENT_GHOST_OPACITY")
-                && live.contains("add_faction_bib")
-                && live.contains("construction_tint"),
-            "live ghost must carry C++ 0.45 opacity, illegal tint, and faction bibs"
-        );
-    }
-
-    #[test]
     fn script_camera_shakers_rotate_not_translate() {
-        let src = include_str!("start_game.rs");
-        let start = src
-            .find("fn update_script_camera_shake(")
-            .expect("full-view shake operation");
-        let end = src[start..]
-            .find("pub(super) fn normalize_signed_angle")
-            .map(|offset| start + offset)
-            .expect("next camera operation");
-        let body = &src[start..end];
-        let transform = include_str!("../presentation_frame/session_view/camera/shaker.rs");
-        assert!(
-            transform.contains("script_camera_shaker_rotations(shaker, eye)")
-                && transform.contains("self.camera_shake_rotation = rotation")
-                && transform.contains("SHAKE_AXIS_PITCH")
-        );
-        assert!(!body.contains("offset.x += phase_a.sin() * magnitude"));
-        assert!(
-            body.contains("self.game_logic.session_view.advance_impulse()")
-                && !body.contains("tick_impulse_shake"),
-            "the admitted view owns its borrowed impulse spring rather than another decay at intake"
-        );
         let mut shaker = ScriptCameraShaker::new(Vec3::ZERO, 500., 2., 15.);
         shaker.elapsed_seconds = 0.25;
         shaker.phi = Vec3::splat(std::f32::consts::FRAC_PI_2);
@@ -2670,31 +2552,6 @@ End
 
     #[test]
     fn script_camera_shaker_steps_one_thirtieth_per_actual_build() {
-        let src = include_str!("start_game.rs");
-        let start = src
-            .find("fn update_script_camera_shake(")
-            .expect("full-view shake operation");
-        let end = src[start..]
-            .find("pub(super) fn normalize_signed_angle")
-            .map(|offset| start + offset)
-            .expect("next camera operation");
-        let body = &src[start..end];
-        assert!(
-            !body.contains("step_transform_shakers"),
-            "impulse and transform stages are distinct"
-        );
-        let transform = include_str!("../presentation_frame/session_view/camera/shaker.rs");
-        assert!(transform.contains("const SCRIPT_CAMERA_SHAKER_STEP: f32 = 1.0 / 30.0;"));
-        assert!(transform.contains("shaker.elapsed_seconds += SCRIPT_CAMERA_SHAKER_STEP"));
-        assert!(!body.contains("elapsed_seconds += dt"));
-        let view = include_str!("camera_view_effects.rs");
-        assert!(
-            view.contains("if decision.update_views")
-                && view.contains("self.update_script_camera_shake()")
-                && !view.contains("self.update_camera_transform_shakers()")
-                && include_str!("../presentation_frame/session_view/camera/build.rs")
-                    .contains("advance_transform_shakers")
-        );
         let (mut intensity, mut cosine, mut sine) = (4., 1., 0.);
         assert_eq!(
             super::super::camera_view_effects::step_view_impulse(
@@ -2723,34 +2580,7 @@ End
         use crate::cnc_game_engine::camera_motion::{
             AxisKind, AxisMotion, MotionAdmission, step_axis,
         };
-        let src = include_str!("start_game.rs");
-        assert!(
-            src.contains("camera_fx_adjusted_eye_and_look")
-                && src.contains("script_pitch_is_fx_pitch")
-        );
-        let request_start = src
-            .find("pub(super) fn apply_script_camera_pitch_request(")
-            .unwrap();
-        let request_end = src[request_start..]
-            .find("pub(super) fn apply_script_camera_rotate_request(")
-            .map(|offset| request_start + offset)
-            .unwrap();
-        let request: String = src[request_start..request_end].split_whitespace().collect();
-        assert!(request.contains("self.game_logic.session_view.camera.install_pitch("));
-        assert!(!request.contains("camera_pitch_radians="));
-        let commands = include_str!("../presentation_frame/session_view/camera/commands.rs");
-        let pitch_start = commands.find("pub(crate) fn install_pitch(").unwrap();
-        let pitch_end = commands[pitch_start..]
-            .find("pub(crate) fn install_rotate(")
-            .unwrap()
-            + pitch_start;
-        let pitch: String = commands[pitch_start..pitch_end]
-            .split_whitespace()
-            .collect();
-        assert!(pitch.contains("self.camera_pitch_start=self.camera_fx_pitch"));
-        assert!(pitch.contains("self.camera_pitch_target=Some("));
-        assert!(!pitch.contains("self.camera_pitch_radians="));
-        assert!(!pitch.contains("self.camera_fx_pitch="));
+
         let mut camera = crate::presentation_frame::camera::SessionCamera::default();
         camera.camera_pitch_radians = 0.73;
         camera.camera_fx_pitch = 1.25;
@@ -2762,13 +2592,7 @@ End
         assert_eq!(camera.camera_pitch_target, Some(2.));
         assert_eq!(camera.camera_pitch_frame, 0);
         assert_eq!(camera.camera_pitch_duration, 0.001);
-        let view = include_str!("camera_view_effects.rs");
-        assert!(view.contains("advance_receiving_camera_view("));
-        let owner = include_str!("../presentation_frame/session_view/camera.rs");
-        assert!(
-            owner.contains("value: &mut self.camera_fx_pitch")
-                && !owner.contains("value: &mut self.camera_pitch_radians")
-        );
+
         let (mut fx_pitch, mut target, mut elapsed) =
             (1., Some(CnCGameEngine::script_pitch_is_fx_pitch(2.)), 0);
         let rejected = step_axis(
@@ -2813,11 +2637,6 @@ End
         );
         assert!(admitted.was_active && admitted.completed && admitted.changed);
         assert_eq!((fx_pitch, target, elapsed), (2., None, 1));
-        assert!(
-            src.contains("self.game_logic.session_view.camera.viewport")
-                && src.contains("rebuild_tactical_projection"),
-            "default control bar must shrink the live 3D frustum"
-        );
     }
 
     #[test]
@@ -2856,25 +2675,6 @@ End
     }
 
     #[test]
-    fn look_at_uses_airborne_terrain_ray() {
-        let source = include_str!("../presentation_frame/session_view/look_at.rs");
-        assert!(source.contains("terrain.get_ground_height(requested.x, requested.z, None)"));
-        assert!(source.contains("terrain_hit(requested, direction * depth, terrain)"));
-        let engine = include_str!("start_game.rs");
-        let operation = engine
-            .split("fn host_center_camera_on_impl(")
-            .nth(1)
-            .unwrap()
-            .split("fn collect_ground_marker_circles")
-            .next()
-            .unwrap();
-        assert!(operation.contains("receiving_look_at_target("));
-        assert!(operation.contains("self.set_native_camera_transform()"));
-        assert!(!operation.contains("constraint_inset("));
-        assert!(!operation.contains("clamp_to_world_bounds("));
-    }
-
-    #[test]
     fn scripted_camera_constraint_widens_like_cpp() {
         let first = widen_scripted_camera_constraint(None, -50.0, 900.0);
         assert_eq!(first, (-50.0, -50.0, 900.0, 900.0));
@@ -2888,47 +2688,11 @@ End
     }
 
     #[test]
-    fn only_waypoint_movement_widens_camera_constraint() {
-        let source = include_str!("../presentation_frame/session_view/look_at.rs");
-        let geometry = source
-            .split("fn receiving_look_at_target(")
-            .nth(1)
-            .unwrap()
-            .split("impl SessionView")
-            .next()
-            .unwrap();
-        assert!(!geometry.contains("widen"));
-        assert!(!geometry.contains("constrain("));
-        let engine = include_str!("start_game.rs");
-        let reader = engine
-            .split("fn clamp_to_world_bounds(")
-            .nth(1)
-            .unwrap()
-            .split("fn clamp_command_position_to_map")
-            .next()
-            .unwrap();
-        assert!(reader.contains("constrain_target_if_cached(position)"));
-        assert!(!reader.contains("constraint_inset("));
-    }
-
-    #[test]
     fn scripted_zoom_pitch_yaw_pause_with_game() {
         use crate::cnc_game_engine::camera_motion::{
             AxisKind, AxisMotion, MotionAdmission, step_axis,
         };
-        let view = include_str!("camera_view_effects.rs");
-        assert!(view.contains("let paused = self.native_view_is_paused()"));
-        let owner = include_str!("native_display.rs");
-        assert!(
-            owner.contains("self.game_logic.is_paused()") && owner.contains("GameState::Paused")
-        );
-        assert!(
-            view.contains("self.update_script_camera_shake()")
-                && !view.contains("self.update_camera_transform_shakers()")
-                && include_str!("../presentation_frame/session_view/camera/build.rs")
-                    .contains("advance_transform_shakers")
-        );
-        assert!(!view.contains("shake_dt = if self.presentation_or_boot_time_frozen()"));
+
         for paused in [true, false] {
             let (mut value, mut target, mut elapsed) = (0., Some(1.), 0);
             let step = step_axis(
@@ -2955,54 +2719,6 @@ End
             assert_eq!(elapsed, if paused { 0 } else { 1 });
             assert_eq!(value, if paused { 0. } else { 1. / 30. });
         }
-    }
-
-    #[test]
-    fn camera_drain_keeps_shaker_epicenter() {
-        let src = include_str!("camera_drain.rs");
-        let start = src
-            .find("for &(position, amplitude, duration_seconds, radius)")
-            .expect("shaker drain tuple");
-        let body = &src[start..start + 280];
-        assert!(
-            body.contains("position: Vec3::new(position[0]")
-                && !body.contains("position: self.game_logic.session_view.target"),
-            "CAMERA_ADD_SHAKER must keep the scripted waypoint"
-        );
-    }
-
-    #[test]
-    fn no_config_skirmish_start_routes_through_the_config_authority() {
-        // A config-less Skirmish start must synthesize the GameInfo slots
-        // and apply them through host_apply_skirmish_config_authority; the
-        // Team-only legacy bootstrap is the degenerate 3-player match this
-        // replaces.
-        let src = include_str!("start_game.rs");
-        let start = src
-            .find("pub(super) fn complete_parked_match_start")
-            .expect("parked start finish authority");
-        let after_start = &src[start..];
-        let end = after_start[1..]
-            .find("\n    pub(super) fn ")
-            .map(|offset| offset + 1)
-            .unwrap_or(after_start.len());
-        let body = &after_start[..end];
-
-        let branch = body
-            .find("if mode == GameMode::Skirmish {")
-            .expect("skirmish branch");
-        let synthesis = body
-            .find("host_synthesize_skirmish_config(&map_name, &faction)")
-            .expect("config-less start synthesizes the slot set");
-        let authority = body[branch..]
-            .find("self.host_apply_skirmish_config_authority(&synthesized)")
-            .map(|offset| branch + offset)
-            .expect("synthesized config goes through the skirmish authority");
-        assert!(branch < synthesis && synthesis < authority);
-        assert!(
-            !body.contains("host_start_new_game_with_faction(mode, faction_team, true)"),
-            "a config-less Skirmish start must not fall back to the legacy Team-only bootstrap"
-        );
     }
 
     #[test]

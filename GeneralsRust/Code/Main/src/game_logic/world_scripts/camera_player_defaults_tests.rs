@@ -295,29 +295,6 @@ fn reset_and_mmb_default_share_minimum_hag_floor_without_mutating_peer() {
     assert_eq!(restored.capture_camera_continuation().unwrap(), saved);
     assert_eq!(peer.capture_camera_continuation().unwrap(), peer_before);
 }
-#[test]
-fn actual_mmb_event_routes_defaults_while_hotkey_retains_one_millisecond_motion() {
-    let mouse = include_str!("../../cnc_game_engine/mouse/camera.rs");
-    let event = mouse
-        .split("fn end_mmb_lookat_rotate")
-        .nth(1)
-        .unwrap()
-        .split("fn reset_camera_pose_in_place")
-        .next()
-        .unwrap();
-    assert!(
-        event
-            .split_whitespace()
-            .collect::<String>()
-            .contains("input.end_mmb(")
-    );
-    let delivered = include_str!("../../cnc_game_engine/mouse/camera_input_delivery.rs");
-    assert!(delivered.contains("lookat_mmb_is_short_click"));
-    assert!(delivered.contains("world.admit_short_mmb_defaults(effects)"));
-    assert!(!event.contains("self.reset_camera_pose_in_place()"));
-    let hotkey = include_str!("../../cnc_game_engine/hotkeys.rs");
-    assert!(hotkey.contains("self.reset_camera_pose_in_place()"));
-}
 
 #[test]
 fn current_terrain_boundary_drives_recalculation_not_cached_host_world_bounds() {

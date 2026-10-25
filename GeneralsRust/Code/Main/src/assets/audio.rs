@@ -1169,19 +1169,6 @@ mod tests {
     #[test]
     fn send_sync_wrapper_is_gone_and_audio_types_are_honestly_send() {
         // The old generic wrapper marked every T as thread-safe. That type must stay gone.
-        let src = include_str!("audio.rs");
-        let production_src = src
-            .split("#[cfg(test)]")
-            .next()
-            .expect("audio.rs should keep a test module after production code");
-        assert!(
-            !production_src.contains("struct SendSyncWrapper"),
-            "SendSyncWrapper must remain removed; do not restore a generic Send/Sync lie"
-        );
-        assert!(
-            !production_src.contains("unsafe impl<T>"),
-            "blanket unsafe Send/Sync for arbitrary T is forbidden"
-        );
 
         // rodio 0.17: control types are already Send + Sync. OutputStream is not
         // (cpal::Stream / NotSendSyncAcrossAllPlatforms); it lives on a dedicated

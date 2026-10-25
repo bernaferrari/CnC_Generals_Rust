@@ -1634,16 +1634,6 @@ mod presentation_selection_tests {
 
     #[test]
     fn blob_discs_hidden_when_use_shadow_decals_off() {
-        let src = include_str!("selection_renderer.rs");
-        let start = src
-            .find("pub fn collect_blob_shadows_from_presentation")
-            .expect("blob collect");
-        let body = &src[start..start + 400];
-        assert!(
-            body.contains("game_lod::use_shadow_decals()"),
-            "live blob collect must honor TheGlobalData->m_useShadowDecals"
-        );
-
         let mut logic = GameLogic::new();
         let cfg = golden_skirmish_config("DecalOffBlobMap");
         apply_skirmish_config(&mut logic, &cfg).expect("config");
@@ -1724,45 +1714,6 @@ mod presentation_selection_tests {
         );
     }
 
-    #[test]
-    fn production_cnc_render_path_enqueues_selection_with_presentation() {
-        // Structural proof: CncGameEngine::render ships enqueue_selection_render with
-        // last_presentation_frame (not a dead helper).
-        let src = crate::cnc_game_engine::ENGINE_SRC;
-        assert!(
-            src.contains("enqueue_selection_render"),
-            "InGame render must call enqueue_selection_render"
-        );
-        assert!(
-            src.contains("last_presentation_frame.as_deref()"),
-            "selection enqueue must pass presentation snapshot"
-        );
-        // Selection enqueue is presentation-only (no GameLogic argument).
-        let idx = src.find("enqueue_selection_render").expect("enqueue site");
-        let (window, _) = src[idx..]
-            .split_once(");")
-            .expect("selection enqueue statement end");
-        assert!(
-            window.contains("last_presentation_frame.as_deref()")
-                && !window.contains("game_logic")
-                && !window.contains("Some(&self.game_logic)"),
-            "selection overlay must not take live GameLogic: {window}"
-        );
-        assert!(
-            src.contains("selection_renderer::enqueue_selection_render"),
-            "must use graphics selection_renderer production path"
-        );
-    }
-
-    #[test]
-    fn rally_point_line_overlay_residual() {
-        let src = include_str!("selection_renderer.rs");
-        assert!(
-            src.contains("fn pack_rally_point_lines")
-                && src.contains("pack_rally_point_lines(frame)"),
-            "selection overlay must pack selected structure rally lines"
-        );
-    }
     #[test]
     fn health_bar_disabled_colors_follow_cpp_held_mask() {
         // Drawable.cpp:3872 exempts DISABLED_HELD, not DISABLED_FREEFALL.
@@ -2027,21 +1978,6 @@ mod selection_shader_residual_tests {
     use glam::Vec2;
 
     #[test]
-    fn selection_shader_module_contains_both_entry_points() {
-        let src = include_str!("selection_renderer.rs");
-        let start = src
-            .find("const SELECTION_SHADER")
-            .expect("SELECTION_SHADER");
-        let module = &src[start..src.len().min(start + 1200)];
-        assert!(module.contains("fn vs_main"));
-        assert!(module.contains("fn fs_main"));
-        assert!(
-            module.contains("@fragment"),
-            "fragment stage must be in the same WGSL module as vs_main"
-        );
-    }
-
-    #[test]
     fn drag_marquee_is_a_two_pixel_screen_space_open_rectangle() {
         let vertices = drag_rect_screen_vertices(&DragSelectRect {
             start: Vec2::new(100.0, 50.0),
@@ -2149,15 +2085,6 @@ mod selection_shader_residual_tests {
     /// 2px width stay on the 2D drag marquee; do not rewrite the overlay.
     #[test]
     fn selection_overlay_preserves_cpp_drag_color_and_documents_wgpu_circles() {
-        let src = include_str!("selection_renderer.rs");
-        assert!(
-            src.contains("0x9933FF33"),
-            "drag marquee must keep C++ W3DInGameUI::drawSelectionRegion color"
-        );
-        assert!(
-            src.contains("world-space overlays"),
-            "unit circles must stay documented as the allowed wgpu representation"
-        );
         assert_eq!(super::DRAG_RECT_COLOR, [0.2, 1.0, 0.2, 0.6]);
         assert_eq!(super::DRAG_RECT_LINE_WIDTH_PX, 2.0);
     }

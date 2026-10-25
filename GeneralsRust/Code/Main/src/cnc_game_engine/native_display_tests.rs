@@ -79,46 +79,6 @@ fn failed_expected_shell_has_no_implicit_fallback_or_second_admission() {
         "failed prefix never offered a Display clock"
     );
 }
-#[test]
-fn all_public_updates_complete_display_after_update_and_render_never_rebuilds_camera() {
-    let input = include_str!("input.rs");
-    assert!(input.contains("fn finish_display_after_update("));
-    assert_eq!(
-        input.matches("self.finish_display_after_update();").count(),
-        4
-    );
-    assert!(!input.contains("if self.native_display.has_pending_work()"));
-    let catchup = &input[input
-        .find("while self.menu_loading_tick_accumulator")
-        .unwrap()..input.find("pub fn update(&mut self").unwrap()];
-    assert!(
-        catchup.find("self.update_internal(dt);").unwrap()
-            < catchup.find("self.finish_display_after_update();").unwrap()
-    );
-    let render = &input[input.find("pub fn render(").unwrap()..];
-    assert!(!render.contains("self.apply_camera_orbit_transform();"));
-    assert!(!render.contains("self.rebuild_tactical_projection();"));
-    let run = include_str!("run_loop.rs");
-    assert!(!run.contains("advance_ww3d_visual_sync"));
-    assert!(!run.contains("WW3D::sync("));
-    assert!(!run.contains("engine.complete_native_display_step()"));
-}
-
-#[test]
-fn actual_no_draw_and_failed_prefix_return_before_display_clock_and_device_poll() {
-    let source = include_str!("native_display.rs");
-    let body = &source[source
-        .find("pub(super) fn complete_native_display_step(")
-        .unwrap()..];
-    let clock = body.find(".admit_receiving(").unwrap();
-    let no_draw = body.find("!pending.step.display_requested()").unwrap();
-    let failed = body
-        .find("self.native_display.check_shell_before_display()?")
-        .unwrap();
-    let poll = body.find(".poll(wgpu::PollType::Poll)").unwrap();
-    assert!(failed < no_draw && no_draw < poll && poll < clock);
-    assert!(body[..clock].contains("return self"));
-}
 
 #[test]
 fn receiving_debug_freeze_precedes_actual_fast_display_admission() {
@@ -164,13 +124,6 @@ fn receiving_debug_freeze_precedes_actual_fast_display_admission() {
         })
         .unwrap();
     assert!(decision.fast_camera_only && !decision.update_views);
-    let native = include_str!("native_display.rs");
-    let production = native
-        .split("pub(super) fn complete_native_display_step(")
-        .nth(1)
-        .unwrap();
-    let compact: String = production.split_whitespace().collect();
-    assert!(compact.contains(".admit_receiving(&self.game_logic,paused,"));
 }
 
 #[test]

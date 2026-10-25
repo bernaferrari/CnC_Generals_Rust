@@ -11,7 +11,6 @@ pub(super) struct ShellUiResiduals {
     pub control_bar_wnd_validated: bool,
     pub control_bar_window_loaded: bool,
     pub control_bar_window_count: usize,
-    pub control_bar_wave76_residual_ok: bool,
     pub layout_report: String,
 }
 
@@ -53,10 +52,6 @@ pub(super) fn evaluate_shell_ui() -> ShellUiResiduals {
         }
         GameplayLayoutStatus::LoadFailed { .. } => false,
     };
-    let control_bar_wave76_residual_ok = honesty_control_bar_residual_pack_wave76_ok(
-        control_bar_window_loaded,
-        control_bar_window_count,
-    );
     ui_mgr.transition_to_screen(Screen::GameHUD);
     let at_ingame = ui_mgr.current_screen() == Some(Screen::GameHUD)
         && !Screen::GameHUD.is_shell_owned_pregame();
@@ -73,7 +68,6 @@ pub(super) fn evaluate_shell_ui() -> ShellUiResiduals {
         control_bar_wnd_validated,
         control_bar_window_loaded,
         control_bar_window_count,
-        control_bar_wave76_residual_ok,
         layout_report,
     }
 }

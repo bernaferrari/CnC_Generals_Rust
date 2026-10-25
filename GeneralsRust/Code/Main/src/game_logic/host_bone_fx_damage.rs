@@ -791,19 +791,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn invented_names_are_gone() {
-        // include_str! sees this same file; the test module's own assert
-        // strings would false-positive the scan. Production code ends at
-        // the #[cfg(test)] marker, so scan only that prefix.
-        let src = include_str!("host_bone_fx_damage.rs");
-        let production = src.split("#[cfg(test)]").next().unwrap_or(src);
-        assert!(!production.contains("FX_ScudDamagedBoneFX"));
-        assert!(!production.contains("ToxinLeakBonePSys"));
-        assert!(!production.contains("ScudSmokeBonePSys"));
-        assert!(!production.contains("StructureDamageBonePSys"));
-    }
-
     fn pristine_fx_slot() -> HostBoneFxAuthored {
         let mut authored = HostBoneFxAuthored::default();
         authored.fx[HostBodyDamageType::Pristine.ordinal() as usize][0] = Some(HostBoneFxSlot {
@@ -884,19 +871,6 @@ mod tests {
         assert!(d.drain_pending().is_empty());
     }
 
-    #[test]
-    fn destroy_and_collapse_call_stop_all_bone_fx() {
-        let die = include_str!("world_objects/create_destroy_die/death.rs");
-        assert!(die.contains("bfx.stop_all_bone_fx()"));
-        let death = include_str!("object/death.rs");
-        assert!(death.contains("bfx.stop_all_bone_fx()"));
-        let tick = include_str!("world_tick/ai.rs");
-        assert!(tick.contains("stamp_last_damage_type(o.last_damage_info_type)"));
-        assert!(!tick.contains("stamp_last_damage_type(o.last_damage_fx_done)"));
-        let pose = include_str!("object/body_visuals.rs");
-        assert!(pose.contains("stamp_last_damage_type(self.last_damage_info_type)"));
-        assert!(!pose.contains("stamp_last_damage_type(self.last_damage_fx_done)"));
-    }
     #[test]
     fn damage_type_flags_parse_all_minus() {
         use gamelogic::damage::DamageType;

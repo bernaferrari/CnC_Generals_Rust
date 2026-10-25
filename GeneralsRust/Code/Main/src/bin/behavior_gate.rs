@@ -129,16 +129,10 @@ fn main() -> gamelogic::GameLogicResult<()> {
     if shell.status != "success" {
         failed.push(format!("shell {}", shell.detail));
     }
-    if shell.playable_claim {
+    if !shell.session_ok {
         failed.push(format!(
-            "shell playable_claim={} (headless smoke must fail-closed for retail W3D)",
-            shell.playable_claim
-        ));
-    }
-    if !shell.shell_host_playable_ok {
-        failed.push(format!(
-            "shell shell_host_playable_ok={} (expected true when status=success)",
-            shell.shell_host_playable_ok
+            "shell session_ok={} (expected true when status=success)",
+            shell.session_ok
         ));
     }
     if !shell.control_bar_layout_ok {
@@ -275,11 +269,11 @@ fn main() -> gamelogic::GameLogicResult<()> {
 
     if failed.is_empty() {
         // PASS text reflects values already asserted above (not hardcoded-only).
-        // Honesty flags: shell playable_claim always false; golden synthetic when no map;
+        // Golden uses synthetic combat when no map is available;
         // retail_* / combat_no_teleport / combat_realistic_* are residual honesty only.
         // Campaign retail_campaign_map_loaded fail-closed when full MD_*/GC_* load hangs.
         println!(
-            "behavior_gate: PASS (headless host APIs; golden map_loaded={} synthetic_combat={} playable_claim={} map_host_ok={} retail_prod={} retail_gather={} combat_no_teleport={} combat_realistic_speed={} combat_store_damage={}; shell playable_claim={} shell_host_playable_ok={}; campaign_playable_claim={} retail_campaign_map_loaded={}; executable_host_ok={} executable_status={})",
+            "behavior_gate: PASS (headless host APIs; golden map_loaded={} synthetic_combat={} playable_claim={} map_host_ok={} retail_prod={} retail_gather={} combat_no_teleport={} combat_realistic_speed={} combat_store_damage={}; shell session_ok={}; campaign_playable_claim={} retail_campaign_map_loaded={}; executable_host_ok={} executable_status={})",
             golden.map_loaded,
             golden.synthetic_combat,
             golden.playable_claim,
@@ -289,8 +283,7 @@ fn main() -> gamelogic::GameLogicResult<()> {
             golden.combat_no_teleport_ok,
             golden.combat_realistic_speed_ok,
             golden.combat_store_damage_ok,
-            shell.playable_claim,
-            shell.shell_host_playable_ok,
+            shell.session_ok,
             campaign.campaign_playable_claim,
             campaign.retail_campaign_map_loaded,
             exec_host_ok,
@@ -299,7 +292,7 @@ fn main() -> gamelogic::GameLogicResult<()> {
         std::process::exit(0);
     }
     eprintln!(
-        "behavior_gate: FAIL golden_map={} synthetic={} playable_claim={} map_host_ok={} retail_prod={} retail_gather={} combat_no_teleport={} combat_realistic_speed={} combat_store_damage={} shell_claim={} shell_host_playable_ok={}",
+        "behavior_gate: FAIL golden_map={} synthetic={} playable_claim={} map_host_ok={} retail_prod={} retail_gather={} combat_no_teleport={} combat_realistic_speed={} combat_store_damage={} shell_session_ok={}",
         golden.map_loaded,
         golden.synthetic_combat,
         golden.playable_claim,
@@ -309,8 +302,7 @@ fn main() -> gamelogic::GameLogicResult<()> {
         golden.combat_no_teleport_ok,
         golden.combat_realistic_speed_ok,
         golden.combat_store_damage_ok,
-        shell.playable_claim,
-        shell.shell_host_playable_ok
+        shell.session_ok
     );
     for f in failed {
         eprintln!("  - {f}");

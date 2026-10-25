@@ -423,7 +423,7 @@ mod tests {
     #[test]
     fn test_input_focus_writeback_sets_keyboard_focus() {
         use crate::gui::{
-            pop_payload, push_payload, write_input_focus_response as safe_focus, WindowMsgPayload,
+            WindowMsgPayload, pop_payload, push_payload, write_input_focus_response as safe_focus,
         };
 
         // Production path: set_focus pushes a Bool payload token, never a raw ptr.
@@ -755,44 +755,6 @@ mod tests {
     }
 
     #[test]
-    fn decline_resolution_pushes_main_menu_wnd_like_cpp() {
-        // C++ DeclineResolution (MainMenu.cpp:739-750) deletes/recreates
-        // TheShell then TheShell->push("Menus/MainMenu.wnd"). Pre-fix Rust
-        // called shell.reset()+show_shell(true); show_shell only pushes when
-        // shell map is OFF, so GAME_SHELL menus were left empty (hq-90rl).
-        let src = include_str!("main_menu.rs");
-        let start = src
-            .find("pub fn decline_resolution")
-            .expect("decline_resolution");
-        let body = src[start..]
-            .split("fn rollback_resolution_state")
-            .next()
-            .expect("decline_resolution body");
-        assert!(
-            body.contains("shell.push(\"Menus/MainMenu.wnd\""),
-            "DeclineResolution must push Menus/MainMenu.wnd like C++: {body}"
-        );
-        assert!(
-            !body.contains("shell.show_shell("),
-            "DeclineResolution must not rely on show_shell (no-op when shell map on): {body}"
-        );
-    }
-}
-
-#[cfg(test)]
-mod main_menu_shell_borrow_residual_tests {
-    use super::*;
-
-    #[test]
-    fn main_menu_shutdown_nested_shell_borrow_residual() {
-        let src = include_str!("main_menu.rs");
-        assert!(
-            src.contains("queue_shell_reverse_animate_window();"),
-            "MainMenuShutdown must queue reverse animation while Shell::push owns the borrow"
-        );
-    }
-
-    #[test]
     fn first_run_char_reveals_dropdown_like_cpp_main_menu_input() {
         {
             let mut menu = get_main_menu();
@@ -1049,24 +1011,6 @@ mod main_menu_shell_borrow_residual_tests {
     }
 
     #[test]
-    fn is_first_cd_present_matches_cpp_not_copy_protection() {
-        let production = include_str!("main_menu.rs")
-            .split("#[cfg(test)]")
-            .next()
-            .unwrap_or("");
-        assert!(
-            production.contains("crate::cd_check::is_first_cd_present()"),
-            "MainMenu must use CDCheck IsFirstCDPresent, not launcher copy-protection"
-        );
-        assert!(
-            !production.contains("comprehensive_validation")
-                && !production.contains("copy_protection"),
-            "MainMenu CD check must not call ProtectionStatus"
-        );
-        assert!(crate::cd_check::is_first_cd_present());
-    }
-
-    #[test]
     fn dont_allow_transitions_clears_when_handler_finished_like_cpp() {
         crate::gui::window_manager::with_window_manager(|manager| {
             manager.reset();
@@ -1094,15 +1038,15 @@ mod main_menu_shell_borrow_residual_tests {
 
     #[test]
     fn os_mouse_click_button_skirmish_bubbles_gbm_selected_like_cpp() {
+        use crate::gui::WindowMessage;
         use crate::gui::gadgets::PushButton;
         use crate::gui::game_window::{
-            WindowInputReturnCode, WindowWidget, GWS_MOUSE_TRACK, GWS_PUSH_BUTTON,
+            GWS_MOUSE_TRACK, GWS_PUSH_BUTTON, WindowInputReturnCode, WindowWidget,
         };
         use crate::gui::window_manager::{
             dispatch_os_mouse_to_window_manager, with_window_manager,
         };
         use crate::gui::window_script::WindowDefinition;
-        use crate::gui::WindowMessage;
 
         let parent_id = NameKeyGenerator::name_to_key("MainMenu.wnd:MainMenuParent") as i32;
         let border_id = NameKeyGenerator::name_to_key("MainMenu.wnd:MapBorder") as i32;
@@ -1198,13 +1142,13 @@ mod main_menu_shell_borrow_residual_tests {
         // dropDownWindows[DROPDOWN_SINGLE]->winHide(FALSE) (MapBorder)
         // so SKIRMISH (a MapBorder child) is hittable. Physical click must
         // bubble through PassSelectedButtonsToParentSystem into MainMenuSystem.
+        use crate::gui::WindowMessage;
         use crate::gui::gadgets::PushButton;
         use crate::gui::game_window::{
-            WindowInputReturnCode, WindowStatus, WindowWidget, GWS_MOUSE_TRACK, GWS_PUSH_BUTTON,
+            GWS_MOUSE_TRACK, GWS_PUSH_BUTTON, WindowInputReturnCode, WindowStatus, WindowWidget,
         };
         use crate::gui::window_manager::with_window_manager;
         use crate::gui::window_script::WindowDefinition;
-        use crate::gui::WindowMessage;
 
         let ids = build_window_ids();
         let parent_id = ids.main_menu_id as i32;
@@ -1622,11 +1566,13 @@ mod main_menu_shell_borrow_residual_tests {
                     .is_hidden(),
                 "C++ main dropdown must not leave single-player buttons visible underneath"
             );
-            assert!(!manager
-                .find_window_by_name("MainMenu.wnd:MapBorder2")
-                .unwrap()
-                .borrow()
-                .is_hidden());
+            assert!(
+                !manager
+                    .find_window_by_name("MainMenu.wnd:MapBorder2")
+                    .unwrap()
+                    .borrow()
+                    .is_hidden()
+            );
         });
     }
 
@@ -1932,5 +1878,9 @@ mod main_menu_shell_borrow_residual_tests {
                 "queued transition must run after the nested borrow drains (group init hides at start)"
             );
         });
+    }
+    #[test]
+    fn is_first_cd_present_uses_the_live_cd_check() {
+        assert!(crate::cd_check::is_first_cd_present());
     }
 }

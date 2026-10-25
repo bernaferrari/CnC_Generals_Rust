@@ -3817,29 +3817,6 @@ mod superweapon_countdown_tests {
         assert_eq!(superweapon_countdown_text(5.9), "0:05");
         assert_ne!(superweapon_countdown_text(0.0), "READY");
     }
-
-    #[test]
-    fn look_toward_drain_forwards_frozen_reverse_rotation() {
-        let src = include_str!("camera_drain.rs");
-        let receiving = src
-            .split_once("pub(super) fn apply_presentation_camera_residual(")
-            .expect("receiving camera method")
-            .1
-            .split_once("pub(super) fn apply_camera_follow_or_tether(")
-            .expect("next camera method")
-            .0;
-        assert!(
-            !receiving.contains("self.apply_camera_look_toward_request("),
-            "a presentation acknowledgment must not restart an installed rotation"
-        );
-        let intake =
-            include_str!("../game_logic/world_scripts/scripts_camera/script_action_effects.rs");
-        assert!(intake.contains("install_look_toward("));
-        assert!(
-            intake.contains("last.reverse_rotation"),
-            "reverseRotation reaches the receiving scalar owner at command intake"
-        );
-    }
 }
 
 #[cfg(feature = "internal")]

@@ -435,7 +435,6 @@ pub struct Object {
     #[serde(default)]
     pub script_targetable: bool,
 
-
     /// C++ ActiveBody::m_indestructible (map objectIndestructible / UNIT INDESTRUCTIBLE).
     #[serde(default)]
     pub indestructible: bool,
@@ -454,7 +453,6 @@ pub struct Object {
     /// to potential occludees when this frame is in the past (`W3DScene.cpp:474`).
     #[serde(default)]
     pub safe_occlusion_frame: u32,
-
 
     /// C++ RadarUpdate m_extendDoneFrame residual (0 = inactive).
     pub radar_extend_done_frame: u32,
@@ -517,8 +515,6 @@ pub struct Object {
     /// starts only when idle at this point, not the structure centre.
     #[serde(default)]
     pub dozer_dock_action: Option<Vec3>,
-
-
 
     /// C++ SupplyTruckAIUpdate/WorkerAIUpdate::m_preferredDock.
     ///
@@ -1081,7 +1077,6 @@ pub struct Object {
     #[serde(default = "default_true")]
     pub ambient_sound_enabled_from_script: bool,
 
-
     /// Health system
     pub health: Health,
 
@@ -1096,7 +1091,6 @@ pub struct Object {
     /// C++ ExperienceTracker::m_experienceScalar (ctor 1.0).
     #[serde(default = "default_experience_scalar")]
     pub experience_scalar: f32,
-
 
     /// Primary weapon
     pub weapon: Option<Weapon>,
@@ -1135,7 +1129,6 @@ pub struct Object {
     #[serde(default)]
     pub charge_plant_unpack_remaining_seconds: Option<f32>,
 
-
     /// Construction progress (0.0 to 1.0)
     pub construction_percent: f32,
 
@@ -1163,7 +1156,6 @@ pub struct Object {
     #[serde(default)]
     pub flash_color: u32,
 
-
     /// AI state for autonomous behavior
     pub ai_state: AIState,
     /// Monotonic callback stamp for synchronous DockUpdate reservation cancel.
@@ -1183,7 +1175,6 @@ pub struct Object {
 
     /// Template name for identification
     pub template_name: String,
-
 
     /// Maximum health
     pub max_health: f32,
@@ -1248,7 +1239,6 @@ pub struct Object {
     #[serde(default)]
     pub guard_chase_give_up_frame: u32,
 
-
     /// Force attack mode
     pub force_attack: bool,
 
@@ -1269,7 +1259,6 @@ pub struct Object {
     /// One-frame pulse: stamped on enter, cleared by OpenContain::update next frame.
     #[serde(default)]
     pub player_who_entered: String,
-
 
     /// Residual transport slot capacity (vehicles).
     /// `0` = use footprint heuristic (existing host residual default).
@@ -1457,14 +1446,12 @@ pub struct Object {
     #[serde(default)]
     pub chinook_ai: Option<crate::game_logic::host_combat_chinook::HostChinookAI>,
 
-
     /// C++ parity (Object::m_containedBy): when this unit is inside a
     /// transport/garrison, stores the container's ID.  None when free.
     pub contained_by: Option<ObjectId>,
     /// C++ `AIUpdateInterface::m_isRecruitable` (default true).
     #[serde(default = "default_true")]
     pub is_recruitable: bool,
-
 
     /// Optional short-lived cheer/animation timer
     pub cheer_timer: f32,
@@ -1537,7 +1524,6 @@ pub struct Object {
     /// Whether this slot has rebuilt its unused scatter table this clip.
     #[serde(default)]
     pub weapon_scatter_targets_inited: [bool; 3],
-
 
     /// C++ Weapon PRE_ATTACK residual: target being wound up against.
     #[serde(default)]
@@ -1648,7 +1634,6 @@ pub struct Object {
     /// C++ `OpenContain::m_lastUnloadSoundFrame` — last frame ExitSound played.
     #[serde(default)]
     pub last_unload_sound_frame: u32,
-
 
     /// Applied upgrades keyed by upgrade template/tag name.
     pub applied_upgrades: HashSet<String>,
@@ -2583,7 +2568,6 @@ pub struct Object {
     #[serde(default)]
     pub horde_wake_initialized: bool,
 
-
     /// Host residual Frenzy / Rage temporary attack buff
     /// (C++ WEAPONBONUSCONDITION_FRENZY_ONE/TWO/THREE via doTempWeaponBonus).
     /// Fail-closed: not full WeaponBonusConditionFlags matrix / TempWeaponBonusHelper Xfer.
@@ -2615,7 +2599,6 @@ pub struct Object {
     /// without re-running `friend_applyDifficultyBonusesForObject`.
     #[serde(default)]
     pub is_receiving_difficulty_bonus: bool,
-
 
     /// Residual sight-range scale currently applied for SearchAndDestroy (1.0 = none).
     #[serde(default = "default_one_f32")]
@@ -2702,7 +2685,6 @@ pub struct Object {
     /// when the nested attack goes idle.
     #[serde(default)]
     pub attack_move_command_src: Option<u32>,
-
 
     /// Host residual: Overlord / Helix portable GattlingCannon addon installed
     /// (`Upgrade_ChinaOverlordGattlingCannon` / Helix equivalent). Equips AA
@@ -2909,7 +2891,6 @@ pub struct Object {
     #[serde(default)]
     pub partition_last_look:
         Option<crate::game_logic::partition_manager::HostPartitionLookStamp>,
-
 
     /// C++ AutoAcquireEnemiesWhenIdle residual (AAS_Idle bit).
     #[serde(default)]
@@ -3284,8 +3265,6 @@ pub(crate) use construct::template_has_worker_ai_update;
 mod damage;
 pub(in crate::game_logic) use damage::{BridgeBodyCallbacks, DamageApplication};
 mod death;
-#[cfg(test)]
-mod entity_inventory_audit;
 mod entity_lifecycle_apply;
 #[cfg(test)]
 mod entity_lifecycle_audit;
@@ -3294,6 +3273,8 @@ mod entity_lifecycle_flight;
 mod entity_lifecycle_inventory;
 pub(crate) mod entity_lifecycle_projectiles;
 mod entity_lifecycle_residuals;
+#[cfg(test)]
+mod entity_lifecycle_round_trip_tests;
 mod entity_lifecycle_tags;
 mod entity_lifecycle_weapon_slots;
 mod fx;
@@ -3371,33 +3352,4 @@ mod healing_state_callback_owner_tests;
 
 pub(crate) mod unit_ai_runtime;
 
-/// Concatenated live `object/*.rs` sources (excluding tests) for residual scans.
-pub const OBJECT_SRC: &str = concat!(
-    include_str!("mod.rs"),
-    include_str!("turret_spawn.rs"),
-    include_str!("attack.rs"),
-    include_str!("bonuses.rs"),
-    include_str!("construct.rs"),
-    include_str!("damage.rs"),
-    include_str!("damage/application.rs"),
-    include_str!("damage/world_policy.rs"),
-    include_str!("death.rs"),
-    include_str!("install.rs"),
-    include_str!("jets.rs"),
-    include_str!("orders.rs"),
-    include_str!("physics.rs"),
-    include_str!("physics_motion.rs"),
-    include_str!("physics_damage.rs"),
-    include_str!("physics_landing.rs"),
-    include_str!("physics_landing/contact.rs"),
-    include_str!("physics_motion/overlap_crush.rs"),
-    include_str!("pose.rs"),
-    include_str!("record.rs"),
-    include_str!("rtb.rs"),
-    include_str!("status_bits.rs"),
-    include_str!("stealth.rs"),
-    include_str!("update.rs"),
-    include_str!("unit_ai_runtime.rs"),
-    include_str!("visual.rs"),
-    include_str!("weapons.rs"),
-);
+// Concatenated live `object/*.rs` sources (excluding tests) for residual scans.

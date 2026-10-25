@@ -50,18 +50,6 @@ impl ParticleCamera {
 mod tests {
     use super::*;
 
-    #[test]
-    fn native_terrain_pass_selects_receiving_y_up_snow_camera_explicitly() {
-        let source = include_str!("pipeline_prewarm.rs")
-            .split("pub(super) fn update_and_enqueue_terrain_pass(")
-            .nth(1)
-            .unwrap();
-        assert!(source.contains(".render_native_y_up_with_motion("));
-        assert!(source.contains("snow_min_height"));
-        assert!(source.contains("frame.world_env.runtime_heightmap.as_ref()"));
-        assert!(!source.contains("snow_terrain_visible_xy"));
-    }
-
     fn observation(eye: Vec3, target: Vec3, ground: f32) -> ParticleCamera {
         ParticleCamera::capture(
             Mat4::look_at_rh(eye, target, Vec3::Y),

@@ -65,27 +65,6 @@ include!("parse.rs");
 include!("constants.rs");
 include!("tests.rs");
 
-/// Concatenated live sources for residual `include_str!` scans.
-pub const W3D_MODEL_DRAW_SRC: &str = concat!(
-    include_str!("mod.rs"),
-    include_str!("constants.rs"),
-    include_str!("draw.rs"),
-    include_str!("particles.rs"),
-    include_str!("hlod_live_child.rs"),
-    include_str!("impl_anim.rs"),
-    include_str!("module_data.rs"),
-    include_str!("parse.rs"),
-    include_str!("recoil.rs"),
-    include_str!("snapshot.rs"),
-    include_str!("trait_impl.rs"),
-    include_str!("projectile.rs"),
-    include_str!("types.rs"),
-    include_str!("carrying.rs"),
-    include_str!("hide_show.rs"),
-    include_str!("anim_playback.rs"),
-    include_str!("shadow_bind.rs"),
-);
-
 #[cfg(test)]
 mod receiving_state_particle_tests;
 

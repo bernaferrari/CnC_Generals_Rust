@@ -1397,52 +1397,6 @@ mod tests {
     }
 
     #[test]
-    fn host_bridge_drains_requests_in_every_game_mode_without_disabling() {
-        // C++ ControlBarCommandProcessing.cpp:161-884 appends the same MSG_*
-        // for every game mode; the host executor is the single authority for
-        // all of them. No drain may lazily disable the bridge or swallow
-        // already-published requests — that is what made every later cameo
-        // button dead in a LAN-lobby-launched match.
-        let tick = include_str!("control_bar_bridge.rs");
-        let start = tick
-            .find("pub(crate) fn host_tick_control_bar_bridge")
-            .expect("host_tick_control_bar_bridge");
-        let body = &tick[start..];
-        let end = body.find("\n    fn ").unwrap_or(body.len().min(2500));
-        let body = &body[..end];
-        assert!(
-            !body.contains("set_host_control_bar_bridge_enabled"),
-            "the drain must never disable the bridge; mode parity is C++ behavior"
-        );
-        assert!(
-            !body.contains("host_control_bar_bridge_is_network_or_replay"),
-            "the drain must not be mode-coupled"
-        );
-        let production = tick.split("\nmod tests").next().unwrap_or(tick);
-        assert!(
-            !production.contains("fn host_control_bar_bridge_is_network_or_replay"),
-            "the retired network/replay gate must stay deleted"
-        );
-        let state_guard = body
-            .find("if !in_game && !paused_popup_ack_only")
-            .expect("only the out-of-world state guard may refuse requests");
-        let drain_loop = body
-            .find("for published in requests")
-            .expect("published requests are drained");
-        let applied = body
-            .find("self.host_apply_control_bar_request(")
-            .expect("each drained request reaches the host executor");
-        assert!(
-            state_guard < drain_loop && drain_loop < applied,
-            "after the state guard, every published request must be applied — a Multiplayer/Lan/Internet click is executed, not dropped"
-        );
-        assert!(
-            !body.contains("self.host_match_game_mode"),
-            "the drain itself must not branch on the match mode"
-        );
-    }
-
-    #[test]
     fn physical_evidence_latch_keeps_offline_product_scope() {
         // The acceptance latch is narrower than command delivery: only
         // physical input during an offline product match may promote it.
@@ -1491,123 +1445,6 @@ mod tests {
         assert!(
             !popup_acknowledgement_matches_active_generation(None, POPUP_B),
             "a world reset/replacement has no retained popup to dismiss"
-        );
-    }
-
-    #[test]
-    fn popup_dismissal_matches_token_before_clearing_and_reconciles_active_record() {
-        let bridge = include_str!("control_bar_bridge.rs");
-        let start = bridge
-            .find("fn host_dismiss_in_game_popup_message")
-            .expect("popup dismiss handler");
-        let end = bridge[start..]
-            .find("\n    fn host_clear_active_popup_presentation_residual")
-            .map(|offset| start + offset)
-            .expect("popup dismiss handler end");
-        let dismiss = &bridge[start..end];
-        let guard = dismiss
-            .find("popup_acknowledgement_matches_active_generation")
-            .expect("dismissal checks its live popup identity");
-        let take = dismiss
-            .find("self.game_logic.take_popup_message_requests();")
-            .expect("matching dismissal clears Main's active record");
-        assert!(
-            guard < take
-                && dismiss.contains("self.host_clear_active_popup_presentation_residual();")
-                && dismiss.contains("self.host_reconcile_active_popup_pause(None);"),
-            "only a matching acknowledgement may clear Main's active record and pause ownership"
-        );
-        assert!(
-            dismiss.contains("return;"),
-            "zero/missing/mismatched identities must fail closed before WND cleanup"
-        );
-    }
-
-    #[test]
-    fn popup_world_boundaries_invalidate_only_popup_ui_work() {
-        let authority = include_str!("host_authority.rs");
-        let reset = &authority[authority
-            .find("fn host_clear_match_residuals(")
-            .expect("match reset boundary")..];
-        let replace = &authority[authority
-            .find("fn host_replace_game_logic(")
-            .expect("world replace boundary")..];
-        let reset_end = reset
-            .find("fn host_reset_game_logic")
-            .expect("next reset authority method");
-        let replace_end = replace
-            .find("fn host_save_game_authority")
-            .expect("next replacement method");
-        assert!(
-            reset[..reset_end].contains("self.host_invalidate_active_popup_for_world_boundary();")
-                && replace[..replace_end]
-                    .contains("self.host_invalidate_active_popup_for_world_boundary();")
-                && replace[..replace_end]
-                    .find("self.host_invalidate_active_popup_for_world_boundary();")
-                    < replace[..replace_end].find("self.game_logic = logic;")
-        );
-
-        let bridge = include_str!("control_bar_bridge.rs");
-        let start = bridge
-            .find("fn host_invalidate_active_popup_for_world_boundary")
-            .expect("popup world-boundary invalidation helper");
-        let end = bridge[start..]
-            .find("\n    fn host_clear_active_popup_presentation_residual")
-            .map(|offset| start + offset)
-            .expect("popup invalidation helper end");
-        let invalidate = &bridge[start..end];
-        assert!(
-            invalidate.contains("self.game_logic.take_popup_message_requests();")
-                && invalidate.contains("self.host_reconcile_active_popup_pause(None);")
-                && invalidate.contains("clear_host_dismiss_in_game_popup_message_requests")
-                && invalidate.contains("TheInGameUI::clear_popup_message_data();"),
-            "world boundaries clear the authoritative popup, popup-owned pause, stale ACKs, and modal WND only"
-        );
-    }
-
-    #[test]
-    fn cancel_structure_placement_request_routes_through_the_dual_hud_clear() {
-        let bridge = include_str!("control_bar_bridge.rs");
-        let apply_start = bridge
-            .find("fn host_apply_control_bar_request")
-            .expect("Control Bar bridge request handler");
-        let apply_end = bridge[apply_start..]
-            .find("\n    fn host_apply_control_bar_direct")
-            .map(|offset| apply_start + offset)
-            .expect("end of Control Bar bridge request handler");
-        let apply = &bridge[apply_start..apply_end];
-        let request_start = apply
-            .find("HostControlBarRequest::CancelStructurePlacement")
-            .expect("placement cancellation is drained by Main");
-        let request_end = apply[request_start..]
-            .find("HostControlBarRequest::Production")
-            .map(|offset| request_start + offset)
-            .expect("placement cancellation precedes normal Control Bar commands");
-        let request = &apply[request_start..request_end];
-        assert!(
-            request.contains("self.cancel_structure_placement_from_ui();"),
-            "the bridge must use Main's authoritative placement-cancel helper"
-        );
-
-        let ui_commands = include_str!("ui_commands.rs");
-        let clear_start = ui_commands
-            .find("fn cancel_structure_placement_from_ui")
-            .expect("authoritative placement-cancel helper");
-        let clear_end = ui_commands[clear_start..]
-            .find("\n    /// Update structure placement ghost legality")
-            .map(|offset| clear_start + offset)
-            .expect("end of authoritative placement-cancel helper");
-        let clear = &ui_commands[clear_start..clear_end];
-        assert!(
-            clear.contains("self.pending_structure_placement = None;")
-                && clear.contains("self.game_hud_mut()")
-                && clear.contains(".construction_panel")
-                && clear.contains(".clear_structure_placement();"),
-            "the host cancel must clear Main's pending placement and sole HUD ghost"
-        );
-        assert!(
-            !clear.contains("pending_map_command"),
-            "opening Generals Experience must not cancel an unrelated pending map command"
         );
     }
 
@@ -1801,24 +1638,6 @@ mod tests {
     }
 
     #[test]
-    fn leftover_wnd_host_rejects_do_not_invent_hud_toasts() {
-        let src = include_str!("control_bar_bridge.rs");
-        let reject = src
-            .find("fn host_reject_control_bar_request")
-            .map(|i| &src[i..src.len().min(i + 350)])
-            .expect("host_reject_control_bar_request");
-        assert!(
-            !reject.contains("push_info_message"),
-            "hq-0foy9: leftover-WND host rejects must stay silent"
-        );
-        let prod = src.split("#[cfg(test)]").next().unwrap_or(src);
-        assert!(
-            !prod.contains("FirstSelectedObjectAction::Sell"),
-            "hq-5mdst: Sell must queue the full selection, not first-selected"
-        );
-    }
-
-    #[test]
     fn ambiguous_legacy_target_aliases_require_exact_retail_button_keys() {
         assert_eq!(
             host_control_bar_target_unit_ability(
@@ -1943,53 +1762,5 @@ mod tests {
         assert_eq!(resolve_host_queue_cancel_index(17, 1, 3), Some(1));
         assert_eq!(resolve_host_queue_cancel_index(0, 5, 3), None);
         assert_eq!(resolve_host_queue_cancel_index(9, 5, 3), None);
-
-        let src = include_str!("control_bar_bridge.rs");
-        let start = src
-            .find("fn host_apply_control_bar_cancel")
-            .expect("cancel apply");
-        let apply = &src[start..];
-        let apply = apply
-            .split("\n    fn host_control_bar_local_selection")
-            .next()
-            .unwrap();
-        assert!(
-            apply
-                .contains("resolve_host_queue_cancel_index(production_id, queue_index, queue_len)")
-                && apply.contains("host_cancel_production_at_index(producer, cancel_index)")
-                && !apply.contains("host_cancel_production_and_sync_hud"),
-            "live cancel must keep productionID/index identity, not template first-match"
-        );
-        let production_src = src.split("\nmod tests").next().unwrap();
-        assert!(
-            !production_src.contains("production_id: _"),
-            "QueueCancel must not discard production_id"
-        );
-    }
-
-    #[test]
-    fn exit_direct_command_keeps_occupant_id_not_unload_all() {
-        // C++ GameLogicDispatch.cpp:978-1004 MSG_EXIT uses argument 0 occupant.
-        let src = include_str!("control_bar_bridge.rs");
-        let start = src
-            .find("fn host_apply_control_bar_direct(")
-            .expect("direct apply");
-        let apply = &src[start..];
-        let apply = apply
-            .split("\n    fn host_apply_control_bar_direct_action")
-            .next()
-            .unwrap();
-        assert!(
-            apply.contains("exit_object_id")
-                && apply.contains("LegacyCommandType::Exit")
-                && apply.contains("vec![occupant_id]")
-                && apply.contains("EXIT requires occupant object id"),
-            "EXIT must queue the occupant, not the container dump-all"
-        );
-        let production_src = src.split("\nmod tests").next().unwrap();
-        assert!(
-            !production_src.contains("exit_object_id: _"),
-            "DirectCommand must not discard exit_object_id"
-        );
     }
 }

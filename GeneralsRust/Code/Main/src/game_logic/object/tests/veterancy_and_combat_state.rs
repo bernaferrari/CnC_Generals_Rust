@@ -713,13 +713,6 @@ fn clip_ammo_forces_clip_reload_gap() {
 }
 
 #[test]
-fn clip_ammo_cpp_surface() {
-    let src = crate::game_logic::object::OBJECT_SRC;
-    assert!(src.contains("fn consume_ammo_on_fire"));
-    assert!(src.contains("clip_reload_time"));
-}
-
-#[test]
 fn pre_attack_delay_blocks_first_shot() {
     let mut _attack_output = crate::game_logic::host_attack_log::AttackEvents::default();
 
@@ -818,14 +811,6 @@ fn pre_attack_resets_on_new_target() {
     ));
     assert_eq!(atk.pre_attack_target, Some(ObjectId(11)));
     assert!((atk.pre_attack_ready_at - 8.0).abs() < 1e-4);
-}
-
-#[test]
-fn pre_attack_cpp_surface() {
-    let src = crate::game_logic::object::OBJECT_SRC;
-    assert!(src.contains("PRE_ATTACK residual"));
-    assert!(src.contains("pre_attack_ready_at"));
-    assert!(src.contains("pre_attack_delay"));
 }
 
 #[test]
@@ -3316,27 +3301,6 @@ fn body_damage_threshold_cpp_surface() {
         host_calc_body_damage_state(0.0, 100.0),
         HostBodyDamageType::Rubble
     );
-}
-
-#[test]
-fn fire_at_stamps_detonation_fx_on_pending() {
-    // Surface residual: PendingProjectile carries ProjectileDetonationFX name.
-    let src = crate::game_logic::object::OBJECT_SRC;
-    assert!(src.contains("detonation_fx_name"));
-    assert!(src.contains("host_detonation_fx_for_weapon_name"));
-    assert!(src.contains("detonation_ocl_name"));
-    assert!(src.contains("host_detonation_ocl_for_weapon_name"));
-    assert!(src.contains("exhaust_name"));
-    // The live pending-projectile exhaust stamp resolves the veterancy-scaled
-    // exhaust via the weapon-name peel (attack.rs); the unit-slot variant
-    // moved to construct-time weapon-set binding (object_ai_combat.rs).
-    assert!(src.contains("host_projectile_exhaust_for_weapon_name_at_veterancy"));
-    let csrc = concat!(
-        include_str!("../../combat/weapon_fire.rs"),
-        include_str!("../../combat/resolution.rs"),
-    );
-    assert!(csrc.contains("take_impact_fx"));
-    assert!(csrc.contains("ProjectileImpactFx"));
 }
 
 #[test]

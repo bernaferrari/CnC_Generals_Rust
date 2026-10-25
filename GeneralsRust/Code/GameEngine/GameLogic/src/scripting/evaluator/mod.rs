@@ -61,17 +61,3 @@ include!("actions.rs");
 
 #[cfg(test)]
 mod tests;
-
-/// Concatenated live sources for residual `include_str!` scans.
-pub const EVALUATOR_SRC: &str = concat!(
-    include_str!("mod.rs"),
-    include_str!("actions.rs"),
-    include_str!("dispatch.rs"),
-    include_str!("eval_area.rs"),
-    include_str!("eval_combat.rs"),
-    include_str!("eval_lifecycle.rs"),
-    include_str!("eval_player.rs"),
-    include_str!("eval_state.rs"),
-    include_str!("eval_unit.rs"),
-    include_str!("leftover.rs"),
-);

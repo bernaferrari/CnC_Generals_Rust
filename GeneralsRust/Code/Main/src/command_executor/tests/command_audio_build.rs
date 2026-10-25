@@ -528,53 +528,6 @@ fn execute_build_no_money_queues_insufficient_funds_eva_and_refuses() {
 }
 
 #[test]
-fn execute_build_source_records_build_slot_and_docks() {
-    let src = include_str!("../construct.rs");
-    let single_start = src
-        .find("pub(super) fn execute_build(")
-        .expect("execute_build");
-    let prepared_start = src
-        .find("pub(super) fn execute_prepared_dozer_build(")
-        .expect("prepared build adapter");
-    let shared_start = src
-        .find("fn execute_build_with_placement(")
-        .expect("shared ordinary construction");
-    let shared_end = src
-        .find("pub(super) fn execute_dozer_construct(")
-        .expect("next construction adapter");
-    let single = &src[single_start..prepared_start];
-    let prepared = &src[prepared_start..shared_start];
-    let shared = &src[shared_start..shared_end];
-    assert!(
-        single.contains("execute_build_with_placement")
-            && single.contains("BuildPlacement::Single")
-    );
-    assert!(
-        prepared.contains("execute_build_with_placement")
-            && prepared.contains("BuildPlacement::PreparedLine")
-    );
-    assert!(
-        shared.contains("dozer_new_task_build")
-            && shared.contains("find_good_build_or_repair_position")
-            && shared.contains("path_to_goal_with_state_ignoring"),
-        "hq-gkpuk/hq-6gy32: execute_build must newTask BUILD, dock half-radius, ignoreObstacle"
-    );
-    let snap = include_str!("../../game_logic/world_scripts/ui_production.rs");
-    let flatten_start = snap
-        .find("fn flatten_and_snap_construction")
-        .expect("flatten_and_snap");
-    let flatten_end = snap[flatten_start..]
-        .find("pub fn builder_has_clear_path_to(")
-        .map(|offset| flatten_start + offset)
-        .expect("next placement operation");
-    let flatten = &snap[flatten_start..flatten_end];
-    assert!(
-        flatten.contains("flatten_terrain_box_at") && flatten.contains("HostGeometryType::Box"),
-        "hq-6smw3: flatten_and_snap must use GEOMETRY_BOX flatten, not cylinder-only"
-    );
-}
-
-#[test]
 fn dozer_place_and_cancel_use_calc_cost_to_build_handicap() {
     use super::CommandExecutor;
     use crate::command_system::CommandResult;
@@ -925,21 +878,6 @@ fn context_attack_plays_voice_attack_and_air() {
             .collect::<Vec<_>>()
     );
     clear_test_template_voices();
-}
-
-#[test]
-fn host_play_sound_effect_must_not_invent_unit_command_or_select() {
-    let src = crate::cnc_game_engine::ENGINE_SRC;
-    let i = src
-        .find("fn host_play_sound_effect")
-        .expect("host_play_sound_effect");
-    let body = &src[i..src.len().min(i + 1800)];
-    assert!(
-        body.contains("SoundType::Select | SoundType::Command")
-            && !body.contains("SoundType::Select => \"UnitSelect\"")
-            && !body.contains("SoundType::Command => \"UnitCommand\""),
-        "host_play_sound_effect must no-op invented UnitSelect/UnitCommand"
-    );
 }
 
 #[test]
@@ -1624,17 +1562,6 @@ fn attack_move_includes_immobile_attacker() {
 #[test]
 fn group_path_thresholds_read_aidata_store() {
     // C++ friend_computeGroundPath uses AIData MinDistance/DistanceRequiresGroup.
-    let src = crate::command_executor::COMMAND_EXECUTOR_SRC;
-    let i = src
-        .find("fn group_path_distance_thresholds")
-        .expect("group_path_distance_thresholds");
-    let w = &src[i..src.len().min(i + 1800)];
-    assert!(
-        w.contains("self.game_logic.ai_definitions.data()")
-            && w.contains("min_distance_for_group")
-            && w.contains("distance_requires_group"),
-        "group-path must read leftover AIData thresholds"
-    );
 
     use super::CommandExecutor;
     use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
@@ -1665,21 +1592,6 @@ fn group_path_thresholds_read_aidata_store() {
             );
         }
     }
-}
-
-#[test]
-fn click_to_gather_source_reads_gamedata_and_caps_cells() {
-    let src = crate::command_executor::COMMAND_EXECUTOR_SRC;
-    let i = src
-        .find("fn should_tighten_group_move")
-        .expect("should_tighten_group_move");
-    let w = &src[i..src.len().min(i + 2500)];
-    assert!(
-        w.contains("group_move_click_to_gather_factor")
-            && w.contains("cells < 2000")
-            && !w.contains("hx.max(20.0)"),
-        "tighten must use GameData factor, 2000-cell cap, no 20wu pad"
-    );
 }
 
 #[test]

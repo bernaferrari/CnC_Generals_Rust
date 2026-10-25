@@ -798,6 +798,8 @@ pub struct RenderableObject {
     /// C++ WEAPONSET_CARBOMB residual for the local-player CarBomb icon.
     #[serde(default)]
     pub weapon_set_carbomb: bool,
+    #[serde(default)]
+    pub authors_carbomb_weapon_set: bool,
     /// C++ drawBombed sticky type: 0 none, 1 timed, 2 remote.
     #[serde(default)]
     pub bomb_type: u8,
@@ -1072,6 +1074,9 @@ pub struct RenderableObject {
     /// C++ `Drawable::m_secondMaterialPassOpacity` residual.
     #[serde(default)]
     pub camo_heat_vision_opacity: f32,
+    /// Actual source KINDOF_REJECT_UNMANNED; not encoded in the compact kind bank.
+    #[serde(default = "missing_recrew_kind")]
+    pub reject_unmanned: bool,
 }
 
 /// Frozen direct-object visual source retained independently of the primary
@@ -1389,4 +1394,8 @@ mod drawable_shroud_tests {
             .requires_scene_shroud_material()
         );
     }
+}
+
+fn missing_recrew_kind() -> bool {
+    true
 }

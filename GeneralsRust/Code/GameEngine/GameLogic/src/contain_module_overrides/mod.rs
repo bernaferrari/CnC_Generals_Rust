@@ -444,25 +444,6 @@ pub(crate) fn register_active_body_override_for_test() -> Result<(), String> {
     )
 }
 
-/// Concatenated live sources for residual `include_str!` scans.
-pub const CONTAIN_OVERRIDES_SRC: &str = concat!(
-    include_str!("mod.rs"),
-    include_str!("behavior.rs"),
-    include_str!("body.rs"),
-    include_str!("collide_crates.rs"),
-    include_str!("contain.rs"),
-    include_str!("death.rs"),
-    include_str!("draw_client.rs"),
-    include_str!("factory_gaps.rs"),
-    include_str!("helpers.rs"),
-    include_str!("install.rs"),
-    include_str!("leftover.rs"),
-    include_str!("production.rs"),
-    include_str!("strict_module_data.rs"),
-    include_str!("template_locomotor.rs"),
-    include_str!("update_modules.rs"),
-);
-
 pub(crate) use update_modules::register_inert_auto_heal;
 
 pub(crate) use death::register_owned_death_constructors;

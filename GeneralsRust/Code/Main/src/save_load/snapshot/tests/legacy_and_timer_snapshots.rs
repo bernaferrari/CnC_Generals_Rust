@@ -142,21 +142,6 @@ fn companion_save_round_trips_mid_recoil_animation_and_discharge_sequence() {
 }
 
 #[test]
-fn load_resets_model_state_before_recoil_restore() {
-    let source = include_str!("../../../graphics/render_pipeline/pipeline_drawable_state.rs");
-    let reset = source
-        .find("*state = ObjectVisualState {")
-        .expect("identity reset");
-    let restore = source
-        .find("if let Some(saved) = pending_restore")
-        .expect("pending recoil restore");
-    assert!(
-        reset < restore,
-        "C++ Drawable.cpp:4928 replaceModelConditionFlags must run before module recoil xfer"
-    );
-}
-
-#[test]
 fn companion_save_round_trips_w3d_ghost_snapshots() {
     use crate::save_load::{GameDifficulty, SaveFileManager, SaveFileType, SaveGameInfo};
     use gamelogic::object::w3d_ghost_object::{

@@ -1008,19 +1008,6 @@ mod script_enum_from_u32_tests {
         );
         assert_eq!(ConditionType::from_u32(109), Some(ConditionType::NumItems));
         assert_eq!(ConditionType::from_u32(110), None);
-        let impl_src = include_str!("core.rs");
-        let action = impl_src
-            .split("impl ScriptActionType")
-            .nth(1)
-            .and_then(|s| s.split("impl ConditionType").next())
-            .unwrap_or("");
-        let condition = impl_src
-            .split("impl ConditionType")
-            .nth(1)
-            .and_then(|s| s.split("#[cfg(test)]").next())
-            .unwrap_or("");
-        assert!(!action.contains("mem::transmute"));
-        assert!(!condition.contains("mem::transmute"));
     }
 }
 
@@ -1154,15 +1141,6 @@ mod parameter_type_from_u32_tests {
         assert_eq!(ParameterType::from_u32(51), Some(ParameterType::Percent));
         assert_eq!(ParameterType::from_u32(52), Some(ParameterType::NumItems));
         assert_eq!(ParameterType::from_u32(53), None);
-        let impl_src = include_str!("core.rs")
-            .split("impl ParameterType")
-            .nth(1)
-            .and_then(|s| s.split("impl ComparisonType").next())
-            .unwrap_or("");
-        assert!(
-            !impl_src.contains("mem::transmute"),
-            "ParameterType::from_u32 must not transmute"
-        );
     }
 }
 

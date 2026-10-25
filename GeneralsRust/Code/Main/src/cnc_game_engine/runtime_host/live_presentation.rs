@@ -20,28 +20,6 @@ impl CnCGameEngine {
         };
     }
 
-    pub(super) fn runtime_host_cmd_click_presentation_boundary(
-        &mut self,
-        args: &HashMap<String, String>,
-    ) {
-        let action = args
-            .get("action")
-            .map(|v| v.trim().to_ascii_lowercase())
-            .unwrap_or_else(|| "prepare".to_string());
-        let wnd_ok = match action.as_str() {
-            "execute" => crate::graphics::simulate_presentation_boundary_execute_source(),
-            "collect" => crate::graphics::simulate_presentation_boundary_collect_source(),
-            "fallback" => crate::graphics::simulate_presentation_boundary_fallback_counter_source(),
-            "cnc" => crate::graphics::simulate_presentation_boundary_cnc_execute_source(),
-            _ => crate::graphics::simulate_presentation_boundary_prepare_honesty(),
-        };
-        self.runtime_host_last_gameplay_cmd = if wnd_ok {
-            format!("click_presentation_boundary_ok_wnd_{action}")
-        } else {
-            "click_presentation_boundary_miss".into()
-        };
-    }
-
     pub(super) fn runtime_host_cmd_click_live_map_load(&mut self, args: &HashMap<String, String>) {
         let action = args
             .get("action")
@@ -55,49 +33,6 @@ impl CnCGameEngine {
             format!("click_live_map_load_ok_{action}")
         } else {
             format!("click_live_map_load_miss_{action}")
-        };
-    }
-
-    pub(super) fn runtime_host_cmd_click_live_presentation_seed(
-        &mut self,
-        args: &HashMap<String, String>,
-    ) {
-        let action = args
-            .get("action")
-            .map(|v| v.trim().to_ascii_lowercase())
-            .unwrap_or_else(|| "prepare".to_string());
-        let ok = match action.as_str() {
-            "source" => {
-                crate::game_logic::honesty_seed_presentation_after_match_start_source()
-                    && crate::game_logic::honesty_render_execute_presentation_only_source()
-            }
-            "build" | "prepare" | "seed" => false,
-            _ => self.host_unknown_action_fail_closed(false),
-        };
-        self.runtime_host_last_gameplay_cmd = if ok {
-            format!("click_live_presentation_seed_ok_{action}")
-        } else {
-            format!("click_live_presentation_seed_miss_{action}")
-        };
-    }
-
-    pub(super) fn runtime_host_cmd_click_live_gameworld_shadow(
-        &mut self,
-        args: &HashMap<String, String>,
-    ) {
-        let action = args
-            .get("action")
-            .map(|v| v.trim().to_ascii_lowercase())
-            .unwrap_or_else(|| "prepare".to_string());
-        let ok = match action.as_str() {
-            "source" => crate::game_logic::honesty_seed_presentation_shadow_overlay_source(),
-            "sync" | "overlay" | "prepare" => false,
-            _ => self.host_unknown_action_fail_closed(false),
-        };
-        self.runtime_host_last_gameplay_cmd = if ok {
-            format!("click_live_gameworld_shadow_ok_{action}")
-        } else {
-            format!("click_live_gameworld_shadow_miss_{action}")
         };
     }
 

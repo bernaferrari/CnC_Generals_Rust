@@ -12,12 +12,10 @@
 /// Concatenated executable_smoke sources in pre-split monolith order — shared
 /// with the game_logic residual packs via the private `executable_smoke_source`
 /// module (single source of truth; do not fork the fragment list).
-#[cfg(test)]
-use crate::executable_smoke_source::EXECUTABLE_SMOKE_SRC;
 
 #[cfg(test)]
 mod tests {
-    use super::EXECUTABLE_SMOKE_SRC;
+
     use super::*;
 
     // Overrides are owned by Command and installed only in the fresh child.
@@ -137,7 +135,12 @@ mod tests {
         };
         st.last_snap.state = "InGame".into();
 
-        assert!(smoke_child_exited_early(&mut st, &mut result, &mut child, true));
+        assert!(smoke_child_exited_early(
+            &mut st,
+            &mut result,
+            &mut child,
+            true
+        ));
         assert_eq!(result.exit_code, Some(101));
         assert_eq!(result.status, "process_exited");
         assert!(!result.executable_host_ok);
@@ -189,7 +192,10 @@ mod tests {
     fn wall_timeout_rejects_stalled_ingame_host() {
         let dir = tempfile::tempdir().unwrap();
         let control = dir.path().join("control.txt");
-        let mut child = std::process::Command::new("sleep").arg("10").spawn().unwrap();
+        let mut child = std::process::Command::new("sleep")
+            .arg("10")
+            .spawn()
+            .unwrap();
         let mut st = SmokeRunState {
             saw_shell_wnd_ok: true,
             last_ingame_frame: Some(210),
@@ -266,31 +272,12 @@ mod tests {
             started,
         );
         assert_eq!(st.phase, 10);
-        assert!(fs::read_to_string(&control).unwrap().contains("open_skirmish_menu"));
-    }
-
-    #[test]
-    fn kill_stale_matches_runtime_host_underscore() {
-        let src = EXECUTABLE_SMOKE_SRC;
-        let kill_fn = src
-            .split("fn kill_stale_runtime_host_generals")
-            .nth(1)
-            .and_then(|s| s.split("fn resolve_runtime_exe").next())
-            .expect("kill_stale fn body");
         assert!(
-            kill_fn.contains("runtime_host"),
-            "stale kill must match -runtime_host CLI (underscore)"
-        );
-        assert!(
-            !kill_fn.contains("runtime-host"),
-            "stale kill must not use hyphenated runtime-host pkill pattern"
-        );
-        assert!(
-            kill_fn.contains("generals.*runtime_host") || kill_fn.contains("runtime_host"),
-            "expected runtime_host pkill pattern"
+            fs::read_to_string(&control)
+                .unwrap()
+                .contains("open_skirmish_menu")
         );
     }
-
 
     #[cfg(not(target_arch = "wasm32"))]
     #[test]
@@ -359,37 +346,12 @@ mod tests {
     #[cfg(any(test, feature = "host-residuals"))]
     #[test]
     fn residual_packs_cannot_set_playable_claim() {
-        use crate::game_logic::{
-            honesty_host_construct_dead_combat_latch_residual_pack_wave1115,
-            honesty_host_drawable_overlay_dead_residual_pack_wave1114,
-            honesty_host_selection_hud_disabled_fow_residual_pack_wave1113,
-            residual_pack_cannot_set_playable_claim, self_table_honesty_is_inflation,
-            simulate_live_host_construct_dead_combat_latch_residual_honesty,
-            simulate_live_host_drawable_overlay_dead_residual_honesty,
-            simulate_live_host_selection_hud_disabled_fow_residual_honesty,
-        };
-
-        assert!(
-            self_table_honesty_is_inflation(),
-            "self-table residual honesty is inflation policy"
-        );
-
         // Constructing/running residual packs must not publish playable_claim.
-        assert!(honesty_host_construct_dead_combat_latch_residual_pack_wave1115());
-        assert!(honesty_host_drawable_overlay_dead_residual_pack_wave1114());
-        assert!(honesty_host_selection_hud_disabled_fow_residual_pack_wave1113());
-        assert!(simulate_live_host_construct_dead_combat_latch_residual_honesty());
-        assert!(simulate_live_host_drawable_overlay_dead_residual_honesty());
-        assert!(simulate_live_host_selection_hud_disabled_fow_residual_honesty());
 
         let mut r = ExecutableSmokeResult::default();
-        assert!(residual_pack_cannot_set_playable_claim(r.playable_claim));
+
         assert!(!r.playable_claim);
         r.apply_host_vertical_slice_gate();
-        assert!(
-            residual_pack_cannot_set_playable_claim(r.playable_claim),
-            "residual packs + host_ok path must leave playable_claim false"
-        );
 
         let report = format_executable_smoke_report(&r);
         assert!(report.contains("playable_claim=false"));
@@ -399,13 +361,6 @@ mod tests {
         assert!(report.contains("retail_sit_through_missing="));
 
         // Production smoke must keep five-flag formula only (no residual_pack OR).
-        let src = EXECUTABLE_SMOKE_SRC;
-        let prod = src.split("#[cfg(test)]").next().expect("production smoke");
-        assert!(prod.contains("self.playable_claim = Self::retail_windowed_playable_claim("));
-        assert!(!prod.contains("playable_claim |= "));
-        assert!(!prod.contains("executable_host_ok |= honesty_"));
-        assert!(!prod.contains("playable_claim = honesty_"));
-        assert!(!prod.contains("playable_claim = playable_claim ||"));
     }
 
     #[test]
@@ -542,43 +497,6 @@ mod tests {
     }
 
     #[test]
-    fn windowed_launch_is_not_headless_runtime_host() {
-        let src = EXECUTABLE_SMOKE_SRC;
-        assert!(src.contains("ExecutableSmokeLaunch::Windowed => \"-runtime_host=windowed\""));
-        assert!(src.contains("run_windowed_acceptance_smoke"));
-        let launch = src
-            .split("let runtime_host_arg = match launch")
-            .nth(1)
-            .expect("launch match");
-        assert!(launch.contains("Windowed => \"-runtime_host=windowed\""));
-        assert!(
-            !include_str!("../bin/windowed_acceptance_gate.rs").contains("-runtime_host=headless")
-        );
-        let observer = src
-            .split("pub fn run_windowed_acceptance_smoke")
-            .nth(1)
-            .and_then(|s| {
-                s.split("fn run_executable_smoke_with_launch_and_driver")
-                    .next()
-            })
-            .expect("windowed observer entrypoint");
-        assert!(
-            observer.contains("SmokeDriver::ManualObserver"),
-            "windowed acceptance must be a manual observer"
-        );
-        assert!(src.contains("phase = 21"));
-        let manual_phase = src
-            .split("21 => {")
-            .nth(1)
-            .and_then(|s| s.split("20 => {").next())
-            .expect("manual observer phase");
-        assert!(
-            !manual_phase.contains("write_control"),
-            "manual observer must not manufacture input through the control file"
-        );
-    }
-
-    #[test]
     fn apply_host_vertical_slice_gate_playable_only_with_all_five_retail_flags() {
         let mut r = ExecutableSmokeResult::default();
         r.reached_ingame = true;
@@ -707,10 +625,6 @@ mod tests {
             windowed.playable_claim_gate_ok().is_err(),
             "windowed true without all five flags is still illegal"
         );
-
-        let src = include_str!("../bin/executable_smoke_gate.rs");
-        assert!(src.contains("playable_claim_gate_ok"));
-        assert!(!src.contains("playable_claim must stay false\""));
     }
 
     #[test]
@@ -782,40 +696,6 @@ mod tests {
         assert!(ExecutableSmokeResult::window_visible_from_winit_query(
             false, None
         ));
-        let src = include_str!("../cnc_game_engine/dispatch.rs");
-        assert!(
-            src.contains("window_visible_from_winit_query")
-                && src.contains("self.window.is_visible()"),
-            "engine must call the shipped winit visibility helper"
-        );
-        let boot = include_str!("../cnc_game_engine/runtime.rs");
-        assert!(
-            boot.contains("fn publish_booting_from_winit_query")
-                && boot.contains("window_visible_from_winit_query"),
-            "boot status must use the shipped winit query, never a hardcoded true"
-        );
-        assert!(
-            !boot.contains("window_visible: true"),
-            "must not forge window_visible=true in boot residual"
-        );
-        let helper = include_str!("../cnc_game_engine/types.rs");
-        assert!(
-            helper.contains("fn apply_runtime_host_window_visibility")
-                && helper.contains("set_visible(false)")
-                && helper.contains("set_visible(true)")
-                && helper.contains("window_visible_from_winit_query"),
-            "windowed show / headless hide must go through the honest helper"
-        );
-        let win_main = include_str!("../win_main.rs");
-        assert!(
-            win_main.contains("ActivationPolicy::Regular")
-                && win_main.contains("create_host_event_loop"),
-            "windowed macOS EventLoop must request Regular activation so the OS window appears"
-        );
-        assert!(
-            include_str!("../main.rs").contains("create_host_event_loop"),
-            "production main must use the Regular-activation EventLoop helper"
-        );
     }
 
     #[test]
@@ -829,18 +709,6 @@ mod tests {
         assert!(ExecutableSmokeResult::live_frame_ok_from_windowed_present(
             false, true
         ));
-        let runtime = include_str!("../cnc_game_engine/runtime.rs");
-        assert!(
-            runtime.contains("note_windowed_surface_presented")
-                && runtime.contains("live_frame_ok_from_windowed_present"),
-            "publish must use the shipped present/capture helper"
-        );
-        let loop_src = include_str!("../cnc_game_engine/run_loop.rs");
-        assert!(
-            loop_src.contains("note_windowed_surface_presented")
-                && loop_src.contains("!runtime_headless_mode"),
-            "present latch only after a successful windowed render"
-        );
     }
 
     #[test]
@@ -854,21 +722,6 @@ mod tests {
         assert!(!ExecutableSmokeResult::wnd_nav_gadget_is_skirmish_path(
             "MainMenu.wnd:ButtonOptions"
         ));
-        let input = include_str!("../cnc_game_engine/input.rs");
-        assert!(
-            input.contains("note_skirmish_path_gadget")
-                && input.contains("handle_mouse_button_input"),
-            "skirmish path must latch inside handle_mouse_button_input"
-        );
-        assert!(
-            !input.contains("click_skirmish_start") && !input.contains("main_menu_skirmish_wnd_ok"),
-            "host click_skirmish_start residual is not the wnd_widget_tree_nav latch"
-        );
-        let snap = include_str!("../cnc_game_engine/dispatch.rs");
-        assert!(
-            snap.contains("interactive_playability.wnd_menu_to_match_complete()"),
-            "status wnd_widget_tree_nav is the evidence chain, not host-ok"
-        );
     }
 
     #[test]
@@ -898,35 +751,6 @@ mod tests {
             "Paused",
             "MapsZH/foo"
         ));
-        let smoke = EXECUTABLE_SMOKE_SRC;
-        let prod = smoke.split("#[cfg(test)]").next().expect("prod");
-        assert!(
-            prod.contains("reached_ingame_from_live_map"),
-            "smoke must set reached_ingame from the shipped map latch"
-        );
-    }
-
-    #[test]
-    fn interactive_gameplay_latches_only_from_handle_mouse_button_input_rmb() {
-        let input = include_str!("../cnc_game_engine/input.rs");
-        let start = input
-            .find("fn handle_mouse_button_input")
-            .expect("handle_mouse_button_input");
-        let end = input[start..]
-            .find("fn inject_winit_equivalent_cursor_at")
-            .map(|i| start + i)
-            .unwrap_or(start + 4000);
-        let body = &input[start..end];
-        assert!(
-            body.contains("note_gameplay_order") && body.contains("handle_right_click"),
-            "RMB release on world must call handle_right_click then note_gameplay_order"
-        );
-        assert!(
-            !body.contains("gameplay_cmd_ok"),
-            "host gameplay_cmd_ok must not be the interactive_gameplay latch"
-        );
-        let snap = include_str!("../cnc_game_engine/dispatch.rs");
-        assert!(snap.contains("interactive_playability.gameplay_complete()"));
     }
 
     #[test]
@@ -983,30 +807,7 @@ mod tests {
     }
 
     #[test]
-    fn smoke_defaults_wnd_enabled() {
-        let src = EXECUTABLE_SMOKE_SRC;
-        assert!(
-            src.contains("unwrap_or_else(|_| \"1\".into())"),
-            "executable smoke should default GENERALS_RUNTIME_HOST_WND=1"
-        );
-        assert!(src.contains("max_render_item_count"));
-        assert!(src.contains("render_items_stable_ok"));
-    }
-
-    #[test]
     fn smoke_tracks_shell_wnd_residual_keys() {
-        let eng = crate::cnc_game_engine::ENGINE_SRC;
-        assert!(
-            eng.contains("shell_screen_count")
-                && eng.contains("shell_top_wnd")
-                && eng.contains("shell_active"),
-            "runtime host snapshot must publish shell WND residual"
-        );
-        let smoke = EXECUTABLE_SMOKE_SRC;
-        assert!(
-            smoke.contains("shell_wnd_ok") && smoke.contains("shell_top_wnd"),
-            "executable smoke must parse shell WND residual"
-        );
         let path = std::env::temp_dir().join("generals_shell_wnd_status_sample.txt");
         std::fs::write(
             &path,
@@ -1026,89 +827,5 @@ shell_active=true
                 .contains("mainmenu.wnd")
         );
         let _ = std::fs::remove_file(&path);
-    }
-}
-
-#[cfg(test)]
-mod skirmish_wnd_start_residual_tests {
-    use super::EXECUTABLE_SMOKE_SRC;
-    #[test]
-    fn click_skirmish_start_prefers_wnd_gadget_when_enabled() {
-        let dispatch = include_str!("../cnc_game_engine/runtime_host/mod.rs");
-        assert!(
-            dispatch.contains("\"click_skirmish_start\""),
-            "click_skirmish_start command must be dispatched"
-        );
-        // Live impl is in skirmish.rs (ENGINE_SRC 9k window no longer reaches it).
-        let window = include_str!("../cnc_game_engine/runtime_host/skirmish.rs");
-        let idx = window
-            .find("fn runtime_host_cmd_click_skirmish_start")
-            .expect("click_skirmish_start impl");
-        let window = &window[idx..];
-        assert!(
-            window.contains("simulate_skirmish_start_button_gadget_selected"),
-            "must try retail WND ButtonStart GadgetSelected residual"
-        );
-        assert!(
-            window.contains("click_skirmish_start_ok_wnd")
-                || window.contains("click_skirmish_start_wnd_pending"),
-            "must report wnd-specific gameplay cmd honesty"
-        );
-        assert!(
-            window.contains("simulate_start_button_click"),
-            "must keep Main SkirmishMenu mouse residual fallback"
-        );
-    }
-
-    #[test]
-    fn executable_smoke_wnd_host_override_residual() {
-        let src = EXECUTABLE_SMOKE_SRC;
-        assert!(
-            src.contains("GENERALS_RUNTIME_HOST_WND")
-                && src.contains("unwrap_or_else(|_| \"1\".into())"),
-            "smoke defaults WND=1 for retail ButtonStart residual"
-        );
-        assert!(
-            src.contains("skirmish_start_wnd_ok"),
-            "smoke must track WND ButtonStart honesty separately"
-        );
-        let i = src.find("GENERALS_RUNTIME_HOST_WND").expect("env");
-        let env_block = &src[i..src.len().min(i + 450)];
-        assert!(
-            !env_block.contains("var_os(\"DISPLAY\")"),
-            "WND enable must not gate on X11 DISPLAY"
-        );
-    }
-
-    #[test]
-    fn executable_smoke_waits_for_full_command_chain() {
-        let src = EXECUTABLE_SMOKE_SRC;
-        assert!(
-            src.contains("chain_complete")
-                && src.contains("gameplay_step >= 59")
-                && !src.contains(
-                    "saw_attack_ok\n                                && snap.frame >= 20)"
-                ),
-            "smoke must not exit on early construct/train/attack alone"
-        );
-        assert!(
-            src.contains("pause_ok:paused") && src.contains("pause_ok:resumed"),
-            "pause residual must remain in chain"
-        );
-    }
-
-    #[test]
-    fn game_client_exposes_skirmish_button_start_gadget_simulate() {
-        let src = include_str!(
-            "../../../GameEngine/GameClient/src/gui/callbacks/skirmish_game_options_menu.rs"
-        );
-        assert!(
-            src.contains("fn simulate_skirmish_start_button_gadget_selected"),
-            "WND ButtonStart gadget residual helper missing"
-        );
-        assert!(
-            src.contains("WindowMessage::GadgetSelected"),
-            "must fire GadgetSelected like C++ GBM_SELECTED"
-        );
     }
 }

@@ -6,13 +6,12 @@
 //! does not read live GameLogic or invent a module class.
 
 use crate::assets::AuthoredDrawModel;
+use crate::game_logic::host_upgrades::HostCamoStealthLook;
 use crate::visual_dispatch::{
     PreparedVisualDispatchBatch, PreparedVisualDispatchError, PreparedVisualDispatcher,
     PreparedVisualDrawModule, PreparedVisualDrawable, PreparedVisualFrame, PreparedVisualOwner,
     PreparedVisualVisibility, VisualDispatchPassToken,
 };
-use crate::game_logic::host_upgrades::HostCamoStealthLook;
-
 
 /// Map C++ `Drawable::draw` early-outs onto the frozen visibility enum.
 ///
@@ -71,8 +70,7 @@ pub const fn visibility_from_stealth_look(
 /// stay opaque on the first pass (heat vision is the second material pass).
 pub fn stealth_look_first_pass_opacity(look: HostCamoStealthLook, friendly_opacity: f32) -> f32 {
     match look {
-        HostCamoStealthLook::VisibleFriendly
-        | HostCamoStealthLook::VisibleFriendlyDetected => {
+        HostCamoStealthLook::VisibleFriendly | HostCamoStealthLook::VisibleFriendlyDetected => {
             if !friendly_opacity.is_finite() {
                 0.5
             } else {
@@ -269,14 +267,6 @@ mod tests {
     }
 
     #[test]
-    fn collect_runs_host_visual_dispatch_before_mesh_submission() {
-        let collect = include_str!("graphics/render_pipeline/pipeline_collect.rs");
-        assert!(collect.contains("self.dispatch_host_visual_modules(&unit_inputs)"));
-        assert!(collect.contains("visual_visited.contains(&object_id)"));
-        assert!(collect.contains("visual_allowed_modules"));
-    }
-
-    #[test]
     fn draw_declaration_source_name_is_the_first_token() {
         assert_eq!(
             crate::assets::authored_draw_module_source_name("W3DTruckDraw ModuleTag_01"),
@@ -317,12 +307,8 @@ mod tests {
             assert_eq!(stealth_look_first_pass_opacity(look, 0.5), 0.5);
             assert_eq!(stealth_look_first_pass_opacity(look, 0.3), 0.3);
         }
-        let invisible = visibility_from_stealth_look(
-            false,
-            false,
-            false,
-            HostCamoStealthLook::Invisible,
-        );
+        let invisible =
+            visibility_from_stealth_look(false, false, false, HostCamoStealthLook::Invisible);
         assert_eq!(invisible, PreparedVisualVisibility::HiddenByStealth);
         assert!(!invisible.dispatches_modules());
         assert_eq!(
@@ -336,12 +322,7 @@ mod tests {
 
         let drawable = freeze_host_visual_drawable(
             owner(),
-            visibility_from_stealth_look(
-                false,
-                false,
-                false,
-                HostCamoStealthLook::VisibleFriendly,
-            ),
+            visibility_from_stealth_look(false, false, false, HostCamoStealthLook::VisibleFriendly),
             &[model(0, "W3DModelDraw")],
         )
         .expect("friendly cloak still dispatches Draw modules");

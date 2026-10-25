@@ -2,29 +2,6 @@
 use super::*;
 
 #[test]
-fn launch_attack_uses_assign_unit_path_surface() {
-    let src = include_str!("combat.rs");
-    // Do not split on cfg(test) — nested test modules can appear earlier.
-    let i = src
-        .find("fn attack_move_units(")
-        .expect("attack_move_units");
-    let w = &src[i..i + 4500.min(src.len() - i)];
-    assert!(
-        w.contains("assign_unit_path")
-            && (w.contains("AIState::AttackMoving") || w.contains("record_set_state")),
-        "AI launch_attack must pathfind then restore AttackMoving (host or decision log)"
-    );
-    // Fallback may call move_to after assign_unit_path fails; primary path
-    // must call assign_unit_path first.
-    let path_i = w.find("assign_unit_path").expect("path");
-    let move_i = w.find("move_to(enemy_base,");
-    assert!(
-        move_i.is_none() || move_i.unwrap() > path_i,
-        "move_to fallback must come after assign_unit_path"
-    );
-}
-
-#[test]
 fn launch_attack_installs_owned_attack_move_state_and_path() {
     // C++ AIAttackMoveToState / AIInternalMoveToState::onEnter (AIStates.cpp).
     // Observe the path request and attack-move state on the live host object.

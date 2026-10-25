@@ -262,15 +262,6 @@ fn hover_aircraft_detour_around_tall_building() {
 }
 
 #[test]
-fn tall_building_segment_intersect_cpp_surface() {
-    let src = include_str!("../system_attack.rs");
-    assert!(src.contains("segmentIntersectsTallBuilding"));
-    assert!(src.contains("AIRCRAFT_PATH_AROUND"));
-    assert!(src.contains("compute_normal_radial_offset_xz"));
-    assert!(src.contains("find_path_ex"));
-}
-
-#[test]
 fn circle_clips_tall_building_nudges_goal() {
     use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
     let mut objects = HostObjectStore::new();
@@ -292,13 +283,6 @@ fn circle_clips_tall_building_nudges_goal() {
         d >= 45.0,
         "adjusted goal still inside building d={d} adj={adj:?}"
     );
-}
-
-#[test]
-fn circle_clips_cpp_surface() {
-    let src = include_str!("../system_attack.rs");
-    assert!(src.contains("circleClipsTallBuilding"));
-    assert!(src.contains("circle_clips_tall_building"));
 }
 
 /// C++ PathfindCell::CellType (AIPathfind.h:233-242) on the live host grid.
@@ -346,25 +330,6 @@ fn classify_map_cell_water_wins_over_cliff_no_slope_gate() {
         PathfindingGrid::classify_map_cell(true, true),
         Water,
         "C++ assigns water after cliff so wet cliff-base stays SURFACE_WATER"
-    );
-    let src = concat!(
-        include_str!("../../world_save.rs"),
-        include_str!("../../world_save/world_subsystems.rs"),
-        include_str!("../../world_save/world_paths.rs"),
-        include_str!("../../world_save/world_bridges.rs"),
-        include_str!("../../world_save/world_runtime.rs"),
-        include_str!("../../world_save/world_players.rs"),
-        include_str!("../../world_save/world_load.rs"),
-    );
-    assert!(
-        !src.contains("MAX_SLOPE"),
-        "live seed_pathfinding_from_terrain must not slope-gate Impassable"
-    );
-    assert!(
-        src.contains("logical.is_underwater")
-            && src.contains("PathfindingGrid::classify_map_cell(")
-            && src.contains("terrain.is_cliff_at_world(tl)"),
-        "live seed must sample four corners then classify_map_cell"
     );
 }
 

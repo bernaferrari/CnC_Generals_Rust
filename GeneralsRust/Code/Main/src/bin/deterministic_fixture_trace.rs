@@ -126,20 +126,6 @@ fn produce_trace(mut scenario: FixtureScenario) -> TraceDump {
             crc,
         });
     }
-
-    TraceDump {
-        schema: "generals.frame_trace.v2",
-        scenario: scenario.scenario,
-        final_frame: scenario.final_frame,
-        producer: "generalsrust-randomvalue-port",
-        authority: Authority {
-            rng: "GeneralsRust/Code/GameEngine/Common/src/common/random_value.rs",
-            objects: "fixture-only (portable component differential)",
-            players: "fixture-only (portable component differential)",
-            commands: "fixture-only (portable component differential)",
-        },
-        frames,
-    }
 }
 
 #[cfg(test)]

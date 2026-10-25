@@ -64,19 +64,3 @@ include!("impl_portrait.rs");
 include!("impl_science.rs");
 include!("traits.rs");
 include!("tests.rs");
-
-/// Concatenated live sources for residual `include_str!` scans.
-pub const CONTROL_BAR_SRC: &str = concat!(
-    include_str!("mod.rs"),
-    include_str!("types.rs"),
-    include_str!("impl_presentation_availability.rs"),
-    include_str!("impl_lifecycle.rs"),
-    include_str!("impl_context.rs"),
-    include_str!("impl_command_context.rs"),
-    include_str!("impl_execute.rs"),
-    include_str!("impl_buttons.rs"),
-    include_str!("impl_contexts.rs"),
-    include_str!("impl_portrait.rs"),
-    include_str!("impl_science.rs"),
-    include_str!("traits.rs"),
-);

@@ -907,10 +907,7 @@ impl GameLogic {
             && infantry.is_kind_of(KindOf::Infantry)
             && infantry.can_move()
             && !infantry.status.under_construction
-            && !crate::game_logic::host_car_bomb::object_definition_has_kind(
-                &infantry.template_name,
-                "REJECT_UNMANNED",
-            )
+            && !infantry.is_kind_of(crate::game_logic::KindOf::RejectUnmanned)
             && vehicle.is_alive()
             && vehicle.is_unmanned()
             && !vehicle.status.under_construction

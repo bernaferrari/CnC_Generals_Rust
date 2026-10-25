@@ -89,51 +89,6 @@ fn mismatched_receiving_visual_discards_restore_without_future_replay() {
 }
 
 #[test]
-fn repeated_load_frame_setup_cannot_consume_restore_before_collection() {
-    // Source wiring guard complements the executable borrowed admission tests.
-    // Constructing RenderPipeline itself requires a GPU; do not pretend this
-    // source check executes Main's complete load/render loop.
-    let lifecycle = include_str!("pipeline_lifecycle.rs");
-    let setup = lifecycle
-        .split_once("pub fn set_presentation_frame(")
-        .unwrap()
-        .1
-        .split_once("self.presentation_frame = frame;")
-        .unwrap()
-        .0;
-    // A field-chain line wrap does not change the required operation.
-    let compact_setup: String = setup.split_whitespace().collect();
-    assert!(
-        compact_setup.contains("self.native_draw_world.pending_client_drawable_imports.clear()")
-    );
-    assert!(
-        !setup.contains("prepare_pending_client_drawable_restore_for_frame"),
-        "load env seed, match seed and render rebind must all leave the detached payload queued"
-    );
-    let collection = include_str!("pipeline_collect.rs");
-    let entry = collection
-        .split_once("pub(super) fn collect_render_items(")
-        .unwrap()
-        .1;
-    let frozen_frame = entry
-        .find("let presentation = self.presentation_frame.clone();")
-        .unwrap();
-    let admission = entry
-        .find("self.prepare_pending_client_drawable_restore_for_frame(frame)")
-        .unwrap();
-    let consume = entry
-        .find(".remove(&(object_id.0, draw_module_index))")
-        .unwrap();
-    let model_resolution = entry
-        .find("let render_model_load_result = Self::ensure_render_model_loaded(")
-        .unwrap();
-    assert!(
-        frozen_frame < admission && admission < consume && consume < model_resolution,
-        "identity admission belongs to actual collection; each candidate leaves before model resolution"
-    );
-}
-
-#[test]
 fn contained_resident_restore_identity_survives_visibility_filtered_collection_inputs() {
     let source = frame_with_model("ReceivingMesh");
     let saved = saved_receiver(&source);

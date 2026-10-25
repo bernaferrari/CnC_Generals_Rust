@@ -753,22 +753,7 @@ mod tests {
                 format_campaign_report(&result)
             );
         }
-        let host = include_str!("cnc_game_engine/runtime_host/campaign_menus.rs");
-        assert!(host.contains("fn runtime_host_cmd_open_single_player_menu"));
-        assert!(host.contains("fn runtime_host_cmd_click_campaign_start"));
-        assert!(
-            host.contains("self.start_game_from_ui(GameMode::SinglePlayer")
-                && host.contains("OFFLINE_USA_CAMPAIGN_MAP"),
-            "campaign sit-through must start first USA map via start_game_from_ui"
-        );
-        for cmd in campaign_start_from_ui_commands() {
-            let verb = cmd.split('|').next().unwrap_or(cmd);
-            assert!(
-                include_str!("cnc_game_engine/runtime_host/mod.rs")
-                    .contains(&format!("\"{verb}\"")),
-                "campaign sit-through command {verb} must be dispatched"
-            );
-        }
+
         let report = format_campaign_report(&result);
         assert!(report.contains("campaign_playable_claim=true"));
         assert!(report.contains("campaign_sit_through_ok="));

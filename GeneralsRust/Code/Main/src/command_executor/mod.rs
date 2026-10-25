@@ -800,25 +800,5 @@ impl<'a> CommandExecutor<'a> {
     }
 }
 
-/// Concatenated live command_executor sources for residual `include_str` scans.
-pub const COMMAND_EXECUTOR_SRC: &str = concat!(
-    include_str!("mod.rs"),
-    include_str!("abilities.rs"),
-    include_str!("attack.rs"),
-    include_str!("cheat_debug.rs"),
-    include_str!("command_button.rs"),
-    include_str!("construct.rs"),
-    include_str!("construct_line.rs"),
-    include_str!("group.rs"),
-    include_str!("leftover.rs"),
-    include_str!("movement.rs"),
-    include_str!("produce.rs"),
-    include_str!("selection.rs"),
-    include_str!("sell_upgrade.rs"),
-    include_str!("special_power.rs"),
-    include_str!("transport.rs"),
-    include_str!("validate.rs"),
-);
-
 #[cfg(test)]
 mod beacon_owner_tests;

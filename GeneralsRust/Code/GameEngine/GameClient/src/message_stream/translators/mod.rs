@@ -106,19 +106,3 @@ pub(in crate::message_stream::translators) use select_meta::*;
 
 #[cfg(test)]
 mod tests;
-
-/// Concatenated live sources for residual `include_str!` scans.
-pub const TRANSLATORS_SRC: &str = concat!(
-    include_str!("mod.rs"),
-    include_str!("dual_world.rs"),
-    include_str!("pick.rs"),
-    include_str!("flags.rs"),
-    include_str!("pending.rs"),
-    include_str!("attack.rs"),
-    include_str!("context.rs"),
-    include_str!("command_translator.rs"),
-    include_str!("command_translate.rs"),
-    include_str!("gui_command.rs"),
-    include_str!("hint_spy.rs"),
-    include_str!("factory.rs"),
-);

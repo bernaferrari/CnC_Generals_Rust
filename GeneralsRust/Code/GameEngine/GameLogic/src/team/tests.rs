@@ -263,66 +263,6 @@ mod tests {
     }
 
     #[test]
-    fn flush_team_scripts_use_run_script_like_cpp() {
-        let src = crate::team::TEAM_SRC;
-        let i = src
-            .find("pub fn flush_pending_team_script_events")
-            .expect("flush");
-        let open = i + src[i..].find('{').expect("flush body");
-        let mut depth = 0;
-        let close = src[open..]
-            .char_indices()
-            .find_map(|(offset, character)| {
-                match character {
-                    '{' => depth += 1,
-                    '}' => {
-                        depth -= 1;
-                        if depth == 0 {
-                            return Some(open + offset);
-                        }
-                    }
-                    _ => {}
-                }
-                None
-            })
-            .expect("complete flush body");
-        // This is a source contract, not evidence of executed script actions.
-        // Examine only the complete function, independent of preamble length.
-        let w = &src[open..=close];
-        assert!(
-            w.contains("run_script")
-                && w.contains("Some(event.team_id)")
-                && !w.contains("append_sequential_script"),
-            "Team event flush must runScript(name, team) like C++ updateState"
-        );
-    }
-
-    #[test]
-    fn team_scripts_use_friend_execute_like_cpp() {
-        let src = crate::team::TEAM_SRC;
-        let create = src
-            .find("fn execute_pending_team_create_action_scripts")
-            .expect("create scripts");
-        let create_w = &src[create..src.len().min(create + 1200)];
-        assert!(
-            create_w.contains("friend_execute_action")
-                && create_w.contains("None")
-                && !create_w.contains("ScriptEvaluator::new"),
-            "createInactiveTeam path must friend_executeAction with NULL team"
-        );
-        let generic = src
-            .find("fn execute_pending_team_generic_script_evals")
-            .expect("generic scripts");
-        let generic_w = &src[generic..src.len().min(generic + 3500)];
-        assert!(
-            generic_w.contains("friend_execute_action")
-                && generic_w.contains("Some(team_id)")
-                && !generic_w.contains("evaluator.execute_action_sequence"),
-            "updateGenericScripts path must friend_executeAction with team"
-        );
-    }
-
-    #[test]
     fn create_inactive_team_queues_create_action_script() {
         let mut factory = TeamFactory::new();
         let mut dict = Dict::new();

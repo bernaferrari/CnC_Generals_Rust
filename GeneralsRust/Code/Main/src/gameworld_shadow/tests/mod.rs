@@ -5,17 +5,8 @@ pub(super) use crate::game_logic::{KindOf, Team, ThingTemplate};
 pub(super) use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
 pub(super) use glam::Vec3;
 
-/// Live concatenated gameworld_shadow sources (tick/*.rs + writeback/apply modules).
-pub(super) use super::GAMEWORLD_SHADOW_SRC;
-
-/// Live concatenated object sources.
-pub(super) use crate::game_logic::object::OBJECT_SRC as GAME_LOGIC_OBJECT_SRC;
-
 mod harness;
-pub(super) use harness::{
-    GAME_LOGIC_HOST_SRC, last_rust_fn_body, perform_owner_damage, perform_owner_health,
-    rust_fn_body,
-};
+pub(super) use harness::{perform_owner_damage, perform_owner_health};
 
 pub(super) fn ensure_template(logic: &mut GameLogic, name: &str, hp: f32) {
     if logic.templates.contains_key(name) {

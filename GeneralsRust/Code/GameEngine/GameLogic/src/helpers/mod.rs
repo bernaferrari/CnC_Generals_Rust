@@ -92,21 +92,5 @@ pub use idle_workers::{IdleWorkerEvent, IdleWorkerEvents};
 include!("leftover.rs");
 include!("select_object_apply.rs");
 
-/// Concatenated live sources for residual `include_str!` scans.
-pub const HELPERS_SRC: &str = concat!(
-    include_str!("mod.rs"),
-    include_str!("audio.rs"),
-    include_str!("game_client.rs"),
-    include_str!("game_logic.rs"),
-    include_str!("globals.rs"),
-    include_str!("leftover.rs"),
-    include_str!("lookup.rs"),
-    include_str!("math.rs"),
-    include_str!("object_helpers.rs"),
-    include_str!("object_queries.rs"),
-    include_str!("particles.rs"),
-    include_str!("random.rs"),
-);
-
 mod camera_time;
 pub use camera_time::{CameraTimeObservation, DrawTimeObservation};

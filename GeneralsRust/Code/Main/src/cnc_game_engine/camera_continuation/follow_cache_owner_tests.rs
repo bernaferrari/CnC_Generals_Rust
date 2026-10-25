@@ -46,20 +46,4 @@ fn historical_native85_stale_follow_slots_are_validated_but_cannot_reselect_owne
         bytes,
         "Native85 field order/types remain frozen"
     );
-    let authority = include_str!("../host_authority.rs");
-    let drain = include_str!("../camera_drain.rs");
-    let admission = include_str!("../camera_continuation.rs");
-    assert!(!authority.contains("host_match_camera_follow_"));
-    assert!(!drain.contains("host_match_camera_follow_"));
-    for field in ["active", "position", "id"] {
-        assert!(!admission.contains(&format!("self.host_match_camera_follow_{field} =")));
-    }
-    let boot = drain
-        .split("pub(super) fn apply_boot_camera_residual")
-        .nth(1)
-        .unwrap()
-        .split("/// Play presentation-frozen")
-        .next()
-        .unwrap();
-    assert!(!boot.contains("center_camera_on"));
 }

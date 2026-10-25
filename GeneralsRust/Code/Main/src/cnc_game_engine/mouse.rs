@@ -1037,14 +1037,6 @@ mod world_pick;
 mod camera_pick_tests;
 
 // Source aggregate for source-honesty tests after this module's structural split.
-const MOUSE_SOURCE: &str = concat!(
-    include_str!("mouse.rs"),
-    include_str!("mouse/selection_input.rs"),
-    include_str!("mouse/camera.rs"),
-    include_str!("mouse/camera_input_delivery.rs"),
-    include_str!("mouse/ui_dispatch.rs"),
-    include_str!("mouse/world_pick.rs"),
-);
 
 #[cfg(test)]
 #[path = "mouse/look_at_modes_tests.rs"]

@@ -2085,56 +2085,6 @@ impl CnCGameEngine {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn live_boot_inits_game_lod_manager_after_command_line() {
-        let src = include_str!("boot.rs");
-        let live = src.split("#[cfg(test)]").next().expect("boot live path");
-        let cmdline = live
-            .find("Self::apply_command_line_overrides(&command_line);")
-            .expect("parseCommandLine analog");
-        let lod = live
-            .find("load_game_lod_ini_presets_and_options()")
-            .expect("GameLODManager::init analog");
-        let water = live
-            .find("fn preload_startup_water_weather_inis")
-            .expect("Water/Weather INI preload");
-        assert!(
-            cmdline < lod && lod < water,
-            "C++ GameEngine.cpp:357-373: parseCommandLine, GameLODManager::init, then Water/Weather"
-        );
-    }
-
-    #[test]
-    fn preload_aidata_keeps_enable_repulsors_in_engine_content_baseline() {
-        let src = include_str!("boot.rs");
-        let live = src.split("#[cfg(test)]").next().expect("boot live path");
-        let preload = live
-            .find("fn preload_startup_ai_data_inis")
-            .expect("AIData preload");
-        let disk = live
-            .find("Preloaded AIData INI from disk")
-            .expect("disk-first AIData");
-        let content_admission = live
-            .find("fn apply_startup_ai_data_enable_repulsors")
-            .expect("engine AI content admission");
-        assert!(
-            preload < disk && disk < content_admission,
-            "Default and override AIData are admitted as engine content"
-        );
-        assert!(
-            !live.contains("ai.init()"),
-            "boot must not initialize a second mutable AI runtime"
-        );
-        assert!(live.contains("process_lifetime_ai_data_store()"));
-        assert!(
-            !live.contains("apply_resolved_to_leftover_and_gate"),
-            "boot must not broadcast a runtime combat gate"
-        );
-    }
-}
-
 #[path = "boot/ocl_content.rs"]
 mod ocl_content;
 

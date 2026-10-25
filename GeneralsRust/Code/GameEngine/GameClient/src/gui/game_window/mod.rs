@@ -74,20 +74,3 @@ pub use listbox::*;
 pub use messages::*;
 pub use payload::*;
 pub use window_struct::*;
-
-/// Concatenated live sources for residual `include_str!` scans.
-pub const GAME_WINDOW_SRC: &str = concat!(
-    include_str!("mod.rs"),
-    include_str!("payload.rs"),
-    include_str!("messages.rs"),
-    include_str!("font.rs"),
-    include_str!("listbox.rs"),
-    include_str!("combo.rs"),
-    include_str!("other_gadgets.rs"),
-    include_str!("window_struct.rs"),
-    include_str!("window_impl_core.rs"),
-    include_str!("window_impl_widgets.rs"),
-    include_str!("window_impl_input.rs"),
-    include_str!("window_impl_draw.rs"),
-    include_str!("callbacks.rs"),
-);

@@ -179,67 +179,11 @@ mod architecture_honesty_tests;
 #[cfg(test)]
 mod camera_startup_tests;
 #[cfg(test)]
-mod source_scan_tests;
+mod runtime_host_option_tests;
 #[cfg(test)]
 mod tests;
 
 /// Concatenated engine source for residual `include_str!` scans.
-pub const ENGINE_SRC: &str = concat!(
-    include_str!("mod.rs"),
-    include_str!("audio.rs"),
-    include_str!("boot.rs"),
-    include_str!("camera_drain.rs"),
-    include_str!("command_phase.rs"),
-    include_str!("control_bar_viewport.rs"),
-    include_str!("../presentation_frame/session_view/camera/projection.rs"),
-    include_str!("../presentation_frame/session_view/camera/viewport.rs"),
-    include_str!("../presentation_frame/session_view/camera/motion.rs"),
-    include_str!("camera_view_effects.rs"),
-    include_str!("native_display.rs"),
-    include_str!("native_visual_time.rs"),
-    include_str!("dispatch.rs"),
-    include_str!("host.rs"),
-    include_str!("host_authority.rs"),
-    include_str!("hotkeys.rs"),
-    include_str!("ini_crc_boot.rs"),
-    include_str!("input.rs"),
-    include_str!("eva_delivery.rs"),
-    include_str!("mouse.rs"),
-    include_str!("mouse/selection_input.rs"),
-    include_str!("mouse/camera.rs"),
-    include_str!("mouse/camera_input_delivery.rs"),
-    include_str!("mouse/ui_dispatch.rs"),
-    include_str!("mouse/world_pick.rs"),
-    include_str!("minimap_bridge.rs"),
-    include_str!("object_ini_boot.rs"),
-    include_str!("options_bridge.rs"),
-    include_str!("presentation_terrain_cache.rs"),
-    include_str!("quit_menu_bridge.rs"),
-    include_str!("run_loop.rs"),
-    include_str!("runtime.rs"),
-    include_str!("selection.rs"),
-    include_str!("shell.rs"),
-    include_str!("start_game.rs"),
-    include_str!("types.rs"),
-    include_str!("ui_commands.rs"),
-    include_str!("runtime_host/campaign_menus.rs"),
-    include_str!("runtime_host/dialogs.rs"),
-    include_str!("runtime_host/gameplay.rs"),
-    include_str!("runtime_host/gameplay_orders.rs"),
-    include_str!("runtime_host/gameplay_select.rs"),
-    include_str!("runtime_host/hud_bar.rs"),
-    include_str!("runtime_host/live_commands.rs"),
-    include_str!("runtime_host/live_gates_a.rs"),
-    include_str!("runtime_host/live_gates_b.rs"),
-    include_str!("runtime_host/live_gates_c.rs"),
-    include_str!("runtime_host/live_presentation.rs"),
-    include_str!("runtime_host/live_probes.rs"),
-    include_str!("runtime_host/mod.rs"),
-    include_str!("runtime_host/overlay_clicks.rs"),
-    include_str!("runtime_host/shell_core.rs"),
-    include_str!("runtime_host/skirmish.rs"),
-);
-
 mod camera_continuation;
 pub(crate) use camera_continuation::NativeCameraContinuation;
 

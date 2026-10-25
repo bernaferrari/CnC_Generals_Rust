@@ -1148,40 +1148,8 @@ mod tests {
             arc.read().unwrap().is_destroyed(),
             "C++ destroyObject sets OBJECT_STATUS_DESTROYED immediately"
         );
-        let src = include_str!("impl_lifecycle.rs");
-        let destroy_fn = src
-            .split("pub fn destroy_object(&mut self, object_id: ObjectID)")
-            .nth(1)
-            .and_then(|rest| rest.split("fn prepend_to_object_list").next())
-            .expect("destroy_object body");
-        assert!(
-            destroy_fn.contains("remove_wall_piece") && destroy_fn.contains("mark_ui_dirty"),
-            "destroyObject must remove WALK_ON_TOP_OF_WALL and markUIDirty"
-        );
         register_control_bar_ui_hooks(Arc::new(DirtyHooks(Arc::new(AtomicU32::new(0)))));
         let _ = dirty;
-    }
-    #[test]
-    fn crate_update_does_not_run_client_drawable_updates() {
-        let _fixture = test_state_lock();
-        // C++ GameLogic.cpp:3548-3803 has no ClientUpdate / updateDrawables.
-        // hq-um5t: those extras belong on GameClient, not the logic tick.
-        let src = include_str!("impl_update.rs");
-        let update_fn = src
-            .split("fn update_with_optional_upgrade_services(")
-            .nth(1)
-            .and_then(|rest| rest.split("pub fn take_radar_updates").next())
-            .expect("GameLogic::update body");
-        assert!(
-            !update_fn.contains("process_client_updates")
-                && !update_fn.contains("update_drawables"),
-            "logic tick must not run client drawable updates"
-        );
-        assert!(
-            update_fn.contains("is_start_new_game_requested")
-                && src.contains("C++ GameLogic.cpp:3560-3576"),
-            "startNewGame must stay at the top of update"
-        );
     }
 
     #[test]

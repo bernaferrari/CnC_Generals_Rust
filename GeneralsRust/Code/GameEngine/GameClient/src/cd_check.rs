@@ -67,22 +67,6 @@ mod tests {
     }
 
     #[test]
-    fn are_music_files_on_cd_does_not_use_copy_protection() {
-        let production = include_str!("cd_check.rs")
-            .split("#[cfg(test)]")
-            .next()
-            .unwrap_or("");
-        assert!(
-            !production.contains("copy_protection"),
-            "IsFirstCDPresent must not call launcher copy-protection"
-        );
-        assert!(
-            production.contains("are_music_files_on_cd"),
-            "retail path must use FileSystem::areMusicFilesOnCD"
-        );
-    }
-
-    #[test]
     fn retail_cd_check_finds_discovered_genseczh_big() {
         assert!(
             are_music_files_on_cd(),

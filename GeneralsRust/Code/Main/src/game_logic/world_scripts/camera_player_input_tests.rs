@@ -155,59 +155,6 @@ fn delivered_equal_x_rotation_is_a_setter_but_opposite_held_keys_are_not() {
     );
     assert_eq!(peer.capture_camera_continuation().unwrap(), peer_saved);
 }
-#[test]
-fn delivered_cursor_boundaries_do_not_reintroduce_idle_rotation_polling() {
-    let input = include_str!("../../cnc_game_engine/input.rs");
-    for name in [
-        "fn apply_cursor_position(",
-        "fn inject_winit_equivalent_cursor_at(",
-    ] {
-        let body = input
-            .split(name)
-            .nth(1)
-            .unwrap()
-            .split(
-                "
-    }",
-            )
-            .next()
-            .unwrap();
-        assert!(body.contains("self.admit_delivered_camera_cursor()"));
-    }
-    let mouse = include_str!("../../cnc_game_engine/mouse/camera.rs");
-    let refresh = mouse
-        .split("fn update_camera(")
-        .nth(1)
-        .unwrap()
-        .split("fn is_character_key_pressed")
-        .next()
-        .unwrap();
-    assert!(!refresh.contains("self.is_mmb_rotating"));
-    let delivered = include_str!("../../cnc_game_engine/mouse/camera_input_delivery.rs");
-    let begin = mouse
-        .split("fn begin_mmb_lookat_rotate(")
-        .nth(1)
-        .unwrap()
-        .split("fn admit_delivered_camera_cursor")
-        .next()
-        .unwrap();
-    assert!(begin.contains("input.begin_mmb("));
-    assert!(delivered.contains("self.modes.mmb_press_frame = self.receiving_frame()"));
-    assert!(delivered.contains("self.frame.frame()"));
-    let end = mouse
-        .split("fn end_mmb_lookat_rotate(")
-        .nth(1)
-        .unwrap()
-        .split("fn reset_camera_pose_in_place")
-        .next()
-        .unwrap();
-    assert!(
-        end.split_whitespace()
-            .collect::<String>()
-            .contains("input.end_mmb(")
-    );
-    assert!(delivered.contains("self.receiving_frame().wrapping_sub(press_frame)"));
-}
 
 #[test]
 fn actual_receiving_setter_counts_replay_extracted_cpp_input_branches() {

@@ -1063,7 +1063,12 @@ impl PresentationFrame {
 
     /// True when snapshot object carries `kind` residual.
     pub fn object_has_kind(obj: &RenderableObject, kind: crate::game_logic::KindOf) -> bool {
-        obj.kind_of.iter().any(|k| *k == kind)
+        match kind {
+            crate::game_logic::KindOf::ForceAttackable => obj.is_force_attackable,
+            crate::game_logic::KindOf::AlwaysSelectable => obj.always_selectable,
+            crate::game_logic::KindOf::RejectUnmanned => obj.reject_unmanned,
+            _ => obj.kind_of.iter().any(|k| *k == kind),
+        }
     }
 
     /// C++ `Object::isMassSelectable` (`Object.cpp:3024`): selectable and not a structure.

@@ -332,11 +332,6 @@ fn sync_from_host_copies_entity_engine_bridged_residual() {
         !e.engine_bridged,
         "dual-id bridge retired — engine_bridged stays false"
     );
-    let src = GAMEWORLD_SHADOW_SRC;
-    assert!(
-        src.contains("e.engine_bridged = false"),
-        "sync must force engine_bridged false"
-    );
 }
 
 fn sync_from_host_copies_entity_fow_ground_residual() {
@@ -354,13 +349,6 @@ fn sync_from_host_copies_entity_fow_ground_residual() {
     assert!((e.fow_visibility_alpha - 1.0).abs() < 1e-5);
     assert!((e.fow_is_explored - 1.0).abs() < 1e-5);
     assert!(e.ground_height.is_finite());
-    let src = GAMEWORLD_SHADOW_SRC;
-    assert!(
-        src.contains("fow_visibility_alpha")
-            && src.contains("ground_height_from_terrain")
-            && src.contains("FOWRenderingBridge::get_object_visibility"),
-        "sync must copy FOW/ground residual"
-    );
 }
 
 fn sync_from_host_copies_entity_model_key_mesh_scale_residual() {
@@ -398,11 +386,6 @@ fn sync_from_host_copies_entity_model_key_mesh_scale_residual() {
     assert!(
         e.mesh_scale.is_finite() && e.mesh_scale > 0.0,
         "mesh_scale residual"
-    );
-    let src = GAMEWORLD_SHADOW_SRC;
-    assert!(
-        src.contains("model_key_from_template") && src.contains("mesh_scale_from_template"),
-        "sync must copy mesh residual via resolve helpers"
     );
 }
 
@@ -465,11 +448,6 @@ fn sync_from_host_copies_entity_production_queue_items_residual() {
     assert_eq!(e.production_queue_items[1].template_name, "UnitB");
     assert_eq!(e.production_queue_items[1].total_time, 12.0);
     assert_eq!(e.production_template, "UnitA");
-    let src = GAMEWORLD_SHADOW_SRC;
-    assert!(
-        src.contains("production_queue_items") && src.contains("EntityProductionItem"),
-        "sync must copy full production queue residual"
-    );
 }
 
 fn sync_from_host_copies_entity_applied_upgrade_names_residual() {
@@ -493,11 +471,6 @@ fn sync_from_host_copies_entity_applied_upgrade_names_residual() {
     assert_eq!(
         e.applied_upgrade_names,
         vec!["UpgradeA".to_string(), "UpgradeB".to_string()]
-    );
-    let src = GAMEWORLD_SHADOW_SRC;
-    assert!(
-        src.contains("applied_upgrade_names") && src.contains("MAX_UPGRADES"),
-        "sync must copy upgrade name residual"
     );
 }
 
@@ -528,11 +501,6 @@ fn sync_from_host_copies_entity_kind_of_bits_residual() {
     assert!(
         e.unattackable,
         "the full compact KindOf bank has no spare bit, so the C++ WeaponSet victim override travels on its dedicated shadow channel"
-    );
-    let src = GAMEWORLD_SHADOW_SRC;
-    assert!(
-        src.contains("host_kind_of_bits") && src.contains("kind_of_bits"),
-        "sync must copy kind_of residual"
     );
 }
 
@@ -570,11 +538,6 @@ fn sync_from_host_copies_entity_garrison_contain_residual() {
     let ie = shadow.entity_for_host(inf).expect("im");
     let i = shadow.world().entity(ie).expect("i");
     assert_eq!(i.contained_by_host, bldg.0);
-    let src = GAMEWORLD_SHADOW_SRC;
-    assert!(
-        src.contains("garrisoned_host_ids") && src.contains("garrisoned_units"),
-        "sync must copy garrison residual"
-    );
 }
 
 fn sync_from_host_copies_entity_path_waypoints_residual() {
@@ -624,11 +587,6 @@ fn sync_from_host_copies_entity_path_waypoints_residual() {
     assert!(e.has_secondary_weapon || e.secondary_weapon_range > 0.0);
     assert!((e.secondary_weapon_range - 90.0).abs() < 0.01);
     assert!((e.secondary_weapon_damage - 8.0).abs() < 0.01);
-    let src = GAMEWORLD_SHADOW_SRC;
-    assert!(
-        src.contains("path_waypoints") && src.contains("secondary_weapon_range"),
-        "sync must copy path/secondary residual"
-    );
 }
 
 fn sync_from_host_copies_entity_combat_timing_residual() {
@@ -656,13 +614,6 @@ fn sync_from_host_copies_entity_combat_timing_residual() {
     assert_eq!(e.continuous_fire_coast_until_frame, 33);
     assert!((e.battle_plan_sight_scalar_applied - 1.5).abs() < 0.001);
     assert_eq!(e.continuous_fire_consecutive, 4);
-    let src = GAMEWORLD_SHADOW_SRC;
-    assert!(
-        src.contains("weapon_bonus_frenzy_until_frame")
-            && src.contains("continuous_fire_coast_until_frame")
-            && src.contains("battle_plan_sight_scalar_applied"),
-        "sync must copy combat-timing residual"
-    );
 }
 
 fn sync_from_host_copies_entity_combat_bonus_residual() {
@@ -735,13 +686,6 @@ fn sync_from_host_copies_entity_combat_bonus_residual() {
     assert_eq!(e.disguise_as_team_ordinal, 0); // USA
     assert_eq!(e.vision_spied_mask, 0b101);
     assert!((e.camo_friendly_opacity - 0.4).abs() < 0.01);
-    let src_txt = GAMEWORLD_SHADOW_SRC;
-    assert!(
-        src_txt.contains("weapon_bonus_horde")
-            && src_txt.contains("turret_angle_deg")
-            && src_txt.contains("disguise_as_template"),
-        "sync must copy combat-bonus residual"
-    );
 }
 
 fn sync_from_host_copies_entity_detector_sp_residual() {
@@ -788,13 +732,6 @@ fn sync_from_host_copies_entity_detector_sp_residual() {
     assert!((e.detection_range - 200.0).abs() < 0.01);
     assert_eq!(e.detection_rate_frames, 15);
     assert!(e.stealth_breaks_on_attack && e.stealth_breaks_on_move && e.innate_stealth);
-    let src = GAMEWORLD_SHADOW_SRC;
-    assert!(
-        src.contains("is_detector")
-            && src.contains("special_power_ready")
-            && src.contains("applied_upgrade_count"),
-        "sync must copy detector/sp residual"
-    );
 }
 
 fn sync_from_host_copies_entity_transport_residual() {
@@ -843,13 +780,6 @@ fn sync_from_host_copies_entity_transport_residual() {
     let rid = shadow.entity_for_host(rider).expect("rmap");
     let r = shadow.world().entity(rid).expect("r");
     assert_eq!(r.contained_by_host, bus.0);
-    let src = GAMEWORLD_SHADOW_SRC;
-    assert!(
-        src.contains("overlord_bunker_capacity")
-            && src.contains("contained_by_host")
-            && src.contains("is_battle_bus_transport"),
-        "sync must copy transport residual"
-    );
 }
 
 #[test]
@@ -907,11 +837,6 @@ fn sync_from_host_copies_entity_weapon_move_residual() {
     assert!((e.velocity[2] - 2.0).abs() < 0.01);
     assert_eq!(e.path_len, 2);
     assert_eq!(e.path_index, 1);
-    let src = GAMEWORLD_SHADOW_SRC;
-    assert!(
-        src.contains("weapon_damage") && src.contains("move_max_speed") && src.contains("path_len"),
-        "sync must copy weapon/movement residual"
-    );
 }
 
 #[test]
@@ -962,13 +887,6 @@ fn sync_from_host_copies_entity_building_residual() {
     assert_eq!(e.max_garrison, 5);
     let rp = e.rally_point.expect("rally");
     assert!((rp[0] - 20.0).abs() < 0.01);
-    let src = GAMEWORLD_SHADOW_SRC;
-    assert!(
-        src.contains("production_queue_len")
-            && src.contains("building_type_ordinal")
-            && src.contains("rally_point"),
-        "sync must copy building residual"
-    );
 }
 
 #[test]

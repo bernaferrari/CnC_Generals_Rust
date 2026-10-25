@@ -185,33 +185,6 @@ include!("owned_laser.rs");
 include!("owned_laser_factory.rs");
 include!("tests.rs");
 
-/// Concatenated live sources for residual `include_str!` scans.
-pub const GAME_CLIENT_SRC: &str = concat!(
-    include_str!("mod.rs"),
-    include_str!("ids.rs"),
-    include_str!("drawable_world.rs"),
-    include_str!("semantic_admission.rs"),
-    include_str!("presentation_specialized_draw.rs"),
-    include_str!("live_slot.rs"),
-    include_str!("xfer_adapters.rs"),
-    include_str!("errors.rs"),
-    include_str!("animation.rs"),
-    include_str!("shadows.rs"),
-    include_str!("client_types.rs"),
-    include_str!("subsystem.rs"),
-    include_str!("message.rs"),
-    include_str!("dispatcher.rs"),
-    include_str!("impl_init.rs"),
-    include_str!("impl_update.rs"),
-    include_str!("impl_draw.rs"),
-    include_str!("native_particle_draw.rs"),
-    include_str!("native_view_draw.rs"),
-    include_str!("native_presentation.rs"),
-    include_str!("material_pass.rs"),
-    include_str!("leftover.rs"),
-    include_str!("template_modules.rs"),
-);
-
 #[cfg(test)]
 mod xfer_client_frame_tests;
 

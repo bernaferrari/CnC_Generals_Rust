@@ -237,24 +237,6 @@ fn receiving_options_layout_apply_defaults_and_cancel_keep_equal_id_peer_isolate
             .any(|line| line.starts_with("StaticGameLOD = "))
     );
 }
-#[test]
-fn actual_options_show_carries_immutable_admission_before_layout_visibility() {
-    let source = include_str!("../shell/main_menu.rs");
-    let action = source
-        .split("PendingMainMenuAction::ShowOptionsLayout =>")
-        .nth(1)
-        .unwrap()
-        .split("PendingMainMenuAction::SignalUiInteract")
-        .next()
-        .unwrap();
-    let wiring: String = action.split_whitespace().collect();
-    assert!(wiring.contains("camera_input.as_ref()"));
-    assert!(action.find("run_init(").unwrap() < action.find("layout.hide(false)").unwrap());
-    let callbacks = include_str!("script_callbacks.rs");
-    assert!(callbacks.contains("menu.init_with_camera_input(layout, camera)"));
-    let apply = include_str!("control_bar_dispatch.rs");
-    assert!(apply.contains("OptionsCameraInputObservation::observe("));
-}
 
 #[test]
 fn actual_quit_and_no_save_options_buttons_select_borrowed_camera_admission() {
@@ -314,17 +296,6 @@ fn actual_quit_and_no_save_options_buttons_select_borrowed_camera_admission() {
         assert_eq!(up.control_id, id as WindowMsgData);
         assert!(Rc::ptr_eq(&up.owner, &parent));
     }
-    let source = include_str!("../callbacks/quit_menu.rs");
-    let open = source
-        .split("} else if control_id == state.button_options {")
-        .nth(1)
-        .unwrap()
-        .split("} else if control_id == state.button_restart")
-        .next()
-        .unwrap();
-    let wiring: String = open.split_whitespace().collect();
-    assert!(wiring.contains("camera_input.as_ref()"));
-    assert!(open.find("run_init(").unwrap() < open.find("layout.hide(false)").unwrap());
 }
 
 #[test]

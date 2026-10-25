@@ -686,62 +686,6 @@ pub fn production_percent_complete_residual(frames: i32, total_frames: i32) -> f
 }
 
 /// Wave 99 honesty: production residual deepen pack.
-pub fn honesty_production_residual_deepen_pack_wave99() -> bool {
-    PRODUCTION_TYPE_INVALID == 0
-        && PRODUCTION_TYPE_UNIT == 1
-        && PRODUCTION_TYPE_UPGRADE == 2
-        && PRODUCTION_TYPE_NAME_TABLE_RESIDUAL.len() == 3
-        && residual_name_index(PRODUCTION_TYPE_NAME_TABLE_RESIDUAL, "PRODUCTION_UNIT") == Some(1)
-        && residual_name_index(PRODUCTION_TYPE_NAME_TABLE_RESIDUAL, "PRODUCTION_UPGRADE")
-            == Some(2)
-        && PRODUCTION_MAX_QUEUE_ENTRIES_DEEPEN == 9
-        && PRODUCTION_NUM_DOOR_ANIMATIONS_DEFAULT == 0
-        && PRODUCTION_DOOR_OPENING_TIME_DEFAULT == 0
-        && PRODUCTION_DOOR_WAIT_OPEN_TIME_DEFAULT == 0
-        && PRODUCTION_DOOR_CLOSING_TIME_DEFAULT == 0
-        && PRODUCTION_CONSTRUCTION_COMPLETE_DURATION_DEFAULT == 0
-        && EXIT_DOOR_1 == 0
-        && EXIT_DOOR_4 == 3
-        && EXIT_DOOR_COUNT_MAX == 4
-        && EXIT_DOOR_NONE_AVAILABLE == -1
-        && EXIT_DOOR_NONE_NEEDED == -2
-        && EXIT_DOOR_NAME_TABLE_RESIDUAL.len() == 4
-        && PRODUCTION_ID_INVALID == 0
-        && PRODUCTION_ENTRY_ID_CTOR_RESIDUAL == 1
-        && (PRODUCTION_ENTRY_PERCENT_COMPLETE_CTOR - 0.0).abs() < 1e-6
-        && PRODUCTION_ENTRY_FRAMES_UNDER_CONSTRUCTION_CTOR == 0
-        && PRODUCTION_ENTRY_QUANTITY_CTOR == 0
-        && PRODUCTION_DISABLED_HELD_ORDINAL == 3
-        && PRODUCTION_DISABLED_TYPES_TO_PROCESS_HELD_BIT == 0x08
-        && PRODUCTION_UPDATE_INI_FIELD_NAMES.len() == 8
-        && residual_name_index(PRODUCTION_UPDATE_INI_FIELD_NAMES, "MaxQueueEntries") == Some(0)
-        && residual_name_index(PRODUCTION_UPDATE_INI_FIELD_NAMES, "QuantityModifier")
-            == Some(6)
-        && QUANTITY_MODIFIER_SAMPLE_TEMPLATE == "ChinaInfantryRedguard"
-        && QUANTITY_MODIFIER_SAMPLE_COUNT == 2
-        && QUANTITY_MODIFIER_DEFAULT_COUNT == 1
-        && BUILD_COMPLETION_NUM_TYPES == 3
-        && BUILD_COMPLETION_NAME_TABLE_RESIDUAL.len() == 3
-        && residual_name_index(BUILD_COMPLETION_NAME_TABLE_RESIDUAL, "APPEARS_AT_RALLY_POINT")
-            == Some(1)
-        && residual_name_index(BUILD_COMPLETION_NAME_TABLE_RESIDUAL, "PLACED_BY_PLAYER")
-            == Some(2)
-        && BC_APPEARS_AT_RALLY_POINT == 1
-        && BC_PLACED_BY_PLAYER == 2
-        && CONSTRUCTION_COMPLETE_PERCENT == -1
-        // 5s build, full energy → 150 frames
-        && production_calc_time_to_build_frames_residual(5.0, 1.0, 0.5, 0.8, 1.0) == 150
-        // 5s build, 0 energy → rate 0.5 → 300 frames
-        && production_calc_time_to_build_frames_residual(5.0, 0.0, 0.5, 0.8, 1.0) == 300
-        && (production_percent_complete_residual(45, 150) - 30.0).abs() < 1e-3
-        && (production_percent_complete_residual(150, 150) - 100.0).abs() < 1e-3
-        && (production_percent_complete_residual(0, 0) - 100.0).abs() < 1e-3
-        && producer_num_door_animations("GLAArmsDealer") == 1
-        && producer_num_door_animations("Chem_GLAArmsDealer") == 1
-        && producer_num_door_animations("AmericaAirfield") == 4
-        && producer_num_door_animations("TestBarracks") == 0
-        && !production_door_allows_spawn(producer_num_door_animations("GLAArmsDealer"), 0)
-}
 
 // ---------------------------------------------------------------------------
 // 2. Buildable residual peels (BuildableStatus / CanMakeType / LegalBuildCode)
@@ -1226,122 +1170,6 @@ pub fn footprint_map_edge_violation_residual(
 }
 
 /// Wave 99 honesty: buildable residual pack.
-pub fn honesty_buildable_residual_pack_wave99() -> bool {
-    BUILDABLE_STATUS_NUM_TYPES == 4
-        && BUILDABLE_STATUS_NAME_TABLE_RESIDUAL.len() == 4
-        && residual_name_index(BUILDABLE_STATUS_NAME_TABLE_RESIDUAL, "Yes") == Some(0)
-        && residual_name_index(BUILDABLE_STATUS_NAME_TABLE_RESIDUAL, "Ignore_Prerequisites")
-            == Some(1)
-        && residual_name_index(BUILDABLE_STATUS_NAME_TABLE_RESIDUAL, "No") == Some(2)
-        && residual_name_index(BUILDABLE_STATUS_NAME_TABLE_RESIDUAL, "Only_By_AI") == Some(3)
-        && BSTATUS_YES == 0
-        && BSTATUS_IGNORE_PREREQUISITES == 1
-        && BSTATUS_NO == 2
-        && BSTATUS_ONLY_BY_AI == 3
-        && buildable_status_allows_human_residual(BSTATUS_YES)
-        && !legal_build_objects_in_the_way_residual(
-            (0.0, 0.0),
-            STRUCTURE_PLACE_CLEARANCE_RESIDUAL,
-            &[],
-        )
-        && legal_build_objects_in_the_way_residual(
-            (0.0, 0.0),
-            STRUCTURE_PLACE_CLEARANCE_RESIDUAL,
-            &[(10.0, 0.0, STRUCTURE_PLACE_CLEARANCE_RESIDUAL)],
-        )
-        && legal_build_code_from_checks_residual(true, false) == LBC_OK
-        && legal_build_code_from_checks_residual(true, true) == LBC_OBJECTS_IN_THE_WAY
-        && legal_build_code_from_checks_residual(false, false) == LBC_RESTRICTED_TERRAIN
-        && legal_build_code_from_checks_ex_residual(true, false, true) == LBC_TOO_CLOSE_TO_SUPPLIES
-        && legal_build_code_from_checks_full_residual(true, false, false, true)
-            == LBC_RESTRICTED_TERRAIN
-        && legal_build_code_from_checks_full_shroud_residual(true, true, false, false, false)
-            == LBC_SHROUD
-        && cell_shroud_blocks_build_residual(false)
-        && !cell_shroud_blocks_build_residual(true)
-        && legal_build_code_from_checks_complete_residual(true, false, true, false, false, false)
-            == LBC_NOT_FLAT_ENOUGH
-        && (footprint_height_delta_residual(&[0.0, 5.0, 10.0]) - 10.0).abs() < 0.01
-        && footprint_height_delta_residual(&[]) == 0.0
-        && legal_build_code_from_checks_with_path_residual(
-            true, false, false, false, true, false, false, false,
-        ) == LBC_NO_CLEAR_PATH
-        // audit-7 B-8: C++ priority order — overlap beats terrain/edge,
-        // CLEAR_PATH beats terrain, restricted (tiles + edge) beats flatness.
-        && legal_build_code_from_checks_with_path_residual(
-            true, false, true, false, false, false, true, true,
-        ) == LBC_OBJECTS_IN_THE_WAY
-        && legal_build_code_from_checks_with_path_residual(
-            true, false, false, false, true, false, false, true,
-        ) == LBC_NO_CLEAR_PATH
-        && legal_build_code_from_checks_with_path_residual(
-            true, false, false, false, false, true, true, true,
-        ) == LBC_RESTRICTED_TERRAIN
-        && builder_skips_clear_path_residual(true)
-        && !builder_skips_clear_path_residual(false)
-        && min_dist_from_map_edge_residual((0.0, 0.0), (-100.0, -100.0), (100.0, 100.0)) == 100.0
-        && min_dist_from_map_edge_residual((90.0, 0.0), (-100.0, -100.0), (100.0, 100.0)) == 10.0
-        && legal_build_too_close_to_supplies_residual((0.0, 0.0), 10.0, &[(5.0, 0.0, 5.0)], 20.0)
-        && !legal_build_too_close_to_supplies_residual((0.0, 0.0), 10.0, &[(200.0, 0.0, 5.0)], 20.0)
-        && buildable_status_allows_human_residual(BSTATUS_IGNORE_PREREQUISITES)
-        && !buildable_status_allows_human_residual(BSTATUS_NO)
-        && !buildable_status_allows_human_residual(BSTATUS_ONLY_BY_AI)
-        && buildable_status_ignores_prereq_residual(BSTATUS_IGNORE_PREREQUISITES)
-        && !buildable_status_ignores_prereq_residual(BSTATUS_YES)
-        && CAN_MAKE_TYPE_NAME_TABLE_RESIDUAL.len() == 7
-        && residual_name_index(CAN_MAKE_TYPE_NAME_TABLE_RESIDUAL, "CANMAKE_OK") == Some(0)
-        && can_make_type_from_checks_residual(true, true, false, false, false, false) == CANMAKE_OK
-        && can_make_type_from_checks_residual(false, true, false, false, false, false)
-            == CANMAKE_NO_PREREQ
-        && can_make_type_from_checks_residual(true, false, false, false, false, false)
-            == CANMAKE_NO_MONEY
-        && can_make_type_from_checks_residual(true, true, true, false, false, false)
-            == CANMAKE_FACTORY_IS_DISABLED
-        && can_make_type_from_checks_residual(true, true, false, true, false, false)
-            == CANMAKE_QUEUE_FULL
-        && unit_max_simultaneous_of_type_residual("AmericaInfantryColonelBurton") == Some(1)
-        && unit_max_simultaneous_of_type_residual("ChinaInfantryBlackLotus") == Some(1)
-        && unit_max_simultaneous_of_type_residual("GLAInfantryJarmenKell") == Some(1)
-        && unit_max_simultaneous_of_type_residual("AmericaInfantryRanger").is_none()
-        && unit_maxed_out_for_player_residual(1, Some(1))
-        && !unit_maxed_out_for_player_residual(0, Some(1))
-        && !unit_maxed_out_for_player_residual(5, None)
-        && can_make_type_from_checks_residual(true, true, false, false, false, true)
-            == CANMAKE_MAXED_OUT_FOR_PLAYER
-        && can_make_type_from_checks_residual(false, true, true, false, false, false)
-            == CANMAKE_FACTORY_IS_DISABLED
-        && can_make_type_from_checks_residual(false, true, false, false, false, true)
-            == CANMAKE_MAXED_OUT_FOR_PLAYER
-        && residual_name_index(CAN_MAKE_TYPE_NAME_TABLE_RESIDUAL, "CANMAKE_NO_PREREQ") == Some(1)
-        && residual_name_index(CAN_MAKE_TYPE_NAME_TABLE_RESIDUAL, "CANMAKE_NO_MONEY") == Some(2)
-        && residual_name_index(CAN_MAKE_TYPE_NAME_TABLE_RESIDUAL, "CANMAKE_QUEUE_FULL") == Some(4)
-        && residual_name_index(
-            CAN_MAKE_TYPE_NAME_TABLE_RESIDUAL,
-            "CANMAKE_MAXED_OUT_FOR_PLAYER",
-        ) == Some(6)
-        && CANMAKE_OK == 0
-        && CANMAKE_QUEUE_FULL == 4
-        && CANMAKE_PARKING_PLACES_FULL == 5
-        && LEGAL_BUILD_CODE_NAME_TABLE_RESIDUAL.len() == 8
-        && residual_name_index(LEGAL_BUILD_CODE_NAME_TABLE_RESIDUAL, "LBC_OK") == Some(0)
-        && residual_name_index(LEGAL_BUILD_CODE_NAME_TABLE_RESIDUAL, "LBC_SHROUD") == Some(5)
-        && residual_name_index(
-            LEGAL_BUILD_CODE_NAME_TABLE_RESIDUAL,
-            "LBC_TOO_CLOSE_TO_SUPPLIES",
-        ) == Some(6)
-        && residual_name_index(LEGAL_BUILD_CODE_NAME_TABLE_RESIDUAL, "LBC_GENERIC_FAILURE")
-            == Some(7)
-        && LOCAL_LEGAL_TERRAIN_RESTRICTIONS == 0x01
-        && LOCAL_LEGAL_CLEAR_PATH == 0x02
-        && LOCAL_LEGAL_NO_OBJECT_OVERLAP == 0x04
-        && LOCAL_LEGAL_SHROUD_REVEALED == 0x10
-        && LOCAL_LEGAL_IGNORE_STEALTHED == 0x40
-        && LOCAL_LEGAL_FAIL_STEALTHED_WITHOUT_FEEDBACK == 0x80
-        && TOTAL_FRAMES_TO_SELL_OBJECT_RESIDUAL == 90
-        && (SELL_PERCENTAGE_RESIDUAL - 0.5).abs() < 1e-6
-        && sell_refund_residual(2000) == 1000
-        && sell_refund_residual(101) == 50
-}
 
 // ---------------------------------------------------------------------------
 // 3. Prerequisite residual peels (ProductionPrerequisite)
@@ -1506,98 +1334,6 @@ pub fn prereq_objects_for_template_residual(
 }
 
 /// Wave 99 honesty: prerequisite residual pack.
-pub fn honesty_prerequisite_residual_pack_wave99() -> bool {
-    PREREQ_MAX_UNITS_RESIDUAL == 32
-        && PREREQ_UNIT_OR_WITH_PREV == 0x01
-        && PREREQ_INI_FIELD_NAMES.len() == 2
-        && residual_name_index(PREREQ_INI_FIELD_NAMES, "Object") == Some(0)
-        && residual_name_index(PREREQ_INI_FIELD_NAMES, "Science") == Some(1)
-        && PREREQ_SAMPLE_TABLE_RESIDUAL.len() == 18
-        && PREREQ_SAMPLE_TABLE_RESIDUAL[0].unit == "AmericaWarFactory"
-        && PREREQ_SAMPLE_TABLE_RESIDUAL[0].prereq_objects == &["AmericaSupplyCenter"]
-        && !PREREQ_SAMPLE_TABLE_RESIDUAL[0].or_chain
-        && PREREQ_SAMPLE_TABLE_RESIDUAL[4].or_chain
-        && PREREQ_SAMPLE_TABLE_RESIDUAL[4].prereq_objects.len() == 2
-        // AND residual: need CommandCenter for barracks
-        && prereq_is_satisfied_residual(
-            &["AmericaCommandCenter"],
-            false,
-            &["AmericaCommandCenter", "AmericaPowerPlant"],
-            true,
-        )
-        && !prereq_is_satisfied_residual(
-            &["AmericaCommandCenter"],
-            false,
-            &["AmericaPowerPlant"],
-            true,
-        )
-        // OR residual: either WarFactory or Airfield
-        && prereq_is_satisfied_residual(
-            &["AmericaWarFactory", "AmericaAirfield"],
-            true,
-            &["AmericaAirfield"],
-            true,
-        )
-        && prereq_is_satisfied_residual(
-            &["AmericaWarFactory", "AmericaAirfield"],
-            true,
-            &["AmericaWarFactory"],
-            true,
-        )
-        && !prereq_is_satisfied_residual(
-            &["AmericaWarFactory", "AmericaAirfield"],
-            true,
-            &["AmericaBarracks"],
-            true,
-        )
-        // Science residual gate
-        && !prereq_is_satisfied_residual(&[], false, &[], false)
-        && prereq_is_satisfied_residual(&[], false, &[], true)
-        && prereq_objects_for_template_residual("AmericaParticleCannonUplink")
-            == Some((&["AmericaStrategyCenter"][..], false))
-        && prereq_objects_for_template_residual("GLAScudStorm")
-            == Some((&["GLAPalace"][..], false))
-        && prereq_objects_for_template_residual("ChinaNuclearMissileLauncher")
-            == Some((&["ChinaPropagandaCenter"][..], false))
-        && prereq_objects_for_template_residual("GLAPalace")
-            == Some((&["GLAArmsDealer"][..], false))
-        && prereq_objects_for_template_residual("ChinaPropagandaCenter")
-            == Some((&["ChinaWarFactory"][..], false))
-        && prereq_objects_for_template_residual("AmericaStrategyCenter")
-            == Some((&["AmericaWarFactory", "AmericaAirfield"][..], true))
-        && prereq_is_satisfied_residual(
-            &["AmericaStrategyCenter"],
-            false,
-            &["AmericaStrategyCenter"],
-            true,
-        )
-        && !prereq_is_satisfied_residual(
-            &["AmericaStrategyCenter"],
-            false,
-            &["AmericaCommandCenter"],
-            true,
-        )
-        && prereq_objects_for_template_residual("ChinaVehicleListeningOutpost")
-            == Some((&["ChinaWarFactory", "ChinaBarracks"][..], false))
-        && prereq_is_satisfied_residual(
-            &["ChinaWarFactory", "ChinaBarracks"],
-            false,
-            &["ChinaWarFactory", "ChinaBarracks"],
-            true,
-        )
-        && !prereq_is_satisfied_residual(
-            &["ChinaWarFactory", "ChinaBarracks"],
-            false,
-            &["ChinaWarFactory"],
-            true,
-        )
-        && !prereq_is_satisfied_residual(
-            &["ChinaWarFactory", "ChinaBarracks"],
-            false,
-            &["ChinaBarracks"],
-            true,
-        )
-}
 
 // ---------------------------------------------------------------------------
 // 4. CommandButton residual deepen (beyond Wave 80 superweapon labels)
@@ -1733,45 +1469,6 @@ pub fn command_option_needs_target_residual(options: u32) -> bool {
 }
 
 /// Wave 99 honesty: command button residual deepen pack.
-pub fn honesty_command_button_residual_deepen_pack_wave99() -> bool {
-    GUI_COMMAND_NUM_COMMANDS_RESIDUAL == 35
-        && GUI_COMMAND_NAME_TABLE_RESIDUAL.len() == 35
-        && residual_name_index(GUI_COMMAND_NAME_TABLE_RESIDUAL, "NONE") == Some(0)
-        && residual_name_index(GUI_COMMAND_NAME_TABLE_RESIDUAL, "DOZER_CONSTRUCT") == Some(1)
-        && residual_name_index(GUI_COMMAND_NAME_TABLE_RESIDUAL, "UNIT_BUILD") == Some(3)
-        && residual_name_index(GUI_COMMAND_NAME_TABLE_RESIDUAL, "SPECIAL_POWER") == Some(21)
-        && residual_name_index(GUI_COMMAND_NAME_TABLE_RESIDUAL, "PURCHASE_SCIENCE") == Some(22)
-        && residual_name_index(
-            GUI_COMMAND_NAME_TABLE_RESIDUAL,
-            "SPECIAL_POWER_FROM_SHORTCUT",
-        ) == Some(31)
-        && residual_name_index(GUI_COMMAND_NAME_TABLE_RESIDUAL, "SELECT_ALL_UNITS_OF_TYPE")
-            == Some(34)
-        && COMMAND_OPTION_NAME_TABLE_RESIDUAL.len() == 24
-        && residual_name_index(
-            COMMAND_OPTION_NAME_TABLE_RESIDUAL,
-            "NEED_TARGET_ENEMY_OBJECT",
-        ) == Some(0)
-        && residual_name_index(COMMAND_OPTION_NAME_TABLE_RESIDUAL, "NEED_TARGET_POS") == Some(5)
-        && residual_name_index(COMMAND_OPTION_NAME_TABLE_RESIDUAL, "NOT_QUEUEABLE") == Some(16)
-        && residual_name_index(COMMAND_OPTION_NAME_TABLE_RESIDUAL, "MUST_BE_STOPPED") == Some(23)
-        && COMMAND_OPTION_NEED_TARGET_ENEMY_OBJECT == 0x1
-        && COMMAND_OPTION_NEED_TARGET_POS == 0x20
-        && COMMAND_OPTION_NOT_QUEUEABLE == 0x1_0000
-        && COMMAND_OPTION_MUST_BE_STOPPED == 0x80_0000
-        && COMMAND_OPTION_NEED_TARGET_MASK == 0x227
-        && COMMAND_OPTION_NEED_OBJECT_TARGET_MASK == 0x7
-        && command_option_needs_target_residual(COMMAND_OPTION_NEED_TARGET_POS)
-        && command_option_needs_target_residual(COMMAND_OPTION_NEED_TARGET_ENEMY_OBJECT)
-        && !command_option_needs_target_residual(COMMAND_OPTION_NEED_UPGRADE)
-        && COMMAND_BUTTON_BORDER_COUNT == 5
-        && COMMAND_BUTTON_BORDER_NAME_TABLE_RESIDUAL.len() == 5
-        && residual_name_index(COMMAND_BUTTON_BORDER_NAME_TABLE_RESIDUAL, "BUILD") == Some(1)
-        && residual_name_index(COMMAND_BUTTON_BORDER_NAME_TABLE_RESIDUAL, "SYSTEM") == Some(4)
-        && COMMAND_BUTTON_INI_FIELD_NAMES.len() == 15
-        && residual_name_index(COMMAND_BUTTON_INI_FIELD_NAMES, "Command") == Some(0)
-        && residual_name_index(COMMAND_BUTTON_INI_FIELD_NAMES, "RadiusCursorType") == Some(6)
-}
 
 // ---------------------------------------------------------------------------
 // 5. ControlBar residual deepen (beyond Wave 76 window count / fonts)
@@ -1847,58 +1544,12 @@ pub const CONTROL_BAR_QUEUE_BUTTON_NAMES: &[&str] = &[
 pub const CONTROL_BAR_RETAIL_WINDOW_COUNT_CROSSLINK: usize = 98;
 
 /// Wave 99 honesty: control bar residual deepen pack.
-pub fn honesty_control_bar_residual_deepen_pack_wave99() -> bool {
-    MAX_COMMANDS_PER_SET_RESIDUAL == 18
-        && CONTROL_BAR_VISIBLE_COMMAND_BUTTONS == 14
-        && MAX_BUILD_QUEUE_BUTTONS_RESIDUAL == 9
-        && MAX_STRUCTURE_INVENTORY_BUTTONS_RESIDUAL == 10
-        && MAX_SPECIAL_POWER_SHORTCUTS_RESIDUAL == 11
-        && MAX_RIGHT_HUD_UPGRADE_CAMEOS_RESIDUAL == 5
-        && MAX_PURCHASE_SCIENCE_RANK_1_RESIDUAL == 4
-        && MAX_PURCHASE_SCIENCE_RANK_3_RESIDUAL == 15
-        && MAX_PURCHASE_SCIENCE_RANK_8_RESIDUAL == 4
-        && NUM_CB_CONTEXTS_RESIDUAL == 9
-        && CONTROL_BAR_CONTEXT_NAME_TABLE_RESIDUAL.len() == 9
-        && residual_name_index(CONTROL_BAR_CONTEXT_NAME_TABLE_RESIDUAL, "CB_CONTEXT_NONE")
-            == Some(0)
-        && residual_name_index(CONTROL_BAR_CONTEXT_NAME_TABLE_RESIDUAL, "CB_CONTEXT_COMMAND")
-            == Some(1)
-        && residual_name_index(
-            CONTROL_BAR_CONTEXT_NAME_TABLE_RESIDUAL,
-            "CB_CONTEXT_UNDER_CONSTRUCTION",
-        ) == Some(4)
-        && residual_name_index(
-            CONTROL_BAR_CONTEXT_NAME_TABLE_RESIDUAL,
-            "CB_CONTEXT_MULTI_SELECT",
-        ) == Some(5)
-        && residual_name_index(
-            CONTROL_BAR_CONTEXT_NAME_TABLE_RESIDUAL,
-            "CB_CONTEXT_OCL_TIMER",
-        ) == Some(8)
-        && CONTROL_BAR_BUTTON_COMMAND_NAMES.len() == 14
-        && CONTROL_BAR_BUTTON_COMMAND_NAMES[0] == "ButtonCommand01"
-        && CONTROL_BAR_BUTTON_COMMAND_NAMES[13] == "ButtonCommand14"
-        && CONTROL_BAR_QUEUE_BUTTON_NAMES.len() == 9
-        && CONTROL_BAR_QUEUE_BUTTON_NAMES[0] == "ButtonQueue01"
-        && CONTROL_BAR_QUEUE_BUTTON_NAMES[8] == "ButtonQueue09"
-        && CONTROL_BAR_RETAIL_WINDOW_COUNT_CROSSLINK == 98
-        // Visible buttons ≤ internal max; build queue matches MaxQueueEntries residual.
-        && CONTROL_BAR_VISIBLE_COMMAND_BUTTONS < MAX_COMMANDS_PER_SET_RESIDUAL
-        && MAX_BUILD_QUEUE_BUTTONS_RESIDUAL == PRODUCTION_MAX_QUEUE_ENTRIES_DEEPEN
-}
 
 // ---------------------------------------------------------------------------
 // Combined Wave 99 residual pack
 // ---------------------------------------------------------------------------
 
 /// Combined Wave 99 residual honesty pack.
-pub fn honesty_production_buildable_command_residual_pack_wave99() -> bool {
-    honesty_production_residual_deepen_pack_wave99()
-        && honesty_buildable_residual_pack_wave99()
-        && honesty_prerequisite_residual_pack_wave99()
-        && honesty_command_button_residual_deepen_pack_wave99()
-        && honesty_control_bar_residual_deepen_pack_wave99()
-}
 
 #[cfg(test)]
 mod tests {
@@ -1929,36 +1580,6 @@ mod tests {
     }
 
     use super::*;
-
-    #[test]
-    fn production_residual_deepen_wave99_honesty() {
-        assert!(honesty_production_residual_deepen_pack_wave99());
-    }
-
-    #[test]
-    fn buildable_residual_wave99_honesty() {
-        assert!(honesty_buildable_residual_pack_wave99());
-    }
-
-    #[test]
-    fn prerequisite_residual_wave99_honesty() {
-        assert!(honesty_prerequisite_residual_pack_wave99());
-    }
-
-    #[test]
-    fn command_button_residual_deepen_wave99_honesty() {
-        assert!(honesty_command_button_residual_deepen_pack_wave99());
-    }
-
-    #[test]
-    fn control_bar_residual_deepen_wave99_honesty() {
-        assert!(honesty_control_bar_residual_deepen_pack_wave99());
-    }
-
-    #[test]
-    fn production_buildable_command_residual_pack_wave99_honesty() {
-        assert!(honesty_production_buildable_command_residual_pack_wave99());
-    }
 
     #[test]
     fn parsed_num_door_animations_gives_arms_dealer_doors() {

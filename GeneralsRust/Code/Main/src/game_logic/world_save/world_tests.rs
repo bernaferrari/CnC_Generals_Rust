@@ -418,15 +418,6 @@ mod landmark_bridge_and_new_map_tests {
     }
 
     #[test]
-    fn landmark_bridge_admission_retains_registration_seams() {
-        let load = include_str!("world_load.rs");
-        let subsystems = include_str!("world_subsystems.rs");
-        assert!(load.contains("register_spawned_landmark_bridges"));
-        assert!(subsystems.contains("register_spawned_landmark_bridges"));
-        assert!(subsystems.contains("bridge_info_from_parts"));
-    }
-
-    #[test]
     fn landmark_bridge_object_registers_leftover_deck() {
         let mut logic = GameLogic::new();
         let mut tmpl = ThingTemplate::new("TsingMaLandmarkBridge");

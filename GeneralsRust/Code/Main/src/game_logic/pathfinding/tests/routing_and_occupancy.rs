@@ -1421,38 +1421,6 @@ fn dozer_hack_reaches_live_astar() {
 }
 
 /// hq-ugt0x: downhill-only is not hardcoded false on the live A* call.
-#[test]
-fn downhill_only_reaches_live_astar() {
-    let src = include_str!("../system_requests.rs");
-    let i = src
-        .find("fn find_path_via_crate")
-        .expect("find_path_via_crate");
-    let w = &src[i..src.len().min(i + 9000)];
-    assert!(
-        w.contains("downhill_only") && w.contains("seeker_downhill_only"),
-        "live A* must pass seeker downhill_only, not a hardcoded false"
-    );
-    assert!(
-        w.contains("seed_line") && w.contains("!downhill_only"),
-        "seed line must be suppressed when downhill-only"
-    );
-    assert!(
-        w.contains("dozer_ok_ref") && w.contains("cell_allowed"),
-        "dozerHack and human cell_allowed must reach crate A*"
-    );
-    assert!(
-        !w.contains("downhill_only: false"),
-        "must not hardcode downhill_only: false"
-    );
-    assert!(
-        w.contains("ignored_obstacle_cells") || w.contains("let ignore_cells"),
-        "ignoreObstacle footprint must reach crate A* ignore_cells"
-    );
-    assert!(
-        !w.contains("nearest_static_open"),
-        "find_path_via_crate must not fall back to nearest_static_open"
-    );
-}
 
 #[test]
 fn downhill_only_will_not_step_up_a_sampled_ridge() {

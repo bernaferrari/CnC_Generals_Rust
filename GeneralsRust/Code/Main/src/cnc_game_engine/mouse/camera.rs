@@ -136,7 +136,7 @@ impl CnCGameEngine {
             self.look_at_modes.scroll_type = LookAtScrollType::None;
         }
         // C++ LookAt keyboard scroll uses arrows (not WASD). Tokens must stay
-        // near the top of update_camera for ENGINE_SRC residual scans.
+
         let logic_frames_per_second =
             game_engine::common::game_common::LOGICFRAMES_PER_SECOND as f32;
         let input_rules = self.game_logic.camera_input_rules();

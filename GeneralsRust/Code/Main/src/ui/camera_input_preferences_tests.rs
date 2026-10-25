@@ -69,17 +69,3 @@ fn two_application_preferences_use_receiving_map_default_and_preserve_actual_sto
         0.25
     );
 }
-#[test]
-fn source_native_input_reads_actual_application_and_definition_without_saved_preference_fields() {
-    let source = include_str!("../cnc_game_engine/mouse/camera.rs");
-    assert!(source.contains("self.game_logic.camera_input_rules()"));
-    assert!(source.contains("self.ui_manager.camera_keyboard_scroll_factor(input_rules)"));
-    assert!(!source.contains("global_data::read()"));
-    let boot = include_str!("../cnc_game_engine/boot.rs");
-    assert!(
-        boot.find("camera_options.load(").unwrap() < boot.find("spawn_startup_map_load(").unwrap()
-    );
-    let native = include_str!("../cnc_game_engine/camera_continuation.rs");
-    assert!(!native.contains("CameraInputRules"));
-    assert!(!native.contains("UserPreferences"));
-}

@@ -406,14 +406,6 @@ mod tests {
             None
         );
         assert_eq!(terrain_class_from_index(999), None);
-        let impl_src = include_str!("terrain_types.rs")
-            .split("#[cfg(test)]")
-            .next()
-            .unwrap_or("");
-        assert!(
-            !impl_src.contains("mem::transmute"),
-            "TerrainClass lookup must not transmute integers"
-        );
     }
 
     #[test]

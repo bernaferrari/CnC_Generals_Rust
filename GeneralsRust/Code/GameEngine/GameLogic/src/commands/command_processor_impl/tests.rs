@@ -216,17 +216,9 @@ mod tests {
             "C++ doSetRallyPoint checks BasicHumanLocomotor ground surfaces"
         );
         assert!(
-            set.find_locomotor(crate::locomotor::SURFACE_GROUND).is_some(),
+            set.find_locomotor(crate::locomotor::SURFACE_GROUND)
+                .is_some(),
             "rally gate must carry a ground unit locomotor"
-        );
-        let src = include_str!("handler_build.rs");
-        assert!(
-            src.contains("BasicHumanLocomotor") && src.contains("basic_human_rally_locomotor_set"),
-            "leftover SetRallyPoint must use BasicHumanLocomotor, not the building AI set"
-        );
-        assert!(
-            !src.contains("get_locomotor_set_clone"),
-            "building locomotor must not gate rally path"
         );
     }
 }

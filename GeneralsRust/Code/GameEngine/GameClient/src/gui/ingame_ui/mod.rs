@@ -87,23 +87,3 @@ pub use superweapon_ready_flash::*;
 mod live_hud;
 pub use live_hud::*;
 include!("tests.rs");
-
-/// Concatenated live sources for residual `include_str!` scans.
-pub const INGAME_UI_SRC: &str = concat!(
-    include_str!("mod.rs"),
-    include_str!("types.rs"),
-    include_str!("messages.rs"),
-    include_str!("floating_text.rs"),
-    include_str!("selection.rs"),
-    include_str!("radius_cursor.rs"),
-    include_str!("minimap.rs"),
-    include_str!("world_anim.rs"),
-    include_str!("impl_update.rs"),
-    include_str!("impl_input.rs"),
-    include_str!("snapshot.rs"),
-    include_str!("leftover.rs"),
-    include_str!("place_icons.rs"),
-    include_str!("radar_map.rs"),
-    include_str!("radius_cursor_ini.rs"),
-    include_str!("select_all.rs"),
-);

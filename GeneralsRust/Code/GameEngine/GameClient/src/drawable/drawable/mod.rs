@@ -338,24 +338,3 @@ impl BasicDrawable {
         }
     }
 }
-
-/// Concatenated live sources for residual `include_str!` scans.
-pub const DRAWABLE_SRC: &str = concat!(
-    include_str!("mod.rs"),
-    include_str!("types.rs"),
-    include_str!("icons.rs"),
-    include_str!("tint_envelope.rs"),
-    include_str!("draw_module.rs"),
-    include_str!("drawable_trait.rs"),
-    include_str!("xfer.rs"),
-    include_str!("leftover.rs"),
-    include_str!("basic_core.rs"),
-    include_str!("basic_visual.rs"),
-    include_str!("basic_overlay.rs"),
-    include_str!("basic_modules.rs"),
-    include_str!("condition_apply.rs"),
-    include_str!("hidden_status.rs"),
-    include_str!("selection_flash.rs"),
-    include_str!("basic_drawable_trait.rs"),
-    include_str!("snapshot.rs"),
-);

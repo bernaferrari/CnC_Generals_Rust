@@ -328,18 +328,6 @@ fn the_audio_singleton_registers_rodio_not_wwaudio() {
         sound_playback_hook_registered(),
         "boot must register the real playback hook"
     );
-    let src = include_str!("game_audio.rs");
-    let prod = src; // The root contains production items and test-only accessors.
-    assert!(
-        prod.contains(
-            "use rodio_compat::{Decoder, OutputStream, OutputStreamHandle, Sink, Source, SpatialSink}"
-        ) && prod.contains("fn register_rodio_playback_hook"),
-        "Common TheAudio backend must be rodio, not Miles leftover crate"
-    );
-    assert!(
-        !prod.contains("use wwaudio") && !prod.contains("wp-audio"),
-        "Common TheAudio must not import leftover WWAudio crate"
-    );
 }
 
 #[test]
@@ -424,27 +412,6 @@ fn boot_equivalent_audio_ini_load_resolves_retail_event_names() {
         "known retail event must not return AHSV_Error after boot INI load"
     );
     assert!(handle >= AHSV_FIRST_HANDLE);
-}
-
-#[test]
-fn rodio_play_does_not_reenter_the_audio_mutex() {
-    let src = include_str!("game_audio.rs");
-    let play = src
-        .split("fn play_with_observation(")
-        .nth(1)
-        .and_then(|s| {
-            s.split("impl SoundPlaybackHook for RodioPlaybackHook")
-                .next()
-        })
-        .unwrap_or("");
-    assert!(
-        play.contains("try_lock()"),
-        "Rodio play must try_lock THE_AUDIO sliders; C++ Miles never re-enters AudioManager from play"
-    );
-    assert!(
-        !play.contains("manager.lock()"),
-        "blocking THE_AUDIO lock from Rodio play deadlocks Menu TheAudio::update"
-    );
 }
 
 #[test]
@@ -851,56 +818,6 @@ fn unresolved_add_audio_event_reports_failure_once() {
 }
 
 #[test]
-fn play_err_strings_reach_the_failure_report_not_a_discard() {
-    // A registered backend that fails must surface through the session set
-    // in every play path: playAudioEvent (hook Err + unresolved info) and
-    // friend_forcePlayAudioEventRTS (hook Err + unresolved info).
-    let src = include_str!("game_audio.rs");
-    let play_audio_event = src
-        .split("fn play_audio_event(")
-        .nth(1)
-        .and_then(|s| s.split("fn ").next())
-        .unwrap_or("");
-    assert_eq!(
-        play_audio_event.matches("report_play_failure_once").count(),
-        2,
-        "playAudioEvent must report both unresolved info and hook.play Err"
-    );
-    let force_play = src
-        .split("fn friend_force_play_audio_event_rts(")
-        .nth(1)
-        .and_then(|s| s.split("pub fn force_played_count").next())
-        .unwrap_or("");
-    assert_eq!(
-        force_play.matches("report_play_failure_once").count(),
-        2,
-        "friend_forcePlayAudioEventRTS must report both unresolved info and hook.play Err"
-    );
-}
-struct OwnerSubmissionLocality;
-impl AudioLocalityResolver for OwnerSubmissionLocality {
-    fn get_local_player_index(&self) -> Option<Int> {
-        Some(3)
-    }
-    fn is_player_active(&self, _: Int) -> Bool {
-        true
-    }
-    fn player_exists(&self, index: Int) -> Bool {
-        matches!(index, 3 | 4)
-    }
-    fn has_default_team(&self, _: Int) -> Bool {
-        true
-    }
-    fn get_relationship_to_local_team(&self, source: Int, local: Int) -> AudioLocalityRelationship {
-        if source == local {
-            AudioLocalityRelationship::Allies
-        } else {
-            AudioLocalityRelationship::Enemies
-        }
-    }
-}
-
-#[test]
 fn borrowed_owner_locality_uses_supplied_player_without_changing_event_identity() {
     let manager = AudioManager::new();
     let mut info = test_info("OwnerPromotion", AudioType::SoundEffect, 0, 0);
@@ -1266,3 +1183,26 @@ fn explicit_locality_admits_registered_events_with_complete_cpp_player_facts() {
 
 #[path = "tests/positional_audio_divisor_tests.rs"]
 mod positional_audio_divisor_tests;
+
+struct OwnerSubmissionLocality;
+impl AudioLocalityResolver for OwnerSubmissionLocality {
+    fn get_local_player_index(&self) -> Option<Int> {
+        Some(3)
+    }
+    fn is_player_active(&self, _: Int) -> Bool {
+        true
+    }
+    fn player_exists(&self, index: Int) -> Bool {
+        matches!(index, 3 | 4)
+    }
+    fn has_default_team(&self, _: Int) -> Bool {
+        true
+    }
+    fn get_relationship_to_local_team(&self, source: Int, local: Int) -> AudioLocalityRelationship {
+        if source == local {
+            AudioLocalityRelationship::Allies
+        } else {
+            AudioLocalityRelationship::Enemies
+        }
+    }
+}

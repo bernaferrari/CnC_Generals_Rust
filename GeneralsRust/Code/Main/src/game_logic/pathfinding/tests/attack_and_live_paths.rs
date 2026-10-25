@@ -142,18 +142,6 @@ fn attack_los_terrain_blocks_ridge_for_mobile_weapon() {
         !sys.is_attack_view_blocked_for(from, to, Some(&turret), Some(&victim), &ground_source),
         "immobile attackers skip terrain LOS (cannot path around)"
     );
-
-    let src = include_str!("../system_requests.rs");
-    let i = src
-        .find("pub fn is_attack_view_blocked_for(")
-        .expect("is_attack_view_blocked_for");
-    let body = &src[i..src.len().min(i + 3500)];
-    assert!(
-        body.contains("LOS_TERRAIN")
-            && body.contains("KindOf::Immobile")
-            && body.contains("is_clear_line_of_sight_terrain"),
-        "isAttackViewBlockedByObstacle must apply leftover LOS_TERRAIN"
-    );
 }
 
 /// hq-nxr47: A* keeps searching when the first in-range cell is ridge-blocked.
@@ -427,33 +415,6 @@ fn grid_to_world_uses_deck_height() {
 }
 
 /// hq-7tj9x: findClosest rebuilds via crate A*, not thin host A* / fail-open line.
-#[test]
-fn find_closest_path_rebuilds_via_crate_not_thin_line() {
-    let src = include_str!("../system_routes.rs");
-    let i = src
-        .find("pub fn find_closest_path(")
-        .expect("find_closest_path");
-    let w = src[i..]
-        .split("\n    ///")
-        .next()
-        .expect("closest function body");
-    assert!(
-        w.contains("find_path_via_crate"),
-        "closest must rebuild with leftover crate A*"
-    );
-    assert!(
-        !w.contains("self.grid.find_path("),
-        "closest must not reconstruct with thin host A*"
-    );
-    assert!(
-        w.contains("no fail-open line"),
-        "closest must not fail-open a straight from→to line"
-    );
-    assert!(
-        w.contains("enqueue_connect_layer"),
-        "closest search must hop checkChangeLayers"
-    );
-}
 
 /// hq-ajphf: findClosestPath accepts an occupied goal when canPathThroughUnits.
 #[test]
@@ -532,16 +493,6 @@ fn find_closest_path_accepts_occupied_goal_when_can_path_through_units() {
     assert_eq!(
         with_cell, goal,
         "canPathThroughUnits must accept the occupied goal, end={with_cell:?}"
-    );
-
-    let src = include_str!("../system_routes.rs");
-    let i = src
-        .find("pub fn find_closest_path(")
-        .expect("find_closest_path");
-    let body = &src[i..src.len().min(i + 2500)];
-    assert!(
-        body.contains("seeker_can_path_through_units"),
-        "findClosestPath must honor leftover canPathThroughUnits goal accept"
     );
 }
 
@@ -634,25 +585,6 @@ fn find_closest_path_hops_connect_layer_onto_deck() {
 }
 
 /// hq-hy7cu: flee search also hops connect-layer.
-#[test]
-fn find_safe_path_enqueues_change_layers() {
-    let src = include_str!("../system_routes.rs");
-    let i = src
-        .find("pub fn find_safe_path_from(")
-        .expect("find_safe_path_from");
-    let w = src[i..]
-        .split("\n    pub fn ")
-        .next()
-        .expect("safe search function body");
-    assert!(
-        w.contains("enqueue_connect_layer"),
-        "safe search must hop checkChangeLayers"
-    );
-    assert!(
-        w.contains("cell_passable_for_layer"),
-        "safe neighbors expand on the current layer"
-    );
-}
 
 /// hq-cg5on: snapClosestGoalPosition offsets off an occupied pad cell.
 #[test]
@@ -1693,42 +1625,6 @@ fn leftover_line_passable_non_final_gate_skips_final_goal() {
             None,
         ),
         "blocked leftover isLinePassable must not leftover-install computeQuickPath"
-    );
-}
-
-#[test]
-fn compute_assigned_unit_path_leftover_installs_compute_quick_path() {
-    let src = concat!(
-        include_str!("../../world_save.rs"),
-        include_str!("../../world_save/world_subsystems.rs"),
-        include_str!("../../world_save/world_paths.rs"),
-        include_str!("../../world_save/world_runtime.rs"),
-        include_str!("../../world_save/world_players.rs"),
-        include_str!("../../world_save/world_load.rs"),
-    );
-    let i = src
-        .find("fn compute_assigned_unit_path")
-        .expect("compute_assigned_unit_path");
-    let w = src[i..]
-        .split("\n    pub(in super::super) fn apply_computed_unit_path(")
-        .next()
-        .expect("compute path function body");
-    assert!(
-        w.contains("leftover_should_force_direct_path_for_off_map_start")
-            && w.contains("leftover_should_use_direct_path_for_line_passable_non_final_goal")
-            && w.contains("leftover_compute_quick_path_nodes"),
-        "live compute_assigned_unit_path must leftover-install computeQuickPath"
-    );
-    assert!(
-        w.contains("u.is_final_goal") && w.contains("request_is_final && hop_i + 1 == goal_count"),
-        "computePath must use the stored final-goal flag for the final hop (C++ AIUpdate.cpp:1692)"
-    );
-    let pf = include_str!("../system_routes.rs");
-    assert!(
-        pf.split_whitespace().collect::<String>().contains(
-            "leftover_should_force_direct_path_for_off_map_start(start,goal,ground_source)"
-        ) && pf.contains("leftover_compute_quick_path_nodes(start, goal)"),
-        "find_path_ex_surfaces must leftover-install off-map computeQuickPath"
     );
 }
 

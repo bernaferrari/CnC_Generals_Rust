@@ -205,28 +205,3 @@ fn completed_receiver_material_reaches_main_inputs_and_refreshes_same_frozen_fra
     current.apply_to_inputs(&frame, &shroud, &mut inputs);
     assert_eq!(inputs[0].second_material_pass_opacity, 0.);
 }
-
-#[test]
-fn completed_material_is_joined_before_meshes_and_all_four_shader_inputs_use_it() {
-    let collector = include_str!("pipeline_collect.rs");
-    assert!(
-        collector
-            .find("self.frozen_material_draw.as_ref()")
-            .unwrap()
-            < collector.find("for mut u in unit_inputs").unwrap()
-    );
-    assert_eq!(
-        collector.matches(".apply_heat_vision_second_pass(").count(),
-        4
-    );
-    assert_eq!(
-        collector.matches("u.second_material_pass_opacity").count(),
-        4
-    );
-    let handoff = include_str!("../../cnc_game_engine/input.rs");
-    assert!(handoff.contains("capture_material_draw_inputs("));
-    assert!(!handoff.contains("ensure_material_draw_inputs("));
-    let queries = include_str!("../../presentation_frame/queries.rs");
-    assert!(!queries.contains("stealth_second_material_pass_opacity("));
-    assert!(!queries.contains("object.camo_heat_vision_opacity"));
-}

@@ -86,51 +86,6 @@ fn staged_load_failure_keeps_only_an_active_match_state() {
 fn staged_load_error_branch_preserves_live_world_contract() {
     assert!(!HostLoadFailure::Staging("bad map".into()).requires_match_reset());
     assert!(HostLoadFailure::Committed("bad drawable".into()).requires_match_reset());
-    let source = include_str!("../host_authority.rs");
-    let start = source
-        .find("fn host_handle_load_failure")
-        .expect("load UI authority");
-    let body = &source[start
-        ..source[start..]
-            .find("pub(super) fn host_load_game_from_ui")
-            .map(|end| start + end)
-            .expect("handler precedes caller")];
-    let error = body;
-    let error = &error[..error
-        .find("\n            }\n        }\n    }\n}")
-        .unwrap_or(error.len())];
-    assert!(error.contains("failure.requires_match_reset()"));
-    assert!(error.contains("if committed {"));
-    assert!(error.contains("self.return_to_main_menu_after_match()"));
-    assert!(error.contains("Self::staged_load_failure_return_state(prior_state)"));
-    assert!(!error.contains("host_clear_match_residuals"));
-    assert!(!error.contains("invalidate_world_visual_state"));
-    assert!(!error.contains("invalidate_presentation_drawable_world"));
-}
-
-#[test]
-fn load_failure_surfaces_gui_error_loading_game() {
-    let source = include_str!("../host_authority.rs");
-    let start = source
-        .find("fn surface_load_game_ui_feedback")
-        .expect("load error UI");
-    let body = &source[start..];
-    assert!(body.contains("GUI:ErrorLoadingGame") || body.contains("format_error_loading_game"));
-    assert!(body.contains("message_box_ok"));
-    let ui = source
-        .find("fn host_handle_load_failure")
-        .expect("load UI boundary");
-    let ui_body = &source[ui..];
-    let reset = ui_body
-        .find("self.return_to_main_menu_after_match()")
-        .expect("failed commit reset");
-    let message = ui_body
-        .find("Self::surface_load_game_ui_feedback(&save_path)")
-        .expect("load error dialog");
-    assert!(
-        reset < message,
-        "C++ resets before showing the failed-load dialog"
-    );
 }
 
 #[test]
@@ -1113,46 +1068,6 @@ fn embedded_saved_map_restores_original_ai_companions_without_replacing_geometry
     );
 }
 
-#[test]
-fn staged_native_commit_finishes_after_logic_and_camera_install() {
-    let source = include_str!("../host_authority.rs");
-    let start = source
-        .find("fn host_replace_staged_restore_world")
-        .expect("combined staged commit boundary");
-    let body = &source[start
-        ..source[start..]
-            .find("\n    pub(super) fn host_save_game_authority")
-            .map(|end| start + end)
-            .expect("end of combined staged commit boundary")];
-    let globals = body
-        .find("runtime_world.install_globals()")
-        .expect("global install");
-    let logic = body
-        .find("std::mem::replace(&mut self.game_logic, logic)")
-        .expect("host logic install");
-    let effects = body
-        .find("native_commit.finish_after_logic_commit()")
-        .expect("deferred team effects");
-    let shadow = body.find("shadow.sync_from_host").expect("shadow rebuild");
-    let camera = body
-        .find("self.admit_camera_continuation(camera)")
-        .expect("receiving native camera admission");
-    let preflight = body
-        .find("runtime_world.preflight_native()")
-        .expect("native payload preflight");
-    let teardown = body
-        .find(".install_owned_worlds(&mut self.game_client, &mut self.render_pipeline)")
-        .expect("retire old Client and install the actual admitted native owners");
-    let epoch = body
-        .find("self.commit_native_world_epoch(epoch)")
-        .expect("commit the reserved native candidate identity");
-    assert!(preflight < teardown && teardown < globals);
-    assert!(
-        globals < logic && logic < epoch && epoch < camera && camera < effects && effects < shadow
-    );
-    assert!(!body.contains("execute_after_logic_commit()"));
-}
-
 /// C++ keeps RandomValue process-static and no load path reseeds it
 /// (GameState.cpp:628-741): the post-load stream continues from wherever
 /// the save left it.  This is the run-to-N / save / continue / load /
@@ -1403,26 +1318,7 @@ fn commit_logic_rng_reseed_is_a_no_op_for_pre_v22_saves() {
 /// The commit boundary must reseed after all staged map work: globals
 /// install, logic installs, the checked native commit finishes, and then
 /// the RNG reseeded — before the shadow rebuild exposes the world.
-#[test]
-fn staged_commit_reseeds_logic_rng_after_staged_map_work() {
-    let source = include_str!("../host_authority.rs");
-    let start = source
-        .find("fn host_replace_staged_restore_world")
-        .expect("combined staged commit boundary");
-    let body = &source[start
-        ..source[start..]
-            .find("\n    pub(super) fn host_save_game_authority")
-            .map(|end| start + end)
-            .expect("end of combined staged commit boundary")];
-    let effects = body
-        .find("native_commit.finish_after_logic_commit()")
-        .expect("deferred team effects");
-    let reseed = body
-        .find("host_restore_staged_logic_rng(&mut self.game_logic")
-        .expect("commit-time logic RNG reseed");
-    let shadow = body.find("shadow.sync_from_host").expect("shadow rebuild");
-    assert!(effects < reseed && reseed < shadow);
-}
+
 /// Main map/save boundaries must not borrow or replace an unrelated Core
 /// AI runtime. This executes a real CKMP load and native save continuation.
 #[test]

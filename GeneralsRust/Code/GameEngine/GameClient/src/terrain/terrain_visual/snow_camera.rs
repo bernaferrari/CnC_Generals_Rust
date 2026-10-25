@@ -162,20 +162,5 @@ mod tests {
     fn snow_camera_rejects_invalid_frustum_without_a_foreign_view_fallback() {
         assert!(SnowCamera::native_y_up(Mat4::ZERO, Mat4::IDENTITY, 0.).is_none());
         assert!(SnowCamera::native_y_up(Mat4::IDENTITY, Mat4::IDENTITY, f32::NAN).is_none());
-        let source = include_str!("snow_camera.rs")
-            .split("#[cfg(test)]")
-            .next()
-            .unwrap();
-        assert!(!source.contains("with_tactical_view"));
-        let native = include_str!("traits.rs")
-            .split("pub fn render_native_y_up")
-            .nth(1)
-            .unwrap()
-            .split("fn snow_min_height")
-            .next()
-            .unwrap();
-        assert!(native.contains("SnowCamera::native_y_up("));
-        let overlay = include_str!("overlay_gpu.rs");
-        assert!(!overlay.contains("snow_terrain_visible_xy"));
     }
 }

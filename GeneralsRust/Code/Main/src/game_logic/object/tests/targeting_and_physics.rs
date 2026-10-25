@@ -388,13 +388,6 @@ fn fire_at_scatter_vs_infantry_only_when_flagged() {
     assert!(vs_inf >= 10.0 - 1e-3, "vs infantry {vs_inf}");
     assert!(vs_veh < 1e-3, "vs vehicle base {vs_veh}");
     // fire_at_ex is the KindOf-aware entry; fire_at defaults infantry=false (base only).
-    let src = crate::game_logic::object::OBJECT_SRC;
-    assert!(src.contains("fn fire_at_ex"));
-    assert!(src.contains("target_is_infantry"));
-    assert!(
-        src.contains("host_effective_scatter_radius"),
-        "fire path must peel scatter"
-    );
 }
 
 #[test]

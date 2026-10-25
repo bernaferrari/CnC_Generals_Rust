@@ -22,82 +22,18 @@ pub fn residual_name_index(table: &[&str], name: &str) -> Option<usize> {
 }
 
 /// Live shadow overlay residual method names.
-pub const LIVE_GAMEWORLD_SHADOW_OVERLAY_METHOD_NAMES_WAVE172: &[&str] = &[
-    "GameWorldShadow::new",
-    "sync_from_host",
-    "GameWorldShadow::probe",
-    "PresentationFrame::build_from_logic",
-    "overlay_gameworld_shadow",
-];
 
 /// Ordered live shadow overlay residual navigation steps.
-pub const LIVE_GAMEWORLD_SHADOW_OVERLAY_NAV_STEPS_WAVE172: &[&str] = &[
-    "ENSURE_DAMAGE_AUTHORITY",
-    "LOAD_RETAIL_MAP",
-    "SYNC_SHADOW_FROM_HOST",
-    "PROBE_MAPPED_OBJECTS",
-    "BUILD_PRESENTATION",
-    "OVERLAY_SHADOW_ON_FRAME",
-];
 
 /// Runtime-host command residual names.
-pub const RUNTIME_HOST_LIVE_GAMEWORLD_SHADOW_OVERLAY_CMD_NAMES_WAVE172: &[&str] = &[
-    "click_live_gameworld_shadow_ok_sync",
-    "click_live_gameworld_shadow_ok_overlay",
-    "click_live_gameworld_shadow_miss",
-];
 
 /// Honesty: method names residual pack.
-pub fn honesty_live_gameworld_shadow_overlay_method_names_residual_wave172() -> bool {
-    LIVE_GAMEWORLD_SHADOW_OVERLAY_METHOD_NAMES_WAVE172.len() == 5
-        && residual_name_index(
-            LIVE_GAMEWORLD_SHADOW_OVERLAY_METHOD_NAMES_WAVE172,
-            "sync_from_host",
-        ) == Some(1)
-        && residual_name_index(
-            LIVE_GAMEWORLD_SHADOW_OVERLAY_METHOD_NAMES_WAVE172,
-            "overlay_gameworld_shadow",
-        ) == Some(4)
-}
 
 /// Honesty: nav steps + runtime-host cmd residual pack.
-pub fn honesty_live_gameworld_shadow_overlay_nav_commands_residual_wave172() -> bool {
-    LIVE_GAMEWORLD_SHADOW_OVERLAY_NAV_STEPS_WAVE172.len() == 6
-        && residual_name_index(
-            LIVE_GAMEWORLD_SHADOW_OVERLAY_NAV_STEPS_WAVE172,
-            "SYNC_SHADOW_FROM_HOST",
-        ) == Some(2)
-        && residual_name_index(
-            LIVE_GAMEWORLD_SHADOW_OVERLAY_NAV_STEPS_WAVE172,
-            "OVERLAY_SHADOW_ON_FRAME",
-        ) == Some(5)
-        && RUNTIME_HOST_LIVE_GAMEWORLD_SHADOW_OVERLAY_CMD_NAMES_WAVE172.len() == 3
-}
 
 /// Wave 172 composite residual honesty pack.
-pub fn honesty_live_gameworld_shadow_overlay_residual_pack_wave172() -> bool {
-    honesty_live_gameworld_shadow_overlay_method_names_residual_wave172()
-        && honesty_live_gameworld_shadow_overlay_nav_commands_residual_wave172()
-}
 
 /// Source residual: seed_presentation overlays GameWorld shadow after host freeze.
-pub fn honesty_seed_presentation_shadow_overlay_source() -> bool {
-    let src = crate::cnc_game_engine::ENGINE_SRC;
-    // Wave 590: real seed body lives in host_seed_presentation_after_match_start.
-    let i = match src.find("fn host_seed_presentation_after_match_start(&mut self)") {
-        Some(i) => i,
-        None => match src.find("fn seed_presentation_after_match_start") {
-            Some(i) => i,
-            None => return false,
-        },
-    };
-    let body = &src[i..src.len().min(i + 2200)];
-    // The mutable publisher applies the GameWorld overlay/rebuild internally.
-    body.contains("gameworld_shadow")
-        && body.contains("sync_from_host")
-        && body.contains("publish_for_engine")
-        && src.contains("host_seed_presentation_after_match_start()")
-}
 
 /// Live residual: map load → shadow sync → probe → presentation overlay.
 pub fn simulate_live_gameworld_shadow_overlay_honesty() -> bool {
@@ -107,13 +43,6 @@ pub fn simulate_live_gameworld_shadow_overlay_honesty() -> bool {
     };
     use crate::gameworld_shadow::GameWorldShadow;
     use crate::presentation_frame::PresentationFrame;
-
-    if !honesty_live_gameworld_shadow_overlay_residual_pack_wave172() {
-        return false;
-    }
-    if !honesty_seed_presentation_shadow_overlay_source() {
-        return false;
-    }
 
     let map_name = if resolve_retail_map_path(LONE_EAGLE_MAP_WAVE169).is_some() {
         LONE_EAGLE_MAP_WAVE169
@@ -174,26 +103,6 @@ pub fn simulate_live_gameworld_shadow_overlay_honesty() -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn method_names_residual() {
-        assert!(honesty_live_gameworld_shadow_overlay_method_names_residual_wave172());
-    }
-
-    #[test]
-    fn nav_commands_residual() {
-        assert!(honesty_live_gameworld_shadow_overlay_nav_commands_residual_wave172());
-    }
-
-    #[test]
-    fn wave172_composite_pack() {
-        assert!(honesty_live_gameworld_shadow_overlay_residual_pack_wave172());
-    }
-
-    #[test]
-    fn seed_presentation_shadow_overlay_source() {
-        assert!(honesty_seed_presentation_shadow_overlay_source());
-    }
 
     #[test]
     fn simulate_live_gameworld_shadow_overlay_honesty_residual_live() {

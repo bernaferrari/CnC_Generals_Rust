@@ -64,21 +64,3 @@ mod tests;
 
 #[cfg(test)]
 mod opaque_owner_tests;
-
-/// Concatenated live sources for residual `include_str!` scans.
-pub const W3D_C_API_SRC: &str = concat!(
-    include_str!("mod.rs"),
-    include_str!("math.rs"),
-    include_str!("types.rs"),
-    include_str!("constants.rs"),
-    include_str!("leftover.rs"),
-    include_str!("device.rs"),
-    include_str!("render_state.rs"),
-    include_str!("streams.rs"),
-    include_str!("draw.rs"),
-    include_str!("textures.rs"),
-    include_str!("materials.rs"),
-    include_str!("lighting.rs"),
-    include_str!("transforms.rs"),
-    include_str!("decl.rs"),
-);

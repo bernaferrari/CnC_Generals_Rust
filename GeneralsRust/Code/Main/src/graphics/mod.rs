@@ -34,13 +34,7 @@ pub mod occlusion_bridge;
 
 pub mod render_item;
 pub mod render_pipeline;
-pub use render_pipeline::{
-    ResidualPresentationBoundaryAction, residual_presentation_boundary_last_action,
-    residual_presentation_boundary_ok, simulate_presentation_boundary_cnc_execute_source,
-    simulate_presentation_boundary_collect_source, simulate_presentation_boundary_execute_source,
-    simulate_presentation_boundary_fallback_counter_source,
-    simulate_presentation_boundary_prepare_honesty,
-};
+
 pub(crate) mod radar_view;
 pub mod selection_renderer;
 pub(crate) mod ui_radar;

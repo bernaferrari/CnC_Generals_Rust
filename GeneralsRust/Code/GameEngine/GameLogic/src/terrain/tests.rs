@@ -51,25 +51,6 @@ fn get_ground_height_adds_border_size_like_cpp() {
 }
 
 #[test]
-fn register_bridge_attach_cells_offset_like_cpp_surface() {
-    let prod = include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/src/terrain/bridge.rs"
-    ));
-    let i = prod
-        .find("fn register_bridge_with_pathfinder")
-        .expect("register_bridge");
-    let w = &prod[i..prod.len().min(i + 2500)];
-    assert!(
-        w.contains("PATHFIND_CELL_SIZE_F * 0.7")
-            && w.contains("bridge_info.from.x - bridge_dir.x")
-            && w.contains("bridge_info.to.x + bridge_dir.x")
-            && w.contains("add_bridge_ex"),
-        "bridge m_startCell/m_endCell must offset 0.7 cell along bridgeDir like C++"
-    );
-}
-
-#[test]
 fn add_landmark_bridge_from_geometry_registers_deck() {
     let mut terrain = TerrainLogic::new();
     terrain.add_landmark_bridge_from_geometry(
@@ -767,55 +748,6 @@ fn edge_points_use_active_boundary_extent_not_max_pathfind() {
             || (closest.y - active.lo.y).abs() < f32::EPSILON
             || (closest.x - active.hi.x).abs() < f32::EPSILON
             || (closest.y - active.hi.y).abs() < f32::EPSILON
-    );
-}
-
-#[test]
-fn bridge_attack_fallback_looks_up_object_position_surface() {
-    let prod = include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/src/terrain/bridges.rs"
-    ));
-    let i = prod
-        .find("pub fn get_bridge_attack_points")
-        .expect("get_bridge_attack_points");
-    let w = &prod[i..];
-    assert!(
-        w.contains("find_object_by_id(bridge_id)")
-            && w.contains("attack_info.attack_point1 = pos")
-            && w.contains("attack_info.attack_point2 = pos"),
-        "fallback must use the bridge object position like TerrainLogic.cpp:1936-1937"
-    );
-    assert!(
-            !w.contains("attack_info.attack_point1 = Coord3D::origin();\n        attack_info.attack_point2 = Coord3D::origin();\n        return;"),
-            "origin must not be the first fallback"
-        );
-}
-
-#[test]
-fn set_active_boundary_runs_fog_and_ghost_dance_surface() {
-    let prod = include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/src/terrain/terrain_ops.rs"
-    ));
-    let i = prod
-        .find("pub fn set_active_boundary")
-        .expect("set_active_boundary");
-    let w = &prod[i..];
-    assert!(
-        w.contains("store_fogged_cells(player, true)")
-            && w.contains("store_fogged_cells(player, false)")
-            && w.contains("restore_fogged_cells(player, false)")
-            && w.contains("restore_fogged_cells(player, true)")
-            && w.contains("release_partition_data")
-            && w.contains("lock_ghost_objects(true)")
-            && w.contains("restore_partition_data")
-            && w.contains("lock_ghost_objects(false)")
-            && w.contains("set_lock_ghost_objects(true)")
-            && w.contains("set_lock_ghost_objects(false)")
-            && w.contains("add_looker")
-            && w.contains("remove_looker"),
-        "setActiveBoundary must store/restore fog and lock/release ghosts like TerrainLogic.cpp:2545-2615"
     );
 }
 

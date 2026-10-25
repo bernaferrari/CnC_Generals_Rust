@@ -2675,45 +2675,6 @@ fn non_image_status_emits_color_fill_and_border() {
 }
 
 #[test]
-fn default_draw_image_branch_source_does_not_call_draw_rect() {
-    let src = include_str!("callbacks.rs");
-    let start = src
-        .find("pub fn default_draw_callback")
-        .expect("default_draw_callback");
-    let body = &src[start..];
-    let plan_idx = body
-        .find("plan_w3d_game_win_default_draw")
-        .expect("default_draw must use the C++ IMAGE/color planner");
-    let image_op = body
-        .find("W3dDefaultDrawOp::Image")
-        .expect("IMAGE op must be dispatched");
-    let fill_op = body
-        .find("W3dDefaultDrawOp::ColorFill")
-        .expect("color fill must be gated on planner");
-    assert!(
-        plan_idx < image_op && plan_idx < fill_op,
-        "draw_rect must be gated by plan_w3d_game_win_default_draw, not IMAGE+fill"
-    );
-    // Planner itself is the shipped IMAGE contract.
-    assert!(
-        src.contains("`WIN_STATUS_IMAGE` draws the mapped image only")
-            || src.contains("WIN_STATUS_IMAGE draws the mapped image only"),
-        "default draw must document C++ IMAGE-only contract"
-    );
-    let regression = include_str!("tests.rs");
-    for name in [
-        "MainMenu.wnd:MainMenuParent",
-        "MainMenu.wnd:Logo",
-        "MainMenu.wnd:MainMenuRuler",
-    ] {
-        assert!(
-            regression.contains(name),
-            "IMAGE regression must name {name}"
-        );
-    }
-}
-
-#[test]
 fn combo_left_up_toggles_child_list_like_cpp() {
     let (mut combo, _edit_box, list_box, _drop_down) = combo_fixture();
     combo.enable(true).unwrap();

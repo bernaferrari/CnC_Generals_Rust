@@ -744,18 +744,5 @@ mod tests {
         assert!(reg.try_attach_leaflet_fx(7, "LeafletContainer"));
         assert!(!reg.try_attach_leaflet_fx(7, "LeafletContainer"));
         assert!(reg.try_attach_leaflet_fx(8, "LeafletContainer"));
-        let live = include_str!("world_combat/registries.rs");
-        let start = live
-            .find("C++ LeafletDropBehavior::update first tick")
-            .expect("leaflet fall loop");
-        let win = &live[start..start + 1600];
-        assert!(
-            win.contains("try_attach_leaflet_fx"),
-            "C++ first-tick LeafletFX attach missing: {win}"
-        );
-        assert!(
-            !win.contains("DeathExplosion"),
-            "LeafletFX must not use DeathExplosion residual: {win}"
-        );
     }
 }

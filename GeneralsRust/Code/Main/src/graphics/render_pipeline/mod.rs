@@ -929,30 +929,12 @@ mod pipeline_execute;
 mod pipeline_lifecycle;
 mod pipeline_minimap;
 mod pipeline_prewarm;
-mod residuals;
+
 #[cfg(feature = "game_client")]
 mod specialized_draw_inputs;
-pub use residuals::*;
 
 #[cfg(test)]
 mod tests;
-
-/// Concatenated live render_pipeline sources for residual `include_str` scans.
-pub const RENDER_PIPELINE_SRC: &str = concat!(
-    include_str!("mod.rs"),
-    include_str!("forward_materials.rs"),
-    include_str!("forward_render.rs"),
-    include_str!("hlod_aggregate_render.rs"),
-    include_str!("pipeline_collect.rs"),
-    include_str!("pipeline_drawable_state.rs"),
-    include_str!("drawable_restore.rs"),
-    include_str!("pipeline_debug.rs"),
-    include_str!("pipeline_execute.rs"),
-    include_str!("pipeline_lifecycle.rs"),
-    include_str!("pipeline_minimap.rs"),
-    include_str!("pipeline_prewarm.rs"),
-    include_str!("residuals.rs"),
-);
 
 /// The native renderer commits this packed house color before ghost cloning.
 /// It is derived from the same authored host color used by ordinary geometry.

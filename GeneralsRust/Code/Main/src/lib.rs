@@ -141,7 +141,7 @@ pub mod authoritative_world;
 pub mod authority_bridge;
 pub mod breadth_scenarios;
 pub mod executable_smoke;
-mod executable_smoke_source;
+
 pub mod gameplay_layout;
 pub mod gameworld_shadow;
 pub mod golden_campaign;
@@ -150,7 +150,7 @@ pub mod map_frame_scenario;
 pub mod presentation_frame;
 pub mod release_candidate;
 pub mod windowed_acceptance;
-// shell_smoke pulls ~800 residual/wave audit modules; keep out of the shipped bin.
+// Headless skirmish and presentation probe for diagnostic builds and tests.
 #[cfg(any(test, feature = "host-residuals"))]
 pub mod shell_smoke;
 pub mod skirmish_config;

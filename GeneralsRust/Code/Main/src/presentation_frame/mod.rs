@@ -34,6 +34,7 @@ mod frame;
 #[cfg(feature = "game_client")]
 mod ghosts;
 mod honesty;
+mod kind_facts;
 mod lasers;
 mod live_draw_source;
 #[cfg(test)]
@@ -78,45 +79,6 @@ pub use world_env::*;
 ///
 /// External crate tests previously read `presentation_frame.rs`. After the
 /// directory split they should compare against this pack instead of a single file.
-pub const PRESENTATION_FRAME_SRC: &str = concat!(
-    include_str!("mod.rs"),
-    include_str!("alive.rs"),
-    include_str!("apply.rs"),
-    include_str!("build.rs"),
-    include_str!("camera_fade.rs"),
-    include_str!("command_set_strip.rs"),
-    include_str!("events.rs"),
-    include_str!("floating_text.rs"),
-    include_str!("frame.rs"),
-    include_str!("follow_facts.rs"),
-    include_str!("session_view/follow.rs"),
-    include_str!("honesty.rs"),
-    include_str!("lasers.rs"),
-    include_str!("overlay.rs"),
-    include_str!("particles.rs"),
-    include_str!("projectile.rs"),
-    include_str!("queries.rs"),
-    include_str!("restrict_a.rs"),
-    include_str!("spectre.rs"),
-    include_str!("types.rs"),
-    include_str!("unit_render.rs"),
-    include_str!("draw_conditions.rs"),
-    include_str!("draw_conditions/motion_and_containment_bits.rs"),
-    include_str!("draw_conditions/weapon_and_damage_bits.rs"),
-    include_str!("draw_conditions/lifecycle_bits.rs"),
-    include_str!("live_draw_source.rs"),
-    include_str!("native_factory_source.rs"),
-    include_str!("weapon_visual_dispatch.rs"),
-    include_str!("world_env.rs"),
-    include_str!("../../../GameEngine/Presentation/src/command.rs"),
-    include_str!("../../../GameEngine/Presentation/src/events.rs"),
-    include_str!("../../../GameEngine/Presentation/src/hud.rs"),
-    include_str!("../../../GameEngine/Presentation/src/objective.rs"),
-    include_str!("../../../GameEngine/Presentation/src/weapon_visual_dispatch.rs"),
-    include_str!("../../../GameEngine/GameDomain/src/lib.rs"),
-    include_str!("../../../GameEngine/GameDomain/src/difficulty.rs"),
-);
-
 mod session_view;
 pub(crate) use session_view::receiving_look_at_target;
 pub(crate) use session_view::world_animations::WorldAnimations;

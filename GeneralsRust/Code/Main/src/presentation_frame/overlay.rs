@@ -1606,14 +1606,10 @@ impl PresentationFrame {
             weapons_jammed: ent.weapons_jammed,
             masked: ent.masked,
             unattackable: ent.unattackable,
-            is_force_attackable: crate::game_logic::host_car_bomb::object_definition_has_kind(
-                &ent.template.name,
-                "FORCEATTACKABLE",
-            ),
-            always_selectable: crate::game_logic::host_car_bomb::object_definition_has_kind(
-                &ent.template.name,
-                "ALWAYS_SELECTABLE",
-            ),
+            is_force_attackable: Self::kind_of_list_from_presentation_bits(ent.kind_of_bits)
+                .contains(&crate::game_logic::KindOf::ForceAttackable),
+            always_selectable: Self::kind_of_list_from_presentation_bits(ent.kind_of_bits)
+                .contains(&crate::game_logic::KindOf::AlwaysSelectable),
 
             is_crate: false,
             is_salvage_crate: false,
@@ -1692,6 +1688,8 @@ impl PresentationFrame {
             disabled_subdued: ent.disabled_subdued,
             is_carbomb: ent.is_carbomb,
             weapon_set_carbomb: false,
+            authors_carbomb_weapon_set: false, // this legacy entity record carries no admitted WeaponSet definition.
+            reject_unmanned: true, // legacy entity-only records cannot establish this source kind.
             bomb_type: 0,
             bomb_timer_seconds: 0,
             hijacked: ent.hijacked,
@@ -2044,7 +2042,7 @@ impl PresentationFrame {
             let Some(obj) = logic.host_object(ro.id) else {
                 continue;
             };
-            let mut dirty = false;
+            let mut dirty = super::kind_facts::refresh_object_kind_facts(ro, obj);
             if ro.special_power_override_destination != obj.special_power_override_destination {
                 ro.special_power_override_destination = obj.special_power_override_destination;
                 dirty = true;
@@ -2115,6 +2113,11 @@ impl PresentationFrame {
             }
             if ro.disabled_script_disabled != obj.status.disabled_script_disabled {
                 ro.disabled_script_disabled = obj.status.disabled_script_disabled;
+                dirty = true;
+            }
+            let authored_carbomb = obj.authors_carbomb_weapon_set();
+            if ro.authors_carbomb_weapon_set != authored_carbomb {
+                ro.authors_carbomb_weapon_set = authored_carbomb;
                 dirty = true;
             }
             if ro.weapon_set_carbomb != obj.weapon_set_carbomb {
@@ -2573,6 +2576,7 @@ impl PresentationFrame {
                 );
                 let _ = frame.overlay_gameworld_shadow(shadow);
                 let _ = frame.append_missing_from_gameworld(shadow);
+                frame.refresh_host_kind_facts(logic);
                 frame.freeze_drawable_status_tints_from_logic(logic, Some(shadow));
                 frame
             }
@@ -2652,6 +2656,7 @@ impl PresentationFrame {
             Some(shadow) => {
                 let _ = frame.overlay_gameworld_shadow(shadow);
                 let _ = frame.append_missing_from_gameworld(shadow);
+                frame.refresh_host_kind_facts(logic);
             }
             None => {}
         }

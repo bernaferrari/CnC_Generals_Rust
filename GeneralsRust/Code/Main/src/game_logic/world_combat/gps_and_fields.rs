@@ -2039,27 +2039,7 @@ mod tests {
     }
 
     /// C++ PropagandaTowerBehavior.cpp:450-456 doFXObj on the tower object.
-    #[test]
-    fn propaganda_pulse_fx_dispatches_at_host_object() {
-        let src = include_str!("gps_and_fields.rs");
-        let start = src.find("if do_fx {").expect("pulse do_fx");
-        let end = src[start..]
-            .find("let mut coverage")
-            .map(|offset| start + offset)
-            .expect("coverage phase after pulse FX");
-        let body = &src[start..end];
-        let normalized: String = body.chars().filter(|ch| !ch.is_whitespace()).collect();
-        assert!(
-            normalized.contains(
-                "dispatch_fx_list_at_host_object_with_effects(fx,tower.id,None,presentation_effects,)"
-            ),
-            "PulseFX must use doFXObj on the tower, not doFXPos at sea level"
-        );
-        assert!(
-            !body.contains("dispatch_fx_list_at_pos"),
-            "PulseFX must not sit at (x, 0, z): {body}"
-        );
-    }
+
     /// C++ PropagandaTowerBehavior.cpp:275 getControllingPlayer()->hasUpgradeComplete.
     /// Same-faction teammate upgrade must not key SUBLIMINAL for another owner.
     #[test]

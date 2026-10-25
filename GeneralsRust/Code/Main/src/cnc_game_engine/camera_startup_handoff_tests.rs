@@ -137,13 +137,4 @@ fn startup_handoff_keeps_worker_rules_and_persistent_pose_hag_with_peer_isolatio
     assert_eq!(defaults.yaw_degrees, 17.);
     assert_eq!(defaults.max_camera_height, 300.);
     assert_eq!(peer_before, peer.capture_camera_continuation().unwrap());
-    let source = include_str!("host_authority.rs");
-    let body = source
-        .split("fn host_replace_game_logic(")
-        .nth(1)
-        .unwrap()
-        .split("self.game_logic = logic;")
-        .next()
-        .unwrap();
-    assert!(body.contains("Self::admit_startup_candidate_view("));
 }

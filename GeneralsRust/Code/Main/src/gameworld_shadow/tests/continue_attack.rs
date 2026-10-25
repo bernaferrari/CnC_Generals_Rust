@@ -1035,7 +1035,6 @@ fn projectile_authority_steps_host_when_shadow_disabled() {
     let mut logic = GameLogic::new();
 
     // Source must contain live gate so host update_projectiles is not skipped.
-    let src = GAME_LOGIC_HOST_SRC;
 
     match prev_s {
         Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", v),

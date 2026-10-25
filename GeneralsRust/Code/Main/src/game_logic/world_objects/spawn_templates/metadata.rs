@@ -51,6 +51,9 @@ impl GameLogic {
         if has_kind("cannot_build_near_supplies") {
             template.add_kind_of(KindOf::CannotBuildNearSupplies);
         }
+        if has_kind("reject_unmanned") {
+            template.add_kind_of(KindOf::RejectUnmanned);
+        }
         if has_kind("unattackable") {
             template.add_kind_of(KindOf::Unattackable);
         }

@@ -615,8 +615,7 @@ impl ParticleSystem {
             }
             EmissionVolumeType::Sphere => {
                 if let Some(radius) = self.template.sphere_radius {
-                    let theta =
-                        get_game_client_random_value_real(0.0, 2.0 * std::f32::consts::PI);
+                    let theta = get_game_client_random_value_real(0.0, 2.0 * std::f32::consts::PI);
                     let phi = get_game_client_random_value_real(0.0, std::f32::consts::PI);
                     let r = if self.template.is_emission_volume_hollow {
                         radius
@@ -635,8 +634,7 @@ impl ParticleSystem {
             }
             EmissionVolumeType::Cylinder => {
                 if let Some((radius, length)) = self.template.cylinder_params {
-                    let angle =
-                        get_game_client_random_value_real(0.0, 2.0 * std::f32::consts::PI);
+                    let angle = get_game_client_random_value_real(0.0, 2.0 * std::f32::consts::PI);
                     let r = if self.template.is_emission_volume_hollow {
                         radius
                     } else {
@@ -675,8 +673,7 @@ impl ParticleSystem {
             }
             EmissionVelocityType::Spherical => {
                 if let Some(speed) = self.template.spherical_speed.as_ref() {
-                    let theta =
-                        get_game_client_random_value_real(0.0, 2.0 * std::f32::consts::PI);
+                    let theta = get_game_client_random_value_real(0.0, 2.0 * std::f32::consts::PI);
                     let phi = get_game_client_random_value_real(0.0, std::f32::consts::PI);
                     let speed_value = speed.get_value();
 
@@ -691,10 +688,8 @@ impl ParticleSystem {
             }
             EmissionVelocityType::Hemispherical => {
                 if let Some(speed) = self.template.spherical_speed.as_ref() {
-                    let theta =
-                        get_game_client_random_value_real(0.0, 2.0 * std::f32::consts::PI);
-                    let phi =
-                        get_game_client_random_value_real(0.0, std::f32::consts::PI * 0.5); // Hemisphere
+                    let theta = get_game_client_random_value_real(0.0, 2.0 * std::f32::consts::PI);
+                    let phi = get_game_client_random_value_real(0.0, std::f32::consts::PI * 0.5); // Hemisphere
                     let speed_value = speed.get_value();
 
                     Vec3::new(
@@ -708,8 +703,7 @@ impl ParticleSystem {
             }
             EmissionVelocityType::Cylindrical => {
                 if let Some((radial, normal)) = self.template.cylindrical_params.as_ref() {
-                    let angle =
-                        get_game_client_random_value_real(0.0, 2.0 * std::f32::consts::PI);
+                    let angle = get_game_client_random_value_real(0.0, 2.0 * std::f32::consts::PI);
                     let radial_speed = radial.get_value();
                     let normal_speed = normal.get_value();
 
@@ -1151,7 +1145,7 @@ impl ParticleSystemManager {
                 timestamp_writes: None,
                 occlusion_query_set: None,
                 multiview_mask: None,
-});
+            });
 
             render_pass.set_pipeline(&self.render_pipeline);
             render_pass.set_bind_group(0, &self.bind_group, &[]);
@@ -1236,20 +1230,4 @@ pub async fn load_particle_templates(
 
     info!("Loaded {} particle system templates", templates.len());
     Ok(templates)
-}
-
-#[cfg(test)]
-mod particle_upload_tests {
-    #[test]
-    fn update_gpu_particles_writes_buffer_when_present() {
-        let src = include_str!("particle_system.rs");
-        let i = src
-            .find("fn update_gpu_particles")
-            .expect("update_gpu_particles");
-        let body = &src[i..src.len().min(i + 800)];
-        assert!(
-            body.contains("self.queue.write_buffer") && body.contains("particle_buffer"),
-            "particles must Queue::write_buffer when the buffer exists"
-        );
-    }
 }

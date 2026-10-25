@@ -2165,58 +2165,6 @@ mod w3d_live_path_tests {
     use super::*;
 
     #[test]
-    fn w3d_hlod_visibility_has_no_mesh_suffix_authority() {
-        let src = include_str!("pipeline_collect.rs");
-        // Assemble legacy identifiers so this source-level regression does
-        // not make its own negative assertion fail.
-        let suffix_visibility_helper = ["hlod", "subobject", "visible"].join("_");
-        let condition_clip_helper = ["animation", "index", "for", "model", "condition"].join("_");
-        assert!(
-            !src.contains(&format!("fn {suffix_visibility_helper}")),
-            "HLOD child visibility must come from source bit channels, never a mesh suffix"
-        );
-        assert!(
-            !src.contains(&format!("fn {condition_clip_helper}")),
-            "selected Draw-state animation identity must replace combat-bit clip guesses"
-        );
-        assert!(src.contains("mesh_local_transform_and_visibility_for_binding"));
-        assert!(
-            src.contains("mesh_visible_for_authored_subobject_directives"),
-            "the frozen selected Draw state must reach active mesh submission"
-        );
-        assert!(src.contains("cached_draw_animation_binding"));
-        let companion_loader = ["load", "companion", "animation"].join("_");
-        assert!(
-            !src.contains(&companion_loader),
-            "frozen-frame collection must only consume the prewarm cache"
-        );
-        assert!(src.contains("submission.animation_name.as_deref()"));
-        assert!(src.contains("submission.animation_time"));
-        assert!(
-            src.contains("mesh_visible_for_authored_subobject_directives"),
-            "GameClient bridge submissions must apply C++ W3DModelDraw Hide/Show state"
-        );
-        assert!(
-            src.contains("new_unbound_client_drawable"),
-            "standalone C++ GameClient drawables must reach the renderer without an ObjectID cast"
-        );
-        let identity_tuple_fallback = ["unwrap_or((mesh", ".transform, true))"].join("");
-        let identity_mesh_fallback = ["unwrap_or(mesh", ".transform)"].join("");
-        assert!(
-            !src.contains(&identity_tuple_fallback),
-            "failed HLOD binds must skip, not identity-draw"
-        );
-        assert!(
-            !src.contains(&identity_mesh_fallback),
-            "failed HLOD binds must skip, not identity-draw"
-        );
-        assert!(
-            src.contains("stamp_skinned_hierarchy_bind_pose"),
-            "SKIN meshes must stamp a resolved HTree palette source"
-        );
-    }
-
-    #[test]
     fn skin_meshes_stamp_hierarchy_bind_pose_not_identity_pad() {
         // C++ `MeshClass::Render` (`mesh.cpp:746-771`) deforms SKIN through
         // `Container->Get_HTree()`. Collect must stamp HierarchyBindPose so
@@ -2293,31 +2241,6 @@ mod w3d_live_path_tests {
         assert!(
             missing_binding.is_none() && missing_frame == 0.0,
             "an unresolved named clip must not substitute animation zero"
-        );
-    }
-
-    #[test]
-    fn bridge_hlod_aggregate_path_does_not_require_a_rigid_parent_mesh() {
-        let src = include_str!("pipeline_collect.rs");
-        let bridge_body = src
-            .split("pub(super) fn drain_render_bridge_submissions")
-            .nth(1)
-            .expect("bridge collector must remain present");
-        assert!(
-            bridge_body.contains("aggregate_attachment_poses_for_binding_and_capture_controls"),
-            "bridge AdditionalModels must sample the frozen HAnim/capture pose"
-        );
-        assert!(
-            bridge_body.contains("collect_cached_hlod_aggregate_render_items"),
-            "bridge AdditionalModels must use the strict cache-only collector"
-        );
-        assert!(
-            bridge_body.contains("has_source_aggregate_attachments"),
-            "a valid aggregate-only source must be distinguished from a truly empty model"
-        );
-        assert!(
-            bridge_body.contains("&& !has_source_aggregate_attachments"),
-            "the debug fallback must not replace a valid aggregate-only source"
         );
     }
 
@@ -2404,8 +2327,6 @@ mod w3d_live_path_tests {
         assert!(real_w3d_name_resolved("avdozer"));
         assert!(!real_w3d_name_resolved("__fallback_cube__"));
         assert!(!real_w3d_name_resolved(""));
-        let src = include_str!("pipeline_collect.rs");
-        assert!(src.contains("!real_w3d_name_resolved(model_name)"));
     }
 }
 

@@ -55,24 +55,30 @@ fn presentation_is_mine_pick(o: &crate::presentation_frame::RenderableObject) ->
     o.has_mine
         || crate::presentation_frame::PresentationFrame::object_has_kind(o, KindOf::Mine)
         || crate::presentation_frame::PresentationFrame::object_has_kind(o, KindOf::DemoTrap)
-        || crate::game_logic::host_car_bomb::object_definition_has_kind(&o.template_name, "MINE")
-        || crate::game_logic::host_car_bomb::object_definition_has_kind(
-            &o.template_name,
-            "DEMOTRAP",
+        || crate::presentation_frame::PresentationFrame::object_has_kind(
+            o,
+            crate::game_logic::KindOf::Mine,
+        )
+        || crate::presentation_frame::PresentationFrame::object_has_kind(
+            o,
+            crate::game_logic::KindOf::DemoTrap,
         )
 }
 
 fn presentation_is_shrubbery_pick(o: &crate::presentation_frame::RenderableObject) -> bool {
-    crate::game_logic::host_car_bomb::object_definition_has_kind(&o.template_name, "SHRUBBERY")
+    crate::presentation_frame::PresentationFrame::object_has_kind(
+        o,
+        crate::game_logic::KindOf::Shrubbery,
+    )
 }
 
 fn presentation_is_force_attackable_pick(o: &crate::presentation_frame::RenderableObject) -> bool {
     use crate::game_logic::KindOf;
     o.is_force_attackable
         || crate::presentation_frame::PresentationFrame::object_has_kind(o, KindOf::ForceAttackable)
-        || crate::game_logic::host_car_bomb::object_definition_has_kind(
-            &o.template_name,
-            "FORCEATTACKABLE",
+        || crate::presentation_frame::PresentationFrame::object_has_kind(
+            o,
+            crate::game_logic::KindOf::ForceAttackable,
         )
 }
 

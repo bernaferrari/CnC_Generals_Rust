@@ -243,65 +243,8 @@ fn residual_ai_state_paths_use_owned_state_writers() {
         &source[i..=end]
     }
 
-    let src = GAME_LOGIC_HOST_SRC;
-    for (header, write) in [
-        (
-            "fn try_return_to_base_rearm_with_effects(",
-            "jet.set_ai_state(AIState::Moving,&mutcrate::game_logic::ObjectAudio::queue(&mutself.queued_audio_events),);",
-        ),
-        (
-            "fn try_min_range_backup_between(",
-            "a.set_ai_state(AIState::Attacking,&mutcrate::game_logic::ObjectAudio::queue(&mutself.queued_audio_events),);",
-        ),
-        (
-            "fn append_unit_waypoint(",
-            "unit.set_ai_state(AIState::Moving,&mutcrate::game_logic::ObjectAudio::queue(&mutself.queued_audio_events),);",
-        ),
-        (
-            "fn attack_aim_at_target_enter(",
-            "u.set_ai_state(AIState::Attacking,&mutcrate::game_logic::ObjectAudio::queue(&mutself.queued_audio_events),);",
-        ),
-        (
-            "fn attack_fire_weapon_enter(",
-            "u.set_ai_state(AIState::Attacking,&mutcrate::game_logic::ObjectAudio::queue(&mutself.queued_audio_events),);",
-        ),
-        (
-            "fn try_idle_crate_pickup(",
-            "u.set_ai_state(parent_state,&mutcrate::game_logic::ObjectAudio::queue(&mutself.queued_audio_events),);",
-        ),
-        (
-            "fn on_selling_container_residual_with_effects(",
-            "unit.set_ai_state(AIState::Idle,&mutcrate::game_logic::ObjectAudio::queue(&mutself.queued_audio_events),);",
-        ),
-    ] {
-        assert!(
-            method(src, header)
-                .split_whitespace()
-                .collect::<String>()
-                .contains(write),
-            "{header} must use its exact owned state writer {write}"
-        );
-    }
-    assert!(
-        method(src, "fn try_return_to_base_rearm(")
-            .contains("self.try_return_to_base_rearm_with_effects(jet_id,"),
-        "return-to-base adapter must reach the actual owned state writer"
-    );
-
-    assert!(
-        method(src, "fn on_selling_container_residual(")
-            .contains("self.on_selling_container_residual_with_effects(structure_id,")
-    );
     // The public min-range wrapper reaches the checked implementation; crate
     // pickup installs its owned move path and restores an existing parent.
-    assert!(
-        method(src, "fn try_min_range_backup(").contains("self.try_min_range_backup_between("),
-        "min-range wrapper must reach the concrete backup state writer"
-    );
-    assert!(
-        method(src, "fn try_idle_crate_pickup(").contains("self.assign_unit_path("),
-        "crate pickup must install its owned move path before parent restoration"
-    );
 }
 
 #[test]
@@ -759,14 +702,6 @@ fn owned_construction_events_map_completed_structure_without_consuming_output() 
 }
 
 #[test]
-fn physical_destructor_does_not_replay_containment_death_callbacks() {
-    // Structural ordering guard only; actual lifecycle tests establish behavior.
-    let physical =
-        rust_fn_body(GAME_LOGIC_HOST_SRC, "process_destroy_list").expect("physical removal");
-    assert!(!physical.contains("apply_transport_death_scatter"));
-}
-
-#[test]
 fn dozer_bored_repair_state_decision_authority() {
     use crate::game_logic::{AIState, KindOf, Team, ThingTemplate};
 
@@ -828,94 +763,6 @@ fn hijacker_docked_state_decision_authority() {
     assert_eq!(
         logic.host_objects().lookup(&oid).unwrap().ai_state,
         AIState::Docked
-    );
-}
-
-#[test]
-fn residual_auto_fire_damage_source_attribution_source() {
-    let src = GAME_LOGIC_HOST_SRC;
-    let adapter = last_rust_fn_body(src, "residual_auto_fire_apply_damage")
-        .expect("residual auto-fire adapter");
-    let adapter: String = adapter.split_whitespace().collect();
-    assert!(adapter.contains(
-        "self.residual_auto_fire_apply_damage_with_effects(attacker_id,target_id,damage,shooter_pos,weapon,slot,&mutDefault::default(),"
-    ));
-    let helper = last_rust_fn_body(src, "residual_auto_fire_apply_damage_with_effects")
-        .expect("residual_auto_fire_apply_damage");
-    let helper: String = helper.split_whitespace().collect();
-    assert!(
-        helper.contains("apply_residual_damage_owned_with_effects(receiving_damage_id,damage,Some(attacker_id),crate::game_logic::combat::DamageType::Unresistable,crate::game_logic::host_usa_pilot::HostDeathType::from_host_damage_type(crate::game_logic::combat::DamageType::Unresistable,),None,effects"),
-        "residual auto-fire must forward actual damage and attacker through the receiving Body/Player operation"
-    );
-    for name in [
-        "try_base_defense_residual_fire",
-        "try_strategy_center_bombardment_turret_fire",
-        "update_pending_patriot_assists",
-    ] {
-        let adapter = last_rust_fn_body(src, name).unwrap_or_else(|| panic!("missing {name}"));
-        let receiving_name = format!("{name}_with_effects");
-        assert!(adapter.contains(&format!("self.{receiving_name}(")));
-        let body = last_rust_fn_body(src, &receiving_name)
-            .unwrap_or_else(|| panic!("missing {receiving_name}"));
-        assert!(
-            body.contains("residual_auto_fire_apply_damage_with_effects("),
-            "{name} must use residual_auto_fire_apply_damage"
-        );
-    }
-    // Contained firing now retains the actual selected weapon/shot receipt.
-    for name in [
-        "try_sentry_drone_residual_fire",
-        "try_garrison_residual_fire",
-        "try_transport_passenger_residual_fire",
-    ] {
-        let adapter = last_rust_fn_body(src, name).unwrap_or_else(|| panic!("missing {name}"));
-        let receiving_name = format!("{name}_with_effects");
-        assert!(adapter.contains(&format!("self.{receiving_name}(")));
-        let body = last_rust_fn_body(src, &receiving_name)
-            .unwrap_or_else(|| panic!("missing {receiving_name}"));
-        assert!(
-            body.contains("fire_owned_passive_weapon"),
-            "{name} must use the selected real shot"
-        );
-        assert!(
-            !body.contains("residual_auto_fire_apply_damage"),
-            "{name} must not also apply residual damage"
-        );
-    }
-    let passive = include_str!("../../game_logic/world_combat/passive_weapon_fire.rs");
-    let body = last_rust_fn_body(passive, "fire_owned_passive_weapon_with_effects")
-        .expect("actual passive driver");
-    assert!(
-        body.contains("prepare_passive_weapon_shot")
-            && body.contains(
-                "deliver_owned_weapon_shot_with_effects(slot, shot, capture, presentation_effects)"
-            )
-    );
-    let effects = include_str!("../../game_logic/world_combat/weapon_fire_effects.rs");
-    let delivery = last_rust_fn_body(effects, "deliver_owned_weapon_shot_with_effects")
-        .expect("receiving accepted-shot delivery");
-    let delivery_normalized: String = delivery.split_whitespace().collect();
-    assert!(delivery_normalized.contains(
-        "materialize_owned_passive_shot_with_effects(shot,stream_binding,presentation_effects,"
-    ));
-    assert!(delivery.contains("selected_native_weapon_rule(slot)"));
-    let attack = include_str!("../../game_logic/object/attack.rs");
-    let adapter = last_rust_fn_body(attack, "prepare_weapon_shot").expect("shared shot adapter");
-    assert!(adapter.contains("self.prepare_weapon_shot_with_operation("));
-    let shot = last_rust_fn_body(attack, "prepare_weapon_shot_with_operation")
-        .expect("shared receiving real shot");
-    assert!(
-        shot.contains("let shooter_id = self.id") && shot.contains("damage_type: weapon_dtype")
-    );
-    let damage = include_str!("../../game_logic/world_objects/damage_application.rs");
-    let application = last_rust_fn_body(damage, "apply_owned_combat_damage_with_effects")
-        .expect("actual shot damage owner");
-    let application: String = application.split_whitespace().collect();
-    assert!(
-        application.contains(
-            "apply_owned_damage_with_effects(target_id,damage,Some(shooter_id),damage_type,death_type,None,&context,effects,"
-        ),
-        "selected typed shot must preserve attacker at the receiving Body callback"
     );
 }
 

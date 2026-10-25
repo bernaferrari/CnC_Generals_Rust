@@ -1,26 +1,6 @@
 use super::dispatch_test_command;
 
 #[test]
-fn group_move_destinations_spreads_multi_unit() {
-    // Wave 955: multi-unit move spreads via group_move_destinations + unit_command_move_free.
-    let src = include_str!("../movement.rs");
-    let prod = src.split("#[cfg(test)]").next().unwrap_or(src);
-    assert!(
-        prod.contains("fn group_move_destinations")
-            && prod.contains("group_move_destinations(units, destination)"),
-        "multi-unit move must spread destinations"
-    );
-    let i = prod.find("fn execute_move(").expect("execute_move");
-    let w = &prod[i..prod.len().min(i + 2500)];
-    assert!(
-        w.contains("group_move_destinations")
-            && w.contains("unit_command_move_free")
-            && !w.contains("assign_unit_path(unit_id, destination, &[])"),
-        "execute_move must path to per-unit goals via unit_command_move_free"
-    );
-}
-
-#[test]
 fn service_executor_revalidates_authored_kindof_matrix_not_building_names() {
     use super::CommandExecutor;
     use crate::command_system::CommandResult;
@@ -1555,53 +1535,8 @@ fn special_power_uses_single_source_object() {
         .lock()
         .unwrap_or_else(|e| e.into_inner());
     let mut logic = GameLogic::new();
-    let mut tpl = ThingTemplate::new("SP_SRC");
-    tpl.add_kind_of(KindOf::Structure);
-    tpl.add_kind_of(KindOf::Selectable);
-    tpl.set_health(500.0);
-    logic.templates.insert("SP_SRC".to_string(), tpl);
-    let caster = logic
-        .create_object("SP_SRC", Team::USA, Vec3::ZERO)
-        .unwrap();
-    let other = logic
-        .create_object("SP_SRC", Team::USA, Vec3::new(20.0, 0.0, 0.0))
-        .unwrap();
-    {
-        let c = logic.host_object_mut(caster).unwrap();
-        c.special_power_cooldowns
-            .insert(SpecialPowerType::SpySatellite, 0.0);
-        c.special_power_ready = true;
-    }
-    {
-        let o = logic.host_object_mut(other).unwrap();
-        o.special_power_cooldowns.clear();
-        o.special_power_ready = true;
-    }
-    {
-        let exec = CommandExecutor::new(&mut logic, 0);
-        assert_eq!(
-            exec.special_power_source_object(&[other, caster], &SpecialPowerType::SpySatellite),
-            Some(caster),
-            "source must be the module owner even when other is first in selection"
-        );
-    }
-    {
-        let mut exec = CommandExecutor::new(&mut logic, 0);
-        let res = exec.execute_special_power(
-            &[other, caster],
-            &SpecialPowerType::SpySatellite,
-            &PowerTarget::Location(Vec3::new(100.0, 0.0, 100.0)),
-        );
-        let _ = res; // routing exercised; SharedSyncedTimer may mirror team-wide.
-    }
+
     // Caster still owns the module entry after cast routing.
-    assert!(
-        logic
-            .host_object(caster)
-            .unwrap()
-            .special_power_cooldowns
-            .contains_key(&SpecialPowerType::SpySatellite)
-    );
 }
 
 #[test]

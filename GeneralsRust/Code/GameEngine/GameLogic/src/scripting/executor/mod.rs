@@ -1520,31 +1520,3 @@ mod eval_skirmish;
 
 #[cfg(test)]
 mod tests;
-
-/// Concatenated live sources for residual `include_str!` scans.
-pub const EXECUTOR_SRC: &str = concat!(
-    include_str!("mod.rs"),
-    include_str!("execution_context.rs"),
-    include_str!("actions_attack_priority.rs"),
-    include_str!("actions_camera.rs"),
-    include_str!("actions_garrison.rs"),
-    include_str!("actions_input_ui.rs"),
-    include_str!("actions_named.rs"),
-    include_str!("actions_player.rs"),
-    include_str!("actions_player_display_camera.rs"),
-    include_str!("actions_skirmish.rs"),
-    include_str!("actions_team_build.rs"),
-    include_str!("actions_team_command.rs"),
-    include_str!("actions_team_relations.rs"),
-    include_str!("actions_victory_team.rs"),
-    include_str!("actions_world.rs"),
-    include_str!("dispatch.rs"),
-    include_str!("eval_basic.rs"),
-    include_str!("eval_owned_body_census.rs"),
-    include_str!("eval_receiving_named_facts.rs"),
-    include_str!("eval_owned_player_area.rs"),
-    include_str!("eval_owned_skirmish.rs"),
-    include_str!("eval_named.rs"),
-    include_str!("eval_player_events.rs"),
-    include_str!("eval_skirmish.rs"),
-);

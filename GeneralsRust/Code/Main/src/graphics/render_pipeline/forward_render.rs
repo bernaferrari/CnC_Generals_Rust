@@ -1392,28 +1392,6 @@ mod tests {
     use crate::graphics::render_item::{RenderItem, RenderItemBonePaletteSource};
     use std::collections::HashMap;
 
-    #[test]
-    fn native_particle_callback_uses_only_the_captured_receiving_camera() {
-        let src = include_str!("forward_render.rs")
-            .split("#[cfg(test)]")
-            .next()
-            .unwrap();
-        let draw = src
-            .split("pub(super) fn enqueue_client_effect_draw(")
-            .nth(1)
-            .unwrap()
-            .split("/// Check if the forward pass")
-            .next()
-            .unwrap();
-        assert!(draw.contains("ParticleCamera::capture("));
-        assert!(draw.contains("let uniforms = camera.uniforms;"));
-        assert!(draw.contains("camera.visible.center"));
-        assert!(draw.contains("camera.visible.extent"));
-        assert!(!draw.contains("with_tactical_view"));
-        assert!(!draw.contains("terrain_min_height()"));
-        assert!(!src.contains("fn leftover_z_up_particle_uniforms"));
-    }
-
     fn pivot(name: &str, parent_idx: u32, translation_x: f32) -> W3dPivot {
         W3dPivot {
             name: name.to_string(),

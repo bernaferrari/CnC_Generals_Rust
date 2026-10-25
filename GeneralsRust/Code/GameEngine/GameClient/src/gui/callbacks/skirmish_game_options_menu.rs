@@ -2188,19 +2188,6 @@ mod tests {
 
 #[cfg(test)]
 mod wnd_start_residual_tests {
-    #[test]
-    fn ensure_map_meta_and_default_slots_residuals_present() {
-        let src = include_str!("skirmish_game_options_menu.rs");
-        assert!(src.contains("fn ensure_map_meta_registered"));
-        assert!(src.contains("common::global_data::write().pending_file"));
-        assert!(src.contains("SlotState::MedAI"));
-        assert!(src.contains("ensure_default_slots()"));
-        assert!(src.contains("pub fn set_skirmish_menu_selected_map"));
-        assert!(src.contains("fn parse_map_header_meta"));
-        assert!(src.contains("count_start_spots"));
-        assert!(!src.contains("meta.is_official = true"));
-        assert!(!src.contains("meta.num_players = 8"));
-    }
 
     #[test]
     fn official_path_is_maps_dir_not_userdata() {

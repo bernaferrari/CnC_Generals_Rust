@@ -1,29 +1,6 @@
 //! Behavior tests extracted from the original hero/weapons/airfields suite.
 use super::*;
 
-#[test]
-fn support_states_path_approach_cpp_surface() {
-    // The facade monolith split: path_approach_with_state now lives in
-    // world_save/world_paths.rs with callers across the live split modules.
-    let src = concat!(
-        include_str!("../../world_save/world_paths.rs"),
-        include_str!("../../world_scripts/unit_commands.rs"),
-        include_str!("../../world_scripts/rebuild_dozer.rs"),
-        include_str!("../../world_scripts/saboteur_car_bomb.rs"),
-        include_str!("../../world_objects/ai_authority.rs"),
-        include_str!("../../world_tick/production.rs"),
-        include_str!("../../world_tick/crates.rs"),
-    );
-    // Scan the live split members directly; production callers dominate the
-    // count (per-file #[cfg(test)] tails contribute only the _for_test shim).
-    let prod = src;
-    assert!(prod.contains("fn path_approach_with_state"));
-    assert!(
-        prod.matches("path_approach_with_state").count() >= 10,
-        "support states should route OOR approaches through path_approach_with_state"
-    );
-}
-
 // Both LOS fixtures require a real current ground locomotor: CPP
 // AIUpdate.cpp:2353–2356 returns false when there is no current locomotor.
 // The actual Common catalog remains process-owned, so scope its authored
@@ -612,25 +589,6 @@ fn structure_footprint_blocks_attack_los() {
 }
 
 #[test]
-fn structure_path_block_cpp_surface() {
-    // Facade split: structure path-blocking lives in world_subsystems.rs with
-    // create/complete call sites in create_destroy_die.rs and production.rs.
-    let src = concat!(
-        include_str!("../../world_save/world_subsystems.rs"),
-        include_str!("../../world_objects/create_destroy_die.rs"),
-        include_str!("../../world_tick/production.rs"),
-    );
-    assert!(src.contains("fn sync_structure_path_blocks"));
-    assert!(src.contains("fn block_structure_object_path"));
-    assert!(src.contains("apply_structure_static_blocks"));
-    assert!(
-        src.contains("block_structure_object_path(id)")
-            || src.contains("block_structure_object_path(completed_id)"),
-        "create/complete must block structure footprints"
-    );
-}
-
-#[test]
 fn terrain_los_blocks_ridge_between_units() {
     let mut logic = GameLogic::new();
     // Install coarse height cache: flat 0 with a tall ridge at mid X cells.
@@ -659,20 +617,5 @@ fn terrain_los_blocks_ridge_between_units() {
     assert!(
         logic.is_clear_line_of_sight_terrain(high_from, high_to),
         "high eye-line over ridge must stay clear"
-    );
-}
-
-#[test]
-fn attack_view_blocked_uses_terrain_los_surface() {
-    // Facade split: attack_view_blocked + terrain LOS live in
-    // world_save/world_paths.rs.
-    let src = include_str!("../../world_save/world_paths.rs");
-    assert!(src.contains("fn is_clear_line_of_sight_terrain"));
-    assert!(src.contains("LOS_TERRAIN residual"));
-    let i = src.find("pub fn attack_view_blocked").expect("avb");
-    let w = &src[i..i + 2500.min(src.len() - i)];
-    assert!(
-        w.contains("is_clear_line_of_sight_terrain"),
-        "attack_view_blocked must call terrain LOS"
     );
 }

@@ -1356,9 +1356,12 @@ fn crate_click_issues_do_salvage_for_salvager_selection() {
             is_carbomb: false,
             is_unmanned: false,
             is_mine: false,
+
+            authors_carbomb_weapon_set: false,
         }),
         selected_presentation: vec![PresentationSelectedUnitHint {
             id: salvager,
+            reject_unmanned: false,
             is_alive: true,
             is_resource_collector: false,
             is_worker: false,
@@ -1484,9 +1487,12 @@ fn ordinary_crate_click_issues_move_to_crate() {
             is_carbomb: false,
             is_unmanned: false,
             is_mine: false,
+
+            authors_carbomb_weapon_set: false,
         }),
         selected_presentation: vec![PresentationSelectedUnitHint {
             id: unit,
+            reject_unmanned: false,
             is_alive: true,
             is_resource_collector: false,
             is_worker: false,
@@ -1998,75 +2004,6 @@ fn queued_upgrade_completes_during_simulation_update() {
 }
 
 #[test]
-fn command_system_residual_locomotion_pathfinds() {
-    let src = crate::command_system::COMMAND_SYSTEM_SRC;
-    // Wave 230/231 renamed the executor entry points to the GameLogic
-    // unit_command_* authority APIs (GameLogicDispatch.cpp doMoveTo /
-    // AIGroup::groupAttackMoveToPosition / groupScatter analogs); each still
-    // routes through assign_unit_path (unit_commands.rs:206,603,705).
-    let move_i = src.find("fn execute_move_command").expect("move");
-    let w = &src[move_i..move_i + 800];
-    assert!(
-        w.contains("CommandExecutor")
-            || w.contains("assign_unit_path")
-            || w.contains("unit_command_move_to"),
-        "residual move must pathfind via executor or pathfinding authority"
-    );
-    let am_i = src.find("fn execute_attack_move_command").expect("am");
-    let w = &src[am_i..am_i + 800];
-    assert!(
-        w.contains("CommandExecutor")
-            || w.contains("assign_unit_path")
-            || w.contains("unit_command_attack_move_to"),
-        "residual attack-move must pathfind"
-    );
-    let sc_i = src.find("fn execute_scatter_command").expect("sc");
-    let w = &src[sc_i..sc_i + 1600];
-    assert!(
-        w.contains("assign_unit_path") || w.contains("unit_command_move_to_moving"),
-        "residual scatter must assign_unit_path"
-    );
-}
-
-#[test]
-fn resume_construction_context_residual() {
-    let src = crate::command_system::COMMAND_SYSTEM_SRC;
-    assert!(
-        src.contains("fn can_resume_construction")
-            && src.contains("CommandType::ResumeConstruction"),
-        "context path must offer ResumeConstruction for unfinished structures"
-    );
-    let start = src
-        .find("fn determine_context_command")
-        .expect("determine_context_command");
-    let body = &src[start..start + 2200];
-    assert!(
-        body.contains("can_resume_construction"),
-        "determine_context_command must call can_resume_construction"
-    );
-}
-
-#[test]
-fn capture_building_context_residual() {
-    let src = crate::command_system::COMMAND_SYSTEM_SRC;
-    assert!(
-        src.contains("fn can_capture_building") && src.contains("CommandType::CaptureBuilding"),
-        "context path must offer CaptureBuilding residual"
-    );
-    let start = src
-        .find("fn determine_context_command")
-        .expect("determine_context_command");
-    // Window spans the Wave-228 presentation freeze and the C++
-    // CommandXlat.cpp dock/gather precedence blocks ahead of the capture
-    // probe (can_capture_building call sits ~3400 chars into the body).
-    let body = &src[start..start + 3600];
-    assert!(
-        body.contains("can_capture_building"),
-        "determine_context_command must call can_capture_building"
-    );
-}
-
-#[test]
 fn unit_ability_button_name_map_residual() {
     use crate::command_system::{CommandType, command_type_from_button_name};
     assert!(matches!(
@@ -2339,9 +2276,12 @@ fn hijacker_context_click_issues_hijack_before_attack() {
             is_carbomb: false,
             is_unmanned: false,
             is_mine: false,
+
+            authors_carbomb_weapon_set: false,
         }),
         selected_presentation: vec![PresentationSelectedUnitHint {
             id: hijacker,
+            reject_unmanned: false,
             is_alive: true,
             is_resource_collector: false,
             is_worker: false,
@@ -2438,9 +2378,12 @@ fn lotus_context_click_auto_hacks_enemy_vehicle() {
             is_carbomb: false,
             is_unmanned: false,
             is_mine: false,
+
+            authors_carbomb_weapon_set: false,
         }),
         selected_presentation: vec![PresentationSelectedUnitHint {
             id: lotus,
+            reject_unmanned: false,
             is_alive: true,
             is_resource_collector: false,
             is_worker: false,
@@ -2498,6 +2441,7 @@ fn active_special_power_destination_steers_world_click() {
         target_presentation: None,
         selected_presentation: vec![PresentationSelectedUnitHint {
             id: puc,
+            reject_unmanned: false,
             is_alive: true,
             is_resource_collector: false,
             is_worker: false,
@@ -2590,6 +2534,8 @@ fn hint_target(id: ObjectId) -> PresentationTargetHint {
         is_carbomb: false,
         is_unmanned: false,
         is_mine: false,
+
+        authors_carbomb_weapon_set: false,
     }
 }
 
@@ -2617,6 +2563,8 @@ fn hint_selected(id: ObjectId, template: &str) -> PresentationSelectedUnitHint {
         capture_power_ready: false,
         is_salvager: false,
         can_override_special_power_destination: false,
+
+        reject_unmanned: false,
     }
 }
 

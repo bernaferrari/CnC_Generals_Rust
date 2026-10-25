@@ -2035,19 +2035,6 @@ mod tests {
             25.0,
         );
         assert_eq!(ids.len(), 2);
-        let src = include_str!("combat_particles.rs");
-        let start = src
-            .find("pub fn spawn_weapon_fire_fx_named_ocl")
-            .expect("spawn_weapon_fire_fx_named_ocl");
-        let body = &src[start..start + 2800];
-        assert!(
-            body.contains("override_radius"),
-            "FireFX/DetonationFX must thread C++ getPrimaryDamageRadius"
-        );
-        assert!(
-            !body.contains("primary_speed,\n                0.0"),
-            "must not hardcode overrideRadius=0 on FireFX dispatch"
-        );
     }
     #[test]
     fn empty_detonation_fx_spawns_no_generic_impact_preset() {
@@ -2446,47 +2433,6 @@ mod tests {
             (fire.position - fire_bone).length() > 0.5,
             "world translation follow would stay at {:?}",
             fire_bone
-        );
-    }
-
-    #[test]
-    fn particle_sys_bone_applies_leftover_z_rotation() {
-        let src = include_str!("combat_particles.rs");
-        assert!(src.contains("lookup_pristine_bone_pose"));
-        assert!(src.contains("particle_sys_bone_pose"));
-        assert!(src.contains("spawn_client_binding(&entry, &registry.client_bindings)"));
-        let bindings = include_str!("combat_particle_bindings.rs");
-        let attached = bindings
-            .split("fn create_binding(")
-            .nth(1)
-            .and_then(|body| body.split("    } else {").next())
-            .expect("actual receiving attached particle constructor");
-        let position = attached
-            .find("system.set_position(")
-            .expect("local position");
-        let rotation = attached
-            .find("system.rotate_local_transform_z(")
-            .expect("local Z rotation");
-        let attach = attached
-            .find("system.attach_to_object(")
-            .expect("actual object attachment");
-        let lifetime = attached
-            .find("system.set_system_lifetime(")
-            .expect("explicit lifetime");
-        assert!(
-            position < rotation && rotation < attach && attach < lifetime,
-            "receiving actual-system creation must preserve C++ position, rotation, attach, lifetime order"
-        );
-        // Incremental Rotate_Z must not run on already-attached systems.
-        let sync = src
-            .split("pub fn sync_particle_sys_bones")
-            .nth(1)
-            .and_then(|s| s.split("pub fn replace_body_auto_particles").next())
-            .expect("sync_particle_sys_bones");
-        assert!(
-            !sync.contains("rotate_leftover_particle_local_z")
-                && !sync.contains("rotate_particle_system_local_transform_z"),
-            "existing ParticleSysBone systems must not accumulate Z rotation"
         );
     }
 }

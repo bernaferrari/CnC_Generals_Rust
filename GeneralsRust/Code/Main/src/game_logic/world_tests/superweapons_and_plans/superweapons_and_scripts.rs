@@ -577,6 +577,36 @@ fn sneak_attack_residual_spawns_tunnel_and_shockwave() {
 #[test]
 fn carbomb_command_converts_vehicle_after_reach() {
     let mut game_logic = GameLogic::new();
+    game_logic
+        .admit_receiving_module_content(
+            crate::assets::ReceivingObjectContent::from_sources([(
+                "carbomb-command.ini".into(),
+                r#"
+Object GLAInfantryTerrorist
+KindOf = INFANTRY SELECTABLE
+Body = ActiveBody BomberBody
+MaxHealth = 100
+InitialHealth = 100
+End
+Behavior = AIUpdateInterface BomberAI
+End
+End
+Object CivilianCar
+KindOf = VEHICLE
+Body = ActiveBody CarBody
+MaxHealth = 80
+InitialHealth = 80
+End
+WeaponSet
+Conditions = CARBOMB
+End
+End
+"#
+                .into(),
+            )])
+            .unwrap(),
+        )
+        .unwrap();
     ensure_test_tank_template(&mut game_logic);
 
     // C++ ConvertToCarBombCrateCollide: only a GLA Terrorist may convert a
@@ -600,12 +630,6 @@ fn carbomb_command_converts_vehicle_after_reach() {
         .expect("bomber should be created");
     // C++ ConvertToCarBombCrateCollide targets a vehicle authoring
     // WEAPONSET_CARBOMB (retail CivilianCar), not any vehicle.
-    let mut car = ThingTemplate::new("CivilianCar");
-    car.add_kind_of(KindOf::Vehicle).set_health(80.0);
-    game_logic.templates.insert("CivilianCar".into(), car);
-    // The unit-test process has no retail INI catalog; seed the retail
-    // WEAPONSET_CARBOMB evidence the conversion gate reads.
-    crate::game_logic::host_car_bomb::register_test_carbomb_weapon_set("CivilianCar");
     let target_id = game_logic
         .create_object("CivilianCar", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
         .expect("target should be created");
@@ -720,6 +744,36 @@ fn carbomb_command_converts_vehicle_after_reach() {
 #[test]
 fn carbomb_command_allows_neutral_targets() {
     let mut game_logic = GameLogic::new();
+    game_logic
+        .admit_receiving_module_content(
+            crate::assets::ReceivingObjectContent::from_sources([(
+                "carbomb-command.ini".into(),
+                r#"
+Object GLAInfantryTerrorist
+KindOf = INFANTRY SELECTABLE
+Body = ActiveBody BomberBody
+MaxHealth = 100
+InitialHealth = 100
+End
+Behavior = AIUpdateInterface BomberAI
+End
+End
+Object CivilianCar
+KindOf = VEHICLE
+Body = ActiveBody CarBody
+MaxHealth = 80
+InitialHealth = 80
+End
+WeaponSet
+Conditions = CARBOMB
+End
+End
+"#
+                .into(),
+            )])
+            .unwrap(),
+        )
+        .unwrap();
     ensure_test_tank_template(&mut game_logic);
 
     // C++ ConvertToCarBombCrateCollide: only a GLA Terrorist may convert a
@@ -743,12 +797,6 @@ fn carbomb_command_allows_neutral_targets() {
         .expect("bomber should be created");
     // C++ ConvertToCarBombCrateCollide targets a vehicle authoring
     // WEAPONSET_CARBOMB (retail CivilianCar), not any vehicle.
-    let mut car = ThingTemplate::new("CivilianCar");
-    car.add_kind_of(KindOf::Vehicle).set_health(80.0);
-    game_logic.templates.insert("CivilianCar".into(), car);
-    // The unit-test process has no retail INI catalog; seed the retail
-    // WEAPONSET_CARBOMB evidence the conversion gate reads.
-    crate::game_logic::host_car_bomb::register_test_carbomb_weapon_set("CivilianCar");
     let target_id = game_logic
         .create_object("CivilianCar", Team::Neutral, Vec3::new(0.0, 0.0, 0.0))
         .expect("neutral target should be created");

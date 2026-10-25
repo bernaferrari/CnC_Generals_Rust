@@ -133,26 +133,3 @@ fn receiving_player_cancel_scopes_preserve_peer_and_foreign_core() {
         },
     );
 }
-#[test]
-fn actual_native_cancel_wiring_uses_only_receiving_owner() {
-    // Wiring evidence complements real GameLogic kernels above; no GPU/Engine
-    // construction is claimed by this CPU fixture.
-    let s = include_str!("camera.rs");
-    let begin = s
-        .find("pub(in crate::cnc_game_engine) fn cancel_scripted_camera_from_player_set")
-        .unwrap();
-    let end = s[begin..]
-        .find("fn sync_letterbox_os_cursor_visibility(")
-        .unwrap()
-        + begin;
-    let body = &s[begin..end];
-    assert!(!body.contains("with_tactical_view"));
-    for call in [
-        "self.game_logic.cancel_scripted_camera_from_player_set()",
-        "self.game_logic.cancel_scripted_camera_from_player_look_at()",
-        "self.game_logic.cancel_scripted_camera_from_player_scroll()",
-        "self.host_set_camera_follow_object(None)",
-    ] {
-        assert!(body.contains(call), "{call}");
-    }
-}

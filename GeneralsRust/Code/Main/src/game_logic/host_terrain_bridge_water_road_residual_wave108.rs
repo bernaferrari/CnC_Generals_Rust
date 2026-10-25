@@ -242,64 +242,6 @@ pub fn bridge_effect_num_zero_based_residual(effect_num_1_based: i32) -> Option<
 }
 
 /// Wave 108 honesty: bridge residual deepen pack.
-pub fn honesty_bridge_residual_deepen_pack_wave108() -> bool {
-    let type_ok = BRIDGE_TYPE_FIXED_RESIDUAL == 0
-        && BRIDGE_TYPE_SECTIONAL_RESIDUAL == 1
-        && BRIDGE_TYPE_NAME_TABLE_RESIDUAL.len() == 2
-        && residual_name_index(BRIDGE_TYPE_NAME_TABLE_RESIDUAL, "FIXED_BRIDGE") == Some(0)
-        && residual_name_index(BRIDGE_TYPE_NAME_TABLE_RESIDUAL, "SECTIONAL_BRIDGE") == Some(1);
-
-    let caps_ok = MAX_BRIDGE_VERTEX_RESIDUAL == 12_000
-        && MAX_BRIDGE_INDEX_RESIDUAL == 24_000
-        && MAX_BRIDGES_RESIDUAL == 200
-        && MAX_BRIDGE_BODY_FX_RESIDUAL == 3
-        && BRIDGE_BODY_DAMAGE_TYPE_COUNT_RESIDUAL == 4
-        && BRIDGE_MAX_TOWERS_RESIDUAL == 4
-        && BRIDGE_TOWER_TYPE_NAMES_RESIDUAL.len() == 4
-        && residual_name_index(BRIDGE_TOWER_TYPE_NAMES_RESIDUAL, "BRIDGE_TOWER_FROM_LEFT")
-            == Some(0)
-        && residual_name_index(BRIDGE_TOWER_TYPE_NAMES_RESIDUAL, "BRIDGE_TOWER_TO_RIGHT")
-            == Some(3)
-        && BRIDGE_TOWER_FROM_LEFT_RESIDUAL == 0
-        && BRIDGE_TOWER_TO_RIGHT_RESIDUAL == 3;
-
-    let scaffold_ok = (BRIDGE_LATERAL_SCAFFOLD_SPEED_RESIDUAL - 1.0).abs() < 1e-5
-        && (BRIDGE_VERTICAL_SCAFFOLD_SPEED_RESIDUAL - 1.0).abs() < 1e-5
-        && (BRIDGE_SCALE_CTOR_DEFAULT_RESIDUAL - 1.0).abs() < 1e-5
-        && (BRIDGE_TRANSITION_EFFECTS_HEIGHT_CTOR_RESIDUAL - 0.0).abs() < 1e-5
-        && BRIDGE_NUM_FX_PER_TYPE_CTOR_RESIDUAL == 0;
-
-    let field_ok = BRIDGE_FIELD_PARSE_KEYS_RESIDUAL.len() >= 20
-        && residual_name_index(BRIDGE_FIELD_PARSE_KEYS_RESIDUAL, "BridgeScale").is_some()
-        && residual_name_index(BRIDGE_FIELD_PARSE_KEYS_RESIDUAL, "TowerObjectNameFromLeft")
-            .is_some()
-        && residual_name_index(BRIDGE_FIELD_PARSE_KEYS_RESIDUAL, "TransitionToFX").is_some();
-
-    let sample_ok = SAMPLE_BRIDGE_IRON_SECTIONAL_NAME_RESIDUAL == "IronSectionalDoublewide"
-        && (SAMPLE_BRIDGE_IRON_SECTIONAL_SCALE_RESIDUAL - 0.85).abs() < 1e-5
-        && SAMPLE_BRIDGE_IRON_SECTIONAL_MODEL_RESIDUAL == "TBDoubWide"
-        && SAMPLE_BRIDGE_CONCRETE_NAME_RESIDUAL == "Concrete"
-        && (SAMPLE_BRIDGE_CONCRETE_SCALE_RESIDUAL - 0.85).abs() < 1e-5
-        && SAMPLE_BRIDGE_CONCRETE_MODEL_RESIDUAL == "CBBridgeSt"
-        && SAMPLE_BRIDGE_CONCRETE_NUM_FX_PER_TYPE_RESIDUAL == 32
-        && SAMPLE_BRIDGE_CONCRETE_DAMAGE_SOUND_RESIDUAL == "BridgeDamaged"
-        && SAMPLE_BRIDGE_CONCRETE_REPAIR_SOUND_RESIDUAL == "BridgeRepaired"
-        && SAMPLE_BRIDGE_SCAFFOLD_OBJECT_RESIDUAL == "BridgeScaffold01"
-        && SAMPLE_BRIDGE_SCAFFOLD_SUPPORT_RESIDUAL == "BridgeScaffoldSupport01"
-        && SAMPLE_BRIDGE_RADAR_COLOR_R_RESIDUAL == 192
-        && SAMPLE_BRIDGE_RADAR_COLOR_G_RESIDUAL == 192
-        && SAMPLE_BRIDGE_RADAR_COLOR_B_RESIDUAL == 192
-        && SAMPLE_BRIDGE_NAME_TABLE_RESIDUAL.len() >= 8
-        && residual_name_index(SAMPLE_BRIDGE_NAME_TABLE_RESIDUAL, "Concrete").is_some()
-        && residual_name_index(SAMPLE_BRIDGE_NAME_TABLE_RESIDUAL, "TsingMaLandmarkBridge")
-            .is_some()
-        && bridge_effect_num_zero_based_residual(1) == Some(0)
-        && bridge_effect_num_zero_based_residual(3) == Some(2)
-        && bridge_effect_num_zero_based_residual(0).is_none()
-        && bridge_effect_num_zero_based_residual(4).is_none();
-
-    type_ok && caps_ok && scaffold_ok && field_ok && sample_ok
-}
 
 // ---------------------------------------------------------------------------
 // 3. Water residual deepen (beyond Wave 87 TOD / WaterSet residual)
@@ -370,53 +312,6 @@ pub const WATER_SCROLL_PER_MS_NIGHT_RESIDUAL: f32 = 0.0;
 pub const WATER_SET_TOD_NAMES_RESIDUAL: &[&str] = &["MORNING", "AFTERNOON", "EVENING", "NIGHT"];
 
 /// Wave 108 honesty: water residual deepen pack.
-pub fn honesty_water_residual_deepen_pack_wave108() -> bool {
-    let type_ok = WATER_TYPE_0_TRANSLUCENT_RESIDUAL == 0
-        && WATER_TYPE_1_FB_REFLECTION_RESIDUAL == 1
-        && WATER_TYPE_2_PVSHADER_RESIDUAL == 2
-        && WATER_TYPE_3_GRIDMESH_RESIDUAL == 3
-        && WATER_TYPE_MAX_RESIDUAL == 4
-        && WATER_TYPE_NAME_TABLE_RESIDUAL.len() == 4
-        && residual_name_index(WATER_TYPE_NAME_TABLE_RESIDUAL, "WATER_TYPE_0_TRANSLUCENT")
-            == Some(0)
-        && residual_name_index(WATER_TYPE_NAME_TABLE_RESIDUAL, "WATER_TYPE_3_GRIDMESH") == Some(3)
-        && (INVALID_WATER_HEIGHT_RESIDUAL - 0.0).abs() < 1e-5
-        && WATER_NUM_BUMP_FRAMES_RESIDUAL == 32
-        && MAX_DYNAMIC_WATER_RESIDUAL == 64;
-
-    let skybox_ok = WATER_SKYBOX_TEXTURE_TABLE_RESIDUAL.len() == 5
-        && WATER_SKYBOX_TEXTURE_N_RESIDUAL == "TSMorningN.tga"
-        && WATER_SKYBOX_TEXTURE_E_RESIDUAL == "TSMorningE.tga"
-        && WATER_SKYBOX_TEXTURE_S_RESIDUAL == "TSMorningS.tga"
-        && WATER_SKYBOX_TEXTURE_W_RESIDUAL == "TSMorningW.tga"
-        && WATER_SKYBOX_TEXTURE_T_RESIDUAL == "TSMorningT.tga"
-        && residual_name_index(WATER_SKYBOX_TEXTURE_TABLE_RESIDUAL, "TSMorningT.tga") == Some(4);
-
-    let field_ok = WATER_TRANSPARENCY_FIELD_KEYS_RESIDUAL.len() >= 11
-        && residual_name_index(
-            WATER_TRANSPARENCY_FIELD_KEYS_RESIDUAL,
-            "TransparentWaterDepth",
-        )
-        .is_some()
-        && residual_name_index(WATER_TRANSPARENCY_FIELD_KEYS_RESIDUAL, "SkyboxTextureN").is_some()
-        && residual_name_index(WATER_TRANSPARENCY_FIELD_KEYS_RESIDUAL, "RadarWaterColor").is_some();
-
-    let wave87_hold = (WATER_TRANSPARENT_DEPTH_RESIDUAL - 3.0).abs() < 1e-5
-        && (WATER_MIN_OPACITY_RESIDUAL - 1.0).abs() < 1e-5
-        && WATER_STANDING_TEXTURE_RESIDUAL == "TWWater01.tga"
-        && !WATER_ADDITIVE_BLEND_RESIDUAL
-        && (WATER_RADAR_COLOR_R_RESIDUAL - 140.0).abs() < 1e-5
-        && (WATER_RADAR_COLOR_G_RESIDUAL - 140.0).abs() < 1e-5
-        && (WATER_RADAR_COLOR_B_RESIDUAL - 255.0).abs() < 1e-5
-        && WATER_REPEAT_COUNT_RESIDUAL == 32
-        && (WATER_SCROLL_PER_MS_DAY_RESIDUAL - 0.002).abs() < 1e-5
-        && (WATER_SCROLL_PER_MS_NIGHT_RESIDUAL - 0.0).abs() < 1e-5
-        && WATER_SET_TOD_NAMES_RESIDUAL.len() == 4
-        && residual_name_index(WATER_SET_TOD_NAMES_RESIDUAL, "MORNING") == Some(0)
-        && residual_name_index(WATER_SET_TOD_NAMES_RESIDUAL, "NIGHT") == Some(3);
-
-    type_ok && skybox_ok && field_ok && wave87_hold
-}
 
 // ---------------------------------------------------------------------------
 // 4. Road residual deepen (beyond Wave 93 road residual peels)
@@ -498,52 +393,6 @@ pub fn road_next_id_residual(counter: u32) -> (u32, u32) {
 }
 
 /// Wave 108 honesty: road residual deepen pack.
-pub fn honesty_road_residual_deepen_pack_wave108() -> bool {
-    let caps_ok = (ROAD_DEFAULT_SCALE_RESIDUAL - 8.0).abs() < 1e-5
-        && (ROAD_MIN_SEGMENT_RESIDUAL - 0.25).abs() < 1e-5
-        && ROAD_MAX_LINKS_RESIDUAL == 6
-        && ROAD_MAX_SEG_VERTEX_RESIDUAL == 500
-        && ROAD_MAX_SEG_INDEX_RESIDUAL == 2000
-        && ROAD_NUM_CORNERS_RESIDUAL == 4
-        && ROAD_NUM_JOINS_RESIDUAL == 8
-        && ROAD_CORNER_TYPE_NAME_TABLE_RESIDUAL.len() == 8
-        && residual_name_index(ROAD_CORNER_TYPE_NAME_TABLE_RESIDUAL, "SEGMENT") == Some(0)
-        && residual_name_index(ROAD_CORNER_TYPE_NAME_TABLE_RESIDUAL, "ALPHA_JOIN") == Some(7)
-        && ROAD_CORNER_SEGMENT_RESIDUAL == 0
-        && ROAD_CORNER_ALPHA_JOIN_RESIDUAL == 7
-        && (ROAD_CORNER_ALPHA_JOIN_RESIDUAL as i32) + 1 == ROAD_NUM_JOINS_RESIDUAL
-        && ROAD_CORNER_BOTTOM_LEFT_RESIDUAL == 0
-        && ROAD_CORNER_TOP_RIGHT_RESIDUAL == 3
-        && MAX_ROAD_SEGMENTS_RESIDUAL == 4000
-        && MAX_ROAD_VERTEX_RESIDUAL == 3000
-        && MAX_ROAD_INDEX_RESIDUAL == 5000
-        && MAX_ROAD_TYPES_RESIDUAL == 100;
-
-    let field_ok = ROAD_FIELD_PARSE_KEYS_RESIDUAL.len() == 3
-        && residual_name_index(ROAD_FIELD_PARSE_KEYS_RESIDUAL, "Texture") == Some(0)
-        && residual_name_index(ROAD_FIELD_PARSE_KEYS_RESIDUAL, "RoadWidth") == Some(1)
-        && residual_name_index(ROAD_FIELD_PARSE_KEYS_RESIDUAL, "RoadWidthInTexture") == Some(2);
-
-    let sample_ok = SAMPLE_ROAD_NAME_TABLE_RESIDUAL.len() >= 10
-        && residual_name_index(SAMPLE_ROAD_NAME_TABLE_RESIDUAL, "TwoLane") == Some(0)
-        && residual_name_index(SAMPLE_ROAD_NAME_TABLE_RESIDUAL, "DirtRoad").is_some()
-        && residual_name_index(SAMPLE_ROAD_NAME_TABLE_RESIDUAL, "Sidewalk").is_some()
-        && (SAMPLE_ROAD_TWO_LANE_WIDTH_RESIDUAL - 35.0).abs() < 1e-5
-        && (SAMPLE_ROAD_FOUR_LANE_WIDTH_RESIDUAL - 60.0).abs() < 1e-5
-        && (SAMPLE_ROAD_COBBLESTONE_WIDTH_RESIDUAL - 30.0).abs() < 1e-5
-        && (SAMPLE_ROAD_GRASS_STRIP_WIDTH_RESIDUAL - ROAD_DEFAULT_SCALE_RESIDUAL).abs() < 1e-5
-        && SAMPLE_ROAD_TWO_LANE_TEXTURE_RESIDUAL == "TRTwoLane.tga"
-        && SAMPLE_ROAD_DIRT_ROAD_NAME_RESIDUAL == "DirtRoad"
-        && SAMPLE_ROAD_SIDEWALK_NAME_RESIDUAL == "Sidewalk"
-        && ROADS_INI_PATH_RESIDUAL == "Data\\INI\\Roads.ini"
-        && ROAD_ID_COUNTER_START_RESIDUAL == 1
-        && {
-            let (id, next) = road_next_id_residual(ROAD_ID_COUNTER_START_RESIDUAL);
-            id == 1 && next == 2
-        };
-
-    caps_ok && field_ok && sample_ok
-}
 
 // ---------------------------------------------------------------------------
 // 5. Cliff residual peels (HeightMap cliff cell + pathfind CELL_CLIFF)
@@ -608,80 +457,12 @@ pub fn cliff_uv_needs_stretch_residual(delta_raw_h: i32) -> bool {
 }
 
 /// Wave 108 honesty: cliff residual peels pack.
-pub fn honesty_cliff_residual_peels_pack_wave108() -> bool {
-    let slope_ok = (PATHFIND_CLIFF_SLOPE_LIMIT_F_RESIDUAL - 9.8).abs() < 1e-5
-        && (CLIFF_STRETCH_LIMIT_RESIDUAL - 1.5).abs() < 1e-5
-        && (CLIFF_TILE_LIMIT_RESIDUAL - 4.0).abs() < 1e-5
-        && (CLIFF_TALL_STRETCH_LIMIT_RESIDUAL - 2.0).abs() < 1e-5
-        && (CLIFF_DIAMOND_STRETCH_LIMIT_RESIDUAL - 2.4).abs() < 1e-5
-        && (CLIFF_HEIGHT_SCALE_UV_RESIDUAL - 0.0625).abs() < 1e-5
-        && (CLIFF_HEIGHT_SCALE_UV_RESIDUAL
-            - HEIGHTMAP_MAP_HEIGHT_SCALE_RESIDUAL / HEIGHTMAP_MAP_XY_FACTOR_RESIDUAL)
-            .abs()
-            < 1e-5
-        && CLIFF_FLAG_BITS_PER_BYTE_RESIDUAL == 8;
-
-    let cell_type_ok = PATHFIND_CELL_CLEAR_RESIDUAL == 0x00
-        && PATHFIND_CELL_WATER_RESIDUAL == 0x01
-        && PATHFIND_CELL_CLIFF_RESIDUAL == 0x02
-        && PATHFIND_CELL_RUBBLE_RESIDUAL == 0x03
-        && PATHFIND_CELL_OBSTACLE_RESIDUAL == 0x04
-        && PATHFIND_CELL_BRIDGE_IMPASSABLE_RESIDUAL == 0x05
-        && PATHFIND_CELL_IMPASSABLE_RESIDUAL == 0x06
-        && PATHFIND_CELL_TYPE_NAME_TABLE_RESIDUAL.len() == 7
-        && residual_name_index(PATHFIND_CELL_TYPE_NAME_TABLE_RESIDUAL, "CELL_CLIFF") == Some(2)
-        && residual_name_index(
-            PATHFIND_CELL_TYPE_NAME_TABLE_RESIDUAL,
-            "CELL_BRIDGE_IMPASSABLE",
-        ) == Some(5);
-
-    // Flat cell: not cliff.
-    let flat_ok = !cliff_cell_from_raw_heights_residual(10, 10, 10, 10);
-    // Raw delta 10 = 6.25 world Z < 9.8 → not cliff (old bug treated 10 raw as cliff).
-    let raw_under_ok = !cliff_cell_from_raw_heights_residual(0, 10, 0, 10);
-    // Raw delta 15 = 9.375 world Z ≤ 9.8 → not cliff.
-    let just_under_ok = !cliff_cell_from_raw_heights_residual(0, 15, 0, 15);
-    // Raw delta 16 = 10.0 world Z > 9.8 → cliff.
-    let cliff_ok = cliff_cell_from_raw_heights_residual(0, 16, 0, 16);
-    // Extreme cliff.
-    let steep_ok = cliff_cell_from_raw_heights_residual(0, 255, 0, 255);
-
-    let bit_ok = cliff_flag_bit_mask_residual(0) == 0x01
-        && cliff_flag_bit_mask_residual(3) == 0x08
-        && cliff_flag_bit_mask_residual(7) == 0x80
-        && cliff_flag_bit_mask_residual(8) == 0x01
-        && cliff_flag_byte_index_residual(0, 0, 16) == 0
-        && cliff_flag_byte_index_residual(8, 0, 16) == 1
-        && cliff_flag_byte_index_residual(0, 1, 16) == 16;
-
-    // UV stretch: delta 24 * 0.0625 = 1.5 → needs stretch (>=).
-    let stretch_ok = cliff_uv_needs_stretch_residual(24)
-        && !cliff_uv_needs_stretch_residual(20) // 20*0.0625=1.25 < 1.5
-        && cliff_uv_needs_stretch_residual(40);
-
-    slope_ok
-        && cell_type_ok
-        && flat_ok
-        && raw_under_ok
-        && just_under_ok
-        && cliff_ok
-        && steep_ok
-        && bit_ok
-        && stretch_ok
-}
 
 // ---------------------------------------------------------------------------
 // Combined Wave 108 pack
 // ---------------------------------------------------------------------------
 
 /// Combined Wave 108 honesty: HeightMap + bridge + water + road + cliff residual packs.
-pub fn honesty_terrain_bridge_water_road_residual_pack_wave108() -> bool {
-    honesty_heightmap_residual_deepen_pack_wave108()
-        && honesty_bridge_residual_deepen_pack_wave108()
-        && honesty_water_residual_deepen_pack_wave108()
-        && honesty_road_residual_deepen_pack_wave108()
-        && honesty_cliff_residual_peels_pack_wave108()
-}
 
 #[cfg(test)]
 mod tests {
@@ -695,31 +476,22 @@ mod tests {
 
     #[test]
     fn bridge_wave108_honesty() {
-        assert!(honesty_bridge_residual_deepen_pack_wave108());
         assert_eq!(bridge_effect_num_zero_based_residual(1), Some(0));
     }
 
     #[test]
     fn water_wave108_honesty() {
-        assert!(honesty_water_residual_deepen_pack_wave108());
         assert_eq!(WATER_TYPE_MAX_RESIDUAL, 4);
     }
 
     #[test]
     fn road_wave108_honesty() {
-        assert!(honesty_road_residual_deepen_pack_wave108());
         assert_eq!(road_next_id_residual(1), (1, 2));
     }
 
     #[test]
     fn cliff_wave108_honesty() {
-        assert!(honesty_cliff_residual_peels_pack_wave108());
         assert!(cliff_cell_from_raw_heights_residual(0, 20, 0, 20));
         assert!(!cliff_cell_from_raw_heights_residual(5, 5, 5, 5));
-    }
-
-    #[test]
-    fn residual_pack_honesty_wave108() {
-        assert!(honesty_terrain_bridge_water_road_residual_pack_wave108());
     }
 }

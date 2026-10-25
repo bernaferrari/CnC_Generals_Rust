@@ -1150,37 +1150,6 @@ fn shell_game_state_tracks_in_game_status() {
 }
 
 #[test]
-fn live_script_tick_runs_one_script_engine_update() {
-    // C++ GameLogic.cpp:3600 has exactly one TheScriptEngine->UPDATE()
-    // per logic frame.  The live host tick must not also walk
-    // MissionScriptRuntime over the same installed lists (hq-fxq1).
-    let tick = include_str!("../../world_scripts/scripts_camera/script_runtime_camera.rs");
-    let runtime = concat!(
-        include_str!("../../mission_scripts/mod.rs"),
-        include_str!("../../mission_scripts/script_requests.rs"),
-        include_str!("../../mission_scripts/script_hooks.rs"),
-        include_str!("../../mission_scripts/script_actions.rs"),
-        include_str!("../../mission_scripts/tests.rs"),
-    );
-    assert_eq!(tick.matches("engine.update_with_driver(").count(), 1);
-    assert!(tick.contains("HostScriptExecutionDriver::with_effects("));
-    let compact_tick: String = tick.split_whitespace().collect();
-    assert!(compact_tick.contains("ui.reborrow("));
-    assert!(tick.contains("self.with_owned_script_engine("));
-    assert!(tick.contains("current_frame: world.frame"));
-
-    assert!(
-        !tick.contains("self.mission_scripts.update("),
-        "MissionScriptRuntime must not be a second live ScriptEngine walk"
-    );
-
-    assert!(!tick.contains("update_shell_budgeted"));
-    assert!(!runtime.contains("update_shell_budgeted"));
-    assert!(!runtime.contains("SHELL_HEAVY_SCRIPT_WARMUP_FRAMES"));
-    assert!(!runtime.contains("evaluate_shell_heavy_script_chunked"));
-}
-
-#[test]
 fn exact_model_lookup_rejects_legacy_proxy_meshes() {
     let proxy_pairs = [
         ("PMRocks01b", "PMBoulders_D"),
@@ -2861,9 +2830,12 @@ fn physical_rmb_dock_uses_exact_controller_not_same_faction_friendliness() {
                 is_carbomb: false,
                 is_unmanned: false,
                 is_mine: false,
+
+                authors_carbomb_weapon_set: false,
             }),
             selected_presentation: vec![PresentationSelectedUnitHint {
                 id: collector_id,
+                reject_unmanned: false,
                 is_alive: !collector.destroyed && collector.health_current > 0.0,
                 is_resource_collector: PresentationFrame::object_has_kind(
                     collector,

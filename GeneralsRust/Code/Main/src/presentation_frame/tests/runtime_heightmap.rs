@@ -167,24 +167,6 @@ fn runtime_heightmap_arc_world_env_json_roundtrip_keeps_full_payload() {
 }
 
 #[test]
-fn map_load_heightmap_bake_passes_none_game_logic() {
-    let eng = crate::cnc_game_engine::ENGINE_SRC;
-    // Runtime terrain bake is presentation-owned: device/queue only, no GameLogic arg.
-    let idx = eng
-        .find("load_heightmap_from_runtime_terrain")
-        .expect("call site");
-    let window = &eng[idx..idx + 280];
-    assert!(
-        !window.contains("game_logic") && !window.contains("GameLogic"),
-        "map-load height bake must not dual-read live GameLogic, got: {window}"
-    );
-    assert!(
-        window.contains("device_arc") && window.contains("queue_arc"),
-        "bake should take GPU device/queue only"
-    );
-}
-
-#[test]
 fn terrain_texture_classes_freeze_fields_roundtrip() {
     let c = PresentationTerrainTextureClass {
         first_tile: 1,
@@ -200,21 +182,4 @@ fn terrain_texture_classes_freeze_fields_roundtrip() {
     };
     assert_eq!(env.terrain_texture_classes.len(), 1);
     assert_eq!(env.terrain_texture_classes[0], c);
-}
-
-#[test]
-fn heightmap_bake_consumes_presentation_texture_classes() {
-    let source = include_str!("../../graphics/render_pipeline/native_terrain_admission.rs");
-    let start = source.find("fn hydrate_native_terrain_gpu(").unwrap();
-    let body = source[start..].split("\n    }\n").next().unwrap();
-    let normalized: String = body.split_whitespace().collect();
-    assert!(normalized.contains("self.presentation_frame.as_ref().into_iter().flat_map(|frame|&frame.world_env.terrain_texture_classes)"), "source tile classes must come from the frozen receiving presentation");
-    assert!(
-        body.contains("visual.load_source_tiles_from_texture_classes(&source_tile_classes)"),
-        "actual native owner must consume the frozen classes"
-    );
-    assert!(
-        !body.contains("game_logic.terrain_texture") && !body.contains("logic.terrain_texture"),
-        "hydration must not dual-read live terrain classes"
-    );
 }

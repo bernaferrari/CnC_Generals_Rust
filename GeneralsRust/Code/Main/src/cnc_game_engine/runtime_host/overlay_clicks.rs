@@ -741,27 +741,6 @@ impl CnCGameEngine {
         };
     }
 
-    pub(super) fn runtime_host_cmd_click_terrain_env_boundary(
-        &mut self,
-        args: &HashMap<String, String>,
-    ) {
-        let action = args
-            .get("action")
-            .map(|v| v.trim().to_ascii_lowercase())
-            .unwrap_or_else(|| "prepare".to_string());
-        let wnd_ok = match action.as_str() {
-            "heightmap" => crate::game_logic::simulate_terrain_env_boundary_heightmap_source(),
-            "skybox" => crate::game_logic::simulate_terrain_env_boundary_skybox_source(),
-            "sync" => crate::game_logic::simulate_terrain_env_boundary_sync_source(),
-            _ => false,
-        };
-        self.runtime_host_last_gameplay_cmd = if wnd_ok {
-            format!("click_terrain_env_boundary_ok_wnd_{action}")
-        } else {
-            "click_terrain_env_boundary_miss".into()
-        };
-    }
-
     pub(super) fn runtime_host_cmd_click_main_menu_wnd(&mut self, args: &HashMap<String, String>) {
         let action = args
             .get("action")
@@ -784,24 +763,6 @@ impl CnCGameEngine {
             format!("click_main_menu_wnd_ok_wnd_{action}")
         } else {
             "click_main_menu_wnd_miss".into()
-        };
-    }
-
-    pub(super) fn runtime_host_cmd_click_shell_stack(&mut self, args: &HashMap<String, String>) {
-        let action = args
-            .get("action")
-            .map(|v| v.trim().to_ascii_lowercase())
-            .unwrap_or_else(|| "push".to_string());
-        let ok = match action.as_str() {
-            "init" => crate::game_logic::honesty_show_shell_menu_init_before_push_source(),
-            "snapshot" => crate::game_logic::honesty_shell_snapshot_no_invented_stack_source(),
-            "push" | "prepare" => false,
-            _ => self.host_unknown_action_fail_closed(false),
-        };
-        self.runtime_host_last_gameplay_cmd = if ok {
-            format!("click_shell_stack_ok_wnd_{action}")
-        } else {
-            format!("click_shell_stack_miss_{action}")
         };
     }
 

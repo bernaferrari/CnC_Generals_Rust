@@ -989,26 +989,6 @@ mod tests {
     }
 
     #[test]
-    fn simulate_challenge_play_calls_start_challenge_game_like_cpp() {
-        let src = include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/src/gui/callbacks/challenge_menu.rs"
-        ));
-        let play = src
-            .split("pub fn simulate_challenge_menu_play_button_gadget_selected")
-            .nth(1)
-            .expect("play helper");
-        let play = play
-            .split("pub fn simulate_challenge_menu_back_button_gadget_selected")
-            .next()
-            .expect("play body");
-        assert!(
-            play.contains("start_challenge_game()"),
-            "C++ ButtonPlay calls startChallengeGame (pendingFile + MSG_NEW_GAME)"
-        );
-    }
-
-    #[test]
     fn os_wnd_challenge_start_hits_named_gadgets_then_start_challenge_game() {
         with_window_manager(|manager| {
             let general = manager

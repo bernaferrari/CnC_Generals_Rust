@@ -108,12 +108,6 @@ fn collect_registered_modules(repo_root: &Path) -> Result<BTreeMap<ModuleKind, B
     }
     collect_registered_from_source(&override_src, false, &mut registered);
 
-    let factory_path =
-        repo_root.join("GeneralsRust/Code/GameEngine/Common/src/common/thing/module_factory.rs");
-    let factory_src = std::fs::read_to_string(&factory_path)
-        .with_context(|| format!("failed to read {}", factory_path.display()))?;
-    collect_registered_from_source(&factory_src, true, &mut registered);
-
     Ok(registered)
 }
 

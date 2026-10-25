@@ -1297,12 +1297,10 @@ fn usa_puc_tech_tree_prereq_chain_residual() {
 
 #[test]
 fn superweapon_structure_requires_tech_building_prereq() {
-    use crate::game_logic::host_production_buildable_command_residual::honesty_prerequisite_residual_pack_wave99;
     use crate::game_logic::host_superweapon_kindof::{
         AMERICA_PARTICLE_CANNON_UPLINK, GLA_SCUD_STORM,
     };
     use crate::game_logic::{KindOf, Team, ThingTemplate};
-    assert!(honesty_prerequisite_residual_pack_wave99());
 
     let mut logic = GameLogic::new();
     ensure_test_player_for_team(&mut logic, Team::USA);

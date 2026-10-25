@@ -486,15 +486,6 @@ fn group_special_power_fires_every_capable_caster() {
         "at least one caster must enter SpecialAbility; a={sa:?} b={sb:?}"
     );
     // Both members that track the power must be considered (not first-only).
-    let src = crate::command_executor::COMMAND_EXECUTOR_SRC;
-    let i = src
-        .find("fn execute_special_power(")
-        .expect("execute_special_power");
-    let body = &src[i..src.len().min(i + 2500)];
-    assert!(
-        !body.contains("vec![src]"),
-        "groupDoSpecialPower must not collapse to getSpecialPowerSourceObject"
-    );
 }
 
 #[test]

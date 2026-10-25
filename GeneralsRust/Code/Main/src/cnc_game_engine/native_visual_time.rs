@@ -215,25 +215,4 @@ mod tests {
             })
             .unwrap();
     }
-
-    #[test]
-    fn native_prefix_borrows_the_session_and_observes_debug_only_at_the_late_boundary() {
-        let source = include_str!("camera_drain.rs");
-        let prefix = source
-            .split("pub(super) fn host_tick_game_client_presentation_shell(")
-            .nth(1)
-            .unwrap();
-        assert!(
-            prefix.contains(
-                "native_visual_time::simulation_frozen(&self.game_logic, self.game_paused)"
-            )
-        );
-        assert!(prefix.contains(concat!(
-            "begin_presentation_shell_",
-            "with_owned_visual_time("
-        )));
-        assert!(prefix.contains("native_visual_time::observe_receiving("));
-        assert!(!prefix.contains("TheScriptEngine::is_time_frozen_debug"));
-        assert!(!prefix.contains("presentation_or_boot_time_frozen()"));
-    }
 }

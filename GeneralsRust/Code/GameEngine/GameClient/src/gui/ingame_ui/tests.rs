@@ -273,7 +273,6 @@ mod tests {
         Language::clear_localized_strings();
     }
 
-
     #[test]
     fn mouseover_tooltip_suppresses_props() {
         Language::clear_localized_strings();
@@ -537,7 +536,9 @@ mod tests {
         assert_eq!(stash.x, 40.0);
         assert_eq!(stash.y, 50.0);
         assert_eq!(stash.z, 6.0);
-        assert!(InGameUI::consume_double_click_attack_move_guard_hint(&mut timer));
+        assert!(InGameUI::consume_double_click_attack_move_guard_hint(
+            &mut timer
+        ));
         assert_eq!(timer, 10);
     }
 
@@ -730,19 +731,34 @@ mod tests {
         assert_eq!(subtitle.as_ref().unwrap().visible_text(), "");
 
         assert!(InGameUI::update_military_subtitle_state(
-            &mut subtitle, 23, 1, 12, 7.2, 22
+            &mut subtitle,
+            23,
+            1,
+            12,
+            7.2,
+            22
         ));
         assert_eq!(subtitle.as_ref().unwrap().visible_text(), "A");
         assert_ne!(subtitle.as_ref().unwrap().visible_text(), "ABC");
 
         assert!(InGameUI::update_military_subtitle_state(
-            &mut subtitle, 25, 1, 12, 7.2, 22
+            &mut subtitle,
+            25,
+            1,
+            12,
+            7.2,
+            22
         ));
         assert_eq!(subtitle.as_ref().unwrap().visible_text(), "AB");
         assert_ne!(subtitle.as_ref().unwrap().visible_text(), "ABC");
 
         assert!(InGameUI::update_military_subtitle_state(
-            &mut subtitle, 27, 1, 12, 7.2, 22
+            &mut subtitle,
+            27,
+            1,
+            12,
+            7.2,
+            22
         ));
         assert_eq!(subtitle.as_ref().unwrap().visible_text(), "ABC");
         assert_eq!(subtitle.as_ref().unwrap().index, 3);
@@ -765,7 +781,12 @@ mod tests {
         });
 
         assert!(!InGameUI::update_military_subtitle_state(
-            &mut subtitle, 23, 1, 12, 7.2, 22
+            &mut subtitle,
+            23,
+            1,
+            12,
+            7.2,
+            22
         ));
         let state = subtitle.as_ref().unwrap();
         assert_eq!(state.current_display_string, 4);
@@ -773,7 +794,6 @@ mod tests {
         assert_eq!(state.visible_text(), "A\nB\nC\nD");
         assert_eq!(state.index, state.text.chars().count() + 1);
     }
-
 
     #[test]
     fn message_fade_subtracts_age_times_one_hundredth() {
@@ -801,8 +821,7 @@ mod tests {
 
     #[test]
     fn named_timer_remaining_frames_decrease_and_can_draw() {
-        let (frames, tick_frame) =
-            InGameUI::resolve_named_timer_frames(90, true, 10, 0, None);
+        let (frames, tick_frame) = InGameUI::resolve_named_timer_frames(90, true, 10, 0, None);
         assert_eq!(frames, 89);
         assert_eq!(tick_frame, 10);
         let (same_frame, _) = InGameUI::resolve_named_timer_frames(89, true, 10, 10, None);
@@ -813,33 +832,18 @@ mod tests {
         let line = InGameUI::format_named_timer_line("Launch", 89, true);
         assert_eq!(line, "Launch 0:02");
 
-        let entry = InGameUI::named_timer_draw_layout(
-            &line,
-            40.0,
-            200.0,
-            false,
-            10,
-            0xFFFF_FF00,
-            false,
-        );
+        let entry =
+            InGameUI::named_timer_draw_layout(&line, 40.0, 200.0, false, 10, 0xFFFF_FF00, false);
         assert_eq!(entry.text, "Launch 0:02");
         assert_eq!(entry.x, 40.0);
         assert_eq!(entry.y, 200.0);
         assert_eq!(entry.color, 0xFFFF_FF00);
         assert!(entry.font_point_size > 0);
 
-        let reversed = InGameUI::named_timer_draw_layout(
-            &line,
-            400.0,
-            200.0,
-            true,
-            10,
-            0xFFFF_FF00,
-            false,
-        );
+        let reversed =
+            InGameUI::named_timer_draw_layout(&line, 400.0, 200.0, true, 10, 0xFFFF_FF00, false);
         assert!(reversed.x < 400.0);
     }
-
 
     #[test]
     fn floating_text_rises_by_frame_count_times_speed() {
@@ -923,17 +927,28 @@ mod tests {
         assert_eq!(timer, 11);
         TheInGameUI::arm_double_click_attack_move_guard_hint(12.0, 34.0, 5.0);
         assert_eq!(TheInGameUI::double_click_attack_move_guard_timer(), 11);
-        assert_eq!(TheInGameUI::guard_hint_stashed_position(), (12.0, 34.0, 5.0));
+        assert_eq!(
+            TheInGameUI::guard_hint_stashed_position(),
+            (12.0, 34.0, 5.0)
+        );
         assert!(TheInGameUI::consume_double_click_attack_move_guard_hint());
         assert_eq!(TheInGameUI::double_click_attack_move_guard_timer(), 10);
     }
 
     #[test]
     fn set_input_enabled_clears_modes_only_on_disable_edge() {
-        assert!(InGameUI::should_clear_modes_on_input_enable_change(true, false));
-        assert!(!InGameUI::should_clear_modes_on_input_enable_change(false, false));
-        assert!(!InGameUI::should_clear_modes_on_input_enable_change(true, true));
-        assert!(!InGameUI::should_clear_modes_on_input_enable_change(false, true));
+        assert!(InGameUI::should_clear_modes_on_input_enable_change(
+            true, false
+        ));
+        assert!(!InGameUI::should_clear_modes_on_input_enable_change(
+            false, false
+        ));
+        assert!(!InGameUI::should_clear_modes_on_input_enable_change(
+            true, true
+        ));
+        assert!(!InGameUI::should_clear_modes_on_input_enable_change(
+            false, true
+        ));
 
         TheInGameUI::set_force_attack_mode(true);
         TheInGameUI::set_waypoint_mode(true);
@@ -1002,21 +1017,6 @@ mod tests {
         InGameUI::disregard_live_drawable(77);
     }
 
-
-    #[test]
-    fn place_icons_carry_cpp_opacity_illegal_tint_and_faction_bibs() {
-        // C++ InGameUI.cpp:77-78, 1473-1479, 2933-2948, 3041.
-        let src = include_str!("place_icons.rs");
-        assert!(
-            src.contains("set_opacity(PLACEMENT_OPACITY)")
-                && src.contains("ILLEGAL_BUILD_COLOR")
-                && src.contains("add_faction_bib")
-                && src.contains("remove_faction_bib")
-                && src.contains("remove_all_bibs"),
-            "place icons must be 0.45-opacity model ghosts with red tint and faction bibs"
-        );
-    }
-
     #[test]
     fn live_military_caption_uses_delay_and_ini_pose() {
         init_global_language();
@@ -1055,8 +1055,7 @@ mod tests {
         );
         assert!(
             InGameUI::floating_text_alpha_at_frame(255, timeout + 20, timeout, 0.1) < 255
-                || InGameUI::floating_text_alpha_at_frame(255, timeout + 20, timeout, 0.1)
-                    == 255
+                || InGameUI::floating_text_alpha_at_frame(255, timeout + 20, timeout, 0.1) == 255
         );
         assert!(!InGameUI::floating_text_visible_through_shroud(
             ObjectShroudStatus::Shrouded

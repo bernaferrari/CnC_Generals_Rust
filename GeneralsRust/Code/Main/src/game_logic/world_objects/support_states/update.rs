@@ -1951,7 +1951,6 @@ impl GameLogic {
                     // boats / trains / aircraft are illegal.
                     if matches!(ability, PendingSpecialAbility::DisguiseAsVehicle { .. }) {
                         use crate::game_logic::host_bomb_truck_disguise::is_legal_disguise_target;
-                        use crate::game_logic::host_car_bomb::object_definition_has_kind;
                         let legal = self
                             .objects
                             .get(&special_target_id)
@@ -1962,8 +1961,9 @@ impl GameLogic {
                                     t.is_kind_of(crate::game_logic::KindOf::Aircraft)
                                         || t.status.airborne_target,
                                     t.is_kind_of(crate::game_logic::KindOf::Boat)
-                                        || object_definition_has_kind(&t.template_name, "BOAT"),
-                                    &t.template_name,
+                                        || t.is_kind_of(crate::game_logic::KindOf::Boat),
+                                    t.is_kind_of(crate::game_logic::KindOf::CliffJumper),
+                                    t.has_authored_railroad_behavior(),
                                     t.status.disguised,
                                 )
                             })

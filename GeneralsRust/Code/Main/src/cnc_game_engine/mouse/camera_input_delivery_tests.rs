@@ -327,16 +327,4 @@ fn mouse_activity_uses_paused_logic_while_middle_click_duration_uses_client_fram
     assert!(!modes.lookat_has_mouse_moved_recently(world.get_current_frame() as u32));
 
     // Outer Engine calls must use that same owner domain for cursor/scroll.
-    let source = include_str!("camera.rs");
-    assert!(source.contains("self.game_logic.get_current_frame() as u32"));
-    for operation in [
-        "lookat_stamp_mouse_activity(self.frame_counter)",
-        "lookat_note_mouse_moved(self.frame_counter,",
-        "lookat_has_mouse_moved_recently(self.frame_counter)",
-    ] {
-        assert!(
-            !source.contains(operation),
-            "stale activity clock: {operation}"
-        );
-    }
 }

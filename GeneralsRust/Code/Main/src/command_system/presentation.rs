@@ -2,6 +2,8 @@ use super::*;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PresentationTargetHint {
+    #[serde(default)]
+    pub authors_carbomb_weapon_set: bool,
     pub id: ObjectId,
     pub is_alive: bool,
     pub is_structure: bool,
@@ -129,6 +131,8 @@ pub struct PresentationTargetHint {
 /// Wave 229: presentation-frozen selected-unit capability for RMB classification.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PresentationSelectedUnitHint {
+    #[serde(default = "missing_recrew_kind")]
+    pub reject_unmanned: bool,
     pub id: ObjectId,
     pub is_alive: bool,
     /// C++ `KINDOF_HARVESTER`, frozen from the presentation snapshot for
@@ -232,4 +236,8 @@ pub enum CommandMode {
     Waypoint,
     BuildMode { template_name: String },
     SpecialPower { power_type: SpecialPowerType },
+}
+
+fn missing_recrew_kind() -> bool {
+    true
 }

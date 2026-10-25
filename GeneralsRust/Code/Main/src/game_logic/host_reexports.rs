@@ -2,12 +2,6 @@
 //!
 //! Keeps public paths such as `crate::game_logic::HostAmbushKind`.
 
-#[cfg(any(test, feature = "host-residuals"))]
-pub use super::host_ai_ability_upgrade_residual::{
-    honesty_ai_ability_upgrade_residual_pack_wave94, honesty_ai_state_residual_table_wave94,
-    honesty_command_set_superweapon_residual_wave94,
-    honesty_special_ability_residual_deepen_wave94, honesty_upgrade_name_table_residual_wave94,
-};
 pub use super::host_ai_path_combat_residual_wave105::{
     honesty_ai_group_residual_pack_wave105, honesty_ai_path_combat_residual_pack_wave105,
     honesty_ai_path_residual_deepen_pack_wave105,
@@ -126,13 +120,7 @@ pub use super::host_combat_cycle::{
     default_spawn_rider_for_template, is_combat_cycle_template, rider_from_template_name,
     should_apply_combat_cycle_residual,
 };
-#[cfg(any(test, feature = "host-residuals"))]
-pub use super::host_combat_sim_residual::{
-    honesty_body_max_health_residual_table_wave92, honesty_combat_sim_residual_pack_wave92,
-    honesty_science_name_table_residual_wave92,
-};
-#[cfg(any(test, feature = "host-residuals"))]
-pub use super::host_command_button_residual::honesty_command_button_superweapon_residual_pack_wave80;
+
 pub use super::host_deliver_payload::{
     CARGO_PLANE_APPROACH_DELAY_FRAMES, CARGO_PLANE_DOOR_DELAY_FRAMES, CARGO_PLANE_DOOR_DELAY_MS,
     HostDeliverPayloadDropPlan, HostDeliverPayloadItemPlan, HostDeliverPayloadKind,
@@ -155,11 +143,7 @@ pub use super::host_demo_suicide_bomb::{
     demo_destroyed_damage_at, demo_plus_fire_damage_at, has_demo_suicide_bomb_upgrade,
     is_demo_suicide_bomb_eligible_template, is_demo_suicide_bomb_upgrade, plan_demo_plus_fire_hits,
 };
-pub use super::host_dock_contain_exit_heal_residual::{
-    honesty_contain_residual_deepen_pack_wave98,
-    honesty_dock_contain_exit_heal_residual_pack_wave98, honesty_dock_residual_pack_wave98,
-    honesty_exit_residual_pack_wave98, honesty_heal_residual_deepen_pack_wave98,
-};
+pub use super::host_dock_contain_exit_heal_residual::honesty_heal_residual_deepen_pack_wave98;
 pub use super::host_dragon_tank::{
     DRAGON_PRIMARY_DAMAGE, DRAGON_RANGE, DRAGON_SECONDARY_DAMAGE, DRAGON_SECONDARY_RADIUS,
     DRAGON_TANK_FLAME_WEAPON, DRAGON_TANK_FLAME_WEAPON_UPGRADED, UPGRADE_CHINA_BLACK_NAPALM,
@@ -185,13 +169,7 @@ pub use super::host_enum_table_residual::{
     honesty_veterancy_level_enum_table_wave84, honesty_weapon_bonus_enum_table_wave82,
     honesty_weapon_slot_enum_table_wave84,
 };
-#[cfg(any(test, feature = "host-residuals"))]
-pub use super::host_env_contain_residual::{
-    honesty_bridge_residual_pack_wave87, honesty_env_contain_residual_pack_wave87,
-    honesty_garrison_residual_pack_wave87, honesty_transport_residual_pack_wave87,
-    honesty_tunnel_residual_deepen_wave87, honesty_water_residual_pack_wave87,
-    honesty_weather_residual_pack_wave87,
-};
+
 pub use super::host_faction_skirmish_residual::{
     honesty_faction_side_residual_table_wave85, honesty_faction_skirmish_residual_pack_wave85,
     honesty_player_template_residual_pack_wave85,
@@ -207,25 +185,7 @@ pub use super::host_frenzy::{
     FRENZY_ACTIVATE_AUDIO, HOST_FRENZY_RADIUS, HostFrenzy, HostFrenzyLevel, HostFrenzyRegistry,
     is_legal_frenzy_target,
 };
-#[cfg(any(test, feature = "host-residuals"))]
-pub use super::host_fx_audio_cursor_residual::{
-    honesty_fx_audio_cursor_residual_pack_wave88, honesty_mouse_cursor_name_table_wave88,
-    honesty_radius_cursor_name_table_wave88, honesty_superweapon_audio_event_name_table_wave88,
-    honesty_superweapon_fxlist_name_table_wave88, honesty_superweapon_ocl_name_table_wave88,
-    honesty_superweapon_particle_name_table_wave88,
-};
-pub use super::host_fx_ocl_particle_audio_residual_wave107::{
-    honesty_audio_residual_deepen_pack_wave107,
-    honesty_fx_ocl_particle_audio_residual_pack_wave107,
-    honesty_fxlist_entry_residual_deepen_pack_wave107,
-    honesty_ocl_create_residual_deepen_pack_wave107,
-    honesty_particle_system_residual_deepen_pack_wave107,
-};
-#[cfg(any(test, feature = "host-residuals"))]
-pub use super::host_game_logic_residual_wave103::{
-    honesty_game_logic_residual_pack_wave103, honesty_object_kindof_residual_pack_wave103,
-    honesty_special_power_superweapon_residual_deepen_wave103,
-};
+
 pub use super::host_gamedata_lobby_residual::{
     honesty_crate_residual_deepen_pack_wave86, honesty_gamedata_camera_fps_residual_pack_wave86,
     honesty_gamedata_lobby_residual_pack_wave86,
@@ -316,13 +276,7 @@ pub use super::host_marauder::{
     marauder_weapon_for_tier, marauder_weapon_name_for_tier, marauder_weapon_stats,
     should_apply_marauder_residual,
 };
-#[cfg(any(test, feature = "host-residuals"))]
-pub use super::host_message_stream_meta_ingameui_residual_wave110::{
-    honesty_game_message_argument_type_residual_wave110, honesty_ingame_ui_residual_wave110,
-    honesty_message_stream_marker_residual_wave110,
-    honesty_message_stream_meta_ingameui_residual_pack_wave110,
-    honesty_meta_event_category_residual_wave110,
-};
+
 pub use super::host_mines::{
     DOZER_MINE_CLEAR_RANGE, DOZER_MINE_CLEAR_SCAN_RANGE, DemoTrapProfile, HostMineData,
     HostMineDetonateReason, HostMineDetonationPlan, HostMineKind, MINE_CLEARED_AUDIO,
@@ -350,15 +304,7 @@ pub use super::host_nuke_cannon::{
     is_nuke_cannon_template as is_nuke_cannon_primary_template, nuke_cannon_primary_damage_at,
     should_apply_nuke_cannon_primary,
 };
-#[cfg(any(test, feature = "host-residuals"))]
-pub use super::host_object_register_drawable_residual_wave104::{
-    honesty_active_body_max_health_apply_residual_wave104,
-    honesty_drawable_create_residual_wave104, honesty_gamelogic_register_object_residual_wave104,
-    honesty_object_create_order_residual_wave104,
-    honesty_object_register_drawable_crosslink_wave104,
-    honesty_object_register_drawable_residual_pack_wave104,
-    honesty_object_status_state_machine_residual_wave104,
-};
+
 pub use super::host_oil_derrick::{
     HostOilDerrickRegistry, OIL_DERRICK_CAPTURE_BONUS_AUDIO, OIL_DERRICK_DEFAULT_STRUCTURE_RADIUS,
     OIL_DERRICK_DEPOSIT_AMOUNT, OIL_DERRICK_DEPOSIT_AUDIO, OIL_DERRICK_DEPOSIT_INTERVAL_FRAMES,
@@ -393,12 +339,7 @@ pub use super::host_point_defense::{
     is_point_defense_carrier, is_primary_intercept_target, pdl_damage, pdl_delay_frames,
     pdl_fire_range, pdl_scan_range,
 };
-pub use super::host_production_buildable_command_residual::{
-    honesty_buildable_residual_pack_wave99, honesty_command_button_residual_deepen_pack_wave99,
-    honesty_control_bar_residual_deepen_pack_wave99, honesty_prerequisite_residual_pack_wave99,
-    honesty_production_buildable_command_residual_pack_wave99,
-    honesty_production_residual_deepen_pack_wave99,
-};
+
 pub use super::host_propaganda::{
     HOST_PROPAGANDA_HEAL_PERCENT_PER_SEC, HOST_PROPAGANDA_TOWER_RADIUS,
     HOST_PROPAGANDA_UPGRADED_HEAL_PERCENT_PER_SEC, UPGRADE_CHINA_SUBLIMINAL_MESSAGING,
@@ -414,11 +355,7 @@ pub use super::host_radar_scan::{
     RADAR_SCAN_STEALTH_DETECTION_RANGE, RADAR_SCAN_VISION_RANGE, RADAR_VAN_PING_TEMPLATE,
     honesty_radar_scan_dynamic_shroud_constants_ok, radar_scan_dynamic_shroud_radius_at_elapsed,
 };
-pub use super::host_radar_stealth_vision_residual::{
-    honesty_detector_residual_deepen_pack_wave97, honesty_radar_residual_deepen_pack_wave97,
-    honesty_radar_stealth_vision_residual_pack_wave97, honesty_spotter_residual_pack_wave97,
-    honesty_stealth_residual_deepen_pack_wave97, honesty_vision_residual_pack_wave97,
-};
+pub use super::host_radar_stealth_vision_residual::honesty_detector_residual_deepen_pack_wave97;
 pub use super::host_railed_transport::{
     RAILED_ARRIVE_DISTANCE, RAILED_INVALID_PATH, RAILED_MAX_WAYPOINT_PATHS,
     default_railed_current_path,
@@ -444,13 +381,7 @@ pub use super::host_red_guard::{
     REDGUARD_DAMAGE, REDGUARD_MACHINE_GUN, REDGUARD_RANGE, is_red_guard_template, red_guard_weapon,
     should_apply_bayonet_residual, should_apply_red_guard_residual,
 };
-#[cfg(any(test, feature = "host-residuals"))]
-pub use super::host_render_terrain_residual::{
-    honesty_drawable_opacity_shroud_residual_deepen_pack_wave93,
-    honesty_particle_system_emit_rate_residual_deepen_pack_wave93,
-    honesty_render_terrain_residual_pack_wave93, honesty_road_residual_pack_wave93,
-    honesty_shadow_residual_deepen_pack_wave93, honesty_terrain_texture_residual_pack_wave93,
-};
+
 pub use super::host_residual_acquire::{
     PilotVehicleCandidate, ResidualAcquireCandidate, pick_nearest_pilot_vehicle_target,
     pick_nearest_residual_service_target, pick_nearest_residual_target, residual_combat_kind,
@@ -469,27 +400,12 @@ pub use super::host_saboteur::{
     classify_sabotage_target, is_saboteur_template,
 };
 pub use super::host_science_rank::honesty_science_rank_residual_pack_wave80;
-#[cfg(any(test, feature = "host-residuals"))]
-pub use super::host_script_map_team_player_residual::{
-    honesty_map_object_residual_pack_wave95, honesty_player_residual_deepen_pack_wave95,
-    honesty_script_action_name_table_residual_wave95,
-    honesty_script_condition_name_table_residual_wave95,
-    honesty_script_map_team_player_residual_pack_wave95, honesty_team_residual_pack_wave95,
-    honesty_waypoint_residual_pack_wave95,
-};
+
 pub use super::host_sentry_drone::{
     SENTRY_DETECTION_RANGE, SENTRY_DRONE_GUN_WEAPON, UPGRADE_AMERICA_SENTRY_DRONE_GUN,
     is_sentry_drone_template, sentry_detection_range, sentry_spawn_is_detector,
 };
-#[cfg(any(test, feature = "host-residuals"))]
-pub use super::host_shell_campaign_save_residual_wave106::{
-    honesty_campaign_mission_residual_deepen_pack_wave106,
-    honesty_game_state_residual_deepen_pack_wave106,
-    honesty_game_window_residual_deepen_pack_wave106,
-    honesty_main_menu_residual_deepen_pack_wave106,
-    honesty_shell_campaign_save_residual_pack_wave106,
-    honesty_window_layout_residual_deepen_pack_wave106,
-};
+
 pub use super::host_slave_drones::{
     HELLFIRE_MISSILE_WEAPON, SCOUT_DETECTION_RANGE, SlaveDroneKind, UPGRADE_AMERICA_HELLFIRE_DRONE,
     UPGRADE_AMERICA_SCOUT_DRONE, is_hellfire_drone_template, is_scout_drone_template,
@@ -501,13 +417,7 @@ pub use super::host_sneak_attack::{
     SNEAK_ATTACK_RESIDUAL_TEMPLATE, SNEAK_ATTACK_SHOCKWAVE_DAMAGE, SNEAK_ATTACK_SHOCKWAVE_RADIUS,
     SNEAK_ATTACK_SPAWN_DELAY_FRAMES, is_legal_sneak_shockwave_target,
 };
-pub use super::host_sp_science_upgrade_player_team_residual_wave109::{
-    honesty_player_residual_deepen_pack_wave109,
-    honesty_science_store_residual_deepen_pack_wave109,
-    honesty_sp_science_upgrade_player_team_residual_pack_wave109,
-    honesty_special_power_template_store_residual_wave109,
-    honesty_team_residual_deepen_pack_wave109, honesty_upgrade_store_residual_deepen_pack_wave109,
-};
+
 pub use super::host_special_power_enum_residual::honesty_special_power_enum_residual_pack_wave80;
 pub use super::host_spy_satellite::{
     HostSpySatellite, HostSpySatelliteRegistry, SPY_SATELLITE_ACTIVATE_AUDIO,
@@ -551,12 +461,7 @@ pub use super::host_tank_hunter::{
     TANK_HUNTER_DAMAGE, TANK_HUNTER_MISSILE_WEAPON, TANK_HUNTER_RANGE, is_tank_hunter_template,
     should_apply_tank_hunter_residual, tank_hunter_weapon,
 };
-pub use super::host_terrain_bridge_water_road_residual_wave108::{
-    honesty_bridge_residual_deepen_pack_wave108, honesty_cliff_residual_peels_pack_wave108,
-    honesty_heightmap_residual_deepen_pack_wave108, honesty_road_residual_deepen_pack_wave108,
-    honesty_terrain_bridge_water_road_residual_pack_wave108,
-    honesty_water_residual_deepen_pack_wave108,
-};
+pub use super::host_terrain_bridge_water_road_residual_wave108::honesty_heightmap_residual_deepen_pack_wave108;
 pub use super::host_terrorist::{
     SUICIDE_DYNAMITE_PACK, SUICIDE_DYNAMITE_PRIMARY_DAMAGE, SUICIDE_DYNAMITE_PRIMARY_DAMAGE_DEMO,
     SUICIDE_DYNAMITE_PRIMARY_DAMAGE_GAMMA, SUICIDE_DYNAMITE_PRIMARY_RADIUS,
@@ -566,24 +471,7 @@ pub use super::host_terrorist::{
     suicide_dynamite_damage_at_profile, terrorist_death_profile, terrorist_suicide_weapon,
     terrorist_suicide_weapon_for_profile,
 };
-#[cfg(any(test, feature = "host-residuals"))]
-pub use super::host_thing_factory_module_xfer_residual::{
-    honesty_module_factory_residual_deepen_pack_wave101,
-    honesty_module_type_table_residual_pack_wave100,
-    honesty_partition_register_residual_pack_wave101,
-    honesty_thing_factory_create_residual_deepen_pack_wave101,
-    honesty_thing_factory_module_partition_crosslink_wave101,
-    honesty_thing_factory_module_partition_residual_pack_wave101,
-    honesty_thing_factory_module_xfer_residual_pack_wave100,
-    honesty_thing_factory_residual_deepen_pack_wave100,
-    honesty_thing_factory_spawn_crosslink_wave100, honesty_xfer_residual_deepen_pack_wave100,
-};
-#[cfg(any(test, feature = "host-residuals"))]
-pub use super::host_timing_shell_residual::{
-    honesty_credits_residual_pack_wave90, honesty_debug_residual_tables_pack_wave90,
-    honesty_frame_rate_residual_deepen_pack_wave90, honesty_gamespeed_residual_pack_wave90,
-    honesty_language_residual_deepen_pack_wave90, honesty_timing_shell_residual_pack_wave90,
-};
+
 pub use super::host_troop_crawler::{
     HostTroopCrawlerRegistry, TROOP_CRAWLER_ASSAULT_RANGE, TROOP_CRAWLER_ASSAULT_WEAPON,
     TROOP_CRAWLER_DETECTION_RANGE, TROOP_CRAWLER_INITIAL_PAYLOAD_COUNT,

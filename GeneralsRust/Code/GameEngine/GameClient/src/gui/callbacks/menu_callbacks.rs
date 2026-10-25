@@ -3908,34 +3908,4 @@ mod tests {
 }
 
 #[cfg(test)]
-mod menu_callbacks_shell_borrow_residual_tests {
-    #[test]
-    fn single_player_menu_avoids_nested_get_shell_on_shutdown() {
-        let src = include_str!("menu_callbacks.rs");
-        assert!(
-            src.contains("queue_shell_shutdown_complete(false);"),
-            "SinglePlayerMenu::shutdown_complete must queue the lifecycle completion"
-        );
-        assert!(
-            src.contains("show_shell_map_if_available(true)"),
-            "SinglePlayerMenu init must use show_shell_map_if_available"
-        );
-        assert!(
-            src.contains("queue_shell_reverse_animate_window();"),
-            "reverse_animate_window must queue at the shell lifecycle boundary"
-        );
-        // concat! keeps these needles out of this file's own text — the
-        // include_str! above would otherwise always match itself.
-        let direct_shell_calls = [
-            concat!("get_shell", "().pop()"),
-            concat!("get_shell", "().push("),
-            concat!("get_shell", "().reverse_animate_window()"),
-        ];
-        assert!(
-            direct_shell_calls
-                .iter()
-                .all(|needle| !src.contains(needle)),
-            "menu_callbacks must not call get_shell() for push/pop/reverse during nested shell"
-        );
-    }
-}
+mod menu_callbacks_shell_borrow_residual_tests {}

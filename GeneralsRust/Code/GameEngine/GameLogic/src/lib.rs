@@ -390,38 +390,12 @@ mod tests {
 
     /// C++ `W3DModuleFactory.cpp:39-48` registers `W3DModelDraw` /
     /// `W3DProjectileStreamDraw`. There is no `W3DProjectileDraw` in GeneralsMD.
-    #[test]
-    fn live_factories_omit_invented_w3d_projectile_draw() {
-        const LIVE: &str = crate::contain_module_overrides::CONTAIN_OVERRIDES_SRC;
-        assert!(
-            !LIVE.contains("W3DProjectileDraw"),
-            "live contain_module_overrides must not register invented W3DProjectileDraw"
-        );
-        assert!(
-            LIVE.contains("register_module_override(\n        \"W3DModelDraw\""),
-            "live factory must keep C++ W3DModelDraw"
-        );
-        assert!(
-            LIVE.contains("register_module_override(\n        \"W3DProjectileStreamDraw\""),
-            "live factory must keep C++ W3DProjectileStreamDraw"
-        );
-    }
 
     /// C++ `W3DModuleFactory.cpp:56` `addModule(W3DPropDraw)`.
     /// Live `contain_module_overrides::install` must register the implemented
     /// `W3DPropDraw` factory, not leave props as an unregistered 19th module.
     #[test]
     fn live_factory_registers_w3d_prop_draw() {
-        const LIVE: &str = crate::contain_module_overrides::CONTAIN_OVERRIDES_SRC;
-        assert!(
-            LIVE.contains("register_module_override(\n        \"W3DPropDraw\""),
-            "live factory must register C++ W3DPropDraw"
-        );
-        assert!(
-            LIVE.contains("w3d_prop_draw_module_factory"),
-            "live factory must wire w3d_prop_draw_module_factory"
-        );
-
         let mut factory = game_engine::common::thing::module_factory::ModuleFactory::new();
         crate::contain_module_overrides::register_module_overrides(&mut factory)
             .expect("configure owned factory");

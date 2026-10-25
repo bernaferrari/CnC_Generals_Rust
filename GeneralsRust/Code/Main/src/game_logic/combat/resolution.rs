@@ -906,34 +906,6 @@ impl CombatSystem {
     }
 }
 
-fn host_projectile_is_small_missile(projectile: &Projectile) -> bool {
-    if projectile.is_small_missile {
-        return true;
-    }
-    if crate::game_logic::host_car_bomb::object_definition_has_kind(
-        &projectile.projectile_object_name,
-        "SMALL_MISSILE",
-    ) {
-        return true;
-    }
-    if crate::game_logic::host_car_bomb::object_definition_has_kind(
-        &projectile.projectile_object_name,
-        "BALLISTIC_MISSILE",
-    ) {
-        return false;
-    }
-    matches!(
-        projectile.damage_type,
-        DamageType::InfantryMissile
-            | DamageType::JetMissiles
-            | DamageType::StealthJetMissiles
-            | DamageType::SubdualMissile
-    ) || matches!(
-        projectile.projectile_lifecycle,
-        Some(crate::game_logic::weapon_bootstrap::HostProjectileLifecycle::Missile { .. })
-    )
-}
-
 /// C++ Weapon.cpp:1144-1155 report at launch; MissileAIUpdate decoy when the timer expires.
 fn apply_countermeasure_report_and_decoy(
     projectile: &mut Projectile,
@@ -950,7 +922,7 @@ fn apply_countermeasure_report_and_decoy(
 
     if !projectile.cm_reported {
         projectile.cm_reported = true;
-        if host_projectile_is_small_missile(projectile) {
+        if projectile.is_small_missile {
             if let Some(tid) = projectile.target_id {
                 if let Some(target) = objects.lookup(&tid) {
                     let has_cm = aircraft_has_countermeasures_upgrade(&target.applied_upgrades);

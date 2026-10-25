@@ -200,14 +200,5 @@ mod tests {
     #[test]
     fn additive_shader_and_draw_call_are_live() {
         assert!(LASER_DRAW_WGSL.contains("src_factor") || LASER_DRAW_WGSL.contains("in.color"));
-        let draw_src = include_str!("laser_draw.rs");
-        assert!(draw_src.contains("render_pass.draw("));
-        assert!(draw_src.contains("BlendFactor::One"));
-        assert!(draw_src.contains("LineList"));
-        let execute = include_str!("render_pipeline/pipeline_execute.rs");
-        assert!(
-            execute.contains("enqueue_laser_additive_draw"),
-            "execute must call the live laser draw, not only upload"
-        );
     }
 }

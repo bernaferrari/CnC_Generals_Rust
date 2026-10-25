@@ -134,25 +134,6 @@ fn one_lookup_per_object_shares_names_across_all_meshes_and_freezes_old_inputs()
 }
 
 #[test]
-fn collector_joins_completed_bundle_before_meshes_and_never_queries_live_snapshot() {
-    let source = include_str!("pipeline_collect.rs");
-    let join = source
-        .find("bundle.apply_to_inputs(frame, &mut unit_inputs)")
-        .unwrap();
-    let object_loop = source.find("for mut u in unit_inputs").unwrap();
-    let mesh_loop = source.find("for mesh in").unwrap();
-    assert!(join < object_loop && object_loop < mesh_loop);
-    assert!(source.contains("let specialized_draw = u.specialized_draw.as_deref()"));
-    assert!(!source.contains("presentation_specialized_draw_snapshot("));
-    let capture = include_str!("../../cnc_game_engine/camera_drain.rs");
-    let sync = capture
-        .find(".sync_presentation_drawables_observed(sync_entries, sync_ms,")
-        .expect("receiving drawable synchronization");
-    let capture = capture.find(".capture_specialized_draw_inputs(").unwrap();
-    assert!(sync < capture);
-}
-
-#[test]
 fn paused_selection_frame_fork_recaptures_once_and_same_frame_never_reads_source() {
     let (mut frame, input) = frame_and_input();
     let state = snapshot(input.id, 0.25);

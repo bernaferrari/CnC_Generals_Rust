@@ -18,6 +18,7 @@ pub(in crate::game_logic) struct ProjectileBehaviorDefinition {
 }
 #[derive(Debug, Clone)]
 pub(in crate::game_logic) struct ProjectileProfile {
+    pub(in crate::game_logic) is_small_missile: bool,
     pub(in crate::game_logic) flight: HostProjectileFlight,
     pub(in crate::game_logic) lifecycle: HostProjectileLifecycle,
     pub(in crate::game_logic) behaviors: Box<[ProjectileBehaviorDefinition]>,
@@ -131,6 +132,15 @@ impl ProjectileDefinitions {
         self.entries.insert(
             name.into(),
             ProjectileProfile {
+                is_small_missile: definition
+                    .attributes
+                    .iter()
+                    .find(|(key, _)| key.eq_ignore_ascii_case("KindOf"))
+                    .is_some_and(|(_, kinds)| {
+                        kinds
+                            .split(|c: char| c.is_ascii_whitespace() || matches!(c, ',' | '|'))
+                            .any(|kind| kind.eq_ignore_ascii_case("SMALL_MISSILE"))
+                    }),
                 flight,
                 lifecycle,
                 behaviors: behaviors.into_boxed_slice(),
@@ -158,6 +168,12 @@ mod tests {
     use crate::game_logic::{GameLogic, KindOf, Player, Team, ThingTemplate};
     use glam::Vec3;
     pub(super) fn world(delay: u32) -> (GameLogic, super::super::ObjectId, super::super::ObjectId) {
+        world_with_kind(delay, "NONE")
+    }
+    fn world_with_kind(
+        delay: u32,
+        kind: &str,
+    ) -> (GameLogic, super::super::ObjectId, super::super::ObjectId) {
         let mut game = GameLogic::new();
         let mut owner = Player::new(0, Team::USA, "source", false);
         owner.alliance_team = 1;
@@ -166,7 +182,7 @@ mod tests {
         enemy.alliance_team = 2;
         game.add_player(enemy);
         let text = format!(
-            "Object SameMissile\n Behavior = MissileAIUpdate Profile\n IgnitionDelay = {delay}\n TryToFollowTarget = Yes\n End\nEnd"
+            "Object SameMissile\n KindOf = {kind}\n Behavior = MissileAIUpdate Profile\n IgnitionDelay = {delay}\n TryToFollowTarget = Yes\n End\nEnd"
         );
         let mut parser = crate::assets::ini_parser::IniParser::new();
         parser
@@ -428,5 +444,38 @@ mod tests {
             panic!("reset actual materialization")
         };
         assert_eq!(flight.ignition_delay_frames, 0);
+    }
+    #[test]
+    fn authored_small_missile_kind_is_frozen_at_actual_launch_and_survives_receiving_restore() {
+        let (mut owner, source, target) = world_with_kind(0, "PROJECTILE SMALL_MISSILE");
+        let (mut peer, peer_source, peer_target) =
+            world_with_kind(0, "PROJECTILE BALLISTIC_MISSILE");
+        assert_eq!((source, target), (peer_source, peer_target));
+        assert!(owner.fire_owned_passive_weapon(source, target, 0, Vec3::ZERO));
+        assert!(peer.fire_owned_passive_weapon(peer_source, peer_target, 0, Vec3::ZERO));
+        assert!(owner.combat_system.projectiles_snapshot()[0].is_small_missile);
+        assert!(!peer.combat_system.projectiles_snapshot()[0].is_small_missile);
+        let builder = crate::save_load::snapshot::SnapshotBuilder::new();
+        let saved = builder.create_world_snapshot(&owner).unwrap();
+        let (mut receiving, _, _) = world_with_kind(0, "PROJECTILE BALLISTIC_MISSILE");
+        builder
+            .restore_from_snapshot(&saved, &mut receiving)
+            .unwrap();
+        let old = receiving.combat_system.projectiles_snapshot()[0].id;
+        assert!(
+            receiving.combat_system.projectiles_snapshot()[0].is_small_missile,
+            "saved live projectile keeps accepted source kind"
+        );
+        assert!(receiving.fire_owned_passive_weapon(source, target, 0, Vec3::ZERO));
+        assert!(
+            !receiving
+                .combat_system
+                .projectiles_snapshot()
+                .iter()
+                .find(|shot| shot.id != old)
+                .unwrap()
+                .is_small_missile,
+            "next launch reads receiving immutable profile, not another catalog"
+        );
     }
 }

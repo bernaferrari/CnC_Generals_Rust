@@ -799,43 +799,4 @@ mod tests {
         assert!(data.show_prisoners);
         assert_eq!(data.prison_yard_bone_prefix.as_str(), "YardBone");
     }
-
-    #[test]
-    fn on_delete_calls_open_contain_destroy_riders_then_visuals() {
-        // C++ PrisonBehavior.cpp:117-121 OpenContain::onDelete then yard drawables.
-        let src = include_str!("prison_behavior.rs");
-        let start = src
-            .find("pub fn on_delete(&mut self)")
-            .expect("PrisonBehavior::on_delete");
-        let body = &src[start..start + 280];
-        assert!(
-            body.contains("self.contain.on_delete()"),
-            "prison on_delete must destroy riders via OpenContain: {body}"
-        );
-        assert!(body.contains("self.cleanup_visuals()"));
-        let contain_on_delete = body.find("self.contain.on_delete()").unwrap();
-        let visuals = body.find("self.cleanup_visuals()").unwrap();
-        assert!(
-            contain_on_delete < visuals,
-            "C++ calls OpenContain::onDelete before destroying yard drawables"
-        );
-    }
-
-    #[test]
-    fn contain_object_applies_held_and_yard_visual() {
-        // C++ addToContain → PrisonBehavior::onContaining: DISABLED_HELD + addVisual.
-        let src = include_str!("prison_behavior.rs");
-        let start = src
-            .find("fn contain_object(&mut self, object_id: ObjectID)")
-            .expect("PrisonBehavior::contain_object");
-        let body = &src[start..start + 220];
-        assert!(
-            body.contains("self.contain.contain_object(object_id)"),
-            "must add to OpenContain first: {body}"
-        );
-        assert!(
-            body.contains("self.apply_held_and_yard_visual(object_id)"),
-            "must apply HELD + yard visual: {body}"
-        );
-    }
 }

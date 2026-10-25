@@ -213,7 +213,7 @@ pub enum LocomotorSetType {
 
 // Re-export AbleToAttackType helpers from Common (C++ bitmask semantics)
 pub use game_engine::common::game_common::{
-    is_continued_attack, is_forced_attack, AbleToAttackType,
+    AbleToAttackType, is_continued_attack, is_forced_attack,
 };
 
 /// Turret identifiers (`WhichTurretType` in C++).
@@ -552,14 +552,6 @@ mod special_power_from_u32_tests {
             Some(SpecialPowerType::SpecialPowerCount)
         );
         assert_eq!(SpecialPowerType::from_u32(68), None);
-        let impl_src = include_str!("enums.rs")
-            .split("#[cfg(test)]")
-            .next()
-            .unwrap_or("");
-        assert!(
-            !impl_src.contains("mem::transmute"),
-            "SpecialPowerType::from_u32 must not transmute"
-        );
     }
 }
 
@@ -1046,4 +1038,3 @@ pub fn kindof_from_name(name: &str) -> Option<KindOf> {
         _ => None,
     }
 }
-

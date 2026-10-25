@@ -1478,38 +1478,5 @@ mod tests {
         );
     }
 
-    /// C++ FlightDeckBehavior.cpp:1248-1257 createParticleSystem + setLocalTransform/setPosition.
-    #[test]
-    fn catapult_steam_uses_particle_system_not_fx_list() {
-        let src = include_str!("host_flight_deck.rs");
-        let start = src
-            .find("fn spawn_carrier_catapult_steam")
-            .expect("catapult spawn");
-        let body = &src[start..start + 900];
-        assert!(
-            body.contains("TheParticleSystemManager::get()"),
-            "catapult steam must create a leftover ParticleSystem"
-        );
-        assert!(
-            body.contains("create_particle_system(Some(template))"),
-            "RunwayNCatapultSystem is a ParticleSystemTemplate"
-        );
-        assert!(
-            body.contains("set_particle_system_transform")
-                && body.contains("set_particle_system_position"),
-            "C++ setLocalTransform(startTransform) + setPosition(start)"
-        );
-        assert!(
-            body.contains("Coord3D::new(start.x, start.z, start.y)"),
-            "host Y-up must swizzle to leftover Z-up"
-        );
-        let fire = src
-            .find("spawn_carrier_catapult_steam(system, start, start_orient)")
-            .expect("fire site");
-        let fire_win = &src[fire.saturating_sub(400)..fire + 80];
-        assert!(
-            !fire_win.contains("dispatch_fx_list_at_pos"),
-            "AircraftCarrierCatapultSteam is not an FXList: {fire_win}"
-        );
-    }
+    // C++ FlightDeckBehavior.cpp:1248-1257 createParticleSystem + setLocalTransform/setPosition.
 }

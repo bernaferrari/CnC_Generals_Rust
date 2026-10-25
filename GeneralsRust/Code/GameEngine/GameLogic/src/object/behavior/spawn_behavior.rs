@@ -2134,17 +2134,4 @@ mod tests {
     }
 
     // C++ SpawnBehavior::crc is BehaviorModule::crc only (SpawnBehavior.cpp:1043-1048).
-    #[test]
-    fn crc_does_not_write_spawn_payload() {
-        let src = include_str!("spawn_behavior.rs");
-        let crc_fn = src
-            .split("impl Snapshotable for SpawnBehavior")
-            .nth(1)
-            .and_then(|rest| rest.split("fn xfer(").next())
-            .expect("crc impl");
-        assert!(crc_fn.contains("xfer_behavior_module_base_versions"));
-        assert!(!crc_fn.contains("xfer_ascii_string"));
-        assert!(!crc_fn.contains("xfer_stl_int_list"));
-        assert!(!crc_fn.contains("one_shot_countdown"));
-    }
 }

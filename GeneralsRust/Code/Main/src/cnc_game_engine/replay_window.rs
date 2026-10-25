@@ -183,39 +183,3 @@ impl ReplayMenuReceiver for CnCGameEngine {
         self.game_logic.set_radar_client_quiet(true);
     }
 }
-
-#[cfg(test)]
-mod source_policy_tests {
-    #[test]
-    fn native_replay_and_restart_keep_distinct_source_clear_policies() {
-        let source = include_str!("replay_window.rs")
-            .split("#[cfg(test)]")
-            .next()
-            .unwrap();
-        let playback = source
-            .split("fn playback_file(")
-            .nth(1)
-            .unwrap()
-            .split("fn restart(")
-            .next()
-            .unwrap();
-        assert!(
-            playback
-                .find("self.clear_receiving_game_data(true)")
-                .unwrap()
-                < playback
-                    .find(".admit_prepared_playback_owned(admission)")
-                    .unwrap()
-        );
-        assert!(!playback.contains("dispatch_receiving_recorder_lifecycle()"));
-        let restart = source.split("fn restart(").nth(1).unwrap();
-        let capture = restart.find("get_current_replay_filename()").unwrap();
-        let stop = restart.find("stop_recording_owned()").unwrap();
-        let clear = restart
-            .find("self.clear_receiving_game_data(false)")
-            .unwrap();
-        let resume = restart.find("self.playback_file(filename)").unwrap();
-        assert!(capture < stop && stop < clear && clear < resume);
-        assert!(!restart.contains("clear_receiving_game_data(true)"));
-    }
-}

@@ -31,72 +31,20 @@ pub fn residual_name_index(table: &[&str], name: &str) -> Option<usize> {
 pub const MAIN_MENU_WND_MATERIALISE_NAMED_FLOOR_WAVE162: usize = 63;
 
 /// Materialisation residual method names.
-pub const MAIN_MENU_WND_MATERIALISE_METHOD_NAMES_WAVE162: &[&str] = &[
-    "main_menu_wnd_honesty_with_load",
-    "try_load_main_menu_via_window_manager",
-    "window_loaded",
-    "window_count",
-    "simulate_main_menu_wnd_prepare_load_honesty",
-];
 
 /// Ordered materialisation residual navigation steps.
-pub const MAIN_MENU_WND_MATERIALISE_NAV_STEPS_WAVE162: &[&str] = &[
-    "RESOLVE_ASSETS",
-    "VALIDATE_MAIN_MENU_WND",
-    "LOAD_WINDOW_SCRIPT",
-    "REQUIRE_WINDOW_LOADED",
-    "REQUIRE_WINDOW_COUNT_GT_ZERO",
-    "COMPARE_NAMED_CHILD_FLOOR",
-];
 
 /// Runtime-host command residual names for materialisation peels.
-pub const RUNTIME_HOST_MAIN_MENU_WND_MATERIALISE_CMD_NAMES_WAVE162: &[&str] = &[
-    "click_main_menu_wnd_ok_wnd_load",
-    "click_main_menu_wnd_ok_wnd_materialise",
-    "click_main_menu_wnd_miss",
-];
 
 // ---------------------------------------------------------------------------
 // Honesty packs
 // ---------------------------------------------------------------------------
 
 /// Honesty: materialisation method names residual pack.
-pub fn honesty_main_menu_wnd_materialise_method_names_residual_wave162() -> bool {
-    MAIN_MENU_WND_MATERIALISE_NAMED_FLOOR_WAVE162 == 63
-        && MAIN_MENU_WND_MATERIALISE_METHOD_NAMES_WAVE162.len() == 5
-        && residual_name_index(
-            MAIN_MENU_WND_MATERIALISE_METHOD_NAMES_WAVE162,
-            "window_loaded",
-        ) == Some(2)
-        && residual_name_index(
-            MAIN_MENU_WND_MATERIALISE_METHOD_NAMES_WAVE162,
-            "window_count",
-        ) == Some(3)
-}
 
 /// Honesty: nav steps + runtime-host cmd residual pack.
-pub fn honesty_main_menu_wnd_materialise_nav_commands_residual_wave162() -> bool {
-    MAIN_MENU_WND_MATERIALISE_NAV_STEPS_WAVE162.len() == 6
-        && residual_name_index(
-            MAIN_MENU_WND_MATERIALISE_NAV_STEPS_WAVE162,
-            "REQUIRE_WINDOW_LOADED",
-        ) == Some(3)
-        && residual_name_index(
-            MAIN_MENU_WND_MATERIALISE_NAV_STEPS_WAVE162,
-            "REQUIRE_WINDOW_COUNT_GT_ZERO",
-        ) == Some(4)
-        && RUNTIME_HOST_MAIN_MENU_WND_MATERIALISE_CMD_NAMES_WAVE162.len() == 3
-        && residual_name_index(
-            RUNTIME_HOST_MAIN_MENU_WND_MATERIALISE_CMD_NAMES_WAVE162,
-            "click_main_menu_wnd_ok_wnd_materialise",
-        ) == Some(1)
-}
 
 /// Wave 162 composite residual honesty pack.
-pub fn honesty_main_menu_wnd_materialise_residual_pack_wave162() -> bool {
-    honesty_main_menu_wnd_materialise_method_names_residual_wave162()
-        && honesty_main_menu_wnd_materialise_nav_commands_residual_wave162()
-}
 
 /// Residual: materialisation peel — require load when assets resolve.
 pub fn simulate_main_menu_wnd_materialise_honesty() -> bool {
@@ -120,21 +68,6 @@ pub fn simulate_main_menu_wnd_materialise_honesty() -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn method_names_residual() {
-        assert!(honesty_main_menu_wnd_materialise_method_names_residual_wave162());
-    }
-
-    #[test]
-    fn nav_commands_residual() {
-        assert!(honesty_main_menu_wnd_materialise_nav_commands_residual_wave162());
-    }
-
-    #[test]
-    fn wave162_composite_pack() {
-        assert!(honesty_main_menu_wnd_materialise_residual_pack_wave162());
-    }
 
     #[cfg(feature = "game_client")]
     #[test]

@@ -819,6 +819,7 @@ impl PresentationFrame {
                 weapons_jammed: obj.status.weapons_jammed,
                 masked: obj.status.masked,
                 unattackable: obj.is_kind_of(KindOf::Unattackable),
+                reject_unmanned: obj.is_kind_of(KindOf::RejectUnmanned),
                 is_force_attackable: obj.is_kind_of(KindOf::ForceAttackable),
                 always_selectable: obj.is_kind_of(KindOf::AlwaysSelectable),
 
@@ -900,6 +901,7 @@ impl PresentationFrame {
                 disabled_subdued: obj.status.disabled_subdued,
                 is_carbomb: obj.status.is_carbomb,
                 weapon_set_carbomb: obj.weapon_set_carbomb,
+                authors_carbomb_weapon_set: obj.authors_carbomb_weapon_set(),
                 bomb_type: freeze_sticky_bomb_overlay(obj, logic.get_current_frame() as u32).0,
                 bomb_timer_seconds: freeze_sticky_bomb_overlay(
                     obj,
@@ -1053,52 +1055,7 @@ impl PresentationFrame {
                 show_health_bar: obj.show_health_bar,
                 guard_radius: obj.guard_radius,
                 has_mine: obj.mine_data.is_some(),
-                kind_of: {
-                    use crate::game_logic::KindOf;
-                    const MAX_KINDS: usize = 32;
-                    // Stable presentation order (KindOf declaration order residual).
-                    const ORDER: &[KindOf] = &[
-                        KindOf::Structure,
-                        KindOf::Infantry,
-                        KindOf::Vehicle,
-                        KindOf::Aircraft,
-                        KindOf::Projectile,
-                        KindOf::Resource,
-                        KindOf::Selectable,
-                        KindOf::Attackable,
-                        KindOf::CommandCenter,
-                        KindOf::Worker,
-                        KindOf::Hero,
-                        KindOf::SupplyCenter,
-                        KindOf::PowerPlant,
-                        KindOf::FSBarracks,
-                        KindOf::FSWarFactory,
-                        KindOf::FSAirfield,
-                        KindOf::FSInternetCenter,
-                        KindOf::FSPower,
-                        KindOf::FSBaseDefense,
-                        KindOf::FSSupplyDropzone,
-                        KindOf::FSSupplyCenter,
-                        KindOf::FSSuperweapon,
-                        KindOf::FSStrategyCenter,
-                        KindOf::FSFake,
-                        KindOf::FSTechnology,
-                        KindOf::FSBlackMarket,
-                        KindOf::FSAdvancedTech,
-                        KindOf::Harvestable,
-                        KindOf::Powered,
-                        // Wave 982: IgnoredInGui for host mouseover slaver remap.
-                        KindOf::IgnoredInGui,
-                        // Appended so existing presentation bit positions stay stable.
-                        KindOf::Dozer,
-                        KindOf::Harvester,
-                    ];
-                    let set = &obj.get_template().kind_of;
-                    let mut v: Vec<KindOf> =
-                        ORDER.iter().copied().filter(|k| set.contains(k)).collect();
-                    v.truncate(MAX_KINDS);
-                    v
-                },
+                kind_of: super::kind_facts::ordered_host_kind_facts(obj),
                 is_structure,
                 is_unit,
                 // Prefer host Object::is_mobile so dozers/workers without an explicit

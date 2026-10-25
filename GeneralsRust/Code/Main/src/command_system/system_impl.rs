@@ -1402,15 +1402,9 @@ impl CommandSystem {
             && !hint.enter_disabled_subdued
         {
             let any_recrew = if !selected_presentation.is_empty() {
-                selected_presentation.iter().any(|u| {
-                    u.is_alive
-                        && u.can_move
-                        && u.is_infantry
-                        && !crate::game_logic::host_car_bomb::object_definition_has_kind(
-                            &u.template_name,
-                            "REJECT_UNMANNED",
-                        )
-                })
+                selected_presentation
+                    .iter()
+                    .any(|u| u.is_alive && u.can_move && u.is_infantry && !u.reject_unmanned)
             } else {
                 game_logic.is_some_and(|gl| {
                     units
@@ -1917,7 +1911,7 @@ fn target_is_carbombable_vehicle(hint: &PresentationTargetHint) -> bool {
         && hint.is_vehicle
         && !hint.is_aircraft
         && !hint.is_carbomb
-        && crate::game_logic::host_car_bomb::template_has_carbomb_weapon_set(&hint.template_name)
+        && hint.authors_carbomb_weapon_set
 }
 
 fn selection_can_hijack_target(

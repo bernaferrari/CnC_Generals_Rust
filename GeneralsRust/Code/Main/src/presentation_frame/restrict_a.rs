@@ -264,7 +264,7 @@ mod restrict_a_tests {
 
     #[test]
     fn from_logic_stamps_strategy_center_and_dock() {
-            let mut logic = GameLogic::new();
+        let mut logic = GameLogic::new();
         let mut center = ThingTemplate::new("AmericaStrategyCenter");
         center.add_kind_of(KindOf::Structure);
         center.add_kind_of(KindOf::FSStrategyCenter);
@@ -322,42 +322,6 @@ mod restrict_a_tests {
         assert!(!closed.restrict_a.dock_open);
     }
 
-    #[test]
-    fn leftover_availability_and_neutral_peek_stamp_restrict_a() {
-        let strip = include_str!("command_set_strip.rs");
-        let apply = include_str!("apply.rs");
-        assert!(
-            strip.contains("self.stamp_host_restrict_a_availability(&mut residual, Some(ro))"),
-            "leftover_availability_bar must stamp dock_open"
-        );
-        assert!(
-            strip.contains("return self.populate_structure_inventory_strip(ro)"),
-            "Neutral peek must bind inventory Stop/Evacuate"
-        );
-        assert!(
-            strip.contains("STRUCTURE_INVENTORY_STOP_COMMAND_NAME"),
-            "inventory strip must bind Command_Stop"
-        );
-        assert!(
-            apply.contains("stamp_host_restrict_a_availability"),
-            "apply_to_control_bar must stamp leftover dock_open"
-        );
-        assert!(
-            apply.contains("residual.script_unsellable = ro.script_unsellable")
-                && apply.contains("residual.disabled_subdued = ro.disabled_subdued")
-                && apply.contains("residual.single_use_used = ro.single_use_command_used"),
-            "apply_to_control_bar must stamp leftover SINGLE_USE / SUBDUED / SCRIPT_UNSELLABLE"
-        );
-        assert!(
-            strip.contains("single_use_used: ro.single_use_command_used"),
-            "leftover_availability_bar must stamp single_use_used"
-        );
-        assert!(
-            apply.contains("let cmds = self.unit_command_buttons()"),
-            "apply_to_game_hud must keep full UnitCommandButton"
-        );
-    }
-
     fn sample_ro(name: &str) -> RenderableObject {
         let frame = PresentationFrame::build_from_logic(&mut GameLogic::new(), 0);
         let mut ro = frame
@@ -373,7 +337,7 @@ mod restrict_a_tests {
 
     fn panic_empty_ro() -> RenderableObject {
         // Empty world still builds a default-shaped frame; fall back via a dummy unit.
-            let mut logic = GameLogic::new();
+        let mut logic = GameLogic::new();
         let mut t = ThingTemplate::new("RestrictADummy");
         t.add_kind_of(KindOf::Infantry);
         t.add_kind_of(KindOf::Selectable);

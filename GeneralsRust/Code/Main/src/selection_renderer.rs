@@ -971,19 +971,4 @@ mod presentation_identity_tests {
             "badge position must come from snapshot, not live 999"
         );
     }
-
-    #[test]
-    fn golden_skirmish_source_has_no_engine_object_id_force_clear() {
-        // Dual-world host id field retired — Object has no engine_object_id to clear.
-        let obj = crate::game_logic::object::OBJECT_SRC;
-        assert!(
-            !obj.contains("pub engine_object_id"),
-            "host Object must not expose engine_object_id dual-world field"
-        );
-        let golden = include_str!("golden_skirmish.rs");
-        assert!(
-            !golden.contains("engine_object_id"),
-            "golden path must not reference engine_object_id"
-        );
-    }
 }

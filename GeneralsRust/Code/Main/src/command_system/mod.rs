@@ -36,17 +36,4 @@ pub use record_tap::*;
 #[cfg(test)]
 mod tests;
 
-/// Concatenated live command_system sources for residual `include_str` scans.
-pub const COMMAND_SYSTEM_SRC: &str = concat!(
-    include_str!("mod.rs"),
-    include_str!("button_map.rs"),
-    include_str!("command.rs"),
-    include_str!("commandable.rs"),
-    include_str!("helpers.rs"),
-    include_str!("presentation.rs"),
-    include_str!("special_power.rs"),
-    include_str!("system.rs"),
-    include_str!("system_impl.rs"),
-    include_str!("types.rs"),
-    include_str!("record_tap.rs"),
-);
+// Concatenated live command_system sources for residual `include_str` scans.

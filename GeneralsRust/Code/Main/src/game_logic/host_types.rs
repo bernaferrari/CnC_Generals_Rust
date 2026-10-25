@@ -232,6 +232,8 @@ pub enum KindOf {
     LineBuild,
     /// C++ KINDOF_HULK; append-only save ordinal.
     Hulk,
+    /// C++ KINDOF_REJECT_UNMANNED (bit109); append-only Rust save ordinal87.
+    RejectUnmanned,
 }
 
 impl KindOf {
@@ -329,6 +331,7 @@ impl KindOf {
         KindOf::CleanupHazard,
         KindOf::LineBuild,
         KindOf::Hulk,
+        KindOf::RejectUnmanned,
     ];
 
     pub const fn name(self) -> &'static str {
@@ -420,6 +423,7 @@ impl KindOf {
             Self::CleanupHazard => "CleanupHazard",
             Self::LineBuild => "LineBuild",
             Self::Hulk => "Hulk",
+            Self::RejectUnmanned => "RejectUnmanned",
         }
     }
 
@@ -457,6 +461,7 @@ impl KindOf {
             "CLIFF_JUMPER" | "CLIFFJUMPER" => Some(Self::CliffJumper),
             "LINEBUILD" | "LINE_BUILD" => Some(Self::LineBuild),
             "HULK" => Some(Self::Hulk),
+            "REJECT_UNMANNED" | "REJECTUNMANNED" => Some(Self::RejectUnmanned),
 
             "DRONE" => Some(Self::Drone),
             _ => None,
@@ -968,7 +973,7 @@ mod tests {
             1u128 << 15,
         );
         assert!(KindOf::ALL_KIND_OF.contains(&KindOf::LineBuild));
-        assert_eq!(KindOf::ALL_KIND_OF.last(), Some(&KindOf::Hulk));
+        assert_eq!(KindOf::ALL_KIND_OF.last(), Some(&KindOf::RejectUnmanned));
         // Existing serde discriminants remain stable even where Xfer uses a
         // different established order (CliffJumper precedes CleanupHazard).
         for (kind, ordinal) in [
@@ -977,6 +982,7 @@ mod tests {
             (KindOf::CleanupHazard, 84),
             (KindOf::LineBuild, 85),
             (KindOf::Hulk, 86),
+            (KindOf::RejectUnmanned, 87),
         ] {
             let bytes = bincode_legacy::serialize(&kind).unwrap();
             assert_eq!(bytes, ordinal.to_le_bytes());
@@ -1057,5 +1063,30 @@ mod tests {
         );
 
         assert_eq!(KindOf::from_ini_token("FS_FACTORY"), None);
+    }
+}
+
+#[cfg(test)]
+mod reject_unmanned_kind_tests {
+    use super::KindOf;
+    #[test]
+    fn reject_unmanned_keeps_cpp_bit_and_append_only_save_ordinal() {
+        assert_eq!(
+            KindOf::from_ini_token("REJECT_UNMANNED"),
+            Some(KindOf::RejectUnmanned)
+        );
+        assert_eq!(KindOf::RejectUnmanned.name(), "RejectUnmanned");
+        assert_eq!(
+            crate::game_logic::host_radar_stealth_vision_residual::live_kind_of_cpp_mask(
+                KindOf::RejectUnmanned
+            ),
+            1u128 << 109
+        );
+        let bytes = bincode_legacy::serialize(&KindOf::RejectUnmanned).unwrap();
+        assert_eq!(bytes, 87u32.to_le_bytes());
+        assert_eq!(
+            bincode_legacy::deserialize::<KindOf>(&bytes).unwrap(),
+            KindOf::RejectUnmanned
+        );
     }
 }

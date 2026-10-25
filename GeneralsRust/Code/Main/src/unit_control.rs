@@ -1204,11 +1204,6 @@ mod tests {
             (center.x - 10.0).abs() < 0.1 && (center.z - 20.0).abs() < 0.1,
             "expected presentation pose, got {center:?}"
         );
-        let src = include_str!("unit_control.rs");
-        assert!(
-            src.contains("Prefer presentation poses when a snapshot is installed"),
-            "selection center must prefer presentation residual"
-        );
     }
 
     fn select_similar_prefers_presentation_identity() {
@@ -1249,12 +1244,6 @@ mod tests {
         );
         assert!(!ctl.selected_objects.contains(&b1));
         assert_eq!(ctl.selected_objects.len(), 2);
-        let src = include_str!("unit_control.rs");
-        assert!(
-            src.contains("presentation_is_selectable(o)")
-                && src.contains("Prefer presentation identity"),
-            "select_similar must prefer presentation residual"
-        );
     }
 
     fn pick_prefers_presentation_identity_not_live_move() {

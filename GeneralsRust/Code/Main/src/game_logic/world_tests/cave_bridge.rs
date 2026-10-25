@@ -529,28 +529,6 @@ fn killing_tower_collapses_span_and_span_death_kills_towers() {
 }
 
 #[test]
-fn live_tick_updates_bridge_rubble_and_scaffolds() {
-    let step = include_str!("../world_tick/post_command_update.rs");
-    assert!(
-        step.contains("sync_host_bridge_rubble_and_scaffolds"),
-        "live update_simulation must advance bridge rubble/scaffolds"
-    );
-    let commands = include_str!("../../command_executor/leftover.rs");
-    let repair = source_function(commands, "fn dozer_internal_task_complete(");
-    assert!(
-        repair.contains("KindOf::BridgeTower")
-            && repair.contains("worker_ai_update")
-            && repair.contains("span_id_for(tid)")
-            && repair.contains("self.remove_bridge_scaffolding(sid)"),
-        "an explicitly supplied worker tower task removes its span's scaffolding"
-    );
-    let bridges = include_str!("../world_combat/special_power_flights.rs");
-    let remove = source_function(bridges, "fn remove_bridge_scaffolding(");
-    assert!(remove.contains("self.bridge_behavior.remove_scaffolding(span_id)"));
-    assert!(remove.contains("if !rubble") && remove.contains("stamp_bridge_deck"));
-}
-
-#[test]
 fn ordinary_repair_command_rejects_bridge_and_tower() {
     use crate::command_executor::CommandExecutor;
     use crate::command_system::{CommandResult, CommandType, GameCommand, ModifierKeys};

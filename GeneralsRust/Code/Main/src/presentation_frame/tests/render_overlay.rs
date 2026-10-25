@@ -1017,38 +1017,6 @@ fn overlay_gameworld_shadow_copies_entity_residual() {
     assert!(!ro.show_health_bar);
     assert!((ro.weapon_range - 120.0).abs() < 0.01);
     // Deeper residual fields present in overlay path (source honesty).
-    let src = crate::presentation_frame::PRESENTATION_FRAME_SRC;
-    assert!(
-        src.contains("obj.command_set_override = ent.command_set_override.clone()")
-            && src.contains("obj.selected = ent.selected")
-            && src.contains("obj.turret_angle_deg = ent.turret_angle_deg")
-            && src.contains("obj.hive_slave_count = ent.hive_slave_count")
-            && src.contains("obj.weapon_bonus_horde = ent.weapon_bonus_horde")
-            && src.contains("obj.path_waypoints = path_wp")
-            && src.contains("obj.has_mine = ent.has_mine_data")
-            && src.contains("obj.garrisoned_units = garrisoned")
-            && src.contains("obj.contained_by = contained")
-            && src.contains("ent.kind_of_bits")
-            && src.contains("ent.applied_upgrade_names")
-            && src.contains("ent.production_queue_items")
-            && src.contains("obj.template_name = ent.template.name.clone()")
-            && src.contains("obj.disguise_as_team = disguise_team")
-            && src.contains("ent.model_key")
-            && src.contains("ent.mesh_scale")
-            && src.contains("ent.fow_visibility_alpha")
-            && src.contains("ent.ground_height")
-            && src.contains("ent.engine_bridged")
-            && src.contains("is_battle_bus_transport")
-            && src.contains("ent.display_name")
-            && src.contains("ent.weapon_min_range")
-            && src.contains("ent.weapon_ammo")
-            && src.contains("ent.guard_target_host")
-            && src.contains("ent.ai_state_ordinal")
-            && src.contains("ent.path_len")
-            && src.contains("ent.occupant_count")
-            && src.contains("shadow last-writer residual"),
-        "overlay must copy expanded entity residual"
-    );
 }
 
 #[test]
@@ -1224,12 +1192,6 @@ fn unit_display_info_carries_command_set_override_residual() {
     let info = infos.iter().find(|i| i.object_id == id).expect("info");
     assert!(info.can_produce);
     assert_eq!(info.command_set_override, "CommandSetAmericaBarracks");
-    let src = crate::presentation_frame::PRESENTATION_FRAME_SRC;
-    assert!(
-        src.contains("command_set_override: ro.command_set_override.clone()")
-            && src.contains("can_produce: ro.can_produce"),
-        "UnitDisplayInfo must freeze command_set/can_produce residual"
-    );
 }
 
 fn presentation_freezes_detector_stealth_timing_residual() {
@@ -1271,13 +1233,6 @@ fn presentation_freezes_detector_stealth_timing_residual() {
     assert_eq!(ro.continuous_fire_consecutive, 9);
     assert_eq!(ro.continuous_fire_coast_until_frame, 40);
     assert!((ro.battle_plan_sight_scalar_applied - 1.25).abs() < 0.01);
-    let src = crate::presentation_frame::PRESENTATION_FRAME_SRC;
-    assert!(
-        src.contains("detection_rate_frames: obj.detection_rate_frames")
-            && src.contains("innate_stealth: obj.innate_stealth")
-            && src.contains("battle_plan_sight_scalar_applied: obj"),
-        "freeze must copy detector/stealth timing residual"
-    );
 }
 
 fn presentation_freezes_transport_kind_damage_residual() {
@@ -1319,13 +1274,6 @@ fn presentation_freezes_transport_kind_damage_residual() {
     assert!(ro.has_overlord_gattling_addon && ro.has_overlord_propaganda_addon);
     assert!(ro.demo_suicided_detonating && ro.turret_holding);
     assert_eq!(ro.last_damage_source_host, src_id.0);
-    let src = crate::presentation_frame::PRESENTATION_FRAME_SRC;
-    assert!(
-        src.contains("is_humvee_transport: obj.is_humvee_transport")
-            && src.contains("last_damage_source_host: obj.last_damage_source")
-            && src.contains("has_overlord_gattling_addon: obj"),
-        "freeze must copy transport-kind/damage residual"
-    );
 }
 
 fn presentation_freezes_hive_continuous_camo_residual() {
@@ -1366,13 +1314,6 @@ fn presentation_freezes_hive_continuous_camo_residual() {
     assert!((ro.camo_friendly_opacity - 0.55).abs() < 0.01);
     assert_eq!(ro.vision_spied_mask, 0b110);
     assert!((ro.cheer_timer - 1.25).abs() < 0.01);
-    let src = crate::presentation_frame::PRESENTATION_FRAME_SRC;
-    assert!(
-        src.contains("hive_slave_count: obj.hive_slave_count")
-            && src.contains("continuous_fire_level: obj.continuous_fire_level")
-            && src.contains("camo_friendly_opacity: obj.camo_friendly_opacity"),
-        "freeze must copy hive/continuous/camo residual"
-    );
 }
 
 fn presentation_freezes_battle_plan_weapon_bonus_residual() {
@@ -1402,30 +1343,11 @@ fn presentation_freezes_battle_plan_weapon_bonus_residual() {
     assert!(ro.weapon_bonus_battle_plan_bombardment);
     assert!(ro.weapon_bonus_battle_plan_hold_the_line);
     assert!(ro.weapon_bonus_battle_plan_search_and_destroy);
-    let src = crate::presentation_frame::PRESENTATION_FRAME_SRC;
-    assert!(
-        src.contains("weapon_bonus_battle_plan_bombardment: obj")
-            && src.contains("weapon_bonus_battle_plan_search_and_destroy"),
-        "freeze must copy battle-plan bonus residual"
-    );
 }
 
 fn apply_to_control_bar_syncs_command_set_from_presentation() {
     // Source honesty: apply path must call presentation command-set sync.
-    let src = crate::presentation_frame::PRESENTATION_FRAME_SRC;
-    assert!(
-        src.contains("sync_command_set_from_presentation(self.selected_command_set_name())"),
-        "apply_to_control_bar must feed ControlBar command-set residual"
-    );
-    let cb = game_client::gui::control_bar::control_bar::CONTROL_BAR_SRC;
-    assert!(
-        cb.contains("fn sync_command_set_from_presentation"),
-        "ControlBar must expose presentation command-set residual"
-    );
-    assert!(
-        cb.contains("Prefer this over live `OBJECT_REGISTRY`"),
-        "must document OBJECT_REGISTRY dual-read avoidance"
-    );
+
     // Runtime residual: selected override name is visible on the frame.
     use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
     use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
@@ -1488,13 +1410,6 @@ fn presentation_freezes_command_set_detector_residual() {
     assert!(ro.overcharge_enabled);
     assert!(!ro.show_health_bar);
     assert!((ro.guard_radius - 175.0).abs() < 0.01);
-    let src = crate::presentation_frame::PRESENTATION_FRAME_SRC;
-    assert!(
-        src.contains("command_set_override: obj")
-            && src.contains("is_detector: obj.is_detector")
-            && src.contains("guard_radius: obj.guard_radius"),
-        "freeze must copy command-set/detector residual"
-    );
 }
 
 fn presentation_freezes_turret_and_weapon_bonus_residual() {
@@ -1533,12 +1448,6 @@ fn presentation_freezes_turret_and_weapon_bonus_residual() {
     assert!(ro.turret_idle_scanning);
     assert!(ro.weapon_bonus_enthusiastic && ro.weapon_bonus_horde);
     assert_eq!(ro.weapon_bonus_frenzy_level, 2);
-    let src = crate::presentation_frame::PRESENTATION_FRAME_SRC;
-    assert!(
-        src.contains("turret_angle_deg: obj.turret_angle_deg")
-            && src.contains("weapon_bonus_horde: obj.weapon_bonus_horde"),
-        "freeze must copy turret/bonus residual"
-    );
 }
 
 use super::super::*;

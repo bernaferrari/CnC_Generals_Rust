@@ -893,13 +893,14 @@ impl InputCommandProcessor {
             is_aircraft: PresentationFrame::object_has_kind(o, crate::game_logic::KindOf::Aircraft),
             is_drone: PresentationFrame::object_has_kind(o, crate::game_logic::KindOf::Drone),
             is_carbomb: o.is_carbomb,
+            authors_carbomb_weapon_set: o.authors_carbomb_weapon_set,
             is_unmanned: o.disabled_unmanned,
             is_mine: o.has_mine
                 || PresentationFrame::object_has_kind(o, crate::game_logic::KindOf::Mine)
                 || PresentationFrame::object_has_kind(o, crate::game_logic::KindOf::DemoTrap)
-                || crate::game_logic::host_car_bomb::object_definition_has_kind(
-                    &o.template_name,
-                    "MINE",
+                || crate::presentation_frame::PresentationFrame::object_has_kind(
+                    o,
+                    crate::game_logic::KindOf::Mine,
                 ),
         })
     }
@@ -947,6 +948,10 @@ impl InputCommandProcessor {
                 can_request_service: o.contained_by.is_none(),
                 can_capture,
                 template_name: o.template_name.clone(),
+                reject_unmanned: crate::presentation_frame::PresentationFrame::object_has_kind(
+                    o,
+                    crate::game_logic::KindOf::RejectUnmanned,
+                ),
                 can_repair,
                 is_damaged,
                 is_vehicle,

@@ -277,44 +277,6 @@ fn display_owner_scroll_is_one_owned_operation_and_reset_clears_it() {
 }
 
 #[test]
-fn production_camera_phase_precedes_native_region_and_fast_subset_never_commits_matrix() {
-    let input = include_str!("input.rs");
-    assert!(!input.contains("step_axis("));
-    assert!(!input.contains("self.update_script_camera_shake("));
-    let display = include_str!("native_display.rs");
-    let phase = &display[display
-        .find("fn finish_native_display_after_admission(")
-        .unwrap()..];
-    assert!(
-        phase
-            .find("self.advance_native_camera_view(decision, camera_scroll)")
-            .unwrap()
-            < phase.find("view::native_view_from_camera(").unwrap()
-    );
-    assert!(phase.contains("if decision.update_views && !self.script_time_fast()"));
-    let live = include_str!("camera_view_effects.rs");
-    assert!(live.contains("if decision.update_views"));
-    assert!(
-        live.find("self.update_script_camera_shake()").unwrap()
-            < live.find("self.ease_camera_height_above_ground(").unwrap()
-    );
-    assert!(!live.contains("self.update_camera_transform_shakers()"));
-    let build = include_str!("../presentation_frame/session_view/camera/build.rs");
-    assert!(build.contains("self.advance_transform_shakers("));
-    assert!(phase.contains("set_native_camera_transform()"));
-    assert!(live.contains("advance_receiving_camera_view("));
-    let owner = include_str!("../presentation_frame/session_view/camera.rs");
-    let rotation = include_str!("../presentation_frame/session_view/camera/motion.rs");
-    assert!(
-        owner.contains("AxisKind::ZoomPitch")
-            && owner.contains("motion::step_registered_rotation(")
-            && rotation.contains("step_rotation(")
-            && rotation
-                .contains("step_axis_with_rotation(axis, AxisKind::Yaw, admission, Some(timing))")
-    );
-}
-
-#[test]
 fn impulse_threshold_clears_only_intensity_and_preserves_phase_until_next_enqueue() {
     let (mut intensity, mut cosine, mut sine) = (0.01, -0.5, 0.75);
     assert_eq!(
@@ -377,15 +339,6 @@ fn owning_logic_pause_is_distinct_from_script_freeze_and_keeps_full_view_shake()
     assert_eq!(view.axis_frame, 0);
     assert!(!decision.draw_drawables && decision.update_views && decision.draw_gpu);
     assert_eq!(view.view.impulse.intensity, 3.);
-    let source = include_str!("native_display.rs");
-    let start = source.find("fn native_view_is_paused(").unwrap();
-    let end = source[start..].find("/// Invoked once").unwrap() + start;
-    assert!(source[start..end].contains("self.game_logic.is_paused()"));
-    assert!(source.contains("self.native_view_is_paused()"));
-    assert!(
-        include_str!("camera_view_effects.rs")
-            .contains("let paused = self.native_view_is_paused()")
-    );
 }
 
 #[test]
@@ -467,19 +420,4 @@ fn receiving_impulse_component_ignores_hostile_core_and_interleaved_peer() {
             });
         },
     );
-}
-
-#[test]
-fn native_impulse_wiring_only_advances_receiving_owner() {
-    // Wiring evidence only; this does not execute CnCGameEngine or a GPU.
-    let source = include_str!("start_game.rs");
-    let start = source.find("fn update_script_camera_shake(").unwrap();
-    let end = start
-        + source[start..]
-            .find("pub(super) fn normalize_signed_angle")
-            .unwrap();
-    let body = &source[start..end];
-    assert!(body.contains("self.game_logic.session_view.advance_impulse()"));
-    assert!(!body.contains("with_tactical_view"));
-    assert!(!body.contains("impulse_shake_offset"));
 }

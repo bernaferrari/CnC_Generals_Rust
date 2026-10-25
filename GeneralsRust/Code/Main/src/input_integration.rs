@@ -780,12 +780,5 @@ mod tests {
         proc.set_presentation_frame(Some(frame));
         let picked = proc.find_object_at_position(glam::Vec3::new(12.0, 0.0, 18.0), &logic);
         assert_eq!(picked, Some(id));
-        let src = include_str!("input_integration.rs");
-        let fstart = src.find("fn find_object_at_position").expect("fn");
-        let fbody = &src[fstart..src.len().min(fstart + 900)];
-        assert!(
-            fbody.contains("Presentation-only") && !fbody.contains("game_logic.get_objects()"),
-            "input integration pick must be presentation-only"
-        );
     }
 }

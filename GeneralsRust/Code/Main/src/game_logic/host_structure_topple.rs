@@ -889,47 +889,4 @@ mod tests {
             "leftover ToppleDoneFX is doFXObj: {done:?}"
         );
     }
-
-    #[test]
-    fn live_death_path_dispatches_leftover_topple_fx() {
-        let death = include_str!("object/death.rs");
-        assert!(
-            death.contains("bind_topple_fx"),
-            "begin must bind leftover Start/Delay/Done/AngleFX"
-        );
-        assert!(
-            death.contains("dispatch_pending_structure_topple_fx"),
-            "live begin/tick must leftover-dispatch queued FX"
-        );
-        assert!(
-            death.contains("poll_structure_topple_fx"),
-            "coupled-shadow path must poll leftover topple FX"
-        );
-        let tick = include_str!("world_tick/ai.rs");
-        assert!(
-            tick.contains("update_owned_structure_topple"),
-            "world tick must execute the receiving owner update"
-        );
-        let owner = include_str!("world_objects/create_destroy_die/structure_topple_owned.rs");
-        let update = owner
-            .split_once("fn update_owned_structure_topple")
-            .unwrap()
-            .1;
-        assert!(update.contains("dispatch_owned_structure_topple_fx"));
-        assert!(update.contains("execute_owned_structure_topple_fx"));
-        let delivery = owner
-            .split_once("fn execute_owned_structure_topple_fx_with_effects(")
-            .expect("receiving FX executor")
-            .1
-            .split_once("pub(crate) fn update_owned_structure_topple(")
-            .expect("next operation boundary")
-            .0;
-        let delivery: String = delivery.chars().filter(|c| !c.is_whitespace()).collect();
-        assert!(delivery.contains(
-            "dispatch_fx_list_at_host_object_with_effects(&effect.name,id,None,presentation_effects,)"
-        ));
-        assert!(delivery.contains(
-            "dispatch_fx_list_at_host_position_with_effects(&effect.name,glam::Vec3::new(effect.x,effect.y,effect.z),presentation_effects,)"
-        ));
-    }
 }

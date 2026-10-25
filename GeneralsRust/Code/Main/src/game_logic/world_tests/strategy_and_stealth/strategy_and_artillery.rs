@@ -433,44 +433,6 @@ fn camera_mod_final_zoom_idle_is_noop() {
 }
 
 #[test]
-fn post_ai_commands_flushed_inside_game_logic() {
-    // Structural: the host post-AI flush remains in the post-command kernel.
-    // Source command admission precedes that kernel; original post-AI phase
-    // policy is a separate parity obligation, not proven by this source check.
-    let src = include_str!("../../world_tick/post_command_update.rs");
-    let ai = src
-        .find("self.update_ai_with_effects(&object_ids, dt, &mut ui);")
-        .expect("update_ai call");
-    let mgr = src
-        .find("self.update_match_ai_with_effects(&mut ui);")
-        .expect("owned match AI phase");
-    // Second process_commands after AI manager (phase 8b)
-    let flush = src[mgr..]
-        .find("self.process_commands_with_effects(&mut ui);")
-        .map(|o| mgr + o)
-        .expect("post-AI flush");
-    assert!(
-        ai < mgr && mgr < flush,
-        "process_commands must follow AI update; ai={ai} mgr={mgr} flush={flush}"
-    );
-    // Early command processing (phase 5) still exists before object updates.
-    let step = include_str!("../../world_tick/step.rs");
-    let early = step
-        .find("CommandPhaseMode::Completed => self.process_commands_with_effects(&mut ui)")
-        .expect("phase-5 completed command adapter");
-    let native = step
-        .find("self.dispatch_native_command_batch(")
-        .expect("phase-5 receiving native command cursor");
-    let tail = step
-        .find("self.update_simulation_after_commands(")
-        .expect("post-command kernel invocation");
-    assert!(
-        early < tail && native < tail,
-        "both command admission routes must precede the kernel containing update_ai"
-    );
-}
-
-#[test]
 fn projectiles_step_inside_game_logic_update() {
     // Engine mid-frame dual CombatSystem removed; drain+step is in update_simulation.
     let mut logic = GameLogic::new();

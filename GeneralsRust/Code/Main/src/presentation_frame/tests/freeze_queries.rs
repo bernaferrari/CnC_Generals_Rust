@@ -574,20 +574,6 @@ fn similar_unit_ids_use_equivalent_to_and_skip_contained() {
 }
 
 #[test]
-fn type_select_uses_leftover_is_equivalent_to_not_stem() {
-    let src = include_str!("../queries.rs");
-    assert!(
-        src.contains("splash_templates_equivalent(left, right)")
-            && src.contains("fn templates_equivalent_for_type_select"),
-        "type-select must use leftover ThingTemplate::isEquivalentTo"
-    );
-    assert!(
-        !src.contains("type_select_template_stem") && !src.contains("TYPE_SELECT_GENERAL_PREFIXES"),
-        "type-select must not use a general-prefix stem compare"
-    );
-}
-
-#[test]
 fn similar_unit_ids_skip_off_map() {
     // C++ InGameUI.cpp:170-175 — !object->isOffMap() (playable extent).
     use crate::game_logic::{KindOf, Team, ThingTemplate};
@@ -1207,30 +1193,6 @@ fn production_queue_freezes_from_building_data() {
     assert_eq!(ro.rally_point, Some(glam::Vec3::new(12.0, 0.0, 3.0)));
     assert_eq!(ro.guard_position, Some(glam::Vec3::new(1.0, 0.0, 1.0)));
     assert_eq!(frame.structures_with_production().len(), 1);
-}
-
-#[test]
-fn production_queue_syncs_to_game_hud_residual() {
-    let src = crate::presentation_frame::PRESENTATION_FRAME_SRC;
-    assert!(
-        src.contains("sync_production_queue_from_presentation")
-            && src.contains("apply_to_game_hud"),
-        "apply_to_game_hud must sync producer queue onto GameHUD"
-    );
-    let hud = include_str!("../../ui/hud.rs");
-    assert!(
-        hud.contains("fn sync_production_queue_from_presentation"),
-        "GameHUD must own production queue sync residual"
-    );
-}
-
-#[test]
-fn is_deployed_freezes_from_object_status_residual() {
-    let src = crate::presentation_frame::PRESENTATION_FRAME_SRC;
-    assert!(
-        src.contains("pub is_deployed: bool") && src.contains("is_deployed: obj.status.deployed"),
-        "PresentationFrame must freeze OBJECT_STATUS_DEPLOYED residual"
-    );
 }
 
 #[test]

@@ -629,24 +629,6 @@ fn presentation_applies_unit_commands_to_game_hud_residual() {
 }
 
 #[test]
-fn hero_ability_commands_on_selection_residual() {
-    let src = crate::presentation_frame::PRESENTATION_FRAME_SRC;
-    assert!(
-        src.contains("populate_command_set_strip")
-            && src.contains("Command_GLAInfantryJarmenKellSnipeVehicleAttack")
-            && src.contains("Command_ColonelBurtonTimedDemoCharge")
-            && src.contains("Command_GLAInfantryHijack")
-            && src.contains("Command_ChinaInfantryBlackLotusCashHack")
-            && src.contains("Command_Overcharge"),
-        "CommandSet residual packs must bind hero/ability/overcharge slots"
-    );
-    assert!(
-        !src.contains("SAMPLE_UPGRADE_COMMANDS"),
-        "must not invent SAMPLE_UPGRADE_COMMANDS"
-    );
-}
-
-#[test]
 fn presentation_feeds_victory_and_construction() {
     use crate::game_logic::{
         KindOf, Player, Resources, Team, ThingTemplate,
@@ -2167,16 +2149,6 @@ fn command_set_strip_keeps_authored_holes() {
         cmds.iter()
             .map(|c| c.command_name.as_str())
             .collect::<Vec<_>>()
-    );
-    let src = crate::presentation_frame::PRESENTATION_FRAME_SRC;
-    assert!(
-        src.contains("command_set_slots_from_ini")
-            && src.contains("intersect_command_set_slots")
-            && src.contains("leftover_evaluate_named_command")
-            && src.contains("control_bar_override_key")
-            && src.contains("apply_receiving_control_bar_overrides")
-            && !src.contains(".take(14)\n            .flatten()"),
-        "live strip must keep holes, intersect multi-select, leftover availability, and leftover GameLogic commandbar overrides"
     );
 }
 

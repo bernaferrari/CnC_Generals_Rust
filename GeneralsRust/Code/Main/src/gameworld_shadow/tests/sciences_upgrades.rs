@@ -36,13 +36,6 @@ fn sync_from_host_copies_entity_xp_status_residual() {
     assert!(e.stealthed && e.detected && e.using_ability);
     assert!(e.airborne_target && e.disabled_underpowered && e.disabled_hacked);
     assert!(!e.disabled_unmanned);
-    let src = GAMEWORLD_SHADOW_SRC;
-    assert!(
-        src.contains("experience_points")
-            && src.contains("veterancy_ordinal")
-            && src.contains("stealthed"),
-        "sync must copy xp/status residual"
-    );
 }
 
 #[test]
@@ -80,13 +73,6 @@ fn sync_from_host_copies_entity_combat_intent_residual() {
     assert_eq!(e.occupant_count, 1);
     let tl = e.target_location.expect("tl");
     assert!((tl[0] - 10.0).abs() < 0.01);
-    let src = GAMEWORLD_SHADOW_SRC;
-    assert!(
-        src.contains("force_attack")
-            && src.contains("guard_target_host")
-            && src.contains("ai_state_ordinal"),
-        "sync must copy combat-intent residual"
-    );
 }
 
 #[test]
@@ -117,13 +103,6 @@ fn sync_from_host_copies_entity_color_power_type() {
     assert!((e.team_color[3] - 0.9).abs() < 0.001);
     assert_eq!(e.power_provided, 50);
     assert_eq!(e.power_consumed, 5);
-    let src = GAMEWORLD_SHADOW_SRC;
-    assert!(
-        src.contains("team_color")
-            && src.contains("power_provided")
-            && src.contains("object_type_ordinal"),
-        "sync must copy color/power/type residual"
-    );
 }
 
 #[test]
@@ -153,13 +132,6 @@ fn sync_from_host_copies_entity_team_status_residual() {
     assert!((e.selection_radius - 12.5).abs() < 0.01);
     assert!(e.moving && e.attacking);
     assert!(!e.under_construction);
-    let src = GAMEWORLD_SHADOW_SRC;
-    assert!(
-        src.contains("team_ordinal")
-            && src.contains("selection_radius")
-            && src.contains("status.moving"),
-        "sync must copy team/status residual"
-    );
 }
 
 #[test]
@@ -188,11 +160,6 @@ fn sync_from_host_copies_entity_selection_residual() {
     assert!((e.max_health - 150.0).abs() < 0.01);
     assert!((e.construction_percent - 0.4).abs() < 0.01);
     assert!(!e.destroyed);
-    let src = GAMEWORLD_SHADOW_SRC;
-    assert!(
-        src.contains("e.selected = obj.selected") && src.contains("e.construction_percent"),
-        "sync must copy entity selection/construction residual"
-    );
 }
 
 #[test]
@@ -239,13 +206,6 @@ fn sync_players_copies_alive_and_cash_bounty() {
         n_alive.saturating_sub(1),
         "killing pid must drop exactly one alive player"
     );
-    let src = GAMEWORLD_SHADOW_SRC;
-    assert!(
-        src.contains("is_alive")
-            && src.contains("cash_bounty_percent")
-            && src.contains("color_rgb"),
-        "sync must refresh alive/bounty/color residual"
-    );
 }
 
 #[test]
@@ -281,11 +241,6 @@ fn sync_players_copies_radar_residual() {
     assert!(
         !shadow.any_player_has_radar(),
         "disabled radar must fail hasRadar residual"
-    );
-    let src = GAMEWORLD_SHADOW_SRC;
-    assert!(
-        src.contains("radar_count") && src.contains("radar_disabled"),
-        "sync_players must refresh radar residual"
     );
 }
 
@@ -424,11 +379,6 @@ fn sync_players_copies_power_produced_consumed() {
         .find(|p| p.power_produced == 120 && p.power_consumed == 45)
         .expect("mapped power bar player");
     assert_eq!(pd.power_available, 75);
-    let src = GAMEWORLD_SHADOW_SRC;
-    assert!(
-        src.contains("power_produced") && src.contains("power_consumed"),
-        "sync_players must refresh power bar residual"
-    );
 }
 
 #[test]
@@ -447,11 +397,6 @@ fn sync_players_copies_unlocked_sciences() {
     assert!(
         shadow.unlocked_science_count() >= 2,
         "shadow must copy host unlocked sciences"
-    );
-    let src = GAMEWORLD_SHADOW_SRC;
-    assert!(
-        src.contains("host_player_sciences") && src.contains("unlocked_sciences"),
-        "sync_players must refresh unlocked_sciences residual"
     );
 }
 

@@ -5,7 +5,7 @@
 use super::host::HostSession;
 use super::imports::*;
 
-pub(super) fn evaluate_selection_honesty(host: &HostSession) -> (bool, bool) {
+pub(super) fn evaluate_selection(host: &HostSession) -> (bool, bool) {
     let select_id = host.select_id;
     let hud = &host.hud;
     let pres = &host.pres;

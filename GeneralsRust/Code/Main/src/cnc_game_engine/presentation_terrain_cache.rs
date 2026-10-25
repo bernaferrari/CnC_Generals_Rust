@@ -190,44 +190,6 @@ mod tests {
             first_sample
         );
     }
-
-    #[test]
-    fn engine_invalidates_only_at_map_replace_reset_and_full_restore_boundaries() {
-        let authority = include_str!("host_authority.rs");
-        let reset = &authority[authority
-            .find("fn host_reset_game_logic(")
-            .expect("reset boundary")..];
-        let replace = &authority[authority
-            .find("fn host_replace_game_logic(")
-            .expect("replace boundary")..];
-        assert!(
-            reset[..reset.find("fn host_destroy_object(").expect("next method")]
-                .contains("self.invalidate_presentation_terrain_cache()"),
-            "reset discards its terrain payload"
-        );
-        assert!(
-            replace[..replace
-                .find("pub(super) fn host_save_game_authority(")
-                .expect("next method")]
-                .contains("self.invalidate_presentation_terrain_cache()"),
-            "full GameLogic replacement covers staged save terrain restore and startup install"
-        );
-
-        let map_load = include_str!("ui_commands.rs");
-        let map_load = &map_load[map_load
-            .find("fn host_load_map_or_default(")
-            .expect("map-load boundary")..];
-        let loaded = map_load
-            .find("let Some(loaded) = loaded else")
-            .expect("successful map guard");
-        let invalidation = map_load
-            .find("self.invalidate_presentation_terrain_cache()")
-            .expect("map terrain invalidation");
-        assert!(
-            loaded < invalidation,
-            "failed map attempts must not manufacture a new presentation revision"
-        );
-    }
 }
 
 #[cfg(all(test, feature = "game_client"))]

@@ -7,12 +7,8 @@ pub use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
 pub use crate::ui::GameHUD;
 pub use glam::Vec3;
 
-mod aiplayer;
 mod dual_tick;
-mod host_smoke;
-mod playable_claim;
-mod presentation_path;
-mod presentation_shell;
-mod render_stubs;
+
 mod transform_health;
-mod victory;
+
+mod session;

@@ -26,7 +26,7 @@
 //! - Range residual: AttackRange **5**, ClipSize **1**, AutoReloadsClip **No**
 //!
 //! Fail-closed honesty:
-//! - Not full C++ WeaponSet CARBOMB chooser / model condition icon matrix
+//! - CARBOMB fixed query uses source SparseMatchFinder scoring; model/icon matrix remains separate
 //! - Not full HijackerUpdate hide-in-partition / eject-pilot re-spawn path
 //! - Not full SuicideCarBomb secondary radius / NOT_SIMILAR ally filtering
 //! - Not full radar re-add / EVA vehicle-stolen / script name transfer
@@ -251,86 +251,60 @@ pub fn car_bomb_range_ok(distance: f32) -> bool {
     distance <= SUICIDE_CAR_BOMB_ATTACK_RANGE
 }
 
-/// Object INI `KindOf` token on the live asset catalog (no ThingFactory load).
-pub fn object_definition_has_kind(template_name: &str, token: &str) -> bool {
-    let Some(manager) = crate::assets::get_asset_manager() else {
-        return false;
-    };
-    let Ok(guard) = manager.lock() else {
-        return false;
-    };
-    let Some(definition) = guard.get_object_definition(template_name) else {
-        return false;
-    };
-    definition
-        .attributes
-        .get("KindOf")
-        .into_iter()
-        .flat_map(|raw| raw.split(|c: char| c.is_ascii_whitespace() || matches!(c, ',' | '|')))
-        .any(|candidate| candidate.eq_ignore_ascii_case(token))
-}
-
-/// C++ `ThingTemplate::findWeaponTemplateSet(WEAPONSET_CARBOMB)` then
-/// `testWeaponSetFlag(WEAPONSET_CARBOMB)`. Best-match without a CARBOMB row
-/// is the default set, which must reject.
-///
-/// Unit tests run without a loaded asset catalog, so a test may register the
-/// retail weapon-set evidence for a template name first (same seeding
-/// pattern as the weapon_bootstrap store); the live INI read stays
-/// authoritative when the catalog is present.
-pub fn template_has_carbomb_weapon_set(template_name: &str) -> bool {
-    #[cfg(test)]
-    {
-        let names = TEST_CARBOMB_WEAPON_SET_TEMPLATES.lock().ok();
-        if names.is_some_and(|names| {
-            names
-                .iter()
-                .any(|name| name.eq_ignore_ascii_case(template_name))
-        }) {
-            return true;
+/// ThingTemplate.cpp1347 / SparseMatchFinder.h99-147: select the best source
+/// flag set first, then test CARBOMB on that chosen set. No active catalog.
+pub(crate) fn definition_has_carbomb_weapon_set(
+    definition: &crate::assets::ObjectDefinition,
+) -> bool {
+    let mut best = None;
+    let mut best_matches = 0usize;
+    let mut best_extra = 999usize;
+    for set in &definition.weapon_sets {
+        let flags = set
+            .conditions
+            .iter()
+            .flat_map(|condition| {
+                condition.split(|c: char| c.is_ascii_whitespace() || matches!(c, ',' | '|'))
+            })
+            .map(|token| {
+                let token = token.to_ascii_uppercase();
+                let token = token.strip_prefix("WEAPONSET_").unwrap_or(&token);
+                if token == "CAR_BOMB" {
+                    "CARBOMB".to_owned()
+                } else {
+                    token.to_owned()
+                }
+            })
+            .filter(|token| !token.is_empty() && token != "NONE")
+            .collect::<std::collections::HashSet<_>>();
+        let matches = usize::from(flags.contains("CARBOMB"));
+        let extra = flags.len() - matches;
+        if matches > best_matches || matches >= best_matches && extra < best_extra {
+            best = Some(flags);
+            best_matches = matches;
+            best_extra = extra;
         }
     }
-    let Some(manager) = crate::assets::get_asset_manager() else {
-        return false;
-    };
-    let Ok(guard) = manager.lock() else {
-        return false;
-    };
-    let Some(definition) = guard.get_object_definition(template_name) else {
-        return false;
-    };
-    definition.weapon_sets.iter().any(weapon_set_is_carbomb)
+    best.is_some_and(|flags| flags.contains("CARBOMB"))
 }
-
-/// Test-registerable retail weapon-set evidence, keyed by template name.
-#[cfg(test)]
-static TEST_CARBOMB_WEAPON_SET_TEMPLATES: std::sync::LazyLock<std::sync::Mutex<Vec<String>>> =
-    std::sync::LazyLock::new(|| std::sync::Mutex::new(Vec::new()));
-
-/// Seed retail `WEAPONSET_CARBOMB` evidence for a template in tests that run
-/// without the extracted retail INI catalog.
-#[cfg(test)]
-pub fn register_test_carbomb_weapon_set(template_name: &str) {
-    let Ok(mut names) = TEST_CARBOMB_WEAPON_SET_TEMPLATES.lock() else {
-        return;
-    };
-    if !names
-        .iter()
-        .any(|name| name.eq_ignore_ascii_case(template_name))
-    {
-        names.push(template_name.to_string());
+impl crate::game_logic::Object {
+    pub(crate) fn authors_carbomb_weapon_set(&self) -> bool {
+        self.get_template()
+            .receiving_object_definition
+            .as_deref()
+            .is_some_and(definition_has_carbomb_weapon_set)
     }
-}
-
-fn weapon_set_is_carbomb(set: &crate::assets::WeaponSetDefinition) -> bool {
-    set.conditions.iter().any(|condition| {
-        condition
-            .split(|c: char| c.is_ascii_whitespace() || matches!(c, ',' | '|'))
-            .any(|token| {
-                let token = token.trim().trim_start_matches("WEAPONSET_");
-                token.eq_ignore_ascii_case("CARBOMB") || token.eq_ignore_ascii_case("CAR_BOMB")
+    pub(crate) fn has_authored_railroad_behavior(&self) -> bool {
+        self.get_template()
+            .receiving_object_definition
+            .as_deref()
+            .is_some_and(|definition| {
+                definition
+                    .behavior_modules
+                    .iter()
+                    .any(|module| module.class_name.eq_ignore_ascii_case("RailroadBehavior"))
             })
-    })
+    }
 }
 
 /// C++ `ConvertToHijackedVehicleCrateCollide::isValidToExecute` extra gates
@@ -346,20 +320,16 @@ pub fn hijack_target_rejected(target: &crate::game_logic::Object) -> bool {
     if target.is_kind_of(KindOf::Aircraft) || target.status.airborne_target {
         return true;
     }
-    if target.is_kind_of(KindOf::Boat) || object_definition_has_kind(&target.template_name, "BOAT")
-    {
+    if target.is_kind_of(KindOf::Boat) {
         return true;
     }
-    if target.is_kind_of(KindOf::Drone)
-        || object_definition_has_kind(&target.template_name, "DRONE")
-    {
+    if target.is_kind_of(KindOf::Drone) {
         return true;
     }
     if target.status.hijacked {
         return true;
     }
     let transport = target.is_kind_of(KindOf::Transport)
-        || object_definition_has_kind(&target.template_name, "TRANSPORT")
         || (target.can_contain() && !target.is_kind_of(KindOf::Structure));
     if transport && target.transport_count() > 0 {
         return true;
@@ -376,14 +346,13 @@ pub fn carbomb_target_rejected(target: &crate::game_logic::Object) -> bool {
     if target.is_kind_of(KindOf::Aircraft) || target.status.airborne_target {
         return true;
     }
-    if target.is_kind_of(KindOf::Boat) || object_definition_has_kind(&target.template_name, "BOAT")
-    {
+    if target.is_kind_of(KindOf::Boat) {
         return true;
     }
     if target.status.is_carbomb || target.weapon_set_carbomb {
         return true;
     }
-    !template_has_carbomb_weapon_set(&target.template_name)
+    !target.authors_carbomb_weapon_set()
 }
 
 /// Authored CRATEUPGRADE primary weapon for salvage weapon-set swap.
@@ -535,3 +504,7 @@ mod tests {
         assert!(!CAR_BOMB_CONVERT_FX_LIST.eq_ignore_ascii_case(CAR_BOMB_CONVERT_FX_SOUND));
     }
 }
+
+#[cfg(test)]
+#[path = "host_car_bomb_owner_tests.rs"]
+mod owner_tests;

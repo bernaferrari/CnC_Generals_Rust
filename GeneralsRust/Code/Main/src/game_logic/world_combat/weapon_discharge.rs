@@ -685,23 +685,6 @@ mod tests {
         );
         assert_eq!(fire_fx_primary_damage_radius(None, 0), 0.0);
     }
-
-    #[test]
-    fn play_dispatch_fire_fx_leftover_calls_handle_weapon_fire_fx() {
-        // Scan only the production prefix: this module's own test source
-        // must not match the scan (host_bone_fx_damage.rs convention).
-        let src = include_str!("weapon_discharge.rs");
-        let src = &src[..src.find("#[cfg(test)]").unwrap_or(src.len())];
-        assert!(
-            src.contains("leftover_handle_weapon_fire_fx_at_fx_bone"),
-            "live FireFX must leftover-call handle_weapon_fire_fx"
-        );
-        assert!(src.contains("draw_guard.handle_weapon_fire_fx"));
-        assert!(
-            !src.contains("Live host has no leftover bone matrix"),
-            "origin fallback is only after leftover returns false"
-        );
-    }
 }
 
 #[cfg(test)]

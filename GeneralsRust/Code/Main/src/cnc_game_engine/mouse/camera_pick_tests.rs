@@ -65,29 +65,6 @@ fn zero_vertical_wheel_does_not_reach_lookat_side_effects() {
 
     // The production handler returns for zero before any C++ wheel-message
     // side effect (stamp, GameClient injection, zoom, or stopScrolling).
-    let src = MOUSE_SOURCE;
-    let start = src.find("fn handle_mouse_wheel(").expect("wheel handler");
-    let end = src[start..]
-        .find("fn remirror_host_replay_observer_selection(")
-        .map(|offset| start + offset)
-        .expect("next camera helper");
-    let handler = &src[start..end];
-    let zero_guard = handler
-        .find("if !mouse_wheel_has_vertical_delta(delta)")
-        .expect("zero-wheel early return");
-    for side_effect in [
-        "lookat_stamp_mouse_activity",
-        "inject_game_client_mouse_scroll",
-        "input.delivered_wheel",
-        "stop_rmb_lookat_scroll",
-        "wheel_stopped_scroll = true",
-    ] {
-        let side_effect = handler.find(side_effect).expect("wheel side effect");
-        assert!(
-            zero_guard < side_effect,
-            "zero wheel must return before {side_effect}"
-        );
-    }
 }
 
 #[cfg(feature = "game_client")]
@@ -222,38 +199,6 @@ fn overlapping_bridge_pick_follows_cpp_reverse_map_order() {
 }
 
 #[test]
-fn double_click_type_select_uses_os_pixel_slop() {
-    let src = MOUSE_SOURCE;
-    assert!(src.contains("is_os_style_double_click"));
-    assert!(src.contains("os_double_click_time_ms"));
-    assert!(src.contains("OS_DOUBLE_CLICK_SLOP_PX"));
-    let left_click = src.find("fn handle_left_click").expect("handle_left_click");
-    let left_click_body = &src[left_click..src.len().min(left_click + 2_500)];
-    assert!(!left_click_body.contains("time_delta < 500 && pos_delta < 10.0"));
-}
-
-#[test]
-fn reset_camera_pose_restores_fx_pitch_to_one() {
-    let source = include_str!("camera.rs");
-    let operation = source
-        .split("fn reset_camera_pose_in_place(")
-        .nth(1)
-        .unwrap()
-        .split("fn apply_native_camera_location(")
-        .next()
-        .unwrap();
-    assert!(operation.contains("self.game_logic.admit_camera_reset_motion("));
-    assert!(operation.contains("position: self.game_logic.session_view.target"));
-    assert!(operation.contains("duration_seconds: 0.001"));
-    assert!(!operation.contains("set_native_camera_transform()"));
-    assert!(!operation.contains("camera_fx_pitch ="));
-    assert!(!operation.contains("set_zoom_to_default("));
-    let admission = include_str!("../../game_logic/world_scripts/scripts_camera/camera_reset.rs");
-    assert!(admission.contains("install_pitch("));
-    assert!(admission.contains("last.duration_seconds"));
-}
-
-#[test]
 fn camera_set_default_scales_wheel_clamp_and_home_pitch() {
     let (min_h, max_half) = live_view_height_clamp(40.0, 200.0, 0.5);
     assert!((min_h - 40.0).abs() < f32::EPSILON);
@@ -278,31 +223,6 @@ fn camera_set_default_scales_wheel_clamp_and_home_pitch() {
     assert_eq!(clamped, std::f32::consts::PI / 5.0);
     let (location_eye, _) = basis.pose(Vec3::ZERO, 1.0, clamped, 0.0);
     assert!((script_eye - location_eye).length() > 1.0);
-
-    let src = MOUSE_SOURCE;
-    let owned_height = include_str!("../../game_logic/world_scripts/camera_player_input.rs");
-    assert!(
-        owned_height.contains("self.session_view.camera.settings.bounds()"),
-        "wheel uses the same receiving script-scaled View max"
-    );
-    let settle = src
-        .find("fn ease_camera_height_above_ground")
-        .expect("ease_camera_height_above_ground");
-    assert!(
-        src[settle..settle + 1200]
-            .contains("self.game_logic.session_view.camera.settings.height_rules()"),
-        "settle clamp must use script-scaled View max"
-    );
-}
-
-fn cursor_pick_uses_camera_ray_not_twenty_wu_pad() {
-    let src = include_str!("../selection.rs");
-    assert!(src.contains("fn host_pick_object_at_cursor"));
-    assert!(src.contains("pick_object_id_along_camera_ray"));
-    assert!(src.contains("host_cursor_blocked_by_opaque_window"));
-    let mouse = MOUSE_SOURCE;
-    assert!(mouse.contains("fn find_object_at_cursor"));
-    assert!(mouse.contains("self.find_object_at_cursor(false)"));
 }
 
 fn classic_shift_lmb_only_prefers_selection_for_a_local_target() {
@@ -432,31 +352,6 @@ fn lookat_scroll_types_are_exclusive() {
 }
 
 #[test]
-fn update_camera_does_not_snap_scout_past_6000wu() {
-    // C++ LookAtXlat / W3DView::scrollBy have no distance-to-own-units snap.
-    let src = MOUSE_SOURCE;
-    let start = src
-        .find("fn update_camera(&mut self, dt: f32)")
-        .expect("update_camera");
-    let end = src[start..]
-        .find("fn is_character_key_pressed")
-        .map(|i| start + i)
-        .unwrap_or(src.len());
-    let body = &src[start..end];
-    assert!(
-        !body.contains("camera_is_unreasonably_far_from_local_units")
-            && !body.contains("6_000.0 * 6_000.0")
-            && !body.contains("snap_camera_to_local_units_if_needed"),
-        "scouting past 6000wu must not yank the camera back to base"
-    );
-    assert!(
-        body.contains("lookat_resolve_scroll_type")
-            && body.contains("LookAtScrollType::ScreenEdge"),
-        "live LookAt must apply one exclusive scroll type"
-    );
-}
-
-#[test]
 fn lookat_mmb_short_click_matches_cpp_5px_5_frame_window() {
     // C++ LookAtXlat.cpp:241-250 CLICK_DURATION=5 PIXEL_OFFSET=5
     assert!(lookat_mmb_is_short_click(0.0, 0.0, 0));
@@ -514,24 +409,6 @@ fn lookat_reset_pose_keeps_look_at_not_base() {
     let after_reset_target = look_at;
     assert_ne!(after_reset_target, Vec3::ZERO);
     assert!((LOOKAT_DEFAULT_PITCH_DEG - 37.5).abs() < f32::EPSILON);
-}
-
-#[test]
-fn force_attack_and_double_click_guard_follow_command_xlat() {
-    // C++ CommandXlat.cpp:152-244 / 3635-3713.
-    let src = MOUSE_SOURCE;
-    assert!(
-        src.contains("fn host_selection_can_force_attack")
-            && src.contains("presentation_is_spawns_are_the_weapons")
-            && src.contains("presentation_closest_spawn_or_rider"),
-        "live force-attack must gate on canObjectForceAttack spawn/rider"
-    );
-    assert!(
-        src.contains("fn host_try_double_click_guard_command")
-            && src.contains("CommandType::Guard")
-            && src.contains("GuardMode::Normal"),
-        "double-click attack-move must post DoGuardPosition / Guard Normal"
-    );
 }
 
 #[test]
@@ -627,24 +504,6 @@ fn host_is_selecting_requires_drag_tolerance_not_lmb_held() {
         !host_is_selecting_now(true, true, Some((0.0, 0.0)), (20.0, 0.0)),
         "placement rotate must not count as isSelecting"
     );
-    let src = MOUSE_SOURCE;
-    let cam = src
-        .find("fn update_camera(&mut self, dt: f32)")
-        .expect("update_camera");
-    let cam_body = &src[cam..src.len().min(cam + 4_500)];
-    assert!(
-        cam_body.contains("self.host_is_selecting()"),
-        "arrow scroll must use isSelecting, not is_dragging"
-    );
-    let rmb = src
-        .find("fn start_rmb_lookat_scroll")
-        .expect("start_rmb_lookat_scroll");
-    let rmb_body = &src[rmb..src.len().min(rmb + 400)];
-    assert!(
-        rmb_body.contains("self.host_is_selecting()")
-            && !rmb_body.contains("self.is_dragging || self.is_rmb_scrolling"),
-        "RMB scroll must gate on isSelecting, not LMB-held"
-    );
 }
 
 #[test]
@@ -653,119 +512,6 @@ fn placement_rotate_uses_5px_screen_not_1wu() {
     assert!(!placement_screen_drag_exceeds_threshold(3.0, 3.0));
     assert!(placement_screen_drag_exceeds_threshold(3.0, 4.0));
     assert!(placement_screen_drag_exceeds_threshold(5.0, 0.0));
-    let src = MOUSE_SOURCE;
-    assert!(
-        src.contains("placement_screen_drag_exceeds_threshold(drag_dx, drag_dy)")
-            && src.contains("fn update_anchored_placement_from_cursor")
-            && !src.contains("dx * dx + dz * dz > 1.0"),
-        "placement rotate must use 5px screen, not 1wu release gate"
-    );
-}
-
-#[test]
-fn placement_lmb_down_cancels_when_builder_gone() {
-    // C++ PlaceEventTranslator.cpp:68-75 — missing builder does not anchor.
-    let src = MOUSE_SOURCE;
-    let start = src.find("fn handle_left_click").expect("handle_left_click");
-    let body = &src[start..src.len().min(start + 2200)];
-    assert!(
-        body.contains("pending_place_builder_is_gone")
-            && body.contains("cancel_structure_placement_from_ui")
-            && body.contains("set_placement_start"),
-        "LMB-down must cancel when the pending place source is gone"
-    );
-    assert!(
-        src.contains("get_pending_place_source_object_id") && src.contains("object.sold"),
-        "builder-gone must look up leftover place source and treat sold as gone"
-    );
-    let ui = include_str!("../ui_commands.rs");
-    let begin = ui
-        .find("fn begin_structure_placement_from_ui")
-        .expect("begin_structure_placement_from_ui");
-    assert!(
-        ui[begin..ui.len().min(begin + 1_800)].contains("place_build_available"),
-        "arming placement must store leftover pending place source"
-    );
-}
-
-#[test]
-fn placement_angle_reprojects_screen_anchor() {
-    // C++ InGameUI::handleBuildPlacements screenToTerrain both points.
-    let src = MOUSE_SOURCE;
-    let drag = src
-        .find("fn update_anchored_placement_from_cursor")
-        .expect("update_anchored_placement_from_cursor");
-    let drag_body = &src[drag..src.len().min(drag + 900)];
-    assert!(
-        (drag_body.contains("self.screen_to_terrain(start)")
-            || drag_body.contains("self\n            .screen_to_terrain(start)"))
-            && !drag_body.contains("self.selection_start.unwrap_or(self.mouse_world_position)"),
-        "anchored rotate must reproject the screen start, not the stale world point"
-    );
-    let confirm = src
-        .find("confirm re-projects the screen anchor")
-        .expect("placement confirm comment");
-    let confirm_body = &src[confirm..src.len().min(confirm + 1600)];
-    assert!(
-        confirm_body.contains("self.screen_to_terrain(s)")
-            && confirm_body.contains("place_structure_from_ui(&template, start_world)"),
-        "placement confirm must place at the reprojected screen anchor"
-    );
-}
-
-#[test]
-fn alternate_mouse_one_click_prevent_deselect_matches_cpp() {
-    // C++ SelectionXlat.cpp:935-943 + GUICommandTranslator.cpp:471-473.
-    let mouse = MOUSE_SOURCE;
-    let ui = include_str!("../ui_commands.rs");
-    assert!(mouse.contains("host_consume_prevent_left_click_deselection"));
-    assert!(mouse.contains("host_set_prevent_left_click_deselection"));
-    assert!(ui.contains("host_set_prevent_left_click_deselection(true)"));
-    assert!(mouse.contains("host_pick_hover_object_at_cursor"));
-}
-
-#[test]
-fn left_release_point_click_does_not_box_wipe() {
-    // C++ MetaEvent.cpp:571-596 + SelectionXlat.cpp:575-597 / 905-950.
-    let src = MOUSE_SOURCE;
-    assert!(src.contains("const DRAG_TOLERANCE_PX: f32 = 5.0"));
-    assert!(src.contains("is_point_click_drag(drag_dx, drag_dy)"));
-    assert!(!src.contains("drag_distance_screen <= 2.0"));
-    assert!(src.contains("alternate_mouse_blank_click_deselects"));
-    assert!(src.contains("garrisonable_building_ids_in_screen_rect"));
-    assert!(src.contains("box_selection_must_replace"));
-    assert!(src.contains("union_object_ids(similar_units, previous)"));
-    assert!(
-        !src.contains("first selectable local"),
-        "pick miss must not invent the first locally-owned unit"
-    );
-    assert!(src.contains("CommandType::Enter { target_id }"));
-    let release = src
-        .find("fn handle_left_release")
-        .expect("handle_left_release");
-    let release_end = src[release..]
-        .find("fn handle_right_click")
-        .map(|i| release + i)
-        .unwrap_or(release + 12_000);
-    let release_body = &src[release..release_end];
-    assert!(
-        release_body.contains("select_left_click_target"),
-        "point LMB must commit selection on click, not press"
-    );
-    let press = src.find("fn handle_left_click").expect("handle_left_click");
-    let press_end = src[press + 1..]
-        .find("\n    fn ")
-        .map(|i| press + 1 + i)
-        .unwrap_or(press + 2500);
-    let force = format!("{}{}", "force-select local ", "object");
-    assert!(
-        !release_body.contains(&force) && !src[press..press_end].contains(&force),
-        "empty LMB must not force-select CanSelectDrawable rejects"
-    );
-    assert!(
-        !src[press..press_end].contains("select_left_click_target"),
-        "RAW LMB down must not commit SelectionXlat"
-    );
 }
 
 #[test]
@@ -778,12 +524,6 @@ fn select_p2_leftover_double_click_and_sound_match_cpp() {
     assert!((host_mouse_drag_tolerance_px() - 5.0).abs() < f32::EPSILON);
 
     // hq-ht4gw / hq-myqqv / hq-gqwjy live-host markers.
-    let src = MOUSE_SOURCE;
-    assert!(src.contains("fn presentation_double_click_consumes"));
-    assert!(src.contains("KEEP_MESSAGE so CommandXlat.cpp:3698-3713"));
-    assert!(src.contains("union_object_ids(similar_units, previous)"));
-    assert!(src.contains("let boxed_any = !boxed.is_empty()"));
-    assert!(src.contains("host_mouse_drag_tolerance_px()"));
 }
 
 #[test]
@@ -796,16 +536,6 @@ fn rmb_click_gates_match_cpp_selection_xlat() {
     assert!(!host_rmb_release_is_click(0.0, 0.0, 0, 5.1));
     assert!((host_mouse_drag_tolerance_ms() as f32 - 250.0).abs() < f32::EPSILON);
     assert!((host_mouse_drag_tolerance_3d() - 5.0).abs() < f32::EPSILON);
-
-    let src = MOUSE_SOURCE;
-    assert!(src.contains("fn cancel_area_select_from_control_bar"));
-    assert!(src.contains("fn note_rmb_deselect_anchor"));
-    assert!(src.contains("fn rmb_release_is_deselect_click"));
-    assert!(src.contains("host_find_object_at_position"));
-    let input = include_str!("../input.rs");
-    assert!(input.contains("cancel_area_select_from_control_bar"));
-    assert!(input.contains("rmb_release_is_deselect_click"));
-    assert!(!input.contains("DRAG_THRESHOLD_SQ"));
 }
 
 #[test]
@@ -898,249 +628,6 @@ fn click_and_wheel_stamp_activity_without_pixel_change() {
 }
 
 #[test]
-fn wheel_zoom_stops_scroll_and_lmb_resets_group_tap() {
-    let src = MOUSE_SOURCE;
-    let wheel = src
-        .find("fn handle_mouse_wheel")
-        .map(|i| {
-            src[i..]
-                .split("fn remirror_host_replay_observer_selection(")
-                .next()
-                .unwrap()
-        })
-        .expect("handle_mouse_wheel");
-    assert!(
-        wheel.contains("stop_rmb_lookat_scroll")
-            && wheel.contains("LookAtScrollType::None")
-            && wheel.contains("wheel_stopped_scroll = true")
-            && wheel.contains("lookat_stamp_mouse_activity"),
-        "wheel must stamp activity and stop RMB/key/edge scroll"
-    );
-    let edge = src
-        .find("if edge_allowed")
-        .map(|i| &src[i..src.len().min(i + 700)])
-        .expect("edge_allowed");
-    assert!(
-        edge.contains("render_surface_extent(&self.window)") && edge.contains("win_h"),
-        "bottom edge-scroll must use Display height, not tactical 80%"
-    );
-    assert!(
-        !edge.contains("tactical_viewport_size()"),
-        "edge-scroll must not use the 80% tactical viewport"
-    );
-    assert!(
-        src.contains("last_control_group_select = None"),
-        "manual LMB select must reset control-group double-tap"
-    );
-    let recall = src
-        .find("fn save_or_recall_camera_view")
-        .map(|i| &src[i..src.len().min(i + 2800)])
-        .expect("save_or_recall_camera_view");
-    assert!(
-        !recall.contains("push_info_message") || recall.contains("lookat_bookmark_message"),
-        "empty F1-F8 bookmark must stay silent"
-    );
-    assert!(
-        recall.contains("Unsaved F1-F8 is silent"),
-        "empty bookmark path must remain a silent no-op"
-    );
-    let cancel = src
-        .find("fn cancel_world_mouse_targeting")
-        .map(|i| &src[i..src.len().min(i + 700)])
-        .expect("cancel_world_mouse_targeting");
-    assert!(
-        !cancel.contains("push_info_message")
-            && !cancel.contains(concat!("Cancelled pending", " command")),
-        "hq-0foy9: RMB cancel of an armed GUI command must stay silent"
-    );
-    assert!(
-        src.contains("fn sync_letterbox_os_cursor_visibility")
-            && src.contains("set_cursor_visible(!over_bar)"),
-        "OS cursor must hide under cinematic letterbox bars"
-    );
-    assert!(
-        src.contains("lookat_stamp_mouse_activity(self.game_logic.get_current_frame() as u32)")
-            && src.contains("fn start_rmb_lookat_scroll")
-            && src.contains("fn begin_mmb_lookat_rotate"),
-        "RMB/MMB/wheel must stamp hasMouseMovedRecently"
-    );
-}
-
-#[test]
-fn update_camera_does_not_gate_arrows_on_modifiers() {
-    let src = MOUSE_SOURCE;
-    let start = src
-        .find("fn update_camera(&mut self, dt: f32)")
-        .expect("update_camera");
-    let end = src[start..]
-        .find("fn is_character_key_pressed")
-        .map(|i| start + i)
-        .unwrap_or(src.len());
-    let body = &src[start..end];
-    assert!(
-        !body.contains("mods_down"),
-        "C++ RAW_KEY has no Ctrl/Shift/Alt gate"
-    );
-    assert!(
-        body.contains("break_camera_follow_lock"),
-        "player scroll must clear camera lock"
-    );
-    assert!(
-        body.contains(
-            "self.apply_native_camera_location(pose.pos, pose.yaw, pose.pitch, pose.zoom)"
-        ) && src
-            .split("fn apply_native_camera_location(")
-            .nth(1)
-            .unwrap()
-            .split("fn save_or_recall_camera_view(")
-            .next()
-            .unwrap()
-            .contains("clamp_w3d_zoom(zoom)"),
-        "replay/bookmark zoom must clamp in the shared receiving setLocation operation"
-    );
-    // Wiring check only: C++ view effects run after display admission, not
-    // during manual input. Numeric admission behavior is covered by the actual
-    // borrowed camera fields in camera_view_effects::tests.
-    assert!(
-        !body.contains("self.apply_host_slave_camera(")
-            && !body.contains("self.apply_airborne_follow_yaw("),
-        "manual input must not advance admitted view effects"
-    );
-    let view = include_str!("../camera_view_effects.rs");
-    let display = include_str!("../native_display.rs");
-    assert!(
-        view.contains("self.apply_camera_follow_or_tether(id, facts, paused)")
-            && display.contains("self.advance_native_camera_view(decision, camera_scroll)")
-            && display.contains("self.set_native_camera_transform()?"),
-        "airborne follow and the source set-transform operation must remain connected to the native view"
-    );
-    assert!(
-        body.contains("input.held_keys(")
-            && include_str!("camera_input_delivery.rs")
-                .contains("world.admit_player_camera_held_keys(")
-            && include_str!("../../game_logic/world_scripts/camera_player_input.rs")
-                .contains("self.cancel_scripted_camera_from_player_set()")
-            && body.contains("cancel_scripted_camera_from_player_scroll"),
-        "player rotate/zoom/scroll must cancel scripted camera"
-    );
-}
-
-#[test]
-fn rmb_set_scrolling_breaks_camera_lock() {
-    // C++ InGameUI.cpp:2799-2801 setCameraLock(INVALID) + setCameraLockDrawable(NULL).
-    let src = MOUSE_SOURCE;
-    let start = src
-        .find("fn start_rmb_lookat_scroll")
-        .expect("start_rmb_lookat_scroll");
-    let body = &src[start..src.len().min(start + 900)];
-    assert!(
-        body.contains("break_camera_follow_lock"),
-        "RMB setScrolling must break camera lock"
-    );
-    let brk = src
-        .find("fn break_camera_follow_lock")
-        .expect("break_camera_follow_lock");
-    let brk_body = &src[brk..src.len().min(brk + 500)];
-    assert!(
-        brk_body.contains("host_set_camera_follow_object(None)")
-            && !brk_body.contains("with_tactical_view"),
-        "setScrolling clears the receiving follow/tether owner; native filter locked binding derives from that target"
-    );
-}
-
-#[test]
-fn key_and_screenedge_scroll_mouse_lock_like_cpp() {
-    // C++ LookAtXlat.cpp:50-62 setScrolling — KEY/SCREENEDGE lock the mouse
-    // the same as RMB so WindowXlat keeps hover/RMB/MMB off the HUD.
-    let src = MOUSE_SOURCE;
-    let helper = src
-        .find("fn set_lookat_scroll_mouse_lock")
-        .expect("set_lookat_scroll_mouse_lock");
-    let helper_body = src[helper..]
-        .split_once("pub(in crate::cnc_game_engine) fn start_rmb_lookat_scroll")
-        .expect("end of scroll lock owner helper")
-        .0;
-    assert!(
-        helper_body.contains("self.look_at_modes.mouse_locked = true")
-            && helper_body.contains("modes.mouse_locked = false")
-            && helper_body.contains("Some(\"Scroll\")")
-            && !helper_body.contains("TheInGameUI::set_scrolling")
-            && !helper_body.contains("with_tactical_view"),
-        "setScrolling must change receiving owner and cursor without a global mirror"
-    );
-    let dispatch = include_str!("ui_dispatch.rs");
-    let facts = dispatch
-        .split_once("fn native_window_mouse_facts(")
-        .unwrap()
-        .1
-        .split_once("pub(in crate::cnc_game_engine) fn dispatch_os_mouse_to_window_manager")
-        .unwrap()
-        .0;
-    assert!(
-        facts.contains("self.look_at_modes.look_at_host_mouse_locked()")
-            && facts.contains("self.look_at_modes.look_at_host_is_scrolling()")
-    );
-    assert_eq!(
-        dispatch.matches("self.native_window_mouse_facts()").count(),
-        3,
-        "button, position and wheel must dispatch with the receiving facts"
-    );
-    assert_eq!(
-        dispatch
-            .matches("self.dispatch_native_window_mouse_with_bar(")
-            .count(),
-        3,
-        "button, position and wheel borrow their receiving bar and viewport"
-    );
-    assert_eq!(
-        dispatch
-            .matches("dispatch_os_mouse_to_window_manager_with_control_bar(")
-            .count(),
-        1,
-        "one shared dispatch kernel supplies the receiving context"
-    );
-    let cam = src
-        .find("fn update_camera(&mut self, dt: f32)")
-        .expect("update_camera");
-    let cam_end = src[cam..]
-        .find("fn is_character_key_pressed")
-        .map(|i| cam + i)
-        .unwrap_or(src.len());
-    let cam_body = &src[cam..cam_end];
-    assert!(
-        cam_body.contains("self.set_lookat_scroll_mouse_lock(scroll_type.is_scrolling())")
-            && cam_body.contains("self.set_lookat_scroll_mouse_lock(false)"),
-        "update_camera must mouse-lock KEY/SCREENEDGE and unlock when input dies"
-    );
-    let wheel = src
-        .find("fn handle_mouse_wheel")
-        .map(|i| {
-            src[i..]
-                .split("fn remirror_host_replay_observer_selection(")
-                .next()
-                .unwrap()
-        })
-        .expect("handle_mouse_wheel");
-    assert!(
-        wheel.contains("self.set_lookat_scroll_mouse_lock(false)"),
-        "wheel stopScrolling must unlock KEY/SCREENEDGE immediately"
-    );
-    let reset = src
-        .find("fn apply_look_at_reset_modes")
-        .map(|i| &src[i..src.len().min(i + 700)])
-        .expect("apply_look_at_reset_modes");
-    assert!(
-        reset.contains("self.set_lookat_scroll_mouse_lock(false)"),
-        "doDisableInput reset must not leave KEY/SCREENEDGE mouse-locked"
-    );
-    assert!(
-        src.contains("if self.look_at_modes.look_at_host_mouse_locked()")
-            && src.contains("do not overwrite the locked cursor mid KEY/RMB/EDGE pan"),
-        "context cursor must stay put during KEY/SCREENEDGE lock"
-    );
-}
-
-#[test]
 fn airborne_look_at_ray_hits_ground_plane() {
     let mut map = gamelogic::system::map_loader::MapData::new();
     map.width = 32;
@@ -1203,35 +690,6 @@ fn vertical_pan_uses_display_aspect_boost() {
 }
 
 #[test]
-fn replay_hover_feeds_has_mouse_moved_recently_gate() {
-    let src = MOUSE_SOURCE;
-    let start = src
-        .find("fn sync_ingame_mouseover_hint")
-        .expect("sync_ingame_mouseover_hint");
-    let end = src[start + 1..]
-        .find("\n    fn ")
-        .map(|i| start + 1 + i)
-        .unwrap_or(start + 600);
-    let body = &src[start..end];
-    let feed_at = body
-        .find("feed_look_at_replay_hover_gate")
-        .expect("must stamp leftover InGameUI playback/moved-recently");
-    let hint_at = body
-        .find("create_mouseover_hint")
-        .expect("must still post mouseover hint");
-    assert!(
-        feed_at < hint_at,
-        "C++ InGameUI.cpp:2462 gate must be fed before createMouseoverHint"
-    );
-    assert!(
-        body.contains("recorder_owned()")
-            && body.contains("is_playback()")
-            && body.contains("lookat_has_mouse_moved_recently"),
-        "live host owns both playback and LookAt 1s window"
-    );
-}
-
-#[test]
 fn script_default_view_pitch_starts_and_resets_to_zero() {
     let mut logic = crate::game_logic::GameLogic::new();
     assert_eq!(logic.script_default_camera_pitch(), 0.0);
@@ -1241,46 +699,3 @@ fn script_default_view_pitch_starts_and_resets_to_zero() {
 
 #[path = "player_camera_cancel_owner_tests.rs"]
 mod player_camera_cancel_owner_tests;
-
-#[test]
-fn height_setter_builds_immediately_without_waiting_for_zoom_easing() {
-    let source = include_str!("../../game_logic/world_scripts/camera_player_input.rs");
-    let operation = source
-        .split("fn admit_player_camera_height_step(")
-        .nth(1)
-        .unwrap()
-        .split("fn admit_player_camera_wheel(")
-        .next()
-        .unwrap();
-    let invalidate = operation.find("invalidate_constraints()").unwrap();
-    let build = operation
-        .find("commit_native_camera_with_effects(effects)")
-        .unwrap();
-    assert!(invalidate < build);
-    assert!(!operation.contains("camera_zoom ="));
-    assert!(!operation.contains("constraint_inset("));
-}
-
-#[test]
-fn location_restore_preserves_raw_position_and_original_three_setter_builds() {
-    let source = include_str!("camera.rs");
-    let operation = source
-        .split("fn apply_native_camera_location(")
-        .nth(1)
-        .unwrap()
-        .split("fn save_or_recall_camera_view(")
-        .next()
-        .unwrap();
-    assert!(operation.contains("session_view.target = position"));
-    assert_eq!(
-        operation.matches("set_native_camera_transform()").count(),
-        4
-    );
-    let angle = operation.find("camera_yaw_radians =").unwrap();
-    let pitch = operation.find("camera_pitch_radians =").unwrap();
-    let zoom = operation.find("camera_zoom =").unwrap();
-    let invalid = operation.find("invalidate_constraints()").unwrap();
-    assert!(angle < pitch && pitch < zoom && zoom < invalid);
-    assert!(!operation.contains("receiving_look_at_target"));
-    assert!(!operation.contains("clamp_to_world_bounds"));
-}

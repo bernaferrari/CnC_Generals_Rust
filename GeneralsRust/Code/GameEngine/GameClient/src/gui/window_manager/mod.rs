@@ -423,25 +423,6 @@ impl Default for WindowManager {
 #[cfg(test)]
 mod tests;
 
-/// Concatenated live sources for residual `include_str!` scans.
-pub const WINDOW_MANAGER_SRC: &str = concat!(
-    include_str!("mod.rs"),
-    include_str!("create_destroy.rs"),
-    include_str!("draw.rs"),
-    include_str!("focus_tab.rs"),
-    include_str!("gadgets.rs"),
-    include_str!("hierarchy.rs"),
-    include_str!("input.rs"),
-    include_str!("layout.rs"),
-    include_str!("layout_load.rs"),
-    include_str!("messages.rs"),
-    include_str!("modal.rs"),
-    include_str!("reentry.rs"),
-    include_str!("script_callbacks.rs"),
-    include_str!("types.rs"),
-    include_str!("wnd_parse.rs"),
-);
-
 #[cfg(test)]
 mod control_bar_dispatch_tests;
 

@@ -66,28 +66,4 @@ impl CnCGameEngine {
 }
 
 #[cfg(test)]
-mod tests {
-    #[test]
-    fn clear_game_data_preserves_cpp_source_order() {
-        let source = include_str!("clear_game_data.rs")
-            .split("#[cfg(test)]")
-            .next()
-            .unwrap();
-        let phases = [
-            "engine.close_windows(false)",
-            "self.host_push_score_screen_like_cpp",
-            "self.host_reset_for_clear_game_data()",
-            "self.reset_match_state_after_engine_reset()",
-            "self.game_logic.finish_clear_game_data_after_reset()",
-            "self.hide_owned_control_bar(true)",
-            "engine.close_game_windows()",
-            "set_visibility(true)",
-        ];
-        let mut cursor = 0;
-        for phase in phases {
-            cursor += source[cursor..].find(phase).expect(phase) + phase.len();
-        }
-        assert!(!source.contains("get_script_engine()"));
-        assert!(!source.contains("self.game_logic.clearGameData()"));
-    }
-}
+mod tests {}

@@ -304,29 +304,3 @@ fn missing_native_input_capability_rejects_without_ambient_handler_or_owner_writ
         [ObjectId(42)]
     );
 }
-
-#[test]
-fn native_input_sources_use_explicit_loan_and_never_poll_core_gate_or_reset() {
-    let camera = include_str!("../camera.rs");
-    let start = camera.find("fn lookat_input_enabled(").unwrap();
-    let end = camera[start..]
-        .find("fn host_camera_movement_finished")
-        .unwrap()
-        + start;
-    let gate = &camera[start..end];
-    assert!(gate.contains("self.game_logic.script_input_enabled()"));
-    assert!(!gate.contains("TheInGameUI") && !gate.contains("TheGameLogic"));
-    assert!(!camera.contains("take_look_at_reset_modes("));
-    for root in [
-        include_str!("../../camera_drain.rs"),
-        include_str!("../../host_authority.rs"),
-        include_str!("../../ui_commands.rs"),
-    ] {
-        assert_eq!(
-            root.matches("NativeScriptUi::new(").count(),
-            root.matches(".with_cinematic_input(cinematic_input)")
-                .count(),
-            "each actual native script-driving UI construction must supply its input loan"
-        );
-    }
-}

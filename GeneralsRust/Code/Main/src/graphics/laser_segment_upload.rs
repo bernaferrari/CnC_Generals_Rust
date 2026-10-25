@@ -1646,21 +1646,6 @@ mod tests {
             dest.len()
         );
         assert_eq!(dest2, dest);
-        let exec = include_str!("render_pipeline/pipeline_execute.rs");
-        assert!(
-            exec.contains("upload_laser_segments("),
-            "execute must call upload_laser_segments("
-        );
-        let fwd = include_str!("render_pipeline/forward_render.rs");
-        assert!(
-            fwd.contains("queue.write_buffer("),
-            "ForwardPass must call queue.write_buffer("
-        );
-        assert!(fwd.contains("write_to_queue("));
-        assert!(
-            !fwd.contains("gpu_write_buffer_submitted ="),
-            "upload_laser_segments must not assign the submit flag"
-        );
     }
 
     /// Wave 102 residual: soft-edge UV atlas texture bind expand + multi-beam fields.

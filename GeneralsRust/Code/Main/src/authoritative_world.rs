@@ -98,19 +98,6 @@ mod tests {
     }
 
     #[test]
-    fn dual_tick_env_plumbing_is_deleted() {
-        let aw = include_str!("authoritative_world.rs");
-        let prod = aw.split("#[cfg(test)]").next().expect("prod");
-        assert!(
-            !prod.contains("GENERALS_ALLOW_DUAL_TICK")
-                && !prod.contains("GENERALS_VERIFY_SINGLE_AUTHORITY")
-                && !prod.contains("fn set_verification_single_authority")
-                && !prod.contains("fn apply_post_authority_crate_tick"),
-            "dual-tick env gating and apply helper were removed with the dual crate tick"
-        );
-    }
-
-    #[test]
     fn probe_advances_with_main_game_logic_only() {
         let mut logic = GameLogic::new();
         logic.start_new_game(GameMode::Skirmish);

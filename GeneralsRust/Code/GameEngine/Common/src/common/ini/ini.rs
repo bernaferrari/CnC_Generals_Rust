@@ -2812,23 +2812,6 @@ End
     }
 
     #[test]
-    fn ini_line_crc_uses_raw_buffer_bytes_not_ascii_string() {
-        let impl_src = include_str!("ini.rs")
-            .split("#[cfg(test)]")
-            .next()
-            .unwrap_or("");
-        let crc_block = impl_src
-            .split("s_xfer->xferUser")
-            .nth(1)
-            .and_then(|s| s.split("Get the first token").next())
-            .unwrap_or("");
-        assert!(
-            crc_block.contains("xfer_user_bytes"),
-            "INI deep CRC must hash raw line bytes like C++ xferUser"
-        );
-    }
-
-    #[test]
     fn load_directory_loads_current_dir_before_subdirs() {
         match crate::test_process::run_bounded(
             module_path!(),

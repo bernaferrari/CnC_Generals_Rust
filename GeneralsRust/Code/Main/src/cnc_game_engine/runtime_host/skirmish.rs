@@ -633,71 +633,16 @@ impl CnCGameEngine {
         }
     }
 
-    pub(super) fn runtime_host_cmd_click_new_game_stream(
-        &mut self,
-        args: &HashMap<String, String>,
-    ) {
-        let action = args
-            .get("action")
-            .map(|v| v.trim().to_ascii_lowercase())
-            .unwrap_or_else(|| "drain".to_string());
-        let ok = match action.as_str() {
-            "source" => crate::game_logic::honesty_new_game_stream_source(),
-            "queue" | "drain" | "prepare" => false,
-            _ => self.host_unknown_action_fail_closed(false),
-        };
-        self.runtime_host_last_gameplay_cmd = if ok {
-            format!("click_new_game_stream_ok_{action}")
-        } else {
-            format!("click_new_game_stream_miss_{action}")
-        };
-    }
-
-    pub(super) fn runtime_host_cmd_click_w3d_main_menu_init(
-        &mut self,
-        args: &HashMap<String, String>,
-    ) {
-        let action = args
-            .get("action")
-            .map(|v| v.trim().to_ascii_lowercase())
-            .unwrap_or_else(|| "bind".to_string());
-        let ok = match action.as_str() {
-            "token" => crate::game_logic::honesty_main_menu_wnd_layoutinit_token(),
-            "bind" | "source" => {
-                crate::game_logic::honesty_w3d_main_menu_init_bind_source()
-                    && crate::game_logic::honesty_w3d_main_menu_init_wrapper_source()
-            }
-            "prepare" | "init" => false,
-            _ => self.host_unknown_action_fail_closed(false),
-        };
-        self.runtime_host_last_gameplay_cmd = if ok {
-            format!("click_w3d_main_menu_init_ok_{action}")
-        } else {
-            format!("click_w3d_main_menu_init_miss_{action}")
-        };
-    }
-
     pub(super) fn runtime_host_cmd_click_start_game_loading(
         &mut self,
         args: &HashMap<String, String>,
     ) {
-        let action = args
-            .get("action")
-            .map(|v| v.trim().to_ascii_lowercase())
-            .unwrap_or_else(|| "prepare".to_string());
-        let ok = match action.as_str() {
-            "source" => crate::game_logic::honesty_start_game_from_ui_loading_source(),
-            "maps" | "defcon" | "lone_eagle" => {
-                crate::game_logic::honesty_default_skirmish_map_resolves()
-                    && crate::game_logic::honesty_lone_eagle_map_resolves()
-            }
-            "prepare" | "loading" => false,
-            _ => self.host_unknown_action_fail_closed(false),
-        };
+        let ok = crate::game_logic::honesty_default_skirmish_map_resolves()
+            && crate::game_logic::honesty_lone_eagle_map_resolves();
         self.runtime_host_last_gameplay_cmd = if ok {
-            format!("click_start_game_loading_ok_{action}")
+            "click_start_game_loading_maps_ready".into()
         } else {
-            format!("click_start_game_loading_miss_{action}")
+            "click_start_game_loading_maps_missing".into()
         };
     }
 }

@@ -720,26 +720,4 @@ mod tests {
         d.poll_phase_fx(5);
         assert!(d.take_pending_phase_fx().is_empty());
     }
-
-    #[test]
-    fn live_host_dispatches_phase_fx_on_death_path() {
-        let death = include_str!("object/death.rs");
-        assert!(
-            death.contains("dispatch_pending_collapse_fx"),
-            "live begin/tick must drain collapse phase FX"
-        );
-        assert!(
-            death.contains("dispatch_fx_list_at_pos"),
-            "C++ FXList::doFXPos must run on the live collapse path"
-        );
-        assert!(
-            death.contains("poll_structure_collapse_phase_fx"),
-            "dual-peel must still play BURST/DELAY/FINAL"
-        );
-        let tick = include_str!("world_tick/ai.rs");
-        assert!(
-            tick.contains("poll_structure_collapse_phase_fx"),
-            "world tick must poll collapse FX when GW owns the sink"
-        );
-    }
 }

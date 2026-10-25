@@ -1193,9 +1193,12 @@ fn retail_harvesters_parse_and_accept_gather_through_live_command_authority() {
                 is_carbomb: false,
                 is_unmanned: false,
                 is_mine: false,
+
+                authors_carbomb_weapon_set: false,
             }),
             selected_presentation: vec![PresentationSelectedUnitHint {
                 id: collector_id,
+                reject_unmanned: false,
                 is_alive: true,
                 // Keep legacy Worker false: Gather must depend only on the
                 // authored Harvester capability frozen above.

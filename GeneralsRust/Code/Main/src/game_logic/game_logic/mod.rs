@@ -251,17 +251,6 @@ mod skirmish_starting_unit_residual_tests;
 
 /// Concatenated facade source in original `game_logic.rs` order.
 /// Source-scan tests that previously `include_str!` the monolith use this.
-#[cfg(test)]
-pub const GAME_LOGIC_FACADE_SRC: &str = concat!(
-    include_str!("../world_scripts/unit_commands.rs"),
-    include_str!("crate_tick.rs"),
-    include_str!("player.rs"),
-    include_str!("host.rs"),
-    include_str!("script_camera.rs"),
-    include_str!("authority.rs"),
-    include_str!("construct.rs"),
-    include_str!("mod.rs"),
-);
 
 #[cfg(test)]
 mod accepted_projectile_owner_tests;

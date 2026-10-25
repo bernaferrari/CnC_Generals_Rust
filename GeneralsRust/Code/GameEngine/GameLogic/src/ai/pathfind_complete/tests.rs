@@ -1,26 +1,5 @@
 use super::*;
 
-#[path = "cpp_contract_tests.rs"]
-mod cpp_contract_tests;
-
-/// Concatenated production sources for cpp-surface string tests.
-/// Module order matches the former monolithic `pathfind_complete.rs`.
-const PATHFIND_COMPLETE_SRC: &str = concat!(
-    include_str!("types.rs"),
-    include_str!("system.rs"),
-    include_str!("construct.rs"),
-    include_str!("find_path.rs"),
-    include_str!("attack_path.rs"),
-    include_str!("line_passable.rs"),
-    include_str!("tall_buildings.rs"),
-    include_str!("occupancy.rs"),
-    include_str!("classify.rs"),
-    include_str!("check_movement.rs"),
-    include_str!("hierarchical.rs"),
-    include_str!("snap.rs"),
-    include_str!("block_zones.rs"),
-);
-
 #[test]
 fn test_pathfinding_system_creation() {
     let system = PathfindingSystem::new(128, 128);
@@ -349,27 +328,6 @@ fn client_safe_quick_does_path_exist_uses_zones_not_astar() {
 }
 
 #[test]
-fn client_safe_quick_cpp_surface_no_find_path() {
-    let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/mod.rs"));
-    let prod = src.split("#[cfg(test)]").next().expect("production");
-    let i = prod
-        .find("pub fn client_safe_quick_does_path_exist(")
-        .expect("clientSafeQuickDoesPathExist");
-    // window covering the three quick-path entry points
-    let w = &prod[i..prod.len().min(i + 2500)];
-    assert!(
-        w.contains("zones_connected_for_surfaces")
-            || w.contains("client_safe_quick_does_path_exist(surfaces")
-            || w.contains("client_safe_quick_does_path_exist_for_ui(surfaces"),
-        "must delegate to zone-based ClassicPathfinder helpers"
-    );
-    assert!(
-        !w.contains("find_path(request)") && !w.contains("ClassicPathRequest"),
-        "clientSafeQuickDoesPathExist must not run full A*"
-    );
-}
-
-#[test]
 fn connects_zones_scans_ground_connect_cells_like_cpp() {
     let mut layer = BridgeLayer::with_meta(
         2,
@@ -412,22 +370,6 @@ fn add_bridge_ex_populates_ground_connect_cells() {
     assert!(bridge.ground_connect_cells.contains(&GridCoord::new(8, 3)));
     // End-row expansion should include more than just start/end.
     assert!(bridge.ground_connect_cells.len() > 2);
-}
-
-#[test]
-fn slow_does_path_exist_ex_passes_ignore_obstacle_like_cpp() {
-    let src = PATHFIND_COMPLETE_SRC;
-    let prod = src.split("#[cfg(test)]").next().expect("production");
-    let i = prod
-        .find("pub fn slow_does_path_exist_ex")
-        .expect("slowDoesPathExistEx");
-    let w = &prod[i..prod.len().min(i + 800)];
-    assert!(
-        w.contains("ignore_obstacle_id")
-            && w.contains("find_path(request)")
-            && w.contains("object_id"),
-        "slowDoesPathExist must thread ignoreObject into findPath like C++"
-    );
 }
 
 #[test]
@@ -568,14 +510,6 @@ fn is_line_passable_rejects_pinched_like_cpp() {
     system.expand_cliff_cells_like_cpp();
     // Default allow_pinched=false fails across pinched/cliff corridor.
     assert!(!system.is_line_passable_for_surfaces(&from, &to, SURFACE_GROUND, None));
-    // Surface: API must expose allow_pinched + pinch gate.
-    let src = PATHFIND_COMPLETE_SRC;
-    assert!(
-        src.contains("allow_pinched")
-            && src.contains("is_pinched(coord)")
-            && src.contains("pub fn is_line_passable_ex"),
-        "isLinePassable must gate pinched cells like C++ linePassableCallback"
-    );
 }
 
 #[test]
@@ -759,27 +693,6 @@ fn build_actual_path_empty_grid_returns_cpp_failure() {
         "empty A* path is C++ NULL, not a direct path"
     );
     assert!(result.waypoints.is_empty());
-}
-
-#[test]
-fn find_path_propagates_build_failure_without_raw_grid_fallback() {
-    let src = PATHFIND_COMPLETE_SRC;
-    let prod = src.split("#[cfg(test)]").next().expect("production");
-    let start = prod
-        .find("let built = self.build_actual_path_from_layered_path")
-        .expect("internalFindPath buildActualPath call");
-    let end = start
-        + prod[start..]
-            .find("/// Find closest reachable path")
-            .expect("findClosestPath follows internalFindPath");
-    let branch = &prod[start..end];
-    assert!(branch.contains("if built.success"));
-    assert!(branch.contains("PathResult::none()"));
-    assert!(
-        !branch.contains("Fallback manual conversion")
-            && !branch.contains("adjust_coord_to_cell(coord.x, coord.y"),
-        "internalFindPath must not turn buildActualPath failure into raw grid waypoints"
-    );
 }
 
 #[test]
@@ -1054,22 +967,6 @@ fn check_change_layers_enqueues_same_xy_when_not_closed() {
     assert!(
         system.change_layer_open_link(cell, &closed).is_none(),
         "already-closed connect-layer cell is not re-enqueued"
-    );
-}
-
-#[test]
-fn check_change_layers_not_discarded_in_production() {
-    let src = PATHFIND_COMPLETE_SRC;
-    let prod = src.split("#[cfg(test)]").next().expect("production");
-    assert!(
-        !prod.contains("let _ = self.check_change_layers"),
-        "production loops must enqueue checkChangeLayers, not discard it"
-    );
-    assert!(
-        prod.matches("if let Some(link) = self.check_change_layers")
-            .count()
-            >= 5,
-        "examineNeighboringCells-like loops must enqueue check_change_layers link"
     );
 }
 

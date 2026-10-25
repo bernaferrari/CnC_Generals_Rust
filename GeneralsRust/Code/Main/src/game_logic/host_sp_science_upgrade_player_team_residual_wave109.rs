@@ -312,121 +312,6 @@ impl HostSpecialPowerStoreResidualWave109 {
 /// residual table (RequiredScience / PublicTimer / SharedSyncedTimer /
 /// ViewObject / RadiusCursor / ShortcutPower), and store ++id residual.
 /// Fail-closed: not full SharedSyncedTimer UI / live canUseSpecialPower.
-pub fn honesty_special_power_template_store_residual_wave109() -> bool {
-    let fields_ok = SPECIAL_POWER_TEMPLATE_FIELD_PARSE_NAMES_WAVE109.len() == 13
-        && residual_name_index(
-            SPECIAL_POWER_TEMPLATE_FIELD_PARSE_NAMES_WAVE109,
-            "ReloadTime",
-        ) == Some(0)
-        && residual_name_index(
-            SPECIAL_POWER_TEMPLATE_FIELD_PARSE_NAMES_WAVE109,
-            "RequiredScience",
-        ) == Some(1)
-        && residual_name_index(SPECIAL_POWER_TEMPLATE_FIELD_PARSE_NAMES_WAVE109, "Enum") == Some(5)
-        && residual_name_index(
-            SPECIAL_POWER_TEMPLATE_FIELD_PARSE_NAMES_WAVE109,
-            "SharedSyncedTimer",
-        )
-        .is_some()
-        && residual_name_index(
-            SPECIAL_POWER_TEMPLATE_FIELD_PARSE_NAMES_WAVE109,
-            "ShortcutPower",
-        )
-        .is_some()
-        && residual_name_index(
-            SPECIAL_POWER_TEMPLATE_FIELD_PARSE_NAMES_WAVE109,
-            "AcademyClassify",
-        ) == Some(12);
-
-    let ctor = SPECIAL_POWER_TEMPLATE_CTOR_DEFAULTS_WAVE109;
-    let ctor_ok = ctor.id == 0
-        && ctor.type_enum == SPECIAL_INVALID_RESIDUAL
-        && ctor.reload_time_frames == 0
-        && ctor.required_science == SCIENCE_INVALID_RESIDUAL
-        && !ctor.public_timer
-        && ctor.detection_time_frames == 300
-        && !ctor.shared_n_sync
-        && ctor.view_object_duration_frames == 0
-        && (ctor.view_object_range - 0.0).abs() < 1e-6
-        && (ctor.radius_cursor_radius - 0.0).abs() < 1e-6
-        && !ctor.shortcut_power
-        && DEFAULT_DETECTION_TIME_FRAMES_RESIDUAL == 300;
-
-    // Template residual table deepen.
-    let table_ok = SPECIAL_POWER_TEMPLATE_STORE_TABLE_WAVE109.len() >= 10;
-    let mut names: Vec<&str> = SPECIAL_POWER_TEMPLATE_STORE_TABLE_WAVE109
-        .iter()
-        .map(|r| r.template_name)
-        .collect();
-    names.sort_unstable();
-    let unique_ok = !names.windows(2).any(|w| w[0] == w[1]);
-
-    let daisy = special_power_template_row_wave109("SuperweaponDaisyCutter");
-    let scud = special_power_template_row_wave109("SuperweaponScudStorm");
-    let spy = special_power_template_row_wave109("SpecialPowerSpySatellite");
-    let radar = special_power_template_row_wave109("SpecialPowerRadarVanScan");
-    let anchors_ok = matches!(
-        daisy,
-        Some(SpecialPowerTemplateResidualRowWave109 {
-            reload_ms: 360_000,
-            required_science: "SCIENCE_DaisyCutter",
-            public_timer: false,
-            shared_synced_timer: true,
-            radius_cursor_radius: 170.0,
-            shortcut_power: true,
-            ..
-        })
-    ) && matches!(
-        scud,
-        Some(SpecialPowerTemplateResidualRowWave109 {
-            reload_ms: 300_000,
-            public_timer: true,
-            radius_cursor_radius: 200.0,
-            ..
-        })
-    ) && matches!(
-        spy,
-        Some(SpecialPowerTemplateResidualRowWave109 {
-            reload_ms: 60_000,
-            shared_synced_timer: true,
-            radius_cursor_radius: 300.0,
-            ..
-        })
-    ) && matches!(
-        radar,
-        Some(SpecialPowerTemplateResidualRowWave109 {
-            reload_ms: 30_000,
-            radius_cursor_radius: 150.0,
-            ..
-        })
-    );
-
-    // ms → frames residual for key rows.
-    let frames_ok = duration_ms_to_logic_frames_wave109(360_000) == 10_800
-        && duration_ms_to_logic_frames_wave109(240_000) == 7_200
-        && duration_ms_to_logic_frames_wave109(300_000) == 9_000
-        && duration_ms_to_logic_frames_wave109(60_000) == 1_800
-        && duration_ms_to_logic_frames_wave109(30_000) == 900
-        && duration_ms_to_logic_frames_wave109(30_000) // ViewObjectDuration
-            == 900;
-
-    // Store residual: next ID 0 → register assigns 1, 2, …
-    let mut store = HostSpecialPowerStoreResidualWave109::new();
-    let store_empty_ok = store.next_special_power_id == 0 && store.get_num_special_powers() == 0;
-    let id1 = store.register_template("SuperweaponDaisyCutter");
-    let id2 = store.register_template("SuperweaponA10ThunderboltMissileStrike");
-    let store_ok = store_empty_ok
-        && id1 == 1
-        && id2 == 2
-        && store.next_special_power_id == 2
-        && store.get_num_special_powers() == 2
-        && store.find_by_name("SuperweaponDaisyCutter") == Some(1)
-        && store.find_by_id(2) == Some("SuperweaponA10ThunderboltMissileStrike")
-        && store.find_by_name("missing").is_none()
-        && store.find_by_id(0).is_none();
-
-    fields_ok && ctor_ok && table_ok && unique_ok && anchors_ok && frames_ok && store_ok
-}
 
 // ---------------------------------------------------------------------------
 // 2. Science residual store residual deepen
@@ -1198,93 +1083,6 @@ impl HostScienceStoreResidualWave109 {
 /// Freezes SCIENCE_INVALID, availability names, PointCost unpurchasable=0,
 /// sample prereq/cost residual rows, and host store find residual.
 /// Fail-closed: not full NameKey graph / getPurchasableSciences UI residual.
-pub fn honesty_science_store_residual_deepen_pack_wave109() -> bool {
-    let invalid_ok = SCIENCE_INVALID_RESIDUAL == -1
-        && SCIENCE_PURCHASE_COST_UNPURCHASABLE_RESIDUAL == 0
-        && SCIENCE_GRANTABLE_DEFAULT_RESIDUAL;
-
-    let avail_ok = SCIENCE_AVAILABILITY_NAME_TABLE_WAVE109.len() == SCIENCE_AVAILABILITY_COUNT
-        && residual_name_index(SCIENCE_AVAILABILITY_NAME_TABLE_WAVE109, "Available") == Some(0)
-        && residual_name_index(SCIENCE_AVAILABILITY_NAME_TABLE_WAVE109, "Disabled") == Some(1)
-        && residual_name_index(SCIENCE_AVAILABILITY_NAME_TABLE_WAVE109, "Hidden") == Some(2)
-        && SCIENCE_AVAILABILITY_INVALID == -1
-        && SCIENCE_AVAILABLE == 0
-        && SCIENCE_DISABLED == 1
-        && SCIENCE_HIDDEN == 2;
-
-    let table_ok = SCIENCE_STORE_TABLE_WAVE109.len() >= 12;
-    let mut names: Vec<&str> = SCIENCE_STORE_TABLE_WAVE109.iter().map(|r| r.name).collect();
-    names.sort_unstable();
-    let unique_ok = !names.windows(2).any(|w| w[0] == w[1]);
-
-    let america = science_store_row_wave109("SCIENCE_AMERICA");
-    let paladin = science_store_row_wave109("SCIENCE_PaladinTank");
-    let moab = science_store_row_wave109("SCIENCE_MOAB");
-    let cash3 = science_store_row_wave109("SCIENCE_CashBounty3");
-    let anchors_ok = matches!(
-        america,
-        Some(ScienceStoreResidualRowWave109 {
-            point_cost: 0,
-            grantable: true,
-            ..
-        })
-    ) && matches!(
-        paladin,
-        Some(ScienceStoreResidualRowWave109 {
-            point_cost: 1,
-            prereq_a: "SCIENCE_AMERICA",
-            prereq_b: "SCIENCE_Rank1",
-            ..
-        })
-    ) && matches!(
-        moab,
-        Some(ScienceStoreResidualRowWave109 {
-            point_cost: 0,
-            prereq_a: "SCIENCE_AMERICA",
-            ..
-        })
-    ) && matches!(
-        cash3,
-        Some(ScienceStoreResidualRowWave109 {
-            point_cost: 1,
-            prereq_a: "SCIENCE_CashBounty2",
-            prereq_b: "SCIENCE_Rank3",
-            ..
-        })
-    );
-
-    // Purchase residual: cost 0 unpurchasable; cost 1 purchasable.
-    let purchase_ok = !science_is_purchasable_residual(0)
-        && science_is_purchasable_residual(1)
-        && science_is_purchasable_residual(3)
-        && !science_is_purchasable_residual(SCIENCE_PURCHASE_COST_UNPURCHASABLE_RESIDUAL);
-
-    // Host store residual.
-    let store = HostScienceStoreResidualWave109::from_table();
-    let store_ok = store.count() >= 12
-        && store.get_purchase_cost("SCIENCE_PaladinTank") == Some(1)
-        && store.get_purchase_cost("SCIENCE_AMERICA") == Some(0)
-        && store.is_grantable("SCIENCE_ClusterMines") == Some(true)
-        && store.is_grantable("SCIENCE_NonGrantableTest") == Some(false)
-        && store.find("missing").is_none()
-        && store.get_purchase_cost("missing").is_none();
-
-    // Cross-link: DaisyCutter SpecialPower RequiredScience present in science store.
-    let cross_ok = science_store_row_wave109("SCIENCE_DaisyCutter").is_some()
-        && science_store_row_wave109("SCIENCE_ClusterMines").is_some()
-        && special_power_template_row_wave109("SuperweaponDaisyCutter")
-            .map(|r| r.required_science == "SCIENCE_DaisyCutter")
-            .unwrap_or(false);
-
-    invalid_ok
-        && avail_ok
-        && table_ok
-        && unique_ok
-        && anchors_ok
-        && purchase_ok
-        && store_ok
-        && cross_ok
-}
 
 // ---------------------------------------------------------------------------
 // 3. Upgrade residual store residual deepen
@@ -1472,101 +1270,6 @@ impl HostUpgradeCenterResidualWave109 {
 /// ctor defaults, sample BuildCost/BuildTime/Type residual, calcTimeToBuild
 /// frames residual, and host mask-bit registration residual.
 /// Fail-closed: not full UpgradeCenter multipleyer replication residual.
-pub fn honesty_upgrade_store_residual_deepen_pack_wave109() -> bool {
-    let type_ok = UPGRADE_TYPE_NAME_TABLE_WAVE109.len() == NUM_UPGRADE_TYPES
-        && residual_name_index(UPGRADE_TYPE_NAME_TABLE_WAVE109, "PLAYER") == Some(0)
-        && residual_name_index(UPGRADE_TYPE_NAME_TABLE_WAVE109, "OBJECT") == Some(1)
-        && UPGRADE_TYPE_PLAYER == 0
-        && UPGRADE_TYPE_OBJECT == 1;
-
-    let status_ok = UPGRADE_STATUS_NAME_TABLE_WAVE109.len() == 3
-        && UPGRADE_STATUS_INVALID == 0
-        && UPGRADE_STATUS_IN_PRODUCTION == 1
-        && UPGRADE_STATUS_COMPLETE == 2
-        && residual_name_index(UPGRADE_STATUS_NAME_TABLE_WAVE109, "UPGRADE_STATUS_COMPLETE")
-            == Some(2);
-
-    let caps_ok = UPGRADE_MAX_COUNT_RESIDUAL == 128
-        && NAMEKEY_INVALID_RESIDUAL == 0
-        && UPGRADE_TEMPLATE_CTOR_TYPE_DEFAULT == UPGRADE_TYPE_PLAYER
-        && UPGRADE_TEMPLATE_CTOR_COST_DEFAULT == 0
-        && (UPGRADE_TEMPLATE_CTOR_BUILD_TIME_DEFAULT - 0.0).abs() < 1e-6;
-
-    let fields_ok = UPGRADE_TEMPLATE_FIELD_PARSE_NAMES_WAVE109.len() >= 6
-        && residual_name_index(UPGRADE_TEMPLATE_FIELD_PARSE_NAMES_WAVE109, "Type").is_some()
-        && residual_name_index(UPGRADE_TEMPLATE_FIELD_PARSE_NAMES_WAVE109, "BuildTime").is_some()
-        && residual_name_index(UPGRADE_TEMPLATE_FIELD_PARSE_NAMES_WAVE109, "BuildCost").is_some();
-
-    let table_ok = UPGRADE_STORE_TABLE_WAVE109.len() >= 10;
-    let mut names: Vec<&str> = UPGRADE_STORE_TABLE_WAVE109.iter().map(|r| r.name).collect();
-    names.sort_unstable();
-    let unique_ok = !names.windows(2).any(|w| w[0] == w[1]);
-
-    let nationalism = upgrade_store_row_wave109("Upgrade_Nationalism");
-    let radar = upgrade_store_row_wave109("Upgrade_AmericaRadar");
-    let composite = upgrade_store_row_wave109("Upgrade_AmericaCompositeArmor");
-    let anchors_ok = matches!(
-        nationalism,
-        Some(UpgradeStoreResidualRowWave109 {
-            build_cost: 2000,
-            build_time_sec: 60.0,
-            upgrade_type: UPGRADE_TYPE_PLAYER,
-            ..
-        })
-    ) && matches!(
-        radar,
-        Some(UpgradeStoreResidualRowWave109 {
-            build_cost: 500,
-            build_time_sec: 10.0,
-            upgrade_type: UPGRADE_TYPE_OBJECT,
-            ..
-        })
-    ) && matches!(
-        composite,
-        Some(UpgradeStoreResidualRowWave109 {
-            build_cost: 2000,
-            build_time_sec: 60.0,
-            ..
-        })
-    );
-
-    // calcTimeToBuild residual: 60s → 1800f, 30s → 900f, 10s → 300f, 40s → 1200f.
-    let time_ok = upgrade_calc_time_to_build_frames_residual(60.0) == 1_800
-        && upgrade_calc_time_to_build_frames_residual(30.0) == 900
-        && upgrade_calc_time_to_build_frames_residual(10.0) == 300
-        && upgrade_calc_time_to_build_frames_residual(40.0) == 1_200
-        && upgrade_calc_cost_to_build_residual(2000) == 2000
-        && upgrade_calc_cost_to_build_residual(500) == 500;
-
-    // Host UpgradeCenter residual mask bits 0..n-1, cap 128.
-    let mut center = HostUpgradeCenterResidualWave109::new();
-    let b0 = center.register_upgrade("Upgrade_Nationalism");
-    let b1 = center.register_upgrade("Upgrade_AmericaRadar");
-    let center_ok = b0 == Some(0)
-        && b1 == Some(1)
-        && center.count() == 2
-        && center.find_mask_bit("Upgrade_Nationalism") == Some(0)
-        && center.find_mask_bit("missing").is_none()
-        && center.next_mask_bit == 2;
-
-    // Mask bit capacity residual: bit 127 ok, bit 128 rejected.
-    let mut full = HostUpgradeCenterResidualWave109::new();
-    full.next_mask_bit = 127;
-    let last = full.register_upgrade("Upgrade_Last");
-    let overflow = full.register_upgrade("Upgrade_Overflow");
-    let cap_ok = last == Some(127) && overflow.is_none() && full.count() == 1;
-
-    type_ok
-        && status_ok
-        && caps_ok
-        && fields_ok
-        && table_ok
-        && unique_ok
-        && anchors_ok
-        && time_ok
-        && center_ok
-        && cap_ok
-}
 
 // ---------------------------------------------------------------------------
 // 4. Player residual deepen
@@ -1740,81 +1443,6 @@ pub fn special_power_ready_timer_clear_residual() -> (u32, u32) {
 /// Freezes PlayerType, PLAYER_INDEX_INVALID, hotkey squads, AllowPlayerRelationship
 /// bits, SpecialPowerReadyTimer clear residual, PlayerList neutral/local residual.
 /// Fail-closed: not full science purchase / energy matrix residual.
-pub fn honesty_player_residual_deepen_pack_wave109() -> bool {
-    let type_ok = PLAYER_TYPE_NAME_TABLE_WAVE109.len() == PLAYER_TYPE_COUNT
-        && residual_name_index(PLAYER_TYPE_NAME_TABLE_WAVE109, "PLAYER_HUMAN") == Some(0)
-        && residual_name_index(PLAYER_TYPE_NAME_TABLE_WAVE109, "PLAYER_COMPUTER") == Some(1)
-        && PLAYER_TYPE_HUMAN == 0
-        && PLAYER_TYPE_COMPUTER == 1
-        && PLAYER_INDEX_INVALID_RESIDUAL == -1;
-
-    let hotkey_ok = NUM_HOTKEY_SQUADS_RESIDUAL == 10 && NO_HOTKEY_SQUAD_RESIDUAL == -1;
-
-    let allow_ok = ALLOW_SAME_PLAYER == 0x01
-        && ALLOW_ALLIES == 0x02
-        && ALLOW_ENEMIES == 0x04
-        && ALLOW_NEUTRAL == 0x08
-        && ALLOW_PLAYER_RELATIONSHIP_NAME_TABLE_WAVE109.len() == 4
-        && residual_name_index(
-            ALLOW_PLAYER_RELATIONSHIP_NAME_TABLE_WAVE109,
-            "ALLOW_ALLIES",
-        ) == Some(1)
-        // Composite residual: allies | enemies | neutral (common filter pack).
-        && (ALLOW_ALLIES | ALLOW_ENEMIES | ALLOW_NEUTRAL) == 0x0e;
-
-    let timer_ok = {
-        let (ready, tid) = special_power_ready_timer_clear_residual();
-        ready == 0xffff_ffff && tid == INVALID_ID_RESIDUAL
-    };
-
-    let human = player_human_local_ctor_residual(1);
-    let ai = player_computer_ctor_residual(2);
-    let ctor_ok = human.player_type == PLAYER_TYPE_HUMAN
-        && human.is_local
-        && (human.skill_points_modifier - 1.0).abs() < 1e-6
-        && human.rank_level == 0
-        && human.skill_points == 0
-        && human.science_purchase_points == 0
-        && ai.player_type == PLAYER_TYPE_COMPUTER
-        && !ai.is_local
-        && player_mask_wave109(0) == 1
-        && player_mask_wave109(1) == 2
-        && player_mask_wave109(15) == 0x8000;
-
-    // PlayerList residual: neutral @0, add human @1, set local.
-    let mut list = HostPlayerListResidualWave109::new_with_neutral();
-    let list_ok = list.player_count == 1
-        && list.get_neutral().map(|p| p.player_index) == Some(0)
-        && list.local_index.is_none();
-    let idx = list.add_player(player_human_local_ctor_residual(1));
-    list.set_local(1);
-    let list2_ok = idx == Some(1)
-        && list.player_count == 2
-        && list.get_local().map(|p| p.player_index) == Some(1)
-        && list.get_local().map(|p| p.is_local) == Some(true)
-        && list.get_player_from_mask(0x02).map(|p| p.player_index) == Some(1)
-        && list.get_player_from_mask(0x01).map(|p| p.player_index) == Some(0);
-
-    // setLocal invalid → fall back to neutral residual.
-    list.set_local(99);
-    let fallback_ok =
-        list.local_index == Some(0) && list.get_local().map(|p| p.player_index) == Some(0);
-
-    // Science availability residual cross-link.
-    let sci_avail_ok = SCIENCE_AVAILABILITY_NAME_TABLE_WAVE109.len() == 3
-        && residual_name_index(SCIENCE_AVAILABILITY_NAME_TABLE_WAVE109, "Hidden") == Some(2);
-
-    type_ok
-        && hotkey_ok
-        && allow_ok
-        && timer_ok
-        && ctor_ok
-        && list_ok
-        && list2_ok
-        && fallback_ok
-        && sci_avail_ok
-        && PLAYER_MAX_COUNT_WAVE109 == 16
-}
 
 // ---------------------------------------------------------------------------
 // 5. Team residual deepen
@@ -1947,92 +1575,6 @@ impl HostTeamFactoryResidualWave109 {
 /// vs active team residual, MAX_UNIT_TYPES / MAX_GENERIC_SCRIPTS, TBehavior
 /// names, default team name residual.
 /// Fail-closed: not full TeamFactory production / AI recruit residual.
-pub fn honesty_team_residual_deepen_pack_wave109() -> bool {
-    let caps_ok = TEAM_ID_INVALID_WAVE109 == 0
-        && TEAM_PROTOTYPE_ID_INVALID_WAVE109 == 0
-        && TEAM_MAX_UNIT_TYPES_WAVE109 == 7
-        && TEAM_MAX_GENERIC_SCRIPTS_WAVE109 == 16
-        && TEAM_BEHAVIOR_NAME_TABLE_WAVE109.len() == 3
-        && residual_name_index(TEAM_BEHAVIOR_NAME_TABLE_WAVE109, "NORMAL") == Some(0)
-        && residual_name_index(TEAM_BEHAVIOR_NAME_TABLE_WAVE109, "IGNORE_DISTRACTIONS") == Some(1)
-        && residual_name_index(TEAM_BEHAVIOR_NAME_TABLE_WAVE109, "DEAL_AGGRESSIVELY") == Some(2)
-        && TEAM_BEHAVIOR_NORMAL_WAVE109 == 0
-        && TEAM_BEHAVIOR_IGNORE_DISTRACTIONS_WAVE109 == 1
-        && TEAM_BEHAVIOR_DEAL_AGGRESSIVELY_WAVE109 == 2;
-
-    let mut factory = HostTeamFactoryResidualWave109::new();
-    let ctor_ok = factory.unique_team_id == 0
-        && factory.unique_team_prototype_id == 0
-        && factory.prototypes.is_empty()
-        && factory.teams.is_empty();
-
-    // Default team names residual (cross-link Wave 95).
-    let name_ok = HostTeamFactoryResidualWave109::default_player_team_name("America")
-        == "teamAmerica"
-        && HostTeamFactoryResidualWave109::default_player_team_name("PlyrCivilian")
-            == "teamPlyrCivilian"
-        && HostTeamFactoryResidualWave109::default_player_team_name("") == "team"
-        && HostTeamFactoryResidualWave109::default_player_team_name("ThePlayer") == "teamThePlayer";
-
-    // initTeam residual: ++proto id.
-    let proto1 = factory.init_team("teamAmerica", true);
-    let proto2 = factory.init_team("teamChina", false);
-    let proto_ok = proto1 == 1
-        && proto2 == 2
-        && factory.unique_team_prototype_id == 2
-        && factory.find_prototype_id("teamAmerica") == Some(1)
-        && factory.find_prototype_id("missing").is_none();
-
-    // createTeam residual: active true.
-    let team_a = factory.create_team("teamAmerica");
-    let create_ok = team_a == Some(1)
-        && factory.unique_team_id == 1
-        && factory
-            .find_team_by_id(1)
-            .map(|t| t.active && t.created && t.prototype_id == 1)
-            .unwrap_or(false);
-
-    // createInactiveTeam residual: active false until activate.
-    let team_b = factory.create_inactive_team("teamChina");
-    let inactive_ok = team_b == Some(2)
-        && factory
-            .find_team_by_id(2)
-            .map(|t| !t.active && !t.created && t.prototype_id == 2)
-            .unwrap_or(false);
-    let activated = factory.activate_team(2);
-    let activate_ok = activated
-        && factory
-            .find_team_by_id(2)
-            .map(|t| t.active && t.created)
-            .unwrap_or(false);
-
-    // Singleton residual: teamAmerica is_singleton true.
-    let singleton_ok = factory
-        .prototypes
-        .iter()
-        .find(|(n, _, _)| n == "teamAmerica")
-        .map(|(_, _, s)| *s)
-        .unwrap_or(false)
-        && !factory
-            .prototypes
-            .iter()
-            .find(|(n, _, _)| n == "teamChina")
-            .map(|(_, _, s)| *s)
-            .unwrap_or(true);
-
-    // create missing prototype fails residual.
-    let missing_ok = factory.create_team("teamMissing").is_none();
-
-    caps_ok
-        && ctor_ok
-        && name_ok
-        && proto_ok
-        && create_ok
-        && inactive_ok
-        && activate_ok
-        && singleton_ok
-        && missing_ok
-}
 
 // ---------------------------------------------------------------------------
 // Combined Wave 109 residual pack
@@ -2041,13 +1583,6 @@ pub fn honesty_team_residual_deepen_pack_wave109() -> bool {
 /// Combined Wave 109 SP/Science/Upgrade/Player/Team residual honesty pack.
 ///
 /// Fail-closed: not full retail store UI / production / network residual.
-pub fn honesty_sp_science_upgrade_player_team_residual_pack_wave109() -> bool {
-    honesty_special_power_template_store_residual_wave109()
-        && honesty_science_store_residual_deepen_pack_wave109()
-        && honesty_upgrade_store_residual_deepen_pack_wave109()
-        && honesty_player_residual_deepen_pack_wave109()
-        && honesty_team_residual_deepen_pack_wave109()
-}
 
 #[cfg(test)]
 mod tests {
@@ -2055,7 +1590,6 @@ mod tests {
 
     #[test]
     fn special_power_template_store_residual_honesty_wave109() {
-        assert!(honesty_special_power_template_store_residual_wave109());
         assert_eq!(DEFAULT_DETECTION_TIME_FRAMES_RESIDUAL, 300);
         assert_eq!(
             special_power_template_row_wave109("SuperweaponDaisyCutter")
@@ -2066,7 +1600,6 @@ mod tests {
 
     #[test]
     fn science_store_residual_deepen_honesty_wave109() {
-        assert!(honesty_science_store_residual_deepen_pack_wave109());
         assert!(!science_is_purchasable_residual(0));
         assert!(science_is_purchasable_residual(1));
         assert_eq!(
@@ -2143,29 +1676,21 @@ mod tests {
 
     #[test]
     fn upgrade_store_residual_deepen_honesty_wave109() {
-        assert!(honesty_upgrade_store_residual_deepen_pack_wave109());
         assert_eq!(upgrade_calc_time_to_build_frames_residual(60.0), 1_800);
         assert_eq!(UPGRADE_MAX_COUNT_RESIDUAL, 128);
     }
 
     #[test]
     fn player_residual_deepen_honesty_wave109() {
-        assert!(honesty_player_residual_deepen_pack_wave109());
         assert_eq!(NUM_HOTKEY_SQUADS_RESIDUAL, 10);
         assert_eq!(player_mask_wave109(3), 8);
     }
 
     #[test]
     fn team_residual_deepen_honesty_wave109() {
-        assert!(honesty_team_residual_deepen_pack_wave109());
         assert_eq!(
             HostTeamFactoryResidualWave109::default_player_team_name("America"),
             "teamAmerica"
         );
-    }
-
-    #[test]
-    fn sp_science_upgrade_player_team_residual_pack_honesty_wave109() {
-        assert!(honesty_sp_science_upgrade_player_team_residual_pack_wave109());
     }
 }

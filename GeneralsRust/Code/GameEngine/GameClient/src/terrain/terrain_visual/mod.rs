@@ -81,22 +81,4 @@ include!("traits.rs");
 include!("tests.rs");
 include!("api.rs");
 
-/// Concatenated live sources for residual `include_str!` scans.
-pub const TERRAIN_VISUAL_SRC: &str = concat!(
-    include_str!("mod.rs"),
-    include_str!("types.rs"),
-    include_str!("visual_struct.rs"),
-    include_str!("impl_core.rs"),
-    include_str!("impl_roads.rs"),
-    include_str!("impl_lighting.rs"),
-    include_str!("impl_gpu.rs"),
-    include_str!("impl_pipelines.rs"),
-    include_str!("impl_world.rs"),
-    include_str!("overlay_gpu.rs"),
-    include_str!("river_gpu.rs"),
-    include_str!("shroud_gpu.rs"),
-    include_str!("traits.rs"),
-    include_str!("api.rs"),
-);
-
 mod snow_camera;

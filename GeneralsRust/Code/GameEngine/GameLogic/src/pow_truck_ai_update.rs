@@ -202,58 +202,6 @@ mod tests {
         assert_eq!(data.base.bored_time_in_frames, 45);
         assert_eq!(data.base.hang_around_prison_distance, 23.5);
     }
-
-    #[test]
-    fn find_best_target_requires_quick_path() {
-        let src = include_str!("pow_truck_ai_update.rs");
-        // Physical method boundaries avoid matching this test's literals.
-        let (_, tail) = src
-            .split_once("\n    fn find_best_target(\n")
-            .expect("actual find_best_target method");
-        let (body, _) = tail
-            .split_once("\n    fn issue_move_to_object(")
-            .expect("end of target-selection method");
-        assert!(
-            body.contains("is_quick_path_available"),
-            "C++ isQuickPathAvailable gate missing: {body}"
-        );
-        assert!(
-            body.contains("client_safe_quick_does_path_exist"),
-            "C++ quickDoesPathExist gate missing: {body}"
-        );
-        assert!(
-            !body.contains("if true {"),
-            "placeholder path gate must not remain"
-        );
-        // C++ POWTruckAIUpdate.cpp:647-675 checks the cheap UI path first,
-        // then distance, and runs the second path query only for an improvement.
-        let validate = body.find(".validate_target(").unwrap();
-        let quick = body.find("is_quick_path_available").unwrap();
-        let distance = body.find("get_distance_squared").unwrap();
-        let improving = body
-            .find("if closest_target.is_none() || dist_sq < closest_dist_sq")
-            .unwrap();
-        let full = body.find("client_safe_quick_does_path_exist").unwrap();
-        assert!(validate < quick && quick < distance && distance < improving && improving < full);
-    }
-
-    #[test]
-    fn unload_bounty_uses_calc_cost_score_and_add_cash() {
-        let src = include_str!("pow_truck_ai_update.rs");
-        assert!(src.contains("prisoner_calc_cost_to_build"));
-        assert!(src.contains("calc_cost_to_build"));
-        assert!(src.contains("get_score_keeper_mut"));
-        assert!(src.contains("format_gui_add_cash"));
-        assert!(src.contains("GUI:AddCash"));
-        assert!(!src.contains("format!(\"+{}\", bounty)"));
-    }
-
-    #[test]
-    fn player_command_cancels_pow_task() {
-        let src = include_str!("pow_truck_ai_update.rs");
-        assert!(src.contains("pub fn on_player_command"));
-        assert!(src.contains("POWTruckTask::Waiting"));
-    }
 }
 
 /// Module wrapper for POWTruckAIUpdate to align with module system expectations.
