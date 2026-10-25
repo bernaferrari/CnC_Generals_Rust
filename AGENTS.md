@@ -48,7 +48,7 @@ For Rust file splits, ownership migrations, or provenance review packets, read `
 - Every ownership migration must answer: What owner changed? Which ambient accesses disappeared? Which original behavior is preserved? Which executable test would detect a regression? Which evidence remains missing?
 - A scoped, private, synchronous context (publish + restore around one operation on the driving instance) is an acceptable TEMPORARY migration aid only; it is not the end-state architecture. Constructors must be inert: constructing a world never publishes global state.
 - Track progress with distinctions, not a single "ported" percentage: implemented / explicitly owned / instance-isolated / original-compared / save-load-verified / unsafe-boundary-reviewed.
-- Add thin adapters only when C++ used engine singleton globals.
+- Where C++ used engine singletons, pass the owning game instance explicitly. Any thin adapter must remain instance-scoped and must not publish mutable globals or TLS.
 
 ## Scope Rules
 - Do not modify GameNetwork until all non-network parity is done.

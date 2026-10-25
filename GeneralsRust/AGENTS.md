@@ -17,15 +17,13 @@ must not change observable behavior.
 - Match defaults, update order, asset lookup order, save/load semantics, timing, and UI/window draw behavior.
 - If Rust and C++ disagree, assume Rust is wrong until proven otherwise.
 
-2. Split subsystems into two layers when needed.
-- `compat layer`: mirrors C++ decisions exactly, even if awkward.
-- `rust layer`: ownership cleanup, typed helpers, error handling, narrower scopes.
-- Do not "improve" behavior in the compat layer.
+2. Keep one authoritative production implementation per gameplay domain.
+- Isolate platform and backend differences at explicit interfaces.
+- Compare that production implementation directly to C++.
 
-3. Do not rewrite behavior and structure at the same time.
-- First make Rust behave like C++.
-- Only refactor after parity is validated.
-- Reject refactors that change visible side effects.
+3. Preserve C++ observation order while changing ownership.
+- When a refactor also fixes a known mismatch, identify the original C++ branch and an executable regression for that change.
+- Preserve identities, timing, serialization, and visible side effects.
 
 4. Prefer compatibility adapters over speculative redesign.
 - C++ callback tables -> Rust dispatch maps
@@ -55,7 +53,7 @@ Every ported file should be explainable in terms of:
 
 ## Verification Hygiene
 - Verify behavior by running real game logic (fixtures, deterministic traces, runtime probes against retail assets), not by scanning Rust source text.
-- Do not create "residual", "wave", "honesty", or "hunt" audit modules, string tables of method names, or tests that assert a file contains its own constants. Such code was removed; do not reintroduce it.
+- Remove self-referential residual/wave/honesty/hunt audit scaffolding while preserving real runtime behavior and executable behavioral tests. Do not introduce more source-string tables or tests that merely check their own constants.
 - Do not commit scratch reports, findings JSON, or probe output to the repo root. Put durable notes in the issue tracker.
 - Before opening a new issue, check that it blocks playing a skirmish faithfully or breaks instance isolation; prefer closing or updating an existing issue.
 
