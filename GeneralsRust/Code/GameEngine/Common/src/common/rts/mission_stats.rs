@@ -191,125 +191,37 @@ impl Clone for MissionStats {
     }
 }
 
-impl MissionStats {
-    /// Serialize/deserialize for save games
-    /// Matches C++ MissionStats.cpp xfer() implementation
-    pub fn serialize(&self) -> Vec<u8> {
-        let mut data = Vec::new();
-
-        // Version (matches C++ version = 1)
-        data.extend_from_slice(&1u32.to_le_bytes());
-
-        // Units killed array
-        for i in 0..MAX_PLAYER_COUNT {
-            data.extend_from_slice(&self.units_killed[i].to_le_bytes());
-        }
-
-        // Units lost
-        data.extend_from_slice(&self.units_lost.to_le_bytes());
-
-        // Buildings killed array
-        for i in 0..MAX_PLAYER_COUNT {
-            data.extend_from_slice(&self.buildings_killed[i].to_le_bytes());
-        }
-
-        // Buildings lost
-        data.extend_from_slice(&self.buildings_lost.to_le_bytes());
-
-        data
+impl crate::common::system::snapshot::Snapshotable for MissionStats {
+    /// C++ MissionStats::crc() is intentionally empty.
+    fn crc(&self, _xfer: &mut dyn crate::common::system::xfer::Xfer) -> Result<(), String> {
+        Ok(())
     }
 
-    /// Deserialize from save game data
-    /// Matches C++ MissionStats.cpp xfer() implementation
-    pub fn deserialize(data: &[u8]) -> Result<Self, &'static str> {
-        if data.len() < 4 {
-            return Err("Invalid data length");
+    /// C++ MissionStats::xfer() (`MissionStats.cpp:53-74`).
+    fn xfer(&mut self, xfer: &mut dyn crate::common::system::xfer::Xfer) -> Result<(), String> {
+        use crate::common::system::xfer::XferVersion;
+
+        const CURRENT_VERSION: XferVersion = 1;
+        let mut version = CURRENT_VERSION;
+        xfer.xfer_version(&mut version, CURRENT_VERSION)
+            .map_err(|err| err.to_string())?;
+
+        for value in &mut self.units_killed {
+            xfer.xfer_int(value).map_err(|err| err.to_string())?;
         }
-
-        let version = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
-        if version != 1 {
-            return Err("Unsupported version");
+        xfer.xfer_int(&mut self.units_lost)
+            .map_err(|err| err.to_string())?;
+        for value in &mut self.buildings_killed {
+            xfer.xfer_int(value).map_err(|err| err.to_string())?;
         }
+        xfer.xfer_int(&mut self.buildings_lost)
+            .map_err(|err| err.to_string())?;
 
-        let mut offset = 4;
-        let mut stats = Self::new();
-
-        // Units killed array
-        for i in 0..MAX_PLAYER_COUNT {
-            if offset + 4 > data.len() {
-                return Err("Truncated data");
-            }
-            stats.units_killed[i] = i32::from_le_bytes([
-                data[offset],
-                data[offset + 1],
-                data[offset + 2],
-                data[offset + 3],
-            ]);
-            offset += 4;
-        }
-
-        // Units lost
-        if offset + 4 > data.len() {
-            return Err("Truncated data");
-        }
-        stats.units_lost = i32::from_le_bytes([
-            data[offset],
-            data[offset + 1],
-            data[offset + 2],
-            data[offset + 3],
-        ]);
-        offset += 4;
-
-        // Buildings killed array
-        for i in 0..MAX_PLAYER_COUNT {
-            if offset + 4 > data.len() {
-                return Err("Truncated data");
-            }
-            stats.buildings_killed[i] = i32::from_le_bytes([
-                data[offset],
-                data[offset + 1],
-                data[offset + 2],
-                data[offset + 3],
-            ]);
-            offset += 4;
-        }
-
-        // Buildings lost
-        if offset + 4 > data.len() {
-            return Err("Truncated data");
-        }
-        stats.buildings_lost = i32::from_le_bytes([
-            data[offset],
-            data[offset + 1],
-            data[offset + 2],
-            data[offset + 3],
-        ]);
-
-        Ok(stats)
+        Ok(())
     }
 
-    /// Calculate CRC for network synchronization
-    /// Matches C++ MissionStats.cpp crc() pattern
-    pub fn calculate_crc(&self) -> u32 {
-        let mut crc = 0u32;
-
-        // CRC all unit kills
-        for &count in &self.units_killed {
-            crc = crc.wrapping_add(count as u32);
-        }
-
-        // CRC own losses
-        crc = crc.wrapping_add(self.units_lost as u32);
-
-        // CRC all building kills
-        for &count in &self.buildings_killed {
-            crc = crc.wrapping_add(count as u32);
-        }
-
-        // CRC own building losses
-        crc = crc.wrapping_add(self.buildings_lost as u32);
-
-        crc
+    fn load_post_process(&mut self) -> Result<(), String> {
+        Ok(())
     }
 }
 
@@ -406,50 +318,66 @@ mod tests {
     }
 
     #[test]
-    fn test_serialization() {
+    fn test_snapshot_xfer_uses_cpp_wire_layout() {
+        use crate::common::system::snapshot::Snapshotable;
+        use crate::common::system::xfer::{Xfer, XferMode};
+        use crate::common::system::xfer_load::XferLoad;
+        use crate::common::system::xfer_save::XferSave;
+        use std::io::Cursor;
+
         let mut stats = MissionStats::new();
+        stats.units_killed[0] = 0x0102_0304;
+        stats.units_lost = -7;
+        stats.buildings_killed[MAX_PLAYER_COUNT - 1] = 0x1122_3344;
+        stats.buildings_lost = 9;
 
-        // Set some values
-        stats.record_unit_kill(0);
-        stats.record_unit_kill(1);
-        stats.record_building_kill(0);
-        stats.record_unit_loss();
-        stats.record_building_loss();
-
-        // Serialize
-        let data = stats.serialize();
-
-        // Deserialize
-        let deserialized = MissionStats::deserialize(&data).unwrap();
-
-        // Verify all values match
-        assert_eq!(deserialized.get_units_killed(0), stats.get_units_killed(0));
-        assert_eq!(deserialized.get_units_killed(1), stats.get_units_killed(1));
+        let mut encoded = Vec::new();
+        {
+            let mut xfer = XferSave::new(Cursor::new(&mut encoded), 1);
+            stats.xfer(&mut xfer).unwrap();
+            assert_eq!(xfer.get_xfer_mode(), XferMode::Save);
+        }
+        assert_eq!(encoded.len(), 1 + (2 * MAX_PLAYER_COUNT + 2) * 4);
+        assert_eq!(encoded[0], 1); // C++ XferVersion is one byte.
+        assert_eq!(&encoded[1..5], &0x0102_0304i32.to_le_bytes());
         assert_eq!(
-            deserialized.get_buildings_killed(0),
-            stats.get_buildings_killed(0)
+            &encoded[1 + MAX_PLAYER_COUNT * 4..][..4],
+            &(-7i32).to_le_bytes()
         );
-        assert_eq!(deserialized.get_units_lost(), stats.get_units_lost());
+        let buildings_offset = 1 + (MAX_PLAYER_COUNT + 1) * 4;
         assert_eq!(
-            deserialized.get_buildings_lost(),
-            stats.get_buildings_lost()
+            &encoded[buildings_offset + (MAX_PLAYER_COUNT - 1) * 4..][..4],
+            &0x1122_3344i32.to_le_bytes()
         );
+        assert_eq!(&encoded[encoded.len() - 4..], &9i32.to_le_bytes());
+
+        let mut loaded = MissionStats::new();
+        {
+            let mut xfer = XferLoad::new(Cursor::new(&encoded), 1);
+            loaded.xfer(&mut xfer).unwrap();
+            assert_eq!(xfer.get_xfer_mode(), XferMode::Load);
+        }
+        assert_eq!(loaded.get_units_killed(0), 0x0102_0304);
+        assert_eq!(loaded.get_units_lost(), -7);
+        assert_eq!(
+            loaded.get_buildings_killed(MAX_PLAYER_COUNT - 1),
+            0x1122_3344
+        );
+        assert_eq!(loaded.get_buildings_lost(), 9);
     }
 
     #[test]
-    fn test_crc_calculation() {
-        let mut stats1 = MissionStats::new();
-        let mut stats2 = MissionStats::new();
+    fn test_snapshot_crc_is_empty() {
+        use crate::common::system::snapshot::Snapshotable;
+        use crate::common::system::xfer_crc::XferCRC;
+        use crate::common::system::xfer_save::XferSave;
+        use std::io::Cursor;
 
-        // Identical stats should have identical CRC
-        assert_eq!(stats1.calculate_crc(), stats2.calculate_crc());
-
-        // Different stats should (very likely) have different CRC
-        stats1.record_unit_kill(0);
-        assert_ne!(stats1.calculate_crc(), stats2.calculate_crc());
-
-        // Make stats2 identical
-        stats2.record_unit_kill(0);
-        assert_eq!(stats1.calculate_crc(), stats2.calculate_crc());
+        let mut stats = MissionStats::new();
+        stats.record_unit_kill(0);
+        stats.record_unit_loss();
+        let mut xfer = XferCRC::new(XferSave::new(Cursor::new(Vec::new()), 1));
+        stats.crc(&mut xfer).unwrap();
+        assert_eq!(xfer.get_crc(), 0);
     }
 }

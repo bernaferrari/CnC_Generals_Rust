@@ -356,13 +356,14 @@ impl File for LocalFile {
     }
 
     fn read_entire_and_close(&mut self) -> Result<Vec<u8>, io::Error> {
-        self.seek(0, SeekMode::Start)?;
-        let size = self.size().max(0) as usize;
-        let mut buffer = vec![0u8; size];
-        let read = self.read(&mut buffer)?;
-        buffer.truncate(read);
+        let remaining = self.size().saturating_sub(self.position()).max(0) as usize;
+        let mut buffer = vec![0u8; remaining];
+        let result = self.read(&mut buffer).map(|read| {
+            buffer.truncate(read);
+            buffer
+        });
         self.close();
-        Ok(buffer)
+        result
     }
 }
 
@@ -382,6 +383,83 @@ impl LocalFile {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn read_entire_and_convert_start_at_current_position_and_close() {
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        fn temp_path(label: &str) -> std::path::PathBuf {
+            let nonce = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("system clock after epoch")
+                .as_nanos();
+            std::env::temp_dir().join(format!(
+                "generals_local_file_{label}_{}_{}.bin",
+                std::process::id(),
+                nonce
+            ))
+        }
+
+        fn write_bytes(path: &std::path::Path, bytes: &[u8]) {
+            let mut file = LocalFile::new();
+            file.open(
+                path.to_str().expect("temp path is UTF-8"),
+                FileAccess::CREATE
+                    .combine(FileAccess::WRITE)
+                    .combine(FileAccess::TRUNCATE),
+            )
+            .expect("open temp file for write");
+            file.write(bytes).expect("write temp file");
+            file.close();
+        }
+
+        let read_path = temp_path("read");
+        write_bytes(&read_path, b"abcdef");
+        let mut file = LocalFile::new();
+        file.open(
+            read_path.to_str().expect("temp path is UTF-8"),
+            FileAccess::READ,
+        )
+        .expect("open temp file for read");
+        file.seek(2, SeekMode::Start).expect("position before read");
+        assert_eq!(file.read_entire_and_close().unwrap(), b"cdef");
+        assert!(!file.base.is_open());
+        std::fs::remove_file(&read_path).expect("remove temp file");
+
+        let convert_path = temp_path("convert");
+        write_bytes(&convert_path, b"abcdef");
+        let mut file = LocalFile::new();
+        file.open(
+            convert_path.to_str().expect("temp path is UTF-8"),
+            FileAccess::READ,
+        )
+        .expect("open temp file for conversion");
+        file.seek(3, SeekMode::Start)
+            .expect("position before conversion");
+        assert_eq!(file.convert_to_ram_file().unwrap(), b"def");
+        std::fs::remove_file(&convert_path).expect("remove temp file");
+
+        // C++ closes even when the OS read fails. A real write-only file
+        // gives that error without a fake reader or process-global fixture.
+        let error_path = temp_path("read_error");
+        write_bytes(&error_path, b"abcdef");
+        let mut file = LocalFile::new();
+        file.open(
+            error_path.to_str().expect("temp path"),
+            FileAccess::WRITE.combine(FileAccess::APPEND),
+        )
+        .expect("open write-only file");
+        file.seek(0, SeekMode::Start)
+            .expect("seek before real read error");
+        assert_eq!(
+            file.size() - file.position(),
+            6,
+            "append mode preserves the existing payload"
+        );
+        assert!(file.read_entire_and_close().is_err());
+        assert!(!file.base.is_open());
+        std::fs::remove_file(&error_path).expect("remove temp file");
+    }
 
     #[test]
     fn test_local_file_round_trip() {
