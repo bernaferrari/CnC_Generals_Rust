@@ -7,31 +7,59 @@ mod tests {
     const RETAIL_WINDOW_TRANSITIONS: &str =
         include_str!("../../../../../Main/Data/INI/WindowTransitions.ini");
 
-    fn with_game_client_window_owner<R>(operation: impl FnOnce() -> R) -> R {
-        let client = crate::core::game_client::GameClient::new()
+    fn with_game_client_window_owner<R>(
+        operation: impl FnOnce(&mut crate::core::game_client::GameClient) -> R,
+    ) -> R {
+        let mut client = crate::core::game_client::GameClient::new()
             .expect("create receiving GameClient for MainMenu window test");
         let owner = client.window_manager_owner();
-        owner.with_scope(operation)
+        owner.with_scope(|| operation(&mut client))
+    }
+
+    fn with_menu_effects<R>(
+        client: &mut crate::core::game_client::GameClient,
+        operation: impl FnOnce(&mut crate::gui::game_window::WindowEventEffects<'_>) -> R,
+    ) -> R {
+        client.with_window_event_effects(
+            Some(crate::gui::campaign_launch_host_bridge::MenuWorldFacts {
+                in_game: false,
+                in_shell_game: false,
+            }),
+            operation,
+        )
+    }
+
+    fn with_shell_menu_effects<R>(
+        client: &mut crate::core::game_client::GameClient,
+        operation: impl FnOnce(&mut crate::gui::game_window::WindowEventEffects<'_>) -> R,
+    ) -> R {
+        client.with_window_event_effects(
+            Some(crate::gui::campaign_launch_host_bridge::MenuWorldFacts {
+                in_game: true,
+                in_shell_game: true,
+            }),
+            operation,
+        )
+    }
+
+    fn with_test_menu_effects<R>(
+        operation: impl FnOnce(&mut crate::gui::game_window::WindowEventEffects<'_>) -> R,
+    ) -> R {
+        with_game_client_window_owner(|client| with_menu_effects(client, operation))
+    }
+
+    fn with_test_shell_menu_effects<R>(
+        operation: impl FnOnce(&mut crate::gui::game_window::WindowEventEffects<'_>) -> R,
+    ) -> R {
+        with_game_client_window_owner(|client| with_shell_menu_effects(client, operation))
     }
 
     fn with_campaign_start_global_data_restored(f: impl FnOnce()) {
         runtime_global_data::with_global_data_restored(|| {
             let ini_global = game_engine::common::ini::ini_game_data::ensure_global_data();
             let ini_snapshot = ini_global.read().clone();
-            let campaign_difficulty = get_campaign_manager().get_game_difficulty();
-            let challenge_difficulty =
-                get_challenge_generals_mut().map(|generals| generals.current_difficulty());
-
             let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(f));
-
             *ini_global.write() = ini_snapshot;
-            get_campaign_manager().set_game_difficulty(campaign_difficulty);
-            if let (Some(difficulty), Some(mut generals)) =
-                (challenge_difficulty, get_challenge_generals_mut())
-            {
-                generals.set_current_difficulty(difficulty);
-            }
-
             if let Err(payload) = result {
                 std::panic::resume_unwind(payload);
             }
@@ -46,9 +74,8 @@ mod tests {
         });
     }
 
-    fn reset_main_menu_for_os_wnd() {
-        let menu = get_main_menu();
-        let mut state = menu.state.write().unwrap_or_else(|e| e.into_inner());
+    fn reset_main_menu_for_os_wnd(menu: &mut MainMenu) {
+        let state = &mut menu.state;
         state.not_shown = true;
         state.campaign_selected = false;
         state.start_game = false;
@@ -67,11 +94,19 @@ mod tests {
             ini_global.write().pending_file = "Maps\\Legacy\\Ini.map".to_string();
             runtime_global_data::write().pending_file = "Maps\\Legacy\\Runtime.map".to_string();
 
-            let menu = MainMenu::new();
-            let mut state = MainMenuState::default();
-            menu.setup_game_start(&mut state, selected_map, GameDifficulty::Normal);
+            let mut client = crate::core::game_client::GameClient::new()
+                .expect("create receiving GameClient for campaign start");
+            with_menu_effects(&mut client, |effects| {
+                effects.with_main_menu(|menu, effects| {
+                    menu.setup_game_start_from_callback(
+                        selected_map,
+                        GameDifficulty::Normal,
+                        effects,
+                    );
+                });
+            });
 
-            assert!(state.start_game);
+            assert!(client.main_menu().state.start_game);
             assert_eq!(ini_global.read().pending_file, selected_map);
             assert_eq!(runtime_global_data::read().pending_file, selected_map);
         });
@@ -85,14 +120,22 @@ mod tests {
             ini_global.write().pending_file = "Maps\\Legacy\\Ini.map".to_string();
             runtime_global_data::write().pending_file = "Maps\\Legacy\\Runtime.map".to_string();
 
-            let menu = MainMenu::new();
-            let mut state = MainMenuState::default();
-            state.launch_challenge_menu = true;
-            menu.setup_game_start(&mut state, selected_map, GameDifficulty::Hard);
+            let mut client = crate::core::game_client::GameClient::new()
+                .expect("create receiving GameClient for challenge start");
+            with_menu_effects(&mut client, |effects| {
+                effects.with_main_menu(|menu, effects| {
+                    menu.state.launch_challenge_menu = true;
+                    menu.setup_game_start_from_callback(
+                        selected_map,
+                        GameDifficulty::Hard,
+                        effects,
+                    );
+                });
+            });
 
-            assert!(state.campaign_selected);
+            assert!(client.main_menu().state.campaign_selected);
             assert!(
-                !state.start_game,
+                !client.main_menu().state.start_game,
                 "Challenge opens its selector before it can publish a map or start a match"
             );
             assert_eq!(ini_global.read().pending_file, "Maps\\Legacy\\Ini.map");
@@ -103,9 +146,10 @@ mod tests {
         });
     }
 
-    fn drive_os_wnd_campaign_side(side: ShowSide) {
-        with_game_client_window_owner(|| {
-            reset_main_menu_for_os_wnd();
+    fn drive_os_wnd_campaign_side(side: ShowSide) -> String {
+        with_game_client_window_owner(|client| {
+            let (_, menu, _) = client.campaign_menu_and_host_mut();
+            reset_main_menu_for_os_wnd(menu);
             install_named_button("MainMenu.wnd:ButtonSinglePlayer", 10, 10);
             let faction = match side {
                 ShowSide::USA => "MainMenu.wnd:ButtonUSA",
@@ -115,43 +159,43 @@ mod tests {
             };
             install_named_button(faction, 10, 40);
             install_named_button("MainMenu.wnd:ButtonMedium", 10, 70);
-            {
-                let mut manager = get_campaign_manager();
-                manager.init();
-            }
+            client.campaign_menu_and_host_mut().0.init();
             assert!(
-                drive_os_wnd_start_campaign_like_cpp(side, GameDifficulty::Normal),
+                with_shell_menu_effects(client, |effects| {
+                    drive_os_wnd_start_campaign_like_cpp(side, GameDifficulty::Normal, effects)
+                }),
                 "OS WND {side:?} Medium must latch campaign start"
             );
             {
-                let menu = get_main_menu();
-                let state = menu.state.read().unwrap_or_else(|e| e.into_inner());
+                let state = &client.main_menu().state;
                 assert!(state.start_game);
                 assert_eq!(state.show_side, side);
             }
-        });
+            client
+                .campaign_menu_and_host_mut()
+                .0
+                .get_current_map()
+                .unwrap_or_default()
+        })
     }
 
     #[test]
     fn os_wnd_start_usa_gla_china_campaign_hits_single_player_faction_medium() {
-        drive_os_wnd_campaign_side(ShowSide::USA);
-        let usa = get_campaign_manager().get_current_map().unwrap_or_default();
+        let usa = drive_os_wnd_campaign_side(ShowSide::USA);
         if !usa.is_empty() {
             assert!(
                 usa.to_ascii_lowercase().contains("md_usa"),
                 "USA first mission map, got {usa}"
             );
         }
-        drive_os_wnd_campaign_side(ShowSide::GLA);
-        let gla = get_campaign_manager().get_current_map().unwrap_or_default();
+        let gla = drive_os_wnd_campaign_side(ShowSide::GLA);
         if !gla.is_empty() {
             assert!(
                 gla.to_ascii_lowercase().contains("md_gla"),
                 "GLA first mission map, got {gla}"
             );
         }
-        drive_os_wnd_campaign_side(ShowSide::China);
-        let china = get_campaign_manager().get_current_map().unwrap_or_default();
+        let china = drive_os_wnd_campaign_side(ShowSide::China);
         if !china.is_empty() {
             assert!(
                 china.to_ascii_lowercase().contains("md_chi")
@@ -159,34 +203,42 @@ mod tests {
                 "China first mission map, got {china}"
             );
         }
-        assert!(!drive_os_wnd_start_campaign_like_cpp(
-            ShowSide::None,
-            GameDifficulty::Normal
-        ));
+        with_game_client_window_owner(|client| {
+            assert!(!with_menu_effects(client, |effects| {
+                drive_os_wnd_start_campaign_like_cpp(
+                    ShowSide::None,
+                    GameDifficulty::Normal,
+                    effects,
+                )
+            }));
+        });
     }
 
     #[test]
     fn os_wnd_start_usa_campaign_hits_single_player_usa_medium() {
-        with_game_client_window_owner(|| {
-            reset_main_menu_for_os_wnd();
+        with_game_client_window_owner(|client| {
+            {
+                let (_, menu, _) = client.campaign_menu_and_host_mut();
+                reset_main_menu_for_os_wnd(menu);
+            }
             install_named_button("MainMenu.wnd:ButtonSinglePlayer", 10, 10);
             install_named_button("MainMenu.wnd:ButtonUSA", 10, 40);
             install_named_button("MainMenu.wnd:ButtonMedium", 10, 70);
-            {
-                let mut manager = get_campaign_manager();
-                manager.init();
-            }
+            client.campaign_menu_and_host_mut().0.init();
             assert!(
-                drive_os_wnd_start_usa_campaign_like_cpp(),
+                with_shell_menu_effects(client, |effects| {
+                    drive_os_wnd_start_usa_campaign_like_cpp(effects)
+                }),
                 "OS WND USA Medium must latch campaign start"
             );
             {
-                let menu = get_main_menu();
-                let state = menu.state.read().unwrap_or_else(|e| e.into_inner());
+                let state = &client.main_menu().state;
                 assert!(state.start_game);
                 assert_eq!(state.show_side, ShowSide::USA);
             }
-            let campaign = get_campaign_manager()
+            let campaign = client
+                .campaign_menu_and_host_mut()
+                .0
                 .get_current_campaign()
                 .map(|c| c.name.clone())
                 .unwrap_or_default();
@@ -194,41 +246,53 @@ mod tests {
                 campaign.eq_ignore_ascii_case("usa") || campaign.is_empty(),
                 "setCampaign(USA) when Campaign.ini loaded, got {campaign}"
             );
-            let map = get_campaign_manager().get_current_map().unwrap_or_default();
+            let map = client
+                .campaign_menu_and_host_mut()
+                .0
+                .get_current_map()
+                .unwrap_or_default();
             if !map.is_empty() {
                 assert!(
                     map.to_ascii_lowercase().contains("md_usa"),
                     "USA first mission map, got {map}"
                 );
             }
-            assert!(!drive_os_wnd_start_campaign_like_cpp(
-                ShowSide::None,
-                GameDifficulty::Normal
-            ));
+            assert!(!with_shell_menu_effects(client, |effects| {
+                drive_os_wnd_start_campaign_like_cpp(
+                    ShowSide::None,
+                    GameDifficulty::Normal,
+                    effects,
+                )
+            }));
         });
     }
 
     #[test]
     fn dispatch_os_click_named_window_requires_hit_test_for_used() {
-        reset_os_wnd_widget_tree_nav_for_tests();
-        assert!(
-            !dispatch_os_click_named_window("MainMenu.wnd:MissingHitTest"),
-            "missing gadget must not count as a click"
-        );
-        assert!(
-            !last_os_wnd_widget_tree_click_ok(),
-            "Used must not latch without get_window_under_cursor hit"
-        );
-        assert!(
-            !os_wnd_widget_tree_nav_ok(),
-            "sticky nav must not latch on a miss"
-        );
+        with_game_client_window_owner(|client| {
+            let owner = client.window_manager_owner();
+            reset_os_wnd_widget_tree_nav_for_tests(&owner);
+            assert!(
+                !with_menu_effects(client, |effects| {
+                    dispatch_os_click_named_window("MainMenu.wnd:MissingHitTest", effects)
+                }),
+                "missing gadget must not count as a click"
+            );
+            assert!(
+                !last_os_wnd_widget_tree_click_ok(&owner),
+                "Used must not latch without get_window_under_cursor hit"
+            );
+            assert!(
+                !os_wnd_widget_tree_nav_ok(&owner),
+                "sticky nav must not latch on a miss"
+            );
+        });
     }
 
     #[test]
     fn test_main_menu_creation() {
         let mut menu = MainMenu::new();
-        let state = menu.state.read().unwrap_or_else(|e| e.into_inner());
+        let state = &menu.state;
 
         assert!(state.raise_message_boxes);
         assert!(!state.campaign_selected);
@@ -248,7 +312,7 @@ mod tests {
     fn shutdown_with_immediate_userdata_completes_without_animation_like_cpp() {
         let mut menu = MainMenu::new();
         {
-            let mut state = menu.state.write().unwrap_or_else(|e| e.into_inner());
+            let mut state = &mut menu.state;
             state.is_shutting_down = true;
             state.start_game = false;
         }
@@ -256,7 +320,7 @@ mod tests {
         let pop_immediate = true;
         menu.shutdown(&(), Some(&pop_immediate)).unwrap();
 
-        let state = menu.state.read().unwrap_or_else(|e| e.into_inner());
+        let state = &menu.state;
         assert!(!state.is_shutting_down);
     }
 
@@ -296,7 +360,7 @@ mod tests {
         let mut menu = MainMenu::new();
 
         {
-            let mut state = menu.state.write().unwrap_or_else(|e| e.into_inner());
+            let mut state = &mut menu.state;
             state.new_disp_settings.x_res = 1920;
             state.new_disp_settings.y_res = 1080;
             state.disp_changed = true;
@@ -304,7 +368,7 @@ mod tests {
 
         menu.accept_resolution();
 
-        let state = menu.state.read().unwrap_or_else(|e| e.into_inner());
+        let state = &menu.state;
         assert_eq!(state.old_disp_settings.x_res, 1920);
         assert_eq!(state.old_disp_settings.y_res, 1080);
         assert!(!state.disp_changed);
@@ -315,7 +379,7 @@ mod tests {
         let mut menu = MainMenu::new();
 
         {
-            let mut state = menu.state.write().unwrap_or_else(|e| e.into_inner());
+            let mut state = &mut menu.state;
             state.old_disp_settings = DisplaySettings {
                 x_res: 1280,
                 y_res: 720,
@@ -336,7 +400,7 @@ mod tests {
         assert_eq!(reverted.x_res, 1280);
         assert_eq!(reverted.y_res, 720);
 
-        let state = menu.state.read().unwrap_or_else(|e| e.into_inner());
+        let state = &menu.state;
         assert_eq!(state.new_disp_settings.x_res, 1280);
         assert_eq!(state.new_disp_settings.y_res, 720);
         assert!(!state.disp_changed);
@@ -347,7 +411,7 @@ mod tests {
         let mut menu = MainMenu::new();
 
         {
-            let mut state = menu.state.write().unwrap_or_else(|e| e.into_inner());
+            let mut state = &mut menu.state;
             state.button_pushed = true;
             state.drop_down = DropdownType::Difficulty;
             state.checking_for_patch_before_gamespy = true;
@@ -358,7 +422,7 @@ mod tests {
 
         menu.handle_canceled_download(true);
 
-        let state = menu.state.read().unwrap_or_else(|e| e.into_inner());
+        let state = &menu.state;
         assert!(!state.button_pushed);
         assert_eq!(state.drop_down, DropdownType::Difficulty);
         assert!(state.checking_for_patch_before_gamespy);
@@ -372,7 +436,7 @@ mod tests {
         let mut menu = MainMenu::new();
 
         {
-            let mut state = menu.state.write().unwrap_or_else(|e| e.into_inner());
+            let mut state = &mut menu.state;
             state.button_pushed = true;
             state.drop_down = DropdownType::Difficulty;
             state.checking_for_patch_before_gamespy = true;
@@ -382,11 +446,11 @@ mod tests {
         }
 
         {
-            let mut state = menu.state.write().unwrap_or_else(|e| e.into_inner());
+            let mut state = &mut menu.state;
             MainMenu::cancel_patch_check_callback_state(&mut state);
         }
 
-        let state = menu.state.read().unwrap_or_else(|e| e.into_inner());
+        let state = &menu.state;
         assert!(!state.button_pushed);
         assert_eq!(state.drop_down, DropdownType::Difficulty);
         assert!(!state.checking_for_patch_before_gamespy);
@@ -398,7 +462,7 @@ mod tests {
     #[test]
     fn test_initial_state() {
         let mut menu = MainMenu::new();
-        let state = menu.state.read().unwrap_or_else(|e| e.into_inner());
+        let state = &menu.state;
 
         assert_eq!(state.initial_gadget_delay, INITIAL_GADGET_DELAY_DEFAULT);
         assert!(state.not_shown);
@@ -417,14 +481,14 @@ mod tests {
         let mut menu = MainMenu::new();
 
         {
-            let mut state = menu.state.write().unwrap_or_else(|e| e.into_inner());
+            let mut state = &mut menu.state;
             state.button_pushed = true;
             state.dont_allow_transitions = true;
         }
 
         menu.start_patch_check();
 
-        let state = menu.state.read().unwrap_or_else(|e| e.into_inner());
+        let state = &menu.state;
         assert!(state.button_pushed);
         assert!(state.dont_allow_transitions);
         assert!(state.checking_for_patch_before_gamespy);
@@ -459,21 +523,21 @@ mod tests {
         let mut menu = MainMenu::new();
 
         {
-            let mut state = menu.state.write().unwrap_or_else(|e| e.into_inner());
+            let mut state = &mut menu.state;
             state.checking_for_patch_before_gamespy = true;
             state.checks_left_before_online = 4;
             state.online_cancel_window_open = true;
         }
 
         {
-            let mut state = menu.state.write().unwrap_or_else(|e| e.into_inner());
-            menu.http_think_wrapper(&mut state);
-            menu.http_think_wrapper(&mut state);
-            menu.http_think_wrapper(&mut state);
-            menu.http_think_wrapper(&mut state);
+            let mut state = &mut menu.state;
+            MainMenu::http_think_wrapper(&mut state);
+            MainMenu::http_think_wrapper(&mut state);
+            MainMenu::http_think_wrapper(&mut state);
+            MainMenu::http_think_wrapper(&mut state);
         }
 
-        let state = menu.state.read().unwrap_or_else(|e| e.into_inner());
+        let state = &menu.state;
         assert!(!state.checking_for_patch_before_gamespy);
         assert_eq!(state.checks_left_before_online, 0);
         assert!(!state.online_cancel_window_open);
@@ -481,10 +545,10 @@ mod tests {
 
     #[test]
     fn test_reveal_hidden_main_menu_sets_cpp_startup_state() {
-        let mut menu = MainMenu::new();
         let mut state = MainMenuState::default();
-
-        menu.reveal_hidden_main_menu(&mut state);
+        with_test_shell_menu_effects(|effects| {
+            MainMenu::reveal_hidden_main_menu(&mut state, effects);
+        });
 
         assert_eq!(state.initial_gadget_delay, 1);
         assert_eq!(state.drop_down, DropdownType::Main);
@@ -493,7 +557,10 @@ mod tests {
 
     #[test]
     fn test_main_menu_init_unhides_startup_controls_like_cpp_layout_hide() {
-        with_game_client_window_owner(|| {
+        // MainMenu::init still invokes the Core shell-map helper, which uses shared
+        // engine state. This checks the receiving menu/window owner path, not Core
+        // shell-map isolation.
+        with_game_client_window_owner(|client| {
             game_engine::common::ini::ini_game_data::init_global_data();
             if let Some(global) = get_global_data() {
                 let mut global = global.write();
@@ -502,23 +569,15 @@ mod tests {
                 global.shell_map_name = "ShellMapMD".to_string();
                 global.shell_map_on = true;
             }
-            if let Ok(mut logic) = gamelogic::system::game_logic::get_game_logic().lock() {
-                logic.set_game_mode(gamelogic::system::game_logic::GAME_NONE);
-            }
-            {
-                let message_stream = get_message_stream();
-                message_stream
-                    .write()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .clear_messages();
-            }
+            client.message_stream_mut().clear_messages();
             show_shell_map_if_available(false);
             assert!(!get_shell().is_shell_map_on());
 
-            let previous_first_time =
-                FIRST_TIME_RUNNING_GAME.swap(false, std::sync::atomic::Ordering::SeqCst);
+            client
+                .campaign_menu_and_host_mut()
+                .1
+                .first_time_running_game = false;
 
-            let mut menu = MainMenu::new();
             let (layout, _info) = with_window_manager(|manager| {
                 manager
                     .create_layout_with_windows("Menus/MainMenu.wnd")
@@ -544,7 +603,10 @@ mod tests {
             assert_eq!(before_get_update, Some(true));
             assert_eq!(before_map_pack, Some(true));
 
-            menu.init(&*layout.borrow(), None).unwrap();
+            with_shell_menu_effects(client, |effects| {
+                effects.with_main_menu(|menu, effects| menu.init(&*layout.borrow(), None, effects))
+            })
+            .unwrap();
 
             let after_get_update = capture_hidden(get_update_id);
             let after_motd = capture_hidden(motd_id);
@@ -570,8 +632,6 @@ mod tests {
                 global.shell_map_on = false;
             }
             show_shell_map_if_available(false);
-
-            FIRST_TIME_RUNNING_GAME.store(previous_first_time, std::sync::atomic::Ordering::SeqCst);
         });
     }
 
@@ -579,15 +639,23 @@ mod tests {
     fn test_input_focus_does_not_reveal_hidden_menu() {
         let mut menu = MainMenu::new();
         {
-            let mut state = menu.state.write().unwrap_or_else(|e| e.into_inner());
+            let mut state = &mut menu.state;
             state.window_ids = build_window_ids();
             state.not_shown = true;
         }
 
-        let handled = menu.system(build_window_ids().main_menu_id, GWM_INPUT_FOCUS, 1, 0);
+        let handled = with_test_shell_menu_effects(|effects| {
+            menu.system(
+                build_window_ids().main_menu_id,
+                GWM_INPUT_FOCUS,
+                1,
+                0,
+                effects,
+            )
+        });
         assert!(handled);
 
-        let state = menu.state.read().unwrap_or_else(|e| e.into_inner());
+        let state = &menu.state;
         assert!(state.not_shown);
         assert_eq!(state.drop_down, DropdownType::None);
     }
@@ -601,10 +669,10 @@ mod tests {
         state.window_ids.options_id = 13;
         state.window_ids.exit_id = 14;
 
-        menu.handle_mouse_entering(&mut state, 11);
-        menu.handle_mouse_entering(&mut state, 12);
-        menu.handle_mouse_leaving(&mut state, 13);
-        menu.handle_mouse_leaving(&mut state, 14);
+        MainMenu::handle_mouse_entering(&mut state, 11);
+        MainMenu::handle_mouse_entering(&mut state, 12);
+        MainMenu::handle_mouse_leaving(&mut state, 13);
+        MainMenu::handle_mouse_leaving(&mut state, 14);
 
         let hooks = state
             .pending_actions
@@ -635,11 +703,11 @@ mod tests {
         state.campaign_selected = false;
         let usa_id = state.window_ids.button_usa_id;
 
-        menu.handle_mouse_entering(&mut state, usa_id);
+        MainMenu::handle_mouse_entering(&mut state, usa_id);
         assert!(state.show_logo);
         assert_eq!(state.show_side, ShowSide::USA);
 
-        menu.handle_mouse_leaving(&mut state, usa_id);
+        MainMenu::handle_mouse_leaving(&mut state, usa_id);
         assert!(!state.show_logo);
         assert_eq!(state.show_side, ShowSide::None);
     }
@@ -651,8 +719,10 @@ mod tests {
 
         let mut skirmish_state = MainMenuState::default();
         skirmish_state.window_ids = ids.clone();
-        menu.handle_button_selected(&mut skirmish_state, ids.skirmish_id)
-            .unwrap();
+        with_test_shell_menu_effects(|effects| {
+            MainMenu::handle_button_selected(&mut skirmish_state, ids.skirmish_id, effects)
+        })
+        .unwrap();
         let skirmish_hooks = skirmish_state
             .pending_actions
             .iter()
@@ -665,8 +735,10 @@ mod tests {
 
         let mut network_state = MainMenuState::default();
         network_state.window_ids = ids.clone();
-        menu.handle_button_selected(&mut network_state, ids.network_id)
-            .unwrap();
+        with_test_shell_menu_effects(|effects| {
+            MainMenu::handle_button_selected(&mut network_state, ids.network_id, effects)
+        })
+        .unwrap();
         let network_hooks = network_state
             .pending_actions
             .iter()
@@ -680,8 +752,10 @@ mod tests {
         let mut options_state = MainMenuState::default();
         options_state.window_ids = ids;
         let options_id = options_state.window_ids.options_id;
-        menu.handle_button_selected(&mut options_state, options_id)
-            .unwrap();
+        with_test_shell_menu_effects(|effects| {
+            MainMenu::handle_button_selected(&mut options_state, options_id, effects)
+        })
+        .unwrap();
         let options_hooks = options_state
             .pending_actions
             .iter()
@@ -700,8 +774,10 @@ mod tests {
         let mut state = MainMenuState::default();
         state.window_ids = ids.clone();
 
-        menu.handle_button_selected(&mut state, ids.exit_id)
-            .unwrap();
+        with_test_shell_menu_effects(|effects| {
+            MainMenu::handle_button_selected(&mut state, ids.exit_id, effects)
+        })
+        .unwrap();
 
         assert!(!state.button_pushed);
         assert!(matches!(
@@ -714,11 +790,16 @@ mod tests {
     fn test_no_cd_retry_keeps_prompt_open_without_starting_campaign() {
         let mut menu = MainMenu::new();
 
-        let result =
-            menu.retry_campaign_start_after_cd_check_with_status(GameDifficulty::Normal, false);
+        let result = with_test_menu_effects(|effects| {
+            menu.retry_campaign_start_after_cd_check_with_status(
+                GameDifficulty::Normal,
+                false,
+                effects,
+            )
+        });
 
         assert_eq!(result, ExMessageBoxReturnType::KeepOpen);
-        let state = menu.state.read().unwrap_or_else(|e| e.into_inner());
+        let state = &menu.state;
         assert!(!state.start_game);
         assert!(!state.dont_allow_transitions);
     }
@@ -734,8 +815,10 @@ mod tests {
         state.launch_challenge_menu = true;
         state.drop_down = DropdownType::Difficulty;
 
-        menu.handle_button_selected(&mut state, ids.button_credits_id)
-            .unwrap();
+        with_test_menu_effects(|effects| {
+            MainMenu::handle_button_selected(&mut state, ids.button_credits_id, effects)
+        })
+        .unwrap();
 
         assert!(state.button_pushed);
         assert!(!state.dont_allow_transitions);
@@ -760,7 +843,10 @@ mod tests {
             state.button_pushed = true;
             state.drop_down = DropdownType::Difficulty;
 
-            menu.handle_button_selected(&mut state, control_id).unwrap();
+            with_test_menu_effects(|effects| {
+                MainMenu::handle_button_selected(&mut state, control_id, effects)
+            })
+            .unwrap();
 
             assert!(state.button_pushed);
             assert!(!state.dont_allow_transitions);
@@ -772,25 +858,27 @@ mod tests {
 
     #[test]
     fn first_run_char_reveals_dropdown_like_cpp_main_menu_input() {
-        {
-            let mut menu = get_main_menu();
-            let mut state = menu.state.write().unwrap_or_else(|e| e.into_inner());
-            state.not_shown = true;
-            state.window_ids = build_window_ids();
-        }
-        assert!(
-            reveal_main_menu_first_input_like_cpp(),
-            "C++ MainMenuInput GWM_CHAR must unhide DROPDOWN_MAIN"
-        );
-        let menu = get_main_menu();
-        let state = menu.state.read().unwrap_or_else(|e| e.into_inner());
-        assert!(!state.not_shown);
-        assert_eq!(state.drop_down, DropdownType::Main);
+        with_game_client_window_owner(|client| {
+            {
+                let (_, menu, _) = client.campaign_menu_and_host_mut();
+                menu.state.not_shown = true;
+                menu.state.window_ids = build_window_ids();
+            }
+            assert!(
+                with_shell_menu_effects(client, |effects| reveal_main_menu_first_input_like_cpp(
+                    effects
+                )),
+                "C++ MainMenuInput GWM_CHAR must unhide DROPDOWN_MAIN"
+            );
+            let state = &client.main_menu().state;
+            assert!(!state.not_shown);
+            assert_eq!(state.drop_down, DropdownType::Main);
+        });
     }
 
     #[test]
     fn first_update_hides_overlapping_borders_then_char_reveal_hits_skirmish() {
-        with_game_client_window_owner(|| {
+        with_game_client_window_owner(|client| {
             use crate::gui::window_manager::with_window_manager;
 
             // C++ MainMenuInit 525-530 hides every dropdown including MapBorder2
@@ -839,8 +927,8 @@ mod tests {
             });
 
             {
-                let menu = get_main_menu();
-                let mut state = menu.state.write().unwrap_or_else(|e| e.into_inner());
+                let (_, menu, _) = client.campaign_menu_and_host_mut();
+                let state = &mut menu.state;
                 state.window_ids = build_window_ids();
                 state.not_shown = true;
                 state.drop_down = DropdownType::None;
@@ -869,7 +957,9 @@ mod tests {
 
             // C++ CHAR: winHide(FALSE) DROPDOWN_MAIN only. Skip transition_set_group.
             assert!(
-                apply_first_run_dropdown_reveal_visibility_for_tests(),
+                with_shell_menu_effects(client, |effects| {
+                    apply_first_run_dropdown_reveal_visibility_for_tests(effects)
+                }),
                 "CHAR reveal must unhide MapBorder2 without transition_set_group"
             );
 
@@ -891,8 +981,7 @@ mod tests {
 
     #[test]
     fn first_run_char_reveal_makes_named_gadgets_hittable_at_640x480() {
-        let owner = crate::gui::window_manager::WindowManagerOwner::new();
-        owner.with_scope(|| {
+        with_game_client_window_owner(|client| {
             use crate::gui::window_manager::with_window_manager;
 
             with_window_manager(|manager| {
@@ -945,8 +1034,8 @@ mod tests {
             });
 
             {
-                let menu = get_main_menu();
-                let mut state = menu.state.write().unwrap_or_else(|e| e.into_inner());
+                let (_, menu, _) = client.campaign_menu_and_host_mut();
+                let state = &mut menu.state;
                 state.not_shown = true;
                 state.drop_down = DropdownType::None;
                 state.dropdown_windows.insert(DropdownType::Single, None);
@@ -983,7 +1072,9 @@ mod tests {
             });
 
             assert!(
-                apply_first_run_dropdown_reveal_visibility_for_tests(),
+                with_shell_menu_effects(client, |effects| {
+                    apply_first_run_dropdown_reveal_visibility_for_tests(effects)
+                }),
                 "CHAR visibility must unhide DROPDOWN_MAIN without transition_set_group"
             );
 
@@ -1033,8 +1124,7 @@ mod tests {
 
     #[test]
     fn dont_allow_transitions_clears_when_handler_finished_like_cpp() {
-        let owner = crate::gui::window_manager::WindowManagerOwner::new();
-        owner.with_scope(|| {
+        with_game_client_window_owner(|client| {
             crate::gui::window_manager::with_window_manager(|manager| {
                 manager.reset();
                 assert!(
@@ -1043,16 +1133,19 @@ mod tests {
                 );
             });
 
-            let mut menu = MainMenu::new();
             {
-                let mut state = menu.state.write().unwrap_or_else(|e| e.into_inner());
+                let (_, menu, _) = client.campaign_menu_and_host_mut();
+                let state = &mut menu.state;
                 state.dont_allow_transitions = true;
                 state.just_entered = false;
                 state.start_game = false;
                 state.is_shutting_down = false;
             }
-            menu.update(&(), None).unwrap();
-            let state = menu.state.read().unwrap_or_else(|e| e.into_inner());
+            with_shell_menu_effects(client, |effects| {
+                effects.with_main_menu(|menu, effects| menu.update(&(), None, effects))
+            })
+            .unwrap();
+            let state = &client.main_menu().state;
             assert!(
                 !state.dont_allow_transitions,
                 "MainMenuUpdate clears dontAllowTransitions when TransitionHandler is finished"
@@ -1062,328 +1155,371 @@ mod tests {
 
     #[test]
     fn os_mouse_click_button_skirmish_bubbles_gbm_selected_like_cpp() {
-        let owner = crate::gui::window_manager::WindowManagerOwner::new();
-        owner.with_scope(|| {
+        with_game_client_window_owner(|client| {
+            use crate::gui::WindowMessage;
+            use crate::gui::gadgets::PushButton;
+            use crate::gui::game_window::{
+                GWS_MOUSE_TRACK, GWS_PUSH_BUTTON, WindowInputReturnCode, WindowWidget,
+            };
+            use crate::gui::window_manager::with_window_manager;
+            use crate::gui::window_script::WindowDefinition;
 
-                use crate::gui::WindowMessage;
-                use crate::gui::gadgets::PushButton;
-                use crate::gui::game_window::{
-                    GWS_MOUSE_TRACK, GWS_PUSH_BUTTON, WindowInputReturnCode, WindowWidget,
-                };
-                use crate::gui::window_manager::{
-                    dispatch_os_mouse_to_window_manager, with_window_manager,
-                };
-                use crate::gui::window_script::WindowDefinition;
+            let parent_id = NameKeyGenerator::name_to_key("MainMenu.wnd:MainMenuParent") as i32;
+            let border_id = NameKeyGenerator::name_to_key("MainMenu.wnd:MapBorder") as i32;
+            let skirmish_id = NameKeyGenerator::name_to_key("MainMenu.wnd:ButtonSkirmish") as i32;
 
-                let parent_id = NameKeyGenerator::name_to_key("MainMenu.wnd:MainMenuParent") as i32;
-                let border_id = NameKeyGenerator::name_to_key("MainMenu.wnd:MapBorder") as i32;
-                let skirmish_id = NameKeyGenerator::name_to_key("MainMenu.wnd:ButtonSkirmish") as i32;
+            {
+                let (_, menu, _) = client.campaign_menu_and_host_mut();
+                let state = &mut menu.state;
+                state.button_pushed = false;
+                state.campaign_selected = false;
+                state.dont_allow_transitions = false;
+                state.not_shown = false;
+                state.pending_actions.clear();
+                state.window_ids = build_window_ids();
+            }
 
+            crate::gui::shell::get_shell().set_shell_active(true);
+            with_window_manager(|manager| {
+                manager.reset();
+                let parent = manager
+                    .create_window_with_id(None, 0, 0, 400, 400, parent_id)
+                    .unwrap();
+                manager.bind_window_callbacks(
+                    &mut parent.borrow_mut(),
+                    &WindowDefinition {
+                        system_callback: "MainMenuSystem".to_string(),
+                        input_callback: "MainMenuInput".to_string(),
+                        ..WindowDefinition::default()
+                    },
+                );
+
+                let border = manager
+                    .create_window_with_id(Some(&parent), 0, 0, 200, 200, border_id)
+                    .unwrap();
+                manager.bind_window_callbacks(
+                    &mut border.borrow_mut(),
+                    &WindowDefinition {
+                        system_callback: "PassSelectedButtonsToParentSystem".to_string(),
+                        input_callback: "[None]".to_string(),
+                        ..WindowDefinition::default()
+                    },
+                );
+
+                let button_win = manager
+                    .create_window_with_id(Some(&border), 10, 10, 80, 30, skirmish_id)
+                    .unwrap();
                 {
-                    let mut menu = get_main_menu();
-                    let mut state = menu.state.write().unwrap_or_else(|e| e.into_inner());
-                    state.button_pushed = false;
-                    state.campaign_selected = false;
-                    state.dont_allow_transitions = false;
-                    state.not_shown = false;
-                    state.pending_actions.clear();
-                    state.window_ids = build_window_ids();
+                    let mut button_mut = button_win.borrow_mut();
+                    button_mut.instance_data_mut().style |= GWS_PUSH_BUTTON | GWS_MOUSE_TRACK;
+                    button_mut.set_widget(WindowWidget::PushButton(PushButton::new(
+                        skirmish_id as u32,
+                        0,
+                        0,
+                        80,
+                        30,
+                    )));
+                    manager.bind_window_callbacks(
+                        &mut button_mut,
+                        &WindowDefinition {
+                            system_callback: "[None]".to_string(),
+                            input_callback: "[None]".to_string(),
+                            tooltip_callback: "[None]".to_string(),
+                            draw_callback: "[None]".to_string(),
+                            ..WindowDefinition::default()
+                        },
+                    );
                 }
 
-                crate::gui::shell::get_shell().set_shell_active(true);
+                assert!(
+                    button_win.borrow().point_in_window(20, 20),
+                    "click must land on ButtonSkirmish"
+                );
+            });
+
+            let (down, up) = with_shell_menu_effects(client, |effects| {
                 with_window_manager(|manager| {
-                    manager.reset();
-                    let parent = manager
-                        .create_window_with_id(None, 0, 0, 400, 400, parent_id)
-                        .unwrap();
+                    let down = manager.process_mouse_event_with_delta_and_message_sink(
+                        WindowMessage::LeftDown,
+                        20,
+                        20,
+                        0,
+                        None,
+                        effects,
+                    );
+                    let up = manager.process_mouse_event_with_delta_and_message_sink(
+                        WindowMessage::LeftUp,
+                        20,
+                        20,
+                        0,
+                        None,
+                        effects,
+                    );
+                    (down, up)
+                })
+            });
+            assert_eq!(down, WindowInputReturnCode::Used);
+            assert_eq!(up, WindowInputReturnCode::Used);
+            let wrapped = with_shell_menu_effects(client, |effects| {
+                with_window_manager(|manager| {
+                    manager.process_mouse_event_with_delta_and_message_sink(
+                        WindowMessage::LeftDown,
+                        20,
+                        20,
+                        0,
+                        None,
+                        effects,
+                    )
+                })
+            });
+            assert_eq!(wrapped, WindowInputReturnCode::Used);
+
+            let state = &client.main_menu().state;
+            assert!(
+                state.button_pushed && state.campaign_selected,
+                "OS click must bubble GBM_SELECTED through PassSelectedButtonsToParentSystem into MainMenuSystem ButtonSkirmish"
+            );
+        });
+    }
+
+    #[test]
+    fn os_mouse_click_button_single_player_gbm_selected_unhides_map_border() {
+        with_game_client_window_owner(|client| {
+            // C++ MainMenu.cpp:1313-1324 ButtonSinglePlayer GBM_SELECTED:
+            // dropDownWindows[DROPDOWN_SINGLE]->winHide(FALSE) (MapBorder)
+            // so SKIRMISH (a MapBorder child) is hittable. Physical click must
+            // bubble through PassSelectedButtonsToParentSystem into MainMenuSystem.
+            use crate::gui::WindowMessage;
+            use crate::gui::gadgets::PushButton;
+            use crate::gui::game_window::{
+                GWS_MOUSE_TRACK, GWS_PUSH_BUTTON, WindowInputReturnCode, WindowStatus, WindowWidget,
+            };
+            use crate::gui::window_manager::with_window_manager;
+            use crate::gui::window_script::WindowDefinition;
+
+            let ids = build_window_ids();
+            let parent_id = ids.main_menu_id as i32;
+            let border_id = NameKeyGenerator::name_to_key("MainMenu.wnd:MapBorder") as i32;
+            let border2_id = NameKeyGenerator::name_to_key("MainMenu.wnd:MapBorder2") as i32;
+            let solo_id = ids.button_single_player_id as i32;
+            let skirmish_id = ids.skirmish_id as i32;
+
+            {
+                let (_, menu, _) = client.campaign_menu_and_host_mut();
+                let state = &mut menu.state;
+                state.button_pushed = false;
+                state.campaign_selected = false;
+                state.dont_allow_transitions = false;
+                state.not_shown = false;
+                state.pending_actions.clear();
+                state.window_ids = ids.clone();
+                state.drop_down = DropdownType::Main;
+            }
+
+            crate::gui::shell::get_shell().set_shell_active(true);
+            with_window_manager(|manager| {
+                manager.reset();
+                manager.set_screen_size(800, 600);
+
+                let parent = manager
+                    .create_window_with_id(None, 0, 0, 800, 600, parent_id)
+                    .unwrap();
+                {
+                    let mut parent_mut = parent.borrow_mut();
+                    parent_mut.set_name("MainMenu.wnd:MainMenuParent");
+                    parent_mut.set_status(WindowStatus::NO_INPUT);
                     manager.bind_window_callbacks(
-                        &mut parent.borrow_mut(),
+                        &mut parent_mut,
                         &WindowDefinition {
                             system_callback: "MainMenuSystem".to_string(),
                             input_callback: "MainMenuInput".to_string(),
                             ..WindowDefinition::default()
                         },
                     );
+                }
 
-                    let border = manager
-                        .create_window_with_id(Some(&parent), 0, 0, 200, 200, border_id)
-                        .unwrap();
+                let border2 = manager
+                    .create_window_with_id(Some(&parent), 0, 0, 800, 600, border2_id)
+                    .unwrap();
+                {
+                    let mut border2_mut = border2.borrow_mut();
+                    border2_mut.set_name("MainMenu.wnd:MapBorder2");
                     manager.bind_window_callbacks(
-                        &mut border.borrow_mut(),
+                        &mut border2_mut,
                         &WindowDefinition {
                             system_callback: "PassSelectedButtonsToParentSystem".to_string(),
                             input_callback: "[None]".to_string(),
                             ..WindowDefinition::default()
                         },
                     );
+                }
+                let _ = border2.borrow_mut().hide(false);
 
-                    let button_win = manager
-                        .create_window_with_id(Some(&border), 10, 10, 80, 30, skirmish_id)
-                        .unwrap();
-                    {
-                        let mut button_mut = button_win.borrow_mut();
-                        button_mut.instance_data_mut().style |= GWS_PUSH_BUTTON | GWS_MOUSE_TRACK;
-                        button_mut.set_widget(WindowWidget::PushButton(PushButton::new(
-                            skirmish_id as u32,
-                            0,
-                            0,
-                            80,
-                            30,
-                        )));
-                        manager.bind_window_callbacks(
-                            &mut button_mut,
-                            &WindowDefinition {
-                                system_callback: "[None]".to_string(),
-                                input_callback: "[None]".to_string(),
-                                tooltip_callback: "[None]".to_string(),
-                                draw_callback: "[None]".to_string(),
-                                ..WindowDefinition::default()
-                            },
-                        );
-                    }
-
-                    assert!(
-                        button_win.borrow().point_in_window(20, 20),
-                        "click must land on ButtonSkirmish"
+                let solo = manager
+                    .create_window_with_id(Some(&border2), 540, 116, 208, 36, solo_id)
+                    .unwrap();
+                {
+                    let mut solo_mut = solo.borrow_mut();
+                    solo_mut.set_name("MainMenu.wnd:ButtonSinglePlayer");
+                    solo_mut.instance_data_mut().style |= GWS_PUSH_BUTTON | GWS_MOUSE_TRACK;
+                    solo_mut.set_widget(WindowWidget::PushButton(PushButton::new(
+                        solo_id as u32,
+                        0,
+                        0,
+                        208,
+                        36,
+                    )));
+                    manager.bind_window_callbacks(
+                        &mut solo_mut,
+                        &WindowDefinition {
+                            system_callback: "[None]".to_string(),
+                            input_callback: "[None]".to_string(),
+                            tooltip_callback: "[None]".to_string(),
+                            draw_callback: "[None]".to_string(),
+                            ..WindowDefinition::default()
+                        },
                     );
-                    let down = manager.process_mouse_event(WindowMessage::LeftDown, 20, 20, 0);
-                    assert_eq!(down, WindowInputReturnCode::Used);
-                    let up = manager.process_mouse_event(WindowMessage::LeftUp, 20, 20, 0);
-                    assert_eq!(up, WindowInputReturnCode::Used);
-                });
+                }
+                let _ = solo.borrow_mut().hide(false);
+                let _ = solo.borrow_mut().enable(true);
 
-                let wrapped = dispatch_os_mouse_to_window_manager(WindowMessage::LeftDown, 20, 20);
-                assert_eq!(wrapped, WindowInputReturnCode::Used);
+                let border = manager
+                    .create_window_with_id(Some(&parent), 0, 0, 800, 600, border_id)
+                    .unwrap();
+                {
+                    let mut border_mut = border.borrow_mut();
+                    border_mut.set_name("MainMenu.wnd:MapBorder");
+                    manager.bind_window_callbacks(
+                        &mut border_mut,
+                        &WindowDefinition {
+                            system_callback: "PassSelectedButtonsToParentSystem".to_string(),
+                            input_callback: "[None]".to_string(),
+                            ..WindowDefinition::default()
+                        },
+                    );
+                }
+                let _ = border.borrow_mut().hide(true);
 
-                let menu = get_main_menu();
-                let state = menu.state.read().unwrap_or_else(|e| e.into_inner());
+                let skirmish = manager
+                    .create_window_with_id(Some(&border), 540, 276, 208, 36, skirmish_id)
+                    .unwrap();
+                {
+                    let mut skirmish_mut = skirmish.borrow_mut();
+                    skirmish_mut.set_name("MainMenu.wnd:ButtonSkirmish");
+                    skirmish_mut.instance_data_mut().style |= GWS_PUSH_BUTTON | GWS_MOUSE_TRACK;
+                    skirmish_mut.set_widget(WindowWidget::PushButton(PushButton::new(
+                        skirmish_id as u32,
+                        0,
+                        0,
+                        208,
+                        36,
+                    )));
+                    manager.bind_window_callbacks(
+                        &mut skirmish_mut,
+                        &WindowDefinition {
+                            system_callback: "[None]".to_string(),
+                            input_callback: "[None]".to_string(),
+                            tooltip_callback: "[None]".to_string(),
+                            draw_callback: "[None]".to_string(),
+                            ..WindowDefinition::default()
+                        },
+                    );
+                }
+                let _ = skirmish.borrow_mut().hide(false);
+                let _ = skirmish.borrow_mut().enable(true);
+
                 assert!(
-                    state.button_pushed && state.campaign_selected,
-                    "OS click must bubble GBM_SELECTED through PassSelectedButtonsToParentSystem into MainMenuSystem ButtonSkirmish"
+                    solo.borrow().point_in_window(644, 134),
+                    "click must land on ButtonSinglePlayer"
+                );
+            });
+
+            let (down, up) = with_shell_menu_effects(client, |effects| {
+                with_window_manager(|manager| {
+                    let down = manager.process_mouse_event_with_delta_and_message_sink(
+                        WindowMessage::LeftDown,
+                        644,
+                        134,
+                        0,
+                        None,
+                        effects,
+                    );
+                    let up = manager.process_mouse_event_with_delta_and_message_sink(
+                        WindowMessage::LeftUp,
+                        644,
+                        134,
+                        0,
+                        None,
+                        effects,
+                    );
+                    (down, up)
+                })
+            });
+            assert_eq!(down, WindowInputReturnCode::Used);
+            assert_eq!(up, WindowInputReturnCode::Used);
+            {
+                let state = &client.main_menu().state;
+                assert_eq!(
+                    state.drop_down,
+                    DropdownType::Single,
+                    "OS click must bubble GBM_SELECTED through PassSelectedButtonsToParentSystem into MainMenuSystem ButtonSinglePlayer"
+                );
+                assert!(
+                    !state.button_pushed,
+                    "C++ ButtonSinglePlayer sets buttonPushed = FALSE"
+                );
+            }
+
+            with_window_manager(|manager| {
+                let border = manager
+                    .find_window_by_name("MainMenu.wnd:MapBorder")
+                    .expect("MapBorder");
+                assert!(
+                    !border.borrow().is_hidden(),
+                    "C++ 1320 dropDownWindows[DROPDOWN_SINGLE]->winHide(FALSE)"
+                );
+                let border2 = manager
+                    .find_window_by_name("MainMenu.wnd:MapBorder2")
+                    .expect("MapBorder2");
+                assert!(
+                    border2.borrow().is_hidden(),
+                    "SOLO PLAY must hide MapBorder2 so SKIRMISH is hittable"
                 );
 
-        });
-    }
-
-    #[test]
-    fn os_mouse_click_button_single_player_gbm_selected_unhides_map_border() {
-        let owner = crate::gui::window_manager::WindowManagerOwner::new();
-        owner.with_scope(|| {
-
-                // C++ MainMenu.cpp:1313-1324 ButtonSinglePlayer GBM_SELECTED:
-                // dropDownWindows[DROPDOWN_SINGLE]->winHide(FALSE) (MapBorder)
-                // so SKIRMISH (a MapBorder child) is hittable. Physical click must
-                // bubble through PassSelectedButtonsToParentSystem into MainMenuSystem.
-                use crate::gui::WindowMessage;
-                use crate::gui::gadgets::PushButton;
-                use crate::gui::game_window::{
-                    GWS_MOUSE_TRACK, GWS_PUSH_BUTTON, WindowInputReturnCode, WindowStatus, WindowWidget,
-                };
-                use crate::gui::window_manager::with_window_manager;
-                use crate::gui::window_script::WindowDefinition;
-
-                let ids = build_window_ids();
-                let parent_id = ids.main_menu_id as i32;
-                let border_id = NameKeyGenerator::name_to_key("MainMenu.wnd:MapBorder") as i32;
-                let border2_id = NameKeyGenerator::name_to_key("MainMenu.wnd:MapBorder2") as i32;
-                let solo_id = ids.button_single_player_id as i32;
-                let skirmish_id = ids.skirmish_id as i32;
-
-                {
-                    let mut menu = get_main_menu();
-                    let mut state = menu.state.write().unwrap_or_else(|e| e.into_inner());
-                    state.button_pushed = false;
-                    state.campaign_selected = false;
-                    state.dont_allow_transitions = false;
-                    state.not_shown = false;
-                    state.pending_actions.clear();
-                    state.window_ids = ids.clone();
-                    state.drop_down = DropdownType::Main;
-                }
-
-                crate::gui::shell::get_shell().set_shell_active(true);
-                with_window_manager(|manager| {
-                    manager.reset();
-                    manager.set_screen_size(800, 600);
-
-                    let parent = manager
-                        .create_window_with_id(None, 0, 0, 800, 600, parent_id)
-                        .unwrap();
-                    {
-                        let mut parent_mut = parent.borrow_mut();
-                        parent_mut.set_name("MainMenu.wnd:MainMenuParent");
-                        parent_mut.set_status(WindowStatus::NO_INPUT);
-                        manager.bind_window_callbacks(
-                            &mut parent_mut,
-                            &WindowDefinition {
-                                system_callback: "MainMenuSystem".to_string(),
-                                input_callback: "MainMenuInput".to_string(),
-                                ..WindowDefinition::default()
-                            },
-                        );
-                    }
-
-                    let border2 = manager
-                        .create_window_with_id(Some(&parent), 0, 0, 800, 600, border2_id)
-                        .unwrap();
-                    {
-                        let mut border2_mut = border2.borrow_mut();
-                        border2_mut.set_name("MainMenu.wnd:MapBorder2");
-                        manager.bind_window_callbacks(
-                            &mut border2_mut,
-                            &WindowDefinition {
-                                system_callback: "PassSelectedButtonsToParentSystem".to_string(),
-                                input_callback: "[None]".to_string(),
-                                ..WindowDefinition::default()
-                            },
-                        );
-                    }
-                    let _ = border2.borrow_mut().hide(false);
-
-                    let solo = manager
-                        .create_window_with_id(Some(&border2), 540, 116, 208, 36, solo_id)
-                        .unwrap();
-                    {
-                        let mut solo_mut = solo.borrow_mut();
-                        solo_mut.set_name("MainMenu.wnd:ButtonSinglePlayer");
-                        solo_mut.instance_data_mut().style |= GWS_PUSH_BUTTON | GWS_MOUSE_TRACK;
-                        solo_mut.set_widget(WindowWidget::PushButton(PushButton::new(
-                            solo_id as u32,
-                            0,
-                            0,
-                            208,
-                            36,
-                        )));
-                        manager.bind_window_callbacks(
-                            &mut solo_mut,
-                            &WindowDefinition {
-                                system_callback: "[None]".to_string(),
-                                input_callback: "[None]".to_string(),
-                                tooltip_callback: "[None]".to_string(),
-                                draw_callback: "[None]".to_string(),
-                                ..WindowDefinition::default()
-                            },
-                        );
-                    }
-                    let _ = solo.borrow_mut().hide(false);
-                    let _ = solo.borrow_mut().enable(true);
-
-                    let border = manager
-                        .create_window_with_id(Some(&parent), 0, 0, 800, 600, border_id)
-                        .unwrap();
-                    {
-                        let mut border_mut = border.borrow_mut();
-                        border_mut.set_name("MainMenu.wnd:MapBorder");
-                        manager.bind_window_callbacks(
-                            &mut border_mut,
-                            &WindowDefinition {
-                                system_callback: "PassSelectedButtonsToParentSystem".to_string(),
-                                input_callback: "[None]".to_string(),
-                                ..WindowDefinition::default()
-                            },
-                        );
-                    }
-                    let _ = border.borrow_mut().hide(true);
-
-                    let skirmish = manager
-                        .create_window_with_id(Some(&border), 540, 276, 208, 36, skirmish_id)
-                        .unwrap();
-                    {
-                        let mut skirmish_mut = skirmish.borrow_mut();
-                        skirmish_mut.set_name("MainMenu.wnd:ButtonSkirmish");
-                        skirmish_mut.instance_data_mut().style |= GWS_PUSH_BUTTON | GWS_MOUSE_TRACK;
-                        skirmish_mut.set_widget(WindowWidget::PushButton(PushButton::new(
-                            skirmish_id as u32,
-                            0,
-                            0,
-                            208,
-                            36,
-                        )));
-                        manager.bind_window_callbacks(
-                            &mut skirmish_mut,
-                            &WindowDefinition {
-                                system_callback: "[None]".to_string(),
-                                input_callback: "[None]".to_string(),
-                                tooltip_callback: "[None]".to_string(),
-                                draw_callback: "[None]".to_string(),
-                                ..WindowDefinition::default()
-                            },
-                        );
-                    }
-                    let _ = skirmish.borrow_mut().hide(false);
-                    let _ = skirmish.borrow_mut().enable(true);
-
-                    assert!(
-                        solo.borrow().point_in_window(644, 134),
-                        "click must land on ButtonSinglePlayer"
-                    );
-                    let down = manager.process_mouse_event(WindowMessage::LeftDown, 644, 134, 0);
-                    assert_eq!(down, WindowInputReturnCode::Used);
-                    let up = manager.process_mouse_event(WindowMessage::LeftUp, 644, 134, 0);
-                    assert_eq!(up, WindowInputReturnCode::Used);
-                });
-
-                {
-                    let menu = get_main_menu();
-                    let state = menu.state.read().unwrap_or_else(|e| e.into_inner());
-                    assert_eq!(
-                        state.drop_down,
-                        DropdownType::Single,
-                        "OS click must bubble GBM_SELECTED through PassSelectedButtonsToParentSystem into MainMenuSystem ButtonSinglePlayer"
-                    );
-                    assert!(
-                        !state.button_pushed,
-                        "C++ ButtonSinglePlayer sets buttonPushed = FALSE"
-                    );
-                }
-
-                with_window_manager(|manager| {
-                    let border = manager
-                        .find_window_by_name("MainMenu.wnd:MapBorder")
-                        .expect("MapBorder");
-                    assert!(
-                        !border.borrow().is_hidden(),
-                        "C++ 1320 dropDownWindows[DROPDOWN_SINGLE]->winHide(FALSE)"
-                    );
-                    let border2 = manager
-                        .find_window_by_name("MainMenu.wnd:MapBorder2")
-                        .expect("MapBorder2");
-                    assert!(
-                        border2.borrow().is_hidden(),
-                        "SOLO PLAY must hide MapBorder2 so SKIRMISH is hittable"
-                    );
-
-                    let hit = manager.get_window_under_cursor(644, 294, false);
-                    let hit_name = hit.as_ref().map(|w| w.borrow().get_name().to_string());
-                    assert!(
-                        hit_name.as_deref() == Some("MainMenu.wnd:ButtonSkirmish")
-                            || hit_name.as_deref() == Some("MainMenu.wnd:MapBorder"),
-                        "after ButtonSinglePlayer GBM_SELECTED, SKIRMISH or MapBorder must be hittable, got {hit_name:?}"
-                    );
-                });
-
+                let hit = manager.get_window_under_cursor(644, 294, false);
+                let hit_name = hit.as_ref().map(|w| w.borrow().get_name().to_string());
+                assert!(
+                    hit_name.as_deref() == Some("MainMenu.wnd:ButtonSkirmish")
+                        || hit_name.as_deref() == Some("MainMenu.wnd:MapBorder"),
+                    "after ButtonSinglePlayer GBM_SELECTED, SKIRMISH or MapBorder must be hittable, got {hit_name:?}"
+                );
+            });
         });
     }
 
     #[test]
     fn simulate_main_menu_skirmish_button_gadget_selected_latches() {
-        // Fresh residual call should fire ButtonSkirmish GBM_SELECTED latch.
-        assert!(
-            simulate_main_menu_skirmish_button_gadget_selected(),
-            "ButtonSkirmish residual must latch button_pushed+campaign_selected"
-        );
-        // Second call resets latches internally and re-fires.
-        assert!(simulate_main_menu_skirmish_button_gadget_selected());
-        let menu = get_main_menu();
-        let state = menu.state.read().unwrap_or_else(|e| e.into_inner());
-        assert!(state.button_pushed);
-        assert!(state.campaign_selected);
+        with_game_client_window_owner(|client| {
+            // Fresh residual call should fire ButtonSkirmish GBM_SELECTED latch.
+            assert!(
+                with_shell_menu_effects(client, |effects| {
+                    simulate_main_menu_skirmish_button_gadget_selected(effects)
+                }),
+                "ButtonSkirmish residual must latch button_pushed+campaign_selected"
+            );
+            // Second call resets latches internally and re-fires.
+            assert!(with_shell_menu_effects(client, |effects| {
+                simulate_main_menu_skirmish_button_gadget_selected(effects)
+            }));
+            let state = &client.main_menu().state;
+            assert!(state.button_pushed);
+            assert!(state.campaign_selected);
+        });
     }
 
     #[test]
     fn cpp_init_hide_pack_hides_overlapping_dropdowns_ruler_and_recent_save() {
-        let owner = crate::gui::window_manager::WindowManagerOwner::new();
-        owner.with_scope(|| {
+        with_game_client_window_owner(|client| {
             // C++ MainMenuInit 525-530 winHide(TRUE) dropDownWindows[1..],
             // initialHide, showSelectiveButtons(SHOW_NONE), then 627-629
             // MainMenu.wnd:MainMenuRuler. Dummy WM lookups must not latch.
@@ -1461,8 +1597,8 @@ mod tests {
             });
 
             {
-                let menu = get_main_menu();
-                let mut state = menu.state.write().unwrap_or_else(|e| e.into_inner());
+                let (_, menu, _) = client.campaign_menu_and_host_mut();
+                let state = &mut menu.state;
                 state.window_ids = build_window_ids();
                 state.just_entered = true;
                 state.init_dropdowns_hidden = false;
@@ -1472,11 +1608,13 @@ mod tests {
             }
 
             let dummy = ();
-            let _ = get_main_menu().update(&dummy, None);
+            with_shell_menu_effects(client, |effects| {
+                effects.with_main_menu(|menu, effects| menu.update(&dummy, None, effects))
+            })
+            .unwrap();
 
             {
-                let menu = get_main_menu();
-                let state = menu.state.read().unwrap_or_else(|e| e.into_inner());
+                let state = &client.main_menu().state;
                 assert!(
                     state.init_dropdowns_hidden,
                     "hide pack must latch only after live MapBorder2 was hidden"
@@ -1553,7 +1691,7 @@ mod tests {
             {
                 let menu = MainMenu::new();
                 let state = MainMenuState::default();
-                menu.show_only_dropdown(&state, DropdownType::Single);
+                MainMenu::show_only_dropdown(&state, DropdownType::Single);
             }
 
             with_window_manager(|manager| {
@@ -1597,7 +1735,7 @@ mod tests {
             });
 
             let menu = MainMenu::new();
-            menu.show_only_dropdown(&MainMenuState::default(), DropdownType::Main);
+            MainMenu::show_only_dropdown(&MainMenuState::default(), DropdownType::Main);
 
             with_window_manager(|manager| {
                 assert!(
@@ -1647,7 +1785,7 @@ mod tests {
             {
                 let menu = MainMenu::new();
                 let state = MainMenuState::default();
-                menu.show_only_dropdown(&state, DropdownType::Multiplayer);
+                MainMenu::show_only_dropdown(&state, DropdownType::Multiplayer);
             }
 
             with_window_manager(|manager| {
@@ -1710,7 +1848,7 @@ mod tests {
 
     #[test]
     fn handle_button_selected_remaining_screens_winhide_or_push_like_cpp() {
-        with_game_client_window_owner(|| {
+        with_game_client_window_owner(|client| {
             // C++ MainMenu.cpp GBM_SELECTED:
             // MULTIPLAYER 1369-1376 MapBorder1; LOAD 1381-1391 MapBorder3;
             // Back 1326-1356 MapBorder2; OPTIONS 1470-1483 OptionsMenu.wnd;
@@ -1725,8 +1863,10 @@ mod tests {
             install_named_map_borders(BORDERS, false);
             let (menu, mut state) = ready_menu_for_gbm();
             let multi_id = state.window_ids.button_multi_player_id;
-            menu.handle_button_selected(&mut state, multi_id)
-                .expect("ButtonMultiplayer");
+            with_shell_menu_effects(client, |effects| {
+                MainMenu::handle_button_selected(&mut state, multi_id, effects)
+            })
+            .expect("ButtonMultiplayer");
             assert_eq!(state.drop_down, DropdownType::Multiplayer);
             assert!(
                 !border_hidden("MainMenu.wnd:MapBorder1"),
@@ -1741,8 +1881,10 @@ mod tests {
             state.dont_allow_transitions = false;
             state.button_pushed = false;
             let load_id = state.window_ids.button_load_replay_id;
-            menu.handle_button_selected(&mut state, load_id)
-                .expect("ButtonLoadReplay");
+            with_shell_menu_effects(client, |effects| {
+                MainMenu::handle_button_selected(&mut state, load_id, effects)
+            })
+            .expect("ButtonLoadReplay");
             assert_eq!(state.drop_down, DropdownType::LoadReplay);
             assert!(
                 !border_hidden("MainMenu.wnd:MapBorder3"),
@@ -1757,8 +1899,10 @@ mod tests {
             state.dont_allow_transitions = false;
             state.button_pushed = false;
             let back_id = state.window_ids.button_multi_back_id;
-            menu.handle_button_selected(&mut state, back_id)
-                .expect("ButtonMultiBack");
+            with_shell_menu_effects(client, |effects| {
+                MainMenu::handle_button_selected(&mut state, back_id, effects)
+            })
+            .expect("ButtonMultiBack");
             assert_eq!(state.drop_down, DropdownType::Main);
             assert!(
                 !border_hidden("MainMenu.wnd:MapBorder2"),
@@ -1769,8 +1913,10 @@ mod tests {
             state.button_pushed = false;
             state.pending_actions.clear();
             let options_id = state.window_ids.options_id;
-            menu.handle_button_selected(&mut state, options_id)
-                .expect("ButtonOptions");
+            with_shell_menu_effects(client, |effects| {
+                MainMenu::handle_button_selected(&mut state, options_id, effects)
+            })
+            .expect("ButtonOptions");
             assert!(
                 state
                     .pending_actions
@@ -1784,8 +1930,10 @@ mod tests {
             state.campaign_selected = false;
             state.pending_actions.clear();
             let skirmish_id = state.window_ids.skirmish_id;
-            menu.handle_button_selected(&mut state, skirmish_id)
-                .expect("ButtonSkirmish");
+            with_shell_menu_effects(client, |effects| {
+                MainMenu::handle_button_selected(&mut state, skirmish_id, effects)
+            })
+            .expect("ButtonSkirmish");
             assert!(
                 state.pending_actions.iter().any(|a| matches!(
                     a,
@@ -1798,7 +1946,7 @@ mod tests {
 
     #[test]
     fn single_player_menu_transition_drives_every_group_window_to_end_state() {
-        with_game_client_window_owner(|| {
+        with_game_client_window_owner(|client| {
             // GameWindowTransitionsStyles.cpp:77-133 group semantics: every window
             // in `MainMenuSinglePlayerMenu` hides at transition start and reaches
             // its authored end visibility (unhidden) at the final frame, so
@@ -1891,7 +2039,7 @@ mod tests {
 
     #[test]
     fn transition_calls_inside_nested_wm_borrow_survive_the_queue_drain() {
-        with_game_client_window_owner(|| {
+        with_game_client_window_owner(|client| {
             use crate::gui::window_manager::with_window_manager;
 
             with_window_manager(|manager| {
@@ -1917,7 +2065,7 @@ mod tests {
             // already mutably borrowed. The old `with_window_manager` path was a
             // fail-closed no-op here; the queued op must run after the drain.
             with_window_manager(|_outer| {
-                menu.transition_set_group("MainMenuSinglePlayerMenu", true);
+                MainMenu::transition_set_group("MainMenuSinglePlayerMenu", true);
             });
 
             with_window_manager(|manager| {
