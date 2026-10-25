@@ -7,7 +7,6 @@ use super::message_stream::{
 };
 use crate::display::view::with_tactical_view_ref;
 use crate::gui::game_window::{WindowInputReturnCode, WindowMessage};
-use crate::gui::shell::get_shell;
 use crate::helpers::TheInGameUI;
 use game_engine::common::ini::get_global_data;
 
@@ -157,17 +156,17 @@ impl WindowTranslator {
 impl GameMessageTranslator for WindowTranslator {
     fn translate_game_message(&mut self, msg: &GameMessage) -> GameMessageDisposition {
         let mut no_dispatch = |_: WindowInputDispatch, _: &mut Vec<GameMessage>| None;
-        self.translate_with_dispatch(msg, &mut no_dispatch, &mut Vec::new())
+        self.translate_with_dispatch(msg, Default::default(), &mut no_dispatch, &mut Vec::new())
     }
 
     fn translate_game_message_with_context(
         &mut self,
         msg: &GameMessage,
-        _client: game_engine::common::message_stream::TranslatorClientObservation,
+        client: game_engine::common::message_stream::TranslatorClientObservation,
         dispatch_window_input: &mut WindowInputDispatchFn<'_>,
         emitted_messages: &mut Vec<GameMessage>,
     ) -> GameMessageDisposition {
-        self.translate_with_dispatch(msg, dispatch_window_input, emitted_messages)
+        self.translate_with_dispatch(msg, client, dispatch_window_input, emitted_messages)
     }
 }
 
@@ -175,6 +174,7 @@ impl WindowTranslator {
     fn translate_with_dispatch(
         &mut self,
         msg: &GameMessage,
+        client: game_engine::common::message_stream::TranslatorClientObservation,
         dispatch_window_input: &mut WindowInputDispatchFn<'_>,
         _emitted_messages: &mut Vec<GameMessage>,
     ) -> GameMessageDisposition {
@@ -241,7 +241,9 @@ impl WindowTranslator {
                     _emitted_messages,
                 ) {
                     Some(WindowInputDispatchResult::Used) => WindowInputReturnCode::Used,
-                    Some(WindowInputDispatchResult::Display(_)) => {
+                    Some(WindowInputDispatchResult::OpaqueWindow(_))
+                    | Some(WindowInputDispatchResult::Display(_))
+                    | Some(WindowInputDispatchResult::Ui(_)) => {
                         unreachable!("display response returned for a window input request")
                     }
                     Some(WindowInputDispatchResult::NotUsed) | None => {
@@ -249,7 +251,7 @@ impl WindowTranslator {
                     }
                 };
 
-                if get_shell().is_shell_active() {
+                if client.shell_active {
                     return_code = WindowInputReturnCode::Used;
                 }
 
@@ -273,7 +275,9 @@ impl WindowTranslator {
                     _emitted_messages,
                 ) {
                     Some(WindowInputDispatchResult::Used) => WindowInputReturnCode::Used,
-                    Some(WindowInputDispatchResult::Display(_)) => {
+                    Some(WindowInputDispatchResult::OpaqueWindow(_))
+                    | Some(WindowInputDispatchResult::Display(_))
+                    | Some(WindowInputDispatchResult::Ui(_)) => {
                         unreachable!("display response returned for a window input request")
                     }
                     Some(WindowInputDispatchResult::NotUsed) | None => {

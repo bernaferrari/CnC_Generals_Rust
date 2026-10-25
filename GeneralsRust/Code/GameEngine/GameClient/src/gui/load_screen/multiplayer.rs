@@ -63,7 +63,12 @@ fn initialize_multiplayer_windows(
         runtime,
     );
     for slot in 0..MAX_LOAD_SCREEN_SLOTS {
-        set_progress_window(wm, &format!("{prefix}:ProgressLoad{slot}"), 0.0);
+        set_progress_window(
+            wm,
+            &format!("{prefix}:ProgressLoad{slot}"),
+            0.0,
+            &mut runtime.effects,
+        );
         if let Some(slot_context) = slots.get(slot) {
             if let Some(progress_image) = multiplayer_progress_bar_image(slot_context) {
                 set_window_image(
@@ -246,11 +251,11 @@ fn position_multiplayer_start_position_buttons(
                 }
             }
             let _ = button.set_position(new_x, new_y);
-            let _ = button.hide(false);
+            let _ = button.hide(false, wm);
             let _ = button.enable(true);
             placed_buttons.push((new_x, new_y, btn_w, btn_h));
         } else {
-            let _ = button.hide(true);
+            let _ = button.hide(true, wm);
         }
     }
 }

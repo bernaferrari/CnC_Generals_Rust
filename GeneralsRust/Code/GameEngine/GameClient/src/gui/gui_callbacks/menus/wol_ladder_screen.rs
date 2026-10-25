@@ -20,7 +20,7 @@ pub fn WOLLadderScreenShutdown(layout: &WindowLayout, user_data: Option<&dyn std
 }
 
 pub fn WOLLadderScreenSystem(
-    window: &GameWindow,
+    window: &mut GameWindow,
     msg: WindowMessage,
     data1: WindowMsgData,
     data2: WindowMsgData,
@@ -29,7 +29,7 @@ pub fn WOLLadderScreenSystem(
 }
 
 pub fn WOLLadderScreenInput(
-    window: &GameWindow,
+    window: &mut GameWindow,
     msg: WindowMessage,
     data1: WindowMsgData,
     data2: WindowMsgData,

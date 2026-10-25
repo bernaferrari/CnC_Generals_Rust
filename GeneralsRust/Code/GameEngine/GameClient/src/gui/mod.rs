@@ -159,11 +159,8 @@ pub use game_window::{
 pub use game_window_transitions::GameWindowTransitionsHandler;
 
 pub use window_manager::{
-    CaptureFlags, ModalWindow, ReentryFallback, TabDirection, WindowLayout, WindowLayoutInfo,
-    WindowManager, WindowMouseFacts, dispatch_os_key_to_window_manager,
-    dispatch_os_mouse_to_window_manager, dispatch_os_mouse_to_window_manager_with_facts,
-    hide_window_rc, queue_create_layout, queue_set_focus, queue_window_manager_op,
-    queue_window_manager_op_deferred, with_window_manager, with_window_manager_ref,
+    CaptureFlags, ModalWindow, TabDirection, WindowLayout, WindowLayoutInfo, WindowManager,
+    WindowManagerOwner, WindowMouseFacts,
 };
 
 // Re-export font system types for convenience
@@ -191,7 +188,7 @@ pub use shell::{
     clear_deferred_shell_pushes, dispatch_os_click_named_window, drain_deferred_shell_pushes,
     drive_os_wnd_open_challenge_menu_like_cpp, drive_os_wnd_open_skirmish_like_cpp,
     drive_os_wnd_start_campaign_like_cpp, drive_os_wnd_start_china_campaign_like_cpp,
-    drive_os_wnd_start_gla_campaign_like_cpp, drive_os_wnd_start_usa_campaign_like_cpp, get_shell,
+    drive_os_wnd_start_gla_campaign_like_cpp, drive_os_wnd_start_usa_campaign_like_cpp,
     last_os_wnd_widget_tree_click_ok, log_named_window_screen_rect, mark_host_match_start,
     note_os_wnd_widget_tree_hit, note_os_wnd_widget_tree_hit_for_owner,
     notify_physical_main_menu_gadget_gbm_selected, os_wnd_widget_tree_nav_ok,
@@ -213,8 +210,7 @@ pub use shell::{
     simulate_main_menu_skirmish_button_gadget_selected,
     simulate_main_menu_skirmish_button_latch_only, simulate_shell_map_hide,
     simulate_shell_map_prepare_cycle, simulate_shell_map_show, simulate_shell_map_toggle,
-    soft_reveal_main_menu_for_host_inject, tick_main_menu_transitions, try_with_shell_mut,
-    with_shell_mut, with_shell_ref,
+    soft_reveal_main_menu_for_host_inject, tick_main_menu_transitions,
 };
 pub use skirmish_preferences::SkirmishPreferences;
 pub use skirmish_setup::get_skirmish_setup;
@@ -237,7 +233,6 @@ pub use gadgets::{
 // Re-export menu system types for convenience
 pub use menus::{
     DisconnectMenu, EstablishConnectionsMenu, EstablishConnectionsMenuState, NATConnectionState,
-    get_disconnect_menu, get_establish_connections_menu,
 };
 
 // Re-export callback system types for convenience
@@ -313,13 +308,6 @@ pub use callbacks::{
     toggle_diplomacy,
     toggle_in_game_chat,
     toggle_quit_menu,
-    with_credits_menu,
-    with_lan_lobby_menu,
-    with_main_menu,
-    with_map_select_menu,
-    with_menu_manager,
-    with_options_menu,
-    with_single_player_menu,
 };
 
 // Re-export in-game UI types

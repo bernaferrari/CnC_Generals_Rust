@@ -6,7 +6,11 @@ impl ControlBar {
     // C++ ControlBar.cpp:1621-1647
     // ---------------------------------------------------------------------------
 
-    fn leftover_apply_button_general_image(&self, highlight: bool) {
+    fn leftover_apply_button_general_image(
+        &self,
+        highlight: bool,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    ) {
         let candidates = if highlight {
             [
                 "GenStarHighlight",
@@ -24,12 +28,12 @@ impl ControlBar {
         };
         for name in candidates {
             if leftover_mapped_image(name).is_some() {
-                leftover_set_enabled_image(BUTTON_GENERAL, name);
+                leftover_set_enabled_image(BUTTON_GENERAL, name, receiving_manager);
                 return;
             }
         }
         if !highlight {
-            if let Some(win) = leftover_find_window(BUTTON_GENERAL) {
+            if let Some(win) = leftover_find_window(BUTTON_GENERAL, receiving_manager) {
                 // Copy the image out of the owned draw data first: the
                 // `win.borrow()` guard in a nested if-let lives until the
                 // whole block ends, so a nested `borrow_mut` panics
@@ -45,7 +49,10 @@ impl ControlBar {
         }
     }
 
-    fn update_star_image(&mut self) {
+    fn update_star_image(
+        &mut self,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    ) {
         // C++ getStarImage: flash while sciencePurchasePoints > 0.
         // Leftover PlayerList is empty on the live host — use presentation SPP.
         let leftover_points = logic_player_list()
@@ -72,35 +79,42 @@ impl ControlBar {
         }
 
         if !self.gen_star_flash {
-            self.leftover_apply_button_general_image(false);
+            self.leftover_apply_button_general_image(false, receiving_manager);
             return;
         }
         let highlight = self.current_frame % LOGICFRAMES_PER_SECOND > LOGICFRAMES_PER_SECOND / 2;
-        self.leftover_apply_button_general_image(highlight);
+        self.leftover_apply_button_general_image(highlight, receiving_manager);
     }
 
-    fn leftover_set_win_u_attack_enabled(&mut self, enabled: bool) {
+    fn leftover_set_win_u_attack_enabled(
+        &mut self,
+        enabled: bool,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    ) {
         self.radar_glow_window_enabled = enabled;
-        leftover_enable_window(WIN_U_ATTACK, enabled);
+        leftover_enable_window(WIN_U_ATTACK, enabled, receiving_manager);
     }
 
-    fn update_radar_attack_glow(&mut self) {
+    fn update_radar_attack_glow(
+        &mut self,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    ) {
         if gamelogic::helpers::TheControlBar::take_radar_attack_glow() {
-            self.trigger_radar_attack_glow();
+            self.trigger_radar_attack_glow(receiving_manager);
         }
         if !self.radar_attack_glow_on {
             return;
         }
         if self.remaining_radar_attack_glow_frames == 0 {
             self.radar_attack_glow_on = false;
-            self.leftover_set_win_u_attack_enabled(true);
+            self.leftover_set_win_u_attack_enabled(true, receiving_manager);
             return;
         }
         self.remaining_radar_attack_glow_frames =
             self.remaining_radar_attack_glow_frames.saturating_sub(1);
         if self.remaining_radar_attack_glow_frames == 0 {
             self.radar_attack_glow_on = false;
-            self.leftover_set_win_u_attack_enabled(true);
+            self.leftover_set_win_u_attack_enabled(true, receiving_manager);
             return;
         }
         if self
@@ -108,18 +122,21 @@ impl ControlBar {
             .is_multiple_of(RADAR_ATTACK_GLOW_NUM_TIMES)
         {
             let enabled = !self.radar_glow_window_enabled;
-            self.leftover_set_win_u_attack_enabled(enabled);
+            self.leftover_set_win_u_attack_enabled(enabled, receiving_manager);
         }
     }
 
-    pub fn trigger_radar_attack_glow(&mut self) {
+    pub fn trigger_radar_attack_glow(
+        &mut self,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    ) {
         self.radar_attack_glow_on = true;
         self.remaining_radar_attack_glow_frames = RADAR_ATTACK_GLOW_FRAMES;
-        if leftover_find_window(WIN_U_ATTACK).is_none() {
+        if leftover_find_window(WIN_U_ATTACK, receiving_manager).is_none() {
             return;
         }
         if self.radar_glow_window_enabled {
-            self.leftover_set_win_u_attack_enabled(false);
+            self.leftover_set_win_u_attack_enabled(false, receiving_manager);
         }
     }
 
@@ -290,11 +307,7 @@ impl ControlBar {
 
         // Live-registry portrait path: health stays 0 here; presentation overlay
         // (`sync_selection_display_from_presentation`) supplies snapshot HP.
-        let context_commands = self
-            .context
-            .read()
-            .ok()
-            .map(|ctx| ctx.available_commands.clone());
+        let context_commands = self.context.available_commands.clone();
         let upgrade_cameos = leftover_authored_upgrade_cameo_names(&template_name)
             .into_iter()
             .filter(|name| !name.is_empty())
@@ -303,7 +316,7 @@ impl ControlBar {
                 UpgradeCameoState {
                     button_image: resolve_upgrade_cameo_button_image(
                         &name,
-                        context_commands.as_deref(),
+                        Some(context_commands.as_slice()),
                         self.receiving_upgrade_catalog.as_ref(),
                         self.receiving_upgrade_actions.as_deref(),
                     ),
@@ -331,12 +344,16 @@ impl ControlBar {
         };
     }
 
-    fn update_observer_portrait(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        self.update_observer_portrait_preserving_target(false)
+    fn update_observer_portrait(
+        &mut self,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        self.update_observer_portrait_preserving_target(false, receiving_manager)
     }
     fn update_observer_portrait_preserving_target(
         &mut self,
         native_target: bool,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
     ) -> Result<(), Box<dyn std::error::Error>> {
         if !self
             .current_frame
@@ -344,16 +361,9 @@ impl ControlBar {
         {
             return Ok(());
         }
-        self.update_context_observer_preserving_target(native_target)?;
+        self.update_context_observer_preserving_target(native_target, receiving_manager)?;
 
-        let obj_id = {
-            self.context
-                .read()
-                .map_err(|_| "Failed to acquire context read lock")?
-                .selected_objects
-                .first()
-                .copied()
-        };
+        let obj_id = { self.context.selected_objects.first().copied() };
         if let Some(id) = obj_id {
             self.update_portrait_for_object(id);
         }
@@ -428,7 +438,8 @@ impl ControlBar {
                     rally_point: self.portrait_state.rally_point,
                 };
                 // Feed construction queue residual from presentation snapshot (no OBJECT_REGISTRY).
-                if let Ok(mut context) = self.context.write() {
+                {
+                    let mut context = &mut self.context;
                     context.construction_queue = production_queue
                         .iter()
                         .map(|(template_name, progress, is_upgrade)| ProductionItem {
@@ -484,7 +495,8 @@ impl ControlBar {
             }
             _ => {
                 self.portrait_state = PortraitDisplayState::default();
-                if let Ok(mut context) = self.context.write() {
+                {
+                    let mut context = &mut self.context;
                     context.construction_queue.clear();
                     context.ui_dirty = true;
                 }
@@ -541,11 +553,7 @@ impl ControlBar {
         special_power_cooldown_remaining: f32,
         special_power_cooldown_total: f32,
     ) {
-        let context_commands = self
-            .context
-            .read()
-            .ok()
-            .map(|ctx| ctx.available_commands.clone());
+        let context_commands = self.context.available_commands.clone();
         let leftover_slots =
             leftover_authored_upgrade_cameo_names(&self.portrait_state.portrait_image);
         let authored: Vec<String> = if !authored_cameos.is_empty() {
@@ -569,7 +577,7 @@ impl ControlBar {
                 UpgradeCameoState {
                     button_image: resolve_upgrade_cameo_button_image(
                         &name,
-                        context_commands.as_deref(),
+                        Some(context_commands.as_slice()),
                         self.receiving_upgrade_catalog.as_ref(),
                         self.receiving_upgrade_actions.as_deref(),
                     ),
@@ -612,12 +620,10 @@ impl ControlBar {
         let Some(command_set) = command_set else {
             return;
         };
-        let Ok(mut context) = self.context.write() else {
-            return;
-        };
         // Replace object-command buttons with presentation residual set.
         // Keep non-Command inventory/exit buttons already injected by other syncs.
-        let keep: Vec<CommandButton> = context
+        let keep: Vec<CommandButton> = self
+            .context
             .available_commands
             .iter()
             .filter(|b| {
@@ -629,17 +635,17 @@ impl ControlBar {
             })
             .cloned()
             .collect();
-        context.available_commands.clear();
-        context.current_state = ControlBarState::Command;
+        self.context.available_commands.clear();
+        self.context.current_state = ControlBarState::Command;
         const WND_SLOTS: usize = 14;
         for slot in 0..WND_SLOTS {
             let button = command_set.buttons.get(slot).and_then(|b| b.as_ref());
-            context
-                .available_commands
-                .push(self.command_from_set_slot(&common_bar, button));
+            let command = self.command_from_set_slot(&common_bar, button);
+            self.context.available_commands.push(command);
         }
         for b in keep {
-            if let Some(existing) = context
+            if let Some(existing) = self
+                .context
                 .available_commands
                 .iter_mut()
                 .find(|x| x.command_name.eq_ignore_ascii_case(&b.command_name))
@@ -651,8 +657,8 @@ impl ControlBar {
                 }
             }
         }
-        context.ui_dirty = true;
-        drop(context);
+        self.context.ui_dirty = true;
+
         self.mark_ui_dirty();
     }
 
@@ -755,19 +761,15 @@ impl ControlBar {
             return;
         }
 
-        let Ok(mut context) = self.context.write() else {
-            return;
-        };
-        context.current_state = ControlBarState::MultiSelect;
-        context.available_commands.clear();
+        self.context.current_state = ControlBarState::MultiSelect;
+        self.context.available_commands.clear();
         for slot in 0..14 {
             let button = common_slots.get(slot).and_then(|b| b.as_ref());
-            context
-                .available_commands
-                .push(self.command_from_set_slot(&common_bar, button));
+            let command = self.command_from_set_slot(&common_bar, button);
+            self.context.available_commands.push(command);
         }
-        context.ui_dirty = true;
-        drop(context);
+        self.context.ui_dirty = true;
+
         self.mark_ui_dirty();
     }
 
@@ -793,7 +795,8 @@ impl ControlBar {
             self.displayed_construct_percent = self.presentation_construction_percent;
         }
         let mut inventory_synced = false;
-        if let Ok(mut context) = self.context.write() {
+        {
+            let mut context = &mut self.context;
             context.last_recorded_inventory_count = garrisoned_count as u32;
             if under_construction {
                 let cancel = CommandButton {
@@ -842,7 +845,11 @@ impl ControlBar {
         self.presentation_sold = sold;
     }
 
-    pub fn sync_ocl_timer_from_presentation(&mut self, seconds: u32) {
+    pub fn sync_ocl_timer_from_presentation(
+        &mut self,
+        seconds: u32,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    ) {
         self.presentation_ocl_timer_seconds = seconds;
         if seconds != self.displayed_ocl_timer_seconds {
             self.displayed_ocl_timer_seconds = seconds;
@@ -851,11 +858,7 @@ impl ControlBar {
             // rewrites the countdown text. The host presentation path feeds
             // seconds here, so the window must reveal from this sync too —
             // the registry-empty update lane cannot be the only writer.
-            let obj_id = self
-                .context
-                .read()
-                .ok()
-                .and_then(|c| c.selected_objects.first().copied());
+            let obj_id = self.context.selected_objects.first().copied();
             if let Some(obj_id) = obj_id {
                 let (text, progress) =
                     super::control_bar_ocl_timer::format_ocl_timer_display(seconds, 0.0);
@@ -863,6 +866,7 @@ impl ControlBar {
                     &text,
                     progress,
                     super::control_bar_ocl_timer::ocl_timer_kind_for_object(obj_id),
+                    receiving_manager,
                 );
             }
         }

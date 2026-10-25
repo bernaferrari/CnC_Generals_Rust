@@ -150,8 +150,17 @@ pub fn script_popup_message(
     width: i32,
     pause: bool,
     pause_music: bool,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) {
-    TheInGameUI::popup_message(message, x_percent, y_percent, width, pause, pause_music);
+    TheInGameUI::popup_message(
+        message,
+        x_percent,
+        y_percent,
+        width,
+        pause,
+        pause_music,
+        effects,
+    );
 }
 
 /// Main's offline authority bridge opens the C++-equivalent single popup with
@@ -165,6 +174,7 @@ pub fn script_popup_message_with_host_generation(
     pause: bool,
     pause_music: bool,
     host_popup_generation: Option<usize>,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) {
     TheInGameUI::popup_message_with_host_generation(
         message,
@@ -174,6 +184,7 @@ pub fn script_popup_message_with_host_generation(
         pause,
         pause_music,
         host_popup_generation,
+        effects,
     );
 }
 
@@ -367,7 +378,6 @@ fn apply_cinematic_input_lock(disable: bool) {
     }
     crate::helpers::TheInGameUI::clear_attack_move_to_mode();
     crate::helpers::TheInGameUI::set_waypoint_mode(false);
-    let _ = crate::gui::gui_callbacks::control_bar_popup_description::delete_build_tooltip_layout();
     request_look_at_reset_modes();
 }
 
@@ -615,14 +625,37 @@ impl GameClientScriptActionHandler {
         (index >= 0).then_some(index as u32)
     }
 
-    fn maybe_show_speech_subtitle(name: &str) {
+    fn maybe_show_speech_subtitle(
+        name: &str,
+        ui: &mut crate::core::subsystems::InGameUISubsystem,
+        manager: &mut crate::gui::window_manager::WindowManager,
+    ) {
         let subtitle_label = format!("DIALOGEVENT:{name}Subtitle");
         let subtitle = GameText::fetch(&subtitle_label);
         let fallback = format!("LOC:{subtitle_label}");
         if subtitle.is_empty() || subtitle.starts_with('*') || subtitle == fallback {
             return;
         }
-        TheInGameUI::military_subtitle(&subtitle_label, SUBTITLE_DURATION_MS);
+        ui.push_military_subtitle(&subtitle_label, SUBTITLE_DURATION_MS, manager);
+    }
+    pub(crate) fn speech_play_receiving(
+        name: &str,
+        allow_overlap: bool,
+        ui: &mut crate::core::subsystems::InGameUISubsystem,
+        manager: &mut crate::gui::window_manager::WindowManager,
+    ) -> GameLogicResult<()> {
+        if let Some(audio) = TheAudio::get() {
+            let mut event = AudioEventRts::new(name);
+            event.set_is_logical_audio(true);
+            event.set_uninterruptable(!allow_overlap);
+            if let Some(player_index) = Self::local_player_index() {
+                event.set_player_index(player_index);
+            }
+            let handle = audio.add_audio_event(&event);
+            with_script_runtime(|state| track_audio_handle(&mut state.speech_waits, name, handle));
+        }
+        Self::maybe_show_speech_subtitle(name, ui, manager);
+        Ok(())
     }
 }
 
@@ -654,8 +687,9 @@ impl ScriptActionHandler for GameClientScriptActionHandler {
     }
 
     fn military_caption(&self, text: &str, duration_ms: i32) -> GameLogicResult<()> {
-        TheInGameUI::military_subtitle(text, duration_ms);
-        Ok(())
+        Err(gamelogic::GameLogicError::Configuration(
+            "military caption requires its receiving script UI driver".into(),
+        ))
     }
 
     fn play_sound_effect(&self, name: &str) -> GameLogicResult<()> {
@@ -1131,19 +1165,10 @@ impl ScriptActionHandler for GameClientScriptActionHandler {
         Ok(())
     }
 
-    fn speech_play(&self, name: &str, allow_overlap: bool) -> GameLogicResult<()> {
-        if let Some(audio) = TheAudio::get() {
-            let mut event = AudioEventRts::new(name);
-            event.set_is_logical_audio(true);
-            event.set_uninterruptable(!allow_overlap);
-            if let Some(player_index) = Self::local_player_index() {
-                event.set_player_index(player_index);
-            }
-            let handle = audio.add_audio_event(&event);
-            with_script_runtime(|state| track_audio_handle(&mut state.speech_waits, name, handle));
-        }
-        Self::maybe_show_speech_subtitle(name);
-        Ok(())
+    fn speech_play(&self, _name: &str, _allow_overlap: bool) -> GameLogicResult<()> {
+        Err(gamelogic::GameLogicError::Configuration(
+            "speech subtitles require their receiving script UI driver".into(),
+        ))
     }
 
     fn sound_play_named(&self, sound: &str, unit_name: &str) -> GameLogicResult<()> {
@@ -1272,8 +1297,9 @@ impl ScriptActionHandler for GameClientScriptActionHandler {
         pause: bool,
         pause_music: bool,
     ) -> GameLogicResult<()> {
-        TheInGameUI::popup_message(message, x_percent, y_percent, width, pause, pause_music);
-        Ok(())
+        Err(gamelogic::GameLogicError::Configuration(
+            "popup requires a receiving script driver and world".into(),
+        ))
     }
 
     fn resize_view_guardband(&self, gbx: f32, gby: f32) -> GameLogicResult<()> {
@@ -1507,29 +1533,21 @@ impl ScriptActionHandler for GameClientScriptActionHandler {
     }
 
     fn create_win_lose_window(&self, layout_filename: &str) -> GameLogicResult<()> {
-        // C++ ScriptActions.cpp:201/204/225/228/247 TheWindowManager->winCreateFromScript.
-        crate::gui::with_window_manager(|manager| {
-            manager.create_script_message_window(layout_filename);
-        });
-        Ok(())
+        Err(gamelogic::GameLogicError::Configuration(
+            "window actions require the receiving synchronous script driver".into(),
+        ))
     }
 
     fn destroy_win_lose_window(&self) -> GameLogicResult<()> {
-        // C++ ScriptActions.cpp:160-162 TheWindowManager->winDestroy(m_messageWindow).
-        crate::gui::with_window_manager(|manager| manager.destroy_script_message_window());
-        Ok(())
+        Err(gamelogic::GameLogicError::Configuration(
+            "window actions require the receiving synchronous script driver".into(),
+        ))
     }
 
     fn close_game_windows(&self) -> GameLogicResult<()> {
-        // C++ GameLogic::closeWindows GameLogicDispatch.cpp:202-219.
-        let _ = crate::gui::callbacks::diplomacy::hide_diplomacy(false);
-        let _ = crate::gui::callbacks::diplomacy::reset_diplomacy();
-        let _ = crate::gui::callbacks::ingame_callbacks::hide_in_game_chat(false);
-        let _ = crate::gui::callbacks::ingame_callbacks::reset_in_game_chat();
-        crate::helpers::TheControlBar::hide_purchase_science();
-        crate::helpers::TheControlBar::hide_special_power_shortcut();
-        crate::gui::callbacks::quit_menu::hide_quit_menu();
-        Ok(())
+        Err(gamelogic::GameLogicError::Configuration(
+            "window actions require the receiving synchronous script driver".into(),
+        ))
     }
 }
 

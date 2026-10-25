@@ -44,41 +44,46 @@ impl CnCGameEngine {
         );
         let upgrade_observer = self.game_logic.receiving_upgrade_tooltip_observer();
         let upgrade_source = game_client::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource::Receiving(&upgrade_observer);
-        let mut emitted_messages = Vec::new();
         let window_manager_owner = self.game_client.window_manager_owner();
         if !receiving_local_player_is_observer(&self.game_logic) {
             // A regular ControlBar update does not require replay metadata.
-            let result = self.control_bar.update_owned_receiving(
-                delta,
-                None,
-                upgrade_source,
-                game_ending,
-                &window_manager_owner,
-                &mut emitted_messages,
-            );
-            for message in emitted_messages {
+            let result =
                 self.game_client
-                    .message_stream_mut()
-                    .append_message_value(message);
-            }
+                    .with_window_and_control_bar_effects(None, |effects, videos| {
+                        effects.with_manager(|manager, effects| {
+                            self.control_bar.update_owned_receiving(
+                                delta,
+                                None,
+                                upgrade_source,
+                                game_ending,
+                                &window_manager_owner,
+                                videos,
+                                manager,
+                                effects,
+                            )
+                        })
+                    });
             return result;
         }
         let roster = self
             .receiving_observer_roster()
             .ok_or("receiving Recorder metadata unavailable for native observer")?;
-        let result = self.control_bar.update_owned_receiving(
-            delta,
-            Some(&roster),
-            upgrade_source,
-            game_ending,
-            &window_manager_owner,
-            &mut emitted_messages,
-        );
-        for message in emitted_messages {
+        let result =
             self.game_client
-                .message_stream_mut()
-                .append_message_value(message);
-        }
+                .with_window_and_control_bar_effects(None, |effects, videos| {
+                    effects.with_manager(|manager, effects| {
+                        self.control_bar.update_owned_receiving(
+                            delta,
+                            Some(&roster),
+                            upgrade_source,
+                            game_ending,
+                            &window_manager_owner,
+                            videos,
+                            manager,
+                            effects,
+                        )
+                    })
+                });
         result
     }
     fn control_bar_parent_handle(
@@ -113,9 +118,19 @@ impl CnCGameEngine {
         let observer_roster = self.receiving_observer_roster();
         let upgrade_tooltip = self.game_logic.receiving_upgrade_tooltip_observer();
         let menu_world = self.receiving_menu_world_facts();
-        let (receiving_window_manager, campaign_manager, main_menu, menu_host, display, videos) =
-            self.game_client.window_owner_campaign_menu_and_host_mut();
+        let (
+            receiving_window_manager,
+            campaign_manager,
+            main_menu,
+            menu_host,
+            display,
+            videos,
+            ime,
+            mut menus,
+        ) = self.game_client.window_owner_campaign_menu_and_host_mut();
         let mut context = game_client::gui::window_manager::ControlBarInputContext {
+            menus: Some(menus.reborrow()),
+            ime:Some(ime),
             upgrade_tooltip: game_client::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource::Receiving(&upgrade_tooltip),
             replay_menu: None,
             replay_version: None,
@@ -134,15 +149,19 @@ impl CnCGameEngine {
             menu_world: Some(menu_world),
             menu_host: Some(menu_host),
             script_display: Some(display),
-            window_videos: Some(videos),
+            window_videos: Some(&mut videos.challenge),
+            in_game_movies: Some(&mut videos.in_game),
         };
         receiving_window_manager.with_manager(|manager| {
             manager.refresh_control_bar_tooltip(x as i32, y as i32, &mut context);
+            context
+                .control_bar
+                .update_build_tooltip_layout_owned(game_ending, manager);
+            let parent =
+                manager.find_window_by_name(crate::gameplay_layout::CONTROL_BAR_PARENT_NAME);
+            self.control_bar_callbacks
+                .update_window_animations(parent, manager);
         });
-        self.control_bar
-            .update_build_tooltip_layout_owned(game_ending);
-        let parent = self.control_bar_parent_handle();
-        self.control_bar_callbacks.update_window_animations(parent);
     }
 
     pub(super) fn set_owned_control_bar_scheme(&mut self, side: &str) {
@@ -153,14 +172,20 @@ impl CnCGameEngine {
         );
         let side = if replay { "Observer" } else { side };
         let observer = receiving_local_player_is_observer(&self.game_logic);
-        self.control_bar
-            .set_control_bar_scheme_by_player_side_owned(
-                side,
-                &mut self.game_logic.session_view.camera,
-                replay,
-                observer,
-                parent,
-            );
+        self.game_client.with_window_event_effects(None, |effects| {
+            effects.with_manager(|manager, effects| {
+                self.control_bar
+                    .set_control_bar_scheme_by_player_side_owned(
+                        side,
+                        &mut self.game_logic.session_view.camera,
+                        replay,
+                        observer,
+                        parent,
+                        manager,
+                        effects,
+                    )
+            })
+        });
     }
 
     pub(super) fn show_owned_control_bar(&mut self, immediate: bool) {
@@ -187,15 +212,21 @@ impl CnCGameEngine {
                 );
                 manager.find_window_by_name(crate::gameplay_layout::CONTROL_BAR_PARENT_NAME)
             });
-        self.control_bar_callbacks.show_control_bar_receiving(
-            &mut self.control_bar,
-            &mut self.game_logic.session_view.camera,
-            parent,
-            replay,
-            immediate,
-            upgrade_source,
-            game_ending,
-        );
+        self.game_client.with_window_event_effects(None, |effects| {
+            effects.with_manager(|manager, effects| {
+                self.control_bar_callbacks.show_control_bar_receiving(
+                    &mut self.control_bar,
+                    &mut self.game_logic.session_view.camera,
+                    parent,
+                    replay,
+                    immediate,
+                    upgrade_source,
+                    game_ending,
+                    manager,
+                    effects,
+                )
+            })
+        });
     }
 
     pub(super) fn hide_owned_control_bar(&mut self, immediate: bool) {
@@ -212,13 +243,18 @@ impl CnCGameEngine {
                 );
                 manager.find_window_by_name(crate::gameplay_layout::CONTROL_BAR_PARENT_NAME)
             });
-        self.control_bar_callbacks.hide_control_bar_owned(
-            &mut self.control_bar,
-            &mut self.game_logic.session_view.camera,
-            parent,
-            true,
-            immediate,
-        );
+        self.game_client.with_window_event_effects(None, |effects| {
+            effects.with_manager(|manager, effects| {
+                self.control_bar_callbacks.hide_control_bar_owned(
+                    &mut self.control_bar,
+                    &mut self.game_logic.session_view.camera,
+                    parent,
+                    true,
+                    immediate,
+                    manager,
+                )
+            })
+        });
     }
 
     pub(super) fn toggle_owned_control_bar(&mut self, immediate: bool) {
@@ -245,15 +281,21 @@ impl CnCGameEngine {
                 );
                 manager.find_window_by_name(crate::gameplay_layout::CONTROL_BAR_PARENT_NAME)
             });
-        self.control_bar_callbacks.toggle_control_bar_receiving(
-            &mut self.control_bar,
-            &mut self.game_logic.session_view.camera,
-            parent,
-            replay,
-            immediate,
-            upgrade_source,
-            game_ending,
-        );
+        self.game_client.with_window_event_effects(None, |effects| {
+            effects.with_manager(|manager, effects| {
+                self.control_bar_callbacks.toggle_control_bar_receiving(
+                    &mut self.control_bar,
+                    &mut self.game_logic.session_view.camera,
+                    parent,
+                    replay,
+                    immediate,
+                    upgrade_source,
+                    game_ending,
+                    manager,
+                    effects,
+                )
+            })
+        });
     }
 }
 
@@ -269,6 +311,8 @@ pub(super) struct NativeScriptUi<'a> {
     campaign_manager: Option<&'a mut game_client::gui::campaign_manager::CampaignManager>,
     command_hints: Option<&'a mut game_client::gui::command_hints::CommandHintState>,
     command_hint_frame: Option<u32>,
+    window_effects: Option<game_client::gui::game_window::WindowEventEffects<'a>>,
+    message_stream: Option<&'a mut game_client::message_stream::message_stream::MessageStream>,
 }
 
 #[cfg(feature = "game_client")]
@@ -288,7 +332,19 @@ impl<'a> NativeScriptUi<'a> {
             campaign_manager: None,
             command_hints: None,
             command_hint_frame: None,
+            window_effects: None,
+            message_stream: None,
         }
+    }
+
+    pub(super) fn with_window_effects(
+        mut self,
+        effects: game_client::gui::game_window::WindowEventEffects<'a>,
+        stream: &'a mut game_client::message_stream::message_stream::MessageStream,
+    ) -> Self {
+        self.window_effects = Some(effects);
+        self.message_stream = Some(stream);
+        self
     }
 
     pub(super) fn with_command_hints(
@@ -315,34 +371,6 @@ impl<'a> NativeScriptUi<'a> {
         self.input = Some(input);
         self
     }
-
-    fn letterbox_with_parent(
-        &mut self,
-        camera: &mut crate::presentation_frame::camera::SessionCamera,
-        enabled: bool,
-        replay: bool,
-        parent: Option<std::rc::Rc<std::cell::RefCell<game_client::gui::GameWindow>>>,
-        upgrade_source: game_client::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource<'_>,
-        game_ending: bool,
-    ) {
-        // ScriptActions.cpp:3749-3760: HideControlBar(TRUE) precedes enabling
-        // letterbox; ShowControlBar(FALSE) precedes disabling it. Every authored
-        // call applies even if the display's letterbox flag is unchanged.
-        if enabled {
-            self.callbacks
-                .hide_control_bar_owned(self.bar, camera, parent, true, true);
-        } else {
-            self.callbacks.show_control_bar_receiving(
-                self.bar,
-                camera,
-                parent,
-                replay,
-                false,
-                upgrade_source,
-                game_ending,
-            );
-        }
-    }
 }
 
 #[cfg(feature = "game_client")]
@@ -365,7 +393,11 @@ impl crate::game_logic::ScriptUiEffects for NativeScriptUi<'_> {
     }
 
     fn set_campaign_victorious(&mut self, victorious: bool) -> gamelogic::GameLogicResult<()> {
-        let manager = self.campaign_manager.as_deref_mut().ok_or_else(|| {
+        let manager = match self.window_effects.as_mut() {
+            Some(effects) => effects.receiving_campaign_manager_mut(),
+            None => self.campaign_manager.as_deref_mut(),
+        }
+        .ok_or_else(|| {
             gamelogic::GameLogicError::Configuration(
                 "native script action has no receiving CampaignManager".into(),
             )
@@ -385,6 +417,11 @@ impl crate::game_logic::ScriptUiEffects for NativeScriptUi<'_> {
         was_enabled: bool,
         deselect: &mut dyn FnMut(u32),
     ) -> gamelogic::GameLogicResult<()> {
+        let effects = self.window_effects.as_mut().ok_or_else(|| {
+            gamelogic::GameLogicError::Configuration(
+                "native cinematic input requires receiving callback services".into(),
+            )
+        })?;
         self.input
             .as_mut()
             .ok_or_else(|| {
@@ -392,7 +429,7 @@ impl crate::game_logic::ScriptUiEffects for NativeScriptUi<'_> {
                     "native cinematic input loan is absent".into(),
                 )
             })?
-            .apply(enabled, was_enabled, deselect, self.bar)
+            .apply(enabled, was_enabled, deselect, self.bar, effects)
     }
 
     fn weather_visible(&mut self, visible: bool) {
@@ -421,18 +458,98 @@ impl crate::game_logic::ScriptUiEffects for NativeScriptUi<'_> {
             }
             manager.find_window_by_name(crate::gameplay_layout::CONTROL_BAR_PARENT_NAME)
         });
-        self.letterbox_with_parent(camera, enabled, replay, parent, upgrade_source, game_ending);
+        let effects = self
+            .window_effects
+            .as_mut()
+            .expect("native letterbox requires receiving callback services");
+        let bar = &mut *self.bar;
+        let callbacks = &mut *self.callbacks;
+        effects.with_manager(|manager, effects| {
+            if enabled {
+                callbacks.hide_control_bar_owned(bar, camera, parent, true, true, manager);
+            } else {
+                callbacks.show_control_bar_receiving(
+                    bar,
+                    camera,
+                    parent,
+                    replay,
+                    false,
+                    upgrade_source,
+                    game_ending,
+                    manager,
+                    effects,
+                );
+            }
+        });
     }
 
     fn create_win_lose_window(&mut self, layout_filename: &str) -> gamelogic::GameLogicResult<()> {
-        self.window_manager_owner
-            .with_manager(|manager| manager.create_script_message_window(layout_filename));
-        Ok(())
+        let effects = self.window_effects.as_mut().ok_or_else(|| {
+            gamelogic::GameLogicError::Configuration(
+                "native script window creation requires receiving callback services".into(),
+            )
+        })?;
+        effects.with_manager(|manager, effects| {
+            manager.create_script_message_window_with_effects(layout_filename, effects)
+        });
+        self.flush_window_callbacks()
     }
-
     fn destroy_win_lose_window(&mut self) -> gamelogic::GameLogicResult<()> {
-        self.window_manager_owner
-            .with_manager(|manager| manager.destroy_script_message_window());
+        let effects = self.window_effects.as_mut().ok_or_else(|| {
+            gamelogic::GameLogicError::Configuration(
+                "native script window destruction requires receiving callback services".into(),
+            )
+        })?;
+        effects.with_manager(|manager, effects| {
+            manager.destroy_script_message_window_with_effects(effects)
+        });
+        self.flush_window_callbacks()
+    }
+    fn close_game_windows(&mut self) -> gamelogic::GameLogicResult<()> {
+        let effects = self.window_effects.as_mut().ok_or_else(|| {
+            gamelogic::GameLogicError::Configuration(
+                "native closeWindows requires receiving callback services".into(),
+            )
+        })?;
+        let bar = &mut *self.bar;
+        effects.with_manager(|manager, effects| {
+            game_client::core::game_client::close_receiving_game_windows(manager, bar, effects)
+        });
+        self.flush_window_callbacks()
+    }
+    fn popup_message(
+        &mut self,
+        popup: &crate::game_logic::ScriptPopupMessageRequest,
+    ) -> gamelogic::GameLogicResult<()> {
+        let effects = self.window_effects.as_mut().ok_or_else(|| {
+            gamelogic::GameLogicError::Configuration(
+                "native popup requires receiving client services".into(),
+            )
+        })?;
+        game_client::gui::callbacks::in_game_popup_message::show_receiving_popup_message(
+            &popup.message,
+            popup.x_percent,
+            popup.y_percent,
+            popup.width,
+            0xffffffff,
+            popup.pause,
+            popup.pause_music,
+            Some(popup.popup_generation),
+            effects,
+        );
+        self.flush_window_callbacks()
+    }
+    fn flush_window_callbacks(&mut self) -> gamelogic::GameLogicResult<()> {
+        let Some(effects) = self.window_effects.as_mut() else {
+            return Ok(());
+        };
+        let stream = self.message_stream.as_deref_mut().ok_or_else(|| {
+            gamelogic::GameLogicError::Configuration(
+                "native script callbacks require their receiving message stream".into(),
+            )
+        })?;
+        effects.complete_callbacks_into(stream);
+
         Ok(())
     }
 }

@@ -95,6 +95,9 @@ fn click_options(
         writes: Vec::new(),
     };
     let mut context = ControlBarInputContext {
+            menus: None,
+            ime:None,
+            in_game_movies: None,
             script_display: None,
             window_videos: None,
             upgrade_tooltip: crate::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource::Standalone,

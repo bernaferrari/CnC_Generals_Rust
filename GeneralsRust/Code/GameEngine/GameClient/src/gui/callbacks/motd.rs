@@ -1,8 +1,6 @@
 //! W3DMOTD.cpp callback port.
 
-use crate::gui::{
-    GameWindow, WindowMessage, WindowMsgData, WindowMsgHandled, WindowStatus, with_window_manager,
-};
+use crate::gui::{GameWindow, WindowMessage, WindowMsgData, WindowMsgHandled, WindowStatus};
 use game_engine::common::name_key_generator::{NAMEKEY_INVALID, NameKeyGenerator};
 use std::cell::Cell;
 
@@ -23,10 +21,11 @@ fn set_close_button_id(id: u32) {
 /// Mirrors C++ `MOTDSystem`: cache the close button id on create, do nothing
 /// on destroy, and toggle the parent window when the close button is selected.
 pub fn motd_system(
-    window: &GameWindow,
+    window: &mut GameWindow,
     msg: WindowMessage,
     data1: WindowMsgData,
     _data2: WindowMsgData,
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
 ) -> WindowMsgHandled {
     match msg {
         WindowMessage::Create => {
@@ -37,12 +36,12 @@ pub fn motd_system(
         WindowMessage::GadgetSelected => {
             if data1 as u32 == close_button_id() {
                 let window_id = window.get_id();
-                with_window_manager(|manager| {
+                (|manager: &mut crate::gui::window_manager::WindowManager| {
                     if let Some(live_window) = manager.get_window_by_id(window_id) {
                         let hidden = live_window.borrow().is_hidden();
-                        let _ = live_window.borrow_mut().hide(!hidden);
+                        let _ = live_window.borrow_mut().hide(!hidden, manager);
                     }
-                });
+                })(receiving_manager);
             }
             WindowMsgHandled::Handled
         }

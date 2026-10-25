@@ -10,7 +10,7 @@ use std::time::SystemTime;
 
 use crate::game_text::GameText;
 use crate::gui::gadgets::{KeyModifiers, ListBox, ListBoxItemData};
-use crate::gui::window_manager::{with_window_manager, with_window_manager_ref};
+use crate::gui::window_manager::WindowManager;
 use crate::map_util::get_map_cache_manager;
 use chrono::{DateTime, Datelike, Local, Timelike};
 use game_engine::common::ini::ini_game_data::get_global_data;
@@ -641,7 +641,7 @@ impl ReplayMenu {
     /// Shutdown the replay menu
     ///
     /// Matches C++ ReplayMenu.cpp:300-316
-    pub fn shutdown(&mut self, pop_immediate: bool) {
+    pub fn shutdown(&mut self, pop_immediate: bool, manager: &mut WindowManager) {
         if pop_immediate {
             // Immediate shutdown
             return;
@@ -649,16 +649,16 @@ impl ReplayMenu {
 
         // Reverse transition animation
         self.is_shutting_down = true;
-        self.transition_reverse("ReplayMenuFade");
+        self.transition_reverse("ReplayMenuFade", manager);
     }
 
     /// Update the replay menu
     ///
     /// Matches C++ ReplayMenu.cpp:321-343
-    pub fn update(&mut self, _delta_time: f32) {
+    pub fn update(&mut self, _delta_time: f32, manager: &mut WindowManager) {
         if self.just_entered {
             if self.initial_gadget_delay == 1 {
-                self.transition_set_group("ReplayMenuFade", false);
+                self.transition_set_group("ReplayMenuFade", false, manager);
                 self.initial_gadget_delay = 2;
                 self.just_entered = false;
             } else {
@@ -677,22 +677,22 @@ impl ReplayMenu {
         // Check if shutdown animation is complete
         if self.is_shutting_down {
             // In actual implementation, check if animation is finished
-            if self.transitions_finished() {
+            if self.transitions_finished(manager) {
                 self.is_shutting_down = false;
             }
         }
     }
 
-    fn transition_set_group(&self, group: &str, immediate: bool) {
-        with_window_manager(|manager| manager.transition_set_group(group, immediate));
+    fn transition_set_group(&self, group: &str, immediate: bool, manager: &mut WindowManager) {
+        manager.transition_set_group(group, immediate, None);
     }
 
-    fn transition_reverse(&self, group: &str) {
-        with_window_manager(|manager| manager.transition_reverse(group));
+    fn transition_reverse(&self, group: &str, manager: &mut WindowManager) {
+        manager.transition_reverse(group, None);
     }
 
-    fn transitions_finished(&self) -> bool {
-        with_window_manager_ref(|manager| manager.transitions_finished())
+    fn transitions_finished(&self, manager: &WindowManager) -> bool {
+        manager.transitions_finished()
     }
 
     /// Get replay filename from listbox index
@@ -1053,12 +1053,16 @@ impl ReplayMenu {
     /// Handle button press events
     ///
     /// Matches C++ ReplayMenu.cpp:485-584
-    pub fn handle_button_selected(&mut self, button_id: u32) -> Result<(), String> {
+    pub fn handle_button_selected(
+        &mut self,
+        button_id: u32,
+        manager: &mut WindowManager,
+    ) -> Result<(), String> {
         if button_id == self.button_load_id {
             self.load_replay()?;
         } else if button_id == self.button_back_id {
             // Return to previous menu
-            self.shutdown(false);
+            self.shutdown(false, manager);
         } else if button_id == self.button_delete_id {
             if self.selected_index < 0 {
                 return Err("GUI:NoFileSelected".to_string());
@@ -1079,12 +1083,17 @@ impl ReplayMenu {
     /// Handle keyboard input
     ///
     /// Matches C++ ReplayMenu.cpp:349-394
-    pub fn handle_key_input(&mut self, key: KeyCode, state: KeyState) -> bool {
+    pub fn handle_key_input(
+        &mut self,
+        key: KeyCode,
+        state: KeyState,
+        manager: &mut WindowManager,
+    ) -> bool {
         match key {
             KeyCode::Escape => {
                 if state == KeyState::Up {
                     // Simulate back button press
-                    let _ = self.handle_button_selected(self.button_back_id);
+                    let _ = self.handle_button_selected(self.button_back_id, manager);
                 }
                 true
             }

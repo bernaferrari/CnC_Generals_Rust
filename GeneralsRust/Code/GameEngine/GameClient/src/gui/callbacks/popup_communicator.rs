@@ -1,8 +1,8 @@
 //! PopupCommunicator.cpp callback port.
 
 use crate::gui::{
-    with_window_manager, write_input_focus_response, GameWindow, WindowLayout, WindowMessage,
-    WindowMsgData, WindowMsgHandled,
+    GameWindow, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled,
+    write_input_focus_response,
 };
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use std::cell::RefCell;
@@ -27,16 +27,23 @@ thread_local! {
         RefCell::new(PopupCommunicatorState::default());
 }
 
-pub fn popup_communicator_init(_layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>) {
+pub fn popup_communicator_init(
+    _layout: &WindowLayout,
+    _user_data: Option<&dyn std::any::Any>,
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) {
     let parent_id = NameKeyGenerator::name_to_key("PopupCommunicator.wnd:PopupCommunicator");
     let button_ok_id = NameKeyGenerator::name_to_key("PopupCommunicator.wnd:ButtonOk");
 
-    let parent = with_window_manager(|manager| manager.get_window_by_id(parent_id as i32));
+    let parent = (|manager: &mut crate::gui::window_manager::WindowManager| {
+        manager.get_window_by_id(parent_id as i32)
+    })(receiving_manager);
     if let Some(parent) = parent.as_ref() {
-        with_window_manager(|manager| {
-            let _ = manager.set_focus(Some(parent));
+        (|manager: &mut crate::gui::window_manager::WindowManager| {
+            let _ = manager.set_focus(Some(parent), effects);
             let _ = manager.set_modal(parent.clone());
-        });
+        })(receiving_manager);
     }
 
     let button_ok = parent
@@ -57,10 +64,12 @@ pub fn popup_communicator_shutdown(_layout: &WindowLayout, _user_data: Option<&d
 pub fn popup_communicator_update(_layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>) {}
 
 pub fn popup_communicator_input(
-    window: &GameWindow,
+    window: &mut GameWindow,
     msg: WindowMessage,
     data1: WindowMsgData,
     data2: WindowMsgData,
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> WindowMsgHandled {
     if msg != WindowMessage::Char {
         return WindowMsgHandled::Ignored;
@@ -79,25 +88,28 @@ pub fn popup_communicator_input(
     let button_ok_id =
         POPUP_COMMUNICATOR_STATE.with_borrow(|guard| guard.button_ok_id.unwrap_or(0));
 
-    with_window_manager(|manager| {
+    (|manager: &mut crate::gui::window_manager::WindowManager| {
         if let Some(handle) = manager.get_window_by_id(window.get_id()) {
             manager.send_system_message(
                 &handle,
                 WindowMessage::GadgetSelected,
                 button_ok_id as WindowMsgData,
                 button_ok_id as WindowMsgData,
+                effects,
             );
         }
-    });
+    })(receiving_manager);
 
     WindowMsgHandled::Handled
 }
 
 pub fn popup_communicator_system(
-    window: &GameWindow,
+    window: &mut GameWindow,
     msg: WindowMessage,
     data1: WindowMsgData,
     data2: WindowMsgData,
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> WindowMsgHandled {
     match msg {
         WindowMessage::Create => WindowMsgHandled::Handled,
@@ -111,15 +123,17 @@ pub fn popup_communicator_system(
                 if control_id == button_ok_id {
                     if let Some(parent) = guard.parent.as_ref() {
                         let parent = parent.clone();
-                        with_window_manager(|manager| {
+                        (|manager: &mut crate::gui::window_manager::WindowManager| {
                             let _ = manager.unset_modal(&parent);
-                        });
+                        })(receiving_manager);
                     }
                     let layout = window.get_layout();
                     guard.parent = None;
                     guard.button_ok = None;
                     if let Some(layout) = layout {
-                        with_window_manager(|manager| manager.destroy_layout(&layout));
+                        (|manager: &mut crate::gui::window_manager::WindowManager| {
+                            manager.destroy_layout(&layout, effects)
+                        })(receiving_manager);
                     }
                 }
             });

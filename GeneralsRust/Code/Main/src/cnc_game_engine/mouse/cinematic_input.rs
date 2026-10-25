@@ -34,6 +34,7 @@ impl CinematicInputLoan<'_> {
         was_enabled: bool,
         deselect: &mut dyn FnMut(u32),
         bar: &mut game_client::gui::control_bar::ControlBar,
+        effects: &mut game_client::gui::game_window::WindowEventEffects<'_>,
     ) -> gamelogic::GameLogicResult<()> {
         let owner = self.ui.as_ref().ok_or_else(|| {
             gamelogic::GameLogicError::Configuration(
@@ -80,7 +81,7 @@ impl CinematicInputLoan<'_> {
             })?
             .clear_cinematic_selection_and_modes();
         *self.waypoint = false;
-        bar.delete_build_tooltip_layout_owned();
+        effects.with_manager(|manager, _| bar.delete_build_tooltip_layout_owned(manager));
         reset_look_at_translator_fields(
             self.modes,
             self.rotating,

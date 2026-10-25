@@ -13,7 +13,9 @@ impl CnCGameEngine {
             wnd_ok = self.with_receiving_menu_effects(|effects| {
                 game_client::gui::simulate_main_menu_single_player_button_gadget_selected(effects)
             })?;
-            let _ = game_client::gui::callbacks::simulate_single_player_menu_bind_controls();
+            let _ = self.with_receiving_menu_effects(|effects| {
+                game_client::gui::callbacks::simulate_single_player_menu_bind_controls(effects)
+            })?;
         }
         self.enter_shell_menu_from_runtime_host(Some("SinglePlayer"))?;
         self.runtime_host_last_gameplay_cmd = if wnd_ok {
@@ -28,7 +30,7 @@ impl CnCGameEngine {
     pub(super) fn runtime_host_cmd_click_single_player_menu(
         &mut self,
         args: &HashMap<String, String>,
-    ) {
+    ) -> Result<(), String> {
         // Retail SinglePlayerMenu New/Load/Back residual.
         let action = args
             .get("action")
@@ -46,18 +48,34 @@ impl CnCGameEngine {
             };
             wnd_ok = match action.as_str() {
                 "load" => {
-                    let _ = simulate_single_player_menu_clear_button_pushed();
-                    simulate_single_player_menu_load_button_gadget_selected()
+                    let _ = self.with_receiving_menu_effects(|effects| {
+                        simulate_single_player_menu_clear_button_pushed(effects)
+                    })?;
+                    self.with_receiving_menu_effects(|effects| {
+                        simulate_single_player_menu_load_button_gadget_selected(effects)
+                    })?
                 }
                 "back" => {
-                    let _ = simulate_single_player_menu_clear_button_pushed();
-                    simulate_single_player_menu_back_button_gadget_selected()
+                    let _ = self.with_receiving_menu_effects(|effects| {
+                        simulate_single_player_menu_clear_button_pushed(effects)
+                    })?;
+                    self.with_receiving_menu_effects(|effects| {
+                        simulate_single_player_menu_back_button_gadget_selected(effects)
+                    })?
                 }
-                "clear" => simulate_single_player_menu_clear_button_pushed(),
-                "prepare_new" => simulate_single_player_menu_prepare_new(),
+                "clear" => self.with_receiving_menu_effects(|effects| {
+                    simulate_single_player_menu_clear_button_pushed(effects)
+                })?,
+                "prepare_new" => self.with_receiving_menu_effects(|effects| {
+                    simulate_single_player_menu_prepare_new(effects)
+                })?,
                 _ => {
-                    let _ = simulate_single_player_menu_clear_button_pushed();
-                    simulate_single_player_menu_new_button_gadget_selected()
+                    let _ = self.with_receiving_menu_effects(|effects| {
+                        simulate_single_player_menu_clear_button_pushed(effects)
+                    })?;
+                    self.with_receiving_menu_effects(|effects| {
+                        simulate_single_player_menu_new_button_gadget_selected(effects)
+                    })?
                 }
             };
         }
@@ -66,6 +84,7 @@ impl CnCGameEngine {
         } else {
             "click_single_player_menu_miss".into()
         };
+        Ok(())
     }
 
     pub(super) fn runtime_host_cmd_open_map_select_menu(
@@ -76,7 +95,9 @@ impl CnCGameEngine {
         let mut wnd_ok = false;
         #[cfg(feature = "game_client")]
         {
-            wnd_ok = game_client::gui::callbacks::simulate_map_select_menu_bind_controls();
+            wnd_ok = self.with_receiving_menu_effects(|effects| {
+                game_client::gui::callbacks::simulate_map_select_menu_bind_controls(effects)
+            })?;
         }
         self.enter_shell_menu_from_runtime_host(Some("MapSelect"))?;
         self.runtime_host_last_gameplay_cmd = if wnd_ok {
@@ -91,7 +112,7 @@ impl CnCGameEngine {
     pub(super) fn runtime_host_cmd_click_map_select_menu(
         &mut self,
         args: &HashMap<String, String>,
-    ) {
+    ) -> Result<(), String> {
         // Retail MapSelect OK/Back/difficulty/filter residual.
         let action = args
             .get("action")
@@ -120,25 +141,51 @@ impl CnCGameEngine {
                 simulate_map_select_menu_user_maps_radio_selected,
             };
             wnd_ok = match action.as_str() {
-                "select" | "map" => simulate_map_select_menu_select_map(&map),
-                "difficulty" => simulate_map_select_menu_set_difficulty(difficulty),
+                "select" | "map" => self.with_receiving_menu_effects(|effects| {
+                    simulate_map_select_menu_select_map(&map, effects)
+                })?,
+                "difficulty" => self.with_receiving_menu_effects(|effects| {
+                    simulate_map_select_menu_set_difficulty(difficulty, effects)
+                })?,
                 "back" => {
-                    let _ = simulate_map_select_menu_clear_button_pushed();
-                    simulate_map_select_menu_back_button_gadget_selected()
+                    let _ = self.with_receiving_menu_effects(|effects| {
+                        simulate_map_select_menu_clear_button_pushed(effects)
+                    })?;
+                    self.with_receiving_menu_effects(|effects| {
+                        simulate_map_select_menu_back_button_gadget_selected(effects)
+                    })?
                 }
-                "solo" => simulate_map_select_menu_solo_maps_button_gadget_selected(),
-                "multiplayer" | "mp" => {
-                    simulate_map_select_menu_multiplayer_maps_button_gadget_selected()
-                }
-                "system" => simulate_map_select_menu_system_maps_radio_selected(),
-                "user" => simulate_map_select_menu_user_maps_radio_selected(),
-                "prepare_ok" => simulate_map_select_menu_prepare_ok(&map),
-                "clear" => simulate_map_select_menu_clear_button_pushed(),
+                "solo" => self.with_receiving_menu_effects(|effects| {
+                    simulate_map_select_menu_solo_maps_button_gadget_selected(effects)
+                })?,
+                "multiplayer" | "mp" => self.with_receiving_menu_effects(|effects| {
+                    simulate_map_select_menu_multiplayer_maps_button_gadget_selected(effects)
+                })?,
+                "system" => self.with_receiving_menu_effects(|effects| {
+                    simulate_map_select_menu_system_maps_radio_selected(effects)
+                })?,
+                "user" => self.with_receiving_menu_effects(|effects| {
+                    simulate_map_select_menu_user_maps_radio_selected(effects)
+                })?,
+                "prepare_ok" => self.with_receiving_menu_effects(|effects| {
+                    simulate_map_select_menu_prepare_ok(&map, effects)
+                })?,
+                "clear" => self.with_receiving_menu_effects(|effects| {
+                    simulate_map_select_menu_clear_button_pushed(effects)
+                })?,
                 _ => {
-                    let _ = simulate_map_select_menu_clear_button_pushed();
-                    let _ = simulate_map_select_menu_select_map(&map);
-                    let _ = simulate_map_select_menu_set_difficulty(difficulty);
-                    simulate_map_select_menu_ok_button_gadget_selected()
+                    let _ = self.with_receiving_menu_effects(|effects| {
+                        simulate_map_select_menu_clear_button_pushed(effects)
+                    })?;
+                    let _ = self.with_receiving_menu_effects(|effects| {
+                        simulate_map_select_menu_select_map(&map, effects)
+                    })?;
+                    let _ = self.with_receiving_menu_effects(|effects| {
+                        simulate_map_select_menu_set_difficulty(difficulty, effects)
+                    })?;
+                    self.with_receiving_menu_effects(|effects| {
+                        simulate_map_select_menu_ok_button_gadget_selected(effects)
+                    })?
                 }
             };
         }
@@ -147,6 +194,7 @@ impl CnCGameEngine {
         } else {
             "click_map_select_menu_miss".into()
         };
+        Ok(())
     }
 
     pub(super) fn runtime_host_cmd_open_single_player_menu_2(
@@ -201,7 +249,12 @@ impl CnCGameEngine {
             wnd_ok = self.with_receiving_menu_effects(|effects| {
                 game_client::gui::simulate_main_menu_replay_button_gadget_selected(effects)
             })?;
-            let _ = game_client::gui::callbacks::simulate_replay_menu_bind_controls();
+            let _ = self
+                .game_client
+                .window_manager_owner()
+                .with_manager(|manager| {
+                    game_client::gui::callbacks::simulate_replay_menu_bind_controls(manager)
+                });
         }
         self.enter_shell_menu_from_runtime_host(Some("LoadReplay"))?;
         self.runtime_host_last_gameplay_cmd = if wnd_ok {
@@ -243,27 +296,53 @@ impl CnCGameEngine {
                     self.with_receiving_menu_effects(|effects| {
                         drive_os_wnd_replay_menu_delete_like_cpp(slot, effects)
                     })? || {
-                        let _ = simulate_replay_menu_select_slot(slot);
-                        simulate_replay_menu_delete_button_gadget_selected()
+                        let _ = self
+                            .game_client
+                            .window_manager_owner()
+                            .with_manager(|manager| {
+                                simulate_replay_menu_select_slot(slot, manager)
+                            });
+                        self.game_client
+                            .window_manager_owner()
+                            .with_manager(|manager| {
+                                simulate_replay_menu_delete_button_gadget_selected(manager)
+                            })
                     }
                 }
                 "copy" => {
                     self.with_receiving_menu_effects(|effects| {
                         drive_os_wnd_replay_menu_copy_like_cpp(slot, effects)
                     })? || {
-                        let _ = simulate_replay_menu_select_slot(slot);
-                        simulate_replay_menu_copy_button_gadget_selected()
+                        let _ = self
+                            .game_client
+                            .window_manager_owner()
+                            .with_manager(|manager| {
+                                simulate_replay_menu_select_slot(slot, manager)
+                            });
+                        self.game_client
+                            .window_manager_owner()
+                            .with_manager(|manager| {
+                                simulate_replay_menu_copy_button_gadget_selected(manager)
+                            })
                     }
                 }
                 "back" => {
                     self.with_receiving_menu_effects(|effects| {
                         drive_os_wnd_replay_menu_back_like_cpp(effects)
-                    })? || simulate_replay_menu_back_button_gadget_selected()
+                    })? || self
+                        .game_client
+                        .window_manager_owner()
+                        .with_manager(|manager| {
+                            simulate_replay_menu_back_button_gadget_selected(manager)
+                        })
                 }
                 _ => {
                     self.with_receiving_menu_effects(|effects| {
                         drive_os_wnd_replay_menu_prepare_load_like_cpp(slot, effects)
-                    })? || simulate_replay_menu_prepare_load(slot)
+                    })? || self
+                        .game_client
+                        .window_manager_owner()
+                        .with_manager(|manager| simulate_replay_menu_prepare_load(slot, manager))
                 }
             };
         }
@@ -568,7 +647,9 @@ impl CnCGameEngine {
         let mut wnd_ok = false;
         #[cfg(feature = "game_client")]
         {
-            wnd_ok = game_client::gui::callbacks::simulate_options_menu_bind_controls();
+            wnd_ok = self.with_receiving_menu_effects(|effects| {
+                game_client::gui::callbacks::simulate_options_menu_bind_controls(effects)
+            })?;
         }
         self.enter_shell_menu_from_runtime_host(Some("Options"))?;
         self.runtime_host_last_gameplay_cmd = if wnd_ok {
@@ -613,42 +694,58 @@ impl CnCGameEngine {
                 "back" => {
                     self.with_receiving_menu_effects(|effects| {
                         drive_os_wnd_options_menu_back_like_cpp(effects)
-                    })? || simulate_options_menu_back_button_gadget_selected()
+                    })? || self.with_receiving_menu_effects(|effects| {
+                        simulate_options_menu_back_button_gadget_selected(effects)
+                    })?
                 }
                 "defaults" | "default" => {
                     self.with_receiving_menu_effects(|effects| {
                         drive_os_wnd_options_menu_defaults_like_cpp(effects)
-                    })? || simulate_options_menu_defaults_button_gadget_selected()
+                    })? || self.with_receiving_menu_effects(|effects| {
+                        simulate_options_menu_defaults_button_gadget_selected(effects)
+                    })?
                 }
                 "keyboard" => {
                     self.with_receiving_menu_effects(|effects| {
                         drive_os_wnd_options_menu_keyboard_like_cpp(effects)
-                    })? || simulate_options_menu_keyboard_button_gadget_selected()
+                    })? || self.with_receiving_menu_effects(|effects| {
+                        simulate_options_menu_keyboard_button_gadget_selected(effects)
+                    })?
                 }
                 "advanced_accept" => {
                     self.with_receiving_menu_effects(|effects| {
                         drive_os_wnd_options_menu_advanced_accept_like_cpp(effects)
-                    })? || simulate_options_menu_advanced_accept_button_gadget_selected()
+                    })? || self.with_receiving_menu_effects(|effects| {
+                        simulate_options_menu_advanced_accept_button_gadget_selected(effects)
+                    })?
                 }
                 "advanced_back" => {
                     self.with_receiving_menu_effects(|effects| {
                         drive_os_wnd_options_menu_advanced_back_like_cpp(effects)
-                    })? || simulate_options_menu_advanced_back_button_gadget_selected()
+                    })? || self.with_receiving_menu_effects(|effects| {
+                        simulate_options_menu_advanced_back_button_gadget_selected(effects)
+                    })?
                 }
                 "firewall" | "firewall_refresh" => {
                     self.with_receiving_menu_effects(|effects| {
                         drive_os_wnd_options_menu_firewall_like_cpp(effects)
-                    })? || simulate_options_menu_firewall_refresh_button_gadget_selected()
+                    })? || self.with_receiving_menu_effects(|effects| {
+                        simulate_options_menu_firewall_refresh_button_gadget_selected(effects)
+                    })?
                 }
                 "prepare_accept" => {
                     self.with_receiving_menu_effects(|effects| {
                         drive_os_wnd_options_menu_accept_like_cpp(effects)
-                    })? || simulate_options_menu_prepare_accept()
+                    })? || self.with_receiving_menu_effects(|effects| {
+                        simulate_options_menu_prepare_accept(effects)
+                    })?
                 }
                 _ => {
                     self.with_receiving_menu_effects(|effects| {
                         drive_os_wnd_options_menu_accept_like_cpp(effects)
-                    })? || simulate_options_menu_accept_button_gadget_selected()
+                    })? || self.with_receiving_menu_effects(|effects| {
+                        simulate_options_menu_accept_button_gadget_selected(effects)
+                    })?
                 }
             };
         }

@@ -92,38 +92,38 @@ pub fn transformed_progress_percent(descriptor: LoadScreenDescriptor, raw_percen
 pub(crate) fn init_load_screen_with_state(
     kind: LoadScreenKind,
     context: &LoadScreenInitContext,
-    campaign_manager: &crate::gui::campaign_manager::CampaignManager,
-    shell_game_first_load: &mut bool,
     mut presentation_pump: Option<&mut LoadScreenPresentationPump<'_>>,
     runtime: &mut LoadScreenOperation<'_>,
 ) -> Result<bool, String> {
     let windows = runtime.windows;
     let descriptor = descriptor_for_kind(kind);
     let prepared = windows.with_manager(|wm| {
-        if wm.create_layout_with_windows(descriptor.layout).is_err() {
+        if wm
+            .create_layout_with_windows(descriptor.layout, &mut runtime.effects)
+            .is_err()
+        {
             return None;
         }
         if let Some(root) = wm.find_window_by_name(descriptor.root) {
             let mut root = root.borrow_mut();
-            let _ = root.hide(false);
+            let _ = root.hide(false, wm);
             let _ = root.bring_to_front();
         }
-        initialize_progress_windows(wm, descriptor);
+        initialize_progress_windows(wm, descriptor, &mut runtime.effects);
         Some(initialize_kind_windows(
             wm,
             descriptor.kind,
             context,
-            campaign_manager,
-            shell_game_first_load,
             runtime,
         ))
     });
+    runtime.complete_callbacks();
     let Some(hold_legal) = prepared else {
         return Ok(false);
     };
     if hold_legal {
         run_shell_game_legal_hold_with_pump(presentation_pump.as_deref_mut(), runtime)?;
-        *shell_game_first_load = false;
+        *runtime.first_load = false;
         windows.with_manager(|wm| hide_window(wm, "ShellGameLoadScreen.wnd:ProgressLoad", false));
     }
     Ok(true)
@@ -157,7 +157,7 @@ pub fn begin_nonblocking_load_screen_prelude(
         }
         _ => return,
     };
-    with_window_video_manager(runtime.videos, |manager| manager.hold_load_movie(&movie));
+    with_window_video_manager(runtime.videos(), |manager| manager.hold_load_movie(&movie));
 }
 
 pub fn advance_load_screen_prelude(
@@ -218,7 +218,7 @@ pub fn advance_load_screen_prelude_with_pump(
                 },
             });
         }
-        let frame_count_before = with_window_video_manager(runtime.videos, |manager| {
+        let frame_count_before = with_window_video_manager(runtime.videos(), |manager| {
             manager
                 .movie_progress(&movie)
                 .map(|progress| progress.frame_count)
@@ -230,7 +230,7 @@ pub fn advance_load_screen_prelude_with_pump(
         } else {
             LoadMovieAction::AdvanceHidden
         };
-        let step = with_window_video_manager(runtime.videos, |manager| {
+        let step = with_window_video_manager(runtime.videos(), |manager| {
             manager.advance_load_movie(&movie, action)
         });
         let (outcome, presentation_needed) = match step {
@@ -284,13 +284,13 @@ pub fn advance_load_screen_prelude_with_pump(
                     runtime,
                 )?;
             }
-            with_window_video_manager(runtime.videos, |manager| {
+            with_window_video_manager(runtime.videos(), |manager| {
                 manager.finish_load_movie(&movie, kind == LoadScreenKind::SinglePlayer)
             });
             if kind == LoadScreenKind::SinglePlayer {
                 // This final static-background draw is outside the focus gate and
                 // precedes hiding the percentage and starting ambient audio.
-                pump_load_screen_presentation(presentation_pump.as_deref_mut())?;
+                pump_load_screen_presentation(presentation_pump.as_deref_mut(), runtime)?;
             }
             gamelogic::system::game_logic::set_fp_mode();
             match kind {
@@ -331,7 +331,7 @@ fn update_movie_prelude_progress(
     let percent = ((shifted_percent + FRAME_FUDGE_ADD as i32) as f32 / 1.3).floor();
     windows.with_manager(|wm| {
         let progress_window = descriptor_for_kind(kind).primary_progress;
-        set_progress_window(wm, progress_window, percent);
+        set_progress_window(wm, progress_window, percent, &mut runtime.effects);
         if kind == LoadScreenKind::SinglePlayer {
             set_window_text(
                 wm,
@@ -554,9 +554,10 @@ pub fn reset_load_screen(kind: LoadScreenKind, runtime: &mut LoadScreenOperation
     windows.with_manager(|wm| {
         if let Some(root) = wm.find_window_by_name(descriptor.root) {
             let _ = wm.destroy_window(root);
-            wm.flush_destroy_queue();
+            wm.flush_destroy_queue(&mut runtime.effects);
         }
     });
+    runtime.complete_callbacks();
     if kind == LoadScreenKind::Challenge {
         reset_challenge_load_screen_audio_state(runtime);
     } else if kind == LoadScreenKind::SinglePlayer {
@@ -605,7 +606,12 @@ pub fn update_load_screen_with_pump(
         return Ok(());
     }
     windows.with_manager(|wm| {
-        set_progress_window(wm, descriptor.primary_progress, percent);
+        set_progress_window(
+            wm,
+            descriptor.primary_progress,
+            percent,
+            &mut runtime.effects,
+        );
         if kind == LoadScreenKind::SinglePlayer {
             set_window_text(
                 wm,
@@ -639,17 +645,19 @@ fn finish_load_screen_update(
     runtime: &mut LoadScreenOperation<'_>,
 ) -> Result<(), String> {
     let windows = runtime.windows;
-    windows.with_manager(|wm| wm.update());
-    let result = pump_load_screen_presentation(presentation_pump.as_deref_mut());
+    windows.with_manager(|wm| wm.update(&mut runtime.effects));
+    runtime.complete_callbacks();
+    let result = pump_load_screen_presentation(presentation_pump.as_deref_mut(), runtime);
     gamelogic::system::game_logic::set_fp_mode();
     result
 }
 
 fn pump_load_screen_presentation(
     mut presentation_pump: Option<&mut LoadScreenPresentationPump<'_>>,
+    runtime: &mut LoadScreenOperation<'_>,
 ) -> Result<(), String> {
     if let Some(pump) = presentation_pump {
-        pump.pump()?;
+        pump.pump(runtime)?;
     } else {
         #[cfg(test)]
         pump_load_screen_presentation_test_hook();
@@ -769,6 +777,7 @@ pub fn process_load_screen_progress(
             wm,
             &format!("{}{}", descriptor.progress_prefix, compact_slot),
             percentage,
+            &mut runtime.effects,
         );
     });
     true

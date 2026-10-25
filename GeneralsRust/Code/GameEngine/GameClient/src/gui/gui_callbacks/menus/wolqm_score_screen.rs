@@ -20,7 +20,7 @@ pub fn WOLQMScoreScreenShutdown(layout: &WindowLayout, user_data: Option<&dyn st
 }
 
 pub fn WOLQMScoreScreenSystem(
-    window: &GameWindow,
+    window: &mut GameWindow,
     msg: WindowMessage,
     data1: WindowMsgData,
     data2: WindowMsgData,
@@ -29,7 +29,7 @@ pub fn WOLQMScoreScreenSystem(
 }
 
 pub fn WOLQMScoreScreenInput(
-    window: &GameWindow,
+    window: &mut GameWindow,
     msg: WindowMessage,
     data1: WindowMsgData,
     data2: WindowMsgData,

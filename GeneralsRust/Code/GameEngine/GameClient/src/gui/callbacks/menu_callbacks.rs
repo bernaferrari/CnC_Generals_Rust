@@ -17,10 +17,9 @@ use crate::gui::options_host_bridge::{
 use crate::gui::shell::main_menu::DisplaySettings;
 use crate::gui::{
     AnimationType, GLM_DOUBLE_CLICKED, GameWindow, WindowLayout, WindowMessage, WindowMsgData,
-    WindowMsgHandled, WindowWidget, queue_shell_operation, queue_shell_pop, queue_shell_push,
+    WindowMsgHandled, WindowWidget, queue_shell_pop, queue_shell_push,
     queue_shell_reverse_animate_window, queue_shell_shutdown_complete,
-    queue_shell_window_animation, queue_window_manager_op_deferred, show_shell_map_if_available,
-    try_with_shell_mut, with_window_manager, write_input_focus_response,
+    queue_shell_window_animation, show_shell_map_if_available, write_input_focus_response,
 };
 use crate::helpers::TheInGameUI;
 use crate::map_util::{get_map_cache_manager, populate_map_listbox};
@@ -68,6 +67,7 @@ pub trait MenuCallbacks {
         &mut self,
         layout: &WindowLayout,
         user_data: Option<&mut dyn std::any::Any>,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) -> Result<(), Box<dyn std::error::Error>>;
 
     fn init_with_effects(
@@ -76,7 +76,7 @@ pub trait MenuCallbacks {
         user_data: Option<&mut dyn std::any::Any>,
         _effects: &mut WindowEventEffects<'_>,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        self.init(layout, user_data)
+        self.init(layout, user_data, _effects)
     }
 
     /// Update the menu (called every frame)
@@ -84,6 +84,7 @@ pub trait MenuCallbacks {
         &mut self,
         layout: &WindowLayout,
         user_data: Option<&mut dyn std::any::Any>,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) -> Result<(), Box<dyn std::error::Error>>;
 
     /// Update using the receiving GameClient's borrowed event effects.
@@ -93,7 +94,7 @@ pub trait MenuCallbacks {
         user_data: Option<&mut dyn std::any::Any>,
         _effects: &mut WindowEventEffects<'_>,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        self.update(layout, user_data)
+        self.update(layout, user_data, _effects)
     }
 
     /// Shutdown the menu
@@ -101,6 +102,7 @@ pub trait MenuCallbacks {
         &mut self,
         layout: &WindowLayout,
         user_data: Option<&mut dyn std::any::Any>,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) -> Result<(), Box<dyn std::error::Error>>;
 
     fn shutdown_with_effects(
@@ -109,47 +111,49 @@ pub trait MenuCallbacks {
         user_data: Option<&mut dyn std::any::Any>,
         _effects: &mut WindowEventEffects<'_>,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        self.shutdown(layout, user_data)
+        self.shutdown(layout, user_data, _effects)
     }
 
     /// Handle system messages
     fn system(
         &mut self,
-        window: &GameWindow,
+        window: &mut GameWindow,
         msg: WindowMessage,
         data1: WindowMsgData,
         data2: WindowMsgData,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) -> WindowMsgHandled;
 
     /// Dispatch using the receiving GameClient's borrowed event effects.
     fn system_with_effects(
         &mut self,
-        window: &GameWindow,
+        window: &mut GameWindow,
         msg: WindowMessage,
         data1: WindowMsgData,
         data2: WindowMsgData,
         _effects: &mut WindowEventEffects<'_>,
     ) -> WindowMsgHandled {
-        self.system(window, msg, data1, data2)
+        self.system(window, msg, data1, data2, _effects)
     }
 
     /// Handle input messages
     fn input(
         &mut self,
-        window: &GameWindow,
+        window: &mut GameWindow,
         msg: WindowMessage,
         data1: WindowMsgData,
         data2: WindowMsgData,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) -> WindowMsgHandled;
     fn input_with_effects(
         &mut self,
-        window: &GameWindow,
+        window: &mut GameWindow,
         msg: WindowMessage,
         data1: WindowMsgData,
         data2: WindowMsgData,
         _effects: &mut WindowEventEffects<'_>,
     ) -> WindowMsgHandled {
-        self.input(window, msg, data1, data2)
+        self.input(window, msg, data1, data2, _effects)
     }
 }
 
@@ -175,6 +179,7 @@ impl MenuCallbacks for MainMenu {
         &mut self,
         layout: &WindowLayout,
         _user_data: Option<&mut dyn std::any::Any>,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         info!(
             "Initializing Main Menu for layout: {}",
@@ -188,6 +193,7 @@ impl MenuCallbacks for MainMenu {
         &mut self,
         _layout: &WindowLayout,
         _user_data: Option<&mut dyn std::any::Any>,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         // Update main menu state
         Ok(())
@@ -197,6 +203,7 @@ impl MenuCallbacks for MainMenu {
         &mut self,
         layout: &WindowLayout,
         _user_data: Option<&mut dyn std::any::Any>,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         info!(
             "Shutting down Main Menu for layout: {}",
@@ -208,10 +215,11 @@ impl MenuCallbacks for MainMenu {
 
     fn system(
         &mut self,
-        _window: &GameWindow,
+        _window: &mut GameWindow,
         msg: WindowMessage,
         _data1: WindowMsgData,
         _data2: WindowMsgData,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) -> WindowMsgHandled {
         debug!("Main Menu system message: {:?}", msg);
         WindowMsgHandled::Ignored
@@ -219,10 +227,11 @@ impl MenuCallbacks for MainMenu {
 
     fn input(
         &mut self,
-        _window: &GameWindow,
+        _window: &mut GameWindow,
         msg: WindowMessage,
         _data1: WindowMsgData,
         _data2: WindowMsgData,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) -> WindowMsgHandled {
         debug!("Main Menu input message: {:?}", msg);
         WindowMsgHandled::Ignored
@@ -231,6 +240,8 @@ impl MenuCallbacks for MainMenu {
 
 /// Single Player Menu implementation
 pub struct SinglePlayerMenu {
+    residual_action: ResidualSinglePlayerMenuAction,
+
     initialized: bool,
     parent_id: i32,
     button_new_id: i32,
@@ -244,6 +255,8 @@ pub struct SinglePlayerMenu {
 impl SinglePlayerMenu {
     pub fn new() -> Self {
         Self {
+            residual_action: ResidualSinglePlayerMenuAction::None,
+
             initialized: false,
             parent_id: 0,
             button_new_id: 0,
@@ -258,7 +271,7 @@ impl SinglePlayerMenu {
     fn initialize_with_effects(
         &mut self,
         layout: &WindowLayout,
-        mut effects: Option<&mut WindowEventEffects<'_>>,
+        effects: &mut WindowEventEffects<'_>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         info!(
             "Initializing Single Player Menu for layout: {}",
@@ -274,30 +287,54 @@ impl SinglePlayerMenu {
         self.button_pushed = false;
         self.is_shutting_down = false;
 
-        if let Some(effects) = effects.as_deref_mut() {
+        {
             show_shell_map_if_available(true, effects);
         }
-        layout.hide(false);
+        layout.hide_receiving(false, effects);
 
-        with_window_manager(|manager| {
+        effects.with_manager(|manager, effects| {
             self.parent = manager.get_window_by_id(self.parent_id);
             // Focus is deferred below: an inline set_focus sends InputFocus to
             // this same window, whose "SinglePlayerMenuSystem" callback would
             // re-enter this init dispatch's menu borrow (RefCell disallows
             // that — it used to re-take a non-re-entrant std RwLock and wedge).
             if let Some(parent) = self.parent.clone() {
-                queue_window_manager_op_deferred(move |manager| {
-                    let _ = manager.set_focus(Some(&parent));
+                effects.queue_window_operation(move |manager, effects| {
+                    let _ = manager.set_focus(Some(&parent), effects);
                 });
             }
             if let Some(button_new) = manager.get_window_by_id(self.button_new_id) {
-                queue_shell_window_animation(button_new, AnimationType::SlideLeft, true, 1);
+                effects.with_receiving_manager(manager, |effects| {
+                    queue_shell_window_animation(
+                        effects,
+                        button_new,
+                        AnimationType::SlideLeft,
+                        true,
+                        1,
+                    )
+                });
             }
             if let Some(button_load) = manager.get_window_by_id(self.button_load_id) {
-                queue_shell_window_animation(button_load, AnimationType::SlideLeft, true, 200);
+                effects.with_receiving_manager(manager, |effects| {
+                    queue_shell_window_animation(
+                        effects,
+                        button_load,
+                        AnimationType::SlideLeft,
+                        true,
+                        200,
+                    )
+                });
             }
             if let Some(button_back) = manager.get_window_by_id(self.button_back_id) {
-                queue_shell_window_animation(button_back, AnimationType::SlideRight, true, 1);
+                effects.with_receiving_manager(manager, |effects| {
+                    queue_shell_window_animation(
+                        effects,
+                        button_back,
+                        AnimationType::SlideRight,
+                        true,
+                        1,
+                    )
+                });
             }
         });
 
@@ -305,12 +342,16 @@ impl SinglePlayerMenu {
         Ok(())
     }
 
-    fn shutdown_complete(&mut self, layout: &WindowLayout) {
+    fn shutdown_complete(
+        &mut self,
+        layout: &WindowLayout,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    ) {
         self.is_shutting_down = false;
-        layout.hide(true);
+        layout.hide_receiving(true, effects);
         self.initialized = false;
         self.parent = None;
-        queue_shell_shutdown_complete(false);
+        queue_shell_shutdown_complete(effects, false);
     }
 }
 
@@ -325,8 +366,9 @@ impl MenuCallbacks for SinglePlayerMenu {
         &mut self,
         layout: &WindowLayout,
         _user_data: Option<&mut dyn std::any::Any>,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        self.initialize_with_effects(layout, None)
+        self.initialize_with_effects(layout, effects)
     }
 
     fn init_with_effects(
@@ -335,18 +377,18 @@ impl MenuCallbacks for SinglePlayerMenu {
         _user_data: Option<&mut dyn std::any::Any>,
         effects: &mut WindowEventEffects<'_>,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        self.initialize_with_effects(layout, Some(effects))
+        self.initialize_with_effects(layout, effects)
     }
 
     fn update(
         &mut self,
         layout: &WindowLayout,
         _user_data: Option<&mut dyn std::any::Any>,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        if self.is_shutting_down
-            && try_with_shell_mut(|shell| shell.is_anim_finished()).unwrap_or(false)
+        if self.is_shutting_down && crate::gui::shell::base::shell_anim_finished_for_layout(effects)
         {
-            self.shutdown_complete(layout);
+            self.shutdown_complete(layout, effects);
         }
         Ok(())
     }
@@ -355,6 +397,7 @@ impl MenuCallbacks for SinglePlayerMenu {
         &mut self,
         layout: &WindowLayout,
         user_data: Option<&mut dyn std::any::Any>,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         info!(
             "Shutting down Single Player Menu for layout: {}",
@@ -366,19 +409,20 @@ impl MenuCallbacks for SinglePlayerMenu {
             .unwrap_or(false);
         self.is_shutting_down = true;
         if pop_immediate {
-            self.shutdown_complete(layout);
+            self.shutdown_complete(layout, effects);
             return Ok(());
         }
-        queue_shell_reverse_animate_window();
+        queue_shell_reverse_animate_window(effects);
         Ok(())
     }
 
     fn system(
         &mut self,
-        _window: &GameWindow,
+        _window: &mut GameWindow,
         msg: WindowMessage,
         data1: WindowMsgData,
         data2: WindowMsgData,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) -> WindowMsgHandled {
         match msg {
             WindowMessage::Create | WindowMessage::Destroy => WindowMsgHandled::Handled,
@@ -390,12 +434,12 @@ impl MenuCallbacks for SinglePlayerMenu {
 
                 let control_id = data1 as i32;
                 if control_id == self.button_new_id {
-                    queue_shell_push("Menus/MapSelectMenu.wnd", false);
+                    queue_shell_push(effects, "Menus/MapSelectMenu.wnd", false);
                     self.button_pushed = true;
                     return WindowMsgHandled::Handled;
                 }
                 if control_id == self.button_back_id {
-                    queue_shell_pop();
+                    queue_shell_pop(effects);
                     self.button_pushed = true;
                     return WindowMsgHandled::Handled;
                 }
@@ -410,17 +454,18 @@ impl MenuCallbacks for SinglePlayerMenu {
 
     fn input(
         &mut self,
-        _window: &GameWindow,
+        _window: &mut GameWindow,
         _msg: WindowMessage,
         _data1: WindowMsgData,
         _data2: WindowMsgData,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) -> WindowMsgHandled {
         panic!("menu input dispatch requires receiving event effects");
     }
 
     fn input_with_effects(
         &mut self,
-        _window: &GameWindow,
+        _window: &mut GameWindow,
         msg: WindowMessage,
         data1: WindowMsgData,
         data2: WindowMsgData,
@@ -487,6 +532,8 @@ fn set_owned_options_scroll(layout: &WindowLayout, value: f32, range: bool) {
 }
 /// Options Menu implementation
 pub struct OptionsMenu {
+    residual_action: ResidualOptionsMenuAction,
+    pending_host_apply: Option<HostOptionsApply>,
     initialized: bool,
     ignore_selected: bool,
     parent_id: i32,
@@ -539,6 +586,8 @@ pub struct OptionsMenu {
 impl OptionsMenu {
     pub fn new() -> Self {
         Self {
+            residual_action: ResidualOptionsMenuAction::None,
+            pending_host_apply: None,
             initialized: false,
             ignore_selected: false,
             parent_id: 0,
@@ -593,18 +642,33 @@ impl OptionsMenu {
         NameKeyGenerator::name_to_key(name) as i32
     }
 
-    fn find_window(id: i32) -> Option<Rc<RefCell<GameWindow>>> {
-        with_window_manager(|manager| manager.get_window_by_id(id))
+    fn find_window(
+        id: i32,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    ) -> Option<Rc<RefCell<GameWindow>>> {
+        (|manager: &mut crate::gui::window_manager::WindowManager| manager.get_window_by_id(id))(
+            receiving_manager,
+        )
     }
 
-    fn set_checkbox(id: i32, value: bool) {
-        if let Some(window) = Self::find_window(id) {
-            let _ = window.borrow_mut().gadget_check_box_set_checked(value);
+    fn set_checkbox(
+        id: i32,
+        value: bool,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    ) {
+        if let Some(window) = Self::find_window(id, receiving_manager) {
+            let _ = window
+                .borrow_mut()
+                .gadget_check_box_set_checked(value, effects);
         }
     }
 
-    fn checkbox_value(id: i32) -> bool {
-        Self::find_window(id)
+    fn checkbox_value(
+        id: i32,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    ) -> bool {
+        Self::find_window(id, receiving_manager)
             .and_then(|window| {
                 let guard = window.borrow();
                 match guard.widget() {
@@ -615,16 +679,26 @@ impl OptionsMenu {
             .unwrap_or(false)
     }
 
-    fn set_slider_value(id: i32, value: i32) {
-        if let Some(window) = Self::find_window(id) {
+    fn set_slider_value(
+        id: i32,
+        value: i32,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    ) {
+        if let Some(window) = Self::find_window(id, receiving_manager) {
             if let Some(slider) = window.borrow_mut().horizontal_slider_mut() {
                 slider.set_value(value);
             }
         }
     }
 
-    fn set_slider_range_and_value(id: i32, min_value: i32, max_value: i32, value: i32) {
-        if let Some(window) = Self::find_window(id) {
+    fn set_slider_range_and_value(
+        id: i32,
+        min_value: i32,
+        max_value: i32,
+        value: i32,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    ) {
+        if let Some(window) = Self::find_window(id, receiving_manager) {
             if let Some(slider) = window.borrow_mut().horizontal_slider_mut() {
                 slider.set_range(min_value, max_value);
                 slider.set_value(value);
@@ -632,13 +706,19 @@ impl OptionsMenu {
         }
     }
 
-    fn slider_value(id: i32) -> i32 {
-        Self::slider_value_opt(id).unwrap_or(0)
+    fn slider_value(
+        id: i32,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    ) -> i32 {
+        Self::slider_value_opt(id, receiving_manager).unwrap_or(0)
     }
 
     /// C++ `GadgetSliderGetPosition` — `None` matches retail `-1` (missing gadget).
-    fn slider_value_opt(id: i32) -> Option<i32> {
-        Self::find_window(id).and_then(|window| {
+    fn slider_value_opt(
+        id: i32,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    ) -> Option<i32> {
+        Self::find_window(id, receiving_manager).and_then(|window| {
             let guard = window.borrow();
             match guard.widget() {
                 Some(WindowWidget::HorizontalSlider(slider)) => Some(slider.value()),
@@ -647,11 +727,17 @@ impl OptionsMenu {
         })
     }
 
-    fn set_combo_items(id: i32, items: &[String], selected_index: usize) {
+    fn set_combo_items(
+        id: i32,
+        items: &[String],
+        selected_index: usize,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    ) {
         if items.is_empty() {
             return;
         }
-        if let Some(window) = Self::find_window(id) {
+        if let Some(window) = Self::find_window(id, receiving_manager) {
             let mut guard = window.borrow_mut();
             let Some(combo_box) = guard.combo_box_mut() else {
                 return;
@@ -660,12 +746,15 @@ impl OptionsMenu {
             for (index, item) in items.iter().enumerate() {
                 combo_box.add_item(ComboBoxItem::new(index as u32, item.clone()));
             }
-            guard.set_combo_box_selected(selected_index.min(items.len() - 1), true);
+            guard.set_combo_box_selected(selected_index.min(items.len() - 1), true, effects);
         }
     }
 
-    fn combo_selected_index(id: i32) -> Option<usize> {
-        Self::find_window(id).and_then(|window| {
+    fn combo_selected_index(
+        id: i32,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    ) -> Option<usize> {
+        Self::find_window(id, receiving_manager).and_then(|window| {
             let guard = window.borrow();
             match guard.widget() {
                 Some(WindowWidget::ComboBox(combo_box)) => combo_box.selected_index(),
@@ -674,9 +763,16 @@ impl OptionsMenu {
         })
     }
 
-    fn set_combo_selected(id: i32, index: usize) {
-        if let Some(window) = Self::find_window(id) {
-            window.borrow_mut().set_combo_box_selected(index, true);
+    fn set_combo_selected(
+        id: i32,
+        index: usize,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    ) {
+        if let Some(window) = Self::find_window(id, receiving_manager) {
+            window
+                .borrow_mut()
+                .set_combo_box_selected(index, true, effects);
         }
     }
 
@@ -691,14 +787,22 @@ impl OptionsMenu {
         !TheGameLogic::is_in_game() || TheGameLogic::get_game_mode() == GAME_SHELL
     }
 
-    fn set_window_hidden(id: i32, hidden: bool) {
-        if let Some(window) = Self::find_window(id) {
-            let _ = window.borrow_mut().hide(hidden);
+    fn set_window_hidden(
+        id: i32,
+        hidden: bool,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    ) {
+        if let Some(window) = Self::find_window(id, receiving_manager) {
+            let _ = window.borrow_mut().hide(hidden, receiving_manager);
         }
     }
 
-    fn set_window_enabled(id: i32, enabled: bool) {
-        if let Some(window) = Self::find_window(id) {
+    fn set_window_enabled(
+        id: i32,
+        enabled: bool,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    ) {
+        if let Some(window) = Self::find_window(id, receiving_manager) {
             let _ = window.borrow_mut().enable(enabled);
         }
     }
@@ -841,12 +945,18 @@ impl OptionsMenu {
         }
     }
 
-    fn populate_controls(&mut self) {
-        self.populate_controls_with_camera_input(None);
+    fn populate_controls(
+        &mut self,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    ) {
+        self.populate_controls_with_camera_input(None, receiving_manager, effects);
     }
     fn populate_controls_with_camera_input(
         &mut self,
         owned: Option<(&WindowLayout, &OptionsCameraInputObservation)>,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) {
         self.load_resolution_modes();
 
@@ -982,6 +1092,8 @@ impl OptionsMenu {
             self.combo_anti_aliasing_id,
             &Self::anti_alias_labels(),
             anti_aliasing,
+            receiving_manager,
+            effects,
         );
         Self::set_combo_items(
             self.combo_resolution_id,
@@ -991,17 +1103,47 @@ impl OptionsMenu {
                 .map(|mode| Self::resolution_label(*mode))
                 .collect::<Vec<_>>(),
             resolution_index,
+            receiving_manager,
+            effects,
         );
-        Self::set_combo_items(self.combo_detail_id, &Self::detail_labels(), detail_index);
+        Self::set_combo_items(
+            self.combo_detail_id,
+            &Self::detail_labels(),
+            detail_index,
+            receiving_manager,
+            effects,
+        );
 
-        Self::set_checkbox(self.check_alternate_mouse_id, alternate_mouse);
-        Self::set_checkbox(self.check_retaliation_id, retaliation);
+        Self::set_checkbox(
+            self.check_alternate_mouse_id,
+            alternate_mouse,
+            receiving_manager,
+            effects,
+        );
+        Self::set_checkbox(
+            self.check_retaliation_id,
+            retaliation,
+            receiving_manager,
+            effects,
+        );
         Self::set_checkbox(
             self.check_double_click_attack_move_id,
             double_click_attack_move,
+            receiving_manager,
+            effects,
         );
-        Self::set_checkbox(self.check_language_filter_id, language_filter);
-        Self::set_checkbox(self.check_send_delay_id, send_delay);
+        Self::set_checkbox(
+            self.check_language_filter_id,
+            language_filter,
+            receiving_manager,
+            effects,
+        );
+        Self::set_checkbox(
+            self.check_send_delay_id,
+            send_delay,
+            receiving_manager,
+            effects,
+        );
         if let Some((layout, _)) = owned {
             for (name, checked) in [
                 ("OptionsMenu.wnd:CheckBoxSaveCamera", save_camera),
@@ -1021,60 +1163,182 @@ impl OptionsMenu {
                 }
             }
         } else {
-            Self::set_checkbox(self.check_save_camera_id, save_camera);
-            Self::set_checkbox(self.check_use_camera_id, use_camera);
+            Self::set_checkbox(
+                self.check_save_camera_id,
+                save_camera,
+                receiving_manager,
+                effects,
+            );
+            Self::set_checkbox(
+                self.check_use_camera_id,
+                use_camera,
+                receiving_manager,
+                effects,
+            );
         }
-        Self::set_checkbox(self.check_draw_anchor_id, draw_anchor);
-        Self::set_checkbox(self.check_move_anchor_id, move_anchor);
+        Self::set_checkbox(
+            self.check_draw_anchor_id,
+            draw_anchor,
+            receiving_manager,
+            effects,
+        );
+        Self::set_checkbox(
+            self.check_move_anchor_id,
+            move_anchor,
+            receiving_manager,
+            effects,
+        );
         // C++ OptionsMenuInit applies these to TheInGameUI on open.
         TheInGameUI::set_draw_rmb_scroll_anchor(draw_anchor);
         TheInGameUI::set_move_rmb_scroll_anchor(move_anchor);
         let _ = publish_host_draw_rmb_scroll_anchor(draw_anchor);
         let _ = publish_host_move_rmb_scroll_anchor(move_anchor);
-        Self::set_checkbox(self.check_3d_shadows_id, use_shadow_volumes);
-        Self::set_checkbox(self.check_2d_shadows_id, use_shadow_decals);
-        Self::set_checkbox(self.check_cloud_shadows_id, use_cloud_map);
-        Self::set_checkbox(self.check_ground_lighting_id, use_light_map);
-        Self::set_checkbox(self.check_smooth_water_id, show_soft_water_edge);
-        Self::set_checkbox(self.check_extra_animations_id, extra_animations);
-        Self::set_checkbox(self.check_no_dynamic_lod_id, no_dynamic_lod);
-        Self::set_checkbox(self.check_unlock_fps_id, unlock_fps);
-        Self::set_checkbox(self.check_heat_effects_id, heat_effects);
-        Self::set_checkbox(self.check_building_occlusion_id, building_occlusion);
-        Self::set_checkbox(self.check_props_id, show_props);
+        Self::set_checkbox(
+            self.check_3d_shadows_id,
+            use_shadow_volumes,
+            receiving_manager,
+            effects,
+        );
+        Self::set_checkbox(
+            self.check_2d_shadows_id,
+            use_shadow_decals,
+            receiving_manager,
+            effects,
+        );
+        Self::set_checkbox(
+            self.check_cloud_shadows_id,
+            use_cloud_map,
+            receiving_manager,
+            effects,
+        );
+        Self::set_checkbox(
+            self.check_ground_lighting_id,
+            use_light_map,
+            receiving_manager,
+            effects,
+        );
+        Self::set_checkbox(
+            self.check_smooth_water_id,
+            show_soft_water_edge,
+            receiving_manager,
+            effects,
+        );
+        Self::set_checkbox(
+            self.check_extra_animations_id,
+            extra_animations,
+            receiving_manager,
+            effects,
+        );
+        Self::set_checkbox(
+            self.check_no_dynamic_lod_id,
+            no_dynamic_lod,
+            receiving_manager,
+            effects,
+        );
+        Self::set_checkbox(
+            self.check_unlock_fps_id,
+            unlock_fps,
+            receiving_manager,
+            effects,
+        );
+        Self::set_checkbox(
+            self.check_heat_effects_id,
+            heat_effects,
+            receiving_manager,
+            effects,
+        );
+        Self::set_checkbox(
+            self.check_building_occlusion_id,
+            building_occlusion,
+            receiving_manager,
+            effects,
+        );
+        Self::set_checkbox(self.check_props_id, show_props, receiving_manager, effects);
 
         if let Some((layout, observation)) = owned {
             set_owned_options_scroll(layout, observation.scroll_factor, true);
         } else if let Some(scroll_speed) = scroll_speed {
-            Self::set_slider_range_and_value(self.slider_scroll_speed_id, 0, 100, scroll_speed);
+            Self::set_slider_range_and_value(
+                self.slider_scroll_speed_id,
+                0,
+                100,
+                scroll_speed,
+                receiving_manager,
+            );
         }
-        Self::set_slider_range_and_value(self.slider_music_volume_id, 0, 100, music_volume);
-        Self::set_slider_range_and_value(self.slider_sfx_volume_id, 0, 100, sfx_volume);
-        Self::set_slider_range_and_value(self.slider_voice_volume_id, 0, 100, voice_volume);
-        Self::set_slider_range_and_value(self.slider_gamma_id, 0, 100, gamma);
+        Self::set_slider_range_and_value(
+            self.slider_music_volume_id,
+            0,
+            100,
+            music_volume,
+            receiving_manager,
+        );
+        Self::set_slider_range_and_value(
+            self.slider_sfx_volume_id,
+            0,
+            100,
+            sfx_volume,
+            receiving_manager,
+        );
+        Self::set_slider_range_and_value(
+            self.slider_voice_volume_id,
+            0,
+            100,
+            voice_volume,
+            receiving_manager,
+        );
+        Self::set_slider_range_and_value(self.slider_gamma_id, 0, 100, gamma, receiving_manager);
         Self::set_slider_range_and_value(
             self.slider_texture_resolution_id,
             0,
             2,
             texture_resolution,
+            receiving_manager,
         );
-        Self::set_slider_range_and_value(self.slider_particle_cap_id, 100, 10000, particle_cap);
+        Self::set_slider_range_and_value(
+            self.slider_particle_cap_id,
+            100,
+            10000,
+            particle_cap,
+            receiving_manager,
+        );
 
-        Self::set_window_hidden(self.advanced_window_id, true);
+        Self::set_window_hidden(self.advanced_window_id, true, receiving_manager);
     }
 
-    fn apply_default_controls(&mut self) {
-        self.apply_default_controls_with_scroll(None);
+    fn apply_default_controls(
+        &mut self,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    ) {
+        self.apply_default_controls_with_scroll(None, receiving_manager, effects);
     }
     fn apply_default_controls_with_scroll(
         &mut self,
         owned: Option<(Option<Rc<RefCell<GameWindow>>>, f32)>,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) {
-        Self::set_checkbox(self.check_language_filter_id, true);
-        Self::set_checkbox(self.check_send_delay_id, false);
-        Self::set_checkbox(self.check_alternate_mouse_id, false);
-        Self::set_checkbox(self.check_retaliation_id, true);
-        Self::set_checkbox(self.check_double_click_attack_move_id, false);
+        Self::set_checkbox(
+            self.check_language_filter_id,
+            true,
+            receiving_manager,
+            effects,
+        );
+        Self::set_checkbox(self.check_send_delay_id, false, receiving_manager, effects);
+        Self::set_checkbox(
+            self.check_alternate_mouse_id,
+            false,
+            receiving_manager,
+            effects,
+        );
+        Self::set_checkbox(self.check_retaliation_id, true, receiving_manager, effects);
+        Self::set_checkbox(
+            self.check_double_click_attack_move_id,
+            false,
+            receiving_manager,
+            effects,
+        );
         // C++ setDefaults never touches replay-camera or RMB-anchor checkboxes.
 
         if let Some((slider, default)) = owned {
@@ -1086,41 +1350,77 @@ impl OptionsMenu {
         } else {
             let default_scroll =
                 (runtime_global_data::read().keyboard_default_scroll_factor * 100.0).round() as i32;
-            Self::set_slider_value(self.slider_scroll_speed_id, default_scroll);
+            Self::set_slider_value(
+                self.slider_scroll_speed_id,
+                default_scroll,
+                receiving_manager,
+            );
         }
-        Self::set_slider_value(self.slider_music_volume_id, 60);
-        Self::set_slider_value(self.slider_sfx_volume_id, 55);
-        Self::set_slider_value(self.slider_voice_volume_id, 70);
-        Self::set_slider_value(self.slider_gamma_id, 50);
-        Self::set_slider_value(self.slider_texture_resolution_id, 2);
-        Self::set_slider_value(self.slider_particle_cap_id, 5000);
+        Self::set_slider_value(self.slider_music_volume_id, 60, receiving_manager);
+        Self::set_slider_value(self.slider_sfx_volume_id, 55, receiving_manager);
+        Self::set_slider_value(self.slider_voice_volume_id, 70, receiving_manager);
+        Self::set_slider_value(self.slider_gamma_id, 50, receiving_manager);
+        Self::set_slider_value(self.slider_texture_resolution_id, 2, receiving_manager);
+        Self::set_slider_value(self.slider_particle_cap_id, 5000, receiving_manager);
 
-        Self::set_checkbox(self.check_3d_shadows_id, true);
-        Self::set_checkbox(self.check_2d_shadows_id, true);
-        Self::set_checkbox(self.check_cloud_shadows_id, true);
-        Self::set_checkbox(self.check_ground_lighting_id, true);
-        Self::set_checkbox(self.check_smooth_water_id, true);
-        Self::set_checkbox(self.check_extra_animations_id, true);
-        Self::set_checkbox(self.check_no_dynamic_lod_id, false);
-        Self::set_checkbox(self.check_unlock_fps_id, false);
-        Self::set_checkbox(self.check_heat_effects_id, true);
-        Self::set_checkbox(self.check_building_occlusion_id, true);
-        Self::set_checkbox(self.check_props_id, true);
+        Self::set_checkbox(self.check_3d_shadows_id, true, receiving_manager, effects);
+        Self::set_checkbox(self.check_2d_shadows_id, true, receiving_manager, effects);
+        Self::set_checkbox(
+            self.check_cloud_shadows_id,
+            true,
+            receiving_manager,
+            effects,
+        );
+        Self::set_checkbox(
+            self.check_ground_lighting_id,
+            true,
+            receiving_manager,
+            effects,
+        );
+        Self::set_checkbox(self.check_smooth_water_id, true, receiving_manager, effects);
+        Self::set_checkbox(
+            self.check_extra_animations_id,
+            true,
+            receiving_manager,
+            effects,
+        );
+        Self::set_checkbox(
+            self.check_no_dynamic_lod_id,
+            false,
+            receiving_manager,
+            effects,
+        );
+        Self::set_checkbox(self.check_unlock_fps_id, false, receiving_manager, effects);
+        Self::set_checkbox(self.check_heat_effects_id, true, receiving_manager, effects);
+        Self::set_checkbox(
+            self.check_building_occlusion_id,
+            true,
+            receiving_manager,
+            effects,
+        );
+        Self::set_checkbox(self.check_props_id, true, receiving_manager, effects);
         // C++ setDefaults: comboBoxDetail = findStaticLODLevel()
         let recommended = game_engine::common::game_lod::find_static_lod_level();
         Self::set_combo_selected(
             self.combo_detail_id,
             Self::detail_index_from_name(&recommended),
+            receiving_manager,
+            effects,
         );
 
         if Self::should_reset_resolution_on_defaults() {
-            Self::set_combo_selected(self.combo_resolution_id, self.default_resolution_index());
+            Self::set_combo_selected(
+                self.combo_resolution_id,
+                self.default_resolution_index(),
+                receiving_manager,
+                effects,
+            );
         }
-        Self::set_window_hidden(self.advanced_window_id, true);
+        Self::set_window_hidden(self.advanced_window_id, true, receiving_manager);
     }
 
     fn apply_options(&mut self, effects: &mut WindowEventEffects<'_>) -> bool {
-        let host = take_host_options_apply();
+        let host = self.pending_host_apply.take();
         let mut preferences = UserPreferences::new();
         let _ = preferences.load("Options.ini");
         self.apply_options_with_preferences(host, &mut preferences, None, None, effects)
@@ -1158,19 +1458,38 @@ impl OptionsMenu {
         let detail_index = host
             .as_ref()
             .map(|h| h.detail_index)
-            .or_else(|| Self::combo_selected_index(self.combo_detail_id))
+            .or_else(|| {
+                effects.with_manager(|receiving_manager, effects| {
+                    Self::combo_selected_index(self.combo_detail_id, receiving_manager)
+                })
+            })
             .unwrap_or(1);
         let anti_aliasing = host
             .as_ref()
             .map(|h| h.anti_aliasing)
-            .or_else(|| Self::combo_selected_index(self.combo_anti_aliasing_id).map(|i| i as i32))
+            .or_else(|| {
+                effects
+                    .with_manager(|receiving_manager, effects| {
+                        Self::combo_selected_index(self.combo_anti_aliasing_id, receiving_manager)
+                    })
+                    .map(|i| i as i32)
+            })
             .unwrap_or_else(|| pref.get_int_or("AntiAliasing", 0));
         let resolution = host
             .as_ref()
             .map(|h| h.resolution)
             .or_else(|| {
                 self.resolution_modes
-                    .get(Self::combo_selected_index(self.combo_resolution_id).unwrap_or(0))
+                    .get(
+                        effects
+                            .with_manager(|receiving_manager, effects| {
+                                Self::combo_selected_index(
+                                    self.combo_resolution_id,
+                                    receiving_manager,
+                                )
+                            })
+                            .unwrap_or(0),
+                    )
                     .copied()
             })
             .unwrap_or_else(|| {
@@ -1178,45 +1497,60 @@ impl OptionsMenu {
                     .unwrap_or(default_res)
             });
 
-        let alternate_mouse = host
-            .as_ref()
-            .map(|h| h.alternate_mouse)
-            .unwrap_or_else(|| Self::checkbox_value(self.check_alternate_mouse_id));
-        let retaliation = host
-            .as_ref()
-            .map(|h| h.retaliation)
-            .unwrap_or_else(|| Self::checkbox_value(self.check_retaliation_id));
+        let alternate_mouse = host.as_ref().map(|h| h.alternate_mouse).unwrap_or_else(|| {
+            effects.with_manager(|receiving_manager, effects| {
+                Self::checkbox_value(self.check_alternate_mouse_id, receiving_manager)
+            })
+        });
+        let retaliation = host.as_ref().map(|h| h.retaliation).unwrap_or_else(|| {
+            effects.with_manager(|receiving_manager, effects| {
+                Self::checkbox_value(self.check_retaliation_id, receiving_manager)
+            })
+        });
         let double_click_attack_move = host
             .as_ref()
             .map(|h| h.double_click_attack_move)
-            .unwrap_or_else(|| Self::checkbox_value(self.check_double_click_attack_move_id));
-        let language_filter = host
-            .as_ref()
-            .map(|h| h.language_filter)
-            .unwrap_or_else(|| Self::checkbox_value(self.check_language_filter_id));
-        let send_delay = Self::checkbox_value(self.check_send_delay_id);
+            .unwrap_or_else(|| {
+                effects.with_manager(|receiving_manager, effects| {
+                    Self::checkbox_value(self.check_double_click_attack_move_id, receiving_manager)
+                })
+            });
+        let language_filter = host.as_ref().map(|h| h.language_filter).unwrap_or_else(|| {
+            effects.with_manager(|receiving_manager, effects| {
+                Self::checkbox_value(self.check_language_filter_id, receiving_manager)
+            })
+        });
+        let send_delay = effects.with_manager(|receiving_manager, effects| {
+            Self::checkbox_value(self.check_send_delay_id, receiving_manager)
+        });
         let save_camera = host.as_ref().map(|h| h.save_camera).unwrap_or_else(|| {
             if owns_camera_preferences {
                 pref.save_camera_in_replays()
             } else {
-                Self::checkbox_value(self.check_save_camera_id)
+                effects.with_manager(|receiving_manager, effects| {
+                    Self::checkbox_value(self.check_save_camera_id, receiving_manager)
+                })
             }
         });
         let use_camera = host.as_ref().map(|h| h.use_camera).unwrap_or_else(|| {
             if owns_camera_preferences {
                 pref.use_camera_in_replays()
             } else {
-                Self::checkbox_value(self.check_use_camera_id)
+                effects.with_manager(|receiving_manager, effects| {
+                    Self::checkbox_value(self.check_use_camera_id, receiving_manager)
+                })
             }
         });
-        let draw_anchor = host
-            .as_ref()
-            .map(|h| h.draw_anchor)
-            .unwrap_or_else(|| Self::checkbox_value(self.check_draw_anchor_id));
-        let move_anchor = host
-            .as_ref()
-            .map(|h| h.move_anchor)
-            .unwrap_or_else(|| Self::checkbox_value(self.check_move_anchor_id));
+        let draw_anchor = host.as_ref().map(|h| h.draw_anchor).unwrap_or_else(|| {
+            effects.with_manager(|receiving_manager, effects| {
+                Self::checkbox_value(self.check_draw_anchor_id, receiving_manager)
+            })
+        });
+        let move_anchor = host.as_ref().map(|h| h.move_anchor).unwrap_or_else(|| {
+            effects.with_manager(|receiving_manager, effects| {
+                Self::checkbox_value(self.check_move_anchor_id, receiving_manager)
+            })
+        });
         // Host Accept has no WND layout; C++ saveOptions reads checkboxes that
         // OptionsMenuInit populated from prefs/globals. Keep those current values.
         let host_apply = host.is_some();
@@ -1224,89 +1558,126 @@ impl OptionsMenu {
         let use_shadow_volumes = if host_apply {
             pref.get_bool_or("UseShadowVolumes", current.writable.use_shadow_volumes)
         } else {
-            Self::checkbox_value(self.check_3d_shadows_id)
+            effects.with_manager(|receiving_manager, effects| {
+                Self::checkbox_value(self.check_3d_shadows_id, receiving_manager)
+            })
         };
         let use_shadow_decals = if host_apply {
             pref.get_bool_or("UseShadowDecals", current.writable.use_shadow_decals)
         } else {
-            Self::checkbox_value(self.check_2d_shadows_id)
+            effects.with_manager(|receiving_manager, effects| {
+                Self::checkbox_value(self.check_2d_shadows_id, receiving_manager)
+            })
         };
         let use_cloud_map = if host_apply {
             pref.get_bool_or("UseCloudMap", current.use_cloud_map)
         } else {
-            Self::checkbox_value(self.check_cloud_shadows_id)
+            effects.with_manager(|receiving_manager, effects| {
+                Self::checkbox_value(self.check_cloud_shadows_id, receiving_manager)
+            })
         };
         let use_light_map = if host_apply {
             pref.get_bool_or("UseLightMap", current.use_light_map)
         } else {
-            Self::checkbox_value(self.check_ground_lighting_id)
+            effects.with_manager(|receiving_manager, effects| {
+                Self::checkbox_value(self.check_ground_lighting_id, receiving_manager)
+            })
         };
         let show_soft_water_edge = if host_apply {
             pref.get_bool_or("ShowSoftWaterEdge", current.show_soft_water_edge)
         } else {
-            Self::checkbox_value(self.check_smooth_water_id)
+            effects.with_manager(|receiving_manager, effects| {
+                Self::checkbox_value(self.check_smooth_water_id, receiving_manager)
+            })
         };
         let extra_animations = if host_apply {
             pref.get_bool("ExtraAnimations")
                 .unwrap_or(!current.use_draw_module_lod)
         } else {
-            Self::checkbox_value(self.check_extra_animations_id)
+            effects.with_manager(|receiving_manager, effects| {
+                Self::checkbox_value(self.check_extra_animations_id, receiving_manager)
+            })
         };
         let no_dynamic_lod = if host_apply {
             !pref
                 .get_bool("DynamicLOD")
                 .unwrap_or(current.writable.enable_dynamic_lod)
         } else {
-            Self::checkbox_value(self.check_no_dynamic_lod_id)
+            effects.with_manager(|receiving_manager, effects| {
+                Self::checkbox_value(self.check_no_dynamic_lod_id, receiving_manager)
+            })
         };
         let unlock_fps = if host_apply {
             !pref
                 .get_bool("FPSLimit")
                 .unwrap_or(current.writable.use_fps_limit)
         } else {
-            Self::checkbox_value(self.check_unlock_fps_id)
+            effects.with_manager(|receiving_manager, effects| {
+                Self::checkbox_value(self.check_unlock_fps_id, receiving_manager)
+            })
         };
         let heat_effects = if host_apply {
             pref.get_bool_or("HeatEffects", current.use_heat_effects)
         } else {
-            Self::checkbox_value(self.check_heat_effects_id)
+            effects.with_manager(|receiving_manager, effects| {
+                Self::checkbox_value(self.check_heat_effects_id, receiving_manager)
+            })
         };
         let building_occlusion = if host_apply {
             pref.get_bool_or("BuildingOcclusion", current.enable_behind_building_markers)
         } else {
-            Self::checkbox_value(self.check_building_occlusion_id)
+            effects.with_manager(|receiving_manager, effects| {
+                Self::checkbox_value(self.check_building_occlusion_id, receiving_manager)
+            })
         };
         let show_props = if host_apply {
             pref.get_bool_or("ShowTrees", current.use_trees)
         } else {
-            Self::checkbox_value(self.check_props_id)
+            effects.with_manager(|receiving_manager, effects| {
+                Self::checkbox_value(self.check_props_id, receiving_manager)
+            })
         };
         drop(current);
 
         // C++ OptionsMenu.cpp:1168-1241 `if (val != -1)` — missing slider keeps pref.
         let scroll_speed = match owned_scroll {
             Some(value) => value,
-            None => Self::slider_value_opt(self.slider_scroll_speed_id)
+            None => effects
+                .with_manager(|receiving_manager, effects| {
+                    Self::slider_value_opt(self.slider_scroll_speed_id, receiving_manager)
+                })
                 .or_else(|| host.as_ref().map(|h| h.scroll_speed))
                 .or_else(|| pref.get_int("ScrollFactor"))
                 .or(default_scroll)
                 .map(|value| value.clamp(0, 100)),
         };
-        let music_volume = Self::slider_value_opt(self.slider_music_volume_id)
+        let music_volume = effects
+            .with_manager(|receiving_manager, effects| {
+                Self::slider_value_opt(self.slider_music_volume_id, receiving_manager)
+            })
             .or_else(|| host.as_ref().map(|h| h.music_volume))
             .unwrap_or_else(|| pref.get_int_or("MusicVolume", default_music))
             .clamp(0, 100);
-        let sfx_volume = Self::slider_value_opt(self.slider_sfx_volume_id)
+        let sfx_volume = effects
+            .with_manager(|receiving_manager, effects| {
+                Self::slider_value_opt(self.slider_sfx_volume_id, receiving_manager)
+            })
             .or_else(|| host.as_ref().map(|h| h.sfx_volume))
             .unwrap_or_else(|| pref.get_int_or("SFXVolume", default_sfx))
             .clamp(0, 100);
-        let voice_volume = Self::slider_value_opt(self.slider_voice_volume_id)
+        let voice_volume = effects
+            .with_manager(|receiving_manager, effects| {
+                Self::slider_value_opt(self.slider_voice_volume_id, receiving_manager)
+            })
             .or_else(|| host.as_ref().map(|h| h.voice_volume))
             .unwrap_or_else(|| pref.get_int_or("VoiceVolume", default_voice))
             .clamp(0, 100);
         let (sfx_2d_volume, sfx_3d_volume, sfx_2d_factor, sfx_3d_factor) =
             Self::split_sfx_volume_for_relative(sfx_volume, Self::current_relative_2d_volume());
-        let gamma_slider = Self::slider_value_opt(self.slider_gamma_id)
+        let gamma_slider = effects
+            .with_manager(|receiving_manager, effects| {
+                Self::slider_value_opt(self.slider_gamma_id, receiving_manager)
+            })
             .or_else(|| host.as_ref().map(|h| h.gamma_slider))
             .unwrap_or_else(|| pref.get_int_or("Gamma", 50))
             .clamp(0, 100);
@@ -1317,7 +1688,10 @@ impl OptionsMenu {
                 .clamp(0, 2);
             2 - reduction
         } else {
-            Self::slider_value_opt(self.slider_texture_resolution_id)
+            effects
+                .with_manager(|receiving_manager, effects| {
+                    Self::slider_value_opt(self.slider_texture_resolution_id, receiving_manager)
+                })
                 .unwrap_or(2)
                 .clamp(0, 2)
         };
@@ -1326,7 +1700,10 @@ impl OptionsMenu {
                 .unwrap_or(runtime_global_data::read().max_particle_count)
                 .max(100)
         } else {
-            Self::slider_value_opt(self.slider_particle_cap_id)
+            effects
+                .with_manager(|receiving_manager, effects| {
+                    Self::slider_value_opt(self.slider_particle_cap_id, receiving_manager)
+                })
                 .unwrap_or(5000)
                 .max(100)
         };
@@ -1504,19 +1881,24 @@ impl OptionsMenu {
         let _ = publish_host_alternate_mouse(alternate_mouse);
     }
 
-    fn close_menu(&mut self) {
+    fn close_menu(&mut self, effects: &mut crate::gui::game_window::WindowEventEffects<'_>) {
         let options_overlay_open = options_overlay_is_open();
         if let Some(parent) = self.parent.as_ref() {
-            with_window_manager(|manager| {
+            effects.with_manager(|manager, effects| {
                 let _ = manager.unset_modal(parent);
             });
         }
-        Self::set_window_hidden(self.advanced_window_id, true);
+        effects.with_manager(|receiving_manager, effects| {
+            Self::set_window_hidden(self.advanced_window_id, true, receiving_manager)
+        });
         TheScriptEngine::signal_ui_interact("ShellOptionsClosed");
         if options_overlay_open {
             close_options_overlay();
         } else {
-            queue_shell_operation(|shell| shell.destroy_options_layout());
+            crate::gui::shell::base::queue_shell_operation_with_effects(
+                effects,
+                |shell, effects| shell.destroy_options_layout(effects),
+            );
         }
         self.parent = None;
         self.initialized = false;
@@ -1536,9 +1918,9 @@ impl OptionsMenu {
         };
         let options_overlay_open = options_overlay_is_open();
         if !TheGameLogic::is_in_game() || TheGameLogic::get_game_mode() == GAME_SHELL {
-            destroy_quit_menu();
+            destroy_quit_menu(effects);
         }
-        self.close_menu();
+        self.close_menu(effects);
         if resolution_changed && !options_overlay_open {
             effects.with_main_menu(|menu, effects| menu.do_resolution_dialog(effects));
         }
@@ -1548,10 +1930,11 @@ impl OptionsMenu {
         &mut self,
         layout: &WindowLayout,
         observation: Option<&OptionsCameraInputObservation>,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         self.init_ids();
         self.ignore_selected = true;
-        with_window_manager(|manager| {
+        effects.with_manager(|manager, effects| {
             self.parent = manager.get_window_by_id(self.parent_id);
             // Modal bookkeeping dispatches no messages — safe inline. Focus is
             // deferred (see SinglePlayerMenu::init): an inline set_focus would
@@ -1560,23 +1943,41 @@ impl OptionsMenu {
                 let _ = manager.set_modal(parent.clone());
             }
             if let Some(parent) = self.parent.clone() {
-                queue_window_manager_op_deferred(move |manager| {
-                    let _ = manager.set_focus(Some(&parent));
+                effects.queue_window_operation(move |manager, effects| {
+                    let _ = manager.set_focus(Some(&parent), effects);
                 });
             }
         });
-        self.populate_controls_with_camera_input(observation.map(|value| (layout, value)));
+        effects.with_manager(|receiving_manager, effects| {
+            self.populate_controls_with_camera_input(
+                observation.map(|value| (layout, value)),
+                receiving_manager,
+                effects,
+            )
+        });
         let in_game_locked =
             TheGameLogic::is_in_game() && TheGameLogic::get_game_mode() != GAME_SHELL;
         if in_game_locked || options_overlay_is_open() {
-            Self::set_window_enabled(self.combo_lan_ip_id, false);
-            Self::set_window_enabled(self.combo_online_ip_id, false);
-            Self::set_window_enabled(self.combo_detail_id, false);
-            Self::set_window_enabled(self.combo_resolution_id, false);
-            Self::set_window_enabled(self.check_send_delay_id, false);
-            Self::set_window_enabled(self.button_firewall_refresh_id, false);
+            effects.with_manager(|receiving_manager, effects| {
+                Self::set_window_enabled(self.combo_lan_ip_id, false, receiving_manager)
+            });
+            effects.with_manager(|receiving_manager, effects| {
+                Self::set_window_enabled(self.combo_online_ip_id, false, receiving_manager)
+            });
+            effects.with_manager(|receiving_manager, effects| {
+                Self::set_window_enabled(self.combo_detail_id, false, receiving_manager)
+            });
+            effects.with_manager(|receiving_manager, effects| {
+                Self::set_window_enabled(self.combo_resolution_id, false, receiving_manager)
+            });
+            effects.with_manager(|receiving_manager, effects| {
+                Self::set_window_enabled(self.check_send_delay_id, false, receiving_manager)
+            });
+            effects.with_manager(|receiving_manager, effects| {
+                Self::set_window_enabled(self.button_firewall_refresh_id, false, receiving_manager)
+            });
         }
-        layout.hide(false);
+        layout.hide_receiving(false, effects);
         self.ignore_selected = false;
         self.initialized = true;
         Ok(())
@@ -1636,10 +2037,11 @@ impl Default for OptionsMenu {
 impl MenuCallbacks for OptionsMenu {
     fn system(
         &mut self,
-        _window: &GameWindow,
+        _window: &mut GameWindow,
         _msg: WindowMessage,
         _data1: WindowMsgData,
         _data2: WindowMsgData,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) -> WindowMsgHandled {
         panic!("OptionsMenu system callback requires receiving WindowEventEffects")
     }
@@ -1648,14 +2050,16 @@ impl MenuCallbacks for OptionsMenu {
         &mut self,
         layout: &WindowLayout,
         _user_data: Option<&mut dyn std::any::Any>,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        self.init_with_camera_input(layout, None)
+        self.init_with_camera_input(layout, None, effects)
     }
 
     fn update(
         &mut self,
         _layout: &WindowLayout,
         _user_data: Option<&mut dyn std::any::Any>,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         Ok(())
     }
@@ -1664,25 +2068,28 @@ impl MenuCallbacks for OptionsMenu {
         &mut self,
         layout: &WindowLayout,
         _user_data: Option<&mut dyn std::any::Any>,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         info!(
             "Shutting down Options Menu for layout: {}",
             layout.get_filename()
         );
         if let Some(parent) = self.parent.as_ref() {
-            with_window_manager(|manager| {
+            effects.with_manager(|manager, effects| {
                 let _ = manager.unset_modal(parent);
             });
         }
-        Self::set_window_hidden(self.advanced_window_id, true);
-        layout.hide(true);
+        effects.with_manager(|receiving_manager, effects| {
+            Self::set_window_hidden(self.advanced_window_id, true, receiving_manager)
+        });
+        layout.hide_receiving(true, effects);
         self.initialized = false;
         Ok(())
     }
 
     fn system_with_effects(
         &mut self,
-        _window: &GameWindow,
+        _window: &mut GameWindow,
         msg: WindowMessage,
         data1: WindowMsgData,
         data2: WindowMsgData,
@@ -1696,9 +2103,13 @@ impl MenuCallbacks for OptionsMenu {
                     return WindowMsgHandled::Handled;
                 }
                 if data1 as i32 == self.combo_detail_id
-                    && Self::combo_selected_index(self.combo_detail_id) == Some(3)
+                    && effects.with_manager(|receiving_manager, effects| {
+                        Self::combo_selected_index(self.combo_detail_id, receiving_manager)
+                    }) == Some(3)
                 {
-                    Self::set_window_hidden(self.advanced_window_id, false);
+                    effects.with_manager(|receiving_manager, effects| {
+                        Self::set_window_hidden(self.advanced_window_id, false, receiving_manager)
+                    });
                 }
                 WindowMsgHandled::Handled
             }
@@ -1708,11 +2119,13 @@ impl MenuCallbacks for OptionsMenu {
                 }
                 let control_id = data1 as i32;
                 if control_id == self.button_back_id {
-                    self.close_menu();
+                    self.close_menu(effects);
                 } else if control_id == self.button_accept_id {
                     self.accept_options(None, None, effects);
                 } else if control_id == self.button_defaults_id {
-                    self.apply_default_controls();
+                    effects.with_manager(|receiving_manager, effects| {
+                        self.apply_default_controls(receiving_manager, effects)
+                    });
                 } else if control_id == self.button_firewall_refresh_id {
                     self.firewall_behavior_override = Some(0);
                     {
@@ -1720,20 +2133,37 @@ impl MenuCallbacks for OptionsMenu {
                         global.firewall_behavior = 0;
                     }
                 } else if control_id == self.button_advanced_accept_id {
-                    Self::set_window_hidden(self.advanced_window_id, true);
+                    effects.with_manager(|receiving_manager, effects| {
+                        Self::set_window_hidden(self.advanced_window_id, true, receiving_manager)
+                    });
                 } else if control_id == self.button_advanced_back_id {
-                    Self::set_combo_selected(self.combo_detail_id, self.initial_detail_index);
-                    Self::set_window_hidden(self.advanced_window_id, true);
+                    effects.with_manager(|receiving_manager, effects| {
+                        Self::set_combo_selected(
+                            self.combo_detail_id,
+                            self.initial_detail_index,
+                            receiving_manager,
+                            effects,
+                        )
+                    });
+                    effects.with_manager(|receiving_manager, effects| {
+                        Self::set_window_hidden(self.advanced_window_id, true, receiving_manager)
+                    });
                 } else if control_id == self.button_keyboard_options_id {
-                    queue_shell_push("Menus/KeyboardOptionsMenu.wnd", false);
+                    queue_shell_push(effects, "Menus/KeyboardOptionsMenu.wnd", false);
                 } else if control_id == self.combo_detail_id
-                    && Self::combo_selected_index(self.combo_detail_id) == Some(3)
+                    && effects.with_manager(|receiving_manager, effects| {
+                        Self::combo_selected_index(self.combo_detail_id, receiving_manager)
+                    }) == Some(3)
                 {
-                    Self::set_window_hidden(self.advanced_window_id, false);
+                    effects.with_manager(|receiving_manager, effects| {
+                        Self::set_window_hidden(self.advanced_window_id, false, receiving_manager)
+                    });
                 } else {
                     self.apply_immediate_checkbox_effect(
                         control_id,
-                        Self::checkbox_value(control_id),
+                        effects.with_manager(|receiving_manager, effects| {
+                            Self::checkbox_value(control_id, receiving_manager)
+                        }),
                     );
                 }
                 WindowMsgHandled::Handled
@@ -1744,10 +2174,11 @@ impl MenuCallbacks for OptionsMenu {
 
     fn input(
         &mut self,
-        _window: &GameWindow,
+        _window: &mut GameWindow,
         msg: WindowMessage,
         data1: WindowMsgData,
         data2: WindowMsgData,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) -> WindowMsgHandled {
         if msg != WindowMessage::Char || data1 != 0x1B {
             return WindowMsgHandled::Ignored;
@@ -1759,6 +2190,7 @@ impl MenuCallbacks for OptionsMenu {
                     WindowMessage::GadgetSelected,
                     self.button_back_id as WindowMsgData,
                     self.button_back_id as WindowMsgData,
+                    effects,
                 );
             }
         }
@@ -1769,6 +2201,8 @@ impl MenuCallbacks for OptionsMenu {
 
 /// Map Select Menu implementation
 pub struct MapSelectMenu {
+    residual_action: ResidualMapSelectMenuAction,
+
     initialized: bool,
     parent_id: i32,
     listbox_map_id: i32,
@@ -1795,6 +2229,8 @@ pub struct MapSelectMenu {
 impl MapSelectMenu {
     pub fn new() -> Self {
         Self {
+            residual_action: ResidualMapSelectMenuAction::None,
+
             initialized: false,
             parent_id: 0,
             listbox_map_id: 0,
@@ -1897,7 +2333,7 @@ impl MapSelectMenu {
         }
     }
 
-    fn start_game(&mut self) {
+    fn start_game(&mut self, effects: &mut crate::gui::game_window::WindowEventEffects<'_>) {
         let Some(map_name) = self.selected_map.clone() else {
             return;
         };
@@ -1914,7 +2350,7 @@ impl MapSelectMenu {
             }
             runtime_global_data::write().pending_file = pending;
         }
-        queue_shell_reverse_animate_window();
+        queue_shell_reverse_animate_window(effects);
     }
 
     fn do_game_start(&mut self, effects: &mut WindowEventEffects<'_>) {
@@ -1932,13 +2368,17 @@ impl MapSelectMenu {
         self.is_shutting_down = true;
     }
 
-    fn shutdown_complete(&mut self, layout: &WindowLayout) {
+    fn shutdown_complete(
+        &mut self,
+        layout: &WindowLayout,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    ) {
         self.is_shutting_down = false;
-        layout.hide(true);
+        layout.hide_receiving(true, effects);
         self.initialized = false;
         self.parent = None;
         self.listbox_map = None;
-        queue_shell_shutdown_complete(false);
+        queue_shell_shutdown_complete(effects, false);
     }
 
     fn write_use_system_maps_preference(&self) {
@@ -1979,6 +2419,7 @@ impl MenuCallbacks for MapSelectMenu {
         &mut self,
         layout: &WindowLayout,
         _user_data: Option<&mut dyn std::any::Any>,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         Err("receiving menu lifecycle effects are required".into())
     }
@@ -1999,7 +2440,7 @@ impl MenuCallbacks for MapSelectMenu {
         self.is_shutting_down = false;
         self.start_game = false;
         show_shell_map_if_available(true, effects);
-        layout.hide(false);
+        layout.hide_receiving(false, effects);
 
         self.parent_id = Self::name_to_id("MapSelectMenu.wnd:MapSelectMenuParent");
         self.listbox_map_id = Self::name_to_id("MapSelectMenu.wnd:ListboxMap");
@@ -2013,22 +2454,38 @@ impl MenuCallbacks for MapSelectMenu {
         self.radio_user_maps_id = Self::name_to_id("MapSelectMenu.wnd:RadioButtonUserMaps");
         self.radio_system_maps_id = Self::name_to_id("MapSelectMenu.wnd:RadioButtonSystemMaps");
 
-        with_window_manager(|manager| {
+        effects.with_manager(|manager, effects| {
             self.parent = manager.get_window_by_id(self.parent_id);
             self.listbox_map = manager.get_window_by_id(self.listbox_map_id);
             // Focus is deferred (see SinglePlayerMenu::init): an inline
             // set_focus would re-enter the menu borrow held by this init
             // dispatch via the window's system callback.
             if let Some(parent) = self.parent.clone() {
-                queue_window_manager_op_deferred(move |manager| {
-                    let _ = manager.set_focus(Some(&parent));
+                effects.queue_window_operation(move |manager, effects| {
+                    let _ = manager.set_focus(Some(&parent), effects);
                 });
             }
             if let Some(button_back) = manager.get_window_by_id(self.button_back_id) {
-                queue_shell_window_animation(button_back, AnimationType::SlideRight, true, 0);
+                effects.with_receiving_manager(manager, |effects| {
+                    queue_shell_window_animation(
+                        effects,
+                        button_back,
+                        AnimationType::SlideRight,
+                        true,
+                        0,
+                    )
+                });
             }
             if let Some(button_ok) = manager.get_window_by_id(self.button_ok_id) {
-                queue_shell_window_animation(button_ok, AnimationType::SlideLeft, true, 0);
+                effects.with_receiving_manager(manager, |effects| {
+                    queue_shell_window_animation(
+                        effects,
+                        button_ok,
+                        AnimationType::SlideLeft,
+                        true,
+                        0,
+                    )
+                });
             }
         });
 
@@ -2040,23 +2497,27 @@ impl MenuCallbacks for MapSelectMenu {
         self.difficulty = difficulty;
 
         Self::set_radio_selected(
-            &with_window_manager(|manager| manager.get_window_by_id(self.radio_easy_id)),
+            &effects.with_manager(|manager, effects| manager.get_window_by_id(self.radio_easy_id)),
             difficulty == 0,
         );
         Self::set_radio_selected(
-            &with_window_manager(|manager| manager.get_window_by_id(self.radio_medium_id)),
+            &effects
+                .with_manager(|manager, effects| manager.get_window_by_id(self.radio_medium_id)),
             difficulty == 1,
         );
         Self::set_radio_selected(
-            &with_window_manager(|manager| manager.get_window_by_id(self.radio_hard_id)),
+            &effects.with_manager(|manager, effects| manager.get_window_by_id(self.radio_hard_id)),
             difficulty == 2,
         );
         Self::set_radio_selected(
-            &with_window_manager(|manager| manager.get_window_by_id(self.radio_system_maps_id)),
+            &effects.with_manager(|manager, effects| {
+                manager.get_window_by_id(self.radio_system_maps_id)
+            }),
             self.use_system_maps,
         );
         Self::set_radio_selected(
-            &with_window_manager(|manager| manager.get_window_by_id(self.radio_user_maps_id)),
+            &effects
+                .with_manager(|manager, effects| manager.get_window_by_id(self.radio_user_maps_id)),
             !self.use_system_maps,
         );
 
@@ -2068,11 +2529,11 @@ impl MenuCallbacks for MapSelectMenu {
         &mut self,
         layout: &WindowLayout,
         _user_data: Option<&mut dyn std::any::Any>,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        if self.is_shutting_down
-            && try_with_shell_mut(|shell| shell.is_anim_finished()).unwrap_or(false)
+        if self.is_shutting_down && crate::gui::shell::base::shell_anim_finished_for_layout(effects)
         {
-            self.shutdown_complete(layout);
+            self.shutdown_complete(layout, effects);
         }
         Ok(())
     }
@@ -2083,14 +2544,12 @@ impl MenuCallbacks for MapSelectMenu {
         _user_data: Option<&mut dyn std::any::Any>,
         effects: &mut WindowEventEffects<'_>,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        if self.start_game && try_with_shell_mut(|shell| shell.is_anim_finished()).unwrap_or(false)
-        {
+        if self.start_game && crate::gui::shell::base::shell_anim_finished_for_layout(effects) {
             self.do_game_start(effects);
         }
-        if self.is_shutting_down
-            && try_with_shell_mut(|shell| shell.is_anim_finished()).unwrap_or(false)
+        if self.is_shutting_down && crate::gui::shell::base::shell_anim_finished_for_layout(effects)
         {
-            self.shutdown_complete(layout);
+            self.shutdown_complete(layout, effects);
         }
         Ok(())
     }
@@ -2099,6 +2558,7 @@ impl MenuCallbacks for MapSelectMenu {
         &mut self,
         layout: &WindowLayout,
         user_data: Option<&mut dyn std::any::Any>,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         info!(
             "Shutting down Map Select Menu for layout: {}",
@@ -2109,29 +2569,30 @@ impl MenuCallbacks for MapSelectMenu {
             .copied()
             .unwrap_or(false);
         if pop_immediate {
-            self.shutdown_complete(layout);
+            self.shutdown_complete(layout, effects);
             return Ok(());
         }
         if !self.start_game {
             self.is_shutting_down = true;
-            queue_shell_reverse_animate_window();
+            queue_shell_reverse_animate_window(effects);
         }
         Ok(())
     }
 
     fn system(
         &mut self,
-        _window: &GameWindow,
+        _window: &mut GameWindow,
         _msg: WindowMessage,
         _data1: WindowMsgData,
         _data2: WindowMsgData,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) -> WindowMsgHandled {
         panic!("MapSelectMenu system dispatch requires receiving event effects");
     }
 
     fn system_with_effects(
         &mut self,
-        _window: &GameWindow,
+        _window: &mut GameWindow,
         msg: WindowMessage,
         data1: WindowMsgData,
         data2: WindowMsgData,
@@ -2155,14 +2616,14 @@ impl MenuCallbacks for MapSelectMenu {
                         } else {
                             return WindowMsgHandled::Handled;
                         }
-                        self.start_game();
+                        self.start_game(effects);
                         return WindowMsgHandled::Handled;
                     }
                     return WindowMsgHandled::Handled;
                 }
                 if control_id == self.button_back_id {
                     self.button_pushed = true;
-                    queue_shell_pop();
+                    queue_shell_pop(effects);
                     return WindowMsgHandled::Handled;
                 }
                 if control_id == self.button_single_player_id {
@@ -2241,17 +2702,18 @@ impl MenuCallbacks for MapSelectMenu {
 
     fn input(
         &mut self,
-        _window: &GameWindow,
+        _window: &mut GameWindow,
         _msg: WindowMessage,
         _data1: WindowMsgData,
         _data2: WindowMsgData,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) -> WindowMsgHandled {
         panic!("menu input dispatch requires receiving event effects");
     }
 
     fn input_with_effects(
         &mut self,
-        _window: &GameWindow,
+        _window: &mut GameWindow,
         msg: WindowMessage,
         data1: WindowMsgData,
         data2: WindowMsgData,
@@ -2280,8 +2742,10 @@ impl MenuCallbacks for MapSelectMenu {
     }
 }
 
-/// Credits Menu implementation  
+/// Credits Menu implementation
 pub struct CreditsMenu {
+    residual_action: ResidualCreditsMenuAction,
+    residual_active: bool,
     initialized: bool,
     parent_id: i32,
     parent: Option<Rc<RefCell<GameWindow>>>,
@@ -2291,6 +2755,8 @@ pub struct CreditsMenu {
 impl CreditsMenu {
     pub fn new() -> Self {
         Self {
+            residual_action: ResidualCreditsMenuAction::None,
+            residual_active: false,
             initialized: false,
             parent_id: 0,
             parent: None,
@@ -2319,6 +2785,7 @@ impl MenuCallbacks for CreditsMenu {
         &mut self,
         layout: &WindowLayout,
         _user_data: Option<&mut dyn std::any::Any>,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         Err("receiving menu lifecycle effects are required".into())
     }
@@ -2345,8 +2812,8 @@ impl MenuCallbacks for CreditsMenu {
 
         self.parent_id =
             NameKeyGenerator::name_to_key("CreditsMenu.wnd:ParentCreditsWindow") as i32;
-        layout.hide(false);
-        with_window_manager(|manager| {
+        layout.hide_receiving(false, effects);
+        effects.with_manager(|manager, effects| {
             self.parent = manager.get_window_by_id(self.parent_id);
             // Focus is deferred (see SinglePlayerMenu::init): an inline
             // set_focus sends InputFocus to this same window, whose
@@ -2354,8 +2821,8 @@ impl MenuCallbacks for CreditsMenu {
             // menu borrow (RefCell forbids that; the std RwLock it replaced
             // was not re-entrant and this was the sampled CreditsMenu wedge).
             if let Some(parent) = self.parent.clone() {
-                queue_window_manager_op_deferred(move |manager| {
-                    let _ = manager.set_focus(Some(&parent));
+                effects.queue_window_operation(move |manager, effects| {
+                    let _ = manager.set_focus(Some(&parent), effects);
                 });
             }
         });
@@ -2375,13 +2842,14 @@ impl MenuCallbacks for CreditsMenu {
         &mut self,
         _layout: &WindowLayout,
         _user_data: Option<&mut dyn std::any::Any>,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         // Deferred for the same reason as in init: this update runs inside the
         // menu borrow taken by the CreditsMenuUpdate dispatch, and an inline
         // set_focus re-enters it via the InputFocus system callback.
         if let Some(parent) = self.parent.clone() {
-            queue_window_manager_op_deferred(move |manager| {
-                let _ = manager.set_focus(Some(&parent));
+            effects.queue_window_operation(move |manager, effects| {
+                let _ = manager.set_focus(Some(&parent), effects);
             });
         }
 
@@ -2394,10 +2862,10 @@ impl MenuCallbacks for CreditsMenu {
                     .unwrap_or((0, 0)),
             );
             if credits.is_finished() {
-                queue_shell_pop();
+                queue_shell_pop(effects);
             }
         } else {
-            queue_shell_pop();
+            queue_shell_pop(effects);
         }
         Ok(())
     }
@@ -2406,6 +2874,7 @@ impl MenuCallbacks for CreditsMenu {
         &mut self,
         layout: &WindowLayout,
         _user_data: Option<&mut dyn std::any::Any>,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         Err("receiving menu lifecycle effects are required".into())
     }
@@ -2426,8 +2895,8 @@ impl MenuCallbacks for CreditsMenu {
         }
 
         show_shell_map_if_available(true, effects);
-        layout.hide(true);
-        queue_shell_shutdown_complete(false);
+        layout.hide_receiving(true, effects);
+        queue_shell_shutdown_complete(effects, false);
 
         if let Some(audio) = TheAudio::get() {
             audio.remove_audio_event(0xFFFF_FFF1);
@@ -2442,10 +2911,11 @@ impl MenuCallbacks for CreditsMenu {
 
     fn system(
         &mut self,
-        _window: &GameWindow,
+        _window: &mut GameWindow,
         msg: WindowMessage,
         data1: WindowMsgData,
         data2: WindowMsgData,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) -> WindowMsgHandled {
         match msg {
             WindowMessage::Create | WindowMessage::Destroy | WindowMessage::GadgetSelected => {
@@ -2458,14 +2928,15 @@ impl MenuCallbacks for CreditsMenu {
 
     fn input(
         &mut self,
-        _window: &GameWindow,
+        _window: &mut GameWindow,
         msg: WindowMessage,
         data1: WindowMsgData,
         data2: WindowMsgData,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) -> WindowMsgHandled {
         if msg == WindowMessage::Char && data1 == 0x1B {
             if (data2 & 0x0001) != 0 {
-                queue_shell_pop();
+                queue_shell_pop(effects);
             }
             return WindowMsgHandled::Handled;
         }
@@ -2496,6 +2967,7 @@ impl MenuCallbacks for LanLobbyMenu {
         &mut self,
         layout: &WindowLayout,
         _user_data: Option<&mut dyn std::any::Any>,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         Err("receiving LAN menu effects are required".into())
     }
@@ -2515,6 +2987,7 @@ impl MenuCallbacks for LanLobbyMenu {
         &mut self,
         layout: &WindowLayout,
         _user_data: Option<&mut dyn std::any::Any>,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         crate::gui::callbacks::lan_lobby_menu::lan_lobby_update(layout);
         Ok(())
@@ -2524,6 +2997,7 @@ impl MenuCallbacks for LanLobbyMenu {
         &mut self,
         layout: &WindowLayout,
         user_data: Option<&mut dyn std::any::Any>,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let immediate = user_data
             .and_then(|data| data.downcast_ref::<bool>())
@@ -2536,55 +3010,53 @@ impl MenuCallbacks for LanLobbyMenu {
 
     fn system(
         &mut self,
-        window: &GameWindow,
+        window: &mut GameWindow,
         msg: WindowMessage,
         data1: WindowMsgData,
         data2: WindowMsgData,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) -> WindowMsgHandled {
         crate::gui::callbacks::lan_lobby_menu::lan_lobby_system(window, msg, data1, data2)
     }
 
     fn input(
         &mut self,
-        window: &GameWindow,
+        window: &mut GameWindow,
         msg: WindowMessage,
         data1: WindowMsgData,
         data2: WindowMsgData,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) -> WindowMsgHandled {
-        crate::gui::callbacks::lan_lobby_menu::lan_lobby_input(window, msg, data1, data2)
+        crate::gui::callbacks::lan_lobby_menu::lan_lobby_input(window, msg, data1, data2, effects)
     }
 }
 
-/// Menu manager to handle all menu instances.
-///
-/// THREAD: shell menus are GUI-thread state — C++ kept the same objects as raw
-/// singletons behind no synchronization at all. The manager therefore lives in
-/// a thread-local and hands out plain `&mut` borrows through the `with_*`
-/// accessors below; there is no `Arc`, no `RwLock`, and nothing for another
-/// thread to reach. Callers dispatch into a menu by closure, so the old
-/// "clone the `Arc<RwLock<_>>` out, drop the manager guard, then re-lock the
-/// menu" dance (and its sampled non-re-entrant `RwLock` wedges: the
-/// CreditsMenuInit → InputFocus → CreditsMenuSystem park) is structurally
-/// impossible. A nested dispatch into the same menu is now a `RefCell` borrow
-/// bug that panics with a backtrace instead of hanging the main thread.
+/// Menu state belongs to one receiving GameClient; construction is inert.
 pub struct MenuManager {
+    establish_connections: crate::gui::menus::establish_connections_menu::EstablishConnectionsMenu,
+    disconnect: crate::gui::menus::disconnect_menu::DisconnectMenu,
     main_menu: MainMenu,
     single_player_menu: SinglePlayerMenu,
     options_menu: OptionsMenu,
     map_select_menu: MapSelectMenu,
     credits_menu: CreditsMenu,
     lan_lobby_menu: LanLobbyMenu,
+    popup: crate::gui::callbacks::in_game_popup_message::PopupMessageState,
 }
 
 impl MenuManager {
     pub fn new() -> Self {
         Self {
+            establish_connections:
+                crate::gui::menus::establish_connections_menu::EstablishConnectionsMenu::new(),
+            disconnect: crate::gui::menus::disconnect_menu::DisconnectMenu::new(),
             main_menu: MainMenu::new(),
             single_player_menu: SinglePlayerMenu::new(),
             options_menu: OptionsMenu::new(),
             map_select_menu: MapSelectMenu::new(),
             credits_menu: CreditsMenu::new(),
             lan_lobby_menu: LanLobbyMenu::new(),
+            popup: Default::default(),
         }
     }
 
@@ -2619,45 +3091,6 @@ impl Default for MenuManager {
     }
 }
 
-thread_local! {
-    static THE_MENU_MANAGER: RefCell<MenuManager> = RefCell::new(MenuManager::new());
-}
-
-/// Run `f` with exclusive access to the global menu manager (GUI thread).
-pub fn with_menu_manager<R>(f: impl FnOnce(&mut MenuManager) -> R) -> R {
-    THE_MENU_MANAGER.with(|manager| f(&mut manager.borrow_mut()))
-}
-
-/// Run `f` with exclusive access to one shell menu (GUI thread).
-pub fn with_main_menu<R>(f: impl FnOnce(&mut MainMenu) -> R) -> R {
-    with_menu_manager(|manager| f(manager.main_menu_mut()))
-}
-
-/// Run `f` with exclusive access to one shell menu (GUI thread).
-pub fn with_single_player_menu<R>(f: impl FnOnce(&mut SinglePlayerMenu) -> R) -> R {
-    with_menu_manager(|manager| f(manager.single_player_menu_mut()))
-}
-
-/// Run `f` with exclusive access to one shell menu (GUI thread).
-pub fn with_options_menu<R>(f: impl FnOnce(&mut OptionsMenu) -> R) -> R {
-    with_menu_manager(|manager| f(manager.options_menu_mut()))
-}
-
-/// Run `f` with exclusive access to one shell menu (GUI thread).
-pub fn with_map_select_menu<R>(f: impl FnOnce(&mut MapSelectMenu) -> R) -> R {
-    with_menu_manager(|manager| f(manager.map_select_menu_mut()))
-}
-
-/// Run `f` with exclusive access to one shell menu (GUI thread).
-pub fn with_credits_menu<R>(f: impl FnOnce(&mut CreditsMenu) -> R) -> R {
-    with_menu_manager(|manager| f(manager.credits_menu_mut()))
-}
-
-/// Run `f` with exclusive access to one shell menu (GUI thread).
-pub fn with_lan_lobby_menu<R>(f: impl FnOnce(&mut LanLobbyMenu) -> R) -> R {
-    with_menu_manager(|manager| f(manager.lan_lobby_menu_mut()))
-}
-
 /// Residual: last OptionsMenu action requested by residual peels.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
@@ -2672,31 +3105,14 @@ pub enum ResidualOptionsMenuAction {
     FirewallRefresh = 7,
 }
 
-static RESIDUAL_OPTIONS_ACTION: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
-static RESIDUAL_OPTIONS_BOUND: std::sync::atomic::AtomicBool =
-    std::sync::atomic::AtomicBool::new(false);
-
-fn residual_options_action_store(action: ResidualOptionsMenuAction) {
-    RESIDUAL_OPTIONS_ACTION.store(action as u8, std::sync::atomic::Ordering::Relaxed);
+pub fn residual_options_menu_last_action(
+    effects: &mut WindowEventEffects<'_>,
+) -> ResidualOptionsMenuAction {
+    effects.with_options_menu(|menu, _effects| menu.residual_action)
 }
 
-/// Residual: last OptionsMenu residual action.
-pub fn residual_options_menu_last_action() -> ResidualOptionsMenuAction {
-    match RESIDUAL_OPTIONS_ACTION.load(std::sync::atomic::Ordering::Relaxed) {
-        1 => ResidualOptionsMenuAction::Accept,
-        2 => ResidualOptionsMenuAction::Back,
-        3 => ResidualOptionsMenuAction::Defaults,
-        4 => ResidualOptionsMenuAction::Keyboard,
-        5 => ResidualOptionsMenuAction::AdvancedAccept,
-        6 => ResidualOptionsMenuAction::AdvancedBack,
-        7 => ResidualOptionsMenuAction::FirewallRefresh,
-        _ => ResidualOptionsMenuAction::None,
-    }
-}
-
-/// Residual: whether OptionsMenu control IDs were bound.
-pub fn residual_options_menu_is_bound() -> bool {
-    RESIDUAL_OPTIONS_BOUND.load(std::sync::atomic::Ordering::Relaxed)
+pub fn residual_options_menu_is_bound(effects: &mut WindowEventEffects<'_>) -> bool {
+    effects.with_options_menu(|menu, _effects| menu.initialized)
 }
 
 /// In-game / host snapshot applied through C++ `saveOptions` (OptionsMenu.cpp:1047-1264).
@@ -2743,15 +3159,6 @@ impl Default for HostOptionsApply {
     }
 }
 
-thread_local! {
-    static HOST_OPTIONS_APPLY: std::cell::RefCell<Option<HostOptionsApply>> =
-        const { std::cell::RefCell::new(None) };
-}
-
-fn take_host_options_apply() -> Option<HostOptionsApply> {
-    HOST_OPTIONS_APPLY.with(|slot| slot.borrow_mut().take())
-}
-
 fn parse_resolution_pref(raw: Option<&str>) -> Option<(i32, i32)> {
     let raw = raw?;
     let mut parts = raw.split(|c: char| c.is_ascii_whitespace() || c == 'x' || c == 'X');
@@ -2762,14 +3169,13 @@ fn parse_resolution_pref(raw: Option<&str>) -> Option<(i32, i32)> {
 
 /// C++ Accept: `TheDisplay->setGamma` + flat Options.ini + live volumes.
 pub fn apply_options_menu_like_cpp(effects: &mut WindowEventEffects<'_>) -> bool {
-    with_options_menu_mut(|menu| {
+    effects.with_options_menu(|menu, effects| {
         if !menu.initialized {
             menu.init_ids();
             menu.ignore_selected = false;
             menu.initialized = true;
-            RESIDUAL_OPTIONS_BOUND.store(true, std::sync::atomic::Ordering::Relaxed);
         }
-        residual_options_action_store(ResidualOptionsMenuAction::Accept);
+        menu.residual_action = ResidualOptionsMenuAction::Accept;
         let _ = menu.apply_options(effects);
         true
     })
@@ -2780,8 +3186,8 @@ pub fn apply_options_from_host(
     apply: HostOptionsApply,
     effects: &mut WindowEventEffects<'_>,
 ) -> bool {
-    HOST_OPTIONS_APPLY.with(|slot| {
-        *slot.borrow_mut() = Some(apply);
+    effects.with_options_menu(|menu, _effects| {
+        menu.pending_host_apply = Some(apply);
     });
     apply_options_menu_like_cpp(effects)
 }
@@ -2803,13 +3209,13 @@ pub fn apply_options_from_host_with_preferences_and_terrain(
     effects: &mut WindowEventEffects<'_>,
 ) -> bool {
     let scroll = apply.scroll_speed;
-    with_options_menu_mut(|menu| {
+    effects.with_options_menu(|menu, effects| {
         if !menu.initialized {
             menu.init_ids();
             menu.ignore_selected = false;
             menu.initialized = true;
         }
-        residual_options_action_store(ResidualOptionsMenuAction::Accept);
+        menu.residual_action = ResidualOptionsMenuAction::Accept;
         let _ = menu.apply_options_with_preferences(
             Some(apply),
             preferences,
@@ -2827,7 +3233,7 @@ pub(crate) fn complete_options_accept_with_preferences(
     terrain_lod: Option<&mut dyn FnMut(i32)>,
     effects: &mut WindowEventEffects<'_>,
 ) {
-    with_options_menu_mut(|menu| {
+    effects.with_options_menu(|menu, effects| {
         if !menu.ignore_selected {
             menu.accept_options(Some((preferences, scroll)), terrain_lod, effects);
         }
@@ -2837,135 +3243,140 @@ pub(crate) fn complete_options_accept_with_preferences(
 pub(crate) fn complete_options_defaults_with_preferences(
     slider: Option<Rc<RefCell<GameWindow>>>,
     default: f32,
+    effects: &mut WindowEventEffects<'_>,
 ) {
-    with_options_menu_mut(|menu| {
+    effects.with_options_menu(|menu, effects| {
         if !menu.ignore_selected {
-            menu.apply_default_controls_with_scroll(Some((slider, default)));
+            effects.with_manager(|manager, _effects| {
+                menu.apply_default_controls_with_scroll(Some((slider, default)), manager, _effects)
+            });
         }
     });
 }
 
-fn with_options_menu_mut<R>(f: impl FnOnce(&mut OptionsMenu) -> R) -> R {
-    with_options_menu(f)
-}
-
 /// Residual: bind OptionsMenu control IDs (no layout load / populate required).
-pub fn simulate_options_menu_bind_controls() -> bool {
-    with_options_menu_mut(|menu| {
+pub fn simulate_options_menu_bind_controls(effects: &mut WindowEventEffects<'_>) -> bool {
+    effects.with_options_menu(|menu, effects| {
         menu.init_ids();
         menu.ignore_selected = false;
         menu.initialized = true;
-        RESIDUAL_OPTIONS_BOUND.store(true, std::sync::atomic::Ordering::Relaxed);
         true
     })
 }
 
 /// Residual: fire ButtonAccept without apply_options / close_menu side effects.
-pub fn simulate_options_menu_accept_button_gadget_selected() -> bool {
-    with_options_menu_mut(|menu| {
-        if !residual_options_menu_is_bound() {
+pub fn simulate_options_menu_accept_button_gadget_selected(
+    effects: &mut WindowEventEffects<'_>,
+) -> bool {
+    effects.with_options_menu(|menu, effects| {
+        if !menu.initialized {
             menu.init_ids();
             menu.ignore_selected = false;
             menu.initialized = true;
-            RESIDUAL_OPTIONS_BOUND.store(true, std::sync::atomic::Ordering::Relaxed);
         }
-        residual_options_action_store(ResidualOptionsMenuAction::Accept);
+        menu.residual_action = ResidualOptionsMenuAction::Accept;
         true
     })
 }
 
 /// Residual: fire ButtonBack without destroy_options_layout.
-pub fn simulate_options_menu_back_button_gadget_selected() -> bool {
-    with_options_menu_mut(|menu| {
-        if !residual_options_menu_is_bound() {
+pub fn simulate_options_menu_back_button_gadget_selected(
+    effects: &mut WindowEventEffects<'_>,
+) -> bool {
+    effects.with_options_menu(|menu, effects| {
+        if !menu.initialized {
             menu.init_ids();
             menu.ignore_selected = false;
             menu.initialized = true;
-            RESIDUAL_OPTIONS_BOUND.store(true, std::sync::atomic::Ordering::Relaxed);
         }
-        residual_options_action_store(ResidualOptionsMenuAction::Back);
+        menu.residual_action = ResidualOptionsMenuAction::Back;
         true
     })
 }
 
 /// Residual: fire ButtonDefaults without apply_default_controls widget writes.
-pub fn simulate_options_menu_defaults_button_gadget_selected() -> bool {
-    with_options_menu_mut(|menu| {
-        if !residual_options_menu_is_bound() {
+pub fn simulate_options_menu_defaults_button_gadget_selected(
+    effects: &mut WindowEventEffects<'_>,
+) -> bool {
+    effects.with_options_menu(|menu, effects| {
+        if !menu.initialized {
             menu.init_ids();
             menu.ignore_selected = false;
             menu.initialized = true;
-            RESIDUAL_OPTIONS_BOUND.store(true, std::sync::atomic::Ordering::Relaxed);
         }
-        residual_options_action_store(ResidualOptionsMenuAction::Defaults);
+        menu.residual_action = ResidualOptionsMenuAction::Defaults;
         true
     })
 }
 
 /// Residual: fire ButtonKeyboardOptions without shell push.
-pub fn simulate_options_menu_keyboard_button_gadget_selected() -> bool {
-    with_options_menu_mut(|menu| {
-        if !residual_options_menu_is_bound() {
+pub fn simulate_options_menu_keyboard_button_gadget_selected(
+    effects: &mut WindowEventEffects<'_>,
+) -> bool {
+    effects.with_options_menu(|menu, effects| {
+        if !menu.initialized {
             menu.init_ids();
             menu.ignore_selected = false;
             menu.initialized = true;
-            RESIDUAL_OPTIONS_BOUND.store(true, std::sync::atomic::Ordering::Relaxed);
         }
-        residual_options_action_store(ResidualOptionsMenuAction::Keyboard);
+        menu.residual_action = ResidualOptionsMenuAction::Keyboard;
         true
     })
 }
 
 /// Residual: fire ButtonAdvanceAccept without advanced panel hide.
-pub fn simulate_options_menu_advanced_accept_button_gadget_selected() -> bool {
-    with_options_menu_mut(|menu| {
-        if !residual_options_menu_is_bound() {
+pub fn simulate_options_menu_advanced_accept_button_gadget_selected(
+    effects: &mut WindowEventEffects<'_>,
+) -> bool {
+    effects.with_options_menu(|menu, effects| {
+        if !menu.initialized {
             menu.init_ids();
             menu.ignore_selected = false;
             menu.initialized = true;
-            RESIDUAL_OPTIONS_BOUND.store(true, std::sync::atomic::Ordering::Relaxed);
         }
-        residual_options_action_store(ResidualOptionsMenuAction::AdvancedAccept);
+        menu.residual_action = ResidualOptionsMenuAction::AdvancedAccept;
         true
     })
 }
 
 /// Residual: fire ButtonAdvanceBack without detail combo restore.
-pub fn simulate_options_menu_advanced_back_button_gadget_selected() -> bool {
-    with_options_menu_mut(|menu| {
-        if !residual_options_menu_is_bound() {
+pub fn simulate_options_menu_advanced_back_button_gadget_selected(
+    effects: &mut WindowEventEffects<'_>,
+) -> bool {
+    effects.with_options_menu(|menu, effects| {
+        if !menu.initialized {
             menu.init_ids();
             menu.ignore_selected = false;
             menu.initialized = true;
-            RESIDUAL_OPTIONS_BOUND.store(true, std::sync::atomic::Ordering::Relaxed);
         }
-        residual_options_action_store(ResidualOptionsMenuAction::AdvancedBack);
+        menu.residual_action = ResidualOptionsMenuAction::AdvancedBack;
         true
     })
 }
 
 /// Residual: fire ButtonFirewallRefresh without global write.
-pub fn simulate_options_menu_firewall_refresh_button_gadget_selected() -> bool {
-    with_options_menu_mut(|menu| {
-        if !residual_options_menu_is_bound() {
+pub fn simulate_options_menu_firewall_refresh_button_gadget_selected(
+    effects: &mut WindowEventEffects<'_>,
+) -> bool {
+    effects.with_options_menu(|menu, effects| {
+        if !menu.initialized {
             menu.init_ids();
             menu.ignore_selected = false;
             menu.initialized = true;
-            RESIDUAL_OPTIONS_BOUND.store(true, std::sync::atomic::Ordering::Relaxed);
         }
         // Mirror C++ residual intent: mark override without applying prefs.
         menu.firewall_behavior_override = Some(0);
-        residual_options_action_store(ResidualOptionsMenuAction::FirewallRefresh);
+        menu.residual_action = ResidualOptionsMenuAction::FirewallRefresh;
         true
     })
 }
 
 /// Residual: bind + Accept composite (save settings honesty).
-pub fn simulate_options_menu_prepare_accept() -> bool {
-    if !simulate_options_menu_bind_controls() {
+pub fn simulate_options_menu_prepare_accept(effects: &mut WindowEventEffects<'_>) -> bool {
+    if !simulate_options_menu_bind_controls(effects) {
         return false;
     }
-    simulate_options_menu_accept_button_gadget_selected()
+    simulate_options_menu_accept_button_gadget_selected(effects)
 }
 
 /// Human click-through: OS LeftDown/Up on a retail `OptionsMenu.wnd:*` gadget
@@ -2996,7 +3407,7 @@ pub fn drive_os_wnd_options_menu_back_like_cpp(
 ) -> bool {
     drive_os_wnd_options_named(
         "OptionsMenu.wnd:ButtonBack",
-        |_| simulate_options_menu_back_button_gadget_selected(),
+        |effects| simulate_options_menu_back_button_gadget_selected(effects),
         effects,
     )
 }
@@ -3006,7 +3417,7 @@ pub fn drive_os_wnd_options_menu_defaults_like_cpp(
 ) -> bool {
     drive_os_wnd_options_named(
         "OptionsMenu.wnd:ButtonDefaults",
-        |_| simulate_options_menu_defaults_button_gadget_selected(),
+        |effects| simulate_options_menu_defaults_button_gadget_selected(effects),
         effects,
     )
 }
@@ -3016,7 +3427,7 @@ pub fn drive_os_wnd_options_menu_keyboard_like_cpp(
 ) -> bool {
     drive_os_wnd_options_named(
         "OptionsMenu.wnd:ButtonKeyboardOptions",
-        |_| simulate_options_menu_keyboard_button_gadget_selected(),
+        |effects| simulate_options_menu_keyboard_button_gadget_selected(effects),
         effects,
     )
 }
@@ -3026,7 +3437,7 @@ pub fn drive_os_wnd_options_menu_advanced_accept_like_cpp(
 ) -> bool {
     drive_os_wnd_options_named(
         "OptionsMenu.wnd:ButtonAdvanceAccept",
-        |_| simulate_options_menu_advanced_accept_button_gadget_selected(),
+        |effects| simulate_options_menu_advanced_accept_button_gadget_selected(effects),
         effects,
     )
 }
@@ -3036,7 +3447,7 @@ pub fn drive_os_wnd_options_menu_advanced_back_like_cpp(
 ) -> bool {
     drive_os_wnd_options_named(
         "OptionsMenu.wnd:ButtonAdvanceBack",
-        |_| simulate_options_menu_advanced_back_button_gadget_selected(),
+        |effects| simulate_options_menu_advanced_back_button_gadget_selected(effects),
         effects,
     )
 }
@@ -3046,7 +3457,7 @@ pub fn drive_os_wnd_options_menu_firewall_like_cpp(
 ) -> bool {
     drive_os_wnd_options_named(
         "OptionsMenu.wnd:ButtonFirewallRefresh",
-        |_| simulate_options_menu_firewall_refresh_button_gadget_selected(),
+        |effects| simulate_options_menu_firewall_refresh_button_gadget_selected(effects),
         effects,
     )
 }
@@ -3244,93 +3655,75 @@ pub enum ResidualCreditsMenuAction {
     Shutdown = 4,
 }
 
-static RESIDUAL_CREDITS_ACTION: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
-static RESIDUAL_CREDITS_ACTIVE: std::sync::atomic::AtomicBool =
-    std::sync::atomic::AtomicBool::new(false);
-
-fn residual_credits_action_store(action: ResidualCreditsMenuAction) {
-    RESIDUAL_CREDITS_ACTION.store(action as u8, std::sync::atomic::Ordering::Relaxed);
+pub fn residual_credits_menu_last_action(
+    effects: &mut WindowEventEffects<'_>,
+) -> ResidualCreditsMenuAction {
+    effects.with_credits_menu(|menu, _effects| menu.residual_action)
 }
 
-/// Residual: last CreditsMenu residual action.
-pub fn residual_credits_menu_last_action() -> ResidualCreditsMenuAction {
-    match RESIDUAL_CREDITS_ACTION.load(std::sync::atomic::Ordering::Relaxed) {
-        1 => ResidualCreditsMenuAction::Bind,
-        2 => ResidualCreditsMenuAction::Skip,
-        3 => ResidualCreditsMenuAction::Finished,
-        4 => ResidualCreditsMenuAction::Shutdown,
-        _ => ResidualCreditsMenuAction::None,
-    }
-}
-
-/// Residual: CreditsMenu active latch (independent of live layout/audio).
-pub fn residual_credits_menu_is_active() -> bool {
-    RESIDUAL_CREDITS_ACTIVE.load(std::sync::atomic::Ordering::Relaxed)
-}
-
-fn with_credits_menu_mut<R>(f: impl FnOnce(&mut CreditsMenu) -> R) -> R {
-    with_credits_menu(f)
+pub fn residual_credits_menu_is_active(effects: &mut WindowEventEffects<'_>) -> bool {
+    effects.with_credits_menu(|menu, _effects| menu.residual_active)
 }
 
 /// Residual: bind CreditsMenu parent control ID (no INI/audio/layout load).
-pub fn simulate_credits_menu_bind_controls() -> bool {
-    with_credits_menu_mut(|menu| {
+pub fn simulate_credits_menu_bind_controls(effects: &mut WindowEventEffects<'_>) -> bool {
+    effects.with_credits_menu(|menu, effects| {
         menu.parent_id =
             NameKeyGenerator::name_to_key("CreditsMenu.wnd:ParentCreditsWindow") as i32;
         menu.initialized = true;
-        RESIDUAL_CREDITS_ACTIVE.store(true, std::sync::atomic::Ordering::Relaxed);
-        residual_credits_action_store(ResidualCreditsMenuAction::Bind);
+        menu.residual_active = true;
+        menu.residual_action = ResidualCreditsMenuAction::Bind;
         true
     })
 }
 
 /// Residual: ESC skip path without shell pop.
-pub fn simulate_credits_menu_skip() -> bool {
-    with_credits_menu_mut(|menu| {
+pub fn simulate_credits_menu_skip(effects: &mut WindowEventEffects<'_>) -> bool {
+    effects.with_credits_menu(|menu, effects| {
         if !menu.initialized {
             menu.parent_id =
                 NameKeyGenerator::name_to_key("CreditsMenu.wnd:ParentCreditsWindow") as i32;
             menu.initialized = true;
         }
-        RESIDUAL_CREDITS_ACTIVE.store(false, std::sync::atomic::Ordering::Relaxed);
-        residual_credits_action_store(ResidualCreditsMenuAction::Skip);
+        menu.residual_active = false;
+        menu.residual_action = ResidualCreditsMenuAction::Skip;
         true
     })
 }
 
 /// Residual: credits finished path without shell pop.
-pub fn simulate_credits_menu_finished() -> bool {
-    with_credits_menu_mut(|menu| {
+pub fn simulate_credits_menu_finished(effects: &mut WindowEventEffects<'_>) -> bool {
+    effects.with_credits_menu(|menu, effects| {
         if !menu.initialized {
             menu.parent_id =
                 NameKeyGenerator::name_to_key("CreditsMenu.wnd:ParentCreditsWindow") as i32;
             menu.initialized = true;
         }
-        RESIDUAL_CREDITS_ACTIVE.store(false, std::sync::atomic::Ordering::Relaxed);
-        residual_credits_action_store(ResidualCreditsMenuAction::Finished);
+        menu.residual_active = false;
+        menu.residual_action = ResidualCreditsMenuAction::Finished;
         true
     })
 }
 
 /// Residual: shutdown latch without audio/layout teardown.
-pub fn simulate_credits_menu_shutdown() -> bool {
-    with_credits_menu_mut(|menu| {
+pub fn simulate_credits_menu_shutdown(effects: &mut WindowEventEffects<'_>) -> bool {
+    effects.with_credits_menu(|menu, effects| {
         menu.initialized = false;
         menu.parent = None;
         menu.parent_id = 0;
         menu.credits = None;
-        RESIDUAL_CREDITS_ACTIVE.store(false, std::sync::atomic::Ordering::Relaxed);
-        residual_credits_action_store(ResidualCreditsMenuAction::Shutdown);
+        menu.residual_active = false;
+        menu.residual_action = ResidualCreditsMenuAction::Shutdown;
         true
     })
 }
 
 /// Residual: bind + skip composite (MainMenu ButtonCredits exit honesty).
-pub fn simulate_credits_menu_prepare_skip() -> bool {
-    if !simulate_credits_menu_bind_controls() {
+pub fn simulate_credits_menu_prepare_skip(effects: &mut WindowEventEffects<'_>) -> bool {
+    if !simulate_credits_menu_bind_controls(effects) {
         return false;
     }
-    simulate_credits_menu_skip()
+    simulate_credits_menu_skip(effects)
 }
 
 /// Human click-through: OS LeftDown/Up on `CreditsMenu.wnd:ParentCreditsWindow`
@@ -3343,7 +3736,7 @@ pub fn drive_os_wnd_credits_menu_skip_like_cpp(
     if !clicked {
         return false;
     }
-    simulate_credits_menu_skip()
+    simulate_credits_menu_skip(effects)
 }
 
 pub fn drive_os_wnd_credits_menu_finished_like_cpp(
@@ -3354,7 +3747,7 @@ pub fn drive_os_wnd_credits_menu_finished_like_cpp(
     if !clicked {
         return false;
     }
-    simulate_credits_menu_finished()
+    simulate_credits_menu_finished(effects)
 }
 
 pub fn drive_os_wnd_credits_menu_prepare_skip_like_cpp(
@@ -3364,7 +3757,7 @@ pub fn drive_os_wnd_credits_menu_prepare_skip_like_cpp(
     if !clicked {
         return false;
     }
-    residual_credits_menu_last_action() == ResidualCreditsMenuAction::Skip
+    residual_credits_menu_last_action(effects) == ResidualCreditsMenuAction::Skip
 }
 
 #[cfg(test)]
@@ -3429,42 +3822,23 @@ pub enum ResidualSinglePlayerMenuAction {
     Back = 3,
 }
 
-static RESIDUAL_SP_ACTION: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
-static RESIDUAL_SP_BOUND: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-static RESIDUAL_SP_BUTTON_PUSHED: std::sync::atomic::AtomicBool =
-    std::sync::atomic::AtomicBool::new(false);
-
-fn residual_sp_action_store(action: ResidualSinglePlayerMenuAction) {
-    RESIDUAL_SP_ACTION.store(action as u8, std::sync::atomic::Ordering::Relaxed);
+pub fn residual_single_player_menu_last_action(
+    effects: &mut WindowEventEffects<'_>,
+) -> ResidualSinglePlayerMenuAction {
+    effects.with_single_player_menu(|menu, _effects| menu.residual_action)
 }
 
-/// Residual: last SinglePlayerMenu residual action.
-pub fn residual_single_player_menu_last_action() -> ResidualSinglePlayerMenuAction {
-    match RESIDUAL_SP_ACTION.load(std::sync::atomic::Ordering::Relaxed) {
-        1 => ResidualSinglePlayerMenuAction::New,
-        2 => ResidualSinglePlayerMenuAction::Load,
-        3 => ResidualSinglePlayerMenuAction::Back,
-        _ => ResidualSinglePlayerMenuAction::None,
-    }
+pub fn residual_single_player_menu_is_bound(effects: &mut WindowEventEffects<'_>) -> bool {
+    effects.with_single_player_menu(|menu, _effects| menu.initialized)
 }
 
-/// Residual: whether SinglePlayerMenu control IDs were bound.
-pub fn residual_single_player_menu_is_bound() -> bool {
-    RESIDUAL_SP_BOUND.load(std::sync::atomic::Ordering::Relaxed)
-}
-
-/// Residual: button_pushed latch (C++ double-click guard).
-pub fn residual_single_player_menu_button_pushed() -> bool {
-    RESIDUAL_SP_BUTTON_PUSHED.load(std::sync::atomic::Ordering::Relaxed)
-}
-
-fn with_single_player_menu_mut<R>(f: impl FnOnce(&mut SinglePlayerMenu) -> R) -> R {
-    with_single_player_menu(f)
+pub fn residual_single_player_menu_button_pushed(effects: &mut WindowEventEffects<'_>) -> bool {
+    effects.with_single_player_menu(|menu, _effects| menu.button_pushed)
 }
 
 /// Residual: bind SinglePlayerMenu control IDs (no layout load).
-pub fn simulate_single_player_menu_bind_controls() -> bool {
-    with_single_player_menu_mut(|menu| {
+pub fn simulate_single_player_menu_bind_controls(effects: &mut WindowEventEffects<'_>) -> bool {
+    effects.with_single_player_menu(|menu, effects| {
         menu.parent_id =
             NameKeyGenerator::name_to_key("SinglePlayerMenu.wnd:SinglePlayerMenuParent") as i32;
         menu.button_new_id = NameKeyGenerator::name_to_key("SinglePlayerMenu.wnd:ButtonNew") as i32;
@@ -3475,16 +3849,16 @@ pub fn simulate_single_player_menu_bind_controls() -> bool {
         menu.initialized = true;
         menu.is_shutting_down = false;
         menu.button_pushed = false;
-        RESIDUAL_SP_BOUND.store(true, std::sync::atomic::Ordering::Relaxed);
-        RESIDUAL_SP_BUTTON_PUSHED.store(false, std::sync::atomic::Ordering::Relaxed);
         true
     })
 }
 
 /// Residual: fire ButtonNew without shell push MapSelectMenu.
-pub fn simulate_single_player_menu_new_button_gadget_selected() -> bool {
-    with_single_player_menu_mut(|menu| {
-        if !residual_single_player_menu_is_bound() {
+pub fn simulate_single_player_menu_new_button_gadget_selected(
+    effects: &mut WindowEventEffects<'_>,
+) -> bool {
+    effects.with_single_player_menu(|menu, effects| {
+        if !menu.initialized {
             menu.parent_id =
                 NameKeyGenerator::name_to_key("SinglePlayerMenu.wnd:SinglePlayerMenuParent") as i32;
             menu.button_new_id =
@@ -3494,22 +3868,22 @@ pub fn simulate_single_player_menu_new_button_gadget_selected() -> bool {
             menu.button_back_id =
                 NameKeyGenerator::name_to_key("SinglePlayerMenu.wnd:ButtonBack") as i32;
             menu.initialized = true;
-            RESIDUAL_SP_BOUND.store(true, std::sync::atomic::Ordering::Relaxed);
         }
         if menu.button_pushed {
             return false;
         }
         menu.button_pushed = true;
-        RESIDUAL_SP_BUTTON_PUSHED.store(true, std::sync::atomic::Ordering::Relaxed);
-        residual_sp_action_store(ResidualSinglePlayerMenuAction::New);
+        menu.residual_action = ResidualSinglePlayerMenuAction::New;
         true
     })
 }
 
 /// Residual: fire ButtonLoad without save/load menu open.
-pub fn simulate_single_player_menu_load_button_gadget_selected() -> bool {
-    with_single_player_menu_mut(|menu| {
-        if !residual_single_player_menu_is_bound() {
+pub fn simulate_single_player_menu_load_button_gadget_selected(
+    effects: &mut WindowEventEffects<'_>,
+) -> bool {
+    effects.with_single_player_menu(|menu, effects| {
+        if !menu.initialized {
             menu.parent_id =
                 NameKeyGenerator::name_to_key("SinglePlayerMenu.wnd:SinglePlayerMenuParent") as i32;
             menu.button_new_id =
@@ -3519,22 +3893,23 @@ pub fn simulate_single_player_menu_load_button_gadget_selected() -> bool {
             menu.button_back_id =
                 NameKeyGenerator::name_to_key("SinglePlayerMenu.wnd:ButtonBack") as i32;
             menu.initialized = true;
-            RESIDUAL_SP_BOUND.store(true, std::sync::atomic::Ordering::Relaxed);
         }
         if menu.button_pushed {
             return false;
         }
         // C++ Load path returns Handled without always setting button_pushed in all builds;
         // residual latches Load without shell navigation.
-        residual_sp_action_store(ResidualSinglePlayerMenuAction::Load);
+        menu.residual_action = ResidualSinglePlayerMenuAction::Load;
         true
     })
 }
 
 /// Residual: fire ButtonBack without shell pop.
-pub fn simulate_single_player_menu_back_button_gadget_selected() -> bool {
-    with_single_player_menu_mut(|menu| {
-        if !residual_single_player_menu_is_bound() {
+pub fn simulate_single_player_menu_back_button_gadget_selected(
+    effects: &mut WindowEventEffects<'_>,
+) -> bool {
+    effects.with_single_player_menu(|menu, effects| {
+        if !menu.initialized {
             menu.parent_id =
                 NameKeyGenerator::name_to_key("SinglePlayerMenu.wnd:SinglePlayerMenuParent") as i32;
             menu.button_new_id =
@@ -3544,33 +3919,32 @@ pub fn simulate_single_player_menu_back_button_gadget_selected() -> bool {
             menu.button_back_id =
                 NameKeyGenerator::name_to_key("SinglePlayerMenu.wnd:ButtonBack") as i32;
             menu.initialized = true;
-            RESIDUAL_SP_BOUND.store(true, std::sync::atomic::Ordering::Relaxed);
         }
         if menu.button_pushed {
             return false;
         }
         menu.button_pushed = true;
-        RESIDUAL_SP_BUTTON_PUSHED.store(true, std::sync::atomic::Ordering::Relaxed);
-        residual_sp_action_store(ResidualSinglePlayerMenuAction::Back);
+        menu.residual_action = ResidualSinglePlayerMenuAction::Back;
         true
     })
 }
 
 /// Residual: clear button_pushed latch (re-enter honesty).
-pub fn simulate_single_player_menu_clear_button_pushed() -> bool {
-    with_single_player_menu_mut(|menu| {
+pub fn simulate_single_player_menu_clear_button_pushed(
+    effects: &mut WindowEventEffects<'_>,
+) -> bool {
+    effects.with_single_player_menu(|menu, effects| {
         menu.button_pushed = false;
-        RESIDUAL_SP_BUTTON_PUSHED.store(false, std::sync::atomic::Ordering::Relaxed);
         true
     })
 }
 
 /// Residual: bind + New composite (campaign map select entry honesty).
-pub fn simulate_single_player_menu_prepare_new() -> bool {
-    if !simulate_single_player_menu_bind_controls() {
+pub fn simulate_single_player_menu_prepare_new(effects: &mut WindowEventEffects<'_>) -> bool {
+    if !simulate_single_player_menu_bind_controls(effects) {
         return false;
     }
-    simulate_single_player_menu_new_button_gadget_selected()
+    simulate_single_player_menu_new_button_gadget_selected(effects)
 }
 
 /// Residual: last MapSelectMenu action requested by residual peels.
@@ -3590,51 +3964,20 @@ pub enum ResidualMapSelectMenuAction {
     DifficultyHard = 10,
 }
 
-static RESIDUAL_MAP_SELECT_ACTION: std::sync::atomic::AtomicU8 =
-    std::sync::atomic::AtomicU8::new(0);
-static RESIDUAL_MAP_SELECT_DIFFICULTY: std::sync::atomic::AtomicI32 =
-    std::sync::atomic::AtomicI32::new(1);
-// THREAD: residual latches are read/written only from the GUI thread's menu
-// dispatch; only the small scalar action/difficulty counters stay atomic so
-// parallel residual tests observe their own thread's manager boundaries.
-thread_local! {
-    static RESIDUAL_MAP_SELECT_MAP: RefCell<String> = RefCell::new(String::new());
+pub fn residual_map_select_menu_last_action(
+    effects: &mut WindowEventEffects<'_>,
+) -> ResidualMapSelectMenuAction {
+    effects.with_map_select_menu(|menu, _effects| menu.residual_action)
 }
 
-fn residual_map_select_action_store(action: ResidualMapSelectMenuAction) {
-    RESIDUAL_MAP_SELECT_ACTION.store(action as u8, std::sync::atomic::Ordering::Relaxed);
+pub fn residual_map_select_menu_difficulty(effects: &mut WindowEventEffects<'_>) -> i32 {
+    effects.with_map_select_menu(|menu, _effects| menu.difficulty)
 }
 
-/// Residual: last MapSelectMenu residual action.
-pub fn residual_map_select_menu_last_action() -> ResidualMapSelectMenuAction {
-    match RESIDUAL_MAP_SELECT_ACTION.load(std::sync::atomic::Ordering::Relaxed) {
-        1 => ResidualMapSelectMenuAction::SelectMap,
-        2 => ResidualMapSelectMenuAction::Ok,
-        3 => ResidualMapSelectMenuAction::Back,
-        4 => ResidualMapSelectMenuAction::SoloMaps,
-        5 => ResidualMapSelectMenuAction::MultiplayerMaps,
-        6 => ResidualMapSelectMenuAction::SystemMaps,
-        7 => ResidualMapSelectMenuAction::UserMaps,
-        8 => ResidualMapSelectMenuAction::DifficultyEasy,
-        9 => ResidualMapSelectMenuAction::DifficultyMedium,
-        10 => ResidualMapSelectMenuAction::DifficultyHard,
-        _ => ResidualMapSelectMenuAction::None,
-    }
-}
-
-/// Residual: last difficulty (0 easy / 1 medium / 2 hard).
-pub fn residual_map_select_menu_difficulty() -> i32 {
-    RESIDUAL_MAP_SELECT_DIFFICULTY.load(std::sync::atomic::Ordering::Relaxed)
-}
-
-/// Residual: last selected map path/name.
-pub fn residual_map_select_menu_selected_map() -> Option<String> {
-    let name = RESIDUAL_MAP_SELECT_MAP.with(|slot| slot.borrow().clone());
-    if name.is_empty() { None } else { Some(name) }
-}
-
-fn with_map_select_menu_mut<R>(f: impl FnOnce(&mut MapSelectMenu) -> R) -> R {
-    with_map_select_menu(f)
+pub fn residual_map_select_menu_selected_map(
+    effects: &mut WindowEventEffects<'_>,
+) -> Option<String> {
+    effects.with_map_select_menu(|menu, _effects| menu.selected_map.clone())
 }
 
 fn ensure_map_select_control_ids(menu: &mut MapSelectMenu) {
@@ -3682,8 +4025,8 @@ fn ensure_map_select_control_ids(menu: &mut MapSelectMenu) {
 }
 
 /// Residual: bind MapSelectMenu control IDs (no layout/list populate).
-pub fn simulate_map_select_menu_bind_controls() -> bool {
-    with_map_select_menu_mut(|menu| {
+pub fn simulate_map_select_menu_bind_controls(effects: &mut WindowEventEffects<'_>) -> bool {
+    effects.with_map_select_menu(|menu, effects| {
         ensure_map_select_control_ids(menu);
         menu.initialized = true;
         menu.button_pushed = false;
@@ -3694,114 +4037,129 @@ pub fn simulate_map_select_menu_bind_controls() -> bool {
 }
 
 /// Residual: select a map path without live listbox.
-pub fn simulate_map_select_menu_select_map(map_path: &str) -> bool {
+pub fn simulate_map_select_menu_select_map(
+    map_path: &str,
+    effects: &mut WindowEventEffects<'_>,
+) -> bool {
     if map_path.is_empty() {
         return false;
     }
-    with_map_select_menu_mut(|menu| {
+    effects.with_map_select_menu(|menu, effects| {
         ensure_map_select_control_ids(menu);
         menu.selected_map = Some(map_path.to_string());
-        RESIDUAL_MAP_SELECT_MAP.with(|slot| *slot.borrow_mut() = map_path.to_string());
-        residual_map_select_action_store(ResidualMapSelectMenuAction::SelectMap);
-        residual_map_select_menu_selected_map().as_deref() == Some(map_path)
+
+        menu.residual_action = ResidualMapSelectMenuAction::SelectMap;
+        menu.selected_map.clone().as_deref() == Some(map_path)
     })
 }
 
 /// Residual: set AI difficulty radio (0/1/2) without widgets.
-pub fn simulate_map_select_menu_set_difficulty(difficulty: i32) -> bool {
+pub fn simulate_map_select_menu_set_difficulty(
+    difficulty: i32,
+    effects: &mut WindowEventEffects<'_>,
+) -> bool {
     if !(0..=2).contains(&difficulty) {
         return false;
     }
-    with_map_select_menu_mut(|menu| {
+    effects.with_map_select_menu(|menu, effects| {
         ensure_map_select_control_ids(menu);
         menu.difficulty = difficulty;
-        RESIDUAL_MAP_SELECT_DIFFICULTY.store(difficulty, std::sync::atomic::Ordering::Relaxed);
-        residual_map_select_action_store(match difficulty {
+
+        menu.residual_action = match difficulty {
             0 => ResidualMapSelectMenuAction::DifficultyEasy,
             2 => ResidualMapSelectMenuAction::DifficultyHard,
             _ => ResidualMapSelectMenuAction::DifficultyMedium,
-        });
-        residual_map_select_menu_difficulty() == difficulty
+        };
+        menu.difficulty == difficulty
     })
 }
 
 /// Residual: fire ButtonOK without start_game engine transfer.
-pub fn simulate_map_select_menu_ok_button_gadget_selected() -> bool {
-    with_map_select_menu_mut(|menu| {
+pub fn simulate_map_select_menu_ok_button_gadget_selected(
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
+    effects.with_map_select_menu(|menu, effects| {
         ensure_map_select_control_ids(menu);
         if menu.button_pushed {
             return false;
         }
-        if menu.selected_map.is_none() && residual_map_select_menu_selected_map().is_none() {
+        if menu.selected_map.is_none() {
             // C++ ignores OK with no selection.
             return false;
         }
-        if menu.selected_map.is_none() {
-            menu.selected_map = residual_map_select_menu_selected_map();
-        }
         menu.button_pushed = true;
         // Do not call start_game(); residual latch only.
-        residual_map_select_action_store(ResidualMapSelectMenuAction::Ok);
+        menu.residual_action = ResidualMapSelectMenuAction::Ok;
         true
     })
 }
 
 /// Residual: fire ButtonBack without shell pop.
-pub fn simulate_map_select_menu_back_button_gadget_selected() -> bool {
-    with_map_select_menu_mut(|menu| {
+pub fn simulate_map_select_menu_back_button_gadget_selected(
+    effects: &mut WindowEventEffects<'_>,
+) -> bool {
+    effects.with_map_select_menu(|menu, effects| {
         ensure_map_select_control_ids(menu);
         if menu.button_pushed {
             return false;
         }
         menu.button_pushed = true;
-        residual_map_select_action_store(ResidualMapSelectMenuAction::Back);
+        menu.residual_action = ResidualMapSelectMenuAction::Back;
         true
     })
 }
 
 /// Residual: ButtonSinglePlayer map filter residual.
-pub fn simulate_map_select_menu_solo_maps_button_gadget_selected() -> bool {
-    with_map_select_menu_mut(|menu| {
+pub fn simulate_map_select_menu_solo_maps_button_gadget_selected(
+    effects: &mut WindowEventEffects<'_>,
+) -> bool {
+    effects.with_map_select_menu(|menu, effects| {
         ensure_map_select_control_ids(menu);
         menu.show_solo_maps = true;
-        residual_map_select_action_store(ResidualMapSelectMenuAction::SoloMaps);
+        menu.residual_action = ResidualMapSelectMenuAction::SoloMaps;
         true
     })
 }
 
 /// Residual: ButtonMultiplayer map filter residual.
-pub fn simulate_map_select_menu_multiplayer_maps_button_gadget_selected() -> bool {
-    with_map_select_menu_mut(|menu| {
+pub fn simulate_map_select_menu_multiplayer_maps_button_gadget_selected(
+    effects: &mut WindowEventEffects<'_>,
+) -> bool {
+    effects.with_map_select_menu(|menu, effects| {
         ensure_map_select_control_ids(menu);
         menu.show_solo_maps = false;
-        residual_map_select_action_store(ResidualMapSelectMenuAction::MultiplayerMaps);
+        menu.residual_action = ResidualMapSelectMenuAction::MultiplayerMaps;
         true
     })
 }
 
 /// Residual: RadioButtonSystemMaps residual.
-pub fn simulate_map_select_menu_system_maps_radio_selected() -> bool {
-    with_map_select_menu_mut(|menu| {
+pub fn simulate_map_select_menu_system_maps_radio_selected(
+    effects: &mut WindowEventEffects<'_>,
+) -> bool {
+    effects.with_map_select_menu(|menu, effects| {
         ensure_map_select_control_ids(menu);
         menu.use_system_maps = true;
-        residual_map_select_action_store(ResidualMapSelectMenuAction::SystemMaps);
+        menu.residual_action = ResidualMapSelectMenuAction::SystemMaps;
         true
     })
 }
 
 /// Residual: RadioButtonUserMaps residual.
-pub fn simulate_map_select_menu_user_maps_radio_selected() -> bool {
-    with_map_select_menu_mut(|menu| {
+pub fn simulate_map_select_menu_user_maps_radio_selected(
+    effects: &mut WindowEventEffects<'_>,
+) -> bool {
+    effects.with_map_select_menu(|menu, effects| {
         ensure_map_select_control_ids(menu);
         menu.use_system_maps = false;
-        residual_map_select_action_store(ResidualMapSelectMenuAction::UserMaps);
+        menu.residual_action = ResidualMapSelectMenuAction::UserMaps;
         true
     })
 }
 
 /// Residual: clear button_pushed latch.
-pub fn simulate_map_select_menu_clear_button_pushed() -> bool {
-    with_map_select_menu_mut(|menu| {
+pub fn simulate_map_select_menu_clear_button_pushed(effects: &mut WindowEventEffects<'_>) -> bool {
+    effects.with_map_select_menu(|menu, effects| {
         menu.button_pushed = false;
         menu.start_game = false;
         true
@@ -3809,18 +4167,21 @@ pub fn simulate_map_select_menu_clear_button_pushed() -> bool {
 }
 
 /// Residual: select map + medium AI + OK composite (campaign start honesty).
-pub fn simulate_map_select_menu_prepare_ok(map_path: &str) -> bool {
-    if !simulate_map_select_menu_bind_controls() {
+pub fn simulate_map_select_menu_prepare_ok(
+    map_path: &str,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
+    if !simulate_map_select_menu_bind_controls(effects) {
         return false;
     }
-    let _ = simulate_map_select_menu_clear_button_pushed();
-    if !simulate_map_select_menu_select_map(map_path) {
+    let _ = simulate_map_select_menu_clear_button_pushed(effects);
+    if !simulate_map_select_menu_select_map(map_path, effects) {
         return false;
     }
-    if !simulate_map_select_menu_set_difficulty(1) {
+    if !simulate_map_select_menu_set_difficulty(1, effects) {
         return false;
     }
-    simulate_map_select_menu_ok_button_gadget_selected()
+    simulate_map_select_menu_ok_button_gadget_selected(effects)
 }
 
 #[cfg(test)]
@@ -3870,12 +4231,21 @@ mod tests {
     }
 
     #[test]
-    fn test_global_menu_manager() {
-        let manager1 = with_menu_manager(|manager| std::ptr::from_mut(manager) as usize);
-        let manager2 = with_menu_manager(|manager| std::ptr::from_mut(manager) as usize);
-
-        // Both should point to the same thread-local instance
-        assert_eq!(manager1, manager2);
+    fn menu_recipients_borrow_the_same_owned_fields_and_leave_peers_independent() {
+        let mut owner = MenuManager::new();
+        let mut peer = MenuManager::new();
+        let expected = std::ptr::from_mut(owner.options_menu_mut());
+        {
+            let mut recipients = owner.receiving_menus();
+            assert_eq!(
+                std::ptr::from_mut(recipients.options.as_deref_mut().unwrap()),
+                expected
+            );
+            let mut child = recipients.reborrow();
+            child.options.as_deref_mut().unwrap().initialized = true;
+            assert!(!peer.options_menu_mut().initialized);
+        }
+        assert!(owner.options_menu_mut().initialized);
     }
 
     #[test]
@@ -4138,3 +4508,49 @@ mod tests {
 
 #[cfg(test)]
 mod menu_callbacks_shell_borrow_residual_tests {}
+
+/// Disjoint operation-scoped loans of the canonical client menu fields.
+/// Taking a loan never moves, replaces, or publishes the menu object.
+pub struct MenuCallbackRecipients<'a> {
+    pub(crate) popup:
+        Option<&'a mut crate::gui::callbacks::in_game_popup_message::PopupMessageState>,
+    pub(crate) establish_connections:
+        Option<&'a mut crate::gui::menus::establish_connections_menu::EstablishConnectionsMenu>,
+    pub(crate) disconnect: Option<&'a mut crate::gui::menus::disconnect_menu::DisconnectMenu>,
+    pub(crate) basic_main: Option<&'a mut MainMenu>,
+    pub(crate) single_player: Option<&'a mut SinglePlayerMenu>,
+    pub(crate) options: Option<&'a mut OptionsMenu>,
+    pub(crate) map_select: Option<&'a mut MapSelectMenu>,
+    pub(crate) credits: Option<&'a mut CreditsMenu>,
+    pub(crate) lan_lobby: Option<&'a mut LanLobbyMenu>,
+}
+impl MenuManager {
+    pub(crate) fn receiving_menus(&mut self) -> MenuCallbackRecipients<'_> {
+        MenuCallbackRecipients {
+            popup: Some(&mut self.popup),
+            establish_connections: Some(&mut self.establish_connections),
+            disconnect: Some(&mut self.disconnect),
+            basic_main: Some(&mut self.main_menu),
+            single_player: Some(&mut self.single_player_menu),
+            options: Some(&mut self.options_menu),
+            map_select: Some(&mut self.map_select_menu),
+            credits: Some(&mut self.credits_menu),
+            lan_lobby: Some(&mut self.lan_lobby_menu),
+        }
+    }
+}
+impl MenuCallbackRecipients<'_> {
+    pub fn reborrow(&mut self) -> MenuCallbackRecipients<'_> {
+        MenuCallbackRecipients {
+            popup: self.popup.as_deref_mut(),
+            establish_connections: self.establish_connections.as_deref_mut(),
+            disconnect: self.disconnect.as_deref_mut(),
+            basic_main: self.basic_main.as_deref_mut(),
+            single_player: self.single_player.as_deref_mut(),
+            options: self.options.as_deref_mut(),
+            map_select: self.map_select.as_deref_mut(),
+            credits: self.credits.as_deref_mut(),
+            lan_lobby: self.lan_lobby.as_deref_mut(),
+        }
+    }
+}

@@ -109,7 +109,6 @@ use crate::gui::callbacks::{
 use crate::gui::{MAX_DRAW_DATA, MAX_WINDOWS};
 
 use crate::gui::header_template::get_header_template_manager;
-use crate::gui::{get_disconnect_menu, get_establish_connections_menu};
 use crate::input::with_mouse;
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{file::FileAccess, file_system::get_file_system};
@@ -129,23 +128,19 @@ mod modal;
 mod reentry;
 mod script_callbacks;
 mod script_message_window;
+mod transition_access;
 mod types;
+pub(crate) use transition_access::TransitionWindowAccess;
 mod wnd_parse;
 
 pub use control_bar_dispatch::{CameraOptionsInputContext, ControlBarInputContext};
 pub use layout::{WindowLayout, WindowLayoutInfo};
-pub(crate) use reentry::current_window_manager_owner;
 pub use reentry::{
-    ReentryFallback, WindowManagerOwner, WindowMouseFacts, dispatch_os_key_to_window_manager,
+    WindowManagerOwner, WindowManagerReceipt, WindowMouseFacts,
     dispatch_os_key_to_window_manager_for_owner,
-    dispatch_os_key_to_window_manager_with_control_bar,
     dispatch_os_key_to_window_manager_with_control_bar_for_owner,
-    dispatch_os_mouse_to_window_manager, dispatch_os_mouse_to_window_manager_for_owner,
-    dispatch_os_mouse_to_window_manager_with_control_bar,
+    dispatch_os_mouse_to_window_manager_for_owner,
     dispatch_os_mouse_to_window_manager_with_control_bar_for_owner,
-    dispatch_os_mouse_to_window_manager_with_facts, hide_window_rc, queue_create_layout,
-    queue_set_focus, queue_window_manager_op, queue_window_manager_op_deferred,
-    window_manager_try_borrow_free, with_window_manager, with_window_manager_ref,
 };
 pub use types::{CaptureFlags, ModalWindow, TabDirection};
 
@@ -170,6 +165,7 @@ pub(crate) fn as_any_ref(user_data: Option<&mut dyn std::any::Any>) -> Option<&d
 
 /// Main WindowManager struct
 pub struct WindowManager {
+    pub(crate) hot_keys: crate::message_stream::hot_key::HotKeyManager,
     pub(crate) replay_menu:
         Option<Rc<RefCell<crate::gui::callbacks::replay_menu::ReplayMenuState>>>,
     /// Non-owning C++ `ScriptActions::m_messageWindow` equivalent. The actual
@@ -251,8 +247,18 @@ impl WindowManager {
     }
 
     /// Create a new WindowManager
+    pub(crate) fn owns_window_identity(&self, target: &Rc<RefCell<GameWindow>>) -> bool {
+        fn contains(windows: &[Rc<RefCell<GameWindow>>], target: &Rc<RefCell<GameWindow>>) -> bool {
+            windows.iter().any(|window| {
+                Rc::ptr_eq(window, target) || contains(window.borrow().children(), target)
+            })
+        }
+        contains(&self.root_windows, target)
+    }
+
     pub fn new() -> Self {
         Self {
+            hot_keys: Default::default(),
             replay_menu: None,
             script_message_window: None,
             root_windows: Vec::new(),
@@ -385,8 +391,9 @@ impl WindowManager {
     }
 
     /// Reset the window manager (destroy all windows)
-    pub fn reset(&mut self) {
-        self.destroy_all_windows();
+    pub fn reset(&mut self, effects: &mut crate::gui::game_window::WindowEventEffects<'_>) {
+        self.destroy_all_windows(effects);
+        self.hot_keys.reset();
         self.layouts.clear();
         self.tab_list.clear();
         self.modal_stack = None;
@@ -400,14 +407,17 @@ impl WindowManager {
     }
 
     /// Update the window manager (process destroy queue, etc.)
-    pub fn update(&mut self) {
-        self.process_destroy_queue();
+    pub fn update(&mut self, effects: &mut crate::gui::game_window::WindowEventEffects<'_>) {
+        self.process_destroy_queue(effects);
         if let Some(id) = self.pending_focus.take() {
             if let Some(window) = self.get_window_by_id(id) {
-                let _ = self.set_focus(Some(&window));
+                let _ = self.set_focus(Some(&window), effects);
             }
         }
-        self.transitions.update();
+        {
+            let (transitions, _, mut window_access) = self.transition_parts(None);
+            transitions.update(&mut window_access);
+        }
         self.sync_widget_states();
     }
 
@@ -451,3 +461,5 @@ mod replay_menu_input_tests;
 mod receiving_key_delivery_tests;
 
 pub use reentry::dispatch_translated_window_input_for_owner;
+
+pub(crate) use reentry::opaque_window_at_screen;

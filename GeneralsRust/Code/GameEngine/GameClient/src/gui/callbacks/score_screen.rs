@@ -19,8 +19,8 @@ use crate::gui::menu_flags::{set_dont_show_main_menu, set_replay_was_pressed};
 use crate::gui::shell::Shell;
 use crate::gui::{
     GameWindow, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled, WindowStatus,
-    queue_shell_operation, queue_shell_pop, queue_shell_shutdown_complete,
-    show_shell_map_if_available, with_window_manager, write_input_focus_response,
+    queue_shell_pop, queue_shell_shutdown_complete, show_shell_map_if_available,
+    write_input_focus_response,
 };
 use crate::message_stream::{GameMessage, GameMessageType};
 use game_engine::common::game_lod::prefers_low_res_movies;
@@ -147,9 +147,13 @@ fn set_text_color(win: &Rc<RefCell<GameWindow>>, color: u32) {
     win.borrow_mut().set_enabled_text_colors(color, border);
 }
 
-fn hide_window(win: &Option<Rc<RefCell<GameWindow>>>, hide: bool) {
+fn hide_window(
+    win: &Option<Rc<RefCell<GameWindow>>>,
+    hide: bool,
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+) {
     if let Some(win) = win {
-        let _ = win.borrow_mut().hide(hide);
+        let _ = win.borrow_mut().hide(hide, receiving_manager);
     }
 }
 
@@ -295,15 +299,18 @@ fn leave_score_screen_for_next_campaign(shell: &mut impl NextCampaignShellAction
 }
 
 fn start_next_campaign_game(effects: &mut WindowEventEffects<'_>) {
-    let Some(manager) = effects.campaign_manager.as_deref_mut() else {
+    if effects.campaign_manager.is_none() {
         return;
-    };
+    }
     // C++ ScoreScreen.cpp startNextCampaignGame.
-    crate::gui::shell::base::queue_shell_operation_with_effects(|shell, effects| {
+    crate::gui::shell::base::queue_shell_operation_with_effects(effects, |shell, effects| {
         let _ = shell.pop_immediate(effects);
         let _ = shell.hide_shell(effects);
     });
 
+    let Some(manager) = effects.campaign_manager.as_deref_mut() else {
+        return;
+    };
     let (pending_file, campaign_name, campaign_player_faction, is_challenge) = {
         let campaign = manager.get_current_campaign();
         (
@@ -394,13 +401,14 @@ fn init_single_player(state: &mut ScoreScreenState, effects: &mut WindowEventEff
             }
         }
     }
-    grab_single_player_info(state);
+    effects.with_manager(|manager, _effects| grab_single_player_info(state, manager));
     state.need_finish_singleplayer_init = true;
 
-    let blank_layout =
-        with_window_manager(|manager| manager.create_layout("Menus/BlankWindow.wnd".to_string()));
-    blank_layout.borrow_mut().hide(false);
-    blank_layout.borrow_mut().bring_forward();
+    let blank_layout = effects.with_manager(|manager, effects| {
+        manager.create_layout("Menus/BlankWindow.wnd".to_string())
+    });
+    effects.with_manager(|manager, _effects| blank_layout.borrow_mut().hide(manager, false));
+    effects.with_manager(|manager, _effects| blank_layout.borrow_mut().bring_forward(manager));
     // C++ initSinglePlayer: first window winClearStatus(WIN_STATUS_IMAGE).
     if let Some(first) = blank_layout.borrow().get_first_window() {
         first.borrow_mut().clear_status(WindowStatus::IMAGE);
@@ -408,82 +416,97 @@ fn init_single_player(state: &mut ScoreScreenState, effects: &mut WindowEventEff
     state.blank_layout = Some(blank_layout);
 }
 
-fn init_skirmish(state: &mut ScoreScreenState) {
+fn init_skirmish(
+    state: &mut ScoreScreenState,
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+) {
     state.screen_type = ScoreScreenType::Skirmish;
-    grab_multi_player_info(state);
-    hide_window(&state.text_entry_chat, true);
-    hide_window(&state.button_emote, true);
-    hide_window(&state.chat_box_border, true);
-    hide_window(&state.button_buddies, true);
-    hide_window(&state.button_continue, true);
-    hide_window(&state.listbox_chat, true);
-    hide_window(&state.static_text_game_saved, true);
+    grab_multi_player_info(state, receiving_manager);
+    hide_window(&state.text_entry_chat, true, receiving_manager);
+    hide_window(&state.button_emote, true, receiving_manager);
+    hide_window(&state.chat_box_border, true, receiving_manager);
+    hide_window(&state.button_buddies, true, receiving_manager);
+    hide_window(&state.button_continue, true, receiving_manager);
+    hide_window(&state.listbox_chat, true, receiving_manager);
+    hide_window(&state.static_text_game_saved, true, receiving_manager);
 }
 
-fn init_lan_multiplayer(state: &mut ScoreScreenState) {
+fn init_lan_multiplayer(
+    state: &mut ScoreScreenState,
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+) {
     state.screen_type = ScoreScreenType::Lan;
-    grab_multi_player_info(state);
+    grab_multi_player_info(state, receiving_manager);
     if let Some(text_entry) = state.text_entry_chat.as_ref() {
         if let Some(widget) = text_entry.borrow_mut().text_entry_mut() {
             widget.set_text(String::new());
         }
     }
-    hide_window(&state.static_text_game_saved, true);
-    hide_window(&state.text_entry_chat, false);
-    hide_window(&state.button_emote, false);
-    hide_window(&state.button_continue, true);
-    hide_window(&state.listbox_chat, false);
-    hide_window(&state.listbox_academy, true);
-    hide_window(&state.static_text_academy_title, true);
-    hide_window(&state.chat_box_border, false);
-    hide_window(&state.button_buddies, true);
+    hide_window(&state.static_text_game_saved, true, receiving_manager);
+    hide_window(&state.text_entry_chat, false, receiving_manager);
+    hide_window(&state.button_emote, false, receiving_manager);
+    hide_window(&state.button_continue, true, receiving_manager);
+    hide_window(&state.listbox_chat, false, receiving_manager);
+    hide_window(&state.listbox_academy, true, receiving_manager);
+    hide_window(&state.static_text_academy_title, true, receiving_manager);
+    hide_window(&state.chat_box_border, false, receiving_manager);
+    hide_window(&state.button_buddies, true, receiving_manager);
 }
 
-fn init_internet_multiplayer(state: &mut ScoreScreenState) {
+fn init_internet_multiplayer(
+    state: &mut ScoreScreenState,
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+) {
     state.screen_type = ScoreScreenType::Internet;
-    grab_multi_player_info(state);
+    grab_multi_player_info(state, receiving_manager);
     if let Some(text_entry) = state.text_entry_chat.as_ref() {
         if let Some(widget) = text_entry.borrow_mut().text_entry_mut() {
             widget.set_text(String::new());
         }
     }
-    hide_window(&state.static_text_game_saved, true);
-    hide_window(&state.button_continue, true);
-    hide_window(&state.text_entry_chat, true);
-    hide_window(&state.button_emote, true);
-    hide_window(&state.listbox_chat, false);
-    hide_window(&state.listbox_academy, false);
-    hide_window(&state.static_text_academy_title, false);
-    hide_window(&state.chat_box_border, false);
-    hide_window(&state.button_buddies, false);
+    hide_window(&state.static_text_game_saved, true, receiving_manager);
+    hide_window(&state.button_continue, true, receiving_manager);
+    hide_window(&state.text_entry_chat, true, receiving_manager);
+    hide_window(&state.button_emote, true, receiving_manager);
+    hide_window(&state.listbox_chat, false, receiving_manager);
+    hide_window(&state.listbox_academy, false, receiving_manager);
+    hide_window(&state.static_text_academy_title, false, receiving_manager);
+    hide_window(&state.chat_box_border, false, receiving_manager);
+    hide_window(&state.button_buddies, false, receiving_manager);
 }
 
-fn init_replay_multiplayer(state: &mut ScoreScreenState) {
+fn init_replay_multiplayer(
+    state: &mut ScoreScreenState,
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+) {
     state.screen_type = ScoreScreenType::Replay;
-    grab_multi_player_info(state);
-    hide_window(&state.static_text_game_saved, true);
-    hide_window(&state.text_entry_chat, true);
-    hide_window(&state.button_emote, true);
-    hide_window(&state.listbox_chat, true);
-    hide_window(&state.listbox_academy, true);
-    hide_window(&state.static_text_academy_title, true);
-    hide_window(&state.chat_box_border, true);
-    hide_window(&state.button_continue, true);
-    hide_window(&state.button_buddies, true);
+    grab_multi_player_info(state, receiving_manager);
+    hide_window(&state.static_text_game_saved, true, receiving_manager);
+    hide_window(&state.text_entry_chat, true, receiving_manager);
+    hide_window(&state.button_emote, true, receiving_manager);
+    hide_window(&state.listbox_chat, true, receiving_manager);
+    hide_window(&state.listbox_academy, true, receiving_manager);
+    hide_window(&state.static_text_academy_title, true, receiving_manager);
+    hide_window(&state.chat_box_border, true, receiving_manager);
+    hide_window(&state.button_continue, true, receiving_manager);
+    hide_window(&state.button_buddies, true, receiving_manager);
 }
 
-fn init_replay_single_player(state: &mut ScoreScreenState) {
+fn init_replay_single_player(
+    state: &mut ScoreScreenState,
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+) {
     state.screen_type = ScoreScreenType::Replay;
-    grab_single_player_info(state);
-    hide_window(&state.static_text_game_saved, true);
-    hide_window(&state.text_entry_chat, true);
-    hide_window(&state.button_emote, true);
-    hide_window(&state.chat_box_border, true);
-    hide_window(&state.button_continue, true);
-    hide_window(&state.button_buddies, true);
-    hide_window(&state.listbox_chat, true);
-    hide_window(&state.listbox_academy, true);
-    hide_window(&state.static_text_academy_title, true);
+    grab_single_player_info(state, receiving_manager);
+    hide_window(&state.static_text_game_saved, true, receiving_manager);
+    hide_window(&state.text_entry_chat, true, receiving_manager);
+    hide_window(&state.button_emote, true, receiving_manager);
+    hide_window(&state.chat_box_border, true, receiving_manager);
+    hide_window(&state.button_continue, true, receiving_manager);
+    hide_window(&state.button_buddies, true, receiving_manager);
+    hide_window(&state.listbox_chat, true, receiving_manager);
+    hide_window(&state.listbox_academy, true, receiving_manager);
+    hide_window(&state.static_text_academy_title, true, receiving_manager);
 }
 
 fn display_challenge_win_loss(
@@ -491,12 +514,13 @@ fn display_challenge_win_loss(
     image_name: &str,
     header: &str,
     remarks: &str,
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
 ) {
-    hide_window(&state.backdrop, true);
-    hide_window(&state.gadget_parent, true);
-    hide_window(&state.challenge_win_loss_text, false);
-    hide_window(&state.challenge_remarks, false);
-    hide_window(&state.challenge_portrait, false);
+    hide_window(&state.backdrop, true, receiving_manager);
+    hide_window(&state.gadget_parent, true, receiving_manager);
+    hide_window(&state.challenge_win_loss_text, false, receiving_manager);
+    hide_window(&state.challenge_remarks, false, receiving_manager);
+    hide_window(&state.challenge_portrait, false, receiving_manager);
     set_window_image(&state.parent, "GeneralsChallengeWinLoss");
     set_window_image(&state.challenge_portrait, image_name);
     if let Some(win) = state.challenge_win_loss_text.as_ref() {
@@ -511,22 +535,25 @@ fn finalize_single_player_init(state: &mut ScoreScreenState, effects: &mut Windo
     // C++ finishSinglePlayerInit: freeMessageResources before destroying BlankWindow.
     crate::helpers::TheInGameUI::free_message_resources();
     if let Some(blank) = state.blank_layout.take() {
-        blank.borrow_mut().destroy_windows();
+        effects
+            .with_manager(|manager, effects| blank.borrow_mut().destroy_windows(manager, effects));
     }
 
     if let Some(parent) = state.parent.as_ref() {
-        let _ = with_window_manager(|manager| manager.activate_window(parent));
+        let _ = effects.with_manager(|manager, effects| manager.activate_window(parent));
     }
 
-    hide_window(&state.button_ok, false);
-    hide_window(&state.button_continue, false);
-    hide_window(&state.text_entry_chat, true);
-    hide_window(&state.button_emote, true);
-    hide_window(&state.listbox_chat, true);
-    hide_window(&state.listbox_academy, true);
-    hide_window(&state.static_text_academy_title, true);
-    hide_window(&state.chat_box_border, true);
-    hide_window(&state.button_buddies, true);
+    effects.with_manager(|manager, _effects| hide_window(&state.button_ok, false, manager));
+    effects.with_manager(|manager, _effects| hide_window(&state.button_continue, false, manager));
+    effects.with_manager(|manager, _effects| hide_window(&state.text_entry_chat, true, manager));
+    effects.with_manager(|manager, _effects| hide_window(&state.button_emote, true, manager));
+    effects.with_manager(|manager, _effects| hide_window(&state.listbox_chat, true, manager));
+    effects.with_manager(|manager, _effects| hide_window(&state.listbox_academy, true, manager));
+    effects.with_manager(|manager, _effects| {
+        hide_window(&state.static_text_academy_title, true, manager)
+    });
+    effects.with_manager(|manager, _effects| hide_window(&state.chat_box_border, true, manager));
+    effects.with_manager(|manager, _effects| hide_window(&state.button_buddies, true, manager));
 
     if let Some(campaign) = effects
         .campaign_manager
@@ -534,7 +561,9 @@ fn finalize_single_player_init(state: &mut ScoreScreenState, effects: &mut Windo
         .and_then(CampaignManager::get_current_campaign)
     {
         if !campaign.is_challenge_campaign() {
-            with_window_manager(|manager| manager.transition_set_group("ScoreScreenShow", false));
+            effects.with_manager(|manager, effects| {
+                manager.transition_set_group("ScoreScreenShow", false, None)
+            });
         }
     }
 }
@@ -661,41 +690,59 @@ fn current_mission_save_description(manager: &CampaignManager) -> String {
 }
 
 fn finish_single_player_init(state: &mut ScoreScreenState, effects: &mut WindowEventEffects<'_>) {
-    let Some(manager) = effects.campaign_manager.as_deref_mut() else {
+    let Some(victorious) = effects
+        .campaign_manager
+        .as_deref()
+        .map(|manager| manager.is_victorious())
+    else {
         return;
     };
-
-    let victorious = manager.is_victorious();
+    // Definition strings are immutable presentation inputs. End both the campaign
+    // loan and definition-store lock before delivering window/audio callbacks.
+    let challenge_presentation = effects.campaign_manager.as_deref().and_then(|manager| {
+        if !manager.get_current_campaign()?.is_challenge_campaign() {
+            return None;
+        }
+        let mission = manager.get_current_mission()?;
+        let generals = get_challenge_generals()?;
+        let generals = generals.lock().unwrap_or_else(|error| error.into_inner());
+        let general = generals.general_by_general_name(&mission.general_name)?;
+        let (header_key, image, remarks, sound) = if victorious {
+            (
+                "GUI:ChallengeWinText",
+                general.image_defeated(),
+                general.string_defeated(),
+                general.win_sound(),
+            )
+        } else {
+            (
+                "GUI:ChallengeLossText",
+                general.image_victorious(),
+                general.string_victorious(),
+                general.loss_sound(),
+            )
+        };
+        Some((
+            image.unwrap_or_default().to_string(),
+            GameText::fetch(header_key).replace("%s", &GameText::fetch(&mission.general_name)),
+            GameText::fetch(remarks),
+            sound.to_string(),
+        ))
+    });
+    if let Some((image, header, remarks, sound)) = challenge_presentation {
+        effects.with_manager(|manager, _effects| {
+            display_challenge_win_loss(state, &image, &header, &remarks, manager)
+        });
+        if let Some(audio) = TheAudio::get() {
+            let event = gamelogic::common::audio::AudioEventRts::new(&sound);
+            audio.add_audio_event(&event);
+        }
+    }
 
     if victorious {
-        let is_challenge = manager
-            .get_current_campaign()
-            .map(|campaign| campaign.is_challenge_campaign())
-            .unwrap_or(false);
-        if is_challenge {
-            if let Some(generals_mutex) = get_challenge_generals() {
-                let generals = generals_mutex.lock().unwrap_or_else(|e| e.into_inner());
-                if let Some(mission) = manager.get_current_mission() {
-                    if let Some(general) = generals.general_by_general_name(&mission.general_name) {
-                        let header = GameText::fetch("GUI:ChallengeWinText")
-                            .replace("%s", &GameText::fetch(&mission.general_name));
-                        let remarks = GameText::fetch(general.string_defeated());
-                        display_challenge_win_loss(
-                            state,
-                            general.image_defeated().unwrap_or_default(),
-                            &header,
-                            &remarks,
-                        );
-                        if let Some(audio) = TheAudio::get() {
-                            let event =
-                                gamelogic::common::audio::AudioEventRts::new(general.win_sound());
-                            audio.add_audio_event(&event);
-                        }
-                    }
-                }
-            }
-        }
-
+        let Some(manager) = effects.campaign_manager.as_deref_mut() else {
+            return;
+        };
         let _ = manager.goto_next_mission();
         let next_map = manager.get_current_map().unwrap_or_default();
 
@@ -739,17 +786,35 @@ fn finish_single_player_init(state: &mut ScoreScreenState, effects: &mut WindowE
             }
             let _ = stats.write();
 
-            hide_window(&state.button_ok, true);
-            hide_window(&state.button_continue, true);
-            hide_window(&state.text_entry_chat, true);
-            hide_window(&state.button_emote, true);
-            hide_window(&state.listbox_chat, true);
-            hide_window(&state.listbox_academy, true);
-            hide_window(&state.static_text_academy_title, true);
-            hide_window(&state.chat_box_border, true);
-            hide_window(&state.button_buddies, true);
+            effects.with_manager(|manager, _effects| hide_window(&state.button_ok, true, manager));
+            effects.with_manager(|manager, _effects| {
+                hide_window(&state.button_continue, true, manager)
+            });
+            effects.with_manager(|manager, _effects| {
+                hide_window(&state.text_entry_chat, true, manager)
+            });
+            effects
+                .with_manager(|manager, _effects| hide_window(&state.button_emote, true, manager));
+            effects
+                .with_manager(|manager, _effects| hide_window(&state.listbox_chat, true, manager));
+            effects.with_manager(|manager, _effects| {
+                hide_window(&state.listbox_academy, true, manager)
+            });
+            effects.with_manager(|manager, _effects| {
+                hide_window(&state.static_text_academy_title, true, manager)
+            });
+            effects.with_manager(|manager, _effects| {
+                hide_window(&state.chat_box_border, true, manager)
+            });
+            effects.with_manager(|manager, _effects| {
+                hide_window(&state.button_buddies, true, manager)
+            });
 
-            if let Some(campaign) = manager.get_current_campaign() {
+            if let Some(campaign) = effects
+                .campaign_manager
+                .as_deref()
+                .and_then(|manager| manager.get_current_campaign())
+            {
                 state.pending_final_victory_movie =
                     final_victory_movie_to_queue(campaign, prefers_low_res_movies());
             }
@@ -770,36 +835,11 @@ fn finish_single_player_init(state: &mut ScoreScreenState, effects: &mut WindowE
                 game_engine::SaveFileType::Mission,
                 game_engine::SnapshotType::SaveLoad,
             );
-            hide_window(&state.static_text_game_saved, false);
+            effects.with_manager(|manager, _effects| {
+                hide_window(&state.static_text_game_saved, false, manager)
+            });
         }
     } else {
-        let is_challenge = manager
-            .get_current_campaign()
-            .map(|campaign| campaign.is_challenge_campaign())
-            .unwrap_or(false);
-        if is_challenge {
-            if let Some(generals_mutex) = get_challenge_generals() {
-                let generals = generals_mutex.lock().unwrap_or_else(|e| e.into_inner());
-                if let Some(mission) = manager.get_current_mission() {
-                    if let Some(general) = generals.general_by_general_name(&mission.general_name) {
-                        let header = GameText::fetch("GUI:ChallengeLossText")
-                            .replace("%s", &GameText::fetch(&mission.general_name));
-                        let remarks = GameText::fetch(general.string_victorious());
-                        display_challenge_win_loss(
-                            state,
-                            general.image_victorious().unwrap_or_default(),
-                            &header,
-                            &remarks,
-                        );
-                        if let Some(audio) = TheAudio::get() {
-                            let event =
-                                gamelogic::common::audio::AudioEventRts::new(general.loss_sound());
-                            audio.add_audio_event(&event);
-                        }
-                    }
-                }
-            }
-        }
         if let Some(button_continue) = state.button_continue.as_ref() {
             set_text(button_continue, &GameText::fetch("GUI:Retry"));
         }
@@ -808,7 +848,10 @@ fn finish_single_player_init(state: &mut ScoreScreenState, effects: &mut WindowE
     finalize_single_player_init(state, effects);
 }
 
-fn grab_multi_player_info(state: &mut ScoreScreenState) {
+fn grab_multi_player_info(
+    state: &mut ScoreScreenState,
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+) {
     let Ok(list) = ThePlayerList().read() else {
         return;
     };
@@ -840,19 +883,22 @@ fn grab_multi_player_info(state: &mut ScoreScreenState) {
 
     players.sort_by(|a, b| b.0.cmp(&a.0));
 
-    hide_windows(state, players.len() as i32);
+    hide_windows(state, players.len() as i32, receiving_manager);
     for (index, (_, player_arc)) in players.into_iter().enumerate() {
         if let Ok(player) = player_arc.read() {
             if player.is_player_observer() {
-                set_observer_windows(state, &player, index as i32);
+                set_observer_windows(state, &player, index as i32, receiving_manager);
             } else {
-                populate_player_info(state, &player, index as i32);
+                populate_player_info(state, &player, index as i32, receiving_manager);
             }
         }
     }
 }
 
-fn grab_single_player_info(state: &mut ScoreScreenState) {
+fn grab_single_player_info(
+    state: &mut ScoreScreenState,
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+) {
     let Ok(list) = ThePlayerList().read() else {
         return;
     };
@@ -865,13 +911,13 @@ fn grab_single_player_info(state: &mut ScoreScreenState) {
 
     let mut player_count = 0;
     if !local_player.is_player_observer() {
-        populate_player_info(state, &local_player, player_count);
+        populate_player_info(state, &local_player, player_count, receiving_manager);
         player_count += 1;
     } else {
         for player_arc in list.iter() {
             if let Ok(player) = player_arc.read() {
                 if player.get_player_type() == PlayerType::Human {
-                    populate_player_info(state, &player, player_count);
+                    populate_player_info(state, &player, player_count, receiving_manager);
                     player_count += 1;
                     break;
                 }
@@ -948,44 +994,54 @@ fn grab_single_player_info(state: &mut ScoreScreenState) {
                 &gather,
                 player_count,
                 color,
+                receiving_manager,
             );
             player_count += 1;
         }
     }
 
-    hide_windows(state, player_count);
+    hide_windows(state, player_count, receiving_manager);
 }
 
-fn hide_windows(state: &mut ScoreScreenState, pos: i32) {
+fn hide_windows(
+    state: &mut ScoreScreenState,
+    pos: i32,
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+) {
     if !(0..MAX_SLOTS).contains(&pos) {
         return;
     }
 
     for i in pos..MAX_SLOTS {
         let name = format!("ScoreScreen.wnd:StaticTextPlayer{}", i);
-        hide_window(&find_child(&state.parent, &name), true);
+        hide_window(&find_child(&state.parent, &name), true, receiving_manager);
         let name = format!("ScoreScreen.wnd:StaticTextObserver{}", i);
-        hide_window(&find_child(&state.parent, &name), true);
+        hide_window(&find_child(&state.parent, &name), true, receiving_manager);
         let name = format!("ScoreScreen.wnd:StaticTextUnitsBuilt{}", i);
-        hide_window(&find_child(&state.parent, &name), true);
+        hide_window(&find_child(&state.parent, &name), true, receiving_manager);
         let name = format!("ScoreScreen.wnd:StaticTextUnitsLost{}", i);
-        hide_window(&find_child(&state.parent, &name), true);
+        hide_window(&find_child(&state.parent, &name), true, receiving_manager);
         let name = format!("ScoreScreen.wnd:StaticTextUnitsDestroyed{}", i);
-        hide_window(&find_child(&state.parent, &name), true);
+        hide_window(&find_child(&state.parent, &name), true, receiving_manager);
         let name = format!("ScoreScreen.wnd:StaticTextBuildingsBuilt{}", i);
-        hide_window(&find_child(&state.parent, &name), true);
+        hide_window(&find_child(&state.parent, &name), true, receiving_manager);
         let name = format!("ScoreScreen.wnd:StaticTextBuildingsLost{}", i);
-        hide_window(&find_child(&state.parent, &name), true);
+        hide_window(&find_child(&state.parent, &name), true, receiving_manager);
         let name = format!("ScoreScreen.wnd:StaticTextBuildingsDestroyed{}", i);
-        hide_window(&find_child(&state.parent, &name), true);
+        hide_window(&find_child(&state.parent, &name), true, receiving_manager);
         let name = format!("ScoreScreen.wnd:StaticTextResources{}", i);
-        hide_window(&find_child(&state.parent, &name), true);
+        hide_window(&find_child(&state.parent, &name), true, receiving_manager);
         let name = format!("ScoreScreen.wnd:GameWindowWinner{}", i);
-        hide_window(&find_child(&state.parent, &name), true);
+        hide_window(&find_child(&state.parent, &name), true, receiving_manager);
     }
 }
 
-fn set_observer_windows(state: &mut ScoreScreenState, player: &Player, index: i32) {
+fn set_observer_windows(
+    state: &mut ScoreScreenState,
+    player: &Player,
+    index: i32,
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+) {
     if !(0..MAX_SLOTS).contains(&index) {
         return;
     }
@@ -994,12 +1050,12 @@ fn set_observer_windows(state: &mut ScoreScreenState, player: &Player, index: i3
     let name = format!("ScoreScreen.wnd:StaticTextPlayer{}", index);
     if let Some(win) = find_child(&state.parent, &name) {
         set_text(&win, player.get_player_display_name());
-        let _ = win.borrow_mut().hide(false);
+        let _ = win.borrow_mut().hide(false, receiving_manager);
         set_text_color(&win, color);
     }
 
     let name = format!("ScoreScreen.wnd:StaticTextObserver{}", index);
-    hide_window(&find_child(&state.parent, &name), false);
+    hide_window(&find_child(&state.parent, &name), false, receiving_manager);
 
     for field in [
         "StaticTextUnitsBuilt",
@@ -1011,12 +1067,12 @@ fn set_observer_windows(state: &mut ScoreScreenState, player: &Player, index: i3
         "StaticTextResources",
     ] {
         let name = format!("ScoreScreen.wnd:{}{}", field, index);
-        hide_window(&find_child(&state.parent, &name), true);
+        hide_window(&find_child(&state.parent, &name), true, receiving_manager);
     }
 
     let name = format!("ScoreScreen.wnd:GameWindowWinner{}", index);
     let win = find_child(&state.parent, &name);
-    hide_window(&win, false);
+    hide_window(&win, false, receiving_manager);
     if let Some(template) = player.get_player_template() {
         set_window_image(&win, template.get_side_icon_image());
     }
@@ -1329,7 +1385,10 @@ pub(crate) fn bind_score_screen_snapshot(
 
 /// Populate the actual receiving widgets from completed match data. This
 /// remains valid after simulation reset has removed the legacy player roster.
-fn populate_owned_academy_widgets(layout: &WindowLayout) {
+fn populate_owned_academy_widgets(
+    layout: &WindowLayout,
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+) {
     let advice_id = name_to_id("ScoreScreen.wnd:ListboxWarschoolAdvice");
     let title_id = name_to_id("ScoreScreen.wnd:StaticTextWarSchool");
     let find = |id| {
@@ -1352,7 +1411,7 @@ fn populate_owned_academy_widgets(layout: &WindowLayout) {
         return;
     };
     let mut window = listbox.borrow_mut();
-    let _ = window.hide(!snapshot.show_advice);
+    let _ = window.hide(!snapshot.show_advice, receiving_manager);
     if let Some(widget) = window.list_box_mut() {
         widget.clear();
         if snapshot.show_advice {
@@ -1370,7 +1429,9 @@ fn populate_owned_academy_widgets(layout: &WindowLayout) {
     }
     drop(window);
     if let Some(title) = find(title_id) {
-        let _ = title.borrow_mut().hide(!snapshot.show_advice);
+        let _ = title
+            .borrow_mut()
+            .hide(!snapshot.show_advice, receiving_manager);
     }
 }
 
@@ -1444,7 +1505,12 @@ fn fill_academy_advice(listbox: &Rc<RefCell<GameWindow>>, player: &Player) {
     }
 }
 
-fn populate_player_info(state: &mut ScoreScreenState, player: &Player, pos: i32) {
+fn populate_player_info(
+    state: &mut ScoreScreenState,
+    player: &Player,
+    pos: i32,
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+) {
     if !(0..MAX_SLOTS).contains(&pos) {
         return;
     }
@@ -1459,12 +1525,12 @@ fn populate_player_info(state: &mut ScoreScreenState, player: &Player, pos: i32)
         } else {
             set_text(&win, player.get_player_display_name());
         }
-        let _ = win.borrow_mut().hide(false);
+        let _ = win.borrow_mut().hide(false, receiving_manager);
         set_text_color(&win, color);
     }
 
     let name = format!("ScoreScreen.wnd:StaticTextObserver{}", pos);
-    hide_window(&find_child(&state.parent, &name), true);
+    hide_window(&find_child(&state.parent, &name), true, receiving_manager);
 
     let fields = [
         ("StaticTextUnitsBuilt", score.get_total_units_built()),
@@ -1490,13 +1556,13 @@ fn populate_player_info(state: &mut ScoreScreenState, player: &Player, pos: i32)
         if let Some(win) = find_child(&state.parent, &name) {
             set_text(&win, &format!("{}", value));
             set_text_color(&win, color);
-            let _ = win.borrow_mut().hide(false);
+            let _ = win.borrow_mut().hide(false, receiving_manager);
         }
     }
     if player.is_local_player() {
         if let Some(listbox) = state.listbox_academy.as_ref() {
-            let _ = listbox.borrow_mut().hide(false);
-            hide_window(&state.static_text_academy_title, false);
+            let _ = listbox.borrow_mut().hide(false, receiving_manager);
+            hide_window(&state.static_text_academy_title, false, receiving_manager);
             if listbox
                 .borrow()
                 .get_user_data::<ScoreScreenAcademySnapshot>()
@@ -1511,7 +1577,7 @@ fn populate_player_info(state: &mut ScoreScreenState, player: &Player, pos: i32)
 
     let name = format!("ScoreScreen.wnd:GameWindowWinner{}", pos);
     if let Some(win) = find_child(&state.parent, &name) {
-        let _ = win.borrow_mut().hide(false);
+        let _ = win.borrow_mut().hide(false, receiving_manager);
         if let Some(template) = player.get_player_template() {
             set_window_image(&Some(win), template.get_side_icon_image());
         }
@@ -1558,6 +1624,7 @@ fn populate_side_info(
     gather: &ScoreGather,
     pos: i32,
     color: u32,
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
 ) {
     if !(0..MAX_SLOTS).contains(&pos) {
         return;
@@ -1567,11 +1634,11 @@ fn populate_side_info(
     if let Some(win) = find_child(&state.parent, &name) {
         set_text(&win, side);
         set_text_color(&win, color);
-        let _ = win.borrow_mut().hide(false);
+        let _ = win.borrow_mut().hide(false, receiving_manager);
     }
 
     let name = format!("ScoreScreen.wnd:StaticTextObserver{}", pos);
-    hide_window(&find_child(&state.parent, &name), true);
+    hide_window(&find_child(&state.parent, &name), true, receiving_manager);
 
     let fields = [
         ("StaticTextUnitsBuilt", gather.total_units_built),
@@ -1591,14 +1658,14 @@ fn populate_side_info(
         if let Some(win) = find_child(&state.parent, &name) {
             set_text(&win, &format!("{}", value));
             set_text_color(&win, color);
-            let _ = win.borrow_mut().hide(false);
+            let _ = win.borrow_mut().hide(false, receiving_manager);
         }
     }
 
     let name = format!("ScoreScreen.wnd:GameWindowWinner{}", pos);
     let win = find_child(&state.parent, &name);
     if let Some(side_icon) = (!gather.side_icon.is_empty()).then_some(gather.side_icon.as_str()) {
-        hide_window(&win, false);
+        hide_window(&win, false, receiving_manager);
         set_window_image(&win, side_icon);
     }
 }
@@ -1626,7 +1693,8 @@ pub fn score_screen_init(
         state.button_save_replay_id = name_to_id("ScoreScreen.wnd:ButtonSaveReplay");
         state.backdrop_id = name_to_id("ScoreScreen.wnd:MainBackdrop");
 
-        state.parent = with_window_manager(|manager| manager.get_window_by_id(state.parent_id));
+        state.parent =
+            effects.with_manager(|manager, effects| manager.get_window_by_id(state.parent_id));
         state.button_ok = find_child(&state.parent, "ScoreScreen.wnd:ButtonOk");
         state.text_entry_chat = find_child(&state.parent, "ScoreScreen.wnd:TextEntryChat");
         state.button_emote = find_child(&state.parent, "ScoreScreen.wnd:ButtonEmote");
@@ -1660,7 +1728,9 @@ pub fn score_screen_init(
             state.can_save_replay = recorder.get_mode() == RecorderMode::Record;
         }
 
-        hide_window(&state.static_text_game_saved, true);
+        effects.with_manager(|manager, _effects| {
+            hide_window(&state.static_text_game_saved, true, manager)
+        });
 
         if let Some(parent) = state.parent.as_ref() {
             if let Some(button) = parent
@@ -1683,27 +1753,39 @@ pub fn score_screen_init(
                     .borrow()
                     .find_child_by_id(state.button_save_replay_id)
                 {
-                    let _ = button.borrow_mut().hide(true);
+                    let _ = effects
+                        .with_manager(|manager, _effects| button.borrow_mut().hide(true, manager));
                 }
             }
             if let Ok(recorder) = get_recorder().lock() {
                 if recorder.is_multiplayer() {
-                    init_replay_multiplayer(state);
+                    effects
+                        .with_manager(|manager, _effects| init_replay_multiplayer(state, manager));
                 } else {
                     state.override_player_display_name = true;
-                    init_replay_single_player(state);
+                    effects.with_manager(|manager, _effects| {
+                        init_replay_single_player(state, manager)
+                    });
                 }
             }
-            with_window_manager(|manager| manager.transition_set_group("ScoreScreenShow", false));
+            effects.with_manager(|manager, effects| {
+                manager.transition_set_group("ScoreScreenShow", false, None)
+            });
         } else if TheGameLogic::get_game_mode() == GAME_INTERNET {
-            init_internet_multiplayer(state);
-            with_window_manager(|manager| manager.transition_set_group("ScoreScreenShow", false));
+            effects.with_manager(|manager, _effects| init_internet_multiplayer(state, manager));
+            effects.with_manager(|manager, effects| {
+                manager.transition_set_group("ScoreScreenShow", false, None)
+            });
         } else if TheGameLogic::get_game_mode() == GAME_LAN {
-            init_lan_multiplayer(state);
-            with_window_manager(|manager| manager.transition_set_group("ScoreScreenShow", false));
+            effects.with_manager(|manager, _effects| init_lan_multiplayer(state, manager));
+            effects.with_manager(|manager, effects| {
+                manager.transition_set_group("ScoreScreenShow", false, None)
+            });
         } else if TheGameLogic::get_game_mode() == GAME_SKIRMISH {
-            init_skirmish(state);
-            with_window_manager(|manager| manager.transition_set_group("ScoreScreenShow", false));
+            effects.with_manager(|manager, _effects| init_skirmish(state, manager));
+            effects.with_manager(|manager, effects| {
+                manager.transition_set_group("ScoreScreenShow", false, None)
+            });
         } else {
             state.override_player_display_name = true;
             init_single_player(state, effects);
@@ -1712,7 +1794,8 @@ pub fn score_screen_init(
                     .borrow()
                     .find_child_by_id(state.button_save_replay_id)
                 {
-                    let _ = button.borrow_mut().hide(true);
+                    let _ = effects
+                        .with_manager(|manager, _effects| button.borrow_mut().hide(true, manager));
                 }
             }
         }
@@ -1729,18 +1812,19 @@ pub fn score_screen_init(
                     .find_child_by_id(state.button_save_replay_id)
                 {
                     let _ = button.borrow_mut().enable(false);
-                    let _ = button.borrow_mut().hide(true);
+                    let _ = effects
+                        .with_manager(|manager, _effects| button.borrow_mut().hide(true, manager));
                 }
             }
         }
 
-        layout.hide(false);
+        effects.with_manager(|manager, _effects| layout.hide(manager, false));
         if let Some(parent) = state.parent.as_ref() {
-            let _ = with_window_manager(|manager| manager.activate_window(parent));
+            let _ = effects.with_manager(|manager, effects| manager.activate_window(parent));
         }
         set_replay_was_pressed(false);
     });
-    populate_owned_academy_widgets(layout);
+    effects.with_manager(|manager, _effects| populate_owned_academy_widgets(layout, manager));
 }
 
 pub fn score_screen_update(
@@ -1752,7 +1836,9 @@ pub fn score_screen_update(
         if let Some(popup) = state.popup_replay_layout.as_ref() {
             if !popup.borrow().is_hidden() {
                 let popup_ref = popup.borrow();
-                popup_replay_update(&popup_ref, None);
+                effects.with_manager(|receiving_manager, effects| {
+                    popup_replay_update(&popup_ref, None, receiving_manager)
+                });
             }
         }
 
@@ -1768,15 +1854,19 @@ pub fn score_screen_update(
         completed_init
     });
     if completed_init {
-        populate_owned_academy_widgets(layout);
+        effects.with_manager(|manager, _effects| populate_owned_academy_widgets(layout, manager));
     }
 }
 
-pub fn score_screen_shutdown(layout: &WindowLayout, _user_data: Option<&mut dyn std::any::Any>) {
+pub fn score_screen_shutdown(
+    layout: &WindowLayout,
+    _user_data: Option<&mut dyn std::any::Any>,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) {
     set_dont_show_main_menu(false);
 
-    layout.hide(true);
-    queue_shell_shutdown_complete(false);
+    effects.with_manager(|manager, _effects| layout.hide(manager, true));
+    queue_shell_shutdown_complete(effects, false);
 
     if let Some(audio) = TheAudio::get() {
         audio.remove_audio_event(AHSV_STOP_THE_MUSIC_FADE);
@@ -1784,7 +1874,7 @@ pub fn score_screen_shutdown(layout: &WindowLayout, _user_data: Option<&mut dyn 
 }
 
 pub fn score_screen_input(
-    window: &GameWindow,
+    window: &mut GameWindow,
     msg: WindowMessage,
     data1: WindowMsgData,
     data2: WindowMsgData,
@@ -1812,22 +1902,30 @@ pub fn score_screen_input(
 }
 
 pub fn score_screen_system(
-    _window: &GameWindow,
+    _window: &mut GameWindow,
     msg: WindowMessage,
     data1: WindowMsgData,
     data2: WindowMsgData,
     effects: &mut WindowEventEffects<'_>,
 ) -> WindowMsgHandled {
+    // C++ focus/teardown notifications do not touch persistent score state.
+    // They may re-enter synchronously during a transition below.
+    if msg == WindowMessage::Destroy {
+        return WindowMsgHandled::Handled;
+    }
+    if msg == WindowMessage::InputFocus {
+        return write_input_focus_response(data1, data2, true);
+    }
     with_score_screen_state(|state| match msg {
-        WindowMessage::Destroy => WindowMsgHandled::Handled,
-        WindowMessage::InputFocus => write_input_focus_response(data1, data2, true),
         WindowMessage::GadgetSelected => {
             let control_id = data1 as i32;
-            with_window_manager(|manager| manager.transition_remove("ScoreScreenShow", true));
+            effects.with_manager(|manager, effects| {
+                manager.transition_remove("ScoreScreenShow", true, Some(&mut *_window))
+            });
             set_replay_was_pressed(false);
 
             if control_id == state.button_ok_id {
-                queue_shell_pop();
+                queue_shell_pop(effects);
                 if let Some(manager) = effects.campaign_manager.as_deref_mut() {
                     manager.set_campaign("");
                 }
@@ -1843,7 +1941,7 @@ pub fn score_screen_system(
                         .unwrap_or_default();
                     if map_name.is_empty() {
                         set_replay_was_pressed(false);
-                        queue_shell_pop();
+                        queue_shell_pop(effects);
                     } else {
                         // C++ CheckForCDAtGameStart(startNextCampaignGame)
                         check_for_cd_at_game_start(Box::new(start_next_campaign_game), effects);
@@ -1854,9 +1952,9 @@ pub fn score_screen_system(
                 let layout = if let Some(layout) = state.popup_replay_layout.as_ref() {
                     layout.clone()
                 } else {
-                    let Some((layout, _)) = with_window_manager(|manager| {
+                    let Some((layout, _)) = effects.with_manager(|manager, effects| {
                         manager
-                            .create_layout_with_windows("Menus/PopupReplay.wnd")
+                            .create_layout_with_windows("Menus/PopupReplay.wnd", effects)
                             .ok()
                     }) else {
                         return WindowMsgHandled::Handled;
@@ -1865,8 +1963,9 @@ pub fn score_screen_system(
                     layout
                 };
                 layout.borrow().run_init(None);
-                layout.borrow_mut().hide(false);
-                layout.borrow_mut().bring_forward();
+                effects.with_manager(|manager, _effects| layout.borrow_mut().hide(manager, false));
+                effects
+                    .with_manager(|manager, _effects| layout.borrow_mut().bring_forward(manager));
             }
 
             WindowMsgHandled::Handled
@@ -1954,6 +2053,9 @@ mod tests {
 
         let mut emitted_messages = Vec::new();
         let mut effects = WindowEventEffects {
+            menus: None,
+            ime: None,
+            manager: None,
             script_display: None,
             window_videos: None,
             window_manager_owner: None,
@@ -1981,6 +2083,9 @@ mod tests {
         campaign_manager.set_campaign("testcampaign");
         let mut emitted_messages = Vec::new();
         let mut effects = WindowEventEffects {
+            menus: None,
+            ime: None,
+            manager: None,
             script_display: None,
             window_videos: None,
             window_manager_owner: None,
@@ -2407,6 +2512,9 @@ mod os_wnd_tests {
         let _ = simulate_score_screen_set_finish_campaign(false);
         let mut emitted_messages = Vec::new();
         let mut effects = WindowEventEffects {
+            menus: None,
+            ime: None,
+            manager: None,
             script_display: None,
             window_videos: None,
             selected_window: None,

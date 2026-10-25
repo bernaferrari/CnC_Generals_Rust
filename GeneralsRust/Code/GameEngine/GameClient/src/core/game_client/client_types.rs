@@ -24,18 +24,24 @@ pub const TRANSLATOR_ID_INVALID: TranslatorId = 0;
 pub struct GameClient {
     // Core state
     ui_renderer: Option<crate::gui::UIRenderer>,
+    /// Composition, target and candidate state belong to this client only.
+    pub(crate) ime: crate::gui::ime_manager::ImeManager,
     /// The single native WND tree owned for this client's lifetime.
     window_manager_owner: crate::gui::window_manager::WindowManagerOwner,
+    pub(crate) prepare_background_layout:
+        Option<std::rc::Rc<std::cell::RefCell<crate::gui::WindowLayout>>>,
     /// This client's ordered message pipeline and its translator-local state.
     pub(crate) campaign_manager: crate::gui::campaign_manager::CampaignManager,
     pub(crate) menu_host: crate::gui::campaign_launch_host_bridge::MenuHostMailbox,
     pub(crate) script_display: crate::core::script_action_handler::ScriptDisplayReceiver,
     pub(crate) main_menu: crate::gui::shell::main_menu::MainMenu,
+    pub(crate) menu_manager: crate::gui::callbacks::menu_callbacks::MenuManager,
     message_stream: crate::message_stream::message_stream::MessageStream,
     /// C++ shell-game load-screen first-load latch for this receiving client.
     shell_game_first_load: bool,
-    window_videos: crate::gui::window_video_manager::WindowVideoManager,
+    window_videos: crate::gui::window_video_manager::ClientWindowVideos,
     load_screen_runtime: crate::gui::load_screen::LoadScreenRuntime,
+    load_screen_messages: Vec<crate::message_stream::game_message::GameMessage>,
     frame: u32,
     command_hints: crate::gui::command_hints::CommandHintState,
     owned_world_animations: OwnedWorldAnimations,
@@ -118,8 +124,10 @@ pub type NativeWindowInputDriver<'a> = dyn FnMut(
         &mut crate::gui::campaign_manager::CampaignManager,
         &mut crate::gui::shell::main_menu::MainMenu,
         &mut crate::gui::campaign_launch_host_bridge::MenuHostMailbox,
+        &mut crate::gui::callbacks::menu_callbacks::MenuCallbackRecipients<'_>,
         &mut crate::core::script_action_handler::ScriptDisplayReceiver,
-        &mut crate::gui::window_video_manager::WindowVideoManager,
+        &mut crate::gui::window_video_manager::ClientWindowVideos,
+        &mut crate::gui::ime_manager::ImeManager,
         game_engine::common::message_stream::WindowInputDispatch,
         &mut Vec<crate::message_stream::game_message::GameMessage>,
     ) -> Option<game_engine::common::message_stream::WindowInputDispatchResult>

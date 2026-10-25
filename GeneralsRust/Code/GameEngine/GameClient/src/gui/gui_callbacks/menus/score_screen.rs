@@ -23,12 +23,16 @@ pub fn ScoreScreenUpdate(
     score_screen_update(layout, user_data, effects);
 }
 
-pub fn ScoreScreenShutdown(layout: &WindowLayout, user_data: Option<&mut dyn std::any::Any>) {
-    score_screen_shutdown(layout, user_data);
+pub fn ScoreScreenShutdown(
+    layout: &WindowLayout,
+    user_data: Option<&mut dyn std::any::Any>,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) {
+    score_screen_shutdown(layout, user_data, effects);
 }
 
 pub fn ScoreScreenSystem(
-    window: &GameWindow,
+    window: &mut GameWindow,
     msg: WindowMessage,
     data1: WindowMsgData,
     data2: WindowMsgData,
@@ -38,7 +42,7 @@ pub fn ScoreScreenSystem(
 }
 
 pub fn ScoreScreenInput(
-    window: &GameWindow,
+    window: &mut GameWindow,
     msg: WindowMessage,
     data1: WindowMsgData,
     data2: WindowMsgData,

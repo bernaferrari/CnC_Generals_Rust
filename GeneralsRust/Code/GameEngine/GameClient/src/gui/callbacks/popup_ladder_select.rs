@@ -11,7 +11,7 @@ use crate::gui::callbacks::online_callback_support::packed_ui_color;
 use crate::gui::callbacks::popup_host_game::custom_match_hide_host_popup;
 use crate::gui::gadgets::{ComboBoxItem, ListBox, ListBoxItemData};
 use crate::gui::{
-    GameWindow, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled, with_window_manager,
+    GameWindow, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled,
     write_input_focus_response,
 };
 use crate::map_util::get_map_cache_manager;
@@ -136,7 +136,12 @@ fn listbox_selected_ladder_id(window: &Option<Rc<RefCell<GameWindow>>>) -> Optio
     }
 }
 
-fn set_password_mode(state: &mut PopupLadderSelectState, mode: PasswordMode) {
+fn set_password_mode(
+    state: &mut PopupLadderSelectState,
+    mode: PasswordMode,
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) {
     state.password_mode = mode;
     match mode {
         PasswordMode::None => {
@@ -147,7 +152,9 @@ fn set_password_mode(state: &mut PopupLadderSelectState, mode: PasswordMode) {
             set_window_enabled(&state.text_entry_password, false);
             set_window_enabled(&state.listbox_ladder_select, true);
             if let Some(listbox) = state.listbox_ladder_select.as_ref() {
-                let _ = with_window_manager(|manager| manager.set_focus(Some(listbox)));
+                let _ = (|manager: &mut crate::gui::window_manager::WindowManager| {
+                    manager.set_focus(Some(listbox), effects)
+                })(receiving_manager);
             }
         }
         PasswordMode::Entry => {
@@ -159,7 +166,9 @@ fn set_password_mode(state: &mut PopupLadderSelectState, mode: PasswordMode) {
             set_text_entry(&state.text_entry_password, "");
             set_window_enabled(&state.listbox_ladder_select, false);
             if let Some(entry) = state.text_entry_password.as_ref() {
-                let _ = with_window_manager(|manager| manager.set_focus(Some(entry)));
+                let _ = (|manager: &mut crate::gui::window_manager::WindowManager| {
+                    manager.set_focus(Some(entry), effects)
+                })(receiving_manager);
             }
         }
         PasswordMode::Error => {
@@ -170,7 +179,9 @@ fn set_password_mode(state: &mut PopupLadderSelectState, mode: PasswordMode) {
             set_window_enabled(&state.text_entry_password, false);
             set_window_enabled(&state.listbox_ladder_select, false);
             if let Some(parent) = state.parent.as_ref() {
-                let _ = with_window_manager(|manager| manager.set_focus(Some(parent)));
+                let _ = (|manager: &mut crate::gui::window_manager::WindowManager| {
+                    manager.set_focus(Some(parent), effects)
+                })(receiving_manager);
             }
         }
     }
@@ -345,9 +356,15 @@ fn is_valid_qm_ladder(info: &LadderInfo) -> bool {
     true
 }
 
-fn populate_qm_ladder_listbox(listbox: &mut ListBox) -> bool {
+fn populate_qm_ladder_listbox(
+    listbox: &mut ListBox,
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+) -> bool {
     let combo_id = name_to_id("WOLQuickMatchMenu.wnd:ComboBoxLadder");
-    let combo_exists = with_window_manager(|manager| manager.get_window_by_id(combo_id)).is_some();
+    let combo_exists = (|manager: &mut crate::gui::window_manager::WindowManager| {
+        manager.get_window_by_id(combo_id)
+    })(receiving_manager)
+    .is_some();
     if !combo_exists {
         return false;
     }
@@ -446,10 +463,15 @@ fn populate_qm_ladder_listbox(listbox: &mut ListBox) -> bool {
     true
 }
 
-fn populate_custom_ladder_listbox(listbox: &mut ListBox) -> bool {
+fn populate_custom_ladder_listbox(
+    listbox: &mut ListBox,
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+) -> bool {
     let parent_id = name_to_id("PopupHostGame.wnd:ParentHostPopUp");
-    let parent_exists =
-        with_window_manager(|manager| manager.get_window_by_id(parent_id)).is_some();
+    let parent_exists = (|manager: &mut crate::gui::window_manager::WindowManager| {
+        manager.get_window_by_id(parent_id)
+    })(receiving_manager)
+    .is_some();
     if !parent_exists {
         return false;
     }
@@ -561,15 +583,18 @@ fn populate_custom_ladder_listbox(listbox: &mut ListBox) -> bool {
     true
 }
 
-fn populate_ladder_listbox(state: &mut PopupLadderSelectState) {
+fn populate_ladder_listbox(
+    state: &mut PopupLadderSelectState,
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+) {
     {
         let Some(mut listbox) = listbox_mut(&state.listbox_ladder_select) else {
             return;
         };
-        if populate_qm_ladder_listbox(&mut listbox) {
+        if populate_qm_ladder_listbox(&mut listbox, receiving_manager) {
             return;
         }
-        let _ = populate_custom_ladder_listbox(&mut listbox);
+        let _ = populate_custom_ladder_listbox(&mut listbox, receiving_manager);
     }
 
     let ladder_id = listbox_selected_ladder_id(&state.listbox_ladder_select);
@@ -582,9 +607,13 @@ fn populate_ladder_listbox(state: &mut PopupLadderSelectState) {
     }
 }
 
-fn populate_qm_ladder_combo_box() -> bool {
+fn populate_qm_ladder_combo_box(
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+) -> bool {
     let combo_id = name_to_id("WOLQuickMatchMenu.wnd:ComboBoxLadder");
-    let combo = with_window_manager(|manager| manager.get_window_by_id(combo_id));
+    let combo = (|manager: &mut crate::gui::window_manager::WindowManager| {
+        manager.get_window_by_id(combo_id)
+    })(receiving_manager);
     let Some(combo) = combo else {
         return false;
     };
@@ -623,7 +652,9 @@ fn populate_qm_ladder_combo_box() -> bool {
 
             let num_players_id = name_to_id("WOLQuickMatchMenu.wnd:ComboBoxNumPlayers");
             if let Some(num_players) =
-                with_window_manager(|manager| manager.get_window_by_id(num_players_id))
+                (|manager: &mut crate::gui::window_manager::WindowManager| {
+                    manager.get_window_by_id(num_players_id)
+                })(receiving_manager)
             {
                 if let Some(num_box) = num_players.borrow_mut().combo_box_mut() {
                     let target = info.players_per_team.saturating_sub(1).max(0) as usize;
@@ -635,8 +666,9 @@ fn populate_qm_ladder_combo_box() -> bool {
     }
     if !ladder_selected {
         let num_players_id = name_to_id("WOLQuickMatchMenu.wnd:ComboBoxNumPlayers");
-        if let Some(num_players) =
-            with_window_manager(|manager| manager.get_window_by_id(num_players_id))
+        if let Some(num_players) = (|manager: &mut crate::gui::window_manager::WindowManager| {
+            manager.get_window_by_id(num_players_id)
+        })(receiving_manager)
         {
             let _ = num_players.borrow_mut().enable(true);
         }
@@ -685,9 +717,13 @@ fn populate_qm_ladder_combo_box() -> bool {
     true
 }
 
-pub(crate) fn populate_custom_ladder_combo_box() -> bool {
+pub(crate) fn populate_custom_ladder_combo_box(
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+) -> bool {
     let combo_id = name_to_id("PopupHostGame.wnd:ComboBoxLadderName");
-    let combo = with_window_manager(|manager| manager.get_window_by_id(combo_id));
+    let combo = (|manager: &mut crate::gui::window_manager::WindowManager| {
+        manager.get_window_by_id(combo_id)
+    })(receiving_manager);
     let Some(combo) = combo else {
         return false;
     };
@@ -751,16 +787,22 @@ pub(crate) fn populate_custom_ladder_combo_box() -> bool {
     true
 }
 
-fn populate_ladder_combo_box() {
-    if populate_qm_ladder_combo_box() {
+fn populate_ladder_combo_box(receiving_manager: &mut crate::gui::window_manager::WindowManager) {
+    if populate_qm_ladder_combo_box(receiving_manager) {
         return;
     }
-    let _ = populate_custom_ladder_combo_box();
+    let _ = populate_custom_ladder_combo_box(receiving_manager);
 }
 
-fn handle_qm_ladder_selection(ladder_id: i32) -> bool {
+fn handle_qm_ladder_selection(
+    ladder_id: i32,
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+) -> bool {
     let combo_id = name_to_id("WOLQuickMatchMenu.wnd:ComboBoxLadder");
-    let combo_exists = with_window_manager(|manager| manager.get_window_by_id(combo_id)).is_some();
+    let combo_exists = (|manager: &mut crate::gui::window_manager::WindowManager| {
+        manager.get_window_by_id(combo_id)
+    })(receiving_manager)
+    .is_some();
     if !combo_exists {
         return false;
     }
@@ -787,10 +829,15 @@ fn handle_qm_ladder_selection(ladder_id: i32) -> bool {
     true
 }
 
-fn handle_custom_ladder_selection(ladder_id: i32) -> bool {
+fn handle_custom_ladder_selection(
+    ladder_id: i32,
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+) -> bool {
     let parent_id = name_to_id("PopupHostGame.wnd:ParentHostPopUp");
-    let parent_exists =
-        with_window_manager(|manager| manager.get_window_by_id(parent_id)).is_some();
+    let parent_exists = (|manager: &mut crate::gui::window_manager::WindowManager| {
+        manager.get_window_by_id(parent_id)
+    })(receiving_manager)
+    .is_some();
     if !parent_exists {
         return false;
     }
@@ -817,14 +864,22 @@ fn handle_custom_ladder_selection(ladder_id: i32) -> bool {
     true
 }
 
-fn handle_ladder_selection(ladder_id: i32) {
-    if handle_qm_ladder_selection(ladder_id) {
+fn handle_ladder_selection(
+    ladder_id: i32,
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+) {
+    if handle_qm_ladder_selection(ladder_id, receiving_manager) {
         return;
     }
-    let _ = handle_custom_ladder_selection(ladder_id);
+    let _ = handle_custom_ladder_selection(ladder_id, receiving_manager);
 }
 
-pub fn popup_ladder_select_init(_layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>) {
+pub fn popup_ladder_select_init(
+    _layout: &WindowLayout,
+    _user_data: Option<&dyn std::any::Any>,
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) {
     let state_slot = popup_state();
     let mut state = state_slot.borrow_mut();
 
@@ -843,7 +898,7 @@ pub fn popup_ladder_select_init(_layout: &WindowLayout, _user_data: Option<&dyn 
     state.bad_password_parent_id = name_to_id("PopupLadderSelect.wnd:BadPasswordParent");
     state.button_bad_password_ok_id = name_to_id("PopupLadderSelect.wnd:ButtonBadPasswordOk");
 
-    with_window_manager(|manager| {
+    (|manager: &mut crate::gui::window_manager::WindowManager| {
         state.parent = manager.get_window_by_id(state.parent_id);
         state.listbox_ladder_select = manager.get_window_by_id(state.listbox_ladder_select_id);
         state.listbox_ladder_details = manager.get_window_by_id(state.listbox_ladder_details_id);
@@ -853,18 +908,18 @@ pub fn popup_ladder_select_init(_layout: &WindowLayout, _user_data: Option<&dyn 
         state.password_parent = manager.get_window_by_id(state.password_parent_id);
         state.text_entry_password = manager.get_window_by_id(state.text_entry_password_id);
         state.bad_password_parent = manager.get_window_by_id(state.bad_password_parent_id);
-    });
+    })(receiving_manager);
 
     if let Some(parent) = state.parent.as_ref() {
-        with_window_manager(|manager| {
-            let _ = manager.set_focus(Some(parent));
+        (|manager: &mut crate::gui::window_manager::WindowManager| {
+            let _ = manager.set_focus(Some(parent), effects);
             let _ = manager.set_modal(parent.clone());
-        });
+        })(receiving_manager);
     }
 
-    set_password_mode(&mut state, PasswordMode::None);
-    custom_match_hide_host_popup(true);
-    populate_ladder_listbox(&mut state);
+    set_password_mode(&mut state, PasswordMode::None, receiving_manager, effects);
+    custom_match_hide_host_popup(true, receiving_manager);
+    populate_ladder_listbox(&mut state, receiving_manager);
 }
 
 pub fn popup_ladder_select_update(_layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>) {}
@@ -891,6 +946,8 @@ pub fn popup_ladder_select_input(
     msg: WindowMessage,
     data1: WindowMsgData,
     data2: WindowMsgData,
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> WindowMsgHandled {
     if msg != WindowMessage::Char || data1 != KEY_ESC {
         return WindowMsgHandled::Ignored;
@@ -903,19 +960,22 @@ pub fn popup_ladder_select_input(
     let mut state = state_slot.borrow_mut();
     match state.password_mode {
         PasswordMode::None => {
-            populate_ladder_combo_box();
+            populate_ladder_combo_box(receiving_manager);
             close_overlay(GameSpyOverlayType::LadderSelect);
         }
         PasswordMode::Entry | PasswordMode::Error => {
-            set_password_mode(&mut state, PasswordMode::None);
+            set_password_mode(&mut state, PasswordMode::None, receiving_manager, effects);
         }
     }
     WindowMsgHandled::Handled
 }
 
-fn ladder_selected_callback(state: &mut PopupLadderSelectState) {
-    handle_ladder_selection(state.ladder_index);
-    populate_ladder_combo_box();
+fn ladder_selected_callback(
+    state: &mut PopupLadderSelectState,
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+) {
+    handle_ladder_selection(state.ladder_index, receiving_manager);
+    populate_ladder_combo_box(receiving_manager);
     close_overlay(GameSpyOverlayType::LadderSelect);
 }
 
@@ -924,6 +984,8 @@ pub fn popup_ladder_select_system(
     msg: WindowMessage,
     data1: WindowMsgData,
     data2: WindowMsgData,
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> WindowMsgHandled {
     let state_slot = popup_state();
     let mut state = state_slot.borrow_mut();
@@ -931,7 +993,7 @@ pub fn popup_ladder_select_system(
     match msg {
         WindowMessage::Create => WindowMsgHandled::Handled,
         WindowMessage::Destroy => {
-            custom_match_hide_host_popup(false);
+            custom_match_hide_host_popup(false, receiving_manager);
             state.parent = None;
             state.listbox_ladder_select = None;
             state.listbox_ladder_details = None;
@@ -951,13 +1013,18 @@ pub fn popup_ladder_select_system(
                         .map(|info| !info.crypted_password.is_empty())
                         .unwrap_or(false);
                     if has_password {
-                        set_password_mode(&mut state, PasswordMode::Entry);
+                        set_password_mode(
+                            &mut state,
+                            PasswordMode::Entry,
+                            receiving_manager,
+                            effects,
+                        );
                     } else {
-                        ladder_selected_callback(&mut state);
+                        ladder_selected_callback(&mut state, receiving_manager);
                     }
                 }
             } else if control_id == state.button_cancel_id {
-                populate_ladder_combo_box();
+                populate_ladder_combo_box(receiving_manager);
                 close_overlay(GameSpyOverlayType::LadderSelect);
             } else if control_id == state.button_password_ok_id {
                 let ladder_list = get_ladder_list();
@@ -966,28 +1033,33 @@ pub fn popup_ladder_select_system(
                     guard.find_ladder_by_index(state.ladder_index).cloned()
                 });
                 let Some(info) = info else {
-                    set_password_mode(&mut state, PasswordMode::Error);
+                    set_password_mode(&mut state, PasswordMode::Error, receiving_manager, effects);
                     return WindowMsgHandled::Handled;
                 };
                 if info.crypted_password.is_empty() {
-                    set_password_mode(&mut state, PasswordMode::Error);
+                    set_password_mode(&mut state, PasswordMode::Error, receiving_manager, effects);
                     return WindowMsgHandled::Handled;
                 }
                 let pass = text_entry_text(&state.text_entry_password);
                 if pass.is_empty() {
-                    set_password_mode(&mut state, PasswordMode::Error);
+                    set_password_mode(&mut state, PasswordMode::Error, receiving_manager, effects);
                 } else {
                     let crypted = encrypt_string(&pass);
                     if crypted == info.crypted_password.as_str() {
-                        ladder_selected_callback(&mut state);
+                        ladder_selected_callback(&mut state, receiving_manager);
                     } else {
-                        set_password_mode(&mut state, PasswordMode::Error);
+                        set_password_mode(
+                            &mut state,
+                            PasswordMode::Error,
+                            receiving_manager,
+                            effects,
+                        );
                     }
                 }
             } else if control_id == state.button_password_cancel_id {
-                set_password_mode(&mut state, PasswordMode::None);
+                set_password_mode(&mut state, PasswordMode::None, receiving_manager, effects);
             } else if control_id == state.button_bad_password_ok_id {
-                set_password_mode(&mut state, PasswordMode::None);
+                set_password_mode(&mut state, PasswordMode::None, receiving_manager, effects);
             }
             WindowMsgHandled::Handled
         }
@@ -1009,6 +1081,7 @@ pub fn popup_ladder_select_system(
                         WindowMessage::GadgetSelected,
                         state.button_ok_id as usize,
                         state.button_ok_id as usize,
+                        effects,
                     );
                 }
             }
@@ -1021,6 +1094,7 @@ pub fn popup_ladder_select_system(
                         WindowMessage::GadgetSelected,
                         state.button_password_ok_id as usize,
                         state.button_password_ok_id as usize,
+                        effects,
                     );
                 }
             }
@@ -1033,17 +1107,21 @@ pub fn popup_ladder_select_system(
 pub fn rc_game_details_menu_init(_layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>) {}
 
 pub fn rc_game_details_menu_system(
-    window: &GameWindow,
+    window: &mut GameWindow,
     msg: WindowMessage,
     data1: WindowMsgData,
     _data2: WindowMsgData,
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> WindowMsgHandled {
     match msg {
         WindowMessage::Create => WindowMsgHandled::Handled,
         WindowMessage::Destroy => WindowMsgHandled::Handled,
         WindowMessage::User(code) if code == GGM_CLOSE => {
             if let Some(layout) = window.get_layout() {
-                with_window_manager(|manager| manager.destroy_layout(&layout));
+                (|manager: &mut crate::gui::window_manager::WindowManager| {
+                    manager.destroy_layout(&layout, effects)
+                })(receiving_manager);
             }
             WindowMsgHandled::Handled
         }
@@ -1060,7 +1138,9 @@ pub fn rc_game_details_menu_system(
             }
 
             if let Some(layout) = window.get_layout() {
-                with_window_manager(|manager| manager.destroy_layout(&layout));
+                (|manager: &mut crate::gui::window_manager::WindowManager| {
+                    manager.destroy_layout(&layout, effects)
+                })(receiving_manager);
             }
 
             let Some(room) =
@@ -1085,12 +1165,12 @@ pub fn rc_game_details_menu_system(
                 return WindowMsgHandled::Handled;
             }
 
-            let layout = with_window_manager(|manager| {
+            let layout = (|manager: &mut crate::gui::window_manager::WindowManager| {
                 manager
-                    .create_layout_with_windows("Menus/PopupLadderDetails.wnd")
+                    .create_layout_with_windows("Menus/PopupLadderDetails.wnd", effects)
                     .ok()
                     .map(|(layout, _)| layout)
-            });
+            })(receiving_manager);
             let Some(layout) = layout else {
                 return WindowMsgHandled::Handled;
             };
@@ -1098,16 +1178,21 @@ pub fn rc_game_details_menu_system(
             let first_window = layout.borrow().get_first_window();
             if let Some(first) = first_window {
                 first.borrow_mut().set_user_data(selected_id);
-                with_window_manager(|manager| manager.set_lone_window(Some(&first)));
+                (|manager: &mut crate::gui::window_manager::WindowManager| {
+                    manager.set_lone_window(Some(&first), effects)
+                })(receiving_manager);
                 let _ = first.borrow_mut().hide(false);
                 let _ = first.borrow_mut().bring_to_front();
             }
 
             let static_text_id = name_to_id("PopupLadderDetails.wnd:StaticTextLadderName");
             let listbox_id = name_to_id("PopupLadderDetails.wnd:ListBoxLadderDetails");
-            let static_text =
-                with_window_manager(|manager| manager.get_window_by_id(static_text_id));
-            let listbox = with_window_manager(|manager| manager.get_window_by_id(listbox_id));
+            let static_text = (|manager: &mut crate::gui::window_manager::WindowManager| {
+                manager.get_window_by_id(static_text_id)
+            })(receiving_manager);
+            let listbox = (|manager: &mut crate::gui::window_manager::WindowManager| {
+                manager.get_window_by_id(listbox_id)
+            })(receiving_manager);
             update_ladder_details(info.index, &static_text, &listbox);
 
             WindowMsgHandled::Handled

@@ -71,33 +71,57 @@ impl CnCGameEngine {
                 "ok" => {
                     self.with_receiving_menu_effects(|effects| {
                         drive_os_wnd_message_box_ok_like_cpp(effects)
-                    })? || simulate_message_box_ok_button_gadget_selected()
+                    })? || self.with_receiving_menu_effects(|effects| {
+                        effects.with_manager(|manager, effects| {
+                            simulate_message_box_ok_button_gadget_selected(manager, effects)
+                        })
+                    })?
                 }
                 "no" => {
                     self.with_receiving_menu_effects(|effects| {
                         drive_os_wnd_message_box_no_like_cpp(effects)
-                    })? || simulate_message_box_no_button_gadget_selected()
+                    })? || self.with_receiving_menu_effects(|effects| {
+                        effects.with_manager(|manager, effects| {
+                            simulate_message_box_no_button_gadget_selected(manager, effects)
+                        })
+                    })?
                 }
                 "cancel" => {
                     self.with_receiving_menu_effects(|effects| {
                         drive_os_wnd_message_box_cancel_like_cpp(effects)
-                    })? || simulate_message_box_cancel_button_gadget_selected()
+                    })? || self.with_receiving_menu_effects(|effects| {
+                        effects.with_manager(|manager, effects| {
+                            simulate_message_box_cancel_button_gadget_selected(manager, effects)
+                        })
+                    })?
                 }
                 "hide" => simulate_message_box_hide(),
                 "prepare_yes" => {
                     self.with_receiving_menu_effects(|effects| {
                         drive_os_wnd_message_box_prepare_yes_like_cpp(&title, &body, effects)
-                    })? || simulate_message_box_prepare_yes(&title, &body)
+                    })? || self.with_receiving_menu_effects(|effects| {
+                        effects.with_manager(|manager, effects| {
+                            simulate_message_box_prepare_yes(&title, &body, manager, effects)
+                        })
+                    })?
                 }
                 "prepare_ok" => {
                     self.with_receiving_menu_effects(|effects| {
                         drive_os_wnd_message_box_prepare_ok_like_cpp(&title, &body, effects)
-                    })? || simulate_message_box_prepare_ok(&title, &body)
+                    })? || self.with_receiving_menu_effects(|effects| {
+                        effects.with_manager(|manager, effects| {
+                            simulate_message_box_prepare_ok(&title, &body, manager, effects)
+                        })
+                    })?
                 }
                 _ => {
                     self.with_receiving_menu_effects(|effects| {
                         drive_os_wnd_message_box_yes_like_cpp(effects)
-                    })? || simulate_message_box_yes_button_gadget_selected()
+                    })? || self.with_receiving_menu_effects(|effects| {
+                        effects.with_manager(|manager, effects| {
+                            simulate_message_box_yes_button_gadget_selected(manager, effects)
+                        })
+                    })?
                 }
             };
         }
@@ -177,12 +201,18 @@ impl CnCGameEngine {
                 "mute" => {
                     self.with_receiving_menu_effects(|effects| {
                         drive_os_wnd_diplomacy_mute_like_cpp(slot, effects)
-                    })? || simulate_diplomacy_mute_slot(slot)
+                    })? || self
+                        .game_client
+                        .window_manager_owner()
+                        .with_manager(|manager| simulate_diplomacy_mute_slot(slot, manager))
                 }
                 "unmute" => {
                     self.with_receiving_menu_effects(|effects| {
                         drive_os_wnd_diplomacy_unmute_like_cpp(slot, effects)
-                    })? || simulate_diplomacy_unmute_slot(slot)
+                    })? || self
+                        .game_client
+                        .window_manager_owner()
+                        .with_manager(|manager| simulate_diplomacy_unmute_slot(slot, manager))
                 }
                 "prepare_ingame" => {
                     self.with_receiving_menu_effects(|effects| {

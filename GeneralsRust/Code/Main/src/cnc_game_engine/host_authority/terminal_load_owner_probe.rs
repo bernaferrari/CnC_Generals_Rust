@@ -321,7 +321,10 @@ pub(crate) fn run() -> anyhow::Result<()> {
     let seed = engine.game_logic.logic_random.seed_words();
     let pending = bincode_legacy::serialize(&engine.game_logic.pending_object_removal_snapshot())
         .map_err(anyhow::Error::msg)?;
-    let windows = game_client::gui::with_window_manager(|manager| manager.window_count());
+    let windows = engine
+        .game_client
+        .window_manager_owner()
+        .with_manager_ref(|manager| manager.window_count());
     let verify = |engine: &CnCGameEngine| {
         assert_eq!(engine.current_state, GameState::Exiting);
         assert_eq!(engine.game_logic.get_frame(), 89);
@@ -353,7 +356,10 @@ pub(crate) fn run() -> anyhow::Result<()> {
             "no fresh start candidate"
         );
         assert_eq!(
-            game_client::gui::with_window_manager(|manager| manager.window_count()),
+            engine
+                .game_client
+                .window_manager_owner()
+                .with_manager_ref(|manager| manager.window_count()),
             windows,
             "no score/menu/loading layout admission on rejected InGame boundary"
         );

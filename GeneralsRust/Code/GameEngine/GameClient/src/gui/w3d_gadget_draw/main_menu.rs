@@ -406,14 +406,9 @@ pub fn w3d_shell_menu_scheme_draw(
     _inst_data: &WindowInstanceData,
     draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
 ) {
-    // Drawing may re-enter from a shell layout callback.  It has no durable
-    // shell mutation to queue, so skip the frame rather than aliasing a live
-    // lifecycle borrow.
-    let _ = crate::gui::shell::try_with_shell_mut(|shell| {
-        if shell.is_shell_active() {
-            shell.get_shell_menu_scheme_manager().draw(draw_context);
-        }
-    });
+    if let Some(scheme) = draw_context.shell_scheme {
+        scheme.draw(draw_context);
+    }
 }
 
 pub fn w3d_credits_menu_draw(

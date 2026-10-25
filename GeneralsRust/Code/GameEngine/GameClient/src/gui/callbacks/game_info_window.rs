@@ -6,14 +6,14 @@ use std::sync::{Arc, Mutex};
 
 use crate::gui::gadgets::ListBoxItemData;
 use crate::gui::{
-    with_window_manager, write_input_focus_response, Color, GameWindow, WindowLayout,
-    WindowMessage, WindowMsgData, WindowMsgHandled,
+    Color, GameWindow, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled,
+    write_input_focus_response,
 };
 use crate::map_util::get_map_cache_manager;
 use game_engine::common::ini::ini_multiplayer::with_multiplayer_settings;
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::rts::player_template::get_player_template_store;
-use game_network::{GameInfo, SlotState, MAX_SLOTS, PLAYERTEMPLATE_OBSERVER};
+use game_network::{GameInfo, MAX_SLOTS, PLAYERTEMPLATE_OBSERVER, SlotState};
 use gamelogic::helpers::TheGameText;
 
 #[derive(Default)]
@@ -72,28 +72,33 @@ fn map_display_name(map_name: &str) -> String {
     leaf.to_string()
 }
 
-pub fn create_lan_game_info_window(size_and_pos_window: &GameWindow) {
+pub fn create_lan_game_info_window(
+    size_and_pos_window: &GameWindow,
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) {
     let needs_layout = { GAME_INFO_STATE.with_borrow(|state| state.layout.is_none()) };
 
     if needs_layout {
-        if let Some(layout) = with_window_manager(|manager| {
+        if let Some(layout) = (|manager: &mut crate::gui::window_manager::WindowManager| {
             manager
-                .create_layout_with_windows("Menus/GameInfoWindow.wnd")
+                .create_layout_with_windows("Menus/GameInfoWindow.wnd", effects)
                 .ok()
                 .map(|(layout, _)| layout)
-        }) {
+        })(receiving_manager)
+        {
             layout.borrow().run_init(None);
-            layout.borrow_mut().bring_forward();
-            layout.borrow_mut().hide(true);
+            layout.borrow_mut().bring_forward(receiving_manager);
+            layout.borrow_mut().hide(receiving_manager, true);
             GAME_INFO_STATE.with_borrow_mut(|state| state.layout = Some(layout));
         }
     }
 
     let parent = GAME_INFO_STATE.with_borrow_mut(|state| {
         if state.parent.is_none() {
-            with_window_manager(|manager| {
+            (|manager: &mut crate::gui::window_manager::WindowManager| {
                 state.parent = manager.get_window_by_id(state.parent_id);
-            });
+            })(receiving_manager);
         }
         state.parent.clone()
     });
@@ -105,13 +110,18 @@ pub fn create_lan_game_info_window(size_and_pos_window: &GameWindow) {
     let (width, height) = size_and_pos_window.get_size();
     let mut parent_guard = parent.borrow_mut();
     let _ = parent_guard.set_position(x, y);
-    let _ = parent_guard.set_size(width, height);
+    let _ = parent_guard.set_size(width, height, effects);
 }
 
-pub fn destroy_game_info_window() {
+pub fn destroy_game_info_window(
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) {
     GAME_INFO_STATE.with_borrow_mut(|state| {
         if let Some(layout) = state.layout.take() {
-            with_window_manager(|manager| manager.destroy_layout(&layout));
+            (|manager: &mut crate::gui::window_manager::WindowManager| {
+                manager.destroy_layout(&layout, effects)
+            })(receiving_manager);
         }
         state.parent = None;
         state.static_text_game_name = None;
@@ -120,7 +130,10 @@ pub fn destroy_game_info_window() {
     });
 }
 
-pub fn refresh_game_info_window(game_info: &GameInfo) {
+pub fn refresh_game_info_window(
+    game_info: &GameInfo,
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+) {
     GAME_INFO_STATE.with_borrow_mut(|state| {
         if state.layout.is_none() || state.parent.is_none() {
             return;
@@ -128,7 +141,7 @@ pub fn refresh_game_info_window(game_info: &GameInfo) {
 
         if let Some(parent) = state.parent.as_ref() {
             let mut parent_guard = parent.borrow_mut();
-            let _ = parent_guard.hide(false);
+            let _ = parent_guard.hide(false, receiving_manager);
             let _ = parent_guard.bring_to_front();
         }
 
@@ -230,15 +243,22 @@ pub fn refresh_game_info_window(game_info: &GameInfo) {
     });
 }
 
-pub fn hide_game_info_window(hide: bool) {
+pub fn hide_game_info_window(
+    hide: bool,
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+) {
     GAME_INFO_STATE.with_borrow(|state| {
         if let Some(parent) = state.parent.as_ref() {
-            let _ = parent.borrow_mut().hide(hide);
+            let _ = parent.borrow_mut().hide(hide, receiving_manager);
         }
     });
 }
 
-pub fn game_info_window_init(layout: &WindowLayout, _user_data: Option<&mut dyn std::any::Any>) {
+pub fn game_info_window_init(
+    layout: &WindowLayout,
+    _user_data: Option<&mut dyn std::any::Any>,
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+) {
     GAME_INFO_STATE.with_borrow_mut(|state| {
         state.parent_id = name_to_id("GameInfoWindow.wnd:ParentGameInfo");
         state.static_text_game_name_id = name_to_id("GameInfoWindow.wnd:StaticTextGameName");
@@ -248,12 +268,12 @@ pub fn game_info_window_init(layout: &WindowLayout, _user_data: Option<&mut dyn 
         state.win_super_weapons_id = name_to_id("GameInfoWindow.wnd:WinSuperWeapons");
         state.win_free_for_all_id = name_to_id("GameInfoWindow.wnd:WinFreeForAll");
 
-        with_window_manager(|manager| {
+        (|manager: &mut crate::gui::window_manager::WindowManager| {
             state.parent = manager.get_window_by_id(state.parent_id);
             state.static_text_game_name = manager.get_window_by_id(state.static_text_game_name_id);
             state.static_text_map_name = manager.get_window_by_id(state.static_text_map_name_id);
             state.list_box_players = manager.get_window_by_id(state.list_box_players_id);
-        });
+        })(receiving_manager);
 
         if let Some(static_text) = state.static_text_game_name.as_ref() {
             if let Some(widget) = static_text.borrow_mut().static_text_mut() {

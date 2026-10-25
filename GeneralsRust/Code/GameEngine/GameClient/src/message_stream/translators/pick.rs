@@ -7,6 +7,7 @@ pub(super) fn collect_selectable_objects_from_presentation(
     radius: f32,
     point_world: Option<&Coord3D>,
     profile: ContextPickProfile,
+    window_query: &mut dyn FnMut(i32, i32) -> bool,
 ) -> (Vec<(ObjectID, f32)>, Vec<(ObjectID, f32)>) {
     let mut mine = Vec::new();
     let mut other = Vec::new();
@@ -36,7 +37,7 @@ pub(super) fn collect_selectable_objects_from_presentation(
                 continue;
             }
             let pos = Coord3D::new(entry.position[0], entry.position[1], entry.position[2]);
-            if world_position_is_under_opaque_window_for_command(&pos) {
+            if world_position_is_under_opaque_window_for_command(&pos, window_query) {
                 continue;
             }
             let Some(distance) = object_pick_distance(&pos, region, is_point, point_world, radius)
@@ -59,6 +60,7 @@ pub(super) fn collect_selectable_objects(
     radius: f32,
     _local_player: Option<u32>,
     profile: ContextPickProfile,
+    window_query: &mut dyn FnMut(i32, i32) -> bool,
 ) -> (Vec<(ObjectID, f32)>, Vec<(ObjectID, f32)>) {
     let local_player_index = player_list()
         .read()
@@ -71,6 +73,7 @@ pub(super) fn collect_selectable_objects(
                 &IPoint2::new(region.x, region.y),
                 true,
                 crate::display::view::PickType::Selectable,
+                window_query,
             )
         }) {
             if let Some(obj_ref) = OBJECT_REGISTRY.get_object(ObjectID::from(picked)) {
@@ -80,7 +83,8 @@ pub(super) fn collect_selectable_objects(
                     {
                         let pos = obj.get_position();
                         let world = Coord3D::new(pos.x, pos.y, pos.z);
-                        if !world_position_is_under_opaque_window_for_command(&world) {
+                        if !world_position_is_under_opaque_window_for_command(&world, window_query)
+                        {
                             if obj.is_locally_controlled() {
                                 return (vec![(obj.get_id(), 0.0)], Vec::new());
                             }
@@ -106,6 +110,7 @@ pub(super) fn collect_selectable_objects(
             radius,
             point_world.as_ref(),
             profile,
+            window_query,
         );
     }
     let mut mine = Vec::new();
@@ -122,7 +127,7 @@ pub(super) fn collect_selectable_objects(
         }
         let pos = obj.get_position();
         let pos = Coord3D::new(pos.x, pos.y, pos.z);
-        if world_position_is_under_opaque_window_for_command(&pos) {
+        if world_position_is_under_opaque_window_for_command(&pos, window_query) {
             continue;
         }
 
@@ -206,22 +211,15 @@ pub(super) fn object_pick_distance(
     })
 }
 
-pub(super) fn world_position_is_under_opaque_window_for_command(pos: &Coord3D) -> bool {
+pub(super) fn world_position_is_under_opaque_window_for_command(
+    pos: &Coord3D,
+    window_query: &mut dyn FnMut(i32, i32) -> bool,
+) -> bool {
     let point = Point3::new(pos.x, pos.y, pos.z);
     let Some(screen) = with_tactical_view_ref(|view| view.world_to_screen(&point)) else {
         return false;
     };
-    with_window_manager_ref(|manager| {
-        let mut window = manager.get_window_under_cursor(screen.x, screen.y, false);
-        while let Some(current) = window {
-            let guard = current.borrow();
-            if !guard.get_status().contains(WindowStatus::SEE_THRU) {
-                return true;
-            }
-            window = guard.get_parent();
-        }
-        false
-    })
+    window_query(screen.x, screen.y)
 }
 
 pub(super) fn pick_closest(objects: &mut Vec<(ObjectID, f32)>) -> Option<ObjectID> {

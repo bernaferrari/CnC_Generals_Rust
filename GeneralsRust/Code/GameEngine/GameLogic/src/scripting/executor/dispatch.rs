@@ -1044,7 +1044,7 @@ impl ScriptActionDispatcher<'_> {
             // Audio actions
             ScriptActionType::PlaySoundEffect => self.do_play_sound_effect(action),
             ScriptActionType::PlaySoundEffectAt => self.do_play_sound_effect_at(action),
-            ScriptActionType::SpeechPlay => self.do_speech_play(action),
+            ScriptActionType::SpeechPlay => self.do_speech_play(action, driver),
             ScriptActionType::MusicSetTrack => self.do_music_track_change(action, driver),
 
             // Radar actions
@@ -1954,7 +1954,7 @@ impl ScriptActionDispatcher<'_> {
             ScriptActionType::HideCounter => self.do_hide_counter(action),
             ScriptActionType::DisableSpecialPowerDisplay => self.do_disable_special_power_display(),
             ScriptActionType::EnableSpecialPowerDisplay => self.do_enable_special_power_display(),
-            ScriptActionType::IngamePopupMessage => self.do_ingame_popup_message(action),
+            ScriptActionType::IngamePopupMessage => self.do_ingame_popup_message(action, driver),
             ScriptActionType::ObjectForceSelect => self.do_object_force_select(action),
 
             // ============================================================================

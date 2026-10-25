@@ -782,14 +782,14 @@ impl InGameUI {
     }
 
     /// Update UI state
-    pub fn update(&mut self, delta_time: Duration) {
+    pub fn update(&mut self, delta_time: Duration, input: &InGameUiInputContext<'_>) {
         self.last_update = Instant::now();
         self.ui_time += delta_time.as_secs_f32();
         if let Ok(mut renderer) = self.renderer.write() {
             renderer.set_time(self.ui_time);
         }
         self.current_frame = TheGameLogic::get_frame();
-        self.update_movie_playback();
+        self.update_movie_playback(input.manager);
         self.expire_messages();
         self.update_military_subtitle();
         self.update_floating_texts();
@@ -797,7 +797,7 @@ impl InGameUI {
         self.update_superweapon_timers(self.current_frame);
         self.last_ui_logic_frame = self.current_frame;
         self.handle_build_placements();
-        self.handle_radius_cursor();
+        self.handle_radius_cursor(input);
     }
 
     pub fn pre_draw(&mut self, frame: u32) {

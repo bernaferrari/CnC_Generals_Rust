@@ -22,16 +22,17 @@ struct SourcePreparationBefore {
 fn create_source_background_layout(
     manager: &mut game_client::gui::window_manager::WindowManager,
     filename: &str,
+    effects: &mut game_client::gui::game_window::WindowEventEffects<'_>,
 ) -> game_client::gui::game_window::WindowResult<
     std::rc::Rc<std::cell::RefCell<game_client::gui::window_manager::WindowLayout>>,
 > {
-    let (layout, _) = manager.create_layout_with_windows(filename)?;
+    let (layout, _) = manager.create_layout_with_windows(filename, effects)?;
     if layout.borrow().get_first_window().is_none() {
-        manager.destroy_layout(&layout);
+        manager.destroy_layout(&layout, effects);
         return Err(game_client::gui::game_window::WindowError::InvalidWindow);
     }
-    layout.borrow_mut().hide(false);
-    layout.borrow_mut().bring_forward();
+    layout.borrow().hide(manager, false);
+    layout.borrow_mut().bring_forward(manager);
     Ok(layout)
 }
 
@@ -111,9 +112,18 @@ impl CnCGameEngine {
         #[cfg(feature = "game_client")]
         let window_manager_owner = self.game_client.window_manager_owner();
         #[cfg(feature = "game_client")]
-        let (mut client_frame, snow, presence, campaign_manager, command_hints) = self
+        let mut script_window_messages = Vec::new();
+        #[cfg(feature = "game_client")]
+        let (
+            mut client_frame,
+            snow,
+            presence,
+            command_hints,
+            script_window_effects,
+            script_window_stream,
+        ) = self
             .game_client
-            .split_frame_snow_drawable_campaign_and_hints();
+            .split_frame_snow_drawable_script_ui_and_hints(&mut script_window_messages);
         #[cfg(feature = "game_client")]
         let cinematic_window = &self.window;
         #[cfg(feature = "game_client")]
@@ -150,7 +160,7 @@ impl CnCGameEngine {
             window_manager_owner,
         )
         .with_cinematic_input(cinematic_input)
-        .with_campaign_manager(campaign_manager)
+        .with_window_effects(script_window_effects, script_window_stream)
         .with_command_hints(command_hints, client_frame.frame());
         let mut audio = super::native_audio_effects::NativeAudioService::live();
         #[cfg(feature = "game_client")]
@@ -338,7 +348,24 @@ impl CnCGameEngine {
         let Some(dispatch) = Self::startup_new_game_dispatch_from_message(message) else {
             return Ok(false);
         };
+        if message.skirmish_launch().is_some_and(|descriptor| {
+            !descriptor.matches_new_game(
+                dispatch.game_mode_code,
+                dispatch.difficulty_code,
+                dispatch.rank_points,
+                dispatch.max_fps,
+            )
+        }) {
+            warn!("Rejecting NewGame whose owned lobby descriptor mismatches its payload");
+            return Ok(false);
+        }
         let before = self.capture_source_preparation();
+        if let Some(descriptor) = message.skirmish_launch() {
+            // The exact preceding ClearGameData has finished in this cursor.
+            // Seed before BlankWindow/other NewGame preparation callbacks.
+            self.game_logic
+                .set_logic_random_seed(descriptor.game_info.seed as u32);
+        }
         // Dispatch.cpp407–419 applies optional FPS before prepareNewGame.
         Self::apply_application_new_game_fps(dispatch);
         // prepareNewGame: interpreter difficulty, background, mode, pending map,
@@ -349,13 +376,16 @@ impl CnCGameEngine {
         {
             if self.source_new_game_background.is_none() {
                 let mut created = None;
+                let facts = self.receiving_menu_world_facts();
                 self.game_client
-                    .window_manager_owner()
-                    .with_manager(|manager| {
-                        created = Some(create_source_background_layout(
-                            manager,
-                            "Menus/BlankWindow.wnd",
-                        ));
+                    .with_window_event_effects(Some(facts), |effects| {
+                        created = Some(effects.with_manager(|manager, effects| {
+                            create_source_background_layout(
+                                manager,
+                                "Menus/BlankWindow.wnd",
+                                effects,
+                            )
+                        }));
                     });
                 match created {
                     Some(Ok(layout)) => self.source_new_game_background = Some(layout),
@@ -393,6 +423,8 @@ impl CnCGameEngine {
             // The descriptor belongs to this exact command and survives a prior clear.
             self.game_logic.set_logic_random_seed(descriptor.seed);
             Some(self.source_shell_map_start_request(dispatch, descriptor)?)
+        } else if let Some(descriptor) = message.skirmish_launch() {
+            Some(self.source_skirmish_start_request(dispatch, descriptor)?)
         } else if dispatch.game_mode == GameMode::Replay {
             // Header/map/slots belong to this same live receiving Recorder.
             Self::take_application_new_game_map();
@@ -419,9 +451,12 @@ impl CnCGameEngine {
     pub(super) fn destroy_source_new_game_background(&mut self) {
         #[cfg(feature = "game_client")]
         if let Some(layout) = self.source_new_game_background.take() {
+            let facts = self.receiving_menu_world_facts();
             self.game_client
-                .window_manager_owner()
-                .with_manager(|manager| manager.destroy_layout(&layout));
+                .with_window_event_effects(Some(facts), |effects| {
+                    effects
+                        .with_manager(|manager, effects| manager.destroy_layout(&layout, effects));
+                });
         }
     }
 

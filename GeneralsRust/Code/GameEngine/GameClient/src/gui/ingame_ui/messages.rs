@@ -162,11 +162,15 @@ impl InGameUI {
     // C++: InGameUI::militarySubtitle() (InGameUI.cpp:4039)
     // C++: InGameUI::removeMilitarySubtitle() (InGameUI.cpp:4093)
 
-    pub fn military_subtitle(&mut self, title: &str, duration_ms: i32) {
-        crate::gui::ingame_ui::live_hud::start_military_subtitle(title, duration_ms);
+    pub fn military_subtitle(
+        &mut self,
+        title: &str,
+        duration_ms: i32,
+        manager: &mut crate::gui::window_manager::WindowManager,
+    ) {
+        crate::gui::ingame_ui::live_hud::start_military_subtitle(title, duration_ms, manager);
         // C++ InGameUI.cpp:4042 — drop any existing caption first.
         self.remove_military_subtitle();
-        update_diplomacy_briefing_text(title, false);
         let title = Self::military_caption_text(title);
         if title.is_empty() || duration_ms <= 0 {
             return;

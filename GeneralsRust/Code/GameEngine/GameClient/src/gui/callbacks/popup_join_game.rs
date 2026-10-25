@@ -5,7 +5,7 @@ use crate::gamespy_overlay::{
     queue_join_request, set_lobby_attempt_host_join,
 };
 use crate::gui::{
-    GameWindow, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled, with_window_manager,
+    GameWindow, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled,
     write_input_focus_response,
 };
 use game_engine::common::name_key_generator::NameKeyGenerator;
@@ -32,7 +32,12 @@ fn popup_join_state() -> Rc<RefCell<PopupJoinState>> {
     POPUP_JOIN_STATE.with(Rc::clone)
 }
 
-pub fn popup_join_game_init(_layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>) {
+pub fn popup_join_game_init(
+    _layout: &WindowLayout,
+    _user_data: Option<&dyn std::any::Any>,
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) {
     let parent_id = NameKeyGenerator::name_to_key("PopupJoinGame.wnd:ParentJoinPopUp") as i32;
     let text_entry_id =
         NameKeyGenerator::name_to_key("PopupJoinGame.wnd:TextEntryGamePassword") as i32;
@@ -40,7 +45,9 @@ pub fn popup_join_game_init(_layout: &WindowLayout, _user_data: Option<&dyn std:
     let static_text_game_name_id =
         NameKeyGenerator::name_to_key("PopupJoinGame.wnd:StaticTextGameName");
 
-    let parent = with_window_manager(|manager| manager.get_window_by_id(parent_id as i32));
+    let parent = (|manager: &mut crate::gui::window_manager::WindowManager| {
+        manager.get_window_by_id(parent_id as i32)
+    })(receiving_manager);
     let text_entry = parent
         .as_ref()
         .and_then(|parent| parent.borrow().find_child_by_id(text_entry_id as i32));
@@ -73,10 +80,10 @@ pub fn popup_join_game_init(_layout: &WindowLayout, _user_data: Option<&dyn std:
     }
 
     if let Some(parent) = parent.as_ref() {
-        with_window_manager(|manager| {
-            let _ = manager.set_focus(Some(parent));
+        (|manager: &mut crate::gui::window_manager::WindowManager| {
+            let _ = manager.set_focus(Some(parent), effects);
             let _ = manager.set_modal(parent.clone());
-        });
+        })(receiving_manager);
     }
 
     let state_slot = popup_join_state();

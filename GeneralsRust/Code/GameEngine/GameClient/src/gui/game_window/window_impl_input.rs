@@ -9,6 +9,7 @@ impl GameWindow {
         msg: WindowMessage,
         data1: WindowMsgData,
         data2: WindowMsgData,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) -> WindowMsgHandled {
         let mut notification = None;
         self.handle_widget_input_phase(
@@ -20,7 +21,7 @@ impl GameWindow {
             false,
             false,
             &mut notification,
-            None,
+            effects,
             None,
         )
     }
@@ -36,12 +37,12 @@ impl GameWindow {
         if msg != WindowMessage::Destroy && self.status.contains(WindowStatus::DESTROYED) {
             return WindowMsgHandled::Ignored;
         }
-        if let Some(callback) = self.callbacks.input_with_message_sink.as_ref() {
+        if let Some(callback) = self.callbacks.input_with_message_sink.clone() {
             let result = callback(self, msg, data1, data2, emitted_messages);
             if !result.is_ignored() {
                 return result;
             }
-        } else if let Some(callback) = self.callbacks.input.as_ref() {
+        } else if let Some(callback) = self.callbacks.input.clone() {
             let result = callback(self, msg, data1, data2);
             if !result.is_ignored() {
                 return result;
@@ -57,7 +58,7 @@ impl GameWindow {
             false,
             false,
             &mut notification,
-            Some(emitted_messages),
+            emitted_messages,
             pending_control_bar_clicks,
         )
     }
@@ -71,6 +72,7 @@ impl GameWindow {
         owned_replay: bool,
         owned_restart: bool,
         pending_control_bar_clicks: Option<&mut Vec<crate::helpers::LiveControlBarClick>>,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) -> (WindowMsgHandled, Option<ControlBarNotification>) {
         let mut notification = None;
         let result = self.handle_widget_input_phase(
@@ -82,7 +84,7 @@ impl GameWindow {
             owned_replay,
             owned_restart,
             &mut notification,
-            None,
+            effects,
             pending_control_bar_clicks,
         );
         (result, notification)
@@ -97,7 +99,7 @@ impl GameWindow {
         owned_replay: bool,
         owned_restart: bool,
         notification: &mut Option<ControlBarNotification>,
-        mut emitted_messages: Option<&mut crate::gui::game_window::WindowEventEffects<'_>>,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
         mut pending_control_bar_clicks: Option<&mut Vec<crate::helpers::LiveControlBarClick>>,
     ) -> WindowMsgHandled {
         self.sync_listbox_content_top_inset();
@@ -106,7 +108,7 @@ impl GameWindow {
             && self.combobox_links.is_some()
         {
             Self::play_gui_click();
-            self.toggle_combobox_dropdown();
+            self.toggle_combobox_dropdown(effects);
             return WindowMsgHandled::Handled;
         }
 
@@ -121,7 +123,7 @@ impl GameWindow {
             if let WindowWidget::ListBox(listbox) = widget {
                 listbox.scroll_by(delta);
             }
-            self.update_listbox_scrollbar();
+            self.update_listbox_scrollbar(effects);
             return WindowMsgHandled::Handled;
         }
 
@@ -192,6 +194,7 @@ impl GameWindow {
                                     WindowMessage::User(GEM_EDIT_DONE),
                                     self.id as WindowMsgData,
                                     0,
+                                    effects,
                                 );
                             }
                         }
@@ -202,6 +205,7 @@ impl GameWindow {
                                     WindowMessage::User(GEM_UPDATE_TEXT),
                                     self.id as WindowMsgData,
                                     0,
+                                    effects,
                                 );
                             }
                         }
@@ -213,7 +217,7 @@ impl GameWindow {
         }
 
         if matches!(widget, WindowWidget::TextEntry(_))
-            && crate::gui::ime_manager::ime_should_swallow_input_for_window(self.id)
+            && crate::gui::ime_manager::ime_should_swallow_input_for_window(effects.ime(), self.id)
         {
             return WindowMsgHandled::Handled;
         }
@@ -262,7 +266,7 @@ impl GameWindow {
         }
 
         if matches!(self.widget, Some(WindowWidget::ListBox(_))) {
-            self.update_listbox_scrollbar();
+            self.update_listbox_scrollbar(effects);
         }
 
         if matches!(self.widget, Some(WindowWidget::TabControl(_))) {
@@ -275,7 +279,7 @@ impl GameWindow {
                 None
             }) {
                 if selected >= 0 {
-                    self.show_tab_pane(selected as usize);
+                    self.show_tab_pane(selected as usize, effects);
                 }
             }
         }
@@ -306,21 +310,13 @@ impl GameWindow {
                 // winSetFocus delivers GWM_INPUT_FOCUS to the gadget itself;
                 // its system callback then sends GGM_FOCUS_CHANGE to the owner.
                 // Sending raw InputFocus to the owner skips that C++ sequence.
-                let result = if let Some(emitted) = emitted_messages.as_deref_mut() {
-                    self.send_system_message_with_message_sink(
-                        WindowMessage::InputFocus,
-                        if has_focus { 1 } else { 0 },
-                        0,
-                        emitted,
-                        pending_control_bar_clicks.as_deref_mut(),
-                    )
-                } else {
-                    self.send_system_message(
-                        WindowMessage::InputFocus,
-                        if has_focus { 1 } else { 0 },
-                        0,
-                    )
-                };
+                let result = self.send_system_message(
+                    WindowMessage::InputFocus,
+                    if has_focus { 1 } else { 0 },
+                    0,
+                    effects,
+                );
+
                 handled |= result.is_handled();
                 continue;
             }
@@ -453,12 +449,24 @@ impl GameWindow {
                 GadgetMessage::FocusChanged { .. } => unreachable!(),
                 GadgetMessage::Custom { data, .. } => {
                     if data == "tab_next" {
-                        with_window_manager(|manager| manager.navigate_tab(TabDirection::Next));
+                        effects.with_manager(|manager, effects| {
+                            manager.navigate_tab_with_selected(
+                                TabDirection::Next,
+                                effects,
+                                Some(self),
+                            )
+                        });
                         handled = true;
                         continue;
                     }
                     if data == "tab_prev" {
-                        with_window_manager(|manager| manager.navigate_tab(TabDirection::Previous));
+                        effects.with_manager(|manager, effects| {
+                            manager.navigate_tab_with_selected(
+                                TabDirection::Previous,
+                                effects,
+                                Some(self),
+                            )
+                        });
                         handled = true;
                         continue;
                     }
@@ -468,7 +476,7 @@ impl GameWindow {
                     }
                     if data == "lone_window" {
                         // C++ GadgetComboBox.cpp:134 / 618 winSetLoneWindow
-                        self.claim_combobox_lone_window();
+                        self.claim_combobox_lone_window(effects);
                         handled = true;
                         continue;
                     }
@@ -649,28 +657,12 @@ impl GameWindow {
                     return WindowMsgHandled::Handled;
                 }
             }
-            let result = if let Some(emitted) = emitted_messages.as_deref_mut() {
-                if let Some(owner) = target_owner.as_ref() {
-                    owner.borrow_mut().send_system_message_with_message_sink(
-                        msg,
-                        data1,
-                        data2,
-                        emitted,
-                        pending_control_bar_clicks.as_deref_mut(),
-                    )
-                } else {
-                    self.send_system_message_with_message_sink(
-                        msg,
-                        data1,
-                        data2,
-                        emitted,
-                        pending_control_bar_clicks.as_deref_mut(),
-                    )
-                }
-            } else if let Some(ref owner) = target_owner {
-                owner.borrow_mut().send_system_message(msg, data1, data2)
+            let result = if let Some(owner) = target_owner.as_ref() {
+                owner
+                    .borrow_mut()
+                    .send_system_message(msg, data1, data2, effects)
             } else {
-                self.send_system_message(msg, data1, data2)
+                self.send_system_message(msg, data1, data2, effects)
             };
             if result.is_handled() {
                 handled = true;
@@ -732,6 +724,7 @@ impl GameWindow {
         msg: WindowMessage,
         data1: WindowMsgData,
         data2: WindowMsgData,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) -> WindowMsgHandled {
         if matches!(
             msg,
@@ -773,7 +766,9 @@ impl GameWindow {
 
         if matches!(self.widget, Some(WindowWidget::ComboBox(_))) {
             if msg == WindowMessage::Destroy {
-                queue_window_manager_op(|manager| manager.set_lone_window(None));
+                effects.with_manager(|manager, effects| {
+                    manager.set_lone_window_with_selected(None, effects, Some(self))
+                });
                 return WindowMsgHandled::Handled;
             }
 
@@ -811,6 +806,7 @@ impl GameWindow {
                                 self,
                                 &text,
                                 shell_color_from_packed_arg(data2),
+                                effects,
                             )
                         } else {
                             -1
@@ -828,7 +824,7 @@ impl GameWindow {
                                 {
                                     listbox.clear();
                                 }
-                                list_box.borrow_mut().update_listbox_scrollbar();
+                                list_box.borrow_mut().update_listbox_scrollbar(effects);
                             }
                             if let Some(edit_box) = self.find_child_by_id(links.edit_box) {
                                 if let Some(WindowWidget::TextEntry(entry)) =
@@ -844,7 +840,7 @@ impl GameWindow {
                         return WindowMsgHandled::Handled;
                     }
                     GGM_CLOSE => {
-                        self.hide_combobox_list();
+                        self.hide_combobox_list(effects);
                         return WindowMsgHandled::Handled;
                     }
                     GCM_SET_SELECTION => {
@@ -868,9 +864,10 @@ impl GameWindow {
                                             .select_index(selected as usize, KeyModifiers::none());
                                     }
                                 }
-                                list_box.borrow_mut().update_listbox_scrollbar();
-                                return self
-                                    .handle_combobox_list_selection(links, &list_box, selected);
+                                list_box.borrow_mut().update_listbox_scrollbar(effects);
+                                return self.handle_combobox_list_selection(
+                                    links, &list_box, selected, effects,
+                                );
                             }
                         }
                         return WindowMsgHandled::Handled;
@@ -927,7 +924,7 @@ impl GameWindow {
                 if msg == WindowMessage::GadgetSelected && data1 == links.drop_down as WindowMsgData
                 {
                     Self::play_gui_click();
-                    self.toggle_combobox_dropdown();
+                    self.toggle_combobox_dropdown(effects);
                     return WindowMsgHandled::Handled;
                 }
 
@@ -946,7 +943,8 @@ impl GameWindow {
                             })
                             .map(|index| index as i32)
                             .unwrap_or(-1);
-                        return self.handle_combobox_list_selection(links, &list_box, selected);
+                        return self
+                            .handle_combobox_list_selection(links, &list_box, selected, effects);
                     }
                 }
 
@@ -954,7 +952,12 @@ impl GameWindow {
                     && data1 == links.list_box as WindowMsgData
                 {
                     if let Some(list_box) = self.find_child_by_id(links.list_box) {
-                        return self.handle_combobox_list_selection(links, &list_box, data2 as i32);
+                        return self.handle_combobox_list_selection(
+                            links,
+                            &list_box,
+                            data2 as i32,
+                            effects,
+                        );
                     }
                 }
 
@@ -967,6 +970,7 @@ impl GameWindow {
                                 WindowMessage::User(GCM_UPDATE_TEXT),
                                 self.id as WindowMsgData,
                                 0,
+                                effects,
                             );
                         }
                     }
@@ -980,7 +984,7 @@ impl GameWindow {
                             listbox.set_selected_indices(&[]);
                         }
                     }
-                    self.hide_combobox_list();
+                    self.hide_combobox_list(effects);
                     return WindowMsgHandled::Handled;
                 }
 
@@ -999,13 +1003,14 @@ impl GameWindow {
                         {
                             combo.set_text(&text);
                         }
-                        self.hide_combobox_list();
+                        self.hide_combobox_list(effects);
                         if !self.owner_is_self {
                             if let Some(owner) = self.get_owner() {
                                 let _ = owner.borrow_mut().send_system_message(
                                     WindowMessage::User(GCM_SELECTED),
                                     self.id as WindowMsgData,
                                     0,
+                                    effects,
                                 );
                             }
                         }
@@ -1025,21 +1030,21 @@ impl GameWindow {
                                 added_index = listbox.add_entry(entry);
                             }
                         }
-                        self.update_listbox_scrollbar();
+                        self.update_listbox_scrollbar(effects);
                         return WindowMsgHandled::Value(added_index as WindowMsgData);
                     }
                     GLM_DEL_ALL => {
                         if let Some(WindowWidget::ListBox(listbox)) = self.widget.as_mut() {
                             listbox.clear();
                         }
-                        self.update_listbox_scrollbar();
+                        self.update_listbox_scrollbar(effects);
                         return WindowMsgHandled::Handled;
                     }
                     GLM_DEL_ENTRY => {
                         if let Some(WindowWidget::ListBox(listbox)) = self.widget.as_mut() {
                             let _ = listbox.remove_item(data1);
                         }
-                        self.update_listbox_scrollbar();
+                        self.update_listbox_scrollbar(effects);
                         return WindowMsgHandled::Handled;
                     }
                     GLM_SET_SELECTION => {
@@ -1082,7 +1087,7 @@ impl GameWindow {
                                 }
                             }
                         }
-                        self.update_listbox_scrollbar();
+                        self.update_listbox_scrollbar(effects);
                         if !self.owner_is_self {
                             if let Some(owner) = self.get_owner() {
                                 let selected = self
@@ -1094,6 +1099,7 @@ impl GameWindow {
                                     WindowMessage::User(GLM_SELECTED),
                                     self.id as WindowMsgData,
                                     selected as WindowMsgData,
+                                    effects,
                                 );
                             }
                         }
@@ -1146,21 +1152,21 @@ impl GameWindow {
                         let mut links = self.listbox_links.unwrap_or_default();
                         links.slider = data1 as WindowId;
                         self.listbox_links = Some(links);
-                        self.update_listbox_scrollbar();
+                        self.update_listbox_scrollbar(effects);
                         return WindowMsgHandled::Handled;
                     }
                     GLM_SCROLL_BUFFER => {
                         if let Some(WindowWidget::ListBox(listbox)) = self.widget.as_mut() {
                             let _ = listbox.scroll_buffer(data1);
                         }
-                        self.update_listbox_scrollbar();
+                        self.update_listbox_scrollbar(effects);
                         return WindowMsgHandled::Handled;
                     }
                     GLM_UPDATE_DISPLAY => {
                         if let Some(WindowWidget::ListBox(listbox)) = self.widget.as_mut() {
                             listbox.set_top_visible_entry(data1 as i32);
                         }
-                        self.update_listbox_scrollbar();
+                        self.update_listbox_scrollbar(effects);
                         return WindowMsgHandled::Handled;
                     }
                     GLM_GET_ITEM_DATA => {
@@ -1199,7 +1205,7 @@ impl GameWindow {
                     if let Some(WindowWidget::ListBox(listbox)) = self.widget.as_mut() {
                         listbox.scroll_by(-1);
                     }
-                    self.update_listbox_scrollbar();
+                    self.update_listbox_scrollbar(effects);
                     return WindowMsgHandled::Handled;
                 }
 
@@ -1209,7 +1215,7 @@ impl GameWindow {
                     if let Some(WindowWidget::ListBox(listbox)) = self.widget.as_mut() {
                         listbox.scroll_by(1);
                     }
-                    self.update_listbox_scrollbar();
+                    self.update_listbox_scrollbar(effects);
                     return WindowMsgHandled::Handled;
                 }
 
@@ -1240,7 +1246,7 @@ impl GameWindow {
                     if let Some(WindowWidget::ListBox(listbox)) = self.widget.as_mut() {
                         listbox.set_scroll_offset(max_offset.saturating_sub(slider_value));
                     }
-                    self.update_listbox_scrollbar();
+                    self.update_listbox_scrollbar(effects);
                     return WindowMsgHandled::Handled;
                 }
             }
@@ -1253,7 +1259,7 @@ impl GameWindow {
             if let WindowMessage::User(code) = msg {
                 match code {
                     GGM_LEFT_DRAG => {
-                        return self.handle_slider_left_drag(data2);
+                        return self.handle_slider_left_drag(data2, effects);
                     }
 
                     GSM_SET_SLIDER => {
@@ -1303,12 +1309,18 @@ impl GameWindow {
                             if let Some(thumb) = self.find_child_by_id(thumb_id) {
                                 match self.widget.as_ref() {
                                     Some(WindowWidget::HorizontalSlider(_)) => {
-                                        let _ =
-                                            thumb.borrow_mut().set_size(GADGET_SIZE, data2 as i32);
+                                        let _ = thumb.borrow_mut().set_size(
+                                            GADGET_SIZE,
+                                            data2 as i32,
+                                            effects,
+                                        );
                                     }
                                     Some(WindowWidget::VerticalSlider(_)) => {
-                                        let _ =
-                                            thumb.borrow_mut().set_size(data1 as i32, GADGET_SIZE);
+                                        let _ = thumb.borrow_mut().set_size(
+                                            data1 as i32,
+                                            GADGET_SIZE,
+                                            effects,
+                                        );
                                     }
                                     _ => {}
                                 }
@@ -1336,6 +1348,7 @@ impl GameWindow {
                                 WindowMessage::User(GGM_FOCUS_CHANGE),
                                 data1,
                                 self.id as WindowMsgData,
+                                effects,
                             );
                         }
                     }
@@ -1363,6 +1376,7 @@ impl GameWindow {
                                     WindowMessage::GadgetSelected,
                                     self.id as WindowMsgData,
                                     0,
+                                    effects,
                                 );
                             }
                         }
@@ -1379,7 +1393,7 @@ impl GameWindow {
                     return WindowMsgHandled::Handled;
                 }
                 WindowMessage::User(code) if code == GBM_SET_SELECTION => {
-                    return self.gadget_check_box_set_checked(data1 != 0);
+                    return self.gadget_check_box_set_checked(data1 != 0, effects);
                 }
                 _ => {}
             }
@@ -1424,7 +1438,9 @@ impl GameWindow {
             )
         {
             if let Some(parent) = self.get_parent() {
-                return parent.borrow_mut().send_system_message(msg, data1, data2);
+                return parent
+                    .borrow_mut()
+                    .send_system_message(msg, data1, data2, effects);
             }
         }
 
@@ -1432,7 +1448,9 @@ impl GameWindow {
             && msg == WindowMessage::GadgetSelected
         {
             if let Some(parent) = self.get_parent() {
-                return parent.borrow_mut().send_system_message(msg, data1, data2);
+                return parent
+                    .borrow_mut()
+                    .send_system_message(msg, data1, data2, effects);
             }
         }
 
@@ -1460,10 +1478,15 @@ impl GameWindow {
                         .remove(WindowState::SELECTED | WindowState::HILITED);
                 }
                 let window_id = self.id;
-                with_window_manager(|manager| {
-                    if let Some(window) = manager.get_window_by_id(window_id) {
-                        crate::gui::ime_manager::attach_or_detach_for_focus(window, focused);
-                    }
+                effects.with_manager(|manager, effects| {
+                    let window = manager
+                        .get_window_by_id_with_selected(window_id, Some(self))
+                        .expect("focused window must belong to receiving manager");
+                    crate::gui::ime_manager::attach_or_detach_for_focus(
+                        effects.ime_mut(),
+                        window,
+                        focused,
+                    );
                 });
             } else if matches!(
                 self.widget,
@@ -1487,6 +1510,7 @@ impl GameWindow {
                             WindowMessage::User(GGM_FOCUS_CHANGE),
                             data1,
                             self.id as WindowMsgData,
+                            effects,
                         );
                     }
                 }
@@ -1497,6 +1521,7 @@ impl GameWindow {
                                 WindowMessage::InputFocus,
                                 data1,
                                 token,
+                                effects,
                             )
                         });
                     }
@@ -1511,6 +1536,7 @@ impl GameWindow {
                         WindowMessage::User(GGM_FOCUS_CHANGE),
                         data1,
                         self.id as WindowMsgData,
+                        effects,
                     );
                 }
             }

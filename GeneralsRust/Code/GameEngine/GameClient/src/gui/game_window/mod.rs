@@ -46,10 +46,7 @@ mod prelude {
         ensure_client_mapped_image, get_mapped_image_collection,
     };
     pub(super) use crate::game_text::GameText;
-    pub(super) use crate::gui::window_manager::{
-        TabDirection, queue_window_manager_op, queue_window_manager_op_deferred,
-        with_window_manager,
-    };
+    pub(super) use crate::gui::window_manager::TabDirection;
     pub(super) use crate::video_buffer::{VideoBufferHandle, VideoBufferType};
 
     pub(super) use super::super::gadgets::{
@@ -63,7 +60,7 @@ mod prelude {
         MAX_DRAW_DATA, TOOLTIP_DELAY, TOOLTIP_MAX_LEN, UIRect, WindowLayout,
         display_string::DisplayStringHandle,
         font::{FontDesc, get_font_library},
-        get_display_string_manager, with_window_manager_ref,
+        get_display_string_manager,
     };
 }
 

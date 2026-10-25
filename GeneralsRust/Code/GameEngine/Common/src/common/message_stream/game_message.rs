@@ -105,6 +105,35 @@ impl From<&GameMessageArgumentType> for GameMessageArgumentDataType {
 }
 
 /// Game message argument
+/// Exact source-owned offline lobby admission. This is local command metadata,
+/// not an additional serialized wire argument or a mutable lobby selector.
+#[derive(Clone, Debug)]
+pub struct ClientSkirmishLaunch {
+    pub map: String,
+    pub game_info: crate::common::system::skirmish_game_info::SkirmishGameInfo,
+    pub local_slot: i32,
+    pub old_factions_only: bool,
+    pub fog_of_war: bool,
+    pub game_mode_code: i32,
+    pub max_fps: i32,
+}
+
+impl ClientSkirmishLaunch {
+    pub fn matches_new_game(
+        &self,
+        mode: i32,
+        difficulty: i32,
+        rank: i32,
+        max_fps: Option<i32>,
+    ) -> bool {
+        !self.map.trim().is_empty()
+            && self.game_mode_code == mode
+            && difficulty == 1
+            && rank == 0
+            && max_fps == Some(self.max_fps)
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct GameMessageArgument {
     pub data: GameMessageArgumentType,
@@ -434,6 +463,7 @@ pub struct GameMessage {
     // Native client metadata; never part of message arguments or wire encoding.
     campaign_launch: Option<Box<ClientCampaignLaunch>>,
     shell_map_launch: Option<Box<ClientShellMapLaunch>>,
+    skirmish_launch: Option<Box<ClientSkirmishLaunch>>,
 }
 
 impl GameMessage {
@@ -443,6 +473,7 @@ impl GameMessage {
             arguments: Vec::new(),
             campaign_launch: None,
             shell_map_launch: None,
+            skirmish_launch: None,
             player_index: 0, // Default to local player
         }
     }
@@ -453,8 +484,16 @@ impl GameMessage {
             arguments: Vec::new(),
             campaign_launch: None,
             shell_map_launch: None,
+            skirmish_launch: None,
             player_index,
         }
+    }
+
+    pub fn set_skirmish_launch(&mut self, descriptor: ClientSkirmishLaunch) {
+        self.skirmish_launch = Some(Box::new(descriptor));
+    }
+    pub fn skirmish_launch(&self) -> Option<&ClientSkirmishLaunch> {
+        self.skirmish_launch.as_deref()
     }
 
     pub fn set_shell_map_launch(&mut self, descriptor: ClientShellMapLaunch) {

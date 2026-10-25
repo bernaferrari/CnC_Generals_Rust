@@ -9,11 +9,10 @@ pub struct SubsystemManager {
     input_keyboard: Option<crate::input::Keyboard>,
     input_mouse: Option<MouseHandle>,
     terrain_visual: Option<Arc<Mutex<TerrainVisualStub>>>,
-    window_manager: Option<WindowManagerSubsystem>,
+    window_manager_initialized: bool,
     font_library: Option<Arc<Mutex<FontLibrarySubsystem>>>,
     header_templates: Option<Arc<Mutex<HeaderTemplateManagerSubsystem>>>,
     display_strings: Option<Arc<Mutex<DisplayStringManagerSubsystem>>>,
-    hot_key_manager: Option<Arc<Mutex<HotKeyManagerSubsystem>>>,
     in_game_ui: Option<Arc<Mutex<InGameUISubsystem>>>,
     video_player: Option<Arc<Mutex<VideoPlayerSubsystem>>>,
     decal_manager: Option<Arc<Mutex<DecalManager>>>,
@@ -31,11 +30,10 @@ impl SubsystemManager {
             input_keyboard: None,
             input_mouse: None,
             terrain_visual: None,
-            window_manager: None,
+            window_manager_initialized: false,
             font_library: None,
             header_templates: None,
             display_strings: None,
-            hot_key_manager: None,
             in_game_ui: None,
             video_player: None,
             decal_manager: None,
@@ -92,10 +90,6 @@ impl SubsystemManager {
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
                 .reset()?;
-        }
-
-        if let Some(ref hot_keys) = self.hot_key_manager {
-            hot_keys.lock().unwrap_or_else(|e| e.into_inner()).reset()?;
         }
 
         if let Some(ref ui) = self.in_game_ui {

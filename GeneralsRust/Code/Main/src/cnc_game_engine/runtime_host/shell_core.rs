@@ -116,7 +116,9 @@ impl CnCGameEngine {
             wnd_ok = self.with_receiving_menu_effects(|effects| {
                 game_client::gui::simulate_main_menu_credits_button_gadget_selected(effects)
             })?;
-            let _ = game_client::gui::callbacks::simulate_credits_menu_bind_controls();
+            let _ = self.with_receiving_menu_effects(|effects| {
+                game_client::gui::callbacks::simulate_credits_menu_bind_controls(effects)
+            })?;
         }
         self.enter_shell_screen_from_runtime_host(Some("Credits"), "Menus/CreditsMenu.wnd")?;
         self.runtime_host_last_gameplay_cmd = if wnd_ok {
@@ -151,18 +153,26 @@ impl CnCGameEngine {
                 "finished" | "finish" => {
                     self.with_receiving_menu_effects(|effects| {
                         drive_os_wnd_credits_menu_finished_like_cpp(effects)
-                    })? || simulate_credits_menu_finished()
+                    })? || self.with_receiving_menu_effects(|effects| {
+                        simulate_credits_menu_finished(effects)
+                    })?
                 }
-                "shutdown" => simulate_credits_menu_shutdown(),
+                "shutdown" => self.with_receiving_menu_effects(|effects| {
+                    simulate_credits_menu_shutdown(effects)
+                })?,
                 "prepare_skip" => {
                     self.with_receiving_menu_effects(|effects| {
                         drive_os_wnd_credits_menu_prepare_skip_like_cpp(effects)
-                    })? || simulate_credits_menu_prepare_skip()
+                    })? || self.with_receiving_menu_effects(|effects| {
+                        simulate_credits_menu_prepare_skip(effects)
+                    })?
                 }
                 _ => {
                     self.with_receiving_menu_effects(|effects| {
                         drive_os_wnd_credits_menu_skip_like_cpp(effects)
-                    })? || simulate_credits_menu_skip()
+                    })? || self.with_receiving_menu_effects(|effects| {
+                        simulate_credits_menu_skip(effects)
+                    })?
                 }
             };
         }
@@ -246,7 +256,11 @@ impl CnCGameEngine {
         // GameClient shell active (status `shell_active` can be true from either).
         #[cfg(feature = "game_client")]
         let shell_live = self.shell_menu_active
-            || game_client::gui::with_shell_ref(|shell| shell.is_shell_active()).unwrap_or(false);
+            || self
+                .game_client
+                .window_manager_owner()
+                .with_shell_ref(|shell| shell.is_shell_active())
+                .unwrap_or(false);
         #[cfg(not(feature = "game_client"))]
         let shell_live = self.shell_menu_active;
         if !shell_live {

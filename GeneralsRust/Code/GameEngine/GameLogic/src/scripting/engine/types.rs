@@ -345,6 +345,22 @@ pub struct ScriptSelectionStatus {
 }
 
 pub trait ScriptExecutionDriver {
+    fn speech_play(&mut self, _name: &str, _allow_overlap: bool) -> Option<GameLogicResult<()>> {
+        None
+    }
+
+    fn popup_message(
+        &mut self,
+        _message: &str,
+        _x: i32,
+        _y: i32,
+        _width: i32,
+        _pause: bool,
+        _pause_music: bool,
+    ) -> Option<GameLogicResult<()>> {
+        None
+    }
+
     /// Receiving application handles CampaignManager mutations at the authored
     /// action phase. `None` preserves standalone handler behavior.
     fn set_campaign_victorious(&mut self, _victorious: bool) -> Option<GameLogicResult<()>> {
@@ -354,6 +370,15 @@ pub trait ScriptExecutionDriver {
     /// Native host applies this window operation immediately when it can lend
     /// the receiving UI; standalone handlers retain their existing path.
     fn create_win_lose_window(&mut self, _layout_filename: &str) -> Option<GameLogicResult<()>> {
+        None
+    }
+
+    /// Synchronous C++ closeWindows and GameLogic::closeWindows presentation.
+    /// Some is authoritative, including errors; no other owner is consulted.
+    fn destroy_win_lose_window(&mut self) -> Option<GameLogicResult<()>> {
+        None
+    }
+    fn close_game_windows(&mut self) -> Option<GameLogicResult<()>> {
         None
     }
 

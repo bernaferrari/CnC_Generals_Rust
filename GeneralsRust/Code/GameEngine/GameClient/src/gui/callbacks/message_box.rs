@@ -4,7 +4,7 @@
 //! standard message boxes, extended message boxes, and quit dialogs.
 
 use crate::gui::{
-    GameWindow, WindowId, WindowMessage, WindowMsgData, WindowMsgHandled, with_window_manager,
+    GameWindow, WindowId, WindowMessage, WindowMsgData, WindowMsgHandled,
     write_input_focus_response,
 };
 use game_engine::common::name_key_generator::NameKeyGenerator;
@@ -233,7 +233,7 @@ impl MessageBoxCallbacks {
     /// Handle message box system messages
     pub fn system(
         &mut self,
-        window: &GameWindow,
+        window: &mut GameWindow,
         msg: WindowMessage,
         data1: WindowMsgData,
         data2: WindowMsgData,
@@ -295,10 +295,10 @@ impl MessageBoxCallbacks {
 
                 self.visible = false;
                 let window_id = window.get_id();
-                with_window_manager(|manager| {
+                effects.with_manager(|manager, effects| {
                     if let Some(handle) = manager.get_window_by_id(window_id) {
                         let _ = manager.destroy_window(handle);
-                        manager.flush_destroy_queue();
+                        manager.flush_destroy_queue(effects);
                     }
                 });
 
@@ -314,6 +314,8 @@ impl MessageBoxCallbacks {
         title: &str,
         message: &str,
         message_type: MessageBoxType,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         info!("Showing message box: '{}' - '{}'", title, message);
 
@@ -345,6 +347,8 @@ impl MessageBoxCallbacks {
             None,
             None,
             false,
+            receiving_manager,
+            effects,
         );
         self.window_id = window.as_ref().map(|win| win.borrow().get_id());
 
@@ -352,18 +356,22 @@ impl MessageBoxCallbacks {
     }
 
     /// Hide message box
-    pub fn hide_message_box(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn hide_message_box(
+        &mut self,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         info!("Hiding message box");
 
         self.visible = false;
 
         if let Some(window_id) = self.window_id.take() {
-            with_window_manager(|manager| {
+            (|manager: &mut crate::gui::window_manager::WindowManager| {
                 if let Some(handle) = manager.get_window_by_id(window_id) {
                     let _ = manager.destroy_window(handle);
-                    manager.flush_destroy_queue();
+                    manager.flush_destroy_queue(effects);
                 }
-            });
+            })(receiving_manager);
         }
 
         Ok(())
@@ -373,11 +381,13 @@ impl MessageBoxCallbacks {
     pub fn set_result(
         &mut self,
         result: MessageBoxResult,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         debug!("Setting message box result: {:?}", result);
 
         self.result = Some(result);
-        self.hide_message_box()?;
+        self.hide_message_box(receiving_manager, effects)?;
 
         Ok(())
     }
@@ -435,7 +445,7 @@ impl ExtendedMessageBoxCallbacks {
     /// Handle extended message box system messages
     pub fn system(
         &mut self,
-        window: &GameWindow,
+        window: &mut GameWindow,
         msg: WindowMessage,
         data1: WindowMsgData,
         data2: WindowMsgData,
@@ -503,10 +513,10 @@ impl ExtendedMessageBoxCallbacks {
                 self.base.visible = !close;
                 if close {
                     let window_id = window.get_id();
-                    with_window_manager(|manager| {
+                    effects.with_manager(|manager, effects| {
                         if let Some(handle) = manager.get_window_by_id(window_id) {
                             let _ = manager.destroy_window(handle);
-                            manager.flush_destroy_queue();
+                            manager.flush_destroy_queue(effects);
                         }
                     });
                 }
@@ -526,6 +536,8 @@ impl ExtendedMessageBoxCallbacks {
         timeout: Option<u32>,
         default_button: Option<MessageBoxButton>,
         icon_type: &str,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         info!(
             "Showing extended message box: '{}' with timeout: {:?}, default: {:?}",
@@ -564,6 +576,8 @@ impl ExtendedMessageBoxCallbacks {
             None,
             None,
             None,
+            receiving_manager,
+            effects,
         );
         self.base.window_id = window.as_ref().map(|win| win.borrow().get_id());
 
@@ -586,15 +600,21 @@ impl ExtendedMessageBoxCallbacks {
     }
 
     /// Delegate methods to base implementation
-    pub fn hide_message_box(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        self.base.hide_message_box()
+    pub fn hide_message_box(
+        &mut self,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        self.base.hide_message_box(receiving_manager, effects)
     }
 
     pub fn set_result(
         &mut self,
         result: MessageBoxResult,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        self.base.set_result(result)
+        self.base.set_result(result, receiving_manager, effects)
     }
 
     pub fn get_result(&self) -> Option<MessageBoxResult> {
@@ -641,7 +661,7 @@ impl QuitMessageBoxCallbacks {
     /// Handle quit message box system messages
     pub fn system(
         &mut self,
-        window: &GameWindow,
+        window: &mut GameWindow,
         msg: WindowMessage,
         data1: WindowMsgData,
         data2: WindowMsgData,
@@ -702,10 +722,10 @@ impl QuitMessageBoxCallbacks {
 
                 self.base.visible = false;
                 let window_id = window.get_id();
-                with_window_manager(|manager| {
+                effects.with_manager(|manager, effects| {
                     if let Some(handle) = manager.get_window_by_id(window_id) {
                         let _ = manager.destroy_window(handle);
-                        manager.flush_destroy_queue();
+                        manager.flush_destroy_queue(effects);
                     }
                 });
 
@@ -716,7 +736,12 @@ impl QuitMessageBoxCallbacks {
     }
 
     /// Show quit confirmation dialog
-    pub fn show_quit_dialog(&mut self, force_quit: bool) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn show_quit_dialog(
+        &mut self,
+        force_quit: bool,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         info!("Showing quit dialog (force: {})", force_quit);
 
         self.force_quit = force_quit;
@@ -727,7 +752,8 @@ impl QuitMessageBoxCallbacks {
             "Are you sure you want to quit? Any unsaved progress will be lost."
         };
 
-        let window = quit_message_box_yes_no("Quit Game", message, None, None);
+        let window =
+            quit_message_box_yes_no("Quit Game", message, None, None, receiving_manager, effects);
         self.base.visible = true;
         self.base.title = "Quit Game".to_string();
         self.base.message = message.to_string();
@@ -765,15 +791,21 @@ impl QuitMessageBoxCallbacks {
     }
 
     /// Delegate methods to base implementation
-    pub fn hide_message_box(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        self.base.hide_message_box()
+    pub fn hide_message_box(
+        &mut self,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        self.base.hide_message_box(receiving_manager, effects)
     }
 
     pub fn set_result(
         &mut self,
         result: MessageBoxResult,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        self.base.set_result(result)
+        self.base.set_result(result, receiving_manager, effects)
     }
 
     pub fn get_result(&self) -> Option<MessageBoxResult> {
@@ -791,21 +823,26 @@ impl Default for QuitMessageBoxCallbacks {
     }
 }
 
-fn resize_message_box_children(parent: &Rc<RefCell<GameWindow>>, width: i32, height: i32) {
+fn resize_message_box_children(
+    parent: &Rc<RefCell<GameWindow>>,
+    width: i32,
+    height: i32,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) {
     let (current_width, current_height) = parent.borrow().get_size();
     if current_width <= 0 || current_height <= 0 {
         return;
     }
     let ratio_x = width as f32 / current_width as f32;
     let ratio_y = height as f32 / current_height as f32;
-    let _ = parent.borrow_mut().set_size(width, height);
+    let _ = parent.borrow_mut().set_size(width, height, effects);
 
     let children = parent.borrow().children().to_vec();
     for child in children {
         let (child_width, child_height) = child.borrow().get_size();
         let new_width = (child_width as f32 * ratio_x) as i32;
         let new_height = (child_height as f32 * ratio_y) as i32;
-        let _ = child.borrow_mut().set_size(new_width, new_height);
+        let _ = child.borrow_mut().set_size(new_width, new_height, effects);
 
         let (child_x, child_y) = child.borrow().get_position();
         let new_x = (child_x as f32 * ratio_x) as i32;
@@ -837,11 +874,13 @@ fn gogo_message_box(
     ok_callback: Option<MessageBoxFunc>,
     cancel_callback: Option<MessageBoxFunc>,
     use_logo: bool,
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> Option<Rc<RefCell<GameWindow>>> {
     if button_flags == 0 {
         return None;
     }
-    with_window_manager(|manager| {
+    (|manager: &mut crate::gui::window_manager::WindowManager| {
         gogo_message_box_in(
             manager,
             x,
@@ -856,8 +895,9 @@ fn gogo_message_box(
             ok_callback,
             cancel_callback,
             use_logo,
+            effects,
         )
-    })
+    })(receiving_manager)
 }
 
 // Shared original construction algorithm; native callers supply their manager.
@@ -875,6 +915,7 @@ fn gogo_message_box_in(
     ok_callback: Option<MessageBoxFunc>,
     cancel_callback: Option<MessageBoxFunc>,
     use_logo: bool,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> Option<Rc<RefCell<GameWindow>>> {
     if button_flags == 0 {
         return None;
@@ -885,7 +926,7 @@ fn gogo_message_box_in(
     } else {
         "Menus/MessageBox.wnd"
     };
-    let info = manager.create_windows_from_script(script).ok()?;
+    let info = manager.create_windows_from_script(script, effects).ok()?;
     let menu_name = if use_logo {
         "QuitMessageBox.wnd:"
     } else {
@@ -906,11 +947,11 @@ fn gogo_message_box_in(
         .unwrap_or_else(|| true_parent.clone());
 
     let _ = manager.set_modal(true_parent.clone());
-    let _ = manager.set_focus(None);
-    let _ = manager.set_focus(Some(&parent));
+    let _ = manager.set_focus(None, effects);
+    let _ = manager.set_focus(Some(&parent), effects);
 
     if width > 0 && height > 0 {
-        resize_message_box_children(&parent, width, height);
+        resize_message_box_children(&parent, width, height, effects);
     }
     if x >= 0 && y >= 0 {
         let _ = parent.borrow_mut().set_position(x, y);
@@ -1022,14 +1063,16 @@ fn gogo_ex_message_box(
     ok_callback: Option<ExtendedMessageBoxFunc>,
     cancel_callback: Option<ExtendedMessageBoxFunc>,
     user_data: Option<Box<dyn Any>>,
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> Option<Rc<RefCell<GameWindow>>> {
     if button_flags == 0 {
         return None;
     }
 
-    with_window_manager(|manager| {
+    (|manager: &mut crate::gui::window_manager::WindowManager| {
         let info = manager
-            .create_windows_from_script("Menus/MessageBox.wnd")
+            .create_windows_from_script("Menus/MessageBox.wnd", effects)
             .ok()?;
         let menu_name = "MessageBox.wnd:";
         let parent = lookup_window_by_name(&info.windows, menu_name).or_else(|| {
@@ -1040,11 +1083,11 @@ fn gogo_ex_message_box(
         })?;
 
         let _ = manager.set_modal(parent.clone());
-        let _ = manager.set_focus(None);
-        let _ = manager.set_focus(Some(&parent));
+        let _ = manager.set_focus(None, effects);
+        let _ = manager.set_focus(Some(&parent), effects);
 
         if width > 0 && height > 0 {
-            resize_message_box_children(&parent, width, height);
+            resize_message_box_children(&parent, width, height, effects);
         }
         if x >= 0 && y >= 0 {
             let _ = parent.borrow_mut().set_position(x, y);
@@ -1149,7 +1192,7 @@ fn gogo_ex_message_box(
         let _ = parent.borrow_mut().bring_to_front();
 
         Some(parent)
-    })
+    })(receiving_manager)
 }
 
 pub fn message_box_yes_no(
@@ -1157,6 +1200,8 @@ pub fn message_box_yes_no(
     body: &str,
     yes_callback: Option<MessageBoxFunc>,
     no_callback: Option<MessageBoxFunc>,
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> Option<Rc<RefCell<GameWindow>>> {
     gogo_message_box(
         -1,
@@ -1171,6 +1216,8 @@ pub fn message_box_yes_no(
         None,
         None,
         false,
+        receiving_manager,
+        effects,
     )
 }
 
@@ -1179,6 +1226,8 @@ pub fn quit_message_box_yes_no(
     body: &str,
     yes_callback: Option<MessageBoxFunc>,
     no_callback: Option<MessageBoxFunc>,
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> Option<Rc<RefCell<GameWindow>>> {
     gogo_message_box(
         -1,
@@ -1193,6 +1242,8 @@ pub fn quit_message_box_yes_no(
         None,
         None,
         true,
+        receiving_manager,
+        effects,
     )
 }
 
@@ -1202,6 +1253,8 @@ pub fn message_box_yes_no_cancel(
     yes_callback: Option<MessageBoxFunc>,
     no_callback: Option<MessageBoxFunc>,
     cancel_callback: Option<MessageBoxFunc>,
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> Option<Rc<RefCell<GameWindow>>> {
     gogo_message_box(
         -1,
@@ -1216,10 +1269,15 @@ pub fn message_box_yes_no_cancel(
         None,
         cancel_callback,
         false,
+        receiving_manager,
+        effects,
     )
 }
 
-pub(crate) fn replay_no_selection_in(manager: &mut crate::gui::window_manager::WindowManager) {
+pub(crate) fn replay_no_selection_in(
+    manager: &mut crate::gui::window_manager::WindowManager,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) {
     let _ = gogo_message_box_in(
         manager,
         -1,
@@ -1234,12 +1292,14 @@ pub(crate) fn replay_no_selection_in(manager: &mut crate::gui::window_manager::W
         None,
         None,
         false,
+        effects,
     );
 }
 
 pub(crate) fn replay_version_confirmation_in(
     manager: &mut crate::gui::window_manager::WindowManager,
     playback: super::replay_menu::ingress::ReplayPlayback,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) {
     if let Some(window) = gogo_message_box_in(
         manager,
@@ -1255,6 +1315,7 @@ pub(crate) fn replay_version_confirmation_in(
         None,
         None,
         false,
+        effects,
     ) {
         if let Some(data) = window.borrow().get_user_data::<WindowMessageBoxData>() {
             *data.owned_replay.borrow_mut() = Some(
@@ -1264,7 +1325,10 @@ pub(crate) fn replay_version_confirmation_in(
     }
 }
 
-pub(crate) fn restart_confirmation_in(manager: &mut crate::gui::window_manager::WindowManager) {
+pub(crate) fn restart_confirmation_in(
+    manager: &mut crate::gui::window_manager::WindowManager,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) {
     if let Some(window) = gogo_message_box_in(
         manager,
         -1,
@@ -1279,6 +1343,7 @@ pub(crate) fn restart_confirmation_in(manager: &mut crate::gui::window_manager::
         None,
         None,
         false,
+        effects,
     ) {
         if let Some(data) = window.borrow().get_user_data::<WindowMessageBoxData>() {
             *data.owned_replay.borrow_mut() =
@@ -1289,12 +1354,17 @@ pub(crate) fn restart_confirmation_in(manager: &mut crate::gui::window_manager::
 
 /// Actual offline QuitMenu restart confirmation. The dialog owns the domain
 /// continuation; it stores neither a host callback nor a borrowed session.
-pub(crate) fn message_box_restart_confirmation() {
+pub fn message_box_restart_confirmation(
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) {
     if let Some(window) = message_box_yes_no(
         &crate::game_text::GameText::fetch("GUI:RestartConfirmationTitle"),
         &crate::game_text::GameText::fetch("GUI:RestartConfirmation"),
         None,
         None,
+        receiving_manager,
+        effects,
     ) {
         if let Some(data) = window.borrow().get_user_data::<WindowMessageBoxData>() {
             *data.owned_replay.borrow_mut() =
@@ -1305,14 +1375,18 @@ pub(crate) fn message_box_restart_confirmation() {
 
 /// Native confirmation retains the exact selected filename even if another
 /// menu is opened or the source layout is reset before OK is selected.
-pub(crate) fn message_box_replay_confirmation(
+pub fn message_box_replay_confirmation(
     playback: super::replay_menu::ingress::ReplayPlayback,
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) {
     if let Some(window) = message_box_ok_cancel(
         &crate::game_text::GameText::fetch("GUI:OlderReplayVersionTitle"),
         &crate::game_text::GameText::fetch("GUI:OlderReplayVersion"),
         None,
         None,
+        receiving_manager,
+        effects,
     ) {
         if let Some(data) = window.borrow().get_user_data::<WindowMessageBoxData>() {
             *data.owned_replay.borrow_mut() = Some(
@@ -1327,6 +1401,8 @@ pub fn message_box_ok_cancel(
     body: &str,
     ok_callback: Option<MessageBoxFunc>,
     cancel_callback: Option<MessageBoxFunc>,
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> Option<Rc<RefCell<GameWindow>>> {
     gogo_message_box(
         -1,
@@ -1341,6 +1417,8 @@ pub fn message_box_ok_cancel(
         ok_callback,
         cancel_callback,
         false,
+        receiving_manager,
+        effects,
     )
 }
 
@@ -1348,6 +1426,8 @@ pub fn message_box_ok(
     title: &str,
     body: &str,
     ok_callback: Option<MessageBoxFunc>,
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> Option<Rc<RefCell<GameWindow>>> {
     gogo_message_box(
         -1,
@@ -1362,6 +1442,8 @@ pub fn message_box_ok(
         ok_callback,
         None,
         false,
+        receiving_manager,
+        effects,
     )
 }
 
@@ -1369,6 +1451,8 @@ pub fn message_box_cancel(
     title: &str,
     body: &str,
     cancel_callback: Option<MessageBoxFunc>,
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> Option<Rc<RefCell<GameWindow>>> {
     gogo_message_box(
         -1,
@@ -1383,6 +1467,8 @@ pub fn message_box_cancel(
         None,
         cancel_callback,
         false,
+        receiving_manager,
+        effects,
     )
 }
 
@@ -1392,6 +1478,8 @@ pub fn ex_message_box_yes_no(
     user_data: Option<Box<dyn Any>>,
     yes_callback: Option<ExtendedMessageBoxFunc>,
     no_callback: Option<ExtendedMessageBoxFunc>,
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> Option<Rc<RefCell<GameWindow>>> {
     gogo_ex_message_box(
         -1,
@@ -1406,6 +1494,8 @@ pub fn ex_message_box_yes_no(
         None,
         None,
         user_data,
+        receiving_manager,
+        effects,
     )
 }
 
@@ -1416,6 +1506,8 @@ pub fn ex_message_box_yes_no_cancel(
     yes_callback: Option<ExtendedMessageBoxFunc>,
     no_callback: Option<ExtendedMessageBoxFunc>,
     cancel_callback: Option<ExtendedMessageBoxFunc>,
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> Option<Rc<RefCell<GameWindow>>> {
     gogo_ex_message_box(
         -1,
@@ -1430,6 +1522,8 @@ pub fn ex_message_box_yes_no_cancel(
         None,
         cancel_callback,
         user_data,
+        receiving_manager,
+        effects,
     )
 }
 
@@ -1439,6 +1533,8 @@ pub fn ex_message_box_ok_cancel(
     user_data: Option<Box<dyn Any>>,
     ok_callback: Option<ExtendedMessageBoxFunc>,
     cancel_callback: Option<ExtendedMessageBoxFunc>,
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> Option<Rc<RefCell<GameWindow>>> {
     gogo_ex_message_box(
         -1,
@@ -1453,6 +1549,8 @@ pub fn ex_message_box_ok_cancel(
         ok_callback,
         cancel_callback,
         user_data,
+        receiving_manager,
+        effects,
     )
 }
 
@@ -1461,6 +1559,8 @@ pub fn ex_message_box_ok(
     body: &str,
     user_data: Option<Box<dyn Any>>,
     ok_callback: Option<ExtendedMessageBoxFunc>,
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> Option<Rc<RefCell<GameWindow>>> {
     gogo_ex_message_box(
         -1,
@@ -1475,6 +1575,8 @@ pub fn ex_message_box_ok(
         ok_callback,
         None,
         user_data,
+        receiving_manager,
+        effects,
     )
 }
 
@@ -1483,6 +1585,8 @@ pub fn ex_message_box_cancel(
     body: &str,
     user_data: Option<Box<dyn Any>>,
     cancel_callback: Option<ExtendedMessageBoxFunc>,
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> Option<Rc<RefCell<GameWindow>>> {
     gogo_ex_message_box(
         -1,
@@ -1497,6 +1601,8 @@ pub fn ex_message_box_cancel(
         None,
         cancel_callback,
         user_data,
+        receiving_manager,
+        effects,
     )
 }
 
@@ -1891,9 +1997,12 @@ pub fn simulate_message_box_show_yes_no_cancel(title: &str, body: &str) -> bool 
 }
 
 /// Residual: fire ButtonOk without callback/window destroy.
-pub fn simulate_message_box_ok_button_gadget_selected() -> bool {
+pub fn simulate_message_box_ok_button_gadget_selected(
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
     with_standard_message_box_mut(|mb| {
-        let _ = mb.set_result(MessageBoxResult::Ok);
+        let _ = mb.set_result(MessageBoxResult::Ok, receiving_manager, effects);
         mb.visible = false;
         RESIDUAL_MSGBOX_VISIBLE.store(false, std::sync::atomic::Ordering::Relaxed);
         residual_msgbox_action_store(ResidualMessageBoxAction::Ok);
@@ -1902,9 +2011,12 @@ pub fn simulate_message_box_ok_button_gadget_selected() -> bool {
 }
 
 /// Residual: fire ButtonYes without callback/window destroy.
-pub fn simulate_message_box_yes_button_gadget_selected() -> bool {
+pub fn simulate_message_box_yes_button_gadget_selected(
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
     with_standard_message_box_mut(|mb| {
-        let _ = mb.set_result(MessageBoxResult::Yes);
+        let _ = mb.set_result(MessageBoxResult::Yes, receiving_manager, effects);
         mb.visible = false;
         RESIDUAL_MSGBOX_VISIBLE.store(false, std::sync::atomic::Ordering::Relaxed);
         residual_msgbox_action_store(ResidualMessageBoxAction::Yes);
@@ -1913,9 +2025,12 @@ pub fn simulate_message_box_yes_button_gadget_selected() -> bool {
 }
 
 /// Residual: fire ButtonNo without callback/window destroy.
-pub fn simulate_message_box_no_button_gadget_selected() -> bool {
+pub fn simulate_message_box_no_button_gadget_selected(
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
     with_standard_message_box_mut(|mb| {
-        let _ = mb.set_result(MessageBoxResult::No);
+        let _ = mb.set_result(MessageBoxResult::No, receiving_manager, effects);
         mb.visible = false;
         RESIDUAL_MSGBOX_VISIBLE.store(false, std::sync::atomic::Ordering::Relaxed);
         residual_msgbox_action_store(ResidualMessageBoxAction::No);
@@ -1924,9 +2039,12 @@ pub fn simulate_message_box_no_button_gadget_selected() -> bool {
 }
 
 /// Residual: fire ButtonCancel without callback/window destroy.
-pub fn simulate_message_box_cancel_button_gadget_selected() -> bool {
+pub fn simulate_message_box_cancel_button_gadget_selected(
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
     with_standard_message_box_mut(|mb| {
-        let _ = mb.set_result(MessageBoxResult::Cancel);
+        let _ = mb.set_result(MessageBoxResult::Cancel, receiving_manager, effects);
         mb.visible = false;
         RESIDUAL_MSGBOX_VISIBLE.store(false, std::sync::atomic::Ordering::Relaxed);
         residual_msgbox_action_store(ResidualMessageBoxAction::Cancel);
@@ -1945,38 +2063,51 @@ pub fn simulate_message_box_hide() -> bool {
 }
 
 /// Residual: Yes/No show + Yes composite (quit confirm honesty).
-pub fn simulate_message_box_prepare_yes(title: &str, body: &str) -> bool {
+pub fn simulate_message_box_prepare_yes(
+    title: &str,
+    body: &str,
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
     if !simulate_message_box_bind_controls() {
         return false;
     }
     if !simulate_message_box_show_yes_no(title, body) {
         return false;
     }
-    simulate_message_box_yes_button_gadget_selected()
+    simulate_message_box_yes_button_gadget_selected(receiving_manager, effects)
 }
 
 /// Residual: Ok show + Ok composite.
-pub fn simulate_message_box_prepare_ok(title: &str, body: &str) -> bool {
+pub fn simulate_message_box_prepare_ok(
+    title: &str,
+    body: &str,
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
     if !simulate_message_box_bind_controls() {
         return false;
     }
     if !simulate_message_box_show_ok(title, body) {
         return false;
     }
-    simulate_message_box_ok_button_gadget_selected()
+    simulate_message_box_ok_button_gadget_selected(receiving_manager, effects)
 }
 
 /// Human click-through: OS LeftDown/Up on a retail `MessageBox.wnd:*` gadget
 /// (C++ WindowXlat hit → GBM_SELECTED). Not `simulate_*` first.
 fn drive_os_wnd_message_box_named(
     name: &str,
-    latch: impl FnOnce() -> bool,
+    latch: impl FnOnce(
+        &mut crate::gui::window_manager::WindowManager,
+        &mut crate::gui::game_window::WindowEventEffects<'_>,
+    ) -> bool,
     effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> bool {
     if !crate::gui::dispatch_os_click_named_window(name, effects) {
         return false;
     }
-    latch()
+    effects.with_manager(|manager, effects| latch(manager, effects))
 }
 
 pub fn drive_os_wnd_message_box_ok_like_cpp(
@@ -2036,7 +2167,9 @@ pub fn drive_os_wnd_message_box_prepare_yes_like_cpp(
     if !clicked_yes {
         let _ = simulate_message_box_show_yes_no(title, body);
         return drive_os_wnd_message_box_yes_like_cpp(effects)
-            || simulate_message_box_prepare_yes(title, body);
+            || effects.with_manager(|manager, effects| {
+                simulate_message_box_prepare_yes(title, body, manager, effects)
+            });
     }
     true
 }
@@ -2057,7 +2190,9 @@ pub fn drive_os_wnd_message_box_prepare_ok_like_cpp(
     if !clicked_ok {
         let _ = simulate_message_box_show_ok(title, body);
         return drive_os_wnd_message_box_ok_like_cpp(effects)
-            || simulate_message_box_prepare_ok(title, body);
+            || effects.with_manager(|manager, effects| {
+                simulate_message_box_prepare_ok(title, body, manager, effects)
+            });
     }
     true
 }
@@ -2097,7 +2232,8 @@ mod os_wnd_tests {
         install_named_button("MessageBox.wnd:ButtonOk", 10, 100);
         assert!(drive_os_wnd_message_box_prepare_ok_like_cpp(
             "GUI:Message",
-            "GUI:Confirm"
+            "GUI:Confirm",
+            receiving_manager
         ));
         assert_eq!(
             residual_message_box_last_action(),

@@ -800,9 +800,9 @@ impl ScriptActionHandler for MissionScriptActionHandler {
     }
 
     fn close_game_windows(&self) -> GameLogicResult<()> {
-        // C++ GameLogic::closeWindows GameLogicDispatch.cpp:202-219.
-        game_client::core::script_action_handler::GameClientScriptActionHandler::new()
-            .close_game_windows()
+        Err(gamelogic::GameLogicError::Configuration(
+            "closeWindows must execute through its receiving ScriptExecutionDriver".into(),
+        ))
     }
 
     fn set_warehouse_value(&self, warehouse_name: &str, cash_value: i32) -> GameLogicResult<()> {

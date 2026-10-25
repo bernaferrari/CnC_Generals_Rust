@@ -230,7 +230,7 @@ impl ScriptActionDispatcher<'_> {
         let text = self.get_string_param(action, 0)?;
 
         log::info!("Displaying text: {}", text);
-        Ok(self.dispatch_display_request(ScriptDisplayRequest::Text(&text), driver))
+        self.dispatch_display_request(ScriptDisplayRequest::Text(&text), driver)
     }
 
     pub(crate) fn do_display_cinematic_text(
@@ -251,14 +251,14 @@ impl ScriptActionDispatcher<'_> {
             font_type,
             duration_seconds
         );
-        Ok(self.dispatch_display_request(
+        self.dispatch_display_request(
             ScriptDisplayRequest::Cinematic {
                 text: &text,
                 font: &font_type,
                 duration_seconds,
             },
             driver,
-        ))
+        )
     }
 
     pub(crate) fn do_military_caption(
@@ -281,20 +281,20 @@ impl ScriptActionDispatcher<'_> {
             duration_ms
         );
 
-        Ok(self.dispatch_display_request(
+        self.dispatch_display_request(
             ScriptDisplayRequest::MilitaryCaption {
                 text: &briefing_text,
                 duration_ms,
             },
             driver,
-        ))
+        )
     }
 
     fn dispatch_display_request(
         &mut self,
         request: ScriptDisplayRequest<'_>,
         driver: &mut dyn ScriptExecutionDriver,
-    ) -> ScriptActionResult {
+    ) -> Result<ScriptActionResult, ScriptError> {
         let result = driver.display(request).or_else(|| {
             // Clone the standalone adapter before calling it: a callback can
             // immediately re-enter this engine. Live owners bypass it.
@@ -317,11 +317,14 @@ impl ScriptActionDispatcher<'_> {
                 ScriptDisplayRequest::Cinematic { .. } => "display_cinematic_text",
                 ScriptDisplayRequest::MilitaryCaption { .. } => "military_caption",
             };
+            if matches!(request, ScriptDisplayRequest::MilitaryCaption { .. }) {
+                return Err(ScriptError::ExecutionFailed(err.to_string()));
+            }
             log::warn!("Script action handler {} failed: {}", name, err);
         }
         // Match the legacy display actions: callback errors are logged and
         // the action chain continues, without retrying or delaying an effect.
-        ScriptActionResult::Success
+        Ok(ScriptActionResult::Success)
     }
 
     // ============================================================================
@@ -547,6 +550,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_speech_play(
         &mut self,
         action: &ScriptAction,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         let speech_name = self.get_string_param(action, 0)?;
         let allow_overlap = self.get_bool_param_optional(action, 1).unwrap_or(false);
@@ -557,9 +561,13 @@ impl ScriptActionDispatcher<'_> {
             allow_overlap
         );
 
+        if let Some(result) = driver.speech_play(&speech_name, allow_overlap) {
+            result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
+            return Ok(ScriptActionResult::Success);
+        }
         if let Some(handler) = self.current_script_action_handler() {
             if let Err(err) = handler.speech_play(&speech_name, allow_overlap) {
-                log::warn!("Script action handler speech_play failed: {}", err);
+                return Err(ScriptError::ExecutionFailed(err.to_string()));
             }
         }
 

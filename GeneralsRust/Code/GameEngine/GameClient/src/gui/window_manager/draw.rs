@@ -77,6 +77,8 @@ impl WindowManager {
             renderer: draw_context.renderer.as_deref_mut(),
             display: draw_context.display.clone(),
             manager: Some(self),
+            ime: draw_context.ime,
+            shell_scheme: draw_context.shell_scheme,
         };
         // Match C++ WinRepaint ordering: top-level windows are stored head-first,
         // but repaint walks from tail to head in BELOW / normal / ABOVE passes.
@@ -105,25 +107,34 @@ impl WindowManager {
         // C++ WinRepaint is BELOW / normal / ABOVE + transitions only.
         // Modal windows stay in root_windows (usually ABOVE); drawing them
         // again from modal_stack double-submits verts and can z-fight.
-        self.transitions.draw(draw_context);
+        {
+            let (transitions, _, mut window_access) = self.transition_parts(None);
+            transitions.draw(draw_context, &mut window_access);
+        }
     }
 
-    /// Activate a transition group.
-    pub fn transition_set_group(&mut self, group_name: &str, immediate: bool) {
-        let window_lookup = self.window_by_id.clone();
-        self.transitions
-            .set_group(group_name, immediate, &window_lookup);
+    /// Activate a group with the canonical callback window when invoked from one.
+    pub fn transition_set_group(
+        &mut self,
+        group_name: &str,
+        immediate: bool,
+        selected: Option<&mut GameWindow>,
+    ) {
+        let (transitions, lookup, mut access) = self.transition_parts(selected);
+        transitions.set_group(group_name, immediate, lookup, &mut access);
     }
-
-    /// Reverse a transition group.
-    pub fn transition_reverse(&mut self, group_name: &str) {
-        let window_lookup = self.window_by_id.clone();
-        self.transitions.reverse(group_name, &window_lookup);
+    pub fn transition_reverse(&mut self, group_name: &str, selected: Option<&mut GameWindow>) {
+        let (transitions, lookup, mut access) = self.transition_parts(selected);
+        transitions.reverse(group_name, lookup, &mut access);
     }
-
-    /// Remove a transition group.
-    pub fn transition_remove(&mut self, group_name: &str, skip_pending: bool) {
-        self.transitions.remove(group_name, skip_pending);
+    pub fn transition_remove(
+        &mut self,
+        group_name: &str,
+        skip_pending: bool,
+        selected: Option<&mut GameWindow>,
+    ) {
+        let (transitions, _, mut access) = self.transition_parts(selected);
+        transitions.remove(group_name, skip_pending, &mut access);
     }
 
     /// Check if the current transition group has finished.

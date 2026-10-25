@@ -3,14 +3,13 @@
 fn initialize_challenge_windows(
     wm: &mut WindowManager,
     did_mem_pass: bool,
-    campaign_manager: &crate::gui::campaign_manager::CampaignManager,
     runtime: &mut LoadScreenOperation<'_>,
 ) {
     with_challenge_load_screen_state(
         |state| *state = ChallengeLoadScreenState::default(),
         runtime,
     );
-    with_window_video_manager(runtime.videos, |manager| manager.init());
+    with_window_video_manager(runtime.videos(), |manager| manager.init());
 
     for name in [
         "ChallengeLoadScreen.wnd:PortraitLeft",
@@ -39,11 +38,11 @@ fn initialize_challenge_windows(
         hide_window(wm, name, true);
     }
 
-    let Some((player, opponent)) = current_challenge_persona_text(campaign_manager) else {
+    let Some((player, opponent)) = current_challenge_persona_text(runtime.campaign()) else {
         return;
     };
-    let movie_label = current_challenge_movie_label(campaign_manager);
-    let voice_length = current_challenge_voice_length(campaign_manager);
+    let movie_label = current_challenge_movie_label(runtime.campaign());
+    let voice_length = current_challenge_voice_length(runtime.campaign());
     with_challenge_load_screen_state(
         |state| {
             state.player = Some(player.clone());
@@ -238,7 +237,12 @@ fn advance_challenge_load_screen_prelude(
                 let elapsed = now.saturating_duration_since(start);
                 let progress =
                     (30.0 * elapsed.as_secs_f32() / duration.as_secs_f32()).clamp(0.0, 30.0);
-                set_progress_window(wm, "ChallengeLoadScreen.wnd:ProgressLoad", progress);
+                set_progress_window(
+                    wm,
+                    "ChallengeLoadScreen.wnd:ProgressLoad",
+                    progress,
+                    &mut runtime.effects,
+                );
             }
             if completed {
                 complete_challenge_load_screen_prelude(LoadScreenPreludeOutcome::Complete, runtime);

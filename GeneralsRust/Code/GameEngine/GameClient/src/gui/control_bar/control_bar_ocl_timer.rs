@@ -93,6 +93,7 @@ pub fn update_context_ocl_timer(
     state: &mut OCLTimerDisplayState,
     remaining_frames: u32,
     total_frames: u32,
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
 ) -> Option<(String, f32, u32)> {
     let (seconds, percent) = ocl_frames_to_display(remaining_frames, total_frames);
 
@@ -192,38 +193,49 @@ pub fn populate_ocl_timer_commands(
 }
 
 /// C++ ControlBarOCLTimer.cpp:23-49 updateOCLTimerTextDisplay + reveal CP_OCL_TIMER.
-pub fn apply_ocl_timer_windows(text: &str, progress_percent: f32, button_kind: OclTimerButtonKind) {
-    crate::gui::with_window_manager(|wm| {
-        if let Some(win) = wm.find_window_by_name("ControlBar.wnd:OCLTimerWindow") {
-            let _ = win.borrow_mut().hide(false);
+pub fn apply_ocl_timer_windows(
+    text: &str,
+    progress_percent: f32,
+    button_kind: OclTimerButtonKind,
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+) {
+    (|receiving_manager: &mut crate::gui::window_manager::WindowManager| {
+        if let Some(win) = receiving_manager.find_window_by_name("ControlBar.wnd:OCLTimerWindow") {
+            let _ = win.borrow_mut().hide(false, receiving_manager);
         }
-        if let Some(win) = wm.find_window_by_name("ControlBar.wnd:OCLTimerStaticText") {
+        if let Some(win) =
+            receiving_manager.find_window_by_name("ControlBar.wnd:OCLTimerStaticText")
+        {
             let _ = win.borrow_mut().set_text(text);
         }
-        if let Some(win) = wm.find_window_by_name("ControlBar.wnd:OCLTimerProgressBar") {
+        if let Some(win) =
+            receiving_manager.find_window_by_name("ControlBar.wnd:OCLTimerProgressBar")
+        {
             if let Some(bar) = win.borrow_mut().progress_bar_mut() {
                 bar.set_progress(progress_percent.clamp(0.0, 100.0));
             }
         }
-        if let Some(win) = wm.find_window_by_name("ControlBar.wnd:OCLTimerSellButton") {
+        if let Some(win) =
+            receiving_manager.find_window_by_name("ControlBar.wnd:OCLTimerSellButton")
+        {
             match button_kind {
                 OclTimerButtonKind::Hidden => {
-                    let _ = win.borrow_mut().hide(true);
+                    let _ = win.borrow_mut().hide(true, receiving_manager);
                 }
                 OclTimerButtonKind::Sell => {
                     win.borrow_mut().set_user_data("Command_Sell".to_string());
-                    let _ = win.borrow_mut().hide(false);
+                    let _ = win.borrow_mut().hide(false, receiving_manager);
                     let _ = win.borrow_mut().enable(true);
                 }
                 OclTimerButtonKind::RallyPoint => {
                     win.borrow_mut()
                         .set_user_data("Command_SetRallyPoint".to_string());
-                    let _ = win.borrow_mut().hide(false);
+                    let _ = win.borrow_mut().hide(false, receiving_manager);
                     let _ = win.borrow_mut().enable(true);
                 }
             }
         }
-    });
+    })(receiving_manager);
 }
 
 /// Residual: last OCL timer action requested by residual peels.

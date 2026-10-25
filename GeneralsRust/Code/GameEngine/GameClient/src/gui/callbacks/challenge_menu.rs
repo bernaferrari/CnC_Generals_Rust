@@ -11,8 +11,8 @@ use crate::gui::game_window::Image as WindowImage;
 
 use crate::gui::{
     GameWindow, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled, WindowStatus,
-    get_shell, queue_shell_pop, queue_shell_shutdown_complete, show_shell_map_if_available,
-    try_with_shell_mut, with_window_manager, write_input_focus_response,
+    queue_shell_pop, queue_shell_shutdown_complete, show_shell_map_if_available,
+    write_input_focus_response,
 };
 use crate::message_stream::{GameMessage, GameMessageType};
 use game_engine::common::game_common::LOGICFRAMES_PER_SECOND;
@@ -108,19 +108,30 @@ fn set_window_text(window: &Option<Rc<RefCell<GameWindow>>>, text: &str) {
     }
 }
 
-fn set_window_hidden(window: &Option<Rc<RefCell<GameWindow>>>, hidden: bool) {
+fn set_window_hidden(
+    window: &Option<Rc<RefCell<GameWindow>>>,
+    hidden: bool,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) {
     if let Some(window) = window.as_ref() {
-        let _ = window.borrow_mut().hide(hidden);
+        effects.with_manager(|manager, _effects| {
+            let _ = window.borrow_mut().hide(hidden, manager);
+        });
     }
 }
 
-fn set_general_button_checked(control_id: i32, checked: bool) {
-    with_window_manager(|manager| {
+fn set_general_button_checked(
+    control_id: i32,
+    checked: bool,
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) {
+    (|manager: &mut crate::gui::window_manager::WindowManager| {
         if let Some(button) = manager.get_window_by_id(control_id) {
             let mut button = button.borrow_mut();
             match button.widget() {
                 Some(crate::gui::WindowWidget::CheckBox(_)) => {
-                    let _ = button.gadget_check_box_set_checked(checked);
+                    let _ = button.gadget_check_box_set_checked(checked, effects);
                 }
                 Some(crate::gui::WindowWidget::RadioButton(_)) if checked => {
                     if let Some(crate::gui::WindowWidget::RadioButton(radio)) = button.widget_mut()
@@ -131,7 +142,7 @@ fn set_general_button_checked(control_id: i32, checked: bool) {
                 _ => {}
             }
         }
-    });
+    })(receiving_manager);
 }
 
 fn set_window_image(window: &Option<Rc<RefCell<GameWindow>>>, image_name: Option<&str>) {
@@ -194,13 +205,17 @@ fn set_draw_image(
     }
 }
 
-fn apply_general_button_medallions(button: &mut GameWindow, template: &PlayerTemplate) {
+fn apply_general_button_medallions(
+    button: &mut GameWindow,
+    template: &PlayerTemplate,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) {
     let normal_image = mapped_window_image(&template.medallion_regular);
     let selected_image = mapped_window_image(&template.medallion_select);
     let hilite_image = mapped_window_image(&template.medallion_hilite);
 
     if let Some(image) = normal_image.clone() {
-        let _ = button.set_size(image.width, image.width);
+        let _ = button.set_size(image.width, image.width, effects);
     }
 
     let inst = button.instance_data_mut();
@@ -239,7 +254,11 @@ fn is_general_mouse_leaving(msg: WindowMessage) -> bool {
     )
 }
 
-fn set_general_bio(state: &mut ChallengeMenuState, general_index: Option<usize>) {
+fn set_general_bio(
+    state: &mut ChallengeMenuState,
+    general_index: Option<usize>,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) {
     let Some(general_index) = general_index else {
         return;
     };
@@ -252,7 +271,7 @@ fn set_general_bio(state: &mut ChallengeMenuState, general_index: Option<usize>)
     }
 
     let general = &generals.challenge_generals()[general_index];
-    set_window_hidden(&state.bio_parent, false);
+    set_window_hidden(&state.bio_parent, false, effects);
     set_window_image(&state.bio_portrait, general.bio_portrait_small());
 
     state.bio_lines[0] = GameText::fetch(general.bio_name());
@@ -407,7 +426,9 @@ fn start_challenge_game(effects: &mut crate::gui::game_window::WindowEventEffect
         let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(previous_index) = state.last_button_index {
             if let Some(button_id) = state.general_button_ids.get(previous_index) {
-                set_general_button_checked(*button_id, false);
+                effects.with_manager(|receiving_manager, effects| {
+                    set_general_button_checked(*button_id, false, receiving_manager, effects)
+                });
             }
         }
         state.last_button_index = None;
@@ -469,7 +490,7 @@ pub fn challenge_menu_init(
         state.general_button_ids[i] = name_to_id(&format!("ChallengeMenu.wnd:GeneralPosition{i}"));
     }
 
-    with_window_manager(|manager| {
+    effects.with_manager(|manager, effects| {
         state.parent = manager.get_window_by_id(state.parent_id);
         state.button_play = manager.get_window_by_id(state.button_play_id);
         state.button_back = manager.get_window_by_id(state.button_back_id);
@@ -481,13 +502,13 @@ pub fn challenge_menu_init(
         state.bio_birthplace_entry = manager.get_window_by_id(state.bio_birthplace_entry_id);
         state.bio_strategy_entry = manager.get_window_by_id(state.bio_strategy_entry_id);
         if let Some(parent) = state.parent.as_ref() {
-            let _ = manager.set_focus(Some(parent));
+            let _ = manager.set_focus(Some(parent), effects);
         }
     });
 
-    set_window_hidden(&state.bio_parent, true);
-    set_window_hidden(&state.button_play, true);
-    set_window_hidden(&state.gadget_parent, true);
+    set_window_hidden(&state.bio_parent, true, effects);
+    set_window_hidden(&state.button_play, true, effects);
+    set_window_hidden(&state.gadget_parent, true, effects);
     state.just_entered = true;
     state.initial_gadget_delay = 2;
     state.is_shutting_down = false;
@@ -504,17 +525,17 @@ pub fn challenge_menu_init(
     if let Some(generals) = get_challenge_generals_mut() {
         ensure_player_templates_loaded();
         let templates = get_player_template_store();
-        with_window_manager(|manager| {
+        effects.with_manager(|manager, effects| {
             for (index, button_id) in state.general_button_ids.iter().enumerate() {
                 if let Some(button) = manager.get_window_by_id(*button_id) {
                     let general = &generals.challenge_generals()[index];
                     let enabled = general.is_starting_enabled();
                     let mut button = button.borrow_mut();
                     let _ = button.enable(enabled);
-                    let _ = button.hide(!enabled);
+                    let _ = button.hide(!enabled, manager);
                     if let Some(template) = templates.find_template(general.player_template_name())
                     {
-                        apply_general_button_medallions(&mut button, template);
+                        apply_general_button_medallions(&mut button, template, effects);
                     }
                 }
             }
@@ -522,7 +543,7 @@ pub fn challenge_menu_init(
     }
 
     show_shell_map_if_available(true, effects);
-    layout.hide(false);
+    layout.hide_receiving(false, effects);
     effects.window_videos().init();
 }
 
@@ -536,7 +557,9 @@ pub fn challenge_menu_update(
 
     if state.just_entered {
         if state.initial_gadget_delay == 1 {
-            with_window_manager(|manager| manager.transition_set_group("ChallengeMenuFade", false));
+            effects.with_manager(|manager, effects| {
+                manager.transition_set_group("ChallengeMenuFade", false, None)
+            });
             state.initial_gadget_delay = 2;
             state.just_entered = false;
         } else {
@@ -547,7 +570,7 @@ pub fn challenge_menu_update(
     update_bio(&mut state, 2);
 
     if !state.has_played_intro_audio
-        && with_window_manager(|manager| manager.transitions_finished())
+        && effects.with_manager(|manager, effects| manager.transitions_finished())
     {
         state.intro_audio_magic_number += 1;
         if state.intro_audio_magic_number == 10 {
@@ -560,12 +583,12 @@ pub fn challenge_menu_update(
     }
 
     if state.is_shutting_down
-        && try_with_shell_mut(|shell| shell.is_anim_finished()).unwrap_or(false)
-        && with_window_manager(|manager| manager.transitions_finished())
+        && crate::gui::shell::base::shell_anim_finished_for_layout(effects)
+        && effects.with_manager(|manager, effects| manager.transitions_finished())
     {
         state.is_shutting_down = false;
-        layout.hide(true);
-        queue_shell_shutdown_complete(false);
+        layout.hide_receiving(true, effects);
+        queue_shell_shutdown_complete(effects, false);
     }
 
     effects.window_videos().update();
@@ -590,12 +613,12 @@ pub fn challenge_menu_shutdown(
     }
 
     if pop_immediate {
-        layout.hide(true);
-        queue_shell_shutdown_complete(false);
+        layout.hide_receiving(true, effects);
+        queue_shell_shutdown_complete(effects, false);
         return;
     }
 
-    with_window_manager(|manager| manager.transition_reverse("ChallengeMenuFade"));
+    effects.with_manager(|manager, effects| manager.transition_reverse("ChallengeMenuFade", None));
     let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
     state.is_shutting_down = true;
     // C++ ChallengeMenuShutdown: delete TheChallengeGameInfo (fade path only).
@@ -613,7 +636,7 @@ pub fn challenge_menu_shutdown(
 }
 
 pub fn challenge_menu_system(
-    _window: &GameWindow,
+    _window: &mut GameWindow,
     msg: WindowMessage,
     data1: WindowMsgData,
     data2: WindowMsgData,
@@ -628,7 +651,7 @@ pub fn challenge_menu_system(
             let control_id = data1 as i32;
             if let Some(index) = find_general_button(&state, control_id) {
                 if state.last_button_index != Some(index) {
-                    set_general_bio(&mut state, Some(index));
+                    set_general_bio(&mut state, Some(index), effects);
                     if let Some(audio) = TheAudio::get() {
                         let event = AudioEventRts::new("GUILogoMouseOver");
                         let _ = audio.add_audio_event(&event);
@@ -644,7 +667,7 @@ pub fn challenge_menu_system(
             if let Some(index) = find_general_button(&state, control_id) {
                 if state.last_button_index != Some(index) {
                     let selected_general = state.last_button_index;
-                    set_general_bio(&mut state, selected_general);
+                    set_general_bio(&mut state, selected_general, effects);
                 }
                 return WindowMsgHandled::Handled;
             }
@@ -665,10 +688,14 @@ pub fn challenge_menu_system(
                 state.is_auto_selecting = true;
                 drop(state);
                 if let Some(button_id) = previous_id {
-                    set_general_button_checked(button_id, false);
+                    effects.with_manager(|receiving_manager, effects| {
+                        set_general_button_checked(button_id, false, receiving_manager, effects)
+                    });
                 }
                 if let Some(button_id) = current_id {
-                    set_general_button_checked(button_id, true);
+                    effects.with_manager(|receiving_manager, effects| {
+                        set_general_button_checked(button_id, true, receiving_manager, effects)
+                    });
                 }
                 let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
                 state.is_auto_selecting = false;
@@ -686,8 +713,8 @@ pub fn challenge_menu_system(
                     }
                 }
                 state.last_button_index = Some(index);
-                set_general_bio(&mut state, Some(index));
-                set_window_hidden(&state.button_play, false);
+                set_general_bio(&mut state, Some(index), effects);
+                set_window_hidden(&state.button_play, false, effects);
                 return WindowMsgHandled::Handled;
             }
             if control_id == state.button_play_id {
@@ -700,7 +727,7 @@ pub fn challenge_menu_system(
             }
             if control_id == state.button_back_id {
                 drop(state);
-                queue_shell_pop();
+                queue_shell_pop(effects);
                 return WindowMsgHandled::Handled;
             }
             WindowMsgHandled::Handled
@@ -710,7 +737,7 @@ pub fn challenge_menu_system(
 }
 
 pub fn challenge_menu_input(
-    _window: &GameWindow,
+    _window: &mut GameWindow,
     msg: WindowMessage,
     data1: WindowMsgData,
     data2: WindowMsgData,
@@ -961,6 +988,9 @@ mod tests {
         let layout = WindowLayout::new("Menus/ChallengeMenu.wnd".to_string());
         let mut messages = Vec::new();
         let mut effects = crate::gui::game_window::WindowEventEffects {
+            menus: None,
+            ime: None,
+            manager: None,
             script_display: None,
             window_videos: Some(&mut owned_videos),
             window_manager_owner: None,
@@ -1027,6 +1057,9 @@ mod tests {
         let layout = WindowLayout::new("Menus/ChallengeMenu.wnd".to_string());
         let mut messages = Vec::new();
         let mut effects = crate::gui::game_window::WindowEventEffects {
+            menus: None,
+            ime: None,
+            manager: None,
             script_display: None,
             window_videos: Some(&mut owned_videos),
             window_manager_owner: None,
@@ -1205,6 +1238,9 @@ mod tests {
 
             let mut messages = Vec::new();
             let mut effects = crate::gui::game_window::WindowEventEffects {
+                menus: None,
+                ime: None,
+                manager: None,
                 script_display: None,
                 window_videos: Some(&mut owned_videos),
                 window_manager_owner: None,

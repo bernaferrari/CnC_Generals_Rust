@@ -1195,8 +1195,6 @@ impl CnCGameEngine {
         };
         #[cfg(feature = "game_client")]
         let mut last_load_screen_progress = None::<(f32, String)>;
-        #[cfg(feature = "game_client")]
-        let load_screen_owner = self.game_client.window_manager_owner();
 
         let epoch = self.next_native_world_epoch();
         // This existing direct route is intentionally non-atomic. Retire old
@@ -1242,29 +1240,34 @@ impl CnCGameEngine {
         #[cfg(feature = "game_client")]
         let mouse = self.game_client.input_mouse_handle();
         #[cfg(feature = "game_client")]
-        let (display, renderer, mut load_owner) = self.game_client.split_load_screen_services();
+        let (mut load_owner, _default_load_pump) = self.game_client.split_load_screen_services();
         #[cfg(feature = "game_client")]
-        let Some(renderer) = renderer else {
+        if !load_owner.has_renderer() {
             warn!("Native map load has no receiving UI renderer");
             return None;
-        };
-        #[cfg(feature = "game_client")]
-        let mut load_draw = crate::graphics::ui_render_pass::NativeUiDraw::new(
-            renderer,
-            load_owner.windows(),
-            display.fx().draw_facts(),
-            mouse.clone(),
-        )
-        .for_load_screen();
+        }
         #[cfg(feature = "game_client")]
         let mut present_load =
-            || load_surface.present(&mut |frame, radar| load_draw.flush(frame, radar));
+            |services: game_client::gui::load_screen::LoadScreenDrawServices<'_>| {
+                let renderer = services
+                    .renderer
+                    .ok_or_else(|| "native load screen has no receiving UI renderer".to_owned())?;
+                let mut draw = crate::graphics::ui_render_pass::NativeUiDraw::new(
+                    renderer,
+                    services.windows,
+                    services.display.fx().draw_facts(),
+                    mouse.clone(),
+                    services.ime,
+                )
+                .for_load_screen();
+                load_surface.present(&mut |frame, radar| draw.flush(frame, radar))
+            };
         #[cfg(feature = "game_client")]
         let mut load_screen_presentation_pump =
             game_client::gui::load_screen::LoadScreenPresentationPump::for_native(
                 &mut present_load,
             )
-            .with_mouse(mouse);
+            .with_mouse(mouse.clone());
         let loaded = if self.game_logic.game_mode() == GameMode::Shell {
             self.game_logic
                 .load_map_with_progress_and_native_checked(map_name, |_, _| Ok(()), native)
@@ -1278,7 +1281,6 @@ impl CnCGameEngine {
                         if let Some(kind) = active_load_screen {
                             let progress = progress.clamp(0.0, 1.0);
                             Self::pump_cpp_load_screen_progress(
-                                &load_screen_owner,
                                 &mut load_screen_presentation_pump,
                                 kind,
                                 progress,
@@ -1304,7 +1306,6 @@ impl CnCGameEngine {
                             |progress, phase| {
                                 let progress = progress.clamp(0.0, 1.0);
                                 Self::pump_cpp_load_screen_progress(
-                                    &load_screen_owner,
                                     &mut load_screen_presentation_pump,
                                     kind,
                                     progress,
@@ -1359,8 +1360,6 @@ impl CnCGameEngine {
         drop(load_screen_presentation_pump);
         #[cfg(feature = "game_client")]
         drop(present_load);
-        #[cfg(feature = "game_client")]
-        drop(load_draw);
         #[cfg(feature = "game_client")]
         drop(load_owner);
         #[cfg(feature = "game_client")]
@@ -1566,9 +1565,11 @@ impl CnCGameEngine {
         #[cfg(feature = "game_client")]
         let window_manager_owner = self.game_client.window_manager_owner();
         #[cfg(feature = "game_client")]
-        let (frame, snow, presence, campaign_manager, command_hints) = self
-            .game_client
-            .split_frame_snow_drawable_campaign_and_hints();
+        let mut script_window_messages = Vec::new();
+        #[cfg(feature = "game_client")]
+        let (frame, snow, presence, command_hints, script_window_effects, script_window_stream) =
+            self.game_client
+                .split_frame_snow_drawable_script_ui_and_hints(&mut script_window_messages);
         #[cfg(feature = "game_client")]
         let cinematic_window = &self.window;
         #[cfg(feature = "game_client")]
@@ -1605,7 +1606,7 @@ impl CnCGameEngine {
             window_manager_owner,
         )
         .with_cinematic_input(cinematic_input)
-        .with_campaign_manager(campaign_manager)
+        .with_window_effects(script_window_effects, script_window_stream)
         .with_command_hints(command_hints, frame.frame());
         let mut audio = super::native_audio_effects::NativeAudioService::live();
         #[cfg(feature = "game_client")]

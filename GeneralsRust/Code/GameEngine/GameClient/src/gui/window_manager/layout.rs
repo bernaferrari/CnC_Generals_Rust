@@ -5,8 +5,6 @@ use std::rc::{Rc, Weak};
 
 use crate::gui::game_window::{Color, GameFont, GameWindow};
 
-use super::{queue_window_manager_op, queue_window_manager_op_deferred};
-
 /// Window layout for grouping related windows
 pub struct WindowLayout {
     filename: String,
@@ -91,6 +89,18 @@ impl WindowLayout {
         self.hidden.get()
     }
 
+    pub(crate) fn hide_with_manager_and_selected(
+        &self,
+        manager: &mut super::WindowManager,
+        hide: bool,
+        mut selected: Option<&mut GameWindow>,
+    ) {
+        for window in &self.windows {
+            let _ = manager.hide_window_with_selected(window, hide, selected.as_deref_mut());
+        }
+        self.hidden.set(hide);
+    }
+
     /// Apply this layout's visibility through the manager that owns its windows.
     /// This is the synchronous path for code already borrowing a concrete manager;
     /// it preserves `WindowLayout::hide` ordering without selecting an ambient tree.
@@ -116,16 +126,8 @@ impl WindowLayout {
     }
 
     /// Hide or show all windows in this layout
-    pub fn hide(&self, hide: bool) {
-        for window_rc in &self.windows {
-            // Clone the Rc so a re-entrant call can queue this op without
-            // capturing a borrow into `self.windows`.
-            let window = window_rc.clone();
-            queue_window_manager_op(move |manager| {
-                let _ = manager.hide_window(&window, hide);
-            });
-        }
-        self.hidden.set(hide);
+    pub fn hide(&self, manager: &mut super::WindowManager, hide: bool) {
+        self.hide_with_manager(manager, hide);
     }
 
     /// Add window to this layout
@@ -196,25 +198,8 @@ impl WindowLayout {
     }
 
     /// Bring all windows in this layout to front
-    pub fn bring_forward(&mut self) {
-        if let Some(layout) = self.self_handle.upgrade() {
-            queue_window_manager_op(move |manager| {
-                // Shell::push may still hold a mutable layout borrow when this
-                // op drains; try_borrow avoids a RefCell panic that aborted
-                // Menu entry on the windowed sit-through path.
-                match layout.try_borrow() {
-                    Ok(borrowed) => manager.bring_layout_forward(&borrowed),
-                    Err(_) => {
-                        let layout = layout.clone();
-                        queue_window_manager_op_deferred(move |manager| {
-                            if let Ok(borrowed) = layout.try_borrow() {
-                                manager.bring_layout_forward(&borrowed);
-                            }
-                        });
-                    }
-                }
-            });
-        }
+    pub fn bring_forward(&mut self, manager: &mut super::WindowManager) {
+        manager.bring_layout_forward(self);
     }
 
     /// Run initialization callback
@@ -280,15 +265,17 @@ impl WindowLayout {
         std::mem::take(&mut self.windows)
     }
 
-    pub fn destroy_windows(&mut self) {
-        let windows = self.windows.clone();
-
-        queue_window_manager_op(move |manager| {
-            for window in windows {
-                let _ = manager.destroy_window(window);
-            }
-            manager.flush_destroy_queue();
-        });
+    pub fn destroy_windows(
+        &mut self,
+        manager: &mut super::WindowManager,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    ) {
+        for window in self.take_windows() {
+            manager
+                .destroy_window(window)
+                .expect("layout window is managed");
+        }
+        manager.flush_destroy_queue_with_effects(effects);
 
         self.windows.clear();
     }

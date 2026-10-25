@@ -14,13 +14,34 @@ use std::time::Instant;
 use super::*;
 
 impl WindowManager {
+    pub fn set_focus(
+        &mut self,
+        window: Option<&Rc<RefCell<GameWindow>>>,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    ) -> WindowResult<()> {
+        self.set_focus_with_selected(window, effects, None)
+    }
+    pub fn navigate_tab(
+        &mut self,
+        direction: TabDirection,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    ) {
+        self.navigate_tab_with_selected(direction, effects, None)
+    }
     /// Set keyboard focus to a window
-    pub fn set_focus(&mut self, window: Option<&Rc<RefCell<GameWindow>>>) -> WindowResult<()> {
+    pub(crate) fn set_focus_with_selected(
+        &mut self,
+        window: Option<&Rc<RefCell<GameWindow>>>,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+        mut selected: Option<&mut GameWindow>,
+    ) -> WindowResult<()> {
         if let Some(new_focus) = window {
-            let no_focus = match new_focus.try_borrow() {
-                Ok(win) => win.get_status().contains(WindowStatus::NO_FOCUS),
-                Err(_) => false,
-            };
+            let no_focus = super::transition_access::borrow_callback_window(
+                new_focus,
+                selected.as_deref_mut(),
+            )
+            .get_status()
+            .contains(WindowStatus::NO_FOCUS);
             if no_focus {
                 return Ok(());
             }
@@ -34,9 +55,18 @@ impl WindowManager {
                     .unwrap_or(true);
                 if changing_focus {
                     let token = push_payload(WindowMsgPayload::Bool(false));
-                    old_focus
-                        .borrow_mut()
-                        .send_system_message(WindowMessage::InputFocus, 0, token);
+                    effects.with_receiving_manager(self, |effects| {
+                        super::transition_access::borrow_callback_window(
+                            &old_focus,
+                            selected.as_deref_mut(),
+                        )
+                        .send_system_message(
+                            WindowMessage::InputFocus,
+                            0,
+                            token,
+                            effects,
+                        )
+                    });
                     let _ = pop_payload(token);
                 }
             }
@@ -50,14 +80,27 @@ impl WindowManager {
             let mut focus_probe = Some(new_focus.clone());
             while let Some(window) = focus_probe {
                 let token = push_payload(WindowMsgPayload::Bool(false));
-                window
-                    .borrow_mut()
-                    .send_system_message(WindowMessage::InputFocus, 1, token);
+                effects.with_receiving_manager(self, |effects| {
+                    super::transition_access::borrow_callback_window(
+                        &window,
+                        selected.as_deref_mut(),
+                    )
+                    .send_system_message(
+                        WindowMessage::InputFocus,
+                        1,
+                        token,
+                        effects,
+                    )
+                });
                 wants_focus = matches!(pop_payload(token), Some(WindowMsgPayload::Bool(true)));
                 if wants_focus {
                     break;
                 }
-                focus_probe = window.borrow().get_parent();
+                focus_probe = super::transition_access::borrow_callback_window(
+                    &window,
+                    selected.as_deref_mut(),
+                )
+                .get_parent();
             }
 
             if !wants_focus {
@@ -80,7 +123,12 @@ impl WindowManager {
     }
 
     /// Navigate to next/previous tab
-    pub fn navigate_tab(&mut self, direction: TabDirection) {
+    pub(crate) fn navigate_tab_with_selected(
+        &mut self,
+        direction: TabDirection,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+        mut selected: Option<&mut GameWindow>,
+    ) {
         if self.tab_list.is_empty() || self.modal_stack.is_some() {
             return;
         }
@@ -127,8 +175,8 @@ impl WindowManager {
         }
 
         if let Some(window) = next_window {
-            let _ = self.set_focus(Some(&window));
-            self.set_lone_window(None);
+            let _ = self.set_focus_with_selected(Some(&window), effects, selected.as_deref_mut());
+            self.set_lone_window_with_selected(None, effects, selected);
         }
     }
 

@@ -52,6 +52,7 @@ impl WindowManager {
     pub(crate) fn create_default_tab_panes(
         &mut self,
         window: &Rc<RefCell<GameWindow>>,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) -> WindowResult<()> {
         let (pane_x, pane_y, pane_width, pane_height) = self.compute_tab_pane_rect(window);
 
@@ -65,6 +66,7 @@ impl WindowManager {
                 pane_height,
                 pane_id,
                 false,
+                effects,
             )?;
             {
                 let mut pane_mut = pane.borrow_mut();
@@ -82,7 +84,11 @@ impl WindowManager {
         Ok(())
     }
 
-    pub(crate) fn resize_tab_panes(&self, window: &Rc<RefCell<GameWindow>>) {
+    pub(crate) fn resize_tab_panes(
+        &mut self,
+        window: &Rc<RefCell<GameWindow>>,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    ) {
         let (pane_x, pane_y, pane_width, pane_height) = self.compute_tab_pane_rect(window);
         let panes: Vec<Rc<RefCell<GameWindow>>> = window
             .borrow()
@@ -98,7 +104,9 @@ impl WindowManager {
 
         for pane in panes {
             let mut pane_mut = pane.borrow_mut();
-            let _ = pane_mut.set_size(pane_width, pane_height);
+            let _ = effects.with_receiving_manager(self, |effects| {
+                pane_mut.set_size(pane_width, pane_height, effects)
+            });
             let _ = pane_mut.set_position(pane_x, pane_y);
         }
     }
@@ -153,6 +161,7 @@ impl WindowManager {
         window: &Rc<RefCell<GameWindow>>,
         layout: &WindowLayoutDefinition,
         window_def: &WindowDefinition,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) -> WindowResult<()> {
         let (width, height) = window.borrow().get_size();
         let mut status = window.borrow().get_status();
@@ -176,6 +185,7 @@ impl WindowManager {
             button_height,
             drop_down_id,
             false,
+            effects,
         )?;
         {
             let mut drop_mut = drop_down.borrow_mut();
@@ -221,6 +231,7 @@ impl WindowManager {
             height,
             edit_id,
             false,
+            effects,
         )?;
         {
             let mut edit_mut = edit.borrow_mut();
@@ -287,6 +298,7 @@ impl WindowManager {
             height,
             list_id,
             false,
+            effects,
         )?;
         {
             let mut list_mut = list.borrow_mut();
@@ -301,7 +313,7 @@ impl WindowManager {
             let mut list_status = status;
             list_status.remove(WindowStatus::IMAGE);
             list_mut.set_status_exact(list_status | WindowStatus::ABOVE | WindowStatus::ONE_LINE);
-            list_mut.hide(true)?;
+            list_mut.hide(true, self)?;
             if let Some(font) = window.borrow().get_font().cloned() {
                 list_mut.set_font(font);
             }
@@ -335,7 +347,7 @@ impl WindowManager {
             self.apply_default_draw_callback(&mut list_mut);
         }
 
-        self.create_listbox_scrollbar_children(&list, layout, Some(window_def))?;
+        self.create_listbox_scrollbar_children(&list, layout, Some(window_def), effects)?;
 
         window
             .borrow_mut()
@@ -352,8 +364,9 @@ impl WindowManager {
         &mut self,
         slider: &Rc<RefCell<GameWindow>>,
         layout: &WindowLayoutDefinition,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) -> WindowResult<()> {
-        self.create_slider_thumb_child_with_window(slider, layout, None)
+        self.create_slider_thumb_child_with_window(slider, layout, None, effects)
     }
 
     pub(crate) fn create_slider_thumb_child_with_window(
@@ -361,6 +374,7 @@ impl WindowManager {
         slider: &Rc<RefCell<GameWindow>>,
         layout: &WindowLayoutDefinition,
         window_def: Option<&crate::gui::window_script::WindowDefinition>,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) -> WindowResult<()> {
         // C++ gogoGadgetSlider always creates a thumb (ENABLED | DRAGABLE).
         // Prefer per-WINDOW SLIDERTHUMB* draw data; fall back to layout-global.
@@ -401,6 +415,7 @@ impl WindowManager {
             thumb_h,
             thumb_id,
             false,
+            effects,
         )?;
         {
             let mut thumb_mut = thumb.borrow_mut();
@@ -428,6 +443,7 @@ impl WindowManager {
         listbox: &Rc<RefCell<GameWindow>>,
         layout: &WindowLayoutDefinition,
         window_def: Option<&WindowDefinition>,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) -> WindowResult<()> {
         let empty: &[WindowDrawData] = &[];
         let (up_en, up_dis, up_hi) = (
@@ -543,6 +559,7 @@ impl WindowManager {
             button_height,
             up_id,
             false,
+            effects,
         )?;
         {
             let mut up_mut = up_button.borrow_mut();
@@ -570,6 +587,7 @@ impl WindowManager {
             button_height,
             down_id,
             false,
+            effects,
         )?;
         {
             let mut down_mut = down_button.borrow_mut();
@@ -598,6 +616,7 @@ impl WindowManager {
             slider_height,
             slider_id,
             false,
+            effects,
         )?;
         {
             let mut slider_mut = slider.borrow_mut();
@@ -625,6 +644,7 @@ impl WindowManager {
                 16,
                 thumb_window_id,
                 false,
+                effects,
             )?;
             {
                 let mut thumb_mut = thumb.borrow_mut();
@@ -651,7 +671,9 @@ impl WindowManager {
                 slider: slider_id,
                 thumb: thumb_id,
             });
-        listbox.borrow_mut().update_listbox_scrollbar();
+        effects.with_receiving_manager(self, |effects| {
+            listbox.borrow_mut().update_listbox_scrollbar(effects)
+        });
 
         Ok(())
     }
@@ -665,6 +687,7 @@ impl WindowManager {
         body: &str,
         yes_cb: Option<Box<dyn Fn()>>,
         no_cb: Option<Box<dyn Fn()>>,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) -> Option<WindowId> {
         let (screen_w, screen_h) = self.screen_size;
         let box_w = (screen_w as f32 * 0.4) as i32;
@@ -672,7 +695,9 @@ impl WindowManager {
         let box_x = (screen_w - box_w) / 2;
         let box_y = (screen_h - box_h) / 2;
 
-        let window = self.create_window(None, box_x, box_y, box_w, box_h).ok()?;
+        let window = self
+            .create_window(None, box_x, box_y, box_w, box_h, effects)
+            .ok()?;
         let window_id = window.borrow().get_id();
 
         {
@@ -702,9 +727,10 @@ impl WindowManager {
         parent: Option<&Rc<RefCell<GameWindow>>>,
         pos: (i32, i32),
         size: (i32, i32),
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) -> Option<WindowId> {
         let window = self
-            .create_window(parent, pos.0, pos.1, size.0, size.1)
+            .create_window(parent, pos.0, pos.1, size.0, size.1, effects)
             .ok()?;
         let window_id = window.borrow().get_id();
         {
@@ -733,9 +759,10 @@ impl WindowManager {
         parent: Option<&Rc<RefCell<GameWindow>>>,
         pos: (i32, i32),
         size: (i32, i32),
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) -> Option<WindowId> {
         let window = self
-            .create_window(parent, pos.0, pos.1, size.0, size.1)
+            .create_window(parent, pos.0, pos.1, size.0, size.1, effects)
             .ok()?;
         let window_id = window.borrow().get_id();
         {
@@ -761,9 +788,10 @@ impl WindowManager {
         parent: Option<&Rc<RefCell<GameWindow>>>,
         pos: (i32, i32),
         size: (i32, i32),
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) -> Option<WindowId> {
         let window = self
-            .create_window(parent, pos.0, pos.1, size.0, size.1)
+            .create_window(parent, pos.0, pos.1, size.0, size.1, effects)
             .ok()?;
         let window_id = window.borrow().get_id();
         {
@@ -790,9 +818,10 @@ impl WindowManager {
         parent: Option<&Rc<RefCell<GameWindow>>>,
         pos: (i32, i32),
         size: (i32, i32),
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) -> Option<WindowId> {
         let window = self
-            .create_window(parent, pos.0, pos.1, size.0, size.1)
+            .create_window(parent, pos.0, pos.1, size.0, size.1, effects)
             .ok()?;
         let window_id = window.borrow().get_id();
         {
@@ -821,9 +850,10 @@ impl WindowManager {
         parent: Option<&Rc<RefCell<GameWindow>>>,
         pos: (i32, i32),
         size: (i32, i32),
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) -> Option<WindowId> {
         let window = self
-            .create_window(parent, pos.0, pos.1, size.0, size.1)
+            .create_window(parent, pos.0, pos.1, size.0, size.1, effects)
             .ok()?;
         let window_id = window.borrow().get_id();
         {
@@ -852,9 +882,10 @@ impl WindowManager {
         parent: Option<&Rc<RefCell<GameWindow>>>,
         pos: (i32, i32),
         size: (i32, i32),
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) -> Option<WindowId> {
         let window = self
-            .create_window(parent, pos.0, pos.1, size.0, size.1)
+            .create_window(parent, pos.0, pos.1, size.0, size.1, effects)
             .ok()?;
         let window_id = window.borrow().get_id();
         {
@@ -883,9 +914,10 @@ impl WindowManager {
         parent: Option<&Rc<RefCell<GameWindow>>>,
         pos: (i32, i32),
         size: (i32, i32),
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) -> Option<WindowId> {
         let window = self
-            .create_window(parent, pos.0, pos.1, size.0, size.1)
+            .create_window(parent, pos.0, pos.1, size.0, size.1, effects)
             .ok()?;
         let window_id = window.borrow().get_id();
         {
@@ -914,9 +946,10 @@ impl WindowManager {
         parent: Option<&Rc<RefCell<GameWindow>>>,
         pos: (i32, i32),
         size: (i32, i32),
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) -> Option<WindowId> {
         let window = self
-            .create_window(parent, pos.0, pos.1, size.0, size.1)
+            .create_window(parent, pos.0, pos.1, size.0, size.1, effects)
             .ok()?;
         let window_id = window.borrow().get_id();
         {
@@ -945,9 +978,10 @@ impl WindowManager {
         parent: Option<&Rc<RefCell<GameWindow>>>,
         pos: (i32, i32),
         size: (i32, i32),
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) -> Option<WindowId> {
         let window = self
-            .create_window(parent, pos.0, pos.1, size.0, size.1)
+            .create_window(parent, pos.0, pos.1, size.0, size.1, effects)
             .ok()?;
         let window_id = window.borrow().get_id();
         {
@@ -976,9 +1010,10 @@ impl WindowManager {
         parent: Option<&Rc<RefCell<GameWindow>>>,
         pos: (i32, i32),
         size: (i32, i32),
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) -> Option<WindowId> {
         let window = self
-            .create_window(parent, pos.0, pos.1, size.0, size.1)
+            .create_window(parent, pos.0, pos.1, size.0, size.1, effects)
             .ok()?;
         let window_id = window.borrow().get_id();
         {

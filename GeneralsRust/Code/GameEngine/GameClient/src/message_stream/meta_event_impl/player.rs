@@ -286,7 +286,7 @@ fn stop_movies_for_sound_toggle(
         emitted,
     );
     let _ = dispatch_display_input(
-        game_engine::common::message_stream::DisplayInputAction::StopWindowMovies,
+        game_engine::common::message_stream::DisplayInputAction::StopRadarMovie,
         dispatch,
         emitted,
     );

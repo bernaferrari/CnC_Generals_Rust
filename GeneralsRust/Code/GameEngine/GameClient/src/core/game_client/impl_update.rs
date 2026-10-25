@@ -7,8 +7,7 @@ impl GameClient {
     ///
     /// C++ parity: frame sequence matches `GameClient::update()` (GameClient.cpp:489-752).
     pub fn update(&mut self) -> GameClientResult<()> {
-        let owner = self.window_manager_owner.clone();
-        owner.with_scope(|| self.update_with_window_owner())
+        self.update_with_window_owner()
     }
 
     fn update_with_window_owner(&mut self) -> GameClientResult<()> {
@@ -1131,7 +1130,8 @@ impl GameClient {
             return;
         };
         let ms = remaining_ms.unwrap_or(10_000).max(0);
-        ui.push_military_subtitle(text, ms);
+        self.window_manager_owner
+            .with_manager(|manager| ui.push_military_subtitle(text, ms, manager));
     }
 
     /// Wave 1060: presentation floating cash/text residual → InGameUI subsystem residual.
@@ -1236,6 +1236,16 @@ impl GameClient {
                 })
                 .collect();
         guard.replace_superweapon_timers_from_presentation(&packed);
+    }
+
+    /// Display a message through this client's HUD with its logic frame.
+    pub fn push_hud_message_at(&mut self, message: String, frame: u32) -> bool {
+        let Some(ui) = self.subsystem_manager.in_game_ui.as_ref() else {
+            return false;
+        };
+        let mut ui = ui.lock().unwrap_or_else(|poison| poison.into_inner());
+        ui.push_hud_message_at(message, frame);
+        true
     }
 
     /// C++ `TheInGameUI->message` HUD bridge: drain GameLogic's displayed
@@ -2321,24 +2331,27 @@ impl GameClient {
         &mut self,
         display: &mut GraphicsDisplay,
     ) -> GameClientResult<()> {
-        let Some((layout, _info)) = self.window_manager_owner.with_manager(|manager| {
-            manager
-                .create_layout_with_windows("Menus/LegalPage.wnd")
-                .ok()
+        let Some((layout, _info)) = self.with_window_event_effects(None, |effects| {
+            effects.with_manager(|manager, effects| {
+                manager
+                    .create_layout_with_windows("Menus/LegalPage.wnd", effects)
+                    .ok()
+            })
         }) else {
             return Ok(());
         };
 
-        {
+        self.window_manager_owner.with_manager(|manager| {
             let mut layout_mut = layout.borrow_mut();
-            layout_mut.hide(false);
-            layout_mut.bring_forward();
-        }
+            layout_mut.hide(manager, false);
+            layout_mut.bring_forward(manager);
+        });
 
         let begin = Instant::now();
         while begin.elapsed() < Duration::from_millis(4000) {
-            self.window_manager_owner
-                .with_manager(|manager| manager.update());
+            self.with_window_event_effects(None, |effects| {
+                effects.with_manager(|manager, effects| manager.update(effects))
+            });
             display.draw(
                 self.script_display.fx_mut(),
                 self.ui_renderer.as_mut(),
@@ -2347,8 +2360,9 @@ impl GameClient {
             thread::sleep(Duration::from_millis(100));
         }
 
-        self.window_manager_owner
-            .with_manager(|manager| manager.destroy_layout(&layout));
+        self.with_window_event_effects(None, |effects| {
+            effects.with_manager(|manager, effects| manager.destroy_layout(&layout, effects))
+        });
         Ok(())
     }
 
@@ -2462,8 +2476,12 @@ impl GameClient {
     }
 
     pub fn update_pre_draw_ui(&mut self) -> GameClientResult<()> {
-        if let Some(window_manager) = self.subsystem_manager.window_manager.as_mut() {
-            window_manager.update()?;
+        if self.subsystem_manager.window_manager_initialized {
+            // C++ WindowManager::update retains its existing pre-video phase,
+            // with the same client's actual callback recipients.
+            self.with_window_event_effects(None, |effects| {
+                effects.with_manager(|manager, effects| manager.update(effects))
+            });
         }
 
         if let Some(ref video_player) = self.subsystem_manager.video_player {
@@ -2484,8 +2502,11 @@ impl GameClient {
             let mut shell = self.window_manager_owner.shell_handle();
             let mut messages = Vec::new();
             let mut effects = crate::gui::game_window::WindowEventEffects {
+                menus: Some(self.menu_manager.receiving_menus()),
+                ime: Some(&mut self.ime),
+                manager: None,
                 script_display: None,
-                window_videos: None,
+                window_videos: Some(&mut self.window_videos.challenge),
                 window_manager_owner: Some(&self.window_manager_owner),
                 selected_window: None,
                 emitted_messages: &mut messages,
@@ -2505,8 +2526,12 @@ impl GameClient {
         }
 
         if let Some(ref ui) = self.subsystem_manager.in_game_ui {
-            self.window_videos.update();
-            ui.lock().unwrap_or_else(|e| e.into_inner()).update()?;
+            self.window_videos.in_game.update_in_game_movies();
+            self.window_manager_owner.with_manager(|manager| {
+                ui.lock()
+                    .unwrap_or_else(|error| error.into_inner())
+                    .update_receiving(manager)
+            })?;
         }
 
         crate::eva::update_eva_system();
@@ -2524,8 +2549,11 @@ impl GameClient {
             let mut shell = self.window_manager_owner.shell_handle();
             let mut messages = Vec::new();
             let mut effects = crate::gui::game_window::WindowEventEffects {
+                menus: Some(self.menu_manager.receiving_menus()),
+                ime: Some(&mut self.ime),
+                manager: None,
                 script_display: None,
-                window_videos: None,
+                window_videos: Some(&mut self.window_videos.challenge),
                 window_manager_owner: Some(&self.window_manager_owner),
                 selected_window: None,
                 emitted_messages: &mut messages,
@@ -2545,12 +2573,20 @@ impl GameClient {
         }
 
         if let Some(ref ui) = self.subsystem_manager.in_game_ui {
-            self.window_videos.update();
-            ui.lock().unwrap_or_else(|e| e.into_inner()).update()?;
+            self.window_videos.in_game.update_in_game_movies();
+            self.window_manager_owner.with_manager(|manager| {
+                ui.lock()
+                    .unwrap_or_else(|error| error.into_inner())
+                    .update_receiving(manager)
+            })?;
         }
 
-        if let Some(window_manager) = self.subsystem_manager.window_manager.as_mut() {
-            window_manager.update()?;
+        if self.subsystem_manager.window_manager_initialized {
+            // C++ WindowManager::update retains its existing pre-video phase,
+            // with the same client's actual callback recipients.
+            self.with_window_event_effects(None, |effects| {
+                effects.with_manager(|manager, effects| manager.update(effects))
+            });
         }
 
         if let Some(ref video_player) = self.subsystem_manager.video_player {

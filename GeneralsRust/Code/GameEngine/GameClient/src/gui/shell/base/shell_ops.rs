@@ -1,66 +1,47 @@
-/// Run or queue work on the Shell belonging to the currently selected native
-/// owner. Production roots should prefer `WindowManagerOwner::with_shell_mut`;
-/// this adapter is retained for callbacks whose C++ interface has no owner arg.
-pub fn queue_shell_operation(operation: impl FnOnce(&mut Shell) + 'static) {
-    if let Some(owner) = crate::gui::window_manager::current_window_manager_owner() {
-        owner.queue_shell_operation(operation);
-    } else {
-        log::warn!("Shell operation has no receiving WindowManagerOwner; ignored");
-    }
+/// Source callbacks receive their exact owner through WindowEventEffects.
+pub fn queue_shell_operation(
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    operation: impl FnOnce(&mut Shell) + 'static,
+) {
+    effects
+        .window_manager_owner
+        .expect("Shell callback requires receiving owner")
+        .queue_shell_operation_with_effects(move |shell, _effects| operation(shell));
 }
-
 pub fn queue_shell_operation_with_effects(
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     operation: impl for<'a> FnOnce(&mut Shell, &mut crate::gui::game_window::WindowEventEffects<'a>)
     + 'static,
 ) {
-    let owner = crate::gui::window_manager::current_window_manager_owner()
-        .expect("Shell lifecycle operation requires receiving WindowManagerOwner");
-    owner.queue_shell_operation_with_effects(operation);
+    effects
+        .window_manager_owner
+        .expect("Shell callback requires receiving owner")
+        .queue_shell_operation_with_effects(operation);
 }
-
-/// Mutate the currently selected owner's Shell. Re-entrant access returns `None`.
-pub fn with_shell_mut<F, R>(f: F) -> Option<R>
-where
-    F: FnOnce(&mut Shell) -> R,
-{
-    crate::gui::window_manager::current_window_manager_owner()?.with_shell_mut(f)
+pub fn shell_anim_finished_for_layout(
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
+    effects
+        .window_manager_owner
+        .expect("Shell callback requires receiving owner")
+        .shell_anim_finished()
 }
-
-/// Read the currently selected owner's Shell when no mutable lifecycle call is active.
-pub fn with_shell_ref<F, R>(f: F) -> Option<R>
-where
-    F: FnOnce(&Shell) -> R,
-{
-    crate::gui::window_manager::current_window_manager_owner()?.with_shell_ref(f)
+pub(crate) fn record_shell_anim_finished_for_layout(
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    finished: bool,
+) {
+    effects
+        .window_manager_owner
+        .expect("Shell callback requires receiving owner")
+        .record_shell_anim_finished(finished);
 }
-
-/// Backwards-compatible scoped mutation entry point.
-pub fn try_with_shell_mut<F, R>(f: F) -> Option<R>
-where
-    F: FnOnce(&mut Shell) -> R,
-{
-    with_shell_mut(f)
-}
-
-/// C++ TheShell->isAnimFinished() from a layout callback already inside Shell::update.
-pub fn shell_anim_finished_for_layout() -> bool {
-    let Some(owner) = crate::gui::window_manager::current_window_manager_owner() else {
-        return false;
-    };
-    match owner.with_shell_ref(|shell| shell.is_anim_finished()) {
-        Some(finished) => finished,
-        None => owner.shell_anim_finished(),
-    }
-}
-
-pub(crate) fn record_shell_anim_finished_for_layout(finished: bool) {
-    if let Some(owner) = crate::gui::window_manager::current_window_manager_owner() {
-        owner.record_shell_anim_finished(finished);
-    }
-}
-
-pub(crate) fn take_pending_shell_scheme_for_layout() -> Option<String> {
-    crate::gui::window_manager::current_window_manager_owner()?.take_pending_shell_scheme()
+pub(crate) fn take_pending_shell_scheme_for_layout(
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> Option<String> {
+    effects
+        .window_manager_owner
+        .expect("Shell callback requires receiving owner")
+        .take_pending_shell_scheme()
 }
 
 /// A non-borrowing façade capturing one explicit native client's Shell owner.
@@ -103,7 +84,11 @@ impl ShellHandle {
 
     pub fn is_anim_finished(&self) -> bool {
         self.owner()
-            .and_then(|owner| owner.with_shell_ref(|shell| shell.is_anim_finished()))
+            .and_then(|owner| {
+                owner.with_manager_ref(|manager| {
+                    owner.with_shell_ref(|shell| shell.is_anim_finished_with_manager(manager))
+                })
+            })
             .unwrap_or(false)
     }
 
@@ -121,7 +106,9 @@ impl ShellHandle {
 
     pub fn set_shell_active(&mut self, active: bool) {
         if let Some(owner) = self.owner() {
-            owner.queue_shell_operation(move |shell| shell.set_shell_active(active));
+            owner.queue_shell_operation_with_effects(move |shell, _effects| {
+                shell.set_shell_active(active)
+            });
         } else {
             log::warn!("Shell activation has no receiving WindowManagerOwner; ignored");
         }
@@ -137,7 +124,9 @@ impl ShellHandle {
 
     pub fn reverse_animate_window(&mut self) {
         if let Some(owner) = self.owner() {
-            owner.queue_shell_operation(|shell| shell.reverse_animate_window());
+            owner.queue_shell_operation_with_effects(|shell, _effects| {
+                shell.reverse_animate_window()
+            });
         } else {
             log::warn!("Shell animation has no receiving WindowManagerOwner; ignored");
         }
@@ -219,7 +208,7 @@ impl ShellHandle {
         match owner.with_shell_mut(|shell| shell.init()) {
             Some(result) => result,
             None => {
-                owner.queue_shell_operation(|shell| {
+                owner.queue_shell_operation_with_effects(|shell, _effects| {
                     if let Err(error) = shell.init() {
                         log::warn!("deferred Shell::init failed: {error}");
                     }
@@ -260,13 +249,6 @@ impl ShellHandle {
     }
 }
 
-/// Get a handle capturing the currently scoped native client's Shell owner.
-pub fn get_shell() -> ShellHandle {
-    ShellHandle {
-        owner: crate::gui::window_manager::current_window_manager_owner(),
-    }
-}
-
 impl crate::gui::window_manager::WindowManagerOwner {
     /// Return an explicit handle to this owner's Shell for routes that already
     /// receive the client capability.
@@ -285,13 +267,18 @@ pub fn show_shell_map_if_available(
 }
 
 /// Queue the C++ `TheShell->reverseAnimateWindow()` side effect.
-pub fn queue_shell_reverse_animate_window() {
-    queue_shell_operation(|shell| shell.reverse_animate_window());
+pub fn queue_shell_reverse_animate_window(
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) {
+    queue_shell_operation(effects, |shell| shell.reverse_animate_window());
 }
 
 /// Queue the C++ `TheShell->shutdownComplete()` side effect.
-pub fn queue_shell_shutdown_complete(impending_push: bool) {
-    queue_shell_operation_with_effects(move |shell, effects| {
+pub fn queue_shell_shutdown_complete(
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    impending_push: bool,
+) {
+    queue_shell_operation_with_effects(effects, move |shell, effects| {
         if let Err(error) = shell.shutdown_complete(None, impending_push, effects) {
             log::warn!("deferred Shell::shutdown_complete failed: {error}");
         }
@@ -299,9 +286,13 @@ pub fn queue_shell_shutdown_complete(impending_push: bool) {
 }
 
 /// Queue the C++ `TheShell->push()` side effect with owned layout data.
-pub fn queue_shell_push(filename: impl Into<String>, shutdown_immediate: bool) {
+pub fn queue_shell_push(
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    filename: impl Into<String>,
+    shutdown_immediate: bool,
+) {
     let filename = filename.into();
-    queue_shell_operation_with_effects(move |shell, effects| {
+    queue_shell_operation_with_effects(effects, move |shell, effects| {
         if let Err(error) = shell.push(&filename, shutdown_immediate, effects) {
             log::warn!("deferred Shell::push({filename}) failed: {error}");
         }
@@ -309,8 +300,8 @@ pub fn queue_shell_push(filename: impl Into<String>, shutdown_immediate: bool) {
 }
 
 /// Queue the C++ `TheShell->pop()` side effect.
-pub fn queue_shell_pop() {
-    queue_shell_operation_with_effects(|shell, effects| {
+pub fn queue_shell_pop(effects: &mut crate::gui::game_window::WindowEventEffects<'_>) {
+    queue_shell_operation_with_effects(effects, |shell, effects| {
         if let Err(error) = shell.pop(effects) {
             log::warn!("deferred Shell::pop failed: {error}");
         }
@@ -318,8 +309,8 @@ pub fn queue_shell_pop() {
 }
 
 /// Queue the C++ `TheShell->hideShell()` side effect.
-pub fn queue_shell_hide() {
-    queue_shell_operation_with_effects(|shell, effects| {
+pub fn queue_shell_hide(effects: &mut crate::gui::game_window::WindowEventEffects<'_>) {
+    queue_shell_operation_with_effects(effects, |shell, effects| {
         if let Err(error) = shell.hide_shell(effects) {
             log::warn!("deferred Shell::hide_shell failed: {error}");
         }
@@ -327,8 +318,11 @@ pub fn queue_shell_hide() {
 }
 
 /// Queue the C++ `TheShell->showShell()` side effect.
-pub fn queue_shell_show(run_init: bool) {
-    queue_shell_operation_with_effects(move |shell, effects| {
+pub fn queue_shell_show(
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    run_init: bool,
+) {
+    queue_shell_operation_with_effects(effects, move |shell, effects| {
         if let Err(error) = shell.show_shell(run_init, effects) {
             log::warn!("deferred Shell::show_shell failed: {error}");
         }
@@ -337,17 +331,21 @@ pub fn queue_shell_show(run_init: bool) {
 
 /// Queue registration of a window transition from a layout-init callback.
 pub fn queue_shell_window_animation(
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     window: Rc<RefCell<GameWindow>>,
     animation: AnimationType,
     needs_to_finish: bool,
     delay_ms: u64,
 ) {
-    queue_shell_operation(move |shell| {
+    queue_shell_operation(effects, move |shell| {
         shell.register_with_animate_manager(window, animation, needs_to_finish, delay_ms);
     });
 }
 
-pub fn request_shell_menu_scheme(name: &str) {
+pub fn request_shell_menu_scheme(
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    name: &str,
+) {
     let name = name.to_string();
-    queue_shell_operation(move |shell| shell.load_scheme(&name));
+    queue_shell_operation(effects, move |shell| shell.load_scheme(&name));
 }

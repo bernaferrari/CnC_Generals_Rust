@@ -26,8 +26,7 @@ use crate::gui::load_screen::{
 };
 use crate::gui::{
     HintData, HintType, MouseCursor, MouseMode, WindowLayout, WindowStatus, hide_control_bar,
-    queue_shell_hide, queue_shell_operation, queue_window_manager_op, show_shell_map_if_available,
-    with_window_manager,
+    queue_shell_hide, queue_shell_operation, show_shell_map_if_available,
 };
 use crate::input::Mouse;
 use crate::message_stream::game_message::{Coord3D, ICoord2D};
@@ -92,8 +91,13 @@ pub trait InGameUiHooks: Send + Sync {
     fn display_cant_build_message(&self, message: &str);
     fn message(&self, text: &str);
     fn free_message_resources(&self) {}
-    fn military_subtitle(&self, label: &str, _duration_ms: i32) {
-        self.message(label);
+    fn military_subtitle(
+        &self,
+        label: &str,
+        duration_ms: i32,
+        manager: &mut crate::gui::window_manager::WindowManager,
+    ) {
+        crate::gui::ingame_ui::start_military_subtitle(label, duration_ms, manager);
     }
     fn disable_tooltips_until(&self, _frame_num: u32) {}
     fn clear_tooltips_disabled(&self) {}
@@ -477,52 +481,8 @@ where
     control_bar_backend().map(|handler| f(handler.as_ref()))
 }
 
-struct GameClientPrepareNewGameHooks;
-
-impl gamelogic::helpers::PrepareNewGameHooks for GameClientPrepareNewGameHooks {
-    fn ensure_background_window(&self) {
-        let existing = BACKGROUND_LAYOUT_SLOT.with(|slot| slot.borrow().clone());
-        if let Some(layout) = existing {
-            layout.borrow_mut().hide(false);
-            layout.borrow_mut().bring_forward();
-            if let Some(window) = layout.borrow().get_first_window() {
-                window.borrow_mut().clear_status(WindowStatus::IMAGE);
-            }
-            return;
-        }
-        let new_layout = with_window_manager(|manager| {
-            manager
-                .create_layout_with_windows("Menus/BlankWindow.wnd")
-                .ok()
-                .map(|(layout, _)| layout)
-        });
-        if let Some(layout) = new_layout {
-            layout.borrow_mut().hide(false);
-            layout.borrow_mut().bring_forward();
-            if let Some(window) = layout.borrow().get_first_window() {
-                window.borrow_mut().clear_status(WindowStatus::IMAGE);
-            }
-            BACKGROUND_LAYOUT_SLOT.with(|slot| *slot.borrow_mut() = Some(layout));
-        }
-    }
-
-    fn hide_shell(&self) {
-        queue_shell_hide();
-    }
-}
-
-// THREAD: main thread only. The layout is an `Rc` window-manager object
-// (`!Send` by construction), so the previous `Arc<Mutex<...>>` wrapper could
-// never have crossed a thread boundary anyway.
-thread_local! {
-    static BACKGROUND_LAYOUT_SLOT: RefCell<Option<Rc<RefCell<WindowLayout>>>> =
-        const { RefCell::new(None) };
-}
-
-pub fn register_prepare_new_game_hooks() {
-    let _ = gamelogic::helpers::register_prepare_new_game_hooks(Arc::new(
-        GameClientPrepareNewGameHooks,
-    ));
+/// Pause restore callbacks are separate from lexical new-game UI preparation.
+pub fn register_game_pause_restore_hooks() {
     let _ = register_game_pause_hooks(Arc::new(GameClientPauseHooks {
         // THREAD: gamelogic hook objects must be `Send + Sync`; only the
         // main-thread logic tick drives pause transitions, so plain atomics
@@ -569,13 +529,58 @@ impl<'a> GameClientLoadScreenHooks<'a> {
                 log::warn!("Failed to activate shell main menu after shell-map load: {err}");
             }
         });
-        if let Err(err) = hide_control_bar(true) {
-            log::warn!("Failed to hide control bar after shell-map load: {err}");
-        }
+        self.client.window_manager_owner().with_manager(|manager| {
+            if let Err(err) = hide_control_bar(true, manager) {
+                log::warn!("Failed to hide control bar after shell-map load: {err}");
+            }
+        });
     }
 }
 
 impl gamelogic::helpers::LoadScreenHooks for GameClientLoadScreenHooks<'_> {
+    fn replay_controls_visibility(&mut self, hidden: bool) -> Result<(), String> {
+        self.client.admit_replay_control_visibility(hidden);
+        Ok(())
+    }
+
+    fn ensure_background_window(&mut self) -> Result<(), String> {
+        let existing = self.client.prepare_background_layout.clone();
+        let layout = self.client.with_window_event_effects(None, |effects| {
+            effects.with_manager(|manager, effects| {
+                let current = existing.filter(|layout| {
+                    layout.borrow().get_first_window().is_some_and(|window| {
+                        manager
+                            .get_window_by_id(window.borrow().get_id())
+                            .is_some_and(|registered| Rc::ptr_eq(&registered, &window))
+                    })
+                });
+                let layout = match current {
+                    Some(layout) => layout,
+                    None => {
+                        manager
+                            .create_layout_with_windows("Menus/BlankWindow.wnd", effects)
+                            .map_err(|error| error.to_string())?
+                            .0
+                    }
+                };
+                layout.borrow().hide(manager, false);
+                layout.borrow_mut().bring_forward(manager);
+                if let Some(window) = layout.borrow().get_first_window() {
+                    window.borrow_mut().clear_status(WindowStatus::IMAGE);
+                }
+                Ok::<_, String>(layout)
+            })
+        })?;
+        self.client.prepare_background_layout = Some(layout);
+        Ok(())
+    }
+    fn hide_shell(&mut self) -> Result<(), String> {
+        self.client
+            .with_receiving_shell(None, |shell, effects| shell.hide(true, effects))
+            .ok_or_else(|| "receiving Shell already borrowed during preparation".to_owned())?;
+        Ok(())
+    }
+
     fn begin_load_screen(&mut self, game_mode: i32, loading_save_game: bool) -> Result<(), String> {
         let (has_current_campaign, current_campaign_is_challenge) = {
             let campaign_manager = self.client.campaign_manager();
@@ -644,17 +649,17 @@ impl gamelogic::helpers::LoadScreenHooks for GameClientLoadScreenHooks<'_> {
             return Ok(());
         }
         let owner = self.client.window_manager_owner();
-        let mut presentation_pump = self.client.load_screen_presentation_pump();
+        let (mut runtime, mut presentation_pump) = self.client.split_load_screen_runtime_and_pump();
         {
             owner.with_manager(|wm| {
-                wm.transition_set_group(LOAD_SCREEN_COMPLETION_TRANSITION_GROUP, false)
+                wm.transition_set_group(LOAD_SCREEN_COMPLETION_TRANSITION_GROUP, false, None)
             });
             for _ in 0..LOAD_SCREEN_COMPLETION_TRANSITION_MAX_FRAMES {
                 if owner.with_manager(|wm| wm.transitions_finished()) {
                     break;
                 }
-                owner.with_manager(|wm| wm.update());
-                let result = presentation_pump.pump();
+                owner.with_manager(|wm| wm.update(&mut runtime.effects));
+                let result = presentation_pump.pump(&mut runtime);
                 gamelogic::system::game_logic::set_fp_mode();
                 result?;
             }
@@ -915,13 +920,6 @@ pub struct PopupMessageData {
     /// callers leave this `None` and retain their legacy dismissal route.
     pub host_popup_generation: Option<usize>,
     pub layout: Option<Rc<RefCell<WindowLayout>>>,
-}
-
-// THREAD: main thread only. `PopupMessageData` owns `Rc` window layouts
-// (`!Send` by construction), so the old `Arc<Mutex<...>>` wrapper could never
-// have crossed a thread boundary anyway.
-thread_local! {
-    static POPUP_MESSAGE_DATA: RefCell<Option<PopupMessageData>> = const { RefCell::new(None) };
 }
 
 thread_local! {
@@ -1662,8 +1660,12 @@ impl TheInGameUI {
         let _ = with_backend(|backend| backend.free_message_resources());
     }
 
-    pub fn military_subtitle(label: &str, duration_ms: i32) {
-        if !with_backend(|backend| backend.military_subtitle(label, duration_ms)) {
+    pub fn military_subtitle(
+        label: &str,
+        duration_ms: i32,
+        manager: &mut crate::gui::window_manager::WindowManager,
+    ) {
+        if !with_backend(|backend| backend.military_subtitle(label, duration_ms, manager)) {
             info!(
                 "Military subtitle ({}ms): {}",
                 duration_ms.max(0),
@@ -1760,23 +1762,20 @@ impl TheInGameUI {
         width: i32,
         pause: bool,
         pause_music: bool,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) {
-        Self::popup_message_with_color_and_host_generation(
+        crate::gui::callbacks::in_game_popup_message::show_receiving_popup_message(
             identifier,
             x,
             y,
             width,
-            0xFFFFFFFF,
+            0xffffffff,
             pause,
             pause_music,
             None,
+            effects,
         );
     }
-
-    /// Main's mission-script bridge supplies an opaque instance identity so a
-    /// deferred keyboard acknowledgement cannot dismiss a later C++-style
-    /// replacement popup. This remains crate-visible: standalone callers use
-    /// `popup_message` and preserve the legacy path.
     pub(crate) fn popup_message_with_host_generation(
         identifier: &str,
         x: i32,
@@ -1784,120 +1783,52 @@ impl TheInGameUI {
         width: i32,
         pause: bool,
         pause_music: bool,
-        host_popup_generation: Option<usize>,
+        generation: Option<usize>,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) {
-        Self::popup_message_with_color_and_host_generation(
+        crate::gui::callbacks::in_game_popup_message::show_receiving_popup_message(
             identifier,
             x,
             y,
             width,
-            0xFFFFFFFF,
+            0xffffffff,
             pause,
             pause_music,
-            host_popup_generation.filter(|generation| *generation != 0),
+            generation,
+            effects,
         );
     }
-
     pub fn popup_message_with_color(
         identifier: &str,
         x: i32,
         y: i32,
         width: i32,
-        text_color: u32,
+        color: u32,
         pause: bool,
         pause_music: bool,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) {
-        Self::popup_message_with_color_and_host_generation(
+        crate::gui::callbacks::in_game_popup_message::show_receiving_popup_message(
             identifier,
             x,
             y,
             width,
-            text_color,
+            color,
             pause,
             pause_music,
             None,
+            effects,
         );
     }
-
-    fn popup_message_with_color_and_host_generation(
-        identifier: &str,
-        x: i32,
-        y: i32,
-        width: i32,
-        text_color: u32,
-        pause: bool,
-        pause_music: bool,
-        host_popup_generation: Option<usize>,
-    ) {
-        Self::clear_popup_message_data();
-        // C++ InGameUI::popupMessage (InGameUI.cpp:5150)
-        update_diplomacy_briefing_text(identifier, false);
-
-        let message = GameText::fetch(identifier);
-        let x_percent = x.clamp(0, 100);
-        let y_percent = y.clamp(0, 100);
-
-        let (screen_w, screen_h) = with_window_manager(|manager| manager.screen_size());
-        let x_screen = (screen_w as f32 * (x_percent as f32 / 100.0)) as i32;
-        let y_screen = (screen_h as f32 * (y_percent as f32 / 100.0)) as i32;
-        let width = width.max(50);
-
-        if pause {
-            TheGameLogic::set_game_paused(true, pause_music);
-        }
-
-        let layout = with_window_manager(|manager| {
-            manager
-                .create_layout_with_windows("InGamePopupMessage.wnd")
-                .ok()
-                .map(|(layout, _)| layout)
-        });
-
-        let data = PopupMessageData {
-            message,
-            x: x_screen,
-            y: y_screen,
-            width,
-            text_color,
-            pause,
-            pause_music,
-            host_popup_generation,
-            layout: layout.clone(),
-        };
-
-        POPUP_MESSAGE_DATA.with(|state| *state.borrow_mut() = Some(data));
-
-        if let Some(layout) = layout {
-            layout.borrow().run_init(None);
-        }
+    pub fn get_popup_message_data(
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    ) -> Option<PopupMessageData> {
+        crate::gui::callbacks::in_game_popup_message::receiving_popup_message(effects)
     }
-
-    pub fn get_popup_message_data() -> Option<PopupMessageData> {
-        POPUP_MESSAGE_DATA.with(|state| state.borrow().clone())
-    }
-
-    pub fn clear_popup_message_data() {
-        gamelogic::helpers::TheInGameUI::consume_popup_clear_request();
-
-        let data = POPUP_MESSAGE_DATA.with(|state| state.borrow_mut().take());
-
-        let Some(data) = data else {
-            return;
-        };
-
-        if let Some(layout) = data.layout {
-            // Popup callbacks commonly run inside WindowManager input/system
-            // dispatch. Queue destruction so the modal layout is removed only
-            // after that borrow unwinds, matching the callback-safe path used
-            // by other popup layouts.
-            queue_window_manager_op(move |manager| {
-                manager.destroy_layout(&layout);
-            });
-        }
-
-        if data.pause {
-            TheGameLogic::set_game_paused(false, data.pause_music);
-        }
+    pub fn clear_popup_message_data(
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    ) -> Option<PopupMessageData> {
+        crate::gui::callbacks::in_game_popup_message::clear_receiving_popup_message(effects)
     }
 
     pub fn set_mouse_cursor(cursor: MouseCursor) {

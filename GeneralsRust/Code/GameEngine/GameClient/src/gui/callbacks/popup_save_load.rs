@@ -13,9 +13,8 @@ use crate::gui::menu_flags::{
 use crate::gui::shell::Color as WindowColor;
 use crate::gui::{
     GLM_DOUBLE_CLICKED, GameWindow, KeyModifiers, WindowLayout, WindowMessage, WindowMsgData,
-    WindowMsgHandled, queue_set_focus, queue_shell_hide, queue_shell_pop, queue_shell_show,
-    queue_shell_shutdown_complete, queue_window_manager_op, queue_window_manager_op_deferred,
-    show_shell_map_if_available, with_shell_ref, with_window_manager, write_input_focus_response,
+    WindowMsgHandled, queue_shell_hide, queue_shell_pop, queue_shell_show,
+    queue_shell_shutdown_complete, show_shell_map_if_available, write_input_focus_response,
 };
 use game_engine::common::game_engine::get_game_engine;
 use game_engine::common::ini::get_global_data;
@@ -902,50 +901,47 @@ fn selected_save(state: &SaveLoadMenuState) -> Option<SaveLoadSelection> {
 /// its `RefCell` borrow.  Confirmation buttons are forwarded through their
 /// parent containers, so hiding that container directly inside the callback
 /// would otherwise panic (and made the retail SaveDesc cancel path unusable).
-fn enable_window_rc(window: &Rc<RefCell<GameWindow>>, enabled: bool) {
-    if let Ok(mut window) = window.try_borrow_mut() {
-        let _ = window.enable(enabled);
-        return;
-    }
-
-    let window = window.clone();
-    queue_window_manager_op(move |_manager| {
-        if let Ok(mut window) = window.try_borrow_mut() {
-            let _ = window.enable(enabled);
-        } else {
-            let window = window.clone();
-            queue_window_manager_op_deferred(move |_manager| {
-                if let Ok(mut window) = window.try_borrow_mut() {
-                    let _ = window.enable(enabled);
-                }
-            });
+fn enable_window_rc(
+    window: &Rc<RefCell<GameWindow>>,
+    enabled: bool,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) {
+    let window = Rc::downgrade(window);
+    effects.queue_window_operation(move |manager, _effects| {
+        let Some(window) = window.upgrade() else {
+            return;
+        };
+        let id = window.borrow().get_id();
+        let Some(current) = manager.get_window_by_id(id) else {
+            return;
+        };
+        if !Rc::ptr_eq(&current, &window) {
+            return;
         }
+        let _ = window.borrow_mut().enable(enabled);
     });
 }
 
-/// Hide/show a SaveLoad control through `WindowManager::hide_window`, not
-/// `GameWindow::hide` directly. The latter captures a raw `GameWindow` pointer
-/// while its `RefCell` is borrowed and can repeatedly requeue manager cleanup
-/// during layout initialization. The manager path owns the `Rc`, clears focus/
-/// modal state correctly, and defers once if a forwarded confirmation parent is
-/// still borrowed by input dispatch.
-fn hide_save_load_window(window: &Rc<RefCell<GameWindow>>, hide: bool) {
-    let window = window.clone();
-    queue_window_manager_op(move |manager| {
-        if let Ok(probe) = window.try_borrow_mut() {
-            // `hide_window` takes this same RefCell mutably.  Drop the probe
-            // explicitly so this is never a transient nested borrow.
-            drop(probe);
-            let _ = manager.hide_window(&window, hide);
-        } else {
-            let window = window.clone();
-            queue_window_manager_op_deferred(move |manager| {
-                if let Ok(probe) = window.try_borrow_mut() {
-                    drop(probe);
-                    let _ = manager.hide_window(&window, hide);
-                }
-            });
+/// Apply visibility after the current callback releases its selected window.
+/// Validate the original window identity before touching focus or modal state.
+fn hide_save_load_window(
+    window: &Rc<RefCell<GameWindow>>,
+    hide: bool,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) {
+    let window = Rc::downgrade(window);
+    effects.queue_window_operation(move |manager, _effects| {
+        let Some(window) = window.upgrade() else {
+            return;
+        };
+        let id = window.borrow().get_id();
+        let Some(current) = manager.get_window_by_id(id) else {
+            return;
+        };
+        if !Rc::ptr_eq(&current, &window) {
+            return;
         }
+        let _ = manager.hide_window(&window, hide);
     });
 }
 
@@ -966,16 +962,19 @@ fn set_listbox_selection_from_cpp_row(list_box: &mut crate::gui::gadgets::ListBo
     }
 }
 
-fn update_menu_actions(state: &SaveLoadMenuState) {
+fn update_menu_actions(
+    state: &SaveLoadMenuState,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) {
     let can_save = state.current_layout_type != SaveLoadLayoutType::LoadOnly;
     if let Some(save_button) = state.button_save_window.as_ref() {
-        enable_window_rc(save_button, can_save);
+        enable_window_rc(save_button, can_save, effects);
     }
 
     let selected = selected_save(state);
     let has_selection = selected.is_some();
     if let Some(load_button) = state.button_load_window.as_ref() {
-        enable_window_rc(load_button, has_selection);
+        enable_window_rc(load_button, has_selection, effects);
     }
     if let Some(delete_button) = state.button_delete_window.as_ref() {
         // Host rows can be loaded/saved through the typed host bridge, but
@@ -984,24 +983,32 @@ fn update_menu_actions(state: &SaveLoadMenuState) {
         enable_window_rc(
             delete_button,
             matches!(selected, Some(SaveLoadSelection::Common(_))),
+            effects,
         );
     }
 }
 
-fn close_save_menu(window: &GameWindow, is_popup: bool) {
+fn close_save_menu(
+    window: &GameWindow,
+    is_popup: bool,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) {
     if is_popup {
         if let Some(layout) = window.get_layout() {
-            layout.borrow().hide(true);
+            effects.with_manager(|manager, _effects| layout.borrow().hide(manager, true));
         }
     } else {
-        queue_shell_hide();
+        queue_shell_hide(effects);
     }
 }
 
 /// Deferred listbox actions run after the originating window's input borrow
 /// has unwound. At that point the parsed parent can safely supply its layout
 /// for the same popup close operation as `close_save_menu`.
-fn close_save_menu_after_dispatch(state: &SaveLoadMenuState) {
+fn close_save_menu_after_dispatch(
+    state: &SaveLoadMenuState,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) {
     if state.is_popup {
         if let Some(layout) = state
             .parent
@@ -1009,21 +1016,33 @@ fn close_save_menu_after_dispatch(state: &SaveLoadMenuState) {
             .and_then(|parent| parent.try_borrow().ok())
             .and_then(|parent| parent.get_layout())
         {
-            layout.borrow().hide(true);
+            effects.with_manager(|manager, _effects| layout.borrow().hide(manager, true));
         }
     } else {
-        queue_shell_hide();
+        queue_shell_hide(effects);
     }
 }
 
-fn do_load_game(selected: AvailableGameInfo) {
-    let shell_active = with_shell_ref(|shell| shell.is_shell_active()).unwrap_or(false);
+fn do_load_game(
+    selected: AvailableGameInfo,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    mut selected_window: Option<&mut crate::gui::GameWindow>,
+) {
+    let shell_active = effects.shell_handle().is_shell_active();
     if !shell_active {
-        destroy_quit_menu();
+        destroy_quit_menu(effects);
     } else {
-        with_window_manager(|manager| {
-            manager.transition_remove("MainMenuLoadReplayMenu", false);
-            manager.transition_remove("MainMenuLoadReplayMenuBack", false);
+        effects.with_manager(|manager, effects| {
+            manager.transition_remove(
+                "MainMenuLoadReplayMenu",
+                false,
+                selected_window.as_deref_mut(),
+            );
+            manager.transition_remove(
+                "MainMenuLoadReplayMenuBack",
+                false,
+                selected_window.as_deref_mut(),
+            );
         });
         TheGameLogic::prepare_new_game(GAME_SINGLE_PLAYER, DIFFICULTY_NORMAL, 0);
     }
@@ -1040,7 +1059,7 @@ fn do_load_game(selected: AvailableGameInfo) {
             let mut engine = engine.lock();
             let _ = pollster::block_on(engine.reset());
         }
-        queue_shell_show(true);
+        queue_shell_show(effects, true);
     }
 }
 
@@ -1088,6 +1107,8 @@ fn dispatch_save_request(
 fn dispatch_load_request(
     selected: SaveLoadSelection,
     input_provenance: HostControlBarInputProvenance,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    mut selected_window: Option<&mut crate::gui::GameWindow>,
 ) {
     if queue_host_popup_save_load_request(
         PopupSaveLoadRequest::Load {
@@ -1099,7 +1120,7 @@ fn dispatch_load_request(
     }
 
     if let Some(common) = selected.into_common() {
-        do_load_game(common);
+        do_load_game(common, effects, selected_window.as_deref_mut());
     }
 }
 
@@ -1122,18 +1143,33 @@ fn dispatch_save_from_popup_confirmation(
 }
 
 /// Dispatch work from `ButtonLoadConfirm`, retaining its exact WND provenance.
-fn dispatch_load_from_popup_confirmation(selected: SaveLoadSelection) {
+fn dispatch_load_from_popup_confirmation(
+    selected: SaveLoadSelection,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    mut selected_window: Option<&mut crate::gui::GameWindow>,
+) {
     dispatch_load_request(
         selected,
         host_control_bar_input_provenance_for_current_dispatch(),
+        effects,
+        selected_window.as_deref_mut(),
     );
 }
 
 /// Dispatch a legitimate Popup load path which did not pass through
 /// `ButtonLoadConfirm` (the retail shell's immediate load or list double-click).
 /// It must retain normal load behavior, but cannot serve as confirmation proof.
-fn dispatch_load_without_popup_confirmation(selected: SaveLoadSelection) {
-    dispatch_load_request(selected, HostControlBarInputProvenance::InjectedOrUnknown);
+fn dispatch_load_without_popup_confirmation(
+    selected: SaveLoadSelection,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    mut selected_window: Option<&mut crate::gui::GameWindow>,
+) {
+    dispatch_load_request(
+        selected,
+        HostControlBarInputProvenance::InjectedOrUnknown,
+        effects,
+        selected_window.as_deref_mut(),
+    );
 }
 
 /// Apply the C++ Load-button UI transition.  A shell load completes immediately
@@ -1142,22 +1178,23 @@ fn dispatch_load_without_popup_confirmation(selected: SaveLoadSelection) {
 fn process_load_button_press(
     state: &mut SaveLoadMenuState,
     window: &GameWindow,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> Option<SaveLoadSelection> {
     let selected = selected_save(state)?;
 
-    if with_shell_ref(|shell| shell.is_shell_active()).unwrap_or(false) {
-        close_save_menu(window, state.is_popup);
+    if effects.shell_handle().is_shell_active() {
+        close_save_menu(window, state.is_popup, effects);
         return Some(selected);
     }
 
     if let Some(listbox) = state.listbox_games_window.as_ref() {
-        enable_window_rc(listbox, false);
+        enable_window_rc(listbox, false, effects);
     }
     if let Some(frame) = state.button_frame.as_ref() {
-        enable_window_rc(frame, false);
+        enable_window_rc(frame, false, effects);
     }
     if let Some(confirm) = state.load_confirm.as_ref() {
-        hide_save_load_window(confirm, false);
+        hide_save_load_window(confirm, false, effects);
     }
     None
 }
@@ -1169,6 +1206,7 @@ fn process_load_button_press(
 fn process_load_double_click_after_dispatch(
     state: &mut SaveLoadMenuState,
     row_selected: i32,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> Option<SaveLoadSelection> {
     let listbox = state.listbox_games_window.as_ref()?;
     let mut listbox = listbox.try_borrow_mut().ok()?;
@@ -1177,28 +1215,30 @@ fn process_load_double_click_after_dispatch(
     drop(listbox);
 
     let selected = selected_save(state)?;
-    if with_shell_ref(|shell| shell.is_shell_active()).unwrap_or(false) {
-        close_save_menu_after_dispatch(state);
+    if effects.shell_handle().is_shell_active() {
+        close_save_menu_after_dispatch(state, effects);
         return Some(selected);
     }
 
     if let Some(listbox) = state.listbox_games_window.as_ref() {
-        enable_window_rc(listbox, false);
+        enable_window_rc(listbox, false, effects);
     }
     if let Some(frame) = state.button_frame.as_ref() {
-        enable_window_rc(frame, false);
+        enable_window_rc(frame, false, effects);
     }
     if let Some(confirm) = state.load_confirm.as_ref() {
-        hide_save_load_window(confirm, false);
+        hide_save_load_window(confirm, false, effects);
     }
     None
 }
 
-fn queue_menu_actions_refresh_after_dispatch() {
+fn queue_menu_actions_refresh_after_dispatch(
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) {
     let state_handle = save_load_menu_state();
-    queue_window_manager_op(move |_manager| {
+    effects.queue_window_operation(move |_manager, effects| {
         let state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
-        update_menu_actions(&state);
+        update_menu_actions(&state, effects);
     });
 }
 
@@ -1234,7 +1274,11 @@ fn process_delete_confirmed(state: &mut SaveLoadMenuState) {
     populate_save_game_listbox(state);
 }
 
-pub fn save_load_menu_init(layout: &WindowLayout, user_data: Option<&dyn std::any::Any>) {
+pub fn save_load_menu_init(
+    layout: &WindowLayout,
+    user_data: Option<&dyn std::any::Any>,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) {
     let state_handle = save_load_menu_state();
     let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
 
@@ -1250,23 +1294,23 @@ pub fn save_load_menu_init(layout: &WindowLayout, user_data: Option<&dyn std::an
     load_controls(&mut state, layout, parent_id, "PopupSaveLoad.wnd");
 
     if let Some(frame) = state.button_frame.as_ref() {
-        enable_window_rc(frame, true);
+        enable_window_rc(frame, true, effects);
     }
     if let Some(window) = state.overwrite_confirm.as_ref() {
-        hide_save_load_window(window, true);
+        hide_save_load_window(window, true, effects);
     }
     if let Some(window) = state.load_confirm.as_ref() {
-        hide_save_load_window(window, true);
+        hide_save_load_window(window, true, effects);
     }
     if let Some(window) = state.save_desc.as_ref() {
-        hide_save_load_window(window, true);
+        hide_save_load_window(window, true, effects);
     }
     if let Some(window) = state.delete_confirm.as_ref() {
-        hide_save_load_window(window, true);
+        hide_save_load_window(window, true, effects);
     }
 
     populate_save_game_listbox(&mut state);
-    update_menu_actions(&state);
+    update_menu_actions(&state, effects);
 
     // Do not call back into WindowManager while this callback may itself be
     // running under WindowManager input dispatch. Queue the focus/modal work
@@ -1275,8 +1319,8 @@ pub fn save_load_menu_init(layout: &WindowLayout, user_data: Option<&dyn std::an
     let parent = state.parent.clone();
     drop(state);
     if let Some(parent) = parent {
-        queue_set_focus(parent.clone());
-        queue_window_manager_op(move |manager| {
+        queue_save_load_focus(parent.clone(), effects);
+        effects.queue_window_operation(move |manager, effects| {
             let _ = manager.set_modal(parent);
         });
     }
@@ -1304,60 +1348,68 @@ pub fn save_load_menu_full_screen_init(
     load_controls(&mut state, layout, parent_id, "SaveLoad.wnd");
 
     if let Some(frame) = state.button_frame.as_ref() {
-        enable_window_rc(frame, true);
+        enable_window_rc(frame, true, effects);
     }
     if let Some(window) = state.overwrite_confirm.as_ref() {
-        hide_save_load_window(window, true);
+        hide_save_load_window(window, true, effects);
     }
     if let Some(window) = state.load_confirm.as_ref() {
-        hide_save_load_window(window, true);
+        hide_save_load_window(window, true, effects);
     }
     if let Some(window) = state.save_desc.as_ref() {
-        hide_save_load_window(window, true);
+        hide_save_load_window(window, true, effects);
     }
     if let Some(window) = state.delete_confirm.as_ref() {
-        hide_save_load_window(window, true);
+        hide_save_load_window(window, true, effects);
     }
 
     populate_save_game_listbox(&mut state);
-    update_menu_actions(&state);
+    update_menu_actions(&state, effects);
 
-    layout.hide(false);
+    effects.with_manager(|manager, _effects| layout.hide(manager, false));
     state.just_entered = true;
     state.initial_gadget_delay = 2;
     if let Some(parent) = state.parent.as_ref() {
-        hide_save_load_window(parent, true);
+        hide_save_load_window(parent, true, effects);
     }
     state.is_shutting_down = false;
 
     let parent = state.parent.clone();
     drop(state);
     if let Some(parent) = parent {
-        queue_set_focus(parent);
+        queue_save_load_focus(parent, effects);
     }
 }
 
-pub fn save_load_menu_shutdown(layout: &WindowLayout, user_data: Option<&dyn std::any::Any>) {
+pub fn save_load_menu_shutdown(
+    layout: &WindowLayout,
+    user_data: Option<&dyn std::any::Any>,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) {
     let pop_immediate = user_data
         .and_then(|data| data.downcast_ref::<bool>())
         .copied()
         .unwrap_or(false);
 
     if pop_immediate {
-        layout.hide(true);
-        queue_shell_shutdown_complete(false);
+        effects.with_manager(|manager, _effects| layout.hide(manager, true));
+        queue_shell_shutdown_complete(effects, false);
         return;
     }
 
-    with_window_manager(|manager| {
-        manager.transition_reverse("SaveLoadMenuFade");
+    effects.with_manager(|manager, effects| {
+        manager.transition_reverse("SaveLoadMenuFade", None);
     });
     let state_handle = save_load_menu_state();
     let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
     state.is_shutting_down = true;
 }
 
-pub fn save_load_menu_update(layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>) {
+pub fn save_load_menu_update(
+    layout: &WindowLayout,
+    _user_data: Option<&dyn std::any::Any>,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) {
     let state_handle = save_load_menu_state();
     let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
 
@@ -1371,9 +1423,9 @@ pub fn save_load_menu_update(layout: &WindowLayout, _user_data: Option<&dyn std:
 
     if state.just_entered {
         if state.initial_gadget_delay == 1 {
-            with_window_manager(|manager| {
-                manager.transition_remove("MainMenuDefaultMenuLogoFade", false);
-                manager.transition_set_group("SaveLoadMenuFade", false);
+            effects.with_manager(|manager, effects| {
+                manager.transition_remove("MainMenuDefaultMenuLogoFade", false, None);
+                manager.transition_set_group("SaveLoadMenuFade", false, None);
             });
             state.initial_gadget_delay = 2;
             state.just_entered = false;
@@ -1383,11 +1435,12 @@ pub fn save_load_menu_update(layout: &WindowLayout, _user_data: Option<&dyn std:
     }
 
     if state.is_shutting_down {
-        let shell_finished = with_shell_ref(|shell| shell.is_anim_finished()).unwrap_or(false);
-        let transitions_finished = with_window_manager(|manager| manager.transitions_finished());
+        let shell_finished = crate::gui::shell::base::shell_anim_finished_for_layout(effects);
+        let transitions_finished =
+            effects.with_manager(|manager, effects| manager.transitions_finished());
         if shell_finished && transitions_finished {
-            layout.hide(true);
-            queue_shell_shutdown_complete(false);
+            effects.with_manager(|manager, _effects| layout.hide(manager, true));
+            queue_shell_shutdown_complete(effects, false);
         }
     }
 }
@@ -1397,6 +1450,7 @@ pub fn save_load_menu_input(
     msg: WindowMessage,
     data1: WindowMsgData,
     data2: WindowMsgData,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> WindowMsgHandled {
     if msg != WindowMessage::Char || data1 != KEY_ESC {
         return WindowMsgHandled::Ignored;
@@ -1408,34 +1462,36 @@ pub fn save_load_menu_input(
     let state_handle = save_load_menu_state();
     let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
     if let Some(confirm) = state.delete_confirm.as_ref() {
-        hide_save_load_window(confirm, true);
+        hide_save_load_window(confirm, true, effects);
     }
     if let Some(listbox) = state.listbox_games_window.as_ref() {
-        enable_window_rc(listbox, true);
+        enable_window_rc(listbox, true, effects);
     }
     if let Some(frame) = state.button_frame.as_ref() {
-        enable_window_rc(frame, true);
+        enable_window_rc(frame, true, effects);
     }
 
     let parent = state.parent.clone();
     let button_back = state.button_back;
     drop(state);
     if let Some(parent) = parent {
-        queue_window_manager_op(move |_manager| {
+        effects.queue_window_operation(move |_manager, effects| {
             if let Ok(mut parent) = parent.try_borrow_mut() {
                 let _ = parent.send_system_message(
                     WindowMessage::GadgetSelected,
                     button_back as WindowMsgData,
                     0,
+                    effects,
                 );
             } else {
                 let parent = parent.clone();
-                queue_window_manager_op_deferred(move |_manager| {
+                effects.queue_window_operation(move |_manager, effects| {
                     if let Ok(mut parent) = parent.try_borrow_mut() {
                         let _ = parent.send_system_message(
                             WindowMessage::GadgetSelected,
                             button_back as WindowMsgData,
                             0,
+                            effects,
                         );
                     }
                 });
@@ -1447,7 +1503,7 @@ pub fn save_load_menu_input(
 }
 
 pub fn save_load_menu_system(
-    window: &GameWindow,
+    window: &mut GameWindow,
     msg: WindowMessage,
     data1: WindowMsgData,
     data2: WindowMsgData,
@@ -1463,14 +1519,14 @@ pub fn save_load_menu_system(
             if data1 as i32 == state.listbox_games {
                 let row_selected = data2 as i32;
                 drop(state);
-                queue_window_manager_op(move |_manager| {
+                effects.queue_window_operation(move |_manager, effects| {
                     let state_handle = save_load_menu_state();
                     let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
                     let selected =
-                        process_load_double_click_after_dispatch(&mut state, row_selected);
+                        process_load_double_click_after_dispatch(&mut state, row_selected, effects);
                     drop(state);
                     if let Some(selected) = selected {
-                        dispatch_load_without_popup_confirmation(selected);
+                        dispatch_load_without_popup_confirmation(selected, effects, None);
                     }
                 });
                 return WindowMsgHandled::Handled;
@@ -1485,14 +1541,14 @@ pub fn save_load_menu_system(
                 // borrow unwinds, rather than falsely treating the selection
                 // as absent or panicking on a re-entrant RefCell borrow.
                 drop(state);
-                queue_menu_actions_refresh_after_dispatch();
+                queue_menu_actions_refresh_after_dispatch(effects);
                 return WindowMsgHandled::Handled;
             }
 
             if control_id == state.button_load {
-                if let Some(selected) = process_load_button_press(&mut state, window) {
+                if let Some(selected) = process_load_button_press(&mut state, window, effects) {
                     drop(state);
-                    dispatch_load_without_popup_confirmation(selected);
+                    dispatch_load_without_popup_confirmation(selected, effects, Some(&mut *window));
                 }
                 return WindowMsgHandled::Handled;
             }
@@ -1501,24 +1557,24 @@ pub fn save_load_menu_system(
                 let selected = selected_save(&state);
                 if selected.is_none() {
                     if let Some(save_desc) = state.save_desc.as_ref() {
-                        hide_save_load_window(save_desc, false);
+                        hide_save_load_window(save_desc, false, effects);
                     }
                     if let Some(edit_desc) = state.edit_desc.as_ref() {
                         set_edit_description(edit_desc, effects.campaign_manager.as_deref());
-                        queue_set_focus(edit_desc.clone());
+                        queue_save_load_focus(edit_desc.clone(), effects);
                     }
                     if let Some(listbox) = state.listbox_games_window.as_ref() {
-                        enable_window_rc(listbox, false);
+                        enable_window_rc(listbox, false, effects);
                     }
                 } else {
                     if let Some(listbox) = state.listbox_games_window.as_ref() {
-                        enable_window_rc(listbox, false);
+                        enable_window_rc(listbox, false, effects);
                     }
                     if let Some(frame) = state.button_frame.as_ref() {
-                        enable_window_rc(frame, false);
+                        enable_window_rc(frame, false, effects);
                     }
                     if let Some(confirm) = state.overwrite_confirm.as_ref() {
-                        hide_save_load_window(confirm, false);
+                        hide_save_load_window(confirm, false, effects);
                     }
                 }
                 return WindowMsgHandled::Handled;
@@ -1528,13 +1584,13 @@ pub fn save_load_menu_system(
                 let selected = selected_save(&state);
                 if should_show_delete_for_selection(&selected) {
                     if let Some(listbox) = state.listbox_games_window.as_ref() {
-                        enable_window_rc(listbox, false);
+                        enable_window_rc(listbox, false, effects);
                     }
                     if let Some(frame) = state.button_frame.as_ref() {
-                        enable_window_rc(frame, false);
+                        enable_window_rc(frame, false, effects);
                     }
                     if let Some(confirm) = state.delete_confirm.as_ref() {
-                        hide_save_load_window(confirm, false);
+                        hide_save_load_window(confirm, false, effects);
                     }
                 }
                 return WindowMsgHandled::Handled;
@@ -1542,9 +1598,9 @@ pub fn save_load_menu_system(
 
             if control_id == state.button_back {
                 if state.is_popup {
-                    close_save_menu(window, true);
+                    close_save_menu(window, true, effects);
                 } else {
-                    queue_shell_pop();
+                    queue_shell_pop(effects);
                 }
                 return WindowMsgHandled::Handled;
             }
@@ -1556,15 +1612,15 @@ pub fn save_load_menu_system(
                 }
 
                 if let Some(confirm) = state.delete_confirm.as_ref() {
-                    hide_save_load_window(confirm, true);
+                    hide_save_load_window(confirm, true, effects);
                 }
                 if let Some(listbox) = state.listbox_games_window.as_ref() {
-                    enable_window_rc(listbox, true);
+                    enable_window_rc(listbox, true, effects);
                 }
                 if let Some(frame) = state.button_frame.as_ref() {
-                    enable_window_rc(frame, true);
+                    enable_window_rc(frame, true, effects);
                 }
-                update_menu_actions(&state);
+                update_menu_actions(&state, effects);
                 return WindowMsgHandled::Handled;
             }
 
@@ -1572,18 +1628,18 @@ pub fn save_load_menu_system(
                 || control_id == state.button_overwrite_confirm
             {
                 if let Some(confirm) = state.overwrite_confirm.as_ref() {
-                    hide_save_load_window(confirm, true);
+                    hide_save_load_window(confirm, true, effects);
                 }
 
                 if control_id == state.button_overwrite_confirm {
                     if let Some(listbox) = state.listbox_games_window.as_ref() {
-                        enable_window_rc(listbox, true);
+                        enable_window_rc(listbox, true, effects);
                     }
                     if let Some(frame) = state.button_frame.as_ref() {
-                        enable_window_rc(frame, true);
+                        enable_window_rc(frame, true, effects);
                     }
-                    update_menu_actions(&state);
-                    close_save_menu(window, state.is_popup);
+                    update_menu_actions(&state, effects);
+                    close_save_menu(window, state.is_popup, effects);
 
                     let file_type = save_file_type_for_layout(state.current_layout_type);
                     let (filename, desc) = selected_filename_and_description(selected_save(&state));
@@ -1596,11 +1652,11 @@ pub fn save_load_menu_system(
                     return WindowMsgHandled::Handled;
                 } else {
                     if let Some(frame) = state.button_frame.as_ref() {
-                        enable_window_rc(frame, true);
+                        enable_window_rc(frame, true, effects);
                     }
-                    update_menu_actions(&state);
+                    update_menu_actions(&state, effects);
                     if let Some(listbox) = state.listbox_games_window.as_ref() {
-                        enable_window_rc(listbox, true);
+                        enable_window_rc(listbox, true, effects);
                     }
                 }
 
@@ -1618,16 +1674,16 @@ pub fn save_load_menu_system(
                     .unwrap_or_default();
 
                 if let Some(save_desc) = state.save_desc.as_ref() {
-                    hide_save_load_window(save_desc, true);
+                    hide_save_load_window(save_desc, true, effects);
                 }
                 if let Some(listbox) = state.listbox_games_window.as_ref() {
-                    enable_window_rc(listbox, true);
+                    enable_window_rc(listbox, true, effects);
                 }
                 if let Some(frame) = state.button_frame.as_ref() {
-                    enable_window_rc(frame, true);
+                    enable_window_rc(frame, true, effects);
                 }
-                update_menu_actions(&state);
-                close_save_menu(window, state.is_popup);
+                update_menu_actions(&state, effects);
+                close_save_menu(window, state.is_popup, effects);
 
                 let (filename, _) = selected_filename_and_description(selected_save(&state));
                 let file_type = save_file_type_for_layout(state.current_layout_type);
@@ -1640,39 +1696,39 @@ pub fn save_load_menu_system(
 
             if control_id == state.button_save_desc_cancel {
                 if let Some(save_desc) = state.save_desc.as_ref() {
-                    hide_save_load_window(save_desc, true);
+                    hide_save_load_window(save_desc, true, effects);
                 }
                 if let Some(listbox) = state.listbox_games_window.as_ref() {
-                    enable_window_rc(listbox, true);
+                    enable_window_rc(listbox, true, effects);
                 }
                 if let Some(frame) = state.button_frame.as_ref() {
-                    enable_window_rc(frame, true);
+                    enable_window_rc(frame, true, effects);
                 }
-                update_menu_actions(&state);
+                update_menu_actions(&state, effects);
                 return WindowMsgHandled::Handled;
             }
 
             if control_id == state.button_load_confirm || control_id == state.button_load_cancel {
                 if let Some(confirm) = state.load_confirm.as_ref() {
-                    hide_save_load_window(confirm, true);
+                    hide_save_load_window(confirm, true, effects);
                 }
                 if let Some(listbox) = state.listbox_games_window.as_ref() {
-                    enable_window_rc(listbox, true);
+                    enable_window_rc(listbox, true, effects);
                 }
                 if let Some(frame) = state.button_frame.as_ref() {
-                    enable_window_rc(frame, true);
+                    enable_window_rc(frame, true, effects);
                 }
-                update_menu_actions(&state);
+                update_menu_actions(&state, effects);
 
                 let selected = (control_id == state.button_load_confirm)
                     .then(|| selected_save(&state))
                     .flatten();
                 if let Some(selected) = selected {
-                    close_save_menu(window, state.is_popup);
+                    close_save_menu(window, state.is_popup, effects);
                     // Loading destroys/rebuilds game state. It must not hold
                     // the UI menu mutex while it tears down QuitMenu/layouts.
                     drop(state);
-                    dispatch_load_from_popup_confirmation(selected);
+                    dispatch_load_from_popup_confirmation(selected, effects, Some(&mut *window));
                 }
                 return WindowMsgHandled::Handled;
             }
@@ -1823,8 +1879,13 @@ pub fn simulate_save_load_menu_back_button_gadget_selected() -> bool {
 ///
 /// Returns true only when the named window exists in the widget tree.
 /// Residual `simulate_*` latches do **not** count.
-pub fn live_popup_save_load_window_present(name: &str) -> bool {
-    with_window_manager(|manager| manager.find_window_by_name(name).is_some())
+pub fn live_popup_save_load_window_present(
+    name: &str,
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+) -> bool {
+    (|manager: &mut crate::gui::window_manager::WindowManager| {
+        manager.find_window_by_name(name).is_some()
+    })(receiving_manager)
 }
 
 const POPUP_SAVE_LOAD_PARENT: &str = "PopupSaveLoad.wnd:SaveLoadMenu";
@@ -1851,20 +1912,24 @@ const POPUP_SAVE_LOAD_RETAIL_CONTROLS: &[&str] = &[
     "PopupSaveLoad.wnd:ButtonDeleteCancel",
 ];
 
-fn live_popup_save_load_layout() -> Option<Rc<RefCell<WindowLayout>>> {
-    with_window_manager(|manager| {
+fn live_popup_save_load_layout(
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+) -> Option<Rc<RefCell<WindowLayout>>> {
+    (|manager: &mut crate::gui::window_manager::WindowManager| {
         manager
             .find_window_by_name(POPUP_SAVE_LOAD_PARENT)
             .and_then(|parent| parent.borrow().get_layout())
-    })
+    })(receiving_manager)
 }
 
-fn retail_popup_save_load_controls_present() -> bool {
-    with_window_manager(|manager| {
+fn retail_popup_save_load_controls_present(
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+) -> bool {
+    (|manager: &mut crate::gui::window_manager::WindowManager| {
         POPUP_SAVE_LOAD_RETAIL_CONTROLS
             .iter()
             .all(|name| manager.find_window_by_name(name).is_some())
-    })
+    })(receiving_manager)
 }
 
 fn popup_save_load_state_is_bound_to(layout: &Rc<RefCell<WindowLayout>>) -> bool {
@@ -1884,7 +1949,10 @@ fn popup_save_load_state_is_bound_to(layout: &Rc<RefCell<WindowLayout>>) -> bool
         && state.listbox_games_window.is_some()
 }
 
-fn hide_popup_save_load_confirmations(layout: &Rc<RefCell<WindowLayout>>) {
+fn hide_popup_save_load_confirmations(
+    layout: &Rc<RefCell<WindowLayout>>,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) {
     let windows = layout.borrow().windows().to_vec();
     for window in windows {
         let is_confirmation = matches!(
@@ -1895,7 +1963,7 @@ fn hide_popup_save_load_confirmations(layout: &Rc<RefCell<WindowLayout>>) {
                 | "PopupSaveLoad.wnd:DeleteConfirmParent"
         );
         if is_confirmation {
-            hide_save_load_window(&window, true);
+            hide_save_load_window(&window, true, effects);
         }
     }
 }
@@ -1903,11 +1971,14 @@ fn hide_popup_save_load_confirmations(layout: &Rc<RefCell<WindowLayout>>) {
 /// Show a previously parsed popup while retaining the retail confirmation
 /// windows' hidden state. `WindowLayout::hide(false)` restores every child, so
 /// the confirmation parents must be hidden after that queued layout operation.
-pub(crate) fn show_live_popup_save_load_layout(layout: Rc<RefCell<WindowLayout>>) {
-    layout.borrow().hide(false);
-    layout.borrow_mut().bring_forward();
-    queue_window_manager_op(move |_manager| {
-        hide_popup_save_load_confirmations(&layout);
+pub(crate) fn show_live_popup_save_load_layout(
+    layout: Rc<RefCell<WindowLayout>>,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) {
+    effects.with_manager(|manager, _effects| layout.borrow().hide(manager, false));
+    effects.with_manager(|manager, _effects| layout.borrow_mut().bring_forward(manager));
+    effects.queue_window_operation(move |_manager, effects| {
+        hide_popup_save_load_confirmations(&layout, effects);
     });
 }
 
@@ -1915,37 +1986,48 @@ pub(crate) fn show_live_popup_save_load_layout(layout: Rc<RefCell<WindowLayout>>
 /// missing. There is deliberately no synthetic-widget fallback: the real WND
 /// includes the listbox, confirmation dialogs, and callbacks a usable menu
 /// requires.
-pub fn ensure_live_popup_save_load_layout() -> bool {
-    let layout = match live_popup_save_load_layout() {
+pub fn ensure_live_popup_save_load_layout(
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
+    let layout = match live_popup_save_load_layout(receiving_manager) {
         Some(layout) => layout,
-        None => match with_window_manager(|manager| {
+        None => match (|manager: &mut crate::gui::window_manager::WindowManager| {
             manager
-                .create_layout_with_windows("Menus/PopupSaveLoad.wnd")
+                .create_layout_with_windows("Menus/PopupSaveLoad.wnd", effects)
                 .ok()
                 .map(|(layout, _)| layout)
-        }) {
+        })(receiving_manager)
+        {
             Some(layout) => layout,
             None => return false,
         },
     };
 
-    if !retail_popup_save_load_controls_present() {
+    if !retail_popup_save_load_controls_present(receiving_manager) {
         return false;
     }
     if !popup_save_load_state_is_bound_to(&layout) {
         layout.borrow().run_init(None);
     }
 
-    retail_popup_save_load_controls_present() && popup_save_load_state_is_bound_to(&layout)
+    retail_popup_save_load_controls_present(receiving_manager)
+        && popup_save_load_state_is_bound_to(&layout)
 }
 
 /// Show the fully parsed popup for an OS click. This preserves the C++ button
 /// state: Load remains disabled when no real save-game row is selected.
-pub fn prepare_live_popup_save_load_for_click() -> bool {
-    if !ensure_live_popup_save_load_layout() {
+pub fn prepare_live_popup_save_load_for_click(
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
+    if !effects.with_manager(|receiving_manager, effects| {
+        ensure_live_popup_save_load_layout(receiving_manager, effects)
+    }) {
         return false;
     }
-    let Some(layout) = live_popup_save_load_layout() else {
+    let Some(layout) = effects
+        .with_manager(|receiving_manager, effects| live_popup_save_load_layout(receiving_manager))
+    else {
         return false;
     };
     // Reopening a hidden popup mirrors QuitMenuSystem's `run_init` call and
@@ -1954,25 +2036,31 @@ pub fn prepare_live_popup_save_load_for_click() -> bool {
     if layout.borrow().is_hidden() || !popup_save_load_state_is_bound_to(&layout) {
         layout.borrow().run_init(None);
     }
-    show_live_popup_save_load_layout(layout);
-    retail_popup_save_load_controls_present()
+    show_live_popup_save_load_layout(layout, effects);
+    effects.with_manager(|receiving_manager, effects| {
+        retail_popup_save_load_controls_present(receiving_manager)
+    })
 }
 
-fn live_popup_save_load_window_visible(name: &str) -> bool {
-    with_window_manager(|manager| {
+fn live_popup_save_load_window_visible(
+    name: &str,
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+) -> bool {
+    (|manager: &mut crate::gui::window_manager::WindowManager| {
         manager.find_window_by_name(name).is_some_and(|window| {
             let window = window.borrow();
             !window.is_hidden() && window.is_enabled()
         })
-    })
+    })(receiving_manager)
 }
 
 /// Select a genuine save-game entry in the retail listbox and send the same
 /// parent `GadgetSelected` notification that updates the C++ action buttons.
 fn select_live_popup_save_game_matching_like_cpp(
     predicate: impl Fn(&SaveLoadSelection) -> bool,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> bool {
-    if !prepare_live_popup_save_load_for_click() {
+    if !prepare_live_popup_save_load_for_click(effects) {
         return false;
     }
 
@@ -2030,6 +2118,7 @@ fn select_live_popup_save_game_matching_like_cpp(
             WindowMessage::GadgetSelected,
             listbox_id as WindowMsgData,
             0,
+            effects,
         )
         .is_handled();
     handled
@@ -2039,25 +2128,33 @@ fn select_live_popup_save_game_matching_like_cpp(
 ///
 /// The popup always places its `New Save Game` pseudo-row first, whose item
 /// data is `-1`; it must never be used for a Load action.
-pub fn select_first_live_popup_save_game_like_cpp() -> bool {
-    select_live_popup_save_game_matching_like_cpp(|_| true)
+pub fn select_first_live_popup_save_game_like_cpp(
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
+    select_live_popup_save_game_matching_like_cpp(|_| true, effects)
 }
 
 /// Select the exact filename published in the current PopupSaveLoad list.
 /// This is required for a host round-trip: loading the first row could select
 /// an unrelated pre-existing user save.
-pub fn select_live_popup_save_game_named_like_cpp(filename: &str) -> bool {
+pub fn select_live_popup_save_game_named_like_cpp(
+    filename: &str,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
     if filename.is_empty() {
         return false;
     }
-    select_live_popup_save_game_matching_like_cpp(|selection| selection.filename() == filename)
+    select_live_popup_save_game_matching_like_cpp(
+        |selection| selection.filename() == filename,
+        effects,
+    )
 }
 
 /// OS click on live `PopupSaveLoad.wnd:ButtonSave` (not `simulate_*`).
 pub fn drive_os_wnd_popup_save_load_save_like_cpp(
     effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> bool {
-    let _ = prepare_live_popup_save_load_for_click();
+    let _ = prepare_live_popup_save_load_for_click(effects);
     crate::gui::dispatch_os_click_named_window("PopupSaveLoad.wnd:ButtonSave", effects)
 }
 
@@ -2070,13 +2167,20 @@ pub fn drive_os_wnd_popup_save_load_save_and_confirm_like_cpp(
     if !drive_os_wnd_popup_save_load_save_like_cpp(effects) {
         return false;
     }
-    if live_popup_save_load_window_visible("PopupSaveLoad.wnd:SaveDescParent") {
+    if effects.with_manager(|receiving_manager, effects| {
+        live_popup_save_load_window_visible("PopupSaveLoad.wnd:SaveDescParent", receiving_manager)
+    }) {
         return crate::gui::dispatch_os_click_named_window(
             "PopupSaveLoad.wnd:ButtonSaveDescConfirm",
             effects,
         );
     }
-    if live_popup_save_load_window_visible("PopupSaveLoad.wnd:OverwriteConfirmParent") {
+    if effects.with_manager(|receiving_manager, effects| {
+        live_popup_save_load_window_visible(
+            "PopupSaveLoad.wnd:OverwriteConfirmParent",
+            receiving_manager,
+        )
+    }) {
         return crate::gui::dispatch_os_click_named_window(
             "PopupSaveLoad.wnd:ButtonOverwriteConfirm",
             effects,
@@ -2089,7 +2193,7 @@ pub fn drive_os_wnd_popup_save_load_save_and_confirm_like_cpp(
 pub fn drive_os_wnd_popup_save_load_load_like_cpp(
     effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> bool {
-    let _ = prepare_live_popup_save_load_for_click();
+    let _ = prepare_live_popup_save_load_for_click(effects);
     crate::gui::dispatch_os_click_named_window("PopupSaveLoad.wnd:ButtonLoad", effects)
 }
 
@@ -2099,12 +2203,17 @@ pub fn drive_os_wnd_popup_save_load_load_like_cpp(
 pub fn drive_os_wnd_popup_save_load_load_and_confirm_like_cpp(
     effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> bool {
-    if !select_first_live_popup_save_game_like_cpp()
+    if !select_first_live_popup_save_game_like_cpp(effects)
         || !crate::gui::dispatch_os_click_named_window("PopupSaveLoad.wnd:ButtonLoad", effects)
     {
         return false;
     }
-    if !live_popup_save_load_window_visible("PopupSaveLoad.wnd:LoadConfirmParent") {
+    if !effects.with_manager(|receiving_manager, effects| {
+        live_popup_save_load_window_visible(
+            "PopupSaveLoad.wnd:LoadConfirmParent",
+            receiving_manager,
+        )
+    }) {
         return false;
     }
     crate::gui::dispatch_os_click_named_window("PopupSaveLoad.wnd:ButtonLoadConfirm", effects)
@@ -2116,12 +2225,17 @@ pub fn drive_os_wnd_popup_save_load_load_named_and_confirm_like_cpp(
     filename: &str,
     effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> bool {
-    if !select_live_popup_save_game_named_like_cpp(filename)
+    if !select_live_popup_save_game_named_like_cpp(filename, effects)
         || !crate::gui::dispatch_os_click_named_window("PopupSaveLoad.wnd:ButtonLoad", effects)
     {
         return false;
     }
-    if !live_popup_save_load_window_visible("PopupSaveLoad.wnd:LoadConfirmParent") {
+    if !effects.with_manager(|receiving_manager, effects| {
+        live_popup_save_load_window_visible(
+            "PopupSaveLoad.wnd:LoadConfirmParent",
+            receiving_manager,
+        )
+    }) {
         return false;
     }
     crate::gui::dispatch_os_click_named_window("PopupSaveLoad.wnd:ButtonLoadConfirm", effects)
@@ -2136,4 +2250,25 @@ pub fn simulate_save_load_menu_prepare_load(slot_index: i32) -> bool {
         return false;
     }
     simulate_save_load_menu_load_button_gadget_selected()
+}
+
+/// Focus delivery belongs to this callback's original tree and completes after
+/// the selected-window loan is released, before the next admitted operation.
+fn queue_save_load_focus(
+    window: Rc<RefCell<GameWindow>>,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) {
+    let window = Rc::downgrade(&window);
+    effects.queue_window_operation(move |manager, effects| {
+        let Some(window) = window.upgrade() else {
+            return;
+        };
+        let id = window.borrow().get_id();
+        let Some(current) = manager.get_window_by_id(id) else {
+            return;
+        };
+        if Rc::ptr_eq(&current, &window) {
+            let _ = manager.set_focus(Some(&window), effects);
+        }
+    });
 }

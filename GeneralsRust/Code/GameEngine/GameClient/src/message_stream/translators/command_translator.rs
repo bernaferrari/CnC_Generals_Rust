@@ -200,12 +200,19 @@ impl CommandTranslator {
         &self,
         region: &IRegion2D,
         local_player: Option<u32>,
+        window_query: &mut dyn FnMut(i32, i32) -> bool,
     ) -> Option<ObjectID> {
         pub(super) const PICK_RADIUS_WORLD: f32 = 10.0;
         let force_attack_active = self.force_attack_mode || TheInGameUI::is_in_force_attack_mode();
         let profile = context_pick_profile(force_attack_active, &self.current_selection);
-        let (mut mine, mut other) =
-            collect_selectable_objects(region, true, PICK_RADIUS_WORLD, local_player, profile);
+        let (mut mine, mut other) = collect_selectable_objects(
+            region,
+            true,
+            PICK_RADIUS_WORLD,
+            local_player,
+            profile,
+            window_query,
+        );
         let mine_pick = pick_closest(&mut mine);
         let other_pick = pick_closest(&mut other);
 
@@ -723,6 +730,7 @@ impl CommandTranslator {
         &mut self,
         region: &IRegion2D,
         right_click: bool,
+        window_query: &mut dyn FnMut(i32, i32) -> bool,
     ) -> Vec<GameMessageType> {
         if region.width != 0 || region.height != 0 {
             return Vec::new();
@@ -748,7 +756,7 @@ impl CommandTranslator {
         let alternate_mouse = is_alternate_mouse_enabled();
         let pending_command_active = TheInGameUI::get_pending_command().is_some();
         let target = self
-            .pick_context_target(region, local_player_u32)
+            .pick_context_target(region, local_player_u32, window_query)
             .filter(|object_id| !is_locally_controlled_mine_target(*object_id));
 
         // In C++, right-click in alternate mouse mode still evaluates context/pending
@@ -995,6 +1003,7 @@ impl CommandTranslator {
         button: MouseButton,
         modifiers: u32,
         time: u32,
+        window_query: &mut dyn FnMut(i32, i32) -> bool,
     ) -> Vec<GameMessageType> {
         debug!("Mouse button {:?} up at {:?}", button, position);
 
@@ -1015,10 +1024,18 @@ impl CommandTranslator {
                             width: 0,
                             height: 0,
                         };
-                        messages.extend(self.handle_selection_region(&region, key_mods));
+                        messages.extend(self.handle_selection_region(
+                            &region,
+                            key_mods,
+                            window_query,
+                        ));
                     } else if let Some(anchor) = &self.selection_anchor {
                         let region = build_region(anchor, position);
-                        messages.extend(self.handle_selection_region(&region, key_mods));
+                        messages.extend(self.handle_selection_region(
+                            &region,
+                            key_mods,
+                            window_query,
+                        ));
                     }
                 }
 
@@ -1072,6 +1089,7 @@ impl CommandTranslator {
         &mut self,
         region: &IRegion2D,
         modifiers: KeyModifiers,
+        window_query: &mut dyn FnMut(i32, i32) -> bool,
     ) -> Vec<GameMessageType> {
         pub(super) const PICK_RADIUS_WORLD: f32 = 10.0;
 
@@ -1092,6 +1110,7 @@ impl CommandTranslator {
             PICK_RADIUS_WORLD,
             local_player_u32,
             ContextPickProfile::default(),
+            window_query,
         );
 
         if is_point {

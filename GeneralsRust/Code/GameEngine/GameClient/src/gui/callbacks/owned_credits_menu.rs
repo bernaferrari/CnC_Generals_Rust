@@ -53,8 +53,9 @@ pub(crate) fn init(layout: &WindowLayout, effects: &mut WindowEventEffects<'_>) 
         .borrow_mut()
         .set_user_data(CreditsWindowState { credits });
     layout.hide_receiving(false, effects);
-    effects.queue_window_operation(move |manager, _| {
-        let _ = manager.set_focus(Some(&parent));
+    // CreditsMenu.cpp:78 sets focus synchronously after the parent data loan.
+    effects.with_manager(|manager, effects| {
+        let _ = manager.set_focus(Some(&parent), effects);
     });
     if let Some(audio) = gamelogic::helpers::TheAudio::get() {
         audio.remove_audio_event(0xFFFF_FFF1);
@@ -70,7 +71,7 @@ pub(crate) fn update(layout: &WindowLayout, effects: &mut WindowEventEffects<'_>
     };
     effects.queue_window_operation(move |manager, effects| {
         // Focus callbacks run before the playback borrow, just as C++ does.
-        let _ = manager.set_focus(Some(&parent));
+        let _ = manager.set_focus(Some(&parent), effects);
         let size = manager.screen_size();
         let finished = {
             let mut window = parent.borrow_mut();

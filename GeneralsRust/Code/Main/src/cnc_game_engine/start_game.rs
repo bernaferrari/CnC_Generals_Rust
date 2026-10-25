@@ -2185,19 +2185,20 @@ impl CnCGameEngine {
         #[cfg(feature = "game_client")]
         let blank_layout = {
             use game_client::gui::game_window::WindowStatus;
-            use game_client::gui::with_window_manager;
-            with_window_manager(|manager| {
-                manager
-                    .create_layout_with_windows("Menus/BlankWindow.wnd")
-                    .ok()
-                    .map(|(layout, _)| {
-                        layout.borrow_mut().hide(false);
-                        layout.borrow_mut().bring_forward();
-                        if let Some(window) = layout.borrow().get_first_window() {
-                            window.borrow_mut().clear_status(WindowStatus::IMAGE);
-                        }
-                        layout
-                    })
+            self.game_client.with_window_event_effects(None, |effects| {
+                effects.with_manager(|manager, effects| {
+                    manager
+                        .create_layout_with_windows("Menus/BlankWindow.wnd", effects)
+                        .ok()
+                        .map(|(layout, _)| {
+                            layout.borrow().hide_with_manager(manager, false);
+                            manager.bring_layout_forward(&layout.borrow());
+                            if let Some(window) = layout.borrow().get_first_window() {
+                                window.borrow_mut().clear_status(WindowStatus::IMAGE);
+                            }
+                            layout
+                        })
+                })
             })
         };
 
@@ -2207,11 +2208,13 @@ impl CnCGameEngine {
             self.reset_receiving_recorder_at_engine_boundary();
             // Reset is not a new-game controls creation phase. Hide only the
             // receiving existing transport before outgoing shell layouts reset.
-            game_client::gui::with_window_manager(|manager| {
-                game_client::gui::callbacks::replay_controls::hide_replay_controls_owned(
-                    manager, false,
-                );
-            });
+            self.game_client
+                .window_manager_owner()
+                .with_manager(|manager| {
+                    game_client::gui::callbacks::replay_controls::hide_replay_controls_owned(
+                        manager, false,
+                    );
+                });
         }
 
         #[cfg(feature = "game_client")]
@@ -2250,8 +2253,13 @@ impl CnCGameEngine {
         // every screen via the immediate path.
         #[cfg(feature = "game_client")]
         if reset_shell {
-            if let Err(err) = game_client::gui::ShellHandle::default().reset() {
-                warn!("GameEngine::reset TheShell reset failed: {err}");
+            match self.with_receiving_menu_shell(|shell, effects| shell.reset_receiving(effects)) {
+                Ok(Some(Ok(()))) => {}
+                Ok(Some(Err(error))) => {
+                    warn!("GameEngine::reset receiving Shell reset failed: {error}")
+                }
+                Ok(None) => warn!("GameEngine::reset has no receiving Shell loan"),
+                Err(error) => warn!("GameEngine::reset receiving Shell callback failed: {error}"),
             }
         }
 
@@ -2262,8 +2270,8 @@ impl CnCGameEngine {
 
         #[cfg(feature = "game_client")]
         if let Some(layout) = blank_layout {
-            game_client::gui::with_window_manager(|manager| {
-                manager.destroy_layout(&layout);
+            self.game_client.with_window_event_effects(None, |effects| {
+                effects.with_manager(|manager, effects| manager.destroy_layout(&layout, effects))
             });
         }
         Ok(())

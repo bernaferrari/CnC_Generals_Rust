@@ -30,6 +30,7 @@ fn print_info_recursive(window: &Rc<RefCell<GameWindow>>, file: &mut File) -> Wi
 /// Dump control bar layout offsets to ControlBarEasier.txt (C++ parity helper).
 pub fn print_offsets_from_control_bar_parent(
     window_manager: &mut WindowManager,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> WindowResult<()> {
     let control_bar_id = NameKeyGenerator::name_to_key("ControlBar.wnd:ControlBarParent");
     if window_manager
@@ -39,7 +40,7 @@ pub fn print_offsets_from_control_bar_parent(
         return Ok(());
     }
 
-    let info = window_manager.create_windows_from_script("controlBarHidden.wnd")?;
+    let info = window_manager.create_windows_from_script("controlBarHidden.wnd", effects)?;
     let mut file = File::create("ControlBarEasier.txt").map_err(|_| WindowError::GeneralFailure)?;
 
     if let Some(first_window) = info.windows.first() {
@@ -49,7 +50,7 @@ pub fn print_offsets_from_control_bar_parent(
     for window in info.windows {
         window_manager.destroy_window(window)?;
     }
-    window_manager.flush_destroy_queue();
+    window_manager.flush_destroy_queue(effects);
 
     Ok(())
 }

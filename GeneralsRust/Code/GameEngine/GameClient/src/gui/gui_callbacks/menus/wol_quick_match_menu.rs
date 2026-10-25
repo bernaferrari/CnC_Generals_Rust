@@ -20,7 +20,7 @@ pub fn WOLQuickMatchMenuShutdown(layout: &WindowLayout, user_data: Option<&dyn s
 }
 
 pub fn WOLQuickMatchMenuSystem(
-    window: &GameWindow,
+    window: &mut GameWindow,
     msg: WindowMessage,
     data1: WindowMsgData,
     data2: WindowMsgData,
@@ -29,7 +29,7 @@ pub fn WOLQuickMatchMenuSystem(
 }
 
 pub fn WOLQuickMatchMenuInput(
-    window: &GameWindow,
+    window: &mut GameWindow,
     msg: WindowMessage,
     data1: WindowMsgData,
     data2: WindowMsgData,

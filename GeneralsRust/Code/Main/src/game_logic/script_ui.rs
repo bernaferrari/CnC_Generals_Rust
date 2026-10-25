@@ -4,6 +4,15 @@
 //! driving application lends this interface during execution instead of storing
 //! window resources or selecting another session's UI inside GameLogic.
 pub(crate) trait ScriptUiEffects {
+    fn popup_message(
+        &mut self,
+        _popup: &crate::game_logic::ScriptPopupMessageRequest,
+    ) -> gamelogic::GameLogicResult<()> {
+        Err(gamelogic::GameLogicError::Configuration(
+            "popup requires receiving client services".into(),
+        ))
+    }
+
     /// Observation comes from the receiving ClientFrameWriter at each admitted
     /// step; no UI capability means headless execution creates no visual hint.
     fn admit_command_hint_client_frame(&mut self, _frame: Option<u32>) {}
@@ -51,6 +60,16 @@ pub(crate) trait ScriptUiEffects {
     /// Apply C++ ScriptActions::winDestroy to the receiving client's tracked
     /// message window, preserving callback order within the current action.
     fn destroy_win_lose_window(&mut self) -> gamelogic::GameLogicResult<()> {
+        Ok(())
+    }
+
+    /// C++ GameLogic::closeWindows, delivered before input disabling/window creation.
+    fn close_game_windows(&mut self) -> gamelogic::GameLogicResult<()> {
+        Err(gamelogic::GameLogicError::Configuration(
+            "closeWindows requires its receiving GUI services".into(),
+        ))
+    }
+    fn flush_window_callbacks(&mut self) -> gamelogic::GameLogicResult<()> {
         Ok(())
     }
 

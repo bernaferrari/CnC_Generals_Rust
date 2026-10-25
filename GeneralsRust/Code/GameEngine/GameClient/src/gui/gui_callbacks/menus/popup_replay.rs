@@ -7,12 +7,20 @@ use crate::gui::callbacks::popup_replay::{
 };
 use crate::gui::{GameWindow, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled};
 
-pub fn PopupReplayInit(layout: &WindowLayout, user_data: Option<&dyn std::any::Any>) {
-    popup_replay_init(layout, user_data);
+pub fn PopupReplayInit(
+    layout: &WindowLayout,
+    user_data: Option<&dyn std::any::Any>,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) {
+    effects.with_manager(|manager, effects| popup_replay_init(layout, user_data, manager, effects));
 }
 
-pub fn PopupReplayUpdate(layout: &WindowLayout, user_data: Option<&dyn std::any::Any>) {
-    popup_replay_update(layout, user_data);
+pub fn PopupReplayUpdate(
+    layout: &WindowLayout,
+    user_data: Option<&dyn std::any::Any>,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) {
+    effects.with_manager(|manager, effects| popup_replay_update(layout, user_data, manager));
 }
 
 pub fn PopupReplayShutdown(layout: &WindowLayout, user_data: Option<&dyn std::any::Any>) {
@@ -20,19 +28,23 @@ pub fn PopupReplayShutdown(layout: &WindowLayout, user_data: Option<&dyn std::an
 }
 
 pub fn PopupReplaySystem(
-    window: &GameWindow,
+    window: &mut GameWindow,
     msg: WindowMessage,
     data1: WindowMsgData,
     data2: WindowMsgData,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> WindowMsgHandled {
-    popup_replay_system(window, msg, data1, data2)
+    effects.with_manager(|manager, effects| {
+        popup_replay_system(window, msg, data1, data2, manager, effects)
+    })
 }
 
 pub fn PopupReplayInput(
-    window: &GameWindow,
+    window: &mut GameWindow,
     msg: WindowMessage,
     data1: WindowMsgData,
     data2: WindowMsgData,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> WindowMsgHandled {
-    popup_replay_input(window, msg, data1, data2)
+    popup_replay_input(window, msg, data1, data2, effects)
 }

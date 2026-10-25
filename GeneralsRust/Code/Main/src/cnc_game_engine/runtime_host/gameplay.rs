@@ -316,17 +316,27 @@ impl CnCGameEngine {
             // visible layout; GameState pause alone never reveals it). The
             // click dispatch below fail-closes on a hidden gadget, so show
             // the live quit layout first (idempotent: only when hidden).
-            if !game_client::gui::callbacks::is_quit_menu_visible() {
-                let _ = game_client::gui::callbacks::toggle_quit_menu_receiving(
-                    self.game_logic.owned_script_game_ending(),
-                );
-            }
-            let quit_layout = ensure_live_quit_menu_layout();
+            let game_ending = self.game_logic.owned_script_game_ending();
+            let quit_layout = self.with_receiving_menu_effects(|effects| {
+                if !game_client::gui::callbacks::is_quit_menu_visible() {
+                    let _ = game_client::gui::callbacks::toggle_quit_menu_receiving(
+                        game_ending,
+                        effects,
+                        None,
+                    );
+                }
+                effects
+                    .with_manager(|manager, effects| ensure_live_quit_menu_layout(manager, effects))
+            })?;
             let quit_save_load = quit_layout
                 && self.with_receiving_menu_effects(|effects| {
                     drive_os_wnd_quit_menu_save_load_like_cpp(effects)
                 })?;
-            let bind = ensure_live_popup_save_load_layout();
+            let bind = self.with_receiving_menu_effects(|effects| {
+                effects.with_manager(|manager, effects| {
+                    ensure_live_popup_save_load_layout(manager, effects)
+                })
+            })?;
             let save_confirm = self.with_receiving_menu_effects(|effects| {
                 drive_os_wnd_popup_save_load_save_and_confirm_like_cpp(effects)
             })?;
@@ -374,17 +384,27 @@ impl CnCGameEngine {
             self.popup_save_load_bridge_initialized = true;
             // C++ pause parity (same as pause_save): show QuitMenu.wnd so
             // the SaveLoad button dispatch hits a visible gadget.
-            if !game_client::gui::callbacks::is_quit_menu_visible() {
-                let _ = game_client::gui::callbacks::toggle_quit_menu_receiving(
-                    self.game_logic.owned_script_game_ending(),
-                );
-            }
-            let quit_layout = ensure_live_quit_menu_layout();
+            let game_ending = self.game_logic.owned_script_game_ending();
+            let quit_layout = self.with_receiving_menu_effects(|effects| {
+                if !game_client::gui::callbacks::is_quit_menu_visible() {
+                    let _ = game_client::gui::callbacks::toggle_quit_menu_receiving(
+                        game_ending,
+                        effects,
+                        None,
+                    );
+                }
+                effects
+                    .with_manager(|manager, effects| ensure_live_quit_menu_layout(manager, effects))
+            })?;
             let quit_save_load = quit_layout
                 && self.with_receiving_menu_effects(|effects| {
                     drive_os_wnd_quit_menu_save_load_like_cpp(effects)
                 })?;
-            let bind = ensure_live_popup_save_load_layout();
+            let bind = self.with_receiving_menu_effects(|effects| {
+                effects.with_manager(|manager, effects| {
+                    ensure_live_popup_save_load_layout(manager, effects)
+                })
+            })?;
             let load_confirm = self.with_receiving_menu_effects(|effects| {
                 drive_os_wnd_popup_save_load_load_named_and_confirm_like_cpp(&slot, effects)
             })?;

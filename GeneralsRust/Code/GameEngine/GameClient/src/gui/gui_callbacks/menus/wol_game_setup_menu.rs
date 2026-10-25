@@ -20,7 +20,7 @@ pub fn WOLGameSetupMenuShutdown(layout: &WindowLayout, user_data: Option<&dyn st
 }
 
 pub fn WOLGameSetupMenuSystem(
-    window: &GameWindow,
+    window: &mut GameWindow,
     msg: WindowMessage,
     data1: WindowMsgData,
     data2: WindowMsgData,
@@ -29,7 +29,7 @@ pub fn WOLGameSetupMenuSystem(
 }
 
 pub fn WOLGameSetupMenuInput(
-    window: &GameWindow,
+    window: &mut GameWindow,
     msg: WindowMessage,
     data1: WindowMsgData,
     data2: WindowMsgData,

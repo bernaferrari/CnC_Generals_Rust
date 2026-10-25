@@ -11,7 +11,7 @@ use crate::gui::callbacks::online_callback_support::dispatch_esc_gadget_selected
 use crate::gui::callbacks::popup_ladder_select::populate_custom_ladder_combo_box;
 use crate::gui::{
     CustomMatchPreferencesStore, GCM_SELECTED, GameWindow, WindowLayout, WindowMessage,
-    WindowMsgData, WindowMsgHandled, with_window_manager, write_input_focus_response,
+    WindowMsgData, WindowMsgHandled, write_input_focus_response,
 };
 use game_engine::common::ini::ini_game_data::get_global_data;
 use game_engine::common::name_key_generator::NameKeyGenerator;
@@ -60,7 +60,10 @@ fn name_to_id(name: &str) -> i32 {
     NameKeyGenerator::name_to_key(name) as i32
 }
 
-pub fn custom_match_hide_host_popup(hide: bool) {
+pub fn custom_match_hide_host_popup(
+    hide: bool,
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+) {
     let state_slot = popup_host_state();
     let mut state = state_slot.borrow_mut();
     if let Some(parent) = state.parent.as_ref() {
@@ -70,7 +73,9 @@ pub fn custom_match_hide_host_popup(hide: bool) {
     if state.parent_id == 0 {
         state.parent_id = name_to_id("PopupHostGame.wnd:ParentHostPopUp");
     }
-    state.parent = with_window_manager(|manager| manager.get_window_by_id(state.parent_id));
+    state.parent = (|manager: &mut crate::gui::window_manager::WindowManager| {
+        manager.get_window_by_id(state.parent_id)
+    })(receiving_manager);
     if let Some(parent) = state.parent.as_ref() {
         let _ = parent.borrow_mut().hide(hide);
     }
@@ -117,11 +122,17 @@ fn selected_combo_data(window: &GameWindow) -> Option<i32> {
     combo.items().get(selected)?.data.map(|data| data as i32)
 }
 
-fn set_checkbox(window: &Option<Rc<RefCell<GameWindow>>>, checked: bool) {
+fn set_checkbox(
+    window: &Option<Rc<RefCell<GameWindow>>>,
+    checked: bool,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) {
     let Some(window) = window.as_ref() else {
         return;
     };
-    let _ = window.borrow_mut().gadget_check_box_set_checked(checked);
+    let _ = window
+        .borrow_mut()
+        .gadget_check_box_set_checked(checked, effects);
 }
 
 fn checkbox_checked(window: &Option<Rc<RefCell<GameWindow>>>) -> bool {
@@ -147,10 +158,13 @@ fn enable_window(window: &Option<Rc<RefCell<GameWindow>>>, enabled: bool) {
     let _ = guard.enable(enabled);
 }
 
-fn sync_limit_armies_state(state: &PopupHostState) {
+fn sync_limit_armies_state(
+    state: &PopupHostState,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) {
     let use_stats = checkbox_checked(&state.check_box_use_stats);
     if use_stats {
-        set_checkbox(&state.check_box_limit_armies, false);
+        set_checkbox(&state.check_box_limit_armies, false, effects);
         enable_window(&state.check_box_limit_armies, false);
     } else {
         enable_window(&state.check_box_limit_armies, true);
@@ -167,7 +181,12 @@ fn clear_popup_host_refs(state: &mut PopupHostState) {
     state.check_box_use_stats = None;
 }
 
-pub fn popup_host_game_init(_layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>) {
+pub fn popup_host_game_init(
+    _layout: &WindowLayout,
+    _user_data: Option<&dyn std::any::Any>,
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) {
     let state_slot = popup_host_state();
     let mut state = state_slot.borrow_mut();
 
@@ -182,7 +201,9 @@ pub fn popup_host_game_init(_layout: &WindowLayout, _user_data: Option<&dyn std:
     state.check_box_limit_armies_id = name_to_id("PopupHostGame.wnd:CheckBoxLimitArmies");
     state.check_box_use_stats_id = name_to_id("PopupHostGame.wnd:CheckBoxUseStats");
 
-    state.parent = with_window_manager(|manager| manager.get_window_by_id(state.parent_id));
+    state.parent = (|manager: &mut crate::gui::window_manager::WindowManager| {
+        manager.get_window_by_id(state.parent_id)
+    })(receiving_manager);
 
     if let Some(parent) = state.parent.clone() {
         state.text_entry_game_name = parent
@@ -219,32 +240,42 @@ pub fn popup_host_game_init(_layout: &WindowLayout, _user_data: Option<&dyn std:
     set_checkbox(
         &state.check_box_allow_observers,
         prefs.prefs().allows_observers(),
+        effects,
     );
-    set_checkbox(&state.check_box_use_stats, prefs.prefs().get_use_stats());
+    set_checkbox(
+        &state.check_box_use_stats,
+        prefs.prefs().get_use_stats(),
+        effects,
+    );
     set_checkbox(
         &state.check_box_limit_armies,
         prefs.prefs().get_factions_limited(),
+        effects,
     );
 
-    sync_limit_armies_state(&state);
+    sync_limit_armies_state(&state, effects);
     drop(state);
 
-    let _ = populate_custom_ladder_combo_box();
+    let _ = populate_custom_ladder_combo_box(receiving_manager);
 
     let state_slot = popup_host_state();
     let state = state_slot.borrow_mut();
     if let Some(parent) = state.parent.as_ref() {
-        with_window_manager(|manager| {
-            let _ = manager.set_focus(Some(parent));
+        (|manager: &mut crate::gui::window_manager::WindowManager| {
+            let _ = manager.set_focus(Some(parent), effects);
             let _ = manager.set_modal(parent.clone());
-        });
+        })(receiving_manager);
     }
 }
 
-pub fn popup_host_game_update(_layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>) {
+pub fn popup_host_game_update(
+    _layout: &WindowLayout,
+    _user_data: Option<&dyn std::any::Any>,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) {
     let state_slot = popup_host_state();
     let state = state_slot.borrow_mut();
-    sync_limit_armies_state(&state);
+    sync_limit_armies_state(&state, effects);
 }
 
 pub fn popup_host_game_input(
@@ -252,6 +283,7 @@ pub fn popup_host_game_input(
     msg: WindowMessage,
     data1: WindowMsgData,
     data2: WindowMsgData,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> WindowMsgHandled {
     if msg != WindowMessage::Char {
         return WindowMsgHandled::Ignored;
@@ -268,16 +300,17 @@ pub fn popup_host_game_input(
         let state = slot.borrow();
         (state.parent.clone(), state.button_cancel_id)
     };
-    dispatch_esc_gadget_selected(parent, button_id);
+    dispatch_esc_gadget_selected(parent, button_id, effects);
 
     WindowMsgHandled::Handled
 }
 
 pub fn popup_host_game_system(
-    window: &GameWindow,
+    window: &mut GameWindow,
     msg: WindowMessage,
     data1: WindowMsgData,
     data2: WindowMsgData,
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
 ) -> WindowMsgHandled {
     match msg {
         WindowMessage::InputFocus => write_input_focus_response(data1, data2, true),
@@ -296,7 +329,7 @@ pub fn popup_host_game_system(
                 && selected_combo_data(window).is_some_and(|ladder_id| ladder_id < 0)
             {
                 drop(state);
-                let _ = populate_custom_ladder_combo_box();
+                let _ = populate_custom_ladder_combo_box(receiving_manager);
                 open_overlay(GameSpyOverlayType::LadderSelect);
             }
             WindowMsgHandled::Handled
@@ -308,9 +341,9 @@ pub fn popup_host_game_system(
             if control_id == state.button_cancel_id {
                 // Clear modal before closing - matches C++ GWM_DESTROY handling
                 if let Some(parent) = state.parent.as_ref() {
-                    with_window_manager(|manager| {
+                    (|manager: &mut crate::gui::window_manager::WindowManager| {
                         let _ = manager.unset_modal(parent);
-                    });
+                    })(receiving_manager);
                 }
                 close_overlay(GameSpyOverlayType::GameOptions);
                 set_lobby_attempt_host_join(false);
@@ -404,9 +437,9 @@ pub fn popup_host_game_system(
                 }
                 // Clear modal before closing
                 if let Some(parent) = state.parent.as_ref() {
-                    with_window_manager(|manager| {
+                    (|manager: &mut crate::gui::window_manager::WindowManager| {
                         let _ = manager.unset_modal(parent);
-                    });
+                    })(receiving_manager);
                 }
                 close_overlay(GameSpyOverlayType::GameOptions);
                 set_lobby_attempt_host_join(false);

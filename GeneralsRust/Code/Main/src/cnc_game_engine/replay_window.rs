@@ -32,9 +32,9 @@ impl CnCGameEngine {
 
     pub(super) fn configure_receiving_replay_menu(&self) {
         let inputs = self.receiving_replay_menu_inputs();
-        game_client::gui::with_window_manager(|manager| {
-            manager.configure_replay_menu_owned(inputs)
-        });
+        self.game_client
+            .window_manager_owner()
+            .with_manager(|manager| manager.configure_replay_menu_owned(inputs));
     }
 
     pub(super) fn initialize_receiving_replay_controls(&mut self) {
@@ -42,11 +42,13 @@ impl CnCGameEngine {
             .game_logic
             .replay_pending
             .initialize_replay_controls_owned();
-        game_client::gui::with_window_manager(|manager| {
-            game_client::gui::callbacks::replay_controls::apply_replay_control_visibility_owned(
-                manager, hidden,
-            );
-        });
+        self.game_client
+            .window_manager_owner()
+            .with_manager(|manager| {
+                game_client::gui::callbacks::replay_controls::apply_replay_control_visibility_owned(
+                    manager, hidden,
+                );
+            });
     }
 
     /// Same source message-stream phase used by EOF/stop, not an end-frame effect queue.
@@ -93,6 +95,44 @@ impl CnCGameEngine {
 }
 
 impl ReplayMenuReceiver for CnCGameEngine {
+    fn confirm_older(
+        &mut self,
+        playback: game_client::gui::callbacks::replay_menu::ingress::ReplayPlayback,
+    ) -> Result<(), String> {
+        self.with_receiving_menu_effects(|effects| {
+            effects.with_manager(|manager, effects| {
+                game_client::gui::callbacks::message_box::message_box_replay_confirmation(
+                    playback, manager, effects,
+                )
+            })
+        })?;
+        Ok(())
+    }
+    fn no_selection(&mut self) -> Result<(), String> {
+        self.with_receiving_menu_effects(|effects| {
+            effects.with_manager(|manager, effects| {
+                let _ = game_client::gui::callbacks::message_box::message_box_ok(
+                    &game_client::game_text::GameText::fetch("GUI:NoFileSelected"),
+                    &game_client::game_text::GameText::fetch("GUI:PleaseSelectAFile"),
+                    None,
+                    manager,
+                    effects,
+                );
+            })
+        })?;
+        Ok(())
+    }
+    fn confirm_restart(&mut self) -> Result<(), String> {
+        self.with_receiving_menu_effects(|effects| {
+            effects.with_manager(|manager, effects| {
+                game_client::gui::callbacks::message_box::message_box_restart_confirmation(
+                    manager, effects,
+                )
+            })
+        })?;
+        Ok(())
+    }
+
     fn version_differs(&mut self, filename: &str) -> bool {
         self.game_logic
             .replay_pending
@@ -138,7 +178,9 @@ impl ReplayMenuReceiver for CnCGameEngine {
     fn restart(&mut self) -> Result<(), String> {
         self.require_native_world_boundary("Recorder restart")
             .map_err(|error| error.to_string())?;
-        game_client::gui::callbacks::quit_menu::destroy_quit_menu();
+        self.with_receiving_menu_effects(|effects| {
+            game_client::gui::callbacks::quit_menu::destroy_quit_menu(effects)
+        })?;
         let filename = self
             .game_logic
             .replay_pending

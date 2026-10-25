@@ -33,8 +33,7 @@ impl GameClient {
     }
 
     pub fn draw_display(&mut self) -> GameClientResult<()> {
-        let owner = self.window_manager_owner.clone();
-        owner.with_scope(|| self.draw_display_with_window_owner())
+        self.draw_display_with_window_owner()
     }
 
     fn draw_display_with_window_owner(&mut self) -> GameClientResult<()> {
@@ -53,36 +52,48 @@ impl GameClient {
         Ok(())
     }
 
-    /// Borrow a weak, operation-scoped pump for this receiving client's display.
-    /// The actual update/draw keeps the display's existing mutex boundary.
-    pub fn load_screen_presentation_pump(
-        &mut self,
-    ) -> crate::gui::load_screen::LoadScreenPresentationPump<'_> {
-        crate::gui::load_screen::LoadScreenPresentationPump::for_display(
-            self.subsystem_manager.display.as_ref(),
-            self.script_display.fx_mut(),
-            self.ui_renderer.as_mut(),
-            &self.window_manager_owner,
-        )
-        .with_mouse(self.subsystem_manager.input_mouse.clone())
-    }
-
+    /// All callbacks and presentation reborrow this operation sequentially.
     pub fn load_screen_runtime_mut(&mut self) -> crate::gui::load_screen::LoadScreenOperation<'_> {
-        crate::gui::load_screen::LoadScreenOperation::new(
-            &mut self.load_screen_runtime,
-            &mut self.window_videos,
-            &self.window_manager_owner,
-        )
+        self.script_display
+            .bind(self.subsystem_manager.display.as_ref());
+        crate::gui::load_screen::LoadScreenOperation {
+            state: &mut self.load_screen_runtime,
+            windows: &self.window_manager_owner,
+            first_load: &mut self.shell_game_first_load,
+            renderer: self.ui_renderer.as_mut(),
+            message_stream: &mut self.message_stream,
+            effects: crate::gui::game_window::WindowEventEffects {
+                manager: None,
+                menus: Some(self.menu_manager.receiving_menus()),
+                ime: Some(&mut self.ime),
+                window_manager_owner: Some(&self.window_manager_owner),
+                selected_window: None,
+                emitted_messages: &mut self.load_screen_messages,
+                pending_control_bar_clicks: None,
+                campaign_manager: Some(&mut self.campaign_manager),
+                main_menu: Some(&mut self.main_menu),
+                menu_world: None,
+                menu_host: Some(&mut self.menu_host),
+                script_display: Some(&mut self.script_display),
+                window_videos: Some(&mut self.window_videos.loading),
+                pending_main_menu_actions: Vec::new(),
+            },
+        }
     }
     pub fn window_video_manager_mut(
         &mut self,
     ) -> &mut crate::gui::window_video_manager::WindowVideoManager {
-        &mut self.window_videos
+        &mut self.window_videos.in_game
+    }
+    pub fn control_bar_window_videos_mut(
+        &mut self,
+    ) -> &mut crate::gui::window_video_manager::WindowVideoManager {
+        &mut self.window_videos.control_bar
     }
     pub fn play_radar_movie(&mut self, name: &str) -> bool {
         crate::gui::window_video_manager::play_radar_movie_for_owner(
             &self.window_manager_owner,
-            &mut self.window_videos,
+            &mut self.window_videos.in_game,
             name,
         )
     }
@@ -93,43 +104,19 @@ impl GameClient {
         crate::gui::load_screen::LoadScreenOperation<'_>,
         crate::gui::load_screen::LoadScreenPresentationPump<'_>,
     ) {
-        let pump = crate::gui::load_screen::LoadScreenPresentationPump::for_display(
-            self.subsystem_manager.display.as_ref(),
-            self.script_display.fx_mut(),
-            self.ui_renderer.as_mut(),
-            &self.window_manager_owner,
-        )
-        .with_mouse(self.subsystem_manager.input_mouse.clone());
-        (
-            crate::gui::load_screen::LoadScreenOperation::new(
-                &mut self.load_screen_runtime,
-                &mut self.window_videos,
-                &self.window_manager_owner,
-            ),
-            pump,
-        )
+        self.split_load_screen_services()
     }
-
     pub fn split_load_screen_services(
         &mut self,
     ) -> (
-        &mut crate::core::script_action_handler::ScriptDisplayReceiver,
-        Option<&mut crate::gui::UIRenderer>,
-        crate::gui::load_screen::LoadScreenOwner<'_>,
+        crate::gui::load_screen::LoadScreenOperation<'_>,
+        crate::gui::load_screen::LoadScreenPresentationPump<'_>,
     ) {
-        (
-            &mut self.script_display,
-            self.ui_renderer.as_mut(),
-            crate::gui::load_screen::LoadScreenOwner {
-                campaign: &self.campaign_manager,
-                first_load: &mut self.shell_game_first_load,
-                runtime: crate::gui::load_screen::LoadScreenOperation::new(
-                    &mut self.load_screen_runtime,
-                    &mut self.window_videos,
-                    &self.window_manager_owner,
-                ),
-            },
+        let pump = crate::gui::load_screen::LoadScreenPresentationPump::for_display(
+            self.subsystem_manager.display.as_ref(),
         )
+        .with_mouse(self.subsystem_manager.input_mouse.clone());
+        (self.load_screen_runtime_mut(), pump)
     }
     fn draw_drawable_icon_ui(&mut self) {
         let mut text_ids = Vec::new();
@@ -428,7 +415,6 @@ impl GameClient {
     fn draw_drawable_icon_overlays(&mut self, counts: &mut LiveInGameHudDrawCounts) {
         use crate::drawable::drawable::{format_under_construction_desc, health_bar_colors};
         use crate::gui::ui_renderer::UIRect;
-        use crate::gui::window_manager::with_window_manager_ref;
         use glam::Vec2;
 
         let overlays: Vec<crate::drawable::drawable::DrawableOverlayData> = self
@@ -518,8 +504,10 @@ impl GameClient {
                         let _ = self.window_manager_owner.with_manager(|manager| {
                             let mut draw_context =
                                 crate::gui::window_draw_context::WindowDrawContext {
+                                    shell_scheme: None,
                                     renderer: Some(&mut *renderer),
                                     display: display_facts.clone(),
+                                    ime: Some(&self.ime),
                                     manager: Some(manager),
                                 };
                             if let Some(image) = manager.win_find_image(name) {
@@ -555,8 +543,10 @@ impl GameClient {
                         let drew = self.window_manager_owner.with_manager(|manager| {
                             let mut draw_context =
                                 crate::gui::window_draw_context::WindowDrawContext {
+                                    shell_scheme: None,
                                     renderer: Some(&mut *renderer),
                                     display: display_facts.clone(),
+                                    ime: Some(&self.ime),
                                     manager: Some(manager),
                                 };
                             if let Some(image) = manager.win_find_image(name) {
@@ -607,8 +597,10 @@ impl GameClient {
                         let drew = self.window_manager_owner.with_manager(|manager| {
                             let mut draw_context =
                                 crate::gui::window_draw_context::WindowDrawContext {
+                                    shell_scheme: None,
                                     renderer: Some(&mut *renderer),
                                     display: display_facts.clone(),
+                                    ime: Some(&self.ime),
                                     manager: Some(manager),
                                 };
                             if let Some(image) = manager.win_find_image(name) {

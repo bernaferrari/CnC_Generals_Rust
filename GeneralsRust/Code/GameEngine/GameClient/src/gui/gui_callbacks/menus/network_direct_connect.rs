@@ -24,7 +24,7 @@ pub fn NetworkDirectConnectShutdown(layout: &WindowLayout, user_data: Option<&dy
 }
 
 pub fn NetworkDirectConnectSystem(
-    window: &GameWindow,
+    window: &mut GameWindow,
     msg: WindowMessage,
     data1: WindowMsgData,
     data2: WindowMsgData,
@@ -33,10 +33,11 @@ pub fn NetworkDirectConnectSystem(
 }
 
 pub fn NetworkDirectConnectInput(
-    window: &GameWindow,
+    window: &mut GameWindow,
     msg: WindowMessage,
     data1: WindowMsgData,
     data2: WindowMsgData,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> WindowMsgHandled {
-    network_direct_connect_input(window, msg, data1, data2)
+    network_direct_connect_input(window, msg, data1, data2, effects)
 }

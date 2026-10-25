@@ -18,7 +18,7 @@ use crate::display::cinematic_camera::{
 };
 use crate::drawable::drawable_manager::{with_drawable_manager, with_drawable_manager_ref};
 use crate::drawable::{DrawableType, Vector3 as DrawVec3};
-use crate::gui::{HintType, WindowStatus, with_window_manager_ref};
+use crate::gui::{HintType, WindowStatus};
 use crate::helpers::TheInGameUI;
 use crate::terrain::terrain_visual::get_terrain_visual;
 use gamelogic::helpers::{TheGameLogic, TheTerrainLogic};
@@ -1666,8 +1666,9 @@ impl View {
         screen: &IPoint2,
         _force_attack: bool,
         _pick_type: PickType,
+        window_query: &mut dyn FnMut(i32, i32) -> bool,
     ) -> Option<u32> {
-        if self.screen_blocked_by_opaque_window(screen) {
+        if window_query(screen.x, screen.y) {
             return None;
         }
         let (ray_start, ray_end) = self.get_pick_ray(screen).ok()?;
@@ -1702,11 +1703,15 @@ impl View {
     }
 
     /// C++ `W3DView::iterateDrawablesInRegion`: project drawable centers into the screen box.
-    pub fn iterate_drawables_in_region(&self, region: Option<(IPoint2, IPoint2)>) -> Vec<u32> {
+    pub fn iterate_drawables_in_region(
+        &self,
+        region: Option<(IPoint2, IPoint2)>,
+        window_query: &mut dyn FnMut(i32, i32) -> bool,
+    ) -> Vec<u32> {
         if let Some((lo, hi)) = region {
             if lo.x == hi.x && lo.y == hi.y {
                 return self
-                    .pick_drawable(&lo, true, PickType::Selectable)
+                    .pick_drawable(&lo, true, PickType::Selectable, window_query)
                     .into_iter()
                     .collect();
             }
@@ -1745,20 +1750,6 @@ impl View {
             }
         });
         ids
-    }
-
-    fn screen_blocked_by_opaque_window(&self, screen: &IPoint2) -> bool {
-        with_window_manager_ref(|manager| {
-            let mut window = manager.get_window_under_cursor(screen.x, screen.y, false);
-            while let Some(current) = window {
-                let guard = current.borrow();
-                if !guard.get_status().contains(WindowStatus::SEE_THRU) {
-                    return true;
-                }
-                window = guard.get_parent();
-            }
-            false
-        })
     }
 
     /// CPU fade + type used by Display to composite viewport filters.
@@ -3530,8 +3521,13 @@ mod tests {
     fn pick_drawable_skips_when_view_uninitialized() {
         let view = View::new();
         assert!(
-            view.pick_drawable(&IPoint2::new(10, 10), false, PickType::Selectable)
-                .is_none()
+            view.pick_drawable(
+                &IPoint2::new(10, 10),
+                false,
+                PickType::Selectable,
+                &mut |_, _| false
+            )
+            .is_none()
         );
     }
 }

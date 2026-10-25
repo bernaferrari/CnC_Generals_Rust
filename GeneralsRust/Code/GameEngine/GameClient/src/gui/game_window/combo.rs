@@ -26,9 +26,13 @@ pub fn gadget_combo_box_get_text(combo_box: &GameWindow) -> String {
         .unwrap_or_default()
 }
 
-pub fn gadget_combo_box_set_text(combo_box: &mut GameWindow, text: &str) {
+pub fn gadget_combo_box_set_text(
+    combo_box: &mut GameWindow,
+    text: &str,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) {
     let _ = with_payload(WindowMsgPayload::Text(text.to_string()), |token| {
-        combo_box.send_system_message(WindowMessage::User(GCM_SET_TEXT), token, 0)
+        combo_box.send_system_message(WindowMessage::User(GCM_SET_TEXT), token, 0, effects)
     });
 }
 
@@ -36,6 +40,7 @@ pub fn gadget_combo_box_add_entry(
     combo_box: &mut GameWindow,
     text: &str,
     color: crate::gui::shell::Color,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> i32 {
     let index = {
         let Some(WindowWidget::ComboBox(combo)) = combo_box.widget.as_mut() else {
@@ -47,23 +52,31 @@ pub fn gadget_combo_box_add_entry(
     };
     if let Some(links) = combo_box.combobox_links {
         if let Some(list_box) = combo_box.find_child_by_id(links.list_box) {
-            combo_box.sync_combobox_listbox(&list_box);
+            combo_box.sync_combobox_listbox(&list_box, effects);
             if let Some(WindowWidget::ListBox(listbox)) = list_box.borrow_mut().widget_mut() {
                 let _ = listbox.set_item_color(index as usize, color);
             }
-            combo_box.resize_combobox_listbox(&list_box);
+            combo_box.resize_combobox_listbox(&list_box, effects);
         }
     }
     index
 }
 
-pub fn gadget_combo_box_reset(combo_box: &mut GameWindow) {
-    let _ = combo_box.send_system_message(WindowMessage::User(GCM_DEL_ALL), 0, 0);
+pub fn gadget_combo_box_reset(
+    combo_box: &mut GameWindow,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) {
+    let _ = combo_box.send_system_message(WindowMessage::User(GCM_DEL_ALL), 0, 0, effects);
 }
 
-pub fn gadget_combo_box_get_selected_pos(combo_box: &mut GameWindow, selected_index: &mut i32) {
+pub fn gadget_combo_box_get_selected_pos(
+    combo_box: &mut GameWindow,
+    selected_index: &mut i32,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) {
     let token = push_payload(WindowMsgPayload::Int(-1));
-    let _ = combo_box.send_system_message(WindowMessage::User(GCM_GET_SELECTION), 0, token);
+    let _ =
+        combo_box.send_system_message(WindowMessage::User(GCM_GET_SELECTION), 0, token, effects);
     if let Some(WindowMsgPayload::Int(value)) = pop_payload(token) {
         *selected_index = value;
     }
@@ -73,28 +86,41 @@ pub fn gadget_combo_box_set_selected_pos(
     combo_box: &mut GameWindow,
     selected_index: i32,
     dont_hide: bool,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) {
     let _ = combo_box.send_system_message(
         WindowMessage::User(GCM_SET_SELECTION),
         selected_index as WindowMsgData,
         dont_hide as WindowMsgData,
+        effects,
     );
 }
 
-pub fn gadget_combo_box_set_item_data(combo_box: &mut GameWindow, index: i32, data: WindowMsgData) {
+pub fn gadget_combo_box_set_item_data(
+    combo_box: &mut GameWindow,
+    index: i32,
+    data: WindowMsgData,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) {
     let _ = combo_box.send_system_message(
         WindowMessage::User(GCM_SET_ITEM_DATA),
         index as WindowMsgData,
         data,
+        effects,
     );
 }
 
-pub fn gadget_combo_box_get_item_data(combo_box: &mut GameWindow, index: i32) -> WindowMsgData {
+pub fn gadget_combo_box_get_item_data(
+    combo_box: &mut GameWindow,
+    index: i32,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> WindowMsgData {
     let token = push_payload(WindowMsgPayload::UInt(0));
     let _ = combo_box.send_system_message(
         WindowMessage::User(GCM_GET_ITEM_DATA),
         index as WindowMsgData,
         token,
+        effects,
     );
     match pop_payload(token) {
         Some(WindowMsgPayload::UInt(value)) => value,
@@ -110,8 +136,11 @@ pub fn gadget_combo_box_get_length(combo_box: &GameWindow) -> i32 {
     }
 }
 
-pub fn gadget_combo_box_hide_list(combo_box: &mut GameWindow) {
-    combo_box.hide_combobox_list();
+pub fn gadget_combo_box_hide_list(
+    combo_box: &mut GameWindow,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) {
+    combo_box.hide_combobox_list(effects);
 }
 
 pub fn gadget_combo_box_set_max_display(combo_box: &mut GameWindow, max_display: i32) {

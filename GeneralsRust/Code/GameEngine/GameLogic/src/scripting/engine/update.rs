@@ -87,7 +87,7 @@ impl ScriptEngine {
         };
         if close_expired {
             // C++ ScriptEngine.cpp:5508-5512 TheScriptActions->closeWindows(FALSE).
-            self.close_windows(false);
+            self.close_windows_with_driver(false, execution.driver)?;
             // Expiry runs before authored trigger evaluation. Deliver the
             // callback now so later script conditions/actions observe the same
             // window order as C++ rather than waiting for end-of-update.

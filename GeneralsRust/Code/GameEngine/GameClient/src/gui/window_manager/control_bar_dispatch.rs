@@ -68,6 +68,7 @@ impl<'a> CameraOptionsInputContext<'a> {
                 crate::gui::callbacks::menu_callbacks::complete_options_defaults_with_preferences(
                     slider,
                     self.rules.keyboard_default_scroll_factor,
+                    effects,
                 )
             }
             Some(PendingCameraOptions::Open(window)) => {
@@ -106,6 +107,7 @@ impl<'a> CameraOptionsInputContext<'a> {
                 let _ = crate::gui::callbacks::quit_menu::select_quit_options_with_camera_input(
                     control_id,
                     observation,
+                    effects,
                 );
             }
             None => {}
@@ -113,6 +115,8 @@ impl<'a> CameraOptionsInputContext<'a> {
     }
 }
 pub struct ControlBarInputContext<'a> {
+    pub menus: Option<crate::gui::callbacks::menu_callbacks::MenuCallbackRecipients<'a>>,
+    pub ime: Option<&'a mut crate::gui::ime_manager::ImeManager>,
     pub upgrade_tooltip:
         crate::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource<'a>,
     pub camera_options: Option<CameraOptionsInputContext<'a>>,
@@ -136,33 +140,91 @@ pub struct ControlBarInputContext<'a> {
     pub menu_world: Option<crate::gui::campaign_launch_host_bridge::MenuWorldFacts>,
     pub menu_host: Option<&'a mut crate::gui::campaign_launch_host_bridge::MenuHostMailbox>,
     pub window_videos: Option<&'a mut crate::gui::window_video_manager::WindowVideoManager>,
+    pub in_game_movies: Option<&'a mut crate::gui::window_video_manager::WindowVideoManager>,
     pub script_display: Option<&'a mut crate::core::script_action_handler::ScriptDisplayReceiver>,
     pub main_menu: Option<&'a mut crate::gui::shell::main_menu::MainMenu>,
     pub emitted_messages: Option<&'a mut Vec<crate::message_stream::game_message::GameMessage>>,
 }
 impl ControlBarInputContext<'_> {
-    pub(super) fn complete_options_accept(&mut self) {
-        if let Some(options) = self.camera_options.as_mut() {
-            let mut effects = crate::gui::game_window::WindowEventEffects {
-                window_manager_owner: self.window_manager_owner,
-                selected_window: None,
-                emitted_messages: self
-                    .emitted_messages
-                    .as_deref_mut()
-                    .expect("native callback requires receiving message sink"),
-                pending_control_bar_clicks: Some(&mut self.control_bar.pending_command_clicks),
-                campaign_manager: self.campaign_manager.as_deref_mut(),
-                main_menu: self.main_menu.as_deref_mut(),
-                menu_world: self.menu_world,
-                menu_host: self.menu_host.as_deref_mut(),
-                script_display: self.script_display.as_deref_mut(),
-                window_videos: self.window_videos.as_deref_mut(),
-                pending_main_menu_actions: Vec::new(),
-            };
-            options.complete(&mut effects);
+    fn with_effects_and_options<R>(
+        &mut self,
+        manager: &mut WindowManager,
+        operation: impl FnOnce(
+            &mut WindowManager,
+            &mut crate::gui::game_window::WindowEventEffects<'_>,
+            Option<&mut CameraOptionsInputContext<'_>>,
+            &mut crate::gui::gui_callbacks::control_bar_popup_description::TooltipState,
+        ) -> R,
+    ) -> R {
+        let mut effects = crate::gui::game_window::WindowEventEffects {
+            menus: self.menus.as_mut().map(|menus| menus.reborrow()),
+            ime: self.ime.as_deref_mut(),
+            manager: None,
+            window_manager_owner: self.window_manager_owner,
+            selected_window: None,
+            emitted_messages: self
+                .emitted_messages
+                .as_deref_mut()
+                .expect("native callback requires receiving message sink"),
+            pending_control_bar_clicks: Some(&mut self.control_bar.pending_command_clicks),
+            campaign_manager: self.campaign_manager.as_deref_mut(),
+            main_menu: self.main_menu.as_deref_mut(),
+            menu_world: self.menu_world,
+            menu_host: self.menu_host.as_deref_mut(),
+            script_display: self.script_display.as_deref_mut(),
+            window_videos: self.window_videos.as_deref_mut(),
+            pending_main_menu_actions: Vec::new(),
+        };
+        let result = operation(
+            manager,
+            &mut effects,
+            self.camera_options.as_mut(),
+            &mut self.control_bar.tooltip,
+        );
+        effects.with_receiving_manager(manager, |effects| {
+            effects.complete_pending_main_menu_actions();
+        });
+        result
+    }
+
+    pub(crate) fn with_effects<R>(
+        &mut self,
+        manager: &mut WindowManager,
+        operation: impl FnOnce(
+            &mut WindowManager,
+            &mut crate::gui::game_window::WindowEventEffects<'_>,
+        ) -> R,
+    ) -> R {
+        self.with_effects_and_options(manager, |manager, effects, _options, _tooltip| {
+            operation(manager, effects)
+        })
+    }
+
+    pub(crate) fn with_tooltip_effects<R>(
+        &mut self,
+        manager: &mut WindowManager,
+        operation: impl FnOnce(
+            &mut crate::gui::gui_callbacks::control_bar_popup_description::TooltipState,
+            &mut WindowManager,
+            &mut crate::gui::game_window::WindowEventEffects<'_>,
+        ) -> R,
+    ) -> R {
+        self.with_effects_and_options(manager, |manager, effects, _options, tooltip| {
+            operation(tooltip, manager, effects)
+        })
+    }
+
+    pub(super) fn complete_options_accept(&mut self, manager: &mut WindowManager) {
+        if self.camera_options.is_some() {
+            self.with_effects_and_options(manager, |manager, effects, options, _tooltip| {
+                if let Some(options) = options {
+                    effects.with_receiving_manager(manager, |effects| options.complete(effects));
+                }
+            });
         }
     }
 }
+
 impl WindowManager {
     pub(super) fn send_input_selected_with_message_sink(
         &mut self,
@@ -171,22 +233,14 @@ impl WindowManager {
         data1: WindowMsgData,
         data2: WindowMsgData,
         routed: bool,
-        mut context: Option<&mut ControlBarInputContext<'_>>,
         emitted_messages: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) -> WindowMsgHandled {
-        assert!(
-            context.is_none(),
-            "native input context and stream translator are distinct synchronous dispatch paths"
-        );
         emitted_messages.selected_window = Some(Rc::downgrade(window));
-        window.borrow_mut().send_input_message_with_message_sink(
-            msg,
-            data1,
-            data2,
-            routed,
-            emitted_messages,
-            None,
-        )
+        emitted_messages.with_receiving_manager(self, |effects| {
+            window
+                .borrow_mut()
+                .send_input_message_with_message_sink(msg, data1, data2, routed, effects, None)
+        })
     }
 
     pub(super) fn send_input_selected(
@@ -196,17 +250,8 @@ impl WindowManager {
         data1: WindowMsgData,
         data2: WindowMsgData,
         routed: bool,
-        mut context: Option<&mut ControlBarInputContext<'_>>,
+        context: &mut ControlBarInputContext<'_>,
     ) -> WindowMsgHandled {
-        let Some(context) = context.as_deref_mut() else {
-            return if routed {
-                window
-                    .borrow_mut()
-                    .send_routed_input_message(msg, data1, data2)
-            } else {
-                window.borrow_mut().send_input_message(msg, data1, data2)
-            };
-        };
         let owned_options = context.camera_options.is_some() || context.observer_roster.is_some();
         let owned_replay = context.replay_menu.is_some();
         let owned_restart = context
@@ -214,43 +259,23 @@ impl WindowManager {
             .as_ref()
             .is_some_and(|op| op.allow_offline_restart());
         let click_start = context.control_bar.pending_command_clicks.len();
-        let mut effects = context
-            .emitted_messages
-            .as_deref_mut()
-            .map(
-                |emitted_messages| crate::gui::game_window::WindowEventEffects {
-                    window_manager_owner: context.window_manager_owner,
-                    selected_window: Some(Rc::downgrade(window)),
-                    emitted_messages,
-                    pending_control_bar_clicks: Some(
-                        &mut context.control_bar.pending_command_clicks,
-                    ),
-                    campaign_manager: context.campaign_manager.as_deref_mut(),
-                    main_menu: context.main_menu.as_deref_mut(),
-                    menu_world: context.menu_world,
-                    menu_host: context.menu_host.as_deref_mut(),
-                    script_display: context.script_display.as_deref_mut(),
-                    window_videos: context.window_videos.as_deref_mut(),
-                    pending_main_menu_actions: Vec::new(),
-                },
-            );
-        let emitted_messages = effects.as_mut();
-        let (handled, notification) = {
-            let pending_control_bar_clicks = None;
-            window
-                .borrow_mut()
-                .send_input_with_control_bar_notification(
-                    msg,
-                    data1,
-                    data2,
-                    owned_options,
-                    owned_replay,
-                    owned_restart,
-                    emitted_messages,
-                    pending_control_bar_clicks,
-                )
-        };
-        drop(effects);
+        let (handled, notification) = context.with_effects(self, |manager, effects| {
+            effects.selected_window = Some(Rc::downgrade(window));
+            effects.with_receiving_manager(manager, |effects| {
+                window
+                    .borrow_mut()
+                    .send_input_with_control_bar_notification(
+                        msg,
+                        data1,
+                        data2,
+                        owned_options,
+                        owned_replay,
+                        owned_restart,
+                        effects,
+                        None,
+                    )
+            })
+        });
         let target_id = window.borrow().get_id() as u32;
         for click in &mut context.control_bar.pending_command_clicks[click_start..] {
             if click.control_id == target_id {
@@ -265,27 +290,37 @@ impl WindowManager {
                     | SelectedOwnerAction::ReplayMenuConfirm
                     | SelectedOwnerAction::ReplayMenuRestart
             ) {
-                if let Some(operation) = context.replay_menu.as_deref_mut() {
-                    match notification.action {
-                        SelectedOwnerAction::ReplayMenuLoad => operation.capture_menu(self, false),
-                        SelectedOwnerAction::ReplayMenuDoubleClick => {
-                            operation.capture_menu(self, true)
+                // These are operation-scoped service loans, not arena entries.
+                // Lend them separately while Effects borrows the other fields.
+                let mut operation = context.replay_menu.take();
+                let mut version = context.replay_version.take();
+                context.with_effects(self, |manager, effects| {
+                    if let Some(operation) = operation.as_deref_mut() {
+                        match notification.action {
+                            SelectedOwnerAction::ReplayMenuLoad => {
+                                operation.capture_menu(manager, false)
+                            }
+                            SelectedOwnerAction::ReplayMenuDoubleClick => {
+                                operation.capture_menu(manager, true)
+                            }
+                            SelectedOwnerAction::ReplayMenuRestart => operation.capture_restart(),
+                            SelectedOwnerAction::ReplayMenuConfirm => {
+                                operation.capture_confirmation(&notification.owner.borrow());
+                                let _ = manager.unset_modal(&notification.owner);
+                                let _ = manager.destroy_window(notification.owner.clone());
+                                manager.flush_destroy_queue(effects);
+                            }
+                            _ => unreachable!(),
                         }
-                        SelectedOwnerAction::ReplayMenuRestart => operation.capture_restart(),
-                        SelectedOwnerAction::ReplayMenuConfirm => {
-                            operation.capture_confirmation(&notification.owner.borrow());
-                            let _ = self.unset_modal(&notification.owner);
-                            let _ = self.destroy_window(notification.owner.clone());
-                            self.flush_destroy_queue();
+                        if let Some(version) = version.as_mut() {
+                            operation.complete_ui_in(manager, Some(&mut **version), effects);
+                        } else {
+                            operation.complete_ui_in(manager, None, effects);
                         }
-                        _ => unreachable!(),
                     }
-                    if let Some(version) = context.replay_version.as_mut() {
-                        operation.complete_ui_in(self, Some(&mut **version));
-                    } else {
-                        operation.complete_ui_in(self, None);
-                    }
-                }
+                });
+                context.replay_menu = operation;
+                context.replay_version = version;
                 return handled;
             }
             if let SelectedOwnerAction::ObserverButtonSlot(slot) = notification.action {
@@ -394,6 +429,7 @@ impl WindowManager {
                                 context.replay,
                                 Some(&mut parent),
                                 Some(&mut button),
+                                self,
                             );
                         // The stage captured its authored default position. The
                         // marker helper walks the already-borrowed parent and

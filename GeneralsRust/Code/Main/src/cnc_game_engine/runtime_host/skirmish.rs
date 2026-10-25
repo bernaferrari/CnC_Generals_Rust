@@ -31,11 +31,12 @@ impl CnCGameEngine {
                 // Best-effort stack push without re-entering MainMenu system().
                 // Skip if already on a Skirmish layout to avoid double-parse stalls.
                 if !env_soft {
-                    let top = game_client::gui::with_shell_ref(|shell| {
-                        shell.top_filename().map(str::to_owned)
-                    })
-                    .flatten()
-                    .unwrap_or_default();
+                    let top = self
+                        .game_client
+                        .window_manager_owner()
+                        .with_shell_ref(|shell| shell.top_filename().map(str::to_owned))
+                        .flatten()
+                        .unwrap_or_default();
                     let top_l = top.to_ascii_lowercase();
                     if !top_l.contains("skirmish") {
                         // Push only the options menu; MainMenu already active.
@@ -294,7 +295,16 @@ impl CnCGameEngine {
                     };
                     // Wave 840: control-file map wins over boot ShellMap pending residual.
                     let control_map = args.get("map").cloned().filter(|m| !m.trim().is_empty());
-                    if let Some(mut request) = self.take_pending_new_game_start_request() {
+                    if self
+                        .game_client
+                        .message_stream()
+                        .get_messages()
+                        .iter()
+                        .any(|message| message.skirmish_launch().is_some())
+                    {
+                        self.pump_native_client_commands()?;
+                        self.runtime_host_last_gameplay_cmd = start_cmd.into();
+                    } else if let Some(mut request) = self.take_pending_new_game_start_request() {
                         let map = control_map
                             .clone()
                             .filter(|m| !Self::map_name_is_shell_residual(m))
@@ -310,37 +320,6 @@ impl CnCGameEngine {
                             self.game_client.message_stream_mut(),
                         );
                         self.runtime_host_last_gameplay_cmd = start_cmd.into();
-                    } else if gamelogic::helpers::TheGameLogic::is_start_new_game_requested() {
-                        gamelogic::helpers::TheGameLogic::clear_start_new_game_request();
-                        if let Some(mut request) =
-                            self.build_start_request_from_pending_globals(None)
-                        {
-                            let map = control_map
-                                .clone()
-                                .filter(|m| !Self::map_name_is_shell_residual(m))
-                                .unwrap_or(request.map);
-                            let map = if Self::map_name_is_shell_residual(&map) {
-                                control_map.clone().unwrap_or(map)
-                            } else {
-                                map
-                            };
-                            request.map = map;
-                            self.start_game_from_ui(request)?;
-                            self.runtime_host_last_gameplay_cmd = start_cmd.into();
-                        } else if let Some(map) = control_map.clone() {
-                            // Pending empty but control map present — start soft residual.
-                            self.start_game_from_ui(HostStartRequest::without_player_template(
-                                GameMode::Skirmish,
-                                "USA".into(),
-                                map,
-                                None,
-                            ))?;
-                            self.runtime_host_last_gameplay_cmd =
-                                "click_skirmish_start_ok_wnd_control_map".into();
-                        } else {
-                            self.runtime_host_last_gameplay_cmd =
-                                "click_skirmish_start_wnd_pending".into();
-                        }
                     } else if let Some(map) = control_map.clone() {
                         self.start_game_from_ui(HostStartRequest::without_player_template(
                             GameMode::Skirmish,

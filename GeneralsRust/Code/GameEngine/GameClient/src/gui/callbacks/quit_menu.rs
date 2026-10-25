@@ -6,14 +6,8 @@ use crate::gui::callbacks::message_box::{
 };
 use crate::gui::callbacks::popup_save_load::show_live_popup_save_load_layout;
 use crate::gui::game_window::WindowEventEffects;
-use crate::gui::{
-    GameWindow, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled,
-    queue_window_manager_op, with_window_manager,
-};
-use crate::gui::{
-    get_disconnect_menu, get_lan_setup, get_shell, hide_diplomacy, hide_in_game_chat,
-    queue_shell_operation, show_shell_map_if_available, try_with_shell_mut,
-};
+use crate::gui::{GameWindow, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled};
+use crate::gui::{get_lan_setup, hide_diplomacy, hide_in_game_chat, show_shell_map_if_available};
 use crate::helpers::{TheControlBar, TheInGameUI};
 use crate::message_stream::{GameMessage, GameMessageType};
 use game_engine::common::game_engine::get_game_engine;
@@ -58,53 +52,62 @@ fn quit_menu_state() -> Arc<Mutex<QuitMenuState>> {
     QUIT_MENU_STATE.with(|state| state.clone())
 }
 
-fn init_gadgets_full_quit(state: &mut QuitMenuState) {
+fn init_gadgets_full_quit(
+    state: &mut QuitMenuState,
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+) {
     state.button_exit = NameKeyGenerator::name_to_key("QuitMenu.wnd:ButtonExit") as i32;
     state.button_restart = NameKeyGenerator::name_to_key("QuitMenu.wnd:ButtonRestart") as i32;
     state.button_return = NameKeyGenerator::name_to_key("QuitMenu.wnd:ButtonReturn") as i32;
     state.button_options = NameKeyGenerator::name_to_key("QuitMenu.wnd:ButtonOptions") as i32;
     state.button_save_load = NameKeyGenerator::name_to_key("QuitMenu.wnd:ButtonSaveLoad") as i32;
 
-    with_window_manager(|manager| {
+    (|manager: &mut crate::gui::window_manager::WindowManager| {
         state.button_restart_win = manager.get_window_by_id(state.button_restart);
         state.button_save_load_win = manager.get_window_by_id(state.button_save_load);
         state.button_options_win = manager.get_window_by_id(state.button_options);
         state.button_exit_win = manager.get_window_by_id(state.button_exit);
-    });
+    })(receiving_manager);
 }
 
-fn init_gadgets_no_save_quit(state: &mut QuitMenuState) {
+fn init_gadgets_no_save_quit(
+    state: &mut QuitMenuState,
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+) {
     state.button_exit = NameKeyGenerator::name_to_key("QuitNoSave.wnd:ButtonExit") as i32;
     state.button_restart = NameKeyGenerator::name_to_key("QuitNoSave.wnd:ButtonRestart") as i32;
     state.button_return = NameKeyGenerator::name_to_key("QuitNoSave.wnd:ButtonReturn") as i32;
     state.button_options = NameKeyGenerator::name_to_key("QuitNoSave.wnd:ButtonOptions") as i32;
     state.button_save_load = -1;
 
-    with_window_manager(|manager| {
+    (|manager: &mut crate::gui::window_manager::WindowManager| {
         state.button_restart_win = manager.get_window_by_id(state.button_restart);
         state.button_options_win = manager.get_window_by_id(state.button_options);
         state.button_save_load_win = None;
         state.button_exit_win = manager.get_window_by_id(state.button_exit);
-    });
+    })(receiving_manager);
 }
 
-fn send_back_button_selection(button_name: &str) -> bool {
+fn send_back_button_selection(
+    button_name: &str,
+    effects: &mut WindowEventEffects<'_>,
+    selected: Option<&GameWindow>,
+) -> bool {
     let button_id = NameKeyGenerator::name_to_key(button_name) as i32;
-    with_window_manager(|manager| {
-        let Some(button) = manager.get_window_by_id(button_id) else {
+    effects.with_manager(|manager, effects| {
+        let Some(button) = manager.get_window_by_id_with_selected(button_id, selected) else {
             return false;
         };
-
         let target = {
             let button_ref = button.borrow();
             button_ref.get_parent().unwrap_or_else(|| button.clone())
         };
-
         let _ = manager.send_system_message(
             &target,
             WindowMessage::GadgetSelected,
             button_id as WindowMsgData,
             button_id as WindowMsgData,
+            effects,
         );
         true
     })
@@ -131,7 +134,7 @@ fn session_is_sandbox() -> bool {
     }
 }
 
-pub fn destroy_quit_menu() {
+pub fn destroy_quit_menu(effects: &mut crate::gui::game_window::WindowEventEffects<'_>) {
     let state_handle = quit_menu_state();
     let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
     state.quit_confirmation_window = None;
@@ -145,12 +148,14 @@ pub fn destroy_quit_menu() {
     // Queue destruction so real QuitMenu layouts are torn down after that
     // dispatch instead of silently failing the manager's re-entry guard.
     for layout in [full_layout, no_save_layout].into_iter().flatten() {
-        queue_window_manager_op(move |manager| manager.destroy_layout(&layout));
+        effects.queue_window_operation(move |manager, effects| {
+            manager.destroy_layout(&layout, effects)
+        });
     }
 }
 
 fn exit_quit_menu(effects: &mut WindowEventEffects<'_>) {
-    destroy_quit_menu();
+    destroy_quit_menu(effects);
 
     if TheGameLogic::is_in_multiplayer_game()
         && !TheGameLogic::is_in_skirmish_game()
@@ -181,8 +186,8 @@ fn no_exit_quit_menu(_effects: &mut WindowEventEffects<'_>) {
 }
 
 #[allow(dead_code)] // C++ parity: GUI callback, will be wired to menu system
-fn quit_to_desktop_quit_menu() {
-    destroy_quit_menu();
+fn quit_to_desktop_quit_menu(effects: &mut crate::gui::game_window::WindowEventEffects<'_>) {
+    destroy_quit_menu(effects);
 
     if TheGameLogic::is_in_game() {
         with_recorder_mut(|recorder| {
@@ -201,7 +206,7 @@ fn quit_to_desktop_quit_menu() {
 }
 
 fn surrender_quit_menu(effects: &mut WindowEventEffects<'_>) {
-    destroy_quit_menu();
+    destroy_quit_menu(effects);
 
     if TheVictoryConditions::is_local_allied_victory() {
         return;
@@ -218,7 +223,7 @@ fn surrender_quit_menu(effects: &mut WindowEventEffects<'_>) {
 }
 
 fn restart_mission_menu(effects: &mut WindowEventEffects<'_>) {
-    destroy_quit_menu();
+    destroy_quit_menu(effects);
 
     let game_mode = TheGameLogic::get_game_mode();
     let map_name = get_global_data()
@@ -282,7 +287,10 @@ fn restart_map_name_for_pending_file(map_name: &str) -> String {
     map_name.to_string()
 }
 
-pub fn hide_quit_menu() {
+pub fn hide_quit_menu(
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    mut selected_window: Option<&mut crate::gui::GameWindow>,
+) {
     let state_handle = quit_menu_state();
     let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
     if !state.is_visible {
@@ -299,15 +307,17 @@ pub fn hide_quit_menu() {
         } else {
             "QuitFullBack"
         };
-        with_window_manager(|manager| manager.transition_reverse(group));
+        (|manager: &mut crate::gui::window_manager::WindowManager| {
+            manager.transition_reverse(group, selected_window.as_deref_mut())
+        })(receiving_manager);
     }
 
     TheInGameUI::set_quit_menu_visible(false);
     state.is_visible = false;
     if let Some(window) = state.quit_confirmation_window.take() {
-        with_window_manager(|manager| {
+        (|manager: &mut crate::gui::window_manager::WindowManager| {
             let _ = manager.destroy_window(window);
-        });
+        })(receiving_manager);
     }
     if !TheGameLogic::is_in_multiplayer_game() {
         TheGameLogic::set_game_paused(false, true);
@@ -362,44 +372,70 @@ pub enum QuitMenuToggleResult {
 
 /// Preserve the C++-shaped fire-and-forget entry point used by GUI command
 /// translation and callbacks.
-pub fn toggle_quit_menu() {
-    let _ = toggle_quit_menu_with_result();
+pub fn toggle_quit_menu(
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    mut selected_window: Option<&mut crate::gui::GameWindow>,
+) {
+    let _ = toggle_quit_menu_with_result(effects, selected_window.as_deref_mut());
 }
 
 /// Run retail `ToggleQuitMenu()` and report which of its three externally
 /// visible routes occurred.  See [`QuitMenuToggleResult`].
-pub fn toggle_quit_menu_with_result() -> QuitMenuToggleResult {
-    toggle_quit_menu_receiving(TheScriptEngine::is_game_ending())
+pub fn toggle_quit_menu_with_result(
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    mut selected_window: Option<&mut crate::gui::GameWindow>,
+) -> QuitMenuToggleResult {
+    toggle_quit_menu_receiving(
+        TheScriptEngine::is_game_ending(),
+        effects,
+        selected_window.as_deref_mut(),
+    )
 }
 
 /// Receiving operation observes the driving interpreter before GUI callbacks.
-pub fn toggle_quit_menu_receiving(game_ending: bool) -> QuitMenuToggleResult {
+pub fn toggle_quit_menu_receiving(
+    game_ending: bool,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    mut selected_window: Option<&mut crate::gui::GameWindow>,
+) -> QuitMenuToggleResult {
+    toggle_quit_menu_with_selected(game_ending, effects, selected_window.as_deref_mut())
+}
+
+fn toggle_quit_menu_with_selected(
+    game_ending: bool,
+    effects: &mut WindowEventEffects<'_>,
+    mut selected: Option<&mut GameWindow>,
+) -> QuitMenuToggleResult {
     if TheGameLogic::is_intro_movie_playing() || TheGameLogic::is_loading_map() || game_ending {
         return QuitMenuToggleResult::Suppressed;
     }
 
-    if let Ok(menu) = get_disconnect_menu().read() {
-        if menu.is_visible() {
-            return QuitMenuToggleResult::Suppressed;
-        }
+    if effects.receiving_disconnect_menu_visible() {
+        return QuitMenuToggleResult::Suppressed;
     }
 
-    let handled_options = try_with_shell_mut(|shell| {
-        if let Some(layout) = shell.get_options_layout(false) {
-            if !layout.is_hidden() {
-                if send_back_button_selection("OptionsMenu.wnd:ButtonBack") {
-                    return true;
-                }
-                let mut immediate = false;
-                let _ = layout.run_shutdown(&mut immediate);
-                layout.hide(true);
-                return true;
-            }
+    let owner = effects
+        .window_manager_owner
+        .expect("QuitMenu requires receiving Shell owner")
+        .clone();
+    let options = owner
+        .with_shell_ref(|shell| shell.options_layout_receipt())
+        .flatten();
+    if let Some(layout) = options.filter(|layout| !layout.borrow().is_hidden()) {
+        if !send_back_button_selection("OptionsMenu.wnd:ButtonBack", effects, selected.as_deref()) {
+            let mut immediate = false;
+            layout
+                .borrow()
+                .run_shutdown_with_effects(Some(&mut immediate as &mut dyn std::any::Any), effects);
+            owner.with_shell_mut(|shell| shell.finish_options_shutdown_receipt(&layout, immediate));
+            effects.with_manager(|manager, _effects| {
+                layout.borrow().hide_with_manager_and_selected(
+                    manager,
+                    true,
+                    selected.as_deref_mut(),
+                );
+            });
         }
-        false
-    })
-    .unwrap_or(false);
-    if handled_options {
         return QuitMenuToggleResult::ClosedInterveningLayout;
     }
 
@@ -408,11 +444,15 @@ pub fn toggle_quit_menu_receiving(game_ending: bool) -> QuitMenuToggleResult {
         let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(layout) = state.save_load_layout.as_ref() {
             if !layout.borrow().is_hidden() {
-                if send_back_button_selection("PopupSaveLoad.wnd:ButtonBack") {
+                if send_back_button_selection(
+                    "PopupSaveLoad.wnd:ButtonBack",
+                    effects,
+                    selected.as_deref(),
+                ) {
                     state.save_load_layout = None;
                     return QuitMenuToggleResult::ClosedInterveningLayout;
                 }
-                layout.borrow_mut().hide(true);
+                effects.with_manager(|manager, _effects| layout.borrow_mut().hide(manager, true));
                 state.save_load_layout = None;
                 return QuitMenuToggleResult::ClosedInterveningLayout;
             }
@@ -425,7 +465,7 @@ pub fn toggle_quit_menu_receiving(game_ending: bool) -> QuitMenuToggleResult {
     if state.is_visible && state.quit_menu_layout.is_some() {
         state.is_visible = false;
         if let Some(window) = state.quit_confirmation_window.take() {
-            with_window_manager(|manager| {
+            effects.with_manager(|manager, effects| {
                 let _ = manager.destroy_window(window);
             });
         }
@@ -442,14 +482,16 @@ pub fn toggle_quit_menu_receiving(game_ending: bool) -> QuitMenuToggleResult {
             } else {
                 "QuitFullBack"
             };
-            with_window_manager(|manager| manager.transition_reverse(group));
+            effects.with_manager(|manager, effects| {
+                manager.transition_reverse(group, selected.as_deref_mut())
+            });
             // C++ plays the WindowTransitions Quit{Full,NoSave}Back reverse
             // animation, which ends with the layout windows HIDDEN. This host
             // has no such transition group data, so reverse alone left the
             // menu painted over the resumed match (ButtonReturn resumed the
             // world while the panel stayed on screen). Force the net retail
             // end state: every layout window hidden immediately.
-            layout.borrow().hide(true);
+            effects.with_manager(|manager, _effects| layout.borrow().hide(manager, true));
         }
     } else {
         TheInGameUI::set_cursor_arrow();
@@ -459,35 +501,39 @@ pub fn toggle_quit_menu_receiving(game_ending: bool) -> QuitMenuToggleResult {
         let in_replay = TheGameLogic::is_in_replay_game();
         if in_multiplayer || in_replay {
             if state.no_save_quit_menu_layout.is_none() {
-                let created = with_window_manager(|manager| {
+                let created = effects.with_manager(|manager, effects| {
                     manager
-                        .create_layout_with_windows("Menus/QuitNoSave.wnd")
+                        .create_layout_with_windows("Menus/QuitNoSave.wnd", effects)
                         .ok()
                         .map(|(layout, _)| layout)
                 });
                 state.no_save_quit_menu_layout = created;
             }
             state.quit_menu_layout = state.no_save_quit_menu_layout.clone();
-            init_gadgets_no_save_quit(&mut state);
-            with_window_manager(|manager| {
-                manager.transition_remove("QuitNoSave", false);
-                manager.transition_set_group("QuitNoSave", false);
+            effects.with_manager(|receiving_manager, effects| {
+                init_gadgets_no_save_quit(&mut state, receiving_manager)
+            });
+            effects.with_manager(|manager, effects| {
+                manager.transition_remove("QuitNoSave", false, selected.as_deref_mut());
+                manager.transition_set_group("QuitNoSave", false, selected.as_deref_mut());
             });
         } else {
             if state.full_quit_menu_layout.is_none() {
-                let created = with_window_manager(|manager| {
+                let created = effects.with_manager(|manager, effects| {
                     manager
-                        .create_layout_with_windows("Menus/QuitMenu.wnd")
+                        .create_layout_with_windows("Menus/QuitMenu.wnd", effects)
                         .ok()
                         .map(|(layout, _)| layout)
                 });
                 state.full_quit_menu_layout = created;
             }
             state.quit_menu_layout = state.full_quit_menu_layout.clone();
-            init_gadgets_full_quit(&mut state);
-            with_window_manager(|manager| {
-                manager.transition_remove("QuitFull", false);
-                manager.transition_set_group("QuitFull", false);
+            effects.with_manager(|receiving_manager, effects| {
+                init_gadgets_full_quit(&mut state, receiving_manager)
+            });
+            effects.with_manager(|manager, effects| {
+                manager.transition_remove("QuitFull", false, selected.as_deref_mut());
+                manager.transition_set_group("QuitFull", false, selected.as_deref_mut());
             });
         }
 
@@ -569,13 +615,15 @@ pub fn toggle_quit_menu_receiving(game_ending: bool) -> QuitMenuToggleResult {
         }
 
         if let Some(window) = state.quit_confirmation_window.take() {
-            with_window_manager(|manager| {
+            effects.with_manager(|manager, effects| {
                 let _ = manager.destroy_window(window);
             });
         }
 
-        let _ = hide_diplomacy(false);
-        let _ = hide_in_game_chat(false);
+        let _ = effects.with_manager(|manager, _effects| hide_diplomacy(false, manager, _effects));
+        let _ = effects.with_manager(|receiving_manager, effects| {
+            hide_in_game_chat(false, receiving_manager, effects)
+        });
         TheControlBar::hide_purchase_science();
         state.is_visible = true;
     }
@@ -595,24 +643,33 @@ pub fn is_quit_menu_visible() -> bool {
 }
 
 pub fn quit_menu_system(
-    _window: &GameWindow,
+    _window: &mut GameWindow,
     msg: WindowMessage,
     data1: WindowMsgData,
     _data2: WindowMsgData,
     _effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> WindowMsgHandled {
-    quit_menu_system_with_camera_input(msg, data1, None)
+    quit_menu_system_with_camera_input(msg, data1, None, _effects, Some(_window))
 }
 pub(crate) fn select_quit_options_with_camera_input(
     control_id: WindowMsgData,
     observation: crate::gui::callbacks::OptionsCameraInputObservation,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> WindowMsgHandled {
-    quit_menu_system_with_camera_input(WindowMessage::GadgetSelected, control_id, Some(observation))
+    quit_menu_system_with_camera_input(
+        WindowMessage::GadgetSelected,
+        control_id,
+        Some(observation),
+        effects,
+        None,
+    )
 }
 fn quit_menu_system_with_camera_input(
     msg: WindowMessage,
     data1: WindowMsgData,
     camera_input: Option<crate::gui::callbacks::OptionsCameraInputObservation>,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    selected: Option<&mut GameWindow>,
 ) -> WindowMsgHandled {
     match msg {
         WindowMessage::Create => WindowMsgHandled::Handled,
@@ -631,14 +688,14 @@ fn quit_menu_system_with_camera_input(
                     // dispatch, so the popup init must not re-enter the
                     // manager for control lookup.
                     layout.borrow().run_init(None);
-                    show_live_popup_save_load_layout(layout);
+                    show_live_popup_save_load_layout(layout, effects);
                 } else {
                     // The current input dispatch already owns WindowManager.
                     // Queue the retail layout creation instead of invoking
                     // with_window_manager and getting its fail-closed result.
-                    queue_window_manager_op(move |manager| {
+                    effects.queue_window_operation(move |manager, effects| {
                         let Some(layout) = manager
-                            .create_layout_with_windows("Menus/PopupSaveLoad.wnd")
+                            .create_layout_with_windows("Menus/PopupSaveLoad.wnd", effects)
                             .ok()
                             .map(|(layout, _)| layout)
                         else {
@@ -651,58 +708,78 @@ fn quit_menu_system_with_camera_input(
                         drop(state);
 
                         layout.borrow().run_init(None);
-                        show_live_popup_save_load_layout(layout);
+                        show_live_popup_save_load_layout(layout, effects);
                     });
                 }
                 return WindowMsgHandled::Handled;
             } else if control_id == state.button_exit {
                 let yes: MessageBoxFunc = Box::new(exit_quit_menu);
                 let no: MessageBoxFunc = Box::new(no_exit_quit_menu);
-                state.quit_confirmation_window = quit_message_box_yes_no(
-                    &GameText::fetch("GUI:QuitPopupTitle"),
-                    &GameText::fetch("GUI:QuitPopupMessage"),
-                    Some(yes),
-                    Some(no),
-                );
+                state.quit_confirmation_window = effects.with_manager(|manager, _effects| {
+                    quit_message_box_yes_no(
+                        &GameText::fetch("GUI:QuitPopupTitle"),
+                        &GameText::fetch("GUI:QuitPopupMessage"),
+                        Some(yes),
+                        Some(no),
+                        manager,
+                        _effects,
+                    )
+                });
             } else if control_id == state.button_return {
                 // `ToggleQuitMenu` owns the same state mutex.  A real
                 // ButtonReturn arrives through WindowManager while this
                 // callback is live, so release our callback-local guard
                 // before re-entering the retail toggle path.
                 drop(state);
-                toggle_quit_menu();
+                let _ = toggle_quit_menu_with_selected(
+                    TheScriptEngine::is_game_ending(),
+                    effects,
+                    selected,
+                );
                 return WindowMsgHandled::Handled;
             } else if control_id == state.button_options {
-                queue_shell_operation(move |shell| {
-                    if let Some(layout) = shell.get_options_layout(true) {
-                        let _ = layout.run_init(
-                            camera_input
-                                .as_ref()
-                                .map(|value| value as &dyn std::any::Any),
-                        );
-                        layout.hide(false);
-                        layout.bring_forward();
-                    }
-                });
+                crate::gui::shell::base::queue_shell_operation_with_effects(
+                    effects,
+                    move |shell, effects| {
+                        if let Some(layout) = shell.get_options_layout(true) {
+                            let _ = layout.run_init_with_effects(
+                                camera_input
+                                    .as_ref()
+                                    .map(|value| value as &dyn std::any::Any),
+                                effects,
+                            );
+                            layout.hide_with_effects(false, effects);
+                            layout.bring_forward_with_effects(effects);
+                        }
+                    },
+                );
             } else if control_id == state.button_restart {
                 if TheGameLogic::is_in_multiplayer_game() {
                     let yes: MessageBoxFunc = Box::new(surrender_quit_menu);
                     let no: MessageBoxFunc = Box::new(no_exit_quit_menu);
-                    state.quit_confirmation_window = message_box_yes_no(
-                        &GameText::fetch("GUI:SurrenderConfirmationTitle"),
-                        &GameText::fetch("GUI:SurrenderConfirmation"),
-                        Some(yes),
-                        Some(no),
-                    );
+                    state.quit_confirmation_window = effects.with_manager(|manager, _effects| {
+                        message_box_yes_no(
+                            &GameText::fetch("GUI:SurrenderConfirmationTitle"),
+                            &GameText::fetch("GUI:SurrenderConfirmation"),
+                            Some(yes),
+                            Some(no),
+                            manager,
+                            _effects,
+                        )
+                    });
                 } else {
                     let yes: MessageBoxFunc = Box::new(restart_mission_menu);
                     let no: MessageBoxFunc = Box::new(no_exit_quit_menu);
-                    state.quit_confirmation_window = message_box_yes_no(
-                        &GameText::fetch("GUI:RestartConfirmationTitle"),
-                        &GameText::fetch("GUI:RestartConfirmation"),
-                        Some(yes),
-                        Some(no),
-                    );
+                    state.quit_confirmation_window = effects.with_manager(|manager, _effects| {
+                        message_box_yes_no(
+                            &GameText::fetch("GUI:RestartConfirmationTitle"),
+                            &GameText::fetch("GUI:RestartConfirmation"),
+                            Some(yes),
+                            Some(no),
+                            manager,
+                            _effects,
+                        )
+                    });
                 }
             }
 
@@ -962,15 +1039,23 @@ pub fn drive_os_wnd_quit_menu_save_load_like_cpp(
 /// Create `Menus/QuitMenu.wnd` if missing, then require live SaveLoad gadget.
 ///
 /// C++ Pause/Esc shows this layout. Fail-closed if parse/create fails.
-pub fn ensure_live_quit_menu_layout() -> bool {
+pub fn ensure_live_quit_menu_layout(
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
     const SAVE_LOAD: &str = "QuitMenu.wnd:ButtonSaveLoad";
-    let present = with_window_manager(|manager| manager.find_window_by_name(SAVE_LOAD).is_some())
-        || with_window_manager(|manager| {
+    let present = (|manager: &mut crate::gui::window_manager::WindowManager| {
+        manager.find_window_by_name(SAVE_LOAD).is_some()
+    })(receiving_manager)
+        || (|manager: &mut crate::gui::window_manager::WindowManager| {
             manager
-                .create_layout_with_windows("Menus/QuitMenu.wnd")
+                .create_layout_with_windows("Menus/QuitMenu.wnd", effects)
                 .is_ok()
-        });
-    if !present || !with_window_manager(|manager| manager.find_window_by_name(SAVE_LOAD).is_some())
+        })(receiving_manager);
+    if !present
+        || !(|manager: &mut crate::gui::window_manager::WindowManager| {
+            manager.find_window_by_name(SAVE_LOAD).is_some()
+        })(receiving_manager)
     {
         return false;
     }
@@ -980,7 +1065,7 @@ pub fn ensure_live_quit_menu_layout() -> bool {
     // a residual test latch.
     let state_handle = quit_menu_state();
     let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
-    init_gadgets_full_quit(&mut state);
+    init_gadgets_full_quit(&mut state, receiving_manager);
     true
 }
 

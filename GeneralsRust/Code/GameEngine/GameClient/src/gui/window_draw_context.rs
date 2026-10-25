@@ -6,16 +6,20 @@ use super::{UIRenderer, window_manager::WindowManager};
 use crate::display::display_fx::DisplayDrawFacts;
 
 pub struct WindowDrawContext<'a> {
+    pub shell_scheme: Option<&'a crate::gui::shell::ShellMenuSchemeManager>,
     pub renderer: Option<&'a mut UIRenderer>,
     pub display: DisplayDrawFacts,
+    pub ime: Option<&'a crate::gui::ime_manager::ImeManager>,
     pub manager: Option<&'a WindowManager>,
 }
 impl<'a> WindowDrawContext<'a> {
     pub fn new(renderer: Option<&'a mut UIRenderer>, display: DisplayDrawFacts) -> Self {
         Self {
+            shell_scheme: None,
             renderer,
             display,
             manager: None,
+            ime: None,
         }
     }
     pub fn with_renderer<R>(

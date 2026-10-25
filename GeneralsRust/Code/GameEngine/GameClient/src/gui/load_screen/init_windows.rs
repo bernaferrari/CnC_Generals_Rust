@@ -1,8 +1,12 @@
 // Split from `gui/load_screen.rs` dump. Included by `load_screen/mod.rs`.
 
-fn initialize_progress_windows(wm: &mut WindowManager, descriptor: LoadScreenDescriptor) {
+fn initialize_progress_windows(
+    wm: &mut WindowManager,
+    descriptor: LoadScreenDescriptor,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) {
     if descriptor.slot_count == 0 {
-        set_progress_window(wm, descriptor.primary_progress, 0.0);
+        set_progress_window(wm, descriptor.primary_progress, 0.0, effects);
         if descriptor.kind == LoadScreenKind::ShellGame {
             hide_window(wm, descriptor.primary_progress, true);
         }
@@ -14,7 +18,7 @@ fn initialize_progress_windows(wm: &mut WindowManager, descriptor: LoadScreenDes
 
     for slot in 0..descriptor.slot_count {
         let name = format!("{}{}", descriptor.progress_prefix, slot);
-        set_progress_window(wm, &name, 0.0);
+        set_progress_window(wm, &name, 0.0, effects);
     }
 }
 
@@ -22,30 +26,18 @@ fn initialize_kind_windows(
     wm: &mut WindowManager,
     kind: LoadScreenKind,
     context: &LoadScreenInitContext,
-    campaign_manager: &crate::gui::campaign_manager::CampaignManager,
-    shell_game_first_load: &mut bool,
     runtime: &mut LoadScreenOperation<'_>,
 ) -> bool {
     match kind {
         LoadScreenKind::ShellGame => {
-            prepare_shell_game_windows(wm, context.shell_game_did_mem_pass, shell_game_first_load)
+            prepare_shell_game_windows(wm, context.shell_game_did_mem_pass, runtime.first_load)
         }
         LoadScreenKind::SinglePlayer => {
-            initialize_single_player_windows(
-                wm,
-                context.shell_game_did_mem_pass,
-                campaign_manager,
-                runtime,
-            );
+            initialize_single_player_windows(wm, context.shell_game_did_mem_pass, runtime);
             false
         }
         LoadScreenKind::Challenge => {
-            initialize_challenge_windows(
-                wm,
-                context.shell_game_did_mem_pass,
-                campaign_manager,
-                runtime,
-            );
+            initialize_challenge_windows(wm, context.shell_game_did_mem_pass, runtime);
             false
         }
         LoadScreenKind::Multiplayer => {
@@ -67,9 +59,10 @@ fn initialize_shell_game_windows(
     wm: &mut WindowManager,
     did_mem_pass: bool,
     first_load: &mut bool,
+    runtime: &mut LoadScreenOperation<'_>,
 ) {
     if prepare_shell_game_windows(wm, did_mem_pass, first_load) {
-        run_shell_game_legal_hold(wm);
+        run_shell_game_legal_hold(wm, runtime);
         *first_load = false;
         hide_window(wm, "ShellGameLoadScreen.wnd:ProgressLoad", false);
     }
@@ -156,12 +149,12 @@ fn shell_game_legal_hold_duration() -> Duration {
     Duration::ZERO
 }
 
-fn run_shell_game_legal_hold(wm: &mut WindowManager) {
+fn run_shell_game_legal_hold(wm: &mut WindowManager, runtime: &mut LoadScreenOperation<'_>) {
     let duration = shell_game_legal_hold_duration();
     let begin = Instant::now();
     loop {
-        wm.update();
-        pump_load_screen_presentation(None)
+        wm.update(&mut runtime.effects);
+        pump_load_screen_presentation(None, runtime)
             .expect("no presentation recipient in standalone legal hold");
         gamelogic::system::game_logic::set_fp_mode();
         if begin.elapsed() >= duration {
@@ -179,8 +172,8 @@ fn run_shell_game_legal_hold_with_pump(
     let duration = shell_game_legal_hold_duration();
     let begin = Instant::now();
     loop {
-        windows.with_manager(|wm| wm.update());
-        let result = pump_load_screen_presentation(presentation_pump.as_deref_mut());
+        windows.with_manager(|wm| wm.update(&mut runtime.effects));
+        let result = pump_load_screen_presentation(presentation_pump.as_deref_mut(), runtime);
         gamelogic::system::game_logic::set_fp_mode();
         result?;
         if begin.elapsed() >= duration {

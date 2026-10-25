@@ -355,6 +355,49 @@ impl ScriptEngine {
         }
     }
 
+    /// Receiving counterpart of closeWindows; update tracking before callbacks,
+    /// release the engine inner loan, then destroy at the original action slot.
+    pub fn close_windows_with_driver(
+        &self,
+        suppress_new_windows: bool,
+        driver: &mut dyn ScriptExecutionDriver,
+    ) -> GameLogicResult<()> {
+        {
+            let mut inner = self.lock_inner_mut();
+            inner.suppress_new_windows = suppress_new_windows;
+            inner.win_lose_window_layout.take();
+        }
+        if let Some(result) = driver.destroy_win_lose_window() {
+            return result;
+        }
+        let handler = self.with_inner(|inner| inner.action_handler.clone());
+        if let Some(handler) = handler {
+            handler.destroy_win_lose_window()
+        } else {
+            Err(crate::GameLogicError::Configuration(
+                "script window destruction requires receiving UI or an explicit headless driver"
+                    .into(),
+            ))
+        }
+    }
+    pub fn close_game_windows_with_driver(
+        &self,
+        driver: &mut dyn ScriptExecutionDriver,
+    ) -> GameLogicResult<()> {
+        if let Some(result) = driver.close_game_windows() {
+            return result;
+        }
+        let handler = self.with_inner(|inner| inner.action_handler.clone());
+        if let Some(handler) = handler {
+            handler.close_game_windows()
+        } else {
+            Err(crate::GameLogicError::Configuration(
+                "script window destruction requires receiving UI or an explicit headless driver"
+                    .into(),
+            ))
+        }
+    }
+
     /// C++ GameLogic::closeWindows GameLogicDispatch.cpp:202-219.
     pub fn close_game_windows(&self) {
         let handler = self.with_inner(|inner| inner.action_handler.clone());
@@ -375,6 +418,32 @@ impl ScriptEngine {
         };
         if let Some(handler) = handler {
             let _ = handler.create_win_lose_window(layout_filename);
+        }
+    }
+
+    pub fn create_win_lose_window_with_driver(
+        &self,
+        layout_filename: &str,
+        driver: &mut dyn ScriptExecutionDriver,
+    ) -> GameLogicResult<()> {
+        {
+            let mut inner = self.lock_inner_mut();
+            if inner.suppress_new_windows {
+                return Ok(());
+            }
+            inner.win_lose_window_layout = Some(layout_filename.to_owned());
+        }
+        if let Some(result) = driver.create_win_lose_window(layout_filename) {
+            return result;
+        }
+        let handler = self.with_inner(|inner| inner.action_handler.clone());
+        if let Some(handler) = handler {
+            handler.create_win_lose_window(layout_filename)
+        } else {
+            Err(crate::GameLogicError::Configuration(
+                "script window creation requires receiving UI or an explicit headless driver"
+                    .into(),
+            ))
         }
     }
 
@@ -2147,5 +2216,61 @@ impl Default for ScriptEngineXferTail {
             current_track_name: String::new(),
             choose_victim_always_uses_normal: false,
         }
+    }
+}
+
+#[cfg(test)]
+mod receiving_window_driver_tests {
+    use super::*;
+    struct Windows<'a> {
+        engine: &'a ScriptEngine,
+        events: Vec<String>,
+    }
+    impl ScriptExecutionDriver for Windows<'_> {
+        fn after_action(&mut self) -> GameLogicResult<()> {
+            Ok(())
+        }
+        fn create_win_lose_window(&mut self, layout: &str) -> Option<GameLogicResult<()>> {
+            assert_eq!(
+                self.engine.current_win_lose_window().as_deref(),
+                Some(layout)
+            );
+            self.events.push(format!("create:{layout}"));
+            Some(Ok(()))
+        }
+        fn destroy_win_lose_window(&mut self) -> Option<GameLogicResult<()>> {
+            assert_eq!(self.engine.current_win_lose_window(), None);
+            self.events.push("destroy".into());
+            Some(Ok(()))
+        }
+        fn close_game_windows(&mut self) -> Option<GameLogicResult<()>> {
+            self.events.push("close-game".into());
+            Some(Ok(()))
+        }
+    }
+    #[test]
+    fn window_tracking_precedes_callbacks_and_peer_execution_is_isolated() {
+        let a = ScriptEngine::new().unwrap();
+        let b = ScriptEngine::new().unwrap();
+        let mut a_ui = Windows {
+            engine: &a,
+            events: Vec::new(),
+        };
+        let mut b_ui = Windows {
+            engine: &b,
+            events: Vec::new(),
+        };
+        a.create_win_lose_window_with_driver("a.wnd", &mut a_ui)
+            .unwrap();
+        b.create_win_lose_window_with_driver("b.wnd", &mut b_ui)
+            .unwrap();
+        a.close_windows_with_driver(true, &mut a_ui).unwrap();
+        a.close_game_windows_with_driver(&mut a_ui).unwrap();
+        a.create_win_lose_window_with_driver("suppressed.wnd", &mut a_ui)
+            .unwrap();
+        assert_eq!(a_ui.events, ["create:a.wnd", "destroy", "close-game"]);
+        assert_eq!(a.current_win_lose_window(), None);
+        assert_eq!(b_ui.events, ["create:b.wnd"]);
+        assert_eq!(b.current_win_lose_window().as_deref(), Some("b.wnd"));
     }
 }

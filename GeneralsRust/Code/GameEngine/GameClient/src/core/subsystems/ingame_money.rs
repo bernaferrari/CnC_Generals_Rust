@@ -36,7 +36,10 @@ impl InGameUISubsystem {
     /// `GUI:$$$` → "$$$" (ControlBar.wnd:4352), which retail overwrites on the
     /// first update. This subsystem bridges the dual-world PlayerList path;
     /// ControlBar::update and Main's frozen presentation drive the host fallback.
-    pub(super) fn update_money_and_power_windows(&mut self) {
+    pub(super) fn update_money_and_power_windows(
+        &mut self,
+        manager: &mut crate::gui::window_manager::WindowManager,
+    ) {
         let money_player = if let Some(index) =
             crate::helpers::TheControlBar::get_observer_look_at_player_index()
         {
@@ -64,7 +67,7 @@ impl InGameUISubsystem {
         let power_window_id = game_engine::common::name_key_generator::NameKeyGenerator::name_to_key(
             "ControlBar.wnd:PowerWindow",
         ) as i32;
-        crate::gui::window_manager::with_window_manager(|manager| {
+        {
             let money_window = manager.get_window_by_id(money_window_id);
             let power_window = manager.get_window_by_id(power_window_id);
             match current_money {
@@ -74,10 +77,10 @@ impl InGameUISubsystem {
                     drop(target);
                     // C++ 1808-1809: winHide(FALSE) whenever a money player exists.
                     if let Some(window) = money_window.as_ref() {
-                        let _ = window.borrow_mut().hide(false);
+                        let _ = manager.hide_window(window, false);
                     }
                     if let Some(window) = power_window.as_ref() {
-                        let _ = window.borrow_mut().hide(false);
+                        let _ = manager.hide_window(window, false);
                     }
                 }
                 // C++ 1811-1815 hides both windows when moneyPlayer == NULL,
@@ -91,7 +94,7 @@ impl InGameUISubsystem {
                     self.money_display_cache = None;
                 }
             }
-        });
+        }
     }
 }
 

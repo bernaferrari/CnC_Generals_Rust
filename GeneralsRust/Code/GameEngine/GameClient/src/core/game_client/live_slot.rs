@@ -708,6 +708,51 @@ impl GameClient {
             &mut self.command_hints,
         )
     }
+    /// Split the same Client's runtime fields for one script-bearing host phase.
+    /// The caller owns the transient message vector; callbacks drain into this
+    /// exact Client's stream before another authored action is examined.
+    pub fn split_frame_snow_drawable_script_ui_and_hints<'a>(
+        &'a mut self,
+        emitted: &'a mut Vec<crate::message_stream::game_message::GameMessage>,
+    ) -> (
+        ClientFrameWriter<'a>,
+        &'a mut crate::snow::SnowManager,
+        NativeDrawableOwner<'a>,
+        &'a mut crate::gui::command_hints::CommandHintState,
+        crate::gui::game_window::WindowEventEffects<'a>,
+        &'a mut crate::message_stream::message_stream::MessageStream,
+    ) {
+        let identity = std::ptr::from_mut(self) as usize;
+        self.script_display
+            .bind(self.subsystem_manager.display.as_ref());
+        (
+            ClientFrameWriter {
+                frame: &mut self.frame,
+                identity,
+            },
+            &mut self.snow,
+            self.drawables.borrow_native(),
+            &mut self.command_hints,
+            crate::gui::game_window::WindowEventEffects {
+                menus: Some(self.menu_manager.receiving_menus()),
+                manager: None,
+                ime: Some(&mut self.ime),
+                window_manager_owner: Some(&self.window_manager_owner),
+                selected_window: None,
+                emitted_messages: emitted,
+                pending_control_bar_clicks: None,
+                campaign_manager: Some(&mut self.campaign_manager),
+                main_menu: Some(&mut self.main_menu),
+                menu_world: None,
+                menu_host: Some(&mut self.menu_host),
+                script_display: Some(&mut self.script_display),
+                window_videos: Some(&mut self.window_videos.challenge),
+                pending_main_menu_actions: Vec::new(),
+            },
+            &mut self.message_stream,
+        )
+    }
+
     pub fn command_hint_snapshot(&self) -> Vec<crate::gui::command_hints::CommandHint> {
         self.command_hints.snapshot(self.frame)
     }

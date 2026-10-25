@@ -9,7 +9,6 @@ use gamelogic::helpers::TheGameText;
 use log::{debug, error, warn};
 use std::cell::RefCell;
 use std::rc::Rc;
-use std::sync::{Arc, Mutex, RwLock};
 
 /// Maximum number of player slots supported
 const MAX_SLOTS: usize = 8;
@@ -36,9 +35,6 @@ pub enum EstablishConnectionsMenuState {
 pub struct EstablishConnectionsMenu {
     /// Root window for the menu.
     window: Option<Rc<RefCell<GameWindow>>>,
-
-    /// Window manager reference for loading/destroying windows.
-    window_manager: Option<Arc<Mutex<WindowManager>>>,
 
     /// Cached player name controls.
     player_name_controls: Vec<Option<Rc<RefCell<GameWindow>>>>,
@@ -78,7 +74,6 @@ impl EstablishConnectionsMenu {
 
         Self {
             window: None,
-            window_manager: None,
             player_name_controls: Vec::with_capacity(MAX_SLOTS),
             player_status_controls: Vec::with_capacity(MAX_SLOTS),
             quit_button: None,
@@ -119,39 +114,36 @@ impl EstablishConnectionsMenu {
         }
     }
 
-    /// Attach a window manager for loading the menu layout.
-    pub fn set_window_manager(&mut self, window_manager: Arc<Mutex<WindowManager>>) {
-        self.window_manager = Some(window_manager);
-    }
-
     /// Initialize the menu and show the connections window
-    pub fn init_menu(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn init_menu(
+        &mut self,
+        manager: &mut WindowManager,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         debug!("Initializing EstablishConnectionsMenu");
         self.menu_state = EstablishConnectionsMenuState::ScreenOn;
         self.aborted = false;
 
-        if let Some(manager) = &self.window_manager {
-            let mut manager = manager
-                .lock()
-                .map_err(|_| std::io::Error::other("WindowManager lock poisoned"))?;
-            if self.window.is_none() {
-                self.window = Some(manager.load_window("EstablishConnectionsScreen.wnd")?);
-            }
+        if self.window.is_none() {
+            self.window = Some(manager.load_window("EstablishConnectionsScreen.wnd", effects)?);
         }
 
         self.cache_controls();
-        self.show_window();
+        self.show_window(manager, effects);
         self.refresh_player_controls();
 
         Ok(())
     }
 
     /// End the menu and hide the connections window
-    pub fn end_menu(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn end_menu(
+        &mut self,
+        manager: &mut WindowManager,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         debug!("Ending EstablishConnectionsMenu");
         self.menu_state = EstablishConnectionsMenuState::ScreenOff;
 
-        self.hide_window();
+        self.hide_window(manager, None);
 
         Ok(())
     }
@@ -161,13 +153,17 @@ impl EstablishConnectionsMenu {
     /// As noted in the original C++ code: "It's really sad that this game isn't going to be played
     /// considering how difficult it is to even get a game going in the first place,
     /// especially one with more than two players."
-    pub fn abort_game(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn abort_game(
+        &mut self,
+        manager: &mut WindowManager,
+        selected: Option<&mut GameWindow>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         warn!("Aborting game from EstablishConnectionsMenu - this is unfortunate!");
 
         self.aborted = true;
         self.menu_state = EstablishConnectionsMenuState::ScreenOff;
 
-        self.hide_window();
+        self.hide_window(manager, selected);
 
         Ok(())
     }
@@ -248,10 +244,11 @@ impl EstablishConnectionsMenu {
     /// Handle system messages for the establish connections window.
     pub fn system(
         &mut self,
-        window: &GameWindow,
+        window: &mut GameWindow,
         msg: WindowMessage,
         data1: WindowMsgData,
         _data2: WindowMsgData,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) -> WindowMsgHandled {
         let target_name = if data1 != 0 {
             window
@@ -265,7 +262,9 @@ impl EstablishConnectionsMenu {
         if msg == WindowMessage::GadgetSelected
             && name == "EstablishConnectionsScreen.wnd:ButtonQuit"
         {
-            if let Err(err) = self.abort_game() {
+            if let Err(err) =
+                effects.with_manager(|manager, _effects| self.abort_game(manager, Some(window)))
+            {
                 warn!("Failed to abort establish connections menu: {}", err);
             }
             return WindowMsgHandled::Handled;
@@ -296,31 +295,27 @@ impl EstablishConnectionsMenu {
         }
     }
 
-    fn show_window(&mut self) {
+    fn show_window(
+        &mut self,
+        manager: &mut WindowManager,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    ) {
         if let Some(window) = &self.window {
             let mut window = window.borrow_mut();
             let _ = window.show();
             let _ = window.bring_to_front();
         }
 
-        if let (Some(manager), Some(window)) = (&self.window_manager, &self.window) {
-            if let Ok(mut manager) = manager.lock() {
-                let _ = manager.set_focus(Some(window));
-            }
+        if let Some(window) = &self.window {
+            let _ = manager.set_focus(Some(window), effects);
         }
     }
 
-    fn hide_window(&mut self) {
-        if let Some(window) = &self.window {
-            let _ = window.borrow_mut().hide(true);
+    fn hide_window(&mut self, manager: &mut WindowManager, selected: Option<&mut GameWindow>) {
+        if let Some(window) = self.window.take() {
+            let _ = manager.hide_window_with_selected(&window, true, selected);
+            let _ = manager.destroy_window(window);
         }
-
-        if let (Some(manager), Some(window)) = (&self.window_manager, self.window.take()) {
-            if let Ok(mut manager) = manager.lock() {
-                let _ = manager.destroy_window(window);
-            }
-        }
-
         self.player_name_controls.clear();
         self.player_status_controls.clear();
         self.quit_button = None;
@@ -448,18 +443,6 @@ impl Default for EstablishConnectionsMenu {
 /// Global instance of the EstablishConnectionsMenu
 ///
 /// This mirrors the C++ TheEstablishConnectionsMenu singleton pattern.
-/// In a real implementation, you might want to use a more sophisticated
-/// dependency injection system instead of a global static.
-thread_local! {
-    static THE_ESTABLISH_CONNECTIONS_MENU: Arc<RwLock<EstablishConnectionsMenu>> =
-        Arc::new(RwLock::new(EstablishConnectionsMenu::new()));
-}
-
-/// Helper function to get a reference to the global EstablishConnectionsMenu
-pub fn get_establish_connections_menu() -> Arc<RwLock<EstablishConnectionsMenu>> {
-    THE_ESTABLISH_CONNECTIONS_MENU.with(|menu| menu.clone())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -605,24 +588,13 @@ mod tests {
     }
 
     #[test]
-    fn test_global_menu_instance() {
-        let menu1 = get_establish_connections_menu();
-        let menu2 = get_establish_connections_menu();
-
-        // Both should point to the same instance
-        assert!(Arc::ptr_eq(&menu1, &menu2));
-
-        // Test that we can lock and use the menu
-        {
-            let mut menu = menu1.write().unwrap_or_else(|e| e.into_inner());
-            menu.init_menu().unwrap();
-            assert!(menu.is_active());
-        }
-
-        // Check state through the second reference
-        {
-            let menu = menu2.read().unwrap_or_else(|e| e.into_inner());
-            assert!(menu.is_active());
-        }
+    fn receiving_menu_instances_are_independent() {
+        let menu1 = EstablishConnectionsMenu::new();
+        let mut menu2 = EstablishConnectionsMenu::new();
+        menu2.aborted = true;
+        assert!(!menu1.was_aborted());
+        assert!(menu2.was_aborted());
+        assert!(!menu1.is_active());
+        assert!(!menu2.is_active());
     }
 }

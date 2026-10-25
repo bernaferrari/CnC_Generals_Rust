@@ -410,7 +410,7 @@ pub(crate) fn xfer_game_client_state(
 
     if version >= 2 {
         let mut adapter = RuntimeCommonXferAdapter::new(xfer);
-        xfer_diplomacy_briefing_history(&mut adapter, version)
+        xfer_diplomacy_briefing_history(&mut adapter, version, &client.window_manager_owner)
             .map_err(|_| RuntimeXferStatus::InvalidData)?;
     }
 

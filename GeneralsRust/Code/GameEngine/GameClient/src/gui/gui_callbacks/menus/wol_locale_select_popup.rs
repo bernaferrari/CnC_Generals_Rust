@@ -20,7 +20,7 @@ pub fn WOLLocaleSelectShutdown(layout: &WindowLayout, user_data: Option<&dyn std
 }
 
 pub fn WOLLocaleSelectSystem(
-    window: &GameWindow,
+    window: &mut GameWindow,
     msg: WindowMessage,
     data1: WindowMsgData,
     data2: WindowMsgData,
@@ -29,7 +29,7 @@ pub fn WOLLocaleSelectSystem(
 }
 
 pub fn WOLLocaleSelectInput(
-    window: &GameWindow,
+    window: &mut GameWindow,
     msg: WindowMessage,
     data1: WindowMsgData,
     data2: WindowMsgData,

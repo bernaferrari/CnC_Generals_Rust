@@ -13,10 +13,9 @@ use crate::gui::game_window::Image as WindowImage;
 use crate::gui::game_window::WindowEventEffects;
 use crate::gui::{
     GLM_RIGHT_CLICKED, GameWindow, SkirmishPreferences, WindowLayout, WindowMessage, WindowMsgData,
-    WindowMsgHandled, WindowStatus, get_shell, get_skirmish_setup, message_box_ok,
-    message_box_ok_cancel, queue_shell_pop, queue_shell_reverse_animate_window,
-    queue_shell_shutdown_complete, show_shell_map_if_available, try_with_shell_mut,
-    with_window_manager, write_input_focus_response,
+    WindowMsgHandled, WindowStatus, get_skirmish_setup, message_box_ok, message_box_ok_cancel,
+    queue_shell_pop, queue_shell_reverse_animate_window, queue_shell_shutdown_complete,
+    show_shell_map_if_available, write_input_focus_response,
 };
 use crate::map_util::{find_draw_positions, get_map_cache_manager, get_map_preview_image};
 use crate::message_stream::{GameMessage, GameMessageType};
@@ -179,7 +178,11 @@ fn format_game_text_number(key: &str, value: i32) -> String {
     }
 }
 
-fn position_start_buttons(state: &mut SkirmishGameOptionsState, meta: Option<&MapMetaData>) {
+fn position_start_buttons(
+    state: &mut SkirmishGameOptionsState,
+    meta: Option<&MapMetaData>,
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+) {
     let Some(map_window) = state.map_window.as_ref() else {
         return;
     };
@@ -193,9 +196,9 @@ fn position_start_buttons(state: &mut SkirmishGameOptionsState, meta: Option<&Ma
     let extent_height = (extent.hi.y - extent.lo.y).max(1.0);
 
     for i in 0..MAX_SLOTS {
-        let Some(button) =
-            with_window_manager(|manager| manager.get_window_by_id(state.start_position_ids[i]))
-        else {
+        let Some(button) = (|manager: &mut crate::gui::window_manager::WindowManager| {
+            manager.get_window_by_id(state.start_position_ids[i])
+        })(receiving_manager) else {
             continue;
         };
         let mut button_guard = button.borrow_mut();
@@ -209,18 +212,25 @@ fn position_start_buttons(state: &mut SkirmishGameOptionsState, meta: Option<&Ma
             let new_x = draw_x.round() as i32 - btn_w / 2 - map_x;
             let new_y = draw_y.round() as i32 - btn_h / 2 - map_y;
             let _ = button_guard.set_position(new_x, new_y);
-            let _ = button_guard.hide(false);
+            let _ = button_guard.hide(false, receiving_manager);
             let _ = button_guard.enable(true);
         } else {
-            let _ = button_guard.hide(true);
+            let _ = button_guard.hide(true, receiving_manager);
             let _ = button_guard.enable(false);
         }
     }
 }
 
-fn update_map_start_spots(state: &mut SkirmishGameOptionsState, meta: Option<&MapMetaData>) {
+fn update_map_start_spots(
+    state: &mut SkirmishGameOptionsState,
+    meta: Option<&MapMetaData>,
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+) {
     for button_id in state.start_position_ids {
-        if let Some(button) = with_window_manager(|manager| manager.get_window_by_id(button_id)) {
+        if let Some(button) = (|manager: &mut crate::gui::window_manager::WindowManager| {
+            manager.get_window_by_id(button_id)
+        })(receiving_manager)
+        {
             let mut guard = button.borrow_mut();
             let _ = guard.set_text("");
             guard.set_tooltip(&GameText::fetch("TOOLTIP:StartPosition"));
@@ -240,7 +250,9 @@ fn update_map_start_spots(state: &mut SkirmishGameOptionsState, meta: Option<&Ma
         let pos = slot.get_start_pos();
         if pos >= 0 && pos < max_players && slot.get_player_template() > PLAYERTEMPLATE_MIN {
             let button_id = state.start_position_ids[pos as usize];
-            if let Some(button) = with_window_manager(|manager| manager.get_window_by_id(button_id))
+            if let Some(button) = (|manager: &mut crate::gui::window_manager::WindowManager| {
+                manager.get_window_by_id(button_id)
+            })(receiving_manager)
             {
                 let mut guard = button.borrow_mut();
                 let number_key = format!("NUMBER:{}", i + 1);
@@ -267,7 +279,10 @@ fn map_display_name(map_name: &str, meta: Option<&MapMetaData>) -> String {
         .to_string()
 }
 
-fn update_map_preview(state: &mut SkirmishGameOptionsState) {
+fn update_map_preview(
+    state: &mut SkirmishGameOptionsState,
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+) {
     let Some(map_name) = state.selected_map.clone() else {
         return;
     };
@@ -282,13 +297,13 @@ fn update_map_preview(state: &mut SkirmishGameOptionsState) {
     let cache = get_map_cache_manager();
     let cache_guard = cache.lock().unwrap_or_else(|e| e.into_inner());
     let meta = cache_guard.find_map(&map_name);
-    position_start_buttons(state, meta.as_ref());
+    position_start_buttons(state, meta.as_ref(), receiving_manager);
     skirmish_map_preview::position_additional_images(
         meta.as_ref(),
         state.map_window.as_ref(),
         true,
     );
-    update_map_start_spots(state, meta.as_ref());
+    update_map_start_spots(state, meta.as_ref(), receiving_manager);
     if let Some(text_entry) = state.text_entry_map_display.as_ref() {
         let label = map_display_name(&map_name, meta.as_ref());
         let _ = text_entry.borrow_mut().set_text(&label);
@@ -327,8 +342,14 @@ fn ensure_default_slots() {
     }
 }
 
-fn combo_selected_id(window_id: i32) -> Option<u32> {
-    with_window_manager(|manager| manager.get_window_by_id(window_id)).and_then(|window| {
+fn combo_selected_id(
+    window_id: i32,
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+) -> Option<u32> {
+    (|manager: &mut crate::gui::window_manager::WindowManager| manager.get_window_by_id(window_id))(
+        receiving_manager,
+    )
+    .and_then(|window| {
         let guard = window.borrow();
         guard.widget().and_then(|widget| match widget {
             crate::gui::WindowWidget::ComboBox(combo) => combo.selected_id(),
@@ -337,8 +358,14 @@ fn combo_selected_id(window_id: i32) -> Option<u32> {
     })
 }
 
-fn checkbox_is_checked(window_id: i32) -> Option<bool> {
-    with_window_manager(|manager| manager.get_window_by_id(window_id)).and_then(|window| {
+fn checkbox_is_checked(
+    window_id: i32,
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+) -> Option<bool> {
+    (|manager: &mut crate::gui::window_manager::WindowManager| manager.get_window_by_id(window_id))(
+        receiving_manager,
+    )
+    .and_then(|window| {
         let guard = window.borrow();
         guard.widget().and_then(|widget| match widget {
             crate::gui::WindowWidget::CheckBox(check) => Some(check.is_checked()),
@@ -358,8 +385,11 @@ fn local_player_name(state: &SkirmishGameOptionsState) -> String {
     GameText::fetch("GUI:Player")
 }
 
-fn populate_player_combo(window_id: i32) {
-    with_window_manager(|manager| manager.get_window_by_id(window_id)).map(|window| {
+fn populate_player_combo(
+    window_id: i32,
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+) {
+    (|manager: &mut crate::gui::window_manager::WindowManager| manager.get_window_by_id(window_id))(receiving_manager).map(|window| {
         let mut guard = window.borrow_mut();
         let Some(combo) = guard.combo_box_mut() else {
             return;
@@ -386,8 +416,11 @@ fn populate_player_combo(window_id: i32) {
     });
 }
 
-fn populate_color_combo(window_id: i32) {
-    with_window_manager(|manager| manager.get_window_by_id(window_id)).map(|window| {
+fn populate_color_combo(
+    window_id: i32,
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+) {
+    (|manager: &mut crate::gui::window_manager::WindowManager| manager.get_window_by_id(window_id))(receiving_manager).map(|window| {
         let mut guard = window.borrow_mut();
         let Some(combo) = guard.combo_box_mut() else {
             return;
@@ -412,8 +445,11 @@ fn populate_color_combo(window_id: i32) {
     });
 }
 
-fn populate_template_combo(window_id: i32) {
-    with_window_manager(|manager| manager.get_window_by_id(window_id)).map(|window| {
+fn populate_template_combo(
+    window_id: i32,
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+) {
+    (|manager: &mut crate::gui::window_manager::WindowManager| manager.get_window_by_id(window_id))(receiving_manager).map(|window| {
         let mut guard = window.borrow_mut();
         let Some(combo) = guard.combo_box_mut() else {
             return;
@@ -447,8 +483,11 @@ fn populate_template_combo(window_id: i32) {
     });
 }
 
-fn populate_team_combo(window_id: i32) {
-    with_window_manager(|manager| manager.get_window_by_id(window_id)).map(|window| {
+fn populate_team_combo(
+    window_id: i32,
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+) {
+    (|manager: &mut crate::gui::window_manager::WindowManager| manager.get_window_by_id(window_id))(receiving_manager).map(|window| {
         let mut guard = window.borrow_mut();
         let Some(combo) = guard.combo_box_mut() else {
             return;
@@ -470,17 +509,24 @@ fn populate_team_combo(window_id: i32) {
     });
 }
 
-fn populate_slot_controls(state: &mut SkirmishGameOptionsState) {
+fn populate_slot_controls(
+    state: &mut SkirmishGameOptionsState,
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+) {
     for i in 0..MAX_SLOTS {
-        populate_player_combo(state.combo_box_player_ids[i]);
-        populate_color_combo(state.combo_box_color_ids[i]);
-        populate_template_combo(state.combo_box_template_ids[i]);
-        populate_team_combo(state.combo_box_team_ids[i]);
-        update_slot_selection(state, i);
+        populate_player_combo(state.combo_box_player_ids[i], receiving_manager);
+        populate_color_combo(state.combo_box_color_ids[i], receiving_manager);
+        populate_template_combo(state.combo_box_template_ids[i], receiving_manager);
+        populate_team_combo(state.combo_box_team_ids[i], receiving_manager);
+        update_slot_selection(state, i, receiving_manager);
     }
 }
 
-fn update_slot_selection(state: &mut SkirmishGameOptionsState, index: usize) {
+fn update_slot_selection(
+    state: &mut SkirmishGameOptionsState,
+    index: usize,
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+) {
     let setup = get_skirmish_setup();
     let Some(slot) = setup.game_info().game_info().get_slot(index) else {
         return;
@@ -508,7 +554,10 @@ fn update_slot_selection(state: &mut SkirmishGameOptionsState, index: usize) {
         (state.combo_box_template_ids[index], template_id),
         (state.combo_box_team_ids[index], team_id),
     ] {
-        with_window_manager(|manager| manager.get_window_by_id(id)).map(|window| {
+        (|manager: &mut crate::gui::window_manager::WindowManager| manager.get_window_by_id(id))(
+            receiving_manager,
+        )
+        .map(|window| {
             let mut guard = window.borrow_mut();
             if let Some(combo) = guard.combo_box_mut() {
                 let _ = combo.select_item(value);
@@ -522,18 +571,25 @@ fn update_slot_selection(state: &mut SkirmishGameOptionsState, index: usize) {
         state.combo_box_template_ids[index],
         state.combo_box_team_ids[index],
     ] {
-        if let Some(window) = with_window_manager(|manager| manager.get_window_by_id(id)) {
+        if let Some(window) = (|manager: &mut crate::gui::window_manager::WindowManager| {
+            manager.get_window_by_id(id)
+        })(receiving_manager)
+        {
             let _ = window.borrow_mut().enable(enable);
         }
     }
 }
 
-fn populate_global_controls() {
-    if let Some(window) = with_window_manager(|manager| {
+fn populate_global_controls(
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) {
+    if let Some(window) = (|manager: &mut crate::gui::window_manager::WindowManager| {
         manager.get_window_by_id(name_to_id(
             "SkirmishGameOptionsMenu.wnd:ComboBoxStartingCash",
         ))
-    }) {
+    })(receiving_manager)
+    {
         let mut guard = window.borrow_mut();
         if let Some(combo) = guard.combo_box_mut() {
             combo.clear();
@@ -553,15 +609,16 @@ fn populate_global_controls() {
         }
     }
 
-    if let Some(window) = with_window_manager(|manager| {
+    if let Some(window) = (|manager: &mut crate::gui::window_manager::WindowManager| {
         manager.get_window_by_id(name_to_id(
             "SkirmishGameOptionsMenu.wnd:CheckboxLimitSuperweapons",
         ))
-    }) {
+    })(receiving_manager)
+    {
         let mut guard = window.borrow_mut();
         let setup = get_skirmish_setup();
         let enabled = setup.game_info().game_info().get_superweapon_restriction() != 0;
-        let _ = guard.gadget_check_box_set_checked(enabled);
+        let _ = guard.gadget_check_box_set_checked(enabled, effects);
     }
 }
 
@@ -592,7 +649,10 @@ fn sync_map_to_game_info(state: &SkirmishGameOptionsState) {
     }
 }
 
-pub(crate) fn show_skirmish_game_options_underlying_gui_elements(show: bool) {
+pub(crate) fn show_skirmish_game_options_underlying_gui_elements(
+    show: bool,
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+) {
     const LAYOUT: &str = "SkirmishGameOptionsMenu.wnd:";
     let gadgets = [
         "MapWindow",
@@ -605,12 +665,12 @@ pub(crate) fn show_skirmish_game_options_underlying_gui_elements(show: bool) {
         "StaticTextMapPreview",
     ];
 
-    with_window_manager(|manager| {
+    (|manager: &mut crate::gui::window_manager::WindowManager| {
         for name in gadgets {
             let id = name_to_id(&format!("{LAYOUT}{name}"));
             if let Some(win) = manager.get_window_by_id(id) {
                 let mut guard = win.borrow_mut();
-                let _ = guard.hide(!show);
+                let _ = guard.hide(!show, manager);
                 let _ = guard.enable(show);
             }
         }
@@ -620,7 +680,7 @@ pub(crate) fn show_skirmish_game_options_underlying_gui_elements(show: bool) {
                 let id = name_to_id(&format!("{LAYOUT}{base}{i}"));
                 if let Some(win) = manager.get_window_by_id(id) {
                     let mut guard = win.borrow_mut();
-                    let _ = guard.hide(!show);
+                    let _ = guard.hide(!show, manager);
                     let _ = guard.enable(show);
                 }
             }
@@ -632,19 +692,27 @@ pub(crate) fn show_skirmish_game_options_underlying_gui_elements(show: bool) {
                 let _ = win.borrow_mut().enable(show);
             }
         }
-    });
+    })(receiving_manager);
 }
 
-pub(crate) fn destroy_skirmish_map_select_overlay() {
+pub(crate) fn destroy_skirmish_map_select_overlay(
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) {
     with_skirmish_map_select_layout(|layout| {
         let Some(layout) = layout.take() else {
             return;
         };
-        with_window_manager(|manager| manager.destroy_layout(&layout));
+        (|manager: &mut crate::gui::window_manager::WindowManager| {
+            manager.destroy_layout(&layout, effects)
+        })(receiving_manager);
     });
 }
 
-pub(crate) fn refresh_skirmish_game_options_from_setup() {
+pub(crate) fn refresh_skirmish_game_options_from_setup(
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) {
     with_state(|state| {
         let (selected_map, game_info_map) = {
             let setup = get_skirmish_setup();
@@ -656,9 +724,9 @@ pub(crate) fn refresh_skirmish_game_options_from_setup() {
 
         if !selected_map.is_empty() {
             state.selected_map = Some(selected_map);
-            update_map_preview(state);
+            update_map_preview(state, receiving_manager);
             sync_map_to_game_info(state);
-            skirmish_update_slot_list(state);
+            skirmish_update_slot_list(state, receiving_manager, effects);
             return;
         }
 
@@ -666,8 +734,8 @@ pub(crate) fn refresh_skirmish_game_options_from_setup() {
             // C++ parity: map-select back/restore still repaints start spots and map label
             // from the active skirmish game info map, even without an explicit setup selection.
             state.selected_map = Some(game_info_map);
-            update_map_preview(state);
-            skirmish_update_slot_list(state);
+            update_map_preview(state, receiving_manager);
+            skirmish_update_slot_list(state, receiving_manager, effects);
         }
     });
 }
@@ -694,23 +762,42 @@ fn set_fps_text(state: &SkirmishGameOptionsState, slider_pos: i32) {
     let _ = guard.set_text(&format!("{:2}", slider_pos));
 }
 
-fn set_gadget_visible(name: &str, visible: bool) {
+fn set_gadget_visible(
+    name: &str,
+    visible: bool,
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+) {
     let id = name_to_id(&format!("SkirmishGameOptionsMenu.wnd:{}", name));
-    if let Some(window) = with_window_manager(|manager| manager.get_window_by_id(id)) {
-        let _ = window.borrow_mut().hide(!visible);
+    if let Some(window) =
+        (|manager: &mut crate::gui::window_manager::WindowManager| manager.get_window_by_id(id))(
+            receiving_manager,
+        )
+    {
+        let _ = window.borrow_mut().hide(!visible, receiving_manager);
     }
 }
 
-fn set_per_player_visible(base: &str, visible: bool) {
+fn set_per_player_visible(
+    base: &str,
+    visible: bool,
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+) {
     for i in 0..MAX_SLOTS {
         let id = name_to_id(&format!("SkirmishGameOptionsMenu.wnd:{}{}", base, i));
-        if let Some(window) = with_window_manager(|manager| manager.get_window_by_id(id)) {
-            let _ = window.borrow_mut().hide(!visible);
+        if let Some(window) = (|manager: &mut crate::gui::window_manager::WindowManager| {
+            manager.get_window_by_id(id)
+        })(receiving_manager)
+        {
+            let _ = window.borrow_mut().hide(!visible, receiving_manager);
         }
     }
 }
 
-fn update_skirmish_game_options(state: &SkirmishGameOptionsState) {
+fn update_skirmish_game_options(
+    state: &SkirmishGameOptionsState,
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) {
     let map_name = state.selected_map.clone().unwrap_or_else(|| {
         let setup = get_skirmish_setup();
         setup.game_info().game_info().get_map().to_string()
@@ -733,25 +820,25 @@ fn update_skirmish_game_options(state: &SkirmishGameOptionsState) {
     }
 
     if is_skirmish {
-        set_gadget_visible("TextEntryPlayerName", true);
-        set_gadget_visible("StaticTextPlayers", true);
-        set_gadget_visible("StaticTextColor", true);
-        set_gadget_visible("StaticTextTeam", true);
-        set_gadget_visible("StaticTextFaction", true);
-        set_per_player_visible("ComboBoxPlayer", true);
-        set_per_player_visible("ComboBoxTeam", true);
-        set_per_player_visible("ComboBoxColor", true);
-        set_per_player_visible("ComboBoxPlayerTemplate", true);
+        set_gadget_visible("TextEntryPlayerName", true, receiving_manager);
+        set_gadget_visible("StaticTextPlayers", true, receiving_manager);
+        set_gadget_visible("StaticTextColor", true, receiving_manager);
+        set_gadget_visible("StaticTextTeam", true, receiving_manager);
+        set_gadget_visible("StaticTextFaction", true, receiving_manager);
+        set_per_player_visible("ComboBoxPlayer", true, receiving_manager);
+        set_per_player_visible("ComboBoxTeam", true, receiving_manager);
+        set_per_player_visible("ComboBoxColor", true, receiving_manager);
+        set_per_player_visible("ComboBoxPlayerTemplate", true, receiving_manager);
     } else {
-        set_gadget_visible("TextEntryPlayerName", false);
-        set_gadget_visible("StaticTextPlayers", false);
-        set_gadget_visible("StaticTextColor", false);
-        set_gadget_visible("StaticTextTeam", false);
-        set_gadget_visible("StaticTextFaction", false);
-        set_per_player_visible("ComboBoxPlayer", false);
-        set_per_player_visible("ComboBoxTeam", false);
-        set_per_player_visible("ComboBoxColor", false);
-        set_per_player_visible("ComboBoxPlayerTemplate", false);
+        set_gadget_visible("TextEntryPlayerName", false, receiving_manager);
+        set_gadget_visible("StaticTextPlayers", false, receiving_manager);
+        set_gadget_visible("StaticTextColor", false, receiving_manager);
+        set_gadget_visible("StaticTextTeam", false, receiving_manager);
+        set_gadget_visible("StaticTextFaction", false, receiving_manager);
+        set_per_player_visible("ComboBoxPlayer", false, receiving_manager);
+        set_per_player_visible("ComboBoxTeam", false, receiving_manager);
+        set_per_player_visible("ComboBoxColor", false, receiving_manager);
+        set_per_player_visible("ComboBoxPlayerTemplate", false, receiving_manager);
 
         let mut setup = get_skirmish_setup();
         let info = setup.game_info_mut().game_info_mut();
@@ -762,10 +849,14 @@ fn update_skirmish_game_options(state: &SkirmishGameOptionsState) {
         }
     }
 
-    populate_global_controls();
+    populate_global_controls(receiving_manager, effects);
 }
 
-fn skirmish_update_slot_list(state: &mut SkirmishGameOptionsState) {
+fn skirmish_update_slot_list(
+    state: &mut SkirmishGameOptionsState,
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) {
     // Guard checks matching C++: if(!AreSlotListUpdatesEnabled() || s_isIniting) return;
     if !skirmish_slot_updates_enabled() || skirmish_is_initing() {
         return;
@@ -793,23 +884,35 @@ fn skirmish_update_slot_list(state: &mut SkirmishGameOptionsState) {
     }
 
     for i in 0..MAX_SLOTS {
-        update_slot_selection(state, i);
+        update_slot_selection(state, i, receiving_manager);
     }
-    update_map_start_spots(state, meta.as_ref());
-    update_skirmish_game_options(state);
+    update_map_start_spots(state, meta.as_ref(), receiving_manager);
+    update_skirmish_game_options(state, receiving_manager, effects);
 }
 
-fn populate_skirmish_battle_honors(state: &SkirmishGameOptionsState) {
-    skirmish_battle_honor_display::populate(state.listbox_info.as_ref());
+fn populate_skirmish_battle_honors(
+    state: &SkirmishGameOptionsState,
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) {
+    skirmish_battle_honor_display::populate(
+        state.listbox_info.as_ref(),
+        receiving_manager,
+        effects,
+    );
 }
 
-fn handle_combo_selection(state: &mut SkirmishGameOptionsState, control_id: i32) -> bool {
+fn handle_combo_selection(
+    state: &mut SkirmishGameOptionsState,
+    control_id: i32,
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+) -> bool {
     for index in 0..MAX_SLOTS {
         if control_id == state.combo_box_player_ids[index] {
             if index == 0 {
                 return true;
             }
-            if let Some(selected) = combo_selected_id(control_id) {
+            if let Some(selected) = combo_selected_id(control_id, receiving_manager) {
                 let mut setup = get_skirmish_setup();
                 if let Some(slot) = setup.game_info_mut().game_info_mut().get_slot_mut(index) {
                     let state_value = match selected {
@@ -828,12 +931,12 @@ fn handle_combo_selection(state: &mut SkirmishGameOptionsState, control_id: i32)
                     };
                     slot.set_state(state_value, name, 0);
                 }
-                update_slot_selection(state, index);
+                update_slot_selection(state, index, receiving_manager);
             }
             return true;
         }
         if control_id == state.combo_box_color_ids[index] {
-            if let Some(selected) = combo_selected_id(control_id) {
+            if let Some(selected) = combo_selected_id(control_id, receiving_manager) {
                 let mut setup = get_skirmish_setup();
                 let color = if selected == u32::MAX {
                     -1
@@ -847,7 +950,7 @@ fn handle_combo_selection(state: &mut SkirmishGameOptionsState, control_id: i32)
                         .is_color_taken(color, index as i32);
                 if let Some(slot) = setup.game_info_mut().game_info_mut().get_slot_mut(index) {
                     if color_taken {
-                        update_slot_selection(state, index);
+                        update_slot_selection(state, index, receiving_manager);
                     } else {
                         slot.set_color(color);
                     }
@@ -856,7 +959,7 @@ fn handle_combo_selection(state: &mut SkirmishGameOptionsState, control_id: i32)
             return true;
         }
         if control_id == state.combo_box_template_ids[index] {
-            if let Some(selected) = combo_selected_id(control_id) {
+            if let Some(selected) = combo_selected_id(control_id, receiving_manager) {
                 let mut setup = get_skirmish_setup();
                 if let Some(slot) = setup.game_info_mut().game_info_mut().get_slot_mut(index) {
                     let template = if selected == u32::MAX {
@@ -870,7 +973,7 @@ fn handle_combo_selection(state: &mut SkirmishGameOptionsState, control_id: i32)
             return true;
         }
         if control_id == state.combo_box_team_ids[index] {
-            if let Some(selected) = combo_selected_id(control_id) {
+            if let Some(selected) = combo_selected_id(control_id, receiving_manager) {
                 let mut setup = get_skirmish_setup();
                 if let Some(slot) = setup.game_info_mut().game_info_mut().get_slot_mut(index) {
                     let team = if selected == 0 {
@@ -886,7 +989,7 @@ fn handle_combo_selection(state: &mut SkirmishGameOptionsState, control_id: i32)
     }
 
     if control_id == state.combo_box_starting_cash_id {
-        if let Some(selected) = combo_selected_id(control_id) {
+        if let Some(selected) = combo_selected_id(control_id, receiving_manager) {
             let mut setup = get_skirmish_setup();
             setup
                 .game_info_mut()
@@ -896,7 +999,7 @@ fn handle_combo_selection(state: &mut SkirmishGameOptionsState, control_id: i32)
         return true;
     }
     if control_id == state.checkbox_limit_superweapons_id {
-        if let Some(checked) = checkbox_is_checked(control_id) {
+        if let Some(checked) = checkbox_is_checked(control_id, receiving_manager) {
             let mut setup = get_skirmish_setup();
             setup
                 .game_info_mut()
@@ -1109,7 +1212,10 @@ fn apply_skirmish_preferences(state: &mut SkirmishGameOptionsState) {
     state.selected_map = Some(map_name);
 }
 
-fn write_skirmish_preferences(state: &SkirmishGameOptionsState) {
+fn write_skirmish_preferences(
+    state: &SkirmishGameOptionsState,
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+) {
     let mut prefs = SkirmishPreferences::new();
     let setup = get_skirmish_setup();
     let info = setup.game_info().game_info();
@@ -1125,8 +1231,9 @@ fn write_skirmish_preferences(state: &SkirmishGameOptionsState) {
     prefs.set_slot_list(game_info_to_ascii_string(info));
     prefs.set_use_system_map_dir(setup.use_system_maps());
 
-    if let Some(window) =
-        with_window_manager(|manager| manager.get_window_by_id(state.slider_game_speed_id))
+    if let Some(window) = (|manager: &mut crate::gui::window_manager::WindowManager| {
+        manager.get_window_by_id(state.slider_game_speed_id)
+    })(receiving_manager)
     {
         let mut guard = window.borrow_mut();
         if let Some(slider) = guard.horizontal_slider_mut() {
@@ -1329,11 +1436,15 @@ fn start_skirmish_game(state: &mut SkirmishGameOptionsState, effects: &mut Windo
         drop(cache_guard);
         state.button_pushed = false;
         set_skirmish_button_pushed(false);
-        let _ = message_box_ok(
-            &GameText::fetch("GUI:ErrorStartingGame"),
-            &GameText::fetch("GUI:CantFindMap"),
-            None,
-        );
+        let _ = effects.with_manager(|receiving_manager, effects| {
+            message_box_ok(
+                &GameText::fetch("GUI:ErrorStartingGame"),
+                &GameText::fetch("GUI:CantFindMap"),
+                None,
+                receiving_manager,
+                effects,
+            )
+        });
         return;
     };
 
@@ -1349,22 +1460,30 @@ fn start_skirmish_game(state: &mut SkirmishGameOptionsState, effects: &mut Windo
             GameText::fetch("GUI:TooManyPlayers"),
             meta.num_players.max(0)
         );
-        let _ = message_box_ok(&GameText::fetch("GUI:ErrorStartingGame"), &body, None);
+        let _ = effects.with_manager(|receiving_manager, effects| {
+            message_box_ok(
+                &GameText::fetch("GUI:ErrorStartingGame"),
+                &body,
+                None,
+                receiving_manager,
+                effects,
+            )
+        });
         return;
     }
     if !check_for_cd_at_game_start(state, effects) {
         return;
     }
 
-    let mut max_fps =
-        with_window_manager(|manager| manager.get_window_by_id(state.slider_game_speed_id))
-            .and_then(|slider_window| {
-                let mut slider_guard = slider_window.borrow_mut();
-                slider_guard
-                    .horizontal_slider_mut()
-                    .map(|slider| slider.value())
-            })
-            .unwrap_or(MAX_FPS_SLIDER_VALUE);
+    let mut max_fps = effects
+        .with_manager(|manager, effects| manager.get_window_by_id(state.slider_game_speed_id))
+        .and_then(|slider_window| {
+            let mut slider_guard = slider_window.borrow_mut();
+            slider_guard
+                .horizontal_slider_mut()
+                .map(|slider| slider.value())
+        })
+        .unwrap_or(MAX_FPS_SLIDER_VALUE);
     if max_fps > MAX_FPS_SLIDER_VALUE {
         max_fps = GREATER_NO_FPS_LIMIT;
     }
@@ -1377,32 +1496,42 @@ fn start_skirmish_game(state: &mut SkirmishGameOptionsState, effects: &mut Windo
         is_skirmish = false;
     }
 
-    if TheGameLogic::is_in_game() {
-        let _ = TheGameLogic::clear_game_data();
+    if effects.menu_world().in_game {
+        effects
+            .emitted_messages
+            .push(GameMessage::new(GameMessageType::ClearGameData));
     }
 
-    let seed = {
-        let mut setup = get_skirmish_setup();
-        let info = setup.game_info_mut().game_info_mut();
-        info.start_game(0);
-        info.get_seed() as u32
-    };
-    // C++ `SkirmishGameOptionsMenu::reallyDoStart` seeds only the GameLogic
-    // ADC stream from the retained GameInfo seed.  Do not perturb client or
-    // audio RNG state here.
-    init_game_logic_random(seed);
-    write_skirmish_preferences(state);
-
-    // Write pending map into both GlobalData residences. Menus historically used the
-    // INI/GameData Arc, while Main NewGame drain reads common::global_data.
     {
-        let pending = map_name.clone();
-        if let Some(data) = game_engine::common::ini::get_global_data() {
-            let mut data = data.write();
-            data.pending_file = pending.clone();
-        }
-        game_engine::common::global_data::write().pending_file = pending;
+        let mut setup = get_skirmish_setup();
+        setup.game_info_mut().game_info_mut().start_game(0);
     }
+    // The retained seed travels with this exact NewGame. Native admission runs
+    // it after the preceding ClearGameData and before preparation callbacks.
+    effects.with_manager(|receiving_manager, effects| {
+        write_skirmish_preferences(state, receiving_manager)
+    });
+
+    let (local_slot, old_factions_only) = {
+        let setup = get_skirmish_setup();
+        let info = setup.game_info().game_info();
+        (info.get_local_slot_num(), info.old_factions_only())
+    };
+    let descriptor = game_engine::common::message_stream::ClientSkirmishLaunch {
+        map: map_name.clone(),
+        game_info: crate::gui::skirmish_setup::snapshot_skirmish_lobby(),
+        local_slot,
+        old_factions_only,
+        fog_of_war: game_engine::common::ini::ini_multiplayer::with_multiplayer_settings(
+            |settings| settings.is_shroud_in_multiplayer,
+        ),
+        game_mode_code: if is_skirmish {
+            GAME_SKIRMISH
+        } else {
+            GAME_SINGLE_PLAYER
+        },
+        max_fps,
+    };
 
     let mut msg = GameMessage::new(GameMessageType::NewGame);
     msg.append_integer_argument(if is_skirmish {
@@ -1413,9 +1542,9 @@ fn start_skirmish_game(state: &mut SkirmishGameOptionsState, effects: &mut Windo
     msg.append_integer_argument(DIFFICULTY_NORMAL);
     msg.append_integer_argument(0);
     msg.append_integer_argument(max_fps);
+    msg.set_skirmish_launch(descriptor);
     effects.emitted_messages.push(msg);
     log::info!("Skirmish Start posted NewGame skirmish={is_skirmish} fps={max_fps} map={map_name}");
-    TheGameLogic::request_start_new_game();
 }
 
 fn is_first_cd_present() -> bool {
@@ -1495,7 +1624,7 @@ pub fn skirmish_game_options_menu_init(
                 name_to_id(&format!("SkirmishGameOptionsMenu.wnd:ComboBoxColor{}", i));
         }
 
-        with_window_manager(|manager| {
+        effects.with_manager(|manager, effects| {
             state.parent = manager.get_window_by_id(state.parent_id);
             state.map_window = manager.get_window_by_id(state.map_window_id);
             state.text_entry_map_display =
@@ -1506,20 +1635,24 @@ pub fn skirmish_game_options_menu_init(
                 manager.get_window_by_id(state.static_text_game_speed_id);
             state.listbox_info = manager.get_window_by_id(state.listbox_info_id);
             if let Some(parent) = state.parent.as_ref() {
-                let _ = manager.set_focus(Some(parent));
+                let _ = manager.set_focus(Some(parent), effects);
             }
             if let Some(sub_parent) =
                 manager.get_window_by_id(name_to_id("SkirmishGameOptionsMenu.wnd:SubParent"))
             {
-                let _ = sub_parent.borrow_mut().hide(true);
+                let _ = sub_parent.borrow_mut().hide(true, manager);
             }
         });
         skirmish_map_preview::bind_map_selector_tooltip(&state.map_window);
 
         apply_skirmish_preferences(state);
         ensure_default_slots();
-        populate_slot_controls(state);
-        populate_global_controls();
+        effects.with_manager(|receiving_manager, effects| {
+            populate_slot_controls(state, receiving_manager)
+        });
+        effects.with_manager(|receiving_manager, effects| {
+            populate_global_controls(receiving_manager, effects)
+        });
         choose_default_map(state);
         // C++ SkirmishGameOptionsMenu.cpp:1101 (init) + 1179 (skirmishUpdateSlotList):
         // the player-name entry is populated at init — GUI:Player fallback, then
@@ -1546,13 +1679,26 @@ pub fn skirmish_game_options_menu_init(
         // visibility during init. The Rust slot-list refresh is gated while
         // initing, so run the update here or the authored WND literals
         // ("Static Text") and default visibility persist on first open.
-        update_skirmish_game_options(state);
-        update_map_preview(state);
-        skirmish_update_slot_list(state);
-        populate_skirmish_battle_honors(state);
+        effects.with_manager(|receiving_manager, effects| {
+            update_skirmish_game_options(state, receiving_manager, effects)
+        });
+        effects.with_manager(|receiving_manager, effects| {
+            update_map_preview(state, receiving_manager)
+        });
+        effects.with_manager(|receiving_manager, effects| {
+            skirmish_update_slot_list(state, receiving_manager, effects)
+        });
+        effects.with_manager(|manager, _effects| {
+            populate_skirmish_battle_honors(state, manager, _effects)
+        });
 
-        if let Some(window) =
-            with_window_manager(|manager| manager.get_window_by_id(state.slider_game_speed_id))
+        let speed_text_window = effects.with_manager(|manager, _effects| {
+            manager
+                .get_window_by_id(state.static_text_game_speed_id)
+                .map(|window| Rc::downgrade(&window))
+        });
+        if let Some(window) = effects
+            .with_manager(|manager, effects| manager.get_window_by_id(state.slider_game_speed_id))
         {
             let mut guard = window.borrow_mut();
             if let Some(slider) = guard.horizontal_slider_mut() {
@@ -1564,10 +1710,9 @@ pub fn skirmish_game_options_menu_init(
                     .get_int("FPS", default_limit)
                     .clamp(15, NO_FPS_LIMIT_SLIDER_VALUE);
                 slider.set_value(slider_pos);
-                let id = state.static_text_game_speed_id;
                 slider.set_change_callback(move |_, value| {
                     if let Some(window) =
-                        with_window_manager(|manager| manager.get_window_by_id(id))
+                        speed_text_window.as_ref().and_then(std::rc::Weak::upgrade)
                     {
                         let mut guard = window.borrow_mut();
                         if value > 60 {
@@ -1591,7 +1736,7 @@ pub fn skirmish_game_options_menu_init(
         }
 
         if let Some(start_button) =
-            with_window_manager(|manager| manager.get_window_by_id(state.button_start_id))
+            effects.with_manager(|manager, effects| manager.get_window_by_id(state.button_start_id))
         {
             let _ = start_button
                 .borrow_mut()
@@ -1608,12 +1753,13 @@ pub fn skirmish_game_options_menu_init(
     set_skirmish_is_initing(false);
 
     show_shell_map_if_available(true, effects);
-    layout.hide(false);
+    layout.hide_receiving(false, effects);
 }
 
 pub fn skirmish_game_options_menu_update(
     layout: &WindowLayout,
     _user_data: Option<&mut dyn std::any::Any>,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) {
     if TheGameLogic::get_game_mode() == GAME_SHELL && TheGameLogic::get_frame() == 1 {
         signal_ui_interaction(SHELL_SCRIPT_HOOK_SKIRMISH_ENTERED_FROM_GAME);
@@ -1624,7 +1770,8 @@ pub fn skirmish_game_options_menu_update(
             if state.initial_gadget_delay == 1 {
                 state.still_needs_to_set_options = true;
                 if let Some(parent) = state.parent.as_ref() {
-                    let _ = with_window_manager(|manager| manager.set_focus(Some(parent)));
+                    let _ = effects
+                        .with_manager(|manager, effects| manager.set_focus(Some(parent), effects));
                 }
                 state.initial_gadget_delay = 2;
                 state.just_entered = false;
@@ -1634,8 +1781,8 @@ pub fn skirmish_game_options_menu_update(
         }
 
         if state.still_needs_to_set_options && !TheGameLogic::is_loading_map() {
-            with_window_manager(|manager| {
-                manager.transition_set_group("SkirmishGameOptionsMenuFade", false)
+            effects.with_manager(|manager, effects| {
+                manager.transition_set_group("SkirmishGameOptionsMenuFade", false, None)
             });
             state.still_needs_to_set_options = false;
         }
@@ -1646,22 +1793,26 @@ pub fn skirmish_game_options_menu_update(
         };
         if !setup_map.is_empty() && state.selected_map.as_deref() != Some(setup_map.as_str()) {
             state.selected_map = Some(setup_map);
-            update_map_preview(state);
+            effects.with_manager(|receiving_manager, effects| {
+                update_map_preview(state, receiving_manager)
+            });
             sync_map_to_game_info(state);
-            skirmish_update_slot_list(state);
+            effects.with_manager(|receiving_manager, effects| {
+                skirmish_update_slot_list(state, receiving_manager, effects)
+            });
         }
 
         // C++ LAN/Challenge pattern: shutdownComplete only after we requested
         // shutdown. Unconditional isFinished() hides the menu immediately when
         // Rust transitions_finished() is vacuously true (no fade group).
         if state.is_shutting_down
-            && crate::gui::shell::base::shell_anim_finished_for_layout()
-            && with_window_manager(|manager| manager.transitions_finished())
+            && crate::gui::shell::base::shell_anim_finished_for_layout(effects)
+            && effects.with_manager(|manager, effects| manager.transitions_finished())
         {
             state.is_shutting_down = false;
             set_skirmish_is_shutting_down(false);
-            layout.hide(true);
-            queue_shell_shutdown_complete(false);
+            layout.hide_receiving(true, effects);
+            queue_shell_shutdown_complete(effects, false);
         }
     });
 }
@@ -1669,6 +1820,7 @@ pub fn skirmish_game_options_menu_update(
 pub fn skirmish_game_options_menu_shutdown(
     layout: &WindowLayout,
     user_data: Option<&mut dyn std::any::Any>,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) {
     signal_ui_interaction(SHELL_SCRIPT_HOOK_SKIRMISH_CLOSED);
 
@@ -1678,15 +1830,19 @@ pub fn skirmish_game_options_menu_shutdown(
         .unwrap_or(false);
 
     if pop_immediate {
-        destroy_skirmish_map_select_overlay();
-        layout.hide(true);
+        effects.with_manager(|receiving_manager, effects| {
+            destroy_skirmish_map_select_overlay(receiving_manager, effects)
+        });
+        layout.hide_receiving(true, effects);
         set_skirmish_is_shutting_down(false);
-        queue_shell_shutdown_complete(false);
+        queue_shell_shutdown_complete(effects, false);
         return;
     }
 
-    queue_shell_reverse_animate_window();
-    with_window_manager(|manager| manager.transition_reverse("SkirmishGameOptionsMenuFade"));
+    queue_shell_reverse_animate_window(effects);
+    effects.with_manager(|manager, effects| {
+        manager.transition_reverse("SkirmishGameOptionsMenuFade", None)
+    });
 
     with_state(|state| state.is_shutting_down = true);
     set_skirmish_is_shutting_down(true);
@@ -1743,7 +1899,7 @@ pub fn simulate_skirmish_start_button_gadget_selected(
         }
     });
     // Prefer live button window; fall back to any skirmish layout root.
-    let win = with_window_manager(|manager| {
+    let win = effects.with_manager(|manager, effects| {
         manager.get_window_by_id(button_id).or_else(|| {
             let root_id = name_to_id("SkirmishGameOptionsMenu.wnd:SkirmishGameOptionsMenu");
             manager.get_window_by_id(root_id)
@@ -1754,9 +1910,9 @@ pub fn simulate_skirmish_start_button_gadget_selected(
     });
     if let Some(win) = win {
         let handled = {
-            let guard = win.borrow();
+            let mut guard = win.borrow_mut();
             skirmish_game_options_menu_system(
-                &guard,
+                &mut guard,
                 WindowMessage::GadgetSelected,
                 button_id as WindowMsgData,
                 0 as WindowMsgData,
@@ -1983,7 +2139,7 @@ pub fn simulate_skirmish_prepare_match_options() -> bool {
 }
 
 pub fn skirmish_game_options_menu_system(
-    _window: &GameWindow,
+    _window: &mut GameWindow,
     msg: WindowMessage,
     data1: WindowMsgData,
     data2: WindowMsgData,
@@ -2014,9 +2170,13 @@ pub fn skirmish_game_options_menu_system(
             if control_id == state.button_back_id {
                 state.button_pushed = true;
                 set_skirmish_button_pushed(true);
-                write_skirmish_preferences(state);
-                destroy_skirmish_map_select_overlay();
-                queue_shell_pop();
+                effects.with_manager(|receiving_manager, effects| {
+                    write_skirmish_preferences(state, receiving_manager)
+                });
+                effects.with_manager(|receiving_manager, effects| {
+                    destroy_skirmish_map_select_overlay(receiving_manager, effects)
+                });
+                queue_shell_pop(effects);
                 {
                     let mut setup = get_skirmish_setup();
                     *setup = Default::default();
@@ -2028,40 +2188,54 @@ pub fn skirmish_game_options_menu_system(
                 let mut stats = SkirmishBattleHonors::new();
                 stats.clear();
                 let _ = stats.write();
-                populate_skirmish_battle_honors(state);
+                effects.with_manager(|manager, _effects| {
+                    populate_skirmish_battle_honors(state, manager, _effects)
+                });
                 handled = true;
                 return;
             }
             if control_id == state.button_select_map_id {
-                destroy_skirmish_map_select_overlay();
-                if let Some((layout, _)) = with_window_manager(|manager| {
+                effects.with_manager(|receiving_manager, effects| {
+                    destroy_skirmish_map_select_overlay(receiving_manager, effects)
+                });
+                if let Some((layout, _)) = effects.with_manager(|manager, effects| {
                     manager
-                        .create_layout_with_windows("Menus/SkirmishMapSelectMenu.wnd")
+                        .create_layout_with_windows("Menus/SkirmishMapSelectMenu.wnd", effects)
                         .ok()
                 }) {
                     with_skirmish_map_select_layout(|current| *current = Some(layout.clone()));
                     layout.borrow().run_init(None);
                     let mut layout_mut = layout.borrow_mut();
-                    layout_mut.hide(false);
-                    layout_mut.bring_forward();
+                    layout_mut.hide_receiving(false, effects);
+                    effects.with_manager(|manager, _effects| layout_mut.bring_forward(manager));
                 }
                 handled = true;
                 return;
             }
-            if handle_combo_selection(state, control_id) {
-                skirmish_update_slot_list(state);
+            if effects.with_manager(|receiving_manager, effects| {
+                handle_combo_selection(state, control_id, receiving_manager)
+            }) {
+                effects.with_manager(|receiving_manager, effects| {
+                    skirmish_update_slot_list(state, receiving_manager, effects)
+                });
                 handled = true;
                 return;
             }
             if handle_start_position_click(state, control_id) {
-                skirmish_update_slot_list(state);
+                effects.with_manager(|receiving_manager, effects| {
+                    skirmish_update_slot_list(state, receiving_manager, effects)
+                });
                 handled = true;
             }
         }
         WindowMessage::GadgetValueChanged => {
             let control_id = data1 as i32;
-            if handle_combo_selection(state, control_id) {
-                skirmish_update_slot_list(state);
+            if effects.with_manager(|receiving_manager, effects| {
+                handle_combo_selection(state, control_id, receiving_manager)
+            }) {
+                effects.with_manager(|receiving_manager, effects| {
+                    skirmish_update_slot_list(state, receiving_manager, effects)
+                });
                 handled = true;
                 return;
             }
@@ -2094,7 +2268,9 @@ pub fn skirmish_game_options_menu_system(
         WindowMessage::GadgetRightClick | WindowMessage::User(GLM_RIGHT_CLICKED) => {
             let control_id = data1 as i32;
             if handle_start_position_right_click(state, control_id) {
-                skirmish_update_slot_list(state);
+                effects.with_manager(|receiving_manager, effects| {
+                    skirmish_update_slot_list(state, receiving_manager, effects)
+                });
                 handled = true;
             }
         }
@@ -2109,10 +2285,11 @@ pub fn skirmish_game_options_menu_system(
 }
 
 pub fn skirmish_game_options_menu_input(
-    _window: &GameWindow,
+    _window: &mut GameWindow,
     msg: WindowMessage,
     data1: WindowMsgData,
     data2: WindowMsgData,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> WindowMsgHandled {
     if msg != WindowMessage::Char || data1 != KEY_ESC {
         return WindowMsgHandled::Ignored;
@@ -2125,6 +2302,7 @@ pub fn skirmish_game_options_menu_input(
                     WindowMessage::GadgetSelected,
                     state.button_back_id as WindowMsgData,
                     state.button_back_id as WindowMsgData,
+                    effects,
                 );
             }
         });
@@ -2145,6 +2323,9 @@ mod tests {
         let token = push_payload(WindowMsgPayload::Bool(false));
         let mut emitted = Vec::new();
         let mut effects = WindowEventEffects {
+            menus: None,
+            ime: None,
+            manager: None,
             script_display: None,
             window_videos: None,
             selected_window: None,
@@ -2218,6 +2399,9 @@ mod tests {
             });
             let mut emitted = Vec::new();
             let mut effects = WindowEventEffects {
+                menus: None,
+                ime: None,
+                manager: None,
                 script_display: None,
                 window_videos: None,
                 selected_window: None,

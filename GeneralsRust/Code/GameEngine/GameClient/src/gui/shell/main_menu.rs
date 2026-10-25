@@ -43,14 +43,10 @@ use crate::gui::game_window::WindowEventEffects;
 use crate::gui::header_template::get_header_template_manager;
 use crate::gui::menu_flags::get_dont_show_main_menu;
 use crate::gui::shell::{
-    get_shell, queue_shell_operation, queue_shell_pop, queue_shell_push,
-    queue_shell_reverse_animate_window, queue_shell_shutdown_complete, show_shell_map_if_available,
-    try_with_shell_mut, with_shell_ref,
+    queue_shell_operation, queue_shell_pop, queue_shell_push, queue_shell_reverse_animate_window,
+    queue_shell_shutdown_complete, show_shell_map_if_available,
 };
-use crate::gui::window_manager::{
-    WindowLayout as ManagerWindowLayout, queue_window_manager_op, queue_window_manager_op_deferred,
-    window_manager_try_borrow_free, with_window_manager, with_window_manager_ref,
-};
+use crate::gui::window_manager::WindowLayout as ManagerWindowLayout;
 use crate::gui::write_input_focus_response;
 use crate::map_util::get_map_cache_manager;
 use crate::message_stream::{GameMessage, GameMessageType};
@@ -456,39 +452,76 @@ pub struct MainMenu {
 }
 
 impl MainMenu {
-    fn find_live_window(
-        state: &MainMenuState,
+    fn hide_receiving_window(
+        manager: &mut crate::gui::window_manager::WindowManager,
+        parent_id: Option<u32>,
         id: Option<u32>,
         name: Option<&str>,
-    ) -> Option<std::rc::Rc<std::cell::RefCell<crate::gui::game_window::GameWindow>>> {
-        with_window_manager_ref(|manager| {
-            let parent = manager.get_window_by_id(state.window_ids.main_menu_id as i32);
-            if let (Some(parent), Some(id)) = (parent.as_ref(), id) {
-                if let Some(window) = manager.find_window_from_id(parent, id as i32) {
-                    return Some(window);
-                }
-            }
-            if let Some(id) = id {
-                if let Some(window) = manager.get_window_by_id(id as i32) {
-                    return Some(window);
-                }
-            }
-            name.and_then(|window_name| manager.find_window_by_name(window_name))
-        })
+        hide: bool,
+        selected: Option<&mut crate::gui::game_window::GameWindow>,
+    ) {
+        let selected_read = selected.as_deref();
+        let scoped = parent_id
+            .and_then(|parent| manager.get_window_by_id_with_selected(parent as i32, selected_read))
+            .and_then(|parent| {
+                id.and_then(|id| {
+                    manager.win_get_window_from_id_with_selected(
+                        Some(&parent),
+                        id as i32,
+                        selected_read,
+                    )
+                })
+            });
+        let window = scoped
+            .or_else(|| {
+                id.and_then(|id| manager.get_window_by_id_with_selected(id as i32, selected_read))
+            })
+            .or_else(|| {
+                name.and_then(|name| manager.find_window_by_name_with_selected(name, selected_read))
+            });
+        let Some(window) = window else {
+            return;
+        };
+        let _ = manager.hide_window_with_selected(&window, hide, selected);
     }
 
-    fn hide_window_by_id(state: &MainMenuState, id: u32, fallback_name: Option<&str>, hide: bool) {
-        if let Some(window) = Self::find_live_window(state, Some(id), fallback_name) {
-            crate::gui::hide_window_rc(&window, hide);
-        }
+    fn hide_window_by_id(
+        state: &MainMenuState,
+        id: u32,
+        fallback_name: Option<&str>,
+        hide: bool,
+        effects: &mut WindowEventEffects<'_>,
+        selected: Option<&mut crate::gui::game_window::GameWindow>,
+    ) {
+        effects.with_manager(|manager, effects| {
+            Self::hide_receiving_window(
+                manager,
+                Some(state.window_ids.main_menu_id),
+                Some(id),
+                fallback_name,
+                hide,
+                selected,
+            );
+        });
     }
 
-    fn hide_window_by_name(state: &MainMenuState, name: &str, hide: bool) {
-        if let Some(window) =
-            Self::find_live_window(state, Some(NameKeyGenerator::name_to_key(name)), Some(name))
-        {
-            crate::gui::hide_window_rc(&window, hide);
-        }
+    fn hide_window_by_name(
+        state: &MainMenuState,
+        name: &str,
+        hide: bool,
+        effects: &mut WindowEventEffects<'_>,
+        selected: Option<&mut crate::gui::game_window::GameWindow>,
+    ) {
+        effects.with_manager(|manager, effects| {
+            Self::hide_receiving_window(
+                manager,
+                Some(state.window_ids.main_menu_id),
+                Some(NameKeyGenerator::name_to_key(name)),
+                Some(name),
+                hide,
+                selected,
+            );
+        });
     }
 
     fn dropdown_wnd_name(dropdown: DropdownType) -> Option<&'static str> {
@@ -536,33 +569,18 @@ impl MainMenu {
         "MainMenu.wnd:MainMenuRuler",
     ];
 
-    /// Hide by WND name on the live manager. Dummy `with_window_manager_ref`
-    /// lookups are not treated as success. If Shell::push holds WM, queue a
-    /// deferred name hide for the next drain.
-    fn hide_named_windows_live_or_deferred(names: &[&str]) {
-        if window_manager_try_borrow_free() {
-            with_window_manager(|manager| {
-                for name in names {
-                    if let Some(window) = manager.find_window_by_name(name) {
-                        crate::gui::hide_window_rc(&window, true);
-                    }
-                }
-            });
-            return;
-        }
-        let owned: Vec<String> = names.iter().map(|name| (*name).to_string()).collect();
-        queue_window_manager_op_deferred(move |manager| {
-            for name in &owned {
-                if let Some(window) = manager.find_window_by_name(name) {
-                    crate::gui::hide_window_rc(&window, true);
-                }
+    /// Initial layout visibility is applied before the next init operation.
+    fn hide_named_windows_live_or_deferred(names: &[&str], effects: &mut WindowEventEffects<'_>) {
+        effects.with_manager(|manager, effects| {
+            for name in names {
+                Self::hide_receiving_window(manager, None, None, Some(name), true, None);
             }
         });
     }
 
     /// True only when the live WM has all five C++ dropdowns hidden.
-    fn all_dropdowns_hidden_on_live_wm() -> bool {
-        with_window_manager(|manager| {
+    fn all_dropdowns_hidden_on_live_wm(effects: &mut WindowEventEffects<'_>) -> bool {
+        effects.with_manager(|manager, effects| {
             [
                 "MainMenu.wnd:MapBorder",
                 "MainMenu.wnd:MapBorder1",
@@ -582,28 +600,33 @@ impl MainMenu {
     /// Apply C++ MainMenuInit hide pack. Returns true only if all dropdowns
     /// were found on the live WindowManager and hidden. Never calls
     /// `transition_set_group`.
-    fn apply_cpp_init_hide_pack() -> bool {
-        Self::hide_named_windows_live_or_deferred(Self::CPP_INIT_HIDE_PACK_NAMES);
-        Self::all_dropdowns_hidden_on_live_wm()
+    fn apply_cpp_init_hide_pack(effects: &mut WindowEventEffects<'_>) -> bool {
+        Self::hide_named_windows_live_or_deferred(Self::CPP_INIT_HIDE_PACK_NAMES, effects);
+        Self::all_dropdowns_hidden_on_live_wm(effects)
     }
 
-    fn set_dropdown_hidden(_state: &MainMenuState, dropdown: DropdownType, hide: bool) {
-        // C++ dropDownWindows[dropdown]->winHide(hide). Name lookup via queued
-        // WM op — never fail-closed dummy `with_window_manager_ref`.
+    fn set_dropdown_hidden(
+        _state: &MainMenuState,
+        dropdown: DropdownType,
+        hide: bool,
+        effects: &mut WindowEventEffects<'_>,
+        selected: Option<&mut crate::gui::game_window::GameWindow>,
+    ) {
         let Some(name) = Self::dropdown_wnd_name(dropdown) else {
             return;
         };
-        queue_window_manager_op(move |manager| {
-            if let Some(window) = manager.find_window_by_name(name) {
-                crate::gui::hide_window_rc(&window, hide);
-            }
+        effects.with_manager(|manager, effects| {
+            Self::hide_receiving_window(manager, None, None, Some(name), hide, selected);
         });
     }
 
-    fn show_only_dropdown(_state: &MainMenuState, dropdown: DropdownType) {
-        // One queued pass so Single/Main (etc.) actually winHide live MapBorder*
-        // windows. Dummy WM lookups never count as success.
-        queue_window_manager_op(move |manager| {
+    fn show_only_dropdown(
+        _state: &MainMenuState,
+        dropdown: DropdownType,
+        effects: &mut WindowEventEffects<'_>,
+        mut selected: Option<&mut crate::gui::game_window::GameWindow>,
+    ) {
+        effects.with_manager(|manager, effects| {
             for candidate in [
                 DropdownType::Single,
                 DropdownType::Multiplayer,
@@ -611,36 +634,55 @@ impl MainMenu {
                 DropdownType::LoadReplay,
                 DropdownType::Difficulty,
             ] {
-                let Some(name) = Self::dropdown_wnd_name(candidate) else {
-                    continue;
-                };
-                if let Some(window) = manager.find_window_by_name(name) {
-                    crate::gui::hide_window_rc(&window, candidate != dropdown);
+                if let Some(name) = Self::dropdown_wnd_name(candidate) {
+                    Self::hide_receiving_window(
+                        manager,
+                        None,
+                        None,
+                        Some(name),
+                        candidate != dropdown,
+                        selected.as_deref_mut(),
+                    );
                 }
             }
         });
     }
 
-    /// C++ `dropDownWindows[DROPDOWN_MAIN]->winHide(FALSE)` (MainMenu.cpp:985/1001).
-    /// Name lookup via queued WM op — never `show_only_dropdown` (that re-hides
-    /// other borders) and never fail-closed dummy lookup.
-    fn win_hide_dropdown_main_false() {
-        queue_window_manager_op(|manager| {
-            if let Some(window) = manager.find_window_by_name("MainMenu.wnd:MapBorder2") {
-                crate::gui::hide_window_rc(&window, false);
-            }
+    /// C++ changes only DROPDOWN_MAIN here, at this exact callback point.
+    fn win_hide_dropdown_main_false(
+        effects: &mut WindowEventEffects<'_>,
+        selected: Option<&mut crate::gui::game_window::GameWindow>,
+    ) {
+        effects.with_manager(|manager, effects| {
+            Self::hide_receiving_window(
+                manager,
+                None,
+                None,
+                Some("MainMenu.wnd:MapBorder2"),
+                false,
+                selected,
+            );
         });
     }
 
-    fn reveal_hidden_main_menu(state: &mut MainMenuState, effects: &mut WindowEventEffects<'_>) {
+    fn reveal_hidden_main_menu(
+        state: &mut MainMenuState,
+        effects: &mut WindowEventEffects<'_>,
+        mut selected: Option<&mut crate::gui::game_window::GameWindow>,
+    ) {
         state.initial_gadget_delay = 1;
         state.drop_down = DropdownType::Main;
         // C++ MainMenuInput GWM_CHAR: dropDownWindows[DROPDOWN_MAIN]->winHide(FALSE)
         // only. Other borders were already hidden by MainMenuInit. Do not
         // re-hide them here (show_only_dropdown + transition_set_group stalls).
-        Self::win_hide_dropdown_main_false();
-        Self::transition_set_group("MainMenuFade", true);
-        Self::transition_set_group("MainMenuDefaultMenu", false);
+        Self::win_hide_dropdown_main_false(effects, selected.as_deref_mut());
+        Self::transition_set_group("MainMenuFade", true, effects, selected.as_deref_mut());
+        Self::transition_set_group(
+            "MainMenuDefaultMenu",
+            false,
+            effects,
+            selected.as_deref_mut(),
+        );
         set_main_menu_cursor_visibility(true, effects);
         state.not_shown = false;
     }
@@ -774,12 +816,12 @@ impl MainMenu {
         // Do not latch success from dummy with_window_manager_ref lookups.
         // C++ info.windows is roots only; hide(false) must not clear authored
         // HIDDEN on Clock / GetUpdate / StaticTextSelectDifficulty.
-        let hide_ok = Self::apply_cpp_init_hide_pack();
+        let hide_ok = Self::apply_cpp_init_hide_pack(effects);
         if let Some(layout) = layout.downcast_ref::<ManagerWindowLayout>() {
-            layout.hide(false);
+            layout.hide_receiving(false, effects);
         }
         state.init_dropdowns_hidden = if hide_ok {
-            Self::apply_cpp_init_hide_pack()
+            Self::apply_cpp_init_hide_pack(effects)
         } else {
             false
         };
@@ -831,6 +873,7 @@ impl MainMenu {
         &mut self,
         layout: &dyn std::any::Any,
         user_data: Option<&dyn std::any::Any>,
+        effects: &mut WindowEventEffects<'_>,
     ) -> MainMenuResult<()> {
         log::info!("MainMenuShutdown: Shutting down main menu");
 
@@ -851,7 +894,7 @@ impl MainMenu {
 
         if pop_immediate {
             // Complete shutdown immediately - matches C++ lines 673-682
-            Self::finish_shutdown_complete(Some(layout), &mut state)?;
+            Self::finish_shutdown_complete(Some(layout), &mut state, effects)?;
             log::info!("Main menu shutdown complete");
             return Ok(());
         }
@@ -897,7 +940,9 @@ impl MainMenu {
                     let _ = manager.update();
                 }
                 if let Some(layout) = layout.downcast_ref::<ManagerWindowLayout>() {
-                    download_menu_update(layout, None);
+                    effects.with_manager(|manager, effects| {
+                        download_menu_update(layout, None, manager, effects)
+                    });
                 }
             }
         }
@@ -910,12 +955,12 @@ impl MainMenu {
                 && state.not_shown
                 && state.drop_down == DropdownType::None
             {
-                state.init_dropdowns_hidden = Self::apply_cpp_init_hide_pack();
+                state.init_dropdowns_hidden = Self::apply_cpp_init_hide_pack(effects);
             }
         }
         if state.just_entered {
             if state.initial_gadget_delay == 1 {
-                Self::transition_set_group("MainMenuDefaultMenuLogoFade", false);
+                Self::transition_set_group("MainMenuDefaultMenuLogoFade", false, effects, None);
                 focus_target = Some(state.window_ids.main_menu_id as i32);
                 state.initial_gadget_delay = 2;
                 state.just_entered = false;
@@ -935,11 +980,11 @@ impl MainMenu {
             && std::env::var("GENERALS_RUNTIME_HOST_WND").as_deref() == Ok("1")
         {
             log::info!("MainMenuUpdate: unattended runtime-host run — revealing main menu");
-            Self::reveal_hidden_main_menu(&mut state, effects);
+            Self::reveal_hidden_main_menu(&mut state, effects, None);
         }
 
         // Handle transitions - matches C++ lines 847-848
-        if state.dont_allow_transitions && Self::transitions_finished() {
+        if state.dont_allow_transitions && Self::transitions_finished(effects) {
             state.dont_allow_transitions = false;
         }
 
@@ -947,23 +992,23 @@ impl MainMenu {
         if state.show_logo && !state.dont_allow_transitions {
             match state.show_side {
                 ShowSide::Training => {
-                    Self::transition_set_group("MainMenuFactionTraining", false);
+                    Self::transition_set_group("MainMenuFactionTraining", false, effects, None);
                     log::debug!("Showing training faction logo");
                 }
                 ShowSide::China => {
-                    Self::transition_set_group("MainMenuFactionChina", false);
+                    Self::transition_set_group("MainMenuFactionChina", false, effects, None);
                     log::debug!("Showing China faction logo");
                 }
                 ShowSide::GLA => {
-                    Self::transition_set_group("MainMenuFactionGLA", false);
+                    Self::transition_set_group("MainMenuFactionGLA", false, effects, None);
                     log::debug!("Showing GLA faction logo");
                 }
                 ShowSide::USA => {
-                    Self::transition_set_group("MainMenuFactionUS", false);
+                    Self::transition_set_group("MainMenuFactionUS", false, effects, None);
                     log::debug!("Showing USA faction logo");
                 }
                 ShowSide::Skirmish => {
-                    Self::transition_set_group("MainMenuFactionSkirmish", false);
+                    Self::transition_set_group("MainMenuFactionSkirmish", false, effects, None);
                     log::debug!("Showing Skirmish faction logo");
                 }
                 ShowSide::None => {}
@@ -983,8 +1028,8 @@ impl MainMenu {
 
         // Check if we should start the game - matches C++ lines 933-936
         if state.start_game
-            && crate::gui::shell::base::shell_anim_finished_for_layout()
-            && Self::transitions_finished()
+            && crate::gui::shell::base::shell_anim_finished_for_layout(effects)
+            && Self::transitions_finished(effects)
         {
             // Prefix UI actions precede the source clear. The post-clear branch
             // resumes from the current request's weak layout receipt on its host.
@@ -1002,10 +1047,10 @@ impl MainMenu {
 
         // Check if shutdown is complete - matches C++ lines 939-942
         if state.is_shutting_down
-            && crate::gui::shell::base::shell_anim_finished_for_layout()
-            && Self::transitions_finished()
+            && crate::gui::shell::base::shell_anim_finished_for_layout(effects)
+            && Self::transitions_finished(effects)
         {
-            Self::finish_shutdown_complete(Some(layout), &mut state)?;
+            Self::finish_shutdown_complete(Some(layout), &mut state, effects)?;
             Self::queue_action(&mut state, PendingMainMenuAction::ShutdownComplete);
             log::info!("Main menu shutdown complete");
             return Ok(());
@@ -1038,6 +1083,28 @@ impl MainMenu {
         data2: WindowMsgData,
         effects: &mut WindowEventEffects<'_>,
     ) -> bool {
+        self.input_with_selected(window, msg, data1, data2, effects, None)
+    }
+    pub(crate) fn input_for_window(
+        &mut self,
+        window: &mut crate::gui::game_window::GameWindow,
+        msg: u32,
+        data1: WindowMsgData,
+        data2: WindowMsgData,
+        effects: &mut WindowEventEffects<'_>,
+    ) -> bool {
+        let id = window.get_id() as u32;
+        self.input_with_selected(id, msg, data1, data2, effects, Some(window))
+    }
+    fn input_with_selected(
+        &mut self,
+        window: u32,
+        msg: u32,
+        data1: WindowMsgData,
+        data2: WindowMsgData,
+        effects: &mut WindowEventEffects<'_>,
+        mut selected: Option<&mut crate::gui::game_window::GameWindow>,
+    ) -> bool {
         let mut state = &mut self.state;
 
         if !state.not_shown {
@@ -1065,7 +1132,7 @@ impl MainMenu {
                     log::debug!("Mouse moved significantly: ({}, {})", mouse_x, mouse_y);
 
                     if state.not_shown {
-                        Self::reveal_hidden_main_menu(&mut state, effects);
+                        Self::reveal_hidden_main_menu(&mut state, effects, selected.as_deref_mut());
                         return true; // MSG_HANDLED
                     }
                 }
@@ -1073,7 +1140,7 @@ impl MainMenu {
 
             // GWM_CHAR - matches C++ lines 996-1009
             GWM_CHAR if state.not_shown => {
-                Self::reveal_hidden_main_menu(&mut state, effects);
+                Self::reveal_hidden_main_menu(&mut state, effects, selected.as_deref_mut());
                 return true; // MSG_HANDLED
             }
 
@@ -1093,7 +1160,18 @@ impl MainMenu {
         data2: WindowMsgData,
         effects: &mut WindowEventEffects<'_>,
     ) -> bool {
-        self.system_with_camera_input(window, msg, data1, data2, None, effects)
+        self.system_with_camera_input(window, msg, data1, data2, None, effects, None)
+    }
+    pub(crate) fn system_for_window(
+        &mut self,
+        window: &mut crate::gui::game_window::GameWindow,
+        msg: u32,
+        data1: WindowMsgData,
+        data2: WindowMsgData,
+        effects: &mut WindowEventEffects<'_>,
+    ) -> bool {
+        let id = window.get_id() as u32;
+        self.system_with_camera_input(id, msg, data1, data2, None, effects, Some(window))
     }
     pub(crate) fn select_options_with_camera_input(
         &mut self,
@@ -1108,6 +1186,7 @@ impl MainMenu {
             0,
             Some(observation),
             effects,
+            None,
         )
     }
     fn system_with_camera_input(
@@ -1118,6 +1197,7 @@ impl MainMenu {
         data2: WindowMsgData,
         camera_input: Option<crate::gui::callbacks::OptionsCameraInputObservation>,
         effects: &mut WindowEventEffects<'_>,
+        mut selected: Option<&mut crate::gui::game_window::GameWindow>,
     ) -> bool {
         let mut state = &mut self.state;
         let mut pending_actions = Vec::new();
@@ -1169,7 +1249,12 @@ impl MainMenu {
             // GBM_MOUSE_ENTERING - matches C++ lines 1060-1176
             GBM_MOUSE_ENTERING => {
                 let control_id = data1 as u32;
-                Self::handle_mouse_entering(&mut state, control_id);
+                Self::handle_mouse_entering(
+                    &mut state,
+                    control_id,
+                    effects,
+                    selected.as_deref_mut(),
+                );
                 pending_actions.append(&mut state.pending_actions);
                 Self::execute_pending_actions_with_camera_input(
                     pending_actions,
@@ -1182,7 +1267,12 @@ impl MainMenu {
             // GBM_MOUSE_LEAVING - matches C++ lines 1178-1277
             GBM_MOUSE_LEAVING => {
                 let control_id = data1 as u32;
-                Self::handle_mouse_leaving(&mut state, control_id);
+                Self::handle_mouse_leaving(
+                    &mut state,
+                    control_id,
+                    effects,
+                    selected.as_deref_mut(),
+                );
                 pending_actions.append(&mut state.pending_actions);
                 Self::execute_pending_actions_with_camera_input(
                     pending_actions,
@@ -1206,7 +1296,12 @@ impl MainMenu {
                     return true;
                 }
 
-                if let Err(e) = Self::handle_button_selected(&mut state, control_id, effects) {
+                if let Err(e) = Self::handle_button_selected(
+                    &mut state,
+                    control_id,
+                    effects,
+                    selected.as_deref_mut(),
+                ) {
                     log::error!("Error handling button selection: {}", e);
                 }
                 pending_actions.append(&mut state.pending_actions);
@@ -1228,19 +1323,14 @@ impl MainMenu {
     // PRIVATE HELPER METHODS
     // ============================================================================================
 
-    fn transition_set_group(group: &str, immediate: bool) {
-        // Button handlers run nested under a live WM borrow (gadget callback
-        // stack); plain `with_window_manager` would silently drop the call
-        // (fail-closed dummy). Queue with owned data like the hide helpers so
-        // the transition always runs once the outer borrow drains.
-        if !window_manager_try_borrow_free() {
-            log::debug!(
-                "MainMenu: transition_set_group({group}, immediate={immediate}) queued behind live WM borrow"
-            );
-        }
-        let group = group.to_string();
-        queue_window_manager_op(move |manager| {
-            manager.transition_set_group(&group, immediate);
+    fn transition_set_group(
+        group: &str,
+        immediate: bool,
+        effects: &mut WindowEventEffects<'_>,
+        selected: Option<&mut crate::gui::game_window::GameWindow>,
+    ) {
+        effects.with_manager(|manager, effects| {
+            manager.transition_set_group(group, immediate, selected)
         });
     }
 
@@ -1268,6 +1358,7 @@ impl MainMenu {
         action: PendingMainMenuAction,
         camera_input: Option<crate::gui::callbacks::OptionsCameraInputObservation>,
         effects: &mut WindowEventEffects<'_>,
+        mut selected: Option<&mut crate::gui::game_window::GameWindow>,
     ) {
         match action {
             PendingMainMenuAction::PushShellScreen(screen) => {
@@ -1278,7 +1369,9 @@ impl MainMenu {
                         let _ = shell.push(screen, false, effects);
                     });
             }
-            PendingMainMenuAction::ReverseTransitionGroup(group) => Self::transition_reverse(group),
+            PendingMainMenuAction::ReverseTransitionGroup(group) => {
+                Self::transition_reverse(group, effects, selected.as_deref_mut())
+            }
             PendingMainMenuAction::ShowOptionsLayout => {
                 effects
                     .window_manager_owner
@@ -1293,31 +1386,37 @@ impl MainMenu {
                             ) {
                                 log::warn!("Options layout init failed: {err}");
                             }
-                            layout.hide(false);
-                            layout.bring_forward();
+                            layout.hide_with_effects(false, effects);
+                            layout.bring_forward_with_effects(effects);
                         }
                     });
             }
             PendingMainMenuAction::SignalUiInteract(hook) => {
                 effects.request_menu_host(MenuHostRequest::SignalUiInteract(hook))
             }
-            PendingMainMenuAction::ReverseAnimateWindow => queue_shell_reverse_animate_window(),
+            PendingMainMenuAction::ReverseAnimateWindow => {
+                queue_shell_reverse_animate_window(effects)
+            }
             PendingMainMenuAction::StartPatchCheck => {
                 effects.with_main_menu(|menu, _| menu.start_patch_check())
             }
             PendingMainMenuAction::StartDownloadingPatches => {
                 Self::start_downloading_patches(effects)
             }
-            PendingMainMenuAction::LaunchWorldBuilder => Self::launch_world_builder(),
+            PendingMainMenuAction::LaunchWorldBuilder => Self::launch_world_builder(effects),
             PendingMainMenuAction::QuitRequest => Self::perform_quit_request(effects),
             PendingMainMenuAction::QuitNow => Self::perform_quit_now(effects),
-            PendingMainMenuAction::Focus(id) => Self::focus_window(id),
-            PendingMainMenuAction::CampaignCdDialog(diff) => Self::show_campaign_cd_dialog(diff),
-            PendingMainMenuAction::ResolutionDialog(x, y) => Self::show_resolution_dialog(x, y),
-            PendingMainMenuAction::ShutdownComplete => {
-                let _ = Self::complete_shell_shutdown();
+            PendingMainMenuAction::Focus(id) => Self::focus_window(id, effects),
+            PendingMainMenuAction::CampaignCdDialog(diff) => {
+                Self::show_campaign_cd_dialog(diff, effects)
             }
-            PendingMainMenuAction::DrainShellPushes => drain_deferred_shell_pushes(),
+            PendingMainMenuAction::ResolutionDialog(x, y) => {
+                Self::show_resolution_dialog(x, y, effects)
+            }
+            PendingMainMenuAction::ShutdownComplete => {
+                let _ = Self::complete_shell_shutdown(effects);
+            }
+            PendingMainMenuAction::DrainShellPushes => drain_deferred_shell_pushes(effects),
             PendingMainMenuAction::HostRequest(request) => effects.request_menu_host(request),
         }
     }
@@ -1334,12 +1433,16 @@ impl MainMenu {
         let yes: MessageBoxFunc = Box::new(|effects| {
             effects.with_main_menu(|menu, effects| menu.confirm_quit(effects));
         });
-        let _ = quit_message_box_yes_no(
-            &crate::game_text::GameText::fetch("GUI:QuitPopupTitle"),
-            &crate::game_text::GameText::fetch("GUI:QuitPopupMessage"),
-            Some(yes),
-            None,
-        );
+        let _ = effects.with_manager(|manager, effects| {
+            quit_message_box_yes_no(
+                &crate::game_text::GameText::fetch("GUI:QuitPopupTitle"),
+                &crate::game_text::GameText::fetch("GUI:QuitPopupMessage"),
+                Some(yes),
+                None,
+                manager,
+                effects,
+            )
+        });
     }
 
     fn confirm_quit(&mut self, effects: &mut WindowEventEffects<'_>) {
@@ -1355,7 +1458,7 @@ impl MainMenu {
         effects.request_menu_host(MenuHostRequest::SignalUiInteract(
             THE_SHELL_HOOK_NAMES[SHELL_SCRIPT_HOOK_MAIN_MENU_EXIT_SELECTED as usize],
         ));
-        queue_shell_pop();
+        queue_shell_pop(effects);
         effects.request_menu_host(MenuHostRequest::Quit);
         if effects.menu_world().in_game {
             effects
@@ -1387,25 +1490,25 @@ impl MainMenu {
             .unwrap_or(false);
 
         if !has_queued_downloads {
-            effects.with_main_menu(|menu, _| menu.handle_canceled_download(true));
+            effects
+                .with_main_menu(|menu, effects| menu.handle_canceled_download(true, effects, None));
             log::info!("StartDownloadingPatches requested with empty queue");
             return;
         }
 
-        with_window_manager(|manager| {
-            if let Ok((layout, _info)) =
-                manager.create_layout_with_windows("Menus/DownloadMenu.wnd")
-            {
-                {
-                    let layout_ref = layout.borrow();
-                    layout_ref.run_init_with_effects(None, effects);
-                    layout_ref.hide(false);
-                }
-                layout.borrow_mut().bring_forward();
-            }
+        let created = effects.with_manager(|manager, effects| {
+            manager.create_layout_with_windows_with_effects("Menus/DownloadMenu.wnd", effects)
         });
+        if let Ok((layout, _info)) = created {
+            {
+                let layout_ref = layout.borrow();
+                layout_ref.run_init_with_effects(None, effects);
+                layout_ref.hide_receiving(false, effects);
+            }
+            effects.with_manager(|manager, effects| layout.borrow_mut().bring_forward(manager));
+        }
 
-        effects.with_main_menu(|menu, _| menu.handle_canceled_download(false));
+        effects.with_main_menu(|menu, effects| menu.handle_canceled_download(false, effects, None));
 
         if let Ok(mut guard) = download_manager().lock() {
             if let Some(manager) = guard.as_mut() {
@@ -1415,7 +1518,7 @@ impl MainMenu {
         log::info!("StartDownloadingPatches requested");
     }
 
-    fn launch_world_builder() {
+    fn launch_world_builder(effects: &mut WindowEventEffects<'_>) {
         let candidates: &[&str] = if cfg!(debug_assertions) {
             &["WorldBuilderD.exe", "WorldBuilderI.exe", "WorldBuilder.exe"]
         } else {
@@ -1425,11 +1528,15 @@ impl MainMenu {
             .iter()
             .any(|exe| std::process::Command::new(exe).spawn().is_ok());
         if !launched {
-            let _ = message_box_ok(
-                &crate::game_text::GameText::fetch("GUI:WorldBuilder"),
-                &crate::game_text::GameText::fetch("GUI:WorldBuilderLoadFailed"),
-                None,
-            );
+            let _ = effects.with_manager(|manager, effects| {
+                message_box_ok(
+                    &crate::game_text::GameText::fetch("GUI:WorldBuilder"),
+                    &crate::game_text::GameText::fetch("GUI:WorldBuilderLoadFailed"),
+                    None,
+                    manager,
+                    effects,
+                )
+            });
         }
     }
 
@@ -1441,41 +1548,43 @@ impl MainMenu {
         }
     }
 
-    fn transition_reverse(group: &str) {
-        // Queued, never fail-closed dropped under a nested WM borrow.
-        if !window_manager_try_borrow_free() {
-            log::debug!("MainMenu: transition_reverse({group}) queued behind live WM borrow");
-        }
-        let group = group.to_string();
-        queue_window_manager_op(move |manager| manager.transition_reverse(&group));
+    fn transition_reverse(
+        group: &str,
+        effects: &mut WindowEventEffects<'_>,
+        selected: Option<&mut crate::gui::game_window::GameWindow>,
+    ) {
+        effects.with_manager(|manager, effects| manager.transition_reverse(group, selected));
     }
 
-    fn transition_remove(group: &str, skip_pending: bool) {
-        // Queued, never fail-closed dropped under a nested WM borrow.
-        if !window_manager_try_borrow_free() {
-            log::debug!(
-                "MainMenu: transition_remove({group}, {skip_pending}) queued behind live WM borrow"
-            );
-        }
-        let group = group.to_string();
-        queue_window_manager_op(move |manager| {
-            manager.transition_remove(&group, skip_pending);
+    fn transition_remove(
+        group: &str,
+        skip_pending: bool,
+        effects: &mut WindowEventEffects<'_>,
+        selected: Option<&mut crate::gui::game_window::GameWindow>,
+    ) {
+        effects.with_manager(|manager, effects| {
+            manager.transition_remove(group, skip_pending, selected)
         });
     }
 
-    fn transitions_finished() -> bool {
-        with_window_manager_ref(|manager| manager.transitions_finished())
+    fn transitions_finished(effects: &mut WindowEventEffects<'_>) -> bool {
+        effects.with_manager_ref(|manager| manager.transitions_finished())
     }
 
-    fn focus_window(id: i32) {
-        with_window_manager(|manager| {
+    fn focus_window(id: i32, effects: &mut WindowEventEffects<'_>) {
+        effects.with_manager(|manager, effects| {
             manager.request_focus(id);
         });
     }
 
     /// Handle mouse entering a control
     /// Port of GBM_MOUSE_ENTERING handler - C++ lines 1060-1176
-    fn handle_mouse_entering(state: &mut MainMenuState, control_id: u32) {
+    fn handle_mouse_entering(
+        state: &mut MainMenuState,
+        control_id: u32,
+        effects: &mut WindowEventEffects<'_>,
+        mut selected: Option<&mut crate::gui::game_window::GameWindow>,
+    ) {
         // Check which control the mouse is entering
         if control_id == state.window_ids.online_id {
             Self::queue_signal_ui_interact(state, "ShellMainMenuOnlineHighlighted");
@@ -1499,7 +1608,12 @@ impl MainMenu {
                 return;
             }
 
-            Self::transition_set_group("MainMenuFactionTraining", false);
+            Self::transition_set_group(
+                "MainMenuFactionTraining",
+                false,
+                effects,
+                selected.as_deref_mut(),
+            );
             log::debug!("Mouse entering Challenge button");
         } else if control_id == state.window_ids.skirmish_id {
             if state.dont_allow_transitions && !state.campaign_selected {
@@ -1511,7 +1625,12 @@ impl MainMenu {
                 return;
             }
 
-            Self::transition_set_group("MainMenuFactionSkirmish", false);
+            Self::transition_set_group(
+                "MainMenuFactionSkirmish",
+                false,
+                effects,
+                selected.as_deref_mut(),
+            );
             log::debug!("Mouse entering Skirmish button");
         } else if control_id == state.window_ids.button_usa_id {
             if state.dont_allow_transitions && !state.campaign_selected {
@@ -1523,7 +1642,12 @@ impl MainMenu {
                 return;
             }
 
-            Self::transition_set_group("MainMenuFactionUS", false);
+            Self::transition_set_group(
+                "MainMenuFactionUS",
+                false,
+                effects,
+                selected.as_deref_mut(),
+            );
             log::debug!("Mouse entering USA button");
         } else if control_id == state.window_ids.button_gla_id {
             if state.dont_allow_transitions && !state.campaign_selected {
@@ -1535,7 +1659,12 @@ impl MainMenu {
                 return;
             }
 
-            Self::transition_set_group("MainMenuFactionGLA", false);
+            Self::transition_set_group(
+                "MainMenuFactionGLA",
+                false,
+                effects,
+                selected.as_deref_mut(),
+            );
             log::debug!("Mouse entering GLA button");
         } else if control_id == state.window_ids.button_china_id {
             if state.dont_allow_transitions && !state.campaign_selected {
@@ -1547,14 +1676,24 @@ impl MainMenu {
                 return;
             }
 
-            Self::transition_set_group("MainMenuFactionChina", false);
+            Self::transition_set_group(
+                "MainMenuFactionChina",
+                false,
+                effects,
+                selected.as_deref_mut(),
+            );
             log::debug!("Mouse entering China button");
         }
     }
 
     /// Handle mouse leaving a control
     /// Port of GBM_MOUSE_LEAVING handler - C++ lines 1178-1277
-    fn handle_mouse_leaving(state: &mut MainMenuState, control_id: u32) {
+    fn handle_mouse_leaving(
+        state: &mut MainMenuState,
+        control_id: u32,
+        effects: &mut WindowEventEffects<'_>,
+        mut selected: Option<&mut crate::gui::game_window::GameWindow>,
+    ) {
         if control_id == state.window_ids.online_id {
             Self::queue_signal_ui_interact(state, "ShellMainMenuOnlineUnhighlighted");
             log::debug!("Mouse leaving Online button");
@@ -1577,7 +1716,7 @@ impl MainMenu {
                 return;
             }
 
-            Self::transition_reverse("MainMenuFactionTraining");
+            Self::transition_reverse("MainMenuFactionTraining", effects, selected.as_deref_mut());
             log::debug!("Mouse leaving Challenge button");
         } else if control_id == state.window_ids.skirmish_id {
             if state.dont_allow_transitions && !state.campaign_selected && state.show_logo {
@@ -1589,7 +1728,7 @@ impl MainMenu {
                 return;
             }
 
-            Self::transition_reverse("MainMenuFactionSkirmish");
+            Self::transition_reverse("MainMenuFactionSkirmish", effects, selected.as_deref_mut());
             log::debug!("Mouse leaving Skirmish button");
         } else if control_id == state.window_ids.button_usa_id {
             if state.dont_allow_transitions && !state.campaign_selected && state.show_logo {
@@ -1601,7 +1740,7 @@ impl MainMenu {
                 return;
             }
 
-            Self::transition_reverse("MainMenuFactionUS");
+            Self::transition_reverse("MainMenuFactionUS", effects, selected.as_deref_mut());
             log::debug!("Mouse leaving USA button");
         } else if control_id == state.window_ids.button_gla_id {
             if state.dont_allow_transitions && !state.campaign_selected && state.show_logo {
@@ -1613,7 +1752,7 @@ impl MainMenu {
                 return;
             }
 
-            Self::transition_reverse("MainMenuFactionGLA");
+            Self::transition_reverse("MainMenuFactionGLA", effects, selected.as_deref_mut());
             log::debug!("Mouse leaving GLA button");
         } else if control_id == state.window_ids.button_china_id {
             if state.dont_allow_transitions && !state.campaign_selected && state.show_logo {
@@ -1625,7 +1764,7 @@ impl MainMenu {
                 return;
             }
 
-            Self::transition_reverse("MainMenuFactionChina");
+            Self::transition_reverse("MainMenuFactionChina", effects, selected.as_deref_mut());
             log::debug!("Mouse leaving China button");
         }
     }
@@ -1636,6 +1775,7 @@ impl MainMenu {
         state: &mut MainMenuState,
         control_id: u32,
         effects: &mut WindowEventEffects<'_>,
+        mut selected: Option<&mut crate::gui::game_window::GameWindow>,
     ) -> MainMenuResult<()> {
         if state.button_pushed {
             return Ok(());
@@ -1645,7 +1785,7 @@ impl MainMenu {
         if control_id != state.window_ids.button_easy_id
             && control_id != state.window_ids.button_medium_id
             && control_id != state.window_ids.button_hard_id
-            && Self::transitions_finished()
+            && Self::transitions_finished(effects)
         {
             state.launch_challenge_menu = false;
         }
@@ -1659,10 +1799,25 @@ impl MainMenu {
             state.dont_allow_transitions = true;
             state.button_pushed = false;
             state.drop_down = DropdownType::Single;
-            Self::show_only_dropdown(state, DropdownType::Single);
-            Self::transition_remove("MainMenuDefaultMenu", false);
-            Self::transition_reverse("MainMenuDefaultMenuBack");
-            Self::transition_set_group("MainMenuSinglePlayerMenu", false);
+            Self::show_only_dropdown(
+                state,
+                DropdownType::Single,
+                effects,
+                selected.as_deref_mut(),
+            );
+            Self::transition_remove(
+                "MainMenuDefaultMenu",
+                false,
+                effects,
+                selected.as_deref_mut(),
+            );
+            Self::transition_reverse("MainMenuDefaultMenuBack", effects, selected.as_deref_mut());
+            Self::transition_set_group(
+                "MainMenuSinglePlayerMenu",
+                false,
+                effects,
+                selected.as_deref_mut(),
+            );
             log::info!("Single Player button selected");
         } else if control_id == state.window_ids.button_single_back_id {
             // Single Player Back button - C++ lines 1326-1335
@@ -1671,10 +1826,24 @@ impl MainMenu {
             }
             state.button_pushed = false;
             state.drop_down = DropdownType::Main;
-            Self::show_only_dropdown(state, DropdownType::Main);
-            Self::transition_remove("MainMenuSinglePlayerMenu", false);
-            Self::transition_reverse("MainMenuSinglePlayerMenuBack");
-            Self::transition_set_group("MainMenuDefaultMenu", false);
+            Self::show_only_dropdown(state, DropdownType::Main, effects, selected.as_deref_mut());
+            Self::transition_remove(
+                "MainMenuSinglePlayerMenu",
+                false,
+                effects,
+                selected.as_deref_mut(),
+            );
+            Self::transition_reverse(
+                "MainMenuSinglePlayerMenuBack",
+                effects,
+                selected.as_deref_mut(),
+            );
+            Self::transition_set_group(
+                "MainMenuDefaultMenu",
+                false,
+                effects,
+                selected.as_deref_mut(),
+            );
             state.dont_allow_transitions = true;
             log::info!("Single Player Back button selected");
         } else if control_id == state.window_ids.button_multi_back_id {
@@ -1685,10 +1854,24 @@ impl MainMenu {
             state.dont_allow_transitions = true;
             state.button_pushed = false;
             state.drop_down = DropdownType::Main;
-            Self::show_only_dropdown(state, DropdownType::Main);
-            Self::transition_remove("MainMenuMultiPlayerMenu", false);
-            Self::transition_reverse("MainMenuMultiPlayerMenuReverse");
-            Self::transition_set_group("MainMenuDefaultMenu", false);
+            Self::show_only_dropdown(state, DropdownType::Main, effects, selected.as_deref_mut());
+            Self::transition_remove(
+                "MainMenuMultiPlayerMenu",
+                false,
+                effects,
+                selected.as_deref_mut(),
+            );
+            Self::transition_reverse(
+                "MainMenuMultiPlayerMenuReverse",
+                effects,
+                selected.as_deref_mut(),
+            );
+            Self::transition_set_group(
+                "MainMenuDefaultMenu",
+                false,
+                effects,
+                selected.as_deref_mut(),
+            );
             log::info!("Multiplayer Back button selected");
         } else if control_id == state.window_ids.button_load_replay_back_id {
             // Load Replay Back button - C++ lines 1347-1357
@@ -1698,10 +1881,24 @@ impl MainMenu {
             state.dont_allow_transitions = true;
             state.button_pushed = false;
             state.drop_down = DropdownType::Main;
-            Self::show_only_dropdown(state, DropdownType::Main);
-            Self::transition_remove("MainMenuLoadReplayMenu", false);
-            Self::transition_reverse("MainMenuLoadReplayMenuBack");
-            Self::transition_set_group("MainMenuDefaultMenu", false);
+            Self::show_only_dropdown(state, DropdownType::Main, effects, selected.as_deref_mut());
+            Self::transition_remove(
+                "MainMenuLoadReplayMenu",
+                false,
+                effects,
+                selected.as_deref_mut(),
+            );
+            Self::transition_reverse(
+                "MainMenuLoadReplayMenuBack",
+                effects,
+                selected.as_deref_mut(),
+            );
+            Self::transition_set_group(
+                "MainMenuDefaultMenu",
+                false,
+                effects,
+                selected.as_deref_mut(),
+            );
             log::info!("Load Replay Back button selected");
         } else if control_id == state.window_ids.button_credits_id {
             // Credits button - C++ lines 1359-1368
@@ -1715,8 +1912,8 @@ impl MainMenu {
                 PendingMainMenuAction::PushShellScreen("Menus/CreditsMenu.wnd"),
             );
             state.drop_down = DropdownType::Main;
-            Self::show_only_dropdown(state, DropdownType::Main);
-            Self::transition_reverse("MainMenuDefaultMenu");
+            Self::show_only_dropdown(state, DropdownType::Main, effects, selected.as_deref_mut());
+            Self::transition_reverse("MainMenuDefaultMenu", effects, selected.as_deref_mut());
             log::info!("Credits button selected");
         } else if control_id == state.window_ids.button_multi_player_id {
             // Multiplayer button - C++ lines 1369-1380
@@ -1726,10 +1923,25 @@ impl MainMenu {
             state.dont_allow_transitions = true;
             state.button_pushed = false;
             state.drop_down = DropdownType::Multiplayer;
-            Self::show_only_dropdown(state, DropdownType::Multiplayer);
-            Self::transition_remove("MainMenuDefaultMenu", false);
-            Self::transition_reverse("MainMenuDefaultMenuBack");
-            Self::transition_set_group("MainMenuMultiPlayerMenu", false);
+            Self::show_only_dropdown(
+                state,
+                DropdownType::Multiplayer,
+                effects,
+                selected.as_deref_mut(),
+            );
+            Self::transition_remove(
+                "MainMenuDefaultMenu",
+                false,
+                effects,
+                selected.as_deref_mut(),
+            );
+            Self::transition_reverse("MainMenuDefaultMenuBack", effects, selected.as_deref_mut());
+            Self::transition_set_group(
+                "MainMenuMultiPlayerMenu",
+                false,
+                effects,
+                selected.as_deref_mut(),
+            );
             log::info!("Multiplayer button selected");
         } else if control_id == state.window_ids.button_load_replay_id {
             // Load Replay button - C++ lines 1381-1392
@@ -1739,10 +1951,25 @@ impl MainMenu {
             state.dont_allow_transitions = true;
             state.button_pushed = false;
             state.drop_down = DropdownType::LoadReplay;
-            Self::show_only_dropdown(state, DropdownType::LoadReplay);
-            Self::transition_remove("MainMenuDefaultMenu", false);
-            Self::transition_reverse("MainMenuDefaultMenuBack");
-            Self::transition_set_group("MainMenuLoadReplayMenu", false);
+            Self::show_only_dropdown(
+                state,
+                DropdownType::LoadReplay,
+                effects,
+                selected.as_deref_mut(),
+            );
+            Self::transition_remove(
+                "MainMenuDefaultMenu",
+                false,
+                effects,
+                selected.as_deref_mut(),
+            );
+            Self::transition_reverse("MainMenuDefaultMenuBack", effects, selected.as_deref_mut());
+            Self::transition_set_group(
+                "MainMenuLoadReplayMenu",
+                false,
+                effects,
+                selected.as_deref_mut(),
+            );
             log::info!("Load Replay button selected");
         } else if control_id == state.window_ids.button_load_id {
             // Load Game button - C++ lines 1393-1409
@@ -1752,8 +1979,17 @@ impl MainMenu {
             state.dont_allow_transitions = true;
             state.button_pushed = true;
             state.drop_down = DropdownType::LoadReplay;
-            Self::show_only_dropdown(state, DropdownType::LoadReplay);
-            Self::transition_reverse("MainMenuLoadReplayMenuBackTransition");
+            Self::show_only_dropdown(
+                state,
+                DropdownType::LoadReplay,
+                effects,
+                selected.as_deref_mut(),
+            );
+            Self::transition_reverse(
+                "MainMenuLoadReplayMenuBackTransition",
+                effects,
+                selected.as_deref_mut(),
+            );
             Self::queue_action(
                 state,
                 PendingMainMenuAction::PushShellScreen("Menus/SaveLoad.wnd"),
@@ -1767,8 +2003,17 @@ impl MainMenu {
             state.dont_allow_transitions = true;
             state.button_pushed = true;
             state.drop_down = DropdownType::LoadReplay;
-            Self::show_only_dropdown(state, DropdownType::LoadReplay);
-            Self::transition_reverse("MainMenuLoadReplayMenuBackTransition");
+            Self::show_only_dropdown(
+                state,
+                DropdownType::LoadReplay,
+                effects,
+                selected.as_deref_mut(),
+            );
+            Self::transition_reverse(
+                "MainMenuLoadReplayMenuBackTransition",
+                effects,
+                selected.as_deref_mut(),
+            );
             Self::queue_action(
                 state,
                 PendingMainMenuAction::PushShellScreen("Menus/ReplayMenu.wnd"),
@@ -1783,9 +2028,23 @@ impl MainMenu {
             state.button_pushed = true;
             state.campaign_selected = true;
             state.drop_down = DropdownType::Single;
-            Self::show_only_dropdown(state, DropdownType::Single);
-            Self::transition_remove("MainMenuFactionSkirmish", false);
-            Self::transition_reverse("MainMenuSinglePlayerMenuBackSkirmish");
+            Self::show_only_dropdown(
+                state,
+                DropdownType::Single,
+                effects,
+                selected.as_deref_mut(),
+            );
+            Self::transition_remove(
+                "MainMenuFactionSkirmish",
+                false,
+                effects,
+                selected.as_deref_mut(),
+            );
+            Self::transition_reverse(
+                "MainMenuSinglePlayerMenuBackSkirmish",
+                effects,
+                selected.as_deref_mut(),
+            );
             Self::queue_action(
                 state,
                 PendingMainMenuAction::PushShellScreen("Menus/SkirmishGameOptionsMenu.wnd"),
@@ -1805,8 +2064,17 @@ impl MainMenu {
             state.dont_allow_transitions = true;
             state.button_pushed = true;
             state.drop_down = DropdownType::Multiplayer;
-            Self::show_only_dropdown(state, DropdownType::Multiplayer);
-            Self::transition_reverse("MainMenuMultiPlayerMenuTransitionToNext");
+            Self::show_only_dropdown(
+                state,
+                DropdownType::Multiplayer,
+                effects,
+                selected.as_deref_mut(),
+            );
+            Self::transition_reverse(
+                "MainMenuMultiPlayerMenuTransitionToNext",
+                effects,
+                selected.as_deref_mut(),
+            );
             Self::queue_action(state, PendingMainMenuAction::StartPatchCheck);
             state.drop_down = DropdownType::None;
             log::info!("Online button selected");
@@ -1818,8 +2086,17 @@ impl MainMenu {
             state.dont_allow_transitions = true;
             state.button_pushed = true;
             state.drop_down = DropdownType::Multiplayer;
-            Self::show_only_dropdown(state, DropdownType::Multiplayer);
-            Self::transition_reverse("MainMenuMultiPlayerMenuTransitionToNext");
+            Self::show_only_dropdown(
+                state,
+                DropdownType::Multiplayer,
+                effects,
+                selected.as_deref_mut(),
+            );
+            Self::transition_reverse(
+                "MainMenuMultiPlayerMenuTransitionToNext",
+                effects,
+                selected.as_deref_mut(),
+            );
             Self::queue_action(
                 state,
                 PendingMainMenuAction::PushShellScreen("Menus/LanLobbyMenu.wnd"),
@@ -1864,10 +2141,30 @@ impl MainMenu {
             }
 
             state.drop_down = DropdownType::Difficulty;
-            Self::transition_set_group("MainMenuFactionTraining", false);
-            Self::hide_window_by_name(state, "MainMenu.wnd:WinFactionTraining", true);
-            Self::transition_reverse("MainMenuSinglePlayerMenuBackTraining");
-            Self::transition_set_group("MainMenuDifficultyMenuTraining", false);
+            Self::transition_set_group(
+                "MainMenuFactionTraining",
+                false,
+                effects,
+                selected.as_deref_mut(),
+            );
+            Self::hide_window_by_name(
+                state,
+                "MainMenu.wnd:WinFactionTraining",
+                true,
+                effects,
+                selected.as_deref_mut(),
+            );
+            Self::transition_reverse(
+                "MainMenuSinglePlayerMenuBackTraining",
+                effects,
+                selected.as_deref_mut(),
+            );
+            Self::transition_set_group(
+                "MainMenuDifficultyMenuTraining",
+                false,
+                effects,
+                selected.as_deref_mut(),
+            );
             state.campaign_selected = true;
             state.show_logo = false;
             state.show_side = ShowSide::Training;
@@ -1885,11 +2182,31 @@ impl MainMenu {
             } else {
                 return Ok(());
             }
-            Self::transition_set_group("MainMenuFactionUS", false);
-            Self::transition_remove("MainMenuFactionUS", true);
-            Self::hide_window_by_name(state, "MainMenu.wnd:WinFactionUS", true);
-            Self::transition_reverse("MainMenuSinglePlayerMenuBackUS");
-            Self::transition_set_group("MainMenuDifficultyMenuUS", false);
+            Self::transition_set_group(
+                "MainMenuFactionUS",
+                false,
+                effects,
+                selected.as_deref_mut(),
+            );
+            Self::transition_remove("MainMenuFactionUS", true, effects, selected.as_deref_mut());
+            Self::hide_window_by_name(
+                state,
+                "MainMenu.wnd:WinFactionUS",
+                true,
+                effects,
+                selected.as_deref_mut(),
+            );
+            Self::transition_reverse(
+                "MainMenuSinglePlayerMenuBackUS",
+                effects,
+                selected.as_deref_mut(),
+            );
+            Self::transition_set_group(
+                "MainMenuDifficultyMenuUS",
+                false,
+                effects,
+                selected.as_deref_mut(),
+            );
             state.campaign_selected = true;
             state.logo_is_shown = false;
             state.show_logo = false;
@@ -1907,11 +2224,31 @@ impl MainMenu {
             } else {
                 return Ok(());
             }
-            Self::transition_set_group("MainMenuFactionGLA", false);
-            Self::transition_remove("MainMenuFactionGLA", true);
-            Self::hide_window_by_name(state, "MainMenu.wnd:WinFactionGLA", true);
-            Self::transition_reverse("MainMenuSinglePlayerMenuBackGLA");
-            Self::transition_set_group("MainMenuDifficultyMenuGLA", false);
+            Self::transition_set_group(
+                "MainMenuFactionGLA",
+                false,
+                effects,
+                selected.as_deref_mut(),
+            );
+            Self::transition_remove("MainMenuFactionGLA", true, effects, selected.as_deref_mut());
+            Self::hide_window_by_name(
+                state,
+                "MainMenu.wnd:WinFactionGLA",
+                true,
+                effects,
+                selected.as_deref_mut(),
+            );
+            Self::transition_reverse(
+                "MainMenuSinglePlayerMenuBackGLA",
+                effects,
+                selected.as_deref_mut(),
+            );
+            Self::transition_set_group(
+                "MainMenuDifficultyMenuGLA",
+                false,
+                effects,
+                selected.as_deref_mut(),
+            );
             state.campaign_selected = true;
             state.logo_is_shown = false;
             state.show_logo = false;
@@ -1929,11 +2266,36 @@ impl MainMenu {
             } else {
                 return Ok(());
             }
-            Self::transition_set_group("MainMenuFactionChina", false);
-            Self::transition_remove("MainMenuFactionChina", true);
-            Self::hide_window_by_name(state, "MainMenu.wnd:WinFactionChina", true);
-            Self::transition_reverse("MainMenuSinglePlayerMenuBackChina");
-            Self::transition_set_group("MainMenuDifficultyMenuChina", false);
+            Self::transition_set_group(
+                "MainMenuFactionChina",
+                false,
+                effects,
+                selected.as_deref_mut(),
+            );
+            Self::transition_remove(
+                "MainMenuFactionChina",
+                true,
+                effects,
+                selected.as_deref_mut(),
+            );
+            Self::hide_window_by_name(
+                state,
+                "MainMenu.wnd:WinFactionChina",
+                true,
+                effects,
+                selected.as_deref_mut(),
+            );
+            Self::transition_reverse(
+                "MainMenuSinglePlayerMenuBackChina",
+                effects,
+                selected.as_deref_mut(),
+            );
+            Self::transition_set_group(
+                "MainMenuDifficultyMenuChina",
+                false,
+                effects,
+                selected.as_deref_mut(),
+            );
             state.campaign_selected = true;
             state.logo_is_shown = false;
             state.show_logo = false;
@@ -1944,21 +2306,36 @@ impl MainMenu {
             if state.dont_allow_transitions {
                 return Ok(());
             }
-            Self::check_cd_before_campaign(state, GameDifficulty::Easy, effects);
+            Self::check_cd_before_campaign(
+                state,
+                GameDifficulty::Easy,
+                effects,
+                selected.as_deref_mut(),
+            );
             log::info!("Easy difficulty selected");
         } else if control_id == state.window_ids.button_medium_id {
             // Medium difficulty - C++ lines 1651-1657
             if state.dont_allow_transitions {
                 return Ok(());
             }
-            Self::check_cd_before_campaign(state, GameDifficulty::Normal, effects);
+            Self::check_cd_before_campaign(
+                state,
+                GameDifficulty::Normal,
+                effects,
+                selected.as_deref_mut(),
+            );
             log::info!("Medium difficulty selected");
         } else if control_id == state.window_ids.button_hard_id {
             // Hard difficulty - C++ lines 1658-1664
             if state.dont_allow_transitions {
                 return Ok(());
             }
-            Self::check_cd_before_campaign(state, GameDifficulty::Hard, effects);
+            Self::check_cd_before_campaign(
+                state,
+                GameDifficulty::Hard,
+                effects,
+                selected.as_deref_mut(),
+            );
             log::info!("Hard difficulty selected");
         } else if control_id == state.window_ids.button_diff_back_id {
             // Difficulty Back button - C++ lines 1665-1673
@@ -1973,7 +2350,7 @@ impl MainMenu {
             } else {
                 return Ok(());
             }
-            Self::diff_reverse_side(state);
+            Self::diff_reverse_side(state, effects, selected.as_deref_mut());
             state.campaign_selected = false;
             log::info!("Difficulty Back button selected");
         }
@@ -1983,7 +2360,7 @@ impl MainMenu {
 
     /// Initial hide of faction windows
     /// Port of initialHide() - C++ lines 360-425
-    fn initial_hide(state: &MainMenuState) {
+    fn initial_hide(state: &MainMenuState, effects: &mut WindowEventEffects<'_>) {
         for name in [
             "MainMenu.wnd:WinFactionGLA",
             "MainMenu.wnd:WinFactionChina",
@@ -2005,48 +2382,64 @@ impl MainMenu {
             "MainMenu.wnd:WinFactionChinaSmall",
             "MainMenu.wnd:WinFactionChinaMedium",
         ] {
-            Self::hide_window_by_name(state, name, true);
+            Self::hide_window_by_name(state, name, true, effects, None);
         }
     }
 
     /// Show selective buttons based on faction
     /// Port of showSelectiveButtons() - C++ lines 217-225
-    fn show_selective_buttons(state: &MainMenuState, show: ShowSide) {
+    fn show_selective_buttons(
+        state: &MainMenuState,
+        show: ShowSide,
+        effects: &mut WindowEventEffects<'_>,
+    ) {
         Self::hide_window_by_id(
             state,
             state.window_ids.button_usa_recent_save_id,
             Some("MainMenu.wnd:ButtonUSARecentSave"),
             show != ShowSide::USA,
+            effects,
+            None,
         );
         Self::hide_window_by_id(
             state,
             state.window_ids.button_usa_load_game_id,
             Some("MainMenu.wnd:ButtonUSALoadGame"),
             show != ShowSide::USA,
+            effects,
+            None,
         );
         Self::hide_window_by_id(
             state,
             state.window_ids.button_gla_recent_save_id,
             Some("MainMenu.wnd:ButtonGLARecentSave"),
             show != ShowSide::GLA,
+            effects,
+            None,
         );
         Self::hide_window_by_id(
             state,
             state.window_ids.button_gla_load_game_id,
             Some("MainMenu.wnd:ButtonGLALoadGame"),
             show != ShowSide::GLA,
+            effects,
+            None,
         );
         Self::hide_window_by_id(
             state,
             state.window_ids.button_china_recent_save_id,
             Some("MainMenu.wnd:ButtonChinaRecentSave"),
             show != ShowSide::China,
+            effects,
+            None,
         );
         Self::hide_window_by_id(
             state,
             state.window_ids.button_china_load_game_id,
             Some("MainMenu.wnd:ButtonChinaLoadGame"),
             show != ShowSide::China,
+            effects,
+            None,
         );
     }
 
@@ -2062,6 +2455,7 @@ impl MainMenu {
         map_name: &str,
         diff: GameDifficulty,
         effects: &mut WindowEventEffects<'_>,
+        mut selected: Option<&mut crate::gui::game_window::GameWindow>,
     ) {
         let Some(campaign_manager) = effects.campaign_manager.as_deref_mut() else {
             return;
@@ -2091,7 +2485,7 @@ impl MainMenu {
             }
             runtime_global_data::write().pending_file = pending_file;
             Self::queue_action(state, PendingMainMenuAction::ReverseAnimateWindow);
-            Self::transition_set_group("FadeWholeScreen", false);
+            Self::transition_set_group("FadeWholeScreen", false, effects, selected.as_deref_mut());
             log::info!("Starting game: {} with difficulty: {:?}", map_name, diff);
         }
     }
@@ -2105,7 +2499,7 @@ impl MainMenu {
         effects: &mut WindowEventEffects<'_>,
     ) {
         let mut state = &mut self.state;
-        Self::setup_game_start(&mut state, map_name, diff, effects);
+        Self::setup_game_start(&mut state, map_name, diff, effects, None);
     }
 
     /// Prepare campaign game
@@ -2114,6 +2508,7 @@ impl MainMenu {
         state: &mut MainMenuState,
         diff: GameDifficulty,
         effects: &mut WindowEventEffects<'_>,
+        mut selected: Option<&mut crate::gui::game_window::GameWindow>,
     ) {
         state.dont_allow_transitions = true;
         let map_name = {
@@ -2130,10 +2525,14 @@ impl MainMenu {
         effects.request_menu_host(MenuHostRequest::SetDifficulty(diff as i32));
 
         state.button_pushed = false;
-        Self::transition_reverse("MainMenuDifficultyMenuBack");
+        Self::transition_reverse(
+            "MainMenuDifficultyMenuBack",
+            effects,
+            selected.as_deref_mut(),
+        );
         // C++ setupGameStart(TheCampaignManager->getCurrentMap(), diff)
         // even when the map string is empty (Challenge uses launchChallengeMenu).
-        Self::setup_game_start(state, &map_name, diff, effects);
+        Self::setup_game_start(state, &map_name, diff, effects, selected.as_deref_mut());
 
         log::info!("Preparing campaign game with difficulty: {:?}", diff);
     }
@@ -2142,20 +2541,23 @@ impl MainMenu {
         &mut self,
         diff: GameDifficulty,
         effects: &mut WindowEventEffects<'_>,
+        mut selected: Option<&mut crate::gui::game_window::GameWindow>,
     ) {
         let mut state = &mut self.state;
-        Self::prepare_campaign_game(&mut state, diff, effects);
+        Self::prepare_campaign_game(&mut state, diff, effects, selected.as_deref_mut());
     }
 
     fn retry_campaign_start_after_cd_check(
         &mut self,
         diff: GameDifficulty,
         effects: &mut WindowEventEffects<'_>,
+        mut selected: Option<&mut crate::gui::game_window::GameWindow>,
     ) -> ExMessageBoxReturnType {
         self.retry_campaign_start_after_cd_check_with_status(
             diff,
             Self::is_first_cd_present(),
             effects,
+            selected.as_deref_mut(),
         )
     }
 
@@ -2164,12 +2566,13 @@ impl MainMenu {
         diff: GameDifficulty,
         cd_present: bool,
         effects: &mut WindowEventEffects<'_>,
+        mut selected: Option<&mut crate::gui::game_window::GameWindow>,
     ) -> ExMessageBoxReturnType {
         if !cd_present {
             return ExMessageBoxReturnType::KeepOpen;
         }
 
-        self.run_campaign_start_after_cd_check(diff, effects);
+        self.run_campaign_start_after_cd_check(diff, effects, selected.as_deref_mut());
         ExMessageBoxReturnType::Close
     }
 
@@ -2189,6 +2592,7 @@ impl MainMenu {
         state: &mut MainMenuState,
         diff: GameDifficulty,
         effects: &mut WindowEventEffects<'_>,
+        mut selected: Option<&mut crate::gui::game_window::GameWindow>,
     ) {
         if !Self::is_first_cd_present() {
             state.button_pushed = false;
@@ -2198,27 +2602,31 @@ impl MainMenu {
             return;
         }
 
-        Self::prepare_campaign_game(state, diff, effects);
+        Self::prepare_campaign_game(state, diff, effects, selected.as_deref_mut());
         log::info!("Checking CD before campaign start");
     }
 
-    fn show_campaign_cd_dialog(diff: GameDifficulty) {
+    fn show_campaign_cd_dialog(diff: GameDifficulty, effects: &mut WindowEventEffects<'_>) {
         let ok: ExtendedMessageBoxFunc = Box::new(move |_user_data, effects| {
             effects.with_main_menu(|menu, effects| {
-                menu.retry_campaign_start_after_cd_check(diff, effects)
+                menu.retry_campaign_start_after_cd_check(diff, effects, None)
             })
         });
         let cancel: ExtendedMessageBoxFunc = Box::new(|_user_data, effects| {
             effects.with_main_menu(|menu, _| menu.cancel_campaign_start_after_cd_check());
             ExMessageBoxReturnType::Close
         });
-        let _ = ex_message_box_ok_cancel(
-            &crate::game_text::GameText::fetch("GUI:InsertCDPrompt"),
-            &crate::game_text::GameText::fetch("GUI:InsertCDMessage"),
-            None,
-            Some(ok),
-            Some(cancel),
-        );
+        let _ = effects.with_manager(|manager, effects| {
+            ex_message_box_ok_cancel(
+                &crate::game_text::GameText::fetch("GUI:InsertCDPrompt"),
+                &crate::game_text::GameText::fetch("GUI:InsertCDMessage"),
+                None,
+                Some(ok),
+                Some(cancel),
+                manager,
+                effects,
+            )
+        });
     }
 
     /// Do game start
@@ -2289,41 +2697,82 @@ impl MainMenu {
     fn finish_shutdown_complete(
         layout: Option<&dyn std::any::Any>,
         state: &mut MainMenuState,
+        effects: &mut WindowEventEffects<'_>,
     ) -> MainMenuResult<()> {
         if let Some(layout) = layout.and_then(|any| any.downcast_ref::<ManagerWindowLayout>()) {
-            layout.hide(true);
+            layout.hide_receiving(true, effects);
         }
         state.is_shutting_down = false;
         Ok(())
     }
 
-    fn complete_shell_shutdown() -> MainMenuResult<()> {
-        queue_shell_shutdown_complete(false);
+    fn complete_shell_shutdown(effects: &mut WindowEventEffects<'_>) -> MainMenuResult<()> {
+        queue_shell_shutdown_complete(effects, false);
         Ok(())
     }
 
     /// Reverse side for difficulty menu
     /// Port of diffReverseSide() - C++ lines 1690-1711
-    fn diff_reverse_side(state: &MainMenuState) {
+    fn diff_reverse_side(
+        state: &MainMenuState,
+        effects: &mut WindowEventEffects<'_>,
+        mut selected: Option<&mut crate::gui::game_window::GameWindow>,
+    ) {
         match state.show_side {
             ShowSide::Training => {
-                Self::transition_reverse("MainMenuDifficultyMenuTrainingBack");
-                Self::transition_set_group("MainMenuSinglePlayerTrainingMenuFromDiff", false);
+                Self::transition_reverse(
+                    "MainMenuDifficultyMenuTrainingBack",
+                    effects,
+                    selected.as_deref_mut(),
+                );
+                Self::transition_set_group(
+                    "MainMenuSinglePlayerTrainingMenuFromDiff",
+                    false,
+                    effects,
+                    selected.as_deref_mut(),
+                );
                 log::debug!("Reversing difficulty menu - Training");
             }
             ShowSide::USA => {
-                Self::transition_reverse("MainMenuDifficultyMenuUSBack");
-                Self::transition_set_group("MainMenuSinglePlayerUSAMenuFromDiff", false);
+                Self::transition_reverse(
+                    "MainMenuDifficultyMenuUSBack",
+                    effects,
+                    selected.as_deref_mut(),
+                );
+                Self::transition_set_group(
+                    "MainMenuSinglePlayerUSAMenuFromDiff",
+                    false,
+                    effects,
+                    selected.as_deref_mut(),
+                );
                 log::debug!("Reversing difficulty menu - USA");
             }
             ShowSide::GLA => {
-                Self::transition_reverse("MainMenuDifficultyMenuGLABack");
-                Self::transition_set_group("MainMenuSinglePlayerGLAMenuFromDiff", false);
+                Self::transition_reverse(
+                    "MainMenuDifficultyMenuGLABack",
+                    effects,
+                    selected.as_deref_mut(),
+                );
+                Self::transition_set_group(
+                    "MainMenuSinglePlayerGLAMenuFromDiff",
+                    false,
+                    effects,
+                    selected.as_deref_mut(),
+                );
                 log::debug!("Reversing difficulty menu - GLA");
             }
             ShowSide::China => {
-                Self::transition_reverse("MainMenuDifficultyMenuChinaBack");
-                Self::transition_set_group("MainMenuSinglePlayerChinaMenuFromDiff", false);
+                Self::transition_reverse(
+                    "MainMenuDifficultyMenuChinaBack",
+                    effects,
+                    selected.as_deref_mut(),
+                );
+                Self::transition_set_group(
+                    "MainMenuSinglePlayerChinaMenuFromDiff",
+                    false,
+                    effects,
+                    selected.as_deref_mut(),
+                );
                 log::debug!("Reversing difficulty menu - China");
             }
             _ => {}
@@ -2439,7 +2888,7 @@ impl MainMenu {
             .push((PendingMainMenuAction::ResolutionDialog(x_res, y_res), None));
     }
 
-    fn show_resolution_dialog(x_res: i32, y_res: i32) {
+    fn show_resolution_dialog(x_res: i32, y_res: i32, effects: &mut WindowEventEffects<'_>) {
         let title = crate::game_text::GameText::fetch("GUI:Resolution");
         let body = format!("{}: {}x{}", title, x_res, y_res);
         let ok: MessageBoxFunc = Box::new(|effects| {
@@ -2452,17 +2901,35 @@ impl MainMenu {
                 log::warn!("DeclineResolution callback failed: {}", err);
             }
         });
-        let _ = message_box_ok_cancel(&title, &body, Some(ok), Some(cancel));
+        let _ = effects.with_manager(|manager, effects| {
+            message_box_ok_cancel(&title, &body, Some(ok), Some(cancel), manager, effects)
+        });
     }
 
     /// Handle canceled download
     /// Port of HandleCanceledDownload() - C++ lines 203-211
-    fn handle_canceled_download_state(state: &mut MainMenuState, reset_dropdown: bool) {
+    fn handle_canceled_download_state(
+        state: &mut MainMenuState,
+        reset_dropdown: bool,
+        effects: &mut WindowEventEffects<'_>,
+        mut selected: Option<&mut crate::gui::game_window::GameWindow>,
+    ) {
         state.button_pushed = false;
 
         if reset_dropdown {
-            Self::set_dropdown_hidden(state, DropdownType::Main, false);
-            Self::transition_set_group("MainMenuDefaultMenuLogoFade", false);
+            Self::set_dropdown_hidden(
+                state,
+                DropdownType::Main,
+                false,
+                effects,
+                selected.as_deref_mut(),
+            );
+            Self::transition_set_group(
+                "MainMenuDefaultMenuLogoFade",
+                false,
+                effects,
+                selected.as_deref_mut(),
+            );
             log::info!("Download canceled - resetting dropdown");
         }
     }
@@ -2509,9 +2976,14 @@ impl MainMenu {
         }
     }
 
-    pub fn handle_canceled_download(&mut self, reset_dropdown: bool) {
+    pub fn handle_canceled_download(
+        &mut self,
+        reset_dropdown: bool,
+        effects: &mut WindowEventEffects<'_>,
+        selected: Option<&mut crate::gui::GameWindow>,
+    ) {
         let mut state = &mut self.state;
-        Self::handle_canceled_download_state(&mut state, reset_dropdown);
+        Self::handle_canceled_download_state(&mut state, reset_dropdown, effects, selected);
     }
 }
 
@@ -3011,7 +3483,7 @@ pub fn reveal_main_menu_first_input_like_cpp(effects: &mut WindowEventEffects<'_
         // `dropDownWindows[DROPDOWN_MAIN]->winHide(FALSE)` (MapBorder2).
         // After Solo Play, drop_down is Single — do not cover MapBorder.
         if matches!(drop_down, DropdownType::None | DropdownType::Main) {
-            MainMenu::win_hide_dropdown_main_false();
+            MainMenu::win_hide_dropdown_main_false(effects, None);
         }
         handled || !not_shown
     })
@@ -3030,7 +3502,7 @@ pub fn apply_first_run_dropdown_reveal_visibility_for_tests(
         state.drop_down = DropdownType::Main;
         // C++ winHide(FALSE) DROPDOWN_MAIN only — queued name lookup, no
         // transition_set_group / show_only_dropdown.
-        MainMenu::win_hide_dropdown_main_false();
+        MainMenu::win_hide_dropdown_main_false(effects, None);
         set_main_menu_cursor_visibility(true, effects);
         state.not_shown = false;
         true
@@ -3055,11 +3527,10 @@ pub fn soft_reveal_main_menu_for_host_inject(effects: &mut WindowEventEffects<'_
 
 // Deferred menu pushes belong to the receiving Shell owner. The menu tick
 // drains them on that same GUI thread after the current input callback returns.
-fn queue_deferred_shell_push(screen: &str) {
-    let Some(owner) = crate::gui::window_manager::current_window_manager_owner() else {
-        log::warn!("MainMenu deferred Shell push has no receiving WindowManagerOwner");
-        return;
-    };
+fn queue_deferred_shell_push(screen: &str, effects: &mut WindowEventEffects<'_>) {
+    let owner = effects
+        .window_manager_owner
+        .expect("MainMenu requires receiving owner");
     if owner.queue_deferred_shell_push(screen) {
         log::info!("MainMenu: defer shell push {screen}");
     }
@@ -3069,20 +3540,23 @@ fn queue_deferred_shell_push(screen: &str) {
 /// `execute_pending_actions` PushShellScreen). Call from menu tick / after
 /// host inject so process_mouse_event can return Used without hanging on
 /// synchronous `Shell::push` / layout init.
-pub fn drain_deferred_shell_pushes() {
-    let Some(owner) = crate::gui::window_manager::current_window_manager_owner() else {
-        return;
-    };
+pub fn drain_deferred_shell_pushes(effects: &mut WindowEventEffects<'_>) {
+    let owner = effects
+        .window_manager_owner
+        .expect("MainMenu requires receiving owner");
     let screens = owner.drain_deferred_shell_pushes();
     for screen in screens {
-        queue_shell_push(screen, false);
+        queue_shell_push(effects, screen, false);
     }
 }
 
 /// Drop deferred shell pushes without applying (host `start_game` owns match start;
 /// pushing SkirmishGameOptions mid inject was RefCell-panicing layout init).
-pub fn clear_deferred_shell_pushes() {
-    if let Some(owner) = crate::gui::window_manager::current_window_manager_owner() {
+pub fn clear_deferred_shell_pushes(effects: &mut WindowEventEffects<'_>) {
+    {
+        let owner = effects
+            .window_manager_owner
+            .expect("MainMenu requires receiving owner");
         let count = owner.clear_deferred_shell_pushes();
         if count > 0 {
             log::info!("MainMenu: clear {count} deferred shell push(es)");
@@ -3099,7 +3573,7 @@ pub fn tick_main_menu_transitions(times: u32, effects: &mut WindowEventEffects<'
         if effects.menu_lifecycle_pending() {
             return;
         }
-        owner.with_manager(|manager| manager.update());
+        effects.with_manager(|manager, effects| manager.update(effects));
         let dummy = ();
         effects.with_main_menu(|menu, effects| {
             let _ = menu.update(&dummy, None, effects);
@@ -3108,7 +3582,7 @@ pub fn tick_main_menu_transitions(times: u32, effects: &mut WindowEventEffects<'
         if effects.menu_lifecycle_pending() {
             return;
         }
-        drain_deferred_shell_pushes();
+        drain_deferred_shell_pushes(effects);
     }
 }
 
@@ -3200,11 +3674,13 @@ pub fn os_wnd_widget_under_cursor_name_for_owner(
     })
 }
 
-pub fn os_wnd_widget_under_cursor_name(x: i32, y: i32) -> Option<String> {
-    use crate::gui::window_manager::{with_window_manager, with_window_manager_ref};
-    // Queued winHide from MainMenu first-run / dropdown must apply first.
-    with_window_manager(|_manager| {});
-    with_window_manager_ref(|manager| {
+pub fn os_wnd_widget_under_cursor_name(
+    x: i32,
+    y: i32,
+    effects: &mut WindowEventEffects<'_>,
+) -> Option<String> {
+    // The driving OS operation completes its window mutations before this query.
+    effects.with_manager_ref(|manager| {
         let window = manager.get_window_under_cursor(x, y, false)?;
         let guard = window.try_borrow().ok()?;
         if guard.is_hidden() || !guard.is_enabled() {
@@ -3221,9 +3697,8 @@ pub fn os_wnd_widget_under_cursor_name(x: i32, y: i32) -> Option<String> {
 }
 
 /// Debug: screen rect + hidden of a named live WM window.
-pub fn log_named_window_screen_rect(name: &str) {
-    use crate::gui::window_manager::with_window_manager_ref;
-    with_window_manager_ref(|manager| match manager.find_window_by_name(name) {
+pub fn log_named_window_screen_rect(name: &str, effects: &mut WindowEventEffects<'_>) {
+    effects.with_manager_ref(|manager| match manager.find_window_by_name(name) {
         Some(window) => {
             let g = window.borrow();
             let (sx, sy) = g.get_screen_position();
@@ -3369,7 +3844,8 @@ fn dispatch_os_click_named_window_when_hittable(
     if dispatch_os_click_named_window(name, effects) {
         return true;
     }
-    let exists = with_window_manager(|manager| manager.find_window_by_name(name).is_some());
+    let exists =
+        effects.with_manager(|manager, effects| manager.find_window_by_name(name).is_some());
     if !exists {
         return false;
     }
@@ -3491,13 +3967,16 @@ pub fn drive_os_wnd_open_challenge_menu_like_cpp(effects: &mut WindowEventEffect
     }
     let _ = dispatch_os_click_named_window("MainMenu.wnd:ButtonMedium", effects);
     tick_main_menu_transitions(4, effects);
-    let on_challenge = with_shell_ref(|shell| {
-        shell
-            .top_filename()
-            .map(|layout| layout.to_ascii_lowercase().contains("challenge"))
-            .unwrap_or(false)
-    })
-    .unwrap_or(false);
+    let on_challenge = effects
+        .window_manager_owner
+        .expect("MainMenu requires receiving Shell")
+        .with_shell_ref(|shell| {
+            shell
+                .top_filename()
+                .map(|layout| layout.to_ascii_lowercase().contains("challenge"))
+                .unwrap_or(false)
+        })
+        .unwrap_or(false);
     on_challenge || main_menu_challenge_latched(effects)
 }
 

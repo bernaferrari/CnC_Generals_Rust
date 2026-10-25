@@ -9,74 +9,46 @@ pub enum ResidualShellMapAction {
     Toggle = 3,
 }
 
-fn residual_shell_map_action_store(action: ResidualShellMapAction, shell_map_on: bool) {
-    if let Some(owner) = crate::gui::window_manager::current_window_manager_owner() {
-        owner.set_residual_shell_map(action, shell_map_on);
-    }
+/// Runtime-host probes receive the actual native owner, never an active slot.
+pub fn residual_shell_map_last_action(
+    owner: &crate::gui::window_manager::WindowManagerOwner,
+) -> ResidualShellMapAction {
+    owner.residual_shell_map_action()
 }
-
-/// Residual: last ShellMap residual action for the receiving client.
-pub fn residual_shell_map_last_action() -> ResidualShellMapAction {
-    crate::gui::window_manager::current_window_manager_owner()
-        .map(|owner| owner.residual_shell_map_action())
-        .unwrap_or(ResidualShellMapAction::None)
+pub fn residual_shell_map_is_on(owner: &crate::gui::window_manager::WindowManagerOwner) -> bool {
+    owner
+        .with_shell_ref(|shell| shell.is_shell_map_on())
+        .expect("receiving Shell read")
 }
-
-/// Residual: shell map enabled latch for the receiving client.
-pub fn residual_shell_map_is_on() -> bool {
-    crate::gui::window_manager::current_window_manager_owner()
-        .is_some_and(|owner| owner.residual_shell_map_on())
+pub fn simulate_shell_map_show(owner: &crate::gui::window_manager::WindowManagerOwner) -> bool {
+    owner
+        .with_shell_mut(|shell| shell.shell_map_on = true)
+        .expect("receiving Shell mutation");
+    owner.set_residual_shell_map(ResidualShellMapAction::Show, true);
+    residual_shell_map_is_on(owner)
 }
-
-/// Residual: enable shell map flag without ClearGameData / map load.
-pub fn simulate_shell_map_show() -> bool {
-    let Some(owner) = crate::gui::window_manager::current_window_manager_owner() else {
-        return false;
-    };
-    owner.with_scope(|| {
-        let applied = try_with_shell_mut(|shell| {
-            shell.shell_map_on = true;
-        })
-        .is_some();
-        residual_shell_map_action_store(ResidualShellMapAction::Show, true);
-        // Succeed even if shell borrow nested; residual latch is authoritative.
-        let _ = applied;
-        residual_shell_map_is_on()
-    })
+pub fn simulate_shell_map_hide(owner: &crate::gui::window_manager::WindowManagerOwner) -> bool {
+    owner
+        .with_shell_mut(|shell| shell.shell_map_on = false)
+        .expect("receiving Shell mutation");
+    owner.set_residual_shell_map(ResidualShellMapAction::Hide, false);
+    !residual_shell_map_is_on(owner)
 }
-
-/// Residual: disable shell map flag without teardown side effects.
-pub fn simulate_shell_map_hide() -> bool {
-    let Some(owner) = crate::gui::window_manager::current_window_manager_owner() else {
-        return false;
-    };
-    owner.with_scope(|| {
-        let applied = try_with_shell_mut(|shell| {
-            shell.shell_map_on = false;
-        })
-        .is_some();
-        residual_shell_map_action_store(ResidualShellMapAction::Hide, false);
-        let _ = applied;
-        !residual_shell_map_is_on()
-    })
-}
-
-/// Residual: toggle shell map residual latch.
-pub fn simulate_shell_map_toggle() -> bool {
-    let next = !residual_shell_map_is_on();
+pub fn simulate_shell_map_toggle(owner: &crate::gui::window_manager::WindowManagerOwner) -> bool {
+    let next = !residual_shell_map_is_on(owner);
     if next {
-        simulate_shell_map_show()
+        simulate_shell_map_show(owner);
     } else {
-        simulate_shell_map_hide()
-    };
-    residual_shell_map_action_store(ResidualShellMapAction::Toggle, next);
-    residual_shell_map_is_on() == next
+        simulate_shell_map_hide(owner);
+    }
+    owner.set_residual_shell_map(ResidualShellMapAction::Toggle, next);
+    residual_shell_map_is_on(owner) == next
 }
-
-/// Residual: show then hide composite (menu transition honesty).
-pub fn simulate_shell_map_prepare_cycle() -> bool {
-    if !simulate_shell_map_show() {
+pub fn simulate_shell_map_prepare_cycle(
+    owner: &crate::gui::window_manager::WindowManagerOwner,
+) -> bool {
+    if !simulate_shell_map_show(owner) {
         return false;
     }
-    simulate_shell_map_hide()
+    simulate_shell_map_hide(owner)
 }

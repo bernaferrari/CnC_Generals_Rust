@@ -7,12 +7,21 @@ use crate::gui::callbacks::download_menu::{
 };
 use crate::gui::{GameWindow, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled};
 
-pub fn DownloadMenuInit(layout: &WindowLayout, user_data: Option<&mut dyn std::any::Any>) {
-    download_menu_init(layout, user_data);
+pub fn DownloadMenuInit(
+    layout: &WindowLayout,
+    user_data: Option<&mut dyn std::any::Any>,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) {
+    effects.with_manager(|manager, effects| download_menu_init(layout, user_data, manager));
 }
 
-pub fn DownloadMenuUpdate(layout: &WindowLayout, user_data: Option<&mut dyn std::any::Any>) {
-    download_menu_update(layout, user_data);
+pub fn DownloadMenuUpdate(
+    layout: &WindowLayout,
+    user_data: Option<&mut dyn std::any::Any>,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) {
+    effects
+        .with_manager(|manager, effects| download_menu_update(layout, user_data, manager, effects));
 }
 
 pub fn DownloadMenuShutdown(layout: &WindowLayout, user_data: Option<&mut dyn std::any::Any>) {
@@ -20,7 +29,7 @@ pub fn DownloadMenuShutdown(layout: &WindowLayout, user_data: Option<&mut dyn st
 }
 
 pub fn DownloadMenuSystem(
-    window: &GameWindow,
+    window: &mut GameWindow,
     msg: WindowMessage,
     data1: WindowMsgData,
     data2: WindowMsgData,
@@ -30,7 +39,7 @@ pub fn DownloadMenuSystem(
 }
 
 pub fn DownloadMenuInput(
-    window: &GameWindow,
+    window: &mut GameWindow,
     msg: WindowMessage,
     data1: WindowMsgData,
     data2: WindowMsgData,

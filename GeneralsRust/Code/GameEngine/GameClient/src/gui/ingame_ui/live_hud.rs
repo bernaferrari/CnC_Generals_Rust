@@ -107,10 +107,14 @@ fn play_typing_sound() {
 }
 
 /// C++ InGameUI::militarySubtitle — start typewriter from empty displayStrings[0].
-pub fn start_military_subtitle(label: &str, duration_ms: i32) {
+pub fn start_military_subtitle(
+    label: &str,
+    duration_ms: i32,
+    manager: &mut crate::gui::window_manager::WindowManager,
+) {
     LIVE_HUD.with_borrow_mut(|hud| {
         hud.subtitle = None;
-        update_diplomacy_briefing_text(label, false);
+        update_diplomacy_briefing_text(label, false, manager);
         let title = military_caption_text(label);
         if title.is_empty() || duration_ms <= 0 {
             return;

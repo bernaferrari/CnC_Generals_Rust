@@ -48,6 +48,9 @@ pub enum MenuLaunchSource {
 
 #[derive(Debug)]
 pub enum MenuHostRequest {
+    AcknowledgePopup {
+        generation: usize,
+    },
     StartCampaign {
         descriptor: HostCampaignLaunchDescriptor,
         clear_previous: bool,

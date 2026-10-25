@@ -16,7 +16,7 @@ fn play_single_player_movie(
     let Some(window) = wm.find_window_by_name(window_name) else {
         return false;
     };
-    with_window_video_manager(runtime.videos, |manager| {
+    with_window_video_manager(runtime.videos(), |manager| {
         manager.play_movie(window, movie_name.to_string(), WindowVideoPlayType::Once)
     })
 }
@@ -26,7 +26,7 @@ fn is_single_player_movie_playing(movie_name: &str, runtime: &mut LoadScreenOper
     if let Some(hook) = single_player_movie_playing_hook() {
         return hook(movie_name);
     }
-    with_window_video_manager(runtime.videos, |manager| {
+    with_window_video_manager(runtime.videos(), |manager| {
         manager.is_movie_playing(movie_name)
     })
 }
@@ -47,7 +47,7 @@ fn play_challenge_background_movie(
     let Some(window) = wm.find_window_by_name(window_name) else {
         return false;
     };
-    with_window_video_manager(runtime.videos, |manager| {
+    with_window_video_manager(runtime.videos(), |manager| {
         manager.play_movie(window, movie_name.to_string(), WindowVideoPlayType::Once)
     })
 }
@@ -64,7 +64,7 @@ fn play_challenge_movie(
     let Some(window) = wm.find_window_by_name(window_name) else {
         return false;
     };
-    with_window_video_manager(runtime.videos, |manager| {
+    with_window_video_manager(runtime.videos(), |manager| {
         manager.play_movie(
             window,
             movie_name.to_string(),
@@ -86,7 +86,7 @@ fn advance_challenge_background_movie(
         return hook(movie_name);
     }
 
-    with_window_video_manager(runtime.videos, |manager| {
+    with_window_video_manager(runtime.videos(), |manager| {
         let before = manager.movie_progress(movie_name);
         if let Some(before) = before {
             if !before.frame_ready {

@@ -10,20 +10,16 @@ impl ControlBar {
         &mut self,
         new_state: ControlBarState,
         _draw_id: Option<u32>,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         self.portrait_state = PortraitDisplayState::default();
         if new_state == ControlBarState::None {
             self.show_rally_point(None);
         }
 
-        let mut context = {
-            let mut guard = self
-                .context
-                .write()
-                .map_err(|_| "Failed to acquire context write lock")?;
-            guard.current_state = new_state;
-            std::mem::take(&mut *guard)
-        };
+        self.context.current_state = new_state;
+        let mut context = std::mem::take(&mut self.context);
 
         context.available_commands.clear();
         context.construction_queue.clear();
@@ -40,44 +36,40 @@ impl ControlBar {
         // hide UnderConstruction / OCLTimer / Observer list / Beacon.
         // populateCommand (ControlBarCommand.cpp:317) winHide(FALSE) ButtonCommand01-14.
         if new_state == ControlBarState::Command {
-            reveal_ingame_command_window();
+            reveal_ingame_command_window(receiving_manager);
         }
         if new_state == ControlBarState::None {
             // C++ ControlBar.cpp:2128-2137 CB_CONTEXT_NONE hides CP_COMMAND,
             // CP_BUILD_QUEUE, CP_BEACON, CP_UNDER_CONSTRUCTION, CP_OCL_TIMER,
             // and both observer context parents.
-            apply_none_context_hide();
+            apply_none_context_hide(receiving_manager);
         }
         if new_state == ControlBarState::Observer {
-            super::control_bar_observer::init_observer_controls();
-            super::control_bar_observer::reveal_observer_list_window();
+            super::control_bar_observer::init_observer_controls(receiving_manager);
+            super::control_bar_observer::reveal_observer_list_window(receiving_manager);
         } else if new_state == ControlBarState::OclTimer {
             // C++ ControlBar.cpp:2293-2295 CB_CONTEXT_OCL_TIMER hides both
             // observer parents and lets the OCL lane own CP_OCL_TIMER.
-            super::control_bar_observer::hide_observer_context_windows();
+            super::control_bar_observer::hide_observer_context_windows(receiving_manager);
         } else {
             // C++ ControlBar.cpp:2135-2137, 2186-2188, 2229-2231, 2250-2252,
             // 2272-2274: every other context hides CP_OCL_TIMER plus both
             // observer context parents.
-            super::control_bar_observer::hide_observer_and_ocl_context_windows();
+            super::control_bar_observer::hide_observer_and_ocl_context_windows(receiving_manager);
         }
         if new_state == ControlBarState::StructureInventory {
-            reveal_ingame_command_window();
+            reveal_ingame_command_window(receiving_manager);
         }
 
-        self.rebuild_command_buttons(&mut context)?;
+        self.rebuild_command_buttons(&mut context, receiving_manager)?;
 
         if new_state == ControlBarState::Command {
             if let Some(&obj_id) = context.selected_objects.first() {
-                let _ = self.populate_build_queue(&mut context, obj_id);
+                let _ = self.populate_build_queue(&mut context, obj_id, receiving_manager, effects);
             }
         }
 
-        let mut guard = self
-            .context
-            .write()
-            .map_err(|_| "Failed to acquire context write lock")?;
-        *guard = context;
+        self.context = context;
         Ok(())
     }
 
@@ -157,7 +149,8 @@ impl ControlBar {
                 return Some(p);
             }
         }
-        if let Ok(context) = self.context.read() {
+        {
+            let context = &self.context;
             if let Some(first) = context.construction_queue.first() {
                 if first.progress > 0.0 {
                     return Some(first.progress);
@@ -257,11 +250,7 @@ impl ControlBar {
                     return true;
                 }
             }
-            let selected = self
-                .context
-                .read()
-                .ok()
-                .and_then(|c| c.selected_objects.first().copied());
+            let selected = self.context.selected_objects.first().copied();
             if selected == Some(obj_id)
                 && (!self.presentation_primary_command_set.is_empty()
                     || !self.presentation_command_set_names.is_empty()

@@ -17,7 +17,6 @@ use super::game_message::*;
 use super::message_stream::{GameMessageDisposition, GameMessageTranslator, emit_message};
 use crate::display::view::{IPoint2, Point3, with_tactical_view, with_tactical_view_ref};
 use crate::gui::game_window::{GameWindow, WindowStatus};
-use crate::gui::window_manager::with_window_manager_ref;
 use crate::helpers::TheInGameUI;
 use crate::input::{KeyCode, KeyModifiers};
 use crate::presentation_translator_residual::{
@@ -69,17 +68,16 @@ fn selection_window_chain_blocks_world_input(mut window: Option<Rc<RefCell<GameW
     false
 }
 
-fn world_position_is_under_opaque_window(position: &Coord3D) -> bool {
+fn world_position_is_under_opaque_window(
+    position: &Coord3D,
+    window_query: &mut dyn FnMut(i32, i32) -> bool,
+) -> bool {
     let point = Point3::new(position.x, position.y, position.z);
     let Some(screen) = with_tactical_view_ref(|view| view.world_to_screen(&point)) else {
         return false;
     };
 
-    with_window_manager_ref(|manager| {
-        selection_window_chain_blocks_world_input(
-            manager.get_window_under_cursor(screen.x, screen.y, false),
-        )
-    })
+    window_query(screen.x, screen.y)
 }
 
 /// Drawable selection state
@@ -112,7 +110,11 @@ pub struct SelectableDrawable {
 impl SelectableDrawable {
     /// Check if this drawable can be selected
     /// Port of C++ CanSelectDrawable() from SelectionXlat.cpp:104-191
-    pub fn can_select(&self, drag_selecting: bool) -> bool {
+    pub fn can_select(
+        &self,
+        drag_selecting: bool,
+        window_query: &mut dyn FnMut(i32, i32) -> bool,
+    ) -> bool {
         // Can't select if no object
         if self.object_id == 0 {
             return false;
@@ -138,7 +140,7 @@ impl SelectableDrawable {
 
         // Ignore objects obscured by opaque GUI windows
         // Matches C++ SelectionXlat.cpp:134-153
-        if world_position_is_under_opaque_window(&self.position) {
+        if world_position_is_under_opaque_window(&self.position, window_query) {
             return false;
         }
 
@@ -654,7 +656,11 @@ impl SelectionTranslator {
 
     /// Select a single drawable without sound
     /// Port of C++ selectSingleDrawableWithoutSound() from SelectionXlat.cpp:217-235
-    fn select_single_drawable_without_sound(&mut self, drawable_id: DrawableID) -> bool {
+    fn select_single_drawable_without_sound(
+        &mut self,
+        drawable_id: DrawableID,
+        window_query: &mut dyn FnMut(i32, i32) -> bool,
+    ) -> bool {
         // Deselect everything else
         self.deselect_all();
 
@@ -664,7 +670,7 @@ impl SelectionTranslator {
             .into_iter()
             .find(|drawable| drawable.id == drawable_id)
         {
-            if drawable.can_select(false) {
+            if drawable.can_select(false, window_query) {
                 self.current_selection.insert(drawable.object_id);
                 debug!("Selected single drawable: {}", drawable_id);
                 return true;
@@ -809,6 +815,7 @@ impl SelectionTranslator {
         &mut self,
         region: IRegion2D,
         modifiers: KeyModifiers,
+        window_query: &mut dyn FnMut(i32, i32) -> bool,
     ) -> Vec<GameMessageType> {
         let mut messages = Vec::new();
 
@@ -824,10 +831,13 @@ impl SelectionTranslator {
             return messages;
         }
 
-        let Some(clicked) = self.find_drawable_at_position(&ICoord2D {
-            x: region.x,
-            y: region.y,
-        }) else {
+        let Some(clicked) = self.find_drawable_at_position(
+            &ICoord2D {
+                x: region.x,
+                y: region.y,
+            },
+            window_query,
+        ) else {
             return messages;
         };
 
@@ -950,6 +960,7 @@ impl SelectionTranslator {
         &mut self,
         position: ICoord2D,
         modifiers: KeyModifiers,
+        window_query: &mut dyn FnMut(i32, i32) -> bool,
     ) -> Vec<GameMessageType> {
         let mut messages = Vec::new();
 
@@ -965,7 +976,7 @@ impl SelectionTranslator {
         // Matches C++ SelectionXlat.cpp:458-520
 
         // Find drawable at click position
-        if let Some(clicked_drawable) = self.find_drawable_at_position(&position) {
+        if let Some(clicked_drawable) = self.find_drawable_at_position(&position, window_query) {
             if !clicked_drawable.is_mass_selectable() {
                 return messages;
             }
@@ -976,9 +987,9 @@ impl SelectionTranslator {
             let add_to_group = modifiers.contains(KeyModifiers::SHIFT);
 
             let matching = if select_across_map {
-                self.collect_matching_across_map(clicked_drawable.object_id)
+                self.collect_matching_across_map(clicked_drawable.object_id, window_query)
             } else {
-                self.collect_matching_across_screen(clicked_drawable.object_id)
+                self.collect_matching_across_screen(clicked_drawable.object_id, window_query)
             };
 
             if matching.is_empty() {
@@ -1232,13 +1243,17 @@ impl SelectionTranslator {
     }
 
     /// Find drawable at screen position.
-    fn find_drawable_at_position(&self, position: &ICoord2D) -> Option<SelectableDrawable> {
+    fn find_drawable_at_position(
+        &self,
+        position: &ICoord2D,
+        window_query: &mut dyn FnMut(i32, i32) -> bool,
+    ) -> Option<SelectableDrawable> {
         let world = self.screen_to_world(position)?;
         let max_dist_sq = PICK_RADIUS_WORLD * PICK_RADIUS_WORLD;
 
         self.collect_drawables()
             .into_iter()
-            .filter(|d| d.can_select(false))
+            .filter(|d| d.can_select(false, window_query))
             .filter_map(|d| {
                 let dx = d.position.x - world.x;
                 let dy = d.position.y - world.y;
@@ -1249,7 +1264,11 @@ impl SelectionTranslator {
             .map(|(_, d)| d)
     }
 
-    fn collect_matching_across_map(&self, template_object_id: ObjectID) -> Vec<ObjectID> {
+    fn collect_matching_across_map(
+        &self,
+        template_object_id: ObjectID,
+        window_query: &mut dyn FnMut(i32, i32) -> bool,
+    ) -> Vec<ObjectID> {
         let drawables = self.collect_drawables();
         let Some(reference) = drawables.iter().find(|d| d.object_id == template_object_id) else {
             return Vec::new();
@@ -1258,7 +1277,7 @@ impl SelectionTranslator {
 
         let mut matching: Vec<ObjectID> = drawables
             .into_iter()
-            .filter(|d| d.can_select(false))
+            .filter(|d| d.can_select(false, window_query))
             .filter(|d| d.is_local_controlled)
             .filter(|d| d.is_mass_selectable())
             .filter(|d| d.kind_of_flags == reference_kind_of_flags)
@@ -1269,7 +1288,11 @@ impl SelectionTranslator {
         matching
     }
 
-    fn collect_matching_across_screen(&self, template_object_id: ObjectID) -> Vec<ObjectID> {
+    fn collect_matching_across_screen(
+        &self,
+        template_object_id: ObjectID,
+        window_query: &mut dyn FnMut(i32, i32) -> bool,
+    ) -> Vec<ObjectID> {
         let (screen_w, screen_h) = with_tactical_view_ref(|view| (view.width(), view.height()));
         let drawables = self.collect_drawables();
         let Some(reference) = drawables.iter().find(|d| d.object_id == template_object_id) else {
@@ -1279,7 +1302,7 @@ impl SelectionTranslator {
 
         let mut matching: Vec<ObjectID> = drawables
             .into_iter()
-            .filter(|d| d.can_select(false))
+            .filter(|d| d.can_select(false, window_query))
             .filter(|d| d.is_local_controlled)
             .filter(|d| d.is_mass_selectable())
             .filter(|d| d.kind_of_flags == reference_kind_of_flags)
@@ -1301,6 +1324,7 @@ impl SelectionTranslator {
         &self,
         region: &IRegion2D,
         drag_selecting: bool,
+        window_query: &mut dyn FnMut(i32, i32) -> bool,
     ) -> Vec<SelectableDrawable> {
         let min_x = region.x.min(region.x + region.width);
         let min_y = region.y.min(region.y + region.height);
@@ -1310,7 +1334,7 @@ impl SelectionTranslator {
         let mut out: Vec<SelectableDrawable> = self
             .collect_drawables()
             .into_iter()
-            .filter(|d| d.can_select(drag_selecting))
+            .filter(|d| d.can_select(drag_selecting, window_query))
             .filter(|d| {
                 self.world_to_screen(&d.position)
                     .map(|(x, y)| {
@@ -1349,8 +1373,12 @@ impl Default for SelectionTranslator {
     }
 }
 
-impl GameMessageTranslator for SelectionTranslator {
-    fn translate_game_message(&mut self, msg: &GameMessage) -> GameMessageDisposition {
+impl SelectionTranslator {
+    pub fn translate_with_window_query(
+        &mut self,
+        msg: &GameMessage,
+        window_query: &mut dyn FnMut(i32, i32) -> bool,
+    ) -> GameMessageDisposition {
         let is_mouse_click_message = matches!(
             msg.get_type(),
             GameMessageType::MouseLeftClick(..) | GameMessageType::MouseLeftDoubleClick(..)
@@ -1378,7 +1406,7 @@ impl GameMessageTranslator for SelectionTranslator {
 
             GameMessageType::MouseLeftClick(region, modifiers) => {
                 let modifiers = KeyModifiers::from_bits_truncate((*modifiers & 0xFF) as u8);
-                self.handle_mouse_left_click(region.clone(), modifiers)
+                self.handle_mouse_left_click(region.clone(), modifiers, window_query)
             }
 
             GameMessageType::MouseLeftDoubleClick(region, modifiers) => {
@@ -1387,7 +1415,7 @@ impl GameMessageTranslator for SelectionTranslator {
                     x: region.x,
                     y: region.y,
                 };
-                self.handle_double_click(pos, modifiers)
+                self.handle_double_click(pos, modifiers, window_query)
             }
 
             // Right mouse button
@@ -1499,30 +1527,30 @@ mod tests {
         };
 
         // Can select normally
-        assert!(drawable.can_select(false));
-        assert!(drawable.can_select(true));
+        assert!(drawable.can_select(false, &mut |_, _| false));
+        assert!(drawable.can_select(true, &mut |_, _| false));
 
         // Can't select dead units
         let mut dead = drawable.clone();
         dead.is_dead = true;
-        assert!(!dead.can_select(false));
+        assert!(!dead.can_select(false, &mut |_, _| false));
 
         // Can't drag-select structures
         let mut structure = drawable.clone();
         structure.is_structure = true;
-        assert!(structure.can_select(false)); // Can click-select
-        assert!(!structure.can_select(true)); // Can't drag-select
+        assert!(structure.can_select(false, &mut |_, _| false)); // Can click-select
+        assert!(!structure.can_select(true, &mut |_, _| false)); // Can't drag-select
 
         // Can't select hidden units
         let mut hidden = drawable.clone();
         hidden.is_hidden = true;
-        assert!(!hidden.can_select(false));
+        assert!(!hidden.can_select(false, &mut |_, _| false));
 
         // C++ SelectionXlat.cpp:181-189 — point click may select enemy/civilian/allied.
         let mut enemy = drawable.clone();
         enemy.is_local_controlled = false;
-        assert!(enemy.can_select(false));
-        assert!(!enemy.can_select(true));
+        assert!(enemy.can_select(false, &mut |_, _| false));
+        assert!(!enemy.can_select(true, &mut |_, _| false));
     }
 
     #[test]
@@ -2188,7 +2216,7 @@ mod tests {
             "catalog writer and has_kindof reader must share KINDOF_ALWAYS_SELECTABLE"
         );
         assert!(
-            drawable.can_select(false),
+            drawable.can_select(false, &mut |_, _| false),
             "dead + AlwaysSelectable must pass can_select (SelectionXlat.cpp:113-117)"
         );
 
@@ -2198,8 +2226,37 @@ mod tests {
             ..drawable
         };
         assert!(
-            !force_only.can_select(false),
+            !force_only.can_select(false, &mut |_, _| false),
             "ForceAttackable without Selectable is not selectable (SelectionXlat.cpp:119-127)"
         );
+    }
+}
+
+impl GameMessageTranslator for SelectionTranslator {
+    fn requires_receiving_window_context(&self) -> bool {
+        true
+    }
+    fn translate_game_message(&mut self, msg: &GameMessage) -> GameMessageDisposition {
+        log::error!(
+            "GUI translator requires translate_game_message_with_context; message left untranslated"
+        );
+        GameMessageDisposition::KeepMessage
+    }
+    fn translate_game_message_with_context(
+        &mut self,
+        msg: &GameMessage,
+        _client: game_engine::common::message_stream::TranslatorClientObservation,
+        dispatch: &mut game_engine::common::message_stream::WindowInputDispatchFn<'_>,
+        emitted: &mut Vec<GameMessage>,
+    ) -> GameMessageDisposition {
+        self.translate_with_window_query(msg, &mut |x, y| match dispatch(
+            game_engine::common::message_stream::WindowInputDispatch::OpaqueWindowAtScreen { x, y },
+            emitted,
+        ) {
+            Some(game_engine::common::message_stream::WindowInputDispatchResult::OpaqueWindow(
+                blocked,
+            )) => blocked,
+            _ => panic!("receiving input driver did not supply its opaque-window query"),
+        })
     }
 }

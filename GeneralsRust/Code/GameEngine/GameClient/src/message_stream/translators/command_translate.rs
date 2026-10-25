@@ -1,8 +1,12 @@
 use super::*;
 use gamelogic::helpers::TheAudio;
 
-impl GameMessageTranslator for CommandTranslator {
-    fn translate_game_message(&mut self, msg: &GameMessage) -> GameMessageDisposition {
+impl CommandTranslator {
+    pub fn translate_with_window_query(
+        &mut self,
+        msg: &GameMessage,
+        window_query: &mut dyn FnMut(i32, i32) -> bool,
+    ) -> GameMessageDisposition {
         // C++ CommandXlat.cpp:2322-2326 — DISABLE_INPUT destroys every message
         // except OPTIONS, CLEAR_GAME_DATA, and system ticks/CRC/replay camera.
         let msg_type = msg.get_type();
@@ -187,7 +191,7 @@ impl GameMessageTranslator for CommandTranslator {
             }
             GameMessageType::MetaSelectAll => {
                 return {
-                    for msg in handle_select_all(false) {
+                    for msg in handle_select_all(false, window_query) {
                         dispatch_translated_message(&msg);
                     }
                     GameMessageDisposition::DestroyMessage
@@ -195,7 +199,7 @@ impl GameMessageTranslator for CommandTranslator {
             }
             GameMessageType::MetaSelectAllAircraft => {
                 return {
-                    for msg in handle_select_all(true) {
+                    for msg in handle_select_all(true, window_query) {
                         dispatch_translated_message(&msg);
                     }
                     GameMessageDisposition::DestroyMessage
@@ -209,23 +213,23 @@ impl GameMessageTranslator for CommandTranslator {
                 return GameMessageDisposition::DestroyMessage;
             }
             GameMessageType::MouseRightClick(region, _modifiers) => (
-                self.handle_point_click(region, true),
+                self.handle_point_click(region, true, window_query),
                 GameMessageDisposition::DestroyMessage,
             ),
             GameMessageType::MouseLeftClick(region, _modifiers) => (
-                self.handle_point_click(region, false),
+                self.handle_point_click(region, false, window_query),
                 GameMessageDisposition::DestroyMessage,
             ),
             GameMessageType::MouseRightDoubleClick(region, _modifiers) => (
                 self.try_double_click_guard_command(region, true)
                     .map(|msg| vec![msg])
-                    .unwrap_or_else(|| self.handle_point_click(region, true)),
+                    .unwrap_or_else(|| self.handle_point_click(region, true, window_query)),
                 GameMessageDisposition::DestroyMessage,
             ),
             GameMessageType::MouseLeftDoubleClick(region, _modifiers) => (
                 self.try_double_click_guard_command(region, false)
                     .map(|msg| vec![msg])
-                    .unwrap_or_else(|| self.handle_point_click(region, false)),
+                    .unwrap_or_else(|| self.handle_point_click(region, false, window_query)),
                 GameMessageDisposition::DestroyMessage,
             ),
             GameMessageType::MouseoverLocationHint(pos) => (
@@ -249,15 +253,33 @@ impl GameMessageTranslator for CommandTranslator {
                 GameMessageDisposition::DestroyMessage,
             ),
             GameMessageType::RawMouseLeftButtonUp(pos, _modifiers, time) => (
-                self.handle_mouse_button_up(pos, MouseButton::Left, *_modifiers, *time),
+                self.handle_mouse_button_up(
+                    pos,
+                    MouseButton::Left,
+                    *_modifiers,
+                    *time,
+                    window_query,
+                ),
                 GameMessageDisposition::KeepMessage,
             ),
             GameMessageType::RawMouseRightButtonUp(pos, _modifiers, time) => (
-                self.handle_mouse_button_up(pos, MouseButton::Right, *_modifiers, *time),
+                self.handle_mouse_button_up(
+                    pos,
+                    MouseButton::Right,
+                    *_modifiers,
+                    *time,
+                    window_query,
+                ),
                 GameMessageDisposition::KeepMessage,
             ),
             GameMessageType::RawMouseMiddleButtonUp(pos, _modifiers, time) => (
-                self.handle_mouse_button_up(pos, MouseButton::Middle, *_modifiers, *time),
+                self.handle_mouse_button_up(
+                    pos,
+                    MouseButton::Middle,
+                    *_modifiers,
+                    *time,
+                    window_query,
+                ),
                 GameMessageDisposition::DestroyMessage,
             ),
             GameMessageType::RawKeyDown(key) => (
@@ -281,5 +303,34 @@ impl GameMessageTranslator for CommandTranslator {
         }
 
         disposition
+    }
+}
+
+impl GameMessageTranslator for CommandTranslator {
+    fn requires_receiving_window_context(&self) -> bool {
+        true
+    }
+    fn translate_game_message(&mut self, msg: &GameMessage) -> GameMessageDisposition {
+        log::error!(
+            "GUI translator requires translate_game_message_with_context; message left untranslated"
+        );
+        GameMessageDisposition::KeepMessage
+    }
+    fn translate_game_message_with_context(
+        &mut self,
+        msg: &GameMessage,
+        _client: game_engine::common::message_stream::TranslatorClientObservation,
+        dispatch: &mut game_engine::common::message_stream::WindowInputDispatchFn<'_>,
+        emitted: &mut Vec<GameMessage>,
+    ) -> GameMessageDisposition {
+        self.translate_with_window_query(msg, &mut |x, y| match dispatch(
+            game_engine::common::message_stream::WindowInputDispatch::OpaqueWindowAtScreen { x, y },
+            emitted,
+        ) {
+            Some(game_engine::common::message_stream::WindowInputDispatchResult::OpaqueWindow(
+                blocked,
+            )) => blocked,
+            _ => panic!("receiving input driver did not supply its opaque-window query"),
+        })
     }
 }

@@ -92,7 +92,7 @@ impl GameLogic {
         frame: u32,
         observe_camera: impl FnOnce() -> Option<crate::helpers::CameraTimeObservation>,
     ) -> Result<(), GameLogicError> {
-        self.update_with_optional_upgrade_services(frame, None, None, observe_camera)
+        self.update_with_optional_upgrade_services(frame, None, None, None, observe_camera)
     }
 
     /// Update with a borrowed UI callback for a deferred new-game start.
@@ -103,7 +103,7 @@ impl GameLogic {
         hooks: &mut dyn crate::helpers::LoadScreenHooks,
         observe_camera: impl FnOnce() -> Option<crate::helpers::CameraTimeObservation>,
     ) -> Result<(), GameLogicError> {
-        self.update_with_optional_upgrade_services(frame, None, Some(hooks), observe_camera)
+        self.update_with_optional_upgrade_services(frame, None, Some(hooks), None, observe_camera)
     }
 
     pub fn update_with_upgrade_services(
@@ -112,7 +112,44 @@ impl GameLogic {
         services: &mut dyn UpgradeCompletionServices,
         observe_camera: impl FnOnce() -> Option<crate::helpers::CameraTimeObservation>,
     ) -> Result<(), GameLogicError> {
-        self.update_with_optional_upgrade_services(frame, Some(services), None, observe_camera)
+        self.update_with_optional_upgrade_services(
+            frame,
+            Some(services),
+            None,
+            None,
+            observe_camera,
+        )
+    }
+
+    /// Paired standalone client execution lends the exact UI driver for the
+    /// original early-script phase; neither interpreter nor callbacks retain it.
+    pub fn update_with_script_driver(
+        &mut self,
+        frame: u32,
+        scripts: &crate::scripting::engine::ScriptEngine,
+        driver: &mut dyn crate::scripting::engine::ScriptExecutionDriver,
+        observe_camera: impl FnOnce() -> Option<crate::helpers::CameraTimeObservation>,
+    ) -> Result<(), GameLogicError> {
+        self.update_with_script_phase(
+            frame,
+            &mut |_world| {
+                scripts
+                    .update_with_driver(crate::scripting::executor::ScriptContext::new(), driver)
+                    .map_err(|error| GameLogicError::ScriptError(error.to_string()))
+            },
+            observe_camera,
+        )
+    }
+
+    /// Lend this exact world only during C++'s early script phase. This lets
+    /// UI actions pause the canonical world before synchronous window callbacks.
+    pub fn update_with_script_phase(
+        &mut self,
+        frame: u32,
+        scripts: &mut dyn FnMut(&mut Self) -> Result<(), GameLogicError>,
+        observe_camera: impl FnOnce() -> Option<crate::helpers::CameraTimeObservation>,
+    ) -> Result<(), GameLogicError> {
+        self.update_with_optional_upgrade_services(frame, None, None, Some(scripts), observe_camera)
     }
 
     fn update_with_optional_upgrade_services(
@@ -120,6 +157,7 @@ impl GameLogic {
         frame: u32,
         mut services: Option<&mut dyn UpgradeCompletionServices>,
         mut load_screen_hooks: Option<&mut dyn crate::helpers::LoadScreenHooks>,
+        scripts: Option<&mut dyn FnMut(&mut Self) -> Result<(), GameLogicError>>,
         observe_camera: impl FnOnce() -> Option<crate::helpers::CameraTimeObservation>,
     ) -> Result<(), GameLogicError> {
         self.last_update_was_empty_noop = false;
@@ -179,8 +217,20 @@ impl GameLogic {
         // The script engine runs BEFORE object updates so that scripts can react
         // to state changes from the previous frame and issue commands that will
         // be processed in the command phase below.
-        if let Err(e) = self.evaluate_scripts() {
+        let receiving_scripts = scripts.is_some();
+        let script_result = if let Some(scripts) = scripts {
+            scripts(self)
+        } else {
+            self.evaluate_scripts()
+        };
+        if let Err(e) = script_result {
+            if receiving_scripts {
+                return Err(e);
+            }
             warn!("Early scripting phase failed: {}", e);
+        }
+        if let Some(level) = crate::system::game_logic::take_pending_rank_level_limit() {
+            self.rank_level_limit = level;
         }
 
         // -----------------------------------------------------------------------

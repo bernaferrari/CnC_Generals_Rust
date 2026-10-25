@@ -296,11 +296,21 @@ impl TheGameLogic {
     }
 
     /// Prepare for a new game (matches C++ GameLogic::prepareNewGame).
+    /// Data-only headless preparation has no presentation capability.
     pub fn prepare_new_game(game_mode: Int, difficulty: Int, rank_points: Int) {
+        Self::prepare_new_game_with_load_screen_hooks(game_mode, difficulty, rank_points, None)
+            .expect("headless preparation has no fallible UI operations");
+    }
+    pub fn prepare_new_game_with_load_screen_hooks(
+        game_mode: Int,
+        difficulty: Int,
+        rank_points: Int,
+        mut hooks: Option<&mut dyn LoadScreenHooks>,
+    ) -> Result<(), String> {
         TheScriptEngine::set_global_difficulty(difficulty);
         Self::clear_start_new_game_request();
-        if let Some(hooks) = prepare_new_game_hooks() {
-            hooks.ensure_background_window();
+        if let Some(hooks) = hooks.as_deref_mut() {
+            hooks.ensure_background_window()?;
         }
         if let Ok(mut logic) = crate::system::game_logic::get_game_logic().lock() {
             logic.set_game_mode(game_mode);
@@ -314,10 +324,11 @@ impl TheGameLogic {
         }
         Self::set_rank_points_to_add_at_game_start(rank_points);
         if game_mode != crate::system::game_logic::GAME_SHELL {
-            if let Some(hooks) = prepare_new_game_hooks() {
-                hooks.hide_shell();
+            if let Some(hooks) = hooks.as_deref_mut() {
+                hooks.hide_shell()?;
             }
         }
+        Ok(())
     }
 
     /// Start a prepared game (C++ parity: GameLogic::startNewGame(FALSE)).

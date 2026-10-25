@@ -221,37 +221,35 @@ type MultiplayerLoadProgressHook = Arc<dyn Fn(i32, i32) + Send + Sync + 'static>
 /// Explicit bridge from one load-screen operation to its receiving display.
 /// The weak handle keeps the GameClient as the display owner while retaining
 /// the display mutex required by native draw/update callers.
+/// Device/presentation capability only. All mutable UI lives in the operation.
 pub struct LoadScreenPresentationPump<'a> {
     recipient: LoadScreenPresentationRecipient<'a>,
     mouse: Option<crate::core::subsystems::MouseHandle>,
 }
 enum LoadScreenPresentationRecipient<'a> {
-    Display {
-        display: Option<std::sync::Weak<std::sync::Mutex<crate::display::display::Display>>>,
-        fx: &'a mut crate::display::display_fx::DisplayFxState,
-        renderer: Option<&'a mut crate::gui::UIRenderer>,
-        owner: &'a crate::gui::window_manager::WindowManagerOwner,
-    },
-    Native(&'a mut dyn FnMut() -> Result<(), String>),
+    Display(Option<std::sync::Weak<std::sync::Mutex<crate::display::display::Display>>>),
+    Native(&'a mut dyn for<'draw> FnMut(LoadScreenDrawServices<'draw>) -> Result<(), String>),
+}
+pub struct LoadScreenDrawServices<'a> {
+    pub display: &'a mut crate::core::script_action_handler::ScriptDisplayReceiver,
+    pub renderer: Option<&'a mut crate::gui::UIRenderer>,
+    pub windows: &'a crate::gui::window_manager::WindowManagerOwner,
+    pub ime: &'a crate::gui::ime_manager::ImeManager,
 }
 impl<'a> LoadScreenPresentationPump<'a> {
     pub fn for_display(
         display: Option<&std::sync::Arc<std::sync::Mutex<crate::display::display::Display>>>,
-        fx: &'a mut crate::display::display_fx::DisplayFxState,
-        renderer: Option<&'a mut crate::gui::UIRenderer>,
-        owner: &'a crate::gui::window_manager::WindowManagerOwner,
     ) -> Self {
         Self {
-            recipient: LoadScreenPresentationRecipient::Display {
-                display: display.map(std::sync::Arc::downgrade),
-                fx,
-                renderer,
-                owner,
-            },
+            recipient: LoadScreenPresentationRecipient::Display(
+                display.map(std::sync::Arc::downgrade),
+            ),
             mouse: None,
         }
     }
-    pub fn for_native(present: &'a mut dyn FnMut() -> Result<(), String>) -> Self {
+    pub fn for_native(
+        present: &'a mut dyn for<'draw> FnMut(LoadScreenDrawServices<'draw>) -> Result<(), String>,
+    ) -> Self {
         Self {
             recipient: LoadScreenPresentationRecipient::Native(present),
             mouse: None,
@@ -261,24 +259,22 @@ impl<'a> LoadScreenPresentationPump<'a> {
         self.mouse = mouse;
         self
     }
-    fn clear_cursor_tooltip(&mut self) -> Result<(), String> {
+    pub fn clear_cursor_tooltip(&mut self) -> Result<(), String> {
         if let Some(mouse) = self.mouse.as_ref() {
-            let mut mouse = mouse
+            mouse
                 .lock()
-                .map_err(|_| "load-screen receiving mouse poisoned".to_string())?;
-            mouse.set_cursor_tooltip(String::new(), None, None, None);
+                .map_err(|_| "load-screen receiving mouse poisoned".to_owned())?
+                .set_cursor_tooltip(String::new(), None, None, None);
         }
         Ok(())
     }
-    pub fn pump(&mut self) -> Result<(), String> {
+    pub fn pump(&mut self, operation: &mut LoadScreenOperation<'_>) -> Result<(), String> {
+        operation.complete_callbacks();
         match &mut self.recipient {
-            LoadScreenPresentationRecipient::Native(present) => present(),
-            LoadScreenPresentationRecipient::Display {
-                display,
-                fx,
-                renderer,
-                owner,
-            } => {
+            LoadScreenPresentationRecipient::Native(present) => {
+                operation.with_draw_services(|services| present(services))
+            }
+            LoadScreenPresentationRecipient::Display(display) => {
                 let Some(display) = display.as_ref().and_then(std::sync::Weak::upgrade) else {
                     #[cfg(test)]
                     {
@@ -288,48 +284,27 @@ impl<'a> LoadScreenPresentationPump<'a> {
                     #[cfg(not(test))]
                     return Err("load screen has no receiving display presentation service".into());
                 };
-                let mut display = display
-                    .lock()
-                    .map_err(|_| "load-screen display poisoned".to_string())?;
-                display
-                    .update_receiving(fx)
-                    .map_err(|error| error.to_string())?;
-                display
-                    .draw(fx, renderer.as_deref_mut(), Some(owner))
-                    .map_err(|error| error.to_string())
+                operation.with_draw_services(|services| {
+                    let mut display = display
+                        .lock()
+                        .map_err(|_| "load-screen display poisoned".to_owned())?;
+                    display
+                        .update_receiving(services.display.fx_mut())
+                        .map_err(|error| error.to_string())?;
+                    display
+                        .draw(
+                            services.display.fx_mut(),
+                            services.renderer,
+                            Some(services.windows),
+                        )
+                        .map_err(|error| error.to_string())
+                })
             }
         }
     }
 }
-/// Disjoint load-screen initialization loan, independent of its UI/device loan.
-pub struct LoadScreenOwner<'a> {
-    pub(crate) campaign: &'a crate::gui::campaign_manager::CampaignManager,
-    pub(crate) first_load: &'a mut bool,
-    pub(crate) runtime: LoadScreenOperation<'a>,
-}
-impl<'a> LoadScreenOwner<'a> {
-    pub fn runtime_mut(&mut self) -> &mut LoadScreenOperation<'a> {
-        &mut self.runtime
-    }
-    pub fn windows(&self) -> &'a WindowManagerOwner {
-        self.runtime.windows
-    }
-    pub fn init(
-        &mut self,
-        kind: LoadScreenKind,
-        context: &LoadScreenInitContext,
-        pump: &mut LoadScreenPresentationPump<'_>,
-    ) -> Result<bool, String> {
-        init_load_screen_with_state(
-            kind,
-            context,
-            self.campaign,
-            self.first_load,
-            Some(pump),
-            &mut self.runtime,
-        )
-    }
-}
+/// Historical API name now denotes the same single mutable operation.
+pub type LoadScreenOwner<'a> = LoadScreenOperation<'a>;
 
 #[cfg(test)]
 pub type LoadScreenPresentationPumpTestHook = Rc<dyn Fn() + 'static>;
@@ -451,19 +426,72 @@ pub struct LoadScreenRuntime {
 /// One bounded loading operation borrows its client's state and window streams.
 pub struct LoadScreenOperation<'a> {
     pub state: &'a mut LoadScreenRuntime,
-    pub videos: &'a mut super::window_video_manager::WindowVideoManager,
     pub windows: &'a WindowManagerOwner,
+    pub(crate) first_load: &'a mut bool,
+    pub(crate) effects: crate::gui::game_window::WindowEventEffects<'a>,
+    pub(crate) renderer: Option<&'a mut crate::gui::UIRenderer>,
+    pub(crate) message_stream: &'a mut crate::message_stream::message_stream::MessageStream,
 }
-impl<'a> LoadScreenOperation<'a> {
-    pub fn new(
-        state: &'a mut LoadScreenRuntime,
-        videos: &'a mut super::window_video_manager::WindowVideoManager,
-        windows: &'a WindowManagerOwner,
-    ) -> Self {
-        Self {
-            state,
-            videos,
-            windows,
+impl LoadScreenOperation<'_> {
+    pub fn runtime_mut(&mut self) -> &mut Self {
+        self
+    }
+    pub fn windows(&self) -> &WindowManagerOwner {
+        self.windows
+    }
+    pub fn has_renderer(&self) -> bool {
+        self.renderer.is_some()
+    }
+    pub fn videos(&mut self) -> &mut super::window_video_manager::WindowVideoManager {
+        self.effects
+            .window_videos
+            .as_deref_mut()
+            .expect("load operation requires receiving loading videos")
+    }
+    fn campaign(&self) -> &crate::gui::campaign_manager::CampaignManager {
+        self.effects
+            .campaign_manager
+            .as_deref()
+            .expect("load operation requires receiving campaign")
+    }
+    pub fn init(
+        &mut self,
+        kind: LoadScreenKind,
+        context: &LoadScreenInitContext,
+        pump: &mut LoadScreenPresentationPump<'_>,
+    ) -> Result<bool, String> {
+        init_load_screen_with_state(kind, context, Some(pump), self)
+    }
+    pub(crate) fn complete_callbacks(&mut self) {
+        self.windows.complete_event_callbacks(&mut self.effects);
+        for message in self.effects.emitted_messages.drain(..) {
+            self.message_stream.append_message_value(message);
+        }
+    }
+    fn with_draw_services<R>(
+        &mut self,
+        operation: impl FnOnce(LoadScreenDrawServices<'_>) -> R,
+    ) -> R {
+        operation(LoadScreenDrawServices {
+            display: self
+                .effects
+                .script_display
+                .as_deref_mut()
+                .expect("load operation requires receiving display state"),
+            renderer: self.renderer.as_deref_mut(),
+            windows: self.windows,
+            ime: self
+                .effects
+                .ime
+                .as_deref()
+                .expect("load operation requires receiving IME"),
+        })
+    }
+}
+impl Drop for LoadScreenOperation<'_> {
+    fn drop(&mut self) {
+        for message in self.effects.emitted_messages.drain(..) {
+            self.message_stream.append_message_value(message);
         }
     }
 }

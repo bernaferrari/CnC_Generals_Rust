@@ -1,6 +1,4 @@
-//! One native WND notification becomes owned continuation data. Its receiving
-//! host completes it synchronously after releasing the window-manager loan.
-//! No callback/borrowed owner is retained in a global or dialog.
+//! Replay admission owns its source identity and holds no window/tree loan.
 use super::*;
 use std::rc::Weak;
 
@@ -8,39 +6,49 @@ use std::rc::Weak;
 pub struct ReplayPlayback {
     filename: String,
     parent: Option<Weak<RefCell<GameWindow>>>,
+    owner: crate::gui::window_manager::WindowManagerReceipt,
 }
 impl ReplayPlayback {
-    pub(crate) fn captured(filename: String, parent: Option<Weak<RefCell<GameWindow>>>) -> Self {
-        Self { filename, parent }
+    pub(crate) fn captured(
+        filename: String,
+        parent: Option<Weak<RefCell<GameWindow>>>,
+        owner: crate::gui::window_manager::WindowManagerReceipt,
+    ) -> Self {
+        Self {
+            filename,
+            parent,
+            owner,
+        }
     }
     pub fn filename(&self) -> &str {
         &self.filename
     }
-    /// ReplayMenu.cpp412–417/474–479/542–547 hide after the call even if the
-    /// header was rejected. Earlier no-selection/version dialogs never hide.
+    /// ReplayMenu.cpp412–417/474–479/542–547 hide after playback even on failure.
     pub fn playback(self, receiver: &mut dyn ReplayMenuReceiver) -> Result<(), String> {
         let result = receiver.playback_file(self.filename);
-        if let Some(parent) = self.parent.and_then(|parent| parent.upgrade()) {
-            let _ = parent.borrow_mut().hide(true);
+        if let Some(parent) = self.parent {
+            self.owner.hide_registered_window(parent);
         }
         result
     }
 }
 
-/// Implemented by the actual receiving host. `playback_file` must perform C++
-/// Recorder.cpp1031 clear-before-header, not defer clear until header success.
+/// UI delivery belongs to the receiving application, just like replay admission.
+/// Headless receivers explicitly reject unsupported UI actions.
 pub trait ReplayMenuReceiver {
     fn version_differs(&mut self, filename: &str) -> bool;
     fn playback_file(&mut self, filename: String) -> Result<(), String>;
-    fn confirm_older(&mut self, playback: ReplayPlayback) -> Result<(), String> {
-        super::super::message_box::message_box_replay_confirmation(playback);
-        Ok(())
+    fn confirm_older(&mut self, _playback: ReplayPlayback) -> Result<(), String> {
+        Err("replay confirmation requires receiving UI".into())
     }
-    /// QuitMenu.cpp175–225: capture filename/rank/difficulty/FPS, stop recording,
-    /// clear game, then playback captured filename or dispatch captured new game.
+    fn no_selection(&mut self) -> Result<(), String> {
+        Err("replay selection feedback requires receiving UI".into())
+    }
+    fn confirm_restart(&mut self) -> Result<(), String> {
+        Err("replay restart confirmation requires receiving UI".into())
+    }
     fn restart(&mut self) -> Result<(), String>;
 }
-
 #[derive(Debug)]
 pub enum ReplayMenuStep {
     CheckVersion(ReplayPlayback),
@@ -50,12 +58,24 @@ pub enum ReplayMenuStep {
     NoSelection,
 }
 impl ReplayMenuStep {
-    pub(super) fn complete_compatibility(self) {
-        if let Err(error) = self.complete(&mut CompatibilityReplayReceiver) {
-            let _ = message_box_ok(&GameText::fetch("GUI:Error"), &error, None);
+    pub(crate) fn complete_compatibility(
+        self,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    ) {
+        let result = self.complete(&mut CompatibilityReplayReceiver { effects });
+        if let Err(error) = result {
+            effects.with_manager(|manager, effects| {
+                let _ = message_box_ok(
+                    &GameText::fetch("GUI:Error"),
+                    &error,
+                    None,
+                    manager,
+                    effects,
+                );
+            });
         }
     }
-    /// Called within the same native operation, never by an end-frame queue.
+    /// Same admitted operation, after the selected Window and manager loan end.
     pub fn complete(self, receiver: &mut dyn ReplayMenuReceiver) -> Result<(), String> {
         match self {
             Self::CheckVersion(playback) if receiver.version_differs(playback.filename()) => {
@@ -63,33 +83,27 @@ impl ReplayMenuStep {
             }
             Self::CheckVersion(playback) | Self::Playback(playback) => playback.playback(receiver),
             Self::Restart => receiver.restart(),
-            Self::ConfirmRestart => {
-                super::super::message_box::message_box_restart_confirmation();
-                Ok(())
-            }
-            Self::NoSelection => {
-                let _ = message_box_ok(
-                    &GameText::fetch("GUI:NoFileSelected"),
-                    &GameText::fetch("GUI:PleaseSelectAFile"),
-                    None,
-                );
-                Ok(())
-            }
+            Self::ConfirmRestart => receiver.confirm_restart(),
+            Self::NoSelection => receiver.no_selection(),
         }
     }
 }
 
-#[derive(Default)]
 pub struct ReplayMenuOperation {
     pending: Option<ReplayMenuStep>,
     allow_offline_restart: bool,
+    owner: crate::gui::window_manager::WindowManagerReceipt,
 }
 impl ReplayMenuOperation {
     /// Supplied from the driving host's actual non-network mode. Multiplayer
     /// surrender remains its separate callback and never enters this route.
-    pub fn new(allow_offline_restart: bool) -> Self {
+    pub fn new(
+        allow_offline_restart: bool,
+        owner: crate::gui::window_manager::WindowManagerReceipt,
+    ) -> Self {
         Self {
             pending: None,
+            owner,
             allow_offline_restart,
         }
     }
@@ -120,6 +134,7 @@ impl ReplayMenuOperation {
                 let playback = ReplayPlayback {
                     filename,
                     parent: state.parent.clone(),
+                    owner: self.owner.clone(),
                 };
                 self.pending = Some(if direct {
                     ReplayMenuStep::Playback(playback)
@@ -142,13 +157,14 @@ impl ReplayMenuOperation {
         &mut self,
         manager: &mut crate::gui::window_manager::WindowManager,
         version: Option<&mut dyn FnMut(&str) -> bool>,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) {
         self.pending = match self.pending.take() {
             Some(ReplayMenuStep::CheckVersion(playback)) => {
                 if let Some(version) = version {
                     if version(playback.filename()) {
                         super::super::message_box::replay_version_confirmation_in(
-                            manager, playback,
+                            manager, playback, effects,
                         );
                         None
                     } else {
@@ -160,11 +176,11 @@ impl ReplayMenuOperation {
                 }
             }
             Some(ReplayMenuStep::NoSelection) => {
-                super::super::message_box::replay_no_selection_in(manager);
+                super::super::message_box::replay_no_selection_in(manager, effects);
                 None
             }
             Some(ReplayMenuStep::ConfirmRestart) => {
-                super::super::message_box::restart_confirmation_in(manager);
+                super::super::message_box::restart_confirmation_in(manager, effects);
                 None
             }
             other => other,
@@ -178,10 +194,11 @@ impl ReplayMenuOperation {
     }
 }
 
-/// Standalone compatibility entrypoint only. Native dispatch supplies Main's
-/// receiver; it never constructs this singleton adapter.
-pub(super) struct CompatibilityReplayReceiver;
-impl ReplayMenuReceiver for CompatibilityReplayReceiver {
+/// Core-only adapter. Its pending step has already left all WND callbacks.
+struct CompatibilityReplayReceiver<'a, 'effects> {
+    effects: &'a mut crate::gui::game_window::WindowEventEffects<'effects>,
+}
+impl ReplayMenuReceiver for CompatibilityReplayReceiver<'_, '_> {
     fn version_differs(&mut self, filename: &str) -> bool {
         with_recorder_mut(|recorder| recorder.test_version_playback(filename.into()))
             .and_then(Result::ok)
@@ -195,24 +212,52 @@ impl ReplayMenuReceiver for CompatibilityReplayReceiver {
     }
     fn confirm_older(&mut self, playback: ReplayPlayback) -> Result<(), String> {
         let mut playback = Some(playback);
-        let callback: crate::gui::callbacks::message_box::MessageBoxFunc =
-            Box::new(move |_effects| {
-                if let Some(playback) = playback.take() {
-                    if let Err(error) = playback.playback(&mut CompatibilityReplayReceiver) {
-                        let _ = message_box_ok(&GameText::fetch("GUI:Error"), &error, None);
-                    }
-                }
-            });
-        let _ = super::super::message_box::message_box_ok_cancel(
-            &GameText::fetch("GUI:OlderReplayVersionTitle"),
-            &GameText::fetch("GUI:OlderReplayVersion"),
-            Some(callback),
-            None,
-        );
+        let callback: super::super::message_box::MessageBoxFunc = Box::new(move |effects| {
+            if let Some(playback) = playback.take() {
+                effects.queue_compatibility_replay(ReplayMenuStep::Playback(playback));
+            }
+        });
+        self.effects.with_manager(|manager, effects| {
+            let _ = super::super::message_box::message_box_ok_cancel(
+                &GameText::fetch("GUI:OlderReplayVersionTitle"),
+                &GameText::fetch("GUI:OlderReplayVersion"),
+                Some(callback),
+                None,
+                manager,
+                effects,
+            );
+        });
+        Ok(())
+    }
+    fn no_selection(&mut self) -> Result<(), String> {
+        self.effects.with_manager(|manager, effects| {
+            let _ = message_box_ok(
+                &GameText::fetch("GUI:NoFileSelected"),
+                &GameText::fetch("GUI:PleaseSelectAFile"),
+                None,
+                manager,
+                effects,
+            );
+        });
+        Ok(())
+    }
+    fn confirm_restart(&mut self) -> Result<(), String> {
+        let callback: super::super::message_box::MessageBoxFunc =
+            Box::new(|effects| effects.queue_compatibility_replay(ReplayMenuStep::Restart));
+        self.effects.with_manager(|manager, effects| {
+            let _ = super::super::message_box::message_box_yes_no(
+                &GameText::fetch("GUI:RestartConfirmationTitle"),
+                &GameText::fetch("GUI:RestartConfirmation"),
+                Some(callback),
+                None,
+                manager,
+                effects,
+            );
+        });
         Ok(())
     }
     fn restart(&mut self) -> Result<(), String> {
-        unreachable!("standalone replay menu has no restart operation")
+        Err("Core replay requires an explicit receiving restart service".into())
     }
 }
 
@@ -408,6 +453,9 @@ mod tests {
                 reader.test_version_playback(selected.into()).unwrap()
             };
             let mut context = ControlBarInputContext {
+            menus: None,
+            ime:None,
+            in_game_movies: None,
             script_display: None,
             window_videos: None,
             upgrade_tooltip: crate::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource::Standalone,

@@ -13,7 +13,7 @@ use crate::gui::callbacks::online_callback_support::dispatch_esc_gadget_selected
 use crate::gui::callbacks::wol_lobby_menu::refresh_game_list_boxes;
 use crate::gui::callbacks::wol_welcome_menu::{get_look_at_player, populate_player_info_windows};
 use crate::gui::{
-    GameWindow, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled, with_window_manager,
+    GameWindow, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled,
     write_input_focus_response,
 };
 use game_engine::common::name_key_generator::NameKeyGenerator;
@@ -70,8 +70,14 @@ fn checkbox_checked(window: &Rc<RefCell<GameWindow>>) -> bool {
         .unwrap_or(false)
 }
 
-fn set_checkbox_checked(window: &Rc<RefCell<GameWindow>>, checked: bool) {
-    let _ = window.borrow_mut().gadget_check_box_set_checked(checked);
+fn set_checkbox_checked(
+    window: &Rc<RefCell<GameWindow>>,
+    checked: bool,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) {
+    let _ = window
+        .borrow_mut()
+        .gadget_check_box_set_checked(checked, effects);
 }
 
 fn message_box_yes() {
@@ -89,7 +95,11 @@ fn message_box_yes() {
     }
 }
 
-pub fn popup_player_info_init(layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>) {
+pub fn popup_player_info_init(
+    layout: &WindowLayout,
+    _user_data: Option<&dyn std::any::Any>,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) {
     let state_slot = popup_state();
     let mut state = state_slot.borrow_mut();
     state.parent_id = name_to_id("PopupPlayerInfo.wnd:PopupParent");
@@ -101,7 +111,7 @@ pub fn popup_player_info_init(layout: &WindowLayout, _user_data: Option<&dyn std
     state.checkbox_asian_id = name_to_id("PopupPlayerInfo.wnd:CheckBoxAsianText");
     state.checkbox_non_asian_id = name_to_id("PopupPlayerInfo.wnd:CheckBoxNonAsianText");
 
-    with_window_manager(|manager| {
+    effects.with_manager(|manager, effects| {
         state.parent = manager.get_window_by_id(state.parent_id);
         state.button_close = manager.get_window_by_id(state.button_close_id);
         state.button_buddies = manager.get_window_by_id(state.button_buddies_id);
@@ -114,7 +124,7 @@ pub fn popup_player_info_init(layout: &WindowLayout, _user_data: Option<&dyn std
 
     layout.hide(false);
     if let Some(parent) = state.parent.as_ref() {
-        let _ = with_window_manager(|manager| manager.set_focus(Some(parent)));
+        let _ = effects.with_manager(|manager, effects| manager.set_focus(Some(parent), effects));
     }
 
     state.is_overlay_active = true;
@@ -146,14 +156,18 @@ pub fn popup_player_info_init(layout: &WindowLayout, _user_data: Option<&dyn std
 
     let prefs = CustomMatchPreferencesStore::new();
     if let Some(check) = state.checkbox_asian.as_ref() {
-        set_checkbox_checked(check, !prefs.prefs().get_disallow_asian_text());
+        set_checkbox_checked(check, !prefs.prefs().get_disallow_asian_text(), effects);
     }
     if let Some(check) = state.checkbox_non_asian.as_ref() {
-        set_checkbox_checked(check, !prefs.prefs().get_disallow_non_asian_text());
+        set_checkbox_checked(check, !prefs.prefs().get_disallow_non_asian_text(), effects);
     }
 }
 
-pub fn popup_player_info_shutdown(layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>) {
+pub fn popup_player_info_shutdown(
+    layout: &WindowLayout,
+    _user_data: Option<&dyn std::any::Any>,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) {
     layout.hide(true);
     let state_slot = popup_state();
     let mut state = state_slot.borrow_mut();
@@ -175,6 +189,7 @@ pub fn popup_player_info_input(
     msg: WindowMessage,
     data1: WindowMsgData,
     data2: WindowMsgData,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> WindowMsgHandled {
     if msg != WindowMessage::Char || data1 != KEY_ESC {
         return WindowMsgHandled::Ignored;
@@ -187,7 +202,7 @@ pub fn popup_player_info_input(
         let state = slot.borrow();
         (state.parent.clone(), state.button_close_id)
     };
-    dispatch_esc_gadget_selected(parent, button_id);
+    dispatch_esc_gadget_selected(parent, button_id, effects);
     WindowMsgHandled::Handled
 }
 
@@ -196,6 +211,7 @@ pub fn popup_player_info_system(
     msg: WindowMessage,
     data1: WindowMsgData,
     data2: WindowMsgData,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> WindowMsgHandled {
     let state_slot = popup_state();
     let mut state = state_slot.borrow_mut();
@@ -242,7 +258,7 @@ pub fn popup_player_info_system(
                     if disallow_asian {
                         if let Some(other) = state.checkbox_non_asian.as_ref() {
                             if !checkbox_checked(other) {
-                                set_checkbox_checked(other, true);
+                                set_checkbox_checked(other, true, effects);
                                 let mut prefs = CustomMatchPreferencesStore::new();
                                 prefs.prefs_mut().set_disallow_non_asian_text(false);
                                 prefs.write();
@@ -272,7 +288,7 @@ pub fn popup_player_info_system(
                     if disallow_non_asian {
                         if let Some(other) = state.checkbox_asian.as_ref() {
                             if !checkbox_checked(other) {
-                                set_checkbox_checked(other, true);
+                                set_checkbox_checked(other, true, effects);
                                 let mut prefs = CustomMatchPreferencesStore::new();
                                 prefs.prefs_mut().set_disallow_asian_text(false);
                                 prefs.write();

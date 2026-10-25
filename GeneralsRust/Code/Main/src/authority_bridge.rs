@@ -4,7 +4,9 @@
 //! Wave 956: host_object/host_objects authority dual-read seal.
 //! Wave 958: host_object dual-read seal (tests + residual).
 use crate::command_system::{CommandType, GameCommand, ModifierKeys};
-use crate::game_logic::{AIState, GameLogic, KindOf, ObjectId, Team, ThingTemplate, VictoryCondition};
+use crate::game_logic::{
+    AIState, GameLogic, KindOf, ObjectId, Team, ThingTemplate, VictoryCondition,
+};
 use crate::presentation_frame::PresentationFrame;
 use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
 use crate::ui::{GameHUD, GameUIState};
@@ -224,7 +226,13 @@ pub fn run_presentation_consumer_path() -> gamelogic::GameLogicResult<(bool, Str
     #[cfg(feature = "game_client")]
     let control_bar_ok = {
         let mut bar = game_client::gui::control_bar::ControlBar::new();
-        frame.apply_to_control_bar(&mut bar);
+        let mut client =
+            game_client::core::GameClient::new().expect("owned headless ControlBar client");
+        client.with_window_event_effects(None, |effects| {
+            effects.with_manager(|manager, effects| {
+                frame.apply_to_control_bar(&mut bar, manager, effects)
+            })
+        });
         bar.selection_panel_health()
             .map(|(hp, _)| (hp - 120.0).abs() < 0.01)
             .unwrap_or(false)

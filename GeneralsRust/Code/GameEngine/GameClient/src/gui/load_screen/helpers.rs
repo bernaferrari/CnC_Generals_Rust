@@ -72,13 +72,21 @@ fn play_multiplayer_load_screen_music(music_name: &str) {
     }
 }
 
-fn set_progress_window(wm: &mut WindowManager, name: &str, percent: f32) {
+fn set_progress_window(
+    wm: &mut WindowManager,
+    name: &str,
+    percent: f32,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) {
     if let Some(window) = wm.find_window_by_name(name) {
-        let _ = window.borrow_mut().send_system_message(
-            WindowMessage::User(GPM_SET_PROGRESS),
-            (percent as i32) as WindowMsgData,
-            0,
-        );
+        let _ = effects.with_receiving_manager(wm, |effects| {
+            window.borrow_mut().send_system_message(
+                WindowMessage::User(GPM_SET_PROGRESS),
+                (percent as i32) as WindowMsgData,
+                0,
+                effects,
+            )
+        });
     }
 }
 
@@ -143,7 +151,7 @@ fn set_window_image(
 
 fn hide_window(wm: &mut WindowManager, name: &str, hidden: bool) {
     if let Some(window) = wm.find_window_by_name(name) {
-        let _ = window.borrow_mut().hide(hidden);
+        let _ = window.borrow_mut().hide(hidden, wm);
     }
 }
 

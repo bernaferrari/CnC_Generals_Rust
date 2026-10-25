@@ -4,8 +4,12 @@
 impl InGameUI {
     /// Select locally-controlled mass-selectable units, excluding dozers,
     /// harvesters, IGNORES_SELECT_ALL, contained/dead objects.
-    pub fn select_all_units_by_type(&mut self, aircraft_only: bool) -> Vec<ObjectID> {
-        let ids = collect_select_all_unit_ids(aircraft_only);
+    pub fn select_all_units_by_type(
+        &mut self,
+        aircraft_only: bool,
+        window_query: &mut dyn FnMut(i32, i32) -> bool,
+    ) -> Vec<ObjectID> {
+        let ids = collect_select_all_unit_ids(aircraft_only, window_query);
         if ids.is_empty() {
             return ids;
         }
@@ -20,7 +24,10 @@ impl InGameUI {
     }
 }
 
-fn collect_select_all_unit_ids(aircraft_only: bool) -> Vec<ObjectID> {
+fn collect_select_all_unit_ids(
+    aircraft_only: bool,
+    window_query: &mut dyn FnMut(i32, i32) -> bool,
+) -> Vec<ObjectID> {
     let max_select = TheInGameUI::get_max_select_count();
     let mut selected = Vec::new();
 
@@ -59,10 +66,13 @@ fn collect_select_all_unit_ids(aircraft_only: bool) -> Vec<ObjectID> {
 
     // C++ selectAllUnitsByType: screen region first, then whole map (InGameUI.cpp:4877).
     let screen_ids = with_tactical_view_ref(|view| {
-        view.iterate_drawables_in_region(Some((
-            IPoint2::new(0, 0),
-            IPoint2::new(view.width(), view.height()),
-        )))
+        view.iterate_drawables_in_region(
+            Some((
+                IPoint2::new(0, 0),
+                IPoint2::new(view.width(), view.height()),
+            )),
+            window_query,
+        )
     });
     let on_screen: Vec<ObjectID> = selected
         .iter()
@@ -94,11 +104,12 @@ fn collect_select_all_unit_ids(aircraft_only: bool) -> Vec<ObjectID> {
 /// Crate/command-translator entry: apply select-all and emit MSG_CREATE_SELECTED_GROUP.
 pub fn select_all_units_by_type(
     aircraft_only: bool,
+    window_query: &mut dyn FnMut(i32, i32) -> bool,
 ) -> Vec<crate::message_stream::game_message::GameMessageType> {
     use crate::message_stream::game_message::GameMessageType;
     use crate::message_stream::player_state::get_local_player_id;
 
-    let selected = collect_select_all_unit_ids(aircraft_only);
+    let selected = collect_select_all_unit_ids(aircraft_only, window_query);
     let local_player = get_local_player_id();
     if local_player >= 0 {
         if let Ok(mut manager) = get_selection_manager().write() {

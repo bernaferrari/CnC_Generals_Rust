@@ -6,9 +6,7 @@ use super::ControlBarContext;
 use super::control_bar::ControlBar;
 use crate::game_text::GameText;
 use crate::gui::game_window::{Image, WindowStatus};
-use crate::gui::{
-    GameWindow, WindowMessage, WindowMsgHandled, with_window_manager, with_window_manager_ref,
-};
+use crate::gui::{GameWindow, WindowMessage, WindowMsgHandled};
 use game_engine::common::ini::ini_command_button::get_control_bar as get_ini_control_bar;
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use gamelogic::control_bar::get_control_bar_bridge;
@@ -75,26 +73,29 @@ pub(super) fn populate_observer_commands(
 }
 
 /// C++ `ControlBar::initObserverControls` — cache list/info windows after ControlBar.wnd load.
-pub fn init_observer_controls() {
-    with_window_manager(|manager| {
-        let _ = manager.find_window_by_name("ControlBar.wnd:ObserverPlayerInfoWindow");
-        let _ = manager.find_window_by_name("ControlBar.wnd:ObserverPlayerListWindow");
+pub fn init_observer_controls(receiving_manager: &mut crate::gui::window_manager::WindowManager) {
+    (|receiving_manager: &mut crate::gui::window_manager::WindowManager| {
+        let _ = receiving_manager.find_window_by_name("ControlBar.wnd:ObserverPlayerInfoWindow");
+        let _ = receiving_manager.find_window_by_name("ControlBar.wnd:ObserverPlayerListWindow");
         for i in 0..MAX_OBSERVER_BUTTONS {
-            let _ = manager.find_window_by_name(&format!("ControlBar.wnd:ButtonPlayer{i}"));
-            let _ = manager.find_window_by_name(&format!("ControlBar.wnd:StaticTextPlayer{i}"));
+            let _ =
+                receiving_manager.find_window_by_name(&format!("ControlBar.wnd:ButtonPlayer{i}"));
+            let _ = receiving_manager
+                .find_window_by_name(&format!("ControlBar.wnd:StaticTextPlayer{i}"));
         }
-        let _ = manager.find_window_by_name("ControlBar.wnd:StaticTextNumberOfUnits");
-        let _ = manager.find_window_by_name("ControlBar.wnd:StaticTextNumberOfBuildings");
-        let _ = manager.find_window_by_name("ControlBar.wnd:StaticTextNumberOfUnitsKilled");
-        let _ = manager.find_window_by_name("ControlBar.wnd:StaticTextNumberOfUnitsLost");
-        let _ = manager.find_window_by_name("ControlBar.wnd:StaticTextPlayerName");
-        let _ = manager.find_window_by_name("ControlBar.wnd:WinFlag");
-        let _ = manager.find_window_by_name("ControlBar.wnd:WinGeneralPortrait");
+        let _ = receiving_manager.find_window_by_name("ControlBar.wnd:StaticTextNumberOfUnits");
+        let _ = receiving_manager.find_window_by_name("ControlBar.wnd:StaticTextNumberOfBuildings");
+        let _ =
+            receiving_manager.find_window_by_name("ControlBar.wnd:StaticTextNumberOfUnitsKilled");
+        let _ = receiving_manager.find_window_by_name("ControlBar.wnd:StaticTextNumberOfUnitsLost");
+        let _ = receiving_manager.find_window_by_name("ControlBar.wnd:StaticTextPlayerName");
+        let _ = receiving_manager.find_window_by_name("ControlBar.wnd:WinFlag");
+        let _ = receiving_manager.find_window_by_name("ControlBar.wnd:WinGeneralPortrait");
         let _ = NameKeyGenerator::name_to_key("ControlBar.wnd:ButtonCancel");
         for i in 0..MAX_OBSERVER_BUTTONS {
             let _ = NameKeyGenerator::name_to_key(&format!("ControlBar.wnd:ButtonPlayer{i}"));
         }
-    });
+    })(receiving_manager);
     OBSERVER_CONTROLS_READY.store(1, Ordering::Relaxed);
 }
 
@@ -116,66 +117,102 @@ pub fn observer_look_at_player_index() -> Option<i32> {
 /// 2229-2231, 2250-2252, 2272-2274): every non-observer context keeps both
 /// observer context parents hidden, so the StaticTextObs "Units / Buildings /
 /// Units Lost" observer labels never show during normal play.
-pub fn hide_observer_context_windows() {
-    hide_named("ControlBar.wnd:ObserverPlayerInfoWindow", true);
-    hide_named("ControlBar.wnd:ObserverPlayerListWindow", true);
+pub fn hide_observer_context_windows(
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+) {
+    hide_named(
+        "ControlBar.wnd:ObserverPlayerInfoWindow",
+        true,
+        receiving_manager,
+    );
+    hide_named(
+        "ControlBar.wnd:ObserverPlayerListWindow",
+        true,
+        receiving_manager,
+    );
 }
 
 /// Same as `hide_observer_context_windows` plus the OCL timer window
 /// (C++ ControlBar.cpp:2135, 2186, 2229, 2250, 2272 — CB_CONTEXT_NONE through
 /// CB_CONTEXT_MULTI_SELECT all hide CP_OCL_TIMER as well). Used by contexts
 /// that do not own the OCL timer display.
-pub fn hide_observer_and_ocl_context_windows() {
-    hide_observer_context_windows();
-    hide_named("ControlBar.wnd:OCLTimerWindow", true);
+pub fn hide_observer_and_ocl_context_windows(
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+) {
+    hide_observer_context_windows(receiving_manager);
+    hide_named("ControlBar.wnd:OCLTimerWindow", true, receiving_manager);
 }
 
-fn hide_named(name: &str, hidden: bool) {
-    with_window_manager(|manager| {
-        if let Some(win) = manager.find_window_by_name(name) {
-            let _ = win.borrow_mut().hide(hidden);
+fn hide_named(
+    name: &str,
+    hidden: bool,
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+) {
+    (|receiving_manager: &mut crate::gui::window_manager::WindowManager| {
+        if let Some(win) = receiving_manager.find_window_by_name(name) {
+            let _ = win.borrow_mut().hide(hidden, receiving_manager);
         }
-    });
+    })(receiving_manager);
 }
 
-fn set_named_text(name: &str, text: &str) {
-    with_window_manager(|manager| {
-        if let Some(win) = manager.find_window_by_name(name) {
+fn set_named_text(
+    name: &str,
+    text: &str,
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+) {
+    (|receiving_manager: &mut crate::gui::window_manager::WindowManager| {
+        if let Some(win) = receiving_manager.find_window_by_name(name) {
             let _ = win.borrow_mut().set_text(text);
         }
-    });
+    })(receiving_manager);
 }
 fn pack_rgba(r: u8, g: u8, b: u8, a: u8) -> u32 {
     ((a as u32) << 24) | ((r as u32) << 16) | ((g as u32) << 8) | (b as u32)
 }
 
-fn apply_enabled_image(name: &str, image_name: &str) {
+fn apply_enabled_image(
+    name: &str,
+    image_name: &str,
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+) {
     if image_name.is_empty() {
         return;
     }
-    with_window_manager(|manager| {
-        let Some(image) = manager.win_find_image(image_name) else {
+    (|receiving_manager: &mut crate::gui::window_manager::WindowManager| {
+        let Some(image) = receiving_manager.win_find_image(image_name) else {
             return;
         };
-        if let Some(win) = manager.find_window_by_name(name) {
+        if let Some(win) = receiving_manager.find_window_by_name(name) {
             let _ = win.borrow_mut().set_enabled_image(0, image);
             win.borrow_mut().set_status(WindowStatus::IMAGE);
         }
-    });
+    })(receiving_manager);
 }
 
 /// C++ `ControlBar::populateObserverList`.
-pub fn populate_observer_list() {
+pub fn populate_observer_list(receiving_manager: &mut crate::gui::window_manager::WindowManager) {
     if !observer_controls_ready() {
-        init_observer_controls();
+        init_observer_controls(receiving_manager);
     }
 
-    hide_named("ControlBar.wnd:ObserverPlayerInfoWindow", true);
-    hide_named("ControlBar.wnd:ObserverPlayerListWindow", false);
-    hide_named("ControlBar.wnd:CommandWindow", true);
-    hide_named("ControlBar.wnd:BeaconWindow", true);
-    hide_named("ControlBar.wnd:UnderConstructionWindow", true);
-    hide_named("ControlBar.wnd:OCLTimerWindow", true);
+    hide_named(
+        "ControlBar.wnd:ObserverPlayerInfoWindow",
+        true,
+        receiving_manager,
+    );
+    hide_named(
+        "ControlBar.wnd:ObserverPlayerListWindow",
+        false,
+        receiving_manager,
+    );
+    hide_named("ControlBar.wnd:CommandWindow", true, receiving_manager);
+    hide_named("ControlBar.wnd:BeaconWindow", true, receiving_manager);
+    hide_named(
+        "ControlBar.wnd:UnderConstructionWindow",
+        true,
+        receiving_manager,
+    );
+    hide_named("ControlBar.wnd:OCLTimerWindow", true, receiving_manager);
 
     let multiplayer = TheGameLogic::is_in_multiplayer_game();
     let mut current_button = 0usize;
@@ -223,17 +260,17 @@ pub fn populate_observer_list() {
 
         let button_name = format!("ControlBar.wnd:ButtonPlayer{current_button}");
         let text_name = format!("ControlBar.wnd:StaticTextPlayer{current_button}");
-        with_window_manager(|manager| {
-            if let Some(button) = manager.find_window_by_name(&button_name) {
+        (|receiving_manager: &mut crate::gui::window_manager::WindowManager| {
+            if let Some(button) = receiving_manager.find_window_by_name(&button_name) {
                 {
                     let mut win = button.borrow_mut();
                     win.set_user_data(i as i32);
                     win.set_tooltip(&display_name);
                     win.set_status(WindowStatus::USE_OVERLAY_STATES);
-                    let _ = win.hide(false);
+                    let _ = win.hide(false, receiving_manager);
                 }
             }
-            if let Some(text) = manager.find_window_by_name(&text_name) {
+            if let Some(text) = receiving_manager.find_window_by_name(&text_name) {
                 let mut win = text.borrow_mut();
                 win.set_enabled_text_colors(color, 0xFF00_0000);
                 let label = if multiplayer && !team_label.is_empty() {
@@ -249,10 +286,10 @@ pub fn populate_observer_list() {
                     display_name.clone()
                 };
                 let _ = win.set_text(&label);
-                let _ = win.hide(false);
+                let _ = win.hide(false, receiving_manager);
             }
-        });
-        apply_enabled_image(&button_name, &enabled_image);
+        })(receiving_manager);
+        apply_enabled_image(&button_name, &enabled_image, receiving_manager);
 
         current_button += 1;
         if !multiplayer {
@@ -261,34 +298,55 @@ pub fn populate_observer_list() {
     }
 
     for rest in current_button..MAX_OBSERVER_BUTTONS {
-        hide_named(&format!("ControlBar.wnd:ButtonPlayer{rest}"), true);
-        hide_named(&format!("ControlBar.wnd:StaticTextPlayer{rest}"), true);
+        hide_named(
+            &format!("ControlBar.wnd:ButtonPlayer{rest}"),
+            true,
+            receiving_manager,
+        );
+        hide_named(
+            &format!("ControlBar.wnd:StaticTextPlayer{rest}"),
+            true,
+            receiving_manager,
+        );
     }
 }
 
 /// C++ `ControlBar::populateObserverInfoWindow`.
-pub fn populate_observer_info_window() {
-    populate_observer_info_window_for_target(observer_look_at_player_index());
+pub fn populate_observer_info_window(
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+) {
+    populate_observer_info_window_for_target(observer_look_at_player_index(), receiving_manager);
 }
-pub(crate) fn populate_observer_info_window_for_target(target: Option<i32>) {
+pub(crate) fn populate_observer_info_window_for_target(
+    target: Option<i32>,
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+) {
     if !observer_controls_ready() {
-        init_observer_controls();
+        init_observer_controls(receiving_manager);
     }
 
-    let info_hidden = with_window_manager_ref(|manager| {
-        manager
+    let info_hidden = (|receiving_manager: &mut crate::gui::window_manager::WindowManager| {
+        receiving_manager
             .find_window_by_name("ControlBar.wnd:ObserverPlayerInfoWindow")
             .map(|win| win.borrow().is_hidden())
             .unwrap_or(true)
-    });
+    })(receiving_manager);
     if info_hidden {
         return;
     }
 
     let Some(index) = target else {
-        hide_named("ControlBar.wnd:ObserverPlayerInfoWindow", true);
-        hide_named("ControlBar.wnd:ObserverPlayerListWindow", false);
-        populate_observer_list();
+        hide_named(
+            "ControlBar.wnd:ObserverPlayerInfoWindow",
+            true,
+            receiving_manager,
+        );
+        hide_named(
+            "ControlBar.wnd:ObserverPlayerListWindow",
+            false,
+            receiving_manager,
+        );
+        populate_observer_list(receiving_manager);
         return;
     };
 
@@ -298,9 +356,17 @@ pub(crate) fn populate_observer_info_window_for_target(target: Option<i32>) {
         .ok()
         .and_then(|list| list.get_player(index).cloned());
     let Some(player_arc) = player_arc else {
-        hide_named("ControlBar.wnd:ObserverPlayerInfoWindow", true);
-        hide_named("ControlBar.wnd:ObserverPlayerListWindow", false);
-        populate_observer_list();
+        hide_named(
+            "ControlBar.wnd:ObserverPlayerInfoWindow",
+            true,
+            receiving_manager,
+        );
+        hide_named(
+            "ControlBar.wnd:ObserverPlayerListWindow",
+            false,
+            receiving_manager,
+        );
+        populate_observer_list(receiving_manager);
         return;
     };
     let Ok(player) = player_arc.read() else {
@@ -326,53 +392,80 @@ pub(crate) fn populate_observer_info_window_for_target(target: Option<i32>) {
     set_named_text(
         "ControlBar.wnd:StaticTextNumberOfUnits",
         &num_units.to_string(),
+        receiving_manager,
     );
     set_named_text(
         "ControlBar.wnd:StaticTextNumberOfBuildings",
         &num_buildings.to_string(),
+        receiving_manager,
     );
     set_named_text(
         "ControlBar.wnd:StaticTextNumberOfUnitsKilled",
         &units_killed.to_string(),
+        receiving_manager,
     );
     set_named_text(
         "ControlBar.wnd:StaticTextNumberOfUnitsLost",
         &units_lost.to_string(),
+        receiving_manager,
     );
-    set_named_text("ControlBar.wnd:StaticTextPlayerName", &display_name);
-    with_window_manager(|manager| {
-        if let Some(name_win) = manager.find_window_by_name("ControlBar.wnd:StaticTextPlayerName") {
+    set_named_text(
+        "ControlBar.wnd:StaticTextPlayerName",
+        &display_name,
+        receiving_manager,
+    );
+    (|receiving_manager: &mut crate::gui::window_manager::WindowManager| {
+        if let Some(name_win) =
+            receiving_manager.find_window_by_name("ControlBar.wnd:StaticTextPlayerName")
+        {
             name_win
                 .borrow_mut()
                 .set_enabled_text_colors(color, 0xFF00_0000);
         }
-        if let Some(portrait) = manager.find_window_by_name("ControlBar.wnd:WinGeneralPortrait") {
-            let _ = portrait.borrow_mut().hide(false);
+        if let Some(portrait) =
+            receiving_manager.find_window_by_name("ControlBar.wnd:WinGeneralPortrait")
+        {
+            let _ = portrait.borrow_mut().hide(false, receiving_manager);
         }
-    });
-    apply_enabled_image("ControlBar.wnd:WinFlag", &flag);
+    })(receiving_manager);
+    apply_enabled_image("ControlBar.wnd:WinFlag", &flag, receiving_manager);
 }
 
 /// Show the observer list context (C++ `CB_CONTEXT_OBSERVER_LIST`).
-pub fn reveal_observer_list_window() {
-    hide_named("ControlBar.wnd:ControlBarParent", false);
-    hide_named("ControlBar.wnd:CommandWindow", true);
-    hide_named("ControlBar.wnd:UnderConstructionWindow", true);
-    hide_named("ControlBar.wnd:OCLTimerWindow", true);
-    hide_named("ControlBar.wnd:BeaconWindow", true);
-    hide_named("ControlBar.wnd:ObserverPlayerInfoWindow", true);
-    hide_named("ControlBar.wnd:ObserverPlayerListWindow", false);
-    populate_observer_list();
+pub fn reveal_observer_list_window(
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+) {
+    hide_named("ControlBar.wnd:ControlBarParent", false, receiving_manager);
+    hide_named("ControlBar.wnd:CommandWindow", true, receiving_manager);
+    hide_named(
+        "ControlBar.wnd:UnderConstructionWindow",
+        true,
+        receiving_manager,
+    );
+    hide_named("ControlBar.wnd:OCLTimerWindow", true, receiving_manager);
+    hide_named("ControlBar.wnd:BeaconWindow", true, receiving_manager);
+    hide_named(
+        "ControlBar.wnd:ObserverPlayerInfoWindow",
+        true,
+        receiving_manager,
+    );
+    hide_named(
+        "ControlBar.wnd:ObserverPlayerListWindow",
+        false,
+        receiving_manager,
+    );
+    populate_observer_list(receiving_manager);
 }
 
 /// C++ `ControlBarObserverSystem`.
 pub fn control_bar_observer_system(
-    _window: &GameWindow,
+    _window: &mut GameWindow,
     msg: WindowMessage,
     data1: crate::gui::WindowMsgData,
     _data2: crate::gui::WindowMsgData,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> WindowMsgHandled {
-    match msg {
+    effects.with_manager(|receiving_manager, _effects| match msg {
         WindowMessage::Create | WindowMessage::Destroy | WindowMessage::None => {
             WindowMsgHandled::Handled
         }
@@ -384,9 +477,17 @@ pub fn control_bar_observer_system(
             let cancel_id = NameKeyGenerator::name_to_key("ControlBar.wnd:ButtonCancel");
             if control_id == cancel_id {
                 set_observer_look_at_player(None);
-                hide_named("ControlBar.wnd:ObserverPlayerInfoWindow", true);
-                hide_named("ControlBar.wnd:ObserverPlayerListWindow", false);
-                populate_observer_list();
+                hide_named(
+                    "ControlBar.wnd:ObserverPlayerInfoWindow",
+                    true,
+                    receiving_manager,
+                );
+                hide_named(
+                    "ControlBar.wnd:ObserverPlayerListWindow",
+                    false,
+                    receiving_manager,
+                );
+                populate_observer_list(receiving_manager);
                 return WindowMsgHandled::Handled;
             }
             for i in 0..MAX_OBSERVER_BUTTONS {
@@ -395,23 +496,32 @@ pub fn control_bar_observer_system(
                 if control_id != button_id {
                     continue;
                 }
-                let player_index = with_window_manager_ref(|manager| {
-                    manager
-                        .find_window_by_name(&format!("ControlBar.wnd:ButtonPlayer{i}"))
-                        .and_then(|win| win.borrow().get_user_data::<i32>().copied())
-                });
+                let player_index =
+                    (|receiving_manager: &mut crate::gui::window_manager::WindowManager| {
+                        receiving_manager
+                            .find_window_by_name(&format!("ControlBar.wnd:ButtonPlayer{i}"))
+                            .and_then(|win| win.borrow().get_user_data::<i32>().copied())
+                    })(receiving_manager);
                 if let Some(index) = player_index {
                     set_observer_look_at_player(Some(index));
-                    hide_named("ControlBar.wnd:ObserverPlayerInfoWindow", false);
-                    hide_named("ControlBar.wnd:ObserverPlayerListWindow", true);
-                    populate_observer_info_window();
+                    hide_named(
+                        "ControlBar.wnd:ObserverPlayerInfoWindow",
+                        false,
+                        receiving_manager,
+                    );
+                    hide_named(
+                        "ControlBar.wnd:ObserverPlayerListWindow",
+                        true,
+                        receiving_manager,
+                    );
+                    populate_observer_info_window(receiving_manager);
                 }
                 return WindowMsgHandled::Handled;
             }
             WindowMsgHandled::Handled
         }
         _ => WindowMsgHandled::Ignored,
-    }
+    })
 }
 
 /// Used by Close13 GameWindowTransitions (`TheControlBar->getArrowImage()`).
@@ -427,35 +537,43 @@ pub fn get_gen_arrow_image() -> Option<Image> {
     GEN_ARROW.lock().ok().and_then(|slot| slot.clone())
 }
 
-pub fn ensure_gen_arrow_from_mapped_images() {
+pub fn ensure_gen_arrow_from_mapped_images(
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+) {
     if get_gen_arrow_image().is_some() {
         return;
     }
-    with_window_manager_ref(|manager| {
+    (|receiving_manager: &mut crate::gui::window_manager::WindowManager| {
         for name in ["GenArrow", "ControlBarArrow", "Arrow"] {
-            if let Some(image) = manager.win_find_image(name) {
+            if let Some(image) = receiving_manager.win_find_image(name) {
                 set_gen_arrow_image(Some(image));
                 break;
             }
         }
-    });
+    })(receiving_manager);
 }
 
 /// Residual: C++ `initObserverControls` name latch.
-pub fn simulate_init_observer_controls() -> bool {
-    init_observer_controls();
+pub fn simulate_init_observer_controls(
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+) -> bool {
+    init_observer_controls(receiving_manager);
     observer_controls_ready()
 }
 
 /// Residual: C++ `populateObserverList` name latch.
-pub fn simulate_populate_observer_list() -> bool {
-    populate_observer_list();
+pub fn simulate_populate_observer_list(
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+) -> bool {
+    populate_observer_list(receiving_manager);
     true
 }
 
 /// Residual: C++ `populateObserverInfoWindow` name latch.
-pub fn simulate_populate_observer_info_window() -> bool {
-    populate_observer_info_window();
+pub fn simulate_populate_observer_info_window(
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+) -> bool {
+    populate_observer_info_window(receiving_manager);
     true
 }
 
@@ -491,7 +609,7 @@ impl NativeObserverRoster {
     }
 }
 pub(crate) fn refresh_observer_windows_in_manager(
-    manager: &mut crate::gui::window_manager::WindowManager,
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
     roster: &NativeObserverRoster,
     target: Option<i32>,
 ) {
@@ -499,17 +617,17 @@ pub(crate) fn refresh_observer_windows_in_manager(
         ("ControlBar.wnd:ObserverPlayerInfoWindow", target.is_none()),
         ("ControlBar.wnd:ObserverPlayerListWindow", target.is_some()),
     ] {
-        if let Some(window) = manager.find_window_by_name(name) {
-            let _ = window.borrow_mut().hide(hidden);
+        if let Some(window) = receiving_manager.find_window_by_name(name) {
+            let _ = window.borrow_mut().hide(hidden, receiving_manager);
         }
     }
     for slot in 0..MAX_OBSERVER_BUTTONS {
         let player = roster.selectable().nth(slot);
         if let Some(button) =
-            manager.find_window_by_name(&format!("ControlBar.wnd:ButtonPlayer{slot}"))
+            receiving_manager.find_window_by_name(&format!("ControlBar.wnd:ButtonPlayer{slot}"))
         {
             let mut button = button.borrow_mut();
-            let _ = button.hide(player.is_none());
+            let _ = button.hide(player.is_none(), receiving_manager);
             if let Some(player) = player {
                 button.set_user_data(player.index);
                 button.set_tooltip(&player.display_name);
@@ -517,10 +635,10 @@ pub(crate) fn refresh_observer_windows_in_manager(
             }
         }
         if let Some(text) =
-            manager.find_window_by_name(&format!("ControlBar.wnd:StaticTextPlayer{slot}"))
+            receiving_manager.find_window_by_name(&format!("ControlBar.wnd:StaticTextPlayer{slot}"))
         {
             let mut text = text.borrow_mut();
-            let _ = text.hide(player.is_none());
+            let _ = text.hide(player.is_none(), receiving_manager);
             // Multiplayer labels also include actual GameInfo team metadata.
             // Preserve the existing compatibility label until that UI adapter
             // is explicitly migrated; do not replace it with a fabricated name.

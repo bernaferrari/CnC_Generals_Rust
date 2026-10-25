@@ -9,7 +9,7 @@ use crate::gui::gadgets::{KeyModifiers, ListBoxItemData};
 use crate::gui::game_window::Image as WindowImage;
 use crate::gui::{
     GameWindow, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled, WindowStatus,
-    get_lan_setup, get_shell, with_window_manager, write_input_focus_response,
+    get_lan_setup, write_input_focus_response,
 };
 use crate::map_util::{
     find_draw_positions, get_map_cache_manager, get_map_preview_image, populate_map_listbox,
@@ -139,7 +139,11 @@ fn map_start_waypoint_name(index: usize) -> String {
     format!("Player_{}_Start", index + 1)
 }
 
-fn position_start_buttons(state: &mut LanMapSelectState, meta: Option<&MapMetaData>) {
+fn position_start_buttons(
+    state: &mut LanMapSelectState,
+    meta: Option<&MapMetaData>,
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+) {
     let Some(preview) = state.map_preview.as_ref() else {
         return;
     };
@@ -153,9 +157,9 @@ fn position_start_buttons(state: &mut LanMapSelectState, meta: Option<&MapMetaDa
     let extent_height = (extent.hi.y - extent.lo.y).max(1.0);
 
     for i in 0..MAX_SLOTS {
-        let Some(button) =
-            with_window_manager(|manager| manager.get_window_by_id(state.start_position_ids[i]))
-        else {
+        let Some(button) = (|manager: &mut crate::gui::window_manager::WindowManager| {
+            manager.get_window_by_id(state.start_position_ids[i])
+        })(receiving_manager) else {
             continue;
         };
         let mut button_guard = button.borrow_mut();
@@ -169,16 +173,19 @@ fn position_start_buttons(state: &mut LanMapSelectState, meta: Option<&MapMetaDa
             let new_x = draw_x.round() as i32 - btn_w / 2 - preview_x;
             let new_y = draw_y.round() as i32 - btn_h / 2 - preview_y;
             let _ = button_guard.set_position(new_x, new_y);
-            let _ = button_guard.hide(false);
+            let _ = button_guard.hide(false, receiving_manager);
             let _ = button_guard.enable(true);
         } else {
-            let _ = button_guard.hide(true);
+            let _ = button_guard.hide(true, receiving_manager);
             let _ = button_guard.enable(false);
         }
     }
 }
 
-fn update_preview(state: &mut LanMapSelectState) {
+fn update_preview(
+    state: &mut LanMapSelectState,
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+) {
     let Some(map_name) = state.selected_map.clone() else {
         set_window_image(&state.map_preview, "");
         if let Some(preview) = state.map_preview.as_ref() {
@@ -186,7 +193,7 @@ fn update_preview(state: &mut LanMapSelectState) {
                 .borrow_mut()
                 .set_user_data::<Option<MapMetaData>>(None);
         }
-        position_start_buttons(state, None);
+        position_start_buttons(state, None, receiving_manager);
         return;
     };
     let preview_name = get_map_preview_image(&map_name).unwrap_or_default();
@@ -197,10 +204,14 @@ fn update_preview(state: &mut LanMapSelectState) {
     if let Some(preview) = state.map_preview.as_ref() {
         preview.borrow_mut().set_user_data(meta.clone());
     }
-    position_start_buttons(state, meta.as_ref());
+    position_start_buttons(state, meta.as_ref(), receiving_manager);
 }
 
-pub fn lan_map_select_menu_init(layout: &WindowLayout, _user_data: Option<&mut dyn std::any::Any>) {
+pub fn lan_map_select_menu_init(
+    layout: &WindowLayout,
+    _user_data: Option<&mut dyn std::any::Any>,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) {
     let state_handle = map_select_state();
     let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
 
@@ -216,12 +227,12 @@ pub fn lan_map_select_menu_init(layout: &WindowLayout, _user_data: Option<&mut d
             name_to_id(&format!("LanMapSelectMenu.wnd:ButtonMapStartPosition{}", i));
     }
 
-    with_window_manager(|manager| {
+    effects.with_manager(|manager, effects| {
         state.parent = manager.get_window_by_id(state.parent_id);
         state.listbox_map = manager.get_window_by_id(state.listbox_map_id);
         state.map_preview = manager.get_window_by_id(state.map_preview_id);
         if let Some(parent) = state.parent.as_ref() {
-            let _ = manager.set_focus(Some(parent));
+            let _ = manager.set_focus(Some(parent), effects);
         }
     });
 
@@ -245,8 +256,11 @@ pub fn lan_map_select_menu_init(layout: &WindowLayout, _user_data: Option<&mut d
     }
 
     for button_id in state.start_position_ids {
-        if let Some(button) = with_window_manager(|manager| manager.get_window_by_id(button_id)) {
-            let _ = button.borrow_mut().hide(true);
+        if let Some(button) =
+            effects.with_manager(|manager, effects| manager.get_window_by_id(button_id))
+        {
+            let _ =
+                effects.with_manager(|manager, _effects| button.borrow_mut().hide(true, manager));
             let _ = button.borrow_mut().enable(false);
         }
     }
@@ -256,19 +270,24 @@ pub fn lan_map_select_menu_init(layout: &WindowLayout, _user_data: Option<&mut d
     }
 
     set_radio_selected(
-        &with_window_manager(|manager| manager.get_window_by_id(state.radio_system_maps_id)),
+        &effects
+            .with_manager(|manager, effects| manager.get_window_by_id(state.radio_system_maps_id)),
         state.use_system_maps,
     );
     set_radio_selected(
-        &with_window_manager(|manager| manager.get_window_by_id(state.radio_user_maps_id)),
+        &effects
+            .with_manager(|manager, effects| manager.get_window_by_id(state.radio_user_maps_id)),
         !state.use_system_maps,
     );
 
     populate_map_list(&mut state);
     update_selected_map(&mut state);
-    update_preview(&mut state);
-    show_lan_game_options_underlying_gui_elements(false);
-    layout.hide(false);
+    effects
+        .with_manager(|receiving_manager, effects| update_preview(&mut state, receiving_manager));
+    effects.with_manager(|receiving_manager, effects| {
+        show_lan_game_options_underlying_gui_elements(false, receiving_manager)
+    });
+    effects.with_manager(|manager, _effects| layout.hide(manager, false));
 }
 
 pub fn lan_map_select_menu_update(
@@ -280,8 +299,9 @@ pub fn lan_map_select_menu_update(
 pub fn lan_map_select_menu_shutdown(
     layout: &WindowLayout,
     _user_data: Option<&mut dyn std::any::Any>,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) {
-    layout.hide(true);
+    effects.with_manager(|manager, _effects| layout.hide(manager, true));
     nullify_controls();
 }
 
@@ -298,6 +318,8 @@ pub fn lan_map_select_menu_system(
     msg: WindowMessage,
     data1: WindowMsgData,
     data2: WindowMsgData,
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> WindowMsgHandled {
     let state_handle = map_select_state();
     let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
@@ -319,39 +341,39 @@ pub fn lan_map_select_menu_system(
                     setup.set_use_system_maps(state.use_system_maps);
                     setup.game_info_mut().reset_start_spots();
                 }
-                show_lan_game_options_underlying_gui_elements(true);
-                refresh_lan_game_options_from_setup();
-                destroy_lan_map_select_overlay();
+                show_lan_game_options_underlying_gui_elements(true, receiving_manager);
+                refresh_lan_game_options_from_setup(receiving_manager);
+                destroy_lan_map_select_overlay(receiving_manager, effects);
                 return WindowMsgHandled::Handled;
             }
             if control_id == state.button_back_id {
-                show_lan_game_options_underlying_gui_elements(true);
-                refresh_lan_game_options_from_setup();
-                destroy_lan_map_select_overlay();
+                show_lan_game_options_underlying_gui_elements(true, receiving_manager);
+                refresh_lan_game_options_from_setup(receiving_manager);
+                destroy_lan_map_select_overlay(receiving_manager, effects);
                 return WindowMsgHandled::Handled;
             }
             if control_id == state.radio_system_maps_id {
                 state.use_system_maps = true;
                 populate_map_list(&mut state);
-                update_preview(&mut state);
+                update_preview(&mut state, receiving_manager);
                 return WindowMsgHandled::Handled;
             }
             if control_id == state.radio_user_maps_id {
                 state.use_system_maps = false;
                 populate_map_list(&mut state);
-                update_preview(&mut state);
+                update_preview(&mut state, receiving_manager);
                 return WindowMsgHandled::Handled;
             }
             if control_id == state.listbox_map_id {
                 update_selected_map(&mut state);
-                update_preview(&mut state);
+                update_preview(&mut state, receiving_manager);
                 return WindowMsgHandled::Handled;
             }
         }
         WindowMessage::GadgetValueChanged => {
             if data1 as i32 == state.listbox_map_id {
                 update_selected_map(&mut state);
-                update_preview(&mut state);
+                update_preview(&mut state, receiving_manager);
                 return WindowMsgHandled::Handled;
             }
         }
@@ -364,12 +386,13 @@ pub fn lan_map_select_menu_system(
                 }
             }
             update_selected_map(&mut state);
-            update_preview(&mut state);
+            update_preview(&mut state, receiving_manager);
             if let Some(parent) = state.parent.as_ref() {
                 let _ = parent.borrow_mut().send_system_message(
                     WindowMessage::GadgetSelected,
                     state.button_ok_id as WindowMsgData,
                     state.button_ok_id as WindowMsgData,
+                    effects,
                 );
             }
             return WindowMsgHandled::Handled;
@@ -385,6 +408,7 @@ pub fn lan_map_select_menu_input(
     msg: WindowMessage,
     data1: WindowMsgData,
     data2: WindowMsgData,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> WindowMsgHandled {
     if msg != WindowMessage::Char || data1 != KEY_ESC {
         return WindowMsgHandled::Ignored;
@@ -398,6 +422,7 @@ pub fn lan_map_select_menu_input(
                 WindowMessage::GadgetSelected,
                 state.button_back_id as WindowMsgData,
                 state.button_back_id as WindowMsgData,
+                effects,
             );
         }
     }

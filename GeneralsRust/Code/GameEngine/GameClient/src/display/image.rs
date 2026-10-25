@@ -1573,8 +1573,10 @@ mod tests {
             height: 64,
         };
         let mut draw_context = crate::gui::window_draw_context::WindowDrawContext {
+            shell_scheme: None,
             renderer: None,
             display: Default::default(),
+            ime: None,
             manager: Some(&manager),
         };
         manager.win_draw_image(

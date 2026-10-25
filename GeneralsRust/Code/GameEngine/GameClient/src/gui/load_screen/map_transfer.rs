@@ -28,6 +28,7 @@ fn initialize_map_transfer_windows(
             wm,
             &format!("MapTransferScreen.wnd:ProgressLoad{slot}"),
             0.0,
+            &mut runtime.effects,
         );
         set_window_text(
             wm,
@@ -131,6 +132,7 @@ pub fn process_map_transfer_progress(
             wm,
             &format!("MapTransferScreen.wnd:ProgressLoad{translated_slot}"),
             percentage as f32,
+            &mut runtime.effects,
         );
         set_window_text(
             wm,

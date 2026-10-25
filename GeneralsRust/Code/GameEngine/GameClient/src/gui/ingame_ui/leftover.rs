@@ -4,7 +4,12 @@
 use crate::video_buffer::VideoBuffer;
 use crate::video_player::VideoPlayerInterface;
 impl InGameUI {
-    pub fn start_building_placement(&mut self, template_name: String, footprint: Vec2) {
+    pub fn start_building_placement(
+        &mut self,
+        template_name: String,
+        footprint: Vec2,
+        input: &InGameUiInputContext<'_>,
+    ) {
         self.placement_preview = Some(PlacementPreview::new(template_name, footprint));
         let builder_id = self.find_selected_builder();
         let name = self
@@ -12,7 +17,7 @@ impl InGameUI {
             .as_ref()
             .map(|preview| preview.template_name.clone());
         TheInGameUI::place_build_available(name.clone(), builder_id);
-        self.place_build_available_icons(name, builder_id);
+        self.place_build_available_icons(name, builder_id, input);
     }
 
     /// Cancel building placement
@@ -414,7 +419,7 @@ impl InGameUI {
         }
     }
 
-    pub fn set_gui_command(&mut self, command: Option<String>) {
+    pub fn set_gui_command(&mut self, command: Option<String>, input: &InGameUiInputContext<'_>) {
         // C++ InGameUI::setGUICommand (InGameUI.cpp:2865-2918)
         if Self::should_skip_gui_command_during_playback(
             self.recorder_playback_active
@@ -455,7 +460,12 @@ impl InGameUI {
                         TheInGameUI::set_radius_cursor_active_with_type(
                             &pending.radius_cursor_type,
                         );
-                        self.set_radius_cursor(cursor_type, Coord3D::new(0.0, 0.0, 0.0), 1.0);
+                        self.set_radius_cursor(
+                            cursor_type,
+                            Coord3D::new(0.0, 0.0, 0.0),
+                            1.0,
+                            input,
+                        );
                     }
                 }
             }
@@ -528,7 +538,11 @@ impl InGameUI {
     /// Main draw pipeline. Renders selection indicators, placement cursor,
     /// team/waypoint overlay lines, and minimap ping animations.
     /// C++: InGameUI::draw() — pure virtual, subclass calls sub-draw methods.
-    pub fn set_placement_template(&mut self, template: Option<String>) {
+    pub fn set_placement_template(
+        &mut self,
+        template: Option<String>,
+        input: &InGameUiInputContext<'_>,
+    ) {
         match template {
             Some(name) => {
                 let footprint = TheThingFactory::find_template(&name)
@@ -540,7 +554,7 @@ impl InGameUI {
                         Vec2::new(half_w.abs().max(1.0), half_h.abs().max(1.0))
                     })
                     .unwrap_or(Vec2::new(1.0, 1.0));
-                self.start_building_placement(name, footprint);
+                self.start_building_placement(name, footprint, input);
             }
             None => {
                 self.cancel_building_placement();
@@ -702,8 +716,12 @@ impl InGameUI {
         "ControlBar.wnd:LeftHUD"
     }
 
-    pub fn play_movie(&mut self, movie_name: &str) {
-        self.stop_movie();
+    pub fn play_movie(
+        &mut self,
+        movie_name: &str,
+        windows: &crate::gui::window_manager::WindowManager,
+    ) {
+        self.stop_movie(windows);
         let Some(player) = crate::video_player::get_video_player() else {
             return;
         };
@@ -726,11 +744,15 @@ impl InGameUI {
         self.video_stream = Some(stream);
         self.video_buffer = Some(crate::video_buffer::VideoBufferHandle::new(buffer));
         self.currently_playing_movie = Some(movie_name.to_string());
-        self.attach_window_video_buffer(Self::radar_movie_window_name(), self.video_buffer.clone());
+        self.attach_window_video_buffer(
+            Self::radar_movie_window_name(),
+            self.video_buffer.clone(),
+            windows,
+        );
     }
 
-    pub fn stop_movie(&mut self) {
-        self.attach_window_video_buffer(Self::radar_movie_window_name(), None);
+    pub fn stop_movie(&mut self, windows: &crate::gui::window_manager::WindowManager) {
+        self.attach_window_video_buffer(Self::radar_movie_window_name(), None, windows);
         if let Some(stream) = self.video_stream.take() {
             stream.close();
         }
@@ -746,8 +768,12 @@ impl InGameUI {
         self.currently_playing_movie.as_deref()
     }
 
-    pub fn play_cameo_movie(&mut self, movie_name: &str) {
-        self.stop_cameo_movie();
+    pub fn play_cameo_movie(
+        &mut self,
+        movie_name: &str,
+        windows: &crate::gui::window_manager::WindowManager,
+    ) {
+        self.stop_cameo_movie(windows);
         let Some(player) = crate::video_player::get_video_player() else {
             return;
         };
@@ -768,14 +794,14 @@ impl InGameUI {
             return;
         }
         let handle = crate::video_buffer::VideoBufferHandle::new(buffer);
-        self.attach_cameo_video_buffer(Some(handle.clone()));
+        self.attach_cameo_video_buffer(Some(handle.clone()), windows);
         self.cameo_video_stream = Some(stream);
         self.cameo_video_buffer = Some(handle);
         self.cameo_movie_playing = Some(movie_name.to_string());
     }
 
-    pub fn stop_cameo_movie(&mut self) {
-        self.attach_cameo_video_buffer(None);
+    pub fn stop_cameo_movie(&mut self, windows: &crate::gui::window_manager::WindowManager) {
+        self.attach_cameo_video_buffer(None, windows);
         if let Some(stream) = self.cameo_video_stream.take() {
             stream.close();
         }
@@ -791,18 +817,21 @@ impl InGameUI {
         &self,
         window_name: &str,
         buffer: Option<crate::video_buffer::VideoBufferHandle>,
+        windows: &crate::gui::window_manager::WindowManager,
     ) {
         let key =
             game_engine::common::name_key_generator::NameKeyGenerator::name_to_key(window_name);
-        with_window_manager_ref(|manager| {
-            if let Some(window) = manager.get_window_by_id(key as i32) {
-                window.borrow_mut().set_video_buffer(buffer.clone());
-            }
-        });
+        if let Some(window) = windows.get_window_by_id(key as i32) {
+            window.borrow_mut().set_video_buffer(buffer);
+        }
     }
 
-    fn attach_cameo_video_buffer(&self, buffer: Option<crate::video_buffer::VideoBufferHandle>) {
-        self.attach_window_video_buffer("ControlBar.wnd:RightHUD", buffer);
+    fn attach_cameo_video_buffer(
+        &self,
+        buffer: Option<crate::video_buffer::VideoBufferHandle>,
+        windows: &crate::gui::window_manager::WindowManager,
+    ) {
+        self.attach_window_video_buffer("ControlBar.wnd:RightHUD", buffer, windows);
     }
 
     pub fn video_buffer(&self) -> Option<crate::video_buffer::VideoBufferHandle> {
@@ -817,12 +846,13 @@ impl InGameUI {
         width: i32,
         pause: bool,
         pause_music: bool,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) {
         // C++ InGameUI::popupMessage always UpdateDiplomacyBriefingText first.
-        TheInGameUI::popup_message(identifier, x, y, width, pause, pause_music);
+        TheInGameUI::popup_message(identifier, x, y, width, pause, pause_music, effects);
     }
 
-    fn update_movie_playback(&mut self) {
+    fn update_movie_playback(&mut self, windows: &crate::gui::window_manager::WindowManager) {
         let mut stop_main = false;
         if let Some(stream) = self.video_stream.as_mut() {
             if stream.is_frame_ready() {
@@ -838,7 +868,7 @@ impl InGameUI {
             }
         }
         if stop_main {
-            self.stop_movie();
+            self.stop_movie(windows);
         }
 
         if let Some(stream) = self.cameo_video_stream.as_mut() {

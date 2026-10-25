@@ -2,9 +2,16 @@ use super::*;
 
 /// Wire WND-named ControlBar chrome to the shipped W3D draw callbacks.
 /// Called from ControlBar::update (not from inside draw_all — that holds WM mut).
-pub fn ensure_control_bar_wnd_draw_callbacks() {
+pub fn ensure_control_bar_wnd_draw_callbacks(
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+) {
+    ensure_control_bar_wnd_draw_callbacks_receiving(receiving_manager);
+}
+pub fn ensure_control_bar_wnd_draw_callbacks_receiving(
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+) {
     ensure_scheme_draw_registered();
-    with_window_manager(|wm| {
+    (|wm: &mut crate::gui::window_manager::WindowManager| {
         let assign = |name: &str,
                       cb: fn(
             &GameWindow,
@@ -29,7 +36,7 @@ pub fn ensure_control_bar_wnd_draw_callbacks() {
         }
         assign("ControlBar.wnd:RightHUD", w3d_right_hud_draw);
         assign("ControlBar.wnd:GeneralsExp", w3d_command_bar_gen_exp_draw);
-    });
+    })(receiving_manager);
 }
 
 pub fn ensure_control_bar_wnd_draw_callbacks_for_owner(

@@ -19,6 +19,7 @@ pub(crate) struct NativeUiDraw<'a> {
     windows: &'a WindowManagerOwner,
     display: DisplayDrawFacts,
     mouse: Option<MouseHandle>,
+    ime: &'a game_client::gui::ime_manager::ImeManager,
     hints: Vec<game_client::gui::command_hints::CommandHint>,
     client_frame: u32,
     loading: bool,
@@ -29,12 +30,14 @@ impl<'a> NativeUiDraw<'a> {
         windows: &'a WindowManagerOwner,
         display: DisplayDrawFacts,
         mouse: Option<MouseHandle>,
+        ime: &'a game_client::gui::ime_manager::ImeManager,
     ) -> Self {
         Self {
             renderer,
             windows,
             display,
             mouse,
+            ime,
             hints: Vec::new(),
             client_frame: 0,
             loading: false,
@@ -65,17 +68,12 @@ impl<'a> NativeUiDraw<'a> {
                 ww3d_renderer_3d::Error::InvalidOperation("native UI has no receiving Shell".into())
             })?
         };
-        let parent_live = !shell_active
-            && crate::gameplay_layout::control_bar_parent_is_live_with_owner(self.windows);
         self.renderer.begin_overlay_frame();
         let mut cleanup = UiFrameCleanup::new(&mut *self.renderer);
         let renderer = &mut *cleanup.renderer;
-        renderer.advance_lifecycle_flush();
-        if !shell_active && renderer.begin_control_bar_retry(parent_live).is_some() {
-            let loaded =
-                crate::gameplay_layout::materialise_live_control_bar_with_owner(self.windows);
-            renderer.finish_control_bar_retry(loaded);
-        }
+        // C++ creates the ControlBar during gameplay UI initialization. A
+        // repaint consumes that tree; it must not construct windows or invoke
+        // lifecycle callbacks at the display refresh rate.
         let (width, height) = renderer.screen_size();
         game_client::gui::w3d_gadget_draw::ensure_control_bar_wnd_draw_callbacks_for_owner(
             self.windows,
@@ -122,17 +120,30 @@ impl<'a> NativeUiDraw<'a> {
                 );
             }
         }
-        let mut context = WindowDrawContext::new(Some(&mut *renderer), self.display.clone());
-        self.windows.with_manager(|windows| {
-            if width > 0 && height > 0 {
-                windows.set_screen_size(width as i32, height as i32);
-            }
-            if let Some(radar) = radar {
-                radar.draw_windows(windows, &mut context);
-            } else {
-                windows.draw_all(&mut context);
-            }
-        });
+        self.windows
+            .with_shell_ref(|shell| {
+                let mut context =
+                    WindowDrawContext::new(Some(&mut *renderer), self.display.clone());
+                context.ime = Some(self.ime);
+                context.shell_scheme = shell
+                    .is_shell_active()
+                    .then(|| shell.shell_menu_scheme_manager());
+                self.windows.with_manager(|windows| {
+                    if width > 0 && height > 0 {
+                        windows.set_screen_size(width as i32, height as i32);
+                    }
+                    if let Some(radar) = radar {
+                        radar.draw_windows(windows, &mut context);
+                    } else {
+                        windows.draw_all(&mut context);
+                    }
+                });
+            })
+            .ok_or_else(|| {
+                ww3d_renderer_3d::Error::InvalidOperation(
+                    "native UI has no receiving Shell scheme owner".into(),
+                )
+            })?;
         // W3DMouse.cpp:565-567: draw the receiving mouse tooltip after windows.
         if let Some(mouse) = self.mouse.as_ref() {
             let mut mouse = mouse.lock().map_err(|_| {

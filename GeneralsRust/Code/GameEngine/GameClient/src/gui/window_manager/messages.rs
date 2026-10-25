@@ -16,23 +16,33 @@ use super::*;
 impl WindowManager {
     /// Send system message to window
     pub fn send_system_message(
-        &self,
+        &mut self,
         window: &Rc<RefCell<GameWindow>>,
         msg: WindowMessage,
         data1: WindowMsgData,
         data2: WindowMsgData,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) -> WindowMsgHandled {
-        window.borrow_mut().send_system_message(msg, data1, data2)
+        effects.with_receiving_manager(self, |effects| {
+            window
+                .borrow_mut()
+                .send_system_message(msg, data1, data2, effects)
+        })
     }
 
     /// Send input message to window
     pub fn send_input_message(
-        &self,
+        &mut self,
         window: &Rc<RefCell<GameWindow>>,
         msg: WindowMessage,
         data1: WindowMsgData,
         data2: WindowMsgData,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) -> WindowMsgHandled {
-        window.borrow_mut().send_input_message(msg, data1, data2)
+        effects.with_receiving_manager(self, |effects| {
+            window
+                .borrow_mut()
+                .send_input_message(msg, data1, data2, effects)
+        })
     }
 }

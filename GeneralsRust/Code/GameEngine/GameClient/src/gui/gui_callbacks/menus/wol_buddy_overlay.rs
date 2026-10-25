@@ -21,7 +21,7 @@ pub fn WOLBuddyOverlayShutdown(layout: &WindowLayout, user_data: Option<&dyn std
 }
 
 pub fn WOLBuddyOverlaySystem(
-    window: &GameWindow,
+    window: &mut GameWindow,
     msg: WindowMessage,
     data1: WindowMsgData,
     data2: WindowMsgData,
@@ -30,7 +30,7 @@ pub fn WOLBuddyOverlaySystem(
 }
 
 pub fn WOLBuddyOverlayInput(
-    window: &GameWindow,
+    window: &mut GameWindow,
     msg: WindowMessage,
     data1: WindowMsgData,
     data2: WindowMsgData,
@@ -39,7 +39,7 @@ pub fn WOLBuddyOverlayInput(
 }
 
 pub fn PopupBuddyNotificationSystem(
-    window: &GameWindow,
+    window: &mut GameWindow,
     msg: WindowMessage,
     data1: WindowMsgData,
     data2: WindowMsgData,
@@ -52,7 +52,7 @@ pub fn WOLBuddyOverlayRCMenuInit(layout: &WindowLayout, user_data: Option<&dyn s
 }
 
 pub fn WOLBuddyOverlayRCMenuSystem(
-    window: &GameWindow,
+    window: &mut GameWindow,
     msg: WindowMessage,
     data1: WindowMsgData,
     data2: WindowMsgData,

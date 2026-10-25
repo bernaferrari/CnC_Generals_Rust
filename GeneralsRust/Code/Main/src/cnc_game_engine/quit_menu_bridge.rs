@@ -20,32 +20,32 @@ impl CnCGameEngine {
             return Ok(false);
         }
 
-        Ok(
-            match game_client::gui::callbacks::toggle_quit_menu_receiving(
-                self.game_logic.owned_script_game_ending(),
-            ) {
-                // C++ checks the Options and PopupSaveLoad layouts before it
-                // toggles QuitMenu.  They did handle Escape, but they must not
-                // seize (or release) Main's pause ownership.
-                game_client::gui::callbacks::QuitMenuToggleResult::ClosedInterveningLayout => true,
-                // C++ discards the meta-options command while these states are
-                // active. Do not substitute Main's old PauseMenu there.
-                game_client::gui::callbacks::QuitMenuToggleResult::Suppressed => true,
-                // The old pause surface is only a damaged-install fallback after
-                // C++ actually attempted, but failed to materialise, its WND.
-                game_client::gui::callbacks::QuitMenuToggleResult::LayoutUnavailable => false,
-                game_client::gui::callbacks::QuitMenuToggleResult::ToggledQuitMenu => {
-                    // Do NOT re-derive quit_menu_host_active from WND visibility
-                    // here: on a host toggle that HIDES the menu it would clear
-                    // ownership before host_tick_quit_menu_bridge can resume the
-                    // pause this QuitMenu created (same contract as ButtonReturn /
-                    // Escape hiding the WND). The tick below adopts on show and
-                    // resumes on hide.
-                    self.host_tick_quit_menu_bridge()?;
-                    true
-                }
-            },
-        )
+        let ending = self.game_logic.owned_script_game_ending();
+        let outcome = self.with_receiving_menu_effects(|effects| {
+            game_client::gui::callbacks::toggle_quit_menu_receiving(ending, effects, None)
+        })?;
+        Ok(match outcome {
+            // C++ checks the Options and PopupSaveLoad layouts before it
+            // toggles QuitMenu.  They did handle Escape, but they must not
+            // seize (or release) Main's pause ownership.
+            game_client::gui::callbacks::QuitMenuToggleResult::ClosedInterveningLayout => true,
+            // C++ discards the meta-options command while these states are
+            // active. Do not substitute Main's old PauseMenu there.
+            game_client::gui::callbacks::QuitMenuToggleResult::Suppressed => true,
+            // The old pause surface is only a damaged-install fallback after
+            // C++ actually attempted, but failed to materialise, its WND.
+            game_client::gui::callbacks::QuitMenuToggleResult::LayoutUnavailable => false,
+            game_client::gui::callbacks::QuitMenuToggleResult::ToggledQuitMenu => {
+                // Do NOT re-derive quit_menu_host_active from WND visibility
+                // here: on a host toggle that HIDES the menu it would clear
+                // ownership before host_tick_quit_menu_bridge can resume the
+                // pause this QuitMenu created (same contract as ButtonReturn /
+                // Escape hiding the WND). The tick below adopts on show and
+                // resumes on hide.
+                self.host_tick_quit_menu_bridge()?;
+                true
+            }
+        })
     }
 
     /// Keep Main's offline frame gate synchronized with the real WND callback.

@@ -10,8 +10,7 @@ use crate::gui::callbacks::{set_lan_button_pushed, set_lan_is_shutting_down};
 use crate::gui::gadgets::ComboBoxItem;
 use crate::gui::{
     GameWindow, LanPreferences, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled,
-    get_shell, show_shell_map_if_available, try_with_shell_mut, with_window_manager,
-    write_input_focus_response,
+    show_shell_map_if_available, write_input_focus_response,
 };
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_network::lan_api::{LanApi, LanConfig, ensure_the_lan, the_lan};
@@ -313,14 +312,17 @@ fn join_direct_connect(state: &NetworkDirectConnectState) {
     });
 }
 
-fn handle_back(state: &mut NetworkDirectConnectState) {
+fn handle_back(
+    state: &mut NetworkDirectConnectState,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) {
     let mut name = get_player_name(state);
     save_player_name(&name);
     trim_player_name(&mut name);
     request_set_name(name);
     set_lan_button_pushed(true);
     state.button_pushed = true;
-    let _ = try_with_shell_mut(|shell| shell.pop());
+    let _ = crate::gui::shell::base::queue_shell_pop(effects);
 }
 
 pub fn network_direct_connect_init(
@@ -345,7 +347,7 @@ pub fn network_direct_connect_init(
     state.combobox_remote_ip_id = name_to_id("NetworkDirectConnect.wnd:ComboboxRemoteIP");
     state.static_local_ip_id = name_to_id("NetworkDirectConnect.wnd:StaticLocalIP");
 
-    with_window_manager(|manager| {
+    effects.with_manager(|manager, effects| {
         state.parent = manager.get_window_by_id(state.parent_id);
         state.button_back = manager.get_window_by_id(state.button_back_id);
         state.button_host = manager.get_window_by_id(state.button_host_id);
@@ -354,9 +356,9 @@ pub fn network_direct_connect_init(
         state.combobox_remote_ip = manager.get_window_by_id(state.combobox_remote_ip_id);
         state.static_local_ip = manager.get_window_by_id(state.static_local_ip_id);
         if let Some(parent) = state.parent.as_ref() {
-            let _ = manager.set_focus(Some(parent));
+            let _ = manager.set_focus(Some(parent), effects);
         }
-        manager.transition_set_group("NetworkDirectConnectFade", false);
+        manager.transition_set_group("NetworkDirectConnectFade", false, None);
     });
 
     let prefs = LanPreferences::new();
@@ -380,22 +382,24 @@ pub fn network_direct_connect_init(
 pub fn network_direct_connect_update(
     layout: &WindowLayout,
     _user_data: Option<&dyn std::any::Any>,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) {
     let state_slot = network_direct_connect_state();
     let mut state = state_slot.borrow_mut();
     if state.is_shutting_down
-        && try_with_shell_mut(|shell| shell.is_anim_finished()).unwrap_or(false)
-        && with_window_manager(|manager| manager.transitions_finished())
+        && crate::gui::shell::base::shell_anim_finished_for_layout(effects)
+        && effects.with_manager(|manager, effects| manager.transitions_finished())
     {
         state.is_shutting_down = false;
         layout.hide(true);
-        let _ = try_with_shell_mut(|shell| shell.shutdown_complete(None, false));
+        let _ = crate::gui::shell::base::queue_shell_shutdown_complete(effects, false);
     }
 }
 
 pub fn network_direct_connect_shutdown(
     layout: &WindowLayout,
     user_data: Option<&dyn std::any::Any>,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) {
     let pop_immediate = user_data
         .and_then(|data| data.downcast_ref::<bool>())
@@ -404,12 +408,14 @@ pub fn network_direct_connect_shutdown(
 
     if pop_immediate {
         layout.hide(true);
-        let _ = try_with_shell_mut(|shell| shell.shutdown_complete(None, false));
+        let _ = crate::gui::shell::base::queue_shell_shutdown_complete(effects, false);
         return;
     }
 
-    let _ = try_with_shell_mut(|shell| shell.reverse_animate_window());
-    with_window_manager(|manager| manager.transition_reverse("NetworkDirectConnectFade"));
+    let _ = crate::gui::shell::base::queue_shell_reverse_animate_window(effects);
+    effects.with_manager(|manager, effects| {
+        manager.transition_reverse("NetworkDirectConnectFade", None)
+    });
 
     let state_slot = network_direct_connect_state();
     let mut state = state_slot.borrow_mut();
@@ -421,6 +427,7 @@ pub fn network_direct_connect_system(
     msg: WindowMessage,
     data1: WindowMsgData,
     data2: WindowMsgData,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> WindowMsgHandled {
     let state_slot = network_direct_connect_state();
     let mut state = state_slot.borrow_mut();
@@ -435,7 +442,7 @@ pub fn network_direct_connect_system(
             }
             let control_id = data1 as i32;
             if control_id == state.button_back_id {
-                handle_back(&mut state);
+                handle_back(&mut state, effects);
                 return WindowMsgHandled::Handled;
             }
             if control_id == state.button_host_id {
@@ -459,6 +466,7 @@ pub fn network_direct_connect_input(
     msg: WindowMessage,
     data1: WindowMsgData,
     data2: WindowMsgData,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> WindowMsgHandled {
     if msg == WindowMessage::Char {
         if data1 == KEY_ESC && (data2 & KEY_STATE_UP) != 0 {
@@ -474,7 +482,7 @@ pub fn network_direct_connect_input(
             if button_pushed {
                 return WindowMsgHandled::Handled;
             }
-            dispatch_esc_gadget_selected(parent, back_id);
+            dispatch_esc_gadget_selected(parent, back_id, effects);
             return WindowMsgHandled::Handled;
         }
     }

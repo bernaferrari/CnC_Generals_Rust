@@ -878,6 +878,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_ingame_popup_message(
         &mut self,
         action: &ScriptAction,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         let message = self.get_string_param(action, 0)?;
         let x_percent = action.get_parameter(1).map(|p| p.get_int()).unwrap_or(50);
@@ -896,13 +897,18 @@ impl ScriptActionDispatcher<'_> {
             pause
         );
 
+        if let Some(result) =
+            driver.popup_message(&message, x_percent, y_percent, width, pause, false)
+        {
+            result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
+            return Ok(ScriptActionResult::Success);
+        }
         // C++: TheInGameUI->popupMessage(message, x, y, width, pause, FALSE)
         if let Some(handler) = self.current_script_action_handler() {
             if let Err(err) =
                 handler.popup_message(&message, x_percent, y_percent, width, pause, false)
             {
-                log::warn!("Script action handler popup_message failed: {}", err);
-                let _ = handler.display_text(&message);
+                return Err(ScriptError::ExecutionFailed(err.to_string()));
             }
         }
 

@@ -1,6 +1,4 @@
 //! ReplayControls.cpp callback bridge.
-
-use crate::gui::with_window_manager;
 use crate::gui::{GameWindow, WindowMessage, WindowMsgData, WindowMsgHandled};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use gamelogic::helpers::TheGameLogic;
@@ -8,22 +6,30 @@ use gamelogic::helpers::TheGameLogic;
 const PARENT_REPLAY_CONTROL: &str = "ReplayControl.wnd:ParentReplayControl";
 
 /// C++ InGameUI::createReplayControl — load ReplayControl.wnd if missing.
-pub fn create_replay_control() -> bool {
+pub fn create_replay_control(
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
     let parent_id = NameKeyGenerator::name_to_key(PARENT_REPLAY_CONTROL) as i32;
-    with_window_manager(|manager| {
+    (|manager: &mut crate::gui::window_manager::WindowManager| {
         if manager.get_window_by_id(parent_id).is_some() {
             return true;
         }
         manager
-            .create_windows_from_script("ReplayControl.wnd")
+            .create_windows_from_script("ReplayControl.wnd", effects)
             .is_ok()
-    })
+    })(receiving_manager)
 }
 
 /// C++ RecorderClass::initControls — `winHide(getMode() != PLAYBACK)`.
 /// Creates ReplayControl.wnd if missing so playback can show the transport.
-pub fn apply_replay_control_visibility(hide: bool) {
-    with_window_manager(|manager| apply_replay_control_visibility_owned(manager, hide));
+pub fn apply_replay_control_visibility(
+    hide: bool,
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+) {
+    (|manager: &mut crate::gui::window_manager::WindowManager| {
+        apply_replay_control_visibility_owned(manager, hide)
+    })(receiving_manager);
 }
 
 /// Recorder.cpp1552: lookup/hide only; InGameUI initialization creates the window.
@@ -33,7 +39,7 @@ pub fn apply_replay_control_visibility_owned(
 ) {
     let parent_id = NameKeyGenerator::name_to_key(PARENT_REPLAY_CONTROL) as i32;
     if let Some(window) = manager.get_window_by_id(parent_id) {
-        let _ = window.borrow_mut().hide(hide);
+        let _ = window.borrow_mut().hide(hide, manager);
     }
 }
 
@@ -44,7 +50,7 @@ pub fn show_replay_controls_owned(
 ) {
     let parent_id = NameKeyGenerator::name_to_key(PARENT_REPLAY_CONTROL) as i32;
     if let Some(window) = manager.get_window_by_id(parent_id) {
-        let _ = window.borrow_mut().hide(!in_replay);
+        let _ = window.borrow_mut().hide(!in_replay, manager);
     }
 }
 
@@ -54,7 +60,7 @@ pub fn hide_replay_controls_owned(
 ) {
     let parent_id = NameKeyGenerator::name_to_key(PARENT_REPLAY_CONTROL) as i32;
     if let Some(window) = manager.get_window_by_id(parent_id) {
-        let _ = window.borrow_mut().hide(true);
+        let _ = window.borrow_mut().hide(true, manager);
     }
 }
 
@@ -65,23 +71,29 @@ pub fn toggle_replay_controls_owned(
     let parent_id = NameKeyGenerator::name_to_key(PARENT_REPLAY_CONTROL) as i32;
     if let Some(window) = manager.get_window_by_id(parent_id) {
         let show = in_replay && window.borrow().is_hidden();
-        let _ = window.borrow_mut().hide(!show);
+        let _ = window.borrow_mut().hide(!show, manager);
     }
 }
 
 /// Standalone Core adapter reads its legacy mode only at this boundary.
-pub fn show_replay_controls() {
+pub fn show_replay_controls(receiving_manager: &mut crate::gui::window_manager::WindowManager) {
     let replay = TheGameLogic::is_in_replay_game();
-    with_window_manager(|manager| show_replay_controls_owned(manager, replay));
+    (|manager: &mut crate::gui::window_manager::WindowManager| {
+        show_replay_controls_owned(manager, replay)
+    })(receiving_manager);
 }
 
-pub fn hide_replay_controls() {
-    with_window_manager(|manager| hide_replay_controls_owned(manager, false));
+pub fn hide_replay_controls(receiving_manager: &mut crate::gui::window_manager::WindowManager) {
+    (|manager: &mut crate::gui::window_manager::WindowManager| {
+        hide_replay_controls_owned(manager, false)
+    })(receiving_manager);
 }
 
-pub fn toggle_replay_controls() {
+pub fn toggle_replay_controls(receiving_manager: &mut crate::gui::window_manager::WindowManager) {
     let replay = TheGameLogic::is_in_replay_game();
-    with_window_manager(|manager| toggle_replay_controls_owned(manager, replay));
+    (|manager: &mut crate::gui::window_manager::WindowManager| {
+        toggle_replay_controls_owned(manager, replay)
+    })(receiving_manager);
 }
 
 pub fn replay_control_input(

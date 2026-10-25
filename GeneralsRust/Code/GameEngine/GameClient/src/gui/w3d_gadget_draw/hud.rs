@@ -200,6 +200,7 @@ fn draw_radar_in_hud_with_context(
     let map_extent_signature = radar_map_extent_signature(radar.map_extent());
     let terrain_generation = radar.terrain_generation();
     let receiving_manager = draw_context.manager;
+    let receiving_ime = draw_context.ime;
     let _ = draw_context.with_renderer(|renderer, display_facts| {
         // C++ keeps `m_terrainTexture` resident and repaints it only on
         // `newMap`/`refreshTerrain`; key the upload on extent + generation.
@@ -400,9 +401,11 @@ fn draw_radar_in_hud_with_context(
                         image.height,
                     );
                     let mut icon_context = crate::gui::window_draw_context::WindowDrawContext {
+                        shell_scheme: None,
                         renderer: Some(&mut *renderer),
                         display: display_facts.clone(),
                         manager: Some(manager),
+                        ime: receiving_ime,
                     };
                     for reticle in hero_reticles {
                         manager.win_draw_image(

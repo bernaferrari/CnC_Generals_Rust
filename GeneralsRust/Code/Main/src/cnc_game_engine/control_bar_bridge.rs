@@ -319,7 +319,7 @@ impl CnCGameEngine {
     /// residual before clearing the GameClient WND.  The mission-script queue
     /// was already consumed at its normal evaluator boundary; this is only
     /// the C++-equivalent presentation mirror.
-    fn host_dismiss_in_game_popup_message(&mut self, popup_generation: usize) {
+    pub(super) fn host_dismiss_in_game_popup_message(&mut self, popup_generation: usize) {
         if !popup_acknowledgement_matches_active_generation(
             self.game_logic.active_popup_message_generation(),
             popup_generation,
@@ -341,7 +341,7 @@ impl CnCGameEngine {
 
         // The host has atomically removed the authoritative record first;
         // this cleanup only destroys the client-owned WND/presentation data.
-        game_client::helpers::TheInGameUI::clear_popup_message_data();
+        self.game_client.clear_owned_popup_message();
     }
 
     /// A full offline-world boundary invalidates both C++'s visible popup WND
@@ -352,8 +352,7 @@ impl CnCGameEngine {
         self.game_logic.take_popup_message_requests();
         self.host_clear_active_popup_presentation_residual();
         self.host_reconcile_active_popup_pause(None);
-        game_client::gui::control_bar::clear_host_dismiss_in_game_popup_message_requests();
-        game_client::helpers::TheInGameUI::clear_popup_message_data();
+        self.game_client.clear_owned_popup_message();
     }
 
     fn host_clear_active_popup_presentation_residual(&mut self) {

@@ -55,10 +55,10 @@ use super::*;
 use std::cmp::{max, min};
 
 /// Callback function for slider value changes
-pub type SliderCallback = Box<dyn Fn(GadgetId, i32) + Send + Sync>;
+pub type SliderCallback = Box<dyn Fn(GadgetId, i32)>;
 
 /// Callback function for range slider changes  
-pub type RangeSliderCallback = Box<dyn Fn(GadgetId, i32, i32) + Send + Sync>;
+pub type RangeSliderCallback = Box<dyn Fn(GadgetId, i32, i32)>;
 
 /// Orientation of the slider
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -743,7 +743,7 @@ impl HorizontalSlider {
 
     pub fn set_change_callback<F>(&mut self, callback: F)
     where
-        F: Fn(GadgetId, i32) + Send + Sync + 'static,
+        F: Fn(GadgetId, i32) + 'static,
     {
         self.base.change_callback = Some(Box::new(callback));
     }
@@ -971,7 +971,7 @@ impl VerticalSlider {
 
     pub fn set_change_callback<F>(&mut self, callback: F)
     where
-        F: Fn(GadgetId, i32) + Send + Sync + 'static,
+        F: Fn(GadgetId, i32) + 'static,
     {
         self.base.change_callback = Some(Box::new(callback));
     }

@@ -35,30 +35,28 @@ use crate::gui::callbacks::{
     skirmish_game_options_menu_shutdown, skirmish_game_options_menu_system,
     skirmish_game_options_menu_update, skirmish_map_select_menu_init,
     skirmish_map_select_menu_input, skirmish_map_select_menu_shutdown,
-    skirmish_map_select_menu_system, skirmish_map_select_menu_update, with_credits_menu,
-    with_lan_lobby_menu, with_map_select_menu, with_options_menu, with_single_player_menu,
-    wol_buddy_overlay_init, wol_buddy_overlay_input, wol_buddy_overlay_rc_menu_init,
-    wol_buddy_overlay_rc_menu_system, wol_buddy_overlay_shutdown, wol_buddy_overlay_system,
-    wol_buddy_overlay_update, wol_custom_score_screen_init, wol_custom_score_screen_input,
-    wol_custom_score_screen_shutdown, wol_custom_score_screen_system,
-    wol_custom_score_screen_update, wol_game_setup_menu_init, wol_game_setup_menu_input,
-    wol_game_setup_menu_shutdown, wol_game_setup_menu_system, wol_game_setup_menu_update,
-    wol_ladder_screen_init, wol_ladder_screen_input, wol_ladder_screen_shutdown,
-    wol_ladder_screen_system, wol_ladder_screen_update, wol_lobby_menu_init, wol_lobby_menu_input,
-    wol_lobby_menu_shutdown, wol_lobby_menu_system, wol_lobby_menu_update, wol_locale_select_init,
-    wol_locale_select_input, wol_locale_select_shutdown, wol_locale_select_system,
-    wol_locale_select_update, wol_login_menu_init, wol_login_menu_input, wol_login_menu_shutdown,
-    wol_login_menu_system, wol_login_menu_update, wol_map_select_menu_init,
-    wol_map_select_menu_input, wol_map_select_menu_shutdown, wol_map_select_menu_system,
-    wol_map_select_menu_update, wol_message_window_init, wol_message_window_input,
-    wol_message_window_shutdown, wol_message_window_system, wol_message_window_update,
-    wol_qm_score_screen_init, wol_qm_score_screen_input, wol_qm_score_screen_shutdown,
-    wol_qm_score_screen_system, wol_qm_score_screen_update, wol_quick_match_menu_init,
-    wol_quick_match_menu_input, wol_quick_match_menu_shutdown, wol_quick_match_menu_system,
-    wol_quick_match_menu_update, wol_status_menu_init, wol_status_menu_input,
-    wol_status_menu_shutdown, wol_status_menu_system, wol_status_menu_update,
-    wol_welcome_menu_init, wol_welcome_menu_input, wol_welcome_menu_shutdown,
-    wol_welcome_menu_system, wol_welcome_menu_update,
+    skirmish_map_select_menu_system, skirmish_map_select_menu_update, wol_buddy_overlay_init,
+    wol_buddy_overlay_input, wol_buddy_overlay_rc_menu_init, wol_buddy_overlay_rc_menu_system,
+    wol_buddy_overlay_shutdown, wol_buddy_overlay_system, wol_buddy_overlay_update,
+    wol_custom_score_screen_init, wol_custom_score_screen_input, wol_custom_score_screen_shutdown,
+    wol_custom_score_screen_system, wol_custom_score_screen_update, wol_game_setup_menu_init,
+    wol_game_setup_menu_input, wol_game_setup_menu_shutdown, wol_game_setup_menu_system,
+    wol_game_setup_menu_update, wol_ladder_screen_init, wol_ladder_screen_input,
+    wol_ladder_screen_shutdown, wol_ladder_screen_system, wol_ladder_screen_update,
+    wol_lobby_menu_init, wol_lobby_menu_input, wol_lobby_menu_shutdown, wol_lobby_menu_system,
+    wol_lobby_menu_update, wol_locale_select_init, wol_locale_select_input,
+    wol_locale_select_shutdown, wol_locale_select_system, wol_locale_select_update,
+    wol_login_menu_init, wol_login_menu_input, wol_login_menu_shutdown, wol_login_menu_system,
+    wol_login_menu_update, wol_map_select_menu_init, wol_map_select_menu_input,
+    wol_map_select_menu_shutdown, wol_map_select_menu_system, wol_map_select_menu_update,
+    wol_message_window_init, wol_message_window_input, wol_message_window_shutdown,
+    wol_message_window_system, wol_message_window_update, wol_qm_score_screen_init,
+    wol_qm_score_screen_input, wol_qm_score_screen_shutdown, wol_qm_score_screen_system,
+    wol_qm_score_screen_update, wol_quick_match_menu_init, wol_quick_match_menu_input,
+    wol_quick_match_menu_shutdown, wol_quick_match_menu_system, wol_quick_match_menu_update,
+    wol_status_menu_init, wol_status_menu_input, wol_status_menu_shutdown, wol_status_menu_system,
+    wol_status_menu_update, wol_welcome_menu_init, wol_welcome_menu_input,
+    wol_welcome_menu_shutdown, wol_welcome_menu_system, wol_welcome_menu_update,
 };
 use crate::gui::game_window::*;
 use crate::gui::header_template::get_header_template_manager;
@@ -88,7 +86,6 @@ use crate::gui::window_script::{
     TabControlData as ScriptTabControlData, WindowDefinition, WindowLayoutDefinition,
     parse_window_script,
 };
-use crate::gui::{get_disconnect_menu, get_establish_connections_menu};
 use crate::helpers::TheControlBar;
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use log::warn;
@@ -113,7 +110,9 @@ impl WindowManager {
             layout.init_callback = match layout_def.init_callback.as_str() {
                 "W3DMainMenuInit" | "MainMenuInit" => {
                     layout.init_callback_with_effects = Some(Box::new(|layout, _, effects| {
-                        apply_w3d_main_menu_runtime_draw_overrides();
+                        effects.with_manager(|manager, effects| {
+                            apply_w3d_main_menu_runtime_draw_overrides(manager)
+                        });
                         if let Err(err) =
                             effects.with_main_menu(|menu, effects| menu.init(layout, None, effects))
                         {
@@ -124,7 +123,7 @@ impl WindowManager {
                 }
                 "SinglePlayerMenuInit" => {
                     layout.init_callback_with_effects = Some(Box::new(|layout, _, effects| {
-                        if let Err(err) = with_single_player_menu(|menu| {
+                        if let Err(err) = effects.with_single_player_menu(|menu, effects| {
                             menu.init_with_effects(layout, None, effects)
                         }) {
                             warn!("Single player menu init failed: {}", err);
@@ -133,18 +132,19 @@ impl WindowManager {
                     None
                 }
                 "OptionsMenuInit" => {
-                    Some(Box::new(|layout, data| {
+                    layout.init_callback_with_effects = Some(Box::new(|layout, data, effects| {
                         let camera=data.and_then(|data|data.downcast_ref::<crate::gui::callbacks::OptionsCameraInputObservation>());
-                        if let Err(err) =
-                            with_options_menu(|menu| menu.init_with_camera_input(layout, camera))
-                        {
+                        if let Err(err) = effects.with_options_menu(|menu, effects| {
+                            menu.init_with_camera_input(layout, camera, effects)
+                        }) {
                             warn!("Options menu init failed: {}", err);
                         }
-                    }))
+                    }));
+                    None
                 }
                 "MapSelectMenuInit" => {
                     layout.init_callback_with_effects = Some(Box::new(|layout, _, effects| {
-                        if let Err(err) = with_map_select_menu(|menu| {
+                        if let Err(err) = effects.with_map_select_menu(|menu, effects| {
                             menu.init_with_effects(layout, None, effects)
                         }) {
                             warn!("Map select menu init failed: {}", err);
@@ -160,7 +160,7 @@ impl WindowManager {
                 }
                 "LanLobbyMenuInit" => {
                     layout.init_callback_with_effects = Some(Box::new(|layout, _, effects| {
-                        if let Err(err) = with_lan_lobby_menu(|menu| {
+                        if let Err(err) = effects.with_lan_lobby_menu(|menu, effects| {
                             menu.init_with_effects(layout, None, effects)
                         }) {
                             warn!("LAN lobby menu init failed: {}", err);
@@ -168,27 +168,46 @@ impl WindowManager {
                     }));
                     None
                 }
-                "InGamePopupMessageInit" => Some(Box::new(|layout, _| {
-                    in_game_popup_message_init(layout, None);
-                })),
-                "PopupCommunicatorInit" => Some(Box::new(|layout, _| {
-                    popup_communicator_init(layout, None);
-                })),
-                "PopupJoinGameInit" => Some(Box::new(|layout, _| {
-                    popup_join_game_init(layout, None);
-                })),
-                "SaveLoadMenuInit" => Some(Box::new(|layout, data| {
-                    save_load_menu_init(layout, data);
-                })),
+                "InGamePopupMessageInit" => {
+                    layout.init_callback_with_effects = Some(Box::new(|layout, _, effects| {
+                        in_game_popup_message_init(layout, None, effects);
+                    }));
+                    None
+                }
+                "PopupCommunicatorInit" => {
+                    layout.init_callback_with_effects = Some(Box::new(|layout, _, effects| {
+                        effects.with_manager(|manager, effects| {
+                            popup_communicator_init(layout, None, manager, effects)
+                        });
+                    }));
+                    None
+                }
+                "PopupJoinGameInit" => {
+                    layout.init_callback_with_effects = Some(Box::new(|layout, _, effects| {
+                        popup_join_game_init(layout, None);
+                    }));
+                    None
+                }
+                "SaveLoadMenuInit" => {
+                    layout.init_callback_with_effects = Some(Box::new(|layout, data, effects| {
+                        save_load_menu_init(layout, data, effects);
+                    }));
+                    None
+                }
                 "SaveLoadMenuFullScreenInit" => {
                     layout.init_callback_with_effects = Some(Box::new(|layout, data, effects| {
                         save_load_menu_full_screen_init(layout, data, effects);
                     }));
                     None
                 }
-                "PopupReplayInit" => Some(Box::new(|layout, data| {
-                    popup_replay_init(layout, data);
-                })),
+                "PopupReplayInit" => {
+                    layout.init_callback_with_effects = Some(Box::new(|layout, data, effects| {
+                        effects.with_manager(|manager, effects| {
+                            popup_replay_init(layout, data, manager, effects)
+                        });
+                    }));
+                    None
+                }
                 "ReplayMenuInit" => {
                     layout.init_callback_with_effects = Some(Box::new(|layout, data, effects| {
                         replay_menu_init(layout, data, effects);
@@ -203,101 +222,180 @@ impl WindowManager {
                 }
                 "DifficultySelectInit" => {
                     layout.init_callback_with_effects = Some(Box::new(|layout, data, effects| {
-                        difficulty_select_init(layout, data);
+                        difficulty_select_init(layout, data, effects);
                     }));
                     None
                 }
-                "KeyboardOptionsMenuInit" => Some(Box::new(|layout, data| {
-                    keyboard_options_menu_init(layout, data);
-                })),
-                "GameSpyPlayerInfoOverlayInit" => Some(Box::new(|layout, data| {
-                    popup_player_info_init(layout, data);
-                })),
+                "KeyboardOptionsMenuInit" => {
+                    layout.init_callback_with_effects = Some(Box::new(|layout, data, effects| {
+                        keyboard_options_menu_init(layout, data, effects);
+                    }));
+                    None
+                }
+                "GameSpyPlayerInfoOverlayInit" => {
+                    layout.init_callback_with_effects = Some(Box::new(|layout, data, effects| {
+                        popup_player_info_init(layout, data);
+                    }));
+                    None
+                }
                 "ScoreScreenInit" => {
                     layout.init_callback_with_effects = Some(Box::new(|layout, data, effects| {
                         score_screen_init(layout, None, effects);
                     }));
                     None
                 }
-                "SkirmishMapSelectMenuInit" => Some(Box::new(|layout, data| {
-                    skirmish_map_select_menu_init(layout, None);
-                })),
+                "SkirmishMapSelectMenuInit" => {
+                    layout.init_callback_with_effects = Some(Box::new(|layout, data, effects| {
+                        skirmish_map_select_menu_init(layout, None, effects);
+                    }));
+                    None
+                }
                 "SkirmishGameOptionsMenuInit" => {
                     layout.init_callback_with_effects = Some(Box::new(|layout, data, effects| {
                         skirmish_game_options_menu_init(layout, None, effects);
                     }));
                     None
                 }
-                "LanMapSelectMenuInit" => Some(Box::new(|layout, data| {
-                    lan_map_select_menu_init(layout, None);
-                })),
-                "LanGameOptionsMenuInit" => Some(Box::new(|layout, data| {
-                    lan_game_options_menu_init(layout, None);
-                })),
-                "PopupHostGameInit" => Some(Box::new(|layout, data| {
-                    popup_host_game_init(layout, data);
-                })),
-                "PopupLadderSelectInit" => Some(Box::new(|layout, data| {
-                    popup_ladder_select_init(layout, data);
-                })),
-                "RCGameDetailsMenuInit" => Some(Box::new(|layout, data| {
-                    rc_game_details_menu_init(layout, data);
-                })),
-                "DownloadMenuInit" => Some(Box::new(|layout, data| {
-                    download_menu_init(layout, None);
-                })),
-                "GameInfoWindowInit" => Some(Box::new(|layout, data| {
-                    game_info_window_init(layout, None);
-                })),
+                "LanMapSelectMenuInit" => {
+                    layout.init_callback_with_effects = Some(Box::new(|layout, data, effects| {
+                        lan_map_select_menu_init(layout, None, effects);
+                    }));
+                    None
+                }
+                "LanGameOptionsMenuInit" => {
+                    layout.init_callback_with_effects = Some(Box::new(|layout, data, effects| {
+                        lan_game_options_menu_init(layout, None, effects);
+                    }));
+                    None
+                }
+                "PopupHostGameInit" => {
+                    layout.init_callback_with_effects = Some(Box::new(|layout, data, effects| {
+                        popup_host_game_init(layout, data);
+                    }));
+                    None
+                }
+                "PopupLadderSelectInit" => {
+                    layout.init_callback_with_effects = Some(Box::new(|layout, data, effects| {
+                        popup_ladder_select_init(layout, data);
+                    }));
+                    None
+                }
+                "RCGameDetailsMenuInit" => {
+                    layout.init_callback_with_effects = Some(Box::new(|layout, data, effects| {
+                        rc_game_details_menu_init(layout, data);
+                    }));
+                    None
+                }
+                "DownloadMenuInit" => {
+                    layout.init_callback_with_effects = Some(Box::new(|layout, data, effects| {
+                        effects.with_manager(|manager, effects| {
+                            download_menu_init(layout, None, manager)
+                        });
+                    }));
+                    None
+                }
+                "GameInfoWindowInit" => {
+                    layout.init_callback_with_effects = Some(Box::new(|layout, data, effects| {
+                        effects.with_manager(|manager, effects| {
+                            game_info_window_init(layout, None, manager)
+                        });
+                    }));
+                    None
+                }
                 "NetworkDirectConnectInit" => {
                     layout.init_callback_with_effects = Some(Box::new(|layout, data, effects| {
                         network_direct_connect_init(layout, data, effects);
                     }));
                     None
                 }
-                "WOLLoginMenuInit" => Some(Box::new(|layout, data| {
-                    wol_login_menu_init(layout, data);
-                })),
-                "WOLLocaleSelectInit" => Some(Box::new(|layout, data| {
-                    wol_locale_select_init(layout, data);
-                })),
-                "WOLMessageWindowInit" => Some(Box::new(|layout, data| {
-                    wol_message_window_init(layout, data);
-                })),
-                "WOLBuddyOverlayInit" => Some(Box::new(|layout, data| {
-                    wol_buddy_overlay_init(layout, data);
-                })),
-                "WOLBuddyOverlayRCMenuInit" => Some(Box::new(|layout, data| {
-                    wol_buddy_overlay_rc_menu_init(layout, data);
-                })),
-                "WOLStatusMenuInit" => Some(Box::new(|layout, data| {
-                    wol_status_menu_init(layout, data);
-                })),
-                "WOLWelcomeMenuInit" => Some(Box::new(|layout, data| {
-                    wol_welcome_menu_init(layout, data);
-                })),
-                "WOLLobbyMenuInit" => Some(Box::new(|layout, data| {
-                    wol_lobby_menu_init(layout, data);
-                })),
-                "WOLLadderScreenInit" => Some(Box::new(|layout, data| {
-                    wol_ladder_screen_init(layout, data);
-                })),
-                "WOLMapSelectMenuInit" => Some(Box::new(|layout, data| {
-                    wol_map_select_menu_init(layout, data);
-                })),
-                "WOLGameSetupMenuInit" => Some(Box::new(|layout, data| {
-                    wol_game_setup_menu_init(layout, data);
-                })),
-                "WOLQuickMatchMenuInit" => Some(Box::new(|layout, data| {
-                    wol_quick_match_menu_init(layout, data);
-                })),
-                "WOLQMScoreScreenInit" => Some(Box::new(|layout, data| {
-                    wol_qm_score_screen_init(layout, data);
-                })),
-                "WOLCustomScoreScreenInit" => Some(Box::new(|layout, data| {
-                    wol_custom_score_screen_init(layout, data);
-                })),
-                "MarketingScreenInit" => Some(Box::new(|_, _| {})),
+                "WOLLoginMenuInit" => {
+                    layout.init_callback_with_effects = Some(Box::new(|layout, data, effects| {
+                        wol_login_menu_init(layout, data);
+                    }));
+                    None
+                }
+                "WOLLocaleSelectInit" => {
+                    layout.init_callback_with_effects = Some(Box::new(|layout, data, effects| {
+                        wol_locale_select_init(layout, data);
+                    }));
+                    None
+                }
+                "WOLMessageWindowInit" => {
+                    layout.init_callback_with_effects = Some(Box::new(|layout, data, effects| {
+                        wol_message_window_init(layout, data);
+                    }));
+                    None
+                }
+                "WOLBuddyOverlayInit" => {
+                    layout.init_callback_with_effects = Some(Box::new(|layout, data, effects| {
+                        wol_buddy_overlay_init(layout, data);
+                    }));
+                    None
+                }
+                "WOLBuddyOverlayRCMenuInit" => {
+                    layout.init_callback_with_effects = Some(Box::new(|layout, data, effects| {
+                        wol_buddy_overlay_rc_menu_init(layout, data);
+                    }));
+                    None
+                }
+                "WOLStatusMenuInit" => {
+                    layout.init_callback_with_effects = Some(Box::new(|layout, data, effects| {
+                        wol_status_menu_init(layout, data);
+                    }));
+                    None
+                }
+                "WOLWelcomeMenuInit" => {
+                    layout.init_callback_with_effects = Some(Box::new(|layout, data, effects| {
+                        wol_welcome_menu_init(layout, data);
+                    }));
+                    None
+                }
+                "WOLLobbyMenuInit" => {
+                    layout.init_callback_with_effects = Some(Box::new(|layout, data, effects| {
+                        wol_lobby_menu_init(layout, data);
+                    }));
+                    None
+                }
+                "WOLLadderScreenInit" => {
+                    layout.init_callback_with_effects = Some(Box::new(|layout, data, effects| {
+                        wol_ladder_screen_init(layout, data);
+                    }));
+                    None
+                }
+                "WOLMapSelectMenuInit" => {
+                    layout.init_callback_with_effects = Some(Box::new(|layout, data, effects| {
+                        wol_map_select_menu_init(layout, data);
+                    }));
+                    None
+                }
+                "WOLGameSetupMenuInit" => {
+                    layout.init_callback_with_effects = Some(Box::new(|layout, data, effects| {
+                        wol_game_setup_menu_init(layout, data);
+                    }));
+                    None
+                }
+                "WOLQuickMatchMenuInit" => {
+                    layout.init_callback_with_effects = Some(Box::new(|layout, data, effects| {
+                        wol_quick_match_menu_init(layout, data);
+                    }));
+                    None
+                }
+                "WOLQMScoreScreenInit" => {
+                    layout.init_callback_with_effects = Some(Box::new(|layout, data, effects| {
+                        wol_qm_score_screen_init(layout, data);
+                    }));
+                    None
+                }
+                "WOLCustomScoreScreenInit" => {
+                    layout.init_callback_with_effects = Some(Box::new(|layout, data, effects| {
+                        wol_custom_score_screen_init(layout, data);
+                    }));
+                    None
+                }
+                "MarketingScreenInit" => {
+                    layout.init_callback_with_effects = Some(Box::new(|_, _, effects| {}));
+                    None
+                }
                 other => {
                     warn!("Unknown layout init callback: {}", other);
                     None
@@ -319,7 +417,7 @@ impl WindowManager {
                 }
                 "SinglePlayerMenuUpdate" => {
                     layout.update_callback_with_effects = Some(Box::new(|layout, _, effects| {
-                        if let Err(err) = with_single_player_menu(|menu| {
+                        if let Err(err) = effects.with_single_player_menu(|menu, effects| {
                             menu.update_with_effects(layout, None, effects)
                         }) {
                             warn!("Single player menu update failed: {}", err);
@@ -327,14 +425,19 @@ impl WindowManager {
                     }));
                     None
                 }
-                "OptionsMenuUpdate" => Some(Box::new(|layout, _| {
-                    if let Err(err) = with_options_menu(|menu| menu.update(layout, None)) {
-                        warn!("Options menu update failed: {}", err);
-                    }
-                })),
+                "OptionsMenuUpdate" => {
+                    layout.update_callback_with_effects = Some(Box::new(|layout, _, effects| {
+                        if let Err(err) = effects
+                            .with_options_menu(|menu, effects| menu.update(layout, None, effects))
+                        {
+                            warn!("Options menu update failed: {}", err);
+                        }
+                    }));
+                    None
+                }
                 "MapSelectMenuUpdate" => {
                     layout.update_callback_with_effects = Some(Box::new(|layout, _, effects| {
-                        if let Err(err) = with_map_select_menu(|menu| {
+                        if let Err(err) = effects.with_map_select_menu(|menu, effects| {
                             menu.update_with_effects(layout, None, effects)
                         }) {
                             warn!("Map select menu update failed: {}", err);
@@ -348,23 +451,45 @@ impl WindowManager {
                     }));
                     None
                 }
-                "LanLobbyMenuUpdate" => Some(Box::new(|layout, _| {
-                    if let Err(err) = with_lan_lobby_menu(|menu| menu.update(layout, None)) {
-                        warn!("LAN lobby menu update failed: {}", err);
-                    }
-                })),
-                "PopupCommunicatorUpdate" => Some(Box::new(|layout, _| {
-                    popup_communicator_update(layout, None);
-                })),
-                "SaveLoadMenuUpdate" => Some(Box::new(|layout, data| {
-                    save_load_menu_update(layout, data);
-                })),
-                "PopupReplayUpdate" => Some(Box::new(|layout, data| {
-                    popup_replay_update(layout, data);
-                })),
-                "ReplayMenuUpdate" => Some(Box::new(|layout, data| {
-                    replay_menu_update(layout, data);
-                })),
+                "LanLobbyMenuUpdate" => {
+                    layout.update_callback_with_effects = Some(Box::new(|layout, _, effects| {
+                        if let Err(err) = effects
+                            .with_lan_lobby_menu(|menu, effects| menu.update(layout, None, effects))
+                        {
+                            warn!("LAN lobby menu update failed: {}", err);
+                        }
+                    }));
+                    None
+                }
+                "PopupCommunicatorUpdate" => {
+                    layout.update_callback_with_effects = Some(Box::new(|layout, _, effects| {
+                        popup_communicator_update(layout, None);
+                    }));
+                    None
+                }
+                "SaveLoadMenuUpdate" => {
+                    layout.update_callback_with_effects =
+                        Some(Box::new(|layout, data, effects| {
+                            save_load_menu_update(layout, data, effects);
+                        }));
+                    None
+                }
+                "PopupReplayUpdate" => {
+                    layout.update_callback_with_effects =
+                        Some(Box::new(|layout, data, effects| {
+                            effects.with_manager(|manager, effects| {
+                                popup_replay_update(layout, data, manager)
+                            });
+                        }));
+                    None
+                }
+                "ReplayMenuUpdate" => {
+                    layout.update_callback_with_effects =
+                        Some(Box::new(|layout, data, effects| {
+                            replay_menu_update(layout, data, effects);
+                        }));
+                    None
+                }
                 "ChallengeMenuUpdate" => {
                     layout.update_callback_with_effects =
                         Some(Box::new(|layout, data, effects| {
@@ -372,21 +497,43 @@ impl WindowManager {
                         }));
                     None
                 }
-                "KeyboardOptionsMenuUpdate" => Some(Box::new(|layout, data| {
-                    keyboard_options_menu_update(layout, data);
-                })),
-                "GameSpyPlayerInfoOverlayUpdate" => Some(Box::new(|layout, data| {
-                    popup_player_info_update(layout, data);
-                })),
-                "PopupHostGameUpdate" => Some(Box::new(|layout, data| {
-                    popup_host_game_update(layout, data);
-                })),
-                "PopupLadderSelectUpdate" => Some(Box::new(|layout, data| {
-                    popup_ladder_select_update(layout, data);
-                })),
-                "DownloadMenuUpdate" => Some(Box::new(|layout, data| {
-                    download_menu_update(layout, None);
-                })),
+                "KeyboardOptionsMenuUpdate" => {
+                    layout.update_callback_with_effects =
+                        Some(Box::new(|layout, data, effects| {
+                            keyboard_options_menu_update(layout, data);
+                        }));
+                    None
+                }
+                "GameSpyPlayerInfoOverlayUpdate" => {
+                    layout.update_callback_with_effects =
+                        Some(Box::new(|layout, data, effects| {
+                            popup_player_info_update(layout, data);
+                        }));
+                    None
+                }
+                "PopupHostGameUpdate" => {
+                    layout.update_callback_with_effects =
+                        Some(Box::new(|layout, data, effects| {
+                            popup_host_game_update(layout, data);
+                        }));
+                    None
+                }
+                "PopupLadderSelectUpdate" => {
+                    layout.update_callback_with_effects =
+                        Some(Box::new(|layout, data, effects| {
+                            popup_ladder_select_update(layout, data);
+                        }));
+                    None
+                }
+                "DownloadMenuUpdate" => {
+                    layout.update_callback_with_effects =
+                        Some(Box::new(|layout, data, effects| {
+                            effects.with_manager(|manager, effects| {
+                                download_menu_update(layout, None, manager, effects)
+                            });
+                        }));
+                    None
+                }
                 "ScoreScreenUpdate" => {
                     layout.update_callback_with_effects =
                         Some(Box::new(|layout, data, effects| {
@@ -394,61 +541,136 @@ impl WindowManager {
                         }));
                     None
                 }
-                "SkirmishMapSelectMenuUpdate" => Some(Box::new(|layout, data| {
-                    skirmish_map_select_menu_update(layout, None);
-                })),
-                "SkirmishGameOptionsMenuUpdate" => Some(Box::new(|layout, data| {
-                    skirmish_game_options_menu_update(layout, None);
-                })),
-                "LanMapSelectMenuUpdate" => Some(Box::new(|layout, data| {
-                    lan_map_select_menu_update(layout, None);
-                })),
-                "LanGameOptionsMenuUpdate" => Some(Box::new(|layout, data| {
-                    lan_game_options_menu_update(layout, None);
-                })),
-                "NetworkDirectConnectUpdate" => Some(Box::new(|layout, data| {
-                    network_direct_connect_update(layout, data);
-                })),
-                "WOLLoginMenuUpdate" => Some(Box::new(|layout, data| {
-                    wol_login_menu_update(layout, data);
-                })),
-                "WOLLocaleSelectUpdate" => Some(Box::new(|layout, data| {
-                    wol_locale_select_update(layout, data);
-                })),
-                "WOLMessageWindowUpdate" => Some(Box::new(|layout, data| {
-                    wol_message_window_update(layout, data);
-                })),
-                "WOLBuddyOverlayUpdate" => Some(Box::new(|layout, data| {
-                    wol_buddy_overlay_update(layout, data);
-                })),
-                "WOLStatusMenuUpdate" => Some(Box::new(|layout, data| {
-                    wol_status_menu_update(layout, data);
-                })),
-                "WOLWelcomeMenuUpdate" => Some(Box::new(|layout, data| {
-                    wol_welcome_menu_update(layout, data);
-                })),
-                "WOLLobbyMenuUpdate" => Some(Box::new(|layout, data| {
-                    wol_lobby_menu_update(layout, data);
-                })),
-                "WOLLadderScreenUpdate" => Some(Box::new(|layout, data| {
-                    wol_ladder_screen_update(layout, data);
-                })),
-                "WOLMapSelectMenuUpdate" => Some(Box::new(|layout, data| {
-                    wol_map_select_menu_update(layout, data);
-                })),
-                "WOLGameSetupMenuUpdate" => Some(Box::new(|layout, data| {
-                    wol_game_setup_menu_update(layout, data);
-                })),
-                "WOLQuickMatchMenuUpdate" => Some(Box::new(|layout, data| {
-                    wol_quick_match_menu_update(layout, data);
-                })),
-                "WOLQMScoreScreenUpdate" => Some(Box::new(|layout, data| {
-                    wol_qm_score_screen_update(layout, data);
-                })),
-                "WOLCustomScoreScreenUpdate" => Some(Box::new(|layout, data| {
-                    wol_custom_score_screen_update(layout, data);
-                })),
-                "MarketingScreenUpdate" => Some(Box::new(|_, _| {})),
+                "SkirmishMapSelectMenuUpdate" => {
+                    layout.update_callback_with_effects =
+                        Some(Box::new(|layout, data, effects| {
+                            skirmish_map_select_menu_update(layout, None);
+                        }));
+                    None
+                }
+                "SkirmishGameOptionsMenuUpdate" => {
+                    layout.update_callback_with_effects =
+                        Some(Box::new(|layout, data, effects| {
+                            skirmish_game_options_menu_update(layout, None, effects);
+                        }));
+                    None
+                }
+                "LanMapSelectMenuUpdate" => {
+                    layout.update_callback_with_effects =
+                        Some(Box::new(|layout, data, effects| {
+                            lan_map_select_menu_update(layout, None);
+                        }));
+                    None
+                }
+                "LanGameOptionsMenuUpdate" => {
+                    layout.update_callback_with_effects =
+                        Some(Box::new(|layout, data, effects| {
+                            lan_game_options_menu_update(layout, None, effects);
+                        }));
+                    None
+                }
+                "NetworkDirectConnectUpdate" => {
+                    layout.update_callback_with_effects =
+                        Some(Box::new(|layout, data, effects| {
+                            network_direct_connect_update(layout, data);
+                        }));
+                    None
+                }
+                "WOLLoginMenuUpdate" => {
+                    layout.update_callback_with_effects =
+                        Some(Box::new(|layout, data, effects| {
+                            wol_login_menu_update(layout, data);
+                        }));
+                    None
+                }
+                "WOLLocaleSelectUpdate" => {
+                    layout.update_callback_with_effects =
+                        Some(Box::new(|layout, data, effects| {
+                            wol_locale_select_update(layout, data);
+                        }));
+                    None
+                }
+                "WOLMessageWindowUpdate" => {
+                    layout.update_callback_with_effects =
+                        Some(Box::new(|layout, data, effects| {
+                            wol_message_window_update(layout, data);
+                        }));
+                    None
+                }
+                "WOLBuddyOverlayUpdate" => {
+                    layout.update_callback_with_effects =
+                        Some(Box::new(|layout, data, effects| {
+                            wol_buddy_overlay_update(layout, data);
+                        }));
+                    None
+                }
+                "WOLStatusMenuUpdate" => {
+                    layout.update_callback_with_effects =
+                        Some(Box::new(|layout, data, effects| {
+                            wol_status_menu_update(layout, data);
+                        }));
+                    None
+                }
+                "WOLWelcomeMenuUpdate" => {
+                    layout.update_callback_with_effects =
+                        Some(Box::new(|layout, data, effects| {
+                            wol_welcome_menu_update(layout, data);
+                        }));
+                    None
+                }
+                "WOLLobbyMenuUpdate" => {
+                    layout.update_callback_with_effects =
+                        Some(Box::new(|layout, data, effects| {
+                            wol_lobby_menu_update(layout, data);
+                        }));
+                    None
+                }
+                "WOLLadderScreenUpdate" => {
+                    layout.update_callback_with_effects =
+                        Some(Box::new(|layout, data, effects| {
+                            wol_ladder_screen_update(layout, data);
+                        }));
+                    None
+                }
+                "WOLMapSelectMenuUpdate" => {
+                    layout.update_callback_with_effects =
+                        Some(Box::new(|layout, data, effects| {
+                            wol_map_select_menu_update(layout, data);
+                        }));
+                    None
+                }
+                "WOLGameSetupMenuUpdate" => {
+                    layout.update_callback_with_effects =
+                        Some(Box::new(|layout, data, effects| {
+                            wol_game_setup_menu_update(layout, data);
+                        }));
+                    None
+                }
+                "WOLQuickMatchMenuUpdate" => {
+                    layout.update_callback_with_effects =
+                        Some(Box::new(|layout, data, effects| {
+                            wol_quick_match_menu_update(layout, data);
+                        }));
+                    None
+                }
+                "WOLQMScoreScreenUpdate" => {
+                    layout.update_callback_with_effects =
+                        Some(Box::new(|layout, data, effects| {
+                            wol_qm_score_screen_update(layout, data);
+                        }));
+                    None
+                }
+                "WOLCustomScoreScreenUpdate" => {
+                    layout.update_callback_with_effects =
+                        Some(Box::new(|layout, data, effects| {
+                            wol_custom_score_screen_update(layout, data);
+                        }));
+                    None
+                }
+                "MarketingScreenUpdate" => {
+                    layout.update_callback_with_effects = Some(Box::new(|_, _, effects| {}));
+                    None
+                }
                 other => {
                     warn!("Unknown layout update callback: {}", other);
                     None
@@ -461,52 +683,92 @@ impl WindowManager {
                 "MainMenuShutdown" => {
                     layout.shutdown_callback_with_effects =
                         Some(Box::new(|layout, data, effects| {
-                            if let Err(err) = effects
-                                .with_main_menu(|menu, _| menu.shutdown(layout, as_any_ref(data)))
-                            {
+                            if let Err(err) = effects.with_main_menu(|menu, effects| {
+                                menu.shutdown(layout, as_any_ref(data), effects)
+                            }) {
                                 warn!("Main menu shutdown failed: {err}");
                             }
                         }));
                     None
                 }
-                "SinglePlayerMenuShutdown" => Some(Box::new(|layout, data| {
-                    if let Err(err) = with_single_player_menu(|menu| menu.shutdown(layout, None)) {
-                        warn!("Single player menu shutdown failed: {}", err);
-                    }
-                })),
-                "OptionsMenuShutdown" => Some(Box::new(|layout, data| {
-                    if let Err(err) = with_options_menu(|menu| menu.shutdown(layout, None)) {
-                        warn!("Options menu shutdown failed: {}", err);
-                    }
-                })),
-                "MapSelectMenuShutdown" => Some(Box::new(|layout, data| {
-                    if let Err(err) = with_map_select_menu(|menu| menu.shutdown(layout, None)) {
-                        warn!("Map select menu shutdown failed: {}", err);
-                    }
-                })),
+                "SinglePlayerMenuShutdown" => {
+                    layout.shutdown_callback_with_effects =
+                        Some(Box::new(|layout, data, effects| {
+                            if let Err(err) = effects.with_single_player_menu(|menu, effects| {
+                                menu.shutdown(layout, None, effects)
+                            }) {
+                                warn!("Single player menu shutdown failed: {}", err);
+                            }
+                        }));
+                    None
+                }
+                "OptionsMenuShutdown" => {
+                    layout.shutdown_callback_with_effects =
+                        Some(Box::new(|layout, data, effects| {
+                            if let Err(err) = effects.with_options_menu(|menu, effects| {
+                                menu.shutdown(layout, None, effects)
+                            }) {
+                                warn!("Options menu shutdown failed: {}", err);
+                            }
+                        }));
+                    None
+                }
+                "MapSelectMenuShutdown" => {
+                    layout.shutdown_callback_with_effects =
+                        Some(Box::new(|layout, data, effects| {
+                            if let Err(err) = effects.with_map_select_menu(|menu, effects| {
+                                menu.shutdown(layout, None, effects)
+                            }) {
+                                warn!("Map select menu shutdown failed: {}", err);
+                            }
+                        }));
+                    None
+                }
                 "CreditsMenuShutdown" => {
                     layout.shutdown_callback_with_effects = Some(Box::new(|layout, _, effects| {
                         crate::gui::callbacks::owned_credits_menu::shutdown(layout, effects)
                     }));
                     None
                 }
-                "LanLobbyMenuShutdown" => Some(Box::new(|layout, data| {
-                    if let Err(err) = with_lan_lobby_menu(|menu| menu.shutdown(layout, None)) {
-                        warn!("LAN lobby menu shutdown failed: {}", err);
-                    }
-                })),
-                "PopupCommunicatorShutdown" => Some(Box::new(|layout, data| {
-                    popup_communicator_shutdown(layout, as_any_ref(data));
-                })),
-                "SaveLoadMenuShutdown" => Some(Box::new(|layout, data| {
-                    save_load_menu_shutdown(layout, as_any_ref(data));
-                })),
-                "PopupReplayShutdown" => Some(Box::new(|layout, data| {
-                    popup_replay_shutdown(layout, as_any_ref(data));
-                })),
-                "ReplayMenuShutdown" => Some(Box::new(|layout, data| {
-                    replay_menu_shutdown(layout, as_any_ref(data));
-                })),
+                "LanLobbyMenuShutdown" => {
+                    layout.shutdown_callback_with_effects =
+                        Some(Box::new(|layout, data, effects| {
+                            if let Err(err) = effects.with_lan_lobby_menu(|menu, effects| {
+                                menu.shutdown(layout, None, effects)
+                            }) {
+                                warn!("LAN lobby menu shutdown failed: {}", err);
+                            }
+                        }));
+                    None
+                }
+                "PopupCommunicatorShutdown" => {
+                    layout.shutdown_callback_with_effects =
+                        Some(Box::new(|layout, data, effects| {
+                            popup_communicator_shutdown(layout, as_any_ref(data));
+                        }));
+                    None
+                }
+                "SaveLoadMenuShutdown" => {
+                    layout.shutdown_callback_with_effects =
+                        Some(Box::new(|layout, data, effects| {
+                            save_load_menu_shutdown(layout, as_any_ref(data), effects);
+                        }));
+                    None
+                }
+                "PopupReplayShutdown" => {
+                    layout.shutdown_callback_with_effects =
+                        Some(Box::new(|layout, data, effects| {
+                            popup_replay_shutdown(layout, as_any_ref(data));
+                        }));
+                    None
+                }
+                "ReplayMenuShutdown" => {
+                    layout.shutdown_callback_with_effects =
+                        Some(Box::new(|layout, data, effects| {
+                            replay_menu_shutdown(layout, as_any_ref(data), effects);
+                        }));
+                    None
+                }
                 "ChallengeMenuShutdown" => {
                     layout.shutdown_callback_with_effects =
                         Some(Box::new(|layout, data, effects| {
@@ -514,78 +776,173 @@ impl WindowManager {
                         }));
                     None
                 }
-                "KeyboardOptionsMenuShutdown" => Some(Box::new(|layout, data| {
-                    keyboard_options_menu_shutdown(layout, as_any_ref(data));
-                })),
-                "PopupLadderSelectShutdown" => Some(Box::new(|layout, data| {
-                    popup_ladder_select_shutdown(layout, as_any_ref(data));
-                })),
-                "GameSpyPlayerInfoOverlayShutdown" => Some(Box::new(|layout, data| {
-                    popup_player_info_shutdown(layout, as_any_ref(data));
-                })),
-                "DownloadMenuShutdown" => Some(Box::new(|layout, data| {
-                    download_menu_shutdown(layout, data);
-                })),
-                "ScoreScreenShutdown" => Some(Box::new(|layout, data| {
-                    score_screen_shutdown(layout, data);
-                })),
-                "SkirmishMapSelectMenuShutdown" => Some(Box::new(|layout, data| {
-                    skirmish_map_select_menu_shutdown(layout, data);
-                })),
-                "SkirmishGameOptionsMenuShutdown" => Some(Box::new(|layout, data| {
-                    skirmish_game_options_menu_shutdown(layout, data);
-                })),
-                "LanMapSelectMenuShutdown" => Some(Box::new(|layout, data| {
-                    lan_map_select_menu_shutdown(layout, data);
-                })),
-                "LanGameOptionsMenuShutdown" => Some(Box::new(|layout, data| {
-                    lan_game_options_menu_shutdown(layout, data);
-                })),
-                "NetworkDirectConnectShutdown" => Some(Box::new(|layout, data| {
-                    network_direct_connect_shutdown(layout, as_any_ref(data));
-                })),
-                "WOLLoginMenuShutdown" => Some(Box::new(|layout, data| {
-                    wol_login_menu_shutdown(layout, as_any_ref(data));
-                })),
-                "WOLLocaleSelectShutdown" => Some(Box::new(|layout, data| {
-                    wol_locale_select_shutdown(layout, as_any_ref(data));
-                })),
-                "WOLMessageWindowShutdown" => Some(Box::new(|layout, data| {
-                    wol_message_window_shutdown(layout, as_any_ref(data));
-                })),
-                "WOLBuddyOverlayShutdown" => Some(Box::new(|layout, data| {
-                    wol_buddy_overlay_shutdown(layout, as_any_ref(data));
-                })),
-                "WOLStatusMenuShutdown" => Some(Box::new(|layout, data| {
-                    wol_status_menu_shutdown(layout, as_any_ref(data));
-                })),
-                "WOLWelcomeMenuShutdown" => Some(Box::new(|layout, data| {
-                    wol_welcome_menu_shutdown(layout, as_any_ref(data));
-                })),
-                "WOLLobbyMenuShutdown" => Some(Box::new(|layout, data| {
-                    wol_lobby_menu_shutdown(layout, as_any_ref(data));
-                })),
-                "WOLLadderScreenShutdown" => Some(Box::new(|layout, data| {
-                    wol_ladder_screen_shutdown(layout, as_any_ref(data));
-                })),
-                "WOLMapSelectMenuShutdown" => Some(Box::new(|layout, data| {
-                    wol_map_select_menu_shutdown(layout, as_any_ref(data));
-                })),
-                "WOLGameSetupMenuShutdown" => Some(Box::new(|layout, data| {
-                    wol_game_setup_menu_shutdown(layout, as_any_ref(data));
-                })),
-                "WOLQuickMatchMenuShutdown" => Some(Box::new(|layout, data| {
-                    wol_quick_match_menu_shutdown(layout, as_any_ref(data));
-                })),
-                "WOLQMScoreScreenShutdown" => Some(Box::new(|layout, data| {
-                    wol_qm_score_screen_shutdown(layout, as_any_ref(data));
-                })),
-                "WOLCustomScoreScreenShutdown" => Some(Box::new(|layout, data| {
-                    wol_custom_score_screen_shutdown(layout, as_any_ref(data));
-                })),
+                "KeyboardOptionsMenuShutdown" => {
+                    layout.shutdown_callback_with_effects =
+                        Some(Box::new(|layout, data, effects| {
+                            keyboard_options_menu_shutdown(layout, as_any_ref(data), effects);
+                        }));
+                    None
+                }
+                "PopupLadderSelectShutdown" => {
+                    layout.shutdown_callback_with_effects =
+                        Some(Box::new(|layout, data, effects| {
+                            popup_ladder_select_shutdown(layout, as_any_ref(data));
+                        }));
+                    None
+                }
+                "GameSpyPlayerInfoOverlayShutdown" => {
+                    layout.shutdown_callback_with_effects =
+                        Some(Box::new(|layout, data, effects| {
+                            popup_player_info_shutdown(layout, as_any_ref(data));
+                        }));
+                    None
+                }
+                "DownloadMenuShutdown" => {
+                    layout.shutdown_callback_with_effects =
+                        Some(Box::new(|layout, data, effects| {
+                            download_menu_shutdown(layout, data);
+                        }));
+                    None
+                }
+                "ScoreScreenShutdown" => {
+                    layout.shutdown_callback_with_effects =
+                        Some(Box::new(|layout, data, effects| {
+                            score_screen_shutdown(layout, data, effects);
+                        }));
+                    None
+                }
+                "SkirmishMapSelectMenuShutdown" => {
+                    layout.shutdown_callback_with_effects =
+                        Some(Box::new(|layout, data, effects| {
+                            skirmish_map_select_menu_shutdown(layout, data, effects);
+                        }));
+                    None
+                }
+                "SkirmishGameOptionsMenuShutdown" => {
+                    layout.shutdown_callback_with_effects =
+                        Some(Box::new(|layout, data, effects| {
+                            skirmish_game_options_menu_shutdown(layout, data, effects);
+                        }));
+                    None
+                }
+                "LanMapSelectMenuShutdown" => {
+                    layout.shutdown_callback_with_effects =
+                        Some(Box::new(|layout, data, effects| {
+                            lan_map_select_menu_shutdown(layout, data, effects);
+                        }));
+                    None
+                }
+                "LanGameOptionsMenuShutdown" => {
+                    layout.shutdown_callback_with_effects =
+                        Some(Box::new(|layout, data, effects| {
+                            lan_game_options_menu_shutdown(layout, data, effects);
+                        }));
+                    None
+                }
+                "NetworkDirectConnectShutdown" => {
+                    layout.shutdown_callback_with_effects =
+                        Some(Box::new(|layout, data, effects| {
+                            network_direct_connect_shutdown(layout, as_any_ref(data));
+                        }));
+                    None
+                }
+                "WOLLoginMenuShutdown" => {
+                    layout.shutdown_callback_with_effects =
+                        Some(Box::new(|layout, data, effects| {
+                            wol_login_menu_shutdown(layout, as_any_ref(data));
+                        }));
+                    None
+                }
+                "WOLLocaleSelectShutdown" => {
+                    layout.shutdown_callback_with_effects =
+                        Some(Box::new(|layout, data, effects| {
+                            wol_locale_select_shutdown(layout, as_any_ref(data));
+                        }));
+                    None
+                }
+                "WOLMessageWindowShutdown" => {
+                    layout.shutdown_callback_with_effects =
+                        Some(Box::new(|layout, data, effects| {
+                            wol_message_window_shutdown(layout, as_any_ref(data));
+                        }));
+                    None
+                }
+                "WOLBuddyOverlayShutdown" => {
+                    layout.shutdown_callback_with_effects =
+                        Some(Box::new(|layout, data, effects| {
+                            wol_buddy_overlay_shutdown(layout, as_any_ref(data));
+                        }));
+                    None
+                }
+                "WOLStatusMenuShutdown" => {
+                    layout.shutdown_callback_with_effects =
+                        Some(Box::new(|layout, data, effects| {
+                            wol_status_menu_shutdown(layout, as_any_ref(data));
+                        }));
+                    None
+                }
+                "WOLWelcomeMenuShutdown" => {
+                    layout.shutdown_callback_with_effects =
+                        Some(Box::new(|layout, data, effects| {
+                            wol_welcome_menu_shutdown(layout, as_any_ref(data));
+                        }));
+                    None
+                }
+                "WOLLobbyMenuShutdown" => {
+                    layout.shutdown_callback_with_effects =
+                        Some(Box::new(|layout, data, effects| {
+                            wol_lobby_menu_shutdown(layout, as_any_ref(data));
+                        }));
+                    None
+                }
+                "WOLLadderScreenShutdown" => {
+                    layout.shutdown_callback_with_effects =
+                        Some(Box::new(|layout, data, effects| {
+                            wol_ladder_screen_shutdown(layout, as_any_ref(data));
+                        }));
+                    None
+                }
+                "WOLMapSelectMenuShutdown" => {
+                    layout.shutdown_callback_with_effects =
+                        Some(Box::new(|layout, data, effects| {
+                            wol_map_select_menu_shutdown(layout, as_any_ref(data));
+                        }));
+                    None
+                }
+                "WOLGameSetupMenuShutdown" => {
+                    layout.shutdown_callback_with_effects =
+                        Some(Box::new(|layout, data, effects| {
+                            wol_game_setup_menu_shutdown(layout, as_any_ref(data));
+                        }));
+                    None
+                }
+                "WOLQuickMatchMenuShutdown" => {
+                    layout.shutdown_callback_with_effects =
+                        Some(Box::new(|layout, data, effects| {
+                            wol_quick_match_menu_shutdown(layout, as_any_ref(data));
+                        }));
+                    None
+                }
+                "WOLQMScoreScreenShutdown" => {
+                    layout.shutdown_callback_with_effects =
+                        Some(Box::new(|layout, data, effects| {
+                            wol_qm_score_screen_shutdown(layout, as_any_ref(data));
+                        }));
+                    None
+                }
+                "WOLCustomScoreScreenShutdown" => {
+                    layout.shutdown_callback_with_effects =
+                        Some(Box::new(|layout, data, effects| {
+                            wol_custom_score_screen_shutdown(layout, as_any_ref(data));
+                        }));
+                    None
+                }
                 "ChallengeLoadScreenShutdown"
                 | "MarketingScreenShutdown"
-                | "SinglePlayerLoadScreenShutdown" => Some(Box::new(|_, _| {})),
+                | "SinglePlayerLoadScreenShutdown" => {
+                    layout.shutdown_callback_with_effects = Some(Box::new(|_, _, effects| {}));
+                    None
+                }
                 other => {
                     warn!("Unknown layout shutdown callback: {}", other);
                     None
@@ -629,78 +986,91 @@ impl WindowManager {
                             let system = system.read().unwrap_or_else(|e| e.into_inner());
                             let callbacks = system.get_callbacks();
                             with_arc_write(&callbacks, |callbacks| {
-                                callbacks.system(
-                                    window,
-                                    msg,
-                                    data1,
-                                    data2,
-                                    effects.emitted_messages,
-                                    effects.pending_control_bar_clicks.as_deref_mut(),
-                                )
+                                callbacks.system(window, msg, data1, data2, effects)
                             })
                         },
                     );
                     window.mark_control_bar_system_callback();
                 }
                 "ControlBarObserverSystem" => {
-                    window.set_system_callback(|window, msg, data1, data2| {
-                        let system = get_control_bar_system();
-                        let system = system.read().unwrap_or_else(|e| e.into_inner());
-                        let callbacks = system.get_observer();
-                        with_arc_write(&callbacks, |callbacks| {
-                            callbacks.system(window, msg, data1, data2)
-                        })
-                    });
+                    window.set_system_callback_with_message_sink(
+                        |window, msg, data1, data2, effects| {
+                            let system = get_control_bar_system();
+                            let system = system.read().unwrap_or_else(|e| e.into_inner());
+                            let callbacks = system.get_observer();
+                            with_arc_write(&callbacks, |callbacks| {
+                                callbacks.system(window, msg, data1, data2, effects)
+                            })
+                        },
+                    );
                     window.mark_control_bar_observer_system_callback();
                 }
                 "DiplomacySystem" => {
-                    window.set_system_callback(|window, msg, data1, data2| {
-                        // GWM_CREATE is dispatched synchronously by
-                        // create_window_from_definition (layout_load.rs:266)
-                        // while DiplomacySystem::toggle_diplomacy still holds
-                        // the DiplomacyCallbacks write guard; re-acquiring it
-                        // here self-deadlocks the whole client thread. The
-                        // Create side effect (slot-table populate) runs in
-                        // show_layout on every show — C++ populates in
-                        // ShowDiplomacy via PopulateInGameDiplomacyPopup
-                        // (Diplomacy.cpp:247-248) — so Create only needs to
-                        // report handled.
-                        if msg == WindowMessage::Create {
-                            return WindowMsgHandled::Handled;
-                        }
-                        let system = get_diplomacy_system();
-                        let system = system.read().unwrap_or_else(|e| e.into_inner());
-                        let callbacks = system.get_callbacks();
-                        with_arc_write(&callbacks, |callbacks| {
-                            callbacks.system(window, msg, data1, data2)
-                        })
-                    });
+                    window.set_system_callback_with_message_sink(
+                        |window, msg, data1, data2, effects| {
+                            // GWM_CREATE is dispatched synchronously by
+                            // create_window_from_definition (layout_load.rs:266)
+                            // while DiplomacySystem::toggle_diplomacy still holds
+                            // the DiplomacyCallbacks write guard; re-acquiring it
+                            // here self-deadlocks the whole client thread. The
+                            // Create side effect (slot-table populate) runs in
+                            // show_layout on every show — C++ populates in
+                            // ShowDiplomacy via PopulateInGameDiplomacyPopup
+                            // (Diplomacy.cpp:247-248) — so Create only needs to
+                            // report handled.
+                            if msg == WindowMessage::Create {
+                                return WindowMsgHandled::Handled;
+                            }
+                            let system = get_diplomacy_system();
+                            let system = system.read().unwrap_or_else(|e| e.into_inner());
+                            let callbacks = system.get_callbacks();
+                            with_arc_write(&callbacks, |callbacks| {
+                                callbacks.system(window, msg, data1, data2)
+                            })
+                        },
+                    );
                 }
                 "InGameChatSystem" => {
-                    window.set_system_callback(|window, msg, data1, data2| {
-                        let system = get_ingame_ui_system();
-                        let system = system.read().unwrap_or_else(|e| e.into_inner());
-                        let chat = system.get_chat();
-                        with_arc_write(&chat, |chat| chat.system(window, msg, data1, data2))
-                    });
+                    window.set_system_callback_with_message_sink(
+                        |window, msg, data1, data2, effects| {
+                            let system = get_ingame_ui_system();
+                            let system = system.read().unwrap_or_else(|e| e.into_inner());
+                            let chat = system.get_chat();
+                            with_arc_write(&chat, |chat| {
+                                effects.with_manager(|manager, effects| {
+                                    chat.system(window, msg, data1, data2, manager, effects)
+                                })
+                            })
+                        },
+                    );
                 }
                 "ReplayControlSystem" => {
-                    window.set_system_callback(|window, msg, data1, data2| {
-                        let system = get_ingame_ui_system();
-                        let system = system.read().unwrap_or_else(|e| e.into_inner());
-                        let replay = system.get_replay();
-                        with_arc_write(&replay, |replay| replay.system(window, msg, data1, data2))
-                    });
+                    window.set_system_callback_with_message_sink(
+                        |window, msg, data1, data2, effects| {
+                            let system = get_ingame_ui_system();
+                            let system = system.read().unwrap_or_else(|e| e.into_inner());
+                            let replay = system.get_replay();
+                            with_arc_write(&replay, |replay| {
+                                effects.with_manager(|manager, effects| {
+                                    replay.system(window, msg, data1, data2, manager)
+                                })
+                            })
+                        },
+                    );
                 }
                 "IdleWorkerSystem" => {
-                    window.set_system_callback(|window, msg, data1, data2| {
-                        let system = get_ingame_ui_system();
-                        let system = system.read().unwrap_or_else(|e| e.into_inner());
-                        let idle_worker = system.get_idle_worker();
-                        with_arc_write(&idle_worker, |idle_worker| {
-                            idle_worker.system(window, msg, data1, data2)
-                        })
-                    });
+                    window.set_system_callback_with_message_sink(
+                        |window, msg, data1, data2, effects| {
+                            let system = get_ingame_ui_system();
+                            let system = system.read().unwrap_or_else(|e| e.into_inner());
+                            let idle_worker = system.get_idle_worker();
+                            with_arc_write(&idle_worker, |idle_worker| {
+                                effects.with_manager(|manager, effects| {
+                                    idle_worker.system(window, msg, data1, data2, manager)
+                                })
+                            })
+                        },
+                    );
                 }
                 "MessageBoxSystem" => {
                     window.set_system_callback_with_message_sink(
@@ -727,18 +1097,31 @@ impl WindowManager {
                     );
                 }
                 "EstablishConnectionsControlSystem" => {
-                    window.set_system_callback(|window, msg, data1, data2| {
-                        let menu = get_establish_connections_menu();
-                        let mut menu = menu.write().unwrap_or_else(|e| e.into_inner());
-                        menu.system(window, msg, data1, data2)
-                    });
+                    window.set_system_callback_with_message_sink(
+                        |window, msg, data1, data2, effects| {
+                            if !matches!(msg, WindowMessage::GadgetSelected) {
+                                return WindowMsgHandled::Ignored;
+                            }
+                            effects.with_establish_connections_menu(|menu, effects| {
+                                menu.system(window, msg, data1, data2, effects)
+                            })
+                        },
+                    );
                 }
                 "DisconnectControlSystem" => {
-                    window.set_system_callback(|window, msg, data1, data2| {
-                        let menu = get_disconnect_menu();
-                        let mut menu = menu.write().unwrap_or_else(|e| e.into_inner());
-                        menu.system(window, msg, data1, data2)
-                    });
+                    window.set_system_callback_with_message_sink(
+                        |window, msg, data1, data2, effects| {
+                            if !matches!(
+                                msg,
+                                WindowMessage::GadgetSelected | WindowMessage::GadgetEditDone
+                            ) {
+                                return WindowMsgHandled::Ignored;
+                            }
+                            effects.with_disconnect_menu(|menu, effects| {
+                                menu.system(window, msg, data1, data2, effects)
+                            })
+                        },
+                    );
                 }
                 "MainMenuSystem" => {
                     window.set_system_callback_with_message_sink(
@@ -747,8 +1130,8 @@ impl WindowManager {
                             if raw_msg == 0 {
                                 return WindowMsgHandled::Ignored;
                             }
-                            if effects.with_main_menu(|menu, effects| {
-                                menu.system(window.get_id() as u32, raw_msg, data1, data2, effects)
+                            if effects.with_main_menu_for_window(window, |menu, effects, window| {
+                                menu.system_for_window(window, raw_msg, data1, data2, effects)
                             }) {
                                 WindowMsgHandled::Handled
                             } else {
@@ -761,7 +1144,7 @@ impl WindowManager {
                 "SinglePlayerMenuSystem" => {
                     window.set_system_callback_with_message_sink(
                         |window, msg, data1, data2, effects| {
-                            with_single_player_menu(|menu| {
+                            effects.with_single_player_menu(|menu, effects| {
                                 menu.system_with_effects(window, msg, data1, data2, effects)
                             })
                         },
@@ -770,7 +1153,7 @@ impl WindowManager {
                 "OptionsMenuSystem" => {
                     window.set_system_callback_with_message_sink(
                         |window, msg, data1, data2, effects| {
-                            with_options_menu(|menu| {
+                            effects.with_options_menu(|menu, effects| {
                                 menu.system_with_effects(window, msg, data1, data2, effects)
                             })
                         },
@@ -780,19 +1163,25 @@ impl WindowManager {
                 "MapSelectMenuSystem" => {
                     window.set_system_callback_with_message_sink(
                         |window, msg, data1, data2, effects| {
-                            with_map_select_menu(|menu| {
+                            effects.with_map_select_menu(|menu, effects| {
                                 menu.system_with_effects(window, msg, data1, data2, effects)
                             })
                         },
                     );
                 }
                 "CreditsMenuSystem" => {
-                    window.set_system_callback(crate::gui::callbacks::owned_credits_menu::system);
+                    window.set_system_callback(|window, msg, d1, d2| {
+                        crate::gui::callbacks::owned_credits_menu::system(window, msg, d1, d2)
+                    });
                 }
                 "LanLobbyMenuSystem" => {
-                    window.set_system_callback(|window, msg, data1, data2| {
-                        with_lan_lobby_menu(|menu| menu.system(window, msg, data1, data2))
-                    });
+                    window.set_system_callback_with_message_sink(
+                        |window, msg, data1, data2, effects| {
+                            effects.with_lan_lobby_menu(|menu, effects| {
+                                menu.system(window, msg, data1, data2, effects)
+                            })
+                        },
+                    );
                 }
                 "QuitMessageBoxSystem" => {
                     window.set_system_callback_with_message_sink(
@@ -834,9 +1223,11 @@ impl WindowManager {
                     );
                 }
                 "IMECandidateWindowSystem" => {
-                    window.set_system_callback(|window, msg, data1, data2| {
-                        ime_candidate_window_system(window, msg, data1, data2)
-                    });
+                    window.set_system_callback_with_message_sink(
+                        |window, msg, data1, data2, effects| {
+                            ime_candidate_window_system(window, msg, data1, data2)
+                        },
+                    );
                 }
                 "InGamePopupMessageSystem" => {
                     window.set_system_callback_with_message_sink(
@@ -848,29 +1239,43 @@ impl WindowManager {
                     );
                 }
                 "PopupCommunicatorSystem" => {
-                    window.set_system_callback(|window, msg, data1, data2| {
-                        popup_communicator_system(window, msg, data1, data2)
-                    });
+                    window.set_system_callback_with_message_sink(
+                        |window, msg, data1, data2, effects| {
+                            effects.with_manager(|manager, effects| {
+                                popup_communicator_system(
+                                    window, msg, data1, data2, manager, effects,
+                                )
+                            })
+                        },
+                    );
                 }
                 "PopupJoinGameSystem" => {
-                    window.set_system_callback(|window, msg, data1, data2| {
-                        popup_join_game_system(window, msg, data1, data2)
-                    });
+                    window.set_system_callback_with_message_sink(
+                        |window, msg, data1, data2, effects| {
+                            popup_join_game_system(window, msg, data1, data2)
+                        },
+                    );
                 }
                 "PopupHostGameSystem" => {
-                    window.set_system_callback(|window, msg, data1, data2| {
-                        popup_host_game_system(window, msg, data1, data2)
-                    });
+                    window.set_system_callback_with_message_sink(
+                        |window, msg, data1, data2, effects| {
+                            popup_host_game_system(window, msg, data1, data2)
+                        },
+                    );
                 }
                 "PopupLadderSelectSystem" => {
-                    window.set_system_callback(|window, msg, data1, data2| {
-                        popup_ladder_select_system(window, msg, data1, data2)
-                    });
+                    window.set_system_callback_with_message_sink(
+                        |window, msg, data1, data2, effects| {
+                            popup_ladder_select_system(window, msg, data1, data2)
+                        },
+                    );
                 }
                 "RCGameDetailsMenuSystem" => {
-                    window.set_system_callback(|window, msg, data1, data2| {
-                        rc_game_details_menu_system(window, msg, data1, data2)
-                    });
+                    window.set_system_callback_with_message_sink(
+                        |window, msg, data1, data2, effects| {
+                            rc_game_details_menu_system(window, msg, data1, data2)
+                        },
+                    );
                 }
                 "DownloadMenuSystem" => {
                     window.set_system_callback_with_message_sink(
@@ -895,14 +1300,20 @@ impl WindowManager {
                     );
                 }
                 "PopupReplaySystem" => {
-                    window.set_system_callback(|window, msg, data1, data2| {
-                        popup_replay_system(window, msg, data1, data2)
-                    });
+                    window.set_system_callback_with_message_sink(
+                        |window, msg, data1, data2, effects| {
+                            effects.with_manager(|manager, effects| {
+                                popup_replay_system(window, msg, data1, data2, manager, effects)
+                            })
+                        },
+                    );
                 }
                 "ReplayMenuSystem" => {
-                    window.set_system_callback(|window, msg, data1, data2| {
-                        replay_menu_system(window, msg, data1, data2)
-                    });
+                    window.set_system_callback_with_message_sink(
+                        |window, msg, data1, data2, effects| {
+                            replay_menu_system(window, msg, data1, data2, effects)
+                        },
+                    );
                     window.mark_replay_menu_system_callback();
                     if let Some(state) = self.replay_menu.as_ref() {
                         window.set_user_data(state.clone());
@@ -923,14 +1334,18 @@ impl WindowManager {
                     );
                 }
                 "KeyboardOptionsMenuSystem" => {
-                    window.set_system_callback(|window, msg, data1, data2| {
-                        keyboard_options_menu_system(window, msg, data1, data2)
-                    });
+                    window.set_system_callback_with_message_sink(
+                        |window, msg, data1, data2, effects| {
+                            keyboard_options_menu_system(window, msg, data1, data2, effects)
+                        },
+                    );
                 }
                 "GameSpyPlayerInfoOverlaySystem" => {
-                    window.set_system_callback(|window, msg, data1, data2| {
-                        popup_player_info_system(window, msg, data1, data2)
-                    });
+                    window.set_system_callback_with_message_sink(
+                        |window, msg, data1, data2, effects| {
+                            popup_player_info_system(window, msg, data1, data2)
+                        },
+                    );
                 }
                 "ScoreScreenSystem" => {
                     window.set_system_callback_with_message_sink(
@@ -940,9 +1355,15 @@ impl WindowManager {
                     );
                 }
                 "SkirmishMapSelectMenuSystem" => {
-                    window.set_system_callback(|window, msg, data1, data2| {
-                        skirmish_map_select_menu_system(window, msg, data1, data2)
-                    });
+                    window.set_system_callback_with_message_sink(
+                        |window, msg, data1, data2, effects| {
+                            effects.with_manager(|manager, effects| {
+                                skirmish_map_select_menu_system(
+                                    window, msg, data1, data2, manager, effects,
+                                )
+                            })
+                        },
+                    );
                 }
                 "SkirmishGameOptionsMenuSystem" => {
                     window.set_system_callback_with_message_sink(
@@ -952,145 +1373,183 @@ impl WindowManager {
                     );
                 }
                 "LanMapSelectMenuSystem" => {
-                    window.set_system_callback(|window, msg, data1, data2| {
-                        lan_map_select_menu_system(window, msg, data1, data2)
-                    });
+                    window.set_system_callback_with_message_sink(
+                        |window, msg, data1, data2, effects| {
+                            effects.with_manager(|manager, effects| {
+                                lan_map_select_menu_system(
+                                    window, msg, data1, data2, manager, effects,
+                                )
+                            })
+                        },
+                    );
                 }
                 "LanGameOptionsMenuSystem" => {
-                    window.set_system_callback(|window, msg, data1, data2| {
-                        lan_game_options_menu_system(window, msg, data1, data2)
-                    });
+                    window.set_system_callback_with_message_sink(
+                        |window, msg, data1, data2, effects| {
+                            lan_game_options_menu_system(window, msg, data1, data2, effects)
+                        },
+                    );
                 }
                 "GameInfoWindowSystem" => {
-                    window.set_system_callback(|window, msg, data1, data2| {
-                        game_info_window_system(window, msg, data1, data2)
-                    });
+                    window.set_system_callback_with_message_sink(
+                        |window, msg, data1, data2, effects| {
+                            game_info_window_system(window, msg, data1, data2)
+                        },
+                    );
                 }
                 "NetworkDirectConnectSystem" => {
-                    window.set_system_callback(|window, msg, data1, data2| {
-                        network_direct_connect_system(window, msg, data1, data2)
-                    });
+                    window.set_system_callback_with_message_sink(
+                        |window, msg, data1, data2, effects| {
+                            network_direct_connect_system(window, msg, data1, data2)
+                        },
+                    );
                 }
                 "WOLLoginMenuSystem" => {
-                    window.set_system_callback(|window, msg, data1, data2| {
-                        wol_login_menu_system(window, msg, data1, data2)
-                    });
+                    window.set_system_callback_with_message_sink(
+                        |window, msg, data1, data2, effects| {
+                            wol_login_menu_system(window, msg, data1, data2)
+                        },
+                    );
                 }
                 "WOLLocaleSelectSystem" => {
-                    window.set_system_callback(|window, msg, data1, data2| {
-                        wol_locale_select_system(window, msg, data1, data2)
-                    });
+                    window.set_system_callback_with_message_sink(
+                        |window, msg, data1, data2, effects| {
+                            wol_locale_select_system(window, msg, data1, data2)
+                        },
+                    );
                 }
                 "WOLMessageWindowSystem" => {
-                    window.set_system_callback(|window, msg, data1, data2| {
-                        wol_message_window_system(window, msg, data1, data2)
-                    });
+                    window.set_system_callback_with_message_sink(
+                        |window, msg, data1, data2, effects| {
+                            wol_message_window_system(window, msg, data1, data2)
+                        },
+                    );
                 }
                 "WOLBuddyOverlaySystem" => {
-                    window.set_system_callback(|window, msg, data1, data2| {
-                        wol_buddy_overlay_system(window, msg, data1, data2)
-                    });
+                    window.set_system_callback_with_message_sink(
+                        |window, msg, data1, data2, effects| {
+                            wol_buddy_overlay_system(window, msg, data1, data2)
+                        },
+                    );
                 }
                 "WOLBuddyOverlayRCMenuSystem" => {
-                    window.set_system_callback(|window, msg, data1, data2| {
-                        wol_buddy_overlay_rc_menu_system(window, msg, data1, data2)
-                    });
+                    window.set_system_callback_with_message_sink(
+                        |window, msg, data1, data2, effects| {
+                            wol_buddy_overlay_rc_menu_system(window, msg, data1, data2)
+                        },
+                    );
                 }
                 "PopupBuddyNotificationSystem" => {
-                    window.set_system_callback(|window, msg, data1, data2| {
-                        popup_buddy_notification_system(window, msg, data1, data2)
-                    });
+                    window.set_system_callback_with_message_sink(
+                        |window, msg, data1, data2, effects| {
+                            popup_buddy_notification_system(window, msg, data1, data2)
+                        },
+                    );
                 }
                 "WOLStatusMenuSystem" => {
-                    window.set_system_callback(|window, msg, data1, data2| {
-                        wol_status_menu_system(window, msg, data1, data2)
-                    });
+                    window.set_system_callback_with_message_sink(
+                        |window, msg, data1, data2, effects| {
+                            wol_status_menu_system(window, msg, data1, data2)
+                        },
+                    );
                 }
                 "WOLWelcomeMenuSystem" => {
-                    window.set_system_callback(|window, msg, data1, data2| {
-                        wol_welcome_menu_system(window, msg, data1, data2)
-                    });
+                    window.set_system_callback_with_message_sink(
+                        |window, msg, data1, data2, effects| {
+                            wol_welcome_menu_system(window, msg, data1, data2)
+                        },
+                    );
                 }
                 "WOLLobbyMenuSystem" => {
-                    window.set_system_callback(|window, msg, data1, data2| {
-                        wol_lobby_menu_system(window, msg, data1, data2)
-                    });
+                    window.set_system_callback_with_message_sink(
+                        |window, msg, data1, data2, effects| {
+                            wol_lobby_menu_system(window, msg, data1, data2)
+                        },
+                    );
                 }
                 "WOLLadderScreenSystem" => {
-                    window.set_system_callback(|window, msg, data1, data2| {
-                        wol_ladder_screen_system(window, msg, data1, data2)
-                    });
+                    window.set_system_callback_with_message_sink(
+                        |window, msg, data1, data2, effects| {
+                            wol_ladder_screen_system(window, msg, data1, data2)
+                        },
+                    );
                 }
                 "WOLMapSelectMenuSystem" => {
-                    window.set_system_callback(|window, msg, data1, data2| {
-                        wol_map_select_menu_system(window, msg, data1, data2)
-                    });
+                    window.set_system_callback_with_message_sink(
+                        |window, msg, data1, data2, effects| {
+                            wol_map_select_menu_system(window, msg, data1, data2)
+                        },
+                    );
                 }
                 "WOLGameSetupMenuSystem" => {
-                    window.set_system_callback(|window, msg, data1, data2| {
-                        wol_game_setup_menu_system(window, msg, data1, data2)
-                    });
+                    window.set_system_callback_with_message_sink(
+                        |window, msg, data1, data2, effects| {
+                            wol_game_setup_menu_system(window, msg, data1, data2)
+                        },
+                    );
                 }
                 "WOLQuickMatchMenuSystem" => {
-                    window.set_system_callback(|window, msg, data1, data2| {
-                        wol_quick_match_menu_system(window, msg, data1, data2)
-                    });
+                    window.set_system_callback_with_message_sink(
+                        |window, msg, data1, data2, effects| {
+                            wol_quick_match_menu_system(window, msg, data1, data2)
+                        },
+                    );
                 }
                 "WOLQMScoreScreenSystem" => {
-                    window.set_system_callback(|window, msg, data1, data2| {
-                        wol_qm_score_screen_system(window, msg, data1, data2)
-                    });
+                    window.set_system_callback_with_message_sink(
+                        |window, msg, data1, data2, effects| {
+                            wol_qm_score_screen_system(window, msg, data1, data2)
+                        },
+                    );
                 }
                 "WOLCustomScoreScreenSystem" => {
-                    window.set_system_callback(|window, msg, data1, data2| {
-                        wol_custom_score_screen_system(window, msg, data1, data2)
-                    });
+                    window.set_system_callback_with_message_sink(
+                        |window, msg, data1, data2, effects| {
+                            wol_custom_score_screen_system(window, msg, data1, data2)
+                        },
+                    );
                 }
                 "PassMessagesToParentSystem" => {
-                    window.set_system_callback(|window, msg, data1, data2| {
-                        if msg == WindowMessage::Create
-                            || msg == WindowMessage::Destroy
-                            || msg == WindowMessage::ScriptCreate
-                        {
-                            return WindowMsgHandled::Ignored;
-                        }
+                    window.set_system_callback_with_message_sink(
+                        |window, msg, data1, data2, effects| {
+                            if msg == WindowMessage::Create
+                                || msg == WindowMessage::Destroy
+                                || msg == WindowMessage::ScriptCreate
+                            {
+                                return WindowMsgHandled::Ignored;
+                            }
 
-                        if let Some(parent) = window.get_parent() {
-                            if let Ok(mut parent_ref) = parent.try_borrow_mut() {
-                                parent_ref.send_system_message(msg, data1, data2)
+                            if let Some(parent) = window.get_parent() {
+                                parent
+                                    .borrow_mut()
+                                    .send_system_message(msg, data1, data2, effects)
                             } else {
-                                // Parent already borrowed. Fail-closed instead of
-                                // aliasing the RefCell.
                                 WindowMsgHandled::Ignored
                             }
-                        } else {
-                            WindowMsgHandled::Ignored
-                        }
-                    });
+                        },
+                    );
                 }
                 "PassSelectedButtonsToParentSystem" => {
-                    window.set_system_callback(|window, msg, data1, data2| {
-                        if msg != WindowMessage::GadgetSelected
-                            && msg != WindowMessage::GadgetRightClick
-                            && msg != WindowMessage::GadgetMouseEntering
-                            && msg != WindowMessage::GadgetMouseLeaving
-                            && msg != WindowMessage::GadgetEditDone
-                        {
-                            return WindowMsgHandled::Ignored;
-                        }
+                    window.set_system_callback_with_message_sink(
+                        |window, msg, data1, data2, effects| {
+                            if msg != WindowMessage::GadgetSelected
+                                && msg != WindowMessage::GadgetRightClick
+                                && msg != WindowMessage::GadgetMouseEntering
+                                && msg != WindowMessage::GadgetMouseLeaving
+                                && msg != WindowMessage::GadgetEditDone
+                            {
+                                return WindowMsgHandled::Ignored;
+                            }
 
-                        if let Some(parent) = window.get_parent() {
-                            if let Ok(mut parent_ref) = parent.try_borrow_mut() {
-                                parent_ref.send_system_message(msg, data1, data2)
+                            if let Some(parent) = window.get_parent() {
+                                parent
+                                    .borrow_mut()
+                                    .send_system_message(msg, data1, data2, effects)
                             } else {
-                                // Parent already borrowed. Fail-closed instead of
-                                // aliasing the RefCell.
                                 WindowMsgHandled::Ignored
                             }
-                        } else {
-                            WindowMsgHandled::Ignored
-                        }
-                    });
+                        },
+                    );
                 }
                 other => {
                     warn!("Unimplemented system callback '{}', using default.", other);
@@ -1103,10 +1562,14 @@ impl WindowManager {
             let name = window_def.input_callback.as_str();
             match name {
                 "GameWinDefaultInput" => {
-                    window.set_input_callback(default_input_callback);
+                    window.set_input_callback_with_message_sink(|window, msg, d1, d2, _effects| {
+                        default_input_callback(window, msg, d1, d2)
+                    });
                 }
                 "BeaconWindowInput" => {
-                    window.set_input_callback(beacon_window_input);
+                    window.set_input_callback(|window, msg, d1, d2| {
+                        beacon_window_input(window, msg, d1, d2)
+                    });
                 }
                 "DisconnectControlInput"
                 | "EstablishConnectionsControlInput"
@@ -1121,7 +1584,9 @@ impl WindowManager {
                 | "GadgetTabControlInput"
                 | "GadgetTextEntryInput"
                 | "GadgetVerticalSliderInput" => {
-                    window.set_input_callback(default_input_callback);
+                    window.set_input_callback_with_message_sink(|window, msg, d1, d2, _effects| {
+                        default_input_callback(window, msg, d1, d2)
+                    });
                 }
                 "GameWinBlockInput" => {
                     window.set_input_callback(|_window, msg, _data1, _data2| match msg {
@@ -1136,14 +1601,7 @@ impl WindowManager {
                             let system = system.read().unwrap_or_else(|e| e.into_inner());
                             let callbacks = system.get_callbacks();
                             with_arc_write(&callbacks, |callbacks| {
-                                callbacks.system(
-                                    window,
-                                    msg,
-                                    data1,
-                                    data2,
-                                    effects.emitted_messages,
-                                    effects.pending_control_bar_clicks.as_deref_mut(),
-                                )
+                                callbacks.system(window, msg, data1, data2, effects)
                             })
                         },
                     );
@@ -1168,41 +1626,57 @@ impl WindowManager {
                     );
                 }
                 "DiplomacyInput" => {
-                    window.set_input_callback(|window, msg, data1, data2| {
-                        // ScriptCreate is routed synchronously to the root's
-                        // input callback while each child is created
-                        // (layout_load.rs:269-275) — i.e. while
-                        // DiplomacySystem::toggle_diplomacy still holds the
-                        // DiplomacyCallbacks write guard; re-acquiring it here
-                        // self-deadlocks. C++ DiplomacyInput ignores everything
-                        // except GWM_CHAR (Diplomacy.cpp:323-357), so creation
-                        // traffic falls straight through to widget handling.
-                        if msg == WindowMessage::ScriptCreate {
-                            return WindowMsgHandled::Ignored;
-                        }
-                        let system = get_diplomacy_system();
-                        let system = system.read().unwrap_or_else(|e| e.into_inner());
-                        let callbacks = system.get_callbacks();
-                        with_arc_write(&callbacks, |callbacks| {
-                            callbacks.input(window, msg, data1, data2)
-                        })
-                    });
+                    window.set_input_callback_with_message_sink(
+                        |window, msg, data1, data2, effects| {
+                            // ScriptCreate is routed synchronously to the root's
+                            // input callback while each child is created
+                            // (layout_load.rs:269-275) — i.e. while
+                            // DiplomacySystem::toggle_diplomacy still holds the
+                            // DiplomacyCallbacks write guard; re-acquiring it here
+                            // self-deadlocks. C++ DiplomacyInput ignores everything
+                            // except GWM_CHAR (Diplomacy.cpp:323-357), so creation
+                            // traffic falls straight through to widget handling.
+                            if msg == WindowMessage::ScriptCreate {
+                                return WindowMsgHandled::Ignored;
+                            }
+                            let system = get_diplomacy_system();
+                            let system = system.read().unwrap_or_else(|e| e.into_inner());
+                            let callbacks = system.get_callbacks();
+                            with_arc_write(&callbacks, |callbacks| {
+                                effects.with_manager(|manager, effects| {
+                                    callbacks.input(window, msg, data1, data2, manager, effects)
+                                })
+                            })
+                        },
+                    );
                 }
                 "InGameChatInput" => {
-                    window.set_input_callback(|window, msg, data1, data2| {
-                        let system = get_ingame_ui_system();
-                        let system = system.read().unwrap_or_else(|e| e.into_inner());
-                        let chat = system.get_chat();
-                        with_arc_write(&chat, |chat| chat.input(window, msg, data1, data2))
-                    });
+                    window.set_input_callback_with_message_sink(
+                        |window, msg, data1, data2, effects| {
+                            let system = get_ingame_ui_system();
+                            let system = system.read().unwrap_or_else(|e| e.into_inner());
+                            let chat = system.get_chat();
+                            with_arc_write(&chat, |chat| {
+                                effects.with_manager(|manager, effects| {
+                                    chat.input(window, msg, data1, data2, manager, effects)
+                                })
+                            })
+                        },
+                    );
                 }
                 "ReplayControlInput" => {
-                    window.set_input_callback(|window, msg, data1, data2| {
-                        let system = get_ingame_ui_system();
-                        let system = system.read().unwrap_or_else(|e| e.into_inner());
-                        let replay = system.get_replay();
-                        with_arc_write(&replay, |replay| replay.input(window, msg, data1, data2))
-                    });
+                    window.set_input_callback_with_message_sink(
+                        |window, msg, data1, data2, effects| {
+                            let system = get_ingame_ui_system();
+                            let system = system.read().unwrap_or_else(|e| e.into_inner());
+                            let replay = system.get_replay();
+                            with_arc_write(&replay, |replay| {
+                                effects.with_manager(|manager, effects| {
+                                    replay.input(window, msg, data1, data2, manager)
+                                })
+                            })
+                        },
+                    );
                 }
                 "MainMenuInput" => {
                     window.set_input_callback_with_message_sink(
@@ -1211,8 +1685,8 @@ impl WindowManager {
                             if raw_msg == 0 {
                                 return WindowMsgHandled::Ignored;
                             }
-                            if effects.with_main_menu(|menu, effects| {
-                                menu.input(window.get_id() as u32, raw_msg, data1, data2, effects)
+                            if effects.with_main_menu_for_window(window, |menu, effects, window| {
+                                menu.input_for_window(window, raw_msg, data1, data2, effects)
                             }) {
                                 WindowMsgHandled::Handled
                             } else {
@@ -1224,45 +1698,59 @@ impl WindowManager {
                 "SinglePlayerMenuInput" => {
                     window.set_input_callback_with_message_sink(
                         |window, msg, data1, data2, effects| {
-                            with_single_player_menu(|menu| {
+                            effects.with_single_player_menu(|menu, effects| {
                                 menu.input_with_effects(window, msg, data1, data2, effects)
                             })
                         },
                     );
                 }
                 "OptionsMenuInput" => {
-                    window.set_input_callback(|window, msg, data1, data2| {
-                        with_options_menu(|menu| menu.input(window, msg, data1, data2))
-                    });
+                    window.set_input_callback_with_message_sink(
+                        |window, msg, data1, data2, effects| {
+                            effects.with_options_menu(|menu, effects| {
+                                menu.input(window, msg, data1, data2, effects)
+                            })
+                        },
+                    );
                 }
                 "MapSelectMenuInput" => {
                     window.set_input_callback_with_message_sink(
                         |window, msg, data1, data2, effects| {
-                            with_map_select_menu(|menu| {
+                            effects.with_map_select_menu(|menu, effects| {
                                 menu.input_with_effects(window, msg, data1, data2, effects)
                             })
                         },
                     );
                 }
                 "CreditsMenuInput" => {
-                    window.set_input_callback_with_message_sink(
-                        crate::gui::callbacks::owned_credits_menu::input,
-                    );
+                    window.set_input_callback_with_message_sink(|window, msg, d1, d2, effects| {
+                        crate::gui::callbacks::owned_credits_menu::input(
+                            window, msg, d1, d2, effects,
+                        )
+                    });
                 }
                 "LanLobbyMenuInput" => {
-                    window.set_input_callback(|window, msg, data1, data2| {
-                        with_lan_lobby_menu(|menu| menu.input(window, msg, data1, data2))
-                    });
+                    window.set_input_callback_with_message_sink(
+                        |window, msg, data1, data2, effects| {
+                            effects.with_lan_lobby_menu(|menu, effects| {
+                                menu.input(window, msg, data1, data2, effects)
+                            })
+                        },
+                    );
                 }
                 "GeneralsExpPointsInput" => {
-                    window.set_input_callback(|window, msg, data1, data2| {
-                        generals_exp_points_input(window, msg, data1, data2)
-                    });
+                    window.set_input_callback_with_message_sink(
+                        |window, msg, data1, data2, effects| {
+                            generals_exp_points_input(window, msg, data1, data2)
+                        },
+                    );
                 }
                 "IMECandidateWindowInput" => {
-                    window.set_input_callback(|window, msg, data1, data2| {
-                        ime_candidate_window_input(window, msg, data1, data2)
-                    });
+                    window.set_input_callback_with_message_sink(
+                        |window, msg, data1, data2, effects| {
+                            ime_candidate_window_input(window, msg, data1, data2)
+                        },
+                    );
                 }
                 "InGamePopupMessageInput" => {
                     window.set_input_callback_with_message_sink(
@@ -1272,24 +1760,36 @@ impl WindowManager {
                     );
                 }
                 "PopupCommunicatorInput" => {
-                    window.set_input_callback(|window, msg, data1, data2| {
-                        popup_communicator_input(window, msg, data1, data2)
-                    });
+                    window.set_input_callback_with_message_sink(
+                        |window, msg, data1, data2, effects| {
+                            effects.with_manager(|manager, effects| {
+                                popup_communicator_input(
+                                    window, msg, data1, data2, manager, effects,
+                                )
+                            })
+                        },
+                    );
                 }
                 "PopupJoinGameInput" => {
-                    window.set_input_callback(|window, msg, data1, data2| {
-                        popup_join_game_input(window, msg, data1, data2)
-                    });
+                    window.set_input_callback_with_message_sink(
+                        |window, msg, data1, data2, effects| {
+                            popup_join_game_input(window, msg, data1, data2)
+                        },
+                    );
                 }
                 "PopupHostGameInput" => {
-                    window.set_input_callback(|window, msg, data1, data2| {
-                        popup_host_game_input(window, msg, data1, data2)
-                    });
+                    window.set_input_callback_with_message_sink(
+                        |window, msg, data1, data2, effects| {
+                            popup_host_game_input(window, msg, data1, data2)
+                        },
+                    );
                 }
                 "PopupLadderSelectInput" => {
-                    window.set_input_callback(|window, msg, data1, data2| {
-                        popup_ladder_select_input(window, msg, data1, data2)
-                    });
+                    window.set_input_callback_with_message_sink(
+                        |window, msg, data1, data2, effects| {
+                            popup_ladder_select_input(window, msg, data1, data2)
+                        },
+                    );
                 }
                 "DownloadMenuInput" => {
                     window.set_input_callback_with_message_sink(
@@ -1299,19 +1799,25 @@ impl WindowManager {
                     );
                 }
                 "SaveLoadMenuInput" => {
-                    window.set_input_callback(|window, msg, data1, data2| {
-                        save_load_menu_input(window, msg, data1, data2)
-                    });
+                    window.set_input_callback_with_message_sink(
+                        |window, msg, data1, data2, effects| {
+                            save_load_menu_input(window, msg, data1, data2, effects)
+                        },
+                    );
                 }
                 "PopupReplayInput" => {
-                    window.set_input_callback(|window, msg, data1, data2| {
-                        popup_replay_input(window, msg, data1, data2)
-                    });
+                    window.set_input_callback_with_message_sink(
+                        |window, msg, data1, data2, effects| {
+                            popup_replay_input(window, msg, data1, data2, effects)
+                        },
+                    );
                 }
                 "ReplayMenuInput" => {
-                    window.set_input_callback(|window, msg, data1, data2| {
-                        replay_menu_input(window, msg, data1, data2)
-                    });
+                    window.set_input_callback_with_message_sink(
+                        |window, msg, data1, data2, effects| {
+                            replay_menu_input(window, msg, data1, data2, effects)
+                        },
+                    );
                 }
                 "ChallengeMenuInput" => {
                     window.set_input_callback_with_message_sink(
@@ -1328,14 +1834,18 @@ impl WindowManager {
                     );
                 }
                 "KeyboardOptionsMenuInput" => {
-                    window.set_input_callback(|window, msg, data1, data2| {
-                        keyboard_options_menu_input(window, msg, data1, data2)
-                    });
+                    window.set_input_callback_with_message_sink(
+                        |window, msg, data1, data2, effects| {
+                            keyboard_options_menu_input(window, msg, data1, data2, effects)
+                        },
+                    );
                 }
                 "GameSpyPlayerInfoOverlayInput" => {
-                    window.set_input_callback(|window, msg, data1, data2| {
-                        popup_player_info_input(window, msg, data1, data2)
-                    });
+                    window.set_input_callback_with_message_sink(
+                        |window, msg, data1, data2, effects| {
+                            popup_player_info_input(window, msg, data1, data2)
+                        },
+                    );
                 }
                 "ScoreScreenInput" => {
                     window.set_input_callback_with_message_sink(
@@ -1345,98 +1855,136 @@ impl WindowManager {
                     );
                 }
                 "SkirmishMapSelectMenuInput" => {
-                    window.set_input_callback(|window, msg, data1, data2| {
-                        skirmish_map_select_menu_input(window, msg, data1, data2)
-                    });
+                    window.set_input_callback_with_message_sink(
+                        |window, msg, data1, data2, effects| {
+                            skirmish_map_select_menu_input(window, msg, data1, data2, effects)
+                        },
+                    );
                 }
                 "SkirmishGameOptionsMenuInput" => {
-                    window.set_input_callback(|window, msg, data1, data2| {
-                        skirmish_game_options_menu_input(window, msg, data1, data2)
-                    });
+                    window.set_input_callback_with_message_sink(
+                        |window, msg, data1, data2, effects| {
+                            skirmish_game_options_menu_input(window, msg, data1, data2, effects)
+                        },
+                    );
                 }
                 "LanMapSelectMenuInput" => {
-                    window.set_input_callback(|window, msg, data1, data2| {
-                        lan_map_select_menu_input(window, msg, data1, data2)
-                    });
+                    window.set_input_callback_with_message_sink(
+                        |window, msg, data1, data2, effects| {
+                            lan_map_select_menu_input(window, msg, data1, data2, effects)
+                        },
+                    );
                 }
                 "LanGameOptionsMenuInput" => {
-                    window.set_input_callback(|window, msg, data1, data2| {
-                        lan_game_options_menu_input(window, msg, data1, data2)
-                    });
+                    window.set_input_callback_with_message_sink(
+                        |window, msg, data1, data2, effects| {
+                            lan_game_options_menu_input(window, msg, data1, data2, effects)
+                        },
+                    );
                 }
                 "NetworkDirectConnectInput" => {
-                    window.set_input_callback(|window, msg, data1, data2| {
-                        network_direct_connect_input(window, msg, data1, data2)
-                    });
+                    window.set_input_callback_with_message_sink(
+                        |window, msg, data1, data2, effects| {
+                            network_direct_connect_input(window, msg, data1, data2)
+                        },
+                    );
                 }
                 "WOLLoginMenuInput" => {
-                    window.set_input_callback(|window, msg, data1, data2| {
-                        wol_login_menu_input(window, msg, data1, data2)
-                    });
+                    window.set_input_callback_with_message_sink(
+                        |window, msg, data1, data2, effects| {
+                            wol_login_menu_input(window, msg, data1, data2)
+                        },
+                    );
                 }
                 "WOLLocaleSelectInput" => {
-                    window.set_input_callback(|window, msg, data1, data2| {
-                        wol_locale_select_input(window, msg, data1, data2)
-                    });
+                    window.set_input_callback_with_message_sink(
+                        |window, msg, data1, data2, effects| {
+                            wol_locale_select_input(window, msg, data1, data2)
+                        },
+                    );
                 }
                 "WOLMessageWindowInput" => {
-                    window.set_input_callback(|window, msg, data1, data2| {
-                        wol_message_window_input(window, msg, data1, data2)
-                    });
+                    window.set_input_callback_with_message_sink(
+                        |window, msg, data1, data2, effects| {
+                            wol_message_window_input(window, msg, data1, data2)
+                        },
+                    );
                 }
                 "WOLBuddyOverlayInput" => {
-                    window.set_input_callback(|window, msg, data1, data2| {
-                        wol_buddy_overlay_input(window, msg, data1, data2)
-                    });
+                    window.set_input_callback_with_message_sink(
+                        |window, msg, data1, data2, effects| {
+                            wol_buddy_overlay_input(window, msg, data1, data2)
+                        },
+                    );
                 }
                 "WOLStatusMenuInput" => {
-                    window.set_input_callback(|window, msg, data1, data2| {
-                        wol_status_menu_input(window, msg, data1, data2)
-                    });
+                    window.set_input_callback_with_message_sink(
+                        |window, msg, data1, data2, effects| {
+                            wol_status_menu_input(window, msg, data1, data2)
+                        },
+                    );
                 }
                 "WOLWelcomeMenuInput" => {
-                    window.set_input_callback(|window, msg, data1, data2| {
-                        wol_welcome_menu_input(window, msg, data1, data2)
-                    });
+                    window.set_input_callback_with_message_sink(
+                        |window, msg, data1, data2, effects| {
+                            wol_welcome_menu_input(window, msg, data1, data2)
+                        },
+                    );
                 }
                 "WOLLobbyMenuInput" => {
-                    window.set_input_callback(|window, msg, data1, data2| {
-                        wol_lobby_menu_input(window, msg, data1, data2)
-                    });
+                    window.set_input_callback_with_message_sink(
+                        |window, msg, data1, data2, effects| {
+                            wol_lobby_menu_input(window, msg, data1, data2)
+                        },
+                    );
                 }
                 "WOLLadderScreenInput" => {
-                    window.set_input_callback(|window, msg, data1, data2| {
-                        wol_ladder_screen_input(window, msg, data1, data2)
-                    });
+                    window.set_input_callback_with_message_sink(
+                        |window, msg, data1, data2, effects| {
+                            wol_ladder_screen_input(window, msg, data1, data2)
+                        },
+                    );
                 }
                 "WOLMapSelectMenuInput" => {
-                    window.set_input_callback(|window, msg, data1, data2| {
-                        wol_map_select_menu_input(window, msg, data1, data2)
-                    });
+                    window.set_input_callback_with_message_sink(
+                        |window, msg, data1, data2, effects| {
+                            wol_map_select_menu_input(window, msg, data1, data2)
+                        },
+                    );
                 }
                 "WOLGameSetupMenuInput" => {
-                    window.set_input_callback(|window, msg, data1, data2| {
-                        wol_game_setup_menu_input(window, msg, data1, data2)
-                    });
+                    window.set_input_callback_with_message_sink(
+                        |window, msg, data1, data2, effects| {
+                            wol_game_setup_menu_input(window, msg, data1, data2)
+                        },
+                    );
                 }
                 "WOLQuickMatchMenuInput" => {
-                    window.set_input_callback(|window, msg, data1, data2| {
-                        wol_quick_match_menu_input(window, msg, data1, data2)
-                    });
+                    window.set_input_callback_with_message_sink(
+                        |window, msg, data1, data2, effects| {
+                            wol_quick_match_menu_input(window, msg, data1, data2)
+                        },
+                    );
                 }
                 "WOLQMScoreScreenInput" => {
-                    window.set_input_callback(|window, msg, data1, data2| {
-                        wol_qm_score_screen_input(window, msg, data1, data2)
-                    });
+                    window.set_input_callback_with_message_sink(
+                        |window, msg, data1, data2, effects| {
+                            wol_qm_score_screen_input(window, msg, data1, data2)
+                        },
+                    );
                 }
                 "WOLCustomScoreScreenInput" => {
-                    window.set_input_callback(|window, msg, data1, data2| {
-                        wol_custom_score_screen_input(window, msg, data1, data2)
-                    });
+                    window.set_input_callback_with_message_sink(
+                        |window, msg, data1, data2, effects| {
+                            wol_custom_score_screen_input(window, msg, data1, data2)
+                        },
+                    );
                 }
                 other => {
                     warn!("Unimplemented input callback '{}', using default.", other);
-                    window.set_input_callback(default_input_callback);
+                    window.set_input_callback_with_message_sink(|window, msg, d1, d2, _effects| {
+                        default_input_callback(window, msg, d1, d2)
+                    });
                 }
             }
         }

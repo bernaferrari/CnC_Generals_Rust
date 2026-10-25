@@ -25,9 +25,10 @@ impl WindowManager {
         y: i32,
         width: i32,
         height: i32,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) -> WindowResult<Rc<RefCell<GameWindow>>> {
         let window_id = self.generate_window_id();
-        self.create_window_with_id(parent, x, y, width, height, window_id)
+        self.create_window_with_id(parent, x, y, width, height, window_id, effects)
     }
 
     /// Create a new window with an explicit ID.
@@ -39,8 +40,9 @@ impl WindowManager {
         width: i32,
         height: i32,
         window_id: WindowId,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) -> WindowResult<Rc<RefCell<GameWindow>>> {
-        self.create_window_with_id_internal(parent, x, y, width, height, window_id, true)
+        self.create_window_with_id_internal(parent, x, y, width, height, window_id, true, effects)
     }
 
     pub(crate) fn create_window_with_id_internal(
@@ -52,6 +54,7 @@ impl WindowManager {
         height: i32,
         window_id: WindowId,
         send_create: bool,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) -> WindowResult<Rc<RefCell<GameWindow>>> {
         if self.window_count >= MAX_WINDOWS {
             return Err(WindowError::OutOfWindows);
@@ -64,7 +67,9 @@ impl WindowManager {
             let mut window_mut = window.borrow_mut();
             window_mut.set_id(window_id);
             window_mut.set_position(x, y)?;
-            window_mut.set_size(width, height)?;
+            effects.with_receiving_manager(self, |effects| {
+                window_mut.set_size(width, height, effects)
+            })?;
             window_mut.enable(true)?;
         }
 
@@ -84,9 +89,11 @@ impl WindowManager {
 
         // Send create message
         if send_create {
-            let _msg_result = window
-                .borrow_mut()
-                .send_system_message(WindowMessage::Create, 0, 0);
+            let _msg_result = effects.with_receiving_manager(self, |effects| {
+                window
+                    .borrow_mut()
+                    .send_system_message(WindowMessage::Create, 0, 0, effects)
+            });
         }
 
         Ok(window)
@@ -139,7 +146,10 @@ impl WindowManager {
     }
 
     /// Destroy all windows
-    pub fn destroy_all_windows(&mut self) {
+    pub fn destroy_all_windows(
+        &mut self,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    ) {
         log::warn!(
             "destroy_all_windows: roots={} layouts={}",
             self.root_windows.len(),
@@ -151,12 +161,39 @@ impl WindowManager {
         }
 
         // Process destroy queue
-        self.process_destroy_queue();
+        self.process_destroy_queue(effects);
     }
 
     /// Process any queued window destruction immediately.
-    pub fn flush_destroy_queue(&mut self) {
-        self.process_destroy_queue();
+    pub fn flush_destroy_queue(
+        &mut self,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    ) {
+        self.process_destroy_queue(effects);
+    }
+
+    /// Same destruction phase with the operation's receiving callback services.
+    pub fn flush_destroy_queue_with_effects(
+        &mut self,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    ) {
+        let mut notifications = Vec::new();
+        while let Some(window) = self.destroy_queue.pop_front() {
+            self.destroy_window_immediate(window, &mut notifications);
+        }
+        for window in notifications {
+            let previous_selected = effects.selected_window.replace(Rc::downgrade(&window));
+            effects.with_receiving_manager(self, |effects| {
+                window.borrow_mut().send_system_message_with_message_sink(
+                    WindowMessage::Destroy,
+                    0,
+                    0,
+                    effects,
+                    None,
+                );
+            });
+            effects.selected_window = previous_selected;
+        }
     }
 
     /// Add window to root window list
@@ -192,17 +229,11 @@ impl WindowManager {
     }
 
     /// Process the destroy queue
-    pub(crate) fn process_destroy_queue(&mut self) {
-        let mut destroy_notifications = Vec::new();
-        while let Some(window) = self.destroy_queue.pop_front() {
-            self.destroy_window_immediate(window, &mut destroy_notifications);
-        }
-
-        for window in destroy_notifications {
-            window
-                .borrow_mut()
-                .send_system_message(WindowMessage::Destroy, 0, 0);
-        }
+    pub(crate) fn process_destroy_queue(
+        &mut self,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    ) {
+        self.flush_destroy_queue_with_effects(effects);
     }
 
     /// Immediately destroy a window

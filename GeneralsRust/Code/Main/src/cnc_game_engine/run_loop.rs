@@ -212,9 +212,6 @@ pub async fn run_cnc_game(
         }
         let callback_result = {
         let ApplicationRunState { engine_init_future, engine, services } = &mut application;
-        let window_manager_owner = engine
-            .as_ref()
-            .map(|engine| engine.game_client.window_manager_owner());
         let mut event_callback = || -> std::result::Result<(), String> {
         elwt.set_control_flow(control_flow_wait_until(next_redraw_at));
         let mut drive_frame = |
@@ -882,14 +879,16 @@ pub async fn run_cnc_game(
                             }
                         }
                     }
-                    game_client::gui::log_named_window_screen_rect("MainMenu.wnd:ButtonSinglePlayer");
-                    game_client::gui::log_named_window_screen_rect("MainMenu.wnd:ButtonSkirmish");
-                    game_client::gui::log_named_window_screen_rect("MainMenu.wnd:MapBorder");
-                    game_client::gui::log_named_window_screen_rect("MainMenu.wnd:EarthMap");
-                    game_client::gui::log_named_window_screen_rect("MainMenu.wnd:MapBorder2");
+                    engine.game_client.with_window_event_effects(None, |effects| {
+                    game_client::gui::log_named_window_screen_rect("MainMenu.wnd:ButtonSinglePlayer", effects);
+                    game_client::gui::log_named_window_screen_rect("MainMenu.wnd:ButtonSkirmish", effects);
+                    game_client::gui::log_named_window_screen_rect("MainMenu.wnd:MapBorder", effects);
+                    game_client::gui::log_named_window_screen_rect("MainMenu.wnd:EarthMap", effects);
+                    game_client::gui::log_named_window_screen_rect("MainMenu.wnd:MapBorder2", effects);
                     game_client::gui::log_named_window_screen_rect(
-                        "SkirmishGameOptionsMenu.wnd:ButtonStart",
+                        "SkirmishGameOptionsMenu.wnd:ButtonStart", effects,
                     );
+                    });
                     if let Some(btn) = device_button_to_mouse(button) {
                         let pressed = matches!(state, ElementState::Pressed);
                         engine.handle_mouse_button_input(
@@ -975,11 +974,7 @@ pub async fn run_cnc_game(
         }
         Ok(())
         };
-        if let Some(owner) = window_manager_owner {
-            owner.with_scope(event_callback)
-        } else {
-            event_callback()
-        }
+        event_callback()
         };
         // Release all callback and native-window owner loans before teardown.
         if exiting {

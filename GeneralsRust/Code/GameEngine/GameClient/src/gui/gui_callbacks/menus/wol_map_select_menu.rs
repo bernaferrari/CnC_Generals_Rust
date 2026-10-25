@@ -20,7 +20,7 @@ pub fn WOLMapSelectMenuShutdown(layout: &WindowLayout, user_data: Option<&dyn st
 }
 
 pub fn WOLMapSelectMenuSystem(
-    window: &GameWindow,
+    window: &mut GameWindow,
     msg: WindowMessage,
     data1: WindowMsgData,
     data2: WindowMsgData,
@@ -29,7 +29,7 @@ pub fn WOLMapSelectMenuSystem(
 }
 
 pub fn WOLMapSelectMenuInput(
-    window: &GameWindow,
+    window: &mut GameWindow,
     msg: WindowMessage,
     data1: WindowMsgData,
     data2: WindowMsgData,

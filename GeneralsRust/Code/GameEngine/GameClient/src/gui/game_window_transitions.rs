@@ -9,7 +9,7 @@ use glam::Vec2;
 
 use super::game_window::{Color, GameWindow, WindowDrawData, WindowStatus, resolve_window_text};
 use super::ui_renderer::UIRect;
-use super::window_manager::hide_window_rc;
+use super::window_manager::TransitionWindowAccess;
 use crate::display::image::get_mapped_image_collection;
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use gamelogic::common::audio::AudioEventRts;
@@ -160,46 +160,22 @@ fn play_sound(event_name: &str) {
     }
 }
 
-thread_local! {
-    /// Empty snapshot used when a shared window read re-enters a live borrow.
-    static GAME_WINDOW_FAIL_CLOSED: GameWindow = GameWindow::new();
-}
-
-fn with_game_window_ref<R>(
-    win_rc: &Rc<RefCell<GameWindow>>,
-    f: impl FnOnce(&GameWindow) -> R,
-) -> R {
-    if let Ok(window) = win_rc.try_borrow() {
-        f(&window)
-    } else {
-        // Fail-closed: empty snapshot. Do not alias a live RefCell borrow.
-        GAME_WINDOW_FAIL_CLOSED.with(|dummy| f(dummy))
-    }
-}
-
-fn with_game_window_mut<R>(
-    win_rc: &Rc<RefCell<GameWindow>>,
-    f: impl FnOnce(&mut GameWindow) -> R,
-) -> Option<R> {
-    if let Ok(mut window) = win_rc.try_borrow_mut() {
-        Some(f(&mut window))
-    } else {
-        // Fail-closed: skip mutation rather than forging `&mut` over a live borrow.
-        None
-    }
-}
-
 trait Transition {
     fn init(
         &mut self,
         win: Option<Rc<RefCell<GameWindow>>>,
         window_lookup: &HashMap<i32, Weak<RefCell<GameWindow>>>,
         screen_size: (i32, i32),
+        window_access: &mut TransitionWindowAccess<'_, '_>,
     );
-    fn update(&mut self, frame: i32);
-    fn reverse(&mut self);
-    fn draw(&mut self, draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>);
-    fn skip(&mut self);
+    fn update(&mut self, frame: i32, window_access: &mut TransitionWindowAccess<'_, '_>);
+    fn reverse(&mut self, window_access: &mut TransitionWindowAccess<'_, '_>);
+    fn draw(
+        &mut self,
+        draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
+        window_access: &mut TransitionWindowAccess<'_, '_>,
+    );
+    fn skip(&mut self, window_access: &mut TransitionWindowAccess<'_, '_>);
     fn is_finished(&self) -> bool;
     fn frame_length(&self) -> i32;
 }
@@ -244,22 +220,23 @@ impl Transition for FlashTransition {
         win: Option<Rc<RefCell<GameWindow>>>,
         _window_lookup: &HashMap<i32, Weak<RefCell<GameWindow>>>,
         screen_size: (i32, i32),
+        window_access: &mut TransitionWindowAccess<'_, '_>,
     ) {
         self.win = win.as_ref().map(Rc::downgrade);
         if let Some(win_rc) = win {
-            let ((w, h), (x, y)) = with_game_window_ref(&win_rc, |win_ref| {
+            let ((w, h), (x, y)) = window_access.with_window(&win_rc, |win_ref| {
                 (win_ref.get_size(), win_ref.get_screen_position())
             });
             self.size = ICoord2D { x: w, y: h };
             self.pos = ICoord2D { x, y };
         }
         self.is_forward = false;
-        self.update(0);
+        self.update(0, window_access);
         self.is_finished = false;
         self.is_forward = true;
     }
 
-    fn update(&mut self, frame: i32) {
+    fn update(&mut self, frame: i32, window_access: &mut TransitionWindowAccess<'_, '_>) {
         self.draw_state = -1;
         match frame {
             0 => {
@@ -267,7 +244,7 @@ impl Transition for FlashTransition {
                     return;
                 }
                 if let Some(win_rc) = self.with_window() {
-                    let _ = with_game_window_mut(&win_rc, |window| window.hide(true));
+                    let _ = window_access.hide_window(&win_rc, true);
                     self.is_finished = true;
                 }
             }
@@ -276,19 +253,19 @@ impl Transition for FlashTransition {
                     play_sound("GUIBoarderFadeIn");
                 }
                 if let Some(win_rc) = self.with_window() {
-                    let _ = with_game_window_mut(&win_rc, |window| window.hide(true));
+                    let _ = window_access.hide_window(&win_rc, true);
                     self.draw_state = frame;
                 }
             }
             2 | 3 => {
                 if let Some(win_rc) = self.with_window() {
-                    let _ = with_game_window_mut(&win_rc, |window| window.hide(true));
+                    let _ = window_access.hide_window(&win_rc, true);
                     self.draw_state = frame;
                 }
             }
             4..=6 => {
                 if let Some(win_rc) = self.with_window() {
-                    let _ = with_game_window_mut(&win_rc, |window| window.hide(false));
+                    let _ = window_access.hide_window(&win_rc, false);
                     self.draw_state = frame;
                 }
             }
@@ -297,7 +274,7 @@ impl Transition for FlashTransition {
                     return;
                 }
                 if let Some(win_rc) = self.with_window() {
-                    let _ = with_game_window_mut(&win_rc, |window| window.hide(false));
+                    let _ = window_access.hide_window(&win_rc, false);
                     self.is_finished = true;
                 }
             }
@@ -305,12 +282,16 @@ impl Transition for FlashTransition {
         }
     }
 
-    fn reverse(&mut self) {
+    fn reverse(&mut self, window_access: &mut TransitionWindowAccess<'_, '_>) {
         self.is_finished = false;
         self.is_forward = false;
     }
 
-    fn draw(&mut self, draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>) {
+    fn draw(
+        &mut self,
+        draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
+        window_access: &mut TransitionWindowAccess<'_, '_>,
+    ) {
         let rect = UIRect::new(
             (self.pos.x + 1) as f32,
             (self.pos.y + 1) as f32,
@@ -337,8 +318,8 @@ impl Transition for FlashTransition {
         });
     }
 
-    fn skip(&mut self) {
-        self.update(7);
+    fn skip(&mut self, window_access: &mut TransitionWindowAccess<'_, '_>) {
+        self.update(7, window_access);
     }
 
     fn is_finished(&self) -> bool {
@@ -381,11 +362,12 @@ impl ButtonFlashTransition {
         &self,
         alpha: u8,
         draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
+        window_access: &TransitionWindowAccess<'_, '_>,
     ) {
         let Some(win_rc) = self.with_window() else {
             return;
         };
-        let draw = with_game_window_ref(&win_rc, |win_ref| {
+        let draw = window_access.with_window(&win_rc, |win_ref| {
             win_ref
                 .get_enabled_draw_data(0)
                 .unwrap_or(WindowDrawData::default())
@@ -409,22 +391,23 @@ impl Transition for ButtonFlashTransition {
         win: Option<Rc<RefCell<GameWindow>>>,
         _window_lookup: &HashMap<i32, Weak<RefCell<GameWindow>>>,
         screen_size: (i32, i32),
+        window_access: &mut TransitionWindowAccess<'_, '_>,
     ) {
         self.win = win.as_ref().map(Rc::downgrade);
         if let Some(win_rc) = win {
-            let ((w, h), (x, y)) = with_game_window_ref(&win_rc, |win_ref| {
+            let ((w, h), (x, y)) = window_access.with_window(&win_rc, |win_ref| {
                 (win_ref.get_size(), win_ref.get_screen_position())
             });
             self.size = ICoord2D { x: w, y: h };
             self.pos = ICoord2D { x, y };
         }
         self.is_forward = false;
-        self.update(0);
+        self.update(0, window_access);
         self.is_finished = false;
         self.is_forward = true;
     }
 
-    fn update(&mut self, frame: i32) {
+    fn update(&mut self, frame: i32, window_access: &mut TransitionWindowAccess<'_, '_>) {
         self.draw_state = -1;
         match frame {
             0 => {
@@ -432,13 +415,13 @@ impl Transition for ButtonFlashTransition {
                     return;
                 }
                 if let Some(win_rc) = self.with_window() {
-                    let _ = with_game_window_mut(&win_rc, |window| window.hide(true));
+                    let _ = window_access.hide_window(&win_rc, true);
                     self.is_finished = true;
                 }
             }
             1 => {
                 if let Some(win_rc) = self.with_window() {
-                    let _ = with_game_window_mut(&win_rc, |window| window.hide(true));
+                    let _ = window_access.hide_window(&win_rc, true);
                     if self.is_forward {
                         play_sound("GUIButtonsFadeIn");
                         self.draw_state = frame;
@@ -449,47 +432,47 @@ impl Transition for ButtonFlashTransition {
             }
             2 => {
                 if let Some(win_rc) = self.with_window() {
-                    let _ = with_game_window_mut(&win_rc, |window| window.hide(true));
+                    let _ = window_access.hide_window(&win_rc, true);
                     self.draw_state = if self.is_forward { frame } else { 6 };
                 }
             }
             3 => {
                 if let Some(win_rc) = self.with_window() {
-                    let _ = with_game_window_mut(&win_rc, |window| window.hide(true));
+                    let _ = window_access.hide_window(&win_rc, true);
                     self.draw_state = if self.is_forward { frame } else { 5 };
                 }
             }
             4 => {
                 if let Some(win_rc) = self.with_window() {
-                    let _ = with_game_window_mut(&win_rc, |window| window.hide(true));
+                    let _ = window_access.hide_window(&win_rc, true);
                     self.draw_state = 4;
                 }
             }
             5 => {
                 if let Some(win_rc) = self.with_window() {
-                    let _ = with_game_window_mut(&win_rc, |window| window.hide(true));
+                    let _ = window_access.hide_window(&win_rc, true);
                     self.draw_state = if self.is_forward { frame } else { 3 };
                 }
             }
             6 => {
                 if let Some(win_rc) = self.with_window() {
-                    let _ = with_game_window_mut(&win_rc, |window| window.hide(true));
+                    let _ = window_access.hide_window(&win_rc, true);
                     self.draw_state = if self.is_forward { frame } else { 2 };
                 }
             }
             7 => {
                 if let Some(win_rc) = self.with_window() {
-                    let _ = with_game_window_mut(&win_rc, |window| window.hide(true));
+                    let _ = window_access.hide_window(&win_rc, true);
                     self.draw_state = if self.is_forward { frame } else { 1 };
                 }
             }
             11 => {
                 if let Some(win_rc) = self.with_window() {
                     if self.is_forward {
-                        let _ = with_game_window_mut(&win_rc, |window| window.hide(false));
+                        let _ = window_access.hide_window(&win_rc, false);
                         self.draw_state = frame;
                     } else {
-                        let _ = with_game_window_mut(&win_rc, |window| window.hide(true));
+                        let _ = window_access.hide_window(&win_rc, true);
                         self.draw_state = 14;
                     }
                 }
@@ -497,10 +480,10 @@ impl Transition for ButtonFlashTransition {
             12 => {
                 if let Some(win_rc) = self.with_window() {
                     if self.is_forward {
-                        let _ = with_game_window_mut(&win_rc, |window| window.hide(false));
+                        let _ = window_access.hide_window(&win_rc, false);
                         self.draw_state = frame;
                     } else {
-                        let _ = with_game_window_mut(&win_rc, |window| window.hide(true));
+                        let _ = window_access.hide_window(&win_rc, true);
                         self.draw_state = 13;
                     }
                 }
@@ -508,10 +491,10 @@ impl Transition for ButtonFlashTransition {
             13 => {
                 if let Some(win_rc) = self.with_window() {
                     if self.is_forward {
-                        let _ = with_game_window_mut(&win_rc, |window| window.hide(false));
+                        let _ = window_access.hide_window(&win_rc, false);
                         self.draw_state = frame;
                     } else {
-                        let _ = with_game_window_mut(&win_rc, |window| window.hide(true));
+                        let _ = window_access.hide_window(&win_rc, true);
                         self.draw_state = 12;
                     }
                 }
@@ -519,10 +502,10 @@ impl Transition for ButtonFlashTransition {
             14 => {
                 if let Some(win_rc) = self.with_window() {
                     if self.is_forward {
-                        let _ = with_game_window_mut(&win_rc, |window| window.hide(false));
+                        let _ = window_access.hide_window(&win_rc, false);
                         self.draw_state = frame;
                     } else {
-                        let _ = with_game_window_mut(&win_rc, |window| window.hide(false));
+                        let _ = window_access.hide_window(&win_rc, false);
                         self.draw_state = 11;
                     }
                 }
@@ -532,7 +515,7 @@ impl Transition for ButtonFlashTransition {
                     return;
                 }
                 if let Some(win_rc) = self.with_window() {
-                    let _ = with_game_window_mut(&win_rc, |window| window.hide(false));
+                    let _ = window_access.hide_window(&win_rc, false);
                     self.is_finished = true;
                 }
             }
@@ -543,12 +526,16 @@ impl Transition for ButtonFlashTransition {
         }
     }
 
-    fn reverse(&mut self) {
+    fn reverse(&mut self, window_access: &mut TransitionWindowAccess<'_, '_>) {
         self.is_finished = false;
         self.is_forward = false;
     }
 
-    fn draw(&mut self, draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>) {
+    fn draw(
+        &mut self,
+        draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
+        window_access: &mut TransitionWindowAccess<'_, '_>,
+    ) {
         match self.draw_state {
             1 => {
                 let rect = UIRect::new(
@@ -602,7 +589,7 @@ impl Transition for ButtonFlashTransition {
                 });
             }
             4 => {
-                self.draw_button_background(255, draw_context);
+                self.draw_button_background(255, draw_context, window_access);
                 let rect = UIRect::new(
                     self.pos.x as f32,
                     self.pos.y as f32,
@@ -620,7 +607,7 @@ impl Transition for ButtonFlashTransition {
                 });
             }
             5 => {
-                self.draw_button_background(255, draw_context);
+                self.draw_button_background(255, draw_context, window_access);
                 let rect = UIRect::new(
                     self.pos.x as f32,
                     self.pos.y as f32,
@@ -638,7 +625,7 @@ impl Transition for ButtonFlashTransition {
                 });
             }
             6 => {
-                self.draw_button_background(255, draw_context);
+                self.draw_button_background(255, draw_context, window_access);
                 let rect = UIRect::new(
                     self.pos.x as f32,
                     self.pos.y as f32,
@@ -656,7 +643,7 @@ impl Transition for ButtonFlashTransition {
                 });
             }
             7 => {
-                self.draw_button_background(255, draw_context);
+                self.draw_button_background(255, draw_context, window_access);
                 let rect = UIRect::new(
                     self.pos.x as f32,
                     self.pos.y as f32,
@@ -675,7 +662,7 @@ impl Transition for ButtonFlashTransition {
             }
             11 => {
                 if self.is_forward {
-                    self.draw_button_background(255, draw_context);
+                    self.draw_button_background(255, draw_context, window_access);
                 }
                 let rect = UIRect::new(
                     self.pos.x as f32,
@@ -700,7 +687,7 @@ impl Transition for ButtonFlashTransition {
             }
             13 => {
                 if !self.is_forward {
-                    self.draw_button_background(255, draw_context);
+                    self.draw_button_background(255, draw_context, window_access);
                 }
                 let rect = UIRect::new(
                     self.pos.x as f32,
@@ -714,7 +701,7 @@ impl Transition for ButtonFlashTransition {
             }
             14 => {
                 if !self.is_forward {
-                    self.draw_button_background(255, draw_context);
+                    self.draw_button_background(255, draw_context, window_access);
                 }
                 let rect = UIRect::new(
                     self.pos.x as f32,
@@ -728,7 +715,7 @@ impl Transition for ButtonFlashTransition {
             }
             15 => {
                 if !self.is_forward {
-                    self.draw_button_background(255, draw_context);
+                    self.draw_button_background(255, draw_context, window_access);
                 }
                 let rect = UIRect::new(
                     self.pos.x as f32,
@@ -741,14 +728,14 @@ impl Transition for ButtonFlashTransition {
                 });
             }
             16 => {
-                self.draw_button_background(255, draw_context);
+                self.draw_button_background(255, draw_context, window_access);
             }
             _ => {}
         }
     }
 
-    fn skip(&mut self) {
-        self.update(15);
+    fn skip(&mut self, window_access: &mut TransitionWindowAccess<'_, '_>) {
+        self.update(15, window_access);
     }
 
     fn is_finished(&self) -> bool {
@@ -794,22 +781,23 @@ impl Transition for FadeTransition {
         win: Option<Rc<RefCell<GameWindow>>>,
         _window_lookup: &HashMap<i32, Weak<RefCell<GameWindow>>>,
         screen_size: (i32, i32),
+        window_access: &mut TransitionWindowAccess<'_, '_>,
     ) {
         self.win = win.as_ref().map(Rc::downgrade);
         if let Some(win_rc) = win {
-            let win_ref = win_rc.borrow();
+            let win_ref = window_access.borrow_window(&win_rc);
             let (w, h) = win_ref.get_size();
             let (x, y) = win_ref.get_screen_position();
             self.size = ICoord2D { x: w, y: h };
             self.pos = ICoord2D { x, y };
         }
         self.is_forward = false;
-        self.update(0);
+        self.update(0, window_access);
         self.is_finished = false;
         self.is_forward = true;
     }
 
-    fn update(&mut self, frame: i32) {
+    fn update(&mut self, frame: i32, window_access: &mut TransitionWindowAccess<'_, '_>) {
         self.draw_state = -1;
         match frame {
             0 => {
@@ -817,13 +805,13 @@ impl Transition for FadeTransition {
                     return;
                 }
                 if let Some(win_rc) = self.with_window() {
-                    hide_window_rc(&win_rc, true);
+                    window_access.hide_window(&win_rc, true);
                     self.is_finished = true;
                 }
             }
             1..=8 => {
                 if let Some(win_rc) = self.with_window() {
-                    hide_window_rc(&win_rc, true);
+                    window_access.hide_window(&win_rc, true);
                     self.draw_state = frame;
                 }
             }
@@ -832,7 +820,7 @@ impl Transition for FadeTransition {
                     return;
                 }
                 if let Some(win_rc) = self.with_window() {
-                    hide_window_rc(&win_rc, false);
+                    window_access.hide_window(&win_rc, false);
                     self.is_finished = true;
                 }
             }
@@ -840,12 +828,16 @@ impl Transition for FadeTransition {
         }
     }
 
-    fn reverse(&mut self) {
+    fn reverse(&mut self, window_access: &mut TransitionWindowAccess<'_, '_>) {
         self.is_finished = false;
         self.is_forward = false;
     }
 
-    fn draw(&mut self, draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>) {
+    fn draw(
+        &mut self,
+        draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
+        window_access: &mut TransitionWindowAccess<'_, '_>,
+    ) {
         let alpha = match self.draw_state {
             1 => 25,
             2 => 50,
@@ -865,7 +857,7 @@ impl Transition for FadeTransition {
             self.size.y as f32,
         );
         if let Some(win_rc) = self.with_window() {
-            let win_ref = win_rc.borrow();
+            let win_ref = window_access.borrow_window(&win_rc);
             if draw_window_image(&win_ref, rect, alpha, draw_context) {
                 return;
             }
@@ -875,8 +867,8 @@ impl Transition for FadeTransition {
         });
     }
 
-    fn skip(&mut self) {
-        self.update(9);
+    fn skip(&mut self, window_access: &mut TransitionWindowAccess<'_, '_>) {
+        self.update(9, window_access);
     }
 
     fn is_finished(&self) -> bool {
@@ -926,17 +918,18 @@ impl Transition for ScaleUpTransition {
         win: Option<Rc<RefCell<GameWindow>>>,
         _window_lookup: &HashMap<i32, Weak<RefCell<GameWindow>>>,
         screen_size: (i32, i32),
+        window_access: &mut TransitionWindowAccess<'_, '_>,
     ) {
         self.win = win.as_ref().map(Rc::downgrade);
         if let Some(win_rc) = win {
-            let win_ref = win_rc.borrow();
+            let win_ref = window_access.borrow_window(&win_rc);
             let (w, h) = win_ref.get_size();
             let (x, y) = win_ref.get_screen_position();
             self.size = ICoord2D { x: w, y: h };
             self.pos = ICoord2D { x, y };
         }
         self.is_forward = false;
-        self.update(0);
+        self.update(0, window_access);
         self.is_finished = false;
         self.is_forward = true;
 
@@ -950,7 +943,7 @@ impl Transition for ScaleUpTransition {
         };
     }
 
-    fn update(&mut self, frame: i32) {
+    fn update(&mut self, frame: i32, window_access: &mut TransitionWindowAccess<'_, '_>) {
         self.draw_state = -1;
         match frame {
             0 => {
@@ -958,7 +951,7 @@ impl Transition for ScaleUpTransition {
                     return;
                 }
                 if let Some(win_rc) = self.with_window() {
-                    hide_window_rc(&win_rc, true);
+                    window_access.hide_window(&win_rc, true);
                     self.is_finished = true;
                 }
             }
@@ -967,13 +960,13 @@ impl Transition for ScaleUpTransition {
                     play_sound("GUILogoMouseOver");
                 }
                 if let Some(win_rc) = self.with_window() {
-                    hide_window_rc(&win_rc, true);
+                    window_access.hide_window(&win_rc, true);
                 }
                 self.draw_state = frame;
             }
             2..=5 => {
                 if let Some(win_rc) = self.with_window() {
-                    hide_window_rc(&win_rc, true);
+                    window_access.hide_window(&win_rc, true);
                 }
                 self.draw_state = frame;
             }
@@ -982,7 +975,7 @@ impl Transition for ScaleUpTransition {
                     return;
                 }
                 if let Some(win_rc) = self.with_window() {
-                    hide_window_rc(&win_rc, false);
+                    window_access.hide_window(&win_rc, false);
                     self.is_finished = true;
                 }
             }
@@ -990,12 +983,16 @@ impl Transition for ScaleUpTransition {
         }
     }
 
-    fn reverse(&mut self) {
+    fn reverse(&mut self, window_access: &mut TransitionWindowAccess<'_, '_>) {
         self.is_finished = false;
         self.is_forward = false;
     }
 
-    fn draw(&mut self, draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>) {
+    fn draw(
+        &mut self,
+        draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
+        window_access: &mut TransitionWindowAccess<'_, '_>,
+    ) {
         if self.draw_state <= 0 || self.draw_state >= self.frame_length {
             return;
         }
@@ -1005,13 +1002,13 @@ impl Transition for ScaleUpTransition {
         let y1 = y + self.increment_size.y * self.draw_state;
         let rect = UIRect::new(x as f32, y as f32, (x1 - x) as f32, (y1 - y) as f32);
         if let Some(win_rc) = self.with_window() {
-            let win_ref = win_rc.borrow();
+            let win_ref = window_access.borrow_window(&win_rc);
             if draw_window_image(&win_ref, rect, 255, draw_context) {}
         }
     }
 
-    fn skip(&mut self) {
-        self.update(self.frame_length);
+    fn skip(&mut self, window_access: &mut TransitionWindowAccess<'_, '_>) {
+        self.update(self.frame_length, window_access);
     }
 
     fn is_finished(&self) -> bool {
@@ -1041,11 +1038,13 @@ impl Transition for ScoreScaleUpTransition {
         win: Option<Rc<RefCell<GameWindow>>>,
         window_lookup: &HashMap<i32, Weak<RefCell<GameWindow>>>,
         screen_size: (i32, i32),
+        window_access: &mut TransitionWindowAccess<'_, '_>,
     ) {
-        self.inner.init(win, window_lookup, screen_size);
+        self.inner
+            .init(win, window_lookup, screen_size, window_access);
     }
 
-    fn update(&mut self, frame: i32) {
+    fn update(&mut self, frame: i32, window_access: &mut TransitionWindowAccess<'_, '_>) {
         self.inner.draw_state = -1;
         match frame {
             0 => {
@@ -1053,7 +1052,7 @@ impl Transition for ScoreScaleUpTransition {
                     return;
                 }
                 if let Some(win_rc) = self.inner.with_window() {
-                    hide_window_rc(&win_rc, true);
+                    window_access.hide_window(&win_rc, true);
                     self.inner.is_finished = true;
                 }
             }
@@ -1062,13 +1061,13 @@ impl Transition for ScoreScaleUpTransition {
                     play_sound("GUIScoreScreenPictures");
                 }
                 if let Some(win_rc) = self.inner.with_window() {
-                    hide_window_rc(&win_rc, true);
+                    window_access.hide_window(&win_rc, true);
                 }
                 self.inner.draw_state = frame;
             }
             2..=5 => {
                 if let Some(win_rc) = self.inner.with_window() {
-                    hide_window_rc(&win_rc, true);
+                    window_access.hide_window(&win_rc, true);
                 }
                 self.inner.draw_state = frame;
             }
@@ -1077,7 +1076,7 @@ impl Transition for ScoreScaleUpTransition {
                     return;
                 }
                 if let Some(win_rc) = self.inner.with_window() {
-                    hide_window_rc(&win_rc, false);
+                    window_access.hide_window(&win_rc, false);
                     self.inner.is_finished = true;
                 }
             }
@@ -1085,16 +1084,20 @@ impl Transition for ScoreScaleUpTransition {
         }
     }
 
-    fn reverse(&mut self) {
-        self.inner.reverse();
+    fn reverse(&mut self, window_access: &mut TransitionWindowAccess<'_, '_>) {
+        self.inner.reverse(window_access);
     }
 
-    fn draw(&mut self, draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>) {
-        self.inner.draw(draw_context);
+    fn draw(
+        &mut self,
+        draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
+        window_access: &mut TransitionWindowAccess<'_, '_>,
+    ) {
+        self.inner.draw(draw_context, window_access);
     }
 
-    fn skip(&mut self) {
-        self.inner.skip();
+    fn skip(&mut self, window_access: &mut TransitionWindowAccess<'_, '_>) {
+        self.inner.skip(window_access);
     }
 
     fn is_finished(&self) -> bool {
@@ -1154,10 +1157,11 @@ impl Transition for MainMenuScaleUpTransition {
         win: Option<Rc<RefCell<GameWindow>>>,
         window_lookup: &HashMap<i32, Weak<RefCell<GameWindow>>>,
         screen_size: (i32, i32),
+        window_access: &mut TransitionWindowAccess<'_, '_>,
     ) {
         self.win = win.as_ref().map(Rc::downgrade);
         if let Some(win_rc) = win {
-            let win_ref = win_rc.borrow();
+            let win_ref = window_access.borrow_window(&win_rc);
             let (w, h) = win_ref.get_size();
             let (x, y) = win_ref.get_screen_position();
             self.size = ICoord2D { x: w, y: h };
@@ -1170,7 +1174,7 @@ impl Transition for MainMenuScaleUpTransition {
             return;
         };
         {
-            let grow_ref = grow_rc.borrow();
+            let grow_ref = window_access.borrow_window(&grow_rc);
             let (gw, gh) = grow_ref.get_size();
             let (gx, gy) = grow_ref.get_screen_position();
             self.grow_size = ICoord2D { x: gw, y: gh };
@@ -1178,18 +1182,20 @@ impl Transition for MainMenuScaleUpTransition {
         }
         if let (Some(win_rc), Some(grow_rc)) = (self.with_window(), self.with_grow_window()) {
             let image = {
-                let win_ref = win_rc.borrow();
+                let win_ref = window_access.borrow_window(&win_rc);
                 win_ref
                     .get_disabled_draw_data(0)
                     .and_then(|data| data.image)
             };
             if let Some(image) = image {
-                let _ = grow_rc.borrow_mut().set_enabled_image(0, image);
+                let _ = window_access
+                    .borrow_window_mut(&grow_rc)
+                    .set_enabled_image(0, image);
             }
         }
 
         self.is_forward = false;
-        self.update(0);
+        self.update(0, window_access);
         self.is_finished = false;
         self.is_forward = true;
 
@@ -1203,7 +1209,7 @@ impl Transition for MainMenuScaleUpTransition {
         };
     }
 
-    fn update(&mut self, frame: i32) {
+    fn update(&mut self, frame: i32, window_access: &mut TransitionWindowAccess<'_, '_>) {
         self.draw_state = -1;
         match frame {
             0 => {
@@ -1211,7 +1217,7 @@ impl Transition for MainMenuScaleUpTransition {
                     return;
                 }
                 if let Some(grow_rc) = self.with_grow_window() {
-                    hide_window_rc(&grow_rc, true);
+                    window_access.hide_window(&grow_rc, true);
                     self.is_finished = true;
                 }
             }
@@ -1220,19 +1226,19 @@ impl Transition for MainMenuScaleUpTransition {
                     return;
                 }
                 if let Some(win_rc) = self.with_window() {
-                    hide_window_rc(&win_rc, true);
+                    window_access.hide_window(&win_rc, true);
                 }
                 if let Some(grow_rc) = self.with_grow_window() {
-                    hide_window_rc(&grow_rc, false);
+                    window_access.hide_window(&grow_rc, false);
                 }
                 self.is_finished = true;
             }
             1..=4 => {
                 if let Some(win_rc) = self.with_window() {
-                    hide_window_rc(&win_rc, true);
+                    window_access.hide_window(&win_rc, true);
                 }
                 if let Some(grow_rc) = self.with_grow_window() {
-                    hide_window_rc(&grow_rc, true);
+                    window_access.hide_window(&grow_rc, true);
                 }
                 self.draw_state = frame;
             }
@@ -1243,12 +1249,16 @@ impl Transition for MainMenuScaleUpTransition {
         }
     }
 
-    fn reverse(&mut self) {
+    fn reverse(&mut self, window_access: &mut TransitionWindowAccess<'_, '_>) {
         self.is_finished = false;
         self.is_forward = false;
     }
 
-    fn draw(&mut self, draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>) {
+    fn draw(
+        &mut self,
+        draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
+        window_access: &mut TransitionWindowAccess<'_, '_>,
+    ) {
         if self.draw_state <= 0 || self.draw_state >= self.frame_length {
             return;
         }
@@ -1258,13 +1268,13 @@ impl Transition for MainMenuScaleUpTransition {
         let y1 = y + self.size.y + (self.increment_size.y * self.draw_state);
         let rect = UIRect::new(x as f32, y as f32, (x1 - x) as f32, (y1 - y) as f32);
         if let Some(grow_rc) = self.with_grow_window() {
-            let grow_ref = grow_rc.borrow();
+            let grow_ref = window_access.borrow_window(&grow_rc);
             if draw_window_image(&grow_ref, rect, 255, draw_context) {}
         }
     }
 
-    fn skip(&mut self) {
-        self.update(self.frame_length);
+    fn skip(&mut self, window_access: &mut TransitionWindowAccess<'_, '_>) {
+        self.update(self.frame_length, window_access);
     }
 
     fn is_finished(&self) -> bool {
@@ -1318,10 +1328,11 @@ impl Transition for MainMenuMediumScaleUpTransition {
         win: Option<Rc<RefCell<GameWindow>>>,
         window_lookup: &HashMap<i32, Weak<RefCell<GameWindow>>>,
         screen_size: (i32, i32),
+        window_access: &mut TransitionWindowAccess<'_, '_>,
     ) {
         self.win = win.as_ref().map(Rc::downgrade);
         if let Some(win_rc) = win {
-            let win_ref = win_rc.borrow();
+            let win_ref = window_access.borrow_window(&win_rc);
             let (w, h) = win_ref.get_size();
             let (x, y) = win_ref.get_screen_position();
             self.size = ICoord2D { x: w, y: h };
@@ -1336,7 +1347,7 @@ impl Transition for MainMenuMediumScaleUpTransition {
             return;
         };
         {
-            let grow_ref = grow_rc.borrow();
+            let grow_ref = window_access.borrow_window(&grow_rc);
             let (gw, gh) = grow_ref.get_size();
             self.increment_size = ICoord2D {
                 x: (gw - self.size.x) / self.frame_length,
@@ -1345,21 +1356,23 @@ impl Transition for MainMenuMediumScaleUpTransition {
         }
         if let (Some(win_rc), Some(grow_rc)) = (self.with_window(), self.with_grow_window()) {
             let image = {
-                let win_ref = win_rc.borrow();
+                let win_ref = window_access.borrow_window(&win_rc);
                 win_ref.get_enabled_draw_data(0).and_then(|data| data.image)
             };
             if let Some(image) = image {
-                let _ = grow_rc.borrow_mut().set_enabled_image(0, image);
+                let _ = window_access
+                    .borrow_window_mut(&grow_rc)
+                    .set_enabled_image(0, image);
             }
         }
 
         self.is_forward = false;
-        self.update(0);
+        self.update(0, window_access);
         self.is_finished = false;
         self.is_forward = true;
     }
 
-    fn update(&mut self, frame: i32) {
+    fn update(&mut self, frame: i32, window_access: &mut TransitionWindowAccess<'_, '_>) {
         self.draw_state = -1;
         match frame {
             0 => {
@@ -1367,10 +1380,10 @@ impl Transition for MainMenuMediumScaleUpTransition {
                     return;
                 }
                 if let Some(win_rc) = self.with_window() {
-                    hide_window_rc(&win_rc, false);
+                    window_access.hide_window(&win_rc, false);
                 }
                 if let Some(grow_rc) = self.with_grow_window() {
-                    hide_window_rc(&grow_rc, true);
+                    window_access.hide_window(&grow_rc, true);
                 }
                 self.is_finished = true;
             }
@@ -1379,10 +1392,10 @@ impl Transition for MainMenuMediumScaleUpTransition {
                     return;
                 }
                 if let Some(win_rc) = self.with_window() {
-                    hide_window_rc(&win_rc, true);
+                    window_access.hide_window(&win_rc, true);
                 }
                 if let Some(grow_rc) = self.with_grow_window() {
-                    hide_window_rc(&grow_rc, false);
+                    window_access.hide_window(&grow_rc, false);
                 }
                 self.is_finished = true;
             }
@@ -1391,10 +1404,10 @@ impl Transition for MainMenuMediumScaleUpTransition {
                     play_sound("GUILogoMouseOver");
                 }
                 if let Some(win_rc) = self.with_window() {
-                    hide_window_rc(&win_rc, true);
+                    window_access.hide_window(&win_rc, true);
                 }
                 if let Some(grow_rc) = self.with_grow_window() {
-                    hide_window_rc(&grow_rc, true);
+                    window_access.hide_window(&grow_rc, true);
                 }
                 self.draw_state = frame;
             }
@@ -1402,18 +1415,22 @@ impl Transition for MainMenuMediumScaleUpTransition {
         }
     }
 
-    fn reverse(&mut self) {
+    fn reverse(&mut self, window_access: &mut TransitionWindowAccess<'_, '_>) {
         self.is_finished = false;
         self.is_forward = false;
         if let Some(win_rc) = self.with_window() {
-            hide_window_rc(&win_rc, true);
+            window_access.hide_window(&win_rc, true);
         }
         if let Some(grow_rc) = self.with_grow_window() {
-            hide_window_rc(&grow_rc, true);
+            window_access.hide_window(&grow_rc, true);
         }
     }
 
-    fn draw(&mut self, draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>) {
+    fn draw(
+        &mut self,
+        draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
+        window_access: &mut TransitionWindowAccess<'_, '_>,
+    ) {
         if self.draw_state <= 0 || self.draw_state >= self.frame_length {
             return;
         }
@@ -1423,13 +1440,13 @@ impl Transition for MainMenuMediumScaleUpTransition {
         let y1 = self.pos.y + self.size.y + ((self.increment_size.y * self.draw_state) / 2);
         let rect = UIRect::new(x as f32, y as f32, (x1 - x) as f32, (y1 - y) as f32);
         if let Some(win_rc) = self.with_window() {
-            let win_ref = win_rc.borrow();
+            let win_ref = window_access.borrow_window(&win_rc);
             if draw_window_image(&win_ref, rect, 255, draw_context) {}
         }
     }
 
-    fn skip(&mut self) {
-        self.update(self.frame_length);
+    fn skip(&mut self, window_access: &mut TransitionWindowAccess<'_, '_>) {
+        self.update(self.frame_length, window_access);
     }
 
     fn is_finished(&self) -> bool {
@@ -1483,10 +1500,11 @@ impl Transition for MainMenuSmallScaleDownTransition {
         win: Option<Rc<RefCell<GameWindow>>>,
         window_lookup: &HashMap<i32, Weak<RefCell<GameWindow>>>,
         screen_size: (i32, i32),
+        window_access: &mut TransitionWindowAccess<'_, '_>,
     ) {
         self.win = win.as_ref().map(Rc::downgrade);
         if let Some(win_rc) = win {
-            let win_ref = win_rc.borrow();
+            let win_ref = window_access.borrow_window(&win_rc);
             let (w, h) = win_ref.get_size();
             let (x, y) = win_ref.get_screen_position();
             self.size = ICoord2D { x: w, y: h };
@@ -1500,20 +1518,21 @@ impl Transition for MainMenuSmallScaleDownTransition {
             self.is_finished = true;
             return;
         };
-        let grow_ref = grow_rc.borrow();
+        let grow_ref = window_access.borrow_window(&grow_rc);
         let (gw, gh) = grow_ref.get_size();
+        drop(grow_ref);
         self.increment_size = ICoord2D {
             x: (gw - self.size.x) / self.frame_length,
             y: (gh - self.size.y) / self.frame_length,
         };
 
         self.is_forward = false;
-        self.update(0);
+        self.update(0, window_access);
         self.is_finished = false;
         self.is_forward = true;
     }
 
-    fn update(&mut self, frame: i32) {
+    fn update(&mut self, frame: i32, window_access: &mut TransitionWindowAccess<'_, '_>) {
         self.draw_state = -1;
         match frame {
             0 => {
@@ -1521,10 +1540,10 @@ impl Transition for MainMenuSmallScaleDownTransition {
                     return;
                 }
                 if let Some(win_rc) = self.with_window() {
-                    hide_window_rc(&win_rc, false);
+                    window_access.hide_window(&win_rc, false);
                 }
                 if let Some(grow_rc) = self.with_grow_window() {
-                    hide_window_rc(&grow_rc, true);
+                    window_access.hide_window(&grow_rc, true);
                 }
                 self.is_finished = true;
             }
@@ -1533,19 +1552,19 @@ impl Transition for MainMenuSmallScaleDownTransition {
                     return;
                 }
                 if let Some(win_rc) = self.with_window() {
-                    hide_window_rc(&win_rc, true);
+                    window_access.hide_window(&win_rc, true);
                 }
                 if let Some(grow_rc) = self.with_grow_window() {
-                    hide_window_rc(&grow_rc, false);
+                    window_access.hide_window(&grow_rc, false);
                 }
                 self.is_finished = true;
             }
             1..=4 => {
                 if let Some(win_rc) = self.with_window() {
-                    hide_window_rc(&win_rc, true);
+                    window_access.hide_window(&win_rc, true);
                 }
                 if let Some(grow_rc) = self.with_grow_window() {
-                    hide_window_rc(&grow_rc, true);
+                    window_access.hide_window(&grow_rc, true);
                 }
                 self.draw_state = frame;
             }
@@ -1553,12 +1572,16 @@ impl Transition for MainMenuSmallScaleDownTransition {
         }
     }
 
-    fn reverse(&mut self) {
+    fn reverse(&mut self, window_access: &mut TransitionWindowAccess<'_, '_>) {
         self.is_finished = false;
         self.is_forward = false;
     }
 
-    fn draw(&mut self, draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>) {
+    fn draw(
+        &mut self,
+        draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
+        window_access: &mut TransitionWindowAccess<'_, '_>,
+    ) {
         if self.draw_state <= 0 || self.draw_state >= self.frame_length {
             return;
         }
@@ -1568,13 +1591,13 @@ impl Transition for MainMenuSmallScaleDownTransition {
         let y1 = self.pos.y + self.size.y + ((self.increment_size.y * self.draw_state) / 2);
         let rect = UIRect::new(x as f32, y as f32, (x1 - x) as f32, (y1 - y) as f32);
         if let Some(win_rc) = self.with_window() {
-            let win_ref = win_rc.borrow();
+            let win_ref = window_access.borrow_window(&win_rc);
             if draw_window_image(&win_ref, rect, 255, draw_context) {}
         }
     }
 
-    fn skip(&mut self) {
-        self.update(self.frame_length);
+    fn skip(&mut self, window_access: &mut TransitionWindowAccess<'_, '_>) {
+        self.update(self.frame_length, window_access);
     }
 
     fn is_finished(&self) -> bool {
@@ -1624,10 +1647,11 @@ impl Transition for TextTypeTransition {
         win: Option<Rc<RefCell<GameWindow>>>,
         _window_lookup: &HashMap<i32, Weak<RefCell<GameWindow>>>,
         screen_size: (i32, i32),
+        window_access: &mut TransitionWindowAccess<'_, '_>,
     ) {
         self.win = win.as_ref().map(Rc::downgrade);
         if let Some(win_rc) = win {
-            let win_ref = win_rc.borrow();
+            let win_ref = window_access.borrow_window(&win_rc);
             let (w, h) = win_ref.get_size();
             let (x, y) = win_ref.get_screen_position();
             self.size = ICoord2D { x: w, y: h };
@@ -1639,13 +1663,13 @@ impl Transition for TextTypeTransition {
             self.frame_length = length.min(30);
         }
         self.is_forward = false;
-        self.update(0);
+        self.update(0, window_access);
         self.is_finished = false;
         self.is_forward = true;
         self.partial_text.clear();
     }
 
-    fn update(&mut self, frame: i32) {
+    fn update(&mut self, frame: i32, window_access: &mut TransitionWindowAccess<'_, '_>) {
         self.draw_state = -1;
         match frame {
             0 => {
@@ -1653,7 +1677,7 @@ impl Transition for TextTypeTransition {
                     return;
                 }
                 if let Some(win_rc) = self.with_window() {
-                    hide_window_rc(&win_rc, true);
+                    window_access.hide_window(&win_rc, true);
                     self.is_finished = true;
                 }
             }
@@ -1662,7 +1686,7 @@ impl Transition for TextTypeTransition {
                     return;
                 }
                 if let Some(win_rc) = self.with_window() {
-                    hide_window_rc(&win_rc, false);
+                    window_access.hide_window(&win_rc, false);
                     self.is_finished = true;
                 }
             }
@@ -1670,12 +1694,12 @@ impl Transition for TextTypeTransition {
         }
         if frame >= self.frame_length {
             if let Some(win_rc) = self.with_window() {
-                hide_window_rc(&win_rc, false);
+                window_access.hide_window(&win_rc, false);
             }
         }
         if frame > 0 && frame < self.frame_length {
             if let Some(win_rc) = self.with_window() {
-                hide_window_rc(&win_rc, true);
+                window_access.hide_window(&win_rc, true);
             }
             self.draw_state = frame;
             play_sound("GUITypeText");
@@ -1690,20 +1714,24 @@ impl Transition for TextTypeTransition {
         }
     }
 
-    fn reverse(&mut self) {
+    fn reverse(&mut self, window_access: &mut TransitionWindowAccess<'_, '_>) {
         self.is_finished = false;
         self.is_forward = false;
         self.partial_text = self.full_text.clone();
     }
 
-    fn draw(&mut self, draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>) {
+    fn draw(
+        &mut self,
+        draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
+        window_access: &mut TransitionWindowAccess<'_, '_>,
+    ) {
         if self.draw_state <= 0 || self.draw_state >= self.frame_length {
             return;
         }
         let Some(win_rc) = self.with_window() else {
             return;
         };
-        let win_ref = win_rc.borrow();
+        let win_ref = window_access.borrow_window(&win_rc);
         let color = rgba_from_color(win_ref.get_enabled_text_color(), None);
         let font_size = win_ref.get_font().map(|f| f.size).unwrap_or(14) as f32;
         let text = self.partial_text.clone();
@@ -1724,8 +1752,8 @@ impl Transition for TextTypeTransition {
         });
     }
 
-    fn skip(&mut self) {
-        self.update(30);
+    fn skip(&mut self, window_access: &mut TransitionWindowAccess<'_, '_>) {
+        self.update(30, window_access);
     }
 
     fn is_finished(&self) -> bool {
@@ -1775,19 +1803,20 @@ impl Transition for CountUpTransition {
         win: Option<Rc<RefCell<GameWindow>>>,
         _window_lookup: &HashMap<i32, Weak<RefCell<GameWindow>>>,
         screen_size: (i32, i32),
+        window_access: &mut TransitionWindowAccess<'_, '_>,
     ) {
         self.win = win.as_ref().map(Rc::downgrade);
         if let Some(win_rc) = win {
-            if win_rc.borrow().is_hidden() {
+            if window_access.borrow_window(&win_rc).is_hidden() {
                 self.is_forward = true;
                 self.is_finished = true;
                 self.frame_length = 0;
                 return;
             }
-            self.full_text = resolve_window_text(win_rc.borrow().get_text());
+            self.full_text = resolve_window_text(window_access.borrow_window(&win_rc).get_text());
         }
         self.is_forward = false;
-        self.update(0);
+        self.update(0, window_access);
         self.is_finished = false;
         self.is_forward = true;
 
@@ -1804,13 +1833,13 @@ impl Transition for CountUpTransition {
         }
         self.current_value = 0;
         if let Some(win_rc) = self.with_window() {
-            let _ = win_rc
-                .borrow_mut()
+            let _ = window_access
+                .borrow_window_mut(&win_rc)
                 .set_text(&self.current_value.to_string());
         }
     }
 
-    fn update(&mut self, frame: i32) {
+    fn update(&mut self, frame: i32, window_access: &mut TransitionWindowAccess<'_, '_>) {
         self.draw_state = -1;
         match frame {
             0 => {
@@ -1819,8 +1848,8 @@ impl Transition for CountUpTransition {
                 }
                 self.current_value = 0;
                 if let Some(win_rc) = self.with_window() {
-                    let _ = win_rc.borrow_mut().set_text("0");
-                    hide_window_rc(&win_rc, true);
+                    let _ = window_access.borrow_window_mut(&win_rc).set_text("0");
+                    window_access.hide_window(&win_rc, true);
                 }
                 self.is_finished = true;
             }
@@ -1829,7 +1858,7 @@ impl Transition for CountUpTransition {
                     return;
                 }
                 if let Some(win_rc) = self.with_window() {
-                    hide_window_rc(&win_rc, false);
+                    window_access.hide_window(&win_rc, false);
                 }
                 self.is_finished = true;
             }
@@ -1837,12 +1866,12 @@ impl Transition for CountUpTransition {
         }
         if frame >= self.frame_length {
             if let Some(win_rc) = self.with_window() {
-                hide_window_rc(&win_rc, false);
+                window_access.hide_window(&win_rc, false);
             }
         }
         if frame > 0 && frame < self.frame_length {
             if let Some(win_rc) = self.with_window() {
-                hide_window_rc(&win_rc, false);
+                window_access.hide_window(&win_rc, false);
             }
             self.draw_state = frame;
             play_sound("GUIScoreScreenTick");
@@ -1851,22 +1880,24 @@ impl Transition for CountUpTransition {
                 self.current_value = self.int_value;
             }
             if let Some(win_rc) = self.with_window() {
-                let _ = win_rc
-                    .borrow_mut()
+                let _ = window_access
+                    .borrow_window_mut(&win_rc)
                     .set_text(&self.current_value.to_string());
             }
         }
         if frame == self.frame_length {
             if let Some(win_rc) = self.with_window() {
-                let _ = win_rc.borrow_mut().set_text(&self.full_text);
+                let _ = window_access
+                    .borrow_window_mut(&win_rc)
+                    .set_text(&self.full_text);
             }
             self.is_finished = true;
         }
     }
 
-    fn reverse(&mut self) {
+    fn reverse(&mut self, window_access: &mut TransitionWindowAccess<'_, '_>) {
         if let Some(win_rc) = self.with_window() {
-            if win_rc.borrow().is_hidden() {
+            if window_access.borrow_window(&win_rc).is_hidden() {
                 self.is_forward = false;
                 self.is_finished = true;
                 self.frame_length = 0;
@@ -1877,14 +1908,18 @@ impl Transition for CountUpTransition {
         self.is_forward = false;
     }
 
-    fn draw(&mut self, draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>) {
+    fn draw(
+        &mut self,
+        draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
+        window_access: &mut TransitionWindowAccess<'_, '_>,
+    ) {
         // C++ parity: CountUpTransition has no custom draw logic.
         // The count is rendered by the window text (set via set_text() in update()).
     }
 
-    fn skip(&mut self) {
+    fn skip(&mut self, window_access: &mut TransitionWindowAccess<'_, '_>) {
         if !self.is_finished {
-            self.update(30);
+            self.update(30, window_access);
         }
     }
 
@@ -1927,9 +1962,10 @@ impl Transition for ScreenFadeTransition {
         _win: Option<Rc<RefCell<GameWindow>>>,
         _window_lookup: &HashMap<i32, Weak<RefCell<GameWindow>>>,
         screen_size: (i32, i32),
+        window_access: &mut TransitionWindowAccess<'_, '_>,
     ) {
         self.is_forward = false;
-        self.update(0);
+        self.update(0, window_access);
         self.is_finished = false;
         self.is_forward = true;
 
@@ -1941,17 +1977,21 @@ impl Transition for ScreenFadeTransition {
         };
     }
 
-    fn update(&mut self, frame: i32) {
+    fn update(&mut self, frame: i32, window_access: &mut TransitionWindowAccess<'_, '_>) {
         self.draw_state = frame;
         self.is_finished = true;
     }
 
-    fn reverse(&mut self) {
+    fn reverse(&mut self, window_access: &mut TransitionWindowAccess<'_, '_>) {
         self.is_finished = false;
         self.is_forward = false;
     }
 
-    fn draw(&mut self, draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>) {
+    fn draw(
+        &mut self,
+        draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
+        window_access: &mut TransitionWindowAccess<'_, '_>,
+    ) {
         if self.draw_state < 0 {
             return;
         }
@@ -1970,8 +2010,8 @@ impl Transition for ScreenFadeTransition {
         });
     }
 
-    fn skip(&mut self) {
-        self.update(self.frame_length);
+    fn skip(&mut self, window_access: &mut TransitionWindowAccess<'_, '_>) {
+        self.update(self.frame_length, window_access);
     }
 
     fn is_finished(&self) -> bool {
@@ -2017,9 +2057,10 @@ impl Transition for ControlBarArrowTransition {
         _win: Option<Rc<RefCell<GameWindow>>>,
         window_lookup: &HashMap<i32, Weak<RefCell<GameWindow>>>,
         screen_size: (i32, i32),
+        window_access: &mut TransitionWindowAccess<'_, '_>,
     ) {
         self.is_forward = false;
-        self.update(0);
+        self.update(0, window_access);
         self.is_finished = false;
         self.is_forward = true;
 
@@ -2030,8 +2071,8 @@ impl Transition for ControlBarArrowTransition {
             self.is_finished = true;
             return;
         };
-        let (x, y) = button.borrow().get_screen_position();
-        let (w, h) = button.borrow().get_size();
+        let (x, y) = window_access.borrow_window(&button).get_screen_position();
+        let (w, h) = window_access.borrow_window(&button).get_size();
         self.increment_pos = ICoord2D {
             x: 0,
             y: (y as f32 * self.percent) as i32,
@@ -2043,7 +2084,7 @@ impl Transition for ControlBarArrowTransition {
         self.size = ICoord2D { x: 16, y: 16 };
     }
 
-    fn update(&mut self, frame: i32) {
+    fn update(&mut self, frame: i32, window_access: &mut TransitionWindowAccess<'_, '_>) {
         self.draw_state = -1;
         if frame < 0 || frame > self.frame_length {
             return;
@@ -2059,12 +2100,16 @@ impl Transition for ControlBarArrowTransition {
         }
     }
 
-    fn reverse(&mut self) {
+    fn reverse(&mut self, window_access: &mut TransitionWindowAccess<'_, '_>) {
         self.is_finished = false;
         self.is_forward = false;
     }
 
-    fn draw(&mut self, draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>) {
+    fn draw(
+        &mut self,
+        draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
+        window_access: &mut TransitionWindowAccess<'_, '_>,
+    ) {
         if self.draw_state < 0 {
             return;
         }
@@ -2093,8 +2138,8 @@ impl Transition for ControlBarArrowTransition {
         }
     }
 
-    fn skip(&mut self) {
-        self.update(self.frame_length);
+    fn skip(&mut self, window_access: &mut TransitionWindowAccess<'_, '_>) {
+        self.update(self.frame_length, window_access);
     }
 
     fn is_finished(&self) -> bool {
@@ -2142,10 +2187,11 @@ impl Transition for FullFadeTransition {
         win: Option<Rc<RefCell<GameWindow>>>,
         _window_lookup: &HashMap<i32, Weak<RefCell<GameWindow>>>,
         screen_size: (i32, i32),
+        window_access: &mut TransitionWindowAccess<'_, '_>,
     ) {
         self.win = win.as_ref().map(Rc::downgrade);
         if let Some(win_rc) = win {
-            let win_ref = win_rc.borrow();
+            let win_ref = window_access.borrow_window(&win_rc);
             let (w, h) = win_ref.get_size();
             let (x, y) = win_ref.get_screen_position();
             self.size = ICoord2D { x: w, y: h };
@@ -2153,14 +2199,14 @@ impl Transition for FullFadeTransition {
         }
 
         self.is_forward = false;
-        self.update(0);
+        self.update(0, window_access);
         self.is_finished = false;
         self.is_forward = true;
 
         self.percent = 1.0 / (self.frame_length as f32 / 2.0);
     }
 
-    fn update(&mut self, frame: i32) {
+    fn update(&mut self, frame: i32, window_access: &mut TransitionWindowAccess<'_, '_>) {
         self.draw_state = frame;
         match frame {
             0 => {
@@ -2168,7 +2214,7 @@ impl Transition for FullFadeTransition {
                     return;
                 }
                 if let Some(win_rc) = self.with_window() {
-                    hide_window_rc(&win_rc, true);
+                    window_access.hide_window(&win_rc, true);
                     self.is_finished = true;
                 }
             }
@@ -2177,7 +2223,7 @@ impl Transition for FullFadeTransition {
                     return;
                 }
                 if let Some(win_rc) = self.with_window() {
-                    hide_window_rc(&win_rc, false);
+                    window_access.hide_window(&win_rc, false);
                     self.is_finished = true;
                 }
             }
@@ -2185,17 +2231,21 @@ impl Transition for FullFadeTransition {
         }
         if frame == self.frame_length / 2 {
             if let Some(win_rc) = self.with_window() {
-                hide_window_rc(&win_rc, !self.is_forward);
+                window_access.hide_window(&win_rc, !self.is_forward);
             }
         }
     }
 
-    fn reverse(&mut self) {
+    fn reverse(&mut self, window_access: &mut TransitionWindowAccess<'_, '_>) {
         self.is_finished = false;
         self.is_forward = false;
     }
 
-    fn draw(&mut self, draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>) {
+    fn draw(
+        &mut self,
+        draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
+        window_access: &mut TransitionWindowAccess<'_, '_>,
+    ) {
         let half = self.frame_length / 2;
         let mut alpha = if self.draw_state > half {
             self.percent * 255.0 * (self.frame_length - self.draw_state) as f32
@@ -2222,8 +2272,8 @@ impl Transition for FullFadeTransition {
         });
     }
 
-    fn skip(&mut self) {
-        self.update(self.frame_length);
+    fn skip(&mut self, window_access: &mut TransitionWindowAccess<'_, '_>) {
+        self.update(self.frame_length, window_access);
     }
 
     fn is_finished(&self) -> bool {
@@ -2263,10 +2313,11 @@ impl Transition for TextOnFrameTransition {
         win: Option<Rc<RefCell<GameWindow>>>,
         _window_lookup: &HashMap<i32, Weak<RefCell<GameWindow>>>,
         screen_size: (i32, i32),
+        window_access: &mut TransitionWindowAccess<'_, '_>,
     ) {
         self.win = win.as_ref().map(Rc::downgrade);
         if let Some(win_rc) = self.with_window() {
-            if win_rc.borrow().is_hidden() {
+            if window_access.borrow_window(&win_rc).is_hidden() {
                 self.is_finished = true;
                 self.is_forward = true;
                 self.frame_length = 0;
@@ -2274,19 +2325,19 @@ impl Transition for TextOnFrameTransition {
             }
         }
         self.is_forward = false;
-        self.update(0);
+        self.update(0, window_access);
         self.is_finished = false;
         self.is_forward = true;
     }
 
-    fn update(&mut self, frame: i32) {
+    fn update(&mut self, frame: i32, window_access: &mut TransitionWindowAccess<'_, '_>) {
         match frame {
             0 => {
                 if self.is_forward {
                     return;
                 }
                 if let Some(win_rc) = self.with_window() {
-                    hide_window_rc(&win_rc, true);
+                    window_access.hide_window(&win_rc, true);
                     self.is_finished = true;
                 }
             }
@@ -2295,7 +2346,7 @@ impl Transition for TextOnFrameTransition {
                     return;
                 }
                 if let Some(win_rc) = self.with_window() {
-                    hide_window_rc(&win_rc, false);
+                    window_access.hide_window(&win_rc, false);
                     self.is_finished = true;
                 }
             }
@@ -2303,25 +2354,29 @@ impl Transition for TextOnFrameTransition {
         }
     }
 
-    fn reverse(&mut self) {
+    fn reverse(&mut self, window_access: &mut TransitionWindowAccess<'_, '_>) {
         self.is_finished = false;
         self.is_forward = false;
         if let Some(win_rc) = self.with_window() {
-            if win_rc.borrow().is_hidden() {
+            if window_access.borrow_window(&win_rc).is_hidden() {
                 self.is_finished = true;
                 self.frame_length = 0;
             }
         }
     }
 
-    fn draw(&mut self, draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>) {
+    fn draw(
+        &mut self,
+        draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
+        window_access: &mut TransitionWindowAccess<'_, '_>,
+    ) {
         // C++ parity: TextOnFrameTransition has no custom draw logic.
         // The window is shown/hidden in update(); the window system renders content.
     }
 
-    fn skip(&mut self) {
+    fn skip(&mut self, window_access: &mut TransitionWindowAccess<'_, '_>) {
         if !self.is_finished {
-            self.update(1);
+            self.update(1, window_access);
         }
     }
 
@@ -2356,12 +2411,13 @@ impl Transition for ReverseSoundTransition {
         _win: Option<Rc<RefCell<GameWindow>>>,
         _window_lookup: &HashMap<i32, Weak<RefCell<GameWindow>>>,
         screen_size: (i32, i32),
+        window_access: &mut TransitionWindowAccess<'_, '_>,
     ) {
         self.is_finished = true;
         self.is_forward = true;
     }
 
-    fn update(&mut self, frame: i32) {
+    fn update(&mut self, frame: i32, window_access: &mut TransitionWindowAccess<'_, '_>) {
         match frame {
             0 => {
                 if self.is_forward {
@@ -2382,19 +2438,23 @@ impl Transition for ReverseSoundTransition {
         }
     }
 
-    fn reverse(&mut self) {
+    fn reverse(&mut self, window_access: &mut TransitionWindowAccess<'_, '_>) {
         self.is_finished = false;
         self.is_forward = false;
     }
 
-    fn draw(&mut self, draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>) {
+    fn draw(
+        &mut self,
+        draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
+        window_access: &mut TransitionWindowAccess<'_, '_>,
+    ) {
         // C++ parity: ReverseSoundTransition has no custom draw logic.
         // Only plays a sound event in update(); nothing to render.
     }
 
-    fn skip(&mut self) {
+    fn skip(&mut self, window_access: &mut TransitionWindowAccess<'_, '_>) {
         if !self.is_finished {
-            self.update(2);
+            self.update(2, window_access);
         }
     }
 
@@ -2459,6 +2519,7 @@ impl TransitionWindow {
         &mut self,
         window_lookup: &HashMap<i32, Weak<RefCell<GameWindow>>>,
         screen_size: (i32, i32),
+        window_access: &mut TransitionWindowAccess<'_, '_>,
     ) {
         self.win_id = NameKeyGenerator::name_to_key(&self.win_name) as i32;
         self.win = window_lookup.get(&self.win_id).cloned();
@@ -2466,11 +2527,11 @@ impl TransitionWindow {
         self.transition = get_transition_for_style(self.style);
         if let Some(transition) = &mut self.transition {
             let win_rc = self.win.as_ref().and_then(|w| w.upgrade());
-            transition.init(win_rc, window_lookup, screen_size);
+            transition.init(win_rc, window_lookup, screen_size, window_access);
         }
     }
 
-    fn update(&mut self, frame: i32) {
+    fn update(&mut self, frame: i32, window_access: &mut TransitionWindowAccess<'_, '_>) {
         let Some(transition) = &mut self.transition else {
             return;
         };
@@ -2479,7 +2540,7 @@ impl TransitionWindow {
         {
             return;
         }
-        transition.update(frame - self.current_frame_delay);
+        transition.update(frame - self.current_frame_delay, window_access);
     }
 
     fn is_finished(&self) -> bool {
@@ -2489,21 +2550,25 @@ impl TransitionWindow {
             .unwrap_or(true)
     }
 
-    fn reverse(&mut self) {
+    fn reverse(&mut self, window_access: &mut TransitionWindowAccess<'_, '_>) {
         if let Some(transition) = &mut self.transition {
-            transition.reverse();
+            transition.reverse(window_access);
         }
     }
 
-    fn skip(&mut self) {
+    fn skip(&mut self, window_access: &mut TransitionWindowAccess<'_, '_>) {
         if let Some(transition) = &mut self.transition {
-            transition.skip();
+            transition.skip(window_access);
         }
     }
 
-    fn draw(&mut self, draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>) {
+    fn draw(
+        &mut self,
+        draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
+        window_access: &mut TransitionWindowAccess<'_, '_>,
+    ) {
         if let Some(transition) = &mut self.transition {
-            transition.draw(draw_context);
+            transition.draw(draw_context, window_access);
         }
     }
 
@@ -2547,29 +2612,34 @@ impl TransitionGroup {
         &mut self,
         window_lookup: &HashMap<i32, Weak<RefCell<GameWindow>>>,
         screen_size: (i32, i32),
+        window_access: &mut TransitionWindowAccess<'_, '_>,
     ) {
         self.current_frame = 0;
         self.direction_multiplier = 1;
         for win in &mut self.transition_windows {
-            win.init(window_lookup, screen_size);
+            win.init(window_lookup, screen_size, window_access);
         }
         // GameWindowTransitionsStyles.cpp:77-133: a transition STARTS with the
         // window hidden (FLASH::init winHide(TRUE)). Apply that start state to
         // EVERY window in the group, not only FLASH/BUTTONFLASH styles, so no
         // group window can flash visible before its first authored frame.
-        self.set_all_windows_hidden(true);
+        self.set_all_windows_hidden(true, window_access);
     }
 
     /// Drive every group window to one visibility bit. Style-level frame math
     /// (per-window frame delays, lookup misses) can leave HIDDEN bits set on
     /// live windows after a group completes, is skipped, or is swapped out
     /// mid-flight — the Skirmish-unhittable class of bug.
-    fn set_all_windows_hidden(&mut self, hide: bool) {
+    fn set_all_windows_hidden(
+        &mut self,
+        hide: bool,
+        window_access: &mut TransitionWindowAccess<'_, '_>,
+    ) {
         for win in &mut self.transition_windows {
             let Some(win_rc) = win.win.as_ref().and_then(|w| w.upgrade()) else {
                 continue;
             };
-            let _ = with_game_window_mut(&win_rc, |window| window.hide(hide));
+            let _ = window_access.hide_window(&win_rc, hide);
         }
     }
 
@@ -2577,21 +2647,24 @@ impl TransitionGroup {
     /// window unhidden (FLASH/BUTTONFLASH winHide(FALSE) at the final frame);
     /// a group finishing in reverse ends hidden (MainMenu.cpp SP/Back uses
     /// the reverse to close a dropdown).
-    fn apply_authored_end_visibility(&mut self) {
+    fn apply_authored_end_visibility(
+        &mut self,
+        window_access: &mut TransitionWindowAccess<'_, '_>,
+    ) {
         let hide = self.is_reversed();
-        self.set_all_windows_hidden(hide);
+        self.set_all_windows_hidden(hide, window_access);
     }
 
-    fn update(&mut self) {
+    fn update(&mut self, window_access: &mut TransitionWindowAccess<'_, '_>) {
         self.current_frame += self.direction_multiplier;
         for win in &mut self.transition_windows {
-            win.update(self.current_frame);
+            win.update(self.current_frame, window_access);
         }
         if self.is_finished() {
             // Final frame reached: enforce the authored end state on every
             // group window, not only the ones whose per-style frame math
             // happened to land on the unhide frame.
-            self.apply_authored_end_visibility();
+            self.apply_authored_end_visibility(window_access);
         }
     }
 
@@ -2599,7 +2672,7 @@ impl TransitionGroup {
         self.transition_windows.iter().all(|w| w.is_finished())
     }
 
-    fn reverse(&mut self) {
+    fn reverse(&mut self, window_access: &mut TransitionWindowAccess<'_, '_>) {
         let mut total_frames = 0;
         self.direction_multiplier = -1;
         for win in &self.transition_windows {
@@ -2609,7 +2682,7 @@ impl TransitionGroup {
             }
         }
         for win in &mut self.transition_windows {
-            win.reverse();
+            win.reverse(window_access);
         }
         self.current_frame = total_frames;
     }
@@ -2618,18 +2691,22 @@ impl TransitionGroup {
         self.direction_multiplier < 0
     }
 
-    fn skip(&mut self) {
+    fn skip(&mut self, window_access: &mut TransitionWindowAccess<'_, '_>) {
         for win in &mut self.transition_windows {
-            win.skip();
+            win.skip(window_access);
         }
         // skip() must land on the authored END state, not whatever frame the
         // per-style skip math stops at.
-        self.apply_authored_end_visibility();
+        self.apply_authored_end_visibility(window_access);
     }
 
-    fn draw(&mut self, draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>) {
+    fn draw(
+        &mut self,
+        draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
+        window_access: &mut TransitionWindowAccess<'_, '_>,
+    ) {
         for win in &mut self.transition_windows {
-            win.draw(draw_context);
+            win.draw(draw_context, window_access);
         }
     }
 
@@ -2698,7 +2775,7 @@ impl GameWindowTransitionsHandler {
         self.secondary_draw_group = None;
     }
 
-    pub fn update(&mut self) {
+    pub fn update(&mut self, window_access: &mut TransitionWindowAccess<'_, '_>) {
         if self.draw_group != self.current_group {
             self.secondary_draw_group = self.draw_group;
         } else {
@@ -2709,7 +2786,7 @@ impl GameWindowTransitionsHandler {
         if let Some(idx) = self.current_group {
             let group = &mut self.groups[idx];
             if !group.is_finished() {
-                group.update();
+                group.update(window_access);
             }
         }
 
@@ -2743,12 +2820,13 @@ impl GameWindowTransitionsHandler {
     pub fn draw(
         &mut self,
         draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
+        window_access: &mut TransitionWindowAccess<'_, '_>,
     ) {
         if let Some(idx) = self.draw_group {
-            self.groups[idx].draw(draw_context);
+            self.groups[idx].draw(draw_context, window_access);
         }
         if let Some(idx) = self.secondary_draw_group {
-            self.groups[idx].draw(draw_context);
+            self.groups[idx].draw(draw_context, window_access);
         }
     }
 
@@ -2757,6 +2835,7 @@ impl GameWindowTransitionsHandler {
         group_name: &str,
         immediate: bool,
         window_lookup: &HashMap<i32, Weak<RefCell<GameWindow>>>,
+        window_access: &mut TransitionWindowAccess<'_, '_>,
     ) {
         self.last_window_lookup = window_lookup.clone();
         if group_name.is_empty() && immediate {
@@ -2764,31 +2843,31 @@ impl GameWindowTransitionsHandler {
         }
         if immediate {
             if let Some(current) = self.current_group {
-                self.groups[current].skip();
+                self.groups[current].skip(window_access);
             }
             self.current_group = self.find_group_index(group_name);
             if let Some(idx) = self.current_group {
-                self.groups[idx].init(window_lookup, self.screen_size);
+                self.groups[idx].init(window_lookup, self.screen_size, window_access);
             }
             return;
         }
         if let Some(current) = self.current_group {
             if !self.groups[current].fire_once && !self.groups[current].is_reversed() {
-                self.groups[current].reverse();
+                self.groups[current].reverse(window_access);
             }
             // C++ setGroup: m_pendingGroup = findGroup; if (m_pendingGroup) init().
             // FLASH::init hides MapBorder immediately; DefaultMenu is still
             // current so hide-pack must not re-hide after CHAR (already gated).
             self.pending_group = self.find_group_index(group_name);
             if let Some(idx) = self.pending_group {
-                self.groups[idx].init(window_lookup, self.screen_size);
+                self.groups[idx].init(window_lookup, self.screen_size, window_access);
             }
             return;
         }
 
         self.current_group = self.find_group_index(group_name);
         if let Some(idx) = self.current_group {
-            self.groups[idx].init(window_lookup, self.screen_size);
+            self.groups[idx].init(window_lookup, self.screen_size, window_access);
         }
     }
 
@@ -2796,11 +2875,12 @@ impl GameWindowTransitionsHandler {
         &mut self,
         group_name: &str,
         window_lookup: &HashMap<i32, Weak<RefCell<GameWindow>>>,
+        window_access: &mut TransitionWindowAccess<'_, '_>,
     ) {
         let group = self.find_group_index(group_name);
         if let Some(group_idx) = group {
             if self.current_group == Some(group_idx) {
-                self.groups[group_idx].reverse();
+                self.groups[group_idx].reverse(window_access);
                 return;
             }
             if self.pending_group == Some(group_idx) {
@@ -2808,30 +2888,35 @@ impl GameWindowTransitionsHandler {
                 return;
             }
             if let Some(current) = self.current_group {
-                self.groups[current].skip();
+                self.groups[current].skip(window_access);
             }
             if let Some(pending) = self.pending_group {
-                self.groups[pending].skip();
+                self.groups[pending].skip(window_access);
             }
             self.current_group = Some(group_idx);
-            self.groups[group_idx].init(window_lookup, self.screen_size);
-            self.groups[group_idx].skip();
-            self.groups[group_idx].reverse();
+            self.groups[group_idx].init(window_lookup, self.screen_size, window_access);
+            self.groups[group_idx].skip(window_access);
+            self.groups[group_idx].reverse(window_access);
             self.pending_group = None;
         }
     }
 
-    pub fn remove(&mut self, group_name: &str, skip_pending: bool) {
+    pub fn remove(
+        &mut self,
+        group_name: &str,
+        skip_pending: bool,
+        window_access: &mut TransitionWindowAccess<'_, '_>,
+    ) {
         let group = self.find_group_index(group_name);
         if let Some(idx) = group {
             if self.pending_group == Some(idx) {
                 if skip_pending {
-                    self.groups[idx].skip();
+                    self.groups[idx].skip(window_access);
                 }
                 self.pending_group = None;
             }
             if self.current_group == Some(idx) {
-                self.groups[idx].skip();
+                self.groups[idx].skip(window_access);
                 self.current_group = None;
                 if let Some(pending) = self.pending_group {
                     self.current_group = Some(pending);

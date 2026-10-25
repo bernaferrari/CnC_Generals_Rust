@@ -162,7 +162,11 @@ impl InputProcessor {
 
     /// Process a raw input event
     /// Port of C++ InGameUI::ProcessRawInput() message dispatch
-    pub fn process_input_event(&mut self, event: InputEvent) -> Vec<GameMessage> {
+    pub fn process_input_event(
+        &mut self,
+        event: InputEvent,
+        window_query: &mut dyn FnMut(i32, i32) -> bool,
+    ) -> Vec<GameMessage> {
         if !self.config.enabled || !TheInGameUI::get_input_enabled() {
             return Vec::new();
         }
@@ -184,9 +188,13 @@ impl InputProcessor {
         while let Some(msg) = messages_to_process.pop_front() {
             processed_messages.push(msg.clone());
 
-            let selection_result = self.selection_translator.translate_game_message(&msg);
+            let selection_result = self
+                .selection_translator
+                .translate_with_window_query(&msg, window_query);
             if matches!(selection_result, GameMessageDisposition::KeepMessage) {
-                let _ = self.command_translator.translate_game_message(&msg);
+                let _ = self
+                    .command_translator
+                    .translate_with_window_query(&msg, window_query);
             }
 
             let emitted = take_emitted_messages();
@@ -751,7 +759,7 @@ mod tests {
             timestamp: Instant::now(),
         };
 
-        let messages = processor.process_input_event(event);
+        let messages = processor.process_input_event(event, &mut |_, _| false);
 
         assert!(messages.len() >= 1);
         assert_eq!(processor.mouse_position(), (100.0, 200.0));
@@ -765,11 +773,14 @@ mod tests {
         set_local_player_id(3);
         let mut processor = InputProcessor::with_default_config();
 
-        let messages = processor.process_input_event(InputEvent::MouseMove {
-            x: 64.0,
-            y: 96.0,
-            timestamp: Instant::now(),
-        });
+        let messages = processor.process_input_event(
+            InputEvent::MouseMove {
+                x: 64.0,
+                y: 96.0,
+                timestamp: Instant::now(),
+            },
+            &mut |_, _| false,
+        );
 
         assert!(!messages.is_empty());
         assert!(
@@ -793,7 +804,7 @@ mod tests {
             timestamp: Instant::now(),
         };
 
-        let messages = processor.process_input_event(down_event);
+        let messages = processor.process_input_event(down_event, &mut |_, _| false);
         assert!(messages.len() >= 1);
         assert!(processor.is_mouse_button_down(MouseButton::Left));
 
@@ -805,7 +816,7 @@ mod tests {
             timestamp: Instant::now(),
         };
 
-        let messages = processor.process_input_event(up_event);
+        let messages = processor.process_input_event(up_event, &mut |_, _| false);
         assert!(messages.len() >= 1);
     }
 
@@ -820,7 +831,7 @@ mod tests {
             timestamp: Instant::now(),
         };
 
-        let messages = processor.process_input_event(down_event);
+        let messages = processor.process_input_event(down_event, &mut |_, _| false);
         assert!(messages.len() >= 1);
         assert!(processor.is_key_down(KeyCode::A));
 
@@ -831,7 +842,7 @@ mod tests {
             timestamp: Instant::now(),
         };
 
-        let messages = processor.process_input_event(up_event);
+        let messages = processor.process_input_event(up_event, &mut |_, _| false);
         assert!(messages.len() >= 1);
     }
 
@@ -846,7 +857,7 @@ mod tests {
             timestamp: Instant::now(),
         };
 
-        let messages = processor.process_input_event(event);
+        let messages = processor.process_input_event(event, &mut |_, _| false);
 
         // Should generate both RawKeyDown and MetaCreateTeam messages
         assert!(messages.len() >= 2);
@@ -890,11 +901,11 @@ mod tests {
             timestamp: Instant::now(),
         };
 
-        processor.process_input_event(down_event);
+        processor.process_input_event(down_event, &mut |_, _| false);
         assert!(processor.is_mouse_button_down(MouseButton::Left));
 
         // Lose focus
-        processor.process_input_event(InputEvent::FocusLost);
+        processor.process_input_event(InputEvent::FocusLost, &mut |_, _| false);
 
         // State should be cleared
         assert!(!processor.is_mouse_button_down(MouseButton::Left));
@@ -914,7 +925,7 @@ mod tests {
             timestamp: Instant::now(),
         };
 
-        let messages = processor.process_input_event(event);
+        let messages = processor.process_input_event(event, &mut |_, _| false);
         assert_eq!(messages.len(), 0);
     }
 
@@ -930,7 +941,7 @@ mod tests {
                 timestamp: Instant::now(),
             };
 
-            processor.process_input_event(event);
+            processor.process_input_event(event, &mut |_, _| false);
         }
 
         let stats = processor.get_statistics();

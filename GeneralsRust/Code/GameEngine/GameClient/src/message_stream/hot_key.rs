@@ -40,7 +40,20 @@ impl HotKeyTranslator {
 }
 
 impl GameMessageTranslator for HotKeyTranslator {
-    fn translate_game_message(&mut self, msg: &GameMessage) -> GameMessageDisposition {
+    fn requires_receiving_window_context(&self) -> bool {
+        true
+    }
+    fn translate_game_message(&mut self, _msg: &GameMessage) -> GameMessageDisposition {
+        log::error!("Hotkey translation requires receiving UI context");
+        GameMessageDisposition::KeepMessage
+    }
+    fn translate_game_message_with_context(
+        &mut self,
+        msg: &GameMessage,
+        _client: game_engine::common::message_stream::TranslatorClientObservation,
+        dispatch: &mut game_engine::common::message_stream::WindowInputDispatchFn<'_>,
+        emitted: &mut Vec<GameMessage>,
+    ) -> GameMessageDisposition {
         let GameMessageType::RawKeyUp(key_code) = msg.get_type() else {
             return GameMessageDisposition::KeepMessage;
         };
@@ -63,10 +76,17 @@ impl GameMessageTranslator for HotKeyTranslator {
         let Some(key_char) = keycode_to_char(*key_code) else {
             return GameMessageDisposition::KeepMessage;
         };
-        let mut key_string = key_char.to_string();
-        key_string.make_ascii_lowercase();
-
-        if with_hot_key_manager(|manager| manager.execute_hot_key(&key_string)) {
+        if match dispatch(
+            game_engine::common::message_stream::WindowInputDispatch::Ui(
+                game_engine::common::message_stream::UiInputAction::ActivateHotKey(key_char as u32),
+            ),
+            emitted,
+        ) {
+            Some(game_engine::common::message_stream::WindowInputDispatchResult::Ui(handled)) => {
+                handled
+            }
+            _ => panic!("hotkey operation requires its receiving UI driver"),
+        } {
             GameMessageDisposition::DestroyMessage
         } else {
             GameMessageDisposition::KeepMessage
@@ -135,55 +155,22 @@ impl HotKeyManager {
         self.hot_key_map.insert(key, hot_key);
     }
 
-    pub fn execute_hot_key(&mut self, key_in: &str) -> bool {
-        let key = key_in.to_ascii_lowercase();
-        let Some(entry) = self.hot_key_map.get(&key) else {
-            return false;
-        };
-        let Some(window_rc) = entry.window.upgrade() else {
-            return false;
-        };
-
-        let (window_id, parent) = {
-            let window = window_rc.borrow();
-            (window.get_id(), window.get_parent())
-        };
-
-        {
-            let window = window_rc.borrow();
-            if window.is_hidden() {
-                return false;
+    pub(crate) fn activation(&self, key_in: &str) -> Option<HotKeyActivation> {
+        let entry = self.hot_key_map.get(&key_in.to_ascii_lowercase())?;
+        let window = entry.window.upgrade()?;
+        let (id, enabled, parent) = {
+            let value = window.borrow();
+            if value.is_hidden() {
+                return None;
             }
-            if window.is_enabled() {
-                drop(window);
-                if let Some(parent_rc) = parent {
-                    parent_rc.borrow_mut().send_system_message(
-                        WindowMessage::GadgetSelected,
-                        window_id as WindowMsgData,
-                        0,
-                    );
-                } else {
-                    window_rc.borrow_mut().send_system_message(
-                        WindowMessage::GadgetSelected,
-                        window_id as WindowMsgData,
-                        0,
-                    );
-                }
-
-                if let Some(audio) = TheAudio::get() {
-                    let event = AudioEventRts::with_event_name("GUIClick");
-                    audio.add_audio_event(&event);
-                }
-
-                return true;
-            }
-        }
-
-        if let Some(audio) = TheAudio::get() {
-            let event = AudioEventRts::with_event_name("GUIClickDisabled");
-            audio.add_audio_event(&event);
-        }
-        false
+            (value.get_id(), value.is_enabled(), value.get_parent())
+        };
+        Some(HotKeyActivation {
+            window,
+            parent,
+            id,
+            enabled,
+        })
     }
 
     pub fn search_hot_key(&self, label: &str) -> String {
@@ -207,12 +194,40 @@ impl HotKeyManager {
     }
 }
 
-pub fn with_hot_key_manager<R>(f: impl FnOnce(&mut HotKeyManager) -> R) -> R {
-    thread_local! {
-        static HOT_KEY_MANAGER: std::cell::RefCell<HotKeyManager> =
-            std::cell::RefCell::new(HotKeyManager::default());
+pub(crate) struct HotKeyActivation {
+    window: std::rc::Rc<std::cell::RefCell<GameWindow>>,
+    parent: Option<std::rc::Rc<std::cell::RefCell<GameWindow>>>,
+    id: i32,
+    enabled: bool,
+}
+impl HotKeyActivation {
+    pub(crate) fn execute(
+        self,
+        manager: &mut crate::gui::window_manager::WindowManager,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    ) -> bool {
+        if !manager.owns_window_identity(&self.window) {
+            return false;
+        }
+        if self.enabled {
+            let target = self.parent.unwrap_or(self.window);
+            manager.send_system_message(
+                &target,
+                WindowMessage::GadgetSelected,
+                self.id as WindowMsgData,
+                0,
+                effects,
+            );
+        }
+        if let Some(audio) = TheAudio::get() {
+            audio.add_audio_event(&AudioEventRts::with_event_name(if self.enabled {
+                "GUIClick"
+            } else {
+                "GUIClickDisabled"
+            }));
+        }
+        self.enabled
     }
-    HOT_KEY_MANAGER.with(|manager| f(&mut manager.borrow_mut()))
 }
 
 #[cfg(test)]

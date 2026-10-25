@@ -13,6 +13,42 @@ use std::time::Instant;
 
 use super::*;
 
+/// Read the canonical callback window directly; all other entries retain their
+/// ordinary arena borrow. No busy entry is interpreted as an absent subtree.
+fn with_lookup_window<R>(
+    window: &Rc<RefCell<GameWindow>>,
+    selected: Option<&GameWindow>,
+    read: impl FnOnce(&GameWindow) -> R,
+) -> R {
+    if let Some(selected) =
+        selected.filter(|selected| std::ptr::eq(window.as_ptr(), std::ptr::from_ref(*selected)))
+    {
+        read(selected)
+    } else {
+        read(&window.borrow())
+    }
+}
+
+fn lookup_window_chain(
+    windows: &[Rc<RefCell<GameWindow>>],
+    start: usize,
+    matches: &impl Fn(&GameWindow) -> bool,
+    selected: Option<&GameWindow>,
+) -> Option<Rc<RefCell<GameWindow>>> {
+    for window in windows.iter().skip(start) {
+        let (is_match, children) = with_lookup_window(window, selected, |value| {
+            (matches(value), value.children().to_vec())
+        });
+        if is_match {
+            return Some(window.clone());
+        }
+        if let Some(found) = lookup_window_chain(&children, 0, matches, selected) {
+            return Some(found);
+        }
+    }
+    None
+}
+
 impl WindowManager {
     /// Get window by ID
     pub fn get_window_by_id(&self, id: WindowId) -> Option<Rc<RefCell<GameWindow>>> {
@@ -126,30 +162,28 @@ impl WindowManager {
     }
 
     pub fn find_window_by_name(&self, name: &str) -> Option<Rc<RefCell<GameWindow>>> {
-        fn find_recursive(
-            name: &str,
-            window: &Rc<RefCell<GameWindow>>,
-        ) -> Option<Rc<RefCell<GameWindow>>> {
-            let guard = window.borrow();
-            if guard.get_name().eq_ignore_ascii_case(name) {
-                return Some(window.clone());
-            }
-            let children = guard.children().to_vec();
-            drop(guard);
-            for child in &children {
-                if let Some(found) = find_recursive(name, child) {
-                    return Some(found);
-                }
-            }
-            None
-        }
+        self.find_window_by_name_with_selected(name, None)
+    }
 
-        for root in &self.root_windows {
-            if let Some(found) = find_recursive(name, root) {
-                return Some(found);
-            }
-        }
-        None
+    pub fn find_window_by_name_with_selected(
+        &self,
+        name: &str,
+        selected: Option<&GameWindow>,
+    ) -> Option<Rc<RefCell<GameWindow>>> {
+        lookup_window_chain(
+            &self.root_windows,
+            0,
+            &|window| window.get_name().eq_ignore_ascii_case(name),
+            selected,
+        )
+    }
+
+    pub fn get_window_by_id_with_selected(
+        &self,
+        id: WindowId,
+        selected: Option<&GameWindow>,
+    ) -> Option<Rc<RefCell<GameWindow>>> {
+        self.win_get_window_from_id_with_selected(None, id, selected)
     }
 
     pub fn find_window_from_id(
@@ -165,54 +199,39 @@ impl WindowManager {
         base_window: Option<&Rc<RefCell<GameWindow>>>,
         id: WindowId,
     ) -> Option<Rc<RefCell<GameWindow>>> {
-        fn find_in_window_and_descendants(
-            window: &Rc<RefCell<GameWindow>>,
-            id: WindowId,
-        ) -> Option<Rc<RefCell<GameWindow>>> {
-            let Ok(guard) = window.try_borrow() else {
-                return None;
-            };
-            if guard.get_id() == id {
-                return Some(window.clone());
-            }
-            let children = guard.children().to_vec();
-            drop(guard);
-            find_in_chain(&children, 0, id)
-        }
+        self.win_get_window_from_id_with_selected(base_window, id, None)
+    }
 
-        fn find_in_chain(
-            windows: &[Rc<RefCell<GameWindow>>],
-            start: usize,
-            id: WindowId,
-        ) -> Option<Rc<RefCell<GameWindow>>> {
-            for window in windows.iter().skip(start) {
-                if let Some(found) = find_in_window_and_descendants(window, id) {
-                    return Some(found);
-                }
-            }
-            None
-        }
-
+    /// C++ starts at the supplied window and continues through its following
+    /// siblings, descending through each child list before the next sibling.
+    pub fn win_get_window_from_id_with_selected(
+        &self,
+        base_window: Option<&Rc<RefCell<GameWindow>>>,
+        id: WindowId,
+        selected: Option<&GameWindow>,
+    ) -> Option<Rc<RefCell<GameWindow>>> {
+        let matches = |window: &GameWindow| window.get_id() == id;
         if let Some(base_window) = base_window {
-            if let Some(parent) = base_window.borrow().get_parent() {
-                let siblings = parent.borrow().children().to_vec();
+            let parent = with_lookup_window(base_window, selected, |window| window.get_parent());
+            if let Some(parent) = parent {
+                let siblings =
+                    with_lookup_window(&parent, selected, |window| window.children().to_vec());
                 if let Some(index) = siblings
                     .iter()
                     .position(|sibling| Rc::ptr_eq(sibling, base_window))
                 {
-                    return find_in_chain(&siblings, index, id);
+                    return lookup_window_chain(&siblings, index, &matches, selected);
                 }
             } else if let Some(index) = self
                 .root_windows
                 .iter()
                 .position(|root| Rc::ptr_eq(root, base_window))
             {
-                return find_in_chain(&self.root_windows, index, id);
+                return lookup_window_chain(&self.root_windows, index, &matches, selected);
             }
-
-            find_in_window_and_descendants(base_window, id)
+            lookup_window_chain(std::slice::from_ref(base_window), 0, &matches, selected)
         } else {
-            find_in_chain(&self.root_windows, 0, id)
+            lookup_window_chain(&self.root_windows, 0, &matches, selected)
         }
     }
 
@@ -292,134 +311,39 @@ impl WindowManager {
         }
     }
 
-    /// Hide or show a window with the manager side effects C++ applies from `winHide`.
+    /// C++ winHide: update canonical visibility before focus/modal/capture cleanup.
     pub fn hide_window(
         &mut self,
         window: &Rc<RefCell<GameWindow>>,
         hide: bool,
     ) -> WindowResult<()> {
-        window
-            .borrow_mut()
-            .hide_without_manager_side_effects(hide)?;
-        if hide {
-            self.window_hiding(window);
-        }
+        let (_, _, mut access) = self.transition_parts(None);
+        access.hide_window(window, hide);
         Ok(())
     }
-
+    /// Visibility operations may traverse the currently dispatched window's
+    /// descendants; carry its canonical loan through cleanup as well as lookup.
+    pub fn hide_window_with_selected(
+        &mut self,
+        window: &Rc<RefCell<GameWindow>>,
+        hide: bool,
+        selected: Option<&mut GameWindow>,
+    ) -> WindowResult<()> {
+        let (_, _, mut access) = self.transition_parts(selected);
+        access.hide_window(window, hide);
+        Ok(())
+    }
     pub(crate) fn window_hiding_from_direct_hide(
         &mut self,
         window_ptr: *const GameWindow,
         children: Vec<Rc<RefCell<GameWindow>>>,
     ) {
-        // Prefer the live `Rc` (root / id map / provided children) so modal/focus
-        // cleanup uses `Rc::ptr_eq` after a queued re-entry, not just a raw
-        // pointer captured while `RefMut<GameWindow>` was held.
-        let resolved = self
-            .root_windows
-            .iter()
-            .cloned()
-            .chain(self.window_by_id.values().filter_map(Weak::upgrade))
-            .chain(children.iter().cloned())
-            .find(|window| std::ptr::addr_eq(window.as_ptr(), window_ptr.cast_mut()));
-        if let Some(window) = resolved {
-            self.window_hiding(&window);
-            return;
-        }
-
-        // Pointer may not match `RefCell::as_ptr()` if the hide was queued after
-        // `RefMut` ended. If the provided children belong to the modal window,
-        // that window is the one being hidden.
-        if self.modal_stack.as_ref().is_some_and(|modal| {
-            let modal_children = modal.window.borrow().children().to_vec();
-            children
-                .iter()
-                .any(|child| modal_children.iter().any(|mc| Rc::ptr_eq(mc, child)))
-        }) {
-            if let Some(modal) = self.modal_stack.take() {
-                self.modal_stack = modal.next;
-            }
-        }
-
-        if self
-            .keyboard_focus
-            .as_ref()
-            .and_then(Weak::upgrade)
-            .is_some_and(|focus| std::ptr::addr_eq(focus.as_ptr(), window_ptr.cast_mut()))
-        {
-            self.keyboard_focus = None;
-        }
-
-        if self
-            .modal_stack
-            .as_ref()
-            .is_some_and(|modal| std::ptr::addr_eq(modal.window.as_ptr(), window_ptr.cast_mut()))
-        {
-            if let Some(modal) = self.modal_stack.take() {
-                self.modal_stack = modal.next;
-            }
-        }
-
-        if self
-            .mouse_capture
-            .as_ref()
-            .and_then(Weak::upgrade)
-            .is_some_and(|capture| std::ptr::addr_eq(capture.as_ptr(), window_ptr.cast_mut()))
-        {
-            self.mouse_capture = None;
-            self.capture_flags &= !CaptureFlags::MOUSE;
-        }
-
-        for child in children {
-            self.window_hiding(&child);
-        }
+        let (_, _, mut access) = self.transition_parts(None);
+        access.hiding(window_ptr, children);
     }
-
     pub(crate) fn window_hiding(&mut self, window: &Rc<RefCell<GameWindow>>) {
-        if self
-            .keyboard_focus
-            .as_ref()
-            .and_then(Weak::upgrade)
-            .is_some_and(|focus| Rc::ptr_eq(&focus, window))
-        {
-            self.keyboard_focus = None;
-        }
-
-        if self
-            .modal_stack
-            .as_ref()
-            .is_some_and(|modal| Rc::ptr_eq(&modal.window, window))
-        {
-            if let Some(modal) = self.modal_stack.take() {
-                self.modal_stack = modal.next;
-            }
-        }
-
-        if self
-            .mouse_capture
-            .as_ref()
-            .and_then(Weak::upgrade)
-            .is_some_and(|capture| Rc::ptr_eq(&capture, window))
-        {
-            self.mouse_capture = None;
-            self.capture_flags &= !CaptureFlags::MOUSE;
-        }
-
-        let children = match window.try_borrow() {
-            Ok(win) => win.children().to_vec(),
-            Err(_) => {
-                // Nested RefCell during MainMenu hide / Start callback.
-                // Next outer with_window_manager entry, not this drain.
-                let window = window.clone();
-                queue_window_manager_op_deferred(move |manager| {
-                    manager.window_hiding(&window);
-                });
-                return;
-            }
-        };
-        for child in children {
-            self.window_hiding(&child);
-        }
+        let children = window.borrow().children().to_vec();
+        self.window_hiding_from_direct_hide(window.as_ptr(), children);
     }
 
     /// Enable windows in ID range

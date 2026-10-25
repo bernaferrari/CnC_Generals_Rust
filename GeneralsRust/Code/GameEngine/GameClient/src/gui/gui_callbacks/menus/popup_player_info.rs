@@ -26,19 +26,21 @@ pub fn GameSpyPlayerInfoOverlayShutdown(
 }
 
 pub fn GameSpyPlayerInfoOverlaySystem(
-    window: &GameWindow,
+    window: &mut GameWindow,
     msg: WindowMessage,
     data1: WindowMsgData,
     data2: WindowMsgData,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> WindowMsgHandled {
-    popup_player_info_system(window, msg, data1, data2)
+    popup_player_info_system(window, msg, data1, data2, effects)
 }
 
 pub fn GameSpyPlayerInfoOverlayInput(
-    window: &GameWindow,
+    window: &mut GameWindow,
     msg: WindowMessage,
     data1: WindowMsgData,
     data2: WindowMsgData,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> WindowMsgHandled {
-    popup_player_info_input(window, msg, data1, data2)
+    popup_player_info_input(window, msg, data1, data2, effects)
 }

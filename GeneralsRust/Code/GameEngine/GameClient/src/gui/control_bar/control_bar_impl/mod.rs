@@ -12,7 +12,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::error::Error;
 use std::rc::Rc;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use super::{
@@ -21,13 +21,12 @@ use super::{
     QueueProductionType,
 };
 use crate::game_text::GameText;
-use crate::gui::{GameWindow, WindowManager, with_window_manager};
+use crate::gui::{GameWindow, WindowManager};
 
 use crate::helpers::{
     TheInGameUI, drain_live_control_bar_events, set_live_control_bar_observer_look_at,
 };
 use crate::message_stream::game_message::GameMessageType;
-use crate::message_stream::hot_key::with_hot_key_manager;
 use crate::message_stream::message_stream::THE_MESSAGE_STREAM;
 use crate::system::SubsystemInterface;
 use game_engine::common::ini::ini_command_button::{

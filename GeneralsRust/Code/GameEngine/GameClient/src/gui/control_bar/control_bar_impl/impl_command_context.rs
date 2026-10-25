@@ -1,12 +1,13 @@
 // Split from `gui/control_bar/control_bar.rs` dump. Included by `control_bar_impl/mod.rs`.
 
 impl ControlBar {
-    fn update_context_command(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+    fn update_context_command(
+        &mut self,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let obj_id = {
-            let context = self
-                .context
-                .read()
-                .map_err(|_| "Failed to acquire context read lock")?;
+            let context = &self.context;
             context.selected_objects.first().copied()
         };
 
@@ -20,17 +21,13 @@ impl ControlBar {
                     if let Ok(contain_guard) = contain.lock() {
                         if contain_guard.get_max_capacity() > 0 {
                             let count = contain_guard.get_contain_count();
-                            let last = self
-                                .context
-                                .read()
-                                .ok()
-                                .map(|ctx| ctx.last_recorded_inventory_count)
-                                .unwrap_or(0);
+                            let last = self.context.last_recorded_inventory_count;
                             if last != count {
-                                if let Ok(mut ctx) = self.context.write() {
+                                {
+                                    let mut ctx = &mut self.context;
                                     ctx.last_recorded_inventory_count = count;
                                 }
-                                self.evaluate_context_ui()?;
+                                self.evaluate_context_ui(receiving_manager, effects)?;
                             }
                         }
                     }
@@ -46,25 +43,16 @@ impl ControlBar {
             // even when OBJECT_REGISTRY has no producer Arc.
             // Dual-world residual: live production modules own queue when registry is bound.
             let _ = registry_producer;
-            let mut context = {
-                let mut guard = self
-                    .context
-                    .write()
-                    .map_err(|_| "Failed to acquire context write lock")?;
-                std::mem::take(&mut *guard)
-            };
-            self.populate_build_queue(&mut context, obj_id)?;
-            let mut guard = self
-                .context
-                .write()
-                .map_err(|_| "Failed to acquire context write lock")?;
-            *guard = context;
+            let mut context = std::mem::take(&mut self.context);
+            self.populate_build_queue(&mut context, obj_id, receiving_manager, effects)?;
+            self.context = context;
         } else if !has_production && !self.portrait_state.is_visible {
             // Only clear when neither registry nor presentation claims production.
             if !self.build_queue_data.is_empty() {
                 self.build_queue_data.clear();
                 self.displayed_queue_count = 0;
-                if let Ok(mut context) = self.context.write() {
+                {
+                    let mut context = &mut self.context;
                     context.construction_queue.clear();
                 }
             }
@@ -74,7 +62,8 @@ impl ControlBar {
         let first_progress = self.get_first_production_progress(obj_id);
 
         if let Some(percent) = first_progress {
-            if let Ok(mut context) = self.context.write() {
+            {
+                let mut context = &mut self.context;
                 if let Some(first_item) = context.construction_queue.first_mut() {
                     first_item.progress = percent;
                 }
@@ -85,17 +74,21 @@ impl ControlBar {
         let queue_visible = has_production || !self.build_queue_data.is_empty();
         if queue_visible {
             self.set_portrait_by_object_id(None);
-            with_window_manager(|wm| {
+            (|receiving_manager: &mut crate::gui::window_manager::WindowManager| {
                 // C++ ControlBar.cpp:1076-1077 — CP_BUILD_QUEUE parent is
                 // "ControlBar.wnd:ProductionQueueWindow"; ControlBarCommand.cpp
                 // :713-743 shows/hides it around the producer's queue. The
                 // previous "ControlBar.wnd:BuildQueue" name never matched, so
                 // the queue grid stayed painted while empty.
-                if let Some(win) = wm.find_window_by_name("ControlBar.wnd:ProductionQueueWindow") {
-                    let _ = win.borrow_mut().hide(false);
+                if let Some(win) =
+                    receiving_manager.find_window_by_name("ControlBar.wnd:ProductionQueueWindow")
+                {
+                    let _ = win.borrow_mut().hide(false, receiving_manager);
                 }
                 if let Some(percent) = first_progress {
-                    if let Some(win) = wm.find_window_by_name("ControlBar.wnd:ButtonQueue01") {
+                    if let Some(win) =
+                        receiving_manager.find_window_by_name("ControlBar.wnd:ButtonQueue01")
+                    {
                         if let Some(crate::gui::game_window::WindowWidget::PushButton(button)) =
                             win.borrow_mut().widget_mut()
                         {
@@ -111,23 +104,21 @@ impl ControlBar {
                         }
                     }
                 }
-            });
+            })(receiving_manager);
         } else {
-            with_window_manager(|wm| {
-                if let Some(win) = wm.find_window_by_name("ControlBar.wnd:ProductionQueueWindow") {
-                    let _ = win.borrow_mut().hide(true);
+            (|receiving_manager: &mut crate::gui::window_manager::WindowManager| {
+                if let Some(win) =
+                    receiving_manager.find_window_by_name("ControlBar.wnd:ProductionQueueWindow")
+                {
+                    let _ = win.borrow_mut().hide(true, receiving_manager);
                 }
-            });
+            })(receiving_manager);
             self.set_portrait_by_object_id(Some(obj_id));
         }
 
-        let context = self
-            .context
-            .read()
-            .map_err(|_| "Failed to acquire context read lock")?;
+        let context = &self.context;
         let player_id = context.player_id;
         let buttons_snapshot: Vec<CommandButton> = context.available_commands.clone();
-        drop(context);
 
         // C++ ControlBarCommand.cpp:788-881: evaluate each shown ButtonCommand
         // window, then winHide / winEnable / WIN_STATUS_NOT_READY / ALWAYS_COLOR.
@@ -192,7 +183,11 @@ impl ControlBar {
             availability_by_name.insert(name, (availability, clock));
         }
 
-        self.apply_command_availability_to_windows(&buttons_snapshot, &availability_by_name);
+        self.apply_command_availability_to_windows(
+            &buttons_snapshot,
+            &availability_by_name,
+            receiving_manager,
+        );
 
         Ok(())
     }
@@ -636,9 +631,7 @@ impl ControlBar {
             return CommandAvailability::Restricted;
         }
         let selected = {
-            let Ok(context) = self.context.read() else {
-                return CommandAvailability::Active;
-            };
+            let context = &self.context;
             context.selected_objects.clone()
         };
         for selected_id in selected {
@@ -690,6 +683,7 @@ impl ControlBar {
         &self,
         buttons: &[CommandButton],
         availability_by_name: &HashMap<String, (CommandAvailability, Option<u8>)>,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
     ) {
         const CLOCK_COLOR: crate::gui::gadgets::Color = crate::gui::gadgets::Color {
             r: 0,
@@ -697,10 +691,10 @@ impl ControlBar {
             b: 0,
             a: 100,
         };
-        with_window_manager(|wm| {
+        (|receiving_manager: &mut crate::gui::window_manager::WindowManager| {
             for i in 0..14 {
                 let win_name = format!("ControlBar.wnd:ButtonCommand{:02}", i + 1);
-                let Some(win) = wm.find_window_by_name(&win_name) else {
+                let Some(win) = receiving_manager.find_window_by_name(&win_name) else {
                     continue;
                 };
                 if win.borrow().is_hidden() {
@@ -728,7 +722,7 @@ impl ControlBar {
                 let _ = window.clear_status(crate::gui::game_window::WindowStatus::ALWAYS_COLOR);
                 match availability {
                     CommandAvailability::Hidden => {
-                        let _ = window.hide(true);
+                        let _ = window.hide(true, receiving_manager);
                     }
                     CommandAvailability::Restricted => {
                         let _ = window.enable(false);
@@ -760,7 +754,7 @@ impl ControlBar {
                     }
                 }
             }
-        });
+        })(receiving_manager);
     }
 
     // ---------------------------------------------------------------------------
@@ -772,6 +766,8 @@ impl ControlBar {
         &mut self,
         context: &mut ControlBarContext,
         producer_id: u32,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         // Wave 981/1010/1014/1046: host empty dual-world keeps presentation residual queue/portrait.
         if Self::dual_world_registry_unavailable() {
@@ -792,7 +788,7 @@ impl ControlBar {
                     self.portrait_state.production_paused = false;
                     self.build_queue_data.clear();
                     self.displayed_queue_count = 0;
-                    self.leftover_bind_build_queue_windows(context);
+                    self.leftover_bind_build_queue_windows(context, receiving_manager, effects);
                     return Ok(());
                 }
             }
@@ -844,7 +840,7 @@ impl ControlBar {
                     );
             }
             let _ = producer_id;
-            self.leftover_bind_build_queue_windows(context);
+            self.leftover_bind_build_queue_windows(context, receiving_manager, effects);
             return Ok(());
         }
 
@@ -853,12 +849,12 @@ impl ControlBar {
 
         let Some(obj_arc) = OBJECT_REGISTRY.get_object(producer_id) else {
             self.displayed_queue_count = 0;
-            self.leftover_bind_build_queue_windows(context);
+            self.leftover_bind_build_queue_windows(context, receiving_manager, effects);
             return Ok(());
         };
         let Ok(obj) = obj_arc.read() else {
             self.displayed_queue_count = 0;
-            self.leftover_bind_build_queue_windows(context);
+            self.leftover_bind_build_queue_windows(context, receiving_manager, effects);
             return Ok(());
         };
 
@@ -894,19 +890,28 @@ impl ControlBar {
         } else {
             self.displayed_queue_count = context.construction_queue.len();
         }
-        self.leftover_bind_build_queue_windows(context);
+        self.leftover_bind_build_queue_windows(context, receiving_manager, effects);
         Ok(())
     }
 
     /// C++ ControlBarCommand.cpp:561-665 — bind ButtonQueueNN cancel cameos.
-    fn leftover_bind_build_queue_windows(&self, context: &ControlBarContext) {
+    fn leftover_bind_build_queue_windows(
+        &self,
+        context: &ControlBarContext,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    ) {
         for i in 0..MAX_BUILD_QUEUE_BUTTONS {
-            leftover_ensure_named_window(&format!("ControlBar.wnd:ButtonQueue{:02}", i + 1));
+            leftover_ensure_named_window(
+                &format!("ControlBar.wnd:ButtonQueue{:02}", i + 1),
+                receiving_manager,
+                effects,
+            );
         }
-        with_window_manager(|wm| {
+        (|receiving_manager: &mut crate::gui::window_manager::WindowManager| {
             for i in 0..MAX_BUILD_QUEUE_BUTTONS {
                 let name = format!("ControlBar.wnd:ButtonQueue{:02}", i + 1);
-                let Some(win) = wm.find_window_by_name(&name) else {
+                let Some(win) = receiving_manager.find_window_by_name(&name) else {
                     continue;
                 };
                 {
@@ -954,7 +959,7 @@ impl ControlBar {
                     None
                 } else {
                     leftover_mapped_image(&cmd.button_image)
-                        .or_else(|| wm.win_find_image(&cmd.button_image))
+                        .or_else(|| receiving_manager.win_find_image(&cmd.button_image))
                 };
                 {
                     let mut window = win.borrow_mut();
@@ -972,7 +977,7 @@ impl ControlBar {
                     window.set_status(crate::gui::game_window::WindowStatus::USE_OVERLAY_STATES);
                 }
             }
-        });
+        })(receiving_manager);
     }
 
     // ---------------------------------------------------------------------------
@@ -986,8 +991,9 @@ impl ControlBar {
         click: crate::helpers::LiveControlBarClick,
         window_manager_owner: &crate::gui::window_manager::WindowManagerOwner,
         emitted_messages: &mut Vec<crate::message_stream::game_message::GameMessage>,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
     ) -> bool {
-        let Some(resolved) = window_manager_owner.try_with_manager_ref(|manager| {
+        let resolved = (|manager: &crate::gui::window_manager::WindowManager| {
             let Some(target) = click.target.as_ref().and_then(std::rc::Weak::upgrade) else {
                 return None;
             };
@@ -1016,9 +1022,7 @@ impl ControlBar {
                         .map(|button| button.name.clone())
                 });
             Some((window.get_name().to_owned(), command_name))
-        }) else {
-            panic!("receiving WindowManager must be released before ControlBar callback replay");
-        };
+        })(receiving_manager);
         let Some((target_name, command_name)) = resolved else {
             return true;
         };
@@ -1028,7 +1032,8 @@ impl ControlBar {
             .and_then(|slot| slot.checked_sub(1));
         if let Some(i) = queue_slot {
             if i < self.build_queue_data.len() {
-                if let Ok(ctx) = self.context.read() {
+                {
+                    let ctx = &self.context;
                     let _ = self.cancel_build_queue_item(i, &ctx, emitted_messages);
                 }
             }
@@ -1041,34 +1046,22 @@ impl ControlBar {
             .strip_prefix("ControlBar.wnd:ButtonCommand")
             .and_then(|suffix| suffix.parse::<usize>().ok())
             .and_then(|slot| slot.checked_sub(1));
-        let slot_button = self
-            .context
-            .read()
-            .ok()
-            .and_then(|ctx| slot.and_then(|i| ctx.available_commands.get(i).cloned()));
+        let slot_button = slot.and_then(|i| self.context.available_commands.get(i).cloned());
         if command_name.eq_ignore_ascii_case("Command_StructureExit")
             || slot_button
                 .as_ref()
                 .is_some_and(|button| button.command_type == CommandType::Exit)
         {
-            let occupant = slot.and_then(|i| {
-                self.context
-                    .read()
-                    .ok()
-                    .and_then(|ctx| ctx.contain_data.get(i).copied().flatten())
-            });
+            let occupant = slot.and_then(|i| self.context.contain_data.get(i).copied().flatten());
             let Some(occupant) = occupant else {
                 return true;
             };
             if let Some(i) = slot {
-                let button = self
-                    .context
-                    .read()
-                    .ok()
-                    .and_then(|ctx| ctx.available_commands.get(i).cloned());
+                let button = self.context.available_commands.get(i).cloned();
                 if let Some(mut button) = button {
                     button.exit_object_id = Some(occupant);
-                    if let Ok(ctx) = self.context.read() {
+                    {
+                        let ctx = &self.context;
                         let _ = self.execute_command(
                             &button,
                             CommandSourceType::FromUser,
@@ -1090,10 +1083,7 @@ impl ControlBar {
         source: CommandSourceType,
         emitted_messages: &mut Vec<crate::message_stream::game_message::GameMessage>,
     ) -> Result<bool, Box<dyn std::error::Error>> {
-        let context = self
-            .context
-            .read()
-            .map_err(|_| "Failed to acquire context read lock")?;
+        let context = &self.context;
 
         if let Some(button) = context
             .available_commands

@@ -55,9 +55,9 @@ use crate::core::script_action_handler::{
 };
 use crate::core::subsystems::{
     AudioSubsystem, DisplayStringManagerSubsystem, FontLibrarySubsystem,
-    HeaderTemplateManagerSubsystem, HotKeyManagerSubsystem, InGameUISubsystem, InGameUiHandle,
-    MouseHandle, TerrainVisualStub, VideoPlayerSubsystem, WindowManagerSubsystem, create_keyboard,
-    create_mouse, register_game_client_snapshot_block, register_particle_system_snapshot_block,
+    HeaderTemplateManagerSubsystem, InGameUISubsystem, InGameUiHandle, MouseHandle,
+    TerrainVisualStub, VideoPlayerSubsystem, create_keyboard, create_mouse,
+    register_game_client_snapshot_block, register_particle_system_snapshot_block,
     register_radar_snapshot_block, register_terrain_visual_snapshot_block,
 };
 use crate::display::DisplayInterface;
@@ -70,9 +70,8 @@ use crate::fx_list::{init_fx_list_store, register_decal_manager, register_fx_aud
 use crate::game_text::GameText;
 
 use crate::gui::gadgets::register_button_audio_hook;
-use crate::gui::ime_manager::get_ime_manager;
 use crate::gui::window_manager::WindowManagerOwner;
-use crate::gui::{UIRenderer, WindowStatus, get_shell, get_skirmish_setup, with_window_manager};
+use crate::gui::{UIRenderer, WindowStatus, get_skirmish_setup};
 use crate::helpers::{register_in_game_ui_backend, register_mouse_backend};
 use crate::input::*;
 use crate::message_stream::command_list::get_command_list;
@@ -220,3 +219,6 @@ pub(crate) mod global_boundary_fixture;
 
 #[cfg(test)]
 mod native_draw_icon_policy_tests;
+
+mod script_driver;
+pub use script_driver::close_receiving_game_windows;

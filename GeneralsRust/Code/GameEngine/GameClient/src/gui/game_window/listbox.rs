@@ -12,9 +12,13 @@ pub struct ListBoxSelectionResult {
     pub multiple: Vec<i32>,
 }
 
-pub fn gadget_list_box_get_selected(listbox: &mut GameWindow, select_list: &mut WindowMsgData) {
+pub fn gadget_list_box_get_selected(
+    listbox: &mut GameWindow,
+    select_list: &mut WindowMsgData,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) {
     let token = push_payload(WindowMsgPayload::None);
-    let _ = listbox.send_system_message(WindowMessage::User(GLM_GET_SELECTION), 0, token);
+    let _ = listbox.send_system_message(WindowMessage::User(GLM_GET_SELECTION), 0, token, effects);
     match pop_payload(token) {
         Some(WindowMsgPayload::Int(index)) => {
             *select_list = index as isize as WindowMsgData;

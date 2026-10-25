@@ -20,7 +20,7 @@ pub fn WOLWelcomeMenuShutdown(layout: &WindowLayout, user_data: Option<&dyn std:
 }
 
 pub fn WOLWelcomeMenuSystem(
-    window: &GameWindow,
+    window: &mut GameWindow,
     msg: WindowMessage,
     data1: WindowMsgData,
     data2: WindowMsgData,
@@ -29,7 +29,7 @@ pub fn WOLWelcomeMenuSystem(
 }
 
 pub fn WOLWelcomeMenuInput(
-    window: &GameWindow,
+    window: &mut GameWindow,
     msg: WindowMessage,
     data1: WindowMsgData,
     data2: WindowMsgData,

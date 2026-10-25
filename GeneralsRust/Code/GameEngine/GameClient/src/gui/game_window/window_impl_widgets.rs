@@ -4,7 +4,11 @@
 use super::prelude::*;
 
 impl GameWindow {
-    pub(crate) fn sync_combobox_listbox(&mut self, list_box: &Rc<RefCell<GameWindow>>) {
+    pub(crate) fn sync_combobox_listbox(
+        &mut self,
+        list_box: &Rc<RefCell<GameWindow>>,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    ) {
         let Some(WindowWidget::ComboBox(combo)) = self.widget.as_ref() else {
             return;
         };
@@ -20,7 +24,7 @@ impl GameWindow {
             let _ = listbox.select_index(selected, KeyModifiers::none());
         }
         drop(list_box_guard);
-        list_box.borrow_mut().update_listbox_scrollbar();
+        list_box.borrow_mut().update_listbox_scrollbar(effects);
     }
 
     pub(crate) fn sync_combobox_edit_box(&mut self, edit_box: &Rc<RefCell<GameWindow>>) {
@@ -54,7 +58,11 @@ impl GameWindow {
         (font_height.max(0) * visible as i32) + (visible as i32 * 2) + 4
     }
 
-    pub(crate) fn resize_combobox_listbox(&mut self, list_box: &Rc<RefCell<GameWindow>>) {
+    pub(crate) fn resize_combobox_listbox(
+        &mut self,
+        list_box: &Rc<RefCell<GameWindow>>,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    ) {
         let Some(WindowWidget::ComboBox(combo)) = self.widget.as_ref() else {
             return;
         };
@@ -64,43 +72,52 @@ impl GameWindow {
         let show_scrollbar = max_display > 0 && count > max_display;
         let font_height = {
             let list_box_ref = list_box.borrow();
-            with_window_manager_ref(|manager| {
-                list_box_ref
-                    .inst_data
-                    .font
-                    .as_ref()
-                    .map(|font| manager.win_font_height(font))
-                    .unwrap_or_else(|| {
-                        list_box_ref
-                            .widget()
-                            .and_then(|widget| match widget {
-                                WindowWidget::ListBox(listbox) => {
-                                    Some(listbox.item_height().saturating_sub(2) as i32)
-                                }
-                                _ => None,
-                            })
-                            .unwrap_or(16)
-                    })
-            })
+            list_box_ref
+                .inst_data
+                .font
+                .as_ref()
+                .map(|font| {
+                    crate::gui::font::get_font_library()
+                        .get_font(&font.to_font_desc())
+                        .map(|resolved| resolved.height)
+                        .unwrap_or_else(|_| crate::gui::font::font_pixel_size(font.size))
+                })
+                .unwrap_or_else(|| {
+                    list_box_ref
+                        .widget()
+                        .and_then(|widget| match widget {
+                            WindowWidget::ListBox(listbox) => {
+                                Some(listbox.item_height().saturating_sub(2) as i32)
+                            }
+                            _ => None,
+                        })
+                        .unwrap_or(16)
+                })
         };
         let height = Self::combo_box_dropdown_height(count, max_display, font_height);
         let (width, _) = list_box.borrow().get_size();
-        let _ = list_box.borrow_mut().set_size(width, height);
+        let _ = list_box.borrow_mut().set_size(width, height, effects);
         if let Some(links) = list_box.borrow().listbox_links() {
             if let Some(up) = list_box.borrow().find_child_by_id(links.up_button) {
-                let _ = up.borrow_mut().hide(!show_scrollbar);
+                let _ = effects
+                    .with_manager(|manager, _| up.borrow_mut().hide(!show_scrollbar, manager));
             }
             if let Some(down) = list_box.borrow().find_child_by_id(links.down_button) {
-                let _ = down.borrow_mut().hide(!show_scrollbar);
+                let _ = effects
+                    .with_manager(|manager, _| down.borrow_mut().hide(!show_scrollbar, manager));
             }
             if let Some(slider) = list_box.borrow().find_child_by_id(links.slider) {
-                let _ = slider.borrow_mut().hide(!show_scrollbar);
+                let _ = effects
+                    .with_manager(|manager, _| slider.borrow_mut().hide(!show_scrollbar, manager));
             }
         }
-        list_box.borrow_mut().update_listbox_scrollbar();
+        list_box.borrow_mut().update_listbox_scrollbar(effects);
     }
 
-    pub(crate) fn update_listbox_scrollbar(&mut self) {
+    pub(crate) fn update_listbox_scrollbar(
+        &mut self,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    ) {
         let Some(links) = self.listbox_links else {
             return;
         };
@@ -168,7 +185,9 @@ impl GameWindow {
                     };
                     let thumb_y = (ratio * available as f32).round() as i32;
                     let _ = thumb.borrow_mut().set_position(0, thumb_y);
-                    let _ = thumb.borrow_mut().hide(max_offset == 0);
+                    let _ = effects.with_manager(|manager, _| {
+                        thumb.borrow_mut().hide(max_offset == 0, manager)
+                    });
                 }
             }
         }
@@ -224,7 +243,10 @@ impl GameWindow {
         self.update_slider_thumb();
     }
 
-    pub(crate) fn notify_slider_track(&mut self) {
+    pub(crate) fn notify_slider_track(
+        &mut self,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    ) {
         let Some(value) = self.slider_value() else {
             return;
         };
@@ -236,6 +258,7 @@ impl GameWindow {
                 WindowMessage::User(GSM_SLIDER_TRACK),
                 self.id as WindowMsgData,
                 value as WindowMsgData,
+                effects,
             );
         }
     }
@@ -243,6 +266,7 @@ impl GameWindow {
     pub(crate) fn handle_slider_left_drag(
         &mut self,
         packed_mouse: WindowMsgData,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) -> WindowMsgHandled {
         let mouse_x = (packed_mouse & 0xFFFF) as i32;
         let mouse_y = ((packed_mouse >> 16) & 0xFFFF) as i32;
@@ -270,12 +294,12 @@ impl GameWindow {
         if is_horizontal {
             if mouse_x > win_x + width - HORIZONTAL_SLIDER_THUMB_WIDTH / 2 {
                 self.apply_slider_value(max_val);
-                self.notify_slider_track();
+                self.notify_slider_track(effects);
                 return WindowMsgHandled::Handled;
             }
             if mouse_x < win_x + HORIZONTAL_SLIDER_THUMB_WIDTH / 2 {
                 self.apply_slider_value(min_val);
-                self.notify_slider_track();
+                self.notify_slider_track(effects);
                 return WindowMsgHandled::Handled;
             }
             if child_center_x < win_x + thumb_w / 2 {
@@ -310,11 +334,11 @@ impl GameWindow {
             }
         } else if mouse_y > win_y + height {
             self.apply_slider_value(min_val);
-            self.notify_slider_track();
+            self.notify_slider_track(effects);
             return WindowMsgHandled::Handled;
         } else if mouse_y < win_y {
             self.apply_slider_value(max_val);
-            self.notify_slider_track();
+            self.notify_slider_track(effects);
             return WindowMsgHandled::Handled;
         } else if child_center_y <= win_y + thumb_h / 2 {
             let _ = thumb.borrow_mut().set_position(0, 0);
@@ -343,11 +367,15 @@ impl GameWindow {
             }
         }
 
-        self.notify_slider_track();
+        self.notify_slider_track(effects);
         WindowMsgHandled::Handled
     }
 
-    pub(crate) fn show_tab_pane(&mut self, index: usize) {
+    pub(crate) fn show_tab_pane(
+        &mut self,
+        index: usize,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    ) {
         let panes: Vec<Rc<RefCell<GameWindow>>> = self
             .children
             .iter()
@@ -374,15 +402,18 @@ impl GameWindow {
         }
 
         for pane in panes.iter() {
-            let _ = pane.borrow_mut().hide(true);
+            let _ = effects.with_manager(|manager, _| pane.borrow_mut().hide(true, manager));
         }
 
         if let Some(pane) = panes.get(active_index) {
-            let _ = pane.borrow_mut().hide(false);
+            let _ = effects.with_manager(|manager, _| pane.borrow_mut().hide(false, manager));
         }
     }
 
-    pub(crate) fn resize_tab_panes_to_content(&mut self) {
+    pub(crate) fn resize_tab_panes_to_content(
+        &mut self,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    ) {
         let Some(WindowWidget::TabControl(tab_control)) = self.widget.as_ref() else {
             return;
         };
@@ -424,7 +455,7 @@ impl GameWindow {
 
         for pane in panes {
             let mut pane = pane.borrow_mut();
-            let _ = pane.set_size(width.max(0), height.max(0));
+            let _ = pane.set_size(width.max(0), height.max(0), effects);
             let _ = pane.set_position(x, y);
         }
     }

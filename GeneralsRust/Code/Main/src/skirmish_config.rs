@@ -957,50 +957,67 @@ pub fn local_faction_from_config(config: &SkirmishMatchConfig) -> String {
 pub fn config_from_client_skirmish_setup(
     map_override: Option<&str>,
 ) -> Option<SkirmishMatchConfig> {
-    use game_client::gui::get_skirmish_setup;
+    let (map, local_slot, old_factions_only) = {
+        let setup = game_client::gui::get_skirmish_setup();
+        let info = setup.game_info().game_info();
+        let map = map_override
+            .map(str::trim)
+            .filter(|map| !map.is_empty())
+            .map(str::to_owned)
+            .or_else(|| {
+                (!setup.selected_map().trim().is_empty())
+                    .then(|| setup.selected_map().trim().to_owned())
+            })
+            .or_else(|| {
+                (!info.get_map().trim().is_empty() && info.get_map() != "NOMAP")
+                    .then(|| info.get_map().trim().to_owned())
+            })?;
+        (map, info.get_local_slot_num(), info.old_factions_only())
+    };
+    let descriptor = game_engine::common::message_stream::ClientSkirmishLaunch {
+        map,
+        game_info: game_client::gui::skirmish_setup::snapshot_skirmish_lobby(),
+        local_slot,
+        old_factions_only,
+        fog_of_war: game_engine::common::ini::ini_multiplayer::with_multiplayer_settings(
+            |settings| settings.is_shroud_in_multiplayer,
+        ),
+        game_mode_code: 2,
+        max_fps: 30,
+    };
+    config_from_skirmish_launch(&descriptor)
+}
+
+#[cfg(feature = "game_client")]
+pub fn config_from_skirmish_launch(
+    descriptor: &game_engine::common::message_stream::ClientSkirmishLaunch,
+) -> Option<SkirmishMatchConfig> {
     use game_client::{MAX_SLOTS, PLAYERTEMPLATE_OBSERVER, PLAYERTEMPLATE_RANDOM, SlotState};
     use game_engine::common::ini::ensure_player_templates_loaded;
-    use game_engine::common::ini::ini_multiplayer::with_multiplayer_settings;
     use game_engine::common::rts::player_template::get_player_template_store;
-
-    let setup = get_skirmish_setup();
-    let info = setup.game_info().game_info();
-
-    let map = map_override
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .map(|s| s.to_string())
-        .or_else(|| {
-            let selected = setup.selected_map().trim();
-            if !selected.is_empty() {
-                Some(selected.to_string())
-            } else {
-                None
-            }
-        })
-        .or_else(|| {
-            let m = info.get_map().trim();
-            if !m.is_empty() && m != "NOMAP" {
-                Some(m.to_string())
-            } else {
-                None
-            }
-        })?;
-
+    let info = &descriptor.game_info;
+    let map = descriptor.map.trim();
+    if map.is_empty() || map == "NOMAP" {
+        return None;
+    }
+    let map = map.to_owned();
     // GameClient stores only an index in GameInfo. Ensure the authoritative
     // Common store is present before pairing it with its canonical name.
     ensure_player_templates_loaded();
     let store = get_player_template_store();
     let mut slots = Vec::with_capacity(MAX_SLOTS);
     for i in 0..MAX_SLOTS {
-        let Some(slot) = info.get_slot(i) else {
+        let Some(slot) = info.slots.get(i) else {
             continue;
         };
-        let state = slot.get_state();
-        let is_active = matches!(
-            state,
-            SlotState::Player | SlotState::EasyAI | SlotState::MedAI | SlotState::BrutalAI
-        );
+        let state = slot.state;
+        let is_active = [
+            SlotState::Player as i32,
+            SlotState::EasyAI as i32,
+            SlotState::MedAI as i32,
+            SlotState::BrutalAI as i32,
+        ]
+        .contains(&state);
         if !is_active {
             // Keep slot indices stable for apply_skirmish_config (slot_index = player id).
             slots.push(SkirmishSlotConfig {
@@ -1018,16 +1035,16 @@ pub fn config_from_client_skirmish_setup(
             continue;
         }
 
-        let is_human = matches!(state, SlotState::Player);
+        let is_human = state == SlotState::Player as i32;
         let ai_difficulty = match state {
-            SlotState::EasyAI => Some("Easy".into()),
-            SlotState::MedAI => Some("Medium".into()),
-            SlotState::BrutalAI => Some("Hard".into()),
+            value if value == SlotState::EasyAI as i32 => Some("Easy".into()),
+            value if value == SlotState::MedAI as i32 => Some("Medium".into()),
+            value if value == SlotState::BrutalAI as i32 => Some("Hard".into()),
             _ => None,
         };
 
         let (faction, player_template) = {
-            let tpl = slot.get_player_template();
+            let tpl = slot.player_template;
             if tpl >= 0 {
                 store
                     .get_nth_player_template(tpl as usize)
@@ -1081,7 +1098,7 @@ pub fn config_from_client_skirmish_setup(
             }
         };
 
-        let color_rgb = color_rgb_from_multiplayer_index(slot.get_color(), i);
+        let color_rgb = color_rgb_from_multiplayer_index(slot.color, i);
 
         slots.push(SkirmishSlotConfig {
             slot_index: i,
@@ -1090,10 +1107,10 @@ pub fn config_from_client_skirmish_setup(
             player_template,
             faction,
             color_rgb,
-            team: slot.get_team_number(),
-            start_position: slot.get_start_pos(),
+            team: slot.team_number,
+            start_position: slot.start_pos,
             player_name: {
-                let n = slot.get_name().trim();
+                let n = slot.name.trim();
                 if n.is_empty() {
                     if is_human {
                         "Player".into()
@@ -1112,62 +1129,17 @@ pub fn config_from_client_skirmish_setup(
         return None;
     }
 
-    let starting_cash = info.get_starting_cash().count_money() as i32;
-    let limit_sw = info.get_superweapon_restriction() != 0;
-    let fog = with_multiplayer_settings(|s| s.is_shroud_in_multiplayer);
-    let source_game_info = {
-        use game_engine::common::system::skirmish_game_info::{SkirmishGameInfo, SkirmishSlot};
-        let mut source_slots = std::array::from_fn(|_| SkirmishSlot::default());
-        for (index, destination) in source_slots.iter_mut().enumerate() {
-            let slot = info.get_slot(index)?;
-            *destination = SkirmishSlot {
-                state: slot.get_state() as i32,
-                name: slot.get_name().to_string(),
-                is_accepted: slot.is_accepted(),
-                is_muted: slot.is_muted(),
-                color: slot.get_color(),
-                start_pos: slot.get_start_pos(),
-                player_template: slot.get_player_template(),
-                team_number: slot.get_team_number(),
-                orig_color: slot.get_original_color(),
-                orig_start_pos: slot.get_original_start_pos(),
-                orig_player_template: slot.get_original_player_template(),
-            };
-        }
-        let mut preorder_mask = 0;
-        for index in 0..MAX_SLOTS {
-            if info.is_player_preorder(index) {
-                preorder_mask |= 1 << index;
-            }
-        }
-        Some((
-            SkirmishGameInfo {
-                preorder_mask,
-                crc_interval: info.get_crc_interval(),
-                in_game: info.is_in_game(),
-                in_progress: info.is_game_in_progress(),
-                surrendered: info.have_we_surrendered(),
-                game_id: info.get_game_id(),
-                slots: source_slots,
-                local_ip: info.get_local_ip(),
-                map_name: info.get_map().to_string(),
-                map_crc: info.get_map_crc(),
-                map_size: info.get_map_size(),
-                map_mask: info.get_map_contents_mask(),
-                seed: info.get_seed(),
-                superweapon_restriction: info.get_superweapon_restriction(),
-                starting_cash: info.get_starting_cash().count_money(),
-            },
-            info.get_local_slot_num(),
-        ))
-    };
+    let starting_cash = info.starting_cash as i32;
+    let limit_sw = info.superweapon_restriction != 0;
+    let fog = descriptor.fog_of_war;
+    let source_game_info = Some((info.clone(), descriptor.local_slot));
     Some(SkirmishMatchConfig {
         source_game_info,
         map,
         // Preserve C++ `Int`'s two's-complement bit pattern as the unsigned
         // ADC seed consumed by `InitGameLogicRandom`.
-        random_seed: info.get_seed() as u32,
-        old_factions_only: info.old_factions_only(),
+        random_seed: info.seed as u32,
+        old_factions_only: descriptor.old_factions_only,
         rules: GameRulesSnapshot {
             starting_cash,
             game_speed: 1.0,

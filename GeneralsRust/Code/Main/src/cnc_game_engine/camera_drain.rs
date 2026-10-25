@@ -420,6 +420,17 @@ impl CnCGameEngine {
                 .map_err(anyhow::Error::msg)?;
             return Ok(());
         }
+        if self
+            .game_client
+            .message_stream()
+            .get_messages()
+            .iter()
+            .any(|message| message.skirmish_launch().is_some())
+        {
+            self.pump_native_client_commands()
+                .map_err(anyhow::Error::msg)?;
+            return Ok(());
+        }
         // NewGame / start-new-game must drain on the load screen, not only Menu.
         // Windowed sit-through was stuck in Loading because WND/start posted
         // NewGame while boot load was still InProgress and Menu never ticked.
@@ -432,7 +443,6 @@ impl CnCGameEngine {
                 Self::take_shell_new_game_messages_from_common_stream(
                     self.game_client.message_stream_mut(),
                 );
-                gamelogic::helpers::TheGameLogic::clear_start_new_game_request();
             } else {
                 info!(
                     "Loading NewGame drain: mode={:?} faction={} map={}",
@@ -443,30 +453,10 @@ impl CnCGameEngine {
                 let _ = Self::take_new_game_dispatch_from_common_stream(
                     self.game_client.message_stream_mut(),
                 );
-                gamelogic::helpers::TheGameLogic::clear_start_new_game_request();
                 return Ok(());
             }
         }
-        if gamelogic::helpers::TheGameLogic::is_start_new_game_requested() {
-            if self.host_is_in_shell_game() {
-                // Worker/crate start_new_game(GAME_SHELL) arms this flag.
-                // build_start_request_from_pending_globals(None) defaults
-                // Skirmish+Defcon6 — that is not a match start.
-                info!("Loading start_new_game flag drain: ignore leftover GAME_SHELL flag");
-                gamelogic::helpers::TheGameLogic::clear_start_new_game_request();
-            } else {
-                gamelogic::helpers::TheGameLogic::clear_start_new_game_request();
-                if let Some(request) = self.build_start_request_from_pending_globals(None) {
-                    info!(
-                        "Loading start_new_game flag drain: mode={:?} map={}",
-                        request.mode, request.map
-                    );
-                    self.start_game_from_ui(request)
-                        .map_err(anyhow::Error::msg)?;
-                    return Ok(());
-                }
-            }
-        }
+
         // Boot worker (INI + ShellMapMD) must not pin Loading forever, but
         // C++ showShellMap still finishes GAME_SHELL. Do not abandon: keep
         // the receiver so Menu can apply a late Complete (hq-akj0).
@@ -1309,6 +1299,7 @@ impl CnCGameEngine {
         let mut replay_operation =
             game_client::gui::callbacks::replay_menu::ingress::ReplayMenuOperation::new(
                 !self.game_logic.isInNetworkGame(),
+                self.game_client.window_manager_owner().downgrade(),
             );
         let mut steps = Vec::new();
         let result = {
@@ -1331,11 +1322,15 @@ impl CnCGameEngine {
                               campaign: &mut game_client::gui::campaign_manager::CampaignManager,
                               main_menu: &mut game_client::gui::shell::main_menu::MainMenu,
                               menu_host: &mut game_client::gui::campaign_launch_host_bridge::MenuHostMailbox,
+                              menus: &mut game_client::gui::callbacks::menu_callbacks::MenuCallbackRecipients<'_>,
                               display: &mut game_client::core::script_action_handler::ScriptDisplayReceiver,
-                              videos: &mut game_client::gui::window_video_manager::WindowVideoManager,
+                              videos: &mut game_client::gui::window_video_manager::ClientWindowVideos,
+                              ime: &mut game_client::gui::ime_manager::ImeManager,
                               request,
                               messages: &mut Vec<game_engine::common::message_stream::GameMessage>| {
                 let mut context = game_client::gui::window_manager::ControlBarInputContext {
+            menus: Some(menus.reborrow()),
+            ime:Some(ime),
                     upgrade_tooltip: game_client::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource::Receiving(&upgrade_observer),
                     replay_menu: Some(&mut replay_operation), replay_version: Some(&mut replay_version),
                     observer_roster: observer_roster.as_ref(),
@@ -1343,7 +1338,8 @@ impl CnCGameEngine {
                     control_bar: &mut *control_bar, viewport: &mut *viewport,
                     replay, game_ending, tooltips_disabled, cursor_mouse: cursor_mouse.as_ref(),
                     window_manager_owner: Some(owner), campaign_manager: Some(campaign), main_menu: Some(main_menu),
-                    menu_world: Some(menu_world), menu_host: Some(menu_host), script_display: Some(display), window_videos: Some(videos),
+                    menu_world: Some(menu_world), menu_host: Some(menu_host), script_display: Some(display), window_videos: Some(&mut videos.challenge),
+            in_game_movies: Some(&mut videos.in_game),
                     emitted_messages: Some(messages),
                 };
                 let result = game_client::gui::window_manager::dispatch_translated_window_input_for_owner(owner, request, &mut context);
@@ -1429,7 +1425,6 @@ impl CnCGameEngine {
                 let _ = Self::take_new_game_dispatch_from_common_stream(
                     self.game_client.message_stream_mut(),
                 );
-                gamelogic::helpers::TheGameLogic::clear_start_new_game_request();
                 return Ok(true);
             }
         }
@@ -1506,7 +1501,6 @@ impl CnCGameEngine {
                 let _ = Self::take_new_game_dispatch_from_common_stream(
                     self.game_client.message_stream_mut(),
                 );
-                gamelogic::helpers::TheGameLogic::clear_start_new_game_request();
                 return Ok(true);
             }
         }
@@ -1518,30 +1512,6 @@ impl CnCGameEngine {
             self.pump_native_client_commands()?;
         }
 
-        // Secondary path: crate helpers may flag start after pump.
-        if gamelogic::helpers::TheGameLogic::is_start_new_game_requested() {
-            let pending = game_engine::common::global_data::read()
-                .pending_file
-                .clone();
-            let pending_shellish = {
-                let t = pending.trim().to_ascii_lowercase();
-                t.is_empty() || t.contains("shellmap")
-            };
-            if self.host_is_in_shell_game() && pending_shellish {
-                info!("Menu start_new_game flag drain: ignore leftover GAME_SHELL flag");
-                gamelogic::helpers::TheGameLogic::clear_start_new_game_request();
-            } else {
-                gamelogic::helpers::TheGameLogic::clear_start_new_game_request();
-                if let Some(request) = self.build_start_request_from_pending_globals(None) {
-                    info!(
-                        "Menu start_new_game flag drain: mode={:?} map={}",
-                        request.mode, request.map
-                    );
-                    self.start_game_from_ui(request)?;
-                    return Ok(true);
-                }
-            }
-        }
         let t5 = std::time::Instant::now();
         let menu_gc_elapsed = t0.elapsed();
         if menu_gc_elapsed >= std::time::Duration::from_millis(50) || early_menu_frame {
@@ -1674,7 +1644,16 @@ impl CnCGameEngine {
                         .as_ref()
                         .map(|content| content.action_definitions_shared()),
                 );
-                pres.apply_to_control_bar(&mut self.control_bar);
+                {
+                    let facts = self.receiving_menu_world_facts();
+                    let bar = &mut self.control_bar;
+                    self.game_client
+                        .with_window_event_effects(Some(facts), |effects| {
+                            effects.with_manager(|manager, effects| {
+                                pres.apply_to_control_bar(bar, manager, effects)
+                            })
+                        })
+                };
                 let _ = self
                     .update_receiving_observer_control_bar(std::time::Duration::from_millis(33));
             }
@@ -1804,7 +1783,16 @@ impl CnCGameEngine {
                     .as_ref()
                     .map(|content| content.action_definitions_shared()),
             );
-            pres.apply_to_control_bar(&mut self.control_bar);
+            {
+                let facts = self.receiving_menu_world_facts();
+                let bar = &mut self.control_bar;
+                self.game_client
+                    .with_window_event_effects(Some(facts), |effects| {
+                        effects.with_manager(|manager, effects| {
+                            pres.apply_to_control_bar(bar, manager, effects)
+                        })
+                    })
+            };
             let _ =
                 self.update_receiving_observer_control_bar(std::time::Duration::from_millis(33));
         }
@@ -2475,7 +2463,16 @@ impl CnCGameEngine {
                         .as_ref()
                         .map(|content| content.action_definitions_shared()),
                 );
-                pres.apply_to_control_bar(&mut self.control_bar);
+                {
+                    let facts = self.receiving_menu_world_facts();
+                    let bar = &mut self.control_bar;
+                    self.game_client
+                        .with_window_event_effects(Some(facts), |effects| {
+                            effects.with_manager(|manager, effects| {
+                                pres.apply_to_control_bar(bar, manager, effects)
+                            })
+                        })
+                };
                 let _ = self
                     .update_receiving_observer_control_bar(std::time::Duration::from_millis(33));
             }
@@ -3257,7 +3254,7 @@ mod replay_fast_forward_probe {
             .unwrap();
         engine.host_run_ingame_logic_presentation_frame(1. / 30.);
         let mut score_frame = None;
-        game_client::gui::with_window_manager(|manager| {
+        engine.game_client.window_manager_owner().with_manager(|manager| {
             score_frame = manager.find_window_by_name("ScoreScreen.wnd:ParentScoreScreen")
                 .and_then(|window| window.borrow().get_user_data::<game_client::gui::callbacks::score_screen::ScoreScreenAcademySnapshot>().map(|snapshot| snapshot.end_frame));
         });
@@ -3355,11 +3352,14 @@ mod replay_fast_forward_probe {
         engine.current_state = GameState::InGame;
         let mut invalid = None;
         let mut invalid_weak = None;
-        game_client::gui::with_window_manager(|manager| {
-            let layout = manager.create_layout("<source-empty-background-regression>".into());
-            invalid_weak = Some(std::rc::Rc::downgrade(&layout));
-            invalid = Some(layout);
-        });
+        engine
+            .game_client
+            .window_manager_owner()
+            .with_manager(|manager| {
+                let layout = manager.create_layout("<source-empty-background-regression>".into());
+                invalid_weak = Some(std::rc::Rc::downgrade(&layout));
+                invalid = Some(layout);
+            });
         engine.source_new_game_background = invalid;
         let fps_before = {
             let mut global = game_engine::common::global_data::write();

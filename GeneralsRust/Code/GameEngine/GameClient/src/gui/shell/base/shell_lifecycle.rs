@@ -97,6 +97,7 @@ impl Shell {
         shutdown_immediate: bool,
         effects: &mut WindowEventEffects<'_>,
     ) -> Result<(), ShellError> {
+        self.sync_animate_screen_size(effects);
         self.pending_score_snapshot = None;
         self.push_internal(filename, shutdown_immediate, effects)
     }
@@ -182,9 +183,7 @@ impl Shell {
             }
         }
 
-        if let Ok(mut ime_manager) = get_ime_manager().lock() {
-            ime_manager.detach();
-        }
+        effects.ime_mut().detach();
 
         Ok(())
     }
@@ -215,9 +214,7 @@ impl Shell {
 
         self.do_pop(false, effects)?;
 
-        if let Ok(mut ime_manager) = get_ime_manager().lock() {
-            ime_manager.detach();
-        }
+        effects.ime_mut().detach();
 
         Ok(())
     }
@@ -258,14 +255,21 @@ impl Shell {
     }
 
     /// Show or hide all shell layouts
-    pub fn hide(&mut self, hide: bool) {
+    pub fn hide(&mut self, hide: bool, effects: &mut WindowEventEffects<'_>) {
         for layout in &mut self.screen_stack {
-            layout.hide(hide);
+            layout.hide_with_effects(hide, effects);
         }
 
-        if let Ok(mut ime_manager) = get_ime_manager().lock() {
-            ime_manager.detach();
+        effects.ime_mut().detach();
+    }
+
+    /// Original Shell::hide on the actual receiving layout tree. Existing
+    /// callback operations use the same immediate operation's effects owner.
+    pub fn hide_with_effects(&mut self, hide: bool, effects: &mut WindowEventEffects<'_>) {
+        for layout in &mut self.screen_stack {
+            layout.hide_with_effects(hide, effects);
         }
+        effects.ime_mut().detach();
     }
 
     /// Show the shell (initialize top screen)
@@ -274,6 +278,7 @@ impl Shell {
         run_init: bool,
         effects: &mut WindowEventEffects<'_>,
     ) -> Result<(), ShellError> {
+        self.sync_animate_screen_size(effects);
         log::debug!("Shell::show_shell(run_init: {})", run_init);
 
         if !effects
@@ -331,9 +336,7 @@ impl Shell {
             layout.run_shutdown_with_effects(&mut immediate_pop, effects)?;
         }
 
-        if let Ok(mut ime_manager) = get_ime_manager().lock() {
-            ime_manager.detach();
-        }
+        effects.ime_mut().detach();
 
         self.is_shell_active = false;
         Ok(())
@@ -362,7 +365,7 @@ impl Shell {
 
         if self.clear_background {
             if let Some(mut background) = self.background.take() {
-                background.destroy_windows();
+                background.destroy_windows_with_effects(effects);
                 self.clear_background = false;
             }
         }
@@ -402,8 +405,11 @@ impl Shell {
     }
 
     /// Check if animations are finished
-    pub fn is_anim_finished(&self) -> bool {
-        if !with_window_manager_ref(|manager| manager.transitions_finished()) {
+    pub fn is_anim_finished_with_manager(
+        &self,
+        manager: &crate::gui::window_manager::WindowManager,
+    ) -> bool {
+        if !manager.transitions_finished() {
             return false;
         }
 
@@ -433,6 +439,10 @@ impl Shell {
     }
 
     /// Get the shell menu scheme manager
+    pub fn shell_menu_scheme_manager(&self) -> &ShellMenuSchemeManager {
+        &self.scheme_manager
+    }
+
     pub fn get_shell_menu_scheme_manager(&mut self) -> &mut ShellMenuSchemeManager {
         &mut self.scheme_manager
     }
@@ -474,10 +484,39 @@ impl Shell {
             .map(move |layout| layout.as_mut())
     }
 
+    /// Observe the actual options tree, then release Shell before dispatching
+    /// window callbacks which may synchronously operate on this same Shell.
+    pub(crate) fn options_layout_receipt(&self) -> Option<Rc<RefCell<ManagerWindowLayout>>> {
+        self.options_layout.as_ref()?.manager_layout_receipt()
+    }
+
+    pub(crate) fn finish_options_shutdown_receipt(
+        &mut self,
+        receipt: &Rc<RefCell<ManagerWindowLayout>>,
+        immediate: bool,
+    ) {
+        if let Some(layout) = self.options_layout.as_mut() {
+            if layout
+                .manager_layout_receipt()
+                .is_some_and(|current| Rc::ptr_eq(&current, receipt))
+            {
+                layout.set_state(if immediate {
+                    LayoutState::Destroying
+                } else {
+                    LayoutState::ShuttingDown
+                });
+            }
+        }
+    }
+
+    pub(crate) fn top_layout_receipt(&self) -> Option<Rc<RefCell<ManagerWindowLayout>>> {
+        self.screen_stack.last()?.manager_layout_receipt()
+    }
+
     /// Destroy the options layout
-    pub fn destroy_options_layout(&mut self) {
+    pub fn destroy_options_layout(&mut self, effects: &mut WindowEventEffects<'_>) {
         if let Some(mut layout) = self.options_layout.take() {
-            layout.destroy_windows();
+            layout.destroy_windows_with_effects(effects);
         }
     }
 
@@ -534,9 +573,7 @@ impl Shell {
         // Add to stack
         self.screen_stack.push(new_screen);
 
-        if let Ok(mut ime_manager) = get_ime_manager().lock() {
-            ime_manager.detach();
-        }
+        effects.ime_mut().detach();
 
         // Initialize the new screen
         if let Some(screen) = self.screen_stack.last_mut() {
@@ -554,7 +591,7 @@ impl Shell {
             .expect("Shell init requires receiving owner");
         owner.drain_driving_shell(self, effects);
         if let Some(screen) = self.screen_stack.last_mut() {
-            screen.bring_forward();
+            screen.bring_forward_with_effects(effects);
         }
 
         Ok(())
@@ -569,7 +606,7 @@ impl Shell {
 
         // Remove and destroy the top screen
         if let Some(mut current_top) = self.screen_stack.pop() {
-            current_top.destroy_windows();
+            current_top.destroy_windows_with_effects(effects);
         }
 
         // Initialize the new top if present and not doing an impending push
@@ -579,9 +616,7 @@ impl Shell {
             }
         }
 
-        if let Ok(mut ime_manager) = get_ime_manager().lock() {
-            ime_manager.detach();
-        }
+        effects.ime_mut().detach();
 
         Ok(())
     }
@@ -596,8 +631,8 @@ impl Default for Shell {
 impl Shell {
     /// C++ Shell animates with TheWindowManager's screen size; keep the
     /// animate manager in sync (default is a hardcoded 800x600).
-    fn sync_animate_screen_size(&mut self) {
-        let (width, height) = with_window_manager_ref(|manager| manager.screen_size());
+    fn sync_animate_screen_size(&mut self, effects: &mut WindowEventEffects<'_>) {
+        let (width, height) = effects.with_manager_ref(|manager| manager.screen_size());
         self.animate_window_manager.set_screen_size(width, height);
     }
 }
@@ -608,7 +643,6 @@ impl SubsystemInterface for Shell {
 
         // Initialize the scheme manager
         self.scheme_manager.init()?;
-        self.sync_animate_screen_size();
         self.last_update = Instant::now();
 
         self.initialized = true;
@@ -633,9 +667,7 @@ impl Shell {
         log::info!("Resetting shell system");
         self.pending_score_snapshot = None;
 
-        if let Ok(mut ime_manager) = get_ime_manager().lock() {
-            ime_manager.detach();
-        }
+        effects.ime_mut().detach();
 
         // Pop all screens. The local test layouts don't model the C++ callback chain,
         // so we use the immediate pop path to keep the stack teardown deterministic here.
@@ -656,14 +688,16 @@ impl Shell {
     ) -> Result<(), Box<dyn std::error::Error>> {
         let now = Instant::now();
         if now.duration_since(self.last_update) >= self.update_interval {
-            if let Some(name) = take_pending_shell_scheme_for_layout() {
+            if let Some(name) = take_pending_shell_scheme_for_layout(effects) {
                 self.load_scheme(&name);
             }
 
             // C++ MainMenuUpdate reads TheShell->isAnimFinished() while
             // Shell::update already holds *this. Snapshot so callbacks
             // cannot fail-closed and leave pending_push stuck.
-            record_shell_anim_finished_for_layout(self.is_anim_finished());
+            let finished =
+                effects.with_manager_ref(|manager| self.is_anim_finished_with_manager(manager));
+            record_shell_anim_finished_for_layout(effects, finished);
 
             // Update all layouts on the stack (from top to bottom)
             for i in (0..self.screen_stack.len()).rev() {
@@ -680,10 +714,10 @@ impl Shell {
                 .unwrap_or(false);
             if global_shell_map_on && self.shell_map_on && self.background.is_some() {
                 if let Some(mut background) = self.background.take() {
-                    background.destroy_windows();
+                    background.destroy_windows_with_effects(effects);
                 }
             }
-            self.sync_animate_screen_size();
+            self.sync_animate_screen_size(effects);
             self.animate_window_manager.update();
             self.scheme_manager.update()?;
 

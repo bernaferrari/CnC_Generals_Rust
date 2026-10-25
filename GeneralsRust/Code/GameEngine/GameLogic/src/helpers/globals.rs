@@ -74,13 +74,6 @@ impl TheGameLODManager {
 }
 
 /// Hooks for GameClient integration during prepareNewGame.
-pub trait PrepareNewGameHooks: Send + Sync {
-    fn ensure_background_window(&self);
-    fn hide_shell(&self);
-}
-
-static PREPARE_NEW_GAME_HOOKS: OnceLock<Arc<dyn PrepareNewGameHooks>> = OnceLock::new();
-
 /// Hooks provided by GameClient so pause transitions can mirror the original
 /// C++ cursor/input restore behavior.
 pub trait GamePauseHooks: Send + Sync {
@@ -94,6 +87,15 @@ static GAME_PAUSE_HOOKS: OnceLock<Arc<dyn GamePauseHooks>> = OnceLock::new();
 /// These hooks are passed down the active GameLogic call stack; they are never
 /// registered process-wide or retained after the load operation returns.
 pub trait LoadScreenHooks {
+    fn replay_controls_visibility(&mut self, _hidden: bool) -> Result<(), String> {
+        Err("replay controls require their receiving UI".into())
+    }
+    fn ensure_background_window(&mut self) -> Result<(), String> {
+        Err("new-game preparation requires its receiving window owner".into())
+    }
+    fn hide_shell(&mut self) -> Result<(), String> {
+        Err("new-game preparation requires its receiving Shell".into())
+    }
     fn begin_load_screen(&mut self, game_mode: Int, loading_save_game: Bool) -> Result<(), String>;
     fn update_load_screen(&mut self, progress: Int) -> Result<(), String>;
     fn run_load_screen_completion_transition(
@@ -122,14 +124,6 @@ pub trait ObserverAudioViewHooks: Send + Sync {
 static OBSERVER_AUDIO_LOCALITY_HOOKS: OnceLock<Arc<dyn ObserverAudioLocalityHooks>> =
     OnceLock::new();
 static OBSERVER_AUDIO_VIEW_HOOKS: OnceLock<Arc<dyn ObserverAudioViewHooks>> = OnceLock::new();
-
-pub fn register_prepare_new_game_hooks(hooks: Arc<dyn PrepareNewGameHooks>) -> bool {
-    PREPARE_NEW_GAME_HOOKS.set(hooks).is_ok()
-}
-
-fn prepare_new_game_hooks() -> Option<&'static Arc<dyn PrepareNewGameHooks>> {
-    PREPARE_NEW_GAME_HOOKS.get()
-}
 
 pub fn register_game_pause_hooks(hooks: Arc<dyn GamePauseHooks>) -> bool {
     GAME_PAUSE_HOOKS.set(hooks).is_ok()

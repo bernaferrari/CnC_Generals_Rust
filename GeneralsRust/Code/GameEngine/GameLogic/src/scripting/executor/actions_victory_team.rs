@@ -20,19 +20,35 @@ impl ScriptActionDispatcher<'_> {
         Ok(())
     }
 
+    fn close_script_windows_now(
+        &mut self,
+        driver: &mut dyn ScriptExecutionDriver,
+    ) -> Result<(), ScriptError> {
+        if let Some(result) = self.context.with_engine_mut(|engine| {
+            engine.close_windows_with_driver(false, driver)?;
+            engine.close_game_windows_with_driver(driver)
+        }) {
+            result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
+        }
+        Ok(())
+    }
+
     fn create_win_lose_window_now(
         &mut self,
         driver: &mut dyn ScriptExecutionDriver,
         layout_filename: &str,
     ) -> Result<(), ScriptError> {
+        if let Some(result) = self.context.with_engine_mut(|engine| {
+            engine.create_win_lose_window_with_driver(layout_filename, driver)
+        }) {
+            return result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()));
+        }
         if let Some(result) = driver.create_win_lose_window(layout_filename) {
             return result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()));
         }
-        let layout = layout_filename.to_string();
-        let _ = self
-            .context
-            .with_engine_mut(|engine| engine.create_win_lose_window(&layout));
-        Ok(())
+        Err(ScriptError::ExecutionFailed(
+            "win/lose window creation requires its receiving script engine/driver".into(),
+        ))
     }
 
     // ============================================================================
@@ -55,10 +71,7 @@ impl ScriptActionDispatcher<'_> {
         // C++ ScriptActions.cpp:193-209: closeWindows, TheGameLogic->closeWindows,
         // doDisableInput, winCreateFromScript(Victorious/ObserverQuit),
         // SetVictorious(TRUE), startEndGameTimer.
-        let _ = self.context.with_engine_mut(|engine| {
-            engine.close_windows(false);
-            engine.close_game_windows();
-        });
+        self.close_script_windows_now(driver)?;
         self.do_disable_input(driver)?;
         let layout = self
             .context
@@ -104,10 +117,7 @@ impl ScriptActionDispatcher<'_> {
 
         // C++ ScriptActions.cpp:171-176: closeWindows + GameLogic::closeWindows,
         // doDisableInput, SetVictorious, startQuickEndGameTimer. No new window.
-        let _ = self.context.with_engine_mut(|engine| {
-            engine.close_windows(false);
-            engine.close_game_windows();
-        });
+        self.close_script_windows_now(driver)?;
         self.do_disable_input(driver)?;
         self.apply_campaign_victory(driver, true)?;
         let _ = self
@@ -132,10 +142,7 @@ impl ScriptActionDispatcher<'_> {
         // C++ ScriptActions.cpp:217-233: closeWindows, GameLogic::closeWindows,
         // doDisableInput, winCreateFromScript(Defeat/ObserverQuit),
         // SetVictorious(FALSE), startEndGameTimer.
-        let _ = self.context.with_engine_mut(|engine| {
-            engine.close_windows(false);
-            engine.close_game_windows();
-        });
+        self.close_script_windows_now(driver)?;
         self.do_disable_input(driver)?;
         let layout = self
             .context
@@ -177,10 +184,10 @@ impl ScriptActionDispatcher<'_> {
         // C++ ScriptActions.cpp:241-251: markMPLocalDefeatWindowShown,
         // closeWindows, GameLogic::closeWindows, LocalDefeat.wnd when not
         // observer, SetVictorious(FALSE), startCloseWindowTimer.
+        self.context
+            .with_engine_mut(|engine| engine.set_shown_mp_local_defeat_window(true));
+        self.close_script_windows_now(driver)?;
         let layout = self.context.with_engine_mut(|engine| {
-            engine.set_shown_mp_local_defeat_window(true);
-            engine.close_windows(false);
-            engine.close_game_windows();
             if match driver.local_player_observer() {
                 crate::scripting::engine::ScriptOwnerQuery::Present(observer) => !observer,
                 crate::scripting::engine::ScriptOwnerQuery::Missing => true,

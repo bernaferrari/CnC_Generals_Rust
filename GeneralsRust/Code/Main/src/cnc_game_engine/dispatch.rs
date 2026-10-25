@@ -64,6 +64,9 @@ impl CnCGameEngine {
         if let Some(descriptor) = message.campaign_launch() {
             forwarded.set_campaign_launch(descriptor.clone());
         }
+        if let Some(descriptor) = message.skirmish_launch() {
+            forwarded.set_skirmish_launch(descriptor.clone());
+        }
         for arg in message.get_arguments() {
             Self::append_message_argument_to_common_stream(forwarded, &arg.data);
         }
@@ -242,7 +245,9 @@ impl CnCGameEngine {
             .message_stream()
             .get_messages()
             .iter()
-            .any(|message| message.shell_map_launch().is_some())
+            .any(|message| {
+                message.shell_map_launch().is_some() || message.skirmish_launch().is_some()
+            })
         {
             // Preserve all source commands when an owned Shell launch is queued;
             // a later match start must not overtake its preceding clear.
@@ -251,7 +256,7 @@ impl CnCGameEngine {
         let mut last_any = None;
         let mut last_match = None;
         for message in self.game_client.message_stream().get_messages().iter() {
-            if message.shell_map_launch().is_some() {
+            if message.shell_map_launch().is_some() || message.skirmish_launch().is_some() {
                 // Source Shell commands must reach the ordered native command cursor;
                 // peeking NewGame here would skip an earlier ClearGameData.
                 continue;
@@ -345,7 +350,8 @@ impl CnCGameEngine {
             match Self::startup_new_game_dispatch_from_message(&message) {
                 Some(d)
                     if matches!(d.game_mode, GameMode::Shell)
-                        && message.shell_map_launch().is_none() => {}
+                        && message.shell_map_launch().is_none()
+                        && message.skirmish_launch().is_none() => {}
                 _ => kept.push(message),
             }
         }
@@ -434,7 +440,9 @@ impl CnCGameEngine {
             };
             self.game_client
                 .window_manager_owner_ref()
-                .try_with_manager(|manager| manager.transition_set_group("FadeWholeScreen", false))
+                .try_with_manager(|manager| {
+                    manager.transition_set_group("FadeWholeScreen", false, None)
+                })
                 .ok_or_else(|| {
                     "ScoreScreen requires released receiving WindowManager".to_string()
                 })?;
@@ -454,7 +462,7 @@ impl CnCGameEngine {
             self.shell_menu_active = true;
             self.game_client
                 .window_manager_owner_ref()
-                .try_with_manager(|manager| manager.transition_reverse("FadeWholeScreen"))
+                .try_with_manager(|manager| manager.transition_reverse("FadeWholeScreen", None))
                 .ok_or_else(|| {
                     "ScoreScreen requires released receiving WindowManager".to_string()
                 })?;
@@ -716,6 +724,52 @@ impl CnCGameEngine {
             map: request.map.clone(),
         });
         Some(request)
+    }
+
+    /// Decode only the receiving command's immutable lobby admission. No live
+    /// menu, pending file, Core singleton or peer session can change this start.
+    pub(super) fn source_skirmish_start_request(
+        &mut self,
+        dispatch: StartupNewGameDispatch,
+        descriptor: &game_engine::common::message_stream::ClientSkirmishLaunch,
+    ) -> Result<HostStartRequest, String> {
+        if descriptor.map.trim().is_empty()
+            || descriptor.game_mode_code != dispatch.game_mode_code
+            || dispatch.difficulty_code != 1
+            || dispatch.rank_points != 0
+            || dispatch.max_fps != Some(descriptor.max_fps)
+        {
+            return Err("NewGame mismatches its owned offline lobby admission".into());
+        }
+        #[cfg(not(feature = "game_client"))]
+        {
+            return Err("offline lobby admission requires GameClient support".into());
+        }
+        #[cfg(feature = "game_client")]
+        {
+            let config = crate::skirmish_config::config_from_skirmish_launch(descriptor)
+                .ok_or_else(|| {
+                    "owned offline lobby contains no valid active players".to_string()
+                })?;
+            let faction = crate::skirmish_config::local_faction_from_config(&config);
+            let skirmish = (dispatch.game_mode == GameMode::Skirmish).then_some(config);
+            let mut request = HostStartRequest::without_player_template(
+                dispatch.game_mode,
+                faction,
+                descriptor.map.clone(),
+                skirmish,
+            );
+            request.difficulty_code = Some(dispatch.difficulty_code);
+            request.recorder_dispatch = Some(dispatch);
+            self.record_last_new_game_identity(LastNewGameIdentity {
+                dispatch,
+                player_template: None,
+                game_info_starting_cash: None,
+                faction: request.faction.clone(),
+                map: request.map.clone(),
+            });
+            Ok(request)
+        }
     }
 
     /// Extract the Main-owned start fields from a matching typed campaign
@@ -1103,8 +1157,10 @@ impl CnCGameEngine {
                 #[cfg(feature = "game_client")]
                 {
                     // Honest residual: report actual Shell stack depth only.
-                    game_client::gui::with_shell_ref(|shell| shell.get_screen_count()).unwrap_or(0)
-                        as u32
+                    self.game_client
+                        .window_manager_owner()
+                        .with_shell_ref(|shell| shell.get_screen_count())
+                        .unwrap_or(0) as u32
                 }
                 #[cfg(not(feature = "game_client"))]
                 {
@@ -1116,11 +1172,11 @@ impl CnCGameEngine {
                 {
                     // Honest residual: report actual Shell stack top only.
                     // Do not invent MainMenu.wnd when the stack is empty.
-                    game_client::gui::with_shell_ref(|shell| {
-                        shell.top_filename().map(str::to_owned)
-                    })
-                    .flatten()
-                    .unwrap_or_default()
+                    self.game_client
+                        .window_manager_owner()
+                        .with_shell_ref(|shell| shell.top_filename().map(str::to_owned))
+                        .flatten()
+                        .unwrap_or_default()
                 }
                 #[cfg(not(feature = "game_client"))]
                 {
@@ -1130,7 +1186,9 @@ impl CnCGameEngine {
             shell_active: {
                 #[cfg(feature = "game_client")]
                 {
-                    game_client::gui::with_shell_ref(|shell| shell.is_shell_active())
+                    self.game_client
+                        .window_manager_owner()
+                        .with_shell_ref(|shell| shell.is_shell_active())
                         .unwrap_or(false)
                         || self.shell_menu_active
                 }

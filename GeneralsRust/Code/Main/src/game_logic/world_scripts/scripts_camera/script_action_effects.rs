@@ -494,29 +494,9 @@ impl GameLogic {
             // pending output. Do not replay synchronously delivered effects.
             self.session_view.pending_letterbox_visibility.push(last);
             self.admit_script_letterbox_state(last);
-            // CPP Show/HideControlBar writes View height only when the
-            // authored parent exists. Admit that camera effect synchronously
-            // so a later action observes this session's projection. Native
-            // delivery still applies the actual bar/window visibility.
-            #[cfg(feature = "game_client")]
-            {
-                let parent_live = game_client::gui::with_window_manager(|manager| {
-                    manager
-                        .find_window_by_name(crate::gameplay_layout::CONTROL_BAR_PARENT_NAME)
-                        .is_some()
-                });
-                if parent_live {
-                    let height = self.session_view.camera.viewport.display_size().1;
-                    let height = if last {
-                        height as i32
-                    } else {
-                        (height as f32 * 0.80) as i32
-                    };
-                    if let Err(error) = self.session_view.camera.set_view_height_px(height) {
-                        log::warn!("Receiving letterbox viewport admission failed: {error}");
-                    }
-                }
-            }
+            // A detached operation has no WND capability. Its existing pending
+            // presentation output is admitted by the receiving UI boundary;
+            // no peer tree may authorize a synchronous camera-height mutation.
         }
 
         if let Some((text, font, duration_seconds)) = self
@@ -642,21 +622,8 @@ impl GameLogic {
             // residual; MissionScriptHooks itself remains the future-event
             // queue and is already drained above.
             let active_popup = popup_messages.last().cloned();
-            #[cfg(feature = "game_client")]
-            if let Some(popup) = active_popup.as_ref() {
-                // C++ clears/replaces the single InGameUI popup layout. Send
-                // only its newest request to GameClient and retain its opaque
-                // identity so a delayed ButtonOk/Esc cannot dismiss a later
-                // replacement popup in Main.
-                game_client::core::script_action_handler::script_popup_message_with_host_generation(
-                    &popup.message,
-                    popup.x_percent,
-                    popup.y_percent,
-                    popup.width,
-                    popup.pause,
-                    popup.pause_music,
-                    Some(popup.popup_generation),
-                );
+            if let (Some(popup), Some(recipient)) = (active_popup.as_ref(), ui.ui.as_deref_mut()) {
+                recipient.popup_message(popup)?;
             }
 
             for popup in popup_messages {

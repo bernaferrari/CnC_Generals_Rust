@@ -15,7 +15,9 @@ impl ReplayMenuReceiver for Receiver {
     }
 }
 #[test]
-fn admitted_content_crc_refresh_preserves_active_native_selection_and_release() {
+fn admitted_content_crc_refresh_preserves_active_native_selection_and_release(
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) {
     use crate::gui::callbacks::control_bar_callbacks::ControlBarViewport;
     use crate::gui::control_bar::ControlBar;
     use crate::gui::gadgets::{ListBox, PushButton};
@@ -86,6 +88,7 @@ fn admitted_content_crc_refresh_preserves_active_native_selection_and_release() 
             220,
             120,
             key("ReplayMenu.wnd:ParentReplayMenu") as i32,
+            effects,
         )
         .unwrap();
     manager.bind_window_callbacks(
@@ -97,7 +100,7 @@ fn admitted_content_crc_refresh_preserves_active_native_selection_and_release() 
     );
     let id = key("ReplayMenu.wnd:ButtonLoadReplay") as i32;
     let button = manager
-        .create_window_with_id(Some(&parent), 10, 10, 40, 20, id)
+        .create_window_with_id(Some(&parent), 10, 10, 40, 20, id, effects)
         .unwrap();
     button
         .borrow_mut()
@@ -113,7 +116,7 @@ fn admitted_content_crc_refresh_preserves_active_native_selection_and_release() 
     );
     let list_id = key("ReplayMenu.wnd:ListboxReplayFiles") as i32;
     let list = manager
-        .create_window_with_id(Some(&parent), 70, 10, 120, 80, list_id)
+        .create_window_with_id(Some(&parent), 70, 10, 120, 80, list_id, effects)
         .unwrap();
     list.borrow_mut()
         .set_widget(WindowWidget::ListBox(ListBox::new(
@@ -181,6 +184,9 @@ fn admitted_content_crc_refresh_preserves_active_native_selection_and_release() 
             reader.test_version_playback(selected.into()).unwrap()
         };
         let mut context = ControlBarInputContext {
+            menus: None,
+            ime:None,
+            in_game_movies: None,
             script_display: None,
             window_videos: None,
             upgrade_tooltip: crate::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource::Standalone,

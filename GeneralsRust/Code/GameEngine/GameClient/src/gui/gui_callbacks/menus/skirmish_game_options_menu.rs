@@ -19,19 +19,21 @@ pub fn SkirmishGameOptionsMenuInit(
 pub fn SkirmishGameOptionsMenuUpdate(
     layout: &WindowLayout,
     user_data: Option<&mut dyn std::any::Any>,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) {
-    skirmish_game_options_menu_update(layout, user_data);
+    skirmish_game_options_menu_update(layout, user_data, effects);
 }
 
 pub fn SkirmishGameOptionsMenuShutdown(
     layout: &WindowLayout,
     user_data: Option<&mut dyn std::any::Any>,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) {
-    skirmish_game_options_menu_shutdown(layout, user_data);
+    skirmish_game_options_menu_shutdown(layout, user_data, effects);
 }
 
 pub fn SkirmishGameOptionsMenuSystem(
-    window: &GameWindow,
+    window: &mut GameWindow,
     msg: WindowMessage,
     data1: WindowMsgData,
     data2: WindowMsgData,
@@ -41,10 +43,11 @@ pub fn SkirmishGameOptionsMenuSystem(
 }
 
 pub fn SkirmishGameOptionsMenuInput(
-    window: &GameWindow,
+    window: &mut GameWindow,
     msg: WindowMessage,
     data1: WindowMsgData,
     data2: WindowMsgData,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> WindowMsgHandled {
-    skirmish_game_options_menu_input(window, msg, data1, data2)
+    skirmish_game_options_menu_input(window, msg, data1, data2, effects)
 }

@@ -54,16 +54,60 @@ impl WindowManager {
         self.grab_window.as_ref()?.upgrade()
     }
 
+    fn with_input_effects<R>(
+        &mut self,
+        context: Option<&mut super::ControlBarInputContext<'_>>,
+        effects: Option<&mut crate::gui::game_window::WindowEventEffects<'_>>,
+        operation: impl FnOnce(&mut Self, &mut crate::gui::game_window::WindowEventEffects<'_>) -> R,
+    ) -> R {
+        match (context, effects) {
+            (Some(context), None) => context.with_effects(self, operation),
+            (None, Some(effects)) => operation(self, effects),
+            _ => panic!("window input requires exactly one receiving context"),
+        }
+    }
+    fn send_input_receiving(
+        &mut self,
+        window: &Rc<RefCell<GameWindow>>,
+        msg: WindowMessage,
+        data1: WindowMsgData,
+        data2: WindowMsgData,
+        routed: bool,
+        context: Option<&mut super::ControlBarInputContext<'_>>,
+        effects: Option<&mut crate::gui::game_window::WindowEventEffects<'_>>,
+    ) -> WindowMsgHandled {
+        match (context, effects) {
+            (Some(context), None) => {
+                self.send_input_selected(window, msg, data1, data2, routed, context)
+            }
+            (None, Some(effects)) => self
+                .send_input_selected_with_message_sink(window, msg, data1, data2, routed, effects),
+            _ => panic!("window input requires exactly one receiving context"),
+        }
+    }
+    pub fn set_lone_window(
+        &mut self,
+        window: Option<&Rc<RefCell<GameWindow>>>,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    ) {
+        self.set_lone_window_with_selected(window, effects, None)
+    }
     /// Set lone window (for exclusive operations like combo boxes)
-    pub fn set_lone_window(&mut self, window: Option<&Rc<RefCell<GameWindow>>>) {
+    pub(crate) fn set_lone_window_with_selected(
+        &mut self,
+        window: Option<&Rc<RefCell<GameWindow>>>,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+        selected: Option<&mut GameWindow>,
+    ) {
         const GGM_LEFT_DRAG: u32 = 16384;
         const GGM_CLOSE: u32 = GGM_LEFT_DRAG + 5;
         if let Some(old) = self.lone_window.as_ref().and_then(|w| w.upgrade()) {
             let same = window.map(|w| Rc::ptr_eq(&old, w)).unwrap_or(false);
             if !same {
-                let _ = old
-                    .borrow_mut()
-                    .send_system_message(WindowMessage::User(GGM_CLOSE), 0, 0);
+                let _ = effects.with_receiving_manager(self, |effects| {
+                    super::transition_access::borrow_callback_window(&old, selected)
+                        .send_system_message(WindowMessage::User(GGM_CLOSE), 0, 0, effects)
+                });
             }
         }
         self.lone_window = window.map(Rc::downgrade);
@@ -76,8 +120,9 @@ impl WindowManager {
         x: i32,
         y: i32,
         data: WindowMsgData,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) -> WindowInputReturnCode {
-        self.process_mouse_event_with_delta(msg, x, y, data, None)
+        self.process_mouse_event_with_delta(msg, x, y, data, None, effects)
     }
 
     /// Process mouse event with optional mouse delta for legacy drag handling.
@@ -88,8 +133,9 @@ impl WindowManager {
         y: i32,
         data: WindowMsgData,
         mouse_delta: Option<(i32, i32)>,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) -> WindowInputReturnCode {
-        self.process_mouse_event_phase(msg, x, y, data, mouse_delta, None, None)
+        self.process_mouse_event_phase(msg, x, y, data, mouse_delta, None, Some(effects))
     }
     pub(crate) fn process_mouse_event_with_delta_and_message_sink(
         &mut self,
@@ -168,7 +214,6 @@ impl WindowManager {
                                     data,
                                     0,
                                     false,
-                                    context.as_deref_mut(),
                                     emitted,
                                 )
                             } else {
@@ -178,7 +223,9 @@ impl WindowManager {
                                     data,
                                     0,
                                     false,
-                                    context.as_deref_mut(),
+                                    context
+                                        .as_deref_mut()
+                                        .expect("native input requires receiving context"),
                                 )
                             };
                         }
@@ -196,7 +243,6 @@ impl WindowManager {
                                 data,
                                 0,
                                 false,
-                                context.as_deref_mut(),
                                 emitted,
                             )
                         } else {
@@ -206,7 +252,9 @@ impl WindowManager {
                                 data,
                                 0,
                                 false,
-                                context.as_deref_mut(),
+                                context
+                                    .as_deref_mut()
+                                    .expect("native input requires receiving context"),
                             )
                         };
                         return WindowInputReturnCode::Used;
@@ -230,12 +278,21 @@ impl WindowManager {
                 emitted_messages.as_deref_mut(),
             );
 
-            self.update_current_mouse_region(Some(&window), capture_window.as_ref(), x, y);
+            self.update_current_mouse_region(
+                Some(&window),
+                capture_window.as_ref(),
+                x,
+                y,
+                context.as_deref_mut(),
+                emitted_messages.as_deref_mut(),
+            );
 
             self.close_lone_window_after_mouse_message(
                 old_lone.as_ref(),
                 handled_window.as_ref(),
                 msg,
+                context.as_deref_mut(),
+                emitted_messages.as_deref_mut(),
             );
 
             if msg == WindowMessage::LeftDown {
@@ -250,12 +307,25 @@ impl WindowManager {
                 WindowInputReturnCode::NotUsed
             }
         } else {
-            self.update_current_mouse_region(None, capture_window.as_ref(), x, y);
+            self.update_current_mouse_region(
+                None,
+                capture_window.as_ref(),
+                x,
+                y,
+                context.as_deref_mut(),
+                emitted_messages.as_deref_mut(),
+            );
             if matches!(
                 msg,
                 WindowMessage::LeftUp | WindowMessage::MiddleUp | WindowMessage::RightUp
             ) {
-                self.close_lone_window_after_mouse_message(old_lone.as_ref(), None, msg);
+                self.close_lone_window_after_mouse_message(
+                    old_lone.as_ref(),
+                    None,
+                    msg,
+                    context.as_deref_mut(),
+                    emitted_messages.as_deref_mut(),
+                );
             }
             WindowInputReturnCode::NotUsed
         }
@@ -267,6 +337,8 @@ impl WindowManager {
         capture_window: Option<&Rc<RefCell<GameWindow>>>,
         x: i32,
         y: i32,
+        mut context: Option<&mut super::ControlBarInputContext<'_>>,
+        mut emitted_messages: Option<&mut crate::gui::game_window::WindowEventEffects<'_>>,
     ) {
         let previous = self.current_mouse_region.as_ref().and_then(|w| w.upgrade());
         let same = match (&previous, new_window) {
@@ -288,10 +360,14 @@ impl WindowManager {
             if should_send_leaving {
                 let (px, py) = prev.borrow().get_screen_position();
                 let _ = prev.borrow_mut().set_cursor_position(x - px, y - py);
-                let _ = prev.borrow_mut().send_routed_input_message(
+                let _ = self.send_input_receiving(
+                    &prev,
                     WindowMessage::MouseLeaving,
                     packed,
                     0,
+                    true,
+                    context.as_deref_mut(),
+                    emitted_messages.as_deref_mut(),
                 );
             }
         }
@@ -299,10 +375,14 @@ impl WindowManager {
         if let Some(new_window) = new_window {
             let (wx, wy) = new_window.borrow().get_screen_position();
             let _ = new_window.borrow_mut().set_cursor_position(x - wx, y - wy);
-            let _ = new_window.borrow_mut().send_routed_input_message(
+            let _ = self.send_input_receiving(
+                new_window,
                 WindowMessage::MouseEntering,
                 packed,
                 0,
+                true,
+                context.as_deref_mut(),
+                emitted_messages.as_deref_mut(),
             );
             self.current_mouse_region = Some(Rc::downgrade(new_window));
         } else {
@@ -315,6 +395,8 @@ impl WindowManager {
         old_lone: Option<&Rc<RefCell<GameWindow>>>,
         handled_window: Option<&Rc<RefCell<GameWindow>>>,
         msg: WindowMessage,
+        mut context: Option<&mut super::ControlBarInputContext<'_>>,
+        mut emitted_messages: Option<&mut crate::gui::game_window::WindowEventEffects<'_>>,
     ) {
         let Some(old_lone) = old_lone else {
             return;
@@ -341,7 +423,9 @@ impl WindowManager {
             return;
         }
 
-        self.set_lone_window(None);
+        self.with_input_effects(context, emitted_messages, |manager, effects| {
+            manager.set_lone_window(None, effects)
+        });
     }
 
     pub(crate) fn is_strict_descendant(
@@ -366,8 +450,9 @@ impl WindowManager {
         x: i32,
         y: i32,
         stop_at: Option<&Rc<RefCell<GameWindow>>>,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) -> Option<Rc<RefCell<GameWindow>>> {
-        self.send_mouse_message_up_chain_phase(start, msg, data, x, y, stop_at, None, None)
+        self.send_mouse_message_up_chain_phase(start, msg, data, x, y, stop_at, None, Some(effects))
     }
     fn send_mouse_message_up_chain_phase(
         &mut self,
@@ -393,7 +478,6 @@ impl WindowManager {
                     data,
                     0,
                     stop_at.is_some(),
-                    context.as_deref_mut(),
                     emitted,
                 )
             } else {
@@ -403,7 +487,9 @@ impl WindowManager {
                     data,
                     0,
                     stop_at.is_some(),
-                    context.as_deref_mut(),
+                    context
+                        .as_deref_mut()
+                        .expect("native input requires receiving context"),
                 )
             };
 
@@ -514,9 +600,12 @@ impl WindowManager {
         if window.borrow().has_owned_control_bar_tooltip() {
             // Release the child before layout creation/population uses its manager.
             if !context.tooltips_disabled && !context.game_ending {
-                crate::gui::gui_callbacks::control_bar_popup_description::show_build_tooltip_layout_with_upgrade_source(
-                    &mut context.control_bar.tooltip, self, window, context.upgrade_tooltip,
-                );
+                let upgrade_source = context.upgrade_tooltip;
+                context.with_tooltip_effects(self, |tooltip, manager, effects| {
+                    crate::gui::gui_callbacks::control_bar_popup_description::show_build_tooltip_layout_with_upgrade_source(
+                        tooltip, manager, window, upgrade_source, effects,
+                    );
+                });
             }
             return;
         }
@@ -594,6 +683,7 @@ impl WindowManager {
                     let child = self.find_child_at_point_or_self(window, x, y, true);
                     let child_borrow = child.borrow();
                     let has_tooltip = !child_borrow.get_tooltip().is_empty()
+                        || child_borrow.has_owned_control_bar_tooltip()
                         || child_borrow.get_tooltip_callback().is_some();
                     drop(child_borrow);
                     if has_tooltip || enabled {
@@ -607,14 +697,13 @@ impl WindowManager {
     }
 
     /// Process key event
-    pub fn process_key_event(&mut self, key: u8, state: u8) -> WindowInputReturnCode {
-        self.process_key_event_phase(
-            key,
-            state,
-            &mut |manager, window, message, data1, data2, routed| {
-                manager.send_input_selected(window, message, data1, data2, routed, None)
-            },
-        )
+    pub fn process_key_event(
+        &mut self,
+        key: u8,
+        state: u8,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    ) -> WindowInputReturnCode {
+        self.process_key_event_with_message_sink(key, state, effects)
     }
     pub(crate) fn process_key_event_with_message_sink(
         &mut self,
@@ -632,7 +721,6 @@ impl WindowManager {
                     data1,
                     data2,
                     routed,
-                    None,
                     emitted_messages,
                 )
             },
@@ -648,14 +736,7 @@ impl WindowManager {
             key,
             state,
             &mut |manager, window, message, data1, data2, routed| {
-                manager.send_input_selected(
-                    window,
-                    message,
-                    data1,
-                    data2,
-                    routed,
-                    Some(&mut *context),
-                )
+                manager.send_input_selected(window, message, data1, data2, routed, &mut *context)
             },
         )
     }

@@ -10,8 +10,12 @@ use crate::gui::{
     GameWindow, WindowInstanceData, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled,
 };
 
-pub fn SkirmishMapSelectMenuInit(layout: &WindowLayout, user_data: Option<&mut dyn std::any::Any>) {
-    skirmish_map_select_menu_init(layout, user_data);
+pub fn SkirmishMapSelectMenuInit(
+    layout: &WindowLayout,
+    user_data: Option<&mut dyn std::any::Any>,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) {
+    skirmish_map_select_menu_init(layout, user_data, effects);
 }
 
 pub fn SkirmishMapSelectMenuUpdate(
@@ -24,26 +28,31 @@ pub fn SkirmishMapSelectMenuUpdate(
 pub fn SkirmishMapSelectMenuShutdown(
     layout: &WindowLayout,
     user_data: Option<&mut dyn std::any::Any>,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) {
-    skirmish_map_select_menu_shutdown(layout, user_data);
+    skirmish_map_select_menu_shutdown(layout, user_data, effects);
 }
 
 pub fn SkirmishMapSelectMenuSystem(
-    window: &GameWindow,
+    window: &mut GameWindow,
     msg: WindowMessage,
     data1: WindowMsgData,
     data2: WindowMsgData,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> WindowMsgHandled {
-    skirmish_map_select_menu_system(window, msg, data1, data2)
+    effects.with_manager(|manager, effects| {
+        skirmish_map_select_menu_system(window, msg, data1, data2, manager, effects)
+    })
 }
 
 pub fn SkirmishMapSelectMenuInput(
-    window: &GameWindow,
+    window: &mut GameWindow,
     msg: WindowMessage,
     data1: WindowMsgData,
     data2: WindowMsgData,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> WindowMsgHandled {
-    skirmish_map_select_menu_input(window, msg, data1, data2)
+    skirmish_map_select_menu_input(window, msg, data1, data2, effects)
 }
 
 pub fn W3DDrawMapPreview(

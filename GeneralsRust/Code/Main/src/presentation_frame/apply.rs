@@ -1102,6 +1102,8 @@ impl PresentationFrame {
     pub fn apply_to_control_bar(
         &self,
         control_bar: &mut game_client::gui::control_bar::ControlBar,
+        manager: &mut game_client::gui::window_manager::WindowManager,
+        effects: &mut game_client::gui::game_window::WindowEventEffects<'_>,
     ) {
         let panel = self.control_bar_selection_panel();
         let ids: Vec<u32> = if !self.selected.is_empty() {
@@ -1181,11 +1183,14 @@ impl PresentationFrame {
             },
         );
         // Wave 1031: OCL timer residual into ControlBar OclTimer dual path.
-        control_bar.sync_ocl_timer_from_presentation(if controllable {
-            panel.ocl_timer_seconds
-        } else {
-            0
-        });
+        control_bar.sync_ocl_timer_from_presentation(
+            if controllable {
+                panel.ocl_timer_seconds
+            } else {
+                0
+            },
+            manager,
+        );
         let authored_cameos: Vec<String> = panel
             .upgrade_cameo_names
             .iter()
@@ -1277,7 +1282,7 @@ impl PresentationFrame {
                     .or_else(|| self.command_set_name_including_disabled()),
             );
         }
-        let _ = control_bar.update_for_selection_owned(ids);
+        let _ = control_bar.update_for_selection_owned(ids, manager, effects);
         // Re-project the frozen selection identity after context evaluation:
         // C++ updateContextCommand's queue branch swaps the portrait for the
         // build-queue strip (ControlBarCommand.cpp), but this frame's apply is
@@ -1306,13 +1311,14 @@ impl PresentationFrame {
             },
             controllable && panel.production_paused,
         );
-        control_bar.sync_sciences_from_presentation(&self.local_unlocked_sciences);
+        control_bar.sync_sciences_from_presentation(&self.local_unlocked_sciences, manager);
         control_bar.apply_presentation_science_hide_names(&self.local_unlocked_sciences);
         control_bar.sync_rank_progress_from_presentation(
             self.local_rank_progress_percent,
             self.local_skill_points,
             self.local_rank_level as i32,
             self.local_science_purchase_points,
+            manager,
         );
         let ready_sp: Vec<String> = self
             .selected_unit_display_infos()

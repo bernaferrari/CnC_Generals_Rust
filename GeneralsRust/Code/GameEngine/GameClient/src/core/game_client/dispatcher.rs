@@ -34,14 +34,24 @@ impl CommandTranslatorMessageAdapter {
 }
 
 impl GameMessageTranslator for CommandTranslatorMessageAdapter {
-    fn translate_game_message(&mut self, msg: &GameMessage) -> GameMessageDisposition {
-        match self.translator.write() {
-            Ok(mut translator) => translator.translate_game_message(msg),
-            Err(err) => {
-                log::warn!("Command translator lock poisoned: {}", err);
-                GameMessageDisposition::KeepMessage
-            }
-        }
+    fn requires_receiving_window_context(&self) -> bool {
+        true
+    }
+    fn translate_game_message(&mut self, _msg: &GameMessage) -> GameMessageDisposition {
+        log::error!("GUI command adapter requires receiving window context");
+        GameMessageDisposition::KeepMessage
+    }
+    fn translate_game_message_with_context(
+        &mut self,
+        msg: &GameMessage,
+        client: game_engine::common::message_stream::TranslatorClientObservation,
+        dispatch: &mut game_engine::common::message_stream::WindowInputDispatchFn<'_>,
+        emitted: &mut Vec<GameMessage>,
+    ) -> GameMessageDisposition {
+        self.translator
+            .write()
+            .expect("receiving command translator poisoned")
+            .translate_game_message_with_context(msg, client, dispatch, emitted)
     }
 }
 

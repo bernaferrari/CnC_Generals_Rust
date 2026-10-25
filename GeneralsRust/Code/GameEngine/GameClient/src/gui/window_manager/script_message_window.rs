@@ -5,15 +5,32 @@ use super::*;
 impl WindowManager {
     /// C++ `winCreateFromScript`: destroy the prior tracked window first, then
     /// retain the exact newly loaded window if the layout exists.
-    pub fn create_script_message_window(&mut self, layout_filename: &str) {
-        self.replace_script_message_window_with(|manager| {
-            manager.load_window(layout_filename).ok()
-        });
+    pub fn create_script_message_window(
+        &mut self,
+        layout_filename: &str,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    ) {
+        self.create_script_message_window_with_effects(layout_filename, effects);
     }
 
-    /// C++ `winDestroy(m_messageWindow)`. The weak handle prevents the manager
-    /// from owning a window twice and keeps the target tied to this registry.
-    pub fn destroy_script_message_window(&mut self) {
+    /// Authored per-window Create/ScriptCreate callbacks run immediately with
+    /// the same receiving operation services, before layout init or later actions.
+    pub fn create_script_message_window_with_effects(
+        &mut self,
+        layout_filename: &str,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    ) {
+        self.destroy_script_message_window_with_effects(effects);
+        let Ok(info) = self.create_windows_from_script_with_effects(layout_filename, effects)
+        else {
+            return;
+        };
+        self.script_message_window = info.windows.first().map(Rc::downgrade);
+    }
+    pub fn destroy_script_message_window_with_effects(
+        &mut self,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    ) {
         let Some(window) = self
             .script_message_window
             .take()
@@ -21,26 +38,34 @@ impl WindowManager {
         else {
             return;
         };
-
-        let window_id = window.borrow().get_id();
-        let still_registered = self
+        let id = window.borrow().get_id();
+        if !self
             .window_by_id
-            .get(&window_id)
+            .get(&id)
             .and_then(Weak::upgrade)
-            .is_some_and(|registered| Rc::ptr_eq(&registered, &window));
-        if !still_registered {
+            .is_some_and(|registered| Rc::ptr_eq(&registered, &window))
+        {
             return;
         }
-
         let _ = self.destroy_window(window);
-        self.flush_destroy_queue();
+        self.flush_destroy_queue_with_effects(effects);
+    }
+
+    /// C++ `winDestroy(m_messageWindow)`. The weak handle prevents the manager
+    /// from owning a window twice and keeps the target tied to this registry.
+    pub fn destroy_script_message_window(
+        &mut self,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    ) {
+        self.destroy_script_message_window_with_effects(effects);
     }
 
     fn replace_script_message_window_with(
         &mut self,
         load_window: impl FnOnce(&mut Self) -> Option<Rc<RefCell<GameWindow>>>,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) -> Option<WindowId> {
-        self.destroy_script_message_window();
+        self.destroy_script_message_window(effects);
         let window = load_window(self)?;
         let window_id = window.borrow().get_id();
         self.script_message_window = Some(Rc::downgrade(&window));

@@ -1,32 +1,45 @@
 // Split from `gui/control_bar/control_bar.rs` dump. Included by `control_bar_impl/mod.rs`.
 
-impl SubsystemInterface for ControlBar {
-    fn init(&mut self) -> Result<(), Box<dyn Error>> {
+impl ControlBar {
+    pub fn init(
+        &mut self,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    ) -> Result<(), Box<dyn Error>> {
         log::info!("Initializing Control Bar");
-        self.ensure_generals_exp_layout();
-        leftover_ensure_named_window(WIN_U_ATTACK);
-        leftover_ensure_named_window(BUTTON_GENERAL);
-        leftover_ensure_named_window(BUTTON_LARGE);
-        leftover_ensure_named_window(CONTROL_BAR_PARENT);
+        self.ensure_generals_exp_layout(receiving_manager, effects);
+        leftover_ensure_named_window(WIN_U_ATTACK, receiving_manager, effects);
+        leftover_ensure_named_window(BUTTON_GENERAL, receiving_manager, effects);
+        leftover_ensure_named_window(BUTTON_LARGE, receiving_manager, effects);
+        leftover_ensure_named_window(CONTROL_BAR_PARENT, receiving_manager, effects);
 
         log::info!("Control Bar initialized successfully");
         Ok(())
     }
 
-    fn update(&mut self) -> Result<(), Box<dyn Error>> {
+    pub fn update_tick(
+        &mut self,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    ) -> Result<(), Box<dyn Error>> {
         let delta_time = Duration::from_millis(33);
-        self.update(delta_time)?;
+        self.update(delta_time, receiving_manager, effects)?;
         Ok(())
     }
 
-    fn reset(&mut self) -> Result<(), Box<dyn Error>> {
+    pub fn reset(
+        &mut self,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    ) -> Result<(), Box<dyn Error>> {
         log::info!("Resetting Control Bar");
         self.discard_pending_command_clicks();
         crate::gui::gui_callbacks::control_bar_popup_description::reset_build_tooltip_layout_owned(
             &mut self.tooltip,
+            receiving_manager,
         );
 
-        if let Ok(mut context) = self.context.write() {
+        {
+            let mut context = &mut self.context;
             *context = ControlBarContext::default();
         }
 
@@ -53,7 +66,7 @@ impl SubsystemInterface for ControlBar {
         // (ControlBar.cpp:1272) — hide with the layout name still bound so
         // the old game's GenPowersShortcutBar column cannot leak into the
         // next session.
-        self.hide_special_power_shortcut();
+        self.hide_special_power_shortcut(receiving_manager);
         self.special_power_shortcut_layout.clear();
         self.special_power_shortcuts.clear();
         self.special_power_shortcut_count = 0;

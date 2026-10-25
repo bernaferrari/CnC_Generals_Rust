@@ -337,22 +337,28 @@ impl CnCGameEngine {
         ) -> Result<R, String>,
     ) -> Result<R, String> {
         let mouse = self.game_client.input_mouse_handle();
-        let (display, renderer, mut load) = self.game_client.split_load_screen_services();
-        let facts = display.fx().draw_facts();
-        let renderer = renderer
-            .ok_or_else(|| "native load screen has no receiving UI renderer".to_string())?;
-        let mut draw = crate::graphics::ui_render_pass::NativeUiDraw::new(
-            renderer,
-            load.windows(),
-            facts,
-            mouse.clone(),
-        )
-        .for_load_screen();
+        let (mut load, _default_pump) = self.game_client.split_load_screen_services();
+        if !load.has_renderer() {
+            return Err("native load screen has no receiving UI renderer".into());
+        }
         let mut surface = self.render_pipeline.borrow_native_load_surface();
-        let mut present = || surface.present(&mut |frame, radar| draw.flush(frame, radar));
+        let mut present = |services: game_client::gui::load_screen::LoadScreenDrawServices<'_>| {
+            let renderer = services
+                .renderer
+                .ok_or_else(|| "native load screen has no receiving UI renderer".to_owned())?;
+            let mut draw = crate::graphics::ui_render_pass::NativeUiDraw::new(
+                renderer,
+                services.windows,
+                services.display.fx().draw_facts(),
+                mouse.clone(),
+                services.ime,
+            )
+            .for_load_screen();
+            surface.present(&mut |frame, radar| draw.flush(frame, radar))
+        };
         let mut pump =
             game_client::gui::load_screen::LoadScreenPresentationPump::for_native(&mut present)
-                .with_mouse(mouse);
+                .with_mouse(mouse.clone());
         operation(&mut load, &mut pump)
     }
 
@@ -473,8 +479,8 @@ impl CnCGameEngine {
                             .push("Menus/MainMenu.wnd", false, effects)
                             .map_err(|err| format!("Shell::push MainMenu failed: {err}"))?;
                     } else if let Some(top) = shell.top() {
-                        top.hide(false);
-                        top.bring_forward();
+                        top.hide_with_effects(false, effects);
+                        top.bring_forward_with_effects(effects);
                     }
                     let screens = shell.get_screen_count();
                     if screens == 0 {
@@ -561,7 +567,6 @@ impl CnCGameEngine {
     /// and updates the existing engine fields after that borrow ends.
     #[cfg(feature = "game_client")]
     pub(super) fn pump_cpp_load_screen_progress(
-        owner: &game_client::gui::window_manager::WindowManagerOwner,
         presentation_pump: &mut game_client::gui::load_screen::LoadScreenPresentationPump<'_>,
         kind: game_client::gui::load_screen::LoadScreenKind,
         progress: f32,
@@ -667,10 +672,13 @@ impl CnCGameEngine {
         // C++ ShowControlBar: resolve + validate + load into TheWindowManager
         // when assets present. Ready-gate window_count is the live instance.
         #[cfg(feature = "game_client")]
-        let honesty = crate::gameplay_layout::control_bar_layout_honesty_with_owner(
-            true,
-            &window_manager_owner,
-        );
+        let honesty = {
+            let facts = self.receiving_menu_world_facts();
+            self.game_client
+                .with_window_event_effects(Some(facts), |effects| {
+                    crate::gameplay_layout::control_bar_layout_honesty_with_owner(true, effects)
+                })
+        };
         #[cfg(not(feature = "game_client"))]
         let honesty = crate::gameplay_layout::control_bar_layout_honesty(true);
         let report = crate::gameplay_layout::format_control_bar_honesty(&honesty);
@@ -690,10 +698,14 @@ impl CnCGameEngine {
                     ) {
                         info!("ensure_gameplay_layouts: ControlBar parent already live ({path})");
                     } else {
+                        let facts = self.receiving_menu_world_facts();
                         let loaded =
-                            crate::gameplay_layout::materialise_live_control_bar_with_owner(
-                                &window_manager_owner,
-                            );
+                            self.game_client
+                                .with_window_event_effects(Some(facts), |effects| {
+                                    crate::gameplay_layout::materialise_live_control_bar_with_owner(
+                                        effects,
+                                    )
+                                });
                         if loaded {
                             info!(
                                 "ensure_gameplay_layouts: TheWindowManager ControlBar live=true path={path}"
@@ -739,9 +751,12 @@ impl CnCGameEngine {
         if !self.runtime_host_headless
             && !crate::gameplay_layout::control_bar_parent_is_live_with_owner(&window_manager_owner)
         {
-            let loaded = crate::gameplay_layout::materialise_live_control_bar_with_owner(
-                &window_manager_owner,
-            );
+            let facts = self.receiving_menu_world_facts();
+            let loaded = self
+                .game_client
+                .with_window_event_effects(Some(facts), |effects| {
+                    crate::gameplay_layout::materialise_live_control_bar_with_owner(effects)
+                });
             if loaded {
                 info!(
                     "ensure_gameplay_layouts: ControlBarParent materialised on live WM after enter"
@@ -1912,26 +1927,33 @@ impl CnCGameEngine {
                 let window = &self.window;
                 let load_kind = self.active_load_screen;
                 let mouse = self.game_client.input_mouse_handle();
-                let (display, renderer, mut load_owner) =
-                    self.game_client.split_load_screen_services();
-                let renderer = renderer
-                    .ok_or_else(|| anyhow::anyhow!("startup loading UI renderer unavailable"))?;
-                let mut draw = crate::graphics::ui_render_pass::NativeUiDraw::new(
-                    renderer,
-                    load_owner.windows(),
-                    display.fx().draw_facts(),
-                    mouse.clone(),
-                )
-                .for_load_screen();
+                let (mut load_owner, _default_pump) = self.game_client.split_load_screen_services();
+                if !load_owner.has_renderer() {
+                    return Err(anyhow::anyhow!("startup loading UI renderer unavailable"));
+                }
                 let (draw_services, mut surface) = self
                     .render_pipeline
                     .borrow_native_draw_services_and_load_surface();
-                let mut present = || surface.present(&mut |frame, radar| draw.flush(frame, radar));
+                let mut present =
+                    |services: game_client::gui::load_screen::LoadScreenDrawServices<'_>| {
+                        let renderer = services
+                            .renderer
+                            .ok_or_else(|| "startup loading UI renderer unavailable".to_owned())?;
+                        let mut draw = crate::graphics::ui_render_pass::NativeUiDraw::new(
+                            renderer,
+                            services.windows,
+                            services.display.fx().draw_facts(),
+                            mouse.clone(),
+                            services.ime,
+                        )
+                        .for_load_screen();
+                        surface.present(&mut |frame, radar| draw.flush(frame, radar))
+                    };
                 let mut pump =
                     game_client::gui::load_screen::LoadScreenPresentationPump::for_native(
                         &mut present,
                     )
-                    .with_mouse(mouse);
+                    .with_mouse(mouse.clone());
                 let mut retirement =
                     game_client::core::game_client::NativeParticleRetirementService;
                 let mut attempt = native_map
@@ -1955,7 +1977,6 @@ impl CnCGameEngine {
                             ));
                             if let Some(kind) = load_kind {
                                 Self::pump_cpp_load_screen_progress(
-                                    load_owner.windows(),
                                     &mut pump,
                                     kind,
                                     progress,

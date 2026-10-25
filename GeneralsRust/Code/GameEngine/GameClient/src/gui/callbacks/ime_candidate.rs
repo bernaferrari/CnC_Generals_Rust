@@ -1,42 +1,14 @@
 //! IMECandidate.cpp callback port.
 
-use crate::gui::display_string::DisplayStringHandle;
-use crate::gui::ime_manager::{ImeManager, get_ime_manager};
+use crate::gui::display_string::DisplayString;
 use crate::gui::{
     GameWindow, WIN_COLOR_UNDEFINED, WindowInstanceData, WindowMessage, WindowMsgData,
-    WindowMsgHandled, WindowState, WindowStatus, get_display_string_manager, get_font_library,
-    with_window_manager,
+    WindowMsgHandled, WindowState, WindowStatus, get_font_library,
 };
-use std::cell::RefCell;
-use std::sync::{Arc, Mutex};
-
 const IME_CANDIDATE_LINE_SPACING: i32 = 2;
 
-// THREAD: main thread only — the IME candidate string is created and freed by
-// the GUI thread's window callbacks.
-thread_local! {
-    static DISPLAY_STRING: RefCell<Option<DisplayStringHandle>> = const { RefCell::new(None) };
-}
-
-fn ensure_display_string() -> Option<DisplayStringHandle> {
-    DISPLAY_STRING.with_borrow_mut(|slot| {
-        if slot.is_none() {
-            let mut manager = get_display_string_manager();
-            *slot = Some(manager.new_display_string());
-        }
-        slot.clone()
-    })
-}
-
-fn free_display_string() {
-    if let Some(handle) = DISPLAY_STRING.with_borrow_mut(Option::take) {
-        let mut manager = get_display_string_manager();
-        manager.free_display_string(handle);
-    }
-}
-
 pub fn ime_candidate_window_input(
-    _window: &GameWindow,
+    _window: &mut GameWindow,
     _msg: WindowMessage,
     _data1: WindowMsgData,
     _data2: WindowMsgData,
@@ -45,20 +17,14 @@ pub fn ime_candidate_window_input(
 }
 
 pub fn ime_candidate_window_system(
-    _window: &GameWindow,
+    _window: &mut GameWindow,
     msg: WindowMessage,
     _data1: WindowMsgData,
     _data2: WindowMsgData,
 ) -> WindowMsgHandled {
     match msg {
-        WindowMessage::Create => {
-            ensure_display_string();
-            WindowMsgHandled::Handled
-        }
-        WindowMessage::Destroy => {
-            free_display_string();
-            WindowMsgHandled::Handled
-        }
+        WindowMessage::Create => WindowMsgHandled::Handled,
+        WindowMessage::Destroy => WindowMsgHandled::Handled,
         _ => WindowMsgHandled::Ignored,
     }
 }
@@ -68,11 +34,10 @@ pub fn ime_candidate_text_area_draw(
     inst_data: &WindowInstanceData,
     draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
 ) {
-    let Some(display_handle) = ensure_display_string() else {
+    let Some(ime_guard) = draw_context.ime else {
         return;
     };
-
-    let ime_manager = window.get_user_data::<Arc<Mutex<ImeManager>>>().cloned();
+    let mut display = DisplayString::new();
 
     let (origin_x, origin_y) = window.get_screen_position();
     let (size_x, size_y) = window.get_size();
@@ -96,7 +61,7 @@ pub fn ime_candidate_text_area_draw(
     };
 
     let black = 0xFF000000;
-    with_window_manager(|manager| {
+    crate::gui::window_draw_context::with_draw_manager(draw_context.manager, |manager| {
         manager.win_open_rect(
             black,
             1.0,
@@ -114,17 +79,11 @@ pub fn ime_candidate_text_area_draw(
         return;
     };
 
-    let mut display = display_handle.borrow_mut();
     display.set_font(font.clone());
     display.set_clip_region(Some(text_region));
 
     let line_height = font.height + IME_CANDIDATE_LINE_SPACING;
 
-    let manager = ime_manager.unwrap_or_else(get_ime_manager);
-    let ime_guard = match manager.lock() {
-        Ok(guard) => guard,
-        Err(_) => return,
-    };
     let first = ime_guard.candidate_page_start();
     let total = ime_guard.candidate_count();
     let page_size = ime_guard.candidate_page_size();
@@ -198,7 +157,7 @@ pub fn ime_candidate_main_draw(
     };
 
     if back_border != WIN_COLOR_UNDEFINED {
-        with_window_manager(|manager| {
+        crate::gui::window_draw_context::with_draw_manager(draw_context.manager, |manager| {
             manager.win_open_rect(
                 back_border,
                 1.0,
@@ -212,7 +171,7 @@ pub fn ime_candidate_main_draw(
     }
 
     if back_color != WIN_COLOR_UNDEFINED {
-        with_window_manager(|manager| {
+        crate::gui::window_draw_context::with_draw_manager(draw_context.manager, |manager| {
             manager.win_fill_rect(
                 back_color,
                 0.0,

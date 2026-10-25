@@ -6,7 +6,6 @@ pub(in crate::gui::w3d_gadget_draw) use crate::display::image::{
     ensure_client_mapped_image, get_mapped_image_collection,
 };
 pub(in crate::gui::w3d_gadget_draw) use crate::display::view::{IPoint2, with_tactical_view_ref};
-pub(in crate::gui::w3d_gadget_draw) use crate::gui::callbacks::with_credits_menu;
 pub(in crate::gui::w3d_gadget_draw) use crate::gui::display_string::DisplayString;
 pub(in crate::gui::w3d_gadget_draw) use crate::gui::font::{FontDesc, get_font_library};
 pub(in crate::gui::w3d_gadget_draw) use crate::gui::gadgets::tabcontrol::{
@@ -19,11 +18,7 @@ pub(in crate::gui::w3d_gadget_draw) use crate::gui::game_window::{
     GWS_COMBO_BOX, WIN_COLOR_UNDEFINED, WindowId, WindowState, WindowStatus, read_video_frame,
     resolve_window_text,
 };
-pub(in crate::gui::w3d_gadget_draw) use crate::gui::shell::get_shell;
 pub(in crate::gui::w3d_gadget_draw) use crate::gui::ui_renderer::UIRect;
-pub(in crate::gui::w3d_gadget_draw) use crate::gui::window_manager::{
-    with_window_manager, with_window_manager_ref,
-};
 pub(in crate::gui::w3d_gadget_draw) use crate::gui::{GameWindow, WindowInstanceData};
 pub(in crate::gui::w3d_gadget_draw) use crate::helpers::TheControlBar;
 pub(in crate::gui::w3d_gadget_draw) use crate::map_util::{

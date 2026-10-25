@@ -230,6 +230,7 @@ impl CnCGameEngine {
             let mut replay_operation =
                 game_client::gui::callbacks::replay_menu::ingress::ReplayMenuOperation::new(
                     !self.game_logic.isInNetworkGame(),
+                    self.game_client.window_manager_owner().downgrade(),
                 );
             let camera_rules = self.game_logic.camera_input_rules();
             let upgrade_tooltip = self.game_logic.receiving_upgrade_tooltip_observer();
@@ -247,9 +248,19 @@ impl CnCGameEngine {
                 }
             };
             let mut emitted_messages = Vec::new();
-            let (window_manager_owner, campaign_manager, main_menu, menu_host, display, videos) =
-                self.game_client.window_owner_campaign_menu_and_host_mut();
+            let (
+                window_manager_owner,
+                campaign_manager,
+                main_menu,
+                menu_host,
+                display,
+                videos,
+                ime,
+                mut menus,
+            ) = self.game_client.window_owner_campaign_menu_and_host_mut();
             let mut context = game_client::gui::window_manager::ControlBarInputContext {
+            menus: Some(menus.reborrow()),
+            ime:Some(ime),
             upgrade_tooltip: game_client::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource::Receiving(&upgrade_tooltip),
                 replay_menu: Some(&mut replay_operation),
                 replay_version: Some(&mut replay_version),
@@ -274,7 +285,8 @@ impl CnCGameEngine {
                 menu_world: Some(menu_world),
                 menu_host: Some(menu_host),
                 script_display: Some(display),
-                window_videos: Some(videos),
+                window_videos: Some(&mut videos.challenge),
+            in_game_movies: Some(&mut videos.in_game),
             };
             let result = game_client::gui::window_manager::dispatch_os_key_to_window_manager_with_control_bar_for_owner(
                 window_manager_owner,
@@ -443,6 +455,7 @@ impl CnCGameEngine {
         let mut replay_operation =
             game_client::gui::callbacks::replay_menu::ingress::ReplayMenuOperation::new(
                 !self.game_logic.isInNetworkGame(),
+                self.game_client.window_manager_owner().downgrade(),
             );
         let camera_rules = self.game_logic.camera_input_rules();
         let upgrade_tooltip = self.game_logic.receiving_upgrade_tooltip_observer();
@@ -460,9 +473,19 @@ impl CnCGameEngine {
             }
         };
         let mut emitted_messages = Vec::new();
-        let (receiving_window_manager, campaign_manager, main_menu, menu_host, display, videos) =
-            self.game_client.window_owner_campaign_menu_and_host_mut();
+        let (
+            receiving_window_manager,
+            campaign_manager,
+            main_menu,
+            menu_host,
+            display,
+            videos,
+            ime,
+            mut menus,
+        ) = self.game_client.window_owner_campaign_menu_and_host_mut();
         let mut context = game_client::gui::window_manager::ControlBarInputContext {
+            menus: Some(menus.reborrow()),
+            ime:Some(ime),
             upgrade_tooltip: game_client::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource::Receiving(&upgrade_tooltip),
             replay_menu: Some(&mut replay_operation),
             replay_version: Some(&mut replay_version),
@@ -487,7 +510,8 @@ impl CnCGameEngine {
             menu_world: Some(menu_world),
             menu_host: Some(menu_host),
             script_display: Some(display),
-            window_videos: Some(videos),
+            window_videos: Some(&mut videos.challenge),
+            in_game_movies: Some(&mut videos.in_game),
         };
         let result = game_client::gui::window_manager::dispatch_os_mouse_to_window_manager_with_control_bar_for_owner(
             receiving_window_manager,

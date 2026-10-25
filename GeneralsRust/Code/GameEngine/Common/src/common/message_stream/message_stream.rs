@@ -68,7 +68,7 @@ pub fn take_emitted_messages() -> Vec<GameMessage> {
 pub enum DisplayInputAction {
     IsMoviePlaying,
     StopMovie,
-    StopWindowMovies,
+    StopRadarMovie,
     NextObjectiveMovie,
     PlayObjectiveMovie(u8),
     ToggleCameoMovie,
@@ -83,10 +83,27 @@ pub enum DisplayDebugKind {
     Audio,
 }
 
+/// Synchronous UI operations execute with the receiving manager and callback
+/// effects before the translator advances; they are never end-of-frame queues.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UiInputAction {
+    DemoMilitarySubtitle,
+    ToggleDiplomacy { immediate: bool },
+    ToggleControlBar,
+    ToggleQuitMenu,
+    ToggleShellTopVisibility,
+    ActivateHotKey(u32),
+}
+
 /// One native window input operation requested by the WindowTranslator.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WindowInputDispatch {
+    OpaqueWindowAtScreen {
+        x: i32,
+        y: i32,
+    },
     Display(DisplayInputAction),
+    Ui(UiInputAction),
     Mouse {
         message: u32,
         x: i32,
@@ -103,7 +120,9 @@ pub enum WindowInputDispatch {
 /// Result returned by the receiving WindowManager for one input operation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WindowInputDispatchResult {
+    OpaqueWindow(bool),
     Display(bool),
+    Ui(bool),
     NotUsed,
     Used,
 }
@@ -140,6 +159,10 @@ pub struct TranslatorClientObservation {
 
 /// Trait for game message translators
 pub trait GameMessageTranslator: Send + Sync {
+    /// Stateful GUI translators require an explicit synchronous receiving driver.
+    fn requires_receiving_window_context(&self) -> bool {
+        false
+    }
     /// Translate a game message and return what to do with it
     fn translate_game_message(&mut self, msg: &GameMessage) -> GameMessageDisposition;
 
@@ -376,6 +399,16 @@ impl MessageStream {
     /// of that same pass. Survivors transfer to TheCommandList and the stream
     /// is then cleared.
     pub fn propagate_messages(&mut self) -> Result<Vec<GameMessage>, Box<dyn std::error::Error>> {
+        for entry in &self.translators {
+            let translator = entry.translator.read().map_err(|error| {
+                std::io::Error::other(format!("translator lock poisoned: {error}"))
+            })?;
+            if translator.requires_receiving_window_context() {
+                return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput,
+                    "GUI message propagation requires the receiving window dispatcher; use propagate_messages_with_context").into());
+            }
+        }
+
         let mut no_window_dispatch = |_: WindowInputDispatch, _: &mut Vec<GameMessage>| None;
         self.propagate_messages_with_context(&mut no_window_dispatch)
     }

@@ -527,7 +527,16 @@ impl CnCGameEngine {
         if matches!(self.current_state, GameState::InGame | GameState::Paused) {
             #[cfg(feature = "game_client")]
             {
-                let shown = game_client::gui::callbacks::toggle_diplomacy(false).is_ok();
+                let shown = self
+                    .with_receiving_menu_effects(|effects| {
+                        effects.with_manager(|manager, effects| {
+                            game_client::gui::callbacks::toggle_diplomacy(
+                                false, manager, effects, None,
+                            )
+                            .is_ok()
+                        })
+                    })
+                    .unwrap_or(false);
                 self.runtime_host_last_gameplay_cmd = if shown {
                     "diplomacy_ok_wnd".into()
                 } else {

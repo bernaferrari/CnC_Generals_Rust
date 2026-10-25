@@ -7,7 +7,7 @@ use super::message_stream::{
     GameMessageDisposition, GameMessageTranslator, emit_message, take_emitted_messages,
 };
 use crate::display::view::{ViewLocation, with_tactical_view, with_tactical_view_ref};
-use crate::gui::{MouseCursor, get_shell};
+use crate::gui::MouseCursor;
 use crate::helpers::TheInGameUI;
 use game_engine::common::game_common::LOGICFRAMES_PER_SECOND;
 use game_engine::common::global_data;
@@ -264,12 +264,33 @@ impl LookAtTranslator {
 }
 
 impl GameMessageTranslator for LookAtTranslator {
+    fn requires_receiving_window_context(&self) -> bool {
+        true
+    }
     fn translate_game_message(&mut self, msg: &GameMessage) -> GameMessageDisposition {
+        self.translate_with_client(msg, Default::default())
+    }
+    fn translate_game_message_with_context(
+        &mut self,
+        msg: &GameMessage,
+        client: game_engine::common::message_stream::TranslatorClientObservation,
+        _dispatch: &mut game_engine::common::message_stream::WindowInputDispatchFn<'_>,
+        _emitted: &mut Vec<GameMessage>,
+    ) -> GameMessageDisposition {
+        self.translate_with_client(msg, client)
+    }
+}
+impl LookAtTranslator {
+    fn translate_with_client(
+        &mut self,
+        msg: &GameMessage,
+        client: game_engine::common::message_stream::TranslatorClientObservation,
+    ) -> GameMessageDisposition {
         // Live drain is Main update_camera → apply_look_at_reset_modes.
         let msg_type = msg.get_type();
         match msg_type {
             GameMessageType::RawKeyDown(key) | GameMessageType::RawKeyUp(key) => {
-                if get_shell().is_shell_active() {
+                if client.shell_active {
                     return GameMessageDisposition::KeepMessage;
                 }
                 let key_state = match msg.get_argument(1) {

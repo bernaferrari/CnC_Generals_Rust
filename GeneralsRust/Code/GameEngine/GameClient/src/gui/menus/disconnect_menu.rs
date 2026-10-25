@@ -10,7 +10,6 @@ use crate::gui::{GameWindow, WindowManager, WindowMessage, WindowMsgData, Window
 use game_network::get_network;
 use gamelogic::helpers::TheGameText;
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 
 /// Player names text control names (matching C++ array)
@@ -87,9 +86,6 @@ pub struct DisconnectMenu {
     /// Window reference
     window: Option<std::rc::Rc<std::cell::RefCell<GameWindow>>>,
 
-    /// Window manager reference
-    window_manager: Option<Arc<Mutex<WindowManager>>>,
-
     /// Player information
     players: HashMap<u32, PlayerDisconnectInfo>,
 
@@ -140,7 +136,6 @@ impl DisconnectMenu {
     pub fn new() -> Self {
         Self {
             window: None,
-            window_manager: None,
             players: HashMap::new(),
             player_name_controls: Vec::with_capacity(PLAYER_NAME_TEXT_CONTROLS.len()),
             player_timeout_controls: Vec::with_capacity(PLAYER_TIMEOUT_TEXT_CONTROLS.len()),
@@ -163,21 +158,14 @@ impl DisconnectMenu {
     /// Initialize the disconnect menu
     pub fn init(
         &mut self,
-        window_manager: Arc<Mutex<WindowManager>>,
+        manager: &mut WindowManager,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         log::info!("Initializing Disconnect Menu");
 
-        self.window_manager = Some(window_manager);
-
-        // Load the disconnect screen window
-        if let Some(manager) = &self.window_manager {
-            let mut manager = manager
-                .lock()
-                .map_err(|_| std::io::Error::other("WindowManager lock poisoned"))?;
-            self.window = Some(manager.load_window("DisconnectScreen.wnd")?);
-        }
+        self.window = Some(manager.load_window("DisconnectScreen.wnd", effects)?);
         if let Some(window) = &self.window {
-            let _ = window.borrow_mut().hide(true);
+            let _ = window.borrow_mut().hide(true, manager);
         }
 
         // Initialize player name controls
@@ -229,10 +217,8 @@ impl DisconnectMenu {
             self.text_entry = window.borrow().find_child_window(TEXT_ENTRY_CONTROL);
         }
 
-        if let (Some(manager), Some(entry)) = (&self.window_manager, &self.text_entry) {
-            if let Ok(mut manager) = manager.lock() {
-                let _ = manager.set_focus(Some(entry));
-            }
+        if let Some(entry) = &self.text_entry {
+            let _ = manager.set_focus(Some(entry), effects);
         }
 
         if let Some(entry) = &self.text_entry {
@@ -258,7 +244,12 @@ impl DisconnectMenu {
     }
 
     /// Show the disconnect menu
-    pub fn show(&mut self, reason: &str) {
+    pub fn show(
+        &mut self,
+        reason: &str,
+        manager: &mut WindowManager,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    ) {
         if !self.is_initialized {
             log::warn!("DisconnectMenu::show called before initialization");
             return;
@@ -277,10 +268,8 @@ impl DisconnectMenu {
             let _ = window.bring_to_front();
         }
 
-        if let (Some(manager), Some(entry)) = (&self.window_manager, &self.text_entry) {
-            if let Ok(mut manager) = manager.lock() {
-                let _ = manager.set_focus(Some(entry));
-            }
+        if let Some(entry) = &self.text_entry {
+            let _ = manager.set_focus(Some(entry), effects);
         }
 
         if let Some(list) = &self.text_display {
@@ -303,17 +292,17 @@ impl DisconnectMenu {
         }
 
         // Update initial display
-        self.update_display();
+        self.update_display(manager);
     }
 
     /// Hide the disconnect menu
-    pub fn hide(&mut self) {
+    pub fn hide(&mut self, manager: &mut WindowManager) {
         log::info!("Hiding disconnect menu");
 
         self.is_visible = false;
 
         if let Some(window) = &self.window {
-            let _ = window.borrow_mut().hide(true);
+            let _ = window.borrow_mut().hide(true, manager);
         }
     }
 
@@ -332,19 +321,24 @@ impl DisconnectMenu {
     }
 
     /// Remove player from disconnect tracking
-    pub fn remove_player(&mut self, player_id: u32) {
+    pub fn remove_player(&mut self, player_id: u32, manager: &mut WindowManager) {
         if let Some(player) = self.players.remove(&player_id) {
             log::debug!(
                 "Removed player {} from disconnect tracking",
                 player.player_name
             );
-            self.remove_player_from_slot(player_id as usize, &player.player_name);
-            self.update_display();
+            self.remove_player_from_slot(player_id as usize, &player.player_name, manager);
+            self.update_display(manager);
         }
     }
 
     /// Set player disconnect status
-    pub fn set_player_status(&mut self, player_id: u32, status: PlayerDisconnectStatus) {
+    pub fn set_player_status(
+        &mut self,
+        player_id: u32,
+        status: PlayerDisconnectStatus,
+        manager: &mut WindowManager,
+    ) {
         if let Some(player) = self.players.get_mut(&player_id) {
             let old_status = player.status;
             player.status = status;
@@ -363,12 +357,12 @@ impl DisconnectMenu {
                 status
             );
 
-            self.update_display();
+            self.update_display(manager);
         }
     }
 
     /// Set player name for a slot and update related controls.
-    pub fn set_player_name(&mut self, slot: usize, name: &str) {
+    pub fn set_player_name(&mut self, slot: usize, name: &str, manager: &mut WindowManager) {
         let entry = self
             .players
             .entry(slot as u32)
@@ -402,14 +396,17 @@ impl DisconnectMenu {
         }
 
         if name.is_empty() {
-            self.hide_player_controls(slot);
+            self.hide_player_controls(slot, manager);
         } else {
-            self.show_player_controls(slot);
+            self.show_player_controls(slot, manager);
         }
     }
 
     /// Update the disconnect menu
-    pub fn update(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn update(
+        &mut self,
+        manager: &mut WindowManager,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         if !self.is_visible || !self.is_initialized {
             return Ok(());
         }
@@ -441,7 +438,7 @@ impl DisconnectMenu {
         }
 
         if needs_update {
-            self.update_display();
+            self.update_display(manager);
         }
 
         self.last_update = now;
@@ -449,7 +446,7 @@ impl DisconnectMenu {
     }
 
     /// Update the visual display
-    fn update_display(&mut self) {
+    fn update_display(&mut self, manager: &mut WindowManager) {
         if !self.is_initialized {
             return;
         }
@@ -465,10 +462,10 @@ impl DisconnectMenu {
                 if let Some(widget) = window.static_text_mut() {
                     if let Some(player) = sorted_players.get(i) {
                         widget.set_text(&player.player_name);
-                        let _ = window.hide(false);
+                        let _ = window.hide(false, manager);
                     } else {
                         widget.set_text("");
-                        let _ = window.hide(true);
+                        let _ = window.hide(true, manager);
                     }
                 }
             }
@@ -487,10 +484,10 @@ impl DisconnectMenu {
                             String::new()
                         };
                         widget.set_text(&text);
-                        let _ = window.hide(text.is_empty());
+                        let _ = window.hide(text.is_empty(), manager);
                     } else {
                         widget.set_text("");
-                        let _ = window.hide(true);
+                        let _ = window.hide(true, manager);
                     }
                 }
             }
@@ -499,9 +496,9 @@ impl DisconnectMenu {
         let visible_player_count = sorted_players.len();
         for slot in 0..PLAYER_NAME_TEXT_CONTROLS.len() {
             if slot < visible_player_count {
-                self.show_player_controls(slot);
+                self.show_player_controls(slot, manager);
             } else {
-                self.hide_player_controls(slot);
+                self.hide_player_controls(slot, manager);
             }
         }
 
@@ -575,20 +572,20 @@ impl DisconnectMenu {
     }
 
     /// Show a player name and related controls.
-    fn show_player_controls(&mut self, slot: usize) {
+    fn show_player_controls(&mut self, slot: usize, manager: &mut WindowManager) {
         if let Some(control) = self.player_name_controls.get(slot).and_then(|c| c.as_ref()) {
-            let _ = control.borrow_mut().hide(false);
+            let _ = control.borrow_mut().hide(false, manager);
         }
         if let Some(control) = self
             .player_timeout_controls
             .get(slot)
             .and_then(|c| c.as_ref())
         {
-            let _ = control.borrow_mut().hide(false);
+            let _ = control.borrow_mut().hide(false, manager);
         }
         if let Some(control) = self.player_vote_controls.get(slot).and_then(|c| c.as_ref()) {
             let mut control = control.borrow_mut();
-            let _ = control.hide(false);
+            let _ = control.hide(false, manager);
             let _ = control.enable(true);
         }
         if let Some(control) = self
@@ -596,25 +593,25 @@ impl DisconnectMenu {
             .get(slot)
             .and_then(|c| c.as_ref())
         {
-            let _ = control.borrow_mut().hide(false);
+            let _ = control.borrow_mut().hide(false, manager);
         }
     }
 
     /// Hide player controls.
-    fn hide_player_controls(&mut self, slot: usize) {
+    fn hide_player_controls(&mut self, slot: usize, manager: &mut WindowManager) {
         if let Some(control) = self.player_name_controls.get(slot).and_then(|c| c.as_ref()) {
-            let _ = control.borrow_mut().hide(true);
+            let _ = control.borrow_mut().hide(true, manager);
         }
         if let Some(control) = self
             .player_timeout_controls
             .get(slot)
             .and_then(|c| c.as_ref())
         {
-            let _ = control.borrow_mut().hide(true);
+            let _ = control.borrow_mut().hide(true, manager);
         }
         if let Some(control) = self.player_vote_controls.get(slot).and_then(|c| c.as_ref()) {
             let mut control = control.borrow_mut();
-            let _ = control.hide(true);
+            let _ = control.hide(true, manager);
             let _ = control.enable(true);
         }
         if let Some(control) = self
@@ -622,7 +619,7 @@ impl DisconnectMenu {
             .get(slot)
             .and_then(|c| c.as_ref())
         {
-            let _ = control.borrow_mut().hide(true);
+            let _ = control.borrow_mut().hide(true, manager);
         }
     }
 
@@ -642,9 +639,9 @@ impl DisconnectMenu {
         }
     }
 
-    pub fn show_packet_router_timeout(&mut self) {
+    pub fn show_packet_router_timeout(&mut self, manager: &mut WindowManager) {
         if let Some(control) = &self.packet_router_label {
-            let _ = control.borrow_mut().hide(false);
+            let _ = control.borrow_mut().hide(false, manager);
         }
         if let Some(control) = &self.packet_router_timeout {
             let mut control = control.borrow_mut();
@@ -652,16 +649,16 @@ impl DisconnectMenu {
                 text.set_text(String::new());
             }
             let _ = control.set_text("");
-            let _ = control.hide(false);
+            let _ = control.hide(false, manager);
         }
     }
 
-    pub fn hide_packet_router_timeout(&mut self) {
+    pub fn hide_packet_router_timeout(&mut self, manager: &mut WindowManager) {
         if let Some(control) = &self.packet_router_label {
-            let _ = control.borrow_mut().hide(true);
+            let _ = control.borrow_mut().hide(true, manager);
         }
         if let Some(control) = &self.packet_router_timeout {
-            let _ = control.borrow_mut().hide(true);
+            let _ = control.borrow_mut().hide(true, manager);
         }
     }
 
@@ -728,8 +725,13 @@ impl DisconnectMenu {
         });
     }
 
-    pub fn remove_player_from_slot(&mut self, slot: usize, player_name: &str) {
-        self.hide_player_controls(slot);
+    pub fn remove_player_from_slot(
+        &mut self,
+        slot: usize,
+        player_name: &str,
+        manager: &mut WindowManager,
+    ) {
+        self.hide_player_controls(slot, manager);
         let template = TheGameText::fetch("Network:PlayerLeftGame");
         let message = format!("{} {}", template, player_name);
         self.show_chat(&message);
@@ -763,14 +765,14 @@ impl DisconnectMenu {
     }
 
     /// Reset the disconnect menu
-    pub fn reset(&mut self) {
+    pub fn reset(&mut self, manager: &mut WindowManager) {
         self.players.clear();
         self.disconnect_reason.clear();
         self.is_visible = false;
         self.waiting_for_reconnection = true;
 
         if let Some(window) = &mut self.window {
-            let _ = window.borrow_mut().hide(true);
+            let _ = window.borrow_mut().hide(true, manager);
         }
 
         if let Some(list) = &self.text_display {
@@ -784,10 +786,11 @@ impl DisconnectMenu {
     /// Handle system messages for disconnect controls.
     pub fn system(
         &mut self,
-        window: &GameWindow,
+        window: &mut GameWindow,
         msg: WindowMessage,
         data1: WindowMsgData,
         _data2: WindowMsgData,
+        _effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) -> WindowMsgHandled {
         let target_name = if data1 != 0 {
             window
@@ -821,14 +824,4 @@ impl Default for DisconnectMenu {
     fn default() -> Self {
         Self::new()
     }
-}
-
-thread_local! {
-    static THE_DISCONNECT_MENU: Arc<RwLock<DisconnectMenu>> =
-        Arc::new(RwLock::new(DisconnectMenu::new()));
-}
-
-/// Helper function to get the global DisconnectMenu.
-pub fn get_disconnect_menu() -> Arc<RwLock<DisconnectMenu>> {
-    THE_DISCONNECT_MENU.with(|menu| menu.clone())
 }

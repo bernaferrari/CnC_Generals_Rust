@@ -35,8 +35,12 @@ struct LayoutRegistrationBefore {
 
 impl WindowManager {
     /// Load a window layout file and return the first window instance.
-    pub fn load_window(&mut self, filename: &str) -> WindowResult<Rc<RefCell<GameWindow>>> {
-        let layout_info = self.create_windows_from_script(filename)?;
+    pub fn load_window(
+        &mut self,
+        filename: &str,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    ) -> WindowResult<Rc<RefCell<GameWindow>>> {
+        let layout_info = self.create_windows_from_script(filename, effects)?;
         layout_info
             .windows
             .first()
@@ -56,56 +60,57 @@ impl WindowManager {
     pub fn create_layout_with_windows(
         &mut self,
         filename: &str,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) -> WindowResult<(Rc<RefCell<WindowLayout>>, WindowLayoutInfo)> {
-        let path = resolve_window_script_path(filename)?;
-        let layout_def = parse_window_script(&path).map_err(|err| {
-            log::error!(
-                "Failed to parse window script '{}': {:?}",
-                path.display(),
-                err
-            );
-            WindowError::GeneralFailure
-        })?;
-        log::info!(
-            "create_layout_with_windows: {filename} parsed_windows={} wm_windows_before={}",
-            layout_def.windows.len(),
-            self.window_count
-        );
-        let (layout, info) = self.instantiate_layout_definition(filename, &layout_def)?;
-        log::info!(
-            "create_layout_with_windows done: {filename} created={} wm_windows_after={}",
-            info.windows.len(),
-            self.window_count
-        );
-        Ok((layout, info))
+        self.create_layout_with_windows_with_effects(filename, effects)
     }
 
     /// Remove a layout after destroying its windows.
-    pub fn destroy_layout(&mut self, layout: &Rc<RefCell<WindowLayout>>) {
-        // Detach windows first, then destroy without holding layout RefCell.
-        // WindowLayout::destroy_windows() re-enters with_window_manager and
-        // flush_destroy_queue may borrow the same layout — that double-borrow
-        // panics (Shell::pop_immediate residual path).
+    pub fn destroy_layout(
+        &mut self,
+        layout: &Rc<RefCell<WindowLayout>>,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    ) {
+        self.destroy_layout_with_effects(layout, effects)
+    }
+
+    /// Load windows from script and create window instances.
+    pub fn create_windows_from_script(
+        &mut self,
+        filename: &str,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    ) -> WindowResult<WindowLayoutInfo> {
+        self.create_windows_from_script_with_effects(filename, effects)
+    }
+
+    pub fn create_layout_with_windows_with_effects(
+        &mut self,
+        filename: &str,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    ) -> WindowResult<(Rc<RefCell<WindowLayout>>, WindowLayoutInfo)> {
+        let path = resolve_window_script_path(filename)?;
+        let definition = parse_window_script(&path).map_err(|_| WindowError::GeneralFailure)?;
+        self.instantiate_layout_definition(filename, &definition, effects)
+    }
+    pub fn create_windows_from_script_with_effects(
+        &mut self,
+        filename: &str,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    ) -> WindowResult<WindowLayoutInfo> {
+        self.create_layout_with_windows_with_effects(filename, effects)
+            .map(|(_, info)| info)
+    }
+    pub fn destroy_layout_with_effects(
+        &mut self,
+        layout: &Rc<RefCell<WindowLayout>>,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    ) {
         let windows = layout.borrow_mut().take_windows();
-        log::info!(
-            "destroy_layout: windows={} roots_before={}",
-            windows.len(),
-            self.root_windows.len()
-        );
         for window in windows {
             let _ = self.destroy_window(window);
         }
         self.layouts.retain(|entry| !Rc::ptr_eq(entry, layout));
-        self.flush_destroy_queue();
-    }
-
-    /// Load windows from script and create window instances.
-    pub fn create_windows_from_script(&mut self, filename: &str) -> WindowResult<WindowLayoutInfo> {
-        let path = resolve_window_script_path(filename)?;
-        let layout_def = parse_window_script(&path).map_err(|err| WindowError::GeneralFailure)?;
-
-        self.instantiate_layout_definition(filename, &layout_def)
-            .map(|(_, info)| info)
+        self.flush_destroy_queue_with_effects(effects);
     }
 
     fn capture_layout_registrations(&self) -> LayoutRegistrationBefore {
@@ -120,11 +125,22 @@ impl WindowManager {
         }
     }
 
+    #[cfg(test)]
     fn rollback_failed_layout(
         &mut self,
         layout: Rc<RefCell<WindowLayout>>,
         info: WindowLayoutInfo,
         before: LayoutRegistrationBefore,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    ) {
+        self.rollback_failed_layout_with_effects(layout, info, before, None, effects)
+    }
+    fn rollback_failed_layout_with_effects(
+        &mut self,
+        layout: Rc<RefCell<WindowLayout>>,
+        info: WindowLayoutInfo,
+        before: LayoutRegistrationBefore,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) {
         // Isolate unrelated deferred deletion while destroying only the
         // candidate tree through the ordinary local-manager destruction path.
@@ -136,7 +152,9 @@ impl WindowManager {
             index += 1;
         }
         let mut deferred = std::mem::take(&mut self.destroy_queue);
-        self.destroy_layout(&layout);
+        match effects {
+            _ => self.destroy_layout_with_effects(&layout, effects),
+        };
         deferred.retain(|window| {
             !candidate_windows
                 .iter()
@@ -174,6 +192,7 @@ impl WindowManager {
         &mut self,
         filename: &str,
         layout_def: &WindowLayoutDefinition,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) -> WindowResult<(Rc<RefCell<WindowLayout>>, WindowLayoutInfo)> {
         // C++ winCreateFromScript returns no first window for an empty file;
         // WindowLayout::load then fails without keeping an empty layout.
@@ -200,10 +219,15 @@ impl WindowManager {
             windows: Vec::new(),
         };
         for window_def in &layout_def.windows {
-            if let Err(error) =
-                self.create_window_from_definition(window_def, None, &layout, layout_def, &mut info)
-            {
-                self.rollback_failed_layout(layout, info, before);
+            if let Err(error) = self.create_window_from_definition_with_effects(
+                window_def,
+                None,
+                &layout,
+                layout_def,
+                &mut info,
+                &mut *effects,
+            ) {
+                self.rollback_failed_layout_with_effects(layout, info, before, &mut *effects);
                 return Err(error);
             }
         }
@@ -217,6 +241,20 @@ impl WindowManager {
         layout: &Rc<RefCell<WindowLayout>>,
         layout_def: &WindowLayoutDefinition,
         info: &mut WindowLayoutInfo,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    ) -> WindowResult<Rc<RefCell<GameWindow>>> {
+        self.create_window_from_definition_with_effects(
+            window_def, parent, layout, layout_def, info, effects,
+        )
+    }
+    fn create_window_from_definition_with_effects(
+        &mut self,
+        window_def: &WindowDefinition,
+        parent: Option<&Rc<RefCell<GameWindow>>>,
+        layout: &Rc<RefCell<WindowLayout>>,
+        layout_def: &WindowLayoutDefinition,
+        info: &mut WindowLayoutInfo,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) -> WindowResult<Rc<RefCell<GameWindow>>> {
         let (x, y, width, height) = self.resolve_window_rect(window_def, parent);
         log::debug!(
@@ -237,7 +275,7 @@ impl WindowManager {
             NameKeyGenerator::name_to_key(&window_def.name) as WindowId
         };
         let window = self
-            .create_window_with_id_internal(parent, x, y, width, height, window_id, false)
+            .create_window_with_id_internal(parent, x, y, width, height, window_id, false, effects)
             .map_err(|err| {
                 log::error!(
                     "Failed to create window '{}' type={:?} rect=({}, {}, {}, {}): {:?}",
@@ -326,15 +364,40 @@ impl WindowManager {
             {
                 self.apply_default_draw_callback(&mut window_mut);
             }
-            let _ = window_mut.send_system_message(WindowMessage::Create, 0, 0);
         }
 
+        {
+            let previous_selected = effects.selected_window.replace(Rc::downgrade(&window));
+            effects.with_receiving_manager(self, |effects| {
+                window.borrow_mut().send_system_message_with_message_sink(
+                    WindowMessage::Create,
+                    0,
+                    0,
+                    effects,
+                    None,
+                );
+            });
+            effects.selected_window = previous_selected;
+        }
         if let Some(parent_window) = parent {
-            let _ = parent_window.borrow_mut().send_routed_input_message(
-                WindowMessage::ScriptCreate,
-                window_id as WindowMsgData,
-                0,
-            );
+            {
+                let previous_selected = effects
+                    .selected_window
+                    .replace(Rc::downgrade(parent_window));
+                effects.with_receiving_manager(self, |effects| {
+                    parent_window
+                        .borrow_mut()
+                        .send_input_message_with_message_sink(
+                            WindowMessage::ScriptCreate,
+                            window_id as WindowMsgData,
+                            0,
+                            true,
+                            effects,
+                            None,
+                        );
+                });
+                effects.selected_window = previous_selected;
+            }
         }
         // C++ WinCreateFromScript only pushes top-level WINDOW tokens into
         // scriptInfo.windows (GameWindowManagerScript.cpp:2833-2843).
@@ -353,53 +416,68 @@ impl WindowManager {
         }
 
         for child_def in &window_def.children {
-            self.create_window_from_definition(child_def, Some(&window), layout, layout_def, info)
-                .map_err(|err| {
-                    log::error!(
-                        "Failed while creating child '{}' under '{}': {:?}",
-                        child_def.name,
-                        window_def.name,
-                        err
-                    );
+            self.create_window_from_definition_with_effects(
+                child_def,
+                Some(&window),
+                layout,
+                layout_def,
+                info,
+                &mut *effects,
+            )
+            .map_err(|err| {
+                log::error!(
+                    "Failed while creating child '{}' under '{}': {:?}",
+                    child_def.name,
+                    window_def.name,
                     err
-                })?;
+                );
+                err
+            })?;
         }
 
         if (window.borrow().get_style() & GWS_TAB_CONTROL) != 0 {
             if !has_tab_pane_child {
-                self.create_default_tab_panes(&window).map_err(|err| {
-                    log::error!(
-                        "Failed creating default tab panes for '{}': {:?}",
-                        window_def.name,
+                self.create_default_tab_panes(&window, effects)
+                    .map_err(|err| {
+                        log::error!(
+                            "Failed creating default tab panes for '{}': {:?}",
+                            window_def.name,
+                            err
+                        );
                         err
-                    );
-                    err
-                })?;
+                    })?;
             }
-            self.resize_tab_panes(&window);
+            self.resize_tab_panes(&window, effects);
             let active_index =
                 if let Some(WindowWidget::TabControl(tab_control)) = window.borrow().widget() {
                     tab_control.active_tab_index()
                 } else {
                     0
                 };
-            window.borrow_mut().show_tab_pane(active_index);
+            effects.with_receiving_manager(self, |effects| {
+                window.borrow_mut().show_tab_pane(active_index, effects)
+            });
         }
 
         if (window.borrow().get_style() & GWS_ALL_SLIDER) != 0 {
-            self.create_slider_thumb_child_with_window(&window, layout_def, Some(window_def))
-                .map_err(|err| {
-                    log::error!(
-                        "Failed creating slider thumb for '{}': {:?}",
-                        window_def.name,
-                        err
-                    );
+            self.create_slider_thumb_child_with_window(
+                &window,
+                layout_def,
+                Some(window_def),
+                effects,
+            )
+            .map_err(|err| {
+                log::error!(
+                    "Failed creating slider thumb for '{}': {:?}",
+                    window_def.name,
                     err
-                })?;
+                );
+                err
+            })?;
         }
 
         if (window.borrow().get_style() & GWS_COMBO_BOX) != 0 {
-            self.create_combo_box_children(&window, layout_def, window_def)
+            self.create_combo_box_children(&window, layout_def, window_def, effects)
                 .map_err(|err| {
                     log::error!(
                         "Failed creating combo-box children for '{}': {:?}",
@@ -413,15 +491,20 @@ impl WindowManager {
         if (window.borrow().get_style() & GWS_SCROLL_LISTBOX) != 0 {
             if let Some(listbox_data) = window_def.listbox_data.as_ref() {
                 if listbox_data.scrollbar {
-                    self.create_listbox_scrollbar_children(&window, layout_def, Some(window_def))
-                        .map_err(|err| {
-                            log::error!(
-                                "Failed creating listbox scrollbar children for '{}': {:?}",
-                                window_def.name,
-                                err
-                            );
+                    self.create_listbox_scrollbar_children(
+                        &window,
+                        layout_def,
+                        Some(window_def),
+                        effects,
+                    )
+                    .map_err(|err| {
+                        log::error!(
+                            "Failed creating listbox scrollbar children for '{}': {:?}",
+                            window_def.name,
                             err
-                        })?;
+                        );
+                        err
+                    })?;
                 }
             }
         }

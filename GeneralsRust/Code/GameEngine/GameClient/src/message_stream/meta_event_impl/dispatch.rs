@@ -474,7 +474,11 @@ fn dispatch_map_entry(
         .name
         .eq_ignore_ascii_case("DEMO_TOGGLE_MILITARY_SUBTITLES")
     {
-        TheInGameUI::military_subtitle("MSG:Testing", 10_000);
+        let _ = dispatch_ui_input(
+            game_engine::common::message_stream::UiInputAction::DemoMilitarySubtitle,
+            display_dispatch,
+            emitted,
+        );
         return Some(GameMessageDisposition::DestroyMessage);
     }
 
@@ -599,18 +603,11 @@ fn dispatch_map_entry(
     }
 
     if record.name.eq_ignore_ascii_case("DEMO_TOGGLE_LETTERBOX") {
-        let handled = crate::gui::with_shell_mut(|shell| {
-            if shell.is_shell_active() {
-                if let Some(layout) = shell.top() {
-                    let hide = !layout.is_hidden();
-                    layout.hide(hide);
-                }
-                true
-            } else {
-                false
-            }
-        })
-        .unwrap_or(false);
+        let handled = dispatch_ui_input(
+            game_engine::common::message_stream::UiInputAction::ToggleShellTopVisibility,
+            display_dispatch,
+            emitted,
+        );
         if !handled {
             let _ = dispatch_display_input(
                 game_engine::common::message_stream::DisplayInputAction::ToggleLetterbox,

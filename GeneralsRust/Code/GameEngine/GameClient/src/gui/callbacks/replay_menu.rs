@@ -5,8 +5,8 @@ use crate::gui::shell::replay_menu::ReplayMenu as ShellReplayMenu;
 use crate::gui::{
     Color as WindowColor, GLM_DOUBLE_CLICKED, GameWindow, KeyModifiers, WindowLayout,
     WindowMessage, WindowMsgData, WindowMsgHandled, message_box_ok, message_box_yes_no,
-    queue_shell_pop, queue_shell_shutdown_complete, show_shell_map_if_available, with_shell_ref,
-    with_window_manager, write_input_focus_response,
+    queue_shell_pop, queue_shell_shutdown_complete, show_shell_map_if_available,
+    write_input_focus_response,
 };
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::recorder::{init_recorder, with_recorder, with_recorder_mut};
@@ -100,9 +100,13 @@ impl ReplayMenuState {
 
 // The application WindowManager owns the menu. Compatibility callbacks resolve
 // that manager; native selected actions receive it directly and never use TLS.
-fn replay_menu_state() -> Rc<RefCell<ReplayMenuState>> {
+fn replay_menu_state(
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+) -> Rc<RefCell<ReplayMenuState>> {
     let mut state = None;
-    with_window_manager(|manager| state = Some(manager.replay_menu_state()));
+    (|manager: &mut crate::gui::window_manager::WindowManager| {
+        state = Some(manager.replay_menu_state())
+    })(receiving_manager);
     state.expect("ReplayMenu manager operation must not re-enter")
 }
 
@@ -211,7 +215,11 @@ fn populate_replay_listbox(state: &mut ReplayMenuState) {
     }
 }
 
-fn playback_replay_row_direct(state_handle: Rc<RefCell<ReplayMenuState>>, row_selected: i32) {
+fn playback_replay_row_direct(
+    state_handle: Rc<RefCell<ReplayMenuState>>,
+    row_selected: i32,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) {
     if row_selected < 0 {
         return;
     }
@@ -219,17 +227,32 @@ fn playback_replay_row_direct(state_handle: Rc<RefCell<ReplayMenuState>>, row_se
     let playback = ingress::ReplayPlayback::captured(
         state.menu.get_replay_filename_from_listbox(row_selected),
         state.parent.clone(),
+        effects
+            .window_manager_owner
+            .expect("replay requires receiving tree")
+            .downgrade(),
     );
     drop(state);
-    ingress::ReplayMenuStep::Playback(playback).complete_compatibility();
+    effects.queue_compatibility_replay(ingress::ReplayMenuStep::Playback(playback));
 }
 
-fn playback_selected_replay(state_handle: Rc<RefCell<ReplayMenuState>>, ignore_version: bool) {
+fn playback_selected_replay(
+    state_handle: Rc<RefCell<ReplayMenuState>>,
+    ignore_version: bool,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) {
     let mut state = state_handle.borrow_mut();
     sync_selected_index(&mut state);
     let step = match state.menu.selected_replay_filename() {
         Ok(filename) => {
-            let playback = ingress::ReplayPlayback::captured(filename, state.parent.clone());
+            let playback = ingress::ReplayPlayback::captured(
+                filename,
+                state.parent.clone(),
+                effects
+                    .window_manager_owner
+                    .expect("replay requires receiving tree")
+                    .downgrade(),
+            );
             if ignore_version {
                 ingress::ReplayMenuStep::Playback(playback)
             } else {
@@ -239,10 +262,14 @@ fn playback_selected_replay(state_handle: Rc<RefCell<ReplayMenuState>>, ignore_v
         Err(_) => ingress::ReplayMenuStep::NoSelection,
     };
     drop(state);
-    step.complete_compatibility();
+    effects.queue_compatibility_replay(step);
 }
 
-fn confirm_delete_replay(state_handle: Rc<RefCell<ReplayMenuState>>) {
+fn confirm_delete_replay(
+    state_handle: Rc<RefCell<ReplayMenuState>>,
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) {
     let mut state = state_handle.borrow_mut();
     sync_selected_index(&mut state);
     if state.menu.get_selected_index() < 0 {
@@ -251,6 +278,8 @@ fn confirm_delete_replay(state_handle: Rc<RefCell<ReplayMenuState>>) {
             &GameText::fetch("GUI:NoFileSelected"),
             &GameText::fetch("GUI:PleaseSelectAFile"),
             None,
+            receiving_manager,
+            effects,
         );
         return;
     }
@@ -265,10 +294,16 @@ fn confirm_delete_replay(state_handle: Rc<RefCell<ReplayMenuState>>) {
         &GameText::fetch("GUI:AreYouSureDelete"),
         Some(yes),
         None,
+        receiving_manager,
+        effects,
     );
 }
 
-fn confirm_copy_replay(state_handle: Rc<RefCell<ReplayMenuState>>) {
+fn confirm_copy_replay(
+    state_handle: Rc<RefCell<ReplayMenuState>>,
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) {
     let mut state = state_handle.borrow_mut();
     sync_selected_index(&mut state);
     if state.menu.get_selected_index() < 0 {
@@ -277,6 +312,8 @@ fn confirm_copy_replay(state_handle: Rc<RefCell<ReplayMenuState>>) {
             &GameText::fetch("GUI:NoFileSelected"),
             &GameText::fetch("GUI:PleaseSelectAFile"),
             None,
+            receiving_manager,
+            effects,
         );
         return;
     }
@@ -291,6 +328,8 @@ fn confirm_copy_replay(state_handle: Rc<RefCell<ReplayMenuState>>) {
         &GameText::fetch("GUI:AreYouSureCopy"),
         Some(yes),
         None,
+        receiving_manager,
+        effects,
     );
 }
 
@@ -299,7 +338,8 @@ pub fn replay_menu_init(
     _user_data: Option<&dyn std::any::Any>,
     effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) {
-    let state_handle = replay_menu_layout_state(layout).unwrap_or_else(replay_menu_state);
+    let state_handle = replay_menu_layout_state(layout)
+        .unwrap_or_else(|| effects.with_manager(|manager, _effects| replay_menu_state(manager)));
     let mut state = state_handle.borrow_mut();
 
     state.parent_id = name_to_id("ReplayMenu.wnd:ParentReplayMenu");
@@ -314,7 +354,7 @@ pub fn replay_menu_init(
     state.just_entered = true;
     state.initial_gadget_delay = 2;
 
-    with_window_manager(|manager| {
+    effects.with_manager(|manager, effects| {
         let parent = manager.get_window_by_id(state.parent_id);
         if let Some(parent) = parent.as_ref() {
             parent.borrow_mut().set_user_data(state_handle.clone());
@@ -322,27 +362,31 @@ pub fn replay_menu_init(
         state.parent = parent.as_ref().map(Rc::downgrade);
         state.listbox_window = manager.get_window_by_id(state.listbox_id);
         if let Some(parent) = state.parent.as_ref().and_then(Weak::upgrade) {
-            let _ = manager.set_focus(Some(&parent));
+            let _ = manager.set_focus(Some(&parent), effects);
         }
         if let Some(gadget_parent) = manager.get_window_by_id(state.gadget_parent_id) {
-            let _ = gadget_parent.borrow_mut().hide(true);
+            let _ = gadget_parent.borrow_mut().hide(true, manager);
         }
     });
 
     populate_replay_listbox(&mut state);
     show_shell_map_if_available(true, effects);
-    layout.hide(false);
+    layout.hide_receiving(false, effects);
 }
 
-pub fn replay_menu_shutdown(layout: &WindowLayout, user_data: Option<&dyn std::any::Any>) {
+pub fn replay_menu_shutdown(
+    layout: &WindowLayout,
+    user_data: Option<&dyn std::any::Any>,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) {
     let pop_immediate = user_data
         .and_then(|data| data.downcast_ref::<bool>())
         .copied()
         .unwrap_or(false);
 
     if pop_immediate {
-        layout.hide(true);
-        queue_shell_shutdown_complete(false);
+        layout.hide_receiving(true, effects);
+        queue_shell_shutdown_complete(effects, false);
         return;
     }
 
@@ -350,20 +394,24 @@ pub fn replay_menu_shutdown(layout: &WindowLayout, user_data: Option<&dyn std::a
         return;
     };
     let mut state = state_handle.borrow_mut();
-    state.menu.shutdown(false);
+    effects.with_manager(|manager, _effects| state.menu.shutdown(false, manager));
     state.is_shutting_down = true;
 }
 
-pub fn replay_menu_update(layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>) {
+pub fn replay_menu_update(
+    layout: &WindowLayout,
+    _user_data: Option<&dyn std::any::Any>,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) {
     let Some(state_handle) = replay_menu_layout_state(layout) else {
         return;
     };
     let mut state = state_handle.borrow_mut();
     if state.just_entered {
         if state.initial_gadget_delay == 1 {
-            with_window_manager(|manager| {
-                manager.transition_remove("MainMenuDefaultMenuLogoFade", false);
-                manager.transition_set_group("ReplayMenuFade", false);
+            effects.with_manager(|manager, effects| {
+                manager.transition_remove("MainMenuDefaultMenuLogoFade", false, None);
+                manager.transition_set_group("ReplayMenuFade", false, None);
             });
             state.initial_gadget_delay = 2;
             state.just_entered = false;
@@ -373,20 +421,21 @@ pub fn replay_menu_update(layout: &WindowLayout, _user_data: Option<&dyn std::an
     }
 
     if state.is_shutting_down
-        && with_shell_ref(|shell| shell.is_anim_finished()).unwrap_or(false)
-        && with_window_manager(|manager| manager.transitions_finished())
+        && crate::gui::shell::base::shell_anim_finished_for_layout(effects)
+        && effects.with_manager(|manager, effects| manager.transitions_finished())
     {
         state.is_shutting_down = false;
-        layout.hide(true);
-        queue_shell_shutdown_complete(false);
+        layout.hide_receiving(true, effects);
+        queue_shell_shutdown_complete(effects, false);
     }
 }
 
 pub fn replay_menu_system(
-    window: &GameWindow,
+    window: &mut GameWindow,
     msg: WindowMessage,
     data1: WindowMsgData,
     _data2: WindowMsgData,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> WindowMsgHandled {
     let Some(state_handle) = window
         .get_user_data::<Rc<RefCell<ReplayMenuState>>>()
@@ -406,22 +455,26 @@ pub fn replay_menu_system(
             }
             if control_id == state.button_load_id {
                 drop(state);
-                playback_selected_replay(state_handle.clone(), false);
+                playback_selected_replay(state_handle.clone(), false, effects);
                 return WindowMsgHandled::Handled;
             }
             if control_id == state.button_back_id {
                 drop(state);
-                queue_shell_pop();
+                queue_shell_pop(effects);
                 return WindowMsgHandled::Handled;
             }
             if control_id == state.button_delete_id {
                 drop(state);
-                confirm_delete_replay(state_handle.clone());
+                effects.with_manager(|receiving_manager, effects| {
+                    confirm_delete_replay(state_handle.clone(), receiving_manager, effects)
+                });
                 return WindowMsgHandled::Handled;
             }
             if control_id == state.button_copy_id {
                 drop(state);
-                confirm_copy_replay(state_handle.clone());
+                effects.with_manager(|receiving_manager, effects| {
+                    confirm_copy_replay(state_handle.clone(), receiving_manager, effects)
+                });
                 return WindowMsgHandled::Handled;
             }
             WindowMsgHandled::Handled
@@ -430,7 +483,7 @@ pub fn replay_menu_system(
             if data1 as i32 == state.listbox_id {
                 if let Some(row_selected) = selected_replay_row_for_double_click(&mut state) {
                     drop(state);
-                    playback_replay_row_direct(state_handle.clone(), row_selected);
+                    playback_replay_row_direct(state_handle.clone(), row_selected, effects);
                 }
                 return WindowMsgHandled::Handled;
             }
@@ -441,10 +494,11 @@ pub fn replay_menu_system(
 }
 
 pub fn replay_menu_input(
-    window: &GameWindow,
+    window: &mut GameWindow,
     msg: WindowMessage,
     data1: WindowMsgData,
     data2: WindowMsgData,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> WindowMsgHandled {
     if msg != WindowMessage::Char || data1 != KEY_ESC {
         return WindowMsgHandled::Ignored;
@@ -466,6 +520,7 @@ pub fn replay_menu_input(
                 WindowMessage::GadgetSelected,
                 button_back_id as WindowMsgData,
                 0,
+                effects,
             );
         }
     }
@@ -617,8 +672,10 @@ fn ensure_replay_control_ids(state: &mut ReplayMenuState) {
 }
 
 /// Residual: bind ReplayMenu control IDs (no layout load required).
-pub fn simulate_replay_menu_bind_controls() -> bool {
-    let state_handle = replay_menu_state();
+pub fn simulate_replay_menu_bind_controls(
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+) -> bool {
+    let state_handle = replay_menu_state(receiving_manager);
     let mut state = state_handle.borrow_mut();
     ensure_replay_control_ids(&mut state);
     state.is_shutting_down = false;
@@ -626,11 +683,14 @@ pub fn simulate_replay_menu_bind_controls() -> bool {
 }
 
 /// Residual: select a replay list slot without live listbox widget.
-pub fn simulate_replay_menu_select_slot(slot_index: i32) -> bool {
+pub fn simulate_replay_menu_select_slot(
+    slot_index: i32,
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+) -> bool {
     if slot_index < 0 {
         return false;
     }
-    let state_handle = replay_menu_state();
+    let state_handle = replay_menu_state(receiving_manager);
     let mut state = state_handle.borrow_mut();
     ensure_replay_control_ids(&mut state);
     // Best-effort list selection when list is populated; residual slot is authoritative.
@@ -641,8 +701,10 @@ pub fn simulate_replay_menu_select_slot(slot_index: i32) -> bool {
 }
 
 /// Residual: fire ButtonLoadReplay without full playback/engine start.
-pub fn simulate_replay_menu_load_button_gadget_selected() -> bool {
-    let state_handle = replay_menu_state();
+pub fn simulate_replay_menu_load_button_gadget_selected(
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+) -> bool {
+    let state_handle = replay_menu_state(receiving_manager);
     let mut state = state_handle.borrow_mut();
     ensure_replay_control_ids(&mut state);
     if residual_replay_menu_selected_slot().is_none() && state.menu.get_selected_index() < 0 {
@@ -654,8 +716,10 @@ pub fn simulate_replay_menu_load_button_gadget_selected() -> bool {
 }
 
 /// Residual: fire ButtonDeleteReplay without filesystem delete.
-pub fn simulate_replay_menu_delete_button_gadget_selected() -> bool {
-    let state_handle = replay_menu_state();
+pub fn simulate_replay_menu_delete_button_gadget_selected(
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+) -> bool {
+    let state_handle = replay_menu_state(receiving_manager);
     let mut state = state_handle.borrow_mut();
     ensure_replay_control_ids(&mut state);
     if residual_replay_menu_selected_slot().is_none() && state.menu.get_selected_index() < 0 {
@@ -666,8 +730,10 @@ pub fn simulate_replay_menu_delete_button_gadget_selected() -> bool {
 }
 
 /// Residual: fire ButtonCopyReplay without filesystem copy.
-pub fn simulate_replay_menu_copy_button_gadget_selected() -> bool {
-    let state_handle = replay_menu_state();
+pub fn simulate_replay_menu_copy_button_gadget_selected(
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+) -> bool {
+    let state_handle = replay_menu_state(receiving_manager);
     let mut state = state_handle.borrow_mut();
     ensure_replay_control_ids(&mut state);
     if residual_replay_menu_selected_slot().is_none() && state.menu.get_selected_index() < 0 {
@@ -678,8 +744,10 @@ pub fn simulate_replay_menu_copy_button_gadget_selected() -> bool {
 }
 
 /// Residual: fire ButtonBack (shell pop residual latch).
-pub fn simulate_replay_menu_back_button_gadget_selected() -> bool {
-    let state_handle = replay_menu_state();
+pub fn simulate_replay_menu_back_button_gadget_selected(
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+) -> bool {
+    let state_handle = replay_menu_state(receiving_manager);
     let mut state = state_handle.borrow_mut();
     ensure_replay_control_ids(&mut state);
     residual_replay_action_store(ResidualReplayMenuAction::Back);
@@ -689,14 +757,17 @@ pub fn simulate_replay_menu_back_button_gadget_selected() -> bool {
 }
 
 /// Residual: select slot + Load composite (pre-playback honesty).
-pub fn simulate_replay_menu_prepare_load(slot_index: i32) -> bool {
-    if !simulate_replay_menu_bind_controls() {
+pub fn simulate_replay_menu_prepare_load(
+    slot_index: i32,
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+) -> bool {
+    if !simulate_replay_menu_bind_controls(receiving_manager) {
         return false;
     }
-    if !simulate_replay_menu_select_slot(slot_index) {
+    if !simulate_replay_menu_select_slot(slot_index, receiving_manager) {
         return false;
     }
-    simulate_replay_menu_load_button_gadget_selected()
+    simulate_replay_menu_load_button_gadget_selected(receiving_manager)
 }
 
 /// Human click-through: OS LeftDown/Up on `ListboxReplayFiles` then `ButtonLoadReplay`.
@@ -714,12 +785,19 @@ pub fn drive_os_wnd_replay_menu_prepare_load_like_cpp(
     if !clicked_list && !clicked_load {
         return false;
     }
-    if clicked_list && !simulate_replay_menu_select_slot(slot_index) {
+    if clicked_list
+        && !effects.with_manager(|receiving_manager, effects| {
+            simulate_replay_menu_select_slot(slot_index, receiving_manager)
+        })
+    {
         return false;
     }
     if clicked_load || clicked_list {
-        return simulate_replay_menu_load_button_gadget_selected()
-            || simulate_replay_menu_prepare_load(slot_index);
+        return effects.with_manager(|receiving_manager, effects| {
+            simulate_replay_menu_load_button_gadget_selected(receiving_manager)
+        }) || effects.with_manager(|receiving_manager, effects| {
+            simulate_replay_menu_prepare_load(slot_index, receiving_manager)
+        });
     }
     false
 }
@@ -731,7 +809,9 @@ pub fn drive_os_wnd_replay_menu_back_like_cpp(
     if !clicked {
         return false;
     }
-    simulate_replay_menu_back_button_gadget_selected()
+    effects.with_manager(|receiving_manager, effects| {
+        simulate_replay_menu_back_button_gadget_selected(receiving_manager)
+    })
 }
 
 pub fn drive_os_wnd_replay_menu_delete_like_cpp(
@@ -746,9 +826,13 @@ pub fn drive_os_wnd_replay_menu_delete_like_cpp(
         return false;
     }
     if clicked_list {
-        let _ = simulate_replay_menu_select_slot(slot_index);
+        let _ = effects.with_manager(|receiving_manager, effects| {
+            simulate_replay_menu_select_slot(slot_index, receiving_manager)
+        });
     }
-    simulate_replay_menu_delete_button_gadget_selected()
+    effects.with_manager(|receiving_manager, effects| {
+        simulate_replay_menu_delete_button_gadget_selected(receiving_manager)
+    })
 }
 
 pub fn drive_os_wnd_replay_menu_copy_like_cpp(
@@ -763,9 +847,13 @@ pub fn drive_os_wnd_replay_menu_copy_like_cpp(
         return false;
     }
     if clicked_list {
-        let _ = simulate_replay_menu_select_slot(slot_index);
+        let _ = effects.with_manager(|receiving_manager, effects| {
+            simulate_replay_menu_select_slot(slot_index, receiving_manager)
+        });
     }
-    simulate_replay_menu_copy_button_gadget_selected()
+    effects.with_manager(|receiving_manager, effects| {
+        simulate_replay_menu_copy_button_gadget_selected(receiving_manager)
+    })
 }
 
 #[cfg(test)]

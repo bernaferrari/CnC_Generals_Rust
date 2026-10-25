@@ -1,3 +1,11 @@
+/// Borrowed receiving UI query services. The radar is the admitted immutable
+/// presentation for this instance; absence explicitly means no radar surface.
+pub struct InGameUiInputContext<'a> {
+    pub manager: &'a crate::gui::window_manager::WindowManager,
+    pub radar: Option<&'a game_engine::common::system::radar::RadarPresentation>,
+    pub mouse_position: (i32, i32),
+}
+
 // C++ Radar::localPixelToRadar / screenPixelToWorld (Radar.cpp:692-788).
 // Included by ingame_ui/mod.rs.
 
@@ -51,15 +59,20 @@ pub fn local_pixel_to_radar_cell(
 }
 
 /// C++ `Radar::screenPixelToWorld`.
-pub fn radar_screen_pixel_to_world(mx: i32, my: i32) -> Option<Coord3D> {
-    let radar = TheInGameUI::radar_presentation()?;
+pub fn radar_screen_pixel_to_world(
+    mx: i32,
+    my: i32,
+    input: &InGameUiInputContext<'_>,
+) -> Option<Coord3D> {
+    let radar = input.radar?;
     if !radar.is_radar_shown() {
         return None;
     }
     let key = game_engine::common::name_key_generator::NameKeyGenerator::name_to_key(
         "ControlBar.wnd:LeftHUD",
     );
-    with_window_manager_ref(|manager| {
+    {
+        let manager = input.manager;
         let window = manager.get_window_by_id(key as i32)?;
         let (wx, wy) = window.borrow().get_screen_position();
         let (ww, wh) = window.borrow().get_size();
@@ -77,5 +90,5 @@ pub fn radar_screen_pixel_to_world(mx: i32, my: i32) -> Option<Coord3D> {
         radar
             .radar_to_world(&cell)
             .map(|p| Coord3D::new(p.x, p.y, p.z))
-    })
+    }
 }

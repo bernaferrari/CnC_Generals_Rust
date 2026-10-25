@@ -363,7 +363,7 @@ pub(crate) fn color_to_rgba(color: Color) -> [f32; 4] {
 }
 
 pub fn default_input_callback(
-    _window: &GameWindow,
+    _window: &mut GameWindow,
     _msg: WindowMessage,
     _data1: WindowMsgData,
     _data2: WindowMsgData,
@@ -372,7 +372,7 @@ pub fn default_input_callback(
 }
 
 pub fn default_system_callback(
-    _window: &GameWindow,
+    _window: &mut GameWindow,
     _msg: WindowMessage,
     _data1: WindowMsgData,
     _data2: WindowMsgData,

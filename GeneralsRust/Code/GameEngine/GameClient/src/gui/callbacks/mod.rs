@@ -42,6 +42,7 @@ pub mod lan_lobby_menu {
         _msg: WindowMessage,
         _data1: WindowMsgData,
         _data2: WindowMsgData,
+        _effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) -> WindowMsgHandled {
         WindowMsgHandled::Ignored
     }

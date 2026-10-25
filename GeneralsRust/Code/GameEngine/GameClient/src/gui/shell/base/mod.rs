@@ -39,10 +39,7 @@
 
 use super::super::game_window::WIN_COLOR_UNDEFINED;
 use super::super::game_window::{GameWindow, WindowStatus};
-use super::super::ime_manager::get_ime_manager;
-use super::super::window_manager::{
-    WindowLayout as ManagerWindowLayout, with_window_manager, with_window_manager_ref,
-};
+use super::super::window_manager::WindowLayout as ManagerWindowLayout;
 use crate::gui::game_window::WindowEventEffects;
 use crate::message_stream::{GameMessage, GameMessageType};
 use crate::system::SubsystemInterface;

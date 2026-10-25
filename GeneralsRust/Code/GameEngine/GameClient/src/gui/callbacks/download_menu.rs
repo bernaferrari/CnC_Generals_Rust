@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 
 use crate::gui::callbacks::message_box::message_box_ok;
 use crate::gui::{
-    GameWindow, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled, with_window_manager,
+    GameWindow, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled,
     write_input_focus_response,
 };
 use game_engine::common::game_engine::get_game_engine;
@@ -58,30 +58,70 @@ fn name_to_id(name: &str) -> i32 {
     NameKeyGenerator::name_to_key(name) as i32
 }
 
-fn close_download_window() {
-    let state_handle = download_menu_state();
-    let mut state = state_handle.borrow_mut();
-    let Some(parent) = state.parent.take() else {
-        return;
+fn close_download_window(
+    manager: &mut crate::gui::window_manager::WindowManager,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    mut selected: Option<&mut GameWindow>,
+) {
+    let parent = {
+        let state_handle = download_menu_state();
+        let mut state = state_handle.borrow_mut();
+        let Some(parent) = state.parent.take() else {
+            return;
+        };
+        state.static_text_size = None;
+        state.static_text_time = None;
+        state.static_text_file = None;
+        state.static_text_status = None;
+        state.progress_bar = None;
+        state.last_update = None;
+        state.time_left = 0;
+        parent
     };
-    if let Some(layout) = parent.borrow().get_layout() {
-        layout.borrow().run_shutdown(None);
-        layout.borrow_mut().destroy_windows();
+    // Shutdown can re-enter this menu. Its current-window identity and state
+    // loan have already been resolved, so recursion observes the completed take.
+    let layout = if let Some(window) = selected
+        .as_deref()
+        .filter(|window| std::ptr::eq(parent.as_ptr(), std::ptr::from_ref(*window)))
+    {
+        window.get_layout()
+    } else {
+        parent.borrow().get_layout()
+    };
+    if let Some(layout) = layout {
+        effects.with_receiving_manager(manager, |effects| {
+            layout.borrow().run_shutdown_with_effects(None, effects)
+        });
+        layout.borrow_mut().destroy_windows(manager, effects);
     }
-    state.static_text_size = None;
-    state.static_text_time = None;
-    state.static_text_file = None;
-    state.static_text_status = None;
-    state.progress_bar = None;
-    state.last_update = None;
-    state.time_left = 0;
+    let id = NameKeyGenerator::name_to_key("MainMenu.wnd:MainMenuParent") as i32;
+    if let Some(main_win) = manager.get_window_by_id_with_selected(id, selected.as_deref()) {
+        let _ = manager.set_focus_with_selected(Some(&main_win), effects, selected.as_deref_mut());
+    }
+}
 
-    with_window_manager(|manager| {
-        let main_win = manager
-            .get_window_by_id(NameKeyGenerator::name_to_key("MainMenu.wnd:MainMenuParent") as i32);
-        if let Some(main_win) = main_win {
-            let _ = manager.set_focus(Some(&main_win));
+/// A message-box completion has no direct loan of its mutable parent. Finish
+/// this bounded UI cleanup after that callback releases the window, before the
+/// next input is admitted; never capture its originating manager in the dialog.
+fn queue_download_finish(reset_dropdown: bool, effects: &mut WindowEventEffects<'_>) {
+    effects.queue_window_operation(move |manager, effects| {
+        if reset_dropdown {
+            effects.with_receiving_manager(manager, |effects| {
+                effects.with_main_menu(|menu, effects| {
+                    menu.handle_canceled_download(true, effects, None)
+                })
+            });
         }
+        close_download_window(manager, effects, None);
+    });
+}
+
+fn cancel_download(window: &mut GameWindow, effects: &mut WindowEventEffects<'_>) {
+    effects.with_main_menu(|menu, effects| {
+        menu.handle_canceled_download(true, effects, Some(&mut *window))
+    });
+    effects.with_manager(|manager, effects| {
+        close_download_window(manager, effects, Some(&mut *window))
     });
 }
 
@@ -109,7 +149,10 @@ fn update_static_text(window: &Option<Rc<RefCell<GameWindow>>>, text: &str) {
     let _ = window.borrow_mut().set_text(text);
 }
 
-fn handle_download_error() {
+fn handle_download_error(
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) {
     let error_key = {
         let download_slot = download_manager();
         let mut guard = download_slot
@@ -126,13 +169,18 @@ fn handle_download_error() {
         &title,
         &body,
         Some(Box::new(|effects| {
-            effects.with_main_menu(|menu, _| menu.handle_canceled_download(true));
-            close_download_window();
+            queue_download_finish(true, effects);
         })),
+        receiving_manager,
+        effects,
     );
 }
 
-fn handle_download_success(should_quit: bool) {
+fn handle_download_success(
+    should_quit: bool,
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) {
     let title = TheGameText::fetch("GUI:DownloadSuccessTitle");
     let body_key = if should_quit {
         "GUI:DownloadSuccessMustQuit"
@@ -152,11 +200,11 @@ fn handle_download_success(should_quit: bool) {
                 if TheGameLogic::is_in_game() {
                     let _ = TheGameLogic::clear_game_data();
                 }
-            } else {
-                effects.with_main_menu(|menu, _| menu.handle_canceled_download(true));
             }
-            close_download_window();
+            queue_download_finish(!should_quit, effects);
         })),
+        receiving_manager,
+        effects,
     );
 }
 
@@ -192,7 +240,12 @@ fn format_time_left(time_left: i64) -> String {
     }
 }
 
-fn update_from_event(state: &mut DownloadMenuState, event: DownloadEvent) {
+fn update_from_event(
+    state: &mut DownloadMenuState,
+    event: DownloadEvent,
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) {
     match event {
         DownloadEvent::FileStarted(file) => {
             let file_name = file.rsplit(['/', '\\']).next().unwrap_or(file.as_str());
@@ -232,7 +285,7 @@ fn update_from_event(state: &mut DownloadMenuState, event: DownloadEvent) {
             }
         }
         DownloadEvent::Error(_) => {
-            handle_download_error();
+            handle_download_error(receiving_manager, effects);
         }
         DownloadEvent::End => {
             let (should_start_next, should_quit) = {
@@ -252,13 +305,17 @@ fn update_from_event(state: &mut DownloadMenuState, event: DownloadEvent) {
             if should_start_next {
                 start_next_download();
             } else {
-                handle_download_success(should_quit);
+                handle_download_success(should_quit, receiving_manager, effects);
             }
         }
     }
 }
 
-pub fn download_menu_init(_layout: &WindowLayout, _user_data: Option<&mut dyn std::any::Any>) {
+pub fn download_menu_init(
+    _layout: &WindowLayout,
+    _user_data: Option<&mut dyn std::any::Any>,
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+) {
     let state_handle = download_menu_state();
     let mut state = state_handle.borrow_mut();
 
@@ -269,11 +326,11 @@ pub fn download_menu_init(_layout: &WindowLayout, _user_data: Option<&mut dyn st
     state.static_text_status_id = name_to_id("DownloadMenu.wnd:StaticTextStatus");
     state.progress_bar_id = name_to_id("DownloadMenu.wnd:ProgressBarMunkee");
 
-    state.parent = with_window_manager(|manager| {
+    state.parent = (|manager: &mut crate::gui::window_manager::WindowManager| {
         manager.get_window_by_id(
             NameKeyGenerator::name_to_key("DownloadMenu.wnd:ParentDownload") as i32,
         )
-    });
+    })(receiving_manager);
 
     let parent = state.parent.clone();
     if let Some(parent) = parent {
@@ -308,7 +365,12 @@ pub fn download_menu_shutdown(_layout: &WindowLayout, _user_data: Option<&mut dy
     state.time_left = 0;
 }
 
-pub fn download_menu_update(_layout: &WindowLayout, _user_data: Option<&mut dyn std::any::Any>) {
+pub fn download_menu_update(
+    _layout: &WindowLayout,
+    _user_data: Option<&mut dyn std::any::Any>,
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) {
     let state_handle = download_menu_state();
     let mut state = state_handle.borrow_mut();
     let events = {
@@ -322,13 +384,13 @@ pub fn download_menu_update(_layout: &WindowLayout, _user_data: Option<&mut dyn 
             .unwrap_or_default()
     };
     for event in events {
-        update_from_event(&mut state, event);
+        update_from_event(&mut state, event, receiving_manager, effects);
     }
     update_time_text(&mut state);
 }
 
 pub fn download_menu_input(
-    _window: &GameWindow,
+    window: &mut GameWindow,
     msg: WindowMessage,
     data1: WindowMsgData,
     data2: WindowMsgData,
@@ -344,13 +406,12 @@ pub fn download_menu_input(
         return WindowMsgHandled::Handled;
     }
 
-    effects.with_main_menu(|menu, _| menu.handle_canceled_download(true));
-    close_download_window();
+    cancel_download(window, effects);
     WindowMsgHandled::Handled
 }
 
 pub fn download_menu_system(
-    _window: &GameWindow,
+    window: &mut GameWindow,
     msg: WindowMessage,
     data1: WindowMsgData,
     data2: WindowMsgData,
@@ -362,9 +423,9 @@ pub fn download_menu_system(
         WindowMessage::GadgetSelected => {
             let control_id = data1 as i32;
             let state_handle = download_menu_state();
-            if control_id == state_handle.borrow().button_cancel_id {
-                effects.with_main_menu(|menu, _| menu.handle_canceled_download(true));
-                close_download_window();
+            let cancel_id = state_handle.borrow().button_cancel_id;
+            if control_id == cancel_id {
+                cancel_download(window, effects);
                 return WindowMsgHandled::Handled;
             }
             WindowMsgHandled::Handled

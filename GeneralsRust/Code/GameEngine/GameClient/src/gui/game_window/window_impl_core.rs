@@ -26,9 +26,9 @@ impl GameWindow {
             callbacks: WindowCallbacks {
                 draw: Some(Box::new(legacy_default_draw_callback)),
                 tooltip: None,
-                input: Some(Box::new(default_input_callback)),
+                input: Some(Rc::new(default_input_callback)),
                 input_with_message_sink: None,
-                system: Some(Box::new(default_system_callback)),
+                system: Some(Rc::new(default_system_callback)),
                 system_with_message_sink: None,
                 control_bar_system: false,
                 control_bar_observer_system: false,
@@ -118,7 +118,12 @@ impl GameWindow {
     }
 
     /// Set window size
-    pub fn set_size(&mut self, width: i32, height: i32) -> WindowResult<()> {
+    pub fn set_size(
+        &mut self,
+        width: i32,
+        height: i32,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    ) -> WindowResult<()> {
         self.size.x = width;
         self.size.y = height;
         self.region.high.x = self.region.low.x + width;
@@ -127,6 +132,7 @@ impl GameWindow {
             WindowMessage::User(GGM_RESIZED),
             width as WindowMsgData,
             height as WindowMsgData,
+            effects,
         );
         let mut resize_tab_panes = false;
         let mut sync_listbox_inset = false;
@@ -142,7 +148,7 @@ impl GameWindow {
             _ => {}
         }
         if resize_tab_panes {
-            self.resize_tab_panes_to_content();
+            self.resize_tab_panes_to_content(effects);
         }
         if sync_listbox_inset {
             self.sync_listbox_content_top_inset();
@@ -161,13 +167,17 @@ impl GameWindow {
                 let _ = drop_down
                     .borrow_mut()
                     .set_position((width - button_width).max(0), 0);
-                let _ = drop_down.borrow_mut().set_size(button_width, base_height);
+                let _ = drop_down
+                    .borrow_mut()
+                    .set_size(button_width, base_height, effects);
             }
             if let Some(edit_box) = self.find_child_by_id(links.edit_box) {
                 let _ = edit_box.borrow_mut().set_position(0, 0);
-                let _ = edit_box
-                    .borrow_mut()
-                    .set_size((width - button_width).max(0), base_height);
+                let _ = edit_box.borrow_mut().set_size(
+                    (width - button_width).max(0),
+                    base_height,
+                    effects,
+                );
             }
             if let Some(list_box) = self.find_child_by_id(links.list_box) {
                 let current_list_height = list_box.borrow().get_size().1;
@@ -177,7 +187,7 @@ impl GameWindow {
                     current_list_height
                 };
                 let _ = list_box.borrow_mut().set_position(0, base_height);
-                let _ = list_box.borrow_mut().set_size(width, list_height);
+                let _ = list_box.borrow_mut().set_size(width, list_height, effects);
             }
         }
         if let Some(links) = self.listbox_links {
@@ -185,13 +195,16 @@ impl GameWindow {
             let button_height = 22;
             let has_title = !self.inst_data.text.is_empty();
             let font_height = if has_title {
-                with_window_manager_ref(|manager| {
-                    self.inst_data
-                        .font
-                        .as_ref()
-                        .map(|font| manager.win_font_height(font))
-                        .unwrap_or(12)
-                })
+                self.inst_data
+                    .font
+                    .as_ref()
+                    .map(|font| {
+                        crate::gui::font::get_font_library()
+                            .get_font(&font.to_font_desc())
+                            .map(|resolved| resolved.height)
+                            .unwrap_or_else(|_| crate::gui::font::font_pixel_size(font.size))
+                    })
+                    .unwrap_or(12)
             } else {
                 0
             };
@@ -206,7 +219,9 @@ impl GameWindow {
                 let _ = up_button
                     .borrow_mut()
                     .set_position(width - button_width - 2, top + 2);
-                let _ = up_button.borrow_mut().set_size(button_width, button_height);
+                let _ = up_button
+                    .borrow_mut()
+                    .set_size(button_width, button_height, effects);
             }
             if let Some(down_button) = self.find_child_by_id(links.down_button) {
                 let _ = down_button
@@ -214,21 +229,23 @@ impl GameWindow {
                     .set_position(width - button_width - 2, top + bottom - button_height - 2);
                 let _ = down_button
                     .borrow_mut()
-                    .set_size(button_width, button_height);
+                    .set_size(button_width, button_height, effects);
             }
             if let Some(slider) = self.find_child_by_id(links.slider) {
                 let slider_height = (bottom - (2 * button_height) - 6).max(0);
                 let _ = slider
                     .borrow_mut()
                     .set_position(width - button_width - 2, top + button_height + 3);
-                let _ = slider.borrow_mut().set_size(button_width, slider_height);
+                let _ = slider
+                    .borrow_mut()
+                    .set_size(button_width, slider_height, effects);
             }
             if let Some(thumb_id) = links.thumb {
                 if let Some(thumb) = self.find_child_by_id(thumb_id) {
-                    let _ = thumb.borrow_mut().set_size(button_width, 16);
+                    let _ = thumb.borrow_mut().set_size(button_width, 16, effects);
                 }
             }
-            self.update_listbox_scrollbar();
+            self.update_listbox_scrollbar(effects);
         }
         Ok(())
     }
@@ -403,29 +420,10 @@ impl GameWindow {
             widget.set_enabled(enable);
         }
 
-        // Enable/disable all children. Nested create/focus/hide callbacks may
-        // already hold a child RefCell — queue instead of panic or fail-closed.
-        let children = self.children.clone();
-        for child_rc in children {
-            let queued = child_rc.try_borrow_mut().is_err();
-            if queued {
-                queue_window_manager_op(move |_manager| {
-                    if let Ok(mut child) = child_rc.try_borrow_mut() {
-                        let _ = child.enable(enable);
-                    } else {
-                        let child_rc = child_rc.clone();
-                        crate::gui::window_manager::queue_window_manager_op_deferred(
-                            move |_manager| {
-                                if let Ok(mut child) = child_rc.try_borrow_mut() {
-                                    let _ = child.enable(enable);
-                                }
-                            },
-                        );
-                    }
-                });
-            } else {
-                child_rc.borrow_mut().enable(enable)?;
-            }
+        // C++ GameWindow::winEnable visits children synchronously in sibling
+        // order. Callers must release any child borrow before enabling a parent.
+        for child in &self.children {
+            child.borrow_mut().enable(enable)?;
         }
 
         Ok(())
@@ -453,16 +451,14 @@ impl GameWindow {
         true
     }
 
-    pub fn hide(&mut self, hide: bool) -> WindowResult<()> {
+    pub fn hide(
+        &mut self,
+        hide: bool,
+        manager: &mut crate::gui::window_manager::WindowManager,
+    ) -> WindowResult<()> {
         self.set_hidden_status(hide);
         if hide {
-            let window_ptr = self as *const GameWindow;
-            let children = self.children.clone();
-            // C++ winHide is not re-entrant. Never enqueue into the in-flight
-            // drain (that loops forever when MainMenuUpdate already holds WM).
-            queue_window_manager_op_deferred(move |manager| {
-                manager.window_hiding_from_direct_hide(window_ptr, children);
-            });
+            manager.window_hiding_from_direct_hide(std::ptr::from_ref(self), self.children.clone());
         }
         Ok(())
     }
@@ -500,7 +496,7 @@ impl GameWindow {
     pub fn activate(&mut self) -> WindowResult<()> {
         self.status |= WindowStatus::ACTIVE;
         self.inst_data.status = self.status;
-        self.hide(false)?;
+        self.set_hidden_status(false);
         Ok(())
     }
 
@@ -684,7 +680,8 @@ impl GameWindow {
 
     /// Show the window by clearing the hidden flag.
     pub fn show(&mut self) -> WindowResult<()> {
-        self.hide(false)
+        self.set_hidden_status(false);
+        Ok(())
     }
 
     /// Bring the window to the front of the z-order.
@@ -1317,13 +1314,17 @@ impl GameWindow {
         if self.inst_data.text.is_empty() {
             return 0;
         }
-        let font_height = with_window_manager_ref(|manager| {
-            self.inst_data
-                .font
-                .as_ref()
-                .map(|font| manager.win_font_height(font))
-                .unwrap_or(12)
-        });
+        let font_height = self
+            .inst_data
+            .font
+            .as_ref()
+            .map(|font| {
+                crate::gui::font::get_font_library()
+                    .get_font(&font.to_font_desc())
+                    .map(|resolved| resolved.height)
+                    .unwrap_or_else(|_| crate::gui::font::font_pixel_size(font.size))
+            })
+            .unwrap_or(12);
         (font_height + 1).max(0) as u32
     }
 
@@ -1363,7 +1364,12 @@ impl GameWindow {
         }
     }
 
-    pub fn set_combo_box_selected(&mut self, index: usize, dont_hide: bool) {
+    pub fn set_combo_box_selected(
+        &mut self,
+        index: usize,
+        dont_hide: bool,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    ) {
         let Some(WindowWidget::ComboBox(combo)) = self.widget.as_mut() else {
             return;
         };
@@ -1376,12 +1382,15 @@ impl GameWindow {
                 self.sync_combobox_edit_box(&edit_box);
             }
             if let Some(list_box) = self.find_child_by_id(links.list_box) {
-                self.sync_combobox_listbox(&list_box);
+                self.sync_combobox_listbox(&list_box, effects);
             }
         }
     }
 
-    pub(crate) fn hide_combobox_list(&mut self) {
+    pub(crate) fn hide_combobox_list(
+        &mut self,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    ) {
         let Some(links) = self.combobox_links else {
             return;
         };
@@ -1391,14 +1400,14 @@ impl GameWindow {
         if list_box.borrow().is_hidden() {
             return;
         }
-        let _ = list_box.borrow_mut().hide(true);
+        let _ = effects.with_manager(|manager, _| list_box.borrow_mut().hide(true, manager));
         if let Some(WindowWidget::ComboBox(combo)) = self.widget.as_mut() {
             combo.close();
         }
         if let Some(edit_box) = self.find_child_by_id(links.edit_box) {
             let base_height = edit_box.borrow().get_size().1;
             let (width, _) = self.get_size();
-            let _ = self.set_size(width, base_height);
+            let _ = self.set_size(width, base_height, effects);
         }
     }
 
@@ -1409,16 +1418,22 @@ impl GameWindow {
         }
     }
 
-    pub(crate) fn claim_combobox_lone_window(&mut self) {
-        let window_id = self.id;
-        queue_window_manager_op(move |manager| {
-            if let Some(window) = manager.get_window_by_id(window_id) {
-                manager.set_lone_window(Some(&window));
-            }
+    pub(crate) fn claim_combobox_lone_window(
+        &mut self,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    ) {
+        effects.with_manager(|manager, effects| {
+            let window = manager
+                .get_window_by_id_with_selected(self.id, Some(self))
+                .expect("combo box must belong to the receiving manager");
+            manager.set_lone_window_with_selected(Some(&window), effects, Some(self));
         });
     }
 
-    pub(crate) fn toggle_combobox_dropdown(&mut self) {
+    pub(crate) fn toggle_combobox_dropdown(
+        &mut self,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    ) {
         let Some(links) = self.combobox_links else {
             return;
         };
@@ -1428,23 +1443,23 @@ impl GameWindow {
         if let Some(WindowWidget::ComboBox(combo)) = self.widget.as_mut() {
             combo.set_dont_hide_next(false);
         }
-        self.claim_combobox_lone_window();
+        self.claim_combobox_lone_window(effects);
         let is_hidden = list_box.borrow().is_hidden();
         if is_hidden {
-            self.sync_combobox_listbox(&list_box);
-            self.resize_combobox_listbox(&list_box);
+            self.sync_combobox_listbox(&list_box, effects);
+            self.resize_combobox_listbox(&list_box, effects);
             let list_height = list_box.borrow().get_size().1;
             if let Some(edit_box) = self.find_child_by_id(links.edit_box) {
                 let base_height = edit_box.borrow().get_size().1;
                 let (width, _) = self.get_size();
-                let _ = self.set_size(width, base_height + list_height);
+                let _ = self.set_size(width, base_height + list_height, effects);
             }
-            let _ = list_box.borrow_mut().hide(false);
+            let _ = effects.with_manager(|manager, _| list_box.borrow_mut().hide(false, manager));
             if let Some(WindowWidget::ComboBox(combo)) = self.widget.as_mut() {
                 combo.open();
             }
         } else {
-            self.hide_combobox_list();
+            self.hide_combobox_list(effects);
         }
     }
 
@@ -1503,6 +1518,7 @@ impl GameWindow {
         links: ComboBoxLinks,
         list_box: &Rc<RefCell<GameWindow>>,
         selected: i32,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) -> WindowMsgHandled {
         let dont_hide = if let Some(WindowWidget::ComboBox(combo)) = self.widget.as_mut() {
             if selected < 0 {
@@ -1539,7 +1555,7 @@ impl GameWindow {
         }
 
         if !dont_hide {
-            self.hide_combobox_list();
+            self.hide_combobox_list(effects);
         }
 
         if selected >= 0 && !self.owner_is_self {
@@ -1548,6 +1564,7 @@ impl GameWindow {
                     WindowMessage::User(GCM_SELECTED),
                     self.id as WindowMsgData,
                     0,
+                    effects,
                 );
             }
         }
@@ -1562,40 +1579,52 @@ impl GameWindow {
         }
     }
 
-    pub fn gadget_check_box_set_checked(&mut self, checked: bool) -> WindowMsgHandled {
+    pub fn gadget_check_box_set_checked(
+        &mut self,
+        checked: bool,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    ) -> WindowMsgHandled {
         let Some(WindowWidget::CheckBox(checkbox)) = self.widget.as_mut() else {
             return WindowMsgHandled::Ignored;
         };
 
         checkbox.set_checked(checked);
         self.sync_state_from_widget();
-        self.notify_owner_gadget_selected();
+        self.notify_owner_gadget_selected(effects);
         WindowMsgHandled::Handled
     }
 
-    pub fn gadget_check_box_toggle(&mut self) -> WindowMsgHandled {
+    pub fn gadget_check_box_toggle(
+        &mut self,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    ) -> WindowMsgHandled {
         let Some(WindowWidget::CheckBox(checkbox)) = self.widget.as_mut() else {
             return WindowMsgHandled::Ignored;
         };
 
         checkbox.toggle();
         self.sync_state_from_widget();
-        self.notify_owner_gadget_selected();
+        self.notify_owner_gadget_selected(effects);
         WindowMsgHandled::Handled
     }
 
-    pub(crate) fn notify_owner_gadget_selected(&mut self) {
+    pub(crate) fn notify_owner_gadget_selected(
+        &mut self,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    ) {
         if self.owner_is_self {
             let _ = self.send_system_message(
                 WindowMessage::GadgetSelected,
                 self.id as WindowMsgData,
                 0,
+                effects,
             );
         } else if let Some(owner) = self.get_owner() {
             let _ = owner.borrow_mut().send_system_message(
                 WindowMessage::GadgetSelected,
                 self.id as WindowMsgData,
                 0,
+                effects,
             );
         }
     }
@@ -1720,17 +1749,22 @@ impl GameWindow {
     /// Set input callback
     pub fn set_input_callback<F>(&mut self, callback: F)
     where
-        F: Fn(&GameWindow, WindowMessage, WindowMsgData, WindowMsgData) -> WindowMsgHandled
+        F: Fn(&mut GameWindow, WindowMessage, WindowMsgData, WindowMsgData) -> WindowMsgHandled
             + 'static,
     {
-        self.callbacks.input = Some(Box::new(callback));
+        self.set_input_callback_definition(Rc::new(callback));
+    }
+
+    /// Install an immutable callback definition without another wrapper.
+    pub(crate) fn set_input_callback_definition(&mut self, callback: InputCallback) {
+        self.callbacks.input = Some(callback);
         self.callbacks.input_with_message_sink = None;
     }
 
     pub fn set_input_callback_with_message_sink<F>(&mut self, callback: F)
     where
         F: for<'a> Fn(
-                &GameWindow,
+                &mut GameWindow,
                 WindowMessage,
                 WindowMsgData,
                 WindowMsgData,
@@ -1738,31 +1772,41 @@ impl GameWindow {
             ) -> WindowMsgHandled
             + 'static,
     {
-        self.callbacks.input_with_message_sink = Some(Box::new(callback));
+        self.set_input_callback_with_message_sink_definition(Rc::new(callback));
+    }
+
+    /// Install an immutable callback definition without another wrapper.
+    pub(crate) fn set_input_callback_with_message_sink_definition(
+        &mut self,
+        callback: crate::gui::game_window::InputCallbackWithMessageSink,
+    ) {
+        self.callbacks.input_with_message_sink = Some(callback);
         self.callbacks.input = None;
     }
 
     /// Get input callback.
-    pub fn get_input_callback(
-        &self,
-    ) -> Option<&dyn Fn(&GameWindow, WindowMessage, WindowMsgData, WindowMsgData) -> WindowMsgHandled>
-    {
-        self.callbacks.input.as_deref()
+    pub fn get_input_callback(&self) -> Option<InputCallback> {
+        self.callbacks.input.clone()
     }
 
     /// Reset input callback to the default handler.
     pub fn reset_input_callback(&mut self) {
-        self.callbacks.input = Some(Box::new(default_input_callback));
+        self.callbacks.input = Some(Rc::new(default_input_callback));
         self.callbacks.input_with_message_sink = None;
     }
 
     /// Set system callback
     pub fn set_system_callback<F>(&mut self, callback: F)
     where
-        F: Fn(&GameWindow, WindowMessage, WindowMsgData, WindowMsgData) -> WindowMsgHandled
+        F: Fn(&mut GameWindow, WindowMessage, WindowMsgData, WindowMsgData) -> WindowMsgHandled
             + 'static,
     {
-        self.callbacks.system = Some(Box::new(callback));
+        self.set_system_callback_definition(Rc::new(callback));
+    }
+
+    /// Install an immutable callback definition without another wrapper.
+    pub(crate) fn set_system_callback_definition(&mut self, callback: SystemCallback) {
+        self.callbacks.system = Some(callback);
         self.callbacks.system_with_message_sink = None;
         self.callbacks.control_bar_system = false;
         self.callbacks.control_bar_observer_system = false;
@@ -1777,7 +1821,7 @@ impl GameWindow {
     pub fn set_system_callback_with_message_sink<F>(&mut self, callback: F)
     where
         F: for<'a> Fn(
-                &GameWindow,
+                &mut GameWindow,
                 WindowMessage,
                 WindowMsgData,
                 WindowMsgData,
@@ -1785,7 +1829,15 @@ impl GameWindow {
             ) -> WindowMsgHandled
             + 'static,
     {
-        self.callbacks.system_with_message_sink = Some(Box::new(callback));
+        self.set_system_callback_with_message_sink_definition(Rc::new(callback));
+    }
+
+    /// Install an immutable callback definition without another wrapper.
+    pub(crate) fn set_system_callback_with_message_sink_definition(
+        &mut self,
+        callback: crate::gui::game_window::SystemCallbackWithMessageSink,
+    ) {
+        self.callbacks.system_with_message_sink = Some(callback);
         self.callbacks.system = None;
         self.callbacks.control_bar_system = false;
         self.callbacks.control_bar_observer_system = false;
@@ -1796,16 +1848,13 @@ impl GameWindow {
     }
 
     /// Get system callback.
-    pub fn get_system_callback(
-        &self,
-    ) -> Option<&dyn Fn(&GameWindow, WindowMessage, WindowMsgData, WindowMsgData) -> WindowMsgHandled>
-    {
-        self.callbacks.system.as_deref()
+    pub fn get_system_callback(&self) -> Option<SystemCallback> {
+        self.callbacks.system.clone()
     }
 
     /// Reset system callback to the default handler.
     pub fn reset_system_callback(&mut self) {
-        self.callbacks.system = Some(Box::new(default_system_callback));
+        self.callbacks.system = Some(Rc::new(default_system_callback));
         self.callbacks.system_with_message_sink = None;
         self.callbacks.control_bar_system = false;
         self.callbacks.control_bar_observer_system = false;
@@ -1832,6 +1881,12 @@ impl GameWindow {
         self.set_tooltip_callback(callback);
         self.callbacks.owned_control_bar_tooltip = true;
     }
+    /// The actual ControlBar recipient formats this tooltip during native
+    /// hover dispatch. No stored callback may select another client's state.
+    pub(crate) fn mark_control_bar_tooltip(&mut self) {
+        self.callbacks.owned_control_bar_tooltip = true;
+        self.callbacks.tooltip = None;
+    }
     pub(crate) fn has_owned_control_bar_tooltip(&self) -> bool {
         self.callbacks.owned_control_bar_tooltip
     }
@@ -1854,7 +1909,7 @@ impl GameWindow {
         draw: Option<DrawCallback>,
         tooltip: Option<TooltipCallback>,
     ) {
-        self.callbacks.input = input.or_else(|| Some(Box::new(default_input_callback)));
+        self.callbacks.input = input.or_else(|| Some(Rc::new(default_input_callback)));
         self.callbacks.input_with_message_sink = None;
         self.callbacks.owned_radar_draw = false;
         self.callbacks.draw = draw.or_else(|| Some(Box::new(legacy_default_draw_callback)));
@@ -1882,20 +1937,9 @@ impl GameWindow {
         msg: WindowMessage,
         data1: WindowMsgData,
         data2: WindowMsgData,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) -> WindowMsgHandled {
-        if msg != WindowMessage::Destroy && self.status.contains(WindowStatus::DESTROYED) {
-            return WindowMsgHandled::Ignored;
-        }
-        if let Some(ref input_callback) = self.callbacks.input {
-            let result = input_callback(self, msg, data1, data2);
-            if result.is_ignored() {
-                self.handle_widget_input(msg, data1, data2)
-            } else {
-                result
-            }
-        } else {
-            self.handle_widget_input(msg, data1, data2)
-        }
+        self.send_input_message_with_message_sink(msg, data1, data2, false, effects, None)
     }
 
     /// The selected native ControlBar notification is delivered after the
@@ -1908,32 +1952,24 @@ impl GameWindow {
         owned_options: bool,
         owned_replay: bool,
         owned_restart: bool,
-        mut emitted_messages: Option<&mut crate::gui::game_window::WindowEventEffects<'_>>,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
         mut pending_control_bar_clicks: Option<&mut Vec<crate::helpers::LiveControlBarClick>>,
     ) -> (WindowMsgHandled, Option<ControlBarNotification>) {
         if msg != WindowMessage::Destroy && self.status.contains(WindowStatus::DESTROYED) {
             return (WindowMsgHandled::Ignored, None);
         }
-        if let Some(emitted_messages) = emitted_messages.as_deref_mut() {
-            if let Some(callback) = self.callbacks.input_with_message_sink.as_ref() {
-                let result = callback(self, msg, data1, data2, emitted_messages);
-                if !result.is_ignored() {
-                    return (result, None);
-                }
-            } else if let Some(callback) = self.callbacks.input.as_ref() {
-                let result = callback(self, msg, data1, data2);
-                if !result.is_ignored() {
-                    return (result, None);
-                }
+        if let Some(callback) = self.callbacks.input_with_message_sink.clone() {
+            let result = callback(self, msg, data1, data2, effects);
+            if !result.is_ignored() {
+                return (result, None);
             }
-        } else if let Some(callback) = self.callbacks.input.as_ref() {
+        } else if let Some(callback) = self.callbacks.input.clone() {
             let result = callback(self, msg, data1, data2);
             if !result.is_ignored() {
                 return (result, None);
             }
         }
         let mut notification = None;
-        let mut emitted_messages = emitted_messages;
         let result = self.handle_widget_input_phase(
             msg,
             data1,
@@ -1943,8 +1979,8 @@ impl GameWindow {
             owned_replay,
             owned_restart,
             &mut notification,
-            emitted_messages.as_deref_mut(),
-            pending_control_bar_clicks.as_deref_mut(),
+            effects,
+            pending_control_bar_clicks,
         );
         (result, notification)
     }
@@ -1973,20 +2009,9 @@ impl GameWindow {
         msg: WindowMessage,
         data1: WindowMsgData,
         data2: WindowMsgData,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) -> WindowMsgHandled {
-        if msg != WindowMessage::Destroy && self.status.contains(WindowStatus::DESTROYED) {
-            return WindowMsgHandled::Ignored;
-        }
-        if let Some(ref input_callback) = self.callbacks.input {
-            let result = input_callback(self, msg, data1, data2);
-            if result.is_ignored() {
-                self.handle_widget_input(msg, data1, data2)
-            } else {
-                result
-            }
-        } else {
-            self.handle_widget_input(msg, data1, data2)
-        }
+        self.send_input_message_with_message_sink(msg, data1, data2, false, effects, None)
     }
 
     /// Send system message to window
@@ -1995,21 +2020,9 @@ impl GameWindow {
         msg: WindowMessage,
         data1: WindowMsgData,
         data2: WindowMsgData,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) -> WindowMsgHandled {
-        if msg != WindowMessage::Destroy && self.status.contains(WindowStatus::DESTROYED) {
-            return WindowMsgHandled::Ignored;
-        }
-
-        if let Some(ref system_callback) = self.callbacks.system {
-            let result = system_callback(self, msg, data1, data2);
-            if result.is_ignored() {
-                self.handle_widget_system(msg, data1, data2)
-            } else {
-                result
-            }
-        } else {
-            self.handle_widget_system(msg, data1, data2)
-        }
+        self.send_system_message_with_message_sink(msg, data1, data2, effects, None)
     }
 
     pub(crate) fn send_system_message_with_message_sink(
@@ -2023,15 +2036,21 @@ impl GameWindow {
         if msg != WindowMessage::Destroy && self.status.contains(WindowStatus::DESTROYED) {
             return WindowMsgHandled::Ignored;
         }
-        if let Some(callback) = self.callbacks.system_with_message_sink.as_ref() {
+        if let Some(callback) = self.callbacks.system_with_message_sink.clone() {
             let result = callback(self, msg, data1, data2, emitted_messages);
             if result.is_ignored() {
-                self.handle_widget_system(msg, data1, data2)
+                self.handle_widget_system(msg, data1, data2, emitted_messages)
             } else {
                 result
             }
         } else {
-            self.send_system_message(msg, data1, data2)
+            if let Some(callback) = self.callbacks.system.clone() {
+                let result = callback(self, msg, data1, data2);
+                if !result.is_ignored() {
+                    return result;
+                }
+            }
+            self.handle_widget_system(msg, data1, data2, emitted_messages)
         }
     }
 }
@@ -2074,5 +2093,36 @@ mod send_input_gate_tests {
             WindowMsgHandled::Handled
         );
         assert_eq!(*seen.borrow(), 2);
+    }
+}
+
+#[cfg(test)]
+mod mutable_callback_borrow_tests {
+    use super::*;
+
+    #[test]
+    fn system_callback_can_replace_itself_and_reenter_the_same_window() {
+        let mut window = GameWindow::new();
+        window.set_user_data(Vec::<u32>::new());
+        window.set_system_callback(|window, message, _, _| {
+            assert_eq!(message, WindowMessage::Create);
+            window.get_user_data_mut::<Vec<u32>>().unwrap().push(1);
+            window.set_system_callback(|window, message, _, _| {
+                assert_eq!(message, WindowMessage::Destroy);
+                window.get_user_data_mut::<Vec<u32>>().unwrap().push(2);
+                WindowMsgHandled::Handled
+            });
+            assert_eq!(
+                window.send_system_message(WindowMessage::Destroy, 0, 0),
+                WindowMsgHandled::Handled
+            );
+            window.get_user_data_mut::<Vec<u32>>().unwrap().push(3);
+            WindowMsgHandled::Handled
+        });
+        assert_eq!(
+            window.send_system_message(WindowMessage::Create, 0, 0),
+            WindowMsgHandled::Handled
+        );
+        assert_eq!(window.get_user_data::<Vec<u32>>().unwrap(), &[1, 2, 3]);
     }
 }

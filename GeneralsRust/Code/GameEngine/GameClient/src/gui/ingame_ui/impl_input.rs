@@ -625,7 +625,10 @@ impl InGameUI {
     }
 
     /// C++ `InGameUI::triggerDoubleClickAttackMoveGuardHint` (InGameUI.cpp:1314-1318).
-    pub fn trigger_double_click_attack_move_guard_hint(&mut self) {
+    pub fn trigger_double_click_attack_move_guard_hint(
+        &mut self,
+        input: &InGameUiInputContext<'_>,
+    ) {
         let pos = Self::mouse_screen_to_terrain_for_guard_hint();
         Self::arm_double_click_attack_move_guard_hint(
             &mut self.double_click_attack_move_guard_timer,
@@ -636,7 +639,7 @@ impl InGameUI {
         // createCommandHint (InGameUI.cpp:2526-2534) holds these after the trigger;
         // arm them here so leftover handleRadiusCursor has a decal to fade.
         self.set_mouse_cursor(MouseCursor::ForceAttackGround);
-        self.set_radius_cursor(RadiusCursorType::GuardArea, pos, 1.0);
+        self.set_radius_cursor(RadiusCursorType::GuardArea, pos, 1.0, input);
     }
 
     fn mouse_screen_to_terrain_for_guard_hint() -> Coord3D {
@@ -864,13 +867,9 @@ impl InGameUI {
         false
     }
 
-    fn cursor_is_under_opaque_window() -> bool {
-        let (x, y) = with_mouse(|mouse| mouse.state().position());
-        with_window_manager_ref(|manager| {
-            Self::window_chain_blocks_world_input(
-                manager.get_window_under_cursor(x as i32, y as i32, false),
-            )
-        })
+    fn cursor_is_under_opaque_window(input: &InGameUiInputContext<'_>) -> bool {
+        let (x, y) = input.mouse_position;
+        Self::window_chain_blocks_world_input(input.manager.get_window_under_cursor(x, y, false))
     }
 
     fn command_hint_update_allowed(
@@ -1057,7 +1056,11 @@ impl InGameUI {
         })
     }
 
-    pub fn create_command_hint(&mut self, hint_type: CommandHintType) {
+    pub fn create_command_hint(
+        &mut self,
+        hint_type: CommandHintType,
+        input: &InGameUiInputContext<'_>,
+    ) {
         // Wave 969: host empty dual-world uses presentation catalog hover residual
         // (see hover_target_command_context / hover_target_shroud_for_command_hint).
 
@@ -1084,6 +1087,7 @@ impl InGameUI {
                 RadiusCursorType::GuardArea,
                 Coord3D::new(0.0, 0.0, 0.0),
                 1.0,
+                input,
             );
             return;
         }
@@ -1096,7 +1100,7 @@ impl InGameUI {
         };
         let hint_type = Self::command_hint_after_shroud_projection(hint_type, target_shroud);
 
-        let under_window = Self::cursor_is_under_opaque_window();
+        let under_window = Self::cursor_is_under_opaque_window(input);
 
         let mouse_mode = if TheInGameUI::get_mouse_mode() == MouseMode::GuiCommand {
             MouseMode::GuiCommand
@@ -1287,7 +1291,12 @@ impl InGameUI {
                             TheInGameUI::set_radius_cursor_active_with_type(
                                 &pending.radius_cursor_type,
                             );
-                            self.set_radius_cursor(cursor_type, Coord3D::new(0.0, 0.0, 0.0), 1.0);
+                            self.set_radius_cursor(
+                                cursor_type,
+                                Coord3D::new(0.0, 0.0, 0.0),
+                                1.0,
+                                input,
+                            );
                         }
                     }
                 } else {
@@ -1310,11 +1319,12 @@ impl InGameUI {
         &mut self,
         drawable_id: Option<u32>,
         is_location_hint: bool,
+        input: &InGameUiInputContext<'_>,
     ) {
         if self.is_scrolling || self.is_selecting {
             return;
         }
-        if Self::cursor_is_under_opaque_window() {
+        if Self::cursor_is_under_opaque_window(input) {
             self.set_mouse_cursor(MouseCursor::Arrow);
             return;
         }
@@ -1484,10 +1494,15 @@ impl InGameUI {
         moused_over
     }
 
-    pub fn create_mouseover_hint(&mut self, drawable_id: Option<u32>, is_location_hint: bool) {
+    pub fn create_mouseover_hint(
+        &mut self,
+        drawable_id: Option<u32>,
+        is_location_hint: bool,
+        input: &InGameUiInputContext<'_>,
+    ) {
         // Wave 968: host empty dual-world → presentation catalog residual path.
         if dual_world_registry_unavailable() {
-            self.create_mouseover_hint_from_presentation(drawable_id, is_location_hint);
+            self.create_mouseover_hint_from_presentation(drawable_id, is_location_hint, input);
             return;
         }
 
@@ -1497,7 +1512,7 @@ impl InGameUI {
             return;
         }
 
-        if Self::cursor_is_under_opaque_window() {
+        if Self::cursor_is_under_opaque_window(input) {
             self.set_mouse_cursor(MouseCursor::Arrow);
             return;
         }

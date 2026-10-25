@@ -45,16 +45,20 @@ pub fn check_for_cd_at_game_start(
     }
 
     // C++ checkCDCallback: re-run IsFirstCDPresent; KEEPOPEN if still missing.
-    let _ = message_box_ok_cancel(
-        &GameText::fetch("GUI:InsertCDPrompt"),
-        &GameText::fetch("GUI:InsertCDMessage"),
-        Some(Box::new(move |effects| {
-            if is_first_cd_present() {
-                callback(effects);
-            }
-        })),
-        Some(Box::new(|_| {})),
-    );
+    let _ = effects.with_manager(|manager, effects| {
+        message_box_ok_cancel(
+            &GameText::fetch("GUI:InsertCDPrompt"),
+            &GameText::fetch("GUI:InsertCDMessage"),
+            Some(Box::new(move |effects| {
+                if is_first_cd_present() {
+                    callback(effects);
+                }
+            })),
+            Some(Box::new(|_| {})),
+            manager,
+            effects,
+        )
+    });
 }
 
 #[cfg(test)]

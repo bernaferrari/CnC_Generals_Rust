@@ -5,7 +5,6 @@
 
 use crate::game_text::GameText;
 use crate::gui::gadgets::{ListBox, ListBoxItemData};
-use crate::gui::with_window_manager;
 use crate::gui::{Color, GameWindow, WindowInstanceData, WindowWidget};
 use crate::input::mouse::with_mouse;
 use crate::map_util::get_map_cache_manager;
@@ -119,6 +118,7 @@ fn campaign_image(
     stats: &SkirmishBattleHonors,
     honors: u32,
     flag: u32,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> (&'static str, bool) {
     let (gold, silver, bronze) = match side {
         "China" => ("ChinaCampaign_G", "ChinaCampaign_S", "ChinaCampaign_B"),
@@ -191,9 +191,17 @@ fn ultimate_perfect(stats: &SkirmishBattleHonors) -> bool {
     true
 }
 
-fn set_static_text(name: &str, value: i32) {
+fn set_static_text(
+    name: &str,
+    value: i32,
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+) {
     let id = NameKeyGenerator::name_to_key(name) as i32;
-    if let Some(window) = with_window_manager(|manager| manager.get_window_by_id(id)) {
+    if let Some(window) =
+        (|manager: &mut crate::gui::window_manager::WindowManager| manager.get_window_by_id(id))(
+            receiving_manager,
+        )
+    {
         let _ = window.borrow_mut().set_text(&format!("{}", value));
     }
 }
@@ -348,25 +356,33 @@ fn honor_tooltip_key(honor: u32, extra: i32) -> &'static str {
 }
 
 /// C++ `populateSkirmishBattleHonors`.
-pub fn populate(listbox_info: Option<&Rc<RefCell<GameWindow>>>) {
+pub fn populate(
+    listbox_info: Option<&Rc<RefCell<GameWindow>>>,
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) {
     let stats = SkirmishBattleHonors::new();
     let honors = stats.get_honors();
 
     set_static_text(
         "SkirmishGameOptionsMenu.wnd:StaticTextStreakValue",
         stats.get_win_streak(),
+        receiving_manager,
     );
     set_static_text(
         "SkirmishGameOptionsMenu.wnd:StaticTextBestStreakValue",
         stats.get_best_win_streak(),
+        receiving_manager,
     );
     set_static_text(
         "SkirmishGameOptionsMenu.wnd:StaticTextWinsValue",
         stats.get_wins(),
+        receiving_manager,
     );
     set_static_text(
         "SkirmishGameOptionsMenu.wnd:StaticTextLossesValue",
         stats.get_losses(),
+        receiving_manager,
     );
 
     let Some(listbox_window) = listbox_info else {
@@ -389,8 +405,13 @@ pub fn populate(listbox_info: Option<&Rc<RefCell<GameWindow>>>) {
     let mut row = 1usize;
     let mut column = 0usize;
 
-    let (china_image, china_on) =
-        campaign_image("China", &stats, honors, BATTLE_HONOR_CAMPAIGN_CHINA);
+    let (china_image, china_on) = campaign_image(
+        "China",
+        &stats,
+        honors,
+        BATTLE_HONOR_CAMPAIGN_CHINA,
+        effects,
+    );
     insert_battle_honor(
         listbox,
         china_image,
@@ -400,7 +421,8 @@ pub fn populate(listbox_info: Option<&Rc<RefCell<GameWindow>>>) {
         &mut column,
         0,
     );
-    let (gla_image, gla_on) = campaign_image("GLA", &stats, honors, BATTLE_HONOR_CAMPAIGN_GLA);
+    let (gla_image, gla_on) =
+        campaign_image("GLA", &stats, honors, BATTLE_HONOR_CAMPAIGN_GLA, effects);
     insert_battle_honor(
         listbox,
         gla_image,
@@ -410,7 +432,8 @@ pub fn populate(listbox_info: Option<&Rc<RefCell<GameWindow>>>) {
         &mut column,
         0,
     );
-    let (usa_image, usa_on) = campaign_image("USA", &stats, honors, BATTLE_HONOR_CAMPAIGN_USA);
+    let (usa_image, usa_on) =
+        campaign_image("USA", &stats, honors, BATTLE_HONOR_CAMPAIGN_USA, effects);
     insert_battle_honor(
         listbox,
         usa_image,

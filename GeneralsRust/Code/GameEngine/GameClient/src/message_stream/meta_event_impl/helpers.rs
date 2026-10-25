@@ -456,23 +456,23 @@ pub(crate) fn execute_display_input_action(
     action: game_engine::common::message_stream::DisplayInputAction,
     receiver: &mut crate::core::script_action_handler::ScriptDisplayReceiver,
     owner: &crate::gui::window_manager::WindowManagerOwner,
-    videos: &mut crate::gui::window_video_manager::WindowVideoManager,
-) -> bool {
+    videos: Option<&mut crate::gui::window_video_manager::WindowVideoManager>,
+) -> Option<bool> {
     use game_engine::common::message_stream::{
         DisplayDebugKind as Kind, DisplayInputAction as Action,
     };
-    match action {
+    Some(match action {
         Action::IsMoviePlaying => {
             crate::core::script_action_handler::is_script_display_movie_playing(receiver)
         }
         Action::StopMovie => stop_script_display_movie(receiver),
-        Action::StopWindowMovies => {
-            videos.stop_all_movies();
+        Action::StopRadarMovie => {
+            crate::gui::window_video_manager::stop_radar_movie_for_owner(owner, videos?);
             true
         }
-        Action::NextObjectiveMovie => videos.advance_objective_movie(owner),
-        Action::PlayObjectiveMovie(index) => videos.play_objective_movie(owner, index),
-        Action::ToggleCameoMovie => videos.toggle_cameo_movie(owner),
+        Action::NextObjectiveMovie => videos?.advance_objective_movie(owner),
+        Action::PlayObjectiveMovie(index) => videos?.play_objective_movie(owner, index),
+        Action::ToggleCameoMovie => videos?.toggle_cameo_movie(owner),
         Action::ToggleLetterbox => toggle_script_display_letter_box(receiver),
         Action::ToggleMovieCapture => toggle_script_display_movie_capture(receiver),
         Action::ToggleDebug(kind) => {
@@ -484,7 +484,7 @@ pub(crate) fn execute_display_input_action(
             toggle_script_display_debug_callback(receiver, target);
             true
         }
-    }
+    })
 }
 
 fn dispatch_display_input(
@@ -499,4 +499,76 @@ fn dispatch_display_input(
         ),
         Some(game_engine::common::message_stream::WindowInputDispatchResult::Display(true))
     )
+}
+
+/// A translator's synchronous GUI operation. The caller owns the actual window
+/// manager loan; callbacks receive only that same instance's Effects.
+pub(crate) fn execute_ui_input_action(
+    action: game_engine::common::message_stream::UiInputAction,
+    manager: &mut crate::gui::window_manager::WindowManager,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    game_ending: bool,
+) -> bool {
+    use game_engine::common::message_stream::UiInputAction as Action;
+    match action {
+        Action::DemoMilitarySubtitle => {
+            crate::helpers::TheInGameUI::military_subtitle("MSG:Testing", 10_000, manager);
+            true
+        }
+        Action::ToggleDiplomacy { immediate } => {
+            crate::gui::callbacks::diplomacy::toggle_diplomacy(immediate, manager, effects, None)
+                .is_ok()
+        }
+        Action::ToggleControlBar => {
+            crate::gui::callbacks::control_bar_callbacks::toggle_control_bar(false, manager).is_ok()
+        }
+        Action::ToggleQuitMenu => {
+            effects.with_receiving_manager(manager, |effects| {
+                crate::gui::callbacks::quit_menu::toggle_quit_menu_receiving(
+                    game_ending,
+                    effects,
+                    None,
+                );
+            });
+            true
+        }
+        Action::ToggleShellTopVisibility => {
+            let owner = effects
+                .window_manager_owner
+                .expect("Shell operation requires receiving owner");
+            let (active, layout) = owner
+                .with_shell_ref(|shell| (shell.is_shell_active(), shell.top_layout_receipt()))
+                .unwrap_or((false, None));
+            if active {
+                if let Some(layout) = layout {
+                    let hide = !layout.borrow().is_hidden();
+                    layout.borrow().hide_with_manager(manager, hide);
+                }
+            }
+            active
+        }
+        Action::ActivateHotKey(key) => {
+            let Some(key) = char::from_u32(key) else {
+                return false;
+            };
+            let activation = manager.hot_keys.activation(&key.to_string());
+            activation.is_some_and(|activation| activation.execute(manager, effects))
+        }
+    }
+}
+
+pub(crate) fn dispatch_ui_input(
+    action: game_engine::common::message_stream::UiInputAction,
+    dispatch: &mut game_engine::common::message_stream::WindowInputDispatchFn<'_>,
+    emitted: &mut Vec<GameMessage>,
+) -> bool {
+    match dispatch(
+        game_engine::common::message_stream::WindowInputDispatch::Ui(action),
+        emitted,
+    ) {
+        Some(game_engine::common::message_stream::WindowInputDispatchResult::Ui(handled)) => {
+            handled
+        }
+        _ => panic!("GUI translator operation requires its receiving UI driver"),
+    }
 }

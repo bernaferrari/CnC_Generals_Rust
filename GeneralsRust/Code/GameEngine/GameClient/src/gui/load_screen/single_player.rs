@@ -3,14 +3,13 @@
 fn initialize_single_player_windows(
     wm: &mut WindowManager,
     did_mem_pass: bool,
-    campaign_manager: &crate::gui::campaign_manager::CampaignManager,
     runtime: &mut LoadScreenOperation<'_>,
 ) {
     with_single_player_load_screen_state(
         |state| *state = SinglePlayerLoadScreenState::default(),
         runtime,
     );
-    with_window_video_manager(runtime.videos, |manager| manager.init());
+    with_window_video_manager(runtime.videos(), |manager| manager.init());
 
     set_window_text(wm, "SinglePlayerLoadScreen.wnd:Percent", "0%");
     hide_window(wm, "SinglePlayerLoadScreen.wnd:Percent", true);
@@ -35,8 +34,8 @@ fn initialize_single_player_windows(
     let (movie_label, voice_length) = {
         let mut movie_label = None;
         let mut voice_length = 0;
-        if let Some(mission) = campaign_manager.get_current_mission() {
-            let text = single_player_mission_text(mission);
+        if let Some(mission) = runtime.campaign().get_current_mission().cloned() {
+            let text = single_player_mission_text(&mission);
             with_single_player_load_screen_state(
                 |state| {
                     state.mission_text = text.clone();
@@ -88,7 +87,7 @@ fn initialize_single_player_windows(
         return;
     }
 
-    apply_single_player_campaign_images(wm, campaign_manager);
+    apply_single_player_campaign_images(wm, runtime.campaign());
     let delay = campaign_voice_delay_duration(voice_length);
     let deadline = Instant::now().checked_add(delay);
     with_single_player_load_screen_state(
@@ -241,7 +240,7 @@ fn advance_single_player_load_screen_prelude(
             LoadScreenPreludeStep::Finished(single_player_prelude_outcome(prelude_state))
         }
         LoadScreenPreludeState::Movie => {
-            with_window_video_manager(runtime.videos, |manager| manager.update());
+            with_window_video_manager(runtime.videos(), |manager| manager.update());
             if is_single_player_movie_playing(&movie_label, runtime) {
                 LoadScreenPreludeStep::Pending(LOAD_SCREEN_PRELUDE_MOVIE_IDLE_INTERVAL)
             } else {
@@ -263,7 +262,12 @@ fn advance_single_player_load_screen_prelude(
                 let elapsed = now.saturating_duration_since(start);
                 let progress =
                     (30.0 * elapsed.as_secs_f32() / duration.as_secs_f32()).clamp(0.0, 30.0);
-                set_progress_window(wm, "SinglePlayerLoadScreen.wnd:ProgressLoad", progress);
+                set_progress_window(
+                    wm,
+                    "SinglePlayerLoadScreen.wnd:ProgressLoad",
+                    progress,
+                    &mut runtime.effects,
+                );
             }
             if completed {
                 complete_single_player_load_screen_prelude(

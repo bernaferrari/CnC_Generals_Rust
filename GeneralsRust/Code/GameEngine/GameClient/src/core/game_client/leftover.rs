@@ -1591,7 +1591,7 @@ impl Snapshotable for GameClient {
         }
 
         // C++ GameClient::xfer v2+ briefing history (GameClient.cpp:1531-1560).
-        xfer_diplomacy_briefing_history(xfer, version)?;
+        xfer_diplomacy_briefing_history(xfer, version, &self.window_manager_owner)?;
 
         if xfer.is_reading() {
             self.load_post_process()?;
@@ -1698,6 +1698,7 @@ impl Drop for GameClient {
 fn xfer_diplomacy_briefing_history(
     xfer: &mut dyn Xfer,
     version: XferVersion,
+    owner: &crate::gui::window_manager::WindowManagerOwner,
 ) -> Result<(), String> {
     if version < 2 {
         return Ok(());
@@ -1714,12 +1715,18 @@ fn xfer_diplomacy_briefing_history(
     } else {
         let mut num_entries = 0i32;
         xfer.xfer_int(&mut num_entries).map_err(|e| e.to_string())?;
-        crate::gui::callbacks::diplomacy::update_diplomacy_briefing_text("", true);
+        owner.with_manager(|manager| {
+            crate::gui::callbacks::diplomacy::update_diplomacy_briefing_text("", true, manager)
+        });
         for _ in 0..num_entries.max(0) {
             let mut temp_str = String::new();
             xfer.xfer_ascii_string(&mut temp_str)
                 .map_err(|e| e.to_string())?;
-            crate::gui::callbacks::diplomacy::update_diplomacy_briefing_text(&temp_str, false);
+            owner.with_manager(|manager| {
+                crate::gui::callbacks::diplomacy::update_diplomacy_briefing_text(
+                    &temp_str, false, manager,
+                )
+            });
         }
     }
     Ok(())

@@ -20,9 +20,7 @@ impl ControlBar {
             receiving_upgrade_catalog: None,
             receiving_upgrade_actions: None,
             tooltip: Default::default(),
-            context: Arc::new(RwLock::new(ControlBarContext::default())),
-            window_manager: None,
-            current_window: None,
+            context: ControlBarContext::default(),
             is_animating: false,
             animation_start_time: Instant::now(),
             animation_duration: Duration::from_millis(500),
@@ -81,12 +79,11 @@ impl ControlBar {
     }
 
     /// C++ ControlBar::updateFlashButtons — pulse ready generals-star / command buttons.
-    fn update_flash_buttons(&mut self) {
-        self.update_star_image();
-    }
-
-    pub fn set_window_manager(&mut self, manager: Arc<WindowManager>) {
-        self.window_manager = Some(manager);
+    fn update_flash_buttons(
+        &mut self,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    ) {
+        self.update_star_image(receiving_manager);
     }
 
     // ---------------------------------------------------------------------------
@@ -130,33 +127,45 @@ impl ControlBar {
     // ---------------------------------------------------------------------------
 
     /// Main update loop. Mirrors C++ ControlBar::update().
-    pub fn update(&mut self, delta_time: Duration) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn update(
+        &mut self,
+        delta_time: Duration,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         // ShowControlBar queues DEFAULT (ControlBarCallback.cpp:489) before this
         // live instance ticks. Apply it so CommandWindow HIDDEN is cleared InGame.
-        self.apply_pending_control_bar_stage();
-        self.apply_live_hook_events(true, crate::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource::Standalone);
-        self.update_body(delta_time, true, None, crate::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource::Standalone)
+        self.apply_pending_control_bar_stage(receiving_manager);
+        self.apply_live_hook_events(true, crate::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource::Standalone, receiving_manager, effects);
+        self.update_body(delta_time, true, None, crate::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource::Standalone, None, receiving_manager, effects)
     }
 
     /// Native viewport/stage changes are already admitted on this instance.
     /// Unmigrated HUD clicks, science and shortcut events retain their explicit
     /// compatibility intake until their receiving-owner migration is complete.
-    pub fn update_owned(&mut self, delta_time: Duration) -> Result<(), Box<dyn std::error::Error>> {
-        self.apply_live_hook_events(false, crate::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource::Standalone);
-        self.update_body(delta_time, false, None, crate::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource::Standalone)
+    pub fn update_owned(
+        &mut self,
+        delta_time: Duration,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        self.apply_live_hook_events(false, crate::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource::Standalone, receiving_manager, effects);
+        self.update_body(delta_time, false, None, crate::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource::Standalone, None, receiving_manager, effects)
     }
 
     pub fn update_owned_with_observers(
         &mut self,
         delta_time: Duration,
         roster: &super::control_bar_observer::NativeObserverRoster,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        self.apply_live_hook_events(false, crate::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource::Standalone);
-        self.update_body(delta_time, false, Some(roster), crate::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource::Standalone)?;
+        self.apply_live_hook_events(false, crate::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource::Standalone, receiving_manager, effects);
+        self.update_body(delta_time, false, Some(roster), crate::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource::Standalone, None, receiving_manager, effects)?;
         if self.observer_mode {
             // Legacy art/stat refresh may enumerate its compatibility players.
             // Reassert only native selectable identities from the receiving map.
-            self.refresh_observer_windows_owned(roster);
+            self.refresh_observer_windows_owned(roster, receiving_manager);
         }
         Ok(())
     }
@@ -167,22 +176,33 @@ impl ControlBar {
         upgrade_source: crate::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource<'_>,
         game_ending: bool,
         window_manager_owner: &crate::gui::window_manager::WindowManagerOwner,
-        emitted_messages: &mut Vec<crate::message_stream::game_message::GameMessage>,
+        videos: &mut crate::gui::window_video_manager::WindowVideoManager,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         self.apply_live_hook_events_receiving(
             false,
             upgrade_source,
             game_ending,
             Some(window_manager_owner),
-            emitted_messages,
+            receiving_manager,
+            effects,
         );
-        crate::gui::w3d_gadget_draw::ensure_control_bar_wnd_draw_callbacks_for_owner(
-            window_manager_owner,
+        crate::gui::w3d_gadget_draw::ensure_control_bar_wnd_draw_callbacks_receiving(
+            receiving_manager,
         );
-        self.update_body(delta_time, false, roster, upgrade_source)?;
+        self.update_body(
+            delta_time,
+            false,
+            roster,
+            upgrade_source,
+            Some(videos),
+            receiving_manager,
+            effects,
+        )?;
         if self.observer_mode {
             if let Some(roster) = roster {
-                self.refresh_observer_windows_owned(roster);
+                self.refresh_observer_windows_owned(roster, receiving_manager);
             }
         }
         Ok(())
@@ -193,13 +213,18 @@ impl ControlBar {
         publish_standalone: bool,
         native_roster: Option<&super::control_bar_observer::NativeObserverRoster>,
         upgrade_source: crate::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource<'_>,
+        videos: Option<&mut crate::gui::window_video_manager::WindowVideoManager>,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         crate::gui::w3d_gadget_draw::ensure_scheme_draw_registered();
         if publish_standalone {
-            crate::gui::w3d_gadget_draw::ensure_control_bar_wnd_draw_callbacks();
+            crate::gui::w3d_gadget_draw::ensure_control_bar_wnd_draw_callbacks_receiving(
+                receiving_manager,
+            );
         }
-        super::control_bar_observer::init_observer_controls();
-        super::control_bar_observer::ensure_gen_arrow_from_mapped_images();
+        super::control_bar_observer::init_observer_controls(receiving_manager);
+        super::control_bar_observer::ensure_gen_arrow_from_mapped_images(receiving_manager);
 
         // C++ ControlBar::init ends with switchToContext(CB_CONTEXT_NONE)
         // (ControlBar.cpp:1262) and resetControlBar re-runs it (1304), so the
@@ -208,16 +233,22 @@ impl ControlBar {
         // contexts on ui_dirty; force one entry evaluation once the
         // ControlBar.wnd layout is live so parity does not depend on a host
         // event arriving first.
-        if !self.ingame_entry_context_applied && leftover_find_window(CONTROL_BAR_PARENT).is_some()
+        if !self.ingame_entry_context_applied
+            && leftover_find_window(CONTROL_BAR_PARENT, receiving_manager).is_some()
         {
             self.ingame_entry_context_applied = true;
             // C++ initControlBarObserver (ControlBar.cpp:2741) puts observer
             // bars straight into CB_CONTEXT_OBSERVER_LIST; everyone else gets
             // the CB_CONTEXT_NONE hide matrix via evaluateContextUI.
             if self.observer_mode {
-                self.switch_to_context(ControlBarState::Observer, None)?;
+                self.switch_to_context(
+                    ControlBarState::Observer,
+                    None,
+                    receiving_manager,
+                    effects,
+                )?;
             } else {
-                self.evaluate_context_ui()?;
+                self.evaluate_context_ui(receiving_manager, effects)?;
             }
         }
         if self.is_animating {
@@ -238,49 +269,55 @@ impl ControlBar {
 
         self.current_frame =
             native_roster.map_or_else(TheGameLogic::get_frame, |roster| roster.frame);
-        self.update_star_image();
-        self.update_radar_attack_glow();
+        self.update_star_image(receiving_manager);
+        self.update_radar_attack_glow(receiving_manager);
+        if let Some(videos) = videos {
+            videos.update();
+        }
         // C++ InGameUI.cpp:1776-1815 writes MoneyDisplay / PowerWindow hide
         // immediately before TheControlBar->update(). Live host ticks ControlBar
         // from presentation apply, so this is the live InGameUI money path.
         self.update_money_and_power_windows_with_target(
             native_roster.map(|_| self.observer_target_index_owned()),
+            receiving_manager,
         );
 
         if self.observer_mode {
-            self.update_observer_portrait_preserving_target(native_roster.is_some())?;
+            self.update_observer_portrait_preserving_target(
+                native_roster.is_some(),
+                receiving_manager,
+            )?;
             return Ok(());
         }
 
         if self.science_state.is_visible {
             if self.ui_dirty {
-                self.populate_purchase_science();
-                self.leftover_apply_purchase_science_windows();
+                self.populate_purchase_science(receiving_manager);
+                self.leftover_apply_purchase_science_windows(receiving_manager);
             }
-            self.update_context_purchase_science();
+            self.update_context_purchase_science(receiving_manager);
         }
 
-        self.update_flash_buttons();
+        self.update_flash_buttons(receiving_manager);
 
         if self.ui_dirty {
-            self.evaluate_context_ui()?;
-            self.populate_special_power_shortcut_with_upgrade_source(upgrade_source)?;
+            self.evaluate_context_ui(receiving_manager, effects)?;
+            self.populate_special_power_shortcut_with_upgrade_source(
+                upgrade_source,
+                receiving_manager,
+            )?;
             self.ui_dirty = false;
         }
 
-        self.update_place_beacon_button_enabled();
+        self.update_place_beacon_button_enabled(receiving_manager);
 
-        let context = self
-            .context
-            .read()
-            .map_err(|_| "Failed to acquire context read lock")?;
+        let context = &self.context;
         let current_state = context.current_state;
         let selected_objects = context.selected_objects.clone();
         let player_id = context.player_id;
-        drop(context);
 
         if current_state == ControlBarState::MultiSelect {
-            self.update_context_multi_select()?;
+            self.update_context_multi_select(receiving_manager)?;
             return Ok(());
         }
 
@@ -301,14 +338,14 @@ impl ControlBar {
         let presentation_selection_active =
             self.portrait_state.is_visible && self.portrait_state.selected_count > 0;
         if !registry_exists && !presentation_selection_active {
-            self.switch_to_context(ControlBarState::None, None)?;
+            self.switch_to_context(ControlBarState::None, None, receiving_manager, effects)?;
             return Ok(());
         }
         // Host/presentation still runs command/queue/inventory updates.
         if !registry_exists {
             match current_state {
                 ControlBarState::Command => {
-                    self.update_context_command()?;
+                    self.update_context_command(receiving_manager, effects)?;
                 }
                 // C++ updateContextUnderConstruction / updateContextOCLTimer
                 // (ControlBarUnderConstruction.cpp:82-99, ControlBar.cpp:1563-1574)
@@ -316,10 +353,10 @@ impl ControlBar {
                 // must reveal and tick, and the under-construction label must
                 // update, without dual-world registry modules.
                 ControlBarState::UnderConstruction => {
-                    self.update_context_under_construction(delta_time)?;
+                    self.update_context_under_construction(delta_time, receiving_manager)?;
                 }
                 ControlBarState::OclTimer => {
-                    self.update_context_ocl_timer(delta_time)?;
+                    self.update_context_ocl_timer(delta_time, receiving_manager)?;
                 }
                 _ => {}
             }
@@ -329,29 +366,33 @@ impl ControlBar {
         match current_state {
             ControlBarState::None => {}
             ControlBarState::Command => {
-                self.update_context_command()?;
+                self.update_context_command(receiving_manager, effects)?;
             }
             ControlBarState::StructureInventory => {
                 self.update_context_structure_inventory()?;
             }
             ControlBarState::Beacon => {
-                self.update_context_beacon()?;
+                self.update_context_beacon(receiving_manager)?;
             }
             ControlBarState::UnderConstruction => {
-                self.update_context_under_construction(delta_time)?;
+                self.update_context_under_construction(delta_time, receiving_manager)?;
             }
             ControlBarState::OclTimer => {
-                self.update_context_ocl_timer(delta_time)?;
+                self.update_context_ocl_timer(delta_time, receiving_manager)?;
             }
             ControlBarState::Observer => {
-                self.update_context_observer_preserving_target(native_roster.is_some())?;
+                self.update_context_observer_preserving_target(
+                    native_roster.is_some(),
+                    receiving_manager,
+                )?;
             }
             ControlBarState::MultiSelect => {
-                self.update_context_multi_select()?;
+                self.update_context_multi_select(receiving_manager)?;
             }
         }
 
-        if let Ok(mut context) = self.context.write() {
+        {
+            let mut context = &mut self.context;
             for item in context.construction_queue.iter_mut() {
                 if item.progress < 1.0 && item.build_time > 0.0 {
                     item.progress += delta_time.as_secs_f32() / item.build_time;
@@ -360,12 +401,10 @@ impl ControlBar {
             }
         }
 
-        let context_snapshot = self.context.read().ok().map(|c| c.clone());
-        if let Some(context) = context_snapshot {
-            self.refresh_button_states(&context, player_id);
-        }
+        let context_snapshot = self.context.clone();
+        self.refresh_button_states(&context_snapshot, player_id);
 
-        self.update_special_power_shortcut_availability();
+        self.update_special_power_shortcut_availability(receiving_manager);
 
         if publish_standalone {
             set_live_control_bar_observer_look_at(self.get_observer_look_at_player_index());
@@ -385,10 +424,17 @@ impl ControlBar {
     /// Live host: crate `ThePlayerList` is often empty even in a real offline
     /// match, so the frozen host presentation supplies the local player's cash.
     /// Keep that input separate from the last value actually written to a WND.
-    pub fn update_money_and_power_windows(&mut self) {
-        self.update_money_and_power_windows_with_target(None);
+    pub fn update_money_and_power_windows(
+        &mut self,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    ) {
+        self.update_money_and_power_windows_with_target(None, receiving_manager);
     }
-    fn update_money_and_power_windows_with_target(&mut self, native_target: Option<Option<i32>>) {
+    fn update_money_and_power_windows_with_target(
+        &mut self,
+        native_target: Option<Option<i32>>,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    ) {
         let money_player = if self.observer_mode {
             native_target
                 .unwrap_or_else(|| self.get_observer_look_at_player_index())
@@ -417,9 +463,9 @@ impl ControlBar {
             })
         });
 
-        with_window_manager(|manager| {
-            let money_win = manager.find_window_by_name("ControlBar.wnd:MoneyDisplay");
-            let power_win = manager.find_window_by_name("ControlBar.wnd:PowerWindow");
+        (|receiving_manager: &mut crate::gui::window_manager::WindowManager| {
+            let money_win = receiving_manager.find_window_by_name("ControlBar.wnd:MoneyDisplay");
+            let power_win = receiving_manager.find_window_by_name("ControlBar.wnd:PowerWindow");
             // The host freeze stands in for C++ moneyPlayer while the legacy
             // PlayerList is empty. A recreated WND can still contain its
             // authored $$$ even when the cash amount has not changed.
@@ -433,7 +479,7 @@ impl ControlBar {
                         }
                     }
                 }
-                let _ = win.borrow_mut().hide(money.is_none());
+                let _ = win.borrow_mut().hide(money.is_none(), receiving_manager);
             }
             if let Some(win) = power_win.as_ref() {
                 let presentation = self.presentation_power;
@@ -447,9 +493,9 @@ impl ControlBar {
                 };
                 let text = Self::format_control_bar_power_display(produced, consumed);
                 let _ = win.borrow_mut().set_text(&text);
-                let _ = win.borrow_mut().hide(money.is_none());
+                let _ = win.borrow_mut().hide(money.is_none(), receiving_manager);
             }
-        });
+        })(receiving_manager);
     }
 
     /// Supply the current host presentation cash for the next WND update.
@@ -518,13 +564,16 @@ impl ControlBar {
         &mut self,
         standalone_viewport: bool,
         upgrade_source: crate::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource<'_>,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) {
         self.apply_live_hook_events_receiving(
             standalone_viewport,
             upgrade_source,
             gamelogic::helpers::TheScriptEngine::is_game_ending(),
             None,
-            &mut Vec::new(),
+            receiving_manager,
+            effects,
         );
     }
     /// Finish command continuations immediately after the WND loan, before input returns.
@@ -532,10 +581,16 @@ impl ControlBar {
         &mut self,
         owner: &crate::gui::window_manager::WindowManagerOwner,
         messages: &mut Vec<crate::message_stream::game_message::GameMessage>,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
     ) {
         for click in std::mem::take(&mut self.pending_command_clicks) {
             super::with_host_control_bar_input_provenance(click.input_provenance, || {
-                self.process_context_sensitive_button_click(click, owner, messages)
+                self.process_context_sensitive_button_click(
+                    click,
+                    owner,
+                    messages,
+                    receiving_manager,
+                )
             });
         }
     }
@@ -550,7 +605,8 @@ impl ControlBar {
         upgrade_source: crate::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource<'_>,
         game_ending: bool,
         window_manager_owner: Option<&crate::gui::window_manager::WindowManagerOwner>,
-        emitted_messages: &mut Vec<crate::message_stream::game_message::GameMessage>,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) {
         let events = drain_live_control_bar_events();
         let clicks = if window_manager_owner.is_some() {
@@ -562,28 +618,33 @@ impl ControlBar {
             self.mark_ui_dirty();
         }
         if events.hide_purchase_science {
-            self.hide_purchase_science();
+            self.hide_purchase_science(receiving_manager);
         }
         if events.toggle_purchase_science {
-            self.toggle_purchase_science_receiving(game_ending);
+            self.toggle_purchase_science_receiving(game_ending, receiving_manager, effects);
         }
         if events.show_special_power_shortcut {
-            self.show_special_power_shortcut_receiving(upgrade_source, game_ending);
+            self.show_special_power_shortcut_receiving(
+                upgrade_source,
+                game_ending,
+                receiving_manager,
+                effects,
+            );
         }
         if events.hide_special_power_shortcut {
-            self.hide_special_power_shortcut();
+            self.hide_special_power_shortcut(receiving_manager);
         }
         if let Some(enabled) = events.animate_special_power_shortcut {
             self.animate_special_power_shortcut(enabled);
         }
         if standalone_viewport && events.toggle_control_bar_stage {
-            self.toggle_control_bar_stage();
+            self.toggle_control_bar_stage(receiving_manager);
         }
         if events.init_special_power_shortcut_for_player.is_some() {
-            self.init_special_power_shortcut_bar();
+            self.init_special_power_shortcut_bar(receiving_manager, effects);
         }
         if standalone_viewport && events.set_scheme_by_player.is_some() {
-            self.set_control_bar_scheme_by_player();
+            self.set_control_bar_scheme_by_player(receiving_manager, effects);
         }
         if let Some(window_manager_owner) = window_manager_owner {
             for click in clicks {
@@ -592,7 +653,8 @@ impl ControlBar {
                     self.process_context_sensitive_button_click(
                         click,
                         window_manager_owner,
-                        emitted_messages,
+                        effects.emitted_messages,
+                        receiving_manager,
                     )
                 });
             }
@@ -692,19 +754,19 @@ impl ControlBar {
     // C++ ControlBar.cpp:1689-1888
     // ---------------------------------------------------------------------------
 
-    fn evaluate_context_ui(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+    fn evaluate_context_ui(
+        &mut self,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         self.ui_dirty = false;
-        if self.science_state.is_visible || !leftover_window_is_hidden(GEN_EXP_PARENT) {
-            self.show_purchase_science();
+        if self.science_state.is_visible
+            || !leftover_window_is_hidden(GEN_EXP_PARENT, receiving_manager)
+        {
+            self.show_purchase_science(receiving_manager, effects);
         }
 
-        let mut context = {
-            let mut guard = self
-                .context
-                .write()
-                .map_err(|_| "Failed to acquire context write lock")?;
-            std::mem::take(&mut *guard)
-        };
+        let mut context = std::mem::take(&mut self.context);
 
         if context.selected_objects.is_empty() {
             context.current_state = ControlBarState::None;
@@ -717,12 +779,8 @@ impl ControlBar {
             // other context parent (ControlBar.cpp:2128-2137). Retail shows no
             // command grid and no tab labels until a real context owns them —
             // never a DEFAULT-stage reveal of all 14 authored slots.
-            apply_none_context_hide();
-            let mut guard = self
-                .context
-                .write()
-                .map_err(|_| "Failed to acquire context write lock")?;
-            *guard = context;
+            apply_none_context_hide(receiving_manager);
+            self.context = context;
             return Ok(());
         }
 
@@ -745,13 +803,9 @@ impl ControlBar {
                 }
                 if !peek_neutral_garrison {
                     if is_beacon {
-                        self.rebuild_command_buttons(&mut context)?;
+                        self.rebuild_command_buttons(&mut context, receiving_manager)?;
                     }
-                    let mut guard = self
-                        .context
-                        .write()
-                        .map_err(|_| "Failed to acquire context write lock")?;
-                    *guard = context;
+                    self.context = context;
                     return Ok(());
                 }
             }
@@ -766,22 +820,14 @@ impl ControlBar {
 
         if multi_select {
             context.current_state = ControlBarState::MultiSelect;
-            self.rebuild_command_buttons(&mut context)?;
-            let mut guard = self
-                .context
-                .write()
-                .map_err(|_| "Failed to acquire context write lock")?;
-            *guard = context;
+            self.rebuild_command_buttons(&mut context, receiving_manager)?;
+            self.context = context;
             return Ok(());
         }
 
         let Some(obj_id) = single_drawable_id else {
             context.current_state = ControlBarState::None;
-            let mut guard = self
-                .context
-                .write()
-                .map_err(|_| "Failed to acquire context write lock")?;
-            *guard = context;
+            self.context = context;
             return Ok(());
         };
 
@@ -816,11 +862,7 @@ impl ControlBar {
                 self.presentation_primary_command_set.clear();
                 self.presentation_under_construction = false;
                 self.presentation_construction_percent = 0.0;
-                let mut guard = self
-                    .context
-                    .write()
-                    .map_err(|_| "Failed to acquire context write lock")?;
-                *guard = context;
+                self.context = context;
                 return Ok(());
             }
             // Wave 1028: seed under-construction residual from catalog when freeze unset.
@@ -933,36 +975,24 @@ impl ControlBar {
                     | ControlBarState::MultiSelect
                     | ControlBarState::StructureInventory
             ) {
-                reveal_ingame_command_window();
+                reveal_ingame_command_window(receiving_manager);
             }
             if context.current_state != ControlBarState::None {
-                self.rebuild_command_buttons(&mut context)?;
+                self.rebuild_command_buttons(&mut context, receiving_manager)?;
             }
-            let mut guard = self
-                .context
-                .write()
-                .map_err(|_| "Failed to acquire context write lock")?;
-            *guard = context;
+            self.context = context;
             return Ok(());
         };
         let Ok(obj) = obj_arc.read() else {
             context.current_state = ControlBarState::None;
-            let mut guard = self
-                .context
-                .write()
-                .map_err(|_| "Failed to acquire context write lock")?;
-            *guard = context;
+            self.context = context;
             return Ok(());
         };
 
         if obj.test_status(OBJECT_STATUS_SOLD) {
             drop(obj);
             context.current_state = ControlBarState::None;
-            let mut guard = self
-                .context
-                .write()
-                .map_err(|_| "Failed to acquire context write lock")?;
-            *guard = context;
+            self.context = context;
             return Ok(());
         }
 
@@ -1020,37 +1050,42 @@ impl ControlBar {
                 | ControlBarState::MultiSelect
                 | ControlBarState::StructureInventory
         ) {
-            reveal_ingame_command_window();
+            reveal_ingame_command_window(receiving_manager);
         }
 
-        self.rebuild_command_buttons(&mut context)?;
+        self.rebuild_command_buttons(&mut context, receiving_manager)?;
 
         if context.current_state == ControlBarState::Command {
-            self.populate_build_queue(&mut context, obj_id)?;
+            self.populate_build_queue(&mut context, obj_id, receiving_manager, effects)?;
         }
 
-        let mut guard = self
-            .context
-            .write()
-            .map_err(|_| "Failed to acquire context write lock")?;
-        *guard = context;
+        self.context = context;
 
         Ok(())
     }
 }
 
 impl ControlBar {
-    pub fn update_build_tooltip_layout_owned(&mut self, game_ending: bool) {
+    pub fn update_build_tooltip_layout_owned(
+        &mut self,
+        game_ending: bool,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    ) {
         crate::gui::gui_callbacks::control_bar_popup_description::update_build_tooltip_layout_owned(
             &mut self.tooltip,
             game_ending,
+            receiving_manager,
         );
     }
 
     /// Delete exactly this bar's retained layout/animation, never a TLS peer.
-    pub fn delete_build_tooltip_layout_owned(&mut self) {
+    pub fn delete_build_tooltip_layout_owned(
+        &mut self,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    ) {
         crate::gui::gui_callbacks::control_bar_popup_description::delete_build_tooltip_layout_owned(
             &mut self.tooltip,
+            receiving_manager,
         );
     }
 }

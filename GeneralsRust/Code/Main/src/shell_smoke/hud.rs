@@ -33,7 +33,13 @@ pub(super) fn evaluate_selection(host: &HostSession) -> (bool, bool) {
         #[cfg(feature = "game_client")]
         let control_bar_ok = {
             let mut bar = game_client::gui::control_bar::ControlBar::new();
-            pres.apply_to_control_bar(&mut bar);
+            let mut client =
+                game_client::core::GameClient::new().expect("owned headless ControlBar client");
+            client.with_window_event_effects(None, |effects| {
+                effects.with_manager(|manager, effects| {
+                    pres.apply_to_control_bar(&mut bar, manager, effects)
+                })
+            });
             bar.selection_panel_health()
                 .map(|(hp, max)| hp > 0.0 && max >= hp)
                 .unwrap_or(false)

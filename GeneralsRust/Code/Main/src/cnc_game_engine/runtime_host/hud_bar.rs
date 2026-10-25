@@ -16,7 +16,10 @@ impl CnCGameEngine {
         };
     }
 
-    pub(super) fn runtime_host_cmd_click_control_bar(&mut self, args: &HashMap<String, String>) {
+    pub(super) fn runtime_host_cmd_click_control_bar(
+        &mut self,
+        args: &HashMap<String, String>,
+    ) -> Result<(), String> {
         // Retail ControlBar Options/Idle/General/Beacon residual.
         let action = args
             .get("action")
@@ -56,11 +59,9 @@ impl CnCGameEngine {
                     crate::gameplay_layout::control_bar_layout_honesty(false).shell_residual_ok()
                 }
                 #[cfg(feature = "game_client")]
-                "load" | "materialise" => {
-                    crate::gameplay_layout::materialise_live_control_bar_with_owner(
-                        &self.game_client.window_manager_owner(),
-                    )
-                }
+                "load" | "materialise" => self.with_receiving_menu_effects(|effects| {
+                    crate::gameplay_layout::materialise_live_control_bar_with_owner(effects)
+                })?,
                 #[cfg(not(feature = "game_client"))]
                 "load" | "materialise" => false,
                 _ => simulate_control_bar_options_button_gadget_selected(),
@@ -71,6 +72,7 @@ impl CnCGameEngine {
         } else {
             "click_control_bar_miss".into()
         };
+        Ok(())
     }
 
     pub(super) fn runtime_host_cmd_toggle_in_game_chat(
@@ -179,12 +181,18 @@ impl CnCGameEngine {
                 simulate_idle_worker_button_gadget_selected, simulate_idle_worker_prepare_select,
                 simulate_idle_worker_select_next, simulate_idle_worker_set_count,
             };
-            wnd_ok = match action.as_str() {
-                "count" | "set_count" => simulate_idle_worker_set_count(count),
-                "next" => simulate_idle_worker_select_next(),
-                "prepare" | "prepare_select" => simulate_idle_worker_prepare_select(count),
-                _ => simulate_idle_worker_button_gadget_selected(),
-            };
+            wnd_ok = self
+                .with_receiving_menu_effects(|effects| {
+                    effects.with_manager(|manager, _effects| match action.as_str() {
+                        "count" | "set_count" => simulate_idle_worker_set_count(count, manager),
+                        "next" => simulate_idle_worker_select_next(),
+                        "prepare" | "prepare_select" => {
+                            simulate_idle_worker_prepare_select(count, manager)
+                        }
+                        _ => simulate_idle_worker_button_gadget_selected(),
+                    })
+                })
+                .unwrap_or(false);
         }
         self.runtime_host_last_gameplay_cmd = if wnd_ok {
             format!("click_idle_worker_ok_wnd_{action}")

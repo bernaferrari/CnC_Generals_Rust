@@ -35,12 +35,15 @@ pub type DrawCallback = Box<
 >;
 pub type TooltipCallback = Box<dyn Fn(&GameWindow, &WindowInstanceData, u32)>;
 pub type InputCallback =
-    Box<dyn Fn(&GameWindow, WindowMessage, WindowMsgData, WindowMsgData) -> WindowMsgHandled>;
+    Rc<dyn Fn(&mut GameWindow, WindowMessage, WindowMsgData, WindowMsgData) -> WindowMsgHandled>;
 pub type SystemCallback =
-    Box<dyn Fn(&GameWindow, WindowMessage, WindowMsgData, WindowMsgData) -> WindowMsgHandled>;
+    Rc<dyn Fn(&mut GameWindow, WindowMessage, WindowMsgData, WindowMsgData) -> WindowMsgHandled>;
 /// Effects borrowed from the receiving GameClient for one synchronous window event.
 /// The effects never outlive callback delivery or enter a queued continuation.
 pub struct WindowEventEffects<'a> {
+    pub(crate) ime: Option<&'a mut crate::gui::ime_manager::ImeManager>,
+    pub(crate) manager: Option<&'a mut crate::gui::window_manager::WindowManager>,
+    pub(crate) menus: Option<crate::gui::callbacks::menu_callbacks::MenuCallbackRecipients<'a>>,
     pub(crate) window_manager_owner: Option<&'a crate::gui::window_manager::WindowManagerOwner>,
     pub(crate) selected_window: Option<Weak<RefCell<GameWindow>>>,
     pub(crate) emitted_messages: &'a mut Vec<GameMessage>,
@@ -58,6 +61,327 @@ pub struct WindowEventEffects<'a> {
     )>,
 }
 impl WindowEventEffects<'_> {
+    pub(crate) fn queue_compatibility_replay(
+        &mut self,
+        step: crate::gui::callbacks::replay_menu::ingress::ReplayMenuStep,
+    ) {
+        self.window_manager_owner
+            .expect("replay command requires receiving owner")
+            .queue_replay_step(step);
+    }
+
+    pub(crate) fn with_disconnect_menu<R>(
+        &mut self,
+        operation: impl FnOnce(
+            &mut crate::gui::menus::disconnect_menu::DisconnectMenu,
+            &mut WindowEventEffects<'_>,
+        ) -> R,
+    ) -> R {
+        let menu = self
+            .menus
+            .as_mut()
+            .expect("connection menu requires receiving client")
+            .disconnect
+            .take()
+            .expect("same-menu operation must finish its current borrowed phase");
+        let result =
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| operation(menu, self)));
+        self.menus
+            .as_mut()
+            .expect("menu recipients remain installed")
+            .disconnect = Some(menu);
+        match result {
+            Ok(value) => value,
+            Err(payload) => std::panic::resume_unwind(payload),
+        }
+    }
+    pub(crate) fn with_establish_connections_menu<R>(
+        &mut self,
+        operation: impl FnOnce(
+            &mut crate::gui::menus::establish_connections_menu::EstablishConnectionsMenu,
+            &mut WindowEventEffects<'_>,
+        ) -> R,
+    ) -> R {
+        let menu = self
+            .menus
+            .as_mut()
+            .expect("connection menu requires receiving client")
+            .establish_connections
+            .take()
+            .expect("same-menu operation must finish its current borrowed phase");
+        let result =
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| operation(menu, self)));
+        self.menus
+            .as_mut()
+            .expect("menu recipients remain installed")
+            .establish_connections = Some(menu);
+        match result {
+            Ok(value) => value,
+            Err(payload) => std::panic::resume_unwind(payload),
+        }
+    }
+    pub(crate) fn receiving_disconnect_menu_visible(&self) -> bool {
+        self.menus
+            .as_ref()
+            .expect("disconnect observation requires receiving client")
+            .disconnect
+            .as_deref()
+            .expect("disconnect observation must occur outside its mutable operation")
+            .is_visible()
+    }
+
+    pub(crate) fn with_basic_main_menu<R>(
+        &mut self,
+        operation: impl FnOnce(
+            &mut crate::gui::callbacks::menu_callbacks::MainMenu,
+            &mut WindowEventEffects<'_>,
+        ) -> R,
+    ) -> R {
+        let menu = self
+            .menus
+            .as_mut()
+            .expect("menu callback requires its receiving client")
+            .basic_main
+            .take()
+            .expect("same-menu reentry must resume after the current borrowed phase");
+        let result =
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| operation(menu, self)));
+        self.menus
+            .as_mut()
+            .expect("menu recipient remains installed")
+            .basic_main = Some(menu);
+        match result {
+            Ok(value) => value,
+            Err(payload) => std::panic::resume_unwind(payload),
+        }
+    }
+
+    pub(crate) fn with_single_player_menu<R>(
+        &mut self,
+        operation: impl FnOnce(
+            &mut crate::gui::callbacks::menu_callbacks::SinglePlayerMenu,
+            &mut WindowEventEffects<'_>,
+        ) -> R,
+    ) -> R {
+        let menu = self
+            .menus
+            .as_mut()
+            .expect("menu callback requires its receiving client")
+            .single_player
+            .take()
+            .expect("same-menu reentry must resume after the current borrowed phase");
+        let result =
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| operation(menu, self)));
+        self.menus
+            .as_mut()
+            .expect("menu recipient remains installed")
+            .single_player = Some(menu);
+        match result {
+            Ok(value) => value,
+            Err(payload) => std::panic::resume_unwind(payload),
+        }
+    }
+
+    pub(crate) fn with_options_menu<R>(
+        &mut self,
+        operation: impl FnOnce(
+            &mut crate::gui::callbacks::menu_callbacks::OptionsMenu,
+            &mut WindowEventEffects<'_>,
+        ) -> R,
+    ) -> R {
+        let menu = self
+            .menus
+            .as_mut()
+            .expect("menu callback requires its receiving client")
+            .options
+            .take()
+            .expect("same-menu reentry must resume after the current borrowed phase");
+        let result =
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| operation(menu, self)));
+        self.menus
+            .as_mut()
+            .expect("menu recipient remains installed")
+            .options = Some(menu);
+        match result {
+            Ok(value) => value,
+            Err(payload) => std::panic::resume_unwind(payload),
+        }
+    }
+
+    pub(crate) fn with_map_select_menu<R>(
+        &mut self,
+        operation: impl FnOnce(
+            &mut crate::gui::callbacks::menu_callbacks::MapSelectMenu,
+            &mut WindowEventEffects<'_>,
+        ) -> R,
+    ) -> R {
+        let menu = self
+            .menus
+            .as_mut()
+            .expect("menu callback requires its receiving client")
+            .map_select
+            .take()
+            .expect("same-menu reentry must resume after the current borrowed phase");
+        let result =
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| operation(menu, self)));
+        self.menus
+            .as_mut()
+            .expect("menu recipient remains installed")
+            .map_select = Some(menu);
+        match result {
+            Ok(value) => value,
+            Err(payload) => std::panic::resume_unwind(payload),
+        }
+    }
+
+    pub(crate) fn with_credits_menu<R>(
+        &mut self,
+        operation: impl FnOnce(
+            &mut crate::gui::callbacks::menu_callbacks::CreditsMenu,
+            &mut WindowEventEffects<'_>,
+        ) -> R,
+    ) -> R {
+        let menu = self
+            .menus
+            .as_mut()
+            .expect("menu callback requires its receiving client")
+            .credits
+            .take()
+            .expect("same-menu reentry must resume after the current borrowed phase");
+        let result =
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| operation(menu, self)));
+        self.menus
+            .as_mut()
+            .expect("menu recipient remains installed")
+            .credits = Some(menu);
+        match result {
+            Ok(value) => value,
+            Err(payload) => std::panic::resume_unwind(payload),
+        }
+    }
+
+    pub(crate) fn with_lan_lobby_menu<R>(
+        &mut self,
+        operation: impl FnOnce(
+            &mut crate::gui::callbacks::menu_callbacks::LanLobbyMenu,
+            &mut WindowEventEffects<'_>,
+        ) -> R,
+    ) -> R {
+        let menu = self
+            .menus
+            .as_mut()
+            .expect("menu callback requires its receiving client")
+            .lan_lobby
+            .take()
+            .expect("same-menu reentry must resume after the current borrowed phase");
+        let result =
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| operation(menu, self)));
+        self.menus
+            .as_mut()
+            .expect("menu recipient remains installed")
+            .lan_lobby = Some(menu);
+        match result {
+            Ok(value) => value,
+            Err(payload) => std::panic::resume_unwind(payload),
+        }
+    }
+
+    /// Borrow the campaign belonging to this event recipient.
+    pub fn receiving_campaign_manager_mut(&mut self) -> Option<&mut CampaignManager> {
+        self.campaign_manager.as_deref_mut()
+    }
+
+    /// Complete this operation before admitting its emitted messages. The
+    /// receiver remains the same client across every synchronous callback.
+    pub fn complete_callbacks_into(&mut self, stream: &mut crate::message_stream::MessageStream) {
+        if let Some(owner) = self.window_manager_owner {
+            owner.complete_event_callbacks(self);
+        }
+        for message in self.emitted_messages.drain(..) {
+            stream.append_message_value(message);
+        }
+    }
+
+    pub(crate) fn ime(&self) -> &crate::gui::ime_manager::ImeManager {
+        self.ime
+            .as_deref()
+            .expect("IME operation requires receiving client owner")
+    }
+    pub(crate) fn ime_mut(&mut self) -> &mut crate::gui::ime_manager::ImeManager {
+        self.ime
+            .as_deref_mut()
+            .expect("IME operation requires receiving client owner")
+    }
+
+    pub(crate) fn shell_handle(&self) -> crate::gui::shell::ShellHandle {
+        self.window_manager_owner
+            .expect("Shell callback requires receiving owner")
+            .shell_handle()
+    }
+
+    /// A leaf callback borrows the actual driving manager for exactly its call.
+    /// The outer dispatcher cannot inspect it until the callback returns.
+    pub(crate) fn with_receiving_manager<R>(
+        &mut self,
+        manager: &mut crate::gui::window_manager::WindowManager,
+        operation: impl FnOnce(&mut WindowEventEffects<'_>) -> R,
+    ) -> R {
+        let mut local = WindowEventEffects {
+            manager: Some(manager),
+            menus: self.menus.as_mut().map(|menus| menus.reborrow()),
+            ime: self.ime.as_deref_mut(),
+            window_manager_owner: self.window_manager_owner,
+            selected_window: self.selected_window.clone(),
+            emitted_messages: &mut *self.emitted_messages,
+            pending_control_bar_clicks: self.pending_control_bar_clicks.as_deref_mut(),
+            campaign_manager: self.campaign_manager.as_deref_mut(),
+            menu_world: self.menu_world,
+            menu_host: self.menu_host.as_deref_mut(),
+            window_videos: self.window_videos.as_deref_mut(),
+            script_display: self.script_display.as_deref_mut(),
+            main_menu: self.main_menu.as_deref_mut(),
+            pending_main_menu_actions: Vec::new(),
+        };
+        let result = operation(&mut local);
+        self.pending_main_menu_actions
+            .append(&mut local.pending_main_menu_actions);
+        result
+    }
+    /// Borrow the supplied manager or this operation's explicit owner. Never
+    /// discover an active tree or manufacture a replacement on reentry.
+    pub fn with_manager<R>(
+        &mut self,
+        operation: impl FnOnce(
+            &mut crate::gui::window_manager::WindowManager,
+            &mut WindowEventEffects<'_>,
+        ) -> R,
+    ) -> R {
+        if let Some(manager) = self.manager.take() {
+            let result = operation(manager, self);
+            self.manager = Some(manager);
+            result
+        } else {
+            let owner = self
+                .window_manager_owner
+                .expect("WND operation requires receiving manager");
+            owner.with_manager(|manager| {
+                self.with_receiving_manager(manager, |effects| effects.with_manager(operation))
+            })
+        }
+    }
+    pub fn with_manager_ref<R>(
+        &mut self,
+        operation: impl FnOnce(&crate::gui::window_manager::WindowManager) -> R,
+    ) -> R {
+        if let Some(manager) = self.manager.as_deref() {
+            operation(manager)
+        } else {
+            self.window_manager_owner
+                .expect("WND observation requires receiving manager")
+                .with_manager_ref(operation)
+        }
+    }
+
     pub(crate) fn window_videos(
         &mut self,
     ) -> &mut crate::gui::window_video_manager::WindowVideoManager {
@@ -163,9 +487,52 @@ impl WindowEventEffects<'_> {
         self.main_menu = Some(menu);
         let actions = std::mem::take(&mut self.pending_main_menu_actions);
         for (action, camera_input) in actions {
-            crate::gui::shell::main_menu::MainMenu::execute_action(action, camera_input, self);
+            crate::gui::shell::main_menu::MainMenu::execute_action(
+                action,
+                camera_input,
+                self,
+                None,
+            );
         }
         result
+    }
+
+    pub(crate) fn with_main_menu_for_window<R>(
+        &mut self,
+        window: &mut GameWindow,
+        operation: impl FnOnce(
+            &mut crate::gui::shell::main_menu::MainMenu,
+            &mut WindowEventEffects<'_>,
+            &mut GameWindow,
+        ) -> R,
+    ) -> R {
+        let menu = self
+            .main_menu
+            .take()
+            .expect("menu callback requires receiving client");
+        let result = operation(menu, self, window);
+        self.pending_main_menu_actions.extend(
+            menu.take_pending_actions()
+                .into_iter()
+                .map(|action| (action, None)),
+        );
+        self.main_menu = Some(menu);
+        let actions = std::mem::take(&mut self.pending_main_menu_actions);
+        for (action, camera) in actions {
+            crate::gui::shell::main_menu::MainMenu::execute_action(
+                action,
+                camera,
+                self,
+                Some(&mut *window),
+            );
+        }
+        result
+    }
+    pub(crate) fn complete_pending_main_menu_actions(&mut self) {
+        let actions = std::mem::take(&mut self.pending_main_menu_actions);
+        for (action, camera) in actions {
+            crate::gui::shell::main_menu::MainMenu::execute_action(action, camera, self, None);
+        }
     }
 
     pub(crate) fn queue_window_operation(
@@ -204,26 +571,28 @@ impl WindowEventEffects<'_> {
                 return;
             }
             let previous = effects.selected_window.replace(Rc::downgrade(&target));
-            target
-                .borrow_mut()
-                .send_system_message_with_message_sink(msg, data1, data2, effects, None);
+            effects.with_receiving_manager(manager, |effects| {
+                target
+                    .borrow_mut()
+                    .send_system_message_with_message_sink(msg, data1, data2, effects, None)
+            });
             effects.selected_window = previous;
         });
     }
 }
 
-pub type InputCallbackWithMessageSink = Box<
+pub type InputCallbackWithMessageSink = Rc<
     dyn for<'a> Fn(
-        &GameWindow,
+        &mut GameWindow,
         WindowMessage,
         WindowMsgData,
         WindowMsgData,
         &mut WindowEventEffects<'a>,
     ) -> WindowMsgHandled,
 >;
-pub type SystemCallbackWithMessageSink = Box<
+pub type SystemCallbackWithMessageSink = Rc<
     dyn for<'a> Fn(
-        &GameWindow,
+        &mut GameWindow,
         WindowMessage,
         WindowMsgData,
         WindowMsgData,

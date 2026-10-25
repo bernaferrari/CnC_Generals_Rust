@@ -5,12 +5,12 @@ impl ControlBar {
     // Context update helpers
     // ---------------------------------------------------------------------------
 
-    fn update_context_multi_select(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+    fn update_context_multi_select(
+        &mut self,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let (player_id, selected, buttons) = {
-            let context = self
-                .context
-                .read()
-                .map_err(|_| "Failed to acquire context read lock")?;
+            let context = &self.context;
             (
                 context.player_id,
                 context.selected_objects.clone(),
@@ -60,11 +60,11 @@ impl ControlBar {
                     objects_that_can[i] += 1;
                 }
                 if availability == CommandAvailability::Hidden {
-                    with_window_manager(|wm| {
-                        if let Some(win) = wm.find_window_by_name(&window_name) {
-                            let _ = win.borrow_mut().hide(true);
+                    (|receiving_manager: &mut crate::gui::window_manager::WindowManager| {
+                        if let Some(win) = receiving_manager.find_window_by_name(&window_name) {
+                            let _ = win.borrow_mut().hide(true, receiving_manager);
                         }
-                    });
+                    })(receiving_manager);
                 }
             }
         }
@@ -77,13 +77,13 @@ impl ControlBar {
         }
         // C++'s final pass sets winEnable from the any-capable counts. Do not
         // re-show a window hidden by this or another context.
-        with_window_manager(|wm| {
+        (|receiving_manager: &mut crate::gui::window_manager::WindowManager| {
             for (i, button) in buttons.iter().enumerate() {
                 if button.button_hidden || button.command_name.is_empty() {
                     continue;
                 }
                 let name = format!("ControlBar.wnd:ButtonCommand{:02}", i + 1);
-                let Some(win) = wm.find_window_by_name(&name) else {
+                let Some(win) = receiving_manager.find_window_by_name(&name) else {
                     continue;
                 };
                 if win.borrow().is_hidden() {
@@ -93,7 +93,7 @@ impl ControlBar {
                     let _ = win.borrow_mut().enable(state.enabled);
                 }
             }
-        });
+        })(receiving_manager);
         Ok(())
     }
 
@@ -133,12 +133,16 @@ impl ControlBar {
 
     /// C++ ControlBar.cpp:1410-1433: refresh observer info window every half-second.
     /// C++ ControlBarObserver.cpp:271 populateObserverInfoWindow: units, buildings, kills, losses.
-    fn update_context_observer(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        self.update_context_observer_preserving_target(false)
+    fn update_context_observer(
+        &mut self,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        self.update_context_observer_preserving_target(false, receiving_manager)
     }
     fn update_context_observer_preserving_target(
         &mut self,
         native_target: bool,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let frame = if native_target {
             self.current_frame
@@ -149,16 +153,19 @@ impl ControlBar {
             return Ok(());
         }
 
-        super::control_bar_observer::init_observer_controls();
+        super::control_bar_observer::init_observer_controls(receiving_manager);
         let target = if native_target {
             self.observer_target_index_owned()
         } else {
             super::control_bar_observer::observer_look_at_player_index()
         };
         if target.is_some() {
-            super::control_bar_observer::populate_observer_info_window_for_target(target);
+            super::control_bar_observer::populate_observer_info_window_for_target(
+                target,
+                receiving_manager,
+            );
         } else {
-            super::control_bar_observer::populate_observer_list();
+            super::control_bar_observer::populate_observer_list(receiving_manager);
         }
 
         let player_list = logic_player_list();
@@ -213,7 +220,8 @@ impl ControlBar {
             ));
         }
 
-        if let Ok(mut ctx) = self.context.write() {
+        {
+            let mut ctx = &mut self.context;
             ctx.observer_player_stats = observer_stats;
             if !native_target {
                 ctx.observer_look_at_player =
@@ -226,13 +234,7 @@ impl ControlBar {
 
     /// C++ ControlBarStructureInventory.cpp:181-214: update garrison/contain inventory.
     fn update_context_structure_inventory(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        let selected_object = self
-            .context
-            .read()
-            .map_err(|_| "Failed to acquire context read lock")?
-            .selected_objects
-            .first()
-            .copied();
+        let selected_object = self.context.selected_objects.first().copied();
 
         let Some(object_id) = selected_object else {
             return Ok(());
@@ -250,7 +252,8 @@ impl ControlBar {
                     contain_count = entry.occupant_count as u32;
                 }
             }
-            if let Ok(mut ctx) = self.context.write() {
+            {
+                let mut ctx = &mut self.context;
                 if ctx.last_recorded_inventory_count != contain_count {
                     ctx.last_recorded_inventory_count = contain_count;
                     ctx.ui_dirty = true;
@@ -300,7 +303,8 @@ impl ControlBar {
         };
         let contain_count = contain.lock().map(|c| c.get_contain_count()).unwrap_or(0);
 
-        if let Ok(mut ctx) = self.context.write() {
+        {
+            let mut ctx = &mut self.context;
             if ctx.last_recorded_inventory_count != contain_count {
                 ctx.last_recorded_inventory_count = contain_count;
                 ctx.ui_dirty = true;
@@ -310,17 +314,14 @@ impl ControlBar {
         Ok(())
     }
 
-    fn update_context_beacon(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        let selected_object = self
-            .context
-            .read()
-            .map_err(|_| "Failed to acquire context read lock")?
-            .selected_objects
-            .first()
-            .copied();
+    fn update_context_beacon(
+        &mut self,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let selected_object = self.context.selected_objects.first().copied();
 
         let Some(object_id) = selected_object else {
-            self.populate_beacon_windows(false, "")?;
+            self.populate_beacon_windows(false, "", receiving_manager)?;
             return Ok(());
         };
         let Some(object_arc) = OBJECT_REGISTRY.get_object(object_id) else {
@@ -350,7 +351,7 @@ impl ControlBar {
                 .as_ref()
                 .map(crate::presentation_translator_residual::translator_entry_is_local)
                 .unwrap_or(is_beacon);
-            self.populate_beacon_windows(local && is_beacon, caption)?;
+            self.populate_beacon_windows(local && is_beacon, caption, receiving_manager)?;
             return Ok(());
         };
         let Ok(object) = object_arc.read() else {
@@ -358,7 +359,7 @@ impl ControlBar {
                 .presentation_primary_command_set
                 .to_ascii_uppercase()
                 .contains("BEACON");
-            self.populate_beacon_windows(is_beacon, "")?;
+            self.populate_beacon_windows(is_beacon, "", receiving_manager)?;
             return Ok(());
         };
 
@@ -375,15 +376,16 @@ impl ControlBar {
             })
             .unwrap_or_default();
 
-        self.populate_beacon_windows(object.is_locally_controlled(), &caption)?;
+        self.populate_beacon_windows(object.is_locally_controlled(), &caption, receiving_manager)?;
         Ok(())
     }
 
-    fn update_place_beacon_button_enabled(&self) {
-        let Some(window_manager) = self.window_manager.as_ref() else {
-            return;
-        };
-        let place_button = window_manager.find_window_by_name("ControlBar.wnd:ButtonPlaceBeacon");
+    fn update_place_beacon_button_enabled(
+        &self,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    ) {
+        let place_button =
+            receiving_manager.find_window_by_name("ControlBar.wnd:ButtonPlaceBeacon");
         let enabled = self.local_player_below_beacon_limit();
         Self::apply_place_beacon_button_enabled(&place_button, enabled);
     }
@@ -438,16 +440,13 @@ impl ControlBar {
         &self,
         locally_controlled: bool,
         caption: &str,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let Some(window_manager) = self.window_manager.as_ref() else {
-            return Ok(());
-        };
-
-        let text_entry = window_manager.find_window_by_name("ControlBar.wnd:EditBeaconText");
+        let text_entry = receiving_manager.find_window_by_name("ControlBar.wnd:EditBeaconText");
         let static_text =
-            window_manager.find_window_by_name("ControlBar.wnd:StaticTextBeaconLabel");
+            receiving_manager.find_window_by_name("ControlBar.wnd:StaticTextBeaconLabel");
         let clear_button =
-            window_manager.find_window_by_name("ControlBar.wnd:ButtonClearBeaconText");
+            receiving_manager.find_window_by_name("ControlBar.wnd:ButtonClearBeaconText");
 
         Self::apply_beacon_window_state(
             &text_entry,
@@ -455,6 +454,7 @@ impl ControlBar {
             &clear_button,
             locally_controlled,
             caption,
+            receiving_manager,
         );
         Ok(())
     }
@@ -465,28 +465,29 @@ impl ControlBar {
         clear_button: &Option<Rc<RefCell<GameWindow>>>,
         locally_controlled: bool,
         caption: &str,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
     ) {
         if locally_controlled {
             if let Some(window) = text_entry {
                 let mut guard = window.borrow_mut();
-                let _ = guard.hide(false);
+                let _ = guard.hide(false, receiving_manager);
                 let _ = guard.set_text(caption);
             }
             if let Some(window) = static_text {
-                let _ = window.borrow_mut().hide(false);
+                let _ = window.borrow_mut().hide(false, receiving_manager);
             }
             if let Some(window) = clear_button {
-                let _ = window.borrow_mut().hide(false);
+                let _ = window.borrow_mut().hide(false, receiving_manager);
             }
         } else {
             if let Some(window) = text_entry {
-                let _ = window.borrow_mut().hide(true);
+                let _ = window.borrow_mut().hide(true, receiving_manager);
             }
             if let Some(window) = static_text {
-                let _ = window.borrow_mut().hide(true);
+                let _ = window.borrow_mut().hide(true, receiving_manager);
             }
             if let Some(window) = clear_button {
-                let _ = window.borrow_mut().hide(true);
+                let _ = window.borrow_mut().hide(true, receiving_manager);
             }
         }
     }
@@ -494,12 +495,10 @@ impl ControlBar {
     fn update_context_under_construction(
         &mut self,
         _delta_time: Duration,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let has_selection = {
-            let context = self
-                .context
-                .read()
-                .map_err(|_| "Failed to acquire context read lock")?;
+            let context = &self.context;
             !context.selected_objects.is_empty()
         };
         if !has_selection {
@@ -509,12 +508,7 @@ impl ControlBar {
         // Host/presentation residual owns construct percent display. Dual-world
         // get_construct_percent() can overlay later when OBJECT_REGISTRY modules exist.
         // Wave 1029: catalog under_construction residual keeps dual-world UC context live.
-        let selected_id = self
-            .context
-            .read()
-            .ok()
-            .and_then(|c| c.selected_objects.first().copied())
-            .unwrap_or(0);
+        let selected_id = self.context.selected_objects.first().copied().unwrap_or(0);
         if !self.presentation_under_construction {
             if let Some(entry) =
                 crate::presentation_translator_residual::translator_catalog_entry(selected_id)
@@ -542,33 +536,37 @@ impl ControlBar {
         // percent into ControlBar.wnd:UnderConstructionDesc every update, and
         // populateUnderConstruction (ControlBar.cpp:2271) reveals the parent
         // window. The authored WND label must never show raw.
-        Self::apply_under_construction_windows(&text);
+        Self::apply_under_construction_windows(&text, receiving_manager);
         Ok(())
     }
 
     /// Write the localized under-construction label and reveal the context
     /// window (C++ `GadgetStaticTextSetText` + `winHide(FALSE)`).
-    fn apply_under_construction_windows(text: &str) {
-        crate::gui::with_window_manager(|manager| {
-            if let Some(win) = manager.find_window_by_name("ControlBar.wnd:UnderConstructionDesc") {
+    fn apply_under_construction_windows(
+        text: &str,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    ) {
+        (|receiving_manager: &mut crate::gui::window_manager::WindowManager| {
+            if let Some(win) =
+                receiving_manager.find_window_by_name("ControlBar.wnd:UnderConstructionDesc")
+            {
                 let _ = win.borrow_mut().set_text(text);
             }
-            if let Some(win) = manager.find_window_by_name("ControlBar.wnd:UnderConstructionWindow")
+            if let Some(win) =
+                receiving_manager.find_window_by_name("ControlBar.wnd:UnderConstructionWindow")
             {
-                let _ = win.borrow_mut().hide(false);
+                let _ = win.borrow_mut().hide(false, receiving_manager);
             }
-        });
+        })(receiving_manager);
     }
 
     fn update_context_ocl_timer(
         &mut self,
         _delta_time: Duration,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let obj_id = {
-            let context = self
-                .context
-                .read()
-                .map_err(|_| "Failed to acquire context read lock")?;
+            let context = &self.context;
             context.selected_objects.first().copied()
         };
         let Some(obj_id) = obj_id else {
@@ -607,7 +605,12 @@ impl ControlBar {
             self.displayed_ocl_timer_seconds = seconds;
             let (text, progress) =
                 super::control_bar_ocl_timer::format_ocl_timer_display(seconds, percent);
-            super::control_bar_ocl_timer::apply_ocl_timer_windows(&text, progress, button_kind);
+            super::control_bar_ocl_timer::apply_ocl_timer_windows(
+                &text,
+                progress,
+                button_kind,
+                receiving_manager,
+            );
             self.mark_ui_dirty();
         } else {
             // Still reveal the context window even when the second latch is unchanged.
@@ -615,6 +618,7 @@ impl ControlBar {
                 &super::control_bar_ocl_timer::format_ocl_timer_display(seconds, percent).0,
                 (percent * 100.0).clamp(0.0, 100.0),
                 button_kind,
+                receiving_manager,
             );
         }
         Ok(())
@@ -632,8 +636,6 @@ impl ControlBar {
             return None;
         }
         self.context
-            .read()
-            .expect("receiving observer context poisoned")
             .observer_look_at_player
             .filter(|id| roster.contains_target(*id))
     }
@@ -646,38 +648,32 @@ impl ControlBar {
             return;
         }
         let next = index;
-        self.context
-            .write()
-            .expect("receiving observer context poisoned")
-            .observer_look_at_player = next;
+        self.context.observer_look_at_player = next;
     }
     pub fn observer_target_index_owned(&self) -> Option<i32> {
         if !self.observer_mode {
             return None;
         }
-        self.context
-            .read()
-            .expect("receiving observer context poisoned")
-            .observer_look_at_player
+        self.context.observer_look_at_player
     }
     pub fn clear_observer_target_owned(&mut self) {
-        self.context
-            .write()
-            .expect("receiving observer context poisoned")
-            .observer_look_at_player = None;
+        self.context.observer_look_at_player = None;
     }
     pub fn refresh_observer_windows_owned(
         &mut self,
         roster: &super::control_bar_observer::NativeObserverRoster,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
     ) {
         let target = self.observer_target_owned(roster);
         if target.is_none() {
             self.clear_observer_target_owned();
         }
-        with_window_manager(|manager| {
+        (|receiving_manager: &mut crate::gui::window_manager::WindowManager| {
             super::control_bar_observer::refresh_observer_windows_in_manager(
-                manager, roster, target,
+                receiving_manager,
+                roster,
+                target,
             )
-        });
+        })(receiving_manager);
     }
 }

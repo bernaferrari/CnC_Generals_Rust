@@ -691,8 +691,11 @@ impl CnCGameEngine {
         // - InGame world: handle_left/right_click + presentation picks.
         //   GameHUD cameo fallback only when WND did not consume.
         #[cfg(feature = "game_client")]
-        let shell_active =
-            game_client::gui::with_shell_ref(|shell| shell.is_shell_active()).unwrap_or(false);
+        let shell_active = self
+            .game_client
+            .window_manager_owner()
+            .with_shell_ref(|shell| shell.is_shell_active())
+            .unwrap_or(false);
         #[cfg(not(feature = "game_client"))]
         let shell_active = self.shell_menu_active;
         let mut hud_cameo_consumed = false;
@@ -1011,10 +1014,12 @@ impl CnCGameEngine {
         // called hide, but ticks can leave residual MainMenu hit-testable).
         #[cfg(feature = "game_client")]
         {
-            let _ = game_client::gui::try_with_shell_mut(|shell| {
-                shell.hide(true);
+            if let Err(error) = self.with_receiving_menu_shell(|shell, effects| {
+                shell.hide_with_effects(true, effects);
                 shell.set_shell_active(false);
-            });
+            }) {
+                log::warn!("receiving Shell hide failed: {error}");
+            }
             self.shell_menu_active = false;
         }
         // Aim at a world point the shell/HUD does not own. Fullscreen residual
@@ -1411,20 +1416,24 @@ impl CnCGameEngine {
                 self.host_set_paused(false);
                 #[cfg(feature = "game_client")]
                 {
-                    let _ = game_client::gui::try_with_shell_mut(|shell| {
-                        shell.hide(true);
+                    if let Err(error) = self.with_receiving_menu_shell(|shell, effects| {
+                        shell.hide_with_effects(true, effects);
                         shell.set_shell_active(false);
-                    });
-                    game_client::gui::with_window_manager(|manager| {
-                        for name in [
-                            "SkirmishGameOptionsMenu.wnd:SkirmishGameOptionsMenuParent",
-                            "MainMenu.wnd:MainMenuParent",
-                        ] {
-                            if let Some(window) = manager.find_window_by_name(name) {
-                                game_client::gui::hide_window_rc(&window, true);
+                    }) {
+                        log::warn!("receiving Shell hide failed: {error}");
+                    }
+                    self.game_client
+                        .window_manager_owner()
+                        .with_manager(|manager| {
+                            for name in [
+                                "SkirmishGameOptionsMenu.wnd:SkirmishGameOptionsMenuParent",
+                                "MainMenu.wnd:MainMenuParent",
+                            ] {
+                                if let Some(window) = manager.find_window_by_name(name) {
+                                    let _ = manager.hide_window(&window, true);
+                                }
                             }
-                        }
-                    });
+                        });
                     self.shell_menu_active = false;
                 }
                 self.ensure_gameplay_layouts();
@@ -1862,7 +1871,14 @@ impl CnCGameEngine {
                     .as_ref()
                     .map(|content| content.action_definitions_shared()),
             );
-            pres.apply_to_control_bar(&mut self.control_bar);
+            let facts = self.receiving_menu_world_facts();
+            let bar = &mut self.control_bar;
+            self.game_client
+                .with_window_event_effects(Some(facts), |effects| {
+                    effects.with_manager(|manager, effects| {
+                        pres.apply_to_control_bar(bar, manager, effects)
+                    });
+                });
             let _ =
                 self.update_receiving_observer_control_bar(std::time::Duration::from_millis(33));
         }
@@ -2233,7 +2249,7 @@ impl CnCGameEngine {
             let mouse = game_client.input_mouse_handle();
             let command_hints = game_client.command_hint_snapshot();
             let client_frame = game_client.get_frame();
-            let (render_bridge, mut scene_drawables, ui_renderer, window_owner) =
+            let (render_bridge, mut scene_drawables, ui_renderer, window_owner, ime) =
                 game_client.split_render_bridge_drawables_and_ui_renderer();
             let mut ui_draw = ui_renderer.map(|renderer| {
                 crate::graphics::ui_render_pass::NativeUiDraw::new(
@@ -2241,6 +2257,7 @@ impl CnCGameEngine {
                     window_owner,
                     display_facts,
                     mouse,
+                    ime,
                 )
                 .with_command_hints(command_hints, client_frame)
             });
@@ -3113,7 +3130,9 @@ impl CnCGameEngine {
     ) -> Result<(), String> {
         let owner = self.game_client.window_manager_owner_ref();
         let shell_finished = owner
-            .with_shell_ref(|shell| shell.is_anim_finished())
+            .with_manager_ref(|manager| {
+                owner.with_shell_ref(|shell| shell.is_anim_finished_with_manager(manager))
+            })
             .ok_or_else(|| "source Menu suffix requires released Shell".to_string())?;
         let transition_finished = owner
             .try_with_manager_ref(|manager| manager.transitions_finished())
@@ -3185,6 +3204,9 @@ impl CnCGameEngine {
             }
             for request in requests {
                 match request {
+                    MenuHostRequest::AcknowledgePopup { generation } => {
+                        self.host_dismiss_in_game_popup_message(generation);
+                    }
                     MenuHostRequest::StartCampaign {
                         descriptor,
                         clear_previous,
@@ -3248,7 +3270,9 @@ impl CnCGameEngine {
                     }
                     MenuHostRequest::ResetPlacement => {
                         let owner = self.game_client.window_manager_owner_ref();
-                        owner.with_scope(|| self.control_bar.hide_purchase_science());
+                        owner.with_manager(|manager| {
+                            self.control_bar.hide_purchase_science(manager)
+                        });
                         self.pending_structure_placement = None;
                         self.game_hud_mut()
                             .construction_panel

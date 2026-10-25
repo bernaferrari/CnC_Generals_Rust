@@ -3,7 +3,9 @@ use super::*;
 use gamelogic::upgrade::UpgradeTemplate;
 
 #[test]
-fn receiving_upgrade_tooltip_uses_own_purchased_conflicting_and_cost_observations() {
+fn receiving_upgrade_tooltip_uses_own_purchased_conflicting_and_cost_observations(
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) {
     if let crate::test_process::TestProcess::ParentVerified = crate::test_process::run_bounded(
         module_path!(),
         "receiving_upgrade_tooltip_uses_own_purchased_conflicting_and_cost_observations",
@@ -11,19 +13,23 @@ fn receiving_upgrade_tooltip_uses_own_purchased_conflicting_and_cost_observation
         return;
     }
     let mut manager = WindowManager::new();
-    let parent = manager.create_window(None, 0, 0, 500, 150).unwrap();
+    let parent = manager
+        .create_window(None, 0, 0, 500, 150, effects)
+        .unwrap();
     parent
         .borrow_mut()
         .set_id(NameKeyGenerator::name_to_key("ReceivingUpgradeTooltip:Parent") as i32);
     let description = manager
-        .create_window(Some(&parent), 0, 0, 480, 120)
+        .create_window(Some(&parent), 0, 0, 480, 120, effects)
         .unwrap();
     description
         .borrow_mut()
         .set_id(NameKeyGenerator::name_to_key(
             "ControlBarPopupDescription.wnd:StaticTextDescription",
         ) as i32);
-    let cost = manager.create_window(Some(&parent), 0, 0, 80, 20).unwrap();
+    let cost = manager
+        .create_window(Some(&parent), 0, 0, 80, 20, effects)
+        .unwrap();
     cost.borrow_mut().set_id(NameKeyGenerator::name_to_key(
         "ControlBarPopupDescription.wnd:StaticTextCost",
     ) as i32);

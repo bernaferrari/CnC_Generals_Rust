@@ -255,6 +255,19 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         })
     }
 
+    fn destroy_win_lose_window(&mut self) -> Option<gamelogic::GameLogicResult<()>> {
+        Some(match self.ui.ui.as_deref_mut() {
+            Some(ui) => ui.destroy_win_lose_window(),
+            None => Ok(()),
+        })
+    }
+    fn close_game_windows(&mut self) -> Option<gamelogic::GameLogicResult<()>> {
+        Some(match self.ui.ui.as_deref_mut() {
+            Some(ui) => ui.close_game_windows(),
+            None => Ok(()),
+        })
+    }
+
     fn initialize_named_cache(&mut self) -> Option<()> {
         self.world.initialize_receiving_named_script_cache();
         Some(())
@@ -2130,7 +2143,11 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
 
     fn after_action(&mut self) -> gamelogic::GameLogicResult<()> {
         self.world
-            .apply_script_action_requests_with_effects(self.interpreter, self.ui.reborrow())
+            .apply_script_action_requests_with_effects(self.interpreter, self.ui.reborrow())?;
+        if let Some(ui) = self.ui.ui.as_deref_mut() {
+            ui.flush_window_callbacks()?;
+        }
+        Ok(())
     }
 
     fn literal_template_exists(&self, name: &str) -> ScriptOwnerQuery<bool> {

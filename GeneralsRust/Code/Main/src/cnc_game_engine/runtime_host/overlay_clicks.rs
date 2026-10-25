@@ -69,7 +69,9 @@ impl CnCGameEngine {
         let mut wnd_ok = false;
         #[cfg(feature = "game_client")]
         {
-            wnd_ok = game_client::gui::simulate_shell_map_toggle();
+            wnd_ok = game_client::gui::simulate_shell_map_toggle(
+                &self.game_client.window_manager_owner(),
+            );
         }
         self.runtime_host_last_gameplay_cmd = if wnd_ok {
             "toggle_shell_map_ok_wnd".into()
@@ -91,10 +93,12 @@ impl CnCGameEngine {
                 simulate_shell_map_toggle,
             };
             wnd_ok = match action.as_str() {
-                "hide" => simulate_shell_map_hide(),
-                "toggle" => simulate_shell_map_toggle(),
-                "prepare_cycle" | "cycle" => simulate_shell_map_prepare_cycle(),
-                _ => simulate_shell_map_show(),
+                "hide" => simulate_shell_map_hide(&self.game_client.window_manager_owner()),
+                "toggle" => simulate_shell_map_toggle(&self.game_client.window_manager_owner()),
+                "prepare_cycle" | "cycle" => {
+                    simulate_shell_map_prepare_cycle(&self.game_client.window_manager_owner())
+                }
+                _ => simulate_shell_map_show(&self.game_client.window_manager_owner()),
             };
         }
         self.runtime_host_last_gameplay_cmd = if wnd_ok {
@@ -262,29 +266,26 @@ impl CnCGameEngine {
                 simulate_ime_result_string, simulate_ime_start_composition,
                 simulate_ime_update_composition,
             };
-            wnd_ok = match action.as_str() {
-                "enable" => simulate_ime_enable(),
-                "disable" => simulate_ime_disable(),
-                "start" => simulate_ime_start_composition(),
-                "update" => simulate_ime_update_composition(&text, text.chars().count()),
+            wnd_ok = self.with_receiving_menu_effects(|effects| match action.as_str() {
+                "enable" => simulate_ime_enable(effects),
+                "disable" => simulate_ime_disable(effects),
+                "start" => simulate_ime_start_composition(effects),
+                "update" => simulate_ime_update_composition(&text, text.chars().count(), effects),
                 "result" => {
-                    self.with_receiving_menu_effects(|effects| {
-                        drive_os_wnd_ime_result_like_cpp(&text, effects)
-                    })? || simulate_ime_result_string(&text)
+                    drive_os_wnd_ime_result_like_cpp(&text, effects)
+                        || simulate_ime_result_string(&text, effects)
                 }
                 "clear" => {
-                    self.with_receiving_menu_effects(|effects| {
-                        drive_os_wnd_ime_clear_candidates_like_cpp(effects)
-                    })? || simulate_ime_clear_candidates()
+                    drive_os_wnd_ime_clear_candidates_like_cpp(effects)
+                        || simulate_ime_clear_candidates(effects)
                 }
-                "end" => simulate_ime_end_composition(),
-                "reset" => simulate_ime_reset(),
+                "end" => simulate_ime_end_composition(effects),
+                "reset" => simulate_ime_reset(effects),
                 _ => {
-                    self.with_receiving_menu_effects(|effects| {
-                        drive_os_wnd_ime_prepare_composition_cycle_like_cpp(&text, effects)
-                    })? || simulate_ime_prepare_composition_cycle(&text)
+                    drive_os_wnd_ime_prepare_composition_cycle_like_cpp(&text, effects)
+                        || simulate_ime_prepare_composition_cycle(&text, effects)
                 }
-            };
+            })?;
         }
         self.runtime_host_last_gameplay_cmd = if wnd_ok {
             format!("click_ime_ok_wnd_{action}")
@@ -823,7 +824,9 @@ impl CnCGameEngine {
             "windows" => {
                 #[cfg(feature = "game_client")]
                 {
-                    false && game_client::gui::with_window_manager_ref(|wm| wm.window_count() > 0)
+                    self.game_client
+                        .window_manager_owner()
+                        .with_manager_ref(|wm| wm.window_count() > 0)
                 }
                 #[cfg(not(feature = "game_client"))]
                 {

@@ -1,15 +1,14 @@
 // C++ InGameUI::placeBuildAvailable / handleBuildPlacements / destroyPlacementIcons.
 // Included by ingame_ui/mod.rs.
 
+use crate::drawable::DrawableId;
 use crate::drawable::drawable::{DrawableStatus, DrawableType, Vector3};
 use crate::drawable::drawable_manager::with_drawable_manager;
-use crate::drawable::DrawableId;
 use crate::message_stream::place_event_confirm::{
     is_line_build_template_name, placement_angle_from_world_drag,
 };
 
 const MAX_LINE_BUILD_PLACE_ICONS: usize = 50;
-
 
 impl InGameUI {
     /// C++ `InGameUI::placeBuildAvailable` — spawn a translucent 3D place icon.
@@ -17,6 +16,7 @@ impl InGameUI {
         &mut self,
         template_name: Option<String>,
         source_object_id: Option<u32>,
+        input: &InGameUiInputContext<'_>,
     ) {
         if template_name.is_some() && self.pending_place_icon_template.is_some() {
             self.destroy_placement_icons();
@@ -35,6 +35,7 @@ impl InGameUI {
             RadiusCursorType::None,
             Coord3D::new(0.0, 0.0, 0.0),
             0.0,
+            input,
         );
         self.mouse_mode = MouseMode::BuildPlace;
 
@@ -286,7 +287,10 @@ impl InGameUI {
         }
 
         for (i, icon) in self.place_icons.iter_mut().enumerate() {
-            let pos = positions.get(i).cloned().unwrap_or_else(|| world_start.clone());
+            let pos = positions
+                .get(i)
+                .cloned()
+                .unwrap_or_else(|| world_start.clone());
             icon.position = pos;
             icon.angle = angle;
             // Extra tiles past the first inherit legality from can_place_at.
@@ -342,5 +346,4 @@ impl InGameUI {
             );
         }
     }
-
 }

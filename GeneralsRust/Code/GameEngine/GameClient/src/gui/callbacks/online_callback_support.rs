@@ -99,19 +99,28 @@ pub fn with_gamespy_info_mut<R>(f: impl FnOnce(&mut GameSpyInfo) -> R) -> Option
 ///
 /// `data1`/`data2` both carry the gadget id because Rust `WindowMsgData` is
 /// `usize`, not a `GameWindow*`. System handlers already key off `data1 as i32`.
-pub fn send_simulated_gadget_selected(target: &Rc<RefCell<GameWindow>>, control_id: i32) {
+pub fn send_simulated_gadget_selected(
+    target: &Rc<RefCell<GameWindow>>,
+    control_id: i32,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) {
     let _ = target.borrow_mut().send_system_message(
         WindowMessage::GadgetSelected,
         control_id as WindowMsgData,
         control_id as WindowMsgData,
+        effects,
     );
 }
 
 /// Snapshot-then-dispatch so ESC handlers can drop their `RefCell` borrow
 /// before the system callback re-enters the same thread-local state.
-pub fn dispatch_esc_gadget_selected(parent: Option<Rc<RefCell<GameWindow>>>, control_id: i32) {
+pub fn dispatch_esc_gadget_selected(
+    parent: Option<Rc<RefCell<GameWindow>>>,
+    control_id: i32,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) {
     if let Some(parent) = parent {
-        send_simulated_gadget_selected(&parent, control_id);
+        send_simulated_gadget_selected(&parent, control_id, effects);
     }
 }
 

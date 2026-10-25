@@ -7,8 +7,12 @@ use crate::gui::callbacks::popup_save_load::{
 };
 use crate::gui::{GameWindow, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled};
 
-pub fn SaveLoadMenuInit(layout: &WindowLayout, user_data: Option<&dyn std::any::Any>) {
-    save_load_menu_init(layout, user_data);
+pub fn SaveLoadMenuInit(
+    layout: &WindowLayout,
+    user_data: Option<&dyn std::any::Any>,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) {
+    save_load_menu_init(layout, user_data, effects);
 }
 
 pub fn SaveLoadMenuFullScreenInit(
@@ -19,16 +23,24 @@ pub fn SaveLoadMenuFullScreenInit(
     save_load_menu_full_screen_init(layout, user_data, effects);
 }
 
-pub fn SaveLoadMenuUpdate(layout: &WindowLayout, user_data: Option<&dyn std::any::Any>) {
-    save_load_menu_update(layout, user_data);
+pub fn SaveLoadMenuUpdate(
+    layout: &WindowLayout,
+    user_data: Option<&dyn std::any::Any>,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) {
+    save_load_menu_update(layout, user_data, effects);
 }
 
-pub fn SaveLoadMenuShutdown(layout: &WindowLayout, user_data: Option<&dyn std::any::Any>) {
-    save_load_menu_shutdown(layout, user_data);
+pub fn SaveLoadMenuShutdown(
+    layout: &WindowLayout,
+    user_data: Option<&dyn std::any::Any>,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) {
+    save_load_menu_shutdown(layout, user_data, effects);
 }
 
 pub fn SaveLoadMenuSystem(
-    window: &GameWindow,
+    window: &mut GameWindow,
     msg: WindowMessage,
     data1: WindowMsgData,
     data2: WindowMsgData,
@@ -38,10 +50,11 @@ pub fn SaveLoadMenuSystem(
 }
 
 pub fn SaveLoadMenuInput(
-    window: &GameWindow,
+    window: &mut GameWindow,
     msg: WindowMessage,
     data1: WindowMsgData,
     data2: WindowMsgData,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> WindowMsgHandled {
-    save_load_menu_input(window, msg, data1, data2)
+    save_load_menu_input(window, msg, data1, data2, effects)
 }

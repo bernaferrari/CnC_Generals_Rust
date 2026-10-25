@@ -60,14 +60,17 @@ pub(crate) fn scheme_slot_size(
 /// setter does not raise the status bit, so do both here. An empty or
 /// unresolvable image name binds nothing, leaving the retail-invisible
 /// imageless window (audit: right command panel stayed black without art).
-pub(crate) fn apply_scheme_right_hud_image(image_name: &str) {
+pub(crate) fn apply_scheme_right_hud_image(
+    image_name: &str,
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+) {
     if image_name.is_empty() {
         return;
     }
     let Some(image) = leftover_mapped_image(image_name) else {
         return;
     };
-    if let Some(win) = leftover_find_window("ControlBar.wnd:RightHUD") {
+    if let Some(win) = leftover_find_window("ControlBar.wnd:RightHUD", receiving_manager) {
         let mut guard = win.borrow_mut();
         let _ = guard.set_enabled_image(0, image);
         guard.set_status(crate::gui::game_window::WindowStatus::IMAGE);
@@ -86,43 +89,75 @@ pub(crate) fn apply_scheme_right_hud_image(image_name: &str) {
 /// context) — mirror that here so the DEFAULT stage can never leak the
 /// observer "Units / Buildings" tab labels over the command grid.
 // Existing context adapters share the same matrix; the WND route supplies
-// its receiving manager directly instead of entering this service wrapper.
-fn reveal_ingame_command_window() {
-    with_window_manager(ControlBar::reveal_ingame_command_window_owned);
+// its receiving receiving_manager directly instead of entering this service wrapper.
+fn reveal_ingame_command_window(receiving_manager: &mut crate::gui::window_manager::WindowManager) {
+    (ControlBar::reveal_ingame_command_window_owned)(receiving_manager);
 }
 
 /// C++ `switchToContext(CB_CONTEXT_NONE)` hide matrix (ControlBar.cpp:2128-2137):
 /// no selection means every right-side context parent is hidden, including
 /// CP_COMMAND (CommandWindow) and CP_BUILD_QUEUE (ProductionQueueWindow).
 /// Retail shows no command grid until a real context owns it.
-fn apply_none_context_hide() {
-    leftover_hide_window("ControlBar.wnd:CommandWindow", true);
-    leftover_hide_window("ControlBar.wnd:ProductionQueueWindow", true);
-    leftover_hide_window("ControlBar.wnd:BeaconWindow", true);
-    leftover_hide_window("ControlBar.wnd:UnderConstructionWindow", true);
-    leftover_hide_window("ControlBar.wnd:OCLTimerWindow", true);
-    leftover_hide_window("ControlBar.wnd:ObserverPlayerInfoWindow", true);
-    leftover_hide_window("ControlBar.wnd:ObserverPlayerListWindow", true);
+fn apply_none_context_hide(receiving_manager: &mut crate::gui::window_manager::WindowManager) {
+    leftover_hide_window("ControlBar.wnd:CommandWindow", true, receiving_manager);
+    leftover_hide_window(
+        "ControlBar.wnd:ProductionQueueWindow",
+        true,
+        receiving_manager,
+    );
+    leftover_hide_window("ControlBar.wnd:BeaconWindow", true, receiving_manager);
+    leftover_hide_window(
+        "ControlBar.wnd:UnderConstructionWindow",
+        true,
+        receiving_manager,
+    );
+    leftover_hide_window("ControlBar.wnd:OCLTimerWindow", true, receiving_manager);
+    leftover_hide_window(
+        "ControlBar.wnd:ObserverPlayerInfoWindow",
+        true,
+        receiving_manager,
+    );
+    leftover_hide_window(
+        "ControlBar.wnd:ObserverPlayerListWindow",
+        true,
+        receiving_manager,
+    );
 }
 
-fn leftover_find_window(name: &str) -> Option<std::rc::Rc<std::cell::RefCell<GameWindow>>> {
-    with_window_manager(|manager| manager.find_window_by_name(name))
+fn leftover_find_window(
+    name: &str,
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+) -> Option<std::rc::Rc<std::cell::RefCell<GameWindow>>> {
+    (|receiving_manager: &mut crate::gui::window_manager::WindowManager| {
+        receiving_manager.find_window_by_name(name)
+    })(receiving_manager)
 }
 
-fn leftover_hide_window(name: &str, hidden: bool) {
-    if let Some(win) = leftover_find_window(name) {
-        let _ = win.borrow_mut().hide(hidden);
+fn leftover_hide_window(
+    name: &str,
+    hidden: bool,
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+) {
+    if let Some(win) = leftover_find_window(name, receiving_manager) {
+        let _ = receiving_manager.hide_window(&win, hidden);
     }
 }
 
-fn leftover_enable_window(name: &str, enabled: bool) {
-    if let Some(win) = leftover_find_window(name) {
+fn leftover_enable_window(
+    name: &str,
+    enabled: bool,
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+) {
+    if let Some(win) = leftover_find_window(name, receiving_manager) {
         let _ = win.borrow_mut().enable(enabled);
     }
 }
 
-fn leftover_window_is_hidden(name: &str) -> bool {
-    leftover_find_window(name)
+fn leftover_window_is_hidden(
+    name: &str,
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+) -> bool {
+    leftover_find_window(name, receiving_manager)
         .map(|win| win.borrow().is_hidden())
         .unwrap_or(true)
 }
@@ -139,17 +174,25 @@ fn leftover_mapped_image(name: &str) -> Option<crate::gui::game_window::Image> {
     })
 }
 
-fn leftover_set_enabled_image(window_name: &str, image_name: &str) {
+fn leftover_set_enabled_image(
+    window_name: &str,
+    image_name: &str,
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+) {
     let Some(image) = leftover_mapped_image(image_name) else {
         return;
     };
-    if let Some(win) = leftover_find_window(window_name) {
+    if let Some(win) = leftover_find_window(window_name, receiving_manager) {
         let _ = win.borrow_mut().set_enabled_image(0, image);
     }
 }
 
-fn leftover_set_progress(window_name: &str, progress: i32) {
-    if let Some(win) = leftover_find_window(window_name) {
+fn leftover_set_progress(
+    window_name: &str,
+    progress: i32,
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+) {
+    if let Some(win) = leftover_find_window(window_name, receiving_manager) {
         let mut win = win.borrow_mut();
         if let Some(bar) = win.progress_bar_mut() {
             bar.set_progress(progress.clamp(0, 100) as f32);
@@ -157,8 +200,12 @@ fn leftover_set_progress(window_name: &str, progress: i32) {
     }
 }
 
-fn leftover_set_button_text(window_name: &str, text: &str) {
-    if let Some(win) = leftover_find_window(window_name) {
+fn leftover_set_button_text(
+    window_name: &str,
+    text: &str,
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+) {
+    if let Some(win) = leftover_find_window(window_name, receiving_manager) {
         let _ = win.borrow_mut().set_text(text);
     }
 }
@@ -169,13 +216,18 @@ fn leftover_animate_windows_enabled() -> bool {
         .unwrap_or(true)
 }
 
-fn leftover_transition_group(group: &'static str) -> bool {
+fn leftover_transition_group(
+    group: &'static str,
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+) -> bool {
     // C++ ControlBar.cpp:2929-2930 gates GenExpFade on m_animateWindows.
     // ControlBarArrow (1658) only needs TheTransitionHandler + input enabled.
     if group == "GenExpFade" && !leftover_animate_windows_enabled() {
         return false;
     }
-    with_window_manager(|manager| manager.transition_set_group(group, false));
+    (|receiving_manager: &mut crate::gui::window_manager::WindowManager| {
+        receiving_manager.transition_set_group(group, false, None)
+    })(receiving_manager);
     true
 }
 
@@ -244,36 +296,44 @@ fn leftover_authored_rect(name: &str) -> Option<(i32, i32, i32, i32)> {
         .map(|(_, rect)| *rect)
 }
 
-fn leftover_ensure_named_window(name: &str) {
-    if leftover_find_window(name).is_some() {
+fn leftover_ensure_named_window(
+    name: &str,
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) {
+    if leftover_find_window(name, receiving_manager).is_some() {
         return;
     }
-    with_window_manager(|manager| {
+    (|receiving_manager: &mut crate::gui::window_manager::WindowManager| {
         if let Some((left, top, right, bottom)) = leftover_authored_rect(name) {
             // Retail authored geometry scaled from the 800x600 creation
             // resolution to the logical display height (audit-1 quick win 3).
-            let (_sw, sh) = manager.screen_size();
+            let (_sw, sh) = receiving_manager.screen_size();
             let scale = if sh > 0 { sh as f32 / 600.0 } else { 1.0 };
             let x = (left as f32 * scale).round() as i32;
             let y = (top as f32 * scale).round() as i32;
             let width = ((right - left) as f32 * scale).round().max(1.0) as i32;
             let height = ((bottom - top) as f32 * scale).round().max(1.0) as i32;
-            if let Ok(win) = manager.create_window(None, x, y, width, height) {
+            if let Ok(win) = receiving_manager.create_window(None, x, y, width, height, effects) {
                 win.borrow_mut().set_name(name);
                 // Authored-visible: positioned, sized, SHOWN (not the stub).
-                let _ = win.borrow_mut().hide(false);
+                let _ = win.borrow_mut().hide(false, receiving_manager);
             }
             return;
         }
-        if let Ok(win) = manager.create_window(None, 0, 0, 200, 200) {
+        if let Ok(win) = receiving_manager.create_window(None, 0, 0, 200, 200, effects) {
             win.borrow_mut().set_name(name);
-            let _ = win.borrow_mut().hide(true);
+            let _ = win.borrow_mut().hide(true, receiving_manager);
         }
-    });
+    })(receiving_manager);
 }
 
-fn leftover_display_size() -> (i32, i32) {
-    with_window_manager(|manager| manager.screen_size())
+fn leftover_display_size(
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+) -> (i32, i32) {
+    (|receiving_manager: &mut crate::gui::window_manager::WindowManager| {
+        receiving_manager.screen_size()
+    })(receiving_manager)
 }
 
 const GEN_EXP_PARENT: &str = "GeneralsExpPoints.wnd:GenExpParent";
@@ -285,27 +345,44 @@ const CONTROL_BAR_PARENT: &str = "ControlBar.wnd:ControlBarParent";
 const GEN_EXP_POINTS_AVAILABLE: &str = "GeneralsExpPoints.wnd:StaticTextRankPointsAvailable";
 const GEN_EXP_TITLE: &str = "GeneralsExpPoints.wnd:StaticTextTitle";
 
-fn leftover_hide_all_purchase_science_windows() {
+fn leftover_hide_all_purchase_science_windows(
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+) {
     for i in 0..MAX_PURCHASE_SCIENCE_RANK_1 {
-        leftover_hide_window(&format!("GeneralsExpPoints.wnd:ButtonRank1Number{i}"), true);
+        leftover_hide_window(
+            &format!("GeneralsExpPoints.wnd:ButtonRank1Number{i}"),
+            true,
+            receiving_manager,
+        );
     }
     for i in 0..MAX_PURCHASE_SCIENCE_RANK_3 {
-        leftover_hide_window(&format!("GeneralsExpPoints.wnd:ButtonRank3Number{i}"), true);
+        leftover_hide_window(
+            &format!("GeneralsExpPoints.wnd:ButtonRank3Number{i}"),
+            true,
+            receiving_manager,
+        );
     }
     for i in 0..MAX_PURCHASE_SCIENCE_RANK_8 {
-        leftover_hide_window(&format!("GeneralsExpPoints.wnd:ButtonRank8Number{i}"), true);
+        leftover_hide_window(
+            &format!("GeneralsExpPoints.wnd:ButtonRank8Number{i}"),
+            true,
+            receiving_manager,
+        );
     }
 }
 
 /// C++ ControlBar.cpp:1118-1141 — bind rank cameo windows and USE_OVERLAY_STATES.
-fn leftover_bind_purchase_science_windows_init() {
-    leftover_ensure_named_window(GEN_EXP_POINTS_AVAILABLE);
-    leftover_ensure_named_window(GEN_EXP_TITLE);
-    let bind = |prefix: &str, count: usize| {
+fn leftover_bind_purchase_science_windows_init(
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) {
+    leftover_ensure_named_window(GEN_EXP_POINTS_AVAILABLE, receiving_manager, effects);
+    leftover_ensure_named_window(GEN_EXP_TITLE, receiving_manager, effects);
+    let mut bind = |prefix: &str, count: usize| {
         for i in 0..count {
             let name = format!("GeneralsExpPoints.wnd:{prefix}{i}");
-            leftover_ensure_named_window(&name);
-            if let Some(win) = leftover_find_window(&name) {
+            leftover_ensure_named_window(&name, receiving_manager, effects);
+            if let Some(win) = leftover_find_window(&name, receiving_manager) {
                 win.borrow_mut()
                     .set_status(crate::gui::game_window::WindowStatus::USE_OVERLAY_STATES);
             }
@@ -351,23 +428,33 @@ impl ControlBar {
     // C++ ControlBar.cpp:143-485, 2907-2966
     // ---------------------------------------------------------------------------
 
-    fn ensure_generals_exp_layout(&mut self) {
-        if leftover_find_window(GEN_EXP_PARENT).is_none() {
+    fn ensure_generals_exp_layout(
+        &mut self,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    ) {
+        if leftover_find_window(GEN_EXP_PARENT, receiving_manager).is_none() {
             // C++ ControlBar.cpp:1058-1062 winCreateLayout("GeneralsExpPoints.wnd")
             // then bind GenExpParent as CP_PURCHASE_SCIENCE. Retail .wnd may be
             // absent in this tree — fail-closed stub windows still receive hide.
-            with_window_manager(|manager| {
-                let _ = manager.create_layout_with_windows("GeneralsExpPoints.wnd");
-            });
-            leftover_ensure_named_window(GEN_EXP_PARENT);
-            leftover_ensure_named_window(GEN_EXP_PROGRESS);
-            leftover_ensure_named_window("GeneralsExpPoints.wnd:ButtonExit");
-            leftover_ensure_named_window(BUTTON_GENERAL);
-            leftover_hide_window(GEN_EXP_PARENT, true);
-            leftover_hide_window("GeneralsExpPoints.wnd", true);
+            (|receiving_manager: &mut crate::gui::window_manager::WindowManager| {
+                let _ =
+                    receiving_manager.create_layout_with_windows("GeneralsExpPoints.wnd", effects);
+            })(receiving_manager);
+            leftover_ensure_named_window(GEN_EXP_PARENT, receiving_manager, effects);
+            leftover_ensure_named_window(GEN_EXP_PROGRESS, receiving_manager, effects);
+            leftover_ensure_named_window(
+                "GeneralsExpPoints.wnd:ButtonExit",
+                receiving_manager,
+                effects,
+            );
+            leftover_ensure_named_window(BUTTON_GENERAL, receiving_manager, effects);
+            leftover_hide_window(GEN_EXP_PARENT, true, receiving_manager);
+            leftover_hide_window("GeneralsExpPoints.wnd", true, receiving_manager);
         }
-        leftover_bind_purchase_science_windows_init();
-        self.science_layout_loaded = leftover_find_window(GEN_EXP_PARENT).is_some();
+        leftover_bind_purchase_science_windows_init(receiving_manager, effects);
+        self.science_layout_loaded =
+            leftover_find_window(GEN_EXP_PARENT, receiving_manager).is_some();
     }
 
     /// Resolve a CommandButton by name for leftover setControlCommand / click.
@@ -375,14 +462,25 @@ impl ControlBar {
         Self::leftover_command_button_by_name(command_name)
     }
 
-    fn leftover_apply_purchase_science_windows(&self) {
-        leftover_hide_all_purchase_science_windows();
-        let apply_rank = |prefix: &str, buttons: &[ScienceButtonState]| {
+    fn leftover_apply_purchase_science_windows(
+        &self,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    ) {
+        leftover_hide_all_purchase_science_windows(receiving_manager);
+        let mut apply_rank = |prefix: &str, buttons: &[ScienceButtonState]| {
             for (i, button) in buttons.iter().enumerate() {
                 let name = format!("GeneralsExpPoints.wnd:{prefix}{i}");
-                leftover_hide_window(&name, button.is_hidden || button.command_name.is_empty());
-                leftover_enable_window(&name, button.is_enabled && !button.is_purchased);
-                if let Some(win) = leftover_find_window(&name) {
+                leftover_hide_window(
+                    &name,
+                    button.is_hidden || button.command_name.is_empty(),
+                    receiving_manager,
+                );
+                leftover_enable_window(
+                    &name,
+                    button.is_enabled && !button.is_purchased,
+                    receiving_manager,
+                );
+                if let Some(win) = leftover_find_window(&name, receiving_manager) {
                     {
                         let mut win = win.borrow_mut();
                         win.set_status(crate::gui::game_window::WindowStatus::USE_OVERLAY_STATES);
@@ -400,7 +498,7 @@ impl ControlBar {
                                 fallback.command_type = CommandType::PurchaseScience;
                                 fallback
                             });
-                        self.set_control_command(&win, &cmd);
+                        self.set_control_command(&win, &cmd, receiving_manager);
                     }
                 }
             }
@@ -412,35 +510,54 @@ impl ControlBar {
         leftover_set_button_text(
             GEN_EXP_POINTS_AVAILABLE,
             &self.science_state.available_points.to_string(),
+            receiving_manager,
         );
         let title_key = format!("SCIENCE:Rank{}", self.science_state.rank_level);
-        leftover_set_button_text(GEN_EXP_TITLE, &GameText::fetch(&title_key));
+        leftover_set_button_text(
+            GEN_EXP_TITLE,
+            &GameText::fetch(&title_key),
+            receiving_manager,
+        );
         leftover_set_progress(
             GEN_EXP_PROGRESS,
             (self.science_state.experience_progress * 100.0) as i32,
+            receiving_manager,
         );
     }
 
-    pub fn show_purchase_science(&mut self) {
-        self.show_purchase_science_receiving(gamelogic::helpers::TheScriptEngine::is_game_ending());
+    pub fn show_purchase_science(
+        &mut self,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    ) {
+        self.show_purchase_science_receiving(
+            gamelogic::helpers::TheScriptEngine::is_game_ending(),
+            receiving_manager,
+            effects,
+        );
     }
-    pub fn show_purchase_science_receiving(&mut self, game_ending: bool) {
+    pub fn show_purchase_science_receiving(
+        &mut self,
+        game_ending: bool,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    ) {
         if game_ending {
             return;
         }
-        self.ensure_generals_exp_layout();
-        self.populate_purchase_science();
+        self.ensure_generals_exp_layout(receiving_manager, effects);
+        self.populate_purchase_science(receiving_manager);
         self.gen_star_flash = false;
-        self.leftover_apply_purchase_science_windows();
+        self.leftover_apply_purchase_science_windows(receiving_manager);
         self.science_state.is_visible = true;
-        if leftover_find_window(GEN_EXP_PARENT).is_some() {
-            if !leftover_window_is_hidden(GEN_EXP_PARENT) {
+        if leftover_find_window(GEN_EXP_PARENT, receiving_manager).is_some() {
+            if !leftover_window_is_hidden(GEN_EXP_PARENT, receiving_manager) {
                 return;
             }
-            leftover_hide_window(GEN_EXP_PARENT, false);
-            leftover_hide_window("GeneralsExpPoints.wnd", false);
+            leftover_hide_window(GEN_EXP_PARENT, false, receiving_manager);
+            leftover_hide_window("GeneralsExpPoints.wnd", false, receiving_manager);
         }
-        let transition_requested = leftover_transition_group("GenExpFade");
+        let transition_requested = leftover_transition_group("GenExpFade", receiving_manager);
         #[cfg(test)]
         if transition_requested {
             self.last_science_transition_group = Some("GenExpFade");
@@ -449,42 +566,63 @@ impl ControlBar {
         let _ = transition_requested;
     }
 
-    pub fn hide_purchase_science(&mut self) {
-        if leftover_find_window(GEN_EXP_PARENT).is_some() {
-            if leftover_window_is_hidden(GEN_EXP_PARENT) {
+    pub fn hide_purchase_science(
+        &mut self,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    ) {
+        if leftover_find_window(GEN_EXP_PARENT, receiving_manager).is_some() {
+            if leftover_window_is_hidden(GEN_EXP_PARENT, receiving_manager) {
                 self.science_state.is_visible = false;
                 return;
             }
-            leftover_hide_window(GEN_EXP_PARENT, true);
+            leftover_hide_window(GEN_EXP_PARENT, true, receiving_manager);
         }
-        leftover_hide_window("GeneralsExpPoints.wnd", true);
+        leftover_hide_window("GeneralsExpPoints.wnd", true, receiving_manager);
         self.science_state.is_visible = false;
     }
 
-    pub fn toggle_purchase_science(&mut self) {
+    pub fn toggle_purchase_science(
+        &mut self,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    ) {
         self.toggle_purchase_science_receiving(
             gamelogic::helpers::TheScriptEngine::is_game_ending(),
+            receiving_manager,
+            effects,
         );
     }
-    pub fn toggle_purchase_science_receiving(&mut self, game_ending: bool) {
-        let hidden = leftover_find_window(GEN_EXP_PARENT)
-            .map(|_| leftover_window_is_hidden(GEN_EXP_PARENT))
+    pub fn toggle_purchase_science_receiving(
+        &mut self,
+        game_ending: bool,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    ) {
+        let hidden = leftover_find_window(GEN_EXP_PARENT, receiving_manager)
+            .map(|_| leftover_window_is_hidden(GEN_EXP_PARENT, receiving_manager))
             .unwrap_or(!self.science_state.is_visible);
         if hidden {
-            self.show_purchase_science_receiving(game_ending);
+            self.show_purchase_science_receiving(game_ending, receiving_manager, effects);
         } else {
-            self.hide_purchase_science();
+            self.hide_purchase_science(receiving_manager);
         }
     }
 
     /// C++ ControlBarCallback.cpp:396-399 — ButtonGeneral (and CommandMap
     /// Alt+G via TheControlBar::toggle_purchase_science) opens/closes the
     /// GeneralsExpPoints window.
-    pub fn on_generals_button(&mut self) {
-        self.toggle_purchase_science();
+    pub fn on_generals_button(
+        &mut self,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    ) {
+        self.toggle_purchase_science(receiving_manager, effects);
     }
 
-    fn populate_purchase_science(&mut self) {
+    fn populate_purchase_science(
+        &mut self,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    ) {
         let player_arc = logic_player_list()
             .read()
             .ok()
@@ -539,7 +677,7 @@ impl ControlBar {
         self.science_state.rank8_buttons =
             Self::science_buttons_from_set(&player, &store, &set8, MAX_PURCHASE_SCIENCE_RANK_8);
 
-        self.update_context_purchase_science();
+        self.update_context_purchase_science(receiving_manager);
     }
 
     fn science_buttons_from_set(
@@ -650,7 +788,10 @@ impl ControlBar {
         ((skill - down) * 100) / denom
     }
 
-    fn update_context_purchase_science(&mut self) {
+    fn update_context_purchase_science(
+        &mut self,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    ) {
         if let Some(progress) = self.science_state.live_rank_progress_percent {
             if let Some(spp) = self.science_state.live_science_purchase_points {
                 self.science_state.available_points = spp;
@@ -659,7 +800,7 @@ impl ControlBar {
                 self.science_state.rank_level = rank;
             }
             self.science_state.experience_progress = (progress as f32 / 100.0).clamp(0.0, 1.0);
-            leftover_set_progress(GEN_EXP_PROGRESS, progress);
+            leftover_set_progress(GEN_EXP_PROGRESS, progress, receiving_manager);
             return;
         }
         let player_arc = logic_player_list()
@@ -674,7 +815,7 @@ impl ControlBar {
         self.science_state.available_points = player.get_science_purchase_points();
         let progress = self.leftover_experience_progress_percent(&player);
         self.science_state.experience_progress = (progress as f32 / 100.0).clamp(0.0, 1.0);
-        leftover_set_progress(GEN_EXP_PROGRESS, progress);
+        leftover_set_progress(GEN_EXP_PROGRESS, progress, receiving_manager);
     }
 
     /// Bind live host rank / skill to GeneralsExpPoints ProgressBarExperience.
@@ -688,6 +829,7 @@ impl ControlBar {
         skill_points: i32,
         rank_level: i32,
         science_purchase_points: i32,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
     ) {
         let percent = percent.clamp(0, 100);
         self.science_state.live_rank_progress_percent = Some(percent);
@@ -698,7 +840,7 @@ impl ControlBar {
         self.science_state.available_points = science_purchase_points;
         self.science_state.rank_title_label = format!("SCIENCE:Rank{rank_level}");
         self.science_state.experience_progress = (percent as f32 / 100.0).clamp(0.0, 1.0);
-        leftover_set_progress(GEN_EXP_PROGRESS, percent);
+        leftover_set_progress(GEN_EXP_PROGRESS, percent, receiving_manager);
         // C++ getStarImage / onPlayerSciencePurchasePointsChanged.
         if science_purchase_points > 0 {
             self.gen_star_flash = true;
@@ -706,7 +848,7 @@ impl ControlBar {
                 self.last_flashed_at_point_value = science_purchase_points;
             }
         }
-        self.leftover_apply_purchase_science_windows();
+        self.leftover_apply_purchase_science_windows(receiving_manager);
     }
 
     /// Feed unlocked science names from PresentationFrame into purchase UI residual.
@@ -714,7 +856,11 @@ impl ControlBar {
     /// Prefer this over live player-list / OBJECT_REGISTRY for dual-tick host paths.
     /// Marks matching rank buttons purchased; stores the full unlocked name list.
     /// Fail-closed: does not claim full ScienceStore / rank-point parity.
-    pub fn sync_sciences_from_presentation(&mut self, unlocked_sciences: &[String]) {
+    pub fn sync_sciences_from_presentation(
+        &mut self,
+        unlocked_sciences: &[String],
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    ) {
         let mut unlocked: Vec<String> = unlocked_sciences.to_vec();
         unlocked.sort();
         unlocked.dedup();
@@ -759,7 +905,7 @@ impl ControlBar {
                 })
                 .collect();
         }
-        self.leftover_apply_purchase_science_windows();
+        self.leftover_apply_purchase_science_windows(receiving_manager);
         self.mark_ui_dirty();
     }
 
@@ -789,7 +935,8 @@ impl ControlBar {
         marker: &crate::gui::GameWindow,
         parent: &crate::gui::GameWindow,
     ) {
-        let Some(manager) = game_engine::common::ini::get_control_bar_scheme_manager() else {
+        let Some(scheme_manager) = game_engine::common::ini::get_control_bar_scheme_manager()
+        else {
             return;
         };
         let (mut x, mut y) = marker.get_position();
@@ -814,14 +961,17 @@ impl ControlBar {
             }
         }
         let (parent_x, parent_y) = parent.get_position();
-        manager.write().capture_marker_base_once(
+        scheme_manager.write().capture_marker_base_once(
             x + self.default_control_bar_x - parent_x,
             y + self.default_control_bar_y - parent_y,
         );
     }
 
-    fn leftover_set_up_down_images(&self) {
-        let Some(button) = leftover_find_window(BUTTON_LARGE) else {
+    fn leftover_set_up_down_images(
+        &self,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    ) {
+        let Some(button) = leftover_find_window(BUTTON_LARGE, receiving_manager) else {
             return;
         };
         self.set_up_down_images_owned(&mut button.borrow_mut());
@@ -833,10 +983,11 @@ impl ControlBar {
         // default stage and ToggleButtonUp* art when collapsed to the low
         // stage. Unresolved mapped images leave the slots unbound (the image
         // draw paints nothing, W3DPushButton.cpp:288-368).
-        let Some(manager) = game_engine::common::ini::get_control_bar_scheme_manager() else {
+        let Some(scheme_manager) = game_engine::common::ini::get_control_bar_scheme_manager()
+        else {
             return;
         };
-        let Some(scheme) = manager.read().get_active_scheme().cloned() else {
+        let Some(scheme) = scheme_manager.read().get_active_scheme().cloned() else {
             return;
         };
         let (on, inside, pushed) = if self.control_bar_stage == ControlBarStage::Low {
@@ -865,13 +1016,13 @@ impl ControlBar {
     }
 
     /// Apply the original context/window visibility admission through the
-    /// receiving manager, before any node in that tree is mutably borrowed.
+    /// receiving receiving_manager, before any node in that tree is mutably borrowed.
     pub fn reveal_ingame_command_window_owned(
-        manager: &mut crate::gui::window_manager::WindowManager,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
     ) {
-        let set_hidden = |name: &str, hidden: bool| {
-            if let Some(win) = manager.find_window_by_name(name) {
-                let _ = win.borrow_mut().hide(hidden);
+        let mut set_hidden = |name: &str, hidden: bool| {
+            if let Some(win) = receiving_manager.find_window_by_name(name) {
+                let _ = receiving_manager.hide_window(&win, hidden);
             }
         };
         set_hidden("ControlBar.wnd:ControlBarParent", false);
@@ -885,27 +1036,35 @@ impl ControlBar {
         }
     }
 
-    pub fn switch_control_bar_stage(&mut self, stage: ControlBarStage) {
+    pub fn switch_control_bar_stage(
+        &mut self,
+        stage: ControlBarStage,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    ) {
         PENDING_CONTROL_BAR_STAGE.store(0xFF, std::sync::atomic::Ordering::SeqCst);
-        let parent = leftover_find_window(CONTROL_BAR_PARENT);
+        let parent = leftover_find_window(CONTROL_BAR_PARENT, receiving_manager);
         let mut viewport =
-            crate::gui::callbacks::control_bar_callbacks::StandaloneControlBarViewport;
+            crate::gui::callbacks::control_bar_callbacks::StandaloneControlBarViewport::new(
+                receiving_manager,
+            );
         self.switch_control_bar_stage_on_window_owned(
             stage,
             &mut viewport,
             TheGameLogic::is_in_replay_game(),
             parent,
+            receiving_manager,
         );
     }
 
     /// Resolve existing service handles before borrowing any tree node.
-    /// The actual stage operation never traverses the manager recursively.
+    /// The actual stage operation never traverses the receiving_manager recursively.
     pub fn switch_control_bar_stage_on_window_owned(
         &mut self,
         stage: ControlBarStage,
         viewport: &mut dyn crate::gui::callbacks::control_bar_callbacks::ControlBarViewport,
         replay: bool,
         parent: Option<std::rc::Rc<std::cell::RefCell<crate::gui::GameWindow>>>,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
     ) {
         if replay || stage == ControlBarStage::Squished {
             return;
@@ -914,10 +1073,10 @@ impl ControlBar {
             return;
         };
         if stage == ControlBarStage::Default {
-            with_window_manager(Self::reveal_ingame_command_window_owned);
+            (Self::reveal_ingame_command_window_owned)(receiving_manager);
         }
-        let button = leftover_find_window(BUTTON_LARGE);
-        let marker = leftover_find_window("ControlBar.wnd:BackgroundMarker");
+        let button = leftover_find_window(BUTTON_LARGE, receiving_manager);
+        let marker = leftover_find_window("ControlBar.wnd:BackgroundMarker", receiving_manager);
         let mut parent = parent.borrow_mut();
         self.capture_control_bar_position_owned(&parent);
         if let Some(marker) = marker {
@@ -930,6 +1089,7 @@ impl ControlBar {
             replay,
             Some(&mut parent),
             button.as_deref_mut(),
+            receiving_manager,
         );
     }
 
@@ -941,8 +1101,16 @@ impl ControlBar {
         viewport: &mut dyn crate::gui::callbacks::control_bar_callbacks::ControlBarViewport,
         replay: bool,
         parent: Option<&mut crate::gui::GameWindow>,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
     ) {
-        self.switch_control_bar_stage_with_button_owned(stage, viewport, replay, parent, None);
+        self.switch_control_bar_stage_with_button_owned(
+            stage,
+            viewport,
+            replay,
+            parent,
+            None,
+            receiving_manager,
+        );
     }
 
     pub fn switch_control_bar_stage_with_button_owned(
@@ -952,6 +1120,7 @@ impl ControlBar {
         replay: bool,
         parent: Option<&mut crate::gui::GameWindow>,
         mut button: Option<&mut crate::gui::GameWindow>,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
     ) {
         if replay || stage == ControlBarStage::Squished {
             return;
@@ -960,7 +1129,7 @@ impl ControlBar {
             return;
         };
         if button.is_some() {
-            // WND dispatch already borrows its manager; do not rediscover any
+            // WND dispatch already borrows its receiving_manager; do not rediscover any
             // windows through that service during the notification.
             if !self.default_control_bar_captured {
                 (self.default_control_bar_x, self.default_control_bar_y) = parent.get_position();
@@ -976,7 +1145,7 @@ impl ControlBar {
             ControlBarStage::Default => {
                 viewport.set_height_px((height as f32 * 0.80) as i32);
                 let _ = parent.set_position(self.default_control_bar_x, self.default_control_bar_y);
-                let _ = parent.hide(false);
+                let _ = parent.hide(false, receiving_manager);
                 if let Some(button) = button.as_deref_mut() {
                     self.set_up_down_images_owned(button);
                 }
@@ -986,13 +1155,13 @@ impl ControlBar {
                 // CPP assignment truncates the complete subtraction, not 10%.
                 let y = (height as f64 - 0.1 * height as f64) as i32;
                 let _ = parent.set_position(self.default_control_bar_x, y);
-                let _ = parent.hide(false);
+                let _ = parent.hide(false, receiving_manager);
                 if let Some(button) = button.as_deref_mut() {
                     self.set_up_down_images_owned(button);
                 }
             }
             ControlBarStage::Hidden => {
-                let _ = parent.hide(true);
+                let _ = parent.hide(true, receiving_manager);
             }
             ControlBarStage::Squished => unreachable!(),
         }
@@ -1003,13 +1172,14 @@ impl ControlBar {
         viewport: &mut dyn crate::gui::callbacks::control_bar_callbacks::ControlBarViewport,
         replay: bool,
         parent: Option<&mut crate::gui::GameWindow>,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
     ) {
         let stage = if self.control_bar_stage == ControlBarStage::Default {
             ControlBarStage::Low
         } else {
             ControlBarStage::Default
         };
-        self.switch_control_bar_stage_owned(stage, viewport, replay, parent);
+        self.switch_control_bar_stage_owned(stage, viewport, replay, parent, receiving_manager);
     }
 
     pub fn toggle_control_bar_stage_with_button_owned(
@@ -1018,13 +1188,21 @@ impl ControlBar {
         replay: bool,
         parent: Option<&mut crate::gui::GameWindow>,
         button: Option<&mut crate::gui::GameWindow>,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
     ) {
         let stage = if self.control_bar_stage == ControlBarStage::Default {
             ControlBarStage::Low
         } else {
             ControlBarStage::Default
         };
-        self.switch_control_bar_stage_with_button_owned(stage, viewport, replay, parent, button);
+        self.switch_control_bar_stage_with_button_owned(
+            stage,
+            viewport,
+            replay,
+            parent,
+            button,
+            receiving_manager,
+        );
     }
 
     /// C++ `ShowControlBar` (ControlBarCallback.cpp:489) when ControlBarParent is live.
@@ -1035,17 +1213,23 @@ impl ControlBar {
         );
     }
 
-    pub fn apply_pending_control_bar_stage(&mut self) {
+    pub fn apply_pending_control_bar_stage(
+        &mut self,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    ) {
         if let Some(stage) = take_pending_control_bar_stage() {
-            self.switch_control_bar_stage(stage);
+            self.switch_control_bar_stage(stage, receiving_manager);
         }
     }
 
-    pub fn toggle_control_bar_stage(&mut self) {
+    pub fn toggle_control_bar_stage(
+        &mut self,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    ) {
         if self.control_bar_stage == ControlBarStage::Default {
-            self.switch_control_bar_stage(ControlBarStage::Low);
+            self.switch_control_bar_stage(ControlBarStage::Low, receiving_manager);
         } else {
-            self.switch_control_bar_stage(ControlBarStage::Default);
+            self.switch_control_bar_stage(ControlBarStage::Default, receiving_manager);
         }
     }
 
@@ -1068,31 +1252,36 @@ impl ControlBar {
             .unwrap_or_else(|| "Observer".to_string())
     }
 
-    /// Apply the existing scheme manager for `player_side` (C++ ControlBarScheme.cpp:1139).
-    fn apply_control_bar_scheme_for_side(&self, player_side: &str) {
+    /// Apply the existing scheme receiving_manager for `player_side` (C++ ControlBarScheme.cpp:1139).
+    fn apply_control_bar_scheme_for_side(
+        &self,
+        player_side: &str,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    ) {
         let side = if player_side.is_empty() {
             "Observer"
         } else {
             player_side
         };
-        if let Some(manager) = game_engine::common::ini::get_control_bar_scheme_manager() {
-            let mut manager = manager.write();
-            let _ = manager.set_active_scheme_for_side(side);
+        if let Some(scheme_manager) = game_engine::common::ini::get_control_bar_scheme_manager() {
+            let mut scheme_manager = scheme_manager.write();
+            let _ = scheme_manager.set_active_scheme_for_side(side);
             // C++ ControlBarScheme.cpp:1124-1125: m_multiplyer is
             // display_size / scheme ScreenCreationRes, set at scheme select.
-            let (creation_w, creation_h) = manager
+            let (creation_w, creation_h) = scheme_manager
                 .get_active_scheme()
                 .map(|scheme| (scheme.screen_creation_res.x, scheme.screen_creation_res.y))
                 .unwrap_or((800, 600));
             if creation_w > 0 && creation_h > 0 {
-                let (screen_w, screen_h) = leftover_display_size();
-                manager.set_multiplier(
+                let (screen_w, screen_h) = leftover_display_size(receiving_manager);
+                scheme_manager.set_multiplier(
                     screen_w as f32 / creation_w as f32,
                     screen_h as f32 / creation_h as f32,
                 );
             }
         }
-        self.apply_scheme_button_art();
+        self.apply_scheme_button_art(receiving_manager, effects);
     }
 
     /// C++ ControlBarScheme::init (ControlBarScheme.cpp:401-662): bind the
@@ -1106,17 +1295,22 @@ impl ControlBar {
     /// not resolve through the mapped-image collection leave the slot unbound
     /// so the image draw paints nothing (W3DPushButton.cpp:288-368) — never a
     /// color fill from the authored placeholder.
-    fn apply_scheme_button_art(&self) {
-        let Some(manager) = game_engine::common::ini::get_control_bar_scheme_manager() else {
+    fn apply_scheme_button_art(
+        &self,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    ) {
+        let Some(scheme_manager) = game_engine::common::ini::get_control_bar_scheme_manager()
+        else {
             return;
         };
-        let Some(scheme) = manager.read().get_active_scheme().cloned() else {
+        let Some(scheme) = scheme_manager.read().get_active_scheme().cloned() else {
             return;
         };
 
         // C++ resMultiplier = display / m_ScreenCreationRes
         // (ControlBarScheme.cpp:417-419).
-        let (screen_w, screen_h) = leftover_display_size();
+        let (screen_w, screen_h) = leftover_display_size(receiving_manager);
         let creation_w = scheme.screen_creation_res.x.max(1) as f32;
         let creation_h = scheme.screen_creation_res.y.max(1) as f32;
         let mult_x = screen_w as f32 / creation_w;
@@ -1193,7 +1387,7 @@ impl ControlBar {
             ),
         ];
         for (window_name, enable, hilite, pushed, disabled, (ul, lr)) in art_slots {
-            let Some(win) = leftover_find_window(window_name) else {
+            let Some(win) = leftover_find_window(window_name, receiving_manager) else {
                 continue;
             };
             let mut guard = win.borrow_mut();
@@ -1222,13 +1416,17 @@ impl ControlBar {
                     scale(ul.x, mult_x) - parent_x,
                     scale(ul.y, mult_y) - parent_y,
                 );
-                let _ = guard.set_size(width.max(1), height.max(1));
+                let _ = effects.with_receiving_manager(receiving_manager, |effects| {
+                    guard.set_size(width.max(1), height.max(1), effects)
+                });
             }
         }
 
         // ExpBarForeground: C++ winSetEnabledImage(0, m_expBarForeground)
         // (ControlBarScheme.cpp:476-480).
-        if let Some(win) = leftover_find_window("ControlBar.wnd:ExpBarForeground") {
+        if let Some(win) =
+            leftover_find_window("ControlBar.wnd:ExpBarForeground", receiving_manager)
+        {
             if let Some(image) = leftover_mapped_image(&scheme.exp_bar_foreground_image) {
                 let _ = win.borrow_mut().set_enabled_image(0, image);
             }
@@ -1239,11 +1437,11 @@ impl ControlBar {
         // w3d_right_hud_draw only paints when WIN_STATUS_IMAGE is set
         // (W3DControlBar.cpp:74-81), so mirror C++ winSetEnabledImage's
         // status side effect explicitly.
-        apply_scheme_right_hud_image(&scheme.right_hud_image);
+        apply_scheme_right_hud_image(&scheme.right_hud_image, receiving_manager);
 
         // WinUAttack: enabled + disabled(=highlight) images and slot reposition
         // (ControlBarScheme.cpp:629-651).
-        if let Some(win) = leftover_find_window(WIN_U_ATTACK) {
+        if let Some(win) = leftover_find_window(WIN_U_ATTACK, receiving_manager) {
             let mut guard = win.borrow_mut();
             if let Some(image) = leftover_mapped_image(&scheme.u_attack_button_enable) {
                 let _ = guard.set_enabled_image(0, image);
@@ -1267,7 +1465,9 @@ impl ControlBar {
                 mult_x,
                 mult_y,
             );
-            let _ = guard.set_size(width.max(1), height.max(1));
+            let _ = effects.with_receiving_manager(receiving_manager, |effects| {
+                guard.set_size(width.max(1), height.max(1), effects)
+            });
         }
 
         // Build queue slots: disabled image = scheme queue art
@@ -1275,9 +1475,10 @@ impl ControlBar {
         if !scheme.queue_button_image.is_empty() {
             if let Some(image) = leftover_mapped_image(&scheme.queue_button_image) {
                 for index in 1..=9 {
-                    if let Some(win) =
-                        leftover_find_window(&format!("ControlBar.wnd:ButtonQueue{index:02}"))
-                    {
+                    if let Some(win) = leftover_find_window(
+                        &format!("ControlBar.wnd:ButtonQueue{index:02}"),
+                        receiving_manager,
+                    ) {
                         let mut guard = win.borrow_mut();
                         let data = guard.instance_data_mut();
                         data.disabled_draw_data[0].image = Some(image.clone());
@@ -1289,7 +1490,7 @@ impl ControlBar {
         // Min/max toggle (ButtonLarge): scheme slot position; art comes from
         // setUpDownImages on every stage switch
         // (ControlBarScheme.cpp:603-627, ControlBar.cpp:3128-3146).
-        if let Some(win) = leftover_find_window(BUTTON_LARGE) {
+        if let Some(win) = leftover_find_window(BUTTON_LARGE, receiving_manager) {
             let mut guard = win.borrow_mut();
             let (screen_x, screen_y) = guard.get_screen_position();
             let (rel_x, rel_y) = guard.get_position();
@@ -1306,19 +1507,34 @@ impl ControlBar {
                 mult_x,
                 mult_y,
             );
-            let _ = guard.set_size(width.max(1), height.max(1));
+            let _ = effects.with_receiving_manager(receiving_manager, |effects| {
+                guard.set_size(width.max(1), height.max(1), effects)
+            });
         }
-        self.leftover_set_up_down_images();
+        self.leftover_set_up_down_images(receiving_manager);
     }
 
-    pub fn set_control_bar_scheme_by_player_side(&mut self, player_side: &str) {
-        self.apply_control_bar_scheme_for_side(player_side);
-        self.apply_scheme_context_and_default_stage();
+    pub fn set_control_bar_scheme_by_player_side(
+        &mut self,
+        player_side: &str,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    ) {
+        self.apply_control_bar_scheme_for_side(player_side, receiving_manager, effects);
+        self.apply_scheme_context_and_default_stage(receiving_manager, effects);
     }
 
-    pub fn set_control_bar_scheme_by_player(&mut self) {
-        self.apply_control_bar_scheme_for_side(&Self::local_player_side_name());
-        self.apply_scheme_context_and_default_stage();
+    pub fn set_control_bar_scheme_by_player(
+        &mut self,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    ) {
+        self.apply_control_bar_scheme_for_side(
+            &Self::local_player_side_name(),
+            receiving_manager,
+            effects,
+        );
+        self.apply_scheme_context_and_default_stage(receiving_manager, effects);
     }
 
     pub fn set_control_bar_scheme_by_player_side_owned(
@@ -1328,33 +1544,45 @@ impl ControlBar {
         replay: bool,
         observer: bool,
         parent: Option<std::rc::Rc<std::cell::RefCell<crate::gui::GameWindow>>>,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) {
-        self.apply_control_bar_scheme_for_side(player_side);
+        self.apply_control_bar_scheme_for_side(player_side, receiving_manager, effects);
         self.observer_mode = observer;
         self.clear_observer_target_owned();
         if observer {
-            super::control_bar_observer::init_observer_controls();
-            super::control_bar_observer::ensure_gen_arrow_from_mapped_images();
-            let _ = self.switch_to_context(ControlBarState::Observer, None);
+            super::control_bar_observer::init_observer_controls(receiving_manager);
+            super::control_bar_observer::ensure_gen_arrow_from_mapped_images(receiving_manager);
+            let _ =
+                self.switch_to_context(ControlBarState::Observer, None, receiving_manager, effects);
         } else {
-            let _ = self.switch_to_context(ControlBarState::None, None);
+            let _ = self.switch_to_context(ControlBarState::None, None, receiving_manager, effects);
         }
         self.switch_control_bar_stage_on_window_owned(
             ControlBarStage::Default,
             viewport,
             replay,
             parent,
+            receiving_manager,
         );
         self.mark_ui_dirty();
     }
 
-    fn apply_scheme_context_and_default_stage(&mut self) {
-        self.apply_scheme_context();
-        self.switch_control_bar_stage(ControlBarStage::Default);
+    fn apply_scheme_context_and_default_stage(
+        &mut self,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    ) {
+        self.apply_scheme_context(receiving_manager, effects);
+        self.switch_control_bar_stage(ControlBarStage::Default, receiving_manager);
         self.mark_ui_dirty();
     }
 
-    fn apply_scheme_context(&mut self) {
+    fn apply_scheme_context(
+        &mut self,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    ) {
         let is_observer = logic_player_list()
             .read()
             .ok()
@@ -1364,12 +1592,13 @@ impl ControlBar {
 
         if is_observer {
             self.observer_mode = true;
-            super::control_bar_observer::init_observer_controls();
-            super::control_bar_observer::ensure_gen_arrow_from_mapped_images();
-            let _ = self.switch_to_context(ControlBarState::Observer, None);
+            super::control_bar_observer::init_observer_controls(receiving_manager);
+            super::control_bar_observer::ensure_gen_arrow_from_mapped_images(receiving_manager);
+            let _ =
+                self.switch_to_context(ControlBarState::Observer, None, receiving_manager, effects);
         } else {
             self.observer_mode = false;
-            let _ = self.switch_to_context(ControlBarState::None, None);
+            let _ = self.switch_to_context(ControlBarState::None, None, receiving_manager, effects);
         }
 
         // C++ setControlBarSchemeByPlayer (ControlBar.cpp:2756-2761): the
@@ -1380,6 +1609,7 @@ impl ControlBar {
             "ControlBar.wnd:ButtonPlaceBeacon",
             game_mode != gamelogic::system::game_logic::GAME_LAN
                 && game_mode != gamelogic::system::game_logic::GAME_INTERNET,
+            receiving_manager,
         );
     }
 
@@ -1388,7 +1618,10 @@ impl ControlBar {
     // C++ ControlBar.cpp:1651-1682
     // ---------------------------------------------------------------------------
 
-    fn leftover_maybe_flash_control_bar_arrow(&self) {
+    fn leftover_maybe_flash_control_bar_arrow(
+        &self,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    ) {
         let current_points = logic_player_list()
             .read()
             .ok()
@@ -1399,18 +1632,24 @@ impl ControlBar {
             return;
         }
         if crate::helpers::TheInGameUI::get_input_enabled() {
-            leftover_transition_group("ControlBarArrow");
+            leftover_transition_group("ControlBarArrow", receiving_manager);
         }
     }
 
-    pub fn on_player_rank_changed(&mut self) {
-        self.leftover_maybe_flash_control_bar_arrow();
+    pub fn on_player_rank_changed(
+        &mut self,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    ) {
+        self.leftover_maybe_flash_control_bar_arrow(receiving_manager);
         self.gen_star_flash = true;
         self.mark_ui_dirty();
     }
 
-    pub fn on_player_science_purchase_points_changed(&mut self) {
-        self.leftover_maybe_flash_control_bar_arrow();
+    pub fn on_player_science_purchase_points_changed(
+        &mut self,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    ) {
+        self.leftover_maybe_flash_control_bar_arrow(receiving_manager);
         self.gen_star_flash = true;
         self.mark_ui_dirty();
     }
@@ -1455,7 +1694,11 @@ impl ControlBar {
         }
     }
 
-    pub fn init_special_power_shortcut_bar(&mut self) {
+    pub fn init_special_power_shortcut_bar(
+        &mut self,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    ) {
         self.special_power_shortcuts.clear();
         self.special_power_shortcut_count = 0;
         self.special_power_shortcut_layout.clear();
@@ -1483,11 +1726,19 @@ impl ControlBar {
             (button_count as usize).min(MAX_SPECIAL_POWER_SHORTCUTS);
         self.special_power_shortcut_layout = win_name.clone();
 
-        with_window_manager(|manager| {
-            let _ = manager.create_layout_with_windows(&win_name);
-        });
-        leftover_hide_window(&self.leftover_shortcut_bar_parent_name(), true);
-        leftover_hide_window(&win_name, leftover_find_window(&win_name).is_some());
+        (|receiving_manager: &mut crate::gui::window_manager::WindowManager| {
+            let _ = receiving_manager.create_layout_with_windows(&win_name, effects);
+        })(receiving_manager);
+        leftover_hide_window(
+            &self.leftover_shortcut_bar_parent_name(),
+            true,
+            receiving_manager,
+        );
+        leftover_hide_window(
+            &win_name,
+            leftover_find_window(&win_name, receiving_manager).is_some(),
+            receiving_manager,
+        );
 
         for i in 0..self.special_power_shortcut_count {
             self.special_power_shortcuts
@@ -1498,13 +1749,17 @@ impl ControlBar {
                     is_hidden: true,
                 });
             let button_name = self.leftover_shortcut_button_name(i);
-            if let Some(win) = leftover_find_window(&button_name) {
+            if let Some(win) = leftover_find_window(&button_name, receiving_manager) {
                 let mut win = win.borrow_mut();
                 win.set_status(crate::gui::game_window::WindowStatus::USE_OVERLAY_STATES);
                 win.set_status(crate::gui::game_window::WindowStatus::SHORTCUT_BUTTON);
-                let _ = win.hide(true);
+                let _ = win.hide(true, receiving_manager);
             }
-            leftover_hide_window(&self.leftover_shortcut_parent_name(i), true);
+            leftover_hide_window(
+                &self.leftover_shortcut_parent_name(i),
+                true,
+                receiving_manager,
+            );
         }
     }
 
@@ -1618,22 +1873,23 @@ impl ControlBar {
         hidden: bool,
         availability: CommandAvailability,
         ready_count: i32,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
     ) {
         let button_name = self.leftover_shortcut_button_name(index);
         let parent_name = self.leftover_shortcut_parent_name(index);
-        leftover_hide_window(&button_name, hidden);
-        leftover_hide_window(&parent_name, hidden);
+        leftover_hide_window(&button_name, hidden, receiving_manager);
+        leftover_hide_window(&parent_name, hidden, receiving_manager);
         if hidden {
-            leftover_set_button_text(&button_name, "");
+            leftover_set_button_text(&button_name, "", receiving_manager);
             return;
         }
-        if let Some(win) = leftover_find_window(&button_name) {
+        if let Some(win) = leftover_find_window(&button_name, receiving_manager) {
             let mut win = win.borrow_mut();
             win.clear_status(crate::gui::game_window::WindowStatus::NOT_READY);
             win.clear_status(crate::gui::game_window::WindowStatus::ALWAYS_COLOR);
             match availability {
                 CommandAvailability::Hidden => {
-                    let _ = win.hide(true);
+                    let _ = win.hide(true, receiving_manager);
                 }
                 CommandAvailability::Restricted => {
                     let _ = win.enable(false);
@@ -1652,15 +1908,16 @@ impl ControlBar {
             }
         }
         if ready_count > 1 {
-            leftover_set_button_text(&button_name, &ready_count.to_string());
+            leftover_set_button_text(&button_name, &ready_count.to_string(), receiving_manager);
         } else {
-            leftover_set_button_text(&button_name, "");
+            leftover_set_button_text(&button_name, "", receiving_manager);
         }
     }
 
     fn populate_special_power_shortcut_with_upgrade_source(
         &mut self,
         upgrade_source: crate::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource<'_>,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
     ) -> Result<(), Box<dyn std::error::Error>> {
         if self.special_power_shortcut_count == 0 {
             return Ok(());
@@ -1701,8 +1958,16 @@ impl ControlBar {
         };
 
         for i in 0..self.special_power_shortcut_count {
-            leftover_hide_window(&self.leftover_shortcut_button_name(i), true);
-            leftover_hide_window(&self.leftover_shortcut_parent_name(i), true);
+            leftover_hide_window(
+                &self.leftover_shortcut_button_name(i),
+                true,
+                receiving_manager,
+            );
+            leftover_hide_window(
+                &self.leftover_shortcut_parent_name(i),
+                true,
+                receiving_manager,
+            );
         }
 
         let mut current_button = 0;
@@ -1762,25 +2027,42 @@ impl ControlBar {
                 self.special_power_shortcuts[current_button].is_hidden = false;
                 self.special_power_shortcuts[current_button].availability =
                     CommandAvailability::Available;
-                leftover_hide_window(&self.leftover_shortcut_button_name(current_button), false);
-                leftover_hide_window(&self.leftover_shortcut_parent_name(current_button), false);
-                leftover_enable_window(&self.leftover_shortcut_button_name(current_button), true);
-                leftover_enable_window(&self.leftover_shortcut_parent_name(current_button), true);
+                leftover_hide_window(
+                    &self.leftover_shortcut_button_name(current_button),
+                    false,
+                    receiving_manager,
+                );
+                leftover_hide_window(
+                    &self.leftover_shortcut_parent_name(current_button),
+                    false,
+                    receiving_manager,
+                );
+                leftover_enable_window(
+                    &self.leftover_shortcut_button_name(current_button),
+                    true,
+                    receiving_manager,
+                );
+                leftover_enable_window(
+                    &self.leftover_shortcut_parent_name(current_button),
+                    true,
+                    receiving_manager,
+                );
                 if !cmd.button_image.is_empty() {
                     leftover_set_enabled_image(
                         &self.leftover_shortcut_button_name(current_button),
                         &cmd.button_image,
+                        receiving_manager,
                     );
                 }
                 // C++ ControlBar.cpp:2472-2476 also binds shortcut buttons.
                 if !cmd.text_label.is_empty() {
-                    if let Some(win) =
-                        leftover_find_window(&self.leftover_shortcut_button_name(current_button))
-                    {
-                        let hot_key =
-                            with_hot_key_manager(|manager| manager.search_hot_key(&cmd.text_label));
+                    if let Some(win) = leftover_find_window(
+                        &self.leftover_shortcut_button_name(current_button),
+                        receiving_manager,
+                    ) {
+                        let hot_key = receiving_manager.hot_keys.search_hot_key(&cmd.text_label);
                         if !hot_key.is_empty() {
-                            with_hot_key_manager(|manager| manager.add_hot_key(win, &hot_key));
+                            receiving_manager.hot_keys.add_hot_key(win, &hot_key);
                         }
                     }
                 }
@@ -1791,8 +2073,16 @@ impl ControlBar {
         for i in current_button..self.special_power_shortcuts.len() {
             self.special_power_shortcuts[i].is_hidden = true;
             self.special_power_shortcuts[i].command_name.clear();
-            leftover_hide_window(&self.leftover_shortcut_button_name(i), true);
-            leftover_hide_window(&self.leftover_shortcut_parent_name(i), true);
+            leftover_hide_window(
+                &self.leftover_shortcut_button_name(i),
+                true,
+                receiving_manager,
+            );
+            leftover_hide_window(
+                &self.leftover_shortcut_parent_name(i),
+                true,
+                receiving_manager,
+            );
         }
 
         let parent_name = self.leftover_shortcut_bar_parent_name();
@@ -1803,20 +2093,23 @@ impl ControlBar {
         // shortcut selection button — never with zero populated buttons.
         let has_selection = self.has_any_shortcut_selection();
         let has_power = Self::leftover_has_any_shortcut_special_power(&player);
-        if leftover_find_window(CONTROL_BAR_PARENT).is_some()
-            && !leftover_window_is_hidden(CONTROL_BAR_PARENT)
-            && leftover_window_is_hidden(&parent_name)
+        if leftover_find_window(CONTROL_BAR_PARENT, receiving_manager).is_some()
+            && !leftover_window_is_hidden(CONTROL_BAR_PARENT, receiving_manager)
+            && leftover_window_is_hidden(&parent_name, receiving_manager)
             && (has_selection || has_power)
         {
-            leftover_hide_window(&parent_name, false);
+            leftover_hide_window(&parent_name, false, receiving_manager);
             self.animate_special_power_shortcut(true);
         }
-        self.update_special_power_shortcut_availability();
+        self.update_special_power_shortcut_availability(receiving_manager);
 
         Ok(())
     }
 
-    fn update_special_power_shortcut_availability(&mut self) {
+    fn update_special_power_shortcut_availability(
+        &mut self,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    ) {
         if self.special_power_shortcut_count == 0 || self.special_power_shortcuts.is_empty() {
             return;
         }
@@ -1835,23 +2128,29 @@ impl ControlBar {
         let has_select = self.has_any_shortcut_selection();
         let has_power = Self::leftover_has_any_shortcut_special_power(&player);
         let parent_name = self.leftover_shortcut_bar_parent_name();
-        let master_visible = leftover_find_window(CONTROL_BAR_PARENT)
+        let master_visible = leftover_find_window(CONTROL_BAR_PARENT, receiving_manager)
             .map(|w| !w.borrow().is_hidden())
             .unwrap_or(true);
 
-        if (has_select || has_power) && leftover_window_is_hidden(&parent_name) && master_visible {
-            leftover_hide_window(&parent_name, false);
+        if (has_select || has_power)
+            && leftover_window_is_hidden(&parent_name, receiving_manager)
+            && master_visible
+        {
+            leftover_hide_window(&parent_name, false, receiving_manager);
             self.animate_special_power_shortcut(true);
-        } else if !has_select && !has_power && !leftover_window_is_hidden(&parent_name) {
+        } else if !has_select
+            && !has_power
+            && !leftover_window_is_hidden(&parent_name, receiving_manager)
+        {
             self.animate_special_power_shortcut(false);
         }
 
-        if leftover_window_is_hidden(&parent_name) {
+        if leftover_window_is_hidden(&parent_name, receiving_manager) {
             return;
         }
 
         if !player.is_player_active() {
-            self.hide_special_power_shortcut();
+            self.hide_special_power_shortcut(receiving_manager);
             return;
         }
 
@@ -1910,12 +2209,20 @@ impl ControlBar {
                 self.special_power_shortcuts[i].is_hidden,
                 availability,
                 ready_count,
+                receiving_manager,
             );
         }
     }
 
-    pub fn hide_special_power_shortcut(&mut self) {
-        leftover_hide_window(&self.leftover_shortcut_bar_parent_name(), true);
+    pub fn hide_special_power_shortcut(
+        &mut self,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    ) {
+        leftover_hide_window(
+            &self.leftover_shortcut_bar_parent_name(),
+            true,
+            receiving_manager,
+        );
         for (i, shortcut) in self.special_power_shortcuts.iter_mut().enumerate() {
             shortcut.is_hidden = true;
             leftover_hide_window(
@@ -1929,32 +2236,43 @@ impl ControlBar {
                     )
                 },
                 true,
+                receiving_manager,
             );
         }
     }
 
-    pub fn show_special_power_shortcut(&mut self) {
-        self.show_special_power_shortcut_with_upgrade_source(crate::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource::Standalone);
+    pub fn show_special_power_shortcut(
+        &mut self,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    ) {
+        self.show_special_power_shortcut_with_upgrade_source(crate::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource::Standalone, receiving_manager,effects);
     }
     pub fn show_special_power_shortcut_with_upgrade_source(
         &mut self,
         upgrade_source: crate::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource<'_>,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) {
         self.show_special_power_shortcut_receiving(
             upgrade_source,
             gamelogic::helpers::TheScriptEngine::is_game_ending(),
+            receiving_manager,
+            effects,
         );
     }
     pub fn show_special_power_shortcut_receiving(
         &mut self,
         upgrade_source: crate::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource<'_>,
         game_ending: bool,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) {
         if game_ending {
             return;
         }
         if self.special_power_shortcut_count == 0 {
-            self.init_special_power_shortcut_bar();
+            self.init_special_power_shortcut_bar(receiving_manager, effects);
         }
         // C++ showSpecialPowerShortcut (ControlBar.cpp:3719-3738): the reveal
         // itself is gated — without an owned shortcut special power or a
@@ -1976,13 +2294,18 @@ impl ControlBar {
         if !self.has_any_shortcut_selection() && !has_power {
             return;
         }
-        leftover_hide_window(&self.leftover_shortcut_bar_parent_name(), false);
+        leftover_hide_window(
+            &self.leftover_shortcut_bar_parent_name(),
+            false,
+            receiving_manager,
+        );
         for shortcut in &mut self.special_power_shortcuts {
             if !shortcut.command_name.is_empty() {
                 shortcut.is_hidden = false;
             }
         }
-        let _ = self.populate_special_power_shortcut_with_upgrade_source(upgrade_source);
+        let _ = self
+            .populate_special_power_shortcut_with_upgrade_source(upgrade_source, receiving_manager);
     }
 
     pub fn animate_special_power_shortcut(&mut self, enabled: bool) {
@@ -1999,10 +2322,7 @@ impl ControlBar {
         if let Some(index) = super::control_bar_observer::observer_look_at_player_index() {
             return Some(index);
         }
-        self.context
-            .read()
-            .ok()
-            .and_then(|ctx| ctx.observer_look_at_player)
+        self.context.observer_look_at_player
     }
 
     /// C++ `ControlBar::hasAnyShortcutSelection` (ControlBar.cpp:3485-3508):
@@ -2150,11 +2470,15 @@ impl ControlBar {
     // C++ ControlBar.cpp:2897-2902
     // ---------------------------------------------------------------------------
 
-    pub fn hide_communicator(&mut self, hide: bool) {
-        if let Some(wm) = &self.window_manager {
-            if let Some(win) = wm.find_window_by_name("ControlBar.wnd:PopupCommunicator") {
-                let _ = win.borrow_mut().hide(hide);
-            }
+    pub fn hide_communicator(
+        &mut self,
+        hide: bool,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    ) {
+        if let Some(window) =
+            receiving_manager.find_window_by_name("ControlBar.wnd:PopupCommunicator")
+        {
+            let _ = receiving_manager.hide_window(&window, hide);
         }
     }
 
@@ -2165,30 +2489,28 @@ impl ControlBar {
     pub fn update_for_selection(
         &mut self,
         selected_objects: Vec<u32>,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         {
-            let mut context = self
-                .context
-                .write()
-                .map_err(|_| "Failed to acquire context write lock")?;
+            let mut context = &mut self.context;
             context.selected_objects = selected_objects;
         }
         self.mark_ui_dirty();
-        self.update(Duration::from_millis(33))?;
-        self.apply_pending_control_bar_stage();
+        self.update(Duration::from_millis(33), receiving_manager, effects)?;
+        self.apply_pending_control_bar_stage(receiving_manager);
         Ok(())
     }
 
     pub fn update_for_selection_owned(
         &mut self,
         selected_objects: Vec<u32>,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        self.context
-            .write()
-            .map_err(|_| "Failed to acquire context write lock")?
-            .selected_objects = selected_objects;
+        self.context.selected_objects = selected_objects;
         self.mark_ui_dirty();
-        self.update_owned(Duration::from_millis(33))
+        self.update_owned(Duration::from_millis(33), receiving_manager, effects)
     }
 
     pub fn set_observer_mode(&mut self, observer: bool) {
@@ -2260,8 +2582,8 @@ impl ControlBar {
         self.button_states = refreshed;
     }
 
-    pub fn get_context(&self) -> Arc<RwLock<ControlBarContext>> {
-        self.context.clone()
+    pub fn get_context(&self) -> &ControlBarContext {
+        &self.context
     }
 
     pub fn get_build_queue_data(&self) -> &[BuildQueueEntry] {
@@ -2277,10 +2599,7 @@ impl ControlBar {
     }
 
     pub fn get_current_state(&self) -> ControlBarState {
-        self.context
-            .read()
-            .map(|c| c.current_state)
-            .unwrap_or(ControlBarState::None)
+        self.context.current_state
     }
 }
 

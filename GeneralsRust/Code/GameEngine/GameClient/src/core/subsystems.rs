@@ -20,7 +20,6 @@ use crate::{
     game_text::GameText,
     helpers::{InGameUiHooks, PendingCommand, PendingSpecialPower},
     message_stream::game_message::{ICoord2D, ObjectID},
-    message_stream::hot_key::with_hot_key_manager,
     system::{
         BeaconNotification, Coord3D, SubsystemInterface,
         beacon_display::{BEACON_MATCH_THRESHOLD, BeaconMarker},
@@ -1101,32 +1100,6 @@ impl SubsystemInterface for DisplayStringManagerSubsystem {
     }
 }
 
-/// Hot key manager wrapper for GUI hotkey mappings.
-#[derive(Default)]
-pub struct HotKeyManagerSubsystem;
-
-impl HotKeyManagerSubsystem {
-    pub fn new() -> Self {
-        Self
-    }
-}
-
-impl SubsystemInterface for HotKeyManagerSubsystem {
-    fn init(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        with_hot_key_manager(|manager| manager.init());
-        Ok(())
-    }
-
-    fn reset(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        with_hot_key_manager(|manager| manager.reset());
-        Ok(())
-    }
-
-    fn update(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        Ok(())
-    }
-}
-
 /// Header template manager wrapper for unified UI font styles.
 #[derive(Default)]
 pub struct HeaderTemplateManagerSubsystem;
@@ -1151,40 +1124,6 @@ impl SubsystemInterface for HeaderTemplateManagerSubsystem {
         if let Some(audio) = TheAudio::get() {
             audio.update();
         }
-        Ok(())
-    }
-}
-
-/// Lightweight window manager wrapper.
-pub struct WindowManagerSubsystem {
-    owner: crate::gui::window_manager::WindowManagerOwner,
-}
-
-impl WindowManagerSubsystem {
-    pub fn new() -> Self {
-        Self::with_owner(crate::gui::window_manager::WindowManagerOwner::new())
-    }
-
-    pub fn with_owner(owner: crate::gui::window_manager::WindowManagerOwner) -> Self {
-        Self { owner }
-    }
-}
-
-impl SubsystemInterface for WindowManagerSubsystem {
-    fn init(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        self.owner.with_manager(|manager| manager.init());
-        Ok(())
-    }
-
-    fn reset(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        // C++ GameClient::reset (GameClient.cpp:426-457) never calls
-        // TheWindowManager->reset()/winDestroyAll(). GAME_SHELL apply and
-        // Menu→Menu must keep MainMenu.wnd (hq-3vo4).
-        Ok(())
-    }
-
-    fn update(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        self.owner.with_manager(|manager| manager.update());
         Ok(())
     }
 }
@@ -1413,7 +1352,9 @@ impl InGameUISubsystem {
     }
 
     pub fn push_hud_message(&mut self, message: String) {
-        let frame = TheGameLogic::get_frame();
+        self.push_hud_message_at(message, TheGameLogic::get_frame());
+    }
+    pub fn push_hud_message_at(&mut self, message: String, frame: u32) {
         self.expire_hud_messages(frame);
         // C++ newest is index 0; we keep newest at the back.
         let newest = self
@@ -1438,8 +1379,13 @@ impl InGameUISubsystem {
         });
     }
 
-    pub fn push_military_subtitle(&mut self, label: &str, duration_ms: i32) {
-        crate::gui::ingame_ui::start_military_subtitle(label, duration_ms);
+    pub fn push_military_subtitle(
+        &mut self,
+        label: &str,
+        duration_ms: i32,
+        manager: &mut crate::gui::window_manager::WindowManager,
+    ) {
+        crate::gui::ingame_ui::start_military_subtitle(label, duration_ms, manager);
         const MAX_MILITARY_SUBTITLES: usize = 8;
         if self.military_subtitles.len() == MAX_MILITARY_SUBTITLES {
             self.military_subtitles.pop_front();
@@ -1848,6 +1794,18 @@ impl InGameUISubsystem {
     }
 }
 
+impl InGameUISubsystem {
+    /// Original post-draw UI phase borrows the receiving tree directly.
+    pub fn update_receiving(
+        &mut self,
+        manager: &mut crate::gui::window_manager::WindowManager,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        self.update_money_and_power_windows(manager);
+        crate::gui::callbacks::diplomacy::tick_diplomacy_animation(manager);
+        Ok(())
+    }
+}
+
 impl SubsystemInterface for InGameUISubsystem {
     fn init(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         self.clear_runtime_state();
@@ -1861,13 +1819,7 @@ impl SubsystemInterface for InGameUISubsystem {
     }
 
     fn update(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        self.update_money_and_power_windows();
-        // C++ InGameUI::update runs every registered window layout's update
-        // func (InGameUI.cpp:1825-1829); the live Diplomacy layout's update
-        // func ticks its WIN_ANIMATION_SLIDE_TOP (Diplomacy.cpp:124-133,
-        // 197, 246).
-        crate::gui::callbacks::diplomacy::tick_diplomacy_animation();
-        Ok(())
+        Err("InGameUI update requires its receiving WindowManager; call update_receiving".into())
     }
 }
 
@@ -2235,9 +2187,14 @@ impl InGameUiHooks for InGameUiHandle {
         }
     }
 
-    fn military_subtitle(&self, label: &str, duration_ms: i32) {
+    fn military_subtitle(
+        &self,
+        label: &str,
+        duration_ms: i32,
+        manager: &mut crate::gui::window_manager::WindowManager,
+    ) {
         if let Ok(mut ui) = self.inner.lock() {
-            ui.push_military_subtitle(label, duration_ms);
+            ui.push_military_subtitle(label, duration_ms, manager);
         }
     }
 
@@ -3241,11 +3198,12 @@ mod tests {
     }
 
     #[test]
-    fn window_manager_subsystem_reset_does_not_destroy_wnd() {
+    fn game_client_reset_does_not_destroy_wnd() {
         // C++ GameClient::reset (GameClient.cpp:426-457) never calls
         // TheWindowManager->reset()/winDestroyAll(). GAME_SHELL apply must
         // keep MainMenu.wnd:ButtonSinglePlayer (hq-3vo4).
-        let owner = crate::gui::window_manager::WindowManagerOwner::new();
+        let mut client = crate::core::game_client::GameClient::new().expect("receiving client");
+        let owner = client.window_manager_owner();
         owner.with_manager(|manager| {
             manager.reset();
             let window = manager
@@ -3257,8 +3215,7 @@ mod tests {
             assert!(manager.root_window_count() > 0);
         });
 
-        let mut subsystem = WindowManagerSubsystem::with_owner(owner.clone());
-        subsystem.reset().expect("WindowManagerSubsystem::reset");
+        client.reset().expect("GameClient::reset");
 
         owner.with_manager(|manager| {
             assert!(
@@ -3269,7 +3226,7 @@ mod tests {
                 manager
                     .find_window_by_name("MainMenu.wnd:ButtonSinglePlayer")
                     .is_some(),
-                "MainMenu.wnd:ButtonSinglePlayer must survive WindowManagerSubsystem::reset"
+                "MainMenu.wnd:ButtonSinglePlayer must survive GameClient::reset"
             );
         });
     }

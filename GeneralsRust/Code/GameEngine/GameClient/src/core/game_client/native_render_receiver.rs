@@ -622,6 +622,7 @@ impl GameClient {
         NativeDrawableOwner<'_>,
         Option<&mut crate::gui::UIRenderer>,
         &crate::gui::window_manager::WindowManagerOwner,
+        &crate::gui::ime_manager::ImeManager,
     ) {
         (
             &mut self.render_bridge,
@@ -631,6 +632,7 @@ impl GameClient {
             },
             self.ui_renderer.as_mut(),
             &self.window_manager_owner,
+            &self.ime,
         )
     }
     pub fn draw_receiving_ui(&mut self, facts: crate::display::display_fx::DisplayDrawFacts) {
@@ -638,6 +640,7 @@ impl GameClient {
             self.ui_renderer.as_mut(),
             facts,
         );
+        context.ime = Some(&self.ime);
         self.window_manager_owner
             .with_manager(|manager| manager.draw_all(&mut context));
     }
@@ -650,6 +653,7 @@ impl GameClient {
             self.ui_renderer.as_mut(),
             facts,
         );
+        context.ime = Some(&self.ime);
         self.window_manager_owner
             .with_manager(|manager| manager.draw_all_with_radar(radar, &mut context));
     }

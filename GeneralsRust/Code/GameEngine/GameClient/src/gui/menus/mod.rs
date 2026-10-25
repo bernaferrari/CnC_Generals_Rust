@@ -7,8 +7,7 @@ pub mod disconnect_menu;
 pub mod establish_connections_menu;
 
 // Re-export key types for convenience
-pub use disconnect_menu::{DisconnectMenu, get_disconnect_menu};
+pub use disconnect_menu::DisconnectMenu;
 pub use establish_connections_menu::{
     EstablishConnectionsMenu, EstablishConnectionsMenuState, NATConnectionState,
-    get_establish_connections_menu,
 };

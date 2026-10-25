@@ -934,8 +934,7 @@ fn presentation_feeds_control_bar_garrison_inventory() {
     {
         let mut bar = game_client::gui::control_bar::ControlBar::new();
         frame.apply_to_control_bar(&mut bar);
-        let ctx = bar.get_context();
-        let guard = ctx.read().expect("read");
+        let guard = bar.get_context();
         let names: Vec<_> = guard
             .available_commands
             .iter()

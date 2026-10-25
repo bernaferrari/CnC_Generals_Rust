@@ -191,6 +191,13 @@ impl WindowVideoManager {
     }
 
     pub fn update(&mut self) {
+        self.update_with_visibility(true);
+    }
+    /// InGameUI.cpp:1594 advances its streams even when the HUD is not drawn.
+    pub fn update_in_game_movies(&mut self) {
+        self.update_with_visibility(false);
+    }
+    fn update_with_visibility(&mut self, observe_window_visibility: bool) {
         // C++ parity: when global stop/pause toggles are active, update short-circuits.
         if self.stop_all_movies || self.pause_all_movies {
             return;
@@ -209,11 +216,17 @@ impl WindowVideoManager {
             };
 
             let window_hidden = window.borrow().is_hidden();
-            if win_video.state() == WindowVideoState::Hidden && !window_hidden {
+            if observe_window_visibility
+                && win_video.state() == WindowVideoState::Hidden
+                && !window_hidden
+            {
                 win_video.set_window_state(WindowVideoState::Play);
             }
 
-            if win_video.state() == WindowVideoState::Play && window_hidden {
+            if observe_window_visibility
+                && win_video.state() == WindowVideoState::Play
+                && window_hidden
+            {
                 win_video.set_window_state(WindowVideoState::Hidden);
             }
 
@@ -243,7 +256,12 @@ impl WindowVideoManager {
                     match play_type {
                         WindowVideoPlayType::Once => {
                             win_video.set_window_state(WindowVideoState::Stop);
-                            remove_keys.push(key);
+                            // WindowVideoManager.cpp:216 retains ordinary stopped
+                            // entries until reset; InGameUI.cpp:1605 closes its
+                            // own completed radar stream immediately.
+                            if !observe_window_visibility {
+                                remove_keys.push(key);
+                            }
                         }
                         WindowVideoPlayType::ShowLastFrame => {
                             win_video.set_window_state(WindowVideoState::Pause)
@@ -949,19 +967,15 @@ impl WindowVideoManager {
         &mut self,
         owner: &crate::gui::window_manager::WindowManagerOwner,
     ) -> bool {
-        let target = owner.with_manager(|wm| {
-            ["ControlBar.wnd:CameoMovieWindow", "ControlBar.wnd:RightHUD"]
-                .into_iter()
-                .find_map(|name| wm.find_window_by_name(name))
-        });
+        let target = owner.with_manager(|wm| wm.find_window_by_name("ControlBar.wnd:RightHUD"));
         let Some(target) = target else {
             return false;
         };
         if self.is_movie_playing("CameoMovie") {
-            self.stop_movie(&target);
+            self.stop_and_remove_movie(&target);
             true
         } else {
-            self.play_movie(target, "CameoMovie".into(), WindowVideoPlayType::Once)
+            self.play_movie(target, "CameoMovie".into(), WindowVideoPlayType::Loop)
         }
     }
 }
@@ -986,5 +1000,52 @@ mod receiving_video_diagnostics_tests {
             residual_window_video_last_action(&owner),
             ResidualWindowVideoAction::PauseAll
         );
+    }
+}
+
+/// Independent C++ owners grouped under their receiving client, never mirrors.
+/// ChallengeMenu.cpp:74, LoadScreen.cpp:1019, ControlBar.cpp:1228;
+/// InGameUI.cpp:1594 advances its own radar/cameo streams independently.
+#[derive(Default)]
+pub struct ClientWindowVideos {
+    pub loading: WindowVideoManager,
+    pub challenge: WindowVideoManager,
+    pub control_bar: WindowVideoManager,
+    pub in_game: WindowVideoManager,
+}
+impl ClientWindowVideos {
+    pub fn new() -> Self {
+        Self::default()
+    }
+    pub fn reset(&mut self) {
+        self.loading.reset();
+        self.challenge.reset();
+        self.control_bar.reset();
+        self.in_game.reset();
+    }
+}
+pub fn stop_radar_movie_for_owner(
+    owner: &crate::gui::window_manager::WindowManagerOwner,
+    videos: &mut WindowVideoManager,
+) {
+    let target = owner.with_manager(|wm| wm.find_window_by_name("ControlBar.wnd:LeftHUD"));
+    if let Some(target) = target {
+        videos.stop_and_remove_movie(&target);
+    }
+}
+#[cfg(test)]
+mod client_video_domain_tests {
+    use super::*;
+    #[test]
+    fn loading_and_challenge_resets_do_not_touch_gameplay_movies() {
+        let mut videos = ClientWindowVideos::new();
+        videos.in_game.pause_all_movies();
+        videos.control_bar.stop_all_movies();
+        videos.loading.init();
+        videos.challenge.reset();
+        assert!(videos.in_game.pause_all_movies);
+        assert!(videos.control_bar.stop_all_movies);
+        assert!(!videos.loading.pause_all_movies);
+        assert!(!videos.challenge.stop_all_movies);
     }
 }

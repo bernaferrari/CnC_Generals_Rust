@@ -28,7 +28,6 @@ pub(in crate::message_stream::translators) use crate::display::view::{
 };
 pub(in crate::message_stream::translators) use crate::drawable::Drawable;
 pub(in crate::message_stream::translators) use crate::gui::game_window::WindowStatus;
-pub(in crate::message_stream::translators) use crate::gui::window_manager::with_window_manager_ref;
 pub(in crate::message_stream::translators) use crate::gui::{
     toggle_control_bar, toggle_diplomacy, toggle_quit_menu,
 };

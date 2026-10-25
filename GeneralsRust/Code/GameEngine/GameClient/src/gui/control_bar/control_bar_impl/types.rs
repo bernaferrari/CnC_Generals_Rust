@@ -238,9 +238,7 @@ pub struct ControlBar {
     >,
 
     pub(crate) tooltip: crate::gui::gui_callbacks::control_bar_popup_description::TooltipState,
-    context: Arc<RwLock<ControlBarContext>>,
-    window_manager: Option<Arc<WindowManager>>,
-    current_window: Option<Arc<GameWindow>>,
+    context: ControlBarContext,
     is_animating: bool,
     animation_start_time: Instant,
     animation_duration: Duration,

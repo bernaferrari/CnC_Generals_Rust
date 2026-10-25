@@ -6,8 +6,8 @@
 use crate::game_text::GameText;
 use crate::gui::control_bar::publish_host_select_next_idle_worker;
 use crate::gui::{
-    GameWindow, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled, get_disconnect_menu,
-    with_window_manager, write_input_focus_response,
+    GameWindow, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled,
+    write_input_focus_response,
 };
 use crate::helpers::TheInGameUI;
 use crate::language_filter::get_language_filter;
@@ -97,13 +97,20 @@ fn set_text_entry_text(window: &Option<Rc<RefCell<GameWindow>>>, value: &str) {
     }
 }
 
-fn ensure_chat_layout(state: &mut InGameChatUiState) {
+fn ensure_chat_layout(
+    state: &mut InGameChatUiState,
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) {
     if state.layout.is_some() {
         return;
     }
 
-    let layout =
-        with_window_manager(|manager| manager.create_layout_with_windows("InGameChat.wnd").ok());
+    let layout = (|manager: &mut crate::gui::window_manager::WindowManager| {
+        manager
+            .create_layout_with_windows("InGameChat.wnd", effects)
+            .ok()
+    })(receiving_manager);
     let Some((layout, _info)) = layout else {
         return;
     };
@@ -112,10 +119,15 @@ fn ensure_chat_layout(state: &mut InGameChatUiState) {
     let text_entry_id = NameKeyGenerator::name_to_key("InGameChat.wnd:TextEntryChat");
     let chat_type_id = NameKeyGenerator::name_to_key("InGameChat.wnd:StaticTextChatType");
 
-    let parent = with_window_manager(|manager| manager.get_window_by_id(parent_id as i32));
-    let text_entry = with_window_manager(|manager| manager.get_window_by_id(text_entry_id as i32));
-    let chat_type_text =
-        with_window_manager(|manager| manager.get_window_by_id(chat_type_id as i32));
+    let parent = (|manager: &mut crate::gui::window_manager::WindowManager| {
+        manager.get_window_by_id(parent_id as i32)
+    })(receiving_manager);
+    let text_entry = (|manager: &mut crate::gui::window_manager::WindowManager| {
+        manager.get_window_by_id(text_entry_id as i32)
+    })(receiving_manager);
+    let chat_type_text = (|manager: &mut crate::gui::window_manager::WindowManager| {
+        manager.get_window_by_id(chat_type_id as i32)
+    })(receiving_manager);
 
     set_text_entry_text(&text_entry, "");
 
@@ -125,17 +137,15 @@ fn ensure_chat_layout(state: &mut InGameChatUiState) {
     state.chat_type_text = chat_type_text;
 }
 
-fn should_block_chat() -> bool {
+fn should_block_chat(effects: &crate::gui::game_window::WindowEventEffects<'_>) -> bool {
     if TheGameLogic::is_in_replay_game() {
         return true;
     }
     if TheInGameUI::is_quit_menu_visible() {
         return true;
     }
-    if let Ok(menu) = get_disconnect_menu().read() {
-        if menu.is_visible() {
-            return true;
-        }
+    if effects.receiving_disconnect_menu_visible() {
+        return true;
     }
     false
 }
@@ -259,11 +269,13 @@ impl InGameChatCallbacks {
         msg: WindowMessage,
         data1: WindowMsgData,
         data2: WindowMsgData,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) -> WindowMsgHandled {
         match msg {
             WindowMessage::InputFocus => write_input_focus_response(data1, data2, true),
             WindowMessage::GadgetEditDone => {
-                let _ = self.toggle_in_game_chat(false);
+                let _ = self.toggle_in_game_chat(false, receiving_manager, effects);
                 WindowMsgHandled::Handled
             }
             WindowMessage::GadgetSelected => {
@@ -289,13 +301,15 @@ impl InGameChatCallbacks {
         msg: WindowMessage,
         data1: WindowMsgData,
         data2: WindowMsgData,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) -> WindowMsgHandled {
         if msg != WindowMessage::Char {
             return WindowMsgHandled::Ignored;
         }
         let key = data1;
         if key == KEY_ESC {
-            let _ = self.hide_in_game_chat(false);
+            let _ = self.hide_in_game_chat(false, receiving_manager, effects);
             return WindowMsgHandled::Handled;
         }
         WindowMsgHandled::Handled
@@ -305,9 +319,11 @@ impl InGameChatCallbacks {
     pub fn toggle_in_game_chat(
         &mut self,
         immediate: bool,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         info!("Toggling in-game chat (immediate: {})", immediate);
-        if should_block_chat() || should_block_chat_in_single_player() {
+        if should_block_chat(effects) || should_block_chat_in_single_player() {
             return Ok(());
         }
 
@@ -321,7 +337,7 @@ impl InGameChatCallbacks {
             return Ok(());
         }
 
-        with_chat_ui_state(ensure_chat_layout);
+        with_chat_ui_state(|state| ensure_chat_layout(state, receiving_manager, effects));
 
         let is_hidden = with_chat_ui_state(|state| {
             state
@@ -332,7 +348,7 @@ impl InGameChatCallbacks {
         });
 
         if is_hidden {
-            self.show_in_game_chat(immediate)?;
+            self.show_in_game_chat(immediate, receiving_manager, effects)?;
         } else {
             with_chat_ui_state(|state| {
                 let mut msg = text_entry_text(&state.text_entry);
@@ -356,7 +372,7 @@ impl InGameChatCallbacks {
                 }
                 set_text_entry_text(&state.text_entry, "");
             });
-            self.hide_in_game_chat(immediate)?;
+            self.hide_in_game_chat(immediate, receiving_manager, effects)?;
             with_chat_ui_state(|state| state.just_hid = true);
         }
 
@@ -364,7 +380,12 @@ impl InGameChatCallbacks {
     }
 
     /// Hide chat
-    pub fn hide_in_game_chat(&mut self, immediate: bool) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn hide_in_game_chat(
+        &mut self,
+        immediate: bool,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         info!("Hiding in-game chat (immediate: {})", immediate);
 
         let (parent, text_entry) = with_chat_ui_state(|state| {
@@ -373,49 +394,54 @@ impl InGameChatCallbacks {
             let text_entry = state.text_entry.clone();
 
             if let Some(parent) = &parent {
-                let _ = parent.borrow_mut().hide(true);
+                let _ = parent.borrow_mut().hide(true, receiving_manager);
                 let _ = parent.borrow_mut().enable(false);
             }
             if let Some(entry) = &text_entry {
-                let _ = entry.borrow_mut().hide(true);
+                let _ = entry.borrow_mut().hide(true, receiving_manager);
                 let _ = entry.borrow_mut().enable(false);
             }
             (parent, text_entry)
         });
 
-        with_window_manager(|manager| {
-            let _ = manager.set_focus(None);
-        });
+        (|manager: &mut crate::gui::window_manager::WindowManager| {
+            let _ = manager.set_focus(None, effects);
+        })(receiving_manager);
         self.active = false;
 
         Ok(())
     }
 
     /// Show chat
-    pub fn show_in_game_chat(&mut self, immediate: bool) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn show_in_game_chat(
+        &mut self,
+        immediate: bool,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         info!("Showing in-game chat (immediate: {})", immediate);
-        if should_block_chat() {
+        if should_block_chat(effects) {
             return Ok(());
         }
 
         with_chat_ui_state(|state| {
-            ensure_chat_layout(state);
+            ensure_chat_layout(state, receiving_manager, effects);
 
             if let Some(parent) = &state.parent {
-                let _ = parent.borrow_mut().hide(false);
+                let _ = parent.borrow_mut().hide(false, receiving_manager);
                 let _ = parent.borrow_mut().enable(true);
             }
             if let Some(entry) = &state.text_entry {
-                let _ = entry.borrow_mut().hide(false);
+                let _ = entry.borrow_mut().hide(false, receiving_manager);
                 let _ = entry.borrow_mut().enable(true);
                 set_text_entry_text(&state.text_entry, &state.saved_text);
                 state.saved_text.clear();
             }
             if let Some(entry) = &state.text_entry {
                 let entry = entry.clone();
-                with_window_manager(|manager| {
-                    let _ = manager.set_focus(Some(&entry));
-                });
+                (|manager: &mut crate::gui::window_manager::WindowManager| {
+                    let _ = manager.set_focus(Some(&entry), effects);
+                })(receiving_manager);
             }
         });
         let _ = self.set_in_game_chat_type(InGameChatType::Everyone);
@@ -425,14 +451,20 @@ impl InGameChatCallbacks {
     }
 
     /// Reset chat state
-    pub fn reset_in_game_chat(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn reset_in_game_chat(
+        &mut self,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         info!("Resetting in-game chat");
         self.active = false;
         self.chat_type = InGameChatType::Allies;
         self.history.clear();
         with_chat_ui_state(|state| {
             if let Some(layout) = &state.layout {
-                with_window_manager(|manager| manager.destroy_layout(layout));
+                (|manager: &mut crate::gui::window_manager::WindowManager| {
+                    manager.destroy_layout(layout, effects)
+                })(receiving_manager);
             }
             *state = InGameChatUiState::default();
         });
@@ -573,10 +605,11 @@ impl ReplayControlCallbacks {
     /// Handle replay control system messages
     pub fn system(
         &mut self,
-        window: &GameWindow,
+        window: &mut GameWindow,
         msg: WindowMessage,
         _data1: WindowMsgData,
         _data2: WindowMsgData,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
     ) -> WindowMsgHandled {
         debug!(
             "Replay control system message: {:?} for window: {}",
@@ -593,10 +626,11 @@ impl ReplayControlCallbacks {
     /// Handle replay control input messages
     pub fn input(
         &mut self,
-        window: &GameWindow,
+        window: &mut GameWindow,
         msg: WindowMessage,
         _data1: WindowMsgData,
         _data2: WindowMsgData,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
     ) -> WindowMsgHandled {
         debug!(
             "Replay control input message: {:?} for window: {}",
@@ -680,10 +714,11 @@ impl IdleWorkerCallbacks {
     /// Handle idle worker system messages
     pub fn system(
         &mut self,
-        window: &GameWindow,
+        window: &mut GameWindow,
         msg: WindowMessage,
         data1: WindowMsgData,
         data2: WindowMsgData,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
     ) -> WindowMsgHandled {
         debug!(
             "Idle worker system message: {:?} for window: {}",
@@ -709,7 +744,7 @@ impl IdleWorkerCallbacks {
                 WindowMsgHandled::Handled
             }
             WindowMessage::None => {
-                self.refresh_idle_workers_from_logic();
+                self.refresh_idle_workers_from_logic(receiving_manager);
                 WindowMsgHandled::Handled
             }
             _ => WindowMsgHandled::Ignored,
@@ -722,14 +757,21 @@ impl IdleWorkerCallbacks {
     }
 
     /// Update idle worker count
-    pub fn set_idle_worker_count(&mut self, count: i32) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn set_idle_worker_count(
+        &mut self,
+        count: i32,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         debug!("Setting idle worker count to: {}", count);
         self.worker_count = count;
-        self.update_idle_worker_button();
+        self.update_idle_worker_button(receiving_manager);
         Ok(())
     }
 
-    fn refresh_idle_workers_from_logic(&mut self) {
+    fn refresh_idle_workers_from_logic(
+        &mut self,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    ) {
         let events = gamelogic::helpers::TheInGameUI::take_idle_worker_events();
         let local_index = ThePlayerList()
             .read()
@@ -737,7 +779,7 @@ impl IdleWorkerCallbacks {
             .map(|list| list.get_local_player_index())
             .unwrap_or(gamelogic::player::PLAYER_INDEX_INVALID);
         self.apply_idle_worker_events(local_index as i32, events);
-        self.update_idle_worker_button();
+        self.update_idle_worker_button(receiving_manager);
     }
 
     /// C++ InGameUI.cpp5444-5480 performs each list mutation immediately.
@@ -795,15 +837,18 @@ impl IdleWorkerCallbacks {
         };
     }
 
-    fn update_idle_worker_button(&self) {
+    fn update_idle_worker_button(
+        &self,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    ) {
         let button_id = NameKeyGenerator::name_to_key("ControlBar.wnd:ButtonIdleWorker") as i32;
         let input_enabled = TheInGameUI::get_input_enabled();
-        with_window_manager(|manager| {
+        (|manager: &mut crate::gui::window_manager::WindowManager| {
             if let Some(button) = manager.get_window_by_id(button_id) {
                 let enabled = self.worker_count > 0 && input_enabled;
                 let _ = button.borrow_mut().enable(enabled);
             }
-        });
+        })(receiving_manager);
     }
 }
 
@@ -853,27 +898,46 @@ impl InGameUISystem {
     }
 
     /// Toggle chat through the system
-    pub fn toggle_in_game_chat(&self, immediate: bool) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn toggle_in_game_chat(
+        &self,
+        immediate: bool,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let mut chat = self.chat.write().unwrap_or_else(|e| e.into_inner());
-        chat.toggle_in_game_chat(immediate)
+        chat.toggle_in_game_chat(immediate, receiving_manager, effects)
     }
 
     /// Hide chat through the system
-    pub fn hide_in_game_chat(&self, immediate: bool) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn hide_in_game_chat(
+        &self,
+        immediate: bool,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let mut chat = self.chat.write().unwrap_or_else(|e| e.into_inner());
-        chat.hide_in_game_chat(immediate)
+        chat.hide_in_game_chat(immediate, receiving_manager, effects)
     }
 
     /// Show chat through the system
-    pub fn show_in_game_chat(&self, immediate: bool) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn show_in_game_chat(
+        &self,
+        immediate: bool,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let mut chat = self.chat.write().unwrap_or_else(|e| e.into_inner());
-        chat.show_in_game_chat(immediate)
+        chat.show_in_game_chat(immediate, receiving_manager, effects)
     }
 
     /// Reset chat through the system
-    pub fn reset_in_game_chat(&self) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn reset_in_game_chat(
+        &self,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let mut chat = self.chat.write().unwrap_or_else(|e| e.into_inner());
-        chat.reset_in_game_chat()
+        chat.reset_in_game_chat(receiving_manager, effects)
     }
 
     /// Set chat type through the system
@@ -910,28 +974,43 @@ pub fn get_ingame_ui_system() -> Arc<RwLock<InGameUISystem>> {
 }
 
 /// Convenience functions for global in-game UI operations
-pub fn toggle_in_game_chat(immediate: bool) -> Result<(), Box<dyn std::error::Error>> {
+pub fn toggle_in_game_chat(
+    immediate: bool,
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> Result<(), Box<dyn std::error::Error>> {
     let system = get_ingame_ui_system();
     let system = system.read().unwrap_or_else(|e| e.into_inner());
-    system.toggle_in_game_chat(immediate)
+    system.toggle_in_game_chat(immediate, receiving_manager, effects)
 }
 
-pub fn hide_in_game_chat(immediate: bool) -> Result<(), Box<dyn std::error::Error>> {
+pub fn hide_in_game_chat(
+    immediate: bool,
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> Result<(), Box<dyn std::error::Error>> {
     let system = get_ingame_ui_system();
     let system = system.read().unwrap_or_else(|e| e.into_inner());
-    system.hide_in_game_chat(immediate)
+    system.hide_in_game_chat(immediate, receiving_manager, effects)
 }
 
-pub fn show_in_game_chat(immediate: bool) -> Result<(), Box<dyn std::error::Error>> {
+pub fn show_in_game_chat(
+    immediate: bool,
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> Result<(), Box<dyn std::error::Error>> {
     let system = get_ingame_ui_system();
     let system = system.read().unwrap_or_else(|e| e.into_inner());
-    system.show_in_game_chat(immediate)
+    system.show_in_game_chat(immediate, receiving_manager, effects)
 }
 
-pub fn reset_in_game_chat() -> Result<(), Box<dyn std::error::Error>> {
+pub fn reset_in_game_chat(
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> Result<(), Box<dyn std::error::Error>> {
     let system = get_ingame_ui_system();
     let system = system.read().unwrap_or_else(|e| e.into_inner());
-    system.reset_in_game_chat()
+    system.reset_in_game_chat(receiving_manager, effects)
 }
 
 pub fn set_in_game_chat_type(chat_type: InGameChatType) -> Result<(), Box<dyn std::error::Error>> {
@@ -1420,12 +1499,15 @@ pub fn simulate_idle_worker_bind_controls() -> bool {
 }
 
 /// Residual: set idle worker count without selection.
-pub fn simulate_idle_worker_set_count(count: i32) -> bool {
+pub fn simulate_idle_worker_set_count(
+    count: i32,
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+) -> bool {
     if count < 0 {
         return false;
     }
     with_idle_worker_mut(|idle| {
-        let _ = idle.set_idle_worker_count(count);
+        let _ = idle.set_idle_worker_count(count, receiving_manager);
         RESIDUAL_IDLE_COUNT.store(count, std::sync::atomic::Ordering::Relaxed);
         residual_idle_action_store(ResidualIdleWorkerAction::SetCount);
         residual_idle_worker_count() == count
@@ -1457,8 +1539,11 @@ pub fn simulate_idle_worker_button_gadget_selected() -> bool {
 }
 
 /// Residual: set count + button composite.
-pub fn simulate_idle_worker_prepare_select(count: i32) -> bool {
-    if !simulate_idle_worker_set_count(count) {
+pub fn simulate_idle_worker_prepare_select(
+    count: i32,
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+) -> bool {
+    if !simulate_idle_worker_set_count(count, receiving_manager) {
         return false;
     }
     simulate_idle_worker_button_gadget_selected()

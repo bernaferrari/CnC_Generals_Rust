@@ -6,7 +6,7 @@ use crate::gui::gadgets::KeyModifiers;
 use crate::gui::{
     GameWindow, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled, WindowWidget,
     queue_shell_pop, queue_shell_shutdown_complete, show_shell_map_if_available,
-    with_window_manager, write_input_focus_response,
+    write_input_focus_response,
 };
 use crate::message_stream::meta_event::{
     CommandMapEntry, get_command_map_entries, reset_command_map_entries, update_command_map_entry,
@@ -321,10 +321,11 @@ fn should_ignore_assignment_key(key: u32) -> bool {
 }
 
 fn keyboard_text_entry_input(
-    _window: &GameWindow,
+    _window: &mut GameWindow,
     msg: WindowMessage,
     data1: WindowMsgData,
     data2: WindowMsgData,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> WindowMsgHandled {
     let state_handle = keyboard_options_menu_state();
     let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
@@ -391,15 +392,23 @@ fn keyboard_text_entry_input(
                 }
                 KEY_RIGHT | KEY_DOWN => {
                     drop(state);
-                    with_window_manager(|manager| {
-                        manager.navigate_tab(crate::gui::TabDirection::Next)
+                    effects.with_manager(|manager, effects| {
+                        manager.navigate_tab_with_selected(
+                            crate::gui::TabDirection::Next,
+                            effects,
+                            Some(_window),
+                        )
                     });
                     return WindowMsgHandled::Handled;
                 }
                 KEY_LEFT | KEY_UP => {
                     drop(state);
-                    with_window_manager(|manager| {
-                        manager.navigate_tab(crate::gui::TabDirection::Previous)
+                    effects.with_manager(|manager, effects| {
+                        manager.navigate_tab_with_selected(
+                            crate::gui::TabDirection::Previous,
+                            effects,
+                            Some(_window),
+                        )
                     });
                     return WindowMsgHandled::Handled;
                 }
@@ -419,7 +428,11 @@ fn keyboard_text_entry_input(
     }
 }
 
-pub fn keyboard_options_menu_init(layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>) {
+pub fn keyboard_options_menu_init(
+    layout: &WindowLayout,
+    _user_data: Option<&dyn std::any::Any>,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) {
     let state_handle = keyboard_options_menu_state();
     let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
 
@@ -436,7 +449,7 @@ pub fn keyboard_options_menu_init(layout: &WindowLayout, _user_data: Option<&dyn
     state.selected_command_index = None;
     reset_assign_capture(&mut state);
 
-    with_window_manager(|manager| {
+    effects.with_manager(|manager, effects| {
         state.parent = manager.get_window_by_id(state.parent_id);
         state.combo_category = manager.get_window_by_id(state.combo_category_id);
         state.list_command = manager.get_window_by_id(state.list_command_id);
@@ -446,16 +459,16 @@ pub fn keyboard_options_menu_init(layout: &WindowLayout, _user_data: Option<&dyn
         if let Some(entry) = state.text_assign_hotkey.as_ref() {
             entry
                 .borrow_mut()
-                .set_input_callback(keyboard_text_entry_input);
+                .set_input_callback_with_message_sink(keyboard_text_entry_input);
         }
         if let Some(parent) = state.parent.as_ref() {
-            let _ = manager.set_focus(Some(parent));
+            let _ = manager.set_focus(Some(parent), effects);
         }
     });
 
     populate_category_box(&state);
     populate_command_list(&mut state);
-    layout.hide(false);
+    effects.with_manager(|manager, _effects| layout.hide(manager, false));
 }
 
 pub fn keyboard_options_menu_update(
@@ -467,14 +480,15 @@ pub fn keyboard_options_menu_update(
 pub fn keyboard_options_menu_shutdown(
     layout: &WindowLayout,
     _user_data: Option<&dyn std::any::Any>,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) {
     let state_handle = keyboard_options_menu_state();
     if let Ok(mut state) = state_handle.lock() {
         reset_assign_capture(&mut state);
         state.selected_command_index = None;
     }
-    layout.hide(true);
-    queue_shell_shutdown_complete(false);
+    effects.with_manager(|manager, _effects| layout.hide(manager, true));
+    queue_shell_shutdown_complete(effects, false);
 }
 
 pub fn keyboard_options_menu_input(
@@ -482,6 +496,7 @@ pub fn keyboard_options_menu_input(
     msg: WindowMessage,
     data1: WindowMsgData,
     data2: WindowMsgData,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> WindowMsgHandled {
     if msg != WindowMessage::Char || data1 != KEY_ESC as WindowMsgData {
         return WindowMsgHandled::Ignored;
@@ -495,6 +510,7 @@ pub fn keyboard_options_menu_input(
                 WindowMessage::GadgetSelected,
                 state.button_back_id as WindowMsgData,
                 state.button_back_id as WindowMsgData,
+                effects,
             );
         }
     }
@@ -540,6 +556,7 @@ pub fn keyboard_options_menu_system(
     msg: WindowMessage,
     data1: WindowMsgData,
     data2: WindowMsgData,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> WindowMsgHandled {
     let state_handle = keyboard_options_menu_state();
     let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
@@ -580,7 +597,7 @@ pub fn keyboard_options_menu_system(
             let control_id = data1 as i32;
             if control_id == state.button_back_id {
                 drop(state);
-                queue_shell_pop();
+                queue_shell_pop(effects);
                 return WindowMsgHandled::Handled;
             }
 

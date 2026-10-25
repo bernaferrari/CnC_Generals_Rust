@@ -251,9 +251,13 @@ impl IntegratedUISystem {
         template_name: String,
         footprint_x: f32,
         footprint_z: f32,
+        input: &crate::gui::ingame_ui::InGameUiInputContext<'_>,
     ) {
-        self.ingame_ui
-            .start_building_placement(template_name, Vec2::new(footprint_x, footprint_z));
+        self.ingame_ui.start_building_placement(
+            template_name,
+            Vec2::new(footprint_x, footprint_z),
+            input,
+        );
     }
 
     /// Cancel building placement
@@ -358,12 +362,16 @@ impl IntegratedUISystem {
     }
 
     /// Update UI state
-    pub fn update(&mut self, delta_time: Duration) -> Result<()> {
+    pub fn update(
+        &mut self,
+        delta_time: Duration,
+        input: &crate::gui::ingame_ui::InGameUiInputContext<'_>,
+    ) -> Result<()> {
         if !self.initialized {
             return Ok(());
         }
 
-        self.ingame_ui.update(delta_time);
+        self.ingame_ui.update(delta_time, input);
         self.command_panel.update(delta_time);
 
         Ok(())

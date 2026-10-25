@@ -2004,16 +2004,22 @@ impl CnCGameEngine {
         // C++ GameState::saveGame (GameState.cpp:547-597): HUD
         // GUI:GameSaveComplete on success; MessageBoxOk(GUI:Error,
         // GUI:ErrorSavingGame) after a write failure.
-        Self::surface_save_game_ui_feedback(&save_path, &result);
+        self.surface_save_game_ui_feedback(&save_path, &result);
         result
     }
 
     /// C++ `GameState::saveGame` user feedback (`GameState.cpp:547-597`).
-    fn surface_save_game_ui_feedback(save_path: &std::path::Path, result: &Result<(), String>) {
+    fn surface_save_game_ui_feedback(
+        &mut self,
+        save_path: &std::path::Path,
+        result: &Result<(), String>,
+    ) {
         #[cfg(feature = "game_client")]
         match result {
             Ok(()) => {
-                game_client::helpers::TheInGameUI::message("GUI:GameSaveComplete");
+                let message = game_client::game_text::GameText::fetch("GUI:GameSaveComplete");
+                self.game_client
+                    .push_hud_message_at(message, self.game_logic.get_frame());
             }
             Err(_) => {
                 let filepath = save_path.display().to_string();
@@ -2024,7 +2030,13 @@ impl CnCGameEngine {
                     format!("{template} {filepath}")
                 };
                 let title = game_client::game_text::GameText::fetch("GUI:Error");
-                let _ = game_client::gui::message_box_ok(&title, &body, None);
+                let facts = self.receiving_menu_world_facts();
+                self.game_client
+                    .with_window_event_effects(Some(facts), |effects| {
+                        effects.with_manager(|manager, effects| {
+                            game_client::gui::message_box_ok(&title, &body, None, manager, effects)
+                        });
+                    });
             }
         }
         #[cfg(not(feature = "game_client"))]
@@ -3052,12 +3064,18 @@ impl CnCGameEngine {
     }
 
     /// C++ `GameState::loadGame` user feedback (`GameState.cpp:695-712`).
-    fn surface_load_game_ui_feedback(save_path: &std::path::Path) {
+    fn surface_load_game_ui_feedback(&mut self, save_path: &std::path::Path) {
         #[cfg(feature = "game_client")]
         {
             let filepath = save_path.display().to_string();
             let (title, body) = crate::save_load::format_error_loading_game(&filepath);
-            let _ = game_client::gui::message_box_ok(&title, &body, None);
+            let facts = self.receiving_menu_world_facts();
+            self.game_client
+                .with_window_event_effects(Some(facts), |effects| {
+                    effects.with_manager(|manager, effects| {
+                        game_client::gui::message_box_ok(&title, &body, None, manager, effects)
+                    });
+                });
         }
         #[cfg(not(feature = "game_client"))]
         let _ = save_path;
@@ -3413,7 +3431,7 @@ impl CnCGameEngine {
         // GUI:ErrorLoadingGame. A committed failure's menu teardown
         // would otherwise destroy a dialog created beforehand.
         let save_path = self.save_file_manager.get_save_path(slot);
-        Self::surface_load_game_ui_feedback(&save_path);
+        self.surface_load_game_ui_feedback(&save_path);
         Err(err)
     }
 

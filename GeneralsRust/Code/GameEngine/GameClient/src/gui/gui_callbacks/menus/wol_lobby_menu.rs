@@ -23,7 +23,7 @@ pub fn wol_lobby_menu_shutdown_callback(
 }
 
 pub fn wol_lobby_menu_system_callback(
-    window: &GameWindow,
+    window: &mut GameWindow,
     msg: WindowMessage,
     data1: WindowMsgData,
     data2: WindowMsgData,
@@ -32,7 +32,7 @@ pub fn wol_lobby_menu_system_callback(
 }
 
 pub fn wol_lobby_menu_input_callback(
-    window: &GameWindow,
+    window: &mut GameWindow,
     msg: WindowMessage,
     data1: WindowMsgData,
     data2: WindowMsgData,

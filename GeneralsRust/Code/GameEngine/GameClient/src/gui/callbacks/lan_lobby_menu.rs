@@ -13,8 +13,7 @@ use crate::gui::callbacks::{
 use crate::gui::gadgets::ListBoxItemData;
 use crate::gui::{
     GLM_DOUBLE_CLICKED, GameWindow, LanPreferences, WindowLayout, WindowMessage, WindowMsgData,
-    WindowMsgHandled, get_shell, show_shell_map_if_available, try_with_shell_mut,
-    with_window_manager, write_input_focus_response,
+    WindowMsgHandled, show_shell_map_if_available, write_input_focus_response,
 };
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_network::lan_api::{
@@ -156,7 +155,11 @@ fn pump_lan_events() {
     });
 }
 
-fn handle_lan_event(state: &mut LanLobbyState, event: LanEvent) {
+fn handle_lan_event(
+    state: &mut LanLobbyState,
+    event: LanEvent,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) {
     match event {
         LanEvent::GameList(games) => {
             reset_list(&state.listbox_games);
@@ -205,7 +208,7 @@ fn handle_lan_event(state: &mut LanLobbyState, event: LanEvent) {
         LanEvent::GameJoin(LanResult::Ok, _) => {
             set_lan_button_pushed(true);
             state.next_screen = Some("Menus/LanGameOptionsMenu.wnd".to_string());
-            let _ = get_shell().pop();
+            let _ = crate::gui::shell::base::queue_shell_pop(effects);
         }
         LanEvent::GameJoin(result, _) if result != LanResult::Busy => {
             add_chat_line(state, &GameText::fetch("LAN:JoinFailed"));
@@ -219,7 +222,7 @@ fn handle_lan_event(state: &mut LanLobbyState, event: LanEvent) {
                 }
             });
             state.next_screen = Some("Menus/LanGameOptionsMenu.wnd".to_string());
-            let _ = get_shell().pop();
+            let _ = crate::gui::shell::base::queue_shell_pop(effects);
         }
         LanEvent::GameCreate(LanResult::GameExists) => {
             add_chat_line(state, &GameText::fetch("LAN:ErrorGameExists"));
@@ -307,7 +310,7 @@ pub fn lan_lobby_init(
     state.listbox_chat_id = name_to_id("LanLobbyMenu.wnd:ListboxChatWindowLanLobby");
     state.listbox_games_id = name_to_id("LanLobbyMenu.wnd:ListboxGames");
 
-    with_window_manager(|manager| {
+    effects.with_manager(|manager, effects| {
         state.parent = manager.get_window_by_id(state.parent_id);
         state.button_back = manager.get_window_by_id(state.button_back_id);
         state.button_clear = manager.get_window_by_id(state.button_clear_id);
@@ -358,18 +361,22 @@ pub fn lan_lobby_init(
     });
 
     if let Some(chat) = state.text_entry_chat.as_ref() {
-        let _ = with_window_manager(|manager| manager.set_focus(Some(chat)));
+        let _ = effects.with_manager(|manager, effects| manager.set_focus(Some(chat), effects));
     }
     show_shell_map_if_available(true, effects);
     layout.hide(false);
-    if let Some(gadget) = with_window_manager(|manager| {
+    if let Some(gadget) = effects.with_manager(|manager, effects| {
         manager.get_window_by_id(name_to_id("LanLobbyMenu.wnd:GadgetParent"))
     }) {
         let _ = gadget.borrow_mut().hide(true);
     }
 }
 
-pub fn lan_lobby_shutdown(layout: &WindowLayout, immediate: bool) {
+pub fn lan_lobby_shutdown(
+    layout: &WindowLayout,
+    immediate: bool,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) {
     let name = {
         let slot = state();
         let state = slot.borrow();
@@ -389,19 +396,24 @@ pub fn lan_lobby_shutdown(layout: &WindowLayout, immediate: bool) {
     set_lan_is_shutting_down(true);
     if immediate {
         layout.hide(true);
-        let _ = get_shell().shutdown_complete(None, false);
+        let _ = crate::gui::shell::base::queue_shell_shutdown_complete(effects, false);
         return;
     }
-    get_shell().reverse_animate_window();
-    with_window_manager(|manager| manager.transition_reverse("LanLobbyFade"));
+    crate::gui::shell::base::queue_shell_reverse_animate_window(effects);
+    effects.with_manager(|manager, effects| manager.transition_reverse("LanLobbyFade", None));
 }
 
-pub fn lan_lobby_update(layout: &WindowLayout) {
+pub fn lan_lobby_update(
+    layout: &WindowLayout,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) {
     let slot = state();
     let mut state = slot.borrow_mut();
     if state.just_entered {
         if state.initial_gadget_delay == 1 {
-            with_window_manager(|manager| manager.transition_set_group("LanLobbyFade", false));
+            effects.with_manager(|manager, effects| {
+                manager.transition_set_group("LanLobbyFade", false, None)
+            });
             state.initial_gadget_delay = 2;
             state.just_entered = false;
         } else {
@@ -410,14 +422,14 @@ pub fn lan_lobby_update(layout: &WindowLayout) {
     }
 
     if lan_is_shutting_down()
-        && get_shell().is_anim_finished()
-        && with_window_manager(|manager| manager.transitions_finished())
+        && crate::gui::shell::base::shell_anim_finished_for_layout(effects)
+        && effects.with_manager(|manager, effects| manager.transitions_finished())
     {
         layout.hide(true);
         let next = state.next_screen.clone();
-        let _ = get_shell().shutdown_complete(None, next.is_some());
+        let _ = crate::gui::shell::base::queue_shell_shutdown_complete(effects, next.is_some());
         if let Some(screen) = next {
-            let _ = get_shell().push(&screen, false);
+            let _ = crate::gui::shell::base::queue_shell_push(effects, &screen, false);
         }
         set_lan_is_shutting_down(false);
         return;
@@ -430,7 +442,7 @@ pub fn lan_lobby_update(layout: &WindowLayout) {
             .map(|mut q| q.drain(..).collect())
             .unwrap_or_default();
         for event in drained {
-            handle_lan_event(&mut state, event);
+            handle_lan_event(&mut state, event, effects);
         }
     }
 
@@ -439,23 +451,27 @@ pub fn lan_lobby_update(layout: &WindowLayout) {
         let parent_id = state.parent_id;
         let id = state.button_back_id;
         drop(state);
-        let _ = with_window_manager(|manager| {
+        let _ = effects.with_manager(|manager, effects| {
             if let Some(parent) = manager.get_window_by_id(parent_id) {
-                let _ = parent.borrow_mut().send_system_message(
-                    WindowMessage::GadgetSelected,
-                    id as WindowMsgData,
-                    id as WindowMsgData,
-                );
+                let _ = effects.with_receiving_manager(manager, |effects| {
+                    parent.borrow_mut().send_system_message(
+                        WindowMessage::GadgetSelected,
+                        id as WindowMsgData,
+                        id as WindowMsgData,
+                        effects,
+                    )
+                });
             }
         });
     }
 }
 
 pub fn lan_lobby_input(
-    window: &GameWindow,
+    window: &mut GameWindow,
     msg: WindowMessage,
     data1: WindowMsgData,
     data2: WindowMsgData,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> WindowMsgHandled {
     if msg != WindowMessage::Char || data1 != KEY_ESC {
         return WindowMsgHandled::Ignored;
@@ -470,16 +486,18 @@ pub fn lan_lobby_input(
             WindowMessage::GadgetSelected,
             state.button_back_id as WindowMsgData,
             state.button_back_id as WindowMsgData,
+            effects,
         );
     }
     WindowMsgHandled::Handled
 }
 
 pub fn lan_lobby_system(
-    window: &GameWindow,
+    window: &mut GameWindow,
     msg: WindowMessage,
     data1: WindowMsgData,
     data2: WindowMsgData,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> WindowMsgHandled {
     match msg {
         WindowMessage::Create => WindowMsgHandled::Handled,
@@ -514,7 +532,7 @@ pub fn lan_lobby_system(
                 spawn_lan(async move {
                     reset_the_lan().await;
                 });
-                let _ = get_shell().pop();
+                let _ = crate::gui::shell::base::queue_shell_pop(effects);
             } else if id == st.button_host_id {
                 spawn_lan(async move {
                     let mut guard = the_lan().lock().await;
@@ -545,8 +563,11 @@ pub fn lan_lobby_system(
                         let _ = api.request_lobby_leave(false).await;
                     }
                 });
-                let _ =
-                    try_with_shell_mut(|shell| shell.push("Menus/NetworkDirectConnect.wnd", false));
+                let _ = crate::gui::shell::base::queue_shell_push(
+                    effects,
+                    "Menus/NetworkDirectConnect.wnd",
+                    false,
+                );
             }
             WindowMsgHandled::Handled
         }

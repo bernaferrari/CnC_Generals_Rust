@@ -5,12 +5,19 @@ pub(super) fn pick_context_target_for_click(
     local_player: Option<u32>,
     selection: &HashSet<ObjectID>,
     force_attack_mode: bool,
+    window_query: &mut dyn FnMut(i32, i32) -> bool,
 ) -> Option<ObjectID> {
     pub(super) const PICK_RADIUS_WORLD: f32 = 10.0;
 
     let profile = context_pick_profile(force_attack_mode, selection);
-    let (mut mine, mut other) =
-        collect_selectable_objects(region, true, PICK_RADIUS_WORLD, local_player, profile);
+    let (mut mine, mut other) = collect_selectable_objects(
+        region,
+        true,
+        PICK_RADIUS_WORLD,
+        local_player,
+        profile,
+        window_query,
+    );
     let mine_pick = pick_closest(&mut mine);
     let other_pick = pick_closest(&mut other);
 
