@@ -95,14 +95,14 @@ impl<'a> CommandExecutor<'a> {
         &mut self,
         units: &[ObjectId],
         target_id: ObjectId,
-    ) -> CommandResult {
+    ) -> gamelogic::GameLogicResult<CommandResult> {
         // C++ JetAIUpdate::privateEnter → doLandingCommand.
         let jet_landed = units.iter().copied().any(|unit_id| {
             self.game_logic
                 .try_jet_enter_or_repair_airfield_with_effects(unit_id, target_id, &mut self.ui)
         });
         if jet_landed {
-            return CommandResult::Success;
+            return Ok(CommandResult::Success);
         }
 
         // USA Pilot residual: Enter unmanned vehicle for recrew (not transport contain).
@@ -123,7 +123,7 @@ impl<'a> CommandExecutor<'a> {
             {
                 transport.get_position()
             }
-            _ => return CommandResult::InvalidTarget,
+            _ => return Ok(CommandResult::InvalidTarget),
         };
 
         let mut issued = false;
@@ -150,7 +150,8 @@ impl<'a> CommandExecutor<'a> {
                 .player_holding_unit(unit_id)
                 .is_some();
             let previous_container = self.game_logic.host_object(unit_id).and_then(|unit| {
-                if matches!(unit.ai_state, AIState::Docked | AIState::Garrisoned) || unit_in_tunnel
+                if matches!(unit.ai_state(), AIState::Docked | AIState::Garrisoned)
+                    || unit_in_tunnel
                 {
                     unit.container_id().or(unit.target)
                 } else {
@@ -185,20 +186,20 @@ impl<'a> CommandExecutor<'a> {
                 });
             let issued_order = if in_enter_range {
                 self.game_logic
-                    .unit_command_set_ai_state(unit_id, AIState::Entering)
+                    .unit_command_set_ai_state(unit_id, AIState::Entering)?
             } else {
                 self.path_to_goal_with_state_ignoring(
                     unit_id,
                     target_pos,
                     AIState::Entering,
                     Some(target_id),
-                )
+                )?
             };
             if issued_order {
                 issued = true;
             }
         }
-        if issued {
+        Ok(if issued {
             let (heal, structure, enemies, allies) = match (
                 units
                     .first()
@@ -227,7 +228,7 @@ impl<'a> CommandExecutor<'a> {
             CommandResult::Success
         } else {
             CommandResult::InvalidCommand
-        }
+        })
     }
 
     /// C++ MSG_EXIT occupant: the unit is inside a container / tunnel.
@@ -236,7 +237,7 @@ impl<'a> CommandExecutor<'a> {
             return false;
         };
         let is_contained = matches!(
-            obj.ai_state,
+            obj.ai_state(),
             AIState::Docked | AIState::Garrisoned | AIState::Entering | AIState::Docking
         );
         let in_tunnel = self
@@ -359,7 +360,7 @@ impl<'a> CommandExecutor<'a> {
             }
 
             let is_contained = matches!(
-                selected_obj.ai_state,
+                selected_obj.ai_state(),
                 AIState::Docked | AIState::Garrisoned | AIState::Entering | AIState::Docking
             );
             // Units in tunnel network may only have contained_by set.
@@ -568,8 +569,8 @@ impl<'a> CommandExecutor<'a> {
             ) = if was_tunnel || was_cave {
                 (false, false, false, false, false, false, false, false)
             } else if let Some(unit) = self.game_logic.host_object(unit_id) {
-                let garrisoned = matches!(unit.ai_state, AIState::Garrisoned);
-                let docked = matches!(unit.ai_state, AIState::Docked);
+                let garrisoned = matches!(unit.ai_state(), AIState::Garrisoned);
+                let docked = matches!(unit.ai_state(), AIState::Docked);
                 let cid = unit.contained_by.or(container_id);
                 let container = cid.and_then(|id| self.game_logic.host_object(id));
                 let is_overlord = container
@@ -768,7 +769,10 @@ impl<'a> CommandExecutor<'a> {
         CommandResult::Success
     }
 
-    pub(crate) fn execute_evacuate(&mut self, units: &[ObjectId]) -> CommandResult {
+    pub(crate) fn execute_evacuate(
+        &mut self,
+        units: &[ObjectId],
+    ) -> gamelogic::GameLogicResult<CommandResult> {
         // C++ AIGroup::groupEvacuate (AIGroup.cpp:2408-2440):
         //  - airborne aircraft: dest Z = terrain height, then aiMoveToAndEvacuate
         //  - structures without AI: orderAllPassengersToExit
@@ -824,7 +828,7 @@ impl<'a> CommandExecutor<'a> {
         for (unit_id, dest) in airborne_jobs {
             // Path to ground, then unload. Do not execute_exit while airborne.
             if matches!(
-                self.execute_move_to_and_evacuate(&[unit_id], dest, false),
+                self.execute_move_to_and_evacuate(&[unit_id], dest, false)?,
                 CommandResult::Success
             ) {
                 any = true;
@@ -839,7 +843,7 @@ impl<'a> CommandExecutor<'a> {
             }
         }
 
-        if any {
+        Ok(if any {
             self.game_logic.queue_picked_unit_voice(
                 units,
                 crate::game_logic::audio_dispatch_impl::UnitVoiceSlot::Unload,
@@ -848,7 +852,7 @@ impl<'a> CommandExecutor<'a> {
         } else {
             // Fail-closed: no containers selected (unlike Exit which can free passengers).
             CommandResult::InvalidCommand
-        }
+        })
     }
 
     /// C++ AIGroup::groupMoveToAndEvacuate / AndExit residual.
@@ -859,9 +863,9 @@ impl<'a> CommandExecutor<'a> {
         units: &[ObjectId],
         destination: Vec3,
         and_exit: bool,
-    ) -> CommandResult {
+    ) -> gamelogic::GameLogicResult<CommandResult> {
         if !destination.x.is_finite() || !destination.y.is_finite() || !destination.z.is_finite() {
-            return CommandResult::InvalidLocation;
+            return Ok(CommandResult::InvalidLocation);
         }
         let mut any = false;
         for &unit_id in units {
@@ -929,7 +933,7 @@ impl<'a> CommandExecutor<'a> {
             {
                 continue;
             }
-            if self.path_to_goal_with_state(unit_id, destination, AIState::Moving) {
+            if self.path_to_goal_with_state(unit_id, destination, AIState::Moving)? {
                 any = true;
             } else {
                 // A failed onEnter never invokes the state's update callback.
@@ -940,18 +944,18 @@ impl<'a> CommandExecutor<'a> {
                     .unit_command_set_pending_evacuate(unit_id, false, false, false);
             }
         }
-        if any {
+        Ok(if any {
             CommandResult::Success
         } else {
             CommandResult::InvalidCommand
-        }
+        })
     }
 
     pub(super) fn execute_dock(
         &mut self,
         units: &[ObjectId],
         target_id: ObjectId,
-    ) -> CommandResult {
+    ) -> gamelogic::GameLogicResult<CommandResult> {
         let target_pos = match self.game_logic.host_object(target_id) {
             Some(target)
                 if target.is_alive()
@@ -960,7 +964,7 @@ impl<'a> CommandExecutor<'a> {
             {
                 target.get_position()
             }
-            _ => return CommandResult::InvalidTarget,
+            _ => return Ok(CommandResult::InvalidTarget),
         };
 
         let mut issued = false;
@@ -1000,7 +1004,7 @@ impl<'a> CommandExecutor<'a> {
                 crate::game_logic::DockKind::None => continue,
             };
 
-            if self.path_to_goal_with_state(unit_id, target_pos, state)
+            if self.path_to_goal_with_state(unit_id, target_pos, state)?
                 || self
                     .game_logic
                     .host_object(unit_id)
@@ -1009,7 +1013,7 @@ impl<'a> CommandExecutor<'a> {
                 issued = true;
             }
         }
-        if issued {
+        Ok(if issued {
             self.game_logic.queue_picked_unit_voice(
                 units,
                 crate::game_logic::audio_dispatch_impl::UnitVoiceSlot::Supply,
@@ -1017,14 +1021,14 @@ impl<'a> CommandExecutor<'a> {
             CommandResult::Success
         } else {
             CommandResult::InvalidCommand
-        }
+        })
     }
 
     pub(super) fn execute_combat_drop(
         &mut self,
         units: &[ObjectId],
         target: &DropTarget,
-    ) -> CommandResult {
+    ) -> gamelogic::GameLogicResult<CommandResult> {
         // C++ ChinookAIUpdate::privateCombatDrop → MOVE_TO_COMBAT_DROP then
         // DO_COMBAT_DROP hover-rappel. Not MOVE_TO_AND_EVAC (land + dump).
         debug!("Executing combat drop at {:?}", target);
@@ -1032,7 +1036,7 @@ impl<'a> CommandExecutor<'a> {
             DropTarget::Location(pos) => (*pos, None),
             DropTarget::Object(target_id) => {
                 let Some(target_obj) = self.game_logic.host_object(*target_id) else {
-                    return CommandResult::InvalidTarget;
+                    return Ok(CommandResult::InvalidTarget);
                 };
                 (target_obj.get_position(), Some(*target_id))
             }
@@ -1116,7 +1120,7 @@ impl<'a> CommandExecutor<'a> {
             let _ = self
                 .game_logic
                 .unit_command_set_pending_evacuate(unit_id, true, false, true);
-            if self.path_to_goal_with_state(unit_id, hover, AIState::Moving) {
+            if self.path_to_goal_with_state(unit_id, hover, AIState::Moving)? {
                 any = true;
             } else if let Some(obj) = self.game_logic.host_object_mut(unit_id) {
                 if let Some(ai) = obj.chinook_ai.as_mut() {
@@ -1130,7 +1134,7 @@ impl<'a> CommandExecutor<'a> {
                 );
             }
         }
-        if any {
+        Ok(if any {
             // C++ CommandXlat.cpp:348-352 MSG_COMBATDROP_AT_* → PerUnitSound VoiceCombatDrop (skip=true).
             self.game_logic.queue_picked_unit_voice(
                 units,
@@ -1139,6 +1143,6 @@ impl<'a> CommandExecutor<'a> {
             CommandResult::Success
         } else {
             CommandResult::InvalidCommand
-        }
+        })
     }
 }

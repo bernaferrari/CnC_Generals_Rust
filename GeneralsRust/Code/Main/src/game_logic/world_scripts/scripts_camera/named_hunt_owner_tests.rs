@@ -29,8 +29,8 @@ fn hunt_enters_driving_object_without_leaving_group() {
     assert_eq!(id, foreign_id);
     hunt(&mut first, "NamedUnit");
     let unit = first.host_object(id).unwrap();
-    assert!(unit.hunting);
-    assert_eq!(unit.ai_state, AIState::Patrolling);
+    assert!(unit.is_hunting());
+    assert_eq!(unit.ai_state(), AIState::Patrolling);
     assert_eq!(
         unit.last_command_source,
         crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_SCRIPT
@@ -43,9 +43,9 @@ fn hunt_enters_driving_object_without_leaving_group() {
         Some("BasicHumanLocomotor")
     );
     assert_eq!(unit.jet_ai.cur_locomotor_set.as_deref(), Some("SET_NORMAL"));
-    assert!(!foreign.host_object(id).unwrap().hunting);
+    assert!(!foreign.host_object(id).unwrap().is_hunting());
     foreign.reset();
-    assert!(first.host_object(id).unwrap().hunting);
+    assert!(first.host_object(id).unwrap().is_hunting());
 }
 
 #[test]
@@ -71,7 +71,7 @@ fn hunt_reentry_clears_previous_route_target_and_scan() {
     hunt(&mut world, "NamedUnit");
     world.reissue_pending_moves();
     let unit = world.host_object(id).unwrap();
-    assert!(unit.hunting);
+    assert!(unit.is_hunting());
     assert_eq!(unit.target, None);
     assert_eq!(unit.pending_move, None);
     assert!(unit.movement.path.is_empty());
@@ -93,7 +93,7 @@ fn hunt_snapshot_continues_on_restored_owner() {
     builder
         .restore_from_snapshot(&snapshot, &mut restored)
         .unwrap();
-    assert!(restored.host_object(id).unwrap().hunting);
+    assert!(restored.host_object(id).unwrap().is_hunting());
     assert_eq!(
         restored.host_object(id).unwrap().last_command_source,
         crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_SCRIPT
@@ -120,17 +120,19 @@ fn hunt_snapshot_continues_on_restored_owner() {
             &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         world.frame = 1;
-        world.update_ai(&[id], 1.0 / 30.0);
-        assert!(world.host_object(id).unwrap().hunting);
-        assert_ne!(world.host_object(id).unwrap().ai_state, AIState::Idle);
+        world
+            .update_ai(&[id], 1.0 / 30.0)
+            .expect("receiving AI operation succeeds");
+        assert!(world.host_object(id).unwrap().is_hunting());
+        assert_ne!(world.host_object(id).unwrap().ai_state(), AIState::Idle);
     }
     assert_eq!(
-        source.host_object(id).unwrap().ai_state,
-        restored.host_object(id).unwrap().ai_state
+        source.host_object(id).unwrap().ai_state(),
+        restored.host_object(id).unwrap().ai_state()
     );
     source.reset();
     hunt(&mut restored, "NamedUnit");
-    assert!(restored.host_object(id).unwrap().hunting);
+    assert!(restored.host_object(id).unwrap().is_hunting());
     assert_eq!(restored.host_object(id).unwrap().formation_id, 19);
 }
 
@@ -138,7 +140,7 @@ fn hunt_snapshot_continues_on_restored_owner() {
 fn missing_hunt_is_an_authoritative_noop() {
     let (mut world, id, _) = world();
     hunt(&mut world, "Absent");
-    assert!(!world.host_object(id).unwrap().hunting);
+    assert!(!world.host_object(id).unwrap().is_hunting());
     assert!(world.host_object(id).unwrap().is_panicking);
 }
 
@@ -148,17 +150,17 @@ fn existing_hunt_parent_survives_snapshot_without_reissuing_order() {
     // Existing production admission calibrates this save regression independently
     // of the new script-driver route (also executable on the OLD source).
     assert!(source.unit_command_patrol(id));
-    assert!(source.host_object(id).unwrap().hunting);
+    assert!(source.host_object(id).unwrap().is_hunting());
     let builder = crate::save_load::SnapshotBuilder::new();
     let snapshot = builder.create_world_snapshot(&source).unwrap();
     let (mut restored, _, _) = world();
     builder
         .restore_from_snapshot(&snapshot, &mut restored)
         .unwrap();
-    assert!(restored.host_object(id).unwrap().hunting);
+    assert!(restored.host_object(id).unwrap().is_hunting());
     assert_eq!(
-        restored.host_object(id).unwrap().auto_acquire_when_idle,
-        source.host_object(id).unwrap().auto_acquire_when_idle
+        restored.host_object(id).unwrap().auto_acquire_when_idle(),
+        source.host_object(id).unwrap().auto_acquire_when_idle()
     );
 }
 
@@ -181,7 +183,7 @@ fn sleeping_computer_rejects_hunt_after_normal_selection() {
         Some("BasicHumanLocomotor")
     );
     assert_eq!(unit.jet_ai.cur_locomotor_set.as_deref(), Some("SET_NORMAL"));
-    assert!(!unit.hunting);
+    assert!(!unit.is_hunting());
     assert_eq!(unit.formation_id, 19);
 }
 
@@ -194,7 +196,7 @@ fn sleeping_human_accepts_script_hunt() {
         .unwrap()
         .set_ai_attitude(crate::game_logic::host_strategy_center::HostAiAttitude::Sleep);
     hunt(&mut world, "NamedUnit");
-    assert!(world.host_object(id).unwrap().hunting);
+    assert!(world.host_object(id).unwrap().is_hunting());
 }
 
 #[test]
@@ -202,7 +204,7 @@ fn effectively_dead_unit_rejects_hunt_after_normal_selection() {
     let (mut world, id, _) = world();
     world.host_object_mut(id).unwrap().status.effectively_dead = true;
     hunt(&mut world, "NamedUnit");
-    assert!(!world.host_object(id).unwrap().hunting);
+    assert!(!world.host_object(id).unwrap().is_hunting());
     assert!(!world.host_object(id).unwrap().is_panicking);
 }
 
@@ -235,7 +237,7 @@ fn nonmobile_and_projectile_units_reject_hunt() {
             projectile
         );
         hunt(&mut world, "Rejected");
-        assert!(!world.host_object(id).unwrap().hunting);
+        assert!(!world.host_object(id).unwrap().is_hunting());
     }
 }
 
@@ -265,7 +267,7 @@ fn hunt_exits_attack_submachine_before_reentering_parent() {
     unit.set_turret_target_object(Some(target), true);
     hunt(&mut world, "NamedUnit");
     let unit = world.host_object(id).unwrap();
-    assert!(unit.hunting);
+    assert!(unit.is_hunting());
     assert!(!unit.status.is_firing_weapon);
     assert!(!unit.status.is_aiming_weapon);
     assert!(!unit.status.attacking);
@@ -292,15 +294,15 @@ fn hunt_this_object_is_exclusively_the_supplied_owned_id() {
             .named_command(ScriptNamedCommand::Hunt { unit: token }, supplied)
             .unwrap()
             .unwrap();
-        assert!(!world.host_object(id).unwrap().hunting);
+        assert!(!world.host_object(id).unwrap().is_hunting());
     }
     HostScriptExecutionDriver::new(&mut world)
         .named_command(ScriptNamedCommand::Hunt { unit: token }, Some(id.0))
         .unwrap()
         .unwrap();
-    assert!(world.host_object(id).unwrap().hunting);
-    assert!(!world.host_object(other).unwrap().hunting);
-    assert!(!foreign.host_object(id).unwrap().hunting);
+    assert!(world.host_object(id).unwrap().is_hunting());
+    assert!(!world.host_object(other).unwrap().is_hunting());
+    assert!(!foreign.host_object(id).unwrap().is_hunting());
 }
 
 #[test]
@@ -313,7 +315,7 @@ fn admitted_no_ai_template_is_inert_despite_mobile_type() {
         .set_authored_ai_update_interface(Some(false));
     assert!(!world.host_object(id).unwrap().has_ai_update_interface());
     hunt(&mut world, "NamedUnit");
-    assert!(!world.host_object(id).unwrap().hunting);
+    assert!(!world.host_object(id).unwrap().is_hunting());
     assert_eq!(
         world.host_object(id).unwrap().cur_locomotor_name.as_deref(),
         Some("RedguardLocomotor")
@@ -332,7 +334,7 @@ fn immobile_infantry_rejects_hunt_even_with_owned_ai() {
     assert!(!world.host_object(id).unwrap().is_mobile_for_ai_command());
     hunt(&mut world, "NamedUnit");
     let unit = world.host_object(id).unwrap();
-    assert!(!unit.hunting);
+    assert!(!unit.is_hunting());
     assert_eq!(unit.jet_ai.cur_locomotor_set.as_deref(), Some("SET_NORMAL"));
     assert_eq!(unit.formation_id, 19);
 }
@@ -357,7 +359,7 @@ fn every_disabled_mask_rejects_hunt_after_normal_selection() {
         disable(&mut world.host_object_mut(id).unwrap().status);
         hunt(&mut world, "NamedUnit");
         let unit = world.host_object(id).unwrap();
-        assert!(!unit.hunting, "disabled bit {index}");
+        assert!(!unit.is_hunting(), "disabled bit {index}");
         assert_eq!(
             unit.last_command_source,
             crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_AI
@@ -375,5 +377,5 @@ fn construction_and_weapon_jam_flags_do_not_replace_the_disabled_mask() {
     unit.status.weapons_jammed = true;
     assert!(unit.is_mobile_for_ai_command());
     hunt(&mut world, "NamedUnit");
-    assert!(world.host_object(id).unwrap().hunting);
+    assert!(world.host_object(id).unwrap().is_hunting());
 }

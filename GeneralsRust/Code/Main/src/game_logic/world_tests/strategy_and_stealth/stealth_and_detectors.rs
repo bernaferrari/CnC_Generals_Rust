@@ -81,7 +81,7 @@ fn artillery_barrage_host_path_queues_and_applies_delayed_multi_shell_damage() {
     );
     let caster = game_logic.host_object(caster_id).expect("caster after cmd");
     assert!(!caster.special_power_ready);
-    assert_eq!(caster.ai_state, AIState::SpecialAbility);
+    assert_eq!(caster.ai_state(), AIState::SpecialAbility);
     assert!(
         game_logic
             .queued_audio_events
@@ -334,7 +334,7 @@ fn cruise_missile_host_path_queues_and_applies_delayed_area_damage() {
     );
     let caster = game_logic.host_object(caster_id).expect("caster after cmd");
     assert!(!caster.special_power_ready);
-    assert_eq!(caster.ai_state, AIState::SpecialAbility);
+    assert_eq!(caster.ai_state(), AIState::SpecialAbility);
     assert!(
         game_logic
             .queued_audio_events
@@ -545,7 +545,7 @@ fn america_paradrop_host_path_queues_and_spawns_infantry() {
     let caster = game_logic.host_object(caster_id).expect("caster after cmd");
     assert!(!caster.special_power_ready);
     assert!(caster.special_power_cooldown_remaining > 0.0);
-    assert_eq!(caster.ai_state, AIState::SpecialAbility);
+    assert_eq!(caster.ai_state(), AIState::SpecialAbility);
     assert!(
         game_logic
             .queued_audio_events
@@ -700,7 +700,7 @@ fn gla_ambush_host_path_queues_and_spawns_infantry() {
     let caster = game_logic.host_object(caster_id).expect("caster after cmd");
     assert!(!caster.special_power_ready);
     assert!(caster.special_power_cooldown_remaining > 0.0);
-    assert_eq!(caster.ai_state, AIState::SpecialAbility);
+    assert_eq!(caster.ai_state(), AIState::SpecialAbility);
     assert!(
         game_logic
             .queued_audio_events
@@ -1278,12 +1278,8 @@ fn cleanup_stream_projectile_flies_and_clears() {
 #[test]
 fn cleanup_area_residual_clears_hazards_and_mines() {
     use crate::command_system::{CommandType, GameCommand, PowerTarget, SpecialPowerType};
-    use crate::game_logic::host_cleanup_area::{
-        CLEANUP_AREA_ACTIVATE_AUDIO, HOST_CLEANUP_AREA_RADIUS,
-    };
-    use crate::game_logic::special_power_strikes::{
-        ANTHRAX_TOXIN_DAMAGE_PER_TICK, HostSuperweaponKind,
-    };
+    use crate::game_logic::host_cleanup_area::{CLEANUP_AREA_ACTIVATE_AUDIO, HOST_CLEANUP_AREA_RADIUS};
+    use crate::game_logic::special_power_strikes::{ANTHRAX_TOXIN_DAMAGE_PER_TICK, HostSuperweaponKind};
 
     let mut game_logic = GameLogic::new();
     ensure_test_tank_template(&mut game_logic);
@@ -2377,7 +2373,7 @@ fn detected_hero_wakes_idle_enemies() {
         Some(burton),
         "idle tank must acquire revealed hero"
     );
-    assert_eq!(tank.ai_state, AIState::Attacking);
+    assert_eq!(tank.ai_state(), AIState::Attacking);
 }
 
 #[test]

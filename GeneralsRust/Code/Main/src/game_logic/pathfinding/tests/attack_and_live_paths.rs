@@ -355,7 +355,7 @@ fn attack_vehicle_strip_back_retreats_off_busy_ally() {
     // Parked, not idle: ally-fixed on the approach parent chain.
     ally.set_position(Vec3::new(70.0, 0.0, 50.0));
     ally.owner_player_id = Some(1);
-    ally.ai_state = crate::game_logic::AIState::Attacking;
+    ally.restore_ai_state(crate::game_logic::AIState::Attacking);
     objects.admit(ally.id, ally);
 
     let path = sys.find_attack_firing_position(

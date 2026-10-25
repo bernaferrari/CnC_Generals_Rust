@@ -168,8 +168,11 @@ pub async fn run_cnc_game(
 
     #[allow(deprecated)]
     event_loop.run(move |event, elwt| {
+        let window_manager_owner = engine
+            .as_ref()
+            .map(|engine| engine.game_client.window_manager_owner());
+        let mut event_callback = || {
         elwt.set_control_flow(control_flow_wait_until(next_redraw_at));
-
         let mut drive_frame = |
             engine: &mut CnCGameEngine,
             current_window: &Arc<Window>,
@@ -807,8 +810,13 @@ pub async fn run_cnc_game(
                     engine.apply_cursor_position(x * scale, y * scale);
                     log::info!("DeviceEvent in-window client=({x:.0},{y:.0})");
                     #[cfg(feature = "game_client")]
-                    if let Some(name) =
-                        game_client::gui::os_wnd_widget_under_cursor_name(x as i32, y as i32)
+                    let receiving_window_manager = engine.game_client.window_manager_owner();
+                    #[cfg(feature = "game_client")]
+                    if let Some(Some(name)) = game_client::gui::os_wnd_widget_under_cursor_name_for_owner(
+                        &receiving_window_manager,
+                        x as i32,
+                        y as i32,
+                    )
                     {
                         log::info!("DeviceEvent under={name}");
                         if matches!(state, winit::event::ElementState::Pressed)
@@ -922,6 +930,12 @@ pub async fn run_cnc_game(
                 }
             }
             _ => {}
+        }
+        };
+        if let Some(owner) = window_manager_owner {
+            owner.with_scope(event_callback);
+        } else {
+            event_callback();
         }
     })?;
 

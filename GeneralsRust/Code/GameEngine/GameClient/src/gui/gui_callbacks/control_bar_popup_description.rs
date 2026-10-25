@@ -983,116 +983,121 @@ mod presentation_can_make_popup_tests {
 
     #[test]
     fn host_popup_shows_bound_denials_without_legacy_player() {
-        // C++ ControlBarPopupDescription.cpp:318-354 appends the selected
-        // producer's CanMake denial to this command's actual description.
-        // In the host, those exact facts come from the bound window payload.
-        struct RestorePlayers(Option<gamelogic::player::PlayerList>);
-        impl Drop for RestorePlayers {
-            fn drop(&mut self) {
-                *player_list().write().unwrap() = self.0.take().unwrap();
-            }
-        }
-        let saved = std::mem::replace(
-            &mut *player_list().write().unwrap(),
-            gamelogic::player::PlayerList::new(),
-        );
-        let _restore = RestorePlayers(Some(saved));
-        assert_eq!(
-            game_engine::common::thing::thing_factory::load_templates_from_ini_text(
-                "Object OwnerHostPopupTank\n  KindOf = VEHICLE SELECTABLE\nEnd\nObject OwnerHostPopupStructure\n  KindOf = STRUCTURE SELECTABLE\nEnd\n",
-                "OwnedPopupFixture",
-            ),
-            2,
-        );
-        assert!(
-            !TheThingFactory::find_template("OwnerHostPopupTank")
-                .unwrap()
-                .is_kind_of(gamelogic::common::types::KindOf::Structure)
-        );
-        assert!(
-            TheThingFactory::find_template("OwnerHostPopupStructure")
-                .unwrap()
-                .is_kind_of(gamelogic::common::types::KindOf::Structure)
-        );
-        let mut owned_windows = None;
-        with_window_manager(|wm| {
-            wm.destroy_all_windows();
-            let parent = wm.create_window(None, 0, 0, 500, 150).unwrap();
-            parent.borrow_mut().set_id(NameKeyGenerator::name_to_key(
-                "ControlBarPopupDescription.wnd:Parent",
-            ) as i32);
-            let description = wm.create_window(Some(&parent), 0, 0, 480, 120).unwrap();
-            description
-                .borrow_mut()
-                .set_id(NameKeyGenerator::name_to_key(
-                    "ControlBarPopupDescription.wnd:StaticTextDescription",
-                ) as i32);
-            owned_windows = Some((parent, description));
-        });
-        let (parent, description) = owned_windows.unwrap();
-        assert_ne!(parent.borrow().get_id(), description.borrow().get_id());
-        let layout = Rc::new(RefCell::new(WindowLayout::new(
-            "OwnedPopupFixture".to_owned(),
-        )));
-        layout.borrow_mut().add_window(parent);
-        let mut command_window = GameWindow::new();
-        for (object, status, key) in [
-            (
-                "OwnerHostPopupTank",
-                Some(2),
-                Some("TOOLTIP:TooltipNotEnoughMoneyToBuild"),
-            ),
-            (
-                "OwnerHostPopupTank",
-                Some(4),
-                Some("TOOLTIP:TooltipCannotPurchaseBecauseQueueFull"),
-            ),
-            (
-                "OwnerHostPopupTank",
-                Some(5),
-                Some("TOOLTIP:TooltipCannotBuildUnitBecauseParkingFull"),
-            ),
-            (
-                "OwnerHostPopupTank",
-                Some(6),
-                Some("TOOLTIP:TooltipCannotBuildUnitBecauseMaximumNumber"),
-            ),
-            (
-                "OwnerHostPopupStructure",
-                Some(6),
-                Some("TOOLTIP:TooltipCannotBuildBuildingBecauseMaximumNumber"),
-            ),
-            ("OwnerHostPopupTank", Some(0), None),
-            ("OwnerHostPopupTank", None, None),
-        ] {
-            command_window.set_user_data(LiveCommandButton {
-                command_name: "OwnerHostPopupBuild".to_owned(),
-                object: object.to_owned(),
-                descriptive_text: "OwnerHostPopupBaseDescription".to_owned(),
-                presentation_can_make_status: status,
-                ..LiveCommandButton::default()
-            });
-            let (command, frozen_status) = resolve_command_button(&command_window).unwrap();
-            with_window_manager(|manager| {
-                populate_layout_for_command(
-                    &layout,
-                    &command,
-                    frozen_status,
-                    &mut TooltipState::default(),
-                    manager,
-                    UpgradeTooltipSource::Standalone,
-                )
-            });
-            let text = description.borrow().get_text().to_owned();
-            if let Some(key) = key {
-                assert!(
-                    text.contains(&GameText::fetch(key)),
-                    "status {status:?} must reach the actual popup description: {text}"
+        let owner = crate::gui::window_manager::WindowManagerOwner::new();
+        owner.with_scope(|| {
+
+                // C++ ControlBarPopupDescription.cpp:318-354 appends the selected
+                // producer's CanMake denial to this command's actual description.
+                // In the host, those exact facts come from the bound window payload.
+                struct RestorePlayers(Option<gamelogic::player::PlayerList>);
+                impl Drop for RestorePlayers {
+                    fn drop(&mut self) {
+                        *player_list().write().unwrap() = self.0.take().unwrap();
+                    }
+                }
+                let saved = std::mem::replace(
+                    &mut *player_list().write().unwrap(),
+                    gamelogic::player::PlayerList::new(),
                 );
-            } else {
-                assert_eq!(text, GameText::fetch("OwnerHostPopupBaseDescription"));
-            }
-        }
+                let _restore = RestorePlayers(Some(saved));
+                assert_eq!(
+                    game_engine::common::thing::thing_factory::load_templates_from_ini_text(
+                        "Object OwnerHostPopupTank\n  KindOf = VEHICLE SELECTABLE\nEnd\nObject OwnerHostPopupStructure\n  KindOf = STRUCTURE SELECTABLE\nEnd\n",
+                        "OwnedPopupFixture",
+                    ),
+                    2,
+                );
+                assert!(
+                    !TheThingFactory::find_template("OwnerHostPopupTank")
+                        .unwrap()
+                        .is_kind_of(gamelogic::common::types::KindOf::Structure)
+                );
+                assert!(
+                    TheThingFactory::find_template("OwnerHostPopupStructure")
+                        .unwrap()
+                        .is_kind_of(gamelogic::common::types::KindOf::Structure)
+                );
+                let mut owned_windows = None;
+                with_window_manager(|wm| {
+                    wm.destroy_all_windows();
+                    let parent = wm.create_window(None, 0, 0, 500, 150).unwrap();
+                    parent.borrow_mut().set_id(NameKeyGenerator::name_to_key(
+                        "ControlBarPopupDescription.wnd:Parent",
+                    ) as i32);
+                    let description = wm.create_window(Some(&parent), 0, 0, 480, 120).unwrap();
+                    description
+                        .borrow_mut()
+                        .set_id(NameKeyGenerator::name_to_key(
+                            "ControlBarPopupDescription.wnd:StaticTextDescription",
+                        ) as i32);
+                    owned_windows = Some((parent, description));
+                });
+                let (parent, description) = owned_windows.unwrap();
+                assert_ne!(parent.borrow().get_id(), description.borrow().get_id());
+                let layout = Rc::new(RefCell::new(WindowLayout::new(
+                    "OwnedPopupFixture".to_owned(),
+                )));
+                layout.borrow_mut().add_window(parent);
+                let mut command_window = GameWindow::new();
+                for (object, status, key) in [
+                    (
+                        "OwnerHostPopupTank",
+                        Some(2),
+                        Some("TOOLTIP:TooltipNotEnoughMoneyToBuild"),
+                    ),
+                    (
+                        "OwnerHostPopupTank",
+                        Some(4),
+                        Some("TOOLTIP:TooltipCannotPurchaseBecauseQueueFull"),
+                    ),
+                    (
+                        "OwnerHostPopupTank",
+                        Some(5),
+                        Some("TOOLTIP:TooltipCannotBuildUnitBecauseParkingFull"),
+                    ),
+                    (
+                        "OwnerHostPopupTank",
+                        Some(6),
+                        Some("TOOLTIP:TooltipCannotBuildUnitBecauseMaximumNumber"),
+                    ),
+                    (
+                        "OwnerHostPopupStructure",
+                        Some(6),
+                        Some("TOOLTIP:TooltipCannotBuildBuildingBecauseMaximumNumber"),
+                    ),
+                    ("OwnerHostPopupTank", Some(0), None),
+                    ("OwnerHostPopupTank", None, None),
+                ] {
+                    command_window.set_user_data(LiveCommandButton {
+                        command_name: "OwnerHostPopupBuild".to_owned(),
+                        object: object.to_owned(),
+                        descriptive_text: "OwnerHostPopupBaseDescription".to_owned(),
+                        presentation_can_make_status: status,
+                        ..LiveCommandButton::default()
+                    });
+                    let (command, frozen_status) = resolve_command_button(&command_window).unwrap();
+                    with_window_manager(|manager| {
+                        populate_layout_for_command(
+                            &layout,
+                            &command,
+                            frozen_status,
+                            &mut TooltipState::default(),
+                            manager,
+                            UpgradeTooltipSource::Standalone,
+                        )
+                    });
+                    let text = description.borrow().get_text().to_owned();
+                    if let Some(key) = key {
+                        assert!(
+                            text.contains(&GameText::fetch(key)),
+                            "status {status:?} must reach the actual popup description: {text}"
+                        );
+                    } else {
+                        assert_eq!(text, GameText::fetch("OwnerHostPopupBaseDescription"));
+                    }
+                }
+
+        });
     }
 }
 

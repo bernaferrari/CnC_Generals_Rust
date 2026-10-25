@@ -724,6 +724,7 @@ impl CnCGameEngine {
             loading_overlay_active: false,
             #[cfg(feature = "game_client")]
             active_load_screen: None,
+            #[cfg(feature = "game_client")]
             shell_menu_active: false,
 
             #[cfg(feature = "game_client")]

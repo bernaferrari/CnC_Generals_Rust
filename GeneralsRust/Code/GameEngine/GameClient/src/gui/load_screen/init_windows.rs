@@ -22,11 +22,14 @@ fn initialize_kind_windows(
     wm: &mut WindowManager,
     kind: LoadScreenKind,
     context: &LoadScreenInitContext,
+    shell_game_first_load: &mut bool,
 ) {
     match kind {
-        LoadScreenKind::ShellGame => {
-            initialize_shell_game_windows(wm, context.shell_game_did_mem_pass)
-        }
+        LoadScreenKind::ShellGame => initialize_shell_game_windows(
+            wm,
+            context.shell_game_did_mem_pass,
+            shell_game_first_load,
+        ),
         // C++ uses the same GameLODManager::didMemPass gate for campaign and
         // Challenge movie preludes as it does for the first shell screen.
         LoadScreenKind::SinglePlayer => {
@@ -43,10 +46,12 @@ fn initialize_kind_windows(
     }
 }
 
-fn initialize_shell_game_windows(wm: &mut WindowManager, did_mem_pass: bool) {
-    let is_first_load = with_shell_game_first_load(|first_load| *first_load);
-
-    if is_first_load && did_mem_pass {
+fn initialize_shell_game_windows(
+    wm: &mut WindowManager,
+    did_mem_pass: bool,
+    first_load: &mut bool,
+) {
+    if *first_load && did_mem_pass {
         set_window_image(
             wm,
             "ShellGameLoadScreen.wnd:ParentShellGameLoadScreen",
@@ -57,13 +62,9 @@ fn initialize_shell_game_windows(wm: &mut WindowManager, did_mem_pass: bool) {
         hide_window(wm, "ShellGameLoadScreen.wnd:StaticTextLegal", false);
         hide_window(wm, "ShellGameLoadScreen.wnd:ProgressLoad", true);
         run_shell_game_legal_hold(wm);
-        with_shell_game_first_load(|first_load| *first_load = false);
+        *first_load = false;
         hide_window(wm, "ShellGameLoadScreen.wnd:ProgressLoad", false);
     }
-}
-
-fn with_shell_game_first_load<R>(f: impl FnOnce(&mut bool) -> R) -> R {
-    SHELL_GAME_FIRST_LOAD.with_borrow_mut(f)
 }
 
 fn with_multiplayer_load_screen_state<R>(

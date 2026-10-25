@@ -23,6 +23,18 @@ pub(crate) trait ScriptUiEffects {
     /// Immediate visual weather delivery to the receiving Client.
     fn weather_visible(&mut self, visible: bool);
 
+    /// Apply C++ ScriptActions::winCreateFromScript at the next synchronous
+    /// action-delivery boundary using the receiving client's window owner.
+    fn create_win_lose_window(&mut self, _layout_filename: &str) -> gamelogic::GameLogicResult<()> {
+        Ok(())
+    }
+
+    /// Apply C++ ScriptActions::winDestroy to the receiving client's tracked
+    /// message window, preserving callback order within the current action.
+    fn destroy_win_lose_window(&mut self) -> gamelogic::GameLogicResult<()> {
+        Ok(())
+    }
+
     /// C++ ScriptActions::doLetterBoxMode: Hide(TRUE) or Show(FALSE), before
     /// publishing the letterbox flag and continuing to the next action.
     fn letterbox(

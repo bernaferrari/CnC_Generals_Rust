@@ -41,8 +41,8 @@ fn command_guard_log() -> bool {
     let Some(owner) = logic.host_object(unit) else {
         return false;
     };
-    if owner.guard_position != Some(dest)
-        || owner.guard_target.is_some()
+    if owner.active_guard_position() != Some(dest)
+        || owner.active_guard_target().is_some()
         || owner.guard_radius <= 0.0
     {
         return false;
@@ -55,14 +55,20 @@ fn command_guard_log() -> bool {
     #[cfg(test)]
     {
         let copy = shadow.world_mut().world_mut().entity_mut(entity).unwrap();
-        copy.guard_position = Some([900.0, 0.0, 900.0]);
+        copy.set_guard_position_data(Some([900.0, 0.0, 900.0]));
         copy.guard_radius = 1.0;
     }
-    if logic.host_object(unit).unwrap().guard_position != Some(dest) {
+    if logic.host_object(unit).unwrap().active_guard_position() != Some(dest) {
         return false;
     }
     shadow.sync_from_host(&logic);
-    if shadow.world().entity(entity).unwrap().guard_position != Some([dest.x, dest.y, dest.z]) {
+    if shadow
+        .world()
+        .entity(entity)
+        .unwrap()
+        .active_guard_position()
+        != Some([dest.x, dest.y, dest.z])
+    {
         return false;
     }
 

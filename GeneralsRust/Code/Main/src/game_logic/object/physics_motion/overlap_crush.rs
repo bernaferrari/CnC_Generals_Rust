@@ -84,7 +84,7 @@ impl Object {
                     let has_hijacker = template_has_hijacker_update(&other.template_name);
                     let tnt_active = crate::game_logic::host_tank_hunter::is_tank_hunter_template(
                         &other.template_name,
-                    ) && other.ai_state
+                    ) && other.ai_state()
                         == crate::game_logic::AIState::SpecialAbility
                         && other.target == Some(self.id);
                     if !is_ally

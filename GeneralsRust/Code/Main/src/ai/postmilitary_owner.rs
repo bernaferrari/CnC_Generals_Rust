@@ -315,7 +315,10 @@ mod tests {
             observed += 1;
         });
         assert_eq!(observed, 1);
-        assert_eq!(world.host_object(dozer).unwrap().ai_state, AIState::Moving);
+        assert_eq!(
+            world.host_object(dozer).unwrap().ai_state(),
+            AIState::Moving
+        );
         assert_eq!(
             world.host_object(dozer).unwrap().path_goal_position,
             Some(home)

@@ -236,7 +236,7 @@ impl Object {
         }
         // Stay in Idle while prone so orders can break it; timer clears the bit.
         if !matches!(
-            self.ai_state,
+            self.ai_state(),
             AIState::Attacking
                 | AIState::AttackMoving
                 | AIState::GuardingArea

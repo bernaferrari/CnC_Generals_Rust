@@ -3615,7 +3615,7 @@ mod dock_approach_owner_tests {
         let first_epoch = world.host_object(first).unwrap().dock_cancel_epoch;
         assert!(!world.try_claim_dock_for_test(dock, first));
         assert_eq!(
-            world.host_object(first).unwrap().ai_state,
+            world.host_object(first).unwrap().ai_state(),
             AIState::SeekingRepair,
             "the path adapter restores the outer repair state after assigning movement"
         );

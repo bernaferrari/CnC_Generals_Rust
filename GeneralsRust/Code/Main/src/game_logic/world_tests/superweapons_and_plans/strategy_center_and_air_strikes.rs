@@ -212,7 +212,9 @@ fn eject_pilot_parachute_open_dist_residual() {
     let ids = [pilot_id];
     let mut opened_y = None;
     for _ in 0..20 {
-        game_logic.update_ai(&ids, 1.0 / 30.0);
+        game_logic
+            .update_ai(&ids, 1.0 / 30.0)
+            .expect("receiving AI operation succeeds");
         let p = game_logic.host_object(pilot_id).expect("pilot");
         if p.is_parachute_open() {
             opened_y = Some(p.get_position().y);
@@ -240,7 +242,9 @@ fn eject_pilot_parachute_open_dist_residual() {
 
     // Finish landing residual.
     for _ in 0..100 {
-        game_logic.update_ai(&ids, 1.0 / 30.0);
+        game_logic
+            .update_ai(&ids, 1.0 / 30.0)
+            .expect("receiving AI operation succeeds");
         if game_logic.honesty_pilot_parachute_land_ok() {
             break;
         }
@@ -317,7 +321,9 @@ fn eject_pilot_parachute_pitch_roll_sway_residual() {
 
     // Freefall residual: pitch/roll stay 0 until open.
     for _ in 0..5 {
-        game_logic.update_ai(&ids, 1.0 / 30.0);
+        game_logic
+            .update_ai(&ids, 1.0 / 30.0)
+            .expect("receiving AI operation succeeds");
         let p = game_logic.host_object(pilot_id).expect("pilot");
         if p.is_parachute_open() {
             break;
@@ -332,7 +338,9 @@ fn eject_pilot_parachute_pitch_roll_sway_residual() {
     let mut saw_open = false;
     let mut saw_non_zero_sway = false;
     for _ in 0..80 {
-        game_logic.update_ai(&ids, 1.0 / 30.0);
+        game_logic
+            .update_ai(&ids, 1.0 / 30.0)
+            .expect("receiving AI operation succeeds");
         let p = game_logic.host_object(pilot_id).expect("pilot");
         if p.is_parachute_open() {
             saw_open = true;
@@ -362,7 +370,9 @@ fn eject_pilot_parachute_pitch_roll_sway_residual() {
 
     // Land residual clears sway angles.
     for _ in 0..200 {
-        game_logic.update_ai(&ids, 1.0 / 30.0);
+        game_logic
+            .update_ai(&ids, 1.0 / 30.0)
+            .expect("receiving AI operation succeeds");
         if game_logic.honesty_pilot_parachute_land_ok() {
             break;
         }

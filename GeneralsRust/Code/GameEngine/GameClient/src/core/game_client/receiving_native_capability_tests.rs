@@ -172,7 +172,6 @@ fn public_shell_missing_native_capabilities_reaches_actual_hud_and_existing_fx()
         .expect("standalone command manager")
         .initialize_player(0)
         .expect("fresh local player command queue");
-    get_shell().init().unwrap();
     let mut bridge = crate::render_bridge::RenderBridge::new();
     *bridge.asset_manager_mut() = static_asset();
     let previous_bridge = crate::render_bridge::THE_RENDER_BRIDGE
@@ -184,6 +183,11 @@ fn public_shell_missing_native_capabilities_reaches_actual_hud_and_existing_fx()
     let previous_particles = get_particle_system_manager_mut().unwrap().replace(manager);
     let observed = (|| -> Result<_, String> {
         let mut client = GameClient::new().map_err(|error| error.to_string())?;
+        client
+            .window_manager_owner()
+            .shell_handle()
+            .init()
+            .map_err(|error| error.to_string())?;
         client.initialized = true;
         let [supported, animated, tracks] = admit_mixed_drawables(&mut client);
         client.set_frame(37);

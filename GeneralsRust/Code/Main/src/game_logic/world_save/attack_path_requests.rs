@@ -241,7 +241,7 @@ impl GameLogic {
                 if installed {
                     if req.restore_adjust_on_install {
                         if let Some(unit) = self.objects.get_mut(&req.unit_id) {
-                            unit.adjust_destinations = true;
+                            unit.set_adjust_destinations(true);
                         }
                     }
                     if let Some(unit) = self.objects.get_mut(&req.unit_id) {
@@ -344,7 +344,7 @@ impl GameLogic {
             surfaces,
             is_crusher: unit.crusher_level > 0,
             ignore_obstacle: unit.ignored_obstacle_id,
-            adjust_destinations: unit.adjust_destinations,
+            adjust_destinations: unit.adjust_destinations(),
             restore_adjust_on_install: false,
         };
         Some(req)

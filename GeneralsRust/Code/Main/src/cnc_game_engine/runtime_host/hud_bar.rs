@@ -55,7 +55,14 @@ impl CnCGameEngine {
                 "resolve" | "validate" => {
                     crate::gameplay_layout::control_bar_layout_honesty(false).shell_residual_ok()
                 }
-                "load" | "materialise" => crate::gameplay_layout::materialise_live_control_bar(),
+                #[cfg(feature = "game_client")]
+                "load" | "materialise" => {
+                    crate::gameplay_layout::materialise_live_control_bar_with_owner(
+                        &self.game_client.window_manager_owner(),
+                    )
+                }
+                #[cfg(not(feature = "game_client"))]
+                "load" | "materialise" => false,
                 _ => simulate_control_bar_options_button_gadget_selected(),
             };
         }

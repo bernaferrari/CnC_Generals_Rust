@@ -186,7 +186,7 @@ impl GameLogic {
         // Host residual for C++ getLastCommandSource() == CMD_FROM_PLAYER:
         // a move/attack order after stash grant is the player-visible exploit path.
         let last_command_from_player = matches!(
-            object.ai_state,
+            object.ai_state(),
             AIState::Moving | AIState::Attacking | AIState::AttackMoving | AIState::AttackingGround
         );
         if !Object::temporary_stealth_grant_should_expire(
@@ -204,7 +204,11 @@ impl GameLogic {
         }
     }
 
-    pub(crate) fn try_claim_dock(&mut self, dock_id: ObjectId, docker_id: ObjectId) -> bool {
+    pub(crate) fn try_claim_dock(
+        &mut self,
+        dock_id: ObjectId,
+        docker_id: ObjectId,
+    ) -> gamelogic::GameLogicResult<bool> {
         self.reconcile_host_dock_cancellations_for_dock(dock_id);
         let (
             current,
@@ -248,14 +252,14 @@ impl GameLogic {
                     crippled,
                 )
             }
-            None => return false,
+            None => return Ok(false),
         };
         let current_alive = current
             .and_then(|id| self.objects.get(&id))
             .is_some_and(|object| {
                 object.is_alive()
                     && crate::game_logic::host_supply_gather::is_live_dock_ai_state(
-                        &object.ai_state,
+                        &object.ai_state(),
                     )
             });
         let docker_alive = self
@@ -303,7 +307,7 @@ impl GameLogic {
                         object.is_alive()
                             && (id == docker_id
                                 || crate::game_logic::host_supply_gather::is_live_dock_ai_state(
-                                    &object.ai_state,
+                                    &object.ai_state(),
                                 ))
                     })
                 },
@@ -318,23 +322,23 @@ impl GameLogic {
                     self.apply_docking_model_conditions(dock_id, docker_id, true);
                 }
                 self.clear_worker_moving_while_docking(dock_id, docker_id);
-                true
+                Ok(true)
             }
             crate::game_logic::host_supply_gather::DockApproachTick::PathTo(goal) => {
                 let state = self
                     .objects
                     .get(&docker_id)
-                    .map(|o| o.ai_state.clone())
+                    .map(|o| o.ai_state().clone())
                     .unwrap_or(AIState::Idle);
                 self.dock_approach_with_state(docker_id, goal, state);
-                false
+                Ok(false)
             }
             crate::game_logic::host_supply_gather::DockApproachTick::TimedOut => {
                 self.release_dock_if_holder(dock_id, docker_id);
-                self.on_dock_wait_timeout(dock_id, docker_id);
-                false
+                self.on_dock_wait_timeout(dock_id, docker_id)?;
+                Ok(false)
             }
-            crate::game_logic::host_supply_gather::DockApproachTick::Blocked => false,
+            crate::game_logic::host_supply_gather::DockApproachTick::Blocked => Ok(false),
         }
     }
 
@@ -343,7 +347,7 @@ impl GameLogic {
         &mut self,
         dock_id: ObjectId,
         docker_id: ObjectId,
-    ) -> bool {
+    ) -> gamelogic::GameLogicResult<bool> {
         self.try_claim_dock(dock_id, docker_id)
     }
 
@@ -467,26 +471,26 @@ impl GameLogic {
         &mut self,
         docker_id: ObjectId,
         dock_id: ObjectId,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         let Some(dock) = self.objects.get(&dock_id) else {
-            return;
+            return Ok(());
         };
         if !dock.is_kind_of(KindOf::RepairPad) {
-            return;
+            return Ok(());
         }
         let passthrough =
             crate::game_logic::host_dock_contain_exit_heal_residual::dock_allows_passthrough(
                 &dock.template_name,
             );
         let Some(rally) = dock.building_data.as_ref().and_then(|b| b.rally_point) else {
-            return;
+            return Ok(());
         };
         if passthrough {
             // C++ AIDockMoveToExitState::onEnter (AIDock.cpp:700-703) clears
             // adjust in the same branch as ignoreObstacle. This rally skips
             // that state, so both writes happen before the queued path.
             if let Some(docker) = self.objects.get_mut(&docker_id) {
-                docker.adjust_destinations = false;
+                docker.set_adjust_destinations(false);
             }
             self.path_approach_with_state_ignoring(
                 docker_id,
@@ -505,12 +509,13 @@ impl GameLogic {
             .get(&docker_id)
             .is_some_and(|unit| !unit.movement.path.is_empty())
         {
-            self.set_ai_state_decision_aware(docker_id, AIState::Moving);
+            self.set_ai_state_decision_aware_for_ai(docker_id, AIState::Moving)?;
             if let Some(unit) = self.objects.get_mut(&docker_id) {
                 unit.set_status_moving(true);
                 unit.is_attack_path = false;
             }
         }
+        Ok(())
     }
 
     /// C++ `onEnterReached` / `onDockReached` / `onExitReached` MODELCONDITION_DOCKING*.
@@ -603,16 +608,20 @@ impl GameLogic {
         out
     }
 
-    fn on_dock_wait_timeout(&mut self, dock_id: ObjectId, docker_id: ObjectId) {
+    fn on_dock_wait_timeout(
+        &mut self,
+        dock_id: ObjectId,
+        docker_id: ObjectId,
+    ) -> gamelogic::GameLogicResult<()> {
         let Some((state, team, owner, pos)) = self.objects.get(&docker_id).map(|o| {
             (
-                o.ai_state.clone(),
+                o.ai_state().clone(),
                 o.team,
                 o.owner_player_id,
                 o.get_position(),
             )
         }) else {
-            return;
+            return Ok(());
         };
         match state {
             AIState::Gathering => {
@@ -635,20 +644,21 @@ impl GameLogic {
                                 );
                             }
                             self.path_approach_with_state(docker_id, dest, AIState::Gathering);
-                            return;
+                            return Ok(());
                         }
                     }
                 }
-                self.begin_supply_regroup(docker_id, team, owner, pos);
+                self.begin_supply_regroup(docker_id, team, owner, pos)?;
             }
             AIState::ReturningResources => {
                 if let Some(obj) = self.objects.get_mut(&docker_id) {
                     obj.supply_truck_state = SupplyTruckState::Wanting;
                 }
-                self.begin_supply_regroup(docker_id, team, owner, pos);
+                self.begin_supply_regroup(docker_id, team, owner, pos)?;
             }
             _ => {}
         }
+        Ok(())
     }
 
     pub(crate) fn try_aircraft_land_for_repair(

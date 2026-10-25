@@ -295,7 +295,7 @@ fn hacker_disable_building_uses_typed_persistent_channel_and_packs_on_relation_l
     let issued = game_logic
         .host_object(hacker_id)
         .expect("hacker after issue");
-    assert_eq!(issued.ai_state, AIState::SpecialAbility);
+    assert_eq!(issued.ai_state(), AIState::SpecialAbility);
     assert_eq!(issued.target, Some(target_id));
     assert_eq!(
         issued
@@ -313,7 +313,9 @@ fn hacker_disable_building_uses_typed_persistent_channel_and_packs_on_relation_l
     );
 
     // Out of the parsed StartAbilityRange, the physical path remains live.
-    game_logic.update_ai(&[hacker_id, target_id], 1.0 / 60.0);
+    game_logic
+        .update_ai(&[hacker_id, target_id], 1.0 / 60.0)
+        .expect("receiving AI operation succeeds");
     assert_eq!(
         game_logic
             .host_object(hacker_id)
@@ -327,9 +329,13 @@ fn hacker_disable_building_uses_typed_persistent_channel_and_packs_on_relation_l
     // initial 3000 ms preparation.  The test directly moves the source only
     // to isolate SpecialAbilityUpdate timing from pathfinding geometry.
     game_logic.set_fixture_object_position(hacker_id, Vec3::new(10.0, 0.0, 0.0));
-    game_logic.update_ai(&[hacker_id, target_id], 1.0 / 60.0);
+    game_logic
+        .update_ai(&[hacker_id, target_id], 1.0 / 60.0)
+        .expect("receiving AI operation succeeds");
     // C++ NeedToFace before unpack: first in-range tick may still be approaching.
-    game_logic.update_ai(&[hacker_id, target_id], 1.0);
+    game_logic
+        .update_ai(&[hacker_id, target_id], 1.0)
+        .expect("receiving AI operation succeeds");
     assert_eq!(
         game_logic
             .host_object(hacker_id)
@@ -338,7 +344,9 @@ fn hacker_disable_building_uses_typed_persistent_channel_and_packs_on_relation_l
             .phase,
         HackerDisableChannelPhase::Unpacking
     );
-    game_logic.update_ai(&[hacker_id, target_id], 7.3);
+    game_logic
+        .update_ai(&[hacker_id, target_id], 7.3)
+        .expect("receiving AI operation succeeds");
     let preparing = game_logic
         .host_object(hacker_id)
         .and_then(|source| source.hacker_disable_channel)
@@ -358,7 +366,9 @@ fn hacker_disable_building_uses_typed_persistent_channel_and_packs_on_relation_l
         "only preparation holds IS_USING_ABILITY"
     );
 
-    game_logic.update_ai(&[hacker_id, target_id], 3.0);
+    game_logic
+        .update_ai(&[hacker_id, target_id], 3.0)
+        .expect("receiving AI operation succeeds");
     let first = game_logic
         .host_object(hacker_id)
         .and_then(|source| source.hacker_disable_channel)
@@ -380,7 +390,9 @@ fn hacker_disable_building_uses_typed_persistent_channel_and_packs_on_relation_l
     // C++ allows the same already-disabled building to remain a target and
     // refreshes its effect on the next persistent trigger.
     game_logic.frame = 1;
-    game_logic.update_ai(&[hacker_id, target_id], 0.333);
+    game_logic
+        .update_ai(&[hacker_id, target_id], 0.333)
+        .expect("receiving AI operation succeeds");
     assert_eq!(game_logic.hacker_disable_building_count(), 2);
     assert!(
         game_logic
@@ -400,7 +412,9 @@ fn hacker_disable_building_uses_typed_persistent_channel_and_packs_on_relation_l
         .get_player_mut(1)
         .expect("target player")
         .alliance_team = 7;
-    game_logic.update_ai(&[hacker_id, target_id], 1.0 / 30.0);
+    game_logic
+        .update_ai(&[hacker_id, target_id], 1.0 / 30.0)
+        .expect("receiving AI operation succeeds");
     assert_eq!(
         game_logic
             .host_object(hacker_id)
@@ -416,10 +430,12 @@ fn hacker_disable_building_uses_typed_persistent_channel_and_packs_on_relation_l
             .status
             .using_ability
     );
-    game_logic.update_ai(&[hacker_id, target_id], 5.2);
+    game_logic
+        .update_ai(&[hacker_id, target_id], 5.2)
+        .expect("receiving AI operation succeeds");
     let finished = game_logic.host_object(hacker_id).expect("finished hacker");
     assert!(finished.hacker_disable_channel.is_none());
-    assert_eq!(finished.ai_state, AIState::Idle);
+    assert_eq!(finished.ai_state(), AIState::Idle);
     assert_eq!(finished.target, None);
 }
 
@@ -481,8 +497,12 @@ fn hacker_disable_building_queues_pack_unpack_prep_audio() {
     });
     game_logic.process_commands();
     game_logic.queued_audio_events.clear();
-    game_logic.update_ai(&[hacker_id, target_id], 1.0 / 60.0);
-    game_logic.update_ai(&[hacker_id, target_id], 1.0);
+    game_logic
+        .update_ai(&[hacker_id, target_id], 1.0 / 60.0)
+        .expect("receiving AI operation succeeds");
+    game_logic
+        .update_ai(&[hacker_id, target_id], 1.0)
+        .expect("receiving AI operation succeeds");
     assert_eq!(
         game_logic
             .host_object(hacker_id)
@@ -500,7 +520,9 @@ fn hacker_disable_building_queues_pack_unpack_prep_audio() {
     );
 
     game_logic.queued_audio_events.clear();
-    game_logic.update_ai(&[hacker_id, target_id], 1.0);
+    game_logic
+        .update_ai(&[hacker_id, target_id], 1.0)
+        .expect("receiving AI operation succeeds");
     assert_eq!(
         game_logic
             .host_object(hacker_id)
@@ -529,7 +551,9 @@ fn hacker_disable_building_queues_pack_unpack_prep_audio() {
         .expect("target player")
         .alliance_team = 7;
     game_logic.queued_audio_events.clear();
-    game_logic.update_ai(&[hacker_id, target_id], 1.0 / 30.0);
+    game_logic
+        .update_ai(&[hacker_id, target_id], 1.0 / 30.0)
+        .expect("receiving AI operation succeeds");
     assert_eq!(
         game_logic
             .host_object(hacker_id)
@@ -592,7 +616,7 @@ fn hacker_disable_building_rejects_hacker_basename_without_typed_metadata() {
 
     let source = game_logic.host_object(hacker_id).expect("lookalike source");
     assert!(source.hacker_disable_channel.is_none());
-    assert_ne!(source.ai_state, AIState::SpecialAbility);
+    assert_ne!(source.ai_state(), AIState::SpecialAbility);
     assert!(
         !game_logic
             .host_object(target_id)
@@ -1020,7 +1044,9 @@ fn missile_defender_residual_missile_and_laser_guided() {
         game_logic.activate_missile_defender_laser_guided(md_id, far_enemy),
         "laser guided special residual activate"
     );
-    game_logic.update_ai(&[md_id, far_enemy], 1.1);
+    game_logic
+        .update_ai(&[md_id, far_enemy], 1.1)
+        .expect("receiving AI operation succeeds");
     assert!(
         game_logic.missile_defender_residual_laser_specials() > 0,
         "laser special honesty counter"
@@ -1307,7 +1333,9 @@ fn troop_crawler_residual_transport_load_unload() {
                 &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
             );
         }
-        game_logic.update_ai(&[unit_id, crawler_id], 1.0 / 30.0);
+        game_logic
+            .update_ai(&[unit_id, crawler_id], 1.0 / 30.0)
+            .expect("receiving AI operation succeeds");
     }
 
     let crawler = game_logic.host_object(crawler_id).expect("crawler loaded");
@@ -2373,7 +2401,9 @@ fn create_object_die_spawns_on_lifetime_expiry() {
     }
     // Drive the actual receiving update phase, not a raw HP/model mutation.
     logic.frame = 2;
-    logic.update_ai(&[id], 1.0 / 30.0);
+    logic
+        .update_ai(&[id], 1.0 / 30.0)
+        .expect("receiving AI operation succeeds");
     let spawned = logic
         .objects
         .registered_values()
@@ -2603,7 +2633,7 @@ fn troop_crawler_residual_assault_deploy_unloads_and_attacks() {
             && o.is_kind_of(KindOf::Infantry)
             && o.contained_by.is_none()
             && (o.target == Some(enemy)
-                || matches!(o.ai_state, AIState::Attacking | AIState::AttackMoving))
+                || matches!(o.ai_state(), AIState::Attacking | AIState::AttackMoving))
     });
     assert!(
         any_attacking,
@@ -2707,7 +2737,7 @@ fn troop_crawler_assault_keeps_wounded_and_retrieves_outside() {
             "wounded retrieve must not teleport-board"
         );
         assert_eq!(
-            h.ai_state,
+            h.ai_state(),
             AIState::Entering,
             "wounded retrieve issues aiEnter"
         );
@@ -2751,7 +2781,7 @@ fn troop_crawler_assault_keeps_wounded_and_retrieves_outside() {
         let h = game_logic.host_object(healthy_id).expect("re-exit");
         assert!(h.contained_by.is_none(), "full health re-exits to fight");
         assert_eq!(
-            h.ai_state,
+            h.ai_state(),
             AIState::Moving,
             "healthy eject must walk ExitStart/End"
         );
@@ -2939,7 +2969,7 @@ fn troop_crawler_target_death_retrieves_members() {
             "retrieveMembers must not teleport-board"
         );
         assert_eq!(
-            h.ai_state,
+            h.ai_state(),
             AIState::Entering,
             "attack-object target death must retrieveMembers via aiEnter"
         );
@@ -3034,7 +3064,11 @@ fn troop_crawler_stop_retrieves_members() {
         1
     );
 
-    assert!(game_logic.unit_command_stop(crawler_id));
+    assert!(
+        game_logic
+            .unit_command_stop(crawler_id)
+            .expect("checked Stop operation")
+    );
     {
         let h = game_logic.host_object(healthy_id).expect("stop retrieve");
         assert!(
@@ -3042,7 +3076,7 @@ fn troop_crawler_stop_retrieves_members() {
             "Stop retrieveMembers must not teleport-board"
         );
         assert_eq!(
-            h.ai_state,
+            h.ai_state(),
             AIState::Entering,
             "Stop on the crawler must retrieveMembers via aiEnter"
         );
@@ -3095,7 +3129,7 @@ fn troop_crawler_assault_walks_enter_and_exit() {
     {
         let h = game_logic.host_object(fighter).expect("enter walk");
         assert!(h.contained_by.is_none());
-        assert_eq!(h.ai_state, AIState::Entering);
+        assert_eq!(h.ai_state(), AIState::Entering);
         assert_eq!(h.target, Some(crawler_id));
         assert!(
             (h.get_position() - ring_pos).length() < 0.5,
@@ -3123,7 +3157,7 @@ fn troop_crawler_assault_walks_enter_and_exit() {
         .unwrap_or(Vec3::ZERO);
     let h = game_logic.host_object(fighter).expect("exit walk");
     assert!(h.contained_by.is_none());
-    assert_eq!(h.ai_state, AIState::Moving);
+    assert_eq!(h.ai_state(), AIState::Moving);
     assert!((h.get_position() - crawler_pos).length() < 1.0);
     assert!((h.get_position() - (crawler_pos + Vec3::new(6.0, 0.0, 0.0))).length() > 1.0);
     let dest = h.movement.target_position.expect("ExitEnd");
@@ -3169,7 +3203,9 @@ fn troop_crawler_residual_rejects_vehicle_enter() {
             &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
     }
-    game_logic.update_ai(&[tank_id, crawler_id], 1.0 / 30.0);
+    game_logic
+        .update_ai(&[tank_id, crawler_id], 1.0 / 30.0)
+        .expect("receiving AI operation succeeds");
 
     let crawler = game_logic.host_object(crawler_id).expect("crawler");
     assert!(

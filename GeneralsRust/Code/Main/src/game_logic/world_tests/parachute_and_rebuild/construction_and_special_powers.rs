@@ -64,7 +64,7 @@ fn dozer_repair_sets_actively_constructing_and_completes() {
         d.model_condition_bits,
         actively_constructing_model_bit(),
         d.can_construct(),
-        d.ai_state,
+        d.ai_state(),
     );
     // Simulate complete residual messaging path.
     if let Some(o) = logic.host_object_mut(sid) {
@@ -94,7 +94,7 @@ fn dozer_repair_sets_actively_constructing_and_completes() {
     }
     assert!(logic.honesty_repair_complete_ok());
     let d = logic.host_object(did).expect("d");
-    assert_eq!(d.ai_state, AIState::Idle);
+    assert_eq!(d.ai_state(), AIState::Idle);
     assert!(!host_model_condition_has(
         d.model_condition_bits,
         actively_constructing_model_bit()
@@ -149,7 +149,7 @@ fn resume_construction_assigns_dozer_and_model_bits() {
     assert!(logic.resume_construction(&[did], sid));
     assert!(logic.honesty_resume_construction_ok());
     let d = logic.host_object(did).expect("d");
-    assert_eq!(d.ai_state, AIState::Constructing);
+    assert_eq!(d.ai_state(), AIState::Constructing);
     assert_eq!(d.target, Some(sid));
     assert!(host_model_condition_has(
         d.model_condition_bits,
@@ -257,7 +257,7 @@ fn resume_construction_paths_distant_dozer_without_constructing_anim() {
         .expect("dozer");
     assert!(logic.resume_construction(&[did], sid));
     let d = logic.host_object(did).expect("d");
-    assert_eq!(d.ai_state, AIState::Constructing);
+    assert_eq!(d.ai_state(), AIState::Constructing);
     assert_eq!(d.target, Some(sid));
     assert!(
         d.movement.target_position.is_some()
@@ -323,7 +323,7 @@ fn resume_construction_crosses_the_scaffold_obstacle() {
     assert!(logic.resume_construction(&[did], sid));
     logic.process_pathfind_queue();
     let d = logic.host_object(did).expect("d");
-    assert_eq!(d.ai_state, AIState::Constructing);
+    assert_eq!(d.ai_state(), AIState::Constructing);
     assert_eq!(d.ignored_obstacle_id, Some(sid));
     let xs: Vec<i32> = d
         .movement
@@ -481,7 +481,7 @@ fn worker_build_or_repair_releases_supply_dock() {
     let w = logic.host_object(wid).expect("worker after construct");
     assert_eq!(w.preferred_dock_id, None);
     assert_eq!(w.supply_truck_state, SupplyTruckState::Idle);
-    assert_eq!(w.ai_state, AIState::Constructing);
+    assert_eq!(w.ai_state(), AIState::Constructing);
 }
 
 #[test]
@@ -580,7 +580,7 @@ fn cancel_construction_clears_dozer_actively_constructing() {
     ));
     logic.cancel_dozers_building(sid);
     let d = logic.host_object(did).expect("d");
-    assert_eq!(d.ai_state, AIState::Idle);
+    assert_eq!(d.ai_state(), AIState::Idle);
     assert!(d.target.is_none());
     assert!(!host_model_condition_has(
         d.model_condition_bits,
@@ -690,9 +690,7 @@ fn illegal_placement_lbc_message_residual_nonempty() {
 
 #[test]
 fn structure_placement_rejects_no_clear_path_residual() {
-    use crate::game_logic::host_production_buildable_command_residual::{
-        LBC_NO_CLEAR_PATH, LBC_OK,
-    };
+    use crate::game_logic::host_production_buildable_command_residual::{LBC_NO_CLEAR_PATH, LBC_OK};
     use crate::game_logic::pathfinding::GridPos;
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     use gamelogic::ai::pathfind_astar::PathfindCellType;
@@ -1297,9 +1295,7 @@ fn usa_puc_tech_tree_prereq_chain_residual() {
 
 #[test]
 fn superweapon_structure_requires_tech_building_prereq() {
-    use crate::game_logic::host_superweapon_kindof::{
-        AMERICA_PARTICLE_CANNON_UPLINK, GLA_SCUD_STORM,
-    };
+    use crate::game_logic::host_superweapon_kindof::{AMERICA_PARTICLE_CANNON_UPLINK, GLA_SCUD_STORM};
     use crate::game_logic::{KindOf, Team, ThingTemplate};
 
     let mut logic = GameLogic::new();

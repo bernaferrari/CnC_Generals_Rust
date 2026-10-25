@@ -61,6 +61,16 @@ impl WindowLayout {
         self.hidden.get()
     }
 
+    /// Apply this layout's visibility through the manager that owns its windows.
+    /// This is the synchronous path for code already borrowing a concrete manager;
+    /// it preserves `WindowLayout::hide` ordering without selecting an ambient tree.
+    pub fn hide_with_manager(&self, manager: &mut super::WindowManager, hide: bool) {
+        for window in &self.windows {
+            let _ = manager.hide_window(window, hide);
+        }
+        self.hidden.set(hide);
+    }
+
     /// Hide or show all windows in this layout
     pub fn hide(&self, hide: bool) {
         for window_rc in &self.windows {

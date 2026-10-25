@@ -77,6 +77,14 @@ impl GameLogic {
         receiving_ui.script_events =
             Some(crate::game_logic::ScriptEventRecipient::new(interpreter));
         let mut ui = receiving_ui;
+        if let Some(native_ui) = ui.ui.as_deref_mut() {
+            self.mission_scripts
+                .deliver_win_lose_window_actions(native_ui)?;
+        } else {
+            // Headless interpreter calls have no native window owner; discard
+            // only these presentation requests, without retaining stale work.
+            drop(self.mission_scripts.drain_win_lose_window_actions());
+        }
         self.apply_host_skirmish_script_requests();
         self.apply_host_set_base_construction_speed_requests();
         self.apply_host_set_train_held_requests();
@@ -87,15 +95,15 @@ impl GameLogic {
         self.apply_host_player_relates_script_requests();
         self.apply_host_team_override_relation_script_requests();
 
-        self.apply_host_loco_set_script_requests_with_effects(&mut ui);
-        self.apply_host_face_script_requests_with_effects(&mut ui);
+        self.apply_host_loco_set_script_requests_with_effects(&mut ui)?;
+        self.apply_host_face_script_requests_with_effects(&mut ui)?;
 
         self.apply_host_move_attack_script_requests_with_interpreter_and_effects(
             interpreter,
             &mut ui,
-        );
+        )?;
         self.apply_host_hunt_guard_script_requests();
-        self.apply_host_garrison_enter_exit_script_requests_with_effects(&mut ui);
+        self.apply_host_garrison_enter_exit_script_requests_with_effects(&mut ui)?;
         self.apply_host_idle_script_requests_with_effects(&mut ui);
         self.apply_host_kill_delete_damage_script_requests_with_effects(&mut ui);
 

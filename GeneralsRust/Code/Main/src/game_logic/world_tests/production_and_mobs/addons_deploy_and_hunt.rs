@@ -69,7 +69,7 @@ fn plant_approach_ignores_the_structure() {
     logic.update_support_states_for_test(&[planter], 1.0 / 30.0);
     logic.process_pathfind_queue();
     let unit = logic.host_object(planter).expect("planter");
-    assert_eq!(unit.ai_state, AIState::SpecialAbility);
+    assert_eq!(unit.ai_state(), AIState::SpecialAbility);
     assert_eq!(unit.ignored_obstacle_id, Some(building));
     let xs: Vec<i32> = unit
         .movement
@@ -138,7 +138,7 @@ fn successful_disguise_drops_the_vehicle_ignore() {
     );
     assert!(!unit.status.disguised);
     assert!(unit.ignored_obstacle_id.is_none());
-    assert_eq!(unit.ai_state, AIState::Idle);
+    assert_eq!(unit.ai_state(), AIState::Idle);
     assert!(unit.movement.path.is_empty());
 }
 
@@ -192,7 +192,7 @@ fn flee_after_plant_ignores_the_structure() {
     logic.leftover_flee_after_plant(planter, building, Team::USA, 40.0, false);
     logic.process_pathfind_queue();
     let unit = logic.host_object(planter).expect("planter");
-    assert_eq!(unit.ai_state, AIState::Moving);
+    assert_eq!(unit.ai_state(), AIState::Moving);
     assert_eq!(unit.ignored_obstacle_id, Some(building));
     let xs: Vec<i32> = unit
         .movement
@@ -268,7 +268,7 @@ fn recrew_enter_ignores_the_empty_vehicle() {
     logic.update_support_states_for_test(&[infantry], 1.0 / 30.0);
     logic.process_pathfind_queue();
     let unit = logic.host_object(infantry).expect("infantry");
-    assert_eq!(unit.ai_state, AIState::Entering);
+    assert_eq!(unit.ai_state(), AIState::Entering);
     assert_eq!(unit.ignored_obstacle_id, Some(vehicle));
     let xs: Vec<i32> = unit
         .movement
@@ -289,9 +289,7 @@ fn recrew_enter_ignores_the_empty_vehicle() {
 
 #[test]
 fn water_cell_set_change_falls_back_to_ground_not_the_previous_member() {
-    use crate::game_logic::host_upgrade_module_residuals::{
-        AuthoredLocomotorSet, HostLocomotorSetKind,
-    };
+    use crate::game_logic::host_upgrade_module_residuals::{AuthoredLocomotorSet, HostLocomotorSetKind};
     use crate::game_logic::object::LOCO_SURFACE_CLIFF;
     use crate::game_logic::{KindOf, Player, ThingTemplate};
     use gamelogic::ai::pathfind_astar::PathfindCellType;
@@ -346,9 +344,7 @@ fn water_cell_set_change_falls_back_to_ground_not_the_previous_member() {
 
 #[test]
 fn missing_bridge_layer_uses_the_ground_cell_not_clear() {
-    use crate::game_logic::host_upgrade_module_residuals::{
-        AuthoredLocomotorSet, HostLocomotorSetKind,
-    };
+    use crate::game_logic::host_upgrade_module_residuals::{AuthoredLocomotorSet, HostLocomotorSetKind};
     use crate::game_logic::{KindOf, Player, ThingTemplate};
     use gamelogic::ai::pathfind_astar::PathfindCellType;
 
@@ -388,9 +384,7 @@ fn missing_bridge_layer_uses_the_ground_cell_not_clear() {
 
 #[test]
 fn bridge_deck_locomotor_ignores_the_water_underneath() {
-    use crate::game_logic::host_upgrade_module_residuals::{
-        AuthoredLocomotorSet, HostLocomotorSetKind,
-    };
+    use crate::game_logic::host_upgrade_module_residuals::{AuthoredLocomotorSet, HostLocomotorSetKind};
     use crate::game_logic::{KindOf, Player, ThingTemplate};
     use gamelogic::ai::pathfind_astar::PathfindCellType;
 
@@ -512,7 +506,7 @@ fn queued_infantry_spawns_during_simulation() {
         unit.get_position().distance(Vec3::ZERO) > 5.0,
         "spawned infantry must walk clear of the barracks, pos={:?} ai={:?} vel={:?} target={:?} path={:?} waiting={}",
         unit.get_position(),
-        unit.ai_state,
+        unit.ai_state(),
         unit.movement.velocity,
         unit.movement.target_position,
         unit.movement.path,
@@ -587,7 +581,7 @@ fn reissued_build_stays_constructing() {
     logic.process_pathfind_queue();
     let (state, path) = {
         let obj = logic.host_object(dozer).expect("installed");
-        (obj.ai_state.clone(), obj.movement.path.clone())
+        (obj.ai_state().clone(), obj.movement.path.clone())
     };
     assert_eq!(state, AIState::Constructing);
     let xs: Vec<i32> = path
@@ -1247,9 +1241,7 @@ fn nuke_cannon_primary_residual_area_and_radiation() {
     use crate::game_logic::host_nuke_cannon::{
         NUKE_CANNON_PRIMARY_DAMAGE, NUKE_CANNON_PRIMARY_RADIUS, is_nuke_cannon_template,
     };
-    use crate::game_logic::weapon_bootstrap::{
-        NUKE_CANNON_PRIMARY_WEAPON, ensure_host_weapon_store,
-    };
+    use crate::game_logic::weapon_bootstrap::{NUKE_CANNON_PRIMARY_WEAPON, ensure_host_weapon_store};
 
     ensure_host_weapon_store();
 
@@ -1462,7 +1454,9 @@ fn battle_bus_residual_enter_sets_docked_and_upgrades_weapon_set() {
         modifier_keys: crate::command_system::ModifierKeys::default(),
     });
     game_logic.process_commands();
-    game_logic.update_ai(&[infantry_id, bus_id], 1.0 / 30.0);
+    game_logic
+        .update_ai(&[infantry_id, bus_id], 1.0 / 30.0)
+        .expect("receiving AI operation succeeds");
 
     let bus = game_logic.host_object(bus_id).expect("bus after");
     assert!(bus.contained_units().contains(&infantry_id));
@@ -1477,7 +1471,7 @@ fn battle_bus_residual_enter_sets_docked_and_upgrades_weapon_set() {
     );
 
     let infantry = game_logic.host_object(infantry_id).expect("infantry after");
-    assert_eq!(infantry.ai_state, AIState::Docked);
+    assert_eq!(infantry.ai_state(), AIState::Docked);
     assert_eq!(infantry.contained_by, Some(bus_id));
     assert_eq!(game_logic.battle_bus_residual_loads(), 1);
     assert_eq!(
@@ -1522,7 +1516,9 @@ fn battle_bus_residual_load_two_unload_both_free() {
                 &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
             );
         }
-        game_logic.update_ai(&[unit_id, bus_id], 1.0 / 30.0);
+        game_logic
+            .update_ai(&[unit_id, bus_id], 1.0 / 30.0)
+            .expect("receiving AI operation succeeds");
     }
 
     let bus = game_logic.host_object(bus_id).expect("bus loaded");
@@ -1536,7 +1532,7 @@ fn battle_bus_residual_load_two_unload_both_free() {
 
     for unit_id in [unit_a, unit_b] {
         let unit = game_logic.host_object(unit_id).expect("loaded unit");
-        assert_eq!(unit.ai_state, AIState::Docked);
+        assert_eq!(unit.ai_state(), AIState::Docked);
         assert_eq!(unit.contained_by, Some(bus_id));
         assert!(!unit.can_move());
     }
@@ -1560,7 +1556,9 @@ fn battle_bus_residual_load_two_unload_both_free() {
     for _ in 0..60 {
         game_logic.frame += 1;
         game_logic.update_movement_for_test(&[bus_id, unit_a, unit_b], 1.0 / 30.0);
-        game_logic.update_ai(&[bus_id, unit_a, unit_b], 1.0 / 30.0);
+        game_logic
+            .update_ai(&[bus_id, unit_a, unit_b], 1.0 / 30.0)
+            .expect("receiving AI operation succeeds");
     }
     let bus = game_logic.host_object(bus_id).expect("bus empty");
     assert!(
@@ -1579,7 +1577,7 @@ fn battle_bus_residual_load_two_unload_both_free() {
         // issues aiFollowPath to ExitEnd (OpenContain.cpp:915-1020); the freed
         // rider walks its exit path instead of Idling in place.
         assert_eq!(
-            unit.ai_state,
+            unit.ai_state(),
             AIState::Moving,
             "unloaded unit must walk its exit path (C++ aiFollowPath)"
         );
@@ -1704,7 +1702,9 @@ fn battle_bus_residual_capacity_full_rejects_enter() {
                 &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
             );
         }
-        game_logic.update_ai(&[id, bus_id], 1.0 / 30.0);
+        game_logic
+            .update_ai(&[id, bus_id], 1.0 / 30.0)
+            .expect("receiving AI operation succeeds");
         loaded.push(id);
     }
     assert_eq!(
@@ -1727,7 +1727,7 @@ fn battle_bus_residual_capacity_full_rejects_enter() {
 
     let extra = game_logic.host_object(extra_id).expect("extra after");
     assert_ne!(
-        extra.ai_state,
+        extra.ai_state(),
         AIState::Entering,
         "full Battle Bus residual must reject Enter"
     );
@@ -1761,7 +1761,7 @@ fn battle_bus_residual_rejects_vehicle_enter() {
 
     let tank = game_logic.host_object(tank_id).expect("tank");
     assert_ne!(
-        tank.ai_state,
+        tank.ai_state(),
         AIState::Entering,
         "vehicles must not enter Battle Bus residual"
     );
@@ -2093,12 +2093,8 @@ fn deploy_style_sentry_must_unpack_before_fire_and_pack_before_move() {
 
 #[test]
 fn deploy_style_plays_authored_deploy_and_undeploy_sounds() {
-    use crate::game_logic::audio_dispatch_impl::{
-        clear_test_template_voices, set_test_per_unit_sound,
-    };
-    use crate::game_logic::host_deploy_style::{
-        DEPLOY_STYLE_DEPLOY_AUDIO, DEPLOY_STYLE_UNDEPLOY_AUDIO,
-    };
+    use crate::game_logic::audio_dispatch_impl::{clear_test_template_voices, set_test_per_unit_sound};
+    use crate::game_logic::host_deploy_style::{DEPLOY_STYLE_DEPLOY_AUDIO, DEPLOY_STYLE_UNDEPLOY_AUDIO};
 
     clear_test_template_voices();
     set_test_per_unit_sound(
@@ -2180,9 +2176,7 @@ fn deploy_style_plays_authored_deploy_and_undeploy_sounds() {
 #[test]
 fn deploy_style_missing_unit_sound_stays_silent() {
     use crate::game_logic::audio_dispatch_impl::clear_test_template_voices;
-    use crate::game_logic::host_deploy_style::{
-        DEPLOY_STYLE_DEPLOY_AUDIO, DEPLOY_STYLE_UNDEPLOY_AUDIO,
-    };
+    use crate::game_logic::host_deploy_style::{DEPLOY_STYLE_DEPLOY_AUDIO, DEPLOY_STYLE_UNDEPLOY_AUDIO};
 
     clear_test_template_voices();
     let mut game_logic = GameLogic::new();
@@ -2492,7 +2486,7 @@ fn deploy_style_sentry_auto_target_loss_clears_pending_attack() {
     let sentry_after_loss = logic.host_object(sentry_id).unwrap();
     assert!(sentry_after_loss.target.is_none());
     assert!(!sentry_after_loss.status.attacking);
-    assert_eq!(sentry_after_loss.ai_state, AIState::Idle);
+    assert_eq!(sentry_after_loss.ai_state(), AIState::Idle);
     assert!(matches!(
         sentry_after_loss
             .deploy_style
@@ -2539,8 +2533,22 @@ fn deploy_style_must_center_turret_before_pack() {
         obj.turret_natural_pitch_deg = 0.0;
     }
 
+    logic.host_object_mut(id).unwrap().set_ai_state(
+        AIState::Moving,
+        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+    );
     logic.set_current_frame(0);
-    assert!(logic.unit_command_toggle_deploy_style(id));
+    assert!(
+        logic
+            .unit_command_toggle_deploy_style(id)
+            .expect("checked deploy-style transition")
+    );
+    {
+        let entered = logic.host_object(id).unwrap();
+        assert_eq!(entered.ai_state(), AIState::Idle);
+        assert!(entered.unit_ai_runtime.idle_initialized());
+        assert!(!entered.idle_mood_reset_pending);
+    }
     logic.set_current_frame(30);
     logic.tick_deploy_style_updates();
     assert!(
@@ -2560,7 +2568,11 @@ fn deploy_style_must_center_turret_before_pack() {
         obj.turret_angle_deg = 45.0;
     }
     logic.set_current_frame(31);
-    assert!(logic.unit_command_toggle_deploy_style(id));
+    assert!(
+        logic
+            .unit_command_toggle_deploy_style(id)
+            .expect("checked deploy-style transition")
+    );
     assert!(
         matches!(
             logic
@@ -2823,9 +2835,7 @@ fn jet_airfield_rearm_waits_clip_reload_frames() {
 
 #[test]
 fn empty_jet_circles_last_airfield_instead_of_bleeding_in_place() {
-    use crate::game_logic::audio_dispatch_impl::{
-        clear_test_template_voices, set_test_per_unit_sound,
-    };
+    use crate::game_logic::audio_dispatch_impl::{clear_test_template_voices, set_test_per_unit_sound};
     use crate::game_logic::{KindOf, ParkingPlaceMetadata, Team, ThingTemplate, Weapon};
     use glam::Vec3;
 
@@ -2885,7 +2895,9 @@ fn empty_jet_circles_last_airfield_instead_of_bleeding_in_place() {
         });
     }
 
-    logic.tick_out_of_ammo_jet_damage();
+    logic
+        .tick_out_of_ammo_jet_damage()
+        .expect("receiving AI operation succeeds");
     let hp_after_first = logic.objects.get(&jet_id).unwrap().health.current;
     assert!(
         (hp_after_first - 100.0).abs() < 1e-3,
@@ -2898,7 +2910,9 @@ fn empty_jet_circles_last_airfield_instead_of_bleeding_in_place() {
         af.health.current = 0.0;
     }
     let hp_before = logic.objects.get(&jet_id).unwrap().health.current;
-    logic.tick_out_of_ammo_jet_damage();
+    logic
+        .tick_out_of_ammo_jet_damage()
+        .expect("receiving AI operation succeeds");
     {
         let jet = logic.objects.get(&jet_id).unwrap();
         assert!(
@@ -2906,7 +2920,7 @@ fn empty_jet_circles_last_airfield_instead_of_bleeding_in_place() {
             "must not bleed in place after airfield dies"
         );
         assert!(
-            !jet.jet_circling_dead_airfield,
+            !jet.jet_circling_dead_airfield(),
             "still returning to last airfield"
         );
         let goal = jet.jet_producer_location_vec().expect("remembered wreck");
@@ -2923,10 +2937,12 @@ fn empty_jet_circles_last_airfield_instead_of_bleeding_in_place() {
         );
     }
     logic.queued_audio_events.clear();
-    logic.tick_out_of_ammo_jet_damage();
+    logic
+        .tick_out_of_ammo_jet_damage()
+        .expect("receiving AI operation succeeds");
     {
         let jet = logic.objects.get(&jet_id).unwrap();
-        assert!(jet.jet_circling_dead_airfield);
+        assert!(jet.jet_circling_dead_airfield());
         assert!(
             jet.health.current < hp_before - 1e-4,
             "OutOfAmmoDamage only after circling the wreck"
@@ -3124,9 +3140,7 @@ fn fire_weapon_command_button_hunt_rearms_lock_every_frame() {
 #[test]
 fn command_button_hunt_quits_after_player_move() {
     use crate::game_logic::Team;
-    use crate::game_logic::host_command_button_hunt::{
-        HUNT_CMD_FROM_PLAYER, HostCommandButtonHuntMode,
-    };
+    use crate::game_logic::host_command_button_hunt::{HUNT_CMD_FROM_PLAYER, HostCommandButtonHuntMode};
     use glam::Vec3;
 
     let mut logic = GameLogic::new();

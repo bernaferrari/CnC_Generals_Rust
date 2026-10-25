@@ -70,7 +70,9 @@ fn listening_outpost_residual_transport_load_unload() {
                 &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
             );
         }
-        game_logic.update_ai(&[unit_id, outpost_id], 1.0 / 30.0);
+        game_logic
+            .update_ai(&[unit_id, outpost_id], 1.0 / 30.0)
+            .expect("receiving AI operation succeeds");
     }
 
     let outpost = game_logic.host_object(outpost_id).expect("outpost loaded");
@@ -109,7 +111,9 @@ fn listening_outpost_residual_transport_load_unload() {
             &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
     }
-    game_logic.update_ai(&[unit_c, outpost_id], 1.0 / 30.0);
+    game_logic
+        .update_ai(&[unit_c, outpost_id], 1.0 / 30.0)
+        .expect("receiving AI operation succeeds");
     {
         let outpost = game_logic.host_object(outpost_id).expect("full");
         assert_eq!(outpost.transport_count(), LISTENING_OUTPOST_TRANSPORT_SLOTS);
@@ -137,11 +141,13 @@ fn listening_outpost_residual_transport_load_unload() {
         game_logic.frame = game_logic.frame.saturating_add(1);
         game_logic.drain_pending_transport_exits_for_test();
         game_logic.update_movement_for_test(&[unit_a, unit_b], 1.0 / 30.0);
-        game_logic.update_ai(&[unit_a, unit_b], 1.0 / 30.0);
+        game_logic
+            .update_ai(&[unit_a, unit_b], 1.0 / 30.0)
+            .expect("receiving AI operation succeeds");
         let both_idle = [unit_a, unit_b].iter().all(|&id| {
             game_logic
                 .host_object(id)
-                .map(|u| u.ai_state == AIState::Idle)
+                .map(|u| u.ai_state() == AIState::Idle)
                 .unwrap_or(true)
         });
         if both_idle {
@@ -151,7 +157,7 @@ fn listening_outpost_residual_transport_load_unload() {
 
     for unit_id in [unit_a, unit_b] {
         let unit = game_logic.host_object(unit_id).expect("free unit");
-        assert_eq!(unit.ai_state, AIState::Idle);
+        assert_eq!(unit.ai_state(), AIState::Idle);
         assert!(unit.contained_by.is_none());
         assert!(unit.can_move());
     }
@@ -216,7 +222,9 @@ fn listening_outpost_residual_rejects_vehicle_enter() {
             &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
     }
-    game_logic.update_ai(&[tank_id, outpost_id], 1.0 / 30.0);
+    game_logic
+        .update_ai(&[tank_id, outpost_id], 1.0 / 30.0)
+        .expect("receiving AI operation succeeds");
 
     let outpost = game_logic.host_object(outpost_id).expect("outpost");
     assert!(
@@ -717,9 +725,7 @@ fn demo_trap_manual_detonate_residual() {
 
 #[test]
 fn dozer_mine_clear_residual_disarms_enemy_mine_safely() {
-    use crate::game_logic::host_mines::{
-        DOZER_MINE_CLEAR_PRE_ATTACK_FRAMES, DOZER_MINE_CLEAR_RANGE,
-    };
+    use crate::game_logic::host_mines::{DOZER_MINE_CLEAR_PRE_ATTACK_FRAMES, DOZER_MINE_CLEAR_RANGE};
 
     let mut game_logic = GameLogic::new();
     ensure_test_dozer_template(&mut game_logic);
@@ -834,7 +840,7 @@ fn dozer_mine_clear_residual_approaches_then_clears() {
             "must have move target toward mine"
         );
         {
-            assert_eq!(dozer.ai_state, AIState::Moving, "must approach mine");
+            assert_eq!(dozer.ai_state(), AIState::Moving, "must approach mine");
         }
     }
 
@@ -1547,7 +1553,7 @@ fn base_defense_residual_patriot_auto_fires_without_attack_object() {
             "USA_Patriot must classify as base defense residual"
         );
         // No AttackObject: stay Idle with no target.
-        assert_eq!(p.ai_state, AIState::Idle);
+        assert_eq!(p.ai_state(), AIState::Idle);
         assert!(p.target.is_none());
     }
     {

@@ -47,7 +47,7 @@ impl GameLogic {
             let already = logic
                 .objects
                 .get(&object_id)
-                .is_some_and(|obj| obj.ai_state == state);
+                .is_some_and(|obj| obj.ai_state() == state);
             if already {
                 return;
             }
@@ -73,7 +73,7 @@ impl GameLogic {
         if let Some(unit) = self.objects.get(&object_id) {
             let projectile = unit.is_kind_of(KindOf::Projectile);
             self.pathfinding_system
-                .set_adjust_goal(unit.is_final_goal && unit.adjust_destinations && !projectile);
+                .set_adjust_goal(unit.is_final_goal && unit.adjust_destinations() && !projectile);
         }
         let path = ({
             let ground_owner = self.world_services.terrain();
@@ -313,7 +313,7 @@ impl GameLogic {
                     return None;
                 }
                 if !obj.is_kind_of(crate::game_logic::KindOf::Projectile)
-                    || !matches!(obj.ai_state, crate::game_logic::AIState::Moving)
+                    || !matches!(obj.ai_state(), crate::game_logic::AIState::Moving)
                 {
                     return None;
                 }
@@ -351,8 +351,8 @@ impl GameLogic {
                 if obj.is_disabled() || obj.host_skip_dead_locomotor() {
                     return None;
                 }
-                if !matches!(obj.ai_state, crate::game_logic::AIState::Moving)
-                    && obj.temporary_move_frames == 0
+                if !matches!(obj.ai_state(), crate::game_logic::AIState::Moving)
+                    && !obj.has_temporary_ai_move()
                 {
                     return None;
                 }
@@ -1151,14 +1151,14 @@ impl GameLogic {
                         obj.tick_do_locomotor_blocked_frames();
                         // C++ doLocomotor ANGLE: locoUpdate_moveTowardsAngle, not path.
                         obj.do_final_position = false;
-                        if obj.face_loco_frame != self.frame || self.frame == 0 {
+                        if obj.face_loco_frame() != self.frame || self.frame == 0 {
                             obj.loco_update_move_towards_angle_with_effects(
                                 obj.locomotor_goal_angle,
                                 dt,
                                 pose_frame,
                                 &mut effects.reborrow_for_object(&mut self.partition_manager),
                             );
-                            obj.face_loco_frame = self.frame;
+                            obj.set_face_loco_frame(self.frame);
                         }
                         // Leftover unused `handle_behavior_z_for` via leftover
                         // `get_surface_ht_at_pt`. Single Z — never pose-Y then double.
@@ -1487,7 +1487,7 @@ impl GameLogic {
                                     );
                                 } else {
                                     plant_goal = obj.movement.path.last().copied();
-                                    if matches!(obj.ai_state, AIState::AttackMoving) {
+                                    if matches!(obj.ai_state(), AIState::AttackMoving) {
                                         obj.movement.path.clear();
                                         obj.movement.current_path_index = 0;
                                         obj.movement.target_position = None;
@@ -1940,7 +1940,7 @@ impl GameLogic {
                                             );
                                         } else {
                                             plant_goal = obj.movement.path.last().copied();
-                                            if matches!(obj.ai_state, AIState::AttackMoving) {
+                                            if matches!(obj.ai_state(), AIState::AttackMoving) {
                                                 obj.movement.path.clear();
                                                 obj.movement.current_path_index = 0;
                                                 obj.movement.target_position = None;
@@ -2459,8 +2459,8 @@ impl GameLogic {
                                             &mut effects
                                                 .reborrow_for_object(&mut self.partition_manager),
                                         );
-                                    } else if obj.temporary_move_frames > 0
-                                        && !matches!(obj.ai_state, AIState::Moving)
+                                    } else if obj.has_temporary_ai_move()
+                                        && !matches!(obj.ai_state(), AIState::Moving)
                                     {
                                         plant_goal = Some(obj.get_position());
                                         obj.end_temporary_move_overlay(
@@ -2472,7 +2472,7 @@ impl GameLogic {
                                         obj.set_locomotor_goal_none();
                                     } else {
                                         plant_goal = obj.movement.path.last().copied();
-                                        if matches!(obj.ai_state, AIState::AttackMoving) {
+                                        if matches!(obj.ai_state(), AIState::AttackMoving) {
                                             obj.movement.path.clear();
                                             obj.movement.current_path_index = 0;
                                             obj.movement.target_position = None;
@@ -2578,8 +2578,10 @@ impl GameLogic {
                             // Idle maintain (goal still coincident) must not clear
                             // the queue or the ignored obstacle.
                             if obj.locomotor_goal_type != LocoGoalType::PositionExplicit
-                                && (matches!(obj.ai_state, AIState::Moving | AIState::AttackMoving)
-                                    || obj.temporary_move_frames > 0)
+                                && (matches!(
+                                    obj.ai_state(),
+                                    AIState::Moving | AIState::AttackMoving
+                                ) || obj.has_temporary_ai_move())
                                 && (obj.movement.path.is_empty()
                                     || obj.movement.current_path_index + 1
                                         >= obj.movement.path.len())
@@ -2595,8 +2597,8 @@ impl GameLogic {
                                     obj.ignored_obstacle_id = None;
                                     obj.set_precise_z_pos(false);
                                     obj.set_locomotor_goal_none();
-                                } else if obj.temporary_move_frames > 0
-                                    && !matches!(obj.ai_state, AIState::Moving)
+                                } else if obj.has_temporary_ai_move()
+                                    && !matches!(obj.ai_state(), AIState::Moving)
                                 {
                                     plant_goal = Some(obj.get_position());
                                     obj.end_temporary_move_overlay(
@@ -2608,7 +2610,7 @@ impl GameLogic {
                                     obj.set_locomotor_goal_none();
                                 } else {
                                     plant_goal = obj.movement.path.last().copied();
-                                    if matches!(obj.ai_state, AIState::AttackMoving) {
+                                    if matches!(obj.ai_state(), AIState::AttackMoving) {
                                         obj.movement.path.clear();
                                         obj.movement.current_path_index = 0;
                                         obj.movement.target_position = None;
@@ -2834,11 +2836,11 @@ impl GameLogic {
             ai.flight_status
                 == crate::game_logic::host_combat_chinook::HostChinookFlightStatus::Landed
         });
-        unit.adjust_destinations = !unit.ultra_accurate;
+        unit.set_adjust_destinations(!unit.ultra_accurate);
         let adjusts = !unit.is_parachuting()
             && !landed_chinook
             && !(unit.chinook_ai.is_some() && unit.allow_invalid_position)
-            && unit.adjust_destinations;
+            && unit.adjust_destinations();
         unit.is_final_goal = adjusts;
         unit.num_frames_blocked = 0;
         unit.is_blocked_and_stuck = false;
@@ -3085,7 +3087,7 @@ pub(super) fn adjusts_destination_now(obj: &crate::game_logic::Object) -> bool {
     });
     !landed_chinook
         && !(obj.chinook_ai.is_some() && obj.allow_invalid_position)
-        && obj.adjust_destinations
+        && obj.adjust_destinations()
 }
 
 /// C++ `Pathfinder::validMovementTerrain` (AIPathfind.cpp:4763-4783).

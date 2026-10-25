@@ -77,8 +77,8 @@ fn condition_loop_guards_both_same_name_instances_even_after_oneshot_success() {
     assert_eq!(engine.get_counter("Visited").unwrap().value, 2);
     for id in [first, second] {
         let unit = world.host_object(id).unwrap();
-        assert_eq!(unit.ai_state, AIState::GuardingArea);
-        assert_eq!(unit.guard_position, Some(unit.get_position()));
+        assert_eq!(unit.ai_state(), AIState::GuardingArea);
+        assert_eq!(unit.active_guard_position(), Some(unit.get_position()));
     }
     assert_eq!(engine.get_condition_team_name(), None);
     update(&engine, &mut world);
@@ -113,6 +113,12 @@ fn empty_authored_prototype_evaluates_once_with_null_condition_team() {
     update(&engine, &mut world);
     assert_eq!(engine.get_counter("Visited").unwrap().value, 1);
     assert_eq!(engine.get_condition_team_name(), None);
-    assert_eq!(world.host_object(first).unwrap().guard_position, None);
-    assert_eq!(world.host_object(second).unwrap().guard_position, None);
+    assert_eq!(
+        world.host_object(first).unwrap().active_guard_position(),
+        None
+    );
+    assert_eq!(
+        world.host_object(second).unwrap().active_guard_position(),
+        None
+    );
 }

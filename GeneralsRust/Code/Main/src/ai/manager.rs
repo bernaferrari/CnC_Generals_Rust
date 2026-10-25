@@ -89,14 +89,15 @@ impl AIManager {
     /// a replacement manager/team factory on every frame. Player state remains
     /// owned by the same manager before and after the synchronous pass.
     pub(crate) fn update_owned(game_logic: &mut GameLogic, current_time: f32) {
-        Self::update_owned_with_effects(game_logic, current_time, &mut Default::default());
+        Self::update_owned_with_effects(game_logic, current_time, &mut Default::default())
+            .expect("owned AI update failed");
     }
 
     pub(crate) fn update_owned_with_effects(
         game_logic: &mut GameLogic,
         current_time: f32,
         ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         let ai_data = AiDataView::from_world(game_logic);
         let ids: Vec<_> = game_logic.ai_manager.ai_players.keys().copied().collect();
         let destroyed = game_logic.take_ai_team_destroy_notifications();
@@ -108,7 +109,7 @@ impl AIManager {
         for id in ids {
             game_logic.initialize_owned_skirmish_ai_with_effects(id, &ai_data, ui);
             if game_logic.team_creation_error().is_some() {
-                return;
+                return Ok(());
             }
             let peers = game_logic
                 .ai_manager
@@ -130,21 +131,22 @@ impl AIManager {
             if !active {
                 continue;
             }
-            game_logic.update_owned_ai_economy_with_effects(id, current_time, &ai_data, ui);
+            game_logic.update_owned_ai_economy_with_effects(id, current_time, &ai_data, ui)?;
             if game_logic.team_creation_error().is_some() {
-                return;
+                return Ok(());
             }
             game_logic.check_owned_ai_ready_teams(id);
             game_logic.check_owned_ai_queued_teams_with_effects(id, current_time, ui);
             if game_logic.team_creation_error().is_some() {
-                return;
+                return Ok(());
             }
-            game_logic.update_owned_ai_military_with_effects(id, current_time, &ai_data, ui);
+            game_logic.update_owned_ai_military_with_effects(id, current_time, &ai_data, ui)?;
             if game_logic.team_creation_error().is_some() {
-                return;
+                return Ok(());
             }
             game_logic.update_owned_ai_postmilitary(id, current_time, &ai_data);
         }
+        Ok(())
     }
     // Explicit UI-only adapter for standalone callers.
     pub(crate) fn update_owned_with_ui(
@@ -163,6 +165,7 @@ impl AIManager {
             view: None,
         };
         Self::update_owned_with_effects(game_logic, current_time, &mut effects)
+            .expect("owned AI UI update failed");
     }
 
     fn update_players(
@@ -991,9 +994,7 @@ impl AIManager {
 #[cfg(test)]
 mod aidata_owner_tests {
     use super::*;
-    use game_engine::common::ini::ini_ai_data::{
-        self, AIDataStore, AiSideBuildList, BuildListEntry,
-    };
+    use game_engine::common::ini::ini_ai_data::{self, AIDataStore, AiSideBuildList, BuildListEntry};
     use glam::Vec3;
     use std::io::Read;
     use std::process::{Command, Stdio};

@@ -1058,6 +1058,8 @@ pub struct CnCGameEngine {
     pub(crate) loading_overlay_active: bool,
     #[cfg(feature = "game_client")]
     pub(crate) active_load_screen: Option<game_client::gui::load_screen::LoadScreenKind>,
+    /// C++ ShellGameLoadScreen first-load title/LegalHold latch for this app.
+    #[cfg(feature = "game_client")]
     pub(crate) shell_menu_active: bool, // C++ parity: Shell::push("Menus/MainMenu.wnd") / Shell::pop()
 
     // Game client — C++ parity: TheGameClient singleton, wired into Main's frame loop

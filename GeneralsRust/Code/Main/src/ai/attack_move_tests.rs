@@ -62,7 +62,7 @@ fn launch_attack_installs_owned_attack_move_state_and_path() {
     ai.launch_attack(&mut logic, 1000.0);
 
     let unit = logic.host_object(usa_unit).expect("live attacking unit");
-    assert_eq!(unit.ai_state, AIState::AttackMoving);
+    assert_eq!(unit.ai_state(), AIState::AttackMoving);
     assert_eq!(unit.requested_destination, Some(destination));
     assert!(unit.is_attack_path);
     assert!(unit.status.moving);

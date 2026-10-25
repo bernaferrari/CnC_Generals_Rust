@@ -1643,7 +1643,9 @@ fn humvee_residual_transport_and_air_tow() {
             &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
     }
-    game_logic.update_ai(&[r1, humvee_id], 1.0 / 30.0);
+    game_logic
+        .update_ai(&[r1, humvee_id], 1.0 / 30.0)
+        .expect("receiving AI operation succeeds");
     {
         let h = game_logic.host_object(humvee_id).expect("humvee");
         assert!(
@@ -1655,9 +1657,7 @@ fn humvee_residual_transport_and_air_tow() {
     // TOW unlock residual: secondary can target air + damage boost.
     // Direct residual TOW equip (same as research complete path).
     {
-        use crate::game_logic::weapon_bootstrap::{
-            HUMVEE_SECONDARY_WEAPON, ensure_host_weapon_store,
-        };
+        use crate::game_logic::weapon_bootstrap::{HUMVEE_SECONDARY_WEAPON, ensure_host_weapon_store};
         ensure_host_weapon_store();
         let secondary = ThingTemplate::weapon_from_store(HUMVEE_SECONDARY_WEAPON);
         if let Some(h) = game_logic.host_object_mut(humvee_id) {

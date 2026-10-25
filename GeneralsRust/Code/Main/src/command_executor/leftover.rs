@@ -51,7 +51,7 @@ impl<'a> CommandExecutor<'a> {
         unit_id: ObjectId,
         goal: Vec3,
         state: AIState,
-    ) -> bool {
+    ) -> gamelogic::GameLogicResult<bool> {
         self.path_to_goal_with_state_ignoring(unit_id, goal, state, None)
     }
 
@@ -62,7 +62,7 @@ impl<'a> CommandExecutor<'a> {
         goal: Vec3,
         state: AIState,
         ignore_obstacle: Option<ObjectId>,
-    ) -> bool {
+    ) -> gamelogic::GameLogicResult<bool> {
         // Wave 233: path+state last-writes via GameLogic
         // unit_command_path_with_state_ignoring.
         self.game_logic
@@ -85,14 +85,14 @@ impl<'a> CommandExecutor<'a> {
         target_id: ObjectId,
         target_pos: Vec3,
         state: AIState,
-    ) -> bool {
+    ) -> gamelogic::GameLogicResult<bool> {
         let Some((source_pos, target_selection_radius)) = self
             .game_logic
             .host_object(unit_id)
             .zip(self.game_logic.host_object(target_id))
             .map(|(unit, target)| (unit.get_position(), target.selection_radius))
         else {
-            return false;
+            return Ok(false);
         };
         if matches!(state, AIState::Repairing) {
             let (dozer_radius, airborne) = self
@@ -117,7 +117,7 @@ impl<'a> CommandExecutor<'a> {
                 .game_logic
                 .unit_command_set_order_target(unit_id, Some(target_id))
             {
-                return false;
+                return Ok(false);
             }
             if crate::game_logic::host_repair::dozer_within_action_dock(
                 source_pos,
@@ -134,7 +134,7 @@ impl<'a> CommandExecutor<'a> {
             .game_logic
             .unit_command_set_order_target(unit_id, Some(target_id))
         {
-            return false;
+            return Ok(false);
         }
         if in_interaction_range {
             self.game_logic.unit_command_set_ai_state(unit_id, state)
@@ -151,7 +151,10 @@ impl<'a> CommandExecutor<'a> {
     /// Deploy selected units at their current position.
     /// C&C Generals: garrisonable infantry deploy into structures,
     /// dozers unpack into construction yards, etc.
-    pub(super) fn execute_deploy(&mut self, units: &[ObjectId]) -> CommandResult {
+    pub(super) fn execute_deploy(
+        &mut self,
+        units: &[ObjectId],
+    ) -> gamelogic::GameLogicResult<CommandResult> {
         let mut any = false;
         for &unit_id in units {
             let Some((alive, name, is_infantry, has_deploy_style_metadata)) =
@@ -175,7 +178,7 @@ impl<'a> CommandExecutor<'a> {
             // transitioning so a stale/injected UI command cannot bypass the
             // template's authored module data.
             if has_deploy_style_metadata && !is_infantry {
-                if self.game_logic.unit_command_toggle_deploy_style(unit_id) {
+                if self.game_logic.unit_command_toggle_deploy_style(unit_id)? {
                     any = true;
                 }
                 continue;
@@ -214,15 +217,15 @@ impl<'a> CommandExecutor<'a> {
                             bpos,
                             AIState::Entering,
                             Some(building_id),
-                        );
+                        )?;
                     }
                 }
             }
         }
         if any {
-            CommandResult::Success
+            Ok(CommandResult::Success)
         } else {
-            CommandResult::InvalidCommand
+            Ok(CommandResult::InvalidCommand)
         }
     }
 
@@ -231,7 +234,7 @@ impl<'a> CommandExecutor<'a> {
         &mut self,
         units: &[ObjectId],
         target_id: ObjectId,
-    ) -> CommandResult {
+    ) -> gamelogic::GameLogicResult<CommandResult> {
         let (target_pos, target_alive, target_is_resource) =
             match self.game_logic.host_object(target_id) {
                 Some(target) => (
@@ -241,11 +244,11 @@ impl<'a> CommandExecutor<'a> {
                         || target.is_kind_of(KindOf::Resource)
                         || target.object_type == crate::game_logic::ObjectType::Supply,
                 ),
-                None => return CommandResult::InvalidTarget,
+                None => return Ok(CommandResult::InvalidTarget),
             };
 
         if !target_alive || !target_is_resource {
-            return CommandResult::InvalidTarget;
+            return Ok(CommandResult::InvalidTarget);
         }
 
         let mut any = false;
@@ -286,15 +289,15 @@ impl<'a> CommandExecutor<'a> {
                     continue;
                 }
             }
-            if self.path_to_goal_with_state(unit_id, target_pos, AIState::Gathering) {
+            if self.path_to_goal_with_state(unit_id, target_pos, AIState::Gathering)? {
                 any = true;
                 self.accepted_gather_carrier_ids.push(unit_id);
             }
         }
         if any {
-            CommandResult::Success
+            Ok(CommandResult::Success)
         } else {
-            CommandResult::InvalidCommand
+            Ok(CommandResult::InvalidCommand)
         }
     }
 
@@ -321,7 +324,10 @@ impl<'a> CommandExecutor<'a> {
         }
     }
 
-    pub(super) fn execute_return_supplies(&mut self, units: &[ObjectId]) -> CommandResult {
+    pub(super) fn execute_return_supplies(
+        &mut self,
+        units: &[ObjectId],
+    ) -> gamelogic::GameLogicResult<CommandResult> {
         let mut any = false;
         for &unit_id in units {
             let Some(unit) = self.game_logic.host_object(unit_id) else {
@@ -338,7 +344,7 @@ impl<'a> CommandExecutor<'a> {
                 || n.contains("chinook")
                 || (n.contains("worker") && !n.contains("dozer"))
                 || matches!(
-                    unit.ai_state,
+                    unit.ai_state(),
                     AIState::Gathering | AIState::ReturningResources
                 );
             if !is_collector {
@@ -397,14 +403,14 @@ impl<'a> CommandExecutor<'a> {
                 .unwrap_or(pos);
             // Wave 233: return-supplies via GameLogic authority API.
             let _ = self.game_logic.unit_command_return_supplies(unit_id, sc_id);
-            if self.path_to_goal_with_state(unit_id, sc_pos, AIState::ReturningResources) {
+            if self.path_to_goal_with_state(unit_id, sc_pos, AIState::ReturningResources)? {
                 any = true;
             }
         }
         if any {
-            CommandResult::Success
+            Ok(CommandResult::Success)
         } else {
-            CommandResult::InvalidCommand
+            Ok(CommandResult::InvalidCommand)
         }
     }
 
@@ -477,7 +483,10 @@ impl<'a> CommandExecutor<'a> {
         }
     }
 
-    pub(super) fn execute_clear_mines(&mut self, units: &[ObjectId]) -> CommandResult {
+    pub(super) fn execute_clear_mines(
+        &mut self,
+        units: &[ObjectId],
+    ) -> gamelogic::GameLogicResult<CommandResult> {
         use crate::game_logic::host_mines::{DOZER_MINE_CLEAR_SCAN_RANGE, is_mine_clearer};
         let mut any = false;
         for &unit_id in units {
@@ -552,14 +561,14 @@ impl<'a> CommandExecutor<'a> {
                 .unit_command_set_order_target(unit_id, Some(mine_id));
             // C++ drops boxes only while already isClearingMines (aiDoCommand tail).
             // Initial order is not attacking yet — apply_dozer_ai_do_command handles the tail.
-            if self.path_to_goal_with_state(unit_id, mpos, AIState::Moving) {
+            if self.path_to_goal_with_state(unit_id, mpos, AIState::Moving)? {
                 any = true;
             }
         }
         if any {
-            CommandResult::Success
+            Ok(CommandResult::Success)
         } else {
-            CommandResult::InvalidCommand
+            Ok(CommandResult::InvalidCommand)
         }
     }
 
@@ -569,7 +578,7 @@ impl<'a> CommandExecutor<'a> {
         &mut self,
         units: &[ObjectId],
         target_id: ObjectId,
-    ) -> CommandResult {
+    ) -> gamelogic::GameLogicResult<CommandResult> {
         // C++ ActionManager::canRepairObject + DozerAIUpdate::privateRepair.
         let (
             target_pos,
@@ -593,7 +602,7 @@ impl<'a> CommandExecutor<'a> {
                 target.sole_healing_benefactor,
                 target.sole_healing_benefactor_expiration_frame,
             ),
-            None => return CommandResult::InvalidTarget,
+            None => return Ok(CommandResult::InvalidTarget),
         };
 
         if !target_alive
@@ -603,12 +612,14 @@ impl<'a> CommandExecutor<'a> {
             || target_is_rebuild_hole
             || target_is_bridge
         {
-            return CommandResult::InvalidTarget;
+            return Ok(CommandResult::InvalidTarget);
         }
 
         let now = self.game_logic.frame;
         let mut any = false;
         for &unit_id in units {
+            self.game_logic
+                .dozer_prepare_repair_or_resume_owned(unit_id)?;
             let can = self
                 .game_logic
                 .host_object(unit_id)
@@ -647,29 +658,21 @@ impl<'a> CommandExecutor<'a> {
             }
             // C++ canAcceptNewRepair: m_currentTask == DOZER_TASK_REPAIR.
             let already = self.game_logic.host_object(unit_id).and_then(|unit| {
-                if unit.ai_state != AIState::Repairing {
+                if unit.dozer_tasks.current
+                    != gamelogic::object::update::ai_update::dozer_ai_update::DozerTask::Repair
+                {
                     return None;
                 }
-                unit.dozer_task_repair_target
+                unit.dozer_tasks.requests[1].target
             });
             if already == Some(target_id) {
                 continue;
             }
-            self.game_logic.dozer_new_task_repair(unit_id, target_id);
-            self.game_logic.worker_exit_supply_for_dozer_task(unit_id);
-            if self.begin_support_order(unit_id, target_id, target_pos, AIState::Repairing) {
-                any = true;
-            } else if self
-                .game_logic
-                .host_object(unit_id)
-                .and_then(|unit| unit.target)
-                != Some(target_id)
-            {
-                if let Some(obj) = self.game_logic.host_object_mut(unit_id) {
-                    obj.dozer_task_repair_target = None;
-                    obj.dozer_task_repair_order_frame = 0;
-                }
+            if !self.game_logic.dozer_new_task_repair(unit_id, target_id)? {
+                continue;
             }
+            self.game_logic.worker_exit_supply_for_dozer_task(unit_id);
+            any = true;
         }
         if any {
             // C++ CommandXlat.cpp:336-339 MSG_DO_REPAIR → PerUnitSound VoiceRepair.
@@ -678,9 +681,9 @@ impl<'a> CommandExecutor<'a> {
                 crate::game_logic::audio_dispatch_impl::UnitVoiceSlot::Repair,
             );
             self.game_logic.record_structure_repair_residual_command();
-            CommandResult::Success
+            Ok(CommandResult::Success)
         } else {
-            CommandResult::InvalidCommand
+            Ok(CommandResult::InvalidCommand)
         }
     }
 
@@ -688,7 +691,7 @@ impl<'a> CommandExecutor<'a> {
         &mut self,
         units: &[ObjectId],
         target_id: ObjectId,
-    ) -> CommandResult {
+    ) -> gamelogic::GameLogicResult<CommandResult> {
         // C++ ActionManager::canGetRepairedAt: vehicle → authored
         // KINDOF_REPAIR_PAD, aircraft → authored KINDOF_FS_AIRFIELD.  The
         // host BuildingType is name-derived and cannot authorize this path.
@@ -710,11 +713,11 @@ impl<'a> CommandExecutor<'a> {
                 target.is_kind_of(KindOf::RepairPad),
                 target.is_kind_of(KindOf::FSAirfield),
             ),
-            None => return CommandResult::InvalidTarget,
+            None => return Ok(CommandResult::InvalidTarget),
         };
 
         if !target_alive || target_under_construction || target_sold || target_contained {
-            return CommandResult::InvalidTarget;
+            return Ok(CommandResult::InvalidTarget);
         }
 
         let mut any = false;
@@ -775,8 +778,12 @@ impl<'a> CommandExecutor<'a> {
                         &mut self.ui,
                     );
                 }
-                if self.begin_support_order(unit_id, target_id, target_pos, AIState::SeekingRepair)
-                {
+                if self.begin_support_order(
+                    unit_id,
+                    target_id,
+                    target_pos,
+                    AIState::SeekingRepair,
+                )? {
                     any = true;
                 }
             }
@@ -784,9 +791,9 @@ impl<'a> CommandExecutor<'a> {
         if any {
             // C++ CommandXlat.cpp:384-443 MSG_GET_REPAIRED VoiceMove / VoiceMoveUpgraded.
             self.play_context_move_voice(units);
-            CommandResult::Success
+            Ok(CommandResult::Success)
         } else {
-            CommandResult::InvalidCommand
+            Ok(CommandResult::InvalidCommand)
         }
     }
 
@@ -794,7 +801,7 @@ impl<'a> CommandExecutor<'a> {
         &mut self,
         units: &[ObjectId],
         target_id: ObjectId,
-    ) -> CommandResult {
+    ) -> gamelogic::GameLogicResult<CommandResult> {
         let (
             target_pos,
             target_alive,
@@ -811,7 +818,7 @@ impl<'a> CommandExecutor<'a> {
                 target.contained_by.is_some(),
                 target.is_kind_of(KindOf::HealPad),
             ),
-            None => return CommandResult::InvalidTarget,
+            None => return Ok(CommandResult::InvalidTarget),
         };
 
         if !target_alive
@@ -820,7 +827,7 @@ impl<'a> CommandExecutor<'a> {
             || target_contained
             || !target_is_heal_pad
         {
-            return CommandResult::InvalidTarget;
+            return Ok(CommandResult::InvalidTarget);
         }
 
         let mut any = false;
@@ -841,8 +848,12 @@ impl<'a> CommandExecutor<'a> {
                 })
                 .unwrap_or(false);
             if can {
-                if self.begin_support_order(unit_id, target_id, target_pos, AIState::SeekingHealing)
-                {
+                if self.begin_support_order(
+                    unit_id,
+                    target_id,
+                    target_pos,
+                    AIState::SeekingHealing,
+                )? {
                     any = true;
                 }
             }
@@ -850,9 +861,9 @@ impl<'a> CommandExecutor<'a> {
         if any {
             // C++ CommandXlat.cpp:384-443 MSG_GET_HEALED VoiceMove / VoiceMoveUpgraded.
             self.play_context_move_voice(units);
-            CommandResult::Success
+            Ok(CommandResult::Success)
         } else {
-            CommandResult::InvalidCommand
+            Ok(CommandResult::InvalidCommand)
         }
     }
 
@@ -1422,107 +1433,68 @@ pub fn tick_live_beacon_client_updates(logic: &mut GameLogic) {
 impl GameLogic {
     /// C++ `DozerAIUpdate::newTask(DOZER_TASK_BUILD)` (DozerAIUpdate.cpp:1717, 1948-2008).
     /// Records the BUILD slot so idle `isBuildMostImportant` can resume after a move-away.
-    pub fn dozer_new_task_build(&mut self, dozer_id: ObjectId, build_target: ObjectId) {
-        let frame = self.frame.max(1);
-        // C++ newTask cancels the previous task/docks, not the previous
-        // Object::m_builderID. Preserve that stored builder provenance.
-        // C++ newTask findGoodBuildOrRepairPosition → ACTION dock (cpp:1973-1991).
-        let action_dock = {
-            let dozer_info = self.objects.get(&dozer_id).map(|d| {
-                (
-                    d.get_position(),
-                    d.is_kind_of(KindOf::Aircraft) || d.status.airborne_target,
-                )
-            });
-            let site = self
-                .objects
-                .get(&build_target)
-                .map(|s| (s.get_position(), s.selection_radius));
-            match (dozer_info, site) {
-                (Some((dozer_pos, airborne)), Some((site_pos, site_radius))) => {
-                    Some(self.find_good_build_or_repair_position(
-                        dozer_pos,
-                        site_pos,
-                        site_radius,
-                        airborne,
-                        airborne.then_some(build_target),
-                        Some(dozer_id),
-                    ))
-                }
-                _ => None,
-            }
-        };
-        if let Some(obj) = self.objects.get_mut(&dozer_id) {
-            obj.dozer_task_build_target = Some(build_target);
-            obj.dozer_task_build_order_frame = frame;
-            obj.dozer_dock_action = action_dock;
-            if obj.target_location.is_some() {
-                obj.target_location = None;
-            }
-        }
-        if let Some(st) = self.objects.get_mut(&build_target) {
-            // C++ newTask setBuilder (DozerAIUpdate.cpp:1986).
-            st.builder_id = Some(dozer_id);
-        }
+    pub fn dozer_new_task_build(
+        &mut self,
+        dozer_id: ObjectId,
+        build_target: ObjectId,
+    ) -> gamelogic::GameLogicResult<bool> {
+        self.dozer_request_task_owned(
+            dozer_id,
+            build_target,
+            gamelogic::object::update::ai_update::dozer_ai_update::DozerTask::Build,
+        )
     }
 
     /// C++ `DozerAIUpdate::newTask(DOZER_TASK_REPAIR)` (DozerAIUpdate.cpp:1948-2008).
     /// Parks an in-flight BUILD in its own slot; only the REPAIR slot is replaced.
-    pub fn dozer_new_task_repair(&mut self, dozer_id: ObjectId, repair_target: ObjectId) {
-        let frame = self.frame.max(1);
-        if let Some(obj) = self.objects.get_mut(&dozer_id) {
-            if matches!(obj.ai_state, AIState::Constructing) {
-                if let Some(build_id) = obj.target {
-                    if obj.dozer_task_build_target.is_none() {
-                        obj.dozer_task_build_target = Some(build_id);
-                        // Older than this REPAIR so getMostRecentCommand prefers REPAIR.
-                        obj.dozer_task_build_order_frame = frame.saturating_sub(1).max(1);
-                    }
-                }
-            }
-            obj.dozer_task_repair_target = Some(repair_target);
-            obj.dozer_task_repair_order_frame = frame;
-            if obj.target_location.is_some() {
-                obj.target_location = None;
-            }
-        }
+    pub fn dozer_new_task_repair(
+        &mut self,
+        dozer_id: ObjectId,
+        repair_target: ObjectId,
+    ) -> gamelogic::GameLogicResult<bool> {
+        self.dozer_request_task_owned(
+            dozer_id,
+            repair_target,
+            gamelogic::object::update::ai_update::dozer_ai_update::DozerTask::Repair,
+        )
     }
 
     /// C++ `DozerAIUpdate::internalTaskComplete` for one task slot.
-    pub fn dozer_internal_task_complete(&mut self, dozer_id: ObjectId, repair: bool) {
-        let repair_target = if repair {
-            self.objects
-                .get(&dozer_id)
-                .and_then(|obj| obj.dozer_task_repair_target.or(obj.target))
-        } else {
-            None
+    pub fn dozer_internal_task_complete(&mut self, id: ObjectId, repair: bool) {
+        let Some((target, worker, birth)) = self.objects.get(&id).map(|o| {
+            (
+                o.dozer_tasks.requests[usize::from(repair)].target,
+                o.worker_ai_update,
+                std::sync::Arc::clone(&o.visual_draw_identity_token),
+            )
+        }) else {
+            return;
         };
-        if let Some(obj) = self.objects.get_mut(&dozer_id) {
-            if repair {
-                obj.dozer_task_repair_target = None;
-                obj.dozer_task_repair_order_frame = 0;
-            } else {
-                obj.dozer_task_build_target = None;
-                obj.dozer_task_build_order_frame = 0;
-                obj.dozer_dock_action = None;
+        if let Some(actor) = self.objects.get_mut(&id) {
+            actor.set_actively_constructing(false);
+        }
+        // Worker.cpp830 callback precedes clearing its task/docks. Dozer's
+        // corresponding bridge callback is commented out in the original.
+        if repair && worker {
+            if let Some(target) = target.filter(|t| {
+                self.objects
+                    .get(t)
+                    .is_some_and(|o| o.is_kind_of(KindOf::BridgeTower))
+            }) {
+                if let Some(span) = self.bridge_behavior.span_id_for(target) {
+                    self.remove_bridge_scaffolding(span);
+                }
             }
         }
-        // C++ WorkerAIUpdate.cpp:830. DozerAIUpdate's copy is commented out.
-        let worker = self
+        if let Some(actor) = self
             .objects
-            .get(&dozer_id)
-            .is_some_and(|obj| obj.worker_ai_update);
-        if worker {
-            if let Some(tid) = repair_target {
-                let tower = self
-                    .objects
-                    .get(&tid)
-                    .is_some_and(|target| target.is_kind_of(KindOf::BridgeTower));
-                if tower {
-                    if let Some(sid) = self.bridge_behavior.span_id_for(tid) {
-                        self.remove_bridge_scaffolding(sid);
-                    }
-                }
+            .get_mut(&id)
+            .filter(|o| std::sync::Arc::ptr_eq(&birth, &o.visual_draw_identity_token))
+        {
+            let slot = usize::from(repair);
+            actor.dozer_tasks.requests[slot] = Default::default();
+            for point in &mut actor.dozer_tasks.docks[slot] {
+                point.invalidate();
             }
         }
     }
@@ -1542,235 +1514,28 @@ impl GameLogic {
     /// `cancelTask(getCurrentTask())` while that task is entered.
     /// A parked BUILD stays when REPAIR is current. Idle pending slots
     /// stay so `isBuildMostImportant` can resume. Does not clear `builder_id`.
-    pub fn dozer_cancel_current_task_from_player(&mut self, dozer_id: ObjectId) {
-        let Some(obj) = self.objects.get(&dozer_id) else {
-            return;
-        };
-        if !obj.is_alive() || !(obj.is_kind_of(KindOf::Dozer) || obj.is_kind_of(KindOf::Worker)) {
-            return;
-        }
-        let state = obj.ai_state.clone();
-        let build_id = obj.dozer_task_build_target;
-        let repair_id = obj.dozer_task_repair_target;
-        let target = obj.target;
-        let dock = obj.dozer_dock_action;
-        let pos = obj.get_position();
-        let radius = obj.selection_radius;
-        let path_end = obj.movement.path.last().copied();
-        let path_at_dock = path_end.is_some_and(|end| {
-            dock.is_some_and(|dock| {
-                crate::game_logic::host_repair::dozer_within_action_dock(end, radius, dock)
-            })
-        });
-        let arrived_at_dock = path_end.is_none()
-            && dock.is_some_and(|dock| {
-                crate::game_logic::host_repair::dozer_within_action_dock(pos, radius, dock)
-            });
-        let on_build_walk = matches!(state, AIState::Moving)
-            && build_id.is_some()
-            && ((path_at_dock && (target.is_none() || target == build_id))
-                || (arrived_at_dock && target == build_id));
-        let on_repair_walk = matches!(state, AIState::Moving)
-            && repair_id.is_some()
-            && ((path_at_dock && target == repair_id) || (arrived_at_dock && target == repair_id));
-        let cancel_build =
-            build_id.is_some() && (matches!(state, AIState::Constructing) || on_build_walk);
-        let cancel_repair =
-            repair_id.is_some() && (matches!(state, AIState::Repairing) || on_repair_walk);
-        if !cancel_build && !cancel_repair {
-            return;
-        }
-        if cancel_build {
-            self.dozer_internal_task_complete(dozer_id, false);
-        }
-        if cancel_repair {
-            self.dozer_internal_task_complete(dozer_id, true);
-        }
-        if let Some(obj) = self.objects.get_mut(&dozer_id) {
-            let dropped = if cancel_build { build_id } else { repair_id };
-            if obj.target.is_some() && obj.target == dropped {
-                obj.clear_order_target(&mut crate::game_logic::ObjectAudio::queue(
-                    &mut self.queued_audio_events,
-                ));
-            }
-            obj.set_actively_constructing(false);
-        }
+    pub fn dozer_cancel_current_task_from_player(
+        &mut self,
+        dozer_id: ObjectId,
+    ) -> gamelogic::GameLogicResult<bool> {
+        self.dozer_cancel_entered_task_owned(dozer_id)
     }
 
     fn dozer_most_recent_pending_task(&self, dozer_id: ObjectId) -> Option<(bool, ObjectId)> {
+        use gamelogic::object::update::ai_update::dozer_ai_update::DozerTask;
         let obj = self.objects.get(&dozer_id)?;
-        let mut best: Option<(u32, bool, ObjectId)> = None;
-        if let Some(tid) = obj.dozer_task_build_target {
-            let frame = obj.dozer_task_build_order_frame;
-            if frame > 0 && best.is_none_or(|(f, _, _)| frame > f) {
-                best = Some((frame, false, tid));
-            }
+        let task = obj
+            .dozer_tasks
+            .most_recent(|r| r.target.map(|_| r.order_frame));
+        match task {
+            DozerTask::Build => obj.dozer_tasks.requests[0].target.map(|id| (false, id)),
+            DozerTask::Repair => obj.dozer_tasks.requests[1].target.map(|id| (true, id)),
+            _ => None,
         }
-        if let Some(tid) = obj.dozer_task_repair_target {
-            let frame = obj.dozer_task_repair_order_frame;
-            if frame > 0 && best.is_none_or(|(f, _, _)| frame > f) {
-                best = Some((frame, true, tid));
-            }
-        }
-        best.map(|(_, is_repair, tid)| (is_repair, tid))
     }
 
     /// C++ idle `isBuildMostImportant` / `isRepairMostImportant` (DozerAIUpdate.cpp:1314).
     /// Call only while the dozer is Idle. Returns true if a pending task was resumed.
-    pub fn dozer_idle_resume_pending_build(&mut self, dozer_id: ObjectId) -> bool {
-        if self.worker_is_acting_as_supply_truck(dozer_id) {
-            return false;
-        }
-        let Some(obj) = self.objects.get(&dozer_id) else {
-            return false;
-        };
-        if !matches!(obj.ai_state, AIState::Idle) {
-            return false;
-        }
-        if !obj.is_alive() || !obj.can_construct() {
-            return false;
-        }
-        // Drop dead / finished slots so getMostRecentCommand matches C++.
-        let build_id = obj.dozer_task_build_target;
-        let repair_id = obj.dozer_task_repair_target;
-        if let Some(tid) = build_id {
-            let keep = self.objects.get(&tid).is_some_and(|t| {
-                t.is_alive() && t.is_kind_of(KindOf::Structure) && t.status.under_construction
-            });
-            if !keep {
-                self.dozer_internal_task_complete(dozer_id, false);
-            }
-        }
-        if let Some(tid) = repair_id {
-            let keep = self.objects.get(&tid).is_some_and(|t| {
-                t.is_alive()
-                    && !t.status.effectively_dead
-                    && t.is_kind_of(KindOf::Structure)
-                    && !t.is_kind_of(KindOf::Bridge)
-                    && !t.is_kind_of(KindOf::BridgeTower)
-                    && !t.is_rebuild_hole
-                    && !t.status.under_construction
-                    && t.health.current < t.health.maximum
-            });
-            if !keep {
-                self.dozer_internal_task_complete(dozer_id, true);
-            }
-        }
-        let Some((is_repair, tid)) = self.dozer_most_recent_pending_task(dozer_id) else {
-            return false;
-        };
-        // C++ idleConditions: isBuildMostImportant → BUILD, isRepairMostImportant → REPAIR.
-        let (dozer_pos, st_pos, st_radius, airborne, stored_dock) = {
-            let d = self.objects.get(&dozer_id);
-            let dpos = d.map(|d| d.get_position()).unwrap_or(glam::Vec3::ZERO);
-            let airborne =
-                d.is_some_and(|d| d.is_kind_of(KindOf::Aircraft) || d.status.airborne_target);
-            let stored = d.and_then(|d| d.dozer_dock_action);
-            let (spos, srad) = self
-                .objects
-                .get(&tid)
-                .map(|s| (s.get_position(), s.selection_radius))
-                .unwrap_or((glam::Vec3::ZERO, 0.0));
-            (dpos, spos, srad, airborne, stored)
-        };
-        if is_repair {
-            let approach = self.find_good_build_or_repair_position(
-                dozer_pos,
-                st_pos,
-                st_radius,
-                airborne,
-                airborne.then_some(tid),
-                Some(dozer_id),
-            );
-            let dozer_radius = self
-                .objects
-                .get(&dozer_id)
-                .map(|dozer| dozer.selection_radius)
-                .unwrap_or(0.0);
-            let at_dock = crate::game_logic::host_repair::dozer_within_action_dock(
-                dozer_pos,
-                dozer_radius,
-                approach,
-            );
-            if let Some(dozer) = self.objects.get_mut(&dozer_id) {
-                dozer.target = Some(tid);
-                dozer.idle_since_frame = 0;
-                if at_dock {
-                    dozer.movement.path.clear();
-                    dozer.movement.current_path_index = 0;
-                    dozer.movement.target_position = None;
-                    dozer.waiting_for_path = false;
-                    dozer.set_status_moving(false);
-                    dozer.set_locomotor_goal_none();
-                }
-            }
-            self.set_ai_state_decision_aware(dozer_id, AIState::Repairing);
-            if !at_dock {
-                self.path_approach_with_state_ignoring(
-                    dozer_id,
-                    approach,
-                    AIState::Repairing,
-                    Some(tid),
-                );
-            }
-            return true;
-        }
-        // C++ idleConditions → DOZER_PRIMARY_BUILD. This is our parked slot,
-        // not a player resume (ActionManager::canResumeConstructionOf).
-        let snapped = stored_dock.unwrap_or_else(|| {
-            self.find_good_build_or_repair_position(
-                dozer_pos,
-                st_pos,
-                st_radius,
-                airborne,
-                airborne.then_some(tid),
-                Some(dozer_id),
-            )
-        });
-        if let Some(dozer) = self.objects.get_mut(&dozer_id) {
-            dozer.target = Some(tid);
-            dozer.idle_since_frame = 0;
-            if dozer.dozer_dock_action.is_none() {
-                dozer.dozer_dock_action = Some(snapped);
-            }
-            if crate::game_logic::host_repair::dozer_within_action_dock(
-                dozer_pos,
-                dozer.selection_radius,
-                snapped,
-            ) {
-                dozer.movement.path.clear();
-                dozer.movement.current_path_index = 0;
-                dozer.movement.target_position = None;
-                dozer.waiting_for_path = false;
-                dozer.set_status_moving(false);
-                dozer.set_locomotor_goal_none();
-            }
-        }
-        self.set_ai_state_decision_aware(dozer_id, AIState::Constructing);
-
-        let dozer_radius = self
-            .objects
-            .get(&dozer_id)
-            .map(|dozer| dozer.selection_radius)
-            .unwrap_or(0.0);
-        if !crate::game_logic::host_repair::dozer_within_action_dock(
-            dozer_pos,
-            dozer_radius,
-            snapped,
-        ) {
-            self.path_approach_with_state_ignoring(
-                dozer_id,
-                snapped,
-                AIState::Constructing,
-                Some(tid),
-            );
-        }
-        if let Some(st) = self.objects.get_mut(&tid) {
-            st.set_under_construction_model_conditions(true);
-            st.builder_id = Some(dozer_id);
-        }
-        true
-    }
 
     /// C++ `Player::update` (`Player.cpp:708-724`): once per second, if the
     /// local client Auto-Retaliate flag differs from the logical flag, post
@@ -1939,4 +1704,148 @@ pub fn take_leftover_dispatch_commands_from_common_stream(
         }
     }
     commands
+}
+
+impl GameLogic {
+    pub(crate) fn dozer_request_task_owned(
+        &mut self,
+        id: ObjectId,
+        target: ObjectId,
+        task: gamelogic::object::update::ai_update::dozer_ai_update::DozerTask,
+    ) -> gamelogic::GameLogicResult<bool> {
+        use gamelogic::object::update::ai_update::dozer_ai_update::DozerTask;
+        if task == DozerTask::Invalid
+            || self.objects.get(&id).is_none()
+            || self.objects.get(&target).is_none()
+        {
+            return Ok(false);
+        }
+        if task == DozerTask::Fortify {
+            if let Some(actor) = self.objects.get_mut(&id) {
+                actor.dozer_tasks.requests[2].target = Some(target);
+                actor.dozer_tasks.requests[2].order_frame = self.frame;
+            }
+            self.dozer_primary_reset_owned(id);
+            return Ok(true);
+        }
+        let repair = task == DozerTask::Repair;
+        if self.objects.get(&target).is_none() {
+            return Ok(false);
+        }
+        let slot = usize::from(repair);
+        if self
+            .objects
+            .get(&id)
+            .is_some_and(|o| o.dozer_tasks.requests[slot].target.is_some())
+        {
+            use gamelogic::object::update::ai_update::dozer_ai_update::DozerTask;
+            let _ = self.dozer_cancel_task_owned(
+                id,
+                if repair {
+                    DozerTask::Repair
+                } else {
+                    DozerTask::Build
+                },
+            )?;
+        }
+        let Some((position, airborne)) = self.objects.get(&id).map(|o| {
+            (
+                o.get_position(),
+                o.is_kind_of(KindOf::Aircraft) || o.status.airborne_target,
+            )
+        }) else {
+            return Ok(false);
+        };
+        let Some((target_position, radius)) = self
+            .objects
+            .get(&target)
+            .map(|o| (o.get_position(), o.geometry_info().major_radius))
+        else {
+            return Ok(false);
+        };
+        let dock = self.find_good_build_or_repair_position(
+            position,
+            target_position,
+            radius,
+            airborne,
+            airborne.then_some(target),
+            Some(id),
+        );
+        // CPP1973-1998: START and ACTION share the selected point; END is
+        // five pathfind cells along its horizontal direction away from target.
+        let offset = glam::Vec3::new(dock.x - target_position.x, 0.0, dock.z - target_position.z)
+            .normalize_or_zero();
+        let worker = self.objects.get(&id).is_some_and(|o| o.worker_ai_update);
+        let end = if worker {
+            dock
+        } else {
+            dock + offset * (5.0 * crate::game_logic::host_repair::PATHFIND_CELL_SIZE_F)
+        };
+        let slot = usize::from(repair);
+        let frame = self.frame;
+        if let Some(o) = self.objects.get_mut(&id) {
+            o.dozer_tasks.requests[slot].target = Some(target);
+            o.dozer_tasks.requests[slot].order_frame = frame;
+            o.dozer_tasks.docks[slot] = [dock, dock, end].map(gamelogic::object::update::ai_update::dozer_ai_update::DozerDockPointInfo::from_position);
+            o.target_location = None;
+        }
+        if !repair {
+            if let Some(site) = self.objects.get_mut(&target) {
+                site.builder_id = Some(id);
+            }
+        }
+        self.dozer_primary_reset_owned(id);
+        Ok(true)
+    }
+    pub(crate) fn dozer_cancel_entered_task_owned(
+        &mut self,
+        dozer_id: ObjectId,
+    ) -> gamelogic::GameLogicResult<bool> {
+        use gamelogic::object::update::ai_update::dozer_ai_update::DozerTask;
+        let Some(task) = self.objects.get(&dozer_id).map(|o| o.dozer_tasks.current) else {
+            return Ok(false);
+        };
+        if task == DozerTask::Invalid {
+            return Ok(false);
+        }
+        self.dozer_cancel_task_owned(dozer_id, task)
+    }
+    pub(crate) fn dozer_cancel_task_owned(
+        &mut self,
+        id: ObjectId,
+        task: gamelogic::object::update::ai_update::dozer_ai_update::DozerTask,
+    ) -> gamelogic::GameLogicResult<bool> {
+        use gamelogic::object::update::ai_update::dozer_ai_update::DozerTask;
+        match task {
+            DozerTask::Build => {
+                let _ = self.dozer_internal_task_complete(id, false);
+            }
+            DozerTask::Repair => {
+                let _ = self.dozer_internal_task_complete(id, true);
+            }
+            DozerTask::Fortify => {
+                let Some(actor) = self.objects.get_mut(&id) else {
+                    return Ok(false);
+                };
+                actor.dozer_tasks.requests[2] = Default::default();
+                for point in &mut actor.dozer_tasks.docks[2] {
+                    point.invalidate();
+                }
+            }
+            DozerTask::Invalid => return Ok(false),
+        }
+        if self.objects.get(&id).is_some_and(|o| o.worker_ai_update) {
+            if let Some(position) = self.objects.get(&id).map(|o| o.get_position()) {
+                if let Some(actor) = self.objects.get_mut(&id) {
+                    actor.set_actively_constructing(false);
+                    actor.last_command_source = crate::game_logic::HUNT_CMD_FROM_AI;
+                }
+                self.path_approach_with_state_ignoring(id, position, AIState::Moving, None);
+            }
+        } else {
+            let _ = self.dozer_inherited_ai_idle_owned(id)?;
+        }
+        self.dozer_primary_reset_owned(id);
+        Ok(true)
+    }
 }

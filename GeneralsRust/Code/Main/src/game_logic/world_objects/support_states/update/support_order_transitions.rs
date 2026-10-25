@@ -10,17 +10,21 @@ impl GameLogic {
         team: Team,
         owner_player_id: Option<u32>,
         position: glam::Vec3,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         let Some(center_id) =
             self.preferred_or_allied_supply_center(object_id, team, owner_player_id, position)
         else {
-            return;
+            return Ok(());
         };
-        self.set_ai_state_decision_aware(object_id, AIState::ReturningResources);
-        let _ = self.try_claim_dock(center_id, object_id);
+        self.set_ai_state_decision_aware_for_ai(object_id, AIState::ReturningResources)?;
+        let _claimed = self.try_claim_dock(center_id, object_id)?;
+        Ok(())
     }
 
-    pub(super) fn release_dozer_repair_order(&mut self, object_id: ObjectId) {
+    pub(super) fn release_dozer_repair_order(
+        &mut self,
+        object_id: ObjectId,
+    ) -> gamelogic::GameLogicResult<()> {
         if let Some(obj) = self.objects.get_mut(&object_id) {
             obj.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
                 &mut self.queued_audio_events,
@@ -33,10 +37,10 @@ impl GameLogic {
             obj.set_status_attacking(false);
             obj.set_actively_constructing(false);
         }
-        self.set_ai_state_decision_aware(object_id, AIState::Idle);
+        self.set_ai_state_decision_aware_for_ai(object_id, AIState::Idle)?;
         {}
         self.dozer_internal_task_complete(object_id, true);
-        let _ = self.dozer_idle_resume_pending_build(object_id);
+        Ok(())
     }
 
     pub(super) fn release_rejected_special(&mut self, object_id: ObjectId) {
@@ -49,7 +53,7 @@ impl GameLogic {
             obj.clear_target(&mut crate::game_logic::ObjectAudio::queue(
                 &mut self.queued_audio_events,
             ));
-            if obj.ai_state != AIState::Idle {
+            if obj.ai_state() != AIState::Idle {
                 obj.set_ai_state(
                     AIState::Idle,
                     &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),

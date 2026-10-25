@@ -418,7 +418,7 @@ impl PathfindingSystem {
                     (gp.x - c.x).abs() <= r && (gp.y - c.y).abs() <= r
                 });
                 let unit_idle = occupant
-                    .is_some_and(|o| matches!(o.ai_state, crate::game_logic::AIState::Idle));
+                    .is_some_and(|o| matches!(o.ai_state(), crate::game_logic::AIState::Idle));
                 if unit_idle {
                     blocked_by_allies = false;
                 }

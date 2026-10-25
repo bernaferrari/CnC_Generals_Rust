@@ -264,7 +264,13 @@ impl CnCGameEngine {
                 tooltips_disabled,
                 cursor_mouse: cursor_mouse.as_ref(),
             };
-            let result = game_client::gui::window_manager::dispatch_os_key_to_window_manager_with_control_bar(vk, state, &mut context);
+            let receiving_window_manager = self.game_client.window_manager_owner();
+            let result = game_client::gui::window_manager::dispatch_os_key_to_window_manager_with_control_bar_for_owner(
+                &receiving_window_manager,
+                vk,
+                state,
+                &mut context,
+            );
             drop(context);
             drop(replay_version);
             if let Some(step) = replay_operation.take() {
@@ -459,14 +465,15 @@ impl CnCGameEngine {
             tooltips_disabled,
             cursor_mouse: cursor_mouse.as_ref(),
         };
-        let result =
-            game_client::gui::window_manager::dispatch_os_mouse_to_window_manager_with_control_bar(
-                msg,
-                x,
-                y,
-                facts,
-                &mut context,
-            );
+        let receiving_window_manager = self.game_client.window_manager_owner();
+        let result = game_client::gui::window_manager::dispatch_os_mouse_to_window_manager_with_control_bar_for_owner(
+            &receiving_window_manager,
+            msg,
+            x,
+            y,
+            facts,
+            &mut context,
+        );
         drop(context);
         drop(replay_version);
         if let Some(step) = replay_operation.take() {

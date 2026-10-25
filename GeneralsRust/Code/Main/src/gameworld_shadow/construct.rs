@@ -177,6 +177,11 @@ impl GameWorldShadow {
             A::FacingPosition => 22,
             A::Panic => 23,
             A::Exiting => 24,
+            A::Uninitialized => 25,
+            A::Hunting => 26,
+            A::JetReturningForLanding => 27,
+            A::JetReturnToDeadAirfield => 28,
+            A::JetCirclingDeadAirfield => 29,
         }
     }
 
@@ -207,6 +212,11 @@ impl GameWorldShadow {
             22 => A::FacingPosition,
             23 => A::Panic,
             24 => A::Exiting,
+            25 => A::Uninitialized,
+            26 => A::Hunting,
+            27 => A::JetReturningForLanding,
+            28 => A::JetReturnToDeadAirfield,
+            29 => A::JetCirclingDeadAirfield,
             _ => A::Idle,
         }
     }

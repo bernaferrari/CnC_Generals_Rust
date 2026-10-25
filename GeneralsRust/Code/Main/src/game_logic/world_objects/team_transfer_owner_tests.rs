@@ -25,7 +25,7 @@ fn same_faction_player_transfer_moves_roster_before_capture_once_and_isolates_pe
     );
     assert!(game.transfer_object_to_player(object, 1));
     assert_eq!(game.objects[&object].team_instance_id, Some(destination));
-    assert_eq!(game.objects[&object].ai_state, AIState::Idle);
+    assert_eq!(game.objects[&object].ai_state(), AIState::Idle);
     assert_eq!(game.get_player(1).unwrap().statistics.objects_captured(), 0);
     let factory = game.team_factory.lock().unwrap();
     assert!(
@@ -61,7 +61,7 @@ fn exact_team_no_op_keeps_order_orders_and_capture_score() {
         &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
     );
     assert!(game.set_host_object_team(object, identity));
-    assert_eq!(game.objects[&object].ai_state, AIState::Moving);
+    assert_eq!(game.objects[&object].ai_state(), AIState::Moving);
     assert_eq!(game.get_player(0).unwrap().statistics.objects_captured(), 0);
     assert!(
         !game.defect_host_object(object, identity, 300),
@@ -173,7 +173,7 @@ fn admitted_ai_presence_is_local_and_no_ai_capture_preserves_non_ai_orders() {
     );
     assert!(game.transfer_object_to_player(object, 1));
     assert_eq!(
-        game.objects[&object].ai_state,
+        game.objects[&object].ai_state(),
         AIState::Moving,
         "CPP onCapture idles only an admitted AI interface"
     );

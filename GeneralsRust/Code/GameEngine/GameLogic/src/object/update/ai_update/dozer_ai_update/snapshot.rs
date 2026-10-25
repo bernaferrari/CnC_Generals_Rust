@@ -99,9 +99,36 @@ fn primary(xfer: &mut dyn Xfer, value: &mut PrimaryMachine) -> Result<(), String
     }
     Ok(())
 }
+/// The receiving host uses the same original primary Xfer payload as native
+/// DozerAIUpdate. Decode is detached and never calls state entry or world APIs.
+impl PrimaryMachine {
+    pub fn save_original_control_bytes(&self) -> Result<Vec<u8>, String> {
+        use game_engine::common::system::xfer_save::XferSave;
+        let mut bytes = Vec::new();
+        let mut value = self.clone();
+        {
+            let mut xfer = XferSave::new(std::io::Cursor::new(&mut bytes), 1);
+            primary(&mut xfer, &mut value)?;
+        }
+        Ok(bytes)
+    }
+    pub fn load_original_control_bytes(bytes: &[u8]) -> Result<Self, String> {
+        use game_engine::common::system::xfer_load::XferLoad;
+        let mut cursor = std::io::Cursor::new(bytes);
+        let mut value = Self::new();
+        {
+            let mut xfer = XferLoad::new(&mut cursor, 1);
+            primary(&mut xfer, &mut value)?;
+        }
+        if cursor.position() != bytes.len() as u64 {
+            return Err("trailing saved Dozer primary control bytes".into());
+        }
+        Ok(value)
+    }
+}
 impl DozerAIUpdate {
     pub(crate) fn validate_owned_snapshot(&self) -> Result<(), String> {
-        if !self.primary.control.initialized {
+        if !self.task_owner.primary.control.initialized {
             return Err(
                 "Dozer snapshot requires initialized primary state-machine continuation".into(),
             );
@@ -109,7 +136,7 @@ impl DozerAIUpdate {
         if self.is_task_pending(DozerTask::Build)
             || self.is_task_pending(DozerTask::Repair)
             || matches!(
-                self.primary.state,
+                self.task_owner.primary.state,
                 PrimaryState::Build | PrimaryState::Repair
             )
             || self.dozer_task.is_some()
@@ -124,18 +151,18 @@ impl DozerAIUpdate {
         if count != DOZER_NUM_TASKS as Int {
             return Err("invalid saved Dozer task count".into());
         }
-        for entry in &mut self.tasks {
+        for entry in &mut self.task_owner.requests {
             io(xfer.xfer_object_id(&mut entry.target_id))?;
             io(xfer.xfer_unsigned_int(&mut entry.order_frame))?;
         }
-        primary(xfer, &mut self.primary)?;
-        task(xfer, &mut self.current_task)?;
+        primary(xfer, &mut self.task_owner.primary)?;
+        task(xfer, &mut self.task_owner.current)?;
         let mut dock_count = DOZER_NUM_DOCK_POINTS as Int;
         io(xfer.xfer_int(&mut dock_count))?;
         if dock_count != DOZER_NUM_DOCK_POINTS as Int {
             return Err("invalid saved Dozer dock count".into());
         }
-        for points in &mut self.dock_points {
+        for points in &mut self.task_owner.docks {
             for point in points {
                 io(xfer.xfer_bool(&mut point.valid))?;
                 io(xfer.xfer_real(&mut point.location.x))?;
@@ -143,9 +170,9 @@ impl DozerAIUpdate {
                 io(xfer.xfer_real(&mut point.location.z))?;
             }
         }
-        let mut sub = self.build_sub_task as Int;
+        let mut sub = self.task_owner.build_sub_task as Int;
         io(xfer.xfer_int(&mut sub))?;
-        self.build_sub_task = match sub {
+        self.task_owner.build_sub_task = match sub {
             0 => DozerBuildSubTask::SelectBuildDockLocation,
             1 => DozerBuildSubTask::MovingToBuildDockLocation,
             2 => DozerBuildSubTask::DoBuildAtDock,
@@ -154,3 +181,6 @@ impl DozerAIUpdate {
         self.validate_owned_snapshot()
     }
 }
+
+#[cfg(test)]
+mod original_xfer_oracle_tests;

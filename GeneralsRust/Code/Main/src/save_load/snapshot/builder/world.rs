@@ -150,9 +150,6 @@ impl SnapshotBuilder {
                 super::super::production_door_persist::append_to_lifecycle_tail(
                     &mut bytes, game_logic,
                 );
-                super::super::dozer_repair_persist::append_to_lifecycle_tail(
-                    &mut bytes, game_logic,
-                );
                 super::super::rebuild_hole_persist::append_to_lifecycle_tail(
                     &mut bytes, game_logic,
                 );
@@ -498,6 +495,10 @@ impl SnapshotBuilder {
             &body_kinds,
         )?;
         let lifecycle_tail = native_die.legacy_tail.as_ref();
+        super::super::object_xfer_persist::validate_base_ai_projection_before_restore(
+            lifecycle_tail,
+            snapshot,
+        )?;
         super::super::subdual_persist::preflight_from_lifecycle_tail(lifecycle_tail, snapshot)?;
 
         let body_rules_candidate =
@@ -764,7 +765,6 @@ impl SnapshotBuilder {
             lifecycle_tail,
             game_logic,
         )?;
-        super::super::dozer_repair_persist::apply_from_lifecycle_tail(lifecycle_tail, game_logic)?;
         super::super::rebuild_hole_persist::apply_from_lifecycle_tail(lifecycle_tail, game_logic)?;
         super::super::weapon_set_persist::apply_from_lifecycle_tail(lifecycle_tail, game_logic)?;
         super::super::ai_team_persist::apply_prepared(
@@ -845,7 +845,6 @@ impl SnapshotBuilder {
         super::super::object_xfer_persist::apply_from_lifecycle_tail(lifecycle_tail, game_logic)?;
         // OXOB's active Guard deadline must agree with the immutable nested
         // continuation; neither record may silently repair a conflicting save.
-        super::super::guard_state_persist::validate_after_lifecycle_tail(snapshot, game_logic)?;
         super::super::named_unit_history_persist::apply_from_lifecycle_tail(
             lifecycle_tail,
             game_logic,
@@ -901,6 +900,33 @@ impl SnapshotBuilder {
         // are transferred, before the first script/construction observer.
         game_logic.restore_player_power();
         game_logic.restore_owned_bridge_bindings();
+
+        for (id, saved) in &snapshot.objects {
+            let object = game_logic.host_object_mut(*id).ok_or_else(|| {
+                SaveLoadError::Corrupted("missing admitted BaseAI receiver".into())
+            })?;
+            let owner = match saved.modules.get("ReceivingBaseAI") {
+                Some(ModuleSnapshot::BaseAi(owner)) => owner,
+                _ => {
+                    return Err(SaveLoadError::Corrupted(
+                        "missing admitted BaseAI capsule".into(),
+                    ));
+                }
+            };
+            owner.apply_after_admission(object)?;
+            for module in saved.modules.values() {
+                if let ModuleSnapshot::AIUpdate(old) = module {
+                    super::super::attack_state_persist::restore(old, object)?;
+                    super::super::face_state_persist::restore(old, object)?;
+                    super::super::guard_state_persist::restore(old, object)?;
+                    super::super::hunt_state_persist::restore(old, object)?;
+                }
+            }
+        }
+        super::super::object_xfer_persist::validate_base_ai_projection_after_restore(
+            lifecycle_tail,
+            game_logic,
+        )?;
 
         // Recreating objects may consume random values; install the saved
         // continuation only after every restore operation succeeds. This is

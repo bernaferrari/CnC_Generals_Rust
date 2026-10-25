@@ -161,7 +161,9 @@ fn bound_empty_native_definition_does_not_install_name_peel_timers() {
     let object = world.host_object(id).unwrap();
     assert!(object.native_lifecycle.as_ref().unwrap().states.is_empty());
     drive(&mut world, id, 100_000);
-    world.update_ai(&[id], 1.0 / 30.0);
+    world
+        .update_ai(&[id], 1.0 / 30.0)
+        .expect("receiving AI operation succeeds");
     let object = world.host_object(id).unwrap();
     assert!(object.lifetime_update.is_none());
     assert!(object.height_die.is_none());
@@ -599,10 +601,14 @@ fn authored_timer_runs_through_real_ai_without_a_name_profile() {
         Vec3::ZERO,
     );
     world.frame = 31;
-    world.update_ai(&[id], 1.0 / 30.0);
+    world
+        .update_ai(&[id], 1.0 / 30.0)
+        .expect("receiving AI operation succeeds");
     assert_eq!(world.host_object(id).unwrap().health.current, 100.0);
     world.frame = 32;
-    world.update_ai(&[id], 1.0 / 30.0);
+    world
+        .update_ai(&[id], 1.0 / 30.0)
+        .expect("receiving AI operation succeeds");
     assert!(world.host_object(id).unwrap().status.on_die_started);
     assert_eq!(world.host_object(id).unwrap().health.current, 0.0);
 }

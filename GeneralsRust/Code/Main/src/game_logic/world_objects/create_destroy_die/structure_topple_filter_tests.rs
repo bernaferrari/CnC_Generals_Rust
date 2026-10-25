@@ -60,7 +60,7 @@ fn owned_die_mux_rejection_precedes_topple_selection_ai_and_effect_mutation() {
                 let object = owner.host_object_mut(id).unwrap();
                 object.selected = true;
                 object.status.selected = true;
-                object.ai_state = AIState::Moving;
+                object.restore_ai_state(AIState::Moving);
                 object.status.hijacked = hijacked;
                 object.object_status_bits = if raw_hijacked {
                     crate::game_logic::host_status_bits_upgrade::object_status_mask_from_names(&[
@@ -73,7 +73,7 @@ fn owned_die_mux_rejection_precedes_topple_selection_ai_and_effect_mutation() {
                 assert!(!owner.try_begin_structure_topple_instead_of_destroy(id));
                 let object = owner.host_object(id).unwrap();
                 assert!(object.selected && object.status.selected);
-                assert_eq!(object.ai_state, AIState::Moving);
+                assert_eq!(object.ai_state(), AIState::Moving);
                 assert!(object.structure_topple_data.is_none());
                 assert_eq!(object.get_transform_matrix(), before);
                 assert_eq!(effects.try_iter().count(), 0, "{filter}");
@@ -89,11 +89,11 @@ fn owned_die_mux_rejection_precedes_topple_selection_ai_and_effect_mutation() {
             object.experience.level = VeterancyLevel::Veteran;
             object.selected = true;
             object.status.selected = true;
-            object.ai_state = AIState::Moving;
+            object.restore_ai_state(AIState::Moving);
             assert!(admitted.try_begin_structure_topple_instead_of_destroy(id));
             let object = admitted.host_object(id).unwrap();
             assert!(!object.selected && !object.status.selected);
-            assert_eq!(object.ai_state, AIState::Idle);
+            assert_eq!(object.ai_state(), AIState::Idle);
             assert!(object.structure_topple_data.is_some());
             assert_eq!(effects.try_iter().count(), 1);
         },

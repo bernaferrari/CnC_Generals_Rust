@@ -36,7 +36,7 @@ impl TraceObject {
             health: object.health.current,
             max_health: object.max_health,
             status_bits: object_status_bits(object),
-            ai_state: summarize_ai_state(&object.ai_state),
+            ai_state: summarize_ai_state(&object.ai_state()),
             target: object.target,
             target_location: object.target_location,
             construction_percent: object.construction_percent,

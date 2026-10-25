@@ -417,7 +417,7 @@ fn base_defense_residual_gattling_auto_fires_without_attack_object() {
         if let Some(w) = g.weapon.as_mut() {
             w.last_fire_time = -10.0;
         }
-        assert_eq!(g.ai_state, AIState::Idle);
+        assert_eq!(g.ai_state(), AIState::Idle);
         assert!(g.target.is_none());
     }
 
@@ -997,13 +997,9 @@ fn point_defense_laser_residual_skips_non_carrier() {
 #[test]
 fn neutron_shell_residual_upgrade_and_blast() {
     use crate::command_system::{CommandType, GameCommand};
-    use crate::game_logic::host_neutron_shell::{
-        UPGRADE_CHINA_NEUTRON_SHELLS, is_nuke_cannon_template,
-    };
+    use crate::game_logic::host_neutron_shell::{UPGRADE_CHINA_NEUTRON_SHELLS, is_nuke_cannon_template};
     use crate::game_logic::host_upgrades::HostUpgradeKind;
-    use crate::game_logic::weapon_bootstrap::{
-        NUKE_CANNON_PRIMARY_WEAPON, ensure_host_weapon_store,
-    };
+    use crate::game_logic::weapon_bootstrap::{NUKE_CANNON_PRIMARY_WEAPON, ensure_host_weapon_store};
 
     ensure_host_weapon_store();
 
@@ -1292,9 +1288,7 @@ fn bunker_buster_residual_kills_garrison_and_damages_bunker() {
         UPGRADE_AMERICA_BUNKER_BUSTERS, is_bunker_buster_carrier,
     };
     use crate::game_logic::host_upgrades::HostUpgradeKind;
-    use crate::game_logic::weapon_bootstrap::{
-        STEALTH_JET_MISSILE_WEAPON, ensure_host_weapon_store,
-    };
+    use crate::game_logic::weapon_bootstrap::{STEALTH_JET_MISSILE_WEAPON, ensure_host_weapon_store};
 
     ensure_host_weapon_store();
 
@@ -1525,9 +1519,7 @@ fn bunker_buster_residual_kills_garrison_and_damages_bunker() {
 
 #[test]
 fn bunker_buster_residual_without_upgrade_does_not_bust() {
-    use crate::game_logic::weapon_bootstrap::{
-        STEALTH_JET_MISSILE_WEAPON, ensure_host_weapon_store,
-    };
+    use crate::game_logic::weapon_bootstrap::{STEALTH_JET_MISSILE_WEAPON, ensure_host_weapon_store};
 
     ensure_host_weapon_store();
 

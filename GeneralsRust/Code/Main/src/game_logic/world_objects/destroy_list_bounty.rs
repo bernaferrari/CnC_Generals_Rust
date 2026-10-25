@@ -107,7 +107,7 @@ impl GameLogic {
 
             // C++ Object::onDie RECONSTRUCTING residual (lost rebuild → hole).
             let handled_recon =
-                self.handle_reconstructing_death_with_effects(event.id, presentation_effects);
+                self.handle_reconstructing_death_with_effects(event.id, presentation_effects)?;
             // C++ RebuildHoleExposeDie residual. Primary peel is death-start
             // in mark_object_for_destruction; this is the snapshot fallback.
             // maybe_spawn_rebuild_hole is idempotent via rebuild_spawner_id.

@@ -14,7 +14,7 @@ impl GameLogic {
         killer: Option<Team>,
         input: OnDieInput,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         self.run_authored_die_modules_with_effects(
             id,
             killer,
@@ -31,7 +31,7 @@ impl GameLogic {
         input: OnDieInput,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         // Immutable receiving declarations, operation-local owned loan. There
         // is no per-object second order or active-world content discovery.
         let declarations = self
@@ -121,10 +121,10 @@ impl GameLogic {
                 // MinefieldBehavior::onDie requests direct deletion only;
                 // its damage callback already performed any virtual blasts.
                 NativeDieKind::Minefield => {
-                    self.destroy_object_with_effects(id, presentation_effects);
+                    self.destroy_object_with_effects(id, presentation_effects)?;
                 }
                 NativeDieKind::Destroy => {
-                    self.request_object_destruction_with_effects(id, killer, presentation_effects);
+                    self.request_object_destruction_with_effects(id, killer, presentation_effects)?;
                 }
                 NativeDieKind::Instant {
                     config: ini,
@@ -186,27 +186,31 @@ impl GameLogic {
                             presentation_effects,
                         );
                     }
-                    self.request_object_destruction_with_effects(id, killer, presentation_effects);
+                    self.request_object_destruction_with_effects(id, killer, presentation_effects)?;
                 }
                 NativeDieKind::Slow { .. } => {
                     if jet_ground {
                         let deletion_queued =
                             self.objects_to_destroy.iter().any(|event| event.id == id);
-                        if let Some(object) = self.objects.get_mut(&id) {
-                            if let NativeDieKind::Slow {
+                        let start = self.objects.get_mut(&id).and_then(|object| {
+                            let NativeDieKind::Slow {
                                 family: NativeSlowFamily::Jet(fx),
                                 ..
                             } = &declaration.kind
-                            {
-                                let _ = object.begin_jet_slow_death_with_fx(
-                                    fx.clone(),
-                                    true,
-                                    deletion_queued,
-                                    &mut crate::game_logic::ObjectAudio::queue(
-                                        &mut self.queued_audio_events,
-                                    ),
-                                );
-                            }
+                            else {
+                                return None;
+                            };
+                            Some(object.begin_jet_slow_death_with_fx(
+                                fx.clone(),
+                                true,
+                                deletion_queued,
+                                &mut crate::game_logic::ObjectAudio::queue(
+                                    &mut self.queued_audio_events,
+                                ),
+                            ))
+                        });
+                        if let Some(start) = start {
+                            self.commit_slow_death_idle_owned(id, start, presentation_effects)?;
                         }
                         let fx = self
                             .objects
@@ -226,7 +230,7 @@ impl GameLogic {
                             id,
                             killer,
                             presentation_effects,
-                        );
+                        )?;
                         continue;
                     }
                     if !self.admit_authored_death_ai(id) {
@@ -259,8 +263,10 @@ impl GameLogic {
                             if roll < probability {
                                 let deletion_queued =
                                     self.objects_to_destroy.iter().any(|event| event.id == id);
+                                let mut slow_death_start =
+                                    crate::game_logic::object::SlowDeathStart::default();
                                 if let Some(object) = self.objects.get_mut(&id) {
-                                    match family {
+                                    slow_death_start = match family {
                                         NativeSlowFamily::Jet(fx) => {
                                             // Weighted dispatch calls beginSlowDeath,
                                             // not Jet's onDie ground override.
@@ -271,17 +277,16 @@ impl GameLogic {
                                                 &mut crate::game_logic::ObjectAudio::queue(
                                                     &mut self.queued_audio_events,
                                                 ),
-                                            );
+                                            )
                                         }
-                                        NativeSlowFamily::Helicopter(fx) => {
-                                            object.begin_helicopter_slow_death_with_fx(
+                                        NativeSlowFamily::Helicopter(fx) => object
+                                            .begin_helicopter_slow_death_with_fx(
                                                 fx,
                                                 deletion_queued,
                                                 &mut crate::game_logic::ObjectAudio::queue(
                                                     &mut self.queued_audio_events,
                                                 ),
-                                            );
-                                        }
+                                            ),
                                         NativeSlowFamily::Ordinary => {
                                             object.begin_slow_death_from_ini_with_removal(
                                                 self.frame,
@@ -291,9 +296,15 @@ impl GameLogic {
                                                     &mut self.queued_audio_events,
                                                 ),
                                             );
+                                            crate::game_logic::object::SlowDeathStart::default()
                                         }
                                     };
                                 }
+                                self.commit_slow_death_idle_owned(
+                                    id,
+                                    slow_death_start,
+                                    presentation_effects,
+                                )?;
                                 // INITIAL phase is observed at this exact
                                 // authored slot before later Die modules.
                                 let fx = self
@@ -370,7 +381,7 @@ impl GameLogic {
                                 id,
                                 redirected,
                                 presentation_effects,
-                            );
+                            )?;
                         }
                     }
                     self.complete_installed_containment_death_with_effects(
@@ -411,6 +422,7 @@ impl GameLogic {
         }
         // Only explicit authored deletion owns removal. Keep/Slow alone do
         // not synthesize DestroyDie. Empty effective content is retained too.
+        Ok(())
     }
 
     fn choose_authored_die_entry(&self, names: &[String]) -> Option<String> {

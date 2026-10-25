@@ -10,7 +10,8 @@ impl AIPlayer {
     /// Process team production queue
     pub(super) fn process_team_queue(&mut self, game_logic: &mut GameLogic, current_time: f32) {
         let ai_data = AiDataView::from_world(game_logic);
-        self.process_team_queue_with_ai_data(game_logic, current_time, &ai_data);
+        self.process_team_queue_with_ai_data(game_logic, current_time, &ai_data)
+            .expect("AI team queue failed");
     }
 
     pub(super) fn process_team_queue_with_ai_data(
@@ -18,7 +19,7 @@ impl AIPlayer {
         game_logic: &mut GameLogic,
         current_time: f32,
         ai_data: &AiDataView,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         // C++ WorkOrder::validateFactory: failed production must release the
         // association so a later pass can submit to a surviving producer.
         for team in &mut self.team_queue {
@@ -36,7 +37,7 @@ impl AIPlayer {
         // Retail queueUnits invokes queueSupplyTruck before walking the usual
         // TeamInQueue work orders.  Its priority order therefore gets an idle
         // SupplyCenter and pays through ordinary ProductionUpdate immediately.
-        self.queue_supply_truck(game_logic, current_time);
+        self.queue_supply_truck(game_logic, current_time)?;
         let can_build_units = game_logic
             .get_player(self.player_id)
             .map(|p| p.can_build_units)
@@ -135,6 +136,7 @@ impl AIPlayer {
 
         // C++ checkQueuedTeams (not queueUnits) promotes completed teams.
         let _ = completed_teams;
+        Ok(())
     }
 
     /// C++ `isPossibleToBuildTeam` unit-cost residual:
@@ -521,7 +523,7 @@ impl AIPlayer {
                 // C++ AIPlayer.cpp:2740-2745 — only the reinforcement object.
                 if let Some(obj_id) = self.team_ready_queue[i].reinforcement_id {
                     if let Some(obj) = game_logic.host_object(obj_id) {
-                        let idle = obj.is_alive() && obj.ai_state == AIState::Idle;
+                        let idle = obj.is_alive() && obj.ai_state() == AIState::Idle;
                         all_idle = idle;
                         any_idle = idle;
                     }
@@ -546,7 +548,7 @@ impl AIPlayer {
                             .map(|o| {
                                 o.is_alive()
                                     && matches!(
-                                        o.ai_state,
+                                        o.ai_state(),
                                         AIState::Idle
                                             | AIState::GuardingArea
                                             | AIState::GuardingObject
@@ -674,9 +676,9 @@ impl AIPlayer {
         let (other_idle, other_pos, other_state, other_target) =
             match game_logic.host_object(other_id) {
                 Some(other) => (
-                    other.ai_state == AIState::Idle,
+                    other.ai_state() == AIState::Idle,
                     other.get_position(),
-                    other.ai_state.clone(),
+                    other.ai_state().clone(),
                     other.target,
                 ),
                 None => return,
@@ -933,7 +935,7 @@ impl AIPlayer {
             let any_idle = member_ids.iter().any(|id| {
                 game_logic
                     .host_object(*id)
-                    .map(|o| o.is_alive() && o.ai_state == AIState::Idle)
+                    .map(|o| o.is_alive() && o.ai_state() == AIState::Idle)
                     .unwrap_or(false)
             });
             if any_idle {
@@ -1023,7 +1025,7 @@ impl AIPlayer {
             .filter(|id| {
                 game_logic
                     .host_object(*id)
-                    .map(|o| o.is_alive() && o.ai_state == AIState::Idle)
+                    .map(|o| o.is_alive() && o.ai_state() == AIState::Idle)
                     .unwrap_or(false)
             })
             .collect();

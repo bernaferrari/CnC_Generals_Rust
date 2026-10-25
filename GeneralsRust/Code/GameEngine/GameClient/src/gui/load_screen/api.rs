@@ -87,7 +87,20 @@ pub fn transformed_progress_percent(descriptor: LoadScreenDescriptor, raw_percen
     }
 }
 
-pub fn init_load_screen(kind: LoadScreenKind, context: &LoadScreenInitContext) -> bool {
+pub fn init_load_screen_for_owner(
+    owner: &crate::gui::window_manager::WindowManagerOwner,
+    kind: LoadScreenKind,
+    context: &LoadScreenInitContext,
+    shell_game_first_load: &mut bool,
+) -> bool {
+    owner.with_scope(|| init_load_screen_with_state(kind, context, shell_game_first_load))
+}
+
+pub(crate) fn init_load_screen_with_state(
+    kind: LoadScreenKind,
+    context: &LoadScreenInitContext,
+    shell_game_first_load: &mut bool,
+) -> bool {
     let descriptor = descriptor_for_kind(kind);
     with_window_manager(|wm| {
         if wm.create_layout_with_windows(descriptor.layout).is_err() {
@@ -101,7 +114,7 @@ pub fn init_load_screen(kind: LoadScreenKind, context: &LoadScreenInitContext) -
         }
 
         initialize_progress_windows(wm, descriptor);
-        initialize_kind_windows(wm, descriptor.kind, context);
+        initialize_kind_windows(wm, descriptor.kind, context, shell_game_first_load);
         true
     })
 }
@@ -132,6 +145,14 @@ pub fn begin_nonblocking_load_screen_prelude(kind: LoadScreenKind) {
         _ => return,
     };
     with_window_video_manager(|manager| manager.hold_load_movie(&movie));
+}
+
+pub fn advance_load_screen_prelude_for_owner(
+    owner: &crate::gui::window_manager::WindowManagerOwner,
+    kind: LoadScreenKind,
+    focused: bool,
+) -> LoadScreenPreludeStepResult {
+    owner.with_scope(|| advance_load_screen_prelude(kind, focused))
 }
 
 pub fn advance_load_screen_prelude(
@@ -273,6 +294,13 @@ fn update_movie_prelude_progress(kind: LoadScreenKind, frame_index: i32, frame_c
     });
 }
 
+pub fn pump_load_screen_prelude_presentation_for_owner(
+    owner: &crate::gui::window_manager::WindowManagerOwner,
+    kind: LoadScreenKind,
+) {
+    owner.with_scope(|| pump_load_screen_prelude_presentation(kind));
+}
+
 pub fn pump_load_screen_prelude_presentation(kind: LoadScreenKind) {
     finish_load_screen_update();
     if kind == LoadScreenKind::Challenge {
@@ -284,6 +312,13 @@ pub fn pump_load_screen_prelude_presentation(kind: LoadScreenKind) {
 /// initializer starts.  This deliberately pumps only the already-installed
 /// WindowManager/display callback and FP mode; it never re-enters winit or the
 /// platform event loop from a synchronous map-start call.
+pub fn run_load_screen_prelude_for_owner(
+    owner: &crate::gui::window_manager::WindowManagerOwner,
+    kind: LoadScreenKind,
+) -> LoadScreenPreludeOutcome {
+    owner.with_scope(|| run_load_screen_prelude(kind))
+}
+
 pub fn run_load_screen_prelude(kind: LoadScreenKind) -> LoadScreenPreludeOutcome {
     run_load_screen_prelude_with_limit(kind, LOAD_SCREEN_PRELUDE_MAX_PUMPS)
 }
@@ -444,6 +479,13 @@ fn load_screen_map_name_from_game_info(
     Some(map_name.to_string())
 }
 
+pub fn reset_load_screen_for_owner(
+    owner: &crate::gui::window_manager::WindowManagerOwner,
+    kind: LoadScreenKind,
+) {
+    owner.with_scope(|| reset_load_screen(kind));
+}
+
 pub fn reset_load_screen(kind: LoadScreenKind) {
     let descriptor = descriptor_for_kind(kind);
     with_window_manager(|wm| {
@@ -461,6 +503,14 @@ pub fn reset_load_screen(kind: LoadScreenKind) {
     } else if descriptor.slot_count > 0 {
         reset_multiplayer_load_screen_state();
     }
+}
+
+pub fn update_load_screen_for_owner(
+    owner: &crate::gui::window_manager::WindowManagerOwner,
+    kind: LoadScreenKind,
+    raw_percent: f32,
+) {
+    owner.with_scope(|| update_load_screen(kind, raw_percent));
 }
 
 pub fn update_load_screen(kind: LoadScreenKind, raw_percent: f32) {

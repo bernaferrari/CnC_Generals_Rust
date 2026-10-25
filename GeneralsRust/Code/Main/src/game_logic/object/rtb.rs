@@ -294,9 +294,7 @@ impl Object {
     }
 
     pub fn needs_return_to_base_rearm(&self) -> bool {
-        use crate::game_logic::weapon_bootstrap::{
-            HostReloadType, host_reload_type_for_weapon_name,
-        };
+        use crate::game_logic::weapon_bootstrap::{HostReloadType, host_reload_type_for_weapon_name};
         let empty_rtb = |w: &Weapon, name: Option<&str>| {
             let rt = name
                 .map(host_reload_type_for_weapon_name)
@@ -359,17 +357,15 @@ impl Object {
         if self.jet_ai.allow_interrupt_for_reload || self.jet_ai.has_pending_command {
             return true;
         }
-        matches!(self.ai_state, AIState::Idle)
+        matches!(self.ai_state(), AIState::Idle)
             && self.target.is_none()
-            && !self.hunting
-            && self.guard_position.is_none()
-            && self.guard_target.is_none()
+            && !self.is_hunting()
+            && self.active_guard_position().is_none()
+            && self.active_guard_target().is_none()
     }
 
     pub fn rearm_return_to_base_weapons(&mut self) -> bool {
-        use crate::game_logic::weapon_bootstrap::{
-            HostReloadType, host_reload_type_for_weapon_name,
-        };
+        use crate::game_logic::weapon_bootstrap::{HostReloadType, host_reload_type_for_weapon_name};
         let mut any = false;
         let pri = self.primary_weapon_name().map(|s| s.to_string());
         let sec = self.secondary_weapon_name().map(|s| s.to_string());
@@ -430,7 +426,7 @@ impl Object {
         }
         // No damage while docked at airfield / garrisoned.
         if matches!(
-            self.ai_state,
+            self.ai_state(),
             AIState::Docked | AIState::Garrisoned | AIState::Entering | AIState::Docking
         ) {
             return 0.0;
@@ -795,11 +791,11 @@ impl Object {
     pub fn arm_face_locomotor_goal(&mut self, target_pos: glam::Vec3) -> bool {
         let rel = self.relative_angle_2d_to(target_pos);
         if rel.abs() < FACE_REL_THRESH_RAD {
-            self.face_active = false;
+            self.set_face_active(false);
             self.set_locomotor_goal_none();
             return false;
         }
-        if self.face_can_turn_in_place {
+        if self.face_can_turn_in_place() {
             self.set_locomotor_goal_orientation(self.get_orientation() + rel);
         } else {
             self.set_locomotor_goal_position_explicit(target_pos);
@@ -824,10 +820,10 @@ impl Object {
         if !self.arm_face_locomotor_goal(target_pos) {
             return false;
         }
-        if self.face_loco_frame == frame && frame != 0 {
+        if self.face_loco_frame() == frame && frame != 0 {
             return true;
         }
-        self.face_loco_frame = frame;
+        self.set_face_loco_frame(frame);
         if self.locomotor_goal_type == LocoGoalType::Angle {
             self.loco_update_move_towards_angle_with_effects(
                 self.locomotor_goal_angle,
@@ -847,7 +843,7 @@ impl Object {
         if !self.can_move() {
             return false;
         }
-        self.face_can_turn_in_place = self.min_speed == 0.0;
+        self.set_face_can_turn_in_place(self.min_speed == 0.0);
         !self.tick_face_towards(pos, dt, 0)
     }
 
@@ -1037,7 +1033,7 @@ mod tests {
         o.set_orientation(0.0);
         o.set_position(Vec3::ZERO);
         o.min_speed = 0.0;
-        o.face_can_turn_in_place = true;
+        o.set_face_can_turn_in_place(true);
         o.movement.turn_rate = 0.3;
         let goal = Vec3::new(0.0, 0.0, 10.0);
         assert!(o.tick_face_towards(goal, 1.0 / 30.0, 1));
@@ -1057,7 +1053,7 @@ mod tests {
         o.set_orientation(0.0);
         o.set_position(Vec3::ZERO);
         o.min_speed = 20.0;
-        o.face_can_turn_in_place = false;
+        o.set_face_can_turn_in_place(false);
         let goal = Vec3::new(0.0, 0.0, 40.0);
         let yaw0 = o.get_orientation();
         assert!(o.tick_face_towards(goal, 1.0 / 30.0, 1));
@@ -1077,8 +1073,8 @@ mod tests {
         o.set_orientation(0.0);
         o.set_position(Vec3::ZERO);
         o.min_speed = 0.0;
-        o.face_can_turn_in_place = true;
-        o.face_active = true;
+        o.set_face_can_turn_in_place(true);
+        o.set_face_active(true);
         o.movement.turn_rate = 0.4;
         let goal = Vec3::new(0.0, 0.0, 10.0);
         let mut still = true;
@@ -1089,7 +1085,7 @@ mod tests {
             }
         }
         assert!(!still);
-        assert!(!o.face_active);
+        assert!(!o.face_active());
         assert!(o.relative_angle_2d_to(goal).abs() < FACE_REL_THRESH_RAD);
     }
 }

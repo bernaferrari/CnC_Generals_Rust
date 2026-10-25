@@ -138,10 +138,13 @@ fn next_removed_in_callback_is_skipped_before_its_conditions_and_guard() {
         "deleted next instance must not execute the counter"
     );
     assert_eq!(
-        world.host_object(first).unwrap().ai_state,
+        world.host_object(first).unwrap().ai_state(),
         AIState::GuardingArea
     );
-    assert_eq!(world.host_object(second).unwrap().guard_position, None);
+    assert_eq!(
+        world.host_object(second).unwrap().active_guard_position(),
+        None
+    );
 }
 #[test]
 fn new_head_callback_keeps_original_forward_walk_calibrated() {
@@ -149,7 +152,7 @@ fn new_head_callback_keeps_original_forward_walk_calibrated() {
     assert_eq!(count, 3);
     for id in [first, second] {
         assert_eq!(
-            world.host_object(id).unwrap().ai_state,
+            world.host_object(id).unwrap().ai_state(),
             AIState::GuardingArea
         );
     }
@@ -160,6 +163,6 @@ fn removed_current_ends_safe_walk_without_dispatching_siblings() {
     let (world, first, second, count) = execute(Mutation::RemoveCurrent);
     assert_eq!(count, 1);
     for id in [first, second] {
-        assert_eq!(world.host_object(id).unwrap().guard_position, None);
+        assert_eq!(world.host_object(id).unwrap().active_guard_position(), None);
     }
 }

@@ -2870,19 +2870,16 @@ pub fn soft_reveal_main_menu_for_host_inject() -> bool {
     true
 }
 
-// THREAD: main thread only — shell pushes are queued by menu callbacks and
-// drained by the menu tick on the same GUI thread.
-thread_local! {
-    static DEFERRED_SHELL_PUSHES: RefCell<Vec<String>> = RefCell::new(Vec::new());
-}
-
+// Deferred menu pushes belong to the receiving Shell owner. The menu tick
+// drains them on that same GUI thread after the current input callback returns.
 fn queue_deferred_shell_push(screen: &str) {
-    DEFERRED_SHELL_PUSHES.with_borrow_mut(|queue| {
-        if !queue.iter().any(|existing| existing == screen) {
-            log::info!("MainMenu: defer shell push {screen}");
-            queue.push(screen.to_string());
-        }
-    });
+    let Some(owner) = crate::gui::window_manager::current_window_manager_owner() else {
+        log::warn!("MainMenu deferred Shell push has no receiving WindowManagerOwner");
+        return;
+    };
+    if owner.queue_deferred_shell_push(screen) {
+        log::info!("MainMenu: defer shell push {screen}");
+    }
 }
 
 /// Apply shell pushes deferred from MainMenu system callbacks (see
@@ -2890,7 +2887,10 @@ fn queue_deferred_shell_push(screen: &str) {
 /// host inject so process_mouse_event can return Used without hanging on
 /// synchronous `Shell::push` / layout init.
 pub fn drain_deferred_shell_pushes() {
-    let screens = DEFERRED_SHELL_PUSHES.with_borrow_mut(std::mem::take);
+    let Some(owner) = crate::gui::window_manager::current_window_manager_owner() else {
+        return;
+    };
+    let screens = owner.drain_deferred_shell_pushes();
     for screen in screens {
         queue_shell_push(screen, false);
     }
@@ -2899,12 +2899,12 @@ pub fn drain_deferred_shell_pushes() {
 /// Drop deferred shell pushes without applying (host `start_game` owns match start;
 /// pushing SkirmishGameOptions mid inject was RefCell-panicing layout init).
 pub fn clear_deferred_shell_pushes() {
-    DEFERRED_SHELL_PUSHES.with_borrow_mut(|queue| {
-        if !queue.is_empty() {
-            log::info!("MainMenu: clear {} deferred shell push(es)", queue.len());
-            queue.clear();
+    if let Some(owner) = crate::gui::window_manager::current_window_manager_owner() {
+        let count = owner.clear_deferred_shell_pushes();
+        if count > 0 {
+            log::info!("MainMenu: clear {count} deferred shell push(es)");
         }
-    });
+    }
 }
 
 /// Advance MainMenu transition timers (used by drive_os_wnd_* and winit inject).
@@ -2943,6 +2943,35 @@ pub fn os_wnd_widget_tree_nav_ok() -> bool {
 
 /// Record a live OS mouse hit on the WND tree (C++ WindowXlat getWindowUnderCursor).
 /// Sets sticky `os_wnd_widget_tree_nav_ok` when an enabled gadget is under the cursor.
+pub fn note_os_wnd_widget_tree_hit_for_owner(
+    owner: &crate::gui::window_manager::WindowManagerOwner,
+    x: i32,
+    y: i32,
+) -> Option<bool> {
+    let hit = owner.try_with_manager_ref(|manager| {
+        manager
+            .get_window_under_cursor(x, y, false)
+            .is_some_and(|window| match window.try_borrow() {
+                Ok(guard) => {
+                    if guard.is_hidden() || !guard.is_enabled() {
+                        return false;
+                    }
+                    if let Some(layout) = guard.get_layout() {
+                        if layout.borrow().is_hidden() {
+                            return false;
+                        }
+                    }
+                    true
+                }
+                Err(_) => false,
+            })
+    });
+    if hit == Some(true) {
+        OS_WND_WIDGET_TREE_NAV_OK.store(true, Ordering::SeqCst);
+    }
+    hit
+}
+
 pub fn note_os_wnd_widget_tree_hit(x: i32, y: i32) -> bool {
     // Use shared ref borrow (not with_window_manager) so hit-test cannot enter
     // the op-drain loop. A stuck drain was hanging windowed winit_menu_nav after
@@ -2978,6 +3007,30 @@ pub fn note_os_wnd_widget_tree_hit(x: i32, y: i32) -> bool {
 }
 
 /// Name of the enabled, visible gadget under the cursor, if any.
+pub fn os_wnd_widget_under_cursor_name_for_owner(
+    owner: &crate::gui::window_manager::WindowManagerOwner,
+    x: i32,
+    y: i32,
+) -> Option<Option<String>> {
+    // Flush this receiver's queued hide/show work before hit-testing, matching
+    // the public compatibility query without consulting the ambient selector.
+    owner.try_with_manager(|_| {})?;
+    owner.try_with_manager_ref(|manager| {
+        let window = manager.get_window_under_cursor(x, y, false)?;
+        let guard = window.try_borrow().ok()?;
+        if guard.is_hidden() || !guard.is_enabled() {
+            return None;
+        }
+        if let Some(layout) = guard.get_layout() {
+            if layout.borrow().is_hidden() {
+                return None;
+            }
+        }
+        let name = guard.get_name().to_string();
+        if name.is_empty() { None } else { Some(name) }
+    })
+}
+
 pub fn os_wnd_widget_under_cursor_name(x: i32, y: i32) -> Option<String> {
     use crate::gui::window_manager::{with_window_manager, with_window_manager_ref};
     // Queued winHide from MainMenu first-run / dropdown must apply first.

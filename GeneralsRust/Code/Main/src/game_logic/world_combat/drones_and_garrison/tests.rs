@@ -1358,8 +1358,8 @@ fn walk_unit_via_open_contain_exit_cycles_humvee_paths() {
         3,
         "second rider consumes ExitStart02"
     );
-    assert_eq!(logic.host_object(a).unwrap().ai_state, AIState::Moving);
-    assert_eq!(logic.host_object(b).unwrap().ai_state, AIState::Moving);
+    assert_eq!(logic.host_object(a).unwrap().ai_state(), AIState::Moving);
+    assert_eq!(logic.host_object(b).unwrap().ai_state(), AIState::Moving);
 }
 
 #[test]
@@ -1427,7 +1427,7 @@ End
     );
     let u = logic.host_object(rider).unwrap();
     assert_eq!(u.next_mood_check_time, 77);
-    assert_eq!(u.ai_state, AIState::Moving);
+    assert_eq!(u.ai_state(), AIState::Moving);
     audio::assert_events(&output, &[("MoodExit", transport), ("MoodFalling", rider)]);
 }
 #[test]
@@ -1664,7 +1664,7 @@ fn walk_unit_via_open_contain_exit_copies_layer_and_gates_allow_to_fall() {
         u.allow_to_fall,
         "allowToFall restored after pathfind gate (hull not airborne)"
     );
-    assert_eq!(u.ai_state, AIState::Moving);
+    assert_eq!(u.ai_state(), AIState::Moving);
 }
 
 #[test]
@@ -2145,7 +2145,7 @@ fn tunnel_occupants_do_not_garrison_fire() {
     let after_enter = logic.host_object(rebel).unwrap();
     assert_eq!(after_enter.contained_by, Some(tunnel));
     assert_eq!(
-        after_enter.ai_state,
+        after_enter.ai_state(),
         AIState::Docked,
         "TunnelContain must not stamp Garrisoned"
     );

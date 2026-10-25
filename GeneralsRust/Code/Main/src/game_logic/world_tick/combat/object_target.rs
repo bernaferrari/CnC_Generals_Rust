@@ -135,7 +135,7 @@ impl GameLogic {
                     && (attacker.locomotor_surfaces & crate::game_logic::object::LOCO_SURFACE_AIR)
                         != 0;
                 if attacker.has_max_shots_remaining()
-                    && attacker.ai_state != AIState::AttackMoving
+                    && attacker.ai_state() != AIState::AttackMoving
                     && (!attacker.movement.path.is_empty()
                         || attacker.movement.velocity.x != 0.0
                         || attacker.movement.velocity.z != 0.0)
@@ -148,7 +148,7 @@ impl GameLogic {
                 }
                 if flying
                     && attacker.has_max_shots_remaining()
-                    && attacker.ai_state != AIState::AttackMoving
+                    && attacker.ai_state() != AIState::AttackMoving
                 {
                     attacker.requested_destination = None;
                 }
@@ -179,7 +179,7 @@ impl GameLogic {
                                 attacker,
                             )
                             && matches!(
-                                attacker.ai_state,
+                                attacker.ai_state(),
                                 AIState::Idle
                                     | AIState::Moving
                                     | AIState::Attacking
@@ -275,7 +275,7 @@ impl GameLogic {
                         &mut effects.reborrow_for_object(&mut self.partition_manager),
                     );
                     if !matches!(
-                        attacker.ai_state,
+                        attacker.ai_state(),
                         AIState::Patrolling | AIState::AttackMoving | AIState::Attacking
                     ) {
                         attacker.set_ai_state(
@@ -359,7 +359,7 @@ impl GameLogic {
                             &mut effects.reborrow_for_object(&mut self.partition_manager),
                         );
                         if !matches!(
-                            attacker.ai_state,
+                            attacker.ai_state(),
                             AIState::Patrolling | AIState::AttackMoving | AIState::Attacking
                         ) {
                             attacker.set_ai_state(
@@ -419,7 +419,7 @@ impl GameLogic {
                                 &mut effects.reborrow_for_object(&mut self.partition_manager),
                             );
                             let entered_attack = !matches!(
-                                attacker.ai_state,
+                                attacker.ai_state(),
                                 AIState::Patrolling | AIState::AttackMoving | AIState::Attacking
                             );
                             if entered_attack {
@@ -525,7 +525,7 @@ impl GameLogic {
                             attacker,
                         )
                         && matches!(
-                            attacker.ai_state,
+                            attacker.ai_state(),
                             AIState::Idle
                                 | AIState::Moving
                                 | AIState::Attacking

@@ -15,9 +15,7 @@ pub(super) fn current_base_condition_bits(
         HostBodyDamageType, MC_BIT_ATTACKING, MC_BIT_DYING, MC_BIT_MOVING,
         host_apply_body_damage_model_bits,
     };
-    use crate::game_logic::host_neutron_missile_slow_death::{
-        MC_BIT_BACKCRUSHED, MC_BIT_FRONTCRUSHED,
-    };
+    use crate::game_logic::host_neutron_missile_slow_death::{MC_BIT_BACKCRUSHED, MC_BIT_FRONTCRUSHED};
     let state = if destroyed {
         HostBodyDamageType::Rubble
     } else {
@@ -117,7 +115,7 @@ pub(super) fn current_condition_facts(
     super::draw_conditions::DrawConditionFacts {
         active_weapon_slot: obj.active_weapon_slot,
         ai_state_ordinal: crate::gameworld_shadow::GameWorldShadow::host_ai_state_ordinal(
-            &obj.ai_state,
+            &obj.ai_state(),
         ),
         airborne_target: obj.status.airborne_target,
         anim_steer_turn: obj

@@ -4,14 +4,16 @@
 use super::AIUpdateModuleSnapshot;
 use crate::game_logic::Object;
 use crate::save_load::{SaveLoadError, SaveLoadResult};
+#[cfg(test)]
 use std::collections::HashMap;
 
+#[cfg(test)]
 pub(super) fn capture(object: &Object) -> Option<AIUpdateModuleSnapshot> {
-    object.hunting.then(|| AIUpdateModuleSnapshot {
+    object.is_hunting().then(|| AIUpdateModuleSnapshot {
         current_state: "AI_HUNT".into(),
         state_machine_data: HashMap::from([(
             "AutoAcquireWhenIdle".into(),
-            object.auto_acquire_when_idle.to_string(),
+            object.auto_acquire_when_idle().to_string(),
         )]),
         target_object: None,
         current_task: None,
@@ -35,8 +37,11 @@ pub(super) fn restore(
                 "AI_HUNT snapshot has invalid auto-acquire continuation".into(),
             )
         })?;
-    object.hunting = true;
-    object.auto_acquire_when_idle = acquire;
+    if !object.is_hunting() || object.auto_acquire_when_idle() != acquire {
+        return Err(SaveLoadError::Corrupted(
+            "legacy Hunt projection disagrees with native14 owner".into(),
+        ));
+    }
     Ok(true)
 }
 
@@ -47,13 +52,13 @@ mod tests {
     #[test]
     fn malformed_hunt_continuation_is_rejected_before_mutating_object() {
         let mut object = Object::new(ThingTemplate::new("SavedHunter"), ObjectId(1), Team::USA);
-        object.hunting = true;
+        object.set_hunting(true);
         let mut snapshot = capture(&object).unwrap();
-        object.hunting = false;
+        object.set_hunting(false);
         snapshot
             .state_machine_data
             .insert("AutoAcquireWhenIdle".into(), "maybe".into());
         assert!(restore(&snapshot, &mut object).is_err());
-        assert!(!object.hunting);
+        assert!(!object.is_hunting());
     }
 }

@@ -503,9 +503,19 @@ impl CnCGameEngine {
             self.dispatch_os_mouse_to_window_manager(button, pressed, x, y, origin)
         };
         #[cfg(feature = "game_client")]
-        let live_hit = game_client::gui::note_os_wnd_widget_tree_hit(x, y);
+        let receiving_window_manager = self.game_client.window_manager_owner();
+        #[cfg(feature = "game_client")]
+        let live_hit_observation = game_client::gui::note_os_wnd_widget_tree_hit_for_owner(
+            &receiving_window_manager,
+            x,
+            y,
+        );
+        let live_hit_available = live_hit_observation.is_some();
+        let live_hit = live_hit_observation == Some(true);
         #[cfg(not(feature = "game_client"))]
         let live_hit = false;
+        #[cfg(not(feature = "game_client"))]
+        let live_hit_available = false;
         let hit_wnd_widget = live_hit;
         let in_world = matches!(self.current_state, GameState::InGame | GameState::Paused);
         // A click may arrive after the camera moved without a new CursorMoved
@@ -518,18 +528,24 @@ impl CnCGameEngine {
         // InGame: leftover shell layouts (Skirmish/MainMenu) must not steal
         // world select/order. C++ hideShell removes them; we ignore those hits.
         #[cfg(feature = "game_client")]
-        let leftover_shell_hit = game_client::gui::os_wnd_widget_under_cursor_name(x, y)
-            .map(|n| {
+        let leftover_shell_hit = game_client::gui::os_wnd_widget_under_cursor_name_for_owner(
+            &receiving_window_manager,
+            x,
+            y,
+        )
+        .map(|name| {
+            name.is_some_and(|n| {
                 n.contains("MainMenu.wnd")
                     || n.contains("SkirmishGameOptionsMenu")
                     || n.contains("CreditsMenu")
                     || n.contains("MultiplayerLoadScreen")
             })
-            .unwrap_or(false);
+        })
+        .unwrap_or(true);
         #[cfg(not(feature = "game_client"))]
         let leftover_shell_hit = false;
         let wnd_used = if in_world {
-            wnd_used_raw && live_hit && !leftover_shell_hit
+            wnd_used_raw && (!live_hit_available || live_hit) && !leftover_shell_hit
         } else {
             wnd_used_raw
         };
@@ -555,7 +571,13 @@ impl CnCGameEngine {
                     // DROPDOWN_MAIN (MapBorder2) before Solo Play is hittable.
                     let _ = game_client::gui::reveal_main_menu_first_input_like_cpp();
                 }
-                if let Some(name) = game_client::gui::os_wnd_widget_under_cursor_name(x, y) {
+                if let Some(Some(name)) =
+                    game_client::gui::os_wnd_widget_under_cursor_name_for_owner(
+                        &receiving_window_manager,
+                        x,
+                        y,
+                    )
+                {
                     self.interactive_playability
                         .note_skirmish_path_gadget(physical, &name);
                     if physical {
@@ -891,12 +913,19 @@ impl CnCGameEngine {
         let mut cx = w * candidates[0].0;
         let mut cy = h * candidates[0].1;
         #[cfg(feature = "game_client")]
+        let receiving_window_manager = self.game_client.window_manager_owner();
+        #[cfg(feature = "game_client")]
         {
             let mut found_clear = false;
             for (fx, fy) in candidates {
                 let x = w * fx;
                 let y = h * fy;
-                if !game_client::gui::note_os_wnd_widget_tree_hit(x as i32, y as i32) {
+                if game_client::gui::note_os_wnd_widget_tree_hit_for_owner(
+                    &receiving_window_manager,
+                    x as i32,
+                    y as i32,
+                ) == Some(false)
+                {
                     cx = x;
                     cy = y;
                     found_clear = true;
@@ -922,7 +951,12 @@ impl CnCGameEngine {
         // If still gadget-owned after probe, force a second nudge (honest live residual).
         #[cfg(feature = "game_client")]
         {
-            if game_client::gui::note_os_wnd_widget_tree_hit(cx as i32, cy as i32) {
+            if game_client::gui::note_os_wnd_widget_tree_hit_for_owner(
+                &receiving_window_manager,
+                cx as i32,
+                cy as i32,
+            ) != Some(false)
+            {
                 cx = w * 0.78;
                 cy = h * 0.62;
                 log::info!("inject_gameplay_order_click: still hit, force nudge ({cx:.0},{cy:.0})");
@@ -2643,9 +2677,7 @@ mod tests {
 
     #[test]
     fn focus_transitions_release_camera_keys_and_modifiers_for_only_the_owner() {
-        use super::{
-            Event, HashSet, Key, NamedKey, WindowEvent, reset_pressed_keys_for_focus_event,
-        };
+        use super::{Event, HashSet, Key, NamedKey, WindowEvent, reset_pressed_keys_for_focus_event};
         let window = winit::window::WindowId::from(1);
         let other_window = winit::window::WindowId::from(2);
         let held = HashSet::from([

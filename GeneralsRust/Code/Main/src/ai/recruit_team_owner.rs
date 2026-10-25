@@ -401,7 +401,7 @@ mod tests {
         prototype(&mut world, "MainRecruit", "");
         world.host_object_mut(object).unwrap().last_command_source =
             crate::game_logic::HUNT_CMD_FROM_SCRIPT;
-        let before = world.host_object(object).unwrap().ai_state.clone();
+        let before = world.host_object(object).unwrap().ai_state().clone();
         assert!(!world.host_object(object).unwrap().has_ai_update_interface());
         assert!(world.recruit_owned_specific_ai_team_with_ui(
             1,
@@ -416,7 +416,7 @@ mod tests {
             unit.last_command_source,
             crate::game_logic::HUNT_CMD_FROM_SCRIPT
         );
-        assert_eq!(unit.ai_state, before);
+        assert_eq!(unit.ai_state(), before);
         assert!(unit.requested_destination.is_none());
         assert!(unit.movement.target_position.is_none());
     }

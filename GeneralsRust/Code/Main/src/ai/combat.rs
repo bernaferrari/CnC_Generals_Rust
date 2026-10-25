@@ -348,7 +348,7 @@ impl AIPlayer {
                 && object.can_attack()
                 && object.is_mobile()
                 && matches!(
-                    object.ai_state,
+                    object.ai_state(),
                     AIState::AttackMoving | AIState::Attacking | AIState::AttackingGround
                 )
         })
@@ -849,7 +849,7 @@ impl AIPlayer {
             self.last_bridge_repair_time = -1.0;
             return None;
         }
-        let dozer_idle = dozer.ai_state == AIState::Idle;
+        let dozer_idle = dozer.ai_state() == AIState::Idle;
 
         if self.dozer_is_repairing {
             if !dozer_idle {

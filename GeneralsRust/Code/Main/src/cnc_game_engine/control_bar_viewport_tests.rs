@@ -21,7 +21,13 @@ fn script_letterbox_parent_delivery_is_synchronous_repeated_and_receiving_only()
     camera.set_view_height_px(482).unwrap();
     peer_camera.resize_display(1001, 751).unwrap();
     peer_camera.set_view_height_px(600).unwrap();
-    NativeScriptUi::new(&mut snow, &mut bar, &mut callbacks).letterbox_with_parent(
+    NativeScriptUi::new(
+        &mut snow,
+        &mut bar,
+        &mut callbacks,
+        game_client::gui::window_manager::WindowManagerOwner::new(),
+    )
+    .letterbox_with_parent(
         &mut camera,
         true,
         false,
@@ -36,7 +42,13 @@ fn script_letterbox_parent_delivery_is_synchronous_repeated_and_receiving_only()
     // An already-disabled display still executes an authored ShowControlBar.
     for _ in 0..2 {
         parent.borrow_mut().hide(true).unwrap();
-        NativeScriptUi::new(&mut snow, &mut bar, &mut callbacks).letterbox_with_parent(
+        NativeScriptUi::new(
+            &mut snow,
+            &mut bar,
+            &mut callbacks,
+            game_client::gui::window_manager::WindowManagerOwner::new(),
+        )
+        .letterbox_with_parent(
             &mut camera,
             false,
             false,
@@ -47,7 +59,13 @@ fn script_letterbox_parent_delivery_is_synchronous_repeated_and_receiving_only()
         assert!(!parent.borrow().is_hidden());
         assert_eq!(camera.viewport.size(), (801, 482));
     }
-    NativeScriptUi::new(&mut peer_snow, &mut peer_bar, &mut peer_callbacks).letterbox_with_parent(
+    NativeScriptUi::new(
+        &mut peer_snow,
+        &mut peer_bar,
+        &mut peer_callbacks,
+        game_client::gui::window_manager::WindowManagerOwner::new(),
+    )
+    .letterbox_with_parent(
         &mut peer_camera,
         true,
         false,
@@ -59,7 +77,13 @@ fn script_letterbox_parent_delivery_is_synchronous_repeated_and_receiving_only()
     assert!(!parent.borrow().is_hidden());
     assert_eq!(camera.viewport.size(), (801, 482));
     assert_eq!(peer_camera.viewport.size(), (1001, 751));
-    NativeScriptUi::new(&mut snow, &mut bar, &mut callbacks).letterbox_with_parent(
+    NativeScriptUi::new(
+        &mut snow,
+        &mut bar,
+        &mut callbacks,
+        game_client::gui::window_manager::WindowManagerOwner::new(),
+    )
+    .letterbox_with_parent(
         &mut camera,
         true,
         false,
@@ -82,7 +106,13 @@ fn native_weather_adapter_only_changes_its_borrowed_snow() {
     let mut bar = ControlBar::new();
     let mut callbacks = ControlBarCallbacks::new();
     for visible in [false, true, false] {
-        NativeScriptUi::new(&mut snow, &mut bar, &mut callbacks).weather_visible(visible);
+        NativeScriptUi::new(
+            &mut snow,
+            &mut bar,
+            &mut callbacks,
+            game_client::gui::window_manager::WindowManagerOwner::new(),
+        )
+        .weather_visible(visible);
         assert_eq!(snow.is_visible(), visible);
         assert!(peer.is_visible());
     }

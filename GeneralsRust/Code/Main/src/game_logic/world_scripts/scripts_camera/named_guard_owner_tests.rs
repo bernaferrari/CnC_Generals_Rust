@@ -27,9 +27,9 @@ struct GuardObservation {
 fn projection(world: &GameLogic, id: ObjectId) -> GuardObservation {
     let unit = world.host_object(id).unwrap();
     GuardObservation {
-        state: unit.ai_state.clone(),
-        anchor: unit.guard_position,
-        guard_target: unit.guard_target,
+        state: unit.ai_state().clone(),
+        anchor: unit.active_guard_position(),
+        guard_target: unit.active_guard_target(),
         mode: unit.guard_mode,
         source: unit.last_command_source,
         scan_deadline: unit.unit_ai_runtime.guard_scan_deadline(),
@@ -64,19 +64,22 @@ fn guard_enters_driving_object_at_current_position_with_normal_script_order() {
         Some("BasicHumanLocomotor")
     );
     assert_eq!(unit.jet_ai.cur_locomotor_set.as_deref(), Some("SET_NORMAL"));
-    assert_eq!(unit.guard_position, Some(position));
-    assert_eq!(unit.guard_target, None);
+    assert_eq!(unit.active_guard_position(), Some(position));
+    assert_eq!(unit.active_guard_target(), None);
     assert_eq!(unit.guard_mode, GuardMode::Normal);
-    assert_eq!(unit.ai_state, AIState::GuardingArea);
+    assert_eq!(unit.ai_state(), AIState::GuardingArea);
     assert_eq!(
         unit.last_command_source,
         crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_SCRIPT
     );
     assert_eq!(second.host_object(id).unwrap().formation_id, 19);
-    assert_eq!(second.host_object(id).unwrap().guard_position, None);
+    assert_eq!(
+        second.host_object(id).unwrap().active_guard_position(),
+        None
+    );
     second.reset();
     assert_eq!(
-        first.host_object(id).unwrap().guard_position,
+        first.host_object(id).unwrap().active_guard_position(),
         Some(position)
     );
 }
@@ -90,7 +93,7 @@ fn guard_reentry_replaces_previous_object_area_and_route() {
         Some(target),
         &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
     );
-    unit.guard_area_trigger = Some("PreviousArea".into());
+    unit.set_guard_area_trigger(Some("PreviousArea".into()));
     unit.set_guard_mode(GuardMode::FlyingUnitsOnly);
     unit.set_target(
         Some(target),
@@ -116,9 +119,9 @@ fn guard_reentry_replaces_previous_object_area_and_route() {
     world.frame = 100;
     guard(&mut world, "NamedUnit");
     let unit = world.host_object(id).unwrap();
-    assert_eq!(unit.guard_position, Some(position));
-    assert_eq!(unit.guard_target, None);
-    assert_eq!(unit.guard_area_trigger, None);
+    assert_eq!(unit.active_guard_position(), Some(position));
+    assert_eq!(unit.active_guard_target(), None);
+    assert_eq!(unit.active_guard_area(), None);
     assert_eq!(unit.guard_mode, GuardMode::Normal);
     assert_eq!(unit.target, None);
     assert_eq!(unit.target_location, None);
@@ -163,7 +166,9 @@ fn guard_snapshot_continues_without_a_reissued_command() {
     for frame in 1..90 {
         for world in [&mut source, &mut restored] {
             world.frame = frame;
-            world.update_ai(&[id], 1.0 / 30.0);
+            world
+                .update_ai(&[id], 1.0 / 30.0)
+                .expect("receiving AI operation succeeds");
         }
         acquired |= source.host_object(id).unwrap().target.is_some();
         assert_eq!(
@@ -195,7 +200,7 @@ fn guard_missing_exact_name_and_absent_ai_are_inert() {
     guard(&mut world, "NamedUnit");
     let unit = world.host_object(id).unwrap();
     assert_eq!(unit.formation_id, 19);
-    assert_eq!(unit.guard_position, None);
+    assert_eq!(unit.active_guard_position(), None);
     assert_eq!(
         unit.cur_locomotor_name.as_deref(),
         Some("RedguardLocomotor")
@@ -244,7 +249,7 @@ fn guard_rejected_admission_still_leaves_formation_and_selects_normal() {
         let unit = world.host_object(id).unwrap();
         assert_eq!(unit.formation_id, 0);
         assert_eq!(unit.jet_ai.cur_locomotor_set.as_deref(), Some("SET_NORMAL"));
-        assert_eq!(unit.guard_position, None);
+        assert_eq!(unit.active_guard_position(), None);
         assert_eq!(
             unit.last_command_source,
             crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_AI
@@ -267,7 +272,7 @@ fn guard_sleep_gate_uses_controller_instead_of_locality() {
         let unit = world.host_object(id).unwrap();
         assert_eq!(unit.formation_id, 0);
         assert_eq!(unit.jet_ai.cur_locomotor_set.as_deref(), Some("SET_NORMAL"));
-        assert_eq!(unit.guard_position.is_some(), human);
+        assert_eq!(unit.active_guard_position().is_some(), human);
     }
 }
 
@@ -294,7 +299,7 @@ fn guard_exits_old_hunt_and_attack_submachine() {
     unit.set_turret_target_object(Some(target), true);
     guard(&mut world, "NamedUnit");
     let unit = world.host_object(id).unwrap();
-    assert!(!unit.hunting);
+    assert!(!unit.is_hunting());
     assert_eq!(unit.unit_ai_runtime.hunt_scan_deadline(), None);
     assert!(!unit.status.is_firing_weapon);
     assert!(!unit.status.is_aiming_weapon);
@@ -318,7 +323,7 @@ fn guard_this_object_uses_only_the_supplied_owned_id() {
             )
             .unwrap()
             .unwrap();
-        assert_eq!(world.host_object(id).unwrap().guard_position, None);
+        assert_eq!(world.host_object(id).unwrap().active_guard_position(), None);
     }
     HostScriptExecutionDriver::new(&mut world)
         .named_command(
@@ -329,8 +334,17 @@ fn guard_this_object_uses_only_the_supplied_owned_id() {
         )
         .unwrap()
         .unwrap();
-    assert!(world.host_object(id).unwrap().guard_position.is_some());
-    assert_eq!(world.host_object(other).unwrap().guard_position, None);
+    assert!(
+        world
+            .host_object(id)
+            .unwrap()
+            .active_guard_position()
+            .is_some()
+    );
+    assert_eq!(
+        world.host_object(other).unwrap().active_guard_position(),
+        None
+    );
 }
 
 #[test]
@@ -340,7 +354,7 @@ fn guard_script_anchor_is_not_clipped_to_playable_bounds() {
     world.set_fixture_object_position(id, position);
     guard(&mut world, "NamedUnit");
     assert_eq!(
-        world.host_object(id).unwrap().guard_position,
+        world.host_object(id).unwrap().active_guard_position(),
         Some(position)
     );
 }
@@ -391,7 +405,7 @@ fn guard_disabled_masks_reject_after_script_preparation() {
         let unit = world.host_object(id).unwrap();
         assert_eq!(unit.formation_id, 0);
         assert_eq!(unit.jet_ai.cur_locomotor_set.as_deref(), Some("SET_NORMAL"));
-        assert_eq!(unit.guard_position, None);
+        assert_eq!(unit.active_guard_position(), None);
         assert_eq!(
             unit.last_command_source,
             crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_AI
@@ -417,7 +431,7 @@ fn canonical_guard_command_movement_and_save_ignore_poisoned_shadow_and_same_id_
     shadow.sync_from_host(&owner);
     let entity = shadow.entity_for_host(id).unwrap();
     let copy = shadow.world_mut().world_mut().entity_mut(entity).unwrap();
-    copy.guard_position = Some([900.0, 0.0, 900.0]);
+    copy.set_guard_position_data(Some([900.0, 0.0, 900.0]));
     copy.guard_target_host = peer_id.0;
     copy.guard_radius = 999.0;
     let builder = crate::save_load::SnapshotBuilder::new();
@@ -458,15 +472,22 @@ fn canonical_guard_command_movement_and_save_ignore_poisoned_shadow_and_same_id_
     );
     assert_ne!(owner.host_object(id).unwrap().get_position(), start);
     assert!(!owner.host_object(id).unwrap().status.moving);
-    let anchor = owner.host_object(id).unwrap().guard_position;
+    let anchor = owner.host_object(id).unwrap().active_guard_position();
     shadow.sync_from_host(&owner);
     assert_eq!(
-        shadow.world().entity(entity).unwrap().guard_position,
+        shadow
+            .world()
+            .entity(entity)
+            .unwrap()
+            .active_guard_position(),
         anchor.map(|p| [p.x, p.y, p.z])
     );
     peer.reset();
     drop(peer);
-    assert_eq!(owner.host_object(id).unwrap().guard_position, anchor);
+    assert_eq!(
+        owner.host_object(id).unwrap().active_guard_position(),
+        anchor
+    );
 }
 
 #[test]
@@ -476,10 +497,13 @@ fn guarded_target_lifetime_uses_driving_session_even_with_same_ids() {
     assert_eq!((id, target), (peer_id, peer_target));
     assert!(owner.unit_command_guard_full(id, None, Some(target), 175.0, GuardMode::Normal));
     assert_eq!(
-        owner.host_object(id).unwrap().ai_state,
+        owner.host_object(id).unwrap().ai_state(),
         AIState::GuardingObject
     );
-    assert_eq!(owner.host_object(id).unwrap().guard_target, Some(target));
+    assert_eq!(
+        owner.host_object(id).unwrap().active_guard_target(),
+        Some(target)
+    );
     assert!(
         owner
             .host_object(id)
@@ -497,7 +521,7 @@ fn guarded_target_lifetime_uses_driving_session_even_with_same_ids() {
         .unit_ai_runtime
         .set_guard_scan_deadline(Some(11));
     owner.tick_host_guard_states(&[id]);
-    assert_eq!(owner.host_object(id).unwrap().guard_target, None);
+    assert_eq!(owner.host_object(id).unwrap().active_guard_target(), None);
     assert_eq!(peer.host_object(peer_target).unwrap().health.current, 100.0);
     assert_eq!(projection(&peer, peer_id), peer_before);
     let before = projection(&owner, id);

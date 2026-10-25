@@ -1,0 +1,151 @@
+{
+  "functions": [
+    {
+      "path": "GeneralsMD/Code/GameEngine/Source/Common/System/Xfer.cpp",
+      "symbol": "Xfer::xferVersion",
+      "line_first": 60,
+      "line_last": 75,
+      "source_sha256": "8fd387ab7cd7ac8783d2b11fc16fbd50ca2347a7746c3a1c512ee6ded8252ccf",
+      "body_sha256": "31459a432c7c3bdab3492a9f1c2b5e4c5bd4fd350163615cc3c4039a2336e608"
+    },
+    {
+      "path": "GeneralsMD/Code/GameEngine/Source/Common/System/Xfer.cpp",
+      "symbol": "Xfer::xferBool",
+      "line_first": 88,
+      "line_last": 93,
+      "source_sha256": "8fd387ab7cd7ac8783d2b11fc16fbd50ca2347a7746c3a1c512ee6ded8252ccf",
+      "body_sha256": "1421d4d29ce48cfd8a5d0e2026374ee6791b1364d1c3855566a4545e9f510692"
+    },
+    {
+      "path": "GeneralsMD/Code/GameEngine/Source/Common/System/Xfer.cpp",
+      "symbol": "Xfer::xferInt",
+      "line_first": 97,
+      "line_last": 102,
+      "source_sha256": "8fd387ab7cd7ac8783d2b11fc16fbd50ca2347a7746c3a1c512ee6ded8252ccf",
+      "body_sha256": "b4415e247f4e98165d185d4e873a14aad2e502586fffa15110b649d70a8f23ee"
+    },
+    {
+      "path": "GeneralsMD/Code/GameEngine/Source/Common/System/Xfer.cpp",
+      "symbol": "Xfer::xferUnsignedInt",
+      "line_first": 115,
+      "line_last": 120,
+      "source_sha256": "8fd387ab7cd7ac8783d2b11fc16fbd50ca2347a7746c3a1c512ee6ded8252ccf",
+      "body_sha256": "9235f94f0e1f322f8243bb72e61318f14805b7e5c175cb9aefba00933b657c38"
+    },
+    {
+      "path": "GeneralsMD/Code/GameEngine/Source/Common/System/Xfer.cpp",
+      "symbol": "Xfer::xferReal",
+      "line_first": 142,
+      "line_last": 147,
+      "source_sha256": "8fd387ab7cd7ac8783d2b11fc16fbd50ca2347a7746c3a1c512ee6ded8252ccf",
+      "body_sha256": "ee168ac690cfa56c1aff345070830433167da840f2f37b4e3a286fa5e889d30e"
+    },
+    {
+      "path": "GeneralsMD/Code/GameEngine/Source/Common/System/Xfer.cpp",
+      "symbol": "Xfer::xferObjectID",
+      "line_first": 327,
+      "line_last": 332,
+      "source_sha256": "8fd387ab7cd7ac8783d2b11fc16fbd50ca2347a7746c3a1c512ee6ded8252ccf",
+      "body_sha256": "08a425116d48563e6a3ddbe45bf13036cb66504be66711318ce0d9760588c58c"
+    },
+    {
+      "path": "GeneralsMD/Code/GameEngine/Source/Common/System/Xfer.cpp",
+      "symbol": "Xfer::xferCoord3D",
+      "line_first": 191,
+      "line_last": 198,
+      "source_sha256": "8fd387ab7cd7ac8783d2b11fc16fbd50ca2347a7746c3a1c512ee6ded8252ccf",
+      "body_sha256": "16aa4a0861d3d90910769a45706650427fc516f50af7d60a17ac3872483cec6a"
+    },
+    {
+      "path": "GeneralsMD/Code/GameEngine/Source/Common/System/Xfer.cpp",
+      "symbol": "Xfer::xferUser",
+      "line_first": 809,
+      "line_last": 814,
+      "source_sha256": "8fd387ab7cd7ac8783d2b11fc16fbd50ca2347a7746c3a1c512ee6ded8252ccf",
+      "body_sha256": "0619fc301b3650a695070b5024a8e51dde01fb337235659ee1689325029f945c"
+    },
+    {
+      "path": "GeneralsMD/Code/GameEngine/Source/Common/System/XferSave.cpp",
+      "symbol": "XferSave::xferSnapshot",
+      "line_first": 249,
+      "line_last": 263,
+      "source_sha256": "24b6e72674fac7625b95968277052f1338cb84798e07ed8d511b0b1c451191be",
+      "body_sha256": "36c8bf6ebc160ce888c83c6fc0f6549e97f44d4365e8c13692214edb840367bc"
+    },
+    {
+      "path": "GeneralsMD/Code/GameEngine/Source/Common/StateMachine.cpp",
+      "symbol": "StateMachine::xfer",
+      "line_first": 799,
+      "line_last": 867,
+      "source_sha256": "f2a846bdb4859ca313d960446a2ddea9897b9b60325ad53520fd566a505f3b63",
+      "body_sha256": "9091067d1fc6a06d6ca2700fa20bf6db8a51bb152ef22e041583260b18150afb"
+    },
+    {
+      "path": "GeneralsMD/Code/GameEngine/Source/GameLogic/Object/Update/AIUpdate/DozerAIUpdate.cpp",
+      "symbol": "DozerActionStateMachine::xfer",
+      "line_first": 820,
+      "line_last": 828,
+      "source_sha256": "d01d9d3fe4471aeb8077851ce67b9ed9132657ab2180a9c22b8d8338633cfdea",
+      "body_sha256": "c57394fbc3733b394c93a99f7f9affc1ec7983746c0669cc223304ab74669eec"
+    },
+    {
+      "path": "GeneralsMD/Code/GameEngine/Source/GameLogic/Object/Update/AIUpdate/DozerAIUpdate.cpp",
+      "symbol": "DozerPrimaryIdleState::xfer",
+      "line_first": 986,
+      "line_last": 996,
+      "source_sha256": "d01d9d3fe4471aeb8077851ce67b9ed9132657ab2180a9c22b8d8338633cfdea",
+      "body_sha256": "4d41be12862dd9789a24b90c3478b6211b3b9d60d01372109ce1e05b6251c5fe"
+    },
+    {
+      "path": "GeneralsMD/Code/GameEngine/Source/GameLogic/Object/Update/AIUpdate/DozerAIUpdate.cpp",
+      "symbol": "DozerActionState::xfer",
+      "line_first": 1174,
+      "line_last": 1183,
+      "source_sha256": "d01d9d3fe4471aeb8077851ce67b9ed9132657ab2180a9c22b8d8338633cfdea",
+      "body_sha256": "afa54e9f5f90207b7ed96baa0d092fe9d919007c398565edcce3822be411aaf5"
+    },
+    {
+      "path": "GeneralsMD/Code/GameEngine/Source/GameLogic/Object/Update/AIUpdate/DozerAIUpdate.cpp",
+      "symbol": "DozerPrimaryStateMachine::xfer",
+      "line_first": 1295,
+      "line_last": 1302,
+      "source_sha256": "d01d9d3fe4471aeb8077851ce67b9ed9132657ab2180a9c22b8d8338633cfdea",
+      "body_sha256": "61aa8c3e5a1dfbd97d80710f4fc3618d9385f9b32de0c11a2d41ea8745f1dae0"
+    },
+    {
+      "path": "GeneralsMD/Code/GameEngine/Source/GameLogic/Object/Update/AIUpdate/DozerAIUpdate.cpp",
+      "symbol": "DozerAIUpdate::xfer",
+      "line_first": 2432,
+      "line_last": 2470,
+      "source_sha256": "d01d9d3fe4471aeb8077851ce67b9ed9132657ab2180a9c22b8d8338633cfdea",
+      "body_sha256": "31a8ed25f5ad9b2fb7dbec845dc6821368b6f8a0d75d503be5b15ecabb8f84fa"
+    }
+  ],
+  "type_enum_sources": [
+    {
+      "path": "GeneralsMD/Code/Libraries/Include/Lib/BaseType.h",
+      "sha256": "590af4e59d0e48510d976eeafa248000a1ac9f05d8f905f66f24b1c1cf9eceef"
+    },
+    {
+      "path": "GeneralsMD/Code/GameEngine/Include/Common/GameType.h",
+      "sha256": "3679c35576f92874ef4a06b598128c6fc031ec65214eb4685bbfccbf56ccc3de"
+    },
+    {
+      "path": "GeneralsMD/Code/GameEngine/Include/Common/Xfer.h",
+      "sha256": "4d7a5a317c92b07745ec8284b178b7cf1b02f1529bc4f41511fe2679c4a23617"
+    },
+    {
+      "path": "GeneralsMD/Code/GameEngine/Include/GameLogic/Module/DozerAIUpdate.h",
+      "sha256": "44e1bfc6c73667c0f23660e1b6eef133f16c21e9a2f114c77eaae88d6b7235e3"
+    }
+  ],
+  "extraction": "Source function declarations/bodies and line comments copied exactly, no behavioral rewriting; source-only extraction validates full-file and extracted-body hashes.",
+  "execution_receipt": {
+    "source_manifest_sha256": "787eec55f29f9545b0709399302ade52d7e8d9eafdee150467a11b2a5717667b",
+    "records": 2,
+    "original_function_bodies": 15,
+    "ubsan": true,
+    "executable_sha256": "4824aaa3eaddc3ec347eb52de603d7a671331744a5d336444e2d74e07788db0a",
+    "scope": "Actual original bounded primary/Dozer Xfer component; inherited AI payload stub and live gameplay excluded"
+  }
+}

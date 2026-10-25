@@ -52,7 +52,7 @@ impl GameLogic {
                         u.movement.target_position = None;
                     }
                     u.can_path_through_units = false;
-                    u.adjust_destinations = true;
+                    u.set_adjust_destinations(true);
                     u.set_precise_z_pos(false);
                     u.set_ai_state(
                         state,

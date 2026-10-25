@@ -1,9 +1,7 @@
 //! QuitMenu.cpp callback port.
 
 use crate::game_text::GameText;
-use crate::gui::callbacks::message_box::{
-    MessageBoxFunc, message_box_yes_no, quit_message_box_yes_no,
-};
+use crate::gui::callbacks::message_box::{MessageBoxFunc, message_box_yes_no, quit_message_box_yes_no};
 use crate::gui::callbacks::popup_save_load::show_live_popup_save_load_layout;
 use crate::gui::{
     GameWindow, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled,
@@ -1028,99 +1026,107 @@ mod os_wnd_tests {
 
     #[test]
     fn retail_quit_save_load_click_creates_initialized_popup_layout() {
-        with_window_manager(|manager| manager.reset());
-        assert!(
-            ensure_live_quit_menu_layout(),
-            "the retail QuitMenu.wnd must parse with ButtonSaveLoad"
-        );
-
-        assert!(
-            drive_os_wnd_quit_menu_save_load_like_cpp(),
-            "the real ButtonSaveLoad OS click must be hittable"
-        );
-
-        for name in [
-            "PopupSaveLoad.wnd:SaveLoadMenu",
-            "PopupSaveLoad.wnd:MenuButtonFrame",
-            "PopupSaveLoad.wnd:ButtonSave",
-            "PopupSaveLoad.wnd:ButtonLoad",
-            "PopupSaveLoad.wnd:ListboxGames",
-            "PopupSaveLoad.wnd:LoadConfirmParent",
-            "PopupSaveLoad.wnd:OverwriteConfirmParent",
-            "PopupSaveLoad.wnd:SaveDescParent",
-            "PopupSaveLoad.wnd:DeleteConfirmParent",
-        ] {
+        let owner = crate::gui::window_manager::WindowManagerOwner::new();
+        owner.with_scope(|| {
+            with_window_manager(|manager| manager.reset());
             assert!(
-                live_popup_save_load_window_present(name),
-                "real PopupSaveLoad.wnd must create {name}"
+                ensure_live_quit_menu_layout(),
+                "the retail QuitMenu.wnd must parse with ButtonSaveLoad"
             );
-        }
 
-        let popup_state =
-            crate::gui::callbacks::popup_save_load::prepare_live_popup_save_load_for_click();
-        assert!(
-            popup_state,
-            "popup must have bound its real listbox/control state"
-        );
+            assert!(
+                drive_os_wnd_quit_menu_save_load_like_cpp(),
+                "the real ButtonSaveLoad OS click must be hittable"
+            );
 
-        assert!(
-            drive_os_wnd_popup_save_load_save_like_cpp(),
-            "Save must reach the retail PopupSaveLoad callback"
-        );
-        let save_description_visible = with_window_manager(|manager| {
-            manager
-                .find_window_by_name("PopupSaveLoad.wnd:SaveDescParent")
-                .is_some_and(|window| !window.borrow().is_hidden())
+            for name in [
+                "PopupSaveLoad.wnd:SaveLoadMenu",
+                "PopupSaveLoad.wnd:MenuButtonFrame",
+                "PopupSaveLoad.wnd:ButtonSave",
+                "PopupSaveLoad.wnd:ButtonLoad",
+                "PopupSaveLoad.wnd:ListboxGames",
+                "PopupSaveLoad.wnd:LoadConfirmParent",
+                "PopupSaveLoad.wnd:OverwriteConfirmParent",
+                "PopupSaveLoad.wnd:SaveDescParent",
+                "PopupSaveLoad.wnd:DeleteConfirmParent",
+            ] {
+                assert!(
+                    live_popup_save_load_window_present(name),
+                    "real PopupSaveLoad.wnd must create {name}"
+                );
+            }
+
+            let popup_state =
+                crate::gui::callbacks::popup_save_load::prepare_live_popup_save_load_for_click();
+            assert!(
+                popup_state,
+                "popup must have bound its real listbox/control state"
+            );
+
+            assert!(
+                drive_os_wnd_popup_save_load_save_like_cpp(),
+                "Save must reach the retail PopupSaveLoad callback"
+            );
+            let save_description_visible = with_window_manager(|manager| {
+                manager
+                    .find_window_by_name("PopupSaveLoad.wnd:SaveDescParent")
+                    .is_some_and(|window| !window.borrow().is_hidden())
+            });
+            assert!(
+                save_description_visible,
+                "New Save Game must open SaveDescParent instead of stopping at ButtonSave"
+            );
+            assert!(
+                crate::gui::dispatch_os_click_named_window(
+                    "PopupSaveLoad.wnd:ButtonSaveDescCancel"
+                ),
+                "the real save description cancel button must be hittable"
+            );
+            with_window_manager(|manager| manager.reset());
         });
-        assert!(
-            save_description_visible,
-            "New Save Game must open SaveDescParent instead of stopping at ButtonSave"
-        );
-        assert!(
-            crate::gui::dispatch_os_click_named_window("PopupSaveLoad.wnd:ButtonSaveDescCancel"),
-            "the real save description cancel button must be hittable"
-        );
-        with_window_manager(|manager| manager.reset());
     }
 
     #[test]
     fn retail_quit_menu_toggle_tracks_live_wnd_visibility() {
-        // This is intentionally the production toggle, not the residual
-        // `simulate_quit_menu_*` latch.  It parses the retail QuitMenu.wnd,
-        // binds its actual ButtonReturn gadget, and exercises the visible →
-        // hidden pause transition used by Main's offline host bridge.
-        with_window_manager(|manager| manager.reset());
-        {
-            let state = quit_menu_state();
-            *state.lock().unwrap_or_else(|e| e.into_inner()) = QuitMenuState::default();
-        }
-        TheGameLogic::set_intro_movie_playing(false);
-        TheGameLogic::set_game_paused(false, true);
+        let owner = crate::gui::window_manager::WindowManagerOwner::new();
+        owner.with_scope(|| {
+            // This is intentionally the production toggle, not the residual
+            // `simulate_quit_menu_*` latch.  It parses the retail QuitMenu.wnd,
+            // binds its actual ButtonReturn gadget, and exercises the visible →
+            // hidden pause transition used by Main's offline host bridge.
+            with_window_manager(|manager| manager.reset());
+            {
+                let state = quit_menu_state();
+                *state.lock().unwrap_or_else(|e| e.into_inner()) = QuitMenuState::default();
+            }
+            TheGameLogic::set_intro_movie_playing(false);
+            TheGameLogic::set_game_paused(false, true);
 
-        assert_eq!(
-            toggle_quit_menu_with_result(),
-            QuitMenuToggleResult::ToggledQuitMenu
-        );
-        assert!(is_quit_menu_visible());
-        assert!(TheGameLogic::is_game_paused());
-        assert!(with_window_manager(|manager| {
-            manager
-                .find_window_by_name("QuitMenu.wnd:ButtonReturn")
-                .is_some_and(|window| !window.borrow().is_hidden())
-        }));
+            assert_eq!(
+                toggle_quit_menu_with_result(),
+                QuitMenuToggleResult::ToggledQuitMenu
+            );
+            assert!(is_quit_menu_visible());
+            assert!(TheGameLogic::is_game_paused());
+            assert!(with_window_manager(|manager| {
+                manager
+                    .find_window_by_name("QuitMenu.wnd:ButtonReturn")
+                    .is_some_and(|window| !window.borrow().is_hidden())
+            }));
 
-        assert!(
-            crate::gui::dispatch_os_click_named_window("QuitMenu.wnd:ButtonReturn"),
-            "the retail Return button must dispatch through QuitMenuSystem"
-        );
-        assert!(!is_quit_menu_visible());
-        assert!(!TheGameLogic::is_game_paused());
+            assert!(
+                crate::gui::dispatch_os_click_named_window("QuitMenu.wnd:ButtonReturn"),
+                "the retail Return button must dispatch through QuitMenuSystem"
+            );
+            assert!(!is_quit_menu_visible());
+            assert!(!TheGameLogic::is_game_paused());
 
-        {
-            let state = quit_menu_state();
-            *state.lock().unwrap_or_else(|e| e.into_inner()) = QuitMenuState::default();
-        }
-        with_window_manager(|manager| manager.reset());
+            {
+                let state = quit_menu_state();
+                *state.lock().unwrap_or_else(|e| e.into_inner()) = QuitMenuState::default();
+            }
+            with_window_manager(|manager| manager.reset());
+        });
     }
 }
 

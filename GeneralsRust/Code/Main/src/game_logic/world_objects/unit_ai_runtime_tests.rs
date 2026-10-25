@@ -85,7 +85,7 @@ fn quick_exit_completion_restores_guard_before_same_tick_dispatch() {
         let unit_id = ObjectId(934204);
         let guard_id = ObjectId(934205);
         let mut unit = object(unit_id);
-        unit.guard_target = Some(guard_id);
+        unit.set_guard_target_data(Some(guard_id));
         unit.cur_locomotor_name = Some("BasicHumanLocomotor".into());
         unit.close_enough_dist = Some(1.0);
         unit.set_ai_state(
@@ -95,7 +95,7 @@ fn quick_exit_completion_restores_guard_before_same_tick_dispatch() {
         unit.movement.path = vec![endpoint; points];
         unit.movement.target_position = Some(endpoint);
         unit.can_path_through_units = true;
-        unit.adjust_destinations = false;
+        unit.set_adjust_destinations(false);
         world.add_object(unit);
         world.add_object(object(guard_id));
         world
@@ -114,14 +114,14 @@ fn quick_exit_completion_restores_guard_before_same_tick_dispatch() {
         let unit = world.host_object(unit_id).unwrap();
         if finished {
             assert_eq!(
-                unit.ai_state,
+                unit.ai_state(),
                 crate::game_logic::AIState::GuardingObject,
                 "{label}"
             );
             assert!(unit.movement.path.is_empty(), "{label}");
             assert_eq!(unit.movement.target_position, None, "{label}");
             assert!(!unit.can_path_through_units, "{label}");
-            assert!(unit.adjust_destinations, "{label}");
+            assert!(unit.adjust_destinations(), "{label}");
             assert_eq!(
                 world
                     .unit_ai_runtime(unit_id)
@@ -136,7 +136,11 @@ fn quick_exit_completion_restores_guard_before_same_tick_dispatch() {
                 "{label}: the refreshed guard state must dispatch in this tick"
             );
         } else {
-            assert_eq!(unit.ai_state, crate::game_logic::AIState::Moving, "{label}");
+            assert_eq!(
+                unit.ai_state(),
+                crate::game_logic::AIState::Moving,
+                "{label}"
+            );
             assert_eq!(unit.movement.path, vec![endpoint; points], "{label}");
             assert_eq!(
                 world
@@ -164,7 +168,7 @@ fn quick_exit_deadline_preserves_path_at_end_frame_and_expires_next_frame() {
     let guard_id = ObjectId(934207);
     let endpoint = Vec3::new(10.0, 0.0, 0.0);
     let mut unit = object(unit_id);
-    unit.guard_target = Some(guard_id);
+    unit.set_guard_target_data(Some(guard_id));
     unit.set_ai_state(
         crate::game_logic::AIState::Moving,
         &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
@@ -172,7 +176,7 @@ fn quick_exit_deadline_preserves_path_at_end_frame_and_expires_next_frame() {
     unit.movement.path = vec![endpoint, endpoint];
     unit.movement.target_position = Some(endpoint);
     unit.can_path_through_units = true;
-    unit.adjust_destinations = false;
+    unit.set_adjust_destinations(false);
     world.add_object(unit);
     world.add_object(object(guard_id));
     world
@@ -189,13 +193,13 @@ fn quick_exit_deadline_preserves_path_at_end_frame_and_expires_next_frame() {
     world.update_support_states(&[unit_id], 1.0 / 30.0);
     let unit = world.host_object(unit_id).unwrap();
     assert_eq!(
-        unit.ai_state,
+        unit.ai_state(),
         crate::game_logic::AIState::Moving,
         "C++ continuing temporary exit state is still active at its end frame"
     );
     assert_eq!(unit.movement.path, vec![endpoint, endpoint]);
     assert!(unit.can_path_through_units);
-    assert!(!unit.adjust_destinations);
+    assert!(!unit.adjust_destinations());
     assert_eq!(
         world
             .unit_ai_runtime(unit_id)
@@ -207,10 +211,10 @@ fn quick_exit_deadline_preserves_path_at_end_frame_and_expires_next_frame() {
     world.frame = 11;
     world.update_support_states(&[unit_id], 1.0 / 30.0);
     let unit = world.host_object(unit_id).unwrap();
-    assert_eq!(unit.ai_state, crate::game_logic::AIState::GuardingObject);
+    assert_eq!(unit.ai_state(), crate::game_logic::AIState::GuardingObject);
     assert!(unit.movement.path.is_empty());
     assert!(!unit.can_path_through_units);
-    assert!(unit.adjust_destinations);
+    assert!(unit.adjust_destinations());
     assert_eq!(
         world
             .unit_ai_runtime(unit_id)
@@ -288,7 +292,7 @@ fn suspended_quick_exit_does_not_bypass_invalid_sally_cleanup() {
             &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         unit.can_path_through_units = true;
-        unit.adjust_destinations = false;
+        unit.set_adjust_destinations(false);
         world.add_object(unit);
         let (unit, partition) = world.host_object_and_partition_mut(id).unwrap();
         unit.unit_ai_runtime.set_guard_phase(Some(

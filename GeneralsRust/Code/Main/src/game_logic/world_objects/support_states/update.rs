@@ -13,7 +13,7 @@ impl GameLogic {
         &mut self,
         object_ids: &[ObjectId],
         dt: f32,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         self.update_support_states_with_effects(object_ids, dt, &mut Default::default())
     }
 
@@ -22,7 +22,7 @@ impl GameLogic {
         object_ids: &[ObjectId],
         dt: f32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         let tree_move_frame = self.frame;
         // Object::set_ai_state records DockUpdate's synchronous cancellation
         // callback as an epoch. Reconcile it at this regular mutable world
@@ -52,12 +52,12 @@ impl GameLogic {
         for &object_id in object_ids {
             let snapshot = match self.objects.get(&object_id) {
                 Some(obj) => (
-                    obj.ai_state.clone(),
+                    obj.ai_state().clone(),
                     obj.team,
                     obj.owner_player_id,
                     obj.get_position(),
                     obj.target,
-                    obj.guard_target,
+                    obj.active_guard_target(),
                     obj.can_move(),
                     obj.can_attack(),
                     obj.health.current,
@@ -103,7 +103,7 @@ impl GameLogic {
             let ai_state = if quick_exit_finished {
                 self.objects
                     .get(&object_id)
-                    .map(|o| o.ai_state.clone())
+                    .map(|o| o.ai_state().clone())
                     .unwrap_or(AIState::GuardingObject)
             } else {
                 ai_state
@@ -117,7 +117,7 @@ impl GameLogic {
                 }
                 AIState::Repairing => {
                     let Some(repair_target_id) = target_id else {
-                        self.release_dozer_repair_order(object_id);
+                        self.release_dozer_repair_order(object_id)?;
                         continue;
                     };
 
@@ -133,7 +133,7 @@ impl GameLogic {
                         })
                         .unwrap_or(false);
                     if !actor_can_repair {
-                        self.release_dozer_repair_order(object_id);
+                        self.release_dozer_repair_order(object_id)?;
                         continue;
                     }
 
@@ -153,7 +153,7 @@ impl GameLogic {
                         )
                     })
                     else {
-                        self.release_dozer_repair_order(object_id);
+                        self.release_dozer_repair_order(object_id)?;
                         continue;
                     };
 
@@ -169,7 +169,7 @@ impl GameLogic {
                         || repair_target_under_construction
                         || !self.repair_relationship_is_not_enemy(object_id, repair_target_id)
                     {
-                        self.release_dozer_repair_order(object_id);
+                        self.release_dozer_repair_order(object_id)?;
                         continue;
                     }
 
@@ -211,7 +211,7 @@ impl GameLogic {
                             });
                         if can_move && !has_valid_active_approach_path {
                             if let Some(dozer) = self.objects.get_mut(&object_id) {
-                                dozer.adjust_destinations = false;
+                                dozer.set_adjust_destinations(false);
                             }
                             self.path_approach_with_state_ignoring(
                                 object_id,
@@ -245,7 +245,7 @@ impl GameLogic {
                             radar_notifications::RadarKind::Generic,
                         );
                         self.repair_complete_events = self.repair_complete_events.saturating_add(1);
-                        self.release_dozer_repair_order(object_id);
+                        self.release_dozer_repair_order(object_id)?;
                         continue;
                     }
 
@@ -284,13 +284,13 @@ impl GameLogic {
                     let (target_full, healed, repair_pos) = match sole {
                         Some(v) => v,
                         None => {
-                            self.release_dozer_repair_order(object_id);
+                            self.release_dozer_repair_order(object_id)?;
                             continue;
                         }
                     };
                     if !healed && !target_full {
                         // Another dozer owns sole-benefactor claim — cancel this dozer task.
-                        self.release_dozer_repair_order(object_id);
+                        self.release_dozer_repair_order(object_id)?;
                         self.sole_benefactor_repair_rejects =
                             self.sole_benefactor_repair_rejects.saturating_add(1);
                         continue;
@@ -307,7 +307,7 @@ impl GameLogic {
                             radar_notifications::RadarKind::Generic,
                         );
                         self.repair_complete_events = self.repair_complete_events.saturating_add(1);
-                        self.release_dozer_repair_order(object_id);
+                        self.release_dozer_repair_order(object_id)?;
                     }
                 }
                 state @ (AIState::SeekingRepair | AIState::SeekingHealing) => {
@@ -318,7 +318,7 @@ impl GameLogic {
                             self.release_dock_if_holder(tid, object_id);
                         }
                         let rallied = self.objects.get(&object_id).is_some_and(|obj| {
-                            matches!(obj.ai_state, AIState::Moving | AIState::AttackMoving)
+                            matches!(obj.ai_state(), AIState::Moving | AIState::AttackMoving)
                         });
                         if let Some(obj) = self.objects.get_mut(&object_id) {
                             obj.clear_order_target(&mut crate::game_logic::ObjectAudio::queue(
@@ -329,15 +329,14 @@ impl GameLogic {
                                     &mut self.queued_audio_events,
                                 ));
                                 obj.ignored_obstacle_id = None;
-                                if obj.ai_state != AIState::Idle {
-                                    obj.set_ai_state(
-                                        AIState::Idle,
-                                        &mut crate::game_logic::ObjectAudio::queue(
-                                            &mut self.queued_audio_events,
-                                        ),
-                                    );
-                                }
                             }
+                        }
+                        if !rallied {
+                            self.set_ai_state_decision_aware_with_effects(
+                                object_id,
+                                AIState::Idle,
+                                effects,
+                            )?;
                         }
                         continue;
                     }
@@ -351,15 +350,12 @@ impl GameLogic {
                             obj.clear_target(&mut crate::game_logic::ObjectAudio::queue(
                                 &mut self.queued_audio_events,
                             ));
-                            if obj.ai_state != AIState::Idle {
-                                obj.set_ai_state(
-                                    AIState::Idle,
-                                    &mut crate::game_logic::ObjectAudio::queue(
-                                        &mut self.queued_audio_events,
-                                    ),
-                                );
-                            }
                         }
+                        self.set_ai_state_decision_aware_with_effects(
+                            object_id,
+                            AIState::Idle,
+                            effects,
+                        )?;
                         continue;
                     };
 
@@ -400,15 +396,12 @@ impl GameLogic {
                             obj.clear_target(&mut crate::game_logic::ObjectAudio::queue(
                                 &mut self.queued_audio_events,
                             ));
-                            if obj.ai_state != AIState::Idle {
-                                obj.set_ai_state(
-                                    AIState::Idle,
-                                    &mut crate::game_logic::ObjectAudio::queue(
-                                        &mut self.queued_audio_events,
-                                    ),
-                                );
-                            }
                         }
+                        self.set_ai_state_decision_aware_with_effects(
+                            object_id,
+                            AIState::Idle,
+                            effects,
+                        )?;
                         continue;
                     };
 
@@ -431,15 +424,12 @@ impl GameLogic {
                             obj.clear_target(&mut crate::game_logic::ObjectAudio::queue(
                                 &mut self.queued_audio_events,
                             ));
-                            if obj.ai_state != AIState::Idle {
-                                obj.set_ai_state(
-                                    AIState::Idle,
-                                    &mut crate::game_logic::ObjectAudio::queue(
-                                        &mut self.queued_audio_events,
-                                    ),
-                                );
-                            }
                         }
+                        self.set_ai_state_decision_aware_with_effects(
+                            object_id,
+                            AIState::Idle,
+                            effects,
+                        )?;
                         continue;
                     }
 
@@ -484,15 +474,12 @@ impl GameLogic {
                             obj.clear_target(&mut crate::game_logic::ObjectAudio::queue(
                                 &mut self.queued_audio_events,
                             ));
-                            if obj.ai_state != AIState::Idle {
-                                obj.set_ai_state(
-                                    AIState::Idle,
-                                    &mut crate::game_logic::ObjectAudio::queue(
-                                        &mut self.queued_audio_events,
-                                    ),
-                                );
-                            }
                         }
+                        self.set_ai_state_decision_aware_with_effects(
+                            object_id,
+                            AIState::Idle,
+                            effects,
+                        )?;
                         continue;
                     }
 
@@ -549,7 +536,7 @@ impl GameLogic {
                     // TimeForFullHeal. One activeDocker; rate computed once
                     // from missing HP so Humvee ≠ Overlord.
                     if matches!(state, AIState::SeekingRepair)
-                        && !self.try_claim_dock(support_target_id, object_id)
+                        && !(self.try_claim_dock(support_target_id, object_id)?)
                     {
                         continue;
                     }
@@ -602,10 +589,10 @@ impl GameLogic {
                                 docker.ignored_obstacle_id = Some(support_target_id);
                             }
                         }
-                        self.send_to_rally_after_repair_dock(object_id, support_target_id);
+                        self.send_to_rally_after_repair_dock(object_id, support_target_id)?;
                         self.release_dock_if_holder(support_target_id, object_id);
                         let rallied = self.objects.get(&object_id).is_some_and(|obj| {
-                            matches!(obj.ai_state, AIState::Moving | AIState::AttackMoving)
+                            matches!(obj.ai_state(), AIState::Moving | AIState::AttackMoving)
                         });
                         if !rallied {
                             if let Some(obj) = self.objects.get_mut(&object_id) {
@@ -613,15 +600,12 @@ impl GameLogic {
                                     &mut self.queued_audio_events,
                                 ));
                                 obj.ignored_obstacle_id = None;
-                                if obj.ai_state != AIState::Idle {
-                                    obj.set_ai_state(
-                                        AIState::Idle,
-                                        &mut crate::game_logic::ObjectAudio::queue(
-                                            &mut self.queued_audio_events,
-                                        ),
-                                    );
-                                }
                             }
+                            self.set_ai_state_decision_aware_with_effects(
+                                object_id,
+                                AIState::Idle,
+                                effects,
+                            )?;
                         }
                     }
 
@@ -724,7 +708,7 @@ impl GameLogic {
                                     object_id,
                                     Some(pilot_team),
                                     effects,
-                                );
+                                )?;
                                 continue;
                             }
                         }
@@ -765,8 +749,12 @@ impl GameLogic {
                                 );
                                 continue;
                             }
-                            if let Some(veh) = self.objects.get_mut(&container_id) {
-                                if veh.status.disabled_unmanned {
+                            let was_unmanned = self
+                                .objects
+                                .get(&container_id)
+                                .is_some_and(|veh| veh.status.disabled_unmanned);
+                            if was_unmanned {
+                                if let Some(veh) = self.objects.get_mut(&container_id) {
                                     veh.set_status_disabled_unmanned(false);
                                     veh.status.unmanned_owner_team = None;
                                     veh.status.unmanned_owner_player_id = None;
@@ -776,14 +764,13 @@ impl GameLogic {
                                         &mut self.queued_audio_events,
                                     ));
                                     veh.target = None;
-                                    if veh.ai_state != AIState::Idle {
-                                        veh.set_ai_state(
-                                            AIState::Idle,
-                                            &mut crate::game_logic::ObjectAudio::queue(
-                                                &mut self.queued_audio_events,
-                                            ),
-                                        );
-                                    }
+                                }
+                                self.set_ai_state_decision_aware_with_effects(
+                                    container_id,
+                                    AIState::Idle,
+                                    effects,
+                                )?;
+                                if let Some(veh) = self.objects.get_mut(&container_id) {
                                     veh.set_team_and_owner_with_partition_owner(
                                         inf_team,
                                         inf_owner,
@@ -801,7 +788,7 @@ impl GameLogic {
                                 object_id,
                                 Some(inf_team),
                                 effects,
-                            );
+                            )?;
                             continue;
                         }
                     }
@@ -1366,7 +1353,7 @@ impl GameLogic {
                 }
                 AIState::Capturing => {
                     let Some(capture_target_id) = target_id else {
-                        self.abort_capture_channel(object_id);
+                        self.abort_capture_channel(object_id)?;
                         continue;
                     };
 
@@ -1402,7 +1389,7 @@ impl GameLogic {
                             false,
                         ));
                     let Some(power_type) = capture_power.special_power_type() else {
-                        self.abort_capture_channel(object_id);
+                        self.abort_capture_channel(object_id)?;
                         continue;
                     };
 
@@ -1422,7 +1409,7 @@ impl GameLogic {
                                         });
                                 }
                             } else {
-                                self.finish_capture_channel(object_id);
+                                self.finish_capture_channel(object_id)?;
                             }
                             continue;
                         }
@@ -1440,7 +1427,7 @@ impl GameLogic {
                             )
                         )
                     {
-                        self.abort_capture_channel(object_id);
+                        self.abort_capture_channel(object_id)?;
                         continue;
                     }
 
@@ -1449,7 +1436,7 @@ impl GameLogic {
                         .get(&capture_target_id)
                         .map(|target| (target.get_position(), target.team))
                     else {
-                        self.abort_capture_channel(object_id);
+                        self.abort_capture_channel(object_id)?;
                         continue;
                     };
 
@@ -1457,19 +1444,19 @@ impl GameLogic {
                     // SpecialAbilityUpdate module.  A partial/unsupported
                     // parse must not invent a zero-duration capture ability.
                     let Some(authored_range) = capture_start_range else {
-                        self.abort_capture_channel(object_id);
+                        self.abort_capture_channel(object_id)?;
                         continue;
                     };
                     let Some(unpack_time_ms) = capture_unpack_time_ms else {
-                        self.abort_capture_channel(object_id);
+                        self.abort_capture_channel(object_id)?;
                         continue;
                     };
                     let Some(preparation_time_ms) = capture_preparation_time_ms else {
-                        self.abort_capture_channel(object_id);
+                        self.abort_capture_channel(object_id)?;
                         continue;
                     };
                     let Some(pack_time_ms) = capture_pack_time_ms else {
-                        self.abort_capture_channel(object_id);
+                        self.abort_capture_channel(object_id)?;
                         continue;
                     };
 
@@ -1478,7 +1465,7 @@ impl GameLogic {
                     // target is no longer legal.  Do not re-demand readiness:
                     // the timer begins only below in start_capture_preparation.
                     if !self.can_unit_capture_building(object_id, capture_target_id, false) {
-                        self.abort_capture_channel(object_id);
+                        self.abort_capture_channel(object_id)?;
                         continue;
                     }
 
@@ -1552,7 +1539,7 @@ impl GameLogic {
                                 preparation_time_ms,
                                 effects,
                             ) {
-                                self.abort_capture_channel(object_id);
+                                self.abort_capture_channel(object_id)?;
                                 continue;
                             }
                             preparation_complete = preparation_time_ms == 0;
@@ -1580,7 +1567,7 @@ impl GameLogic {
                                 preparation_time_ms,
                                 effects,
                             ) {
-                                self.abort_capture_channel(object_id);
+                                self.abort_capture_channel(object_id)?;
                                 continue;
                             }
                             preparation_complete = preparation_time_ms == 0;
@@ -1745,7 +1732,7 @@ impl GameLogic {
                     }
 
                     if pack_time_ms == 0 {
-                        self.finish_capture_channel(object_id);
+                        self.finish_capture_channel(object_id)?;
                     }
 
                     if did_capture {
@@ -2235,7 +2222,7 @@ impl GameLogic {
                                     object_id,
                                     Some(team),
                                     effects,
-                                );
+                                )?;
                                 // mark_object may re-enter SlowDeath and clear destroyed;
                                 // re-assert consume residual for hijack steal.
                                 if let Some(o) = self.objects.get_mut(&object_id) {
@@ -2408,7 +2395,7 @@ impl GameLogic {
                                                     special_target_id,
                                                     Some(team),
                                                     effects,
-                                                );
+                                                )?;
                                                 self.saboteur.record_fake_detonated();
                                             }
                                         }
@@ -2455,7 +2442,7 @@ impl GameLogic {
                                         object_id,
                                         Some(team),
                                         effects,
-                                    );
+                                    )?;
                                     self.saboteur.record_consumed();
                                 } else if let Some(obj) = self.objects.get_mut(&object_id) {
                                     // Fail-closed: non-matching structure — cancel residual.
@@ -2752,14 +2739,14 @@ impl GameLogic {
                                             special_target_id,
                                             Some(team),
                                             effects,
-                                        );
+                                        )?;
                                     }
                                     if b_dead {
                                         self.mark_object_for_destruction_with_effects(
                                             object_id,
                                             Some(team),
                                             effects,
-                                        );
+                                        )?;
                                     }
                                     continue;
                                 }
@@ -2838,7 +2825,7 @@ impl GameLogic {
                                 object_id,
                                 Some(team),
                                 effects,
-                            );
+                            )?;
                         }
                         PendingSpecialAbility::DisableVehicleHack { .. } => {
                             // C++ SpecialAbilityUpdate BLACKLOTUS_DISABLE_VEHICLE_HACK:
@@ -2926,18 +2913,15 @@ impl GameLogic {
                                     &mut self.queued_audio_events,
                                 ));
                                 obj.ignored_obstacle_id = None;
-                                {
-                                    obj.clear_target(&mut crate::game_logic::ObjectAudio::queue(
-                                        &mut self.queued_audio_events,
-                                    ));
-                                    obj.set_ai_state(
-                                        AIState::Idle,
-                                        &mut crate::game_logic::ObjectAudio::queue(
-                                            &mut self.queued_audio_events,
-                                        ),
-                                    );
-                                }
+                                obj.clear_target(&mut crate::game_logic::ObjectAudio::queue(
+                                    &mut self.queued_audio_events,
+                                ));
                             }
+                            self.set_ai_state_decision_aware_with_effects(
+                                object_id,
+                                AIState::Idle,
+                                effects,
+                            )?;
                             self.bomb_truck_disguise.record_disguise(object_id, &tpl);
                             self.bomb_truck_disguise.record_transition_start();
                             if copied_disguise {
@@ -3100,12 +3084,20 @@ impl GameLogic {
                     // (ChinookAIUpdate.cpp:982-991): loaded / enter-exit
                     // pending Chinooks must not auto-dock warehouses.
                     if !self.collector_available_for_supplying(object_id) {
-                        self.set_ai_state_decision_aware(object_id, AIState::Idle);
+                        self.set_ai_state_decision_aware_with_effects(
+                            object_id,
+                            AIState::Idle,
+                            effects,
+                        )?;
                         continue;
                     }
 
                     let Some(source_id) = target_id else {
-                        self.set_ai_state_decision_aware(object_id, AIState::Idle);
+                        self.set_ai_state_decision_aware_with_effects(
+                            object_id,
+                            AIState::Idle,
+                            effects,
+                        )?;
                         continue;
                     };
 
@@ -3139,7 +3131,7 @@ impl GameLogic {
                             owner_player_id,
                             position,
                             can_move,
-                        );
+                        )?;
                         continue;
                     }
 
@@ -3178,7 +3170,7 @@ impl GameLogic {
                         ) {
                             // C++ aiDock: path to the reserved approach, and only
                             // transfer a box once that claim is ClearToAct.
-                            if !self.try_claim_dock(source_id, object_id) {
+                            if !(self.try_claim_dock(source_id, object_id)?) {
                                 let close = docker_r * 2.0;
                                 if !(can_move && position.distance(source_pos) > close + 1.0) {
                                     let (dx, dz) =
@@ -3207,7 +3199,7 @@ impl GameLogic {
                         self.path_approach_with_state(object_id, source_pos, AIState::Gathering);
                         continue;
                     }
-                    if source_is_warehouse && !self.try_claim_dock(source_id, object_id) {
+                    if source_is_warehouse && !(self.try_claim_dock(source_id, object_id)?) {
                         continue;
                     }
 
@@ -3333,7 +3325,7 @@ impl GameLogic {
                                             &mut self.health_events,
                                         );
                                     }
-                                    self.mark_object_for_destruction_with_effects(object_id, None, effects);
+                                    self.mark_object_for_destruction_with_effects(object_id, None, effects)?;
                                 }
                                 crate::game_logic::host_supply_gather::DockCrippleVictimAction::IdleAndForceWanting => {
                                     if let Some(obj) = self.objects.get_mut(&object_id) {
@@ -3341,7 +3333,7 @@ impl GameLogic {
                                         obj.supply_truck_state = SupplyTruckState::Wanting;
                                     }
                                     self.stop_attack_decision_aware(object_id);
-                                    self.set_ai_state_decision_aware(object_id, AIState::Idle);
+                                    self.set_ai_state_decision_aware_with_effects(object_id, AIState::Idle, effects)?;
                                 }
                                 crate::game_logic::host_supply_gather::DockCrippleVictimAction::None => {}
                             }
@@ -3358,7 +3350,7 @@ impl GameLogic {
                             team,
                             owner_player_id,
                             position,
-                        );
+                        )?;
                         continue;
                     }
                     if source_is_warehouse && taken == 0 {
@@ -3371,7 +3363,7 @@ impl GameLogic {
                             owner_player_id,
                             position,
                             can_move,
-                        );
+                        )?;
                         continue;
                     }
                     let is_full = current_carry + taken >= max_carry;
@@ -3399,7 +3391,9 @@ impl GameLogic {
                                 None,
                                 &mut self.health_events,
                             );
-                            self.mark_object_for_destruction_with_effects(source_id, None, effects);
+                            self.mark_object_for_destruction_with_effects(
+                                source_id, None, effects,
+                            )?;
                         }
                     }
                     if remaining_after == 0 && collector_metadata.is_some() {
@@ -3445,13 +3439,17 @@ impl GameLogic {
                             team,
                             owner_player_id,
                             position,
-                        );
+                        )?;
                     }
                 }
                 AIState::ReturningResources => {
                     self.arm_worker_harvest_mine_clearing(object_id);
                     if !self.collector_available_for_supplying(object_id) {
-                        self.set_ai_state_decision_aware(object_id, AIState::Idle);
+                        self.set_ai_state_decision_aware_with_effects(
+                            object_id,
+                            AIState::Idle,
+                            effects,
+                        )?;
                         continue;
                     }
                     // Deposit resources when close to a supply center.
@@ -3463,7 +3461,7 @@ impl GameLogic {
                     );
 
                     if let Some(rid) = refinery_id {
-                        if !self.try_claim_dock(rid, object_id) {
+                        if !(self.try_claim_dock(rid, object_id)?) {
                             continue;
                         }
 
@@ -3698,7 +3696,11 @@ impl GameLogic {
                                     object.supply_truck_state = SupplyTruckState::Wanting;
                                     object.supply_truck_next_dock_action_frame = 0;
                                 }
-                                self.set_ai_state_decision_aware(object_id, AIState::Gathering);
+                                self.set_ai_state_decision_aware_with_effects(
+                                    object_id,
+                                    AIState::Gathering,
+                                    effects,
+                                )?;
                                 let warehouse = self.objects.get(&sid).is_some_and(|s| {
                                     s.thing().template.dock_kind
                                         == crate::game_logic::DockKind::SupplyWarehouse
@@ -3709,7 +3711,7 @@ impl GameLogic {
                                 });
                                 // A warehouse PathTo already aims at the approach.
                                 // A plain supply pile has no dock slots.
-                                if !self.try_claim_dock(sid, object_id) && !warehouse {
+                                if !(self.try_claim_dock(sid, object_id)?) && !warehouse {
                                     if let Some(dest) =
                                         self.objects.get(&sid).map(|s| s.get_position())
                                     {
@@ -3748,9 +3750,13 @@ impl GameLogic {
                                     obj.supply_truck_state = SupplyTruckState::Wanting;
                                     obj.supply_truck_next_dock_action_frame = 0;
                                 }
-                                self.set_ai_state_decision_aware(object_id, AIState::Gathering);
+                                self.set_ai_state_decision_aware_with_effects(
+                                    object_id,
+                                    AIState::Gathering,
+                                    effects,
+                                )?;
                                 if warehouse {
-                                    let _ = self.try_claim_dock(next, object_id);
+                                    let _claimed = self.try_claim_dock(next, object_id)?;
                                 } else if let Some(dest) =
                                     self.objects.get(&next).map(|s| s.get_position())
                                 {
@@ -3766,7 +3772,7 @@ impl GameLogic {
                                     team,
                                     owner_player_id,
                                     position,
-                                );
+                                )?;
                             }
                         } else {
                             // C++ action() FALSE → AIDock SUCCESS → WANTING.
@@ -3776,7 +3782,7 @@ impl GameLogic {
                                 owner_player_id,
                                 position,
                                 can_move,
-                            );
+                            )?;
                         }
                     } else if can_move {
                         let _ = can_move;
@@ -3946,7 +3952,7 @@ impl GameLogic {
                         owner_player_id,
                         position,
                         can_move,
-                    );
+                    )?;
                 }
                 AIState::Attacking => {
                     // C++ parent stays AI_GUARD; live peels to Attacking for fire.
@@ -3975,5 +3981,6 @@ impl GameLogic {
         self.tick_heal_contain_and_tunnel_with_effects(effects);
         // C++ TunnelContain::update nemesis + AITNGuard::lookForInnerTarget.
         self.tick_tunnel_network_nemesis_with_effects(effects);
+        Ok(())
     }
 }

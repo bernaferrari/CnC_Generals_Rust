@@ -150,7 +150,7 @@ impl GameLogic {
         if let Some(object) = self.objects.get_mut(&id) {
             // privateMoveToObject clears/replaces the parent state and stores
             // the checked identity before entering AI_MOVE_TO.
-            if object.hunting || matches!(object.ai_state, AIState::Patrolling) {
+            if object.is_hunting() || matches!(object.ai_state(), AIState::Patrolling) {
                 object.release_weapon_lock(WeaponLockType::LockedTemporarily);
             }
             object.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
@@ -169,7 +169,7 @@ impl GameLogic {
             );
             object.last_command_source =
                 crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_SCRIPT;
-            object.hunting = false;
+            object.set_hunting(false);
             object.set_movement_goal_object(Some(target));
         }
         self.clear_unit_hunt_scan(id);
@@ -183,8 +183,8 @@ impl GameLogic {
                 let object = self.objects.get(id)?;
                 if object.is_disabled()
                     || object.host_skip_dead_locomotor()
-                    || object.temporary_move_frames > 0
-                    || !matches!(object.ai_state, AIState::Moving)
+                    || object.has_temporary_ai_move()
+                    || !matches!(object.ai_state(), AIState::Moving)
                 {
                     return None;
                 }

@@ -386,7 +386,7 @@ fn combat_drop_rappel_add_to_contain_on_roof() {
     let pax_obj = logic.host_object(pax).unwrap();
     assert!(!pax_obj.is_rappelling());
     assert_eq!(pax_obj.contained_by, Some(bunker));
-    assert_eq!(pax_obj.ai_state, AIState::Garrisoned);
+    assert_eq!(pax_obj.ai_state(), AIState::Garrisoned);
     assert!(
         logic
             .host_object(bunker)
@@ -751,7 +751,8 @@ fn execute_exit_and_evacuate_ignored_while_subdued() {
             CommandResult::InvalidCommand
         );
         assert_eq!(
-            exec.execute_evacuate(&[transport]),
+            exec.execute_evacuate(&[transport])
+                .expect("evacuate command"),
             CommandResult::InvalidCommand
         );
     }
@@ -801,7 +802,7 @@ fn execute_exit_walks_exit_path_not_idle_ring() {
     let hull = logic.host_object(transport).unwrap().get_position();
     let rider = logic.host_object(pax).unwrap();
     assert!(rider.contained_by.is_none());
-    assert_eq!(rider.ai_state, AIState::Moving, "must walk ExitStart/End");
+    assert_eq!(rider.ai_state(), AIState::Moving, "must walk ExitStart/End");
     assert!(rider.status.moving);
     let pos = rider.get_position();
     assert!(
@@ -842,7 +843,7 @@ fn evacuate_container_now_walks_transport_not_idle_ring() {
     let hull = logic.host_object(transport).unwrap().get_position();
     let rider = logic.host_object(pax).unwrap();
     assert!(rider.contained_by.is_none());
-    assert_eq!(rider.ai_state, AIState::Moving);
+    assert_eq!(rider.ai_state(), AIState::Moving);
     assert!(rider.status.moving);
     assert!((rider.get_position() - hull).length() < 1.0);
     let dest = rider.movement.target_position.expect("exit dest");
@@ -883,7 +884,7 @@ fn execute_exit_airborne_allows_fall_without_hull_velocity_kick() {
     }
     let rider = logic.host_object(pax).unwrap();
     assert!(rider.contained_by.is_none());
-    assert_eq!(rider.ai_state, AIState::Moving);
+    assert_eq!(rider.ai_state(), AIState::Moving);
     assert!(
         rider.allow_to_fall,
         "C++ onRemoving setAllowToFall when hull is above terrain"
@@ -932,7 +933,7 @@ fn execute_exit_walks_after_occupant_list_cleared() {
     assert!(logic.unit_command_exit_via_open_contain(pax, transport));
     let hull = logic.host_object(transport).unwrap().get_position();
     let rider = logic.host_object(pax).unwrap();
-    assert_eq!(rider.ai_state, AIState::Moving);
+    assert_eq!(rider.ai_state(), AIState::Moving);
     assert!(rider.status.moving);
     assert!((rider.get_position() - hull).length() < 1.0);
     let dest = rider.movement.target_position.expect("exit dest");
@@ -986,7 +987,7 @@ fn execute_exit_tunnel_walks_exit_start_not_idle_drop() {
     let rider = logic.host_object(pax).unwrap();
     assert!(rider.contained_by.is_none());
     assert_eq!(
-        rider.ai_state,
+        rider.ai_state(),
         AIState::Moving,
         "tunnel inventory exit must walk ExitStart/End"
     );
@@ -1272,7 +1273,10 @@ fn execute_evacuate_garrison_walks_burst_not_six_unit_ring() {
     let (bunker, ranger) = garrison_bunker(&mut logic, "EVAC_GB", "EVAC_GR", origin, None);
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
-        assert_eq!(exec.execute_evacuate(&[bunker]), CommandResult::Success);
+        assert_eq!(
+            exec.execute_evacuate(&[bunker]).expect("evacuate command"),
+            CommandResult::Success
+        );
     }
     let r = logic.host_object(ranger).unwrap();
     assert!(r.contained_by.is_none());
@@ -1336,7 +1340,10 @@ fn execute_evacuate_marks_stealth_garrison_detected() {
     }
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
-        assert_eq!(exec.execute_evacuate(&[bunker]), CommandResult::Success);
+        assert_eq!(
+            exec.execute_evacuate(&[bunker]).expect("evacuate command"),
+            CommandResult::Success
+        );
     }
     let n = logic.host_object(ninja).unwrap();
     assert!(n.contained_by.is_none());
@@ -1492,7 +1499,7 @@ fn enter_from_container_does_not_yank_occupant() {
             .contained_units()
             .contains(&ranger)
     );
-    assert_ne!(rider.ai_state, AIState::Entering);
+    assert_ne!(rider.ai_state(), AIState::Entering);
 }
 
 #[test]
@@ -1522,7 +1529,10 @@ fn railed_evacuate_uses_dock_unload_not_open_contain_walk() {
     contain_pair(&mut logic, ferry, pax);
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
-        assert_eq!(exec.execute_evacuate(&[ferry]), CommandResult::Success);
+        assert_eq!(
+            exec.execute_evacuate(&[ferry]).expect("evacuate command"),
+            CommandResult::Success
+        );
     }
     let rider = logic.host_object(pax).unwrap();
     let hull = logic.host_object(ferry).unwrap().get_position();
@@ -1565,7 +1575,7 @@ fn railed_evacuate_refuses_while_in_transit() {
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
         assert_eq!(
-            exec.execute_evacuate(&[ferry]),
+            exec.execute_evacuate(&[ferry]).expect("evacuate command"),
             CommandResult::InvalidCommand
         );
     }

@@ -105,13 +105,13 @@ fn nearest_authored_button_skips_invalid_nearer_targets_and_drives_only_its_owne
         .unwrap();
     assert_eq!(owner.host_object(source).unwrap().target, Some(target));
     assert_eq!(
-        owner.host_object(source).unwrap().ai_state,
+        owner.host_object(source).unwrap().ai_state(),
         AIState::SpecialAbility
     );
     assert!(owner.hero_abilities.leftover_channel(source).is_some());
     assert!(peer.hero_abilities.leftover_channel(peer_source).is_none());
     assert_eq!(
-        peer.host_object(peer_source).unwrap().ai_state,
+        peer.host_object(peer_source).unwrap().ai_state(),
         AIState::Idle
     );
 }

@@ -1279,7 +1279,7 @@ mod tests {
             .host_object(infantry_id)
             .expect("infantry remains live while walking to carrier");
         assert_eq!(infantry_after.target, Some(humvee_id));
-        assert_eq!(infantry_after.ai_state, AIState::Entering);
+        assert_eq!(infantry_after.ai_state(), AIState::Entering);
     }
 
     #[test]
@@ -1501,7 +1501,7 @@ End
             game_logic
                 .host_object(incoming_rider_id)
                 .expect("incoming rider remains live while approaching")
-                .ai_state,
+                .ai_state(),
             AIState::Entering
         );
 
@@ -1553,13 +1553,13 @@ End
             .host_object(old_rider_id)
             .expect("ejected rider remains live");
         assert_eq!(old_after.contained_by, None);
-        assert_eq!(old_after.ai_state, AIState::Idle);
+        assert_eq!(old_after.ai_state(), AIState::Idle);
         assert_eq!(old_after.experience.level, VeterancyLevel::Veteran);
         let incoming_after = game_logic
             .host_object(incoming_rider_id)
             .expect("new rider remains contained");
         assert_eq!(incoming_after.contained_by, Some(bike_id));
-        assert_eq!(incoming_after.ai_state, AIState::Docked);
+        assert_eq!(incoming_after.ai_state(), AIState::Docked);
         assert_eq!(incoming_after.experience.level, VeterancyLevel::Rookie);
         assert!(!incoming_after.selected);
 
@@ -1723,7 +1723,7 @@ End
             .host_object(infantry_id)
             .expect("infantry remains live while approaching the garrison");
         assert_eq!(infantry_after.target, Some(garrison_id));
-        assert_eq!(infantry_after.ai_state, AIState::Entering);
+        assert_eq!(infantry_after.ai_state(), AIState::Entering);
     }
 
     #[test]

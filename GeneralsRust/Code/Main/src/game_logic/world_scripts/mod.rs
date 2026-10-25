@@ -40,3 +40,10 @@ mod voice_fear_owner_tests;
 
 #[cfg(test)]
 mod movement_audio_owner_tests;
+
+mod base_ai_machine_owner;
+#[cfg(test)]
+mod base_ai_machine_owner_tests;
+mod derived_ai_idle;
+#[cfg(test)]
+mod derived_ai_idle_tests;

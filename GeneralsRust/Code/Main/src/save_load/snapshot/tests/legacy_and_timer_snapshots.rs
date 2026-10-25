@@ -442,11 +442,11 @@ fn snapshot_round_trips_guard_anchors() {
         .expect("target");
     {
         let tank = source.host_object_mut(tank_id).expect("tank obj");
-        tank.guard_position = Some(Vec3::new(10.0, 0.0, 20.0));
-        tank.guard_target = Some(target_id);
+        tank.restore_raw_guard_position(Some(Vec3::new(10.0, 0.0, 20.0)));
+        tank.restore_raw_guard_target(Some(target_id));
         tank.guard_radius = 150.0;
         tank.guard_mode = GuardMode::WithoutPursuit;
-        tank.ai_state = AIState::GuardingArea;
+        tank.restore_ai_state(AIState::GuardingArea);
     }
 
     let builder = SnapshotBuilder::new();
@@ -458,11 +458,11 @@ fn snapshot_round_trips_guard_anchors() {
         .expect("restore");
 
     let loaded = restored.host_object(tank_id).expect("restored tank");
-    assert_eq!(loaded.guard_position, Some(Vec3::new(10.0, 0.0, 20.0)));
-    assert_eq!(loaded.guard_target, Some(target_id));
+    assert_eq!(loaded.guard_position(), Some(Vec3::new(10.0, 0.0, 20.0)));
+    assert_eq!(loaded.guard_target(), Some(target_id));
     assert!((loaded.guard_radius - 150.0).abs() < f32::EPSILON);
     assert_eq!(loaded.guard_mode, GuardMode::WithoutPursuit);
-    assert_eq!(loaded.ai_state, AIState::GuardingArea);
+    assert_eq!(loaded.ai_state(), AIState::GuardingArea);
 }
 
 #[test]
@@ -569,58 +569,49 @@ fn snapshot_round_trips_cia_vision_spied_and_registry() {
 
 #[test]
 fn snapshot_round_trips_builder_id_and_dozer_build_task() {
-    let mut source = GameLogic::new();
-    source.templates.insert(
-        "AmericaVehicleDozer".to_string(),
-        ThingTemplate::new("AmericaVehicleDozer"),
+    use crate::save_load::{XferData, XferLoad, XferSave};
+    let (mut source, dozer, scaffold) = admitted_builder_native_world();
+    source.frame = 77;
+    source.dozer_new_task_build(dozer, scaffold).unwrap();
+    assert_eq!(
+        source.host_object(scaffold).unwrap().builder_id,
+        Some(dozer)
     );
-    let mut barracks = ThingTemplate::new("AmericaBarracks");
-    barracks.add_kind_of(KindOf::Structure);
-    source
-        .templates
-        .insert("AmericaBarracks".to_string(), barracks);
-    let dozer = source
-        .create_object("AmericaVehicleDozer", Team::USA, Vec3::ZERO)
-        .expect("dozer");
-    let scaffold = source
-        .create_object("AmericaBarracks", Team::USA, Vec3::new(20.0, 0.0, 0.0))
-        .expect("scaffold");
-    {
-        let building = source.host_object_mut(scaffold).expect("scaffold obj");
-        building.builder_id = Some(dozer);
-        building.set_status_under_construction(true);
-        building.construction_percent = 0.4;
-    }
-    {
-        let unit = source.host_object_mut(dozer).expect("dozer obj");
-        unit.dozer_task_build_target = Some(scaffold);
-        unit.dozer_task_build_order_frame = 77;
-    }
-
+    assert_eq!(
+        source.host_object(dozer).unwrap().dozer_tasks.current,
+        gamelogic::object::update::ai_update::dozer_ai_update::DozerTask::Invalid
+    );
     let builder = SnapshotBuilder::new();
-    let snapshot = builder.create_world_snapshot(&source).expect("snapshot");
+    let mut snapshot = builder.create_world_snapshot(&source).expect("snapshot");
     assert!(
         snapshot
             .builder_tasks
             .iter()
-            .any(|entry| { entry.object_id == scaffold && entry.builder_id == Some(dozer) })
+            .any(|entry| entry.object_id == scaffold && entry.builder_id == Some(dozer))
     );
-    assert!(snapshot.builder_tasks.iter().any(|entry| {
-        entry.object_id == dozer
-            && entry.dozer_task_build_target == Some(scaffold)
-            && entry.dozer_task_build_order_frame == 77
-    }));
-
-    let mut restored = GameLogic::new();
-    restored.templates = source.templates.clone();
+    let mut bytes = std::io::Cursor::new(Vec::new());
+    snapshot.xfer(&mut XferSave::new(&mut bytes)).unwrap();
+    let mut decoded = WorldSnapshot::default();
+    decoded
+        .xfer(&mut XferLoad::new(std::io::Cursor::new(bytes.into_inner())))
+        .unwrap();
+    let (mut restored, rd, rs) = admitted_builder_native_world();
+    assert_eq!((dozer, scaffold), (rd, rs));
     builder
-        .restore_from_snapshot(&snapshot, &mut restored)
-        .expect("restore");
-    let loaded_scaffold = restored.host_object(scaffold).expect("restored scaffold");
-    assert_eq!(loaded_scaffold.builder_id, Some(dozer));
-    let loaded_dozer = restored.host_object(dozer).expect("restored dozer");
-    assert_eq!(loaded_dozer.dozer_task_build_target, Some(scaffold));
-    assert_eq!(loaded_dozer.dozer_task_build_order_frame, 77);
+        .restore_from_snapshot(&decoded, &mut restored)
+        .expect("restore admitted receiving source");
+    assert_eq!(
+        restored.host_object(scaffold).unwrap().builder_id,
+        Some(dozer)
+    );
+    let loaded = &restored.host_object(dozer).unwrap().dozer_tasks;
+    assert_eq!(loaded.requests[0].target, Some(scaffold));
+    assert_eq!(loaded.requests[0].order_frame, 77);
+    assert_eq!(
+        loaded.current,
+        gamelogic::object::update::ai_update::dozer_ai_update::DozerTask::Invalid,
+        "restore does not infer entry from a pending request"
+    );
 }
 
 #[test]
@@ -680,17 +671,21 @@ fn direct_xfer_current_round_trips_cia_builder_sell_tail() {
     use crate::save_load::{Xfer, XferLoad, XferSave};
     use std::io::Cursor;
 
-    let mut world = WorldSnapshot::default();
+    let (mut source, dozer, scaffold) = admitted_builder_native_world();
+    source.frame = 12;
+    source.dozer_new_task_build(dozer, scaffold).unwrap();
+    let mut world = SnapshotBuilder::new()
+        .create_world_snapshot(&source)
+        .unwrap();
+    world.builder_tasks.clear();
     world.version = WORLD_SNAPSHOT_DIRECT_XFER_VERSION;
     world.vision_spied.push(ObjectVisionSpiedSnapshot {
         object_id: ObjectId(7),
         vision_spied_mask: 1,
     });
     world.builder_tasks.push(ObjectBuilderTaskSnapshot {
-        object_id: ObjectId(8),
-        builder_id: Some(ObjectId(9)),
-        dozer_task_build_target: Some(ObjectId(8)),
-        dozer_task_build_order_frame: 12,
+        object_id: scaffold,
+        builder_id: Some(dozer),
     });
     world.sell_list.push(SellListEntrySnapshot {
         object_id: ObjectId(10),
@@ -723,10 +718,8 @@ fn direct_xfer_current_round_trips_cia_builder_sell_tail() {
     assert_eq!(
         restored.builder_tasks,
         vec![ObjectBuilderTaskSnapshot {
-            object_id: ObjectId(8),
-            builder_id: Some(ObjectId(9)),
-            dozer_task_build_target: Some(ObjectId(8)),
-            dozer_task_build_order_frame: 12,
+            object_id: scaffold,
+            builder_id: Some(dozer),
         }]
     );
     assert_eq!(
@@ -737,6 +730,27 @@ fn direct_xfer_current_round_trips_cia_builder_sell_tail() {
         }]
     );
     assert_eq!(sentinel, 0xC0DE_F00D);
+    let dozer_snapshot = restored
+        .objects
+        .iter()
+        .find(|object| object.id == dozer)
+        .expect("actual admitted dozer");
+    let task = dozer_snapshot
+        .modules
+        .values()
+        .find_map(|module| {
+            if let ModuleSnapshot::DozerTasks(task) = module {
+                Some(task)
+            } else {
+                None
+            }
+        })
+        .expect("sole native Dozer source continuation");
+    assert_eq!(task.requests[0], (scaffold.0, 12));
+    assert_eq!(
+        task.current,
+        gamelogic::object::update::ai_update::dozer_ai_update::DozerTask::Invalid as i32
+    );
 }
 
 #[test]
@@ -1276,4 +1290,24 @@ fn faerie_fire_timer_survives_snapshot_and_expires_on_saved_frame() {
         "FAERIE_FIRE must expire on the saved frame after load"
     );
     assert_eq!(obj.faerie_fire_until_frame, 0);
+}
+
+fn admitted_builder_native_world() -> (GameLogic, ObjectId, ObjectId) {
+    let mut source = GameLogic::new();
+    source.admit_receiving_module_content(crate::assets::ReceivingObjectContent::from_sources([
+        ("builder-native.ini".into(), "Object NativeBuilder\nKindOf = VEHICLE DOZER SELECTABLE\nLocomotor = SET_NORMAL AmericaVehicleDozerLocomotor\nBody = ActiveBody Body\nMaxHealth = 200\nInitialHealth = 200\nEnd\nBehavior = DozerAIUpdate BuilderSource\nEnd\nEnd\nObject NativeScaffold\nKindOf = STRUCTURE SELECTABLE\nBuildTime = 10\nBody = ActiveBody Body\nMaxHealth = 500\nInitialHealth = 500\nEnd\nEnd\n".into()),
+    ]).unwrap()).unwrap();
+    source.add_player(Player::new(0, Team::USA, "BuilderOwner", true));
+    let dozer = source
+        .create_object_for_player("NativeBuilder", 0, Vec3::ZERO)
+        .unwrap();
+    let scaffold = source
+        .create_object_under_construction_for_player(
+            "NativeScaffold",
+            0,
+            Vec3::new(20., 0., 0.),
+            0.,
+        )
+        .unwrap();
+    (source, dozer, scaffold)
 }

@@ -110,7 +110,7 @@ impl GameLogic {
             p.can_path_through_units = false;
             p.last_command_source = crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_AI;
             p.refresh_follow_path_extra_distance();
-            p.adjust_destinations = !p.ultra_accurate;
+            p.set_adjust_destinations(!p.ultra_accurate);
             p.set_destination_with_operation(
                 end,
                 &mut self.movement_events.writer(self.frame),
@@ -174,7 +174,7 @@ impl GameLogic {
             p.can_path_through_units = false;
             p.last_command_source = crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_AI;
             p.refresh_follow_path_extra_distance();
-            p.adjust_destinations = !p.ultra_accurate;
+            p.set_adjust_destinations(!p.ultra_accurate);
             p.set_destination_with_operation(
                 end,
                 &mut self.movement_events.writer(self.frame),

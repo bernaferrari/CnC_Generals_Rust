@@ -143,7 +143,7 @@ fn hellfire_launch_consumes_once_and_deals_damage_only_at_real_impact_phase() {
     game.tick_nested_attack_machines(&[SOURCE], 1.0, 30);
     assert_eq!(ammo(&game), Some(2));
     assert_eq!(
-        game.host_object(SOURCE).unwrap().attack_substate,
+        game.host_object(SOURCE).unwrap().attack_substate(),
         crate::game_logic::AttackSubState::FireWeapon
     );
     assert_eq!(health(&game), 100.0);
@@ -165,7 +165,7 @@ fn hellfire_launch_consumes_once_and_deals_damage_only_at_real_impact_phase() {
         Some(((barrel.unwrap().0 + 1) % 3, 1))
     );
     assert_eq!(
-        game.host_object(SOURCE).unwrap().ai_state,
+        game.host_object(SOURCE).unwrap().ai_state(),
         AIState::Attacking
     );
     assert_eq!(health(&game), 100.0);

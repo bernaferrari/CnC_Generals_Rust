@@ -132,7 +132,7 @@ impl GameLogic {
                     attacker.movement.velocity.z = 0.0;
                     attacker.set_status_moving(false);
                 }
-                if flying && attacker.ai_state != AIState::AttackMoving {
+                if flying && attacker.ai_state() != AIState::AttackMoving {
                     attacker.requested_destination = None;
                 }
             }

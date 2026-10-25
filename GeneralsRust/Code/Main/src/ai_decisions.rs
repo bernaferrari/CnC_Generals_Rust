@@ -917,7 +917,7 @@ mod tests {
         );
 
         if let Some(o) = game_logic.host_object_mut(aa) {
-            o.hunting = true;
+            o.set_hunting(true);
         }
         assert_ne!(
             AIDecisionSystem::should_attack(&game_logic, aa, jet),
@@ -930,7 +930,7 @@ mod tests {
         );
 
         if let Some(o) = game_logic.host_object_mut(aa) {
-            o.hunting = false;
+            o.set_hunting(false);
             o.owner_player_id = Some(2);
             o.target = None;
         }

@@ -257,25 +257,39 @@ mod tests {
         logic.set_fixture_object_contained_by(contained_hacker, Some(center));
 
         logic.frame = 0;
-        assert!(logic.start_hacker_internet_hack(field_hacker));
-        logic.update_hacker_income();
+        assert!(
+            logic
+                .start_hacker_internet_hack(field_hacker)
+                .expect("checked hacker Idle entry")
+        );
+        logic
+            .update_hacker_income()
+            .expect("receiving AI operation succeeds");
         assert!(logic.hacker_income().is_hacking(contained_hacker));
         assert_eq!(logic.get_player(1).unwrap().resources.supplies, 0);
 
         // UNPACKING (219) then CashUpdateDelay, then decrement-fire.
         // Contained uses fast delay 54 → 219+54+1=274; field 219+60+1=280.
         logic.frame = 273;
-        logic.update_hacker_income();
+        logic
+            .update_hacker_income()
+            .expect("receiving AI operation succeeds");
         assert_eq!(logic.get_player(1).unwrap().resources.supplies, 0);
         logic.frame = 274;
-        logic.update_hacker_income();
+        logic
+            .update_hacker_income()
+            .expect("receiving AI operation succeeds");
         assert_eq!(logic.get_player(1).unwrap().resources.supplies, 5);
         assert_eq!(logic.get_player(1).unwrap().statistics.money_earned(), 5);
         logic.frame = 279;
-        logic.update_hacker_income();
+        logic
+            .update_hacker_income()
+            .expect("receiving AI operation succeeds");
         assert_eq!(logic.get_player(1).unwrap().resources.supplies, 5);
         logic.frame = 280;
-        logic.update_hacker_income();
+        logic
+            .update_hacker_income()
+            .expect("receiving AI operation succeeds");
         assert_eq!(logic.get_player(1).unwrap().resources.supplies, 10);
         assert_eq!(logic.get_player(1).unwrap().statistics.money_earned(), 10);
     }
@@ -1694,12 +1708,14 @@ End
                 attack_events,
                 &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
             );
-            assert_eq!(burton.ai_state, AIState::SpecialAbility);
+            assert_eq!(burton.ai_state(), AIState::SpecialAbility);
         }
 
         const FRAME_DT: f32 = 1.0 / 30.0;
         logic.frame += 1;
-        logic.update_ai(&[burton_id, target_id], FRAME_DT);
+        logic
+            .update_ai(&[burton_id, target_id], FRAME_DT)
+            .expect("receiving AI operation succeeds");
         assert_eq!(
             logic
                 .hero_abilities()
@@ -1717,7 +1733,9 @@ End
         // unpack allowance. A PI/sec turn needs about 30 logic frames.
         for _ in 0..60 {
             logic.frame += 1;
-            logic.update_ai(&[burton_id, target_id], FRAME_DT);
+            logic
+                .update_ai(&[burton_id, target_id], FRAME_DT)
+                .expect("receiving AI operation succeeds");
             assert_eq!(logic.mine_residual_places(), 0, "no plant while facing");
             if logic
                 .hero_abilities()
@@ -1738,7 +1756,9 @@ End
         // permits the effect; C++ finishAbility then orders the flee path.
         for _ in 0..5 {
             logic.frame += 1;
-            logic.update_ai(&[burton_id, target_id], FRAME_DT);
+            logic
+                .update_ai(&[burton_id, target_id], FRAME_DT)
+                .expect("receiving AI operation succeeds");
             assert_eq!(
                 logic.mine_residual_places(),
                 0,
@@ -1753,13 +1773,15 @@ End
             );
         }
         logic.frame += 1;
-        logic.update_ai(&[burton_id, target_id], FRAME_DT);
+        logic
+            .update_ai(&[burton_id, target_id], FRAME_DT)
+            .expect("receiving AI operation succeeds");
         assert!(
             logic.mine_residual_places() >= 1,
             "charge plants after UnpackTime"
         );
         let fleeing = logic.host_object(burton_id).expect("flee order");
-        assert_eq!(fleeing.ai_state, AIState::Moving);
+        assert_eq!(fleeing.ai_state(), AIState::Moving);
         assert!(fleeing.requested_destination.is_some());
         assert_eq!(fleeing.ignored_obstacle_id, Some(target_id));
         for _ in 0..120 {
@@ -1775,7 +1797,9 @@ End
             // integrate its locomotor. Main's movement phase runs before
             // the support-state phase on the next frame (step.rs:555,1371).
             logic.update_movement_for_test(&[burton_id, target_id], FRAME_DT);
-            logic.update_ai(&[burton_id, target_id], FRAME_DT);
+            logic
+                .update_ai(&[burton_id, target_id], FRAME_DT)
+                .expect("receiving AI operation succeeds");
         }
         let pos = logic
             .host_object(burton_id)

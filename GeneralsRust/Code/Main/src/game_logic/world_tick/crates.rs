@@ -367,7 +367,13 @@ impl GameLogic {
                 if !h.due(frame) {
                     return None;
                 }
-                Some((*id, h.clone(), o.team, o.get_position(), o.ai_state.clone()))
+                Some((
+                    *id,
+                    h.clone(),
+                    o.team,
+                    o.get_position(),
+                    o.ai_state().clone(),
+                ))
             })
             .collect();
 
@@ -823,7 +829,7 @@ impl GameLogic {
                 let Some(obj) = self.objects.get(id) else {
                     return false;
                 };
-                if obj.ai_state != AIState::Attacking
+                if obj.ai_state() != AIState::Attacking
                     || !obj
                         .deploy_style
                         .as_ref()
@@ -889,13 +895,16 @@ impl GameLogic {
                 let trying_to_move =
                     obj.waiting_for_path || !obj.movement.path.is_empty() || obj.status.moving;
                 let is_in_guard_idle = matches!(
-                    obj.ai_state,
+                    obj.ai_state(),
                     AIState::GuardingArea | AIState::GuardingObject
                 ) && !trying_to_move;
                 if is_in_guard_idle {
                     return true;
                 }
-                if !matches!(obj.ai_state, AIState::Attacking | AIState::AttackingGround) {
+                if !matches!(
+                    obj.ai_state(),
+                    AIState::Attacking | AIState::AttackingGround
+                ) {
                     return false;
                 }
                 let Some(slot) = obj.selected_weapon_slot() else {
@@ -1190,7 +1199,7 @@ impl GameLogic {
                     let healthy =
                         is_assault_member_healthy(member.health.current, member.health.maximum);
                     let is_new = member_new.get(idx).copied().unwrap_or(false);
-                    let already_enter = matches!(member.ai_state, AIState::Entering);
+                    let already_enter = matches!(member.ai_state(), AIState::Entering);
 
                     if contained {
                         // C++: healthy contained eject only when !m_newMember.
@@ -1222,7 +1231,7 @@ impl GameLogic {
                 let already = self
                     .objects
                     .get(&crawler_id)
-                    .map(|c| matches!(c.ai_state, AIState::AttackMoving))
+                    .map(|c| matches!(c.ai_state(), AIState::AttackMoving))
                     .unwrap_or(false);
                 if !already {
                     let dest = Vec3::new(goal[0], goal[1], goal[2]);
@@ -1234,14 +1243,14 @@ impl GameLogic {
                         c.is_final_goal = !c.is_parachuting()
                             && !landed_chinook
                             && !(c.chinook_ai.is_some() && c.allow_invalid_position)
-                            && c.adjust_destinations;
+                            && c.adjust_destinations();
                         c.num_frames_blocked = 0;
                         c.is_blocked_and_stuck = false;
                         c.set_status_moving(true);
                     }
                     let _ = self.assign_unit_path(crawler_id, dest, &[]);
                     if let Some(c) = self.objects.get_mut(&crawler_id) {
-                        c.auto_acquire_when_idle = true;
+                        c.set_auto_acquire_when_idle(true);
                         c.requested_destination = Some(dest);
                         c.set_ai_state(
                             AIState::AttackMoving,
@@ -1389,14 +1398,14 @@ impl GameLogic {
                     unit.is_final_goal = !unit.is_parachuting()
                         && !landed_chinook
                         && !(unit.chinook_ai.is_some() && unit.allow_invalid_position)
-                        && unit.adjust_destinations;
+                        && unit.adjust_destinations();
                     unit.num_frames_blocked = 0;
                     unit.is_blocked_and_stuck = false;
                     unit.set_status_moving(true);
                 }
                 let _ = self.assign_unit_path(mid, dest, &[]);
                 if let Some(unit) = self.objects.get_mut(&mid) {
-                    unit.auto_acquire_when_idle = true;
+                    unit.set_auto_acquire_when_idle(true);
                     unit.requested_destination = Some(dest);
                     unit.set_ai_state(
                         AIState::AttackMoving,
@@ -1433,7 +1442,7 @@ impl GameLogic {
                 continue;
             }
             // C++: skip if already AI_ENTER. Never teleport-board.
-            if matches!(member.ai_state, AIState::Entering) {
+            if matches!(member.ai_state(), AIState::Entering) {
                 continue;
             }
             self.assault_transport_ai_enter(mid, crawler_id);
@@ -1563,7 +1572,7 @@ impl GameLogic {
         let Some(c) = self.objects.get(&crawler_id) else {
             return false;
         };
-        if !matches!(c.ai_state, AIState::Attacking) && !c.status.attacking {
+        if !matches!(c.ai_state(), AIState::Attacking) && !c.status.attacking {
             return false;
         }
         let Some(a) = c.assault_transport.as_ref() else {
@@ -2315,7 +2324,7 @@ impl GameLogic {
                 return false;
             }
             // C++ ai->isIdle()
-            let idle = matches!(u.ai_state, crate::game_logic::AIState::Idle)
+            let idle = matches!(u.ai_state(), crate::game_logic::AIState::Idle)
                 && u.target.is_none()
                 && u.move_away_from.is_none();
             if !idle {
@@ -2343,7 +2352,7 @@ impl GameLogic {
                 u.ignore_collisions_until_frame = self.frame.saturating_add(60);
             }
             // C++ AIMoveAwayFromRepulsorsState::onEnter (AIStates.cpp:2265).
-            u.adjust_destinations = false;
+            u.set_adjust_destinations(false);
             let _ = u.begin_request_safe_path(
                 rep_id,
                 u.move_away_destination.unwrap_or(rep_pos),
@@ -2452,12 +2461,8 @@ fn leftover_template_command_set(template_name: &str) -> Option<String> {
 #[cfg(test)]
 mod hq_tb5nn_tests {
     use super::*;
-    use crate::game_logic::host_command_button_hunt::{
-        HUNT_CMD_FROM_AI, HostCommandButtonHuntMode,
-    };
-    use crate::game_logic::{
-        KindOf, Object, ObjectId, Team, ThingTemplate, Weapon, WeaponLockType,
-    };
+    use crate::game_logic::host_command_button_hunt::{HUNT_CMD_FROM_AI, HostCommandButtonHuntMode};
+    use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate, Weapon, WeaponLockType};
 
     /// hq-tb5nn: C++ huntWeapon UPDATE_SLEEP_NONE re-arms LOCKED_TEMPORARILY
     /// every frame after fireCurrentWeapon releases the temp lock on clip reload.

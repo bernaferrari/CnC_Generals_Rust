@@ -31,7 +31,7 @@ impl GameWorldShadow {
         // observe it directly rather than replaying a mutation log.
         e.idle_since_frame = obj.idle_since_frame;
         e.mood_attack_check_rate = obj.mood_attack_check_rate;
-        e.auto_acquire_when_idle = obj.auto_acquire_when_idle;
+        e.auto_acquire_when_idle = obj.auto_acquire_when_idle();
         e.attack_priority_set = obj.attack_priority_set.clone().unwrap_or_default();
 
         if write_health {
@@ -95,9 +95,9 @@ impl GameWorldShadow {
         e.force_attack = obj.force_attack;
         e.show_health_bar = obj.show_health_bar;
         e.target_location = obj.target_location.map(|p| [p.x, p.y, p.z]);
-        e.guard_position = obj.guard_position.map(|p| [p.x, p.y, p.z]);
-        e.guard_target_host = obj.guard_target.map(|id| id.0).unwrap_or(0);
-        e.ai_state_ordinal = Self::host_ai_state_ordinal(&obj.ai_state);
+        e.guard_position = obj.active_guard_position().map(|p| [p.x, p.y, p.z]);
+        e.guard_target_host = obj.active_guard_target().map(|id| id.0).unwrap_or(0);
+        e.ai_state_ordinal = Self::host_ai_state_ordinal(&obj.ai_state());
         e.occupant_count = obj.contained_units().len().min(u16::MAX as usize) as u16;
         e.experience_points = obj.experience.current;
         e.veterancy_ordinal = Self::host_veterancy_ordinal(obj.experience.level);
@@ -1205,7 +1205,7 @@ impl GameWorldShadow {
         e.move_away_from_id = obj.move_away_from.map(|id| id.0);
         e.requested_victim_id = obj.requested_victim_id.map(|id| id.0);
         e.requested_destination = obj.requested_destination.map(|p| [p.x, p.y, p.z]);
-        e.prev_victim_pos = obj.prev_victim_pos.map(|p| [p.x, p.y, p.z]);
+        e.prev_victim_pos = obj.prev_victim_pos().map(|p| [p.x, p.y, p.z]);
         e.crate_created_host = obj.crate_created.map(|id| id.0).unwrap_or(0);
         e.guard_retaliate_victim_host = obj.guard_retaliate_victim.map(|id| id.0).unwrap_or(0);
         e.guard_retaliate_anchor = obj.guard_retaliate_anchor.map(|p| [p.x, p.y, p.z]);
@@ -1509,12 +1509,12 @@ impl GameWorldShadow {
         e.pre_attack_ready_at = obj.pre_attack_ready_at;
         e.consecutive_shots_at_target = obj.consecutive_shots_at_target;
         e.max_shots_to_fire = obj.max_shots_to_fire;
-        e.attack_substate_ordinal = obj.attack_substate.to_ordinal();
-        e.approach_timestamp = obj.approach_timestamp;
+        e.attack_substate_ordinal = obj.attack_substate().to_ordinal();
+        e.approach_timestamp = obj.approach_timestamp();
         e.continuous_fire_victim = obj.consecutive_shot_target.map_or(0, |id| id.0);
         e.maintain_pos_valid = obj.maintain_pos_valid;
         e.maintain_pos = obj.maintain_pos.map(|p| [p.x, p.y, p.z]);
-        e.temporary_move_frames = obj.temporary_move_frames;
+        e.temporary_move_frames = obj.temporary_ai_move_remaining(logic.get_frame());
         e.group_speed_factor = obj.group_speed_factor;
         e.battle_plan_sight_scalar_applied = obj.battle_plan_sight_scalar_applied;
         // Keep template name if host renamed (rare).

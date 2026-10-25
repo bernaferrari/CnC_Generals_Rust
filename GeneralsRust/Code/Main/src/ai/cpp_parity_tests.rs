@@ -932,7 +932,7 @@ fn active_loose_collector_rejoins_one_supply_center_before_paid_replacement() {
         .host_object(loose_collector)
         .expect("reassigned collector live");
     assert_eq!(collector.preferred_dock_id, Some(replacement_center));
-    assert_eq!(collector.ai_state, crate::game_logic::AIState::Gathering);
+    assert_eq!(collector.ai_state(), crate::game_logic::AIState::Gathering);
     assert_eq!(collector.target, Some(source_id));
     assert!(
         ai.team_queue.is_empty(),
@@ -1015,7 +1015,7 @@ fn skirmish_starts_one_structure_with_a_live_dozer_assignment() {
     );
     let dozer = logic.host_object(dozer_id).expect("assigned dozer");
     assert_eq!(dozer.target, Some(structure_id));
-    assert_eq!(dozer.ai_state, crate::game_logic::AIState::Constructing);
+    assert_eq!(dozer.ai_state(), crate::game_logic::AIState::Constructing);
 
     // C++ revisits under-construction base entries and hands them to a
     // replacement dozer if the original one is lost.
@@ -1033,7 +1033,7 @@ fn skirmish_starts_one_structure_with_a_live_dozer_assignment() {
         .expect("replacement assigned");
     assert_eq!(replacement.target, Some(structure_id));
     assert_eq!(
-        replacement.ai_state,
+        replacement.ai_state(),
         crate::game_logic::AIState::Constructing
     );
 
@@ -1053,7 +1053,7 @@ fn skirmish_starts_one_structure_with_a_live_dozer_assignment() {
             .and_then(|s| s.builder_id)
             .map(|builder| {
                 logic.host_object(builder).is_some_and(|d| {
-                    !d.status.moving && d.ai_state == crate::game_logic::AIState::Idle
+                    !d.status.moving && d.ai_state() == crate::game_logic::AIState::Idle
                 })
             })
             .unwrap_or(false)
@@ -2347,7 +2347,7 @@ fn launch_attack_sets_target_and_logs_host_attack() {
             .any(|event| event.attacker == usa_unit && Some(event.target) == unit.target),
         "launch_attack must report its actual canonical target: {targeted:?}"
     );
-    assert_eq!(unit.ai_state, crate::game_logic::AIState::AttackMoving);
+    assert_eq!(unit.ai_state(), crate::game_logic::AIState::AttackMoving);
     assert!(
         !unit.movement.path.is_empty() || unit.movement.target_position.is_some(),
         "launch_attack must still pathfind on host under decision authority"
@@ -2357,7 +2357,7 @@ fn launch_attack_sets_target_and_logs_host_attack() {
 
     if let Some(o) = logic.host_object_mut(usa_unit) {
         o.target = None;
-        o.ai_state = AIState::Idle;
+        o.restore_ai_state(AIState::Idle);
         o.movement.path.clear();
         o.movement.target_position = None;
     }
@@ -2375,7 +2375,7 @@ fn launch_attack_sets_target_and_logs_host_attack() {
                 .any(|event| event.attacker == usa_unit && Some(event.target) == unit.target),
         "launch_attack must set its canonical target and produce its own receipt"
     );
-    assert_eq!(unit.ai_state, AIState::AttackMoving);
+    assert_eq!(unit.ai_state(), AIState::AttackMoving);
 }
 
 #[test]
@@ -2426,7 +2426,7 @@ fn second_attack_starts_after_first_raid_finishes() {
         "empty OnCreate must not invent AttackMove"
     );
     assert_eq!(
-        logic.host_object(usa_unit).map(|o| o.ai_state.clone()),
+        logic.host_object(usa_unit).map(|o| o.ai_state().clone()),
         Some(AIState::Idle),
         "setActive without OnCreate leaves members idle at rally"
     );
@@ -2454,7 +2454,7 @@ fn second_attack_starts_after_first_raid_finishes() {
 
     ai.apply_on_create_host_orders(&mut logic, &[usa_unit], "TeamHunt", 1.0);
     assert_eq!(
-        logic.host_object(usa_unit).map(|o| o.ai_state.clone()),
+        logic.host_object(usa_unit).map(|o| o.ai_state().clone()),
         Some(AIState::Patrolling),
         "OnCreate Hunt must hunt, not AttackMove"
     );
@@ -2462,7 +2462,7 @@ fn second_attack_starts_after_first_raid_finishes() {
 
     ai.apply_on_create_host_orders(&mut logic, &[usa_unit], "TeamGuard", 1.0);
     assert_eq!(
-        logic.host_object(usa_unit).map(|o| o.ai_state.clone()),
+        logic.host_object(usa_unit).map(|o| o.ai_state().clone()),
         Some(AIState::GuardingArea),
         "OnCreate Guard must guard, not AttackMove"
     );
@@ -2483,7 +2483,7 @@ fn second_attack_starts_after_first_raid_finishes() {
         "second ready team setActive still counts as activity"
     );
     assert_eq!(
-        logic.host_object(usa_unit).map(|o| o.ai_state.clone()),
+        logic.host_object(usa_unit).map(|o| o.ai_state().clone()),
         Some(AIState::GuardingArea),
         "second setActive without OnCreate must not overwrite Guard with AttackMove"
     );
@@ -2654,7 +2654,7 @@ fn evaluate_attack_opportunities_moves_scriptless_ready_team_on_known_enemy() {
         "ready team + known enemy must attack-move"
     );
     assert_eq!(
-        logic.host_object(usa_unit).map(|o| o.ai_state.clone()),
+        logic.host_object(usa_unit).map(|o| o.ai_state().clone()),
         Some(AIState::AttackMoving)
     );
     assert_eq!(ai.last_attack_time, 1.0 + AIPlayer::ATTACK_RECHECK_SECONDS);
@@ -2694,7 +2694,7 @@ fn evaluate_attack_opportunities_stays_noop_without_team_or_enemy() {
     assert!(!ai.attack_in_progress, "no ready team → no-op");
     assert_eq!(ai.activity_count, count_before);
     assert_eq!(
-        logic.host_object(usa_unit).map(|o| o.ai_state.clone()),
+        logic.host_object(usa_unit).map(|o| o.ai_state().clone()),
         Some(AIState::Idle)
     );
 
@@ -2710,7 +2710,7 @@ fn evaluate_attack_opportunities_stays_noop_without_team_or_enemy() {
     assert!(!ai2.attack_in_progress, "no known enemy → no-op");
     assert_eq!(ai2.activity_count, 0);
     assert_eq!(
-        logic.host_object(usa_unit).map(|o| o.ai_state.clone()),
+        logic.host_object(usa_unit).map(|o| o.ai_state().clone()),
         Some(AIState::Idle)
     );
 }

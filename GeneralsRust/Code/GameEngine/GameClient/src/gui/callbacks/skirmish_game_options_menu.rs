@@ -2159,30 +2159,33 @@ mod tests {
 
     #[test]
     fn os_wnd_skirmish_start_hits_button_start_then_start_skirmish_game() {
-        use std::io::Write;
-        let dir = tempfile::tempdir().expect("tmpdir");
-        let map_path = dir.path().join("TestSkirmish.map");
-        std::fs::File::create(&map_path)
-            .expect("map")
-            .write_all(b"map")
-            .unwrap();
-        set_skirmish_menu_selected_map(map_path.to_string_lossy().as_ref());
-        with_window_manager(|manager| {
-            let start = manager
-                .create_window(None, 20, 20, 80, 30)
-                .expect("ButtonStart");
-            start
-                .borrow_mut()
-                .set_name("SkirmishGameOptionsMenu.wnd:ButtonStart");
-            let _ = start.borrow_mut().hide(false);
+        let owner = crate::gui::window_manager::WindowManagerOwner::new();
+        owner.with_scope(|| {
+            use std::io::Write;
+            let dir = tempfile::tempdir().expect("tmpdir");
+            let map_path = dir.path().join("TestSkirmish.map");
+            std::fs::File::create(&map_path)
+                .expect("map")
+                .write_all(b"map")
+                .unwrap();
+            set_skirmish_menu_selected_map(map_path.to_string_lossy().as_ref());
+            with_window_manager(|manager| {
+                let start = manager
+                    .create_window(None, 20, 20, 80, 30)
+                    .expect("ButtonStart");
+                start
+                    .borrow_mut()
+                    .set_name("SkirmishGameOptionsMenu.wnd:ButtonStart");
+                let _ = start.borrow_mut().hide(false);
+            });
+            assert!(
+                drive_os_wnd_skirmish_start_like_cpp(),
+                "OS WND click on ButtonStart must run startPressed/start_skirmish_game"
+            );
+            assert!(!crate::gui::dispatch_os_click_named_window(
+                "SkirmishGameOptionsMenu.wnd:ButtonStartMissing"
+            ));
         });
-        assert!(
-            drive_os_wnd_skirmish_start_like_cpp(),
-            "OS WND click on ButtonStart must run startPressed/start_skirmish_game"
-        );
-        assert!(!crate::gui::dispatch_os_click_named_window(
-            "SkirmishGameOptionsMenu.wnd:ButtonStartMissing"
-        ));
     }
 }
 

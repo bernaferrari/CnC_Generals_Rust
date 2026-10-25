@@ -21,9 +21,9 @@ use crate::gui::control_bar::{
 };
 
 use crate::gui::load_screen::{
-    LoadScreenGameMode, LoadScreenInitContext, LoadScreenKind, LoadScreenRequest, init_load_screen,
-    pump_load_screen_presentation, reset_load_screen, run_load_screen_prelude, select_load_screen,
-    update_load_screen as update_game_load_screen,
+    LoadScreenGameMode, LoadScreenInitContext, LoadScreenKind, LoadScreenRequest,
+    init_load_screen_for_owner, pump_load_screen_presentation, reset_load_screen_for_owner,
+    run_load_screen_prelude_for_owner, select_load_screen, update_load_screen_for_owner,
 };
 use crate::gui::{
     HintData, HintType, MouseCursor, MouseMode, WindowLayout, WindowStatus, hide_control_bar,
@@ -33,15 +33,12 @@ use crate::gui::{
 use crate::input::Mouse;
 use crate::message_stream::game_message::{Coord3D, ICoord2D};
 use game_engine::common::recorder::with_recorder;
-use gamelogic::helpers::{
-    GamePauseHooks, TheGameLogic, TheScriptEngine, register_game_pause_hooks,
-    register_load_screen_hooks as register_logic_load_screen_hooks,
-};
+use gamelogic::helpers::{GamePauseHooks, TheGameLogic, TheScriptEngine, register_game_pause_hooks};
 
 use log::info;
 use std::cell::RefCell;
 use std::rc::Rc;
-use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 /// Trait implemented by the real in-game UI layer so the legacy
@@ -550,60 +547,7 @@ pub fn register_prepare_new_game_hooks() {
     }));
 }
 
-pub fn register_load_screen_hooks() {
-    let _ = register_logic_load_screen_hooks(Arc::new(GameClientLoadScreenHooks::new()));
-}
-
 struct GameClientObserverAudioLocalityHooks;
-
-/// Sentinel packed into the load-screen atomics for "no value".
-const NO_LOAD_SCREEN_VALUE: i64 = i64::MIN;
-
-/// Pack an active load screen into one atomic word:
-/// low 32 bits = `LoadScreenKind` index, high 32 bits = game mode.
-fn pack_active_load_screen(kind: LoadScreenKind, game_mode: i32) -> i64 {
-    (load_screen_kind_index(kind) as i64) | ((game_mode as i32 as i64) << 32)
-}
-
-fn unpack_active_load_screen(packed: i64) -> Option<ActiveLoadScreen> {
-    if packed == NO_LOAD_SCREEN_VALUE {
-        return None;
-    }
-    let kind = load_screen_kind_from_index((packed & 0xFFFF_FFFF) as u32)?;
-    let game_mode = (packed >> 32) as i32;
-    Some(ActiveLoadScreen { kind, game_mode })
-}
-
-fn load_screen_kind_index(kind: LoadScreenKind) -> u32 {
-    match kind {
-        LoadScreenKind::ShellGame => 0,
-        LoadScreenKind::SinglePlayer => 1,
-        LoadScreenKind::Challenge => 2,
-        LoadScreenKind::Multiplayer => 3,
-        LoadScreenKind::GameSpy => 4,
-        LoadScreenKind::MapTransfer => 5,
-    }
-}
-
-fn load_screen_kind_from_index(index: u32) -> Option<LoadScreenKind> {
-    match index {
-        0 => Some(LoadScreenKind::ShellGame),
-        1 => Some(LoadScreenKind::SinglePlayer),
-        2 => Some(LoadScreenKind::Challenge),
-        3 => Some(LoadScreenKind::Multiplayer),
-        4 => Some(LoadScreenKind::GameSpy),
-        5 => Some(LoadScreenKind::MapTransfer),
-        _ => None,
-    }
-}
-
-struct GameClientLoadScreenHooks {
-    // THREAD: gamelogic's `LoadScreenHooks` requires `Send + Sync`, but every
-    // call site runs on the main thread; two packed atomics replace the old
-    // mutexes without adding a synchronization boundary.
-    active_load_screen: AtomicI64,
-    pending_game_mode: AtomicI64,
-}
 
 #[derive(Debug, Clone, Copy)]
 struct ActiveLoadScreen {
@@ -614,134 +558,107 @@ struct ActiveLoadScreen {
 const LOAD_SCREEN_COMPLETION_TRANSITION_GROUP: &str = "FadeWholeScreen";
 const LOAD_SCREEN_COMPLETION_TRANSITION_MAX_FRAMES: usize = 180;
 
-impl GameClientLoadScreenHooks {
-    fn new() -> Self {
+/// Short-lived adapter passed by borrow to GameLogic's synchronous start/load call.
+/// It owns no client state; the actual WND tree and first-load latch live on GameClient.
+pub struct GameClientLoadScreenHooks<'a> {
+    client: &'a mut crate::core::game_client::GameClient,
+    active_load_screen: Option<ActiveLoadScreen>,
+    pending_game_mode: Option<i32>,
+}
+
+impl<'a> GameClientLoadScreenHooks<'a> {
+    pub fn new(client: &'a mut crate::core::game_client::GameClient) -> Self {
         Self {
-            active_load_screen: AtomicI64::new(NO_LOAD_SCREEN_VALUE),
-            pending_game_mode: AtomicI64::new(NO_LOAD_SCREEN_VALUE),
+            client,
+            active_load_screen: None,
+            pending_game_mode: None,
         }
     }
 
-    fn set_active_load_screen(&self, kind: LoadScreenKind, game_mode: i32) {
-        set_mouse_cursor_visibility(false);
-        self.active_load_screen
-            .store(pack_active_load_screen(kind, game_mode), Ordering::Relaxed);
-    }
-
-    fn take_active_load_screen(&self) -> Option<ActiveLoadScreen> {
-        let packed = self
-            .active_load_screen
-            .swap(NO_LOAD_SCREEN_VALUE, Ordering::Relaxed);
-        unpack_active_load_screen(packed)
-    }
-
-    fn peek_active_load_screen(&self) -> Option<ActiveLoadScreen> {
-        unpack_active_load_screen(self.active_load_screen.load(Ordering::Relaxed))
-    }
-
-    fn set_pending_game_mode(&self, game_mode: i32) {
-        self.pending_game_mode
-            .store(game_mode as i64, Ordering::Relaxed);
-    }
-
-    fn take_pending_game_mode(&self) -> Option<i32> {
-        let packed = self
-            .pending_game_mode
-            .swap(NO_LOAD_SCREEN_VALUE, Ordering::Relaxed);
-        (packed != NO_LOAD_SCREEN_VALUE).then_some(packed as i32)
-    }
-
-    fn reveal_shell_main_menu_after_start(&self, game_mode: i32) {
+    fn reveal_shell_main_menu_after_start(&mut self, game_mode: i32) {
         if game_mode != gamelogic::system::game_logic::GAME_SHELL {
             return;
         }
-
-        queue_shell_operation(|shell| {
+        let owner = self.client.window_manager_owner();
+        owner.with_shell_mut(|shell| {
             if let Err(err) = shell.show_main_menu_after_shell_game_start() {
                 log::warn!("Failed to activate shell main menu after shell-map load: {err}");
             }
         });
-
         if let Err(err) = hide_control_bar(true) {
             log::warn!("Failed to hide control bar after shell-map load: {err}");
         }
     }
 }
 
-impl gamelogic::helpers::LoadScreenHooks for GameClientLoadScreenHooks {
-    fn begin_load_screen(&self, game_mode: i32, loading_save_game: bool) {
+impl gamelogic::helpers::LoadScreenHooks for GameClientLoadScreenHooks<'_> {
+    fn begin_load_screen(&mut self, game_mode: i32, loading_save_game: bool) {
         let (has_current_campaign, current_campaign_is_challenge) = {
             let campaign_manager = get_campaign_manager();
             let campaign = campaign_manager.get_current_campaign();
             (
                 campaign.is_some(),
-                campaign
-                    .map(|campaign| campaign.is_challenge_campaign())
-                    .unwrap_or(false),
+                campaign.map(|c| c.is_challenge_campaign()).unwrap_or(false),
             )
         };
-
         let request = LoadScreenRequest {
             mode: load_screen_game_mode_from_logic(game_mode),
             loading_save_game,
             has_current_campaign,
             current_campaign_is_challenge,
         };
-
-        let old_kind = self.take_active_load_screen();
-        if let Some(active) = old_kind {
-            reset_load_screen(active.kind);
+        let owner = self.client.window_manager_owner();
+        if let Some(active) = self.active_load_screen.take() {
+            reset_load_screen_for_owner(&owner, active.kind);
         }
-        self.set_pending_game_mode(game_mode);
-
+        self.pending_game_mode = Some(game_mode);
         let Some(kind) = select_load_screen(request) else {
             return;
         };
-
-        if init_load_screen(kind, &load_screen_init_context_from_globals()) {
-            self.set_active_load_screen(kind, game_mode);
-            // C++ LoadScreen subclasses consume their campaign/Challenge
-            // prelude before GameInitializer begins map work.  The driver is
-            // render-pump-only and never re-enters platform dispatch.
-            let _ = run_load_screen_prelude(kind);
+        let context = load_screen_init_context_from_globals();
+        if self.client.init_owned_load_screen(kind, &context) {
+            self.active_load_screen = Some(ActiveLoadScreen { kind, game_mode });
+            let _ = crate::gui::load_screen::run_load_screen_prelude_for_owner(&owner, kind);
         }
     }
 
-    fn update_load_screen(&self, progress: i32) {
-        if let Some(active) = self.peek_active_load_screen() {
-            update_game_load_screen(active.kind, progress as f32);
+    fn update_load_screen(&mut self, progress: i32) {
+        if let Some(active) = self.active_load_screen {
+            let owner = self.client.window_manager_owner();
+            update_load_screen_for_owner(&owner, active.kind, progress as f32);
         }
     }
 
-    fn run_load_screen_completion_transition(&self, loading_save_game: bool) {
+    fn run_load_screen_completion_transition(&mut self, loading_save_game: bool) {
         if loading_save_game {
             return;
         }
-
-        with_window_manager(|wm| {
-            wm.transition_set_group(LOAD_SCREEN_COMPLETION_TRANSITION_GROUP, false)
-        });
-
-        for _ in 0..LOAD_SCREEN_COMPLETION_TRANSITION_MAX_FRAMES {
-            if with_window_manager(|wm| wm.transitions_finished()) {
-                break;
+        let owner = self.client.window_manager_owner();
+        owner.with_scope(|| {
+            with_window_manager(|wm| {
+                wm.transition_set_group(LOAD_SCREEN_COMPLETION_TRANSITION_GROUP, false)
+            });
+            for _ in 0..LOAD_SCREEN_COMPLETION_TRANSITION_MAX_FRAMES {
+                if with_window_manager(|wm| wm.transitions_finished()) {
+                    break;
+                }
+                with_window_manager(|wm| wm.update());
+                pump_load_screen_presentation();
+                gamelogic::system::game_logic::set_fp_mode();
             }
-            with_window_manager(|wm| wm.update());
-            pump_load_screen_presentation();
-            gamelogic::system::game_logic::set_fp_mode();
-        }
+        });
     }
 
-    fn end_load_screen(&self) {
-        let active = self.take_active_load_screen();
-        let pending_game_mode = self.take_pending_game_mode();
-        let game_mode = active.map(|active| active.game_mode).or(pending_game_mode);
-
+    fn end_load_screen(&mut self) {
+        let active = self.active_load_screen.take();
+        let game_mode = active
+            .map(|item| item.game_mode)
+            .or(self.pending_game_mode.take());
         if let Some(active) = active {
             set_mouse_cursor_visibility(true);
-            reset_load_screen(active.kind);
+            let owner = self.client.window_manager_owner();
+            reset_load_screen_for_owner(&owner, active.kind);
         }
-
         if let Some(game_mode) = game_mode {
             self.reveal_shell_main_menu_after_start(game_mode);
         }
@@ -751,34 +668,33 @@ impl gamelogic::helpers::LoadScreenHooks for GameClientLoadScreenHooks {
 #[cfg(test)]
 mod load_screen_hook_tests {
     use super::*;
+    use gamelogic::helpers::LoadScreenHooks;
     use crate::gui::load_screen::{
         clear_load_screen_presentation_pump, register_load_screen_presentation_pump,
     };
-    use gamelogic::helpers::LoadScreenHooks;
     use std::cell::Cell;
     use std::rc::Rc;
     use std::sync::OnceLock;
 
     static TEST_MOUSE_VISIBILITY_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-
     fn lock_test_mouse_visibility() -> std::sync::MutexGuard<'static, ()> {
         TEST_MOUSE_VISIBILITY_LOCK
             .get_or_init(|| Mutex::new(()))
             .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .unwrap_or_else(|p| p.into_inner())
     }
 
     #[test]
     fn active_load_screen_hides_cursor_like_cpp_start_new_game() {
         let _guard = lock_test_mouse_visibility();
         set_mouse_cursor_visibility(true);
-
-        let hooks = GameClientLoadScreenHooks::new();
-        hooks.set_active_load_screen(
-            LoadScreenKind::ShellGame,
-            gamelogic::system::game_logic::GAME_SHELL,
-        );
-
+        let mut client = crate::core::game_client::GameClient::new().unwrap();
+        let mut hooks = GameClientLoadScreenHooks::new(&mut client);
+        hooks.active_load_screen = Some(ActiveLoadScreen {
+            kind: LoadScreenKind::ShellGame,
+            game_mode: gamelogic::system::game_logic::GAME_SHELL,
+        });
+        set_mouse_cursor_visibility(false);
         assert!(!is_mouse_cursor_visible());
         set_mouse_cursor_visibility(true);
     }
@@ -787,31 +703,25 @@ mod load_screen_hook_tests {
     fn ending_active_load_screen_shows_cursor_like_cpp_start_new_game() {
         let _guard = lock_test_mouse_visibility();
         set_mouse_cursor_visibility(false);
-
-        let hooks = GameClientLoadScreenHooks::new();
-        hooks.set_active_load_screen(
-            LoadScreenKind::ShellGame,
-            gamelogic::system::game_logic::GAME_NONE,
-        );
-
+        let mut client = crate::core::game_client::GameClient::new().unwrap();
+        let mut hooks = GameClientLoadScreenHooks::new(&mut client);
+        hooks.active_load_screen = Some(ActiveLoadScreen {
+            kind: LoadScreenKind::ShellGame,
+            game_mode: gamelogic::system::game_logic::GAME_NONE,
+        });
         hooks.end_load_screen();
-
         assert!(is_mouse_cursor_visible());
     }
 
     #[test]
     fn save_load_completion_skips_fade_transition_like_cpp() {
-        let _guard = lock_test_mouse_visibility();
         clear_load_screen_presentation_pump();
         let pump_count = Rc::new(Cell::new(0usize));
-        let pump_count_for_hook = Rc::clone(&pump_count);
-        register_load_screen_presentation_pump(move || {
-            pump_count_for_hook.set(pump_count_for_hook.get() + 1);
-        });
-
-        let hooks = GameClientLoadScreenHooks::new();
+        let captured = Rc::clone(&pump_count);
+        register_load_screen_presentation_pump(move || captured.set(captured.get() + 1));
+        let mut client = crate::core::game_client::GameClient::new().unwrap();
+        let mut hooks = GameClientLoadScreenHooks::new(&mut client);
         hooks.run_load_screen_completion_transition(true);
-
         clear_load_screen_presentation_pump();
         assert_eq!(pump_count.get(), 0);
     }
@@ -2396,4 +2306,3 @@ mod in_game_ui_input_and_guard_hint_tests {
         }
     }
 }
-

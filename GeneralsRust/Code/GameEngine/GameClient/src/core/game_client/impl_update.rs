@@ -7,6 +7,11 @@ impl GameClient {
     ///
     /// C++ parity: frame sequence matches `GameClient::update()` (GameClient.cpp:489-752).
     pub fn update(&mut self) -> GameClientResult<()> {
+        let owner = self.window_manager_owner.clone();
+        owner.with_scope(|| self.update_with_window_owner())
+    }
+
+    fn update_with_window_owner(&mut self) -> GameClientResult<()> {
         if !self.initialized {
             return Err(GameClientError::InvalidOperation(
                 "GameClient not initialized".to_string(),
@@ -1827,9 +1832,7 @@ impl GameClient {
         if let Some((is_night, is_snow)) =
             crate::message_stream::meta_event::take_host_model_condition_weather_residual()
         {
-            use game_engine::common::bit_flags::{
-                ModelConditionFlags, create_model_condition_flags,
-            };
+            use game_engine::common::bit_flags::{ModelConditionFlags, create_model_condition_flags};
             let mut clear = create_model_condition_flags();
             let mut set = create_model_condition_flags();
             clear.set(ModelConditionFlags::NIGHT, true);
@@ -2361,7 +2364,7 @@ impl GameClient {
         }
 
         log::info!("Activating shell after startup movie flow");
-        let mut shell = get_shell();
+        let mut shell = self.window_manager_owner.shell_handle();
         shell.show_shell_map(true);
         shell.show_shell(true).map_err(|err| {
             GameClientError::SubsystemError(format!(
@@ -2373,7 +2376,7 @@ impl GameClient {
     }
 
     fn show_low_memory_legal_page(&self, display: &mut GraphicsDisplay) -> GameClientResult<()> {
-        let Some((layout, _info)) = with_window_manager(|manager| {
+        let Some((layout, _info)) = self.window_manager_owner.with_manager(|manager| {
             manager
                 .create_layout_with_windows("Menus/LegalPage.wnd")
                 .ok()
@@ -2389,12 +2392,14 @@ impl GameClient {
 
         let begin = Instant::now();
         while begin.elapsed() < Duration::from_millis(4000) {
-            with_window_manager(|manager| manager.update());
+            self.window_manager_owner
+                .with_manager(|manager| manager.update());
             display.draw()?;
             thread::sleep(Duration::from_millis(100));
         }
 
-        with_window_manager(|manager| manager.destroy_layout(&layout));
+        self.window_manager_owner
+            .with_manager(|manager| manager.destroy_layout(&layout));
         Ok(())
     }
 
@@ -2480,7 +2485,7 @@ impl GameClient {
             return Ok(());
         }
 
-        let mut shell = get_shell();
+        let mut shell = self.window_manager_owner.shell_handle();
         let needs_screen = shell.get_screen_count() == 0 && !shell.is_shell_map_on();
         if needs_screen || !shell.is_shell_active() {
             log::info!(
@@ -2501,11 +2506,8 @@ impl GameClient {
     }
 
     pub fn update_pre_draw_ui(&mut self) -> GameClientResult<()> {
-        if let Some(ref window_manager) = self.subsystem_manager.window_manager {
-            window_manager
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .update()?;
+        if let Some(window_manager) = self.subsystem_manager.window_manager.as_mut() {
+            window_manager.update()?;
         }
 
         if let Some(ref video_player) = self.subsystem_manager.video_player {
@@ -2520,7 +2522,7 @@ impl GameClient {
 
     pub fn update_post_draw_ui(&mut self) -> GameClientResult<()> {
         {
-            let mut shell = get_shell();
+            let mut shell = self.window_manager_owner.shell_handle();
             shell.update().map_err(|err| {
                 GameClientError::SubsystemError(format!("Shell update failed: {err}"))
             })?;
@@ -2542,7 +2544,7 @@ impl GameClient {
 
     fn update_ui(&mut self) -> GameClientResult<()> {
         {
-            let mut shell = get_shell();
+            let mut shell = self.window_manager_owner.shell_handle();
             shell.update().map_err(|err| {
                 GameClientError::SubsystemError(format!("Shell update failed: {err}"))
             })?;
@@ -2552,11 +2554,8 @@ impl GameClient {
             ui.lock().unwrap_or_else(|e| e.into_inner()).update()?;
         }
 
-        if let Some(ref window_manager) = self.subsystem_manager.window_manager {
-            window_manager
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .update()?;
+        if let Some(window_manager) = self.subsystem_manager.window_manager.as_mut() {
+            window_manager.update()?;
         }
 
         if let Some(ref video_player) = self.subsystem_manager.video_player {

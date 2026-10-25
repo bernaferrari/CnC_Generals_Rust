@@ -122,7 +122,7 @@ impl Object {
         self.shock_stun_frames = u32::MAX;
         self.refresh_model_condition_bits();
         if matches!(
-            self.ai_state,
+            self.ai_state(),
             AIState::Attacking | AIState::AttackMoving | AIState::Moving
         ) {
             self.set_status_moving(true);
@@ -383,7 +383,7 @@ impl Object {
 
     /// C++ `AIUpdateInterface::isMoving` (AIUpdate.cpp:3169-3180).
     pub fn host_ai_is_moving(&self) -> bool {
-        if self.ai_state == AIState::Idle {
+        if self.ai_state() == AIState::Idle {
             return false;
         }
         self.locomotor_goal_type != super::LocoGoalType::None || self.status.moving
@@ -430,7 +430,7 @@ impl Object {
             if blocked {
                 // C++ AIUpdate::processCollision (AIUpdate.cpp:1410-1444):
                 // a panicking infantry unit bounces before m_isBlocked is set.
-                if self.ai_state == super::AIState::Panic
+                if self.ai_state() == super::AIState::Panic
                     && self.is_kind_of(crate::game_logic::KindOf::Infantry)
                 {
                     return true;
@@ -451,7 +451,7 @@ impl Object {
                     && !self.is_kind_of(crate::game_logic::KindOf::Infantry)
                 {
                     let other_busy = matches!(
-                        other.ai_state,
+                        other.ai_state(),
                         super::AIState::Constructing
                             | super::AIState::Repairing
                             | super::AIState::SpecialAbility
@@ -497,7 +497,7 @@ impl Object {
             let cell = PATHFIND_CELL_SIZE_F_RESIDUAL;
             if dx * dx + dz * dz < cell * cell * 0.25 {
                 let busy = matches!(
-                    self.ai_state,
+                    self.ai_state(),
                     super::AIState::Constructing
                         | super::AIState::Repairing
                         | super::AIState::SpecialAbility
@@ -506,7 +506,9 @@ impl Object {
                 if busy || self.status.using_ability {
                     return false;
                 }
-                if self.ai_state == super::AIState::Idle || other.ai_state == super::AIState::Idle {
+                if self.ai_state() == super::AIState::Idle
+                    || other.ai_state() == super::AIState::Idle
+                {
                     self.unstack_partner = Some(other.id);
                 }
             }
@@ -1461,14 +1463,14 @@ impl Object {
         flee_pos: glam::Vec3,
         current_frame: u32,
     ) -> bool {
-        self.adjust_destinations = false;
+        self.set_adjust_destinations(false);
         let previous = self.requested_victim_id;
         let ok = self.begin_request_move_path_inner(flee_pos, current_frame, false);
         self.is_safe_path = true;
         self.is_final_goal = false;
         // C++ AIMoveAwayFromRepulsorsState keeps adjustsDestination false
         // (AIStates.cpp:2265 and :2294). It never restores true.
-        self.adjust_destinations = false;
+        self.set_adjust_destinations(false);
         if !ok {
             self.queue_for_path_frames = 2
                 * crate::game_logic::host_ai_path_combat_residual_wave105::LOGIC_FRAMES_PER_SECOND_RESIDUAL;
@@ -1482,7 +1484,11 @@ impl Object {
     }
 
     /// Returns true the frame the delay hits zero while a path is still waiting.
-    pub fn tick_path_queue(&mut self, audio: &mut crate::game_logic::ObjectAudio<'_>) -> bool {
+    pub fn tick_path_queue(
+        &mut self,
+        current_frame: u32,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
+    ) -> bool {
         let expired = if self.queue_for_path_frames == 0 {
             false
         } else {
@@ -1494,7 +1500,7 @@ impl Object {
                 && self.waiting_for_path
                 && self.requested_destination.is_some()
         };
-        if self.temporary_move_frames > 0
+        if self.has_temporary_ai_move()
             && !matches!(
                 self.transport_return_state,
                 Some(
@@ -1505,8 +1511,11 @@ impl Object {
             let arrived = self.movement.path.is_empty()
                 && self.movement.target_position.is_none()
                 && !self.waiting_for_path;
-            self.temporary_move_frames -= 1;
-            if arrived || self.temporary_move_frames == 0 {
+            let expired = self
+                .unit_ai_runtime
+                .temporary_move()
+                .is_some_and(|value| value.deadline < current_frame);
+            if arrived || expired {
                 self.end_temporary_move_overlay(audio);
             }
         }

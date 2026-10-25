@@ -799,7 +799,7 @@ fn completed_production_preserves_factory_identity_exit_facing_and_rally() {
         "unit must inherit the producer exit facing"
     );
     assert!(unit.is_selectable(), "completed unit must be selectable");
-    assert_eq!(unit.ai_state, AIState::Moving);
+    assert_eq!(unit.ai_state(), AIState::Moving);
     // C++ DefaultProductionExitUpdate.cpp:88-94 pushes the ADJUSTED custom
     // rally: Pathfinder::adjustDestination (AIPathfind.cpp:5331) spiral +
     // checkForAdjust → adjustCoordToCell (AIPathfind.cpp:8936-8948) snaps to

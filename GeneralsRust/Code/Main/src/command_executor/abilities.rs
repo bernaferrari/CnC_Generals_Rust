@@ -21,14 +21,17 @@ use log::{debug, warn};
 use std::collections::{HashMap, HashSet};
 
 impl<'a> CommandExecutor<'a> {
-    pub(super) fn execute_hack_internet(&mut self, units: &[ObjectId]) -> CommandResult {
+    pub(super) fn execute_hack_internet(
+        &mut self,
+        units: &[ObjectId],
+    ) -> gamelogic::GameLogicResult<CommandResult> {
         let mut any = false;
         for &unit_id in units {
-            if self.game_logic.start_hacker_internet_hack(unit_id) {
+            if self.game_logic.start_hacker_internet_hack(unit_id)? {
                 any = true;
             }
         }
-        if any {
+        Ok(if any {
             // C++ CommandXlat.cpp:654-658 MSG_INTERNET_HACK → PerUnitSound VoiceHackInternet.
             self.game_logic.queue_picked_unit_voice(
                 units,
@@ -37,7 +40,7 @@ impl<'a> CommandExecutor<'a> {
             CommandResult::Success
         } else {
             CommandResult::InvalidCommand
-        }
+        })
     }
 
     // === Special Unit Abilities ===
@@ -46,7 +49,7 @@ impl<'a> CommandExecutor<'a> {
         &mut self,
         units: &[ObjectId],
         target_id: ObjectId,
-    ) -> CommandResult {
+    ) -> gamelogic::GameLogicResult<CommandResult> {
         // C++ ConvertToHijackedVehicleCrateCollide residual: enemy ground vehicle
         // only, not already HIJACKED, not neutral, not airborne.
         let (
@@ -65,7 +68,7 @@ impl<'a> CommandExecutor<'a> {
                 target.is_kind_of(KindOf::Aircraft) || target.status.airborne_target,
                 target.is_hijacked(),
             ),
-            None => return CommandResult::InvalidTarget,
+            None => return Ok(CommandResult::InvalidTarget),
         };
 
         if !target_alive
@@ -74,7 +77,7 @@ impl<'a> CommandExecutor<'a> {
             || target_hijacked
             || target_team == Team::Neutral
         {
-            return CommandResult::InvalidTarget;
+            return Ok(CommandResult::InvalidTarget);
         }
 
         let mut any = false;
@@ -99,7 +102,7 @@ impl<'a> CommandExecutor<'a> {
             let _ = self
                 .game_logic
                 .unit_command_stop_moving_order_target(unit_id, Some(target_id));
-            if self.path_to_goal_with_state(unit_id, target_pos, AIState::SpecialAbility) {
+            if self.path_to_goal_with_state(unit_id, target_pos, AIState::SpecialAbility)? {
                 issued_units.push(unit_id);
                 any = true;
             }
@@ -113,18 +116,18 @@ impl<'a> CommandExecutor<'a> {
             );
         }
 
-        if any {
+        Ok(if any {
             CommandResult::Success
         } else {
             CommandResult::InvalidCommand
-        }
+        })
     }
 
     pub(super) fn execute_sabotage(
         &mut self,
         units: &[ObjectId],
         target_id: ObjectId,
-    ) -> CommandResult {
+    ) -> gamelogic::GameLogicResult<CommandResult> {
         // C++ Sabotage*CrateCollide residual: GLA Saboteur only → enemy structure.
         let (target_team, target_pos, target_alive, target_is_structure) =
             match self.game_logic.host_object(target_id) {
@@ -134,11 +137,11 @@ impl<'a> CommandExecutor<'a> {
                     target.is_alive(),
                     target.is_kind_of(KindOf::Structure),
                 ),
-                None => return CommandResult::InvalidTarget,
+                None => return Ok(CommandResult::InvalidTarget),
             };
 
         if !target_alive || !target_is_structure || target_team == Team::Neutral {
-            return CommandResult::InvalidTarget;
+            return Ok(CommandResult::InvalidTarget);
         }
 
         let mut any = false;
@@ -164,7 +167,7 @@ impl<'a> CommandExecutor<'a> {
             let _ = self
                 .game_logic
                 .unit_command_stop_moving_order_target(unit_id, Some(target_id));
-            if self.path_to_goal_with_state(unit_id, target_pos, AIState::SpecialAbility) {
+            if self.path_to_goal_with_state(unit_id, target_pos, AIState::SpecialAbility)? {
                 issued_units.push(unit_id);
                 any = true;
             }
@@ -178,18 +181,18 @@ impl<'a> CommandExecutor<'a> {
             );
         }
 
-        if any {
+        Ok(if any {
             CommandResult::Success
         } else {
             CommandResult::InvalidCommand
-        }
+        })
     }
 
     pub(crate) fn execute_convert_carbomb(
         &mut self,
         units: &[ObjectId],
         target_id: ObjectId,
-    ) -> CommandResult {
+    ) -> gamelogic::GameLogicResult<CommandResult> {
         // C++ ConvertToCarBombCrateCollide: vehicle only (not aircraft/boat),
         // not already IS_CARBOMB. Neutral civilian cars are valid.
         let (target_pos, target_team, target_ok) = match self.game_logic.host_object(target_id) {
@@ -204,11 +207,11 @@ impl<'a> CommandExecutor<'a> {
                     is_vehicle && !is_airborne && !already_bomb,
                 )
             }
-            Some(_) => return CommandResult::InvalidTarget,
-            None => return CommandResult::InvalidTarget,
+            Some(_) => return Ok(CommandResult::InvalidTarget),
+            None => return Ok(CommandResult::InvalidTarget),
         };
         if !target_ok {
-            return CommandResult::InvalidTarget;
+            return Ok(CommandResult::InvalidTarget);
         }
 
         let mut any = false;
@@ -232,7 +235,7 @@ impl<'a> CommandExecutor<'a> {
             let _ = self
                 .game_logic
                 .unit_command_stop_moving_order_target(unit_id, Some(target_id));
-            if self.path_to_goal_with_state(unit_id, target_pos, AIState::SpecialAbility) {
+            if self.path_to_goal_with_state(unit_id, target_pos, AIState::SpecialAbility)? {
                 issued_units.push(unit_id);
                 any = true;
             }
@@ -246,18 +249,18 @@ impl<'a> CommandExecutor<'a> {
             );
         }
 
-        if any {
+        Ok(if any {
             CommandResult::Success
         } else {
             CommandResult::InvalidCommand
-        }
+        })
     }
 
     pub(super) fn execute_capture_building(
         &mut self,
         units: &[ObjectId],
         target_id: ObjectId,
-    ) -> CommandResult {
+    ) -> gamelogic::GameLogicResult<CommandResult> {
         self.execute_capture_building_for_power(units, target_id, None)
     }
 
@@ -270,10 +273,10 @@ impl<'a> CommandExecutor<'a> {
         units: &[ObjectId],
         target_id: ObjectId,
         required_power: Option<crate::game_logic::CapturePowerKind>,
-    ) -> CommandResult {
+    ) -> gamelogic::GameLogicResult<CommandResult> {
         let building_pos = match self.game_logic.host_object(target_id) {
             Some(building) => building.get_position(),
-            None => return CommandResult::InvalidTarget,
+            None => return Ok(CommandResult::InvalidTarget),
         };
 
         let mut any = false;
@@ -316,7 +319,7 @@ impl<'a> CommandExecutor<'a> {
                 .game_logic
                 .host_object(unit_id)
                 .is_some_and(|unit| unit.get_position().distance(building_pos) <= 0.1);
-            if self.path_to_goal_with_state(unit_id, building_pos, AIState::Capturing)
+            if self.path_to_goal_with_state(unit_id, building_pos, AIState::Capturing)?
                 || already_at_target
             {
                 any = true;
@@ -329,18 +332,18 @@ impl<'a> CommandExecutor<'a> {
                     .unit_command_set_ai_state(unit_id, AIState::Idle);
             }
         }
-        if any {
+        Ok(if any {
             CommandResult::Success
         } else {
             CommandResult::InvalidCommand
-        }
+        })
     }
 
     pub(super) fn execute_snipe_vehicle(
         &mut self,
         units: &[ObjectId],
         target_id: ObjectId,
-    ) -> CommandResult {
+    ) -> gamelogic::GameLogicResult<CommandResult> {
         let (
             target_team,
             target_pos,
@@ -359,7 +362,7 @@ impl<'a> CommandExecutor<'a> {
                 target.is_kind_of(KindOf::Aircraft) || target.status.airborne_target,
                 target.is_unmanned(),
             ),
-            None => return CommandResult::InvalidTarget,
+            None => return Ok(CommandResult::InvalidTarget),
         };
 
         // Kill-pilot residual only applies to manned enemy ground vehicles.
@@ -369,7 +372,7 @@ impl<'a> CommandExecutor<'a> {
             || target_unmanned
             || target_team == Team::Neutral
         {
-            return CommandResult::InvalidTarget;
+            return Ok(CommandResult::InvalidTarget);
         }
 
         let mut any = false;
@@ -412,7 +415,7 @@ impl<'a> CommandExecutor<'a> {
                     .unit_command_set_ai_state(unit_id, AIState::SpecialAbility);
                 issued_units.push(unit_id);
                 any = true;
-            } else if self.path_to_goal_with_state(unit_id, target_pos, AIState::SpecialAbility) {
+            } else if self.path_to_goal_with_state(unit_id, target_pos, AIState::SpecialAbility)? {
                 issued_units.push(unit_id);
                 any = true;
             }
@@ -426,7 +429,7 @@ impl<'a> CommandExecutor<'a> {
             );
         }
 
-        if any {
+        Ok(if any {
             // C++ CommandXlat.cpp:548-556 MSG_DO_WEAPON_AT_OBJECT DAMAGE_KILLPILOT.
             self.game_logic.queue_picked_unit_voice(
                 units,
@@ -435,7 +438,7 @@ impl<'a> CommandExecutor<'a> {
             CommandResult::Success
         } else {
             CommandResult::InvalidCommand
-        }
+        })
     }
 
     /// Colonel Burton residual: plant timed demo charge on enemy structure/vehicle.
@@ -444,7 +447,7 @@ impl<'a> CommandExecutor<'a> {
         &mut self,
         units: &[ObjectId],
         target_id: ObjectId,
-    ) -> CommandResult {
+    ) -> gamelogic::GameLogicResult<CommandResult> {
         let (target_team, target_pos, target_alive, target_is_structure) =
             match self.game_logic.host_object(target_id) {
                 Some(target) => (
@@ -453,11 +456,11 @@ impl<'a> CommandExecutor<'a> {
                     target.is_alive(),
                     target.is_kind_of(KindOf::Structure),
                 ),
-                None => return CommandResult::InvalidTarget,
+                None => return Ok(CommandResult::InvalidTarget),
             };
 
         if !target_alive || !target_is_structure {
-            return CommandResult::InvalidTarget;
+            return Ok(CommandResult::InvalidTarget);
         }
 
         let mut any = false;
@@ -495,7 +498,7 @@ impl<'a> CommandExecutor<'a> {
             let _ = self
                 .game_logic
                 .unit_command_stop_moving_order_target(unit_id, Some(target_id));
-            if self.path_to_goal_with_state(unit_id, target_pos, AIState::SpecialAbility) {
+            if self.path_to_goal_with_state(unit_id, target_pos, AIState::SpecialAbility)? {
                 issued_units.push(unit_id);
                 any = true;
             }
@@ -509,18 +512,18 @@ impl<'a> CommandExecutor<'a> {
             );
         }
 
-        if any {
+        Ok(if any {
             CommandResult::Success
         } else {
             CommandResult::InvalidCommand
-        }
+        })
     }
 
     pub(super) fn execute_plant_timed_demo_charge(
         &mut self,
         units: &[ObjectId],
         target_id: ObjectId,
-    ) -> CommandResult {
+    ) -> gamelogic::GameLogicResult<CommandResult> {
         let (
             target_team,
             target_pos,
@@ -541,7 +544,7 @@ impl<'a> CommandExecutor<'a> {
                 target.is_kind_of(KindOf::Bridge),
                 target.is_kind_of(KindOf::BridgeTower),
             ),
-            None => return CommandResult::InvalidTarget,
+            None => return Ok(CommandResult::InvalidTarget),
         };
 
         let valid_target = crate::game_logic::host_hero_abilities::leftover_charge_plant_target_ok(
@@ -552,7 +555,7 @@ impl<'a> CommandExecutor<'a> {
             target_is_vehicle && !target_is_airborne,
         ) && target_team != Team::Neutral;
         if !valid_target {
-            return CommandResult::InvalidTarget;
+            return Ok(CommandResult::InvalidTarget);
         }
 
         let mut any = false;
@@ -571,7 +574,7 @@ impl<'a> CommandExecutor<'a> {
             let _ = self
                 .game_logic
                 .unit_command_stop_moving_order_target(unit_id, Some(target_id));
-            if self.path_to_goal_with_state(unit_id, target_pos, AIState::SpecialAbility) {
+            if self.path_to_goal_with_state(unit_id, target_pos, AIState::SpecialAbility)? {
                 issued_units.push(unit_id);
                 any = true;
             }
@@ -585,11 +588,11 @@ impl<'a> CommandExecutor<'a> {
             );
         }
 
-        if any {
+        Ok(if any {
             CommandResult::Success
         } else {
             CommandResult::InvalidCommand
-        }
+        })
     }
 
     /// Colonel Burton residual: plant remote demo charge on enemy structure/vehicle.
@@ -598,7 +601,7 @@ impl<'a> CommandExecutor<'a> {
         &mut self,
         units: &[ObjectId],
         target_id: ObjectId,
-    ) -> CommandResult {
+    ) -> gamelogic::GameLogicResult<CommandResult> {
         let (
             target_team,
             target_pos,
@@ -619,7 +622,7 @@ impl<'a> CommandExecutor<'a> {
                 target.is_kind_of(KindOf::Bridge),
                 target.is_kind_of(KindOf::BridgeTower),
             ),
-            None => return CommandResult::InvalidTarget,
+            None => return Ok(CommandResult::InvalidTarget),
         };
 
         let valid_target = crate::game_logic::host_hero_abilities::leftover_charge_plant_target_ok(
@@ -630,7 +633,7 @@ impl<'a> CommandExecutor<'a> {
             target_is_vehicle && !target_is_airborne,
         ) && target_team != Team::Neutral;
         if !valid_target {
-            return CommandResult::InvalidTarget;
+            return Ok(CommandResult::InvalidTarget);
         }
 
         let mut any = false;
@@ -649,7 +652,7 @@ impl<'a> CommandExecutor<'a> {
             let _ = self
                 .game_logic
                 .unit_command_stop_moving_order_target(unit_id, Some(target_id));
-            if self.path_to_goal_with_state(unit_id, target_pos, AIState::SpecialAbility) {
+            if self.path_to_goal_with_state(unit_id, target_pos, AIState::SpecialAbility)? {
                 issued_units.push(unit_id);
                 any = true;
             }
@@ -663,11 +666,11 @@ impl<'a> CommandExecutor<'a> {
             );
         }
 
-        if any {
+        Ok(if any {
             CommandResult::Success
         } else {
             CommandResult::InvalidCommand
-        }
+        })
     }
 
     /// Colonel Burton residual: detonate all remote charges planted by selected units.
@@ -728,7 +731,7 @@ impl<'a> CommandExecutor<'a> {
         &mut self,
         units: &[ObjectId],
         target_id: ObjectId,
-    ) -> CommandResult {
+    ) -> gamelogic::GameLogicResult<CommandResult> {
         use crate::game_logic::host_hero_abilities::{
             can_activate_black_lotus_ability, is_black_lotus_template, is_cash_hack_target,
             is_legal_steal_cash_target,
@@ -756,7 +759,7 @@ impl<'a> CommandExecutor<'a> {
                     target.is_kind_of(KindOf::FSSupplyDropzone),
                 ),
             ),
-            None => return CommandResult::InvalidTarget,
+            None => return Ok(CommandResult::InvalidTarget),
         };
 
         // Target residual: enemy cash generator structure (not under construction).
@@ -768,7 +771,7 @@ impl<'a> CommandExecutor<'a> {
             target_team != Team::Neutral,
             is_cash_generator,
         ) {
-            return CommandResult::InvalidTarget;
+            return Ok(CommandResult::InvalidTarget);
         }
 
         let mut any = false;
@@ -794,7 +797,7 @@ impl<'a> CommandExecutor<'a> {
             let _ = self
                 .game_logic
                 .unit_command_stop_moving_order_target(unit_id, Some(target_id));
-            if self.path_to_goal_with_state(unit_id, target_pos, AIState::SpecialAbility) {
+            if self.path_to_goal_with_state(unit_id, target_pos, AIState::SpecialAbility)? {
                 issued_units.push(unit_id);
                 any = true;
             }
@@ -808,11 +811,11 @@ impl<'a> CommandExecutor<'a> {
             );
         }
 
-        if any {
+        Ok(if any {
             CommandResult::Success
         } else {
             CommandResult::InvalidCommand
-        }
+        })
     }
 
     /// Black Lotus residual: disable enemy ground vehicle (DISABLED_HACKED).
@@ -824,7 +827,7 @@ impl<'a> CommandExecutor<'a> {
         &mut self,
         units: &[ObjectId],
         target_id: ObjectId,
-    ) -> CommandResult {
+    ) -> gamelogic::GameLogicResult<CommandResult> {
         use crate::game_logic::host_hero_abilities::{
             can_activate_black_lotus_ability, is_black_lotus_template,
             is_legal_disable_vehicle_target,
@@ -848,7 +851,7 @@ impl<'a> CommandExecutor<'a> {
                 target.is_hacked_disabled(),
                 target.is_unmanned(),
             ),
-            None => return CommandResult::InvalidTarget,
+            None => return Ok(CommandResult::InvalidTarget),
         };
 
         if !is_legal_disable_vehicle_target(
@@ -859,7 +862,7 @@ impl<'a> CommandExecutor<'a> {
             target_hacked,
             target_unmanned,
         ) {
-            return CommandResult::InvalidTarget;
+            return Ok(CommandResult::InvalidTarget);
         }
 
         let mut any = false;
@@ -885,7 +888,7 @@ impl<'a> CommandExecutor<'a> {
             let _ = self
                 .game_logic
                 .unit_command_stop_moving_order_target(unit_id, Some(target_id));
-            if self.path_to_goal_with_state(unit_id, target_pos, AIState::SpecialAbility) {
+            if self.path_to_goal_with_state(unit_id, target_pos, AIState::SpecialAbility)? {
                 issued_units.push(unit_id);
                 any = true;
             }
@@ -899,11 +902,11 @@ impl<'a> CommandExecutor<'a> {
             );
         }
 
-        if any {
+        Ok(if any {
             CommandResult::Success
         } else {
             CommandResult::InvalidCommand
-        }
+        })
     }
 
     /// Disable-building residual (DISABLED_HACKED).
@@ -950,7 +953,7 @@ impl<'a> CommandExecutor<'a> {
         &mut self,
         units: &[ObjectId],
         target_id: ObjectId,
-    ) -> CommandResult {
+    ) -> gamelogic::GameLogicResult<CommandResult> {
         use crate::game_logic::host_bomb_truck_disguise::{
             is_bomb_truck_template, is_legal_disguise_target,
         };
@@ -977,7 +980,7 @@ impl<'a> CommandExecutor<'a> {
                 target.template_name.clone(),
                 target.get_position(),
             ),
-            None => return CommandResult::InvalidTarget,
+            None => return Ok(CommandResult::InvalidTarget),
         };
 
         if !is_legal_disguise_target(
@@ -989,7 +992,7 @@ impl<'a> CommandExecutor<'a> {
             target_has_railroad,
             target_disguised,
         ) {
-            return CommandResult::InvalidTarget;
+            return Ok(CommandResult::InvalidTarget);
         }
 
         let mut any = false;
@@ -1017,7 +1020,7 @@ impl<'a> CommandExecutor<'a> {
             // residual: the ability arms and completes without an approach
             // walk, so a failed A* allocation (e.g. no loaded map in a bare
             // world) must not swallow the order.
-            if !self.path_to_goal_with_state(unit_id, target_pos, AIState::SpecialAbility) {
+            if !self.path_to_goal_with_state(unit_id, target_pos, AIState::SpecialAbility)? {
                 let _ = self
                     .game_logic
                     .unit_command_set_ai_state(unit_id, AIState::SpecialAbility);
@@ -1034,11 +1037,11 @@ impl<'a> CommandExecutor<'a> {
             );
         }
 
-        if any {
+        Ok(if any {
             CommandResult::Success
         } else {
             CommandResult::InvalidCommand
-        }
+        })
     }
 
     pub(super) fn execute_switch_weapons(&mut self, units: &[ObjectId], slot: u8) -> CommandResult {

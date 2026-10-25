@@ -794,8 +794,45 @@ mod tests {
         );
     }
 
-    fn win_lose_layout_is_open(root_name: &str, child_name: &str) -> bool {
-        game_client::gui::with_window_manager_ref(|wm| {
+    struct ScriptWindowUi {
+        owner: game_client::gui::window_manager::WindowManagerOwner,
+    }
+
+    impl crate::game_logic::ScriptUiEffects for ScriptWindowUi {
+        fn weather_visible(&mut self, _visible: bool) {}
+
+        fn create_win_lose_window(
+            &mut self,
+            layout_filename: &str,
+        ) -> gamelogic::GameLogicResult<()> {
+            self.owner
+                .with_manager(|manager| manager.create_script_message_window(layout_filename));
+            Ok(())
+        }
+
+        fn destroy_win_lose_window(&mut self) -> gamelogic::GameLogicResult<()> {
+            self.owner
+                .with_manager(|manager| manager.destroy_script_message_window());
+            Ok(())
+        }
+
+        fn letterbox(
+            &mut self,
+            _camera: &mut crate::presentation_frame::camera::SessionCamera,
+            _enabled: bool,
+            _replay: bool,
+            _upgrade_source: game_engine::common::thing::receiving_module_content::UpgradeTooltipSource<'_>,
+            _game_ending: bool,
+        ) {
+        }
+    }
+
+    fn win_lose_layout_is_open(
+        owner: &game_client::gui::window_manager::WindowManagerOwner,
+        root_name: &str,
+        child_name: &str,
+    ) -> bool {
+        owner.with_manager(|wm| {
             wm.find_window_by_name(root_name).is_some()
                 || wm.find_window_by_name(child_name).is_some()
         })
@@ -807,36 +844,112 @@ mod tests {
         // ("Menus/Victorious.wnd" / "Menus/Defeat.wnd"). Live host handler must
         // not stay the ScriptActionHandler default no-op.
         let hooks = MissionScriptHooks::new();
-        let handler = MissionScriptActionHandler::new(hooks);
+        let handler = MissionScriptActionHandler::new(hooks.clone());
+        let owner = game_client::gui::window_manager::WindowManagerOwner::new();
+        let mut ui = ScriptWindowUi {
+            owner: owner.clone(),
+        };
         let _ = handler.destroy_win_lose_window();
+        hooks
+            .deliver_win_lose_window_actions(&mut ui)
+            .expect("initial destroy callback");
 
         handler
             .create_win_lose_window("Menus/Victorious.wnd")
             .expect("create Victorious.wnd");
+        hooks
+            .deliver_win_lose_window_actions(&mut ui)
+            .expect("deliver Victorious.wnd");
         assert!(
-            win_lose_layout_is_open("Victorious.wnd:", "Victorious.wnd:Victorious"),
+            win_lose_layout_is_open(&owner, "Victorious.wnd:", "Victorious.wnd:Victorious"),
             "host MissionScriptActionHandler must load Menus/Victorious.wnd"
         );
 
         handler
             .create_win_lose_window("Menus/Defeat.wnd")
             .expect("create Defeat.wnd");
+        hooks
+            .deliver_win_lose_window_actions(&mut ui)
+            .expect("deliver Defeat.wnd");
         assert!(
-            win_lose_layout_is_open("Defeat.wnd:Defeat", "Defeat.wnd:DefeatImage"),
+            win_lose_layout_is_open(&owner, "Defeat.wnd:Defeat", "Defeat.wnd:DefeatImage"),
             "host MissionScriptActionHandler must load Menus/Defeat.wnd"
         );
         assert!(
-            !win_lose_layout_is_open("Victorious.wnd:", "Victorious.wnd:Victorious"),
+            !win_lose_layout_is_open(&owner, "Victorious.wnd:", "Victorious.wnd:Victorious"),
             "creating Defeat.wnd must destroy the prior Victorious.wnd"
         );
 
         handler
             .destroy_win_lose_window()
             .expect("destroy Defeat.wnd");
+        hooks
+            .deliver_win_lose_window_actions(&mut ui)
+            .expect("deliver destroy Defeat.wnd");
         assert!(
-            !win_lose_layout_is_open("Defeat.wnd:Defeat", "Defeat.wnd:DefeatImage"),
+            !win_lose_layout_is_open(&owner, "Defeat.wnd:Defeat", "Defeat.wnd:DefeatImage"),
             "destroy_win_lose_window must remove the tracked message window"
         );
+    }
+
+    #[test]
+    fn fresh_script_handlers_destroy_only_the_receiving_clients_same_id_window() {
+        let first_hooks = MissionScriptHooks::new();
+        let second_hooks = MissionScriptHooks::new();
+        let first_owner = game_client::gui::window_manager::WindowManagerOwner::new();
+        let second_owner = game_client::gui::window_manager::WindowManagerOwner::new();
+        let mut first_ui = ScriptWindowUi {
+            owner: first_owner.clone(),
+        };
+        let mut second_ui = ScriptWindowUi {
+            owner: second_owner.clone(),
+        };
+
+        MissionScriptActionHandler::new(first_hooks.clone())
+            .create_win_lose_window("Menus/Victorious.wnd")
+            .unwrap();
+        MissionScriptActionHandler::new(second_hooks.clone())
+            .create_win_lose_window("Menus/Victorious.wnd")
+            .unwrap();
+        first_hooks
+            .deliver_win_lose_window_actions(&mut first_ui)
+            .unwrap();
+        second_hooks
+            .deliver_win_lose_window_actions(&mut second_ui)
+            .unwrap();
+
+        let first_id = first_owner.with_manager(|manager| {
+            manager
+                .find_window_by_name("Victorious.wnd:Victorious")
+                .expect("first Victorious window")
+                .borrow()
+                .get_id()
+        });
+        let second_id = second_owner.with_manager(|manager| {
+            manager
+                .find_window_by_name("Victorious.wnd:Victorious")
+                .expect("second Victorious window")
+                .borrow()
+                .get_id()
+        });
+        assert_eq!(first_id, second_id, "separate clients can reuse a WindowId");
+
+        MissionScriptActionHandler::new(first_hooks.clone())
+            .destroy_win_lose_window()
+            .unwrap();
+        first_hooks
+            .deliver_win_lose_window_actions(&mut first_ui)
+            .unwrap();
+        assert!(!win_lose_layout_is_open(
+            &first_owner,
+            "Victorious.wnd:",
+            "Victorious.wnd:Victorious"
+        ));
+        assert!(win_lose_layout_is_open(
+            &second_owner,
+            "Victorious.wnd:",
+            "Victorious.wnd:Victorious"
+        ));
     }
 
     #[test]
@@ -844,8 +957,12 @@ mod tests {
         // C++ ScriptActions::doVictory ScriptActions.cpp:191-209.
         initialize_script_engine().expect("script engine should initialize");
         let hooks = MissionScriptHooks::new();
+        let owner = game_client::gui::window_manager::WindowManagerOwner::new();
+        let mut ui = ScriptWindowUi {
+            owner: owner.clone(),
+        };
         let handler: Arc<dyn ScriptActionHandler> =
-            Arc::new(MissionScriptActionHandler::new(hooks));
+            Arc::new(MissionScriptActionHandler::new(hooks.clone()));
         if let Ok(mut guard) = get_script_engine().write() {
             if let Some(engine) = guard.as_mut() {
                 engine.set_action_handler(Some(Arc::clone(&handler)));
@@ -857,11 +974,17 @@ mod tests {
                 );
             }
         }
+        hooks
+            .deliver_win_lose_window_actions(&mut ui)
+            .expect("deliver live ScriptEngine window callbacks");
         assert!(
-            win_lose_layout_is_open("Victorious.wnd:", "Victorious.wnd:Victorious"),
+            win_lose_layout_is_open(&owner, "Victorious.wnd:", "Victorious.wnd:Victorious"),
             "live ScriptEngine + host handler must materialise Victorious.wnd"
         );
-        let _ = handler.destroy_win_lose_window();
+        handler.destroy_win_lose_window().unwrap();
+        hooks
+            .deliver_win_lose_window_actions(&mut ui)
+            .expect("destroy live ScriptEngine window");
     }
 
     #[test]

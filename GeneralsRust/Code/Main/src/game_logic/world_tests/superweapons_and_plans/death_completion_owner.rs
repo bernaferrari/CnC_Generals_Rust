@@ -32,6 +32,7 @@ fn fixture(kind: DeathKind, start: bool) -> (GameLogic, GameWorldShadow, ObjectI
     let id = logic
         .create_object(name, Team::USA, Vec3::new(0.0, 10.0, 0.0))
         .unwrap();
+    let mut owner_idle_entry = false;
     if start {
         let frame = logic.getFrame();
         let object = logic.host_object_mut(id).unwrap();
@@ -72,15 +73,39 @@ End
                     &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
                 ));
             }
-            DeathKind::Jet => assert!(
-                object.begin_jet_slow_death(&mut crate::game_logic::ObjectAudio::queue(
-                    &mut Vec::new()
-                ))
-            ),
-            DeathKind::Helicopter => assert!(object.begin_helicopter_slow_death(
-                &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
-            )),
+            DeathKind::Jet => {
+                object.set_ai_state(
+                    AIState::Moving,
+                    &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+                );
+                let start = object.begin_jet_slow_death(
+                    &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+                );
+                assert!(start.defer_destruction);
+                owner_idle_entry = start.enter_idle;
+            }
+            DeathKind::Helicopter => {
+                object.set_ai_state(
+                    AIState::Moving,
+                    &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+                );
+                let start = object.begin_helicopter_slow_death(
+                    &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+                );
+                assert!(start.defer_destruction);
+                owner_idle_entry = start.enter_idle;
+            }
         }
+    }
+    if owner_idle_entry {
+        assert!(
+            logic
+                .set_ai_state_decision_aware_for_ai(id, AIState::Idle)
+                .expect("slow-death Idle entry belongs to the receiving world")
+        );
+        let actor = logic.host_object(id).unwrap();
+        assert!(actor.unit_ai_runtime.idle_initialized());
+        assert!(!actor.idle_mood_reset_pending);
     }
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);

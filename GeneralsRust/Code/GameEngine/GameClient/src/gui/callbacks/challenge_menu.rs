@@ -990,27 +990,30 @@ mod tests {
 
     #[test]
     fn os_wnd_challenge_start_hits_named_gadgets_then_start_challenge_game() {
-        with_window_manager(|manager| {
-            let general = manager
-                .create_window(None, 10, 10, 40, 40)
-                .expect("general gadget");
-            general
-                .borrow_mut()
-                .set_name("ChallengeMenu.wnd:GeneralPosition0");
-            let _ = general.borrow_mut().hide(false);
-            let play = manager
-                .create_window(None, 60, 10, 40, 40)
-                .expect("play gadget");
-            play.borrow_mut().set_name("ChallengeMenu.wnd:ButtonPlay");
-            let _ = play.borrow_mut().hide(false);
+        let owner = crate::gui::window_manager::WindowManagerOwner::new();
+        owner.with_scope(|| {
+            with_window_manager(|manager| {
+                let general = manager
+                    .create_window(None, 10, 10, 40, 40)
+                    .expect("general gadget");
+                general
+                    .borrow_mut()
+                    .set_name("ChallengeMenu.wnd:GeneralPosition0");
+                let _ = general.borrow_mut().hide(false);
+                let play = manager
+                    .create_window(None, 60, 10, 40, 40)
+                    .expect("play gadget");
+                play.borrow_mut().set_name("ChallengeMenu.wnd:ButtonPlay");
+                let _ = play.borrow_mut().hide(false);
+            });
+            assert!(
+                drive_os_wnd_challenge_start_like_cpp(0),
+                "OS WND clicks on ChallengeMenu gadgets must startChallengeGame"
+            );
+            assert!(residual_challenge_play_requested());
+            assert_eq!(residual_challenge_selected_general(), Some(0));
+            assert!(!drive_os_wnd_challenge_start_like_cpp(99));
         });
-        assert!(
-            drive_os_wnd_challenge_start_like_cpp(0),
-            "OS WND clicks on ChallengeMenu gadgets must startChallengeGame"
-        );
-        assert!(residual_challenge_play_requested());
-        assert_eq!(residual_challenge_selected_general(), Some(0));
-        assert!(!drive_os_wnd_challenge_start_like_cpp(99));
     }
 
     #[test]
@@ -1070,50 +1073,53 @@ mod tests {
 
     #[test]
     fn selecting_current_general_keeps_checkbox_checked_like_cpp() {
-        let selected_id = name_to_id("ChallengeMenu.test:SelectedGeneral");
-        {
-            let state_handle = challenge_menu_state();
-            let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
-            state.general_button_ids = [0; NUM_GENERALS];
-            state.general_button_ids[0] = selected_id;
-            state.last_button_index = Some(0);
-        }
-
-        with_window_manager(|manager| {
-            let _ = manager.destroy_all_windows();
-            let button = manager
-                .create_window_with_id(None, 0, 0, 32, 32, selected_id)
-                .expect("create challenge general button");
-            let mut button = button.borrow_mut();
-            button.set_widget(WindowWidget::CheckBox(CheckBox::new(
-                selected_id as u32,
-                0,
-                0,
-                32,
-            )));
-            let _ = button.gadget_check_box_set_checked(false);
-        });
-
-        let window = GameWindow::new();
-        assert_eq!(
-            challenge_menu_system(
-                &window,
-                WindowMessage::GadgetSelected,
-                selected_id as WindowMsgData,
-                selected_id as WindowMsgData,
-            ),
-            WindowMsgHandled::Handled
-        );
-
-        with_window_manager(|manager| {
-            let button = manager
-                .get_window_by_id(selected_id)
-                .expect("selected general button");
-            let button = button.borrow();
-            match button.widget() {
-                Some(WindowWidget::CheckBox(check)) => assert!(check.is_checked()),
-                _ => panic!("expected selected general checkbox"),
+        let owner = crate::gui::window_manager::WindowManagerOwner::new();
+        owner.with_scope(|| {
+            let selected_id = name_to_id("ChallengeMenu.test:SelectedGeneral");
+            {
+                let state_handle = challenge_menu_state();
+                let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
+                state.general_button_ids = [0; NUM_GENERALS];
+                state.general_button_ids[0] = selected_id;
+                state.last_button_index = Some(0);
             }
+
+            with_window_manager(|manager| {
+                let _ = manager.destroy_all_windows();
+                let button = manager
+                    .create_window_with_id(None, 0, 0, 32, 32, selected_id)
+                    .expect("create challenge general button");
+                let mut button = button.borrow_mut();
+                button.set_widget(WindowWidget::CheckBox(CheckBox::new(
+                    selected_id as u32,
+                    0,
+                    0,
+                    32,
+                )));
+                let _ = button.gadget_check_box_set_checked(false);
+            });
+
+            let window = GameWindow::new();
+            assert_eq!(
+                challenge_menu_system(
+                    &window,
+                    WindowMessage::GadgetSelected,
+                    selected_id as WindowMsgData,
+                    selected_id as WindowMsgData,
+                ),
+                WindowMsgHandled::Handled
+            );
+
+            with_window_manager(|manager| {
+                let button = manager
+                    .get_window_by_id(selected_id)
+                    .expect("selected general button");
+                let button = button.borrow();
+                match button.widget() {
+                    Some(WindowWidget::CheckBox(check)) => assert!(check.is_checked()),
+                    _ => panic!("expected selected general checkbox"),
+                }
+            });
         });
     }
 

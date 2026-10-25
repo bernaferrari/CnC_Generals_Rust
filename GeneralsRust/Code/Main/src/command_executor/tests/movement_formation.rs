@@ -200,7 +200,7 @@ fn scatter_pushes_outward_from_group_center() {
 
     for id in [a, b] {
         let u = logic.host_object(id).unwrap();
-        assert_eq!(u.ai_state, AIState::Moving, "scatter sets Moving");
+        assert_eq!(u.ai_state(), AIState::Moving, "scatter sets Moving");
     }
     for (id, before) in [(a, before_a), (b, before_b)] {
         let u = logic.host_object(id).unwrap();
@@ -283,7 +283,7 @@ fn create_formation_stamps_offsets_not_guard() {
         "{:?}",
         ub.formation_offset
     );
-    assert_ne!(ua.ai_state, AIState::GuardingArea);
+    assert_ne!(ua.ai_state(), AIState::GuardingArea);
 
     // Second call dissolves formation (C++ toggle when already formation).
     let mut exec = CommandExecutor::new(&mut logic, 0);
@@ -593,12 +593,12 @@ fn guard_uses_vision_radius_and_skips_inert_structures() {
     ));
     // Inert structure (no leftover AI / weapon) must not enter guard.
     assert_ne!(
-        logic.host_object(s).unwrap().ai_state,
+        logic.host_object(s).unwrap().ai_state(),
         AIState::GuardingArea
     );
     // Turret / stinger-style structure still scans from the post.
     assert_eq!(
-        logic.host_object(t).unwrap().ai_state,
+        logic.host_object(t).unwrap().ai_state(),
         AIState::GuardingArea
     );
 }
@@ -645,7 +645,7 @@ fn group_guard_includes_stunned_member_that_cannot_move() {
         );
     }
     let u = logic.host_object(id).unwrap();
-    assert_eq!(u.ai_state, AIState::GuardingArea);
+    assert_eq!(u.ai_state(), AIState::GuardingArea);
     assert!(
         !u.can_move(),
         "guard must not clear stun just to walk to the post"
@@ -718,19 +718,19 @@ fn script_team_guard_includes_turret_and_stunned() {
     }
     logic.execute_team_guard_script_for_test("W29GuardTeam");
     assert_eq!(
-        logic.host_object(v).unwrap().ai_state,
+        logic.host_object(v).unwrap().ai_state(),
         AIState::GuardingArea
     );
     assert_eq!(
-        logic.host_object(stun).unwrap().ai_state,
+        logic.host_object(stun).unwrap().ai_state(),
         AIState::GuardingArea
     );
     assert_eq!(
-        logic.host_object(turret).unwrap().ai_state,
+        logic.host_object(turret).unwrap().ai_state(),
         AIState::GuardingArea
     );
     assert_ne!(
-        logic.host_object(inert).unwrap().ai_state,
+        logic.host_object(inert).unwrap().ai_state(),
         AIState::GuardingArea
     );
 }
@@ -749,12 +749,15 @@ fn patrol_enables_auto_acquire_hunt_residual() {
     tpl.set_health(100.0);
     logic.templates.insert("PT_A".to_string(), tpl);
     let a = logic.create_object("PT_A", Team::USA, Vec3::ZERO).unwrap();
-    logic.host_object_mut(a).unwrap().auto_acquire_when_idle = false;
+    logic
+        .host_object_mut(a)
+        .unwrap()
+        .set_auto_acquire_when_idle(false);
     let mut exec = CommandExecutor::new(&mut logic, 0);
     assert_eq!(exec.execute_patrol(&[a]), CommandResult::Success);
     let u = logic.host_object(a).unwrap();
-    assert_eq!(u.ai_state, AIState::Patrolling);
-    assert!(u.auto_acquire_when_idle);
+    assert_eq!(u.ai_state(), AIState::Patrolling);
+    assert!(u.auto_acquire_when_idle());
 }
 
 #[test]
@@ -792,7 +795,7 @@ fn sleep_mood_ai_rejects_hunt_guard_attack_move() {
     let mut exec = CommandExecutor::new(&mut logic, 1);
     assert_eq!(exec.execute_patrol(&[id]), CommandResult::InvalidCommand);
     let u = logic.host_object(id).unwrap();
-    assert_eq!(u.ai_state, AIState::Idle);
+    assert_eq!(u.ai_state(), AIState::Idle);
 }
 
 #[test]
@@ -814,7 +817,7 @@ fn forbid_player_commands_blocks_player_hunt_click() {
     logic.host_object_mut(id).unwrap().forbid_player_commands = true;
     let mut exec = CommandExecutor::new(&mut logic, 0);
     assert_eq!(exec.execute_patrol(&[id]), CommandResult::InvalidCommand);
-    assert_eq!(logic.host_object(id).unwrap().ai_state, AIState::Idle);
+    assert_eq!(logic.host_object(id).unwrap().ai_state(), AIState::Idle);
 }
 
 #[test]
@@ -1297,7 +1300,7 @@ fn attack_position_own_location_and_max_shots() {
         );
     }
     let u = logic.host_object(id).unwrap();
-    assert_eq!(u.ai_state, AIState::AttackingGround);
+    assert_eq!(u.ai_state(), AIState::AttackingGround);
     assert_eq!(u.max_shots_to_fire, 3);
     assert!(u.force_attack);
 }
@@ -1343,7 +1346,7 @@ fn attack_ground_orders_locked_hive_slaves() {
         );
     }
     let s = logic.host_object(site).unwrap();
-    assert_eq!(s.ai_state, AIState::AttackingGround);
+    assert_eq!(s.ai_state(), AIState::AttackingGround);
     assert!(
         s.hive_slaves.iter().filter(|sl| sl.alive).all(|sl| {
             sl.ai_attacking
@@ -1632,10 +1635,10 @@ fn attack_move_sets_max_shots_and_path_flag() {
         );
     }
     let u = logic.host_object(id).unwrap();
-    assert_eq!(u.ai_state, AIState::AttackMoving);
+    assert_eq!(u.ai_state(), AIState::AttackMoving);
     assert!(!u.is_attack_path);
     assert_eq!(u.max_shots_to_fire, 5);
-    assert!(u.auto_acquire_when_idle);
+    assert!(u.auto_acquire_when_idle());
 }
 
 #[test]
@@ -1718,7 +1721,8 @@ fn follow_path_alias_paths_units() {
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
         assert_eq!(
-            exec.execute_follow_path(&[id], &path),
+            exec.execute_follow_path(&[id], &path)
+                .expect("follow path command"),
             CommandResult::Success
         );
     }
@@ -1915,7 +1919,7 @@ fn attack_follow_waypoint_uses_move_path_until_combat_acquisition() {
         !u.is_attack_path,
         "following is not a victim-specific attack path"
     );
-    assert_eq!(u.ai_state, AIState::AttackMoving);
+    assert_eq!(u.ai_state(), AIState::AttackMoving);
     assert!(
         !u.movement.path.is_empty(),
         "attack-follow installs a route"

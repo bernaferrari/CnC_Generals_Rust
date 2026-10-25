@@ -505,7 +505,7 @@ fn repair_mid_build_keeps_pending_build_and_idle_resumes() {
     assert_eq!(result, CommandResult::Success);
     {
         let dz = logic.host_object(dozer).expect("dz");
-        assert_eq!(dz.ai_state, AIState::Repairing);
+        assert_eq!(dz.ai_state(), AIState::Repairing);
         assert_eq!(dz.target, Some(damaged));
         assert_eq!(
             dz.dozer_task_build_target,
@@ -527,7 +527,7 @@ fn repair_mid_build_keeps_pending_build_and_idle_resumes() {
         "idle isBuildMostImportant must resume parked BUILD"
     );
     let dz = logic.host_object(dozer).expect("dz");
-    assert_eq!(dz.ai_state, AIState::Constructing);
+    assert_eq!(dz.ai_state(), AIState::Constructing);
     assert_eq!(dz.target, Some(scaffold));
     assert_eq!(dz.dozer_task_build_target, Some(scaffold));
 }
@@ -596,7 +596,7 @@ fn same_frame_build_repair_tie_resumes_build() {
         "hq-ylhfz: same-frame BUILD+REPAIR must resume BUILD"
     );
     let dz = logic.host_object(dozer).expect("dz");
-    assert_eq!(dz.ai_state, AIState::Constructing);
+    assert_eq!(dz.ai_state(), AIState::Constructing);
     assert_eq!(dz.target, Some(scaffold));
 }
 
@@ -640,7 +640,7 @@ fn idle_resumes_parked_repair_when_most_recent() {
         "hq-ja2nm: idle isRepairMostImportant must resume parked REPAIR"
     );
     let dz = logic.host_object(dozer).expect("dz");
-    assert_eq!(dz.ai_state, AIState::Repairing);
+    assert_eq!(dz.ai_state(), AIState::Repairing);
     assert_eq!(dz.target, Some(damaged));
     assert_eq!(dz.dozer_task_repair_target, Some(damaged));
 }
@@ -700,7 +700,7 @@ fn idle_resumes_repair_parked_by_newer_build() {
         "newer BUILD still wins getMostRecentCommand"
     );
     assert_eq!(
-        logic.host_object(dozer).unwrap().ai_state,
+        logic.host_object(dozer).unwrap().ai_state(),
         AIState::Constructing
     );
     logic.dozer_internal_task_complete(dozer, false);
@@ -716,7 +716,7 @@ fn idle_resumes_repair_parked_by_newer_build() {
         "hq-ja2nm: after BUILD clears, idle must resume parked REPAIR"
     );
     let dz = logic.host_object(dozer).expect("dz");
-    assert_eq!(dz.ai_state, AIState::Repairing);
+    assert_eq!(dz.ai_state(), AIState::Repairing);
     assert_eq!(dz.target, Some(damaged));
 }
 
@@ -854,7 +854,7 @@ fn execute_build_records_build_slot_and_docks_off_center() {
         // C++ DozerAIUpdate.cpp:499-507 — newTask BUILD walks to the dock
         // (AI_MOVE) and flips to Constructing only on arrival; a dozer placed
         // far from the pad must be Moving, not Constructing.
-        assert_eq!(dz.ai_state, AIState::Moving);
+        assert_eq!(dz.ai_state(), AIState::Moving);
         let dest = dz
             .movement
             .target_position
@@ -958,7 +958,7 @@ fn gather_cancels_build_and_blocks_idle_resume_while_supply() {
             w.dozer_task_build_target.is_none(),
             "hq-5nio2: gather must cancel current BUILD"
         );
-        assert_eq!(w.ai_state, AIState::Gathering);
+        assert_eq!(w.ai_state(), AIState::Gathering);
     }
     if let Some(w) = logic.host_object_mut(worker) {
         w.set_ai_state(

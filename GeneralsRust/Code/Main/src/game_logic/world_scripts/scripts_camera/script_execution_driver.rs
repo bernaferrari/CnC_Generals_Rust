@@ -118,9 +118,7 @@ impl<'a> HostScriptExecutionDriver<'a> {
     }
 
     fn script_player_id(&self, token: &str, current_player: Option<&str>) -> Option<u32> {
-        use gamelogic::scripting::core::{
-            LOCAL_PLAYER, THE_PLAYER, THIS_PLAYER, THIS_PLAYER_ENEMY,
-        };
+        use gamelogic::scripting::core::{LOCAL_PLAYER, THE_PLAYER, THIS_PLAYER, THIS_PLAYER_ENEMY};
         match token {
             THIS_PLAYER => self.named_player_id(current_player?),
             LOCAL_PLAYER => self
@@ -187,7 +185,7 @@ impl<'a> HostScriptExecutionDriver<'a> {
     fn status(object: &crate::game_logic::object::Object) -> ScriptObjectStatus {
         ScriptObjectStatus {
             has_ai: object.has_ai_update_interface(),
-            idle: matches!(object.ai_state, AIState::Idle)
+            idle: matches!(object.ai_state(), AIState::Idle)
                 && !object.status.moving
                 && !object.status.attacking,
             effectively_dead: object.status.effectively_dead
@@ -1674,11 +1672,10 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         request: ScriptNamedCommand<'_>,
         this_object: Option<gamelogic::common::ObjectID>,
     ) -> Option<gamelogic::GameLogicResult<()>> {
-        self.world
-            .apply_owned_named_script_command(request, this_object.map(ObjectId));
-        // A missing object is the original no-op, never permission to search
-        // another session's registry or enqueue an ambient command.
-        Some(Ok(()))
+        Some(
+            self.world
+                .apply_owned_named_script_command(request, this_object.map(ObjectId)),
+        )
     }
 
     fn skirmish_player_exists(

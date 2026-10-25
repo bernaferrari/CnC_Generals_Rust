@@ -216,7 +216,7 @@ fn seeking_repair_consumes_one_logic_action_independent_of_display_delta() {
             .to_bits()
     );
     assert_eq!(
-        game.host_object(master).unwrap().ai_state,
+        game.host_object(master).unwrap().ai_state(),
         AIState::SeekingRepair
     );
     assert_eq!(

@@ -1,7 +1,7 @@
 //! Isolation for tests whose public API deliberately uses application globals.
 //! Each child runs one unchanged test body against a private working directory.
 #[cfg(not(target_arch = "wasm32"))]
-pub(super) fn run_in_private_child(module: &str, name: &str) -> bool {
+pub(crate) fn run_in_private_child(module: &str, name: &str) -> bool {
     const MARKER: &str = "GENERALS_CLIENT_GLOBAL_BOUNDARY_CHILD";
     let module = module
         .split_once("::")

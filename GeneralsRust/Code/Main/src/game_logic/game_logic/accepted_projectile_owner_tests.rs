@@ -1,9 +1,7 @@
 //! Actual Main attack-fire acceptance and ordinary materialization ownership.
 //! CPP Weapon.cpp:900-953,998-1080; no factory/global queue injection.
 use super::*;
-use crate::game_logic::combat::{
-    apply_ready_projectileless_delayed_damage, drain_pending_projectiles,
-};
+use crate::game_logic::combat::{apply_ready_projectileless_delayed_damage, drain_pending_projectiles};
 use crate::game_logic::{KindOf, Team, ThingTemplate};
 
 const FIRST_WEAPON: &str = "AcceptedQueueFirstWeapon";
@@ -196,7 +194,11 @@ fn populate(world: &mut GameLogic, weapon_name: &str) -> (ObjectId, ObjectId) {
     // The actual Object flight helper uses this live victim pose, consistent
     // with the real roster/range check in attack_fire_weapon_update.
     let target_pos = world.objects[&target].get_position();
-    world.objects.get_mut(&source).unwrap().prev_victim_pos = Some(target_pos);
+    world
+        .objects
+        .get_mut(&source)
+        .unwrap()
+        .set_prev_victim_pos(Some(target_pos));
     (source, target)
 }
 
@@ -339,7 +341,7 @@ fn accepted_queue_fifo_repeated_shots_keep_frozen_source_after_retirement() {
         .objects
         .get_mut(&other_source)
         .unwrap()
-        .prev_victim_pos = Some(target_pos);
+        .set_prev_victim_pos(Some(target_pos));
     let source_orientation = world.objects[&source].get_orientation();
     let source_rank = world.objects[&source].experience.level;
     let hp = world.objects[&target].health.current;

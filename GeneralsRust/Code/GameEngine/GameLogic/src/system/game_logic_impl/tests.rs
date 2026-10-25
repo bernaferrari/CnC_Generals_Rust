@@ -1351,39 +1351,30 @@ mod tests {
 
         #[derive(Default)]
         struct RecordingLoadScreenHooks {
-            events: Mutex<Vec<String>>,
+            events: Vec<String>,
         }
 
         impl crate::helpers::LoadScreenHooks for RecordingLoadScreenHooks {
-            fn begin_load_screen(&self, game_mode: i32, loading_save_game: bool) {
+            fn begin_load_screen(&mut self, game_mode: i32, loading_save_game: bool) {
                 self.events
-                    .lock()
-                    .unwrap()
                     .push(format!("begin:{game_mode}:{loading_save_game}"));
             }
 
-            fn update_load_screen(&self, progress: i32) {
-                self.events
-                    .lock()
-                    .unwrap()
-                    .push(format!("update:{progress}"));
+            fn update_load_screen(&mut self, progress: i32) {
+                self.events.push(format!("update:{progress}"));
             }
 
-            fn run_load_screen_completion_transition(&self, loading_save_game: bool) {
+            fn run_load_screen_completion_transition(&mut self, loading_save_game: bool) {
                 self.events
-                    .lock()
-                    .unwrap()
                     .push(format!("finish-transition:{loading_save_game}"));
             }
 
-            fn end_load_screen(&self) {
-                self.events.lock().unwrap().push("end".to_string());
+            fn end_load_screen(&mut self) {
+                self.events.push("end".to_string());
             }
         }
 
-        let hooks = std::sync::Arc::new(RecordingLoadScreenHooks::default());
-        crate::helpers::clear_load_screen_hooks();
-        crate::helpers::register_load_screen_hooks(hooks.clone());
+        let mut hooks = RecordingLoadScreenHooks::default();
 
         let global_data = game_engine::common::ini::ini_game_data::ensure_global_data();
         let original_map_name = global_data.read().map_name.clone();
@@ -1391,15 +1382,14 @@ mod tests {
 
         let mut logic = GameLogic::new();
         logic.set_game_mode(GAME_SKIRMISH);
-        let result = logic.start_new_game_now(false);
+        let result = logic.start_new_game_now_with_load_screen_hooks(false, Some(&mut hooks));
 
         global_data.write().map_name = original_map_name;
-        crate::helpers::clear_load_screen_hooks();
 
         assert!(result.is_err());
         assert!(!logic.is_loading_map());
         assert_eq!(
-            hooks.events.lock().unwrap().as_slice(),
+            hooks.events.as_slice(),
             &[
                 "begin:2:false".to_string(),
                 "update:0".to_string(),

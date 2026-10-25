@@ -2835,7 +2835,7 @@ pub(in crate::game_logic) mod tests {
         // feeds the travel vector (Weapon.cpp:998-1003).  The Object-only
         // fire path resolves that stand-in from prev_victim_pos.
         atk.set_position(Vec3::ZERO);
-        atk.prev_victim_pos = Some(Vec3::new(100.0, 0.0, 0.0));
+        atk.set_prev_victim_pos(Some(Vec3::new(100.0, 0.0, 0.0)));
         atk.weapon = Some(Weapon {
             damage: 15.0,
             range: 200.0,

@@ -4,7 +4,7 @@
 use super::super::*;
 
 impl GameLogic {
-    pub fn update_anthrax_bomb_flights(&mut self) {
+    pub fn update_anthrax_bomb_flights(&mut self) -> gamelogic::GameLogicResult<()> {
         self.update_anthrax_bomb_flights_with_effects(
             &mut crate::game_logic::ScriptPresentationEffects::default(),
         )
@@ -13,7 +13,7 @@ impl GameLogic {
     pub(crate) fn update_anthrax_bomb_flights_with_effects(
         &mut self,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         use crate::game_logic::combat::DamageType;
         use crate::game_logic::host_anthrax_bomb_flight::anthrax_payload_drop_pos;
         use crate::game_logic::special_power_strikes::{
@@ -81,7 +81,7 @@ impl GameLogic {
             }
         }
         for id in leave {
-            self.mark_object_for_destruction_with_effects(id, None, presentation_effects);
+            self.mark_object_for_destruction_with_effects(id, None, presentation_effects)?;
         }
         for (team, target, producer, tier, plane_pos, plane_vel) in drops {
             let bomb = tier.bomb();
@@ -196,8 +196,9 @@ impl GameLogic {
             }
         }
         for id in destroy {
-            self.mark_object_for_destruction_with_effects(id, None, presentation_effects);
+            self.mark_object_for_destruction_with_effects(id, None, presentation_effects)?;
         }
+        Ok(())
     }
 
     /// C++ OCL_CreateSneakAttackTunnelStart → GLASneakAttackTunnelNetworkStart residual.
@@ -347,7 +348,7 @@ impl GameLogic {
         Some(tid)
     }
 
-    pub fn update_cluster_mines_flights(&mut self) {
+    pub fn update_cluster_mines_flights(&mut self) -> gamelogic::GameLogicResult<()> {
         self.update_cluster_mines_flights_with_effects(
             &mut crate::game_logic::ScriptPresentationEffects::default(),
         )
@@ -356,7 +357,7 @@ impl GameLogic {
     pub(crate) fn update_cluster_mines_flights_with_effects(
         &mut self,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         use crate::game_logic::host_cluster_mines_flight::{
             CLUSTER_MINES_BOMB_OBJECT, cluster_mines_payload_drop_pos,
         };
@@ -413,7 +414,7 @@ impl GameLogic {
             }
         }
         for id in leave {
-            self.mark_object_for_destruction_with_effects(id, None, presentation_effects);
+            self.mark_object_for_destruction_with_effects(id, None, presentation_effects)?;
         }
         for (team, target, producer, plane_pos, plane_vel) in drops {
             use crate::game_logic::host_mines::{
@@ -484,8 +485,9 @@ impl GameLogic {
             }
         }
         for id in destroy {
-            self.mark_object_for_destruction_with_effects(id, None, presentation_effects);
+            self.mark_object_for_destruction_with_effects(id, None, presentation_effects)?;
         }
+        Ok(())
     }
 
     /// C++ SUPERWEAPON_EMPPulse ChinaJetCargoPlane + EMPPulseBomb residual.
@@ -674,7 +676,7 @@ impl GameLogic {
         }
     }
 
-    pub fn update_emp_pulse_spheroids(&mut self) {
+    pub fn update_emp_pulse_spheroids(&mut self) -> gamelogic::GameLogicResult<()> {
         self.update_emp_pulse_spheroids_with_effects(
             &mut crate::game_logic::ScriptPresentationEffects::default(),
         )
@@ -683,7 +685,7 @@ impl GameLogic {
     pub(crate) fn update_emp_pulse_spheroids_with_effects(
         &mut self,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         let frame = self.frame;
         self.apply_due_emp_pulse_disables_with_effects(presentation_effects);
 
@@ -713,8 +715,9 @@ impl GameLogic {
                 o.emp_pulse_spheroid = false;
             }
             self.emp_pulses.remove_spheroid(id);
-            self.mark_object_for_destruction_with_effects(id, None, presentation_effects);
+            self.mark_object_for_destruction_with_effects(id, None, presentation_effects)?;
         }
+        Ok(())
     }
 
     pub fn spawn_emp_pulse_flight(
@@ -796,7 +799,7 @@ impl GameLogic {
         Some(tid)
     }
 
-    pub fn update_emp_pulse_flights(&mut self) {
+    pub fn update_emp_pulse_flights(&mut self) -> gamelogic::GameLogicResult<()> {
         self.update_emp_pulse_flights_with_effects(
             &mut crate::game_logic::ScriptPresentationEffects::default(),
         )
@@ -805,7 +808,7 @@ impl GameLogic {
     pub(crate) fn update_emp_pulse_flights_with_effects(
         &mut self,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         use crate::game_logic::host_emp_pulse::EMP_PULSE_BOMB_TEMPLATE;
 
         let tids: Vec<ObjectId> = self
@@ -864,7 +867,7 @@ impl GameLogic {
             }
         }
         for id in leave {
-            self.mark_object_for_destruction_with_effects(id, None, presentation_effects);
+            self.mark_object_for_destruction_with_effects(id, None, presentation_effects)?;
         }
         for (_team, target, producer, player_id, caster) in drops {
             let drop_pos = Vec3::new(target.x, 80.0, target.z);
@@ -936,9 +939,10 @@ impl GameLogic {
             }
         }
         for id in destroy {
-            self.mark_object_for_destruction_with_effects(id, None, presentation_effects);
+            self.mark_object_for_destruction_with_effects(id, None, presentation_effects)?;
         }
         self.apply_due_emp_pulse_disables_with_effects(presentation_effects);
+        Ok(())
     }
 
     /// C++ SUPERWEAPON_Frenzy OCL Frenzy_InvisibleMarker residual.
@@ -987,7 +991,7 @@ impl GameLogic {
         Some(mid)
     }
 
-    pub fn update_frenzy_invisible_markers(&mut self) {
+    pub fn update_frenzy_invisible_markers(&mut self) -> gamelogic::GameLogicResult<()> {
         self.update_frenzy_invisible_markers_with_effects(
             &mut crate::game_logic::ScriptPresentationEffects::default(),
         )
@@ -996,7 +1000,7 @@ impl GameLogic {
     pub(crate) fn update_frenzy_invisible_markers_with_effects(
         &mut self,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         // Retail DeletionUpdate Min/MaxLifetime = 1ms → 1 frame residual.
         let due = self.frenzies.take_due_marker_deletes();
         for id in due {
@@ -1008,9 +1012,10 @@ impl GameLogic {
             {
                 // C++ DeletionUpdate: Destroy (NOT kill). Keep body HP and
                 // run the owning instance's direct deletion operation.
-                self.destroy_object_with_effects(id, presentation_effects);
+                self.destroy_object_with_effects(id, presentation_effects)?;
             }
         }
+        Ok(())
     }
 
     /// C++ OCL GPSScrambler_InvisibleMarker residual.
@@ -1056,7 +1061,7 @@ impl GameLogic {
     /// C++ GrantStealthBehavior.cpp:147-150 `TheGameLogic->destroyObject(self)`
     /// after the FinalRadius scan. Invisible marker has no SlowDeath — hard-remove
     /// like Frenzy DeletionUpdate teardown.
-    fn destroy_gps_scrambler_marker(&mut self, id: ObjectId) {
+    fn destroy_gps_scrambler_marker(&mut self, id: ObjectId) -> gamelogic::GameLogicResult<()> {
         self.destroy_gps_scrambler_marker_with_effects(
             id,
             &mut crate::game_logic::ScriptPresentationEffects::default(),
@@ -1067,20 +1072,21 @@ impl GameLogic {
         &mut self,
         id: ObjectId,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         if !self
             .objects
             .get(&id)
             .map(|o| o.gps_scrambler_marker)
             .unwrap_or(false)
         {
-            return;
+            return Ok(());
         }
-        self.destroy_object_with_effects(id, presentation_effects);
+        self.destroy_object_with_effects(id, presentation_effects)?;
+        Ok(())
     }
 
     /// C++ GrantStealthBehavior radius grow pulse residual (Start 20 → Final 100).
-    pub fn update_gps_scrambler_grow(&mut self) {
+    pub fn update_gps_scrambler_grow(&mut self) -> gamelogic::GameLogicResult<()> {
         self.update_gps_scrambler_grow_with_effects(
             &mut crate::game_logic::ScriptPresentationEffects::default(),
         )
@@ -1089,7 +1095,7 @@ impl GameLogic {
     pub(crate) fn update_gps_scrambler_grow_with_effects(
         &mut self,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         use crate::game_logic::host_gps_scrambler::{
             GPS_SCRAMBLER_GROW_UPDATES_TO_FINAL, gps_scrambler_grow_is_final,
             gps_scrambler_scan_radius_after_updates, in_gps_scrambler_radius_2d,
@@ -1213,7 +1219,7 @@ impl GameLogic {
 
         // C++ GrantStealthBehavior.cpp:147-150 destroyObject after the final scan.
         for mid in markers_to_destroy {
-            self.destroy_gps_scrambler_marker_with_effects(mid, presentation_effects);
+            self.destroy_gps_scrambler_marker_with_effects(mid, presentation_effects)?;
         }
         let owned: std::collections::HashSet<ObjectId> = self
             .gps_scramblers
@@ -1228,8 +1234,9 @@ impl GameLogic {
             })
             .collect();
         for mid in orphans {
-            self.destroy_gps_scrambler_marker_with_effects(mid, presentation_effects);
+            self.destroy_gps_scrambler_marker_with_effects(mid, presentation_effects)?;
         }
+        Ok(())
     }
 
     /// C++ OCL RepairVehiclesInArea_InvisibleMarker residual (DeletionUpdate 0 = same-frame die).
@@ -1426,7 +1433,7 @@ impl GameLogic {
         spawned
     }
 
-    pub fn update_firewall_segment_objects(&mut self) {
+    pub fn update_firewall_segment_objects(&mut self) -> gamelogic::GameLogicResult<()> {
         self.update_firewall_segment_objects_with_effects(
             &mut crate::game_logic::ScriptPresentationEffects::default(),
         )
@@ -1435,7 +1442,7 @@ impl GameLogic {
     pub(crate) fn update_firewall_segment_objects_with_effects(
         &mut self,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         use crate::game_logic::host_firewall::FIREWALL_INCH_PER_FRAME;
 
         let frame = self.frame;
@@ -1500,8 +1507,9 @@ impl GameLogic {
                 o.firewall_segment_wall_id = None;
                 o.firewall_segment_dir = None;
             }
-            self.mark_object_for_destruction_with_effects(id, None, presentation_effects);
+            self.mark_object_for_destruction_with_effects(id, None, presentation_effects)?;
         }
+        Ok(())
     }
 
     /// C++ OCL SUPERWEAPON_RadarVanScan CreateObject RadarVanPing residual.
@@ -1622,7 +1630,7 @@ impl GameLogic {
         Some(pid)
     }
 
-    pub fn update_radar_van_pings(&mut self) {
+    pub fn update_radar_van_pings(&mut self) -> gamelogic::GameLogicResult<()> {
         self.update_radar_van_pings_with_effects(
             &mut crate::game_logic::ScriptPresentationEffects::default(),
         )
@@ -1631,7 +1639,7 @@ impl GameLogic {
     pub(crate) fn update_radar_van_pings_with_effects(
         &mut self,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         let frame = self.frame;
         let due: Vec<ObjectId> = self
             .objects
@@ -1658,8 +1666,9 @@ impl GameLogic {
                 o.status.effectively_dead = true;
                 o.radar_van_ping = false;
             }
-            self.mark_object_for_destruction_with_effects(id, None, presentation_effects);
+            self.mark_object_for_destruction_with_effects(id, None, presentation_effects)?;
         }
+        Ok(())
     }
 
     /// C++ OCL SUPERWEAPON_SpySatellite CreateObject SpySatellitePing residual.
@@ -1783,7 +1792,7 @@ impl GameLogic {
         Some(pid)
     }
 
-    pub fn update_spy_satellite_pings(&mut self) {
+    pub fn update_spy_satellite_pings(&mut self) -> gamelogic::GameLogicResult<()> {
         self.update_spy_satellite_pings_with_effects(
             &mut crate::game_logic::ScriptPresentationEffects::default(),
         )
@@ -1792,7 +1801,7 @@ impl GameLogic {
     pub(crate) fn update_spy_satellite_pings_with_effects(
         &mut self,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         let frame = self.frame;
         let due: Vec<ObjectId> = self
             .objects
@@ -1819,8 +1828,9 @@ impl GameLogic {
                 o.status.effectively_dead = true;
                 o.spy_satellite_ping = false;
             }
-            self.mark_object_for_destruction_with_effects(id, None, presentation_effects);
+            self.mark_object_for_destruction_with_effects(id, None, presentation_effects)?;
         }
+        Ok(())
     }
 
     pub fn apply_ocl_random_force(&mut self, object_id: ObjectId) -> bool {
@@ -2376,7 +2386,9 @@ impl GameLogic {
         }
     }
 
-    pub(in super::super) fn sync_host_bridge_rubble_and_scaffolds(&mut self) {
+    pub(in super::super) fn sync_host_bridge_rubble_and_scaffolds(
+        &mut self,
+    ) -> gamelogic::GameLogicResult<()> {
         self.sync_host_bridge_rubble_and_scaffolds_with_effects(
             &mut crate::game_logic::ScriptPresentationEffects::default(),
         )
@@ -2385,11 +2397,11 @@ impl GameLogic {
     pub(in super::super) fn sync_host_bridge_rubble_and_scaffolds_with_effects(
         &mut self,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         let moved = self.bridge_behavior.tick_scaffolds();
         for (sid, pos, finished_sink) in moved {
             if finished_sink {
-                self.destroy_object_with_effects(sid, presentation_effects);
+                self.destroy_object_with_effects(sid, presentation_effects)?;
             }
             if let Some(obj) = self.objects.get_mut(&sid) {
                 obj.set_position_with_effects(
@@ -2552,6 +2564,7 @@ impl GameLogic {
                 }
             }
         }
+        Ok(())
     }
 
     /// Residual Combat Chinook honesty: successful load count.
@@ -2585,7 +2598,7 @@ impl GameLogic {
     }
 
     /// C++ `ChinookAIUpdate::update` residual: auto-land / evac / HeadOffMap / combat-drop height.
-    pub fn tick_chinook_ai(&mut self, _dt: f32) {
+    pub fn tick_chinook_ai(&mut self, _dt: f32) -> gamelogic::GameLogicResult<()> {
         self.tick_chinook_ai_with_effects(
             _dt,
             &mut crate::game_logic::ScriptPresentationEffects::default(),
@@ -2596,7 +2609,7 @@ impl GameLogic {
         &mut self,
         _dt: f32,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         // Flight states observe the owned locomotor's pose. Render/update dt
         // must not grant this callback a second movement integration.
         let ids: Vec<_> = self
@@ -2609,13 +2622,35 @@ impl GameLogic {
             let wanting = self.objects.registered_values().any(|o| {
                 o.target == Some(id)
                     && matches!(
-                        o.ai_state,
+                        o.ai_state(),
                         AIState::Entering | AIState::Docking | AIState::Exiting
                     )
             }) || self
                 .objects
                 .get(&id)
                 .is_some_and(|c| c.pending_evacuate_on_stop);
+            // ChinookAIUpdate.cpp: stored inherited aiIdle runs before the
+            // parent update's auto-land and state-machine advance.
+            let replay_idle = self.objects.get(&id).is_some_and(|obj| {
+                obj.thing().template.contain_module.kind
+                    != crate::game_logic::ContainModuleKind::None
+                    && !obj.status.moving
+                    && obj.movement.path.is_empty()
+                    && obj.chinook_ai.as_ref().is_some_and(|ai| {
+                        ai.state == crate::game_logic::host_combat_chinook::HostChinookAIState::Idle
+                            && ai.pending_ai_idle
+                    })
+            });
+            if replay_idle {
+                if let Some(ai) = self
+                    .objects
+                    .get_mut(&id)
+                    .and_then(|obj| obj.chinook_ai.as_mut())
+                {
+                    ai.pending_ai_idle = false;
+                }
+                self.unit_command_ai_idle_owned_with_effects(id, presentation_effects)?;
+            }
             let (was_landing, was_taking_off, previous_state, effect) = {
                 let Some(obj) = self.objects.get_mut(&id) else {
                     continue;
@@ -2639,7 +2674,7 @@ impl GameLogic {
                     crate::game_logic::host_combat_chinook::HostChinookFlightStatus::TakingOff
                 );
                 let previous_state = ai.state;
-                let effect = ai.update_from_observed_pose();
+                let effect = ai.update_from_observed_pose_after_idle_replay(replay_idle);
                 (was_landing, was_taking_off, previous_state, effect)
             };
             // OnRemoving may access the owner and passengers. Never hold an
@@ -2797,6 +2832,8 @@ impl GameLogic {
                 }
             }
         }
+
+        Ok(())
     }
 
     /// Residual honesty: Combat Chinook load → docked → unload path.

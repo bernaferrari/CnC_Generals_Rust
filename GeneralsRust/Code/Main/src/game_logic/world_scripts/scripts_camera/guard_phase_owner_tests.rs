@@ -31,7 +31,7 @@ fn observe(world: &GameLogic, id: ObjectId) -> Observation {
         deadline: unit.unit_ai_runtime.guard_scan_deadline(),
         updated_frame: unit.unit_ai_runtime.guard_updated_frame(),
         anchor: unit.unit_ai_runtime.guard_anchor(),
-        state: unit.ai_state.clone(),
+        state: unit.ai_state().clone(),
         position: unit.get_position(),
         path: unit.movement.path.clone(),
         index: unit.movement.current_path_index,
@@ -194,7 +194,10 @@ fn active_return_snapshot_continues_route_deadline_and_phase_without_new_order()
             .set_guard_scan_deadline(Some(250));
         owner.tick_host_guard_states(&[id]);
         assert_eq!(owner.host_object(id).unwrap().target, Some(enemy));
-        assert_eq!(owner.host_object(id).unwrap().ai_state, AIState::Attacking);
+        assert_eq!(
+            owner.host_object(id).unwrap().ai_state(),
+            AIState::Attacking
+        );
     }
     assert_eq!(observe(&restored, id), observe(&source, id));
 }
@@ -269,7 +272,7 @@ fn due_return_enemy_acquisition_precedes_simultaneous_arrival() {
     owner.tick_host_guard_states(&[id]);
     let unit = owner.host_object(id).unwrap();
     assert_eq!(unit.target, Some(enemy));
-    assert_eq!(unit.ai_state, AIState::Attacking);
+    assert_eq!(unit.ai_state(), AIState::Attacking);
     assert_eq!(
         unit.unit_ai_runtime.guard_phase(),
         None,
@@ -407,7 +410,7 @@ fn temporary_quick_exit_preserves_idle_and_resumes_once_on_completion_frame() {
     unit.movement.path = vec![end, end];
     unit.movement.target_position = Some(end);
     unit.can_path_through_units = true;
-    unit.adjust_destinations = false;
+    unit.set_adjust_destinations(false);
     unit.unit_ai_runtime.set_quick_exit_deadline(Some(10));
     unit.set_ai_state(
         AIState::Moving,
@@ -418,13 +421,13 @@ fn temporary_quick_exit_preserves_idle_and_resumes_once_on_completion_frame() {
     owner.frame = 10;
     owner.update_support_states(&[id], 1.0 / 30.0);
     let unit = owner.host_object(id).unwrap();
-    assert_eq!(unit.ai_state, AIState::Moving);
+    assert_eq!(unit.ai_state(), AIState::Moving);
     assert_eq!(unit.unit_ai_runtime.guard_scan_deadline(), Some(11));
     assert_eq!(unit.unit_ai_runtime.guard_anchor(), anchor);
     owner.frame = 11;
     owner.update_support_states(&[id], 1.0 / 30.0);
     let unit = owner.host_object(id).unwrap();
-    assert_eq!(unit.ai_state, AIState::GuardingObject);
+    assert_eq!(unit.ai_state(), AIState::GuardingObject);
     assert_eq!(unit.unit_ai_runtime.guard_phase(), Some(GuardPhase::Idle));
     assert_eq!(unit.unit_ai_runtime.guard_scan_deadline(), Some(18));
     assert_eq!(unit.unit_ai_runtime.quick_exit_deadline(), None);

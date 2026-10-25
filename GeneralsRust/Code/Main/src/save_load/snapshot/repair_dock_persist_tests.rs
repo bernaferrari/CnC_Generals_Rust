@@ -315,11 +315,11 @@ fn repair_cache_save_load_continues_real_docked_action_without_recomputing_rate(
         if frame == 12 {
             // Original f32 additions leave the third pulse one ULP below max.
             assert_eq!(original.health.current.to_bits(), 100.0_f32.to_bits() - 1);
-            assert_eq!(original.ai_state, AIState::SeekingRepair);
+            assert_eq!(original.ai_state(), AIState::SeekingRepair);
             assert_eq!(source.objects[&dock].repair_dock_last_id, Some(master));
         } else if frame == 13 {
             assert_eq!(original.health.current, 100.0);
-            assert_eq!(original.ai_state, AIState::SeekingRepair);
+            assert_eq!(original.ai_state(), AIState::SeekingRepair);
             assert_eq!(source.objects[&dock].repair_dock_last_id, Some(master));
         } else if frame == 14 {
             assert_eq!(source.objects[&dock].repair_dock_last_id, None);
@@ -337,7 +337,7 @@ fn repair_cache_save_load_continues_real_docked_action_without_recomputing_rate(
             resumed.last_healing_timestamp,
             original.last_healing_timestamp
         );
-        assert_eq!(resumed.ai_state, original.ai_state);
+        assert_eq!(resumed.ai_state(), original.ai_state());
         assert_eq!(
             restored.objects[&dock].repair_dock_last_id,
             source.objects[&dock].repair_dock_last_id

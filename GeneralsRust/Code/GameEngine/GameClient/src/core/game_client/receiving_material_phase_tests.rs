@@ -151,7 +151,6 @@ fn receiving_material_threshold_look_rules_and_native_xfer_continue() {
 
 #[test]
 fn actual_native_material_shell_obeys_repeat_and_freeze_admission() {
-    get_shell().init().unwrap();
     let previous_bridge = crate::render_bridge::THE_RENDER_BRIDGE
         .lock()
         .unwrap()
@@ -161,6 +160,11 @@ fn actual_native_material_shell_obeys_repeat_and_freeze_admission() {
         .replace(ParticleSystemManager::new());
     let result = (|| -> GameClientResult<Vec<f32>> {
         let (mut receiver, mut fact) = client(11);
+        receiver
+            .window_manager_owner()
+            .shell_handle()
+            .init()
+            .unwrap();
         receiver.initialized = true;
         receiver.prepare_presentation_materials(&[fact])?;
         fact.pending_opacity = None;

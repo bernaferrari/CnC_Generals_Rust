@@ -38,7 +38,9 @@ fn combat_chinook_residual_load_two_unload_both_free() {
                 &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
             );
         }
-        game_logic.update_ai(&[unit_id, chinook_id], 1.0 / 30.0);
+        game_logic
+            .update_ai(&[unit_id, chinook_id], 1.0 / 30.0)
+            .expect("receiving AI operation succeeds");
     }
 
     let chinook = game_logic.host_object(chinook_id).expect("chinook loaded");
@@ -52,7 +54,7 @@ fn combat_chinook_residual_load_two_unload_both_free() {
 
     for unit_id in [unit_a, unit_b] {
         let unit = game_logic.host_object(unit_id).expect("loaded unit");
-        assert_eq!(unit.ai_state, AIState::Docked);
+        assert_eq!(unit.ai_state(), AIState::Docked);
         assert_eq!(unit.contained_by, Some(chinook_id));
         assert!(!unit.can_move());
     }
@@ -76,7 +78,9 @@ fn combat_chinook_residual_load_two_unload_both_free() {
     for _ in 0..60 {
         game_logic.frame += 1;
         game_logic.update_movement_for_test(&[chinook_id, unit_a, unit_b], 1.0 / 30.0);
-        game_logic.update_ai(&[chinook_id, unit_a, unit_b], 1.0 / 30.0);
+        game_logic
+            .update_ai(&[chinook_id, unit_a, unit_b], 1.0 / 30.0)
+            .expect("receiving AI operation succeeds");
     }
 
     let chinook = game_logic.host_object(chinook_id).expect("chinook empty");
@@ -96,7 +100,7 @@ fn combat_chinook_residual_load_two_unload_both_free() {
         // issues aiFollowPath to ExitEnd (OpenContain.cpp:915-1020); the freed
         // rider walks its exit path instead of Idling in place.
         assert_eq!(
-            unit.ai_state,
+            unit.ai_state(),
             AIState::Moving,
             "unloaded unit must walk its exit path (C++ aiFollowPath)"
         );
@@ -199,7 +203,7 @@ fn combat_chinook_residual_passenger_fire_damages_nearby_enemy() {
         "passenger fire residual honesty"
     );
     assert_eq!(
-        game_logic.host_object(infantry_id).unwrap().ai_state,
+        game_logic.host_object(infantry_id).unwrap().ai_state(),
         AIState::Docked,
         "firing must not eject Combat Chinook passenger"
     );
@@ -239,7 +243,9 @@ fn combat_chinook_residual_capacity_full_rejects_enter() {
                 &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
             );
         }
-        game_logic.update_ai(&[id, chinook_id], 1.0 / 30.0);
+        game_logic
+            .update_ai(&[id, chinook_id], 1.0 / 30.0)
+            .expect("receiving AI operation succeeds");
     }
     assert_eq!(
         game_logic
@@ -266,7 +272,7 @@ fn combat_chinook_residual_capacity_full_rejects_enter() {
 
     let extra = game_logic.host_object(extra_id).expect("extra after");
     assert_ne!(
-        extra.ai_state,
+        extra.ai_state(),
         AIState::Entering,
         "full Combat Chinook residual must reject Enter"
     );
@@ -302,7 +308,9 @@ fn combat_chinook_residual_allows_vehicle_enter() {
             &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
     }
-    game_logic.update_ai(&[tank_id, chinook_id], 1.0 / 30.0);
+    game_logic
+        .update_ai(&[tank_id, chinook_id], 1.0 / 30.0)
+        .expect("receiving AI operation succeeds");
 
     let chinook = game_logic.host_object(chinook_id).expect("chinook");
     assert!(
@@ -311,7 +319,7 @@ fn combat_chinook_residual_allows_vehicle_enter() {
     );
     assert_eq!(game_logic.combat_chinook_residual_loads(), 1);
     let tank = game_logic.host_object(tank_id).expect("tank");
-    assert_eq!(tank.ai_state, AIState::Docked);
+    assert_eq!(tank.ai_state(), AIState::Docked);
 }
 
 #[test]

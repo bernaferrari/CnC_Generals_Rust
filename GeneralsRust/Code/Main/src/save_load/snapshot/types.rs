@@ -24,12 +24,14 @@ use std::time::SystemTime;
 /// body remains unchanged; original C++ module versions are independent.
 /// Version30 keeps the same positional body and admits absolute Drawable scale.
 /// Version31 requires the receiving Body rules continuation frame.
-pub const WORLD_SNAPSHOT_BINCODE_VERSION: u32 = 31;
-pub const WORLD_SNAPSHOT_DIRECT_XFER_VERSION: u32 = 31;
+/// Version32 requires the sole retained BaseAI continuation capsule (native14).
+/// Prior positional bodies cannot reconstruct that owner and are rejected.
+pub const WORLD_SNAPSHOT_BINCODE_VERSION: u32 = 32;
+pub const WORLD_SNAPSHOT_DIRECT_XFER_VERSION: u32 = 32;
 
 /// Validate the Rust outer envelope before consuming or restoring its body.
 pub(crate) fn validate_direct_world_snapshot_version(version: u32) -> SaveLoadResult<()> {
-    if matches!(version, 23..=31) {
+    if version == WORLD_SNAPSHOT_DIRECT_XFER_VERSION {
         Ok(())
     } else {
         Err(crate::save_load::SaveLoadError::VersionMismatch {
@@ -302,13 +304,11 @@ pub struct ObjectVisionSpiedSnapshot {
     pub vision_spied_mask: u32,
 }
 
-/// C++ `Object::xfer` `m_builderID` + `DozerAIUpdate` BUILD task slot.
+/// C++ `Object::xfer` builder provenance; requested Dozer tasks use native module Xfer.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ObjectBuilderTaskSnapshot {
     pub object_id: ObjectId,
     pub builder_id: Option<ObjectId>,
-    pub dozer_task_build_target: Option<ObjectId>,
-    pub dozer_task_build_order_frame: u32,
 }
 
 /// C++ `BuildAssistant::xferTheSellList` (`ObjectSellInfo` id + sell frame).

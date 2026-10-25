@@ -19,6 +19,7 @@ use crate::game_logic::{AIState, Object};
 use crate::save_load::{SaveLoadError, SaveLoadResult};
 use glam::Vec3;
 use serde::{Deserialize, Serialize};
+#[cfg(test)]
 use std::collections::HashMap;
 
 const FACE_VERSION: u8 = 1;
@@ -81,14 +82,15 @@ impl FaceSaveState {
 /// Capture a Face state or an active Face overlay without changing the object.
 /// The current host helper can arm facing while retaining SpecialAbility or
 /// Capturing; the saved parent state makes these continuations unambiguous.
+#[cfg(test)]
 pub(super) fn capture(object: &Object) -> SaveLoadResult<Option<AIUpdateModuleSnapshot>> {
     let state = FaceSaveState {
         version: FACE_VERSION,
-        parent_state: object.ai_state.clone(),
-        active: object.face_active,
-        can_turn_in_place: object.face_can_turn_in_place,
-        goal_position: object.face_goal_pos,
-        loco_frame: object.face_loco_frame,
+        parent_state: object.ai_state().clone(),
+        active: object.face_active(),
+        can_turn_in_place: object.face_can_turn_in_place(),
+        goal_position: object.face_goal_pos(),
+        loco_frame: object.face_loco_frame(),
     };
     let Some(module_state) = state.module_state() else {
         return Ok(None);
@@ -105,7 +107,7 @@ pub(super) fn capture(object: &Object) -> SaveLoadResult<Option<AIUpdateModuleSn
     }))
 }
 
-/// Restore only the four Face fields after validating the whole continuation.
+/// Check the four Face fields against the already restored native14 owner.
 /// A missing object goal is valid saved state: the next owner-bound AI update
 /// performs the original lookup/failure transition after all objects exist.
 /// `false` means this is another AIUpdate module, not an absent Face module.
@@ -130,7 +132,7 @@ pub(super) fn restore(
     let state: FaceSaveState = serde_json::from_str(encoded)
         .map_err(|error| corrupted(format!("Invalid Face continuation: {error}")))?;
     state.validate(&snapshot.current_state)?;
-    if state.parent_state != object.ai_state {
+    if state.parent_state != object.ai_state() {
         return Err(corrupted("Face continuation disagrees with object status"));
     }
     if snapshot.target_object != object.target {
@@ -139,11 +141,15 @@ pub(super) fn restore(
         ));
     }
 
-    // No live setters, callbacks, target resolution, or state entry here.
-    object.face_active = state.active;
-    object.face_can_turn_in_place = state.can_turn_in_place;
-    object.face_goal_pos = state.goal_position;
-    object.face_loco_frame = state.loco_frame;
+    if object.face_active() != state.active
+        || object.face_can_turn_in_place() != state.can_turn_in_place
+        || object.face_goal_pos() != state.goal_position
+        || object.face_loco_frame() != state.loco_frame
+    {
+        return Err(corrupted(
+            "legacy Face projection disagrees with native14 owner",
+        ));
+    }
     Ok(true)
 }
 
@@ -166,29 +172,64 @@ mod tests {
 
     fn facing_object() -> Object {
         let mut object = object();
-        object.ai_state = AIState::FacingObject;
+        {
+            let mut owner = object.capture_base_ai_continuation();
+            owner.ai_state = AIState::FacingObject;
+            object.restore_base_ai_continuation(owner).unwrap();
+        }
         object.target = Some(ObjectId(77));
-        object.face_active = true;
+        {
+            let mut owner = object.capture_base_ai_continuation();
+            owner.face_active = true;
+            object.restore_base_ai_continuation(owner).unwrap();
+        }
         // Deliberately differs from current min_speed: load must not onEnter.
         object.min_speed = 0.0;
-        object.face_can_turn_in_place = false;
-        object.face_loco_frame = u32::MAX;
+        {
+            let mut owner = object.capture_base_ai_continuation();
+            owner.face_can_turn_in_place = false;
+            object.restore_base_ai_continuation(owner).unwrap();
+        }
+        {
+            let mut owner = object.capture_base_ai_continuation();
+            owner.face_loco_frame = u32::MAX;
+            object.restore_base_ai_continuation(owner).unwrap();
+        }
         object
     }
 
     fn clear_face_fields(object: &mut Object) {
-        object.face_active = false;
-        object.face_can_turn_in_place = true;
-        object.face_goal_pos = Some(Vec3::new(1.0, 2.0, 3.0));
-        object.face_loco_frame = 4;
+        {
+            let mut owner = object.capture_base_ai_continuation();
+            owner.face_active = false;
+            object.restore_base_ai_continuation(owner).unwrap();
+        }
+        {
+            let mut owner = object.capture_base_ai_continuation();
+            owner.face_can_turn_in_place = true;
+            object.restore_base_ai_continuation(owner).unwrap();
+        }
+        {
+            let mut owner = object.capture_base_ai_continuation();
+            owner.face_goal_pos = Some(Vec3::new(1.0, 2.0, 3.0));
+            object.restore_base_ai_continuation(owner).unwrap();
+        }
+        {
+            let mut owner = object.capture_base_ai_continuation();
+            owner.face_loco_frame = 4;
+            object.restore_base_ai_continuation(owner).unwrap();
+        }
     }
 
     fn assert_face_fields(left: &Object, right: &Object) {
-        assert_eq!(left.face_active, right.face_active);
-        assert_eq!(left.face_can_turn_in_place, right.face_can_turn_in_place);
-        assert_eq!(left.face_goal_pos, right.face_goal_pos);
-        assert_eq!(left.face_loco_frame, right.face_loco_frame);
-        assert_eq!(left.ai_state, right.ai_state);
+        assert_eq!(left.face_active(), right.face_active());
+        assert_eq!(
+            left.face_can_turn_in_place(),
+            right.face_can_turn_in_place()
+        );
+        assert_eq!(left.face_goal_pos(), right.face_goal_pos());
+        assert_eq!(left.face_loco_frame(), right.face_loco_frame());
+        assert_eq!(left.ai_state(), right.ai_state());
         assert_eq!(left.target, right.target);
     }
 
@@ -222,6 +263,9 @@ mod tests {
         restored.locomotor_goal_type = LocoGoalType::Angle;
         restored.locomotor_goal_angle = 0.75;
         let orientation = restored.get_orientation();
+        restored
+            .restore_base_ai_continuation(source.capture_base_ai_continuation())
+            .unwrap();
         assert!(restore(&snapshot, &mut restored).unwrap());
         assert_face_fields(&restored, &source);
         assert_eq!(restored.get_orientation(), orientation);
@@ -232,13 +276,24 @@ mod tests {
     #[test]
     fn position_face_restores_explicit_goal() {
         let mut source = facing_object();
-        source.ai_state = AIState::FacingPosition;
+        {
+            let mut owner = source.capture_base_ai_continuation();
+            owner.ai_state = AIState::FacingPosition;
+            source.restore_base_ai_continuation(owner).unwrap();
+        }
         source.target = None;
-        source.face_goal_pos = Some(Vec3::new(9.0, 2.0, 13.0));
+        {
+            let mut owner = source.capture_base_ai_continuation();
+            owner.face_goal_pos = Some(Vec3::new(9.0, 2.0, 13.0));
+            source.restore_base_ai_continuation(owner).unwrap();
+        }
         let snapshot = capture(&source).unwrap().unwrap();
         assert_eq!(snapshot.current_state, FACE_POSITION);
         let mut restored = source.clone();
         clear_face_fields(&mut restored);
+        restored
+            .restore_base_ai_continuation(source.capture_base_ai_continuation())
+            .unwrap();
         assert!(restore(&snapshot, &mut restored).unwrap());
         assert_face_fields(&restored, &source);
     }
@@ -247,10 +302,21 @@ mod tests {
     fn inactive_face_state_and_missing_object_goal_are_preserved() {
         let mut source = facing_object();
         source.target = None;
-        source.face_active = false;
+        {
+            let mut owner = source.capture_base_ai_continuation();
+            owner.face_active = false;
+            source.restore_base_ai_continuation(owner).unwrap();
+        }
         let snapshot = capture(&source).unwrap().unwrap();
         let mut restored = source.clone();
-        restored.face_active = true;
+        {
+            let mut owner = restored.capture_base_ai_continuation();
+            owner.face_active = true;
+            restored.restore_base_ai_continuation(owner).unwrap();
+        }
+        restored
+            .restore_base_ai_continuation(source.capture_base_ai_continuation())
+            .unwrap();
         assert!(restore(&snapshot, &mut restored).unwrap());
         assert_face_fields(&restored, &source);
     }
@@ -260,12 +326,23 @@ mod tests {
         for parent in [AIState::SpecialAbility, AIState::Capturing] {
             for goal in [None, Some(Vec3::new(6.0, 0.0, 7.0))] {
                 let mut source = facing_object();
-                source.ai_state = parent.clone();
-                source.face_goal_pos = goal;
+                {
+                    let mut owner = source.capture_base_ai_continuation();
+                    owner.ai_state = parent.clone();
+                    source.restore_base_ai_continuation(owner).unwrap();
+                }
+                {
+                    let mut owner = source.capture_base_ai_continuation();
+                    owner.face_goal_pos = goal;
+                    source.restore_base_ai_continuation(owner).unwrap();
+                }
                 let snapshot = capture(&source).unwrap().unwrap();
                 assert_eq!(snapshot.current_state, FACE_OVERLAY);
                 let mut restored = source.clone();
                 clear_face_fields(&mut restored);
+                restored
+                    .restore_base_ai_continuation(source.capture_base_ai_continuation())
+                    .unwrap();
                 assert!(restore(&snapshot, &mut restored).unwrap());
                 assert_face_fields(&restored, &source);
             }
@@ -322,9 +399,17 @@ mod tests {
     fn parent_and_target_disagreement_do_not_mutate() {
         let mut object = facing_object();
         let snapshot = capture(&object).unwrap().unwrap();
-        object.ai_state = AIState::SpecialAbility;
+        {
+            let mut owner = object.capture_base_ai_continuation();
+            owner.ai_state = AIState::SpecialAbility;
+            object.restore_base_ai_continuation(owner).unwrap();
+        }
         assert_rejected_without_mutation(&snapshot, &mut object);
-        object.ai_state = AIState::FacingObject;
+        {
+            let mut owner = object.capture_base_ai_continuation();
+            owner.ai_state = AIState::FacingObject;
+            object.restore_base_ai_continuation(owner).unwrap();
+        }
         object.target = Some(ObjectId(78));
         assert_rejected_without_mutation(&snapshot, &mut object);
     }
@@ -337,8 +422,16 @@ mod tests {
             state.goal_position = Some(Vec3::ZERO)
         });
         assert_rejected_without_mutation(&snapshot, &mut object);
-        object.ai_state = AIState::FacingPosition;
-        object.face_goal_pos = Some(Vec3::ZERO);
+        {
+            let mut owner = object.capture_base_ai_continuation();
+            owner.ai_state = AIState::FacingPosition;
+            object.restore_base_ai_continuation(owner).unwrap();
+        }
+        {
+            let mut owner = object.capture_base_ai_continuation();
+            owner.face_goal_pos = Some(Vec3::ZERO);
+            object.restore_base_ai_continuation(owner).unwrap();
+        }
         let mut snapshot = capture(&object).unwrap().unwrap();
         edit_state(&mut snapshot, |state| state.goal_position = None);
         assert_rejected_without_mutation(&snapshot, &mut object);
@@ -347,19 +440,26 @@ mod tests {
     #[test]
     fn inactive_overlay_is_rejected_without_mutation() {
         let mut object = facing_object();
-        object.ai_state = AIState::Capturing;
+        {
+            let mut owner = object.capture_base_ai_continuation();
+            owner.ai_state = AIState::Capturing;
+            object.restore_base_ai_continuation(owner).unwrap();
+        }
         let mut snapshot = capture(&object).unwrap().unwrap();
         edit_state(&mut snapshot, |state| state.active = false);
         assert_rejected_without_mutation(&snapshot, &mut object);
     }
 
     #[test]
-    fn non_finite_position_is_rejected_before_capture() {
+    fn non_finite_position_is_rejected_before_owner_commit() {
         for bad in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
             let mut object = facing_object();
-            object.ai_state = AIState::FacingPosition;
-            object.face_goal_pos = Some(Vec3::new(1.0, bad, 3.0));
-            assert!(capture(&object).is_err());
+            let before = object.capture_base_ai_continuation();
+            let mut invalid = before.clone();
+            invalid.ai_state = AIState::FacingPosition;
+            invalid.face_goal_pos = Some(Vec3::new(1.0, bad, 3.0));
+            assert!(object.restore_base_ai_continuation(invalid).is_err());
+            assert_eq!(object.capture_base_ai_continuation(), before);
         }
     }
 

@@ -553,7 +553,7 @@ fn native_authored_reinforcement_keeps_condition_team_and_runs_callback_before_f
     world.evaluate_and_execute_scripts(0.0);
     assert_eq!(world.session_view.impulse.intensity, 2.0);
     assert_eq!(
-        world.host_object(source).unwrap().ai_state,
+        world.host_object(source).unwrap().ai_state(),
         AIState::GuardingArea,
         "null-calling-team create action retains the outer condition team"
     );
@@ -564,7 +564,7 @@ fn native_authored_reinforcement_keeps_condition_team_and_runs_callback_before_f
     assert!(team.is_active());
     assert_eq!(team.get_members().len(), 3);
     assert_eq!(
-        world.host_object(sentinel).unwrap().ai_state,
+        world.host_object(sentinel).unwrap().ai_state(),
         AIState::Idle,
         "reused singleton remains inactive during create callback; named-team lookup must not guard its resident member"
     );

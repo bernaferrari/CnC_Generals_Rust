@@ -67,7 +67,9 @@ fn internet_center_subdual_idles_occupant_hackers_and_resumes() {
     }
 
     logic.frame = 0;
-    logic.update_hacker_income();
+    logic
+        .update_hacker_income()
+        .expect("receiving AI operation succeeds");
     assert!(
         logic.hacker_income().is_hacking(hacker),
         "contained hacker must auto-start"
@@ -80,13 +82,15 @@ fn internet_center_subdual_idles_occupant_hackers_and_resumes() {
             &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
     }
-    logic.update_hacker_income();
+    logic
+        .update_hacker_income()
+        .expect("receiving AI operation succeeds");
     assert!(
         !logic.hacker_income().is_hacking(hacker),
         "subdued IC must stop occupant hacking"
     );
     assert_eq!(
-        logic.host_object(hacker).expect("rider").ai_state,
+        logic.host_object(hacker).expect("rider").ai_state(),
         AIState::Idle,
         "occupants must go Idle"
     );
@@ -96,7 +100,9 @@ fn internet_center_subdual_idles_occupant_hackers_and_resumes() {
         .map(|p| p.resources.supplies)
         .unwrap_or(0);
     logic.frame = HACKER_CASH_INTERVAL_FAST_FRAMES + 2;
-    logic.update_hacker_income();
+    logic
+        .update_hacker_income()
+        .expect("receiving AI operation succeeds");
     assert_eq!(
         logic
             .get_player_mut_by_team(Team::China)
@@ -113,7 +119,9 @@ fn internet_center_subdual_idles_occupant_hackers_and_resumes() {
             &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
     }
-    logic.update_hacker_income();
+    logic
+        .update_hacker_income()
+        .expect("receiving AI operation succeeds");
     assert!(
         logic.hacker_income().is_hacking(hacker),
         "IC un-subdual must resume HackInternet"
@@ -122,9 +130,7 @@ fn internet_center_subdual_idles_occupant_hackers_and_resumes() {
 
 #[test]
 fn hacker_field_residual_deposits_cash_on_interval() {
-    use crate::game_logic::audio_dispatch_impl::{
-        clear_test_template_voices, set_test_per_unit_sound,
-    };
+    use crate::game_logic::audio_dispatch_impl::{clear_test_template_voices, set_test_per_unit_sound};
     use crate::game_logic::host_hacker_income::{
         HACKER_CASH_INTERVAL_FRAMES, HACKER_CASH_REGULAR, HACKER_UNIT_CASH_PING_AUDIO,
     };
@@ -169,14 +175,28 @@ fn hacker_field_residual_deposits_cash_on_interval() {
 
     // Field residual: not auto-hacking until command.
     game_logic.frame = 0;
-    game_logic.update_hacker_income();
+    game_logic
+        .update_hacker_income()
+        .expect("receiving AI operation succeeds");
     assert!(!game_logic.hacker_income().is_hacking(hacker_id));
+    game_logic.host_object_mut(hacker_id).unwrap().set_ai_state(
+        crate::game_logic::AIState::Moving,
+        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+    );
 
     assert!(
-        game_logic.start_hacker_internet_hack(hacker_id),
+        game_logic
+            .start_hacker_internet_hack(hacker_id)
+            .expect("checked hacker Idle entry"),
         "field start_hacking must succeed for living hacker"
     );
-    game_logic.update_hacker_income();
+    let started = game_logic.host_object(hacker_id).unwrap();
+    assert_eq!(started.ai_state(), crate::game_logic::AIState::Idle);
+    assert!(started.unit_ai_runtime.idle_initialized());
+    assert!(!started.idle_mood_reset_pending);
+    game_logic
+        .update_hacker_income()
+        .expect("receiving AI operation succeeds");
     let mid = game_logic
         .get_player_mut_by_team(Team::China)
         .map(|p| p.resources.supplies)
@@ -185,7 +205,9 @@ fn hacker_field_residual_deposits_cash_on_interval() {
 
     let first = 219 + HACKER_CASH_INTERVAL_FRAMES + 1;
     game_logic.frame = first - 1;
-    game_logic.update_hacker_income();
+    game_logic
+        .update_hacker_income()
+        .expect("receiving AI operation succeeds");
     assert_eq!(
         game_logic
             .get_player_mut_by_team(Team::China)
@@ -196,7 +218,9 @@ fn hacker_field_residual_deposits_cash_on_interval() {
     );
     game_logic.queued_audio_events.clear();
     game_logic.frame = first;
-    game_logic.update_hacker_income();
+    game_logic
+        .update_hacker_income()
+        .expect("receiving AI operation succeeds");
     let cash_after = game_logic
         .get_player_mut_by_team(Team::China)
         .map(|p| p.resources.supplies)
@@ -263,7 +287,11 @@ fn hacker_move_command_stops_hacking() {
     let hacker_id = game_logic
         .create_object("TestHackerMoveStop", Team::China, Vec3::new(0.0, 0.0, 0.0))
         .expect("hacker");
-    assert!(game_logic.start_hacker_internet_hack(hacker_id));
+    assert!(
+        game_logic
+            .start_hacker_internet_hack(hacker_id)
+            .expect("checked hacker Idle entry")
+    );
     assert!(game_logic.hacker_income().is_hacking(hacker_id));
     assert!(game_logic.unit_command_move_to(hacker_id, Vec3::new(40.0, 0.0, 0.0)));
     assert!(
@@ -277,7 +305,9 @@ fn hacker_move_command_stops_hacking() {
         .get_player_mut_by_team(Team::China)
         .map(|p| p.resources.supplies)
         .unwrap_or(0);
-    game_logic.update_hacker_income();
+    game_logic
+        .update_hacker_income()
+        .expect("receiving AI operation succeeds");
     let cash_after_income = game_logic
         .get_player_mut_by_team(Team::China)
         .map(|p| p.resources.supplies)
@@ -290,9 +320,7 @@ fn hacker_move_command_stops_hacking() {
 
 #[test]
 fn hacker_field_unpack_stamps_unpacking_then_firing_a() {
-    use crate::game_logic::audio_dispatch_impl::{
-        clear_test_template_voices, set_test_per_unit_sound,
-    };
+    use crate::game_logic::audio_dispatch_impl::{clear_test_template_voices, set_test_per_unit_sound};
     use crate::game_logic::host_enum_table_residual::{firing_a_model_bit, unpacking_model_bit};
     use crate::game_logic::host_hacker_income::{
         HACKER_CASH_INTERVAL_FRAMES, HACKER_CASH_REGULAR, HACKER_UNIT_UNPACK_AUDIO,
@@ -328,7 +356,11 @@ fn hacker_field_unpack_stamps_unpacking_then_firing_a() {
     let hacker_id = game_logic
         .create_object("TestHackerUnpackPose", Team::China, Vec3::ZERO)
         .expect("hacker");
-    assert!(game_logic.start_hacker_internet_hack(hacker_id));
+    assert!(
+        game_logic
+            .start_hacker_internet_hack(hacker_id)
+            .expect("checked hacker Idle entry")
+    );
     let bits = game_logic.objects[&hacker_id].model_condition_bits;
     assert_ne!(bits & (1u128 << unpacking_model_bit()), 0);
     assert!(
@@ -352,7 +384,9 @@ fn hacker_field_unpack_stamps_unpacking_then_firing_a() {
     );
 
     game_logic.frame = 2;
-    game_logic.update_hacker_income();
+    game_logic
+        .update_hacker_income()
+        .expect("receiving AI operation succeeds");
     let bits = game_logic.objects[&hacker_id].model_condition_bits;
     assert_eq!(bits & (1u128 << unpacking_model_bit()), 0);
     assert_ne!(bits & (1u128 << firing_a_model_bit()), 0);
@@ -365,9 +399,7 @@ fn hacker_field_unpack_stamps_unpacking_then_firing_a() {
 
 #[test]
 fn hacker_move_while_hacking_packs_before_walking() {
-    use crate::game_logic::audio_dispatch_impl::{
-        clear_test_template_voices, set_test_per_unit_sound,
-    };
+    use crate::game_logic::audio_dispatch_impl::{clear_test_template_voices, set_test_per_unit_sound};
     use crate::game_logic::host_enum_table_residual::packing_model_bit;
     use crate::game_logic::host_hacker_income::{
         HACKER_CASH_INTERVAL_FRAMES, HACKER_CASH_REGULAR, HACKER_UNIT_PACK_AUDIO,
@@ -403,8 +435,14 @@ fn hacker_move_while_hacking_packs_before_walking() {
     let hacker_id = game_logic
         .create_object("TestHackerPackHold", Team::China, Vec3::ZERO)
         .expect("hacker");
-    assert!(game_logic.start_hacker_internet_hack(hacker_id));
-    game_logic.update_hacker_income();
+    assert!(
+        game_logic
+            .start_hacker_internet_hack(hacker_id)
+            .expect("checked hacker Idle entry")
+    );
+    game_logic
+        .update_hacker_income()
+        .expect("receiving AI operation succeeds");
     assert_eq!(
         game_logic.hacker_income().pack_phase(hacker_id),
         Some(HackerInternetPhase::Hacking)
@@ -421,7 +459,7 @@ fn hacker_move_while_hacking_packs_before_walking() {
         game_logic.objects[&hacker_id].model_condition_bits & (1u128 << packing_model_bit()),
         0
     );
-    assert_ne!(game_logic.objects[&hacker_id].ai_state, AIState::Moving);
+    assert_ne!(game_logic.objects[&hacker_id].ai_state(), AIState::Moving);
     assert!(
         game_logic
             .queued_audio_events
@@ -440,16 +478,16 @@ fn hacker_move_while_hacking_packs_before_walking() {
     );
 
     game_logic.frame = 3;
-    game_logic.update_hacker_income();
-    assert_eq!(game_logic.objects[&hacker_id].ai_state, AIState::Moving);
+    game_logic
+        .update_hacker_income()
+        .expect("receiving AI operation succeeds");
+    assert_eq!(game_logic.objects[&hacker_id].ai_state(), AIState::Moving);
     clear_test_template_voices();
 }
 
 #[test]
 fn sticky_bomb_plays_authored_created_and_ping_sounds() {
-    use crate::game_logic::audio_dispatch_impl::{
-        clear_test_template_voices, set_test_per_unit_sound,
-    };
+    use crate::game_logic::audio_dispatch_impl::{clear_test_template_voices, set_test_per_unit_sound};
     use crate::game_logic::host_mines::{
         HostMineKind, STICKY_BOMB_CREATED_AUDIO, TANK_HUNTER_TNT_OBJECT, UNIT_BOMB_PING_AUDIO,
         UNIT_BOMB_PING_FRAMES,
@@ -539,9 +577,7 @@ fn sticky_bomb_plays_authored_created_and_ping_sounds() {
 #[test]
 fn sticky_bomb_missing_unit_sound_stays_silent() {
     use crate::game_logic::audio_dispatch_impl::clear_test_template_voices;
-    use crate::game_logic::host_mines::{
-        HostMineKind, STICKY_BOMB_CREATED_AUDIO, UNIT_BOMB_PING_AUDIO,
-    };
+    use crate::game_logic::host_mines::{HostMineKind, STICKY_BOMB_CREATED_AUDIO, UNIT_BOMB_PING_AUDIO};
     use crate::game_logic::{KindOf, ThingTemplate};
 
     clear_test_template_voices();
@@ -597,7 +633,11 @@ fn hacker_residual_rejects_non_hacker() {
     let id = game_logic
         .create_object("TestRedGuard", Team::China, Vec3::new(0.0, 0.0, 0.0))
         .expect("red guard");
-    assert!(!game_logic.start_hacker_internet_hack(id));
+    assert!(
+        !game_logic
+            .start_hacker_internet_hack(id)
+            .expect("checked hacker Idle entry")
+    );
     assert!(!game_logic.hacker_income().is_hacking(id));
 }
 
@@ -653,7 +693,7 @@ fn steal_cash_hack_command_transfers_cash_after_reach() {
             .host_object(lotus_id)
             .expect("lotus should exist");
         assert_eq!(
-            lotus.ai_state,
+            lotus.ai_state(),
             AIState::SpecialAbility,
             "steal cash must enter SpecialAbility on issue"
         );
@@ -676,7 +716,9 @@ fn steal_cash_hack_command_transfers_cash_after_reach() {
         );
         lotus.target = Some(target_id);
     }
-    game_logic.update_ai(&[lotus_id, target_id], 1.0 / 60.0);
+    game_logic
+        .update_ai(&[lotus_id, target_id], 1.0 / 60.0)
+        .expect("receiving AI operation succeeds");
     // C++ NeedToFace precedes Unpack 6730ms + Prep 6000ms before trigger.
     // The facing slice consumes a variable number of ticks at the unit's
     // turn rate, so drive the channel to its trigger with bounded per-frame
@@ -686,7 +728,9 @@ fn steal_cash_hack_command_transfers_cash_after_reach() {
         if game_logic.honesty_steal_cash_ok() {
             break;
         }
-        game_logic.update_ai(&[lotus_id, target_id], LOGIC_FRAME_TIMESTEP);
+        game_logic
+            .update_ai(&[lotus_id, target_id], LOGIC_FRAME_TIMESTEP)
+            .expect("receiving AI operation succeeds");
     }
 
     assert!(
@@ -773,7 +817,9 @@ fn steal_cash_hack_awards_lotus_award_xp_for_triggering() {
         );
         lotus.target = Some(target_id);
     }
-    game_logic.update_ai(&[lotus_id, target_id], 1.0 / 60.0);
+    game_logic
+        .update_ai(&[lotus_id, target_id], 1.0 / 60.0)
+        .expect("receiving AI operation succeeds");
     // C++ leftover SpecialAbilityUpdate: NeedToFace, Unpack 6730ms, Prep
     // 6000ms. Facing consumes a variable number of ticks at the unit's turn
     // rate; drive the channel to its trigger with bounded per-frame ticks.
@@ -782,7 +828,9 @@ fn steal_cash_hack_awards_lotus_award_xp_for_triggering() {
         if game_logic.hero_abilities().cash_stolen_total > 0 {
             break;
         }
-        game_logic.update_ai(&[lotus_id, target_id], LOGIC_FRAME_TIMESTEP);
+        game_logic
+            .update_ai(&[lotus_id, target_id], LOGIC_FRAME_TIMESTEP)
+            .expect("receiving AI operation succeeds");
     }
 
     let lotus = game_logic.host_object(lotus_id).expect("lotus after steal");
@@ -832,7 +880,7 @@ fn steal_cash_hack_rejects_non_lotus_and_non_cash_targets() {
     {
         let tank = game_logic.host_object(tank_id).expect("tank");
         assert_ne!(
-            tank.ai_state,
+            tank.ai_state(),
             AIState::SpecialAbility,
             "non-lotus must not enter StealCashHack"
         );
@@ -860,7 +908,7 @@ fn steal_cash_hack_rejects_non_lotus_and_non_cash_targets() {
     {
         let lotus = game_logic.host_object(lotus_id).expect("lotus");
         assert_ne!(
-            lotus.ai_state,
+            lotus.ai_state(),
             AIState::SpecialAbility,
             "steal cash rejects non-cash-generator structure"
         );
@@ -927,7 +975,9 @@ fn steal_cash_hack_uses_controlling_players_not_faction_slot() {
         );
         lotus.target = Some(target_id);
     }
-    game_logic.update_ai(&[lotus_id, target_id], 1.0 / 60.0);
+    game_logic
+        .update_ai(&[lotus_id, target_id], 1.0 / 60.0)
+        .expect("receiving AI operation succeeds");
     // C++ NeedToFace → Unpack → Prep; facing consumes a variable number of
     // ticks at the unit's turn rate — drive to trigger with bounded ticks.
     for _ in 0..1200 {
@@ -935,7 +985,9 @@ fn steal_cash_hack_uses_controlling_players_not_faction_slot() {
         if game_logic.hero_abilities().cash_stolen_total > 0 {
             break;
         }
-        game_logic.update_ai(&[lotus_id, target_id], LOGIC_FRAME_TIMESTEP);
+        game_logic
+            .update_ai(&[lotus_id, target_id], LOGIC_FRAME_TIMESTEP)
+            .expect("receiving AI operation succeeds");
     }
 
     let china_caster = game_logic
@@ -1029,7 +1081,9 @@ fn leftover_lotus_prep_aborts_when_target_stealthed() {
         {
             break;
         }
-        game_logic.update_ai(&[lotus_id, target_id], LOGIC_FRAME_TIMESTEP);
+        game_logic
+            .update_ai(&[lotus_id, target_id], LOGIC_FRAME_TIMESTEP)
+            .expect("receiving AI operation succeeds");
     }
     let phase = game_logic
         .hero_abilities()
@@ -1040,7 +1094,9 @@ fn leftover_lotus_prep_aborts_when_target_stealthed() {
         target.set_status_stealthed(true);
         target.set_status_detected(false);
     }
-    game_logic.update_ai(&[lotus_id, target_id], 0.2);
+    game_logic
+        .update_ai(&[lotus_id, target_id], 0.2)
+        .expect("receiving AI operation succeeds");
     assert_eq!(
         game_logic.hero_abilities().cash_stolen_total,
         0,
@@ -1101,8 +1157,12 @@ fn leftover_lotus_unpack_sets_model_and_unpack_sound() {
         lotus.target = Some(target_id);
     }
     game_logic.queued_audio_events.clear();
-    game_logic.update_ai(&[lotus_id, target_id], 1.0);
-    game_logic.update_ai(&[lotus_id, target_id], 1.0);
+    game_logic
+        .update_ai(&[lotus_id, target_id], 1.0)
+        .expect("receiving AI operation succeeds");
+    game_logic
+        .update_ai(&[lotus_id, target_id], 1.0)
+        .expect("receiving AI operation succeeds");
     let lotus = game_logic.host_object(lotus_id).expect("lotus");
     assert_ne!(
         lotus.model_condition_bits & (1u128 << unpacking_model_bit()),
@@ -1177,7 +1237,9 @@ fn leftover_sa_trigger_queues_ini_trigger_sound() {
         );
         lotus.target = Some(target_id);
     }
-    game_logic.update_ai(&[lotus_id, target_id], 1.0 / 60.0);
+    game_logic
+        .update_ai(&[lotus_id, target_id], 1.0 / 60.0)
+        .expect("receiving AI operation succeeds");
     // C++ NeedToFace → Unpack → Prep; facing consumes a variable number of
     // ticks at the unit's turn rate — drive to trigger with bounded ticks.
     game_logic.queued_audio_events.clear();
@@ -1190,7 +1252,9 @@ fn leftover_sa_trigger_queues_ini_trigger_sound() {
         {
             break;
         }
-        game_logic.update_ai(&[lotus_id, target_id], LOGIC_FRAME_TIMESTEP);
+        game_logic
+            .update_ai(&[lotus_id, target_id], LOGIC_FRAME_TIMESTEP)
+            .expect("receiving AI operation succeeds");
     }
     assert!(
         game_logic
@@ -1263,8 +1327,12 @@ fn leftover_sa_hot_swap_aborts_in_flight_channel() {
         );
         lotus.target = Some(supply_id);
     }
-    game_logic.update_ai(&[lotus_id, supply_id], 1.0);
-    game_logic.update_ai(&[lotus_id, supply_id], 1.0);
+    game_logic
+        .update_ai(&[lotus_id, supply_id], 1.0)
+        .expect("receiving AI operation succeeds");
+    game_logic
+        .update_ai(&[lotus_id, supply_id], 1.0)
+        .expect("receiving AI operation succeeds");
     assert_eq!(
         game_logic
             .hero_abilities()
@@ -1304,7 +1372,9 @@ fn leftover_sa_hot_swap_aborts_in_flight_channel() {
         );
         lotus.target = Some(tank_id);
     }
-    game_logic.update_ai(&[lotus_id, tank_id], 1.0);
+    game_logic
+        .update_ai(&[lotus_id, tank_id], 1.0)
+        .expect("receiving AI operation succeeds");
     let kind = game_logic
         .hero_abilities()
         .leftover_channel(lotus_id)
@@ -1375,7 +1445,9 @@ fn leftover_burton_flips_180_after_unpack() {
     let mut unpack_start_orientation: Option<f32> = None;
     for _ in 0..600 {
         game_logic.frame = game_logic.frame.saturating_add(1);
-        game_logic.update_ai(&[burton_id, target_id], LOGIC_FRAME_TIMESTEP);
+        game_logic
+            .update_ai(&[burton_id, target_id], LOGIC_FRAME_TIMESTEP)
+            .expect("receiving AI operation succeeds");
         let phase = game_logic
             .hero_abilities()
             .leftover_channel(burton_id)
@@ -1445,7 +1517,9 @@ fn plant_start_range_requires_approach_los() {
         burton_id,
         crate::game_logic::PendingSpecialAbility::PlantTimedDemoCharge { target_id },
     );
-    blocked.update_ai(&[burton_id, target_id], 1.0 / 30.0);
+    blocked
+        .update_ai(&[burton_id, target_id], 1.0 / 30.0)
+        .expect("receiving AI operation succeeds");
     assert!(
         blocked
             .hero_abilities()
@@ -1491,7 +1565,9 @@ fn plant_start_range_requires_approach_los() {
         burton_id,
         crate::game_logic::PendingSpecialAbility::PlantTimedDemoCharge { target_id },
     );
-    clear.update_ai(&[burton_id, target_id], 1.0 / 30.0);
+    clear
+        .update_ai(&[burton_id, target_id], 1.0 / 30.0)
+        .expect("receiving AI operation succeeds");
     assert!(
         clear.hero_abilities().leftover_channel(burton_id).is_some(),
         "clear LOS in start range must begin Burton plant leftover channel"
@@ -1619,7 +1695,9 @@ fn burton_and_tnt_plant_reject_bridges() {
         );
         burton.target = Some(bridge_id);
     }
-    game_logic.update_ai(&[burton_id, bridge_id], 1.0 / 30.0);
+    game_logic
+        .update_ai(&[burton_id, bridge_id], 1.0 / 30.0)
+        .expect("receiving AI operation succeeds");
     assert!(
         game_logic.pending_special_ability(burton_id).is_none(),
         "plant tick must abort a Burton charge already queued on a bridge"
@@ -1638,7 +1716,9 @@ fn burton_and_tnt_plant_reject_bridges() {
         );
         hunter.target = Some(bridge_id);
     }
-    game_logic.update_ai(&[hunter_id, bridge_id], 1.0 / 30.0);
+    game_logic
+        .update_ai(&[hunter_id, bridge_id], 1.0 / 30.0)
+        .expect("receiving AI operation succeeds");
     assert!(
         game_logic.pending_special_ability(hunter_id).is_some()
             || game_logic
@@ -1760,7 +1840,9 @@ fn leftover_laser_abort_resets_primary_weapon_lock() {
         tgt.set_status_stealthed(true);
         tgt.set_status_detected(false);
     }
-    game_logic.update_ai(&[md_id, tgt_id], 1.0 / 30.0);
+    game_logic
+        .update_ai(&[md_id, tgt_id], 1.0 / 30.0)
+        .expect("receiving AI operation succeeds");
     let md = game_logic.host_object(md_id).expect("md");
     assert_eq!(md.weapon_lock_slot, 0, "laser abort must lock PRIMARY");
     assert_eq!(md.weapon_lock_type, WeaponLockType::LockedTemporarily);
@@ -1806,7 +1888,7 @@ fn disable_vehicle_hack_command_disables_after_reach() {
             .host_object(lotus_id)
             .expect("lotus should exist");
         assert_eq!(
-            lotus.ai_state,
+            lotus.ai_state(),
             AIState::SpecialAbility,
             "disable hack must enter SpecialAbility on issue"
         );
@@ -1822,7 +1904,9 @@ fn disable_vehicle_hack_command_disables_after_reach() {
     assert!(!game_logic.honesty_disable_vehicle_hack_ok());
 
     // Beyond StartAbilityRange 150 — stays pending.
-    game_logic.update_ai(&[lotus_id, target_id], 1.0 / 60.0);
+    game_logic
+        .update_ai(&[lotus_id, target_id], 1.0 / 60.0)
+        .expect("receiving AI operation succeeds");
     assert!(
         !game_logic
             .host_object(target_id)
@@ -1848,7 +1932,9 @@ fn disable_vehicle_hack_command_disables_after_reach() {
         );
         lotus.target = Some(target_id);
     }
-    game_logic.update_ai(&[lotus_id, target_id], 1.0 / 60.0);
+    game_logic
+        .update_ai(&[lotus_id, target_id], 1.0 / 60.0)
+        .expect("receiving AI operation succeeds");
     // C++ NeedToFace then Unpack 2000ms + Prep 2000ms. Facing consumes a
     // variable number of ticks at the unit's turn rate — drive the channel
     // to its trigger with bounded per-frame ticks.
@@ -1860,7 +1946,9 @@ fn disable_vehicle_hack_command_disables_after_reach() {
         {
             break;
         }
-        game_logic.update_ai(&[lotus_id, target_id], LOGIC_FRAME_TIMESTEP);
+        game_logic
+            .update_ai(&[lotus_id, target_id], LOGIC_FRAME_TIMESTEP)
+            .expect("receiving AI operation succeeds");
     }
 
     let target_after = game_logic
@@ -1899,7 +1987,9 @@ fn disable_vehicle_hack_command_disables_after_reach() {
             .is_hacked_disabled()
     );
     game_logic.frame = until;
-    game_logic.update_ai(&[target_id], 1.0 / 60.0);
+    game_logic
+        .update_ai(&[target_id], 1.0 / 60.0)
+        .expect("receiving AI operation succeeds");
     assert!(
         game_logic
             .host_object(target_id)
@@ -1975,7 +2065,7 @@ fn black_lotus_capture_building_without_upgrade() {
     {
         let lotus = game_logic.host_object(lotus_id).expect("lotus");
         assert_eq!(
-            lotus.ai_state,
+            lotus.ai_state(),
             AIState::Capturing,
             "Black Lotus CaptureBuilding must enter Capturing without upgrade"
         );
@@ -1984,7 +2074,9 @@ fn black_lotus_capture_building_without_upgrade() {
     assert!(!game_logic.honesty_black_lotus_capture_ok());
 
     // Beyond StartAbilityRange 150 — still walking.
-    game_logic.update_ai(&[lotus_id, building_id], 1.0 / 60.0);
+    game_logic
+        .update_ai(&[lotus_id, building_id], 1.0 / 60.0)
+        .expect("receiving AI operation succeeds");
     assert_eq!(
         game_logic.host_object(building_id).expect("building").team,
         Team::GLA,
@@ -2019,10 +2111,12 @@ fn black_lotus_capture_building_without_upgrade() {
     // the pack timer, update.rs SpecialAbilityUpdate.cpp:1812-1836 parity).
     for _ in 0..2400 {
         game_logic.frame = game_logic.frame.saturating_add(1);
-        game_logic.update_ai(&[lotus_id, building_id], LOGIC_FRAME_TIMESTEP);
+        game_logic
+            .update_ai(&[lotus_id, building_id], LOGIC_FRAME_TIMESTEP)
+            .expect("receiving AI operation succeeds");
         let captor_done = game_logic
             .host_object(lotus_id)
-            .map(|lotus| lotus.ai_state != AIState::Capturing)
+            .map(|lotus| lotus.ai_state() != AIState::Capturing)
             .unwrap_or(true);
         if game_logic.honesty_black_lotus_capture_ok() && captor_done {
             break;
@@ -2042,7 +2136,7 @@ fn black_lotus_capture_building_without_upgrade() {
     {
         let lotus = game_logic.host_object(lotus_id).expect("lotus");
         assert_ne!(
-            lotus.ai_state,
+            lotus.ai_state(),
             AIState::Capturing,
             "captor leaves Capturing after complete"
         );
@@ -2073,7 +2167,7 @@ fn disable_vehicle_hack_rejects_non_lotus() {
 
     let actor = game_logic.host_object(actor_id).expect("actor");
     assert_ne!(
-        actor.ai_state,
+        actor.ai_state(),
         AIState::SpecialAbility,
         "non-lotus must not DisableVehicleHack"
     );
@@ -2153,9 +2247,7 @@ fn ecm_missile_jam_scatters_in_flight_projectile() {
 
 #[test]
 fn ecm_jam_spawns_disable_stream_laser() {
-    use crate::game_logic::host_ecm_jam::{
-        ECM_DISABLE_STREAM_LASER, ECM_VEHICLE_DISABLER_DELAY_FRAMES,
-    };
+    use crate::game_logic::host_ecm_jam::{ECM_DISABLE_STREAM_LASER, ECM_VEHICLE_DISABLER_DELAY_FRAMES};
 
     let mut logic = GameLogic::new();
     let mut ecm_tpl = ThingTemplate::new("ChinaTankECM");
@@ -2899,9 +2991,7 @@ fn inactive_special_ability_update_preserves_other_module_packing_flag() {
 #[test]
 fn active_special_ability_channel_still_cancels_on_replacement_order() {
     use crate::game_logic::host_enum_table_residual::unpacking_model_bit;
-    use crate::game_logic::host_hero_abilities::{
-        LeftoverSaChannel, LeftoverSaKind, LeftoverSaPhase,
-    };
+    use crate::game_logic::host_hero_abilities::{LeftoverSaChannel, LeftoverSaKind, LeftoverSaPhase};
     use crate::game_logic::{KindOf, ThingTemplate};
 
     let mut logic = GameLogic::new();

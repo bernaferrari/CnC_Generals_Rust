@@ -33,6 +33,11 @@ impl GameClient {
     }
 
     pub fn draw_display(&mut self) -> GameClientResult<()> {
+        let owner = self.window_manager_owner.clone();
+        owner.with_scope(|| self.draw_display_with_window_owner())
+    }
+
+    fn draw_display_with_window_owner(&mut self) -> GameClientResult<()> {
         let snow = self.snow_render_state();
         if let Some(display) = &self.subsystem_manager.display {
             display
@@ -428,7 +433,7 @@ impl GameClient {
                         // anchored at the health-box right edge + (1,1).
                         // SCALE_ICONS_WITH_ZOOM_ML is off in retail ZH, so
                         // objScale is 1.0 (native mapped-image size).
-                        let _ = with_window_manager_ref(|manager| {
+                        let _ = self.window_manager_owner.with_manager(|manager| {
                             if let Some(image) = manager.win_find_image(name) {
                                 let w = image.width.max(1);
                                 let h = image.height.max(1);
@@ -458,7 +463,7 @@ impl GameClient {
                             "SCPAmmoEmpty"
                         };
                         let x = bar_x + (i as f32) * (pip + 1.0);
-                        let drew = with_window_manager_ref(|manager| {
+                        let drew = self.window_manager_owner.with_manager(|manager| {
                             if let Some(image) = manager.win_find_image(name) {
                                 manager.win_draw_image(
                                     &image,
@@ -503,7 +508,7 @@ impl GameClient {
                         } else {
                             0xFF00_00FF // C++ NON_INFANTRY_COLOR GameMakeColor(0,0,255,255)
                         };
-                        let drew = with_window_manager_ref(|manager| {
+                        let drew = self.window_manager_owner.with_manager(|manager| {
                             if let Some(image) = manager.win_find_image(name) {
                                 manager.win_draw_image(
                                     &image,

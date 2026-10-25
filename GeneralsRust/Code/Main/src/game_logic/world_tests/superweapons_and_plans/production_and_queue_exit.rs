@@ -135,9 +135,9 @@ fn script_skirmish_attack_nearest_group_uses_relationship_and_cell_value() {
         "Neutral high-cost must not win ALLOW_ENEMIES"
     );
     assert!(
-        after.ai_state == AIState::AttackMoving || after.ai_state == AIState::Moving,
+        after.ai_state() == AIState::AttackMoving || after.ai_state() == AIState::Moving,
         "team must attack-move, state={:?}",
-        after.ai_state
+        after.ai_state()
     );
 }
 
@@ -639,7 +639,9 @@ fn scud_storm_door_open_queues_idle_loop() {
         o.set_status_under_construction(false);
         o.construction_percent = 1.0;
     }
-    game_logic.update_ai(&[id], 1.0 / 30.0);
+    game_logic
+        .update_ai(&[id], 1.0 / 30.0)
+        .expect("receiving AI operation succeeds");
     {
         let o = game_logic.objects.get_mut(&id).expect("scud after tick");
         let data = o
@@ -651,7 +653,9 @@ fn scud_storm_door_open_queues_idle_loop() {
     }
     game_logic.queued_audio_events.clear();
     game_logic.frame = 1;
-    game_logic.update_ai(&[id], 1.0 / 30.0);
+    game_logic
+        .update_ai(&[id], 1.0 / 30.0)
+        .expect("receiving AI operation succeeds");
     assert!(
         game_logic.queued_audio_events.iter().any(|e| {
             e.event_type == "ScudStormIdleLoop"

@@ -2640,6 +2640,12 @@ impl GameWindowTransitionsHandler {
         self.secondary_draw_group = None;
     }
 
+    #[cfg(test)]
+    pub(crate) fn init_with_contents_for_test(&mut self, contents: &str) {
+        self.init();
+        self.parse_window_transitions(contents);
+    }
+
     pub fn load(&mut self, path: &str) {
         if let Ok(contents) = std::fs::read_to_string(path) {
             self.parse_window_transitions(&contents);

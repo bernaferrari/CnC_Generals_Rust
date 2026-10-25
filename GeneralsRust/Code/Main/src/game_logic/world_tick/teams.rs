@@ -136,10 +136,11 @@ impl GameLogic {
                     .map(|p| p.is_local)
                     .unwrap_or(false);
                 // C++ attack-move auto-acquire: Idle OR AttackMoving/is_attack_path.
-                let idle = matches!(o.ai_state, AIState::Idle) && o.target.is_none();
-                let attack_moving = matches!(o.ai_state, AIState::AttackMoving) || o.is_attack_path;
+                let idle = matches!(o.ai_state(), AIState::Idle) && o.target.is_none();
+                let attack_moving =
+                    matches!(o.ai_state(), AIState::AttackMoving) || o.is_attack_path;
                 let want = (idle || attack_moving)
-                    && o.auto_acquire_when_idle
+                    && o.auto_acquire_when_idle()
                     && o.is_alive()
                     && o.can_attack()
                     && o.target.is_none();
@@ -281,7 +282,7 @@ impl GameLogic {
         }
         let center = me
             .guard_retaliate_anchor
-            .or(me.guard_position)
+            .or(me.active_guard_position())
             .unwrap_or_else(|| me.get_position());
         let (inner, outer) = self.host_std_guard_ranges(unit_id);
         // Inner: 1.5×stdGuard. Outer: 0.67×(vision+stdGuard). Aggressor: vision+stdGuard.
@@ -314,7 +315,7 @@ impl GameLogic {
         let owner_undetected = me.is_undetected_defector();
         let anchor = me
             .guard_retaliate_anchor
-            .or(me.guard_position)
+            .or(me.active_guard_position())
             .unwrap_or_else(|| me.get_position());
         let (inner, _) = self.host_std_guard_ranges(unit_id);
         if inner <= 0.0 {
@@ -722,7 +723,7 @@ impl GameLogic {
             return false;
         }
         // Idle only.
-        if !matches!(obj.ai_state, AIState::Idle) || obj.target.is_some() {
+        if !matches!(obj.ai_state(), AIState::Idle) || obj.target.is_some() {
             return false;
         }
         // Stealthed + not detected → no.
@@ -811,7 +812,7 @@ impl GameLogic {
         let ids: Vec<ObjectId> = self
             .objects
             .registered()
-            .filter(|(_, o)| matches!(o.ai_state, AIState::GuardRetaliating))
+            .filter(|(_, o)| matches!(o.ai_state(), AIState::GuardRetaliating))
             .map(|(id, _)| *id)
             .collect();
         for id in ids {
@@ -849,7 +850,7 @@ impl GameLogic {
                             .get(&id)
                             .map(|o| {
                                 o.guard_retaliate_anchor
-                                    .or(o.guard_position)
+                                    .or(o.active_guard_position())
                                     .unwrap_or_else(|| o.get_position())
                             })
                             .unwrap_or(vp);
@@ -907,7 +908,7 @@ impl GameLogic {
                 let returning = self.objects.get(&id).is_some_and(|o| {
                     let center = o
                         .guard_retaliate_anchor
-                        .or(o.guard_position)
+                        .or(o.active_guard_position())
                         .unwrap_or_else(|| o.get_position());
                     let us = o.get_position();
                     let dx = us.x - center.x;
@@ -1111,16 +1112,17 @@ impl GameLogic {
     /// then `aiWander` / `aiPanic` / `aiWanderInPlace` (`CMD_FROM_SCRIPT`).
     pub fn apply_host_loco_set_script_requests(&mut self) {
         self.apply_host_loco_set_script_requests_with_effects(&mut Default::default())
+            .expect("locomotor script requests failed");
     }
 
     pub(crate) fn apply_host_loco_set_script_requests_with_effects(
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         self.apply_host_team_factory_script_requests();
         self.apply_host_merge_team_script_requests_with_effects(effects);
-        self.apply_host_capture_nearest_unowned_script_requests();
-        self.apply_host_load_transports_script_requests();
+        self.apply_host_capture_nearest_unowned_script_requests()?;
+        self.apply_host_load_transports_script_requests()?;
         self.apply_host_named_fire_weapon_path_script_requests_with_effects(effects);
         for (team_name, set, waypoint) in gamelogic::scripting::take_host_team_loco_set_requests() {
             self.host_script_apply_team_wander_panic(&team_name, &set, waypoint.as_deref());
@@ -1131,6 +1133,7 @@ impl GameLogic {
             }
         }
         self.tick_host_wander_in_place();
+        Ok(())
     }
 
     /// C++ `doTeamWander` / `doTeamPanic` member loop: closest waypoint on path,
@@ -1249,7 +1252,7 @@ impl GameLogic {
             !crate::game_logic::PathfindingGrid::is_doing_ground_movement_full(unit)
         }) {
             if let Some(unit) = self.host_object_mut(id) {
-                unit.adjust_destinations = false;
+                unit.set_adjust_destinations(false);
             }
         }
         let _ = self.assign_unit_path(id, goal, via);
@@ -1316,7 +1319,7 @@ impl GameLogic {
                 u.ignore_collisions_until_frame = self.frame.saturating_add(60);
             }
             // C++ AIMoveAwayFromRepulsorsState::onEnter (AIStates.cpp:2265).
-            u.adjust_destinations = false;
+            u.set_adjust_destinations(false);
             let dest = u.move_away_destination.unwrap_or(rep_pos);
             let _ = u.begin_request_safe_path(rep_id, dest, self.frame);
             true
@@ -1352,7 +1355,7 @@ impl GameLogic {
                     path_drop.push(raw);
                     continue;
                 }
-                if !matches!(obj.ai_state, AIState::Idle | AIState::Moving) {
+                if !matches!(obj.ai_state(), AIState::Idle | AIState::Moving) {
                     path_drop.push(raw);
                     continue;
                 }
@@ -1365,7 +1368,7 @@ impl GameLogic {
                     continue;
                 }
                 let stopped = !obj.status.moving && obj.movement.target_position.is_none();
-                if stopped && matches!(obj.ai_state, AIState::Idle) {
+                if stopped && matches!(obj.ai_state(), AIState::Idle) {
                     path_drop.push(raw);
                     continue;
                 }
@@ -1417,7 +1420,7 @@ impl GameLogic {
                 drop.push(raw);
                 continue;
             }
-            if !matches!(obj.ai_state, AIState::Idle | AIState::Moving) {
+            if !matches!(obj.ai_state(), AIState::Idle | AIState::Moving) {
                 drop.push(raw);
                 continue;
             }
@@ -1438,7 +1441,7 @@ impl GameLogic {
             let pos = obj.get_position();
             let near = host_wander_horiz_dist_sq(pos, hop) <= HOST_WANDER_CELL * HOST_WANDER_CELL;
             let stopped = !obj.status.moving && obj.movement.target_position.is_none();
-            if near || (stopped && matches!(obj.ai_state, AIState::Idle)) {
+            if near || (stopped && matches!(obj.ai_state(), AIState::Idle)) {
                 reissue.push((
                     raw,
                     origin,
@@ -1511,15 +1514,21 @@ impl GameLogic {
 
     /// C++ `ScriptActions::doTeamCaptureNearestUnownedFactionUnit` live drain.
     /// Leftover partition is empty on the player path.
-    pub fn apply_host_capture_nearest_unowned_script_requests(&mut self) {
+    pub fn apply_host_capture_nearest_unowned_script_requests(
+        &mut self,
+    ) -> gamelogic::GameLogicResult<()> {
         for req in gamelogic::scripting::take_host_script_capture_nearest_unowned_requests() {
-            self.host_script_team_capture_nearest_unowned(&req.team);
+            self.host_script_team_capture_nearest_unowned(&req.team)?;
         }
+        Ok(())
     }
 
     /// C++ AIGroup center + `getClosestObject` (unmanned + enemies/neutral +
     /// on-map) + `groupEnter(..., CMD_FROM_SCRIPT)`.
-    fn host_script_team_capture_nearest_unowned(&mut self, team_name: &str) {
+    fn host_script_team_capture_nearest_unowned(
+        &mut self,
+        team_name: &str,
+    ) -> gamelogic::GameLogicResult<()> {
         let members: Vec<ObjectId> = self
             .host_script_team_census_member_ids(team_name)
             .into_iter()
@@ -1530,7 +1539,7 @@ impl GameLogic {
             })
             .collect();
         if members.is_empty() {
-            return;
+            return Ok(());
         }
         let mut sum = glam::Vec3::ZERO;
         let mut n = 0u32;
@@ -1548,7 +1557,7 @@ impl GameLogic {
             }
         }
         if n == 0 {
-            return;
+            return Ok(());
         }
         let center = sum / n as f32;
         let Some(target_id) = self.host_script_closest_unowned_faction_unit(
@@ -1557,10 +1566,10 @@ impl GameLogic {
             source_owner,
             &source_inst,
         ) else {
-            return;
+            return Ok(());
         };
         let Some(target_pos) = self.host_object(target_id).map(|obj| obj.get_position()) else {
-            return;
+            return Ok(());
         };
         for id in members {
             let _ = self.unit_command_stop_moving_order_target(id, Some(target_id));
@@ -1569,7 +1578,7 @@ impl GameLogic {
                 target_pos,
                 AIState::Entering,
                 Some(target_id),
-            ) {
+            )? {
                 if let Some((obj, audio_events)) = self.host_object_and_audio_events_mut(id) {
                     obj.ignored_obstacle_id = Some(target_id);
                     obj.set_ai_state(
@@ -1579,18 +1588,22 @@ impl GameLogic {
                 }
             }
         }
+        Ok(())
     }
-
     /// C++ `ScriptActions::doLoadAllTransports` live drain.
     /// Leftover BinPartitionSolver + `chooseLocomotorSet(NORMAL)` + `aiEnter`.
-    pub fn apply_host_load_transports_script_requests(&mut self) {
+    pub fn apply_host_load_transports_script_requests(&mut self) -> gamelogic::GameLogicResult<()> {
         for req in gamelogic::scripting::take_host_script_load_transports_requests() {
-            self.host_script_team_load_transports(&req.team);
+            self.host_script_team_load_transports(&req.team)?;
         }
+        Ok(())
     }
 
     /// C++ team member walk → leftover `PartitionSolver(PREFER_FAST)` → enter.
-    fn host_script_team_load_transports(&mut self, team_name: &str) {
+    fn host_script_team_load_transports(
+        &mut self,
+        team_name: &str,
+    ) -> gamelogic::GameLogicResult<()> {
         use game_engine::common::partition_solver::{
             BinPartitionSolver, EntriesVec, SolutionType, SpacesVec,
         };
@@ -1627,7 +1640,7 @@ impl GameLogic {
                 pos,
                 AIState::Entering,
                 Some(trans),
-            ) {
+            )? {
                 if let Some((obj, audio_events)) = self.host_object_and_audio_events_mut(unit) {
                     obj.ignored_obstacle_id = Some(trans);
                     obj.set_ai_state(
@@ -1637,8 +1650,8 @@ impl GameLogic {
                 }
             }
         }
+        Ok(())
     }
-
     /// C++ `doNamedFireWeaponFollowingWaypointPath` live drain.
     /// Leftover forceFire + leftover follow-waypoint-path on the live projectile.
     pub fn apply_host_named_fire_weapon_path_script_requests(&mut self) {
@@ -1896,7 +1909,7 @@ impl GameLogic {
                 return false;
             }
             let parent_ok = matches!(
-                u.ai_state,
+                u.ai_state(),
                 AIState::Idle
                     | AIState::Patrolling
                     | AIState::GuardingArea
@@ -1907,8 +1920,8 @@ impl GameLogic {
             if !parent_ok || u.target.is_some() {
                 return false;
             }
-            let parent_state = u.ai_state.clone();
-            let keep = !matches!(u.ai_state, AIState::Idle);
+            let parent_state = u.ai_state().clone();
+            let keep = !matches!(u.ai_state(), AIState::Idle);
             let Some(id) = u.crate_created else {
                 return false;
             };
@@ -1954,7 +1967,7 @@ impl GameLogic {
                     u.requested_destination,
                     u.path_goal_position,
                     u.is_final_goal,
-                    u.adjust_destinations,
+                    u.adjust_destinations(),
                     u.status.moving,
                     u.requested_victim_id,
                     u.is_attack_path,
@@ -1970,7 +1983,7 @@ impl GameLogic {
             let _ = self.note_move_to_request_path(unit_id);
         }
         if let Some(u) = self.objects.get_mut(&unit_id) {
-            u.adjust_destinations = true;
+            u.set_adjust_destinations(true);
         }
         let installed = self.assign_unit_path(unit_id, pos, &[]);
         if let Some(u) = self.objects.get_mut(&unit_id) {
@@ -1978,7 +1991,7 @@ impl GameLogic {
                 u.requested_destination = saved_dest;
                 u.path_goal_position = saved_goal;
                 u.is_final_goal = saved_final;
-                u.adjust_destinations = saved_adjust;
+                u.set_adjust_destinations(saved_adjust);
             }
         }
         if installed {
@@ -1987,7 +2000,7 @@ impl GameLogic {
                 u.movement.target_position = Some(pos);
                 u.requested_victim_id = Some(crate_id);
                 u.set_status_moving(true);
-                if keep_parent_state && u.ai_state != parent_state {
+                if keep_parent_state && u.ai_state() != parent_state {
                     u.set_ai_state(
                         parent_state,
                         &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
@@ -1998,7 +2011,7 @@ impl GameLogic {
             u.requested_destination = saved_dest;
             u.path_goal_position = saved_goal;
             u.is_final_goal = saved_final;
-            u.adjust_destinations = saved_adjust;
+            u.set_adjust_destinations(saved_adjust);
             u.requested_victim_id = saved_victim;
             u.is_attack_path = saved_attack_path;
             u.is_approach_path = saved_approach_path;
@@ -2235,12 +2248,12 @@ mod tests {
         tmpl.add_kind_of(KindOf::Aircraft);
         let id = ObjectId(77);
         let mut air = crate::game_logic::object::Object::new(tmpl, id, Team::USA);
-        air.adjust_destinations = true;
+        air.set_adjust_destinations(true);
         air.movement.max_speed = 10.0;
         logic.objects.insert(id, air);
         logic.test_host_wander_issue_path(id, &[glam::Vec3::new(80.0, 0.0, 0.0)]);
         assert!(
-            !logic.host_object(id).unwrap().adjust_destinations,
+            !logic.host_object(id).unwrap().adjust_destinations(),
             "aircraft wander must not adjust the goal"
         );
     }
@@ -2915,11 +2928,13 @@ mod tests {
         }
 
         request_host_script_capture_nearest_unowned("USA_HijackSquad");
-        logic.apply_host_capture_nearest_unowned_script_requests();
+        logic
+            .apply_host_capture_nearest_unowned_script_requests()
+            .unwrap();
 
         let infantry = logic.host_object(infantry).expect("infantry after");
         assert_eq!(infantry.target, Some(near), "groupEnter nearest unmanned");
-        assert_eq!(infantry.ai_state, AIState::Entering);
+        assert_eq!(infantry.ai_state(), AIState::Entering);
         assert_ne!(infantry.target, Some(far));
         assert_ne!(infantry.target, Some(off));
     }
@@ -2973,7 +2988,7 @@ mod tests {
         }
 
         request_host_script_load_transports("USA_Convoy");
-        logic.apply_host_load_transports_script_requests();
+        logic.apply_host_load_transports_script_requests().unwrap();
 
         let infantry = logic.host_object(infantry).expect("infantry after");
         assert_eq!(
@@ -2981,7 +2996,7 @@ mod tests {
             Some(transport),
             "aiEnter leftover solver pair"
         );
-        assert_eq!(infantry.ai_state, AIState::Entering);
+        assert_eq!(infantry.ai_state(), AIState::Entering);
     }
 
     #[test]

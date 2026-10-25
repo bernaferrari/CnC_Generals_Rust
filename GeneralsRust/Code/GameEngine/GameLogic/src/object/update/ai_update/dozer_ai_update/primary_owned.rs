@@ -5,8 +5,8 @@
 use super::*;
 use crate::modules::ai_world::AiWorld;
 
-#[derive(Debug)]
-pub(super) struct DozerPrimaryIdle {
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct DozerPrimaryIdle {
     pub(super) idle_since: u32,
     pub(super) player: Int,
     pub(super) marked: bool,
@@ -19,12 +19,12 @@ impl DozerAIUpdate {
     ) -> Result<(), String> {
         let owner = world.object(self.object_id).ok_or("Dozer owner absent")?;
         {
-            let idle = &self.primary.idle;
+            let idle = &self.task_owner.primary.idle;
             if idle.marked {
                 world.idle_worker_event(&owner, idle.player, false)?;
             }
         }
-        self.current_task = DozerTask::Invalid;
+        self.task_owner.current = DozerTask::Invalid;
         self.dozer_task = None;
         self.action_state = DozerActionState::PickActionPos;
         world.set_weapon_set_flag(
@@ -32,11 +32,11 @@ impl DozerAIUpdate {
             crate::weapon::WeaponSetType::MineClearingDetail,
             true,
         )?;
-        self.primary.state = PrimaryState::Idle;
-        self.primary.control.initialized = true;
-        self.primary.control.sleep_until = 0;
-        self.primary.idle.idle_since = world.frame();
-        self.primary.idle.marked = false;
+        self.task_owner.primary.state = PrimaryState::Idle;
+        self.task_owner.primary.control.initialized = true;
+        self.task_owner.primary.control.sleep_until = 0;
+        self.task_owner.primary.idle.idle_since = world.frame();
+        self.task_owner.primary.idle.marked = false;
         Ok(())
     }
 
@@ -49,7 +49,7 @@ impl DozerAIUpdate {
     ) -> Result<(), String> {
         let owner = world.object(self.object_id).ok_or("Dozer owner absent")?;
         world.validate_dozer_idle_effects(&owner)?;
-        if self.current_task != DozerTask::Invalid
+        if self.task_owner.current != DozerTask::Invalid
             || self.is_task_pending(DozerTask::Build)
             || self.is_task_pending(DozerTask::Repair)
         {
@@ -63,7 +63,7 @@ impl DozerAIUpdate {
         {
             return Err("Dozer request owner or target absent".into());
         }
-        self.tasks[DozerTask::Fortify.as_index()] = DozerTaskEntry {
+        self.task_owner.requests[DozerTask::Fortify.as_index()] = DozerTaskEntry {
             target_id: target,
             order_frame: world.frame(),
         };
@@ -79,7 +79,7 @@ impl DozerAIUpdate {
     ) -> Result<(), String> {
         let owner = world.object(self.object_id).ok_or("Dozer owner absent")?;
         world.validate_dozer_idle_effects(&owner)?;
-        if self.current_task != DozerTask::Invalid {
+        if self.task_owner.current != DozerTask::Invalid {
             return Err("supplied Dozer action body unavailable".into());
         }
         if !self.is_task_pending(DozerTask::Fortify)
@@ -88,7 +88,7 @@ impl DozerAIUpdate {
         {
             return Err("supplied Dozer idle scanning/docking services unavailable".into());
         }
-        if !self.primary.control.initialized {
+        if !self.task_owner.primary.control.initialized {
             self.reset_primary_idle_owned(world)?;
         }
         let owner = world.object(self.object_id).ok_or("Dozer owner absent")?;
@@ -101,7 +101,7 @@ impl DozerAIUpdate {
                     .ok_or("Dozer controller absent")? as Int,
             )
         };
-        let idle = &mut self.primary.idle;
+        let idle = &mut self.task_owner.primary.idle;
         if regular_idle && !idle.marked && !dead {
             world.idle_worker_event(&owner, player, true)?;
             idle.player = player;
@@ -121,15 +121,13 @@ impl DozerAIUpdate {
             idle.idle_since = world.frame();
         }
         if regular_idle && self.get_most_recent_command() == DozerTask::Fortify {
-            let idle = &mut self.primary.idle;
+            let idle = &mut self.task_owner.primary.idle;
             if idle.marked {
                 world.idle_worker_event(&owner, idle.player, false)?;
                 idle.player = -1;
                 idle.marked = false;
             }
-            self.primary.state = PrimaryState::Fortify;
-            self.primary.actions[DozerTask::Fortify.as_index()].reset();
-            self.current_task = DozerTask::Fortify;
+            self.task_owner.enter_primary_task(DozerTask::Fortify);
             self.action_state = DozerActionState::PickActionPos;
         }
         Ok(())

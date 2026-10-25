@@ -213,7 +213,7 @@ impl GameLogic {
         state.guard_offset.y = self.terrain_height_at(pinned).unwrap_or(0.0);
         let object = self.objects.get(&id).unwrap();
         if data.guard_max_range != 0.0
-            && ((object.ai_state == AIState::Idle
+            && ((object.ai_state() == AIState::Idle
                 && object.get_position().distance_squared(pinned) > 225.0)
                 || object.get_position().distance_squared(mpos)
                     > (2.0 * data.guard_max_range).powi(2))

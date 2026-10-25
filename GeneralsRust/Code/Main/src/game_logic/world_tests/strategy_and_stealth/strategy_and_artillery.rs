@@ -2660,7 +2660,7 @@ fn daisy_cutter_host_path_queues_and_completes_area_damage() {
     let caster = game_logic.host_object(caster_id).expect("caster after cmd");
     assert!(!caster.special_power_ready);
     assert!(caster.special_power_cooldown_remaining > 0.0);
-    assert_eq!(caster.ai_state, AIState::SpecialAbility);
+    assert_eq!(caster.ai_state(), AIState::SpecialAbility);
     assert!(
         game_logic
             .queued_audio_events
@@ -2940,7 +2940,7 @@ fn carpet_bomb_host_path_queues_and_applies_delayed_line_damage() {
     );
     let caster = game_logic.host_object(caster_id).expect("caster after cmd");
     assert!(!caster.special_power_ready);
-    assert_eq!(caster.ai_state, AIState::SpecialAbility);
+    assert_eq!(caster.ai_state(), AIState::SpecialAbility);
     assert!(
         game_logic
             .queued_audio_events

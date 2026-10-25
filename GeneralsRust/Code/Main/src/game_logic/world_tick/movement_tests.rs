@@ -1203,7 +1203,7 @@ fn failed_move_path_returns_to_idle() {
     logic.on_waited_path_failed(ObjectId(9609));
     let obj = logic.objects.get(&ObjectId(9609)).expect("ranger");
     assert!(!obj.waiting_for_path);
-    assert_eq!(obj.ai_state, AIState::Idle);
+    assert_eq!(obj.ai_state(), AIState::Idle);
 
     let mut attacker = Object::new(ThingTemplate::new("Ranger"), ObjectId(9610), Team::USA);
     attacker.set_ai_state(AIState::Attacking, &mut ObjectAudio::queue(&mut Vec::new()));
@@ -1212,7 +1212,7 @@ fn failed_move_path_returns_to_idle() {
     logic.on_waited_path_failed(ObjectId(9610));
     let obj = logic.objects.get(&ObjectId(9610)).expect("attacker");
     assert!(!obj.waiting_for_path);
-    assert_eq!(obj.ai_state, AIState::Attacking);
+    assert_eq!(obj.ai_state(), AIState::Attacking);
 }
 
 #[test]
@@ -1718,7 +1718,7 @@ fn zero_delta_arrival_keeps_goal_unless_adjusting() {
     keep.movement.path = vec![Vec3::ZERO, here];
     keep.movement.current_path_index = 1;
     keep.is_final_goal = false;
-    keep.adjust_destinations = false;
+    keep.set_adjust_destinations(false);
     keep.set_locomotor_goal_position_explicit(explicit);
     logic.objects.insert(ObjectId(9728), keep);
     logic.update_movement(&[ObjectId(9728)], 1.0 / 30.0);
@@ -3778,7 +3778,7 @@ fn face_angle_does_not_double_lift_off_own_altitude() {
     heli.min_speed = 0.0;
     heli.locomotor_goal_type = LocoGoalType::Angle;
     heli.locomotor_goal_angle = std::f32::consts::FRAC_PI_2;
-    heli.face_loco_frame = 0;
+    heli.set_face_loco_frame(0);
     logic.objects.insert(id, heli);
     logic.update_movement_for_test(&[id], 1.0 / 30.0);
     let obj = logic.objects.get(&id).expect("heli");

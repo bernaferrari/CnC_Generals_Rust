@@ -1,9 +1,7 @@
 //! Receiving Dozer queries: DozerAIUpdate.cpp132–217,287–366 and
 //! PartitionManager.cpp769–820,3688–3934. No active world is selected here.
 use super::*;
-use crate::object::collide::collision_geometry::{
-    CollideInfo, GeometryInfo, collide_test_dispatch,
-};
+use crate::object::collide::collision_geometry::{CollideInfo, GeometryInfo, collide_test_dispatch};
 
 impl BorrowedAiWorld<'_> {
     pub(super) fn validate_dozer_action_owned(
@@ -101,19 +99,19 @@ impl BorrowedAiWorld<'_> {
         }
         let start = (owner_position.y - center.y).atan2(owner_position.x - center.x);
         let mut failure = None;
-        let result = crate::helpers::find_position_sampling::find_position_around_candidates(
-            center,
-            radius,
-            radius,
-            start,
-            |position, angle| match self.admit_dozer_position(center, position, angle) {
-                Ok(result) => result,
-                Err(error) => {
-                    failure = Some(error);
-                    None
-                }
-            },
-        );
+        let result =
+            crate::object::update::ai_update::dozer_ai_update::phase::sample_action_position(
+                center,
+                radius,
+                start,
+                |position, angle| match self.admit_dozer_position(center, position, angle) {
+                    Ok(result) => result,
+                    Err(error) => {
+                        failure = Some(error);
+                        None
+                    }
+                },
+            );
         if let Some(error) = failure {
             return Err(error);
         }

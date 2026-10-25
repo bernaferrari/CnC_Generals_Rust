@@ -473,7 +473,7 @@ impl Object {
         }
         if self.stealth_is_firing_weapon()
             || self.status.using_ability
-            || matches!(self.ai_state, AIState::SpecialAbility)
+            || matches!(self.ai_state(), AIState::SpecialAbility)
         {
             return true;
         }

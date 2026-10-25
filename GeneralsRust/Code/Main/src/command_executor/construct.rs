@@ -1,6 +1,8 @@
 //! Dozer/build/resume/cancel construction.
 #![allow(unused_imports, unused_variables, dead_code, non_snake_case)]
 use super::*;
+#[path = "construct/admission.rs"]
+mod admission;
 use crate::command_system::{
     CommandResult, CommandType, DropTarget, GameCommand, GuardTarget, PowerTarget,
     SpecialPowerType, WeaponSlot, WeaponTarget,
@@ -35,14 +37,14 @@ impl<'a> CommandExecutor<'a> {
         template_name: &str,
         location: Vec3,
         orientation: f32,
-    ) -> CommandResult {
-        self.execute_build_with_placement(
+    ) -> gamelogic::GameLogicResult<CommandResult> {
+        Ok(self.execute_build_with_placement(
             units,
             template_name,
             location,
             orientation,
             BuildPlacement::Single,
-        )
+        )?)
     }
 
     pub(super) fn execute_prepared_dozer_build(
@@ -52,14 +54,14 @@ impl<'a> CommandExecutor<'a> {
         location: Vec3,
         orientation: f32,
         collision_candidates: &HashSet<ObjectId>,
-    ) -> CommandResult {
-        self.execute_build_with_placement(
+    ) -> gamelogic::GameLogicResult<CommandResult> {
+        Ok(self.execute_build_with_placement(
             &[builder],
             template_name,
             location,
             orientation,
             BuildPlacement::PreparedLine(collision_candidates),
-        )
+        )?)
     }
 
     fn execute_build_with_placement(
@@ -69,21 +71,17 @@ impl<'a> CommandExecutor<'a> {
         location: Vec3,
         orientation: f32,
         placement: BuildPlacement<'_>,
-    ) -> CommandResult {
-        if placement == BuildPlacement::Single && !self.validate_build_location(location) {
-            return CommandResult::InvalidLocation;
-        }
-
+    ) -> gamelogic::GameLogicResult<CommandResult> {
         let (base_cost, is_structure) = match self.game_logic.get_templates().get(template_name) {
             Some(t) => (t.build_cost, t.is_kind_of(KindOf::Structure)),
             None => {
-                return CommandResult::InvalidCommand;
+                return Ok(CommandResult::InvalidCommand);
             }
         };
         let build_cost = self.calc_cost_to_build(template_name, base_cost);
 
         if !is_structure {
-            return CommandResult::InvalidCommand;
+            return Ok(CommandResult::InvalidCommand);
         }
 
         for &unit_id in units {
@@ -98,18 +96,21 @@ impl<'a> CommandExecutor<'a> {
             // legacy/map world falls back to the team's unique player (mirror
             // can_issue_dock, validate.rs) so builder identity survives old
             // saves; a unit owned by another player never builds here.
-            let owner_is_ours = match unit.owner_player_id {
-                Some(player_id) => player_id == self.current_player_id,
-                None => {
-                    self.game_logic.uses_legacy_team_ownership_fallback()
-                        && self
-                            .game_logic
-                            .unique_player_id_for_team(unit.team)
-                            .is_some_and(|player_id| player_id == self.current_player_id)
-                }
-            };
+            let owner_is_ours = unit.owner_player_id == Some(self.current_player_id);
             if !owner_is_ours {
                 continue;
+            }
+            // C++ BuildAssistant::buildObjectNow:330 rejects a constructor
+            // whose live CommandSet lacks the requested build button or whose
+            // controlling Player::canBuild refuses it, before clearing or moving.
+            if !self
+                .game_logic
+                .constructor_can_build_template(unit_id, template_name)
+            {
+                continue;
+            }
+            if placement == BuildPlacement::Single && !self.validate_build_location(location) {
+                return Ok(CommandResult::InvalidLocation);
             }
             let team = unit.team;
 
@@ -125,7 +126,7 @@ impl<'a> CommandExecutor<'a> {
                         &mut self.ui,
                     )
             {
-                return CommandResult::InvalidLocation;
+                return Ok(CommandResult::InvalidLocation);
             }
 
             // C++ BuildAssistant.cpp:333-343 — clear removable, then
@@ -153,18 +154,15 @@ impl<'a> CommandExecutor<'a> {
                 )
                 && self.game_logic.player_is_human(self.current_player_id)
             {
-                return CommandResult::InvalidLocation;
+                return Ok(CommandResult::InvalidLocation);
             }
 
-            // BuildAssistant clears/scoots first. A human obstacle failure
-            // returns above without cancelling the constructor's existing task.
-            if matches!(placement, BuildPlacement::PreparedLine(_)) {
-                self.game_logic.unit_command_stop_with_source_with_effects(
-                    unit_id,
-                    crate::game_logic::HUNT_CMD_FROM_AI,
-                    &mut self.ui,
-                );
-            }
+            let Some(constructor_birth) = self
+                .game_logic
+                .dozer_prepare_construct_owned_with_effects(unit_id, &mut self.ui)?
+            else {
+                return Ok(CommandResult::InvalidCommand);
+            };
 
             {
                 let Some(player) = self.game_logic.get_player_mut(self.current_player_id) else {
@@ -184,7 +182,7 @@ impl<'a> CommandExecutor<'a> {
                         #[cfg(feature = "game_client")]
                         game_client::helpers::TheInGameUI::message("GUI:NotEnoughMoneyToBuild");
                     }
-                    return CommandResult::InvalidCommand;
+                    return Ok(CommandResult::InvalidCommand);
                 }
             }
 
@@ -196,59 +194,15 @@ impl<'a> CommandExecutor<'a> {
                 orientation,
                 build_cost,
                 &mut self.ui,
-            );
+            )?;
             let Some(building_id) = building_id else {
-                return CommandResult::InvalidCommand;
+                return Ok(CommandResult::InvalidCommand);
             };
-            if !self
-                .game_logic
-                .unit_command_set_order_target(unit_id, Some(building_id))
-            {
-                if let Some(player) = self.game_logic.get_player_mut(self.current_player_id) {
-                    player.resources.supplies = player
-                        .resources
-                        .supplies
-                        .saturating_add(build_cost.supplies);
-                }
-                return CommandResult::InvalidCommand;
-            }
-            // C++ construct:1717 newTask(DOZER_TASK_BUILD, obj).
-            self.game_logic.dozer_new_task_build(unit_id, building_id);
-            // C++ WorkerAIUpdate::newTask: leave supply-truck mode / drop dock.
-            self.game_logic.worker_exit_supply_for_dozer_task(unit_id);
-            // C++ findGoodBuildOrRepairPosition half majorRadius + findPositionAround.
-            let (dozer_pos, pad_pos, pad_radius, stored_dock) = {
-                let d = self.game_logic.host_object(unit_id);
-                let dpos = d.map(|u| u.get_position()).unwrap_or(location);
-                let stored = d.and_then(|u| u.dozer_dock_action);
-                let (ppos, prad) = self
-                    .game_logic
-                    .host_object(building_id)
-                    .map(|b| (b.get_position(), b.selection_radius))
-                    .unwrap_or((location, 0.0));
-                (dpos, ppos, prad, stored)
-            };
-            // C++ newTask → findGoodBuildOrRepairPosition (DozerAIUpdate.cpp:1855-1894):
-            // the raw half-radius seed sits on the building's own pathfind-blocked
-            // footprint, so the dozer stops short of the dock and never enters the
-            // build window. Snap the dock to a pathable cell like every sibling
-            // path (line-build, resume, unit_commands) already does.
-            let approach = stored_dock.unwrap_or_else(|| {
-                self.game_logic.find_good_build_or_repair_position(
-                    dozer_pos,
-                    pad_pos,
-                    pad_radius,
-                    false,
-                    None,
-                    Some(unit_id),
-                )
-            });
-            let _ = self.path_to_goal_with_state_ignoring(
+            self.game_logic.dozer_admit_constructed_scaffold_owned(
                 unit_id,
-                approach,
-                AIState::Moving,
-                Some(building_id),
-            );
+                &constructor_birth,
+                building_id,
+            )?;
             if placement == BuildPlacement::Single {
                 self.game_logic.queue_picked_unit_voice(
                     &[unit_id],
@@ -265,10 +219,10 @@ impl<'a> CommandExecutor<'a> {
                 "Unit {} building {} at {:?}",
                 unit_id.0, template_name, location
             );
-            return CommandResult::Success;
+            return Ok(CommandResult::Success);
         }
 
-        CommandResult::InvalidCommand
+        Ok(CommandResult::InvalidCommand)
     }
 
     pub(super) fn execute_dozer_construct(
@@ -277,25 +231,25 @@ impl<'a> CommandExecutor<'a> {
         template_name: &str,
         location: Vec3,
         orientation: f32,
-    ) -> CommandResult {
-        self.execute_build(units, template_name, location, orientation)
+    ) -> gamelogic::GameLogicResult<CommandResult> {
+        Ok(self.execute_build(units, template_name, location, orientation)?)
     }
 
     pub(super) fn execute_cancel_construction(
         &mut self,
         object_id: ObjectId,
         player_id: u32,
-    ) -> CommandResult {
+    ) -> gamelogic::GameLogicResult<CommandResult> {
         let (template_name, base_supplies, reconstructing) = {
             let Some(obj) = self.game_logic.host_object(object_id) else {
-                return CommandResult::InvalidTarget;
+                return Ok(CommandResult::InvalidTarget);
             };
             if obj.owner_player_id != Some(player_id) {
-                return CommandResult::InvalidTarget;
+                return Ok(CommandResult::InvalidTarget);
             }
             // C++ MSG_DOZER_CANCEL_CONSTRUCT: must be under construction, not sold.
             if !obj.status.under_construction || obj.status.sold {
-                return CommandResult::InvalidCommand;
+                return Ok(CommandResult::InvalidCommand);
             }
             (
                 obj.template_name.clone(),
@@ -316,11 +270,11 @@ impl<'a> CommandExecutor<'a> {
             self.game_logic.player_refund_supplies(player_id, refund);
         }
         // C++ killing the building causes dozer cancelTask residual.
-        self.game_logic.cancel_dozers_building(object_id);
+        self.game_logic.cancel_dozers_building(object_id)?;
         self.game_logic
             .destroy_object_with_effects(object_id, &mut self.ui);
         debug!("Canceled construction of object {}", object_id.0);
-        CommandResult::Success
+        Ok(CommandResult::Success)
     }
 
     /// C++ `ThingTemplate::calcCostToBuild(player)` for dozer place/cancel.
@@ -342,17 +296,17 @@ impl<'a> CommandExecutor<'a> {
         &mut self,
         units: &[ObjectId],
         target_id: ObjectId,
-    ) -> CommandResult {
+    ) -> gamelogic::GameLogicResult<CommandResult> {
         // C++ MSG_RESUME_CONSTRUCTION / groupResumeConstruction residual.
-        if self.game_logic.resume_construction(units, target_id) {
+        if self.game_logic.resume_construction(units, target_id)? {
             // C++ CommandXlat.cpp:449-456 MSG_RESUME_CONSTRUCTION → VoiceBuildResponse.
             self.game_logic.queue_picked_unit_voice(
                 units,
                 crate::game_logic::audio_dispatch_impl::UnitVoiceSlot::BuildResponse,
             );
-            CommandResult::Success
+            Ok(CommandResult::Success)
         } else {
-            CommandResult::InvalidCommand
+            Ok(CommandResult::InvalidCommand)
         }
     }
 

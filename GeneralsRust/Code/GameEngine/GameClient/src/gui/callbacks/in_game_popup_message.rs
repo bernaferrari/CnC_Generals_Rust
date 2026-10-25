@@ -382,102 +382,108 @@ mod tests {
 
     #[test]
     fn popup_keyboard_acknowledgement_releases_popup_mutex_before_delivery() {
-        let _reset = PopupTestReset;
-        reset_popup_test_state();
-        const WINDOW_ID: i32 = 913_701;
-        const BUTTON_OK_ID: u32 = 913_702;
-        let popup_mutex_was_available = Arc::new(AtomicBool::new(false));
+        let owner = crate::gui::window_manager::WindowManagerOwner::new();
+        owner.with_scope(|| {
+            let _reset = PopupTestReset;
+            reset_popup_test_state();
+            const WINDOW_ID: i32 = 913_701;
+            const BUTTON_OK_ID: u32 = 913_702;
+            let popup_mutex_was_available = Arc::new(AtomicBool::new(false));
 
-        with_window_manager(|manager| {
-            let target = manager
-                .create_window_with_id(None, 0, 0, 1, 1, WINDOW_ID)
-                .expect("synthetic popup target");
-            let popup_mutex_was_available = Arc::clone(&popup_mutex_was_available);
-            target
-                .borrow_mut()
-                .set_system_callback(move |_, msg, _, _| {
-                    if msg == WindowMessage::GadgetSelected {
-                        popup_mutex_was_available
-                            .store(popup_ui_state().try_lock().is_ok(), Ordering::SeqCst);
-                    }
+            with_window_manager(|manager| {
+                let target = manager
+                    .create_window_with_id(None, 0, 0, 1, 1, WINDOW_ID)
+                    .expect("synthetic popup target");
+                let popup_mutex_was_available = Arc::clone(&popup_mutex_was_available);
+                target
+                    .borrow_mut()
+                    .set_system_callback(move |_, msg, _, _| {
+                        if msg == WindowMessage::GadgetSelected {
+                            popup_mutex_was_available
+                                .store(popup_ui_state().try_lock().is_ok(), Ordering::SeqCst);
+                        }
+                        WindowMsgHandled::Handled
+                    });
+            });
+
+            let mut dispatch_window = GameWindow::new();
+            dispatch_window.set_id(WINDOW_ID);
+            for key in [KEY_ENTER, KEY_ESC] {
+                set_popup_button_ok_id(BUTTON_OK_ID, false, None);
+                popup_mutex_was_available.store(false, Ordering::SeqCst);
+                assert_eq!(
+                    in_game_popup_message_input(
+                        &dispatch_window,
+                        WindowMessage::Char,
+                        key as WindowMsgData,
+                        KEY_STATE_UP as WindowMsgData,
+                    ),
                     WindowMsgHandled::Handled
-                });
+                );
+                assert!(
+                    popup_mutex_was_available.load(Ordering::SeqCst),
+                    "{key:#x} delivery must not re-enter the popup mutex"
+                );
+                let state_handle = popup_ui_state();
+                *state_handle.lock().unwrap_or_else(|e| e.into_inner()) = PopupUiState::default();
+            }
         });
-
-        let mut dispatch_window = GameWindow::new();
-        dispatch_window.set_id(WINDOW_ID);
-        for key in [KEY_ENTER, KEY_ESC] {
-            set_popup_button_ok_id(BUTTON_OK_ID, false, None);
-            popup_mutex_was_available.store(false, Ordering::SeqCst);
-            assert_eq!(
-                in_game_popup_message_input(
-                    &dispatch_window,
-                    WindowMessage::Char,
-                    key as WindowMsgData,
-                    KEY_STATE_UP as WindowMsgData,
-                ),
-                WindowMsgHandled::Handled
-            );
-            assert!(
-                popup_mutex_was_available.load(Ordering::SeqCst),
-                "{key:#x} delivery must not re-enter the popup mutex"
-            );
-            let state_handle = popup_ui_state();
-            *state_handle.lock().unwrap_or_else(|e| e.into_inner()) = PopupUiState::default();
-        }
     }
 
     #[test]
     fn popup_keyboard_acknowledgement_queues_one_host_request_after_input_dispatch() {
-        let _bridge_guard = acquire_host_control_bar_bridge_test_guard();
-        let _reset = PopupTestReset;
-        reset_popup_test_state();
-        set_host_control_bar_bridge_enabled(true);
-        const WINDOW_ID: i32 = 913_711;
-        const BUTTON_OK_ID: u32 = 913_712;
-        const HOST_POPUP_GENERATION: usize = 913_713;
+        let owner = crate::gui::window_manager::WindowManagerOwner::new();
+        owner.with_scope(|| {
+            let _bridge_guard = acquire_host_control_bar_bridge_test_guard();
+            let _reset = PopupTestReset;
+            reset_popup_test_state();
+            set_host_control_bar_bridge_enabled(true);
+            const WINDOW_ID: i32 = 913_711;
+            const BUTTON_OK_ID: u32 = 913_712;
+            const HOST_POPUP_GENERATION: usize = 913_713;
 
-        for key in [KEY_ENTER, KEY_ESC] {
-            clear_host_control_bar_requests();
-            set_popup_button_ok_id(BUTTON_OK_ID, false, Some(HOST_POPUP_GENERATION));
-            with_window_manager(|manager| {
-                manager.reset();
-                let popup = manager
-                    .create_window_with_id(None, 0, 0, 1, 1, WINDOW_ID)
-                    .expect("synthetic popup window");
-                popup
-                    .borrow_mut()
-                    .set_input_callback(in_game_popup_message_input);
-                popup
-                    .borrow_mut()
-                    .set_system_callback(in_game_popup_message_system);
-                manager
-                    .set_focus(Some(&popup))
-                    .expect("focus synthetic popup");
+            for key in [KEY_ENTER, KEY_ESC] {
+                clear_host_control_bar_requests();
+                set_popup_button_ok_id(BUTTON_OK_ID, false, Some(HOST_POPUP_GENERATION));
+                with_window_manager(|manager| {
+                    manager.reset();
+                    let popup = manager
+                        .create_window_with_id(None, 0, 0, 1, 1, WINDOW_ID)
+                        .expect("synthetic popup window");
+                    popup
+                        .borrow_mut()
+                        .set_input_callback(in_game_popup_message_input);
+                    popup
+                        .borrow_mut()
+                        .set_system_callback(in_game_popup_message_system);
+                    manager
+                        .set_focus(Some(&popup))
+                        .expect("focus synthetic popup");
 
-                assert_eq!(
-                    manager.process_key_event(key as u8, KEY_STATE_UP as u8),
-                    WindowInputReturnCode::Used
-                );
-                assert_eq!(
-                    manager.process_key_event(key as u8, KEY_STATE_UP as u8),
-                    WindowInputReturnCode::Used,
-                    "repeat key before deferred delivery must not publish a duplicate ACK"
-                );
-                assert!(
-                    take_host_control_bar_requests().is_empty(),
-                    "delivery stays deferred until the outer manager borrow drains"
-                );
-            });
-            assert!(matches!(
-                take_host_control_bar_requests().as_slice(),
-                [HostControlBarRequest::DismissInGamePopupMessage {
-                    popup_generation: HOST_POPUP_GENERATION
-                }]
-            ));
-            let state_handle = popup_ui_state();
-            *state_handle.lock().unwrap_or_else(|e| e.into_inner()) = PopupUiState::default();
-        }
+                    assert_eq!(
+                        manager.process_key_event(key as u8, KEY_STATE_UP as u8),
+                        WindowInputReturnCode::Used
+                    );
+                    assert_eq!(
+                        manager.process_key_event(key as u8, KEY_STATE_UP as u8),
+                        WindowInputReturnCode::Used,
+                        "repeat key before deferred delivery must not publish a duplicate ACK"
+                    );
+                    assert!(
+                        take_host_control_bar_requests().is_empty(),
+                        "delivery stays deferred until the outer manager borrow drains"
+                    );
+                });
+                assert!(matches!(
+                    take_host_control_bar_requests().as_slice(),
+                    [HostControlBarRequest::DismissInGamePopupMessage {
+                        popup_generation: HOST_POPUP_GENERATION
+                    }]
+                ));
+                let state_handle = popup_ui_state();
+                *state_handle.lock().unwrap_or_else(|e| e.into_inner()) = PopupUiState::default();
+            }
+        });
     }
 
     #[test]

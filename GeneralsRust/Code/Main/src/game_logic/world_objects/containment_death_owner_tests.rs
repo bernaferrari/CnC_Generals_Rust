@@ -241,7 +241,7 @@ fn slow_death_observes_removed_damaged_rider_before_retained_owner_save_and_clon
     let passenger = owner.host_object(rider).unwrap();
     assert_eq!(passenger.health.current, 50.0);
     assert_eq!(passenger.contained_by, None);
-    assert_eq!(passenger.ai_state, AIState::Moving);
+    assert_eq!(passenger.ai_state(), AIState::Moving);
     assert_eq!(peer.host_object(rider).unwrap().health.current, 100.0);
     assert_eq!(
         peer.host_object(rider).unwrap().contained_by,

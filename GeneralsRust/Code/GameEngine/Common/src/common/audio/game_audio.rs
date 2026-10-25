@@ -8,6 +8,8 @@
 //! Westwood Studios Pacific
 //! Converted to Rust
 
+mod playback;
+
 use super::audio_paths::AudioPathSettings;
 use crate::common::audio::{
     audio_cache::AudioFileCache,
@@ -596,6 +598,8 @@ struct FadingAudio {
 /// The return value from add_audio_event can be saved in case the sound needs to loop and/or be
 /// terminated at some point.
 pub struct AudioManager {
+    /// Optional receiving backend. Absence retains the legacy installed backend.
+    playback_recipient: playback::PlaybackRecipient,
     // Settings and configuration
     audio_settings: AudioSettings,
     misc_audio: MiscAudio,
@@ -655,6 +659,7 @@ pub struct AudioManager {
 impl AudioManager {
     pub fn new() -> Self {
         AudioManager {
+            playback_recipient: playback::PlaybackRecipient::default(),
             audio_settings: AudioSettings::default(),
             misc_audio: MiscAudio::default(),
             music_manager: Some(create_music_manager()),
@@ -706,6 +711,14 @@ impl AudioManager {
         }
     }
 
+    /// Bind an already-owned backend without publishing a process recipient.
+    /// Construction remains inert; init and update retain their existing roles.
+    pub fn with_playback_hook(recipient: Box<dyn SoundPlaybackHook>) -> Self {
+        let mut manager = Self::new();
+        manager.playback_recipient = playback::PlaybackRecipient::owned(recipient);
+        manager
+    }
+
     pub fn init(&mut self) {
         // Initialize volumes from settings
         self.system_music_volume = self.audio_settings.preferred_music_volume;
@@ -735,7 +748,13 @@ impl AudioManager {
         // Stop all actively playing sounds through the backend before clearing bookkeeping.
         let handles: Vec<AudioHandle> = self.active_audio_events.keys().copied().collect();
         for handle in handles {
-            let _ = with_sound_playback_hook(|hook| hook.stop(handle));
+            let _ = self.playback_recipient.with_hook(|hook| hook.stop(handle));
+        }
+        // C++ MilesAudioManager::reset/stopAllAudioImmediately also releases
+        // m_fadingAudio. These streams have already left active_audio_events.
+        for fading in &self.fading_audio {
+            let handle = fading.event.get_playing_handle();
+            let _ = self.playback_recipient.with_hook(|hook| hook.stop(handle));
         }
         let force_handles: Vec<AudioHandle> = self
             .audio_force_played
@@ -743,7 +762,7 @@ impl AudioManager {
             .map(|event| event.get_playing_handle())
             .collect();
         for handle in force_handles {
-            let _ = with_sound_playback_hook(|hook| hook.stop(handle));
+            let _ = self.playback_recipient.with_hook(|hook| hook.stop(handle));
         }
         self.audio_force_played.clear();
 
@@ -963,7 +982,7 @@ impl AudioManager {
                 .collect();
             for handle in music_handles {
                 self.active_audio_events.remove(&handle);
-                let _ = with_sound_playback_hook(|hook| hook.stop(handle));
+                let _ = self.playback_recipient.with_hook(|hook| hook.stop(handle));
             }
             return;
         }
@@ -989,7 +1008,9 @@ impl AudioManager {
             return false;
         }
 
-        with_sound_playback_hook(|hook| hook.is_playing(audio_event)).unwrap_or(false)
+        self.playback_recipient
+            .with_hook(|hook| hook.is_playing(audio_event))
+            .unwrap_or(false)
     }
 
     /// Live Drawable::update ambient restart: is this object-owned event still
@@ -1475,7 +1496,7 @@ impl AudioManager {
         if let Some(sound_mgr) = &mut self.sound_manager {
             sound_mgr.set_listener_position(new_listener_pos);
         }
-        let _ = with_sound_playback_hook(|hook| {
+        let _ = self.playback_recipient.with_hook(|hook| {
             hook.set_listener_position(new_listener_pos);
             hook.set_listener_orientation(new_listener_orientation);
         });
@@ -1625,7 +1646,7 @@ impl AudioManager {
             }
             RequestType::Pause => {
                 if let Some(handle) = request.get_handle() {
-                    let _ = with_sound_playback_hook(|hook| {
+                    let _ = self.playback_recipient.with_hook(|hook| {
                         hook.pause(handle);
                     });
                 }
@@ -1747,7 +1768,7 @@ impl AudioManager {
             event.set_request_stop(true);
             return;
         }
-        let _ = with_sound_playback_hook(|hook| hook.stop(handle));
+        let _ = self.playback_recipient.with_hook(|hook| hook.stop(handle));
     }
 
     /// C++ `MilesAudioManager::releasePlayingAudio` — hard-stop the sample and drop it.
@@ -1758,7 +1779,7 @@ impl AudioManager {
         if let Some(event) = self.active_audio_events.remove(&handle) {
             self.notify_sample_completion_if_effect(&event);
         }
-        let _ = with_sound_playback_hook(|hook| hook.stop(handle));
+        let _ = self.playback_recipient.with_hook(|hook| hook.stop(handle));
     }
 
     fn play_audio_event(
@@ -1794,7 +1815,7 @@ impl AudioManager {
             }
         }
 
-        let hook_result = with_sound_playback_hook(|hook| {
+        let hook_result = self.playback_recipient.with_hook(|hook| {
             hook.play_with_visibility(&event, playback_visibility(&event, visible))
         });
         let play_ok = match hook_result {
@@ -1869,7 +1890,7 @@ impl AudioManager {
         let handle = self.allocate_new_handle();
         event.set_playing_handle(handle);
 
-        let hook_result = with_sound_playback_hook(|hook| hook.play(&event));
+        let hook_result = self.playback_recipient.with_hook(|hook| hook.play(&event));
         let play_ok = match hook_result {
             Some(Ok(())) | None => true,
             Some(Err(msg)) => {
@@ -1952,7 +1973,7 @@ impl AudioManager {
             .map(|event| event.get_playing_handle())
             .collect();
 
-        let _ = with_sound_playback_hook(|hook| {
+        let _ = self.playback_recipient.with_hook(|hook| {
             for handle in handles {
                 hook.pause(handle);
             }
@@ -1972,12 +1993,14 @@ impl AudioManager {
             .map(|event| event.get_playing_handle())
             .collect();
 
-        if with_sound_playback_hook(|hook| {
-            for handle in handles {
-                hook.resume(handle);
-            }
-        })
-        .is_some()
+        if self
+            .playback_recipient
+            .with_hook(|hook| {
+                for handle in handles {
+                    hook.resume(handle);
+                }
+            })
+            .is_some()
         {
             return;
         }
@@ -2018,11 +2041,13 @@ impl AudioManager {
             event
                 .get_audio_event_info()
                 .is_some_and(|info| info.sound_type == AudioType::Music)
-                && with_sound_playback_hook(|hook| {
-                    let handle = event.get_playing_handle();
-                    hook.is_playing(handle) && !hook.is_sink_paused(handle)
-                })
-                .unwrap_or(true)
+                && self
+                    .playback_recipient
+                    .with_hook(|hook| {
+                        let handle = event.get_playing_handle();
+                        hook.is_playing(handle) && !hook.is_sink_paused(handle)
+                    })
+                    .unwrap_or(true)
         })
     }
 
@@ -2033,10 +2058,12 @@ impl AudioManager {
                 && event
                     .get_audio_event_info()
                     .is_some_and(|info| info.sound_type == AudioType::Music)
-                && with_sound_playback_hook(|hook| {
-                    hook.music_loop_count(event.get_playing_handle()) >= number_of_times
-                })
-                .unwrap_or(false)
+                && self
+                    .playback_recipient
+                    .with_hook(|hook| {
+                        hook.music_loop_count(event.get_playing_handle()) >= number_of_times
+                    })
+                    .unwrap_or(false)
         })
     }
 
@@ -2181,7 +2208,9 @@ impl AudioManager {
     }
 
     fn event_counts_as_playing(&self, event: &AudioEventRts) -> bool {
-        with_sound_playback_hook(|hook| hook.is_playing(event.get_playing_handle())).unwrap_or(true)
+        self.playback_recipient
+            .with_hook(|hook| hook.is_playing(event.get_playing_handle()))
+            .unwrap_or(true)
     }
 
     /// C++ `MilesAudioManager::isPlayingLowerPriority` (1993-2024).
@@ -2200,12 +2229,13 @@ impl AudioManager {
             Self::sample_event_priority(playing) < event_priority
         };
 
-        with_sound_playback_hook(|hook| {
-            self.active_audio_events.values().any(|playing| {
-                hook.is_playing(playing.get_playing_handle()) && playing_is_lower(playing)
+        self.playback_recipient
+            .with_hook(|hook| {
+                self.active_audio_events.values().any(|playing| {
+                    hook.is_playing(playing.get_playing_handle()) && playing_is_lower(playing)
+                })
             })
-        })
-        .unwrap_or_else(|| self.active_audio_events.values().any(playing_is_lower))
+            .unwrap_or_else(|| self.active_audio_events.values().any(playing_is_lower))
     }
 
     fn sample_event_priority(event: &AudioEventRts) -> AudioPriority {
@@ -2284,16 +2314,18 @@ impl AudioManager {
             playing.get_event_name() == event_name && playing.is_positional_audio() == positional
         };
 
-        with_sound_playback_hook(|hook| {
-            self.active_audio_events.values().any(|playing| {
-                same_name_same_partition(playing) && hook.is_playing(playing.get_playing_handle())
+        self.playback_recipient
+            .with_hook(|hook| {
+                self.active_audio_events.values().any(|playing| {
+                    same_name_same_partition(playing)
+                        && hook.is_playing(playing.get_playing_handle())
+                })
             })
-        })
-        .unwrap_or_else(|| {
-            self.active_audio_events
-                .values()
-                .any(same_name_same_partition)
-        })
+            .unwrap_or_else(|| {
+                self.active_audio_events
+                    .values()
+                    .any(same_name_same_partition)
+            })
     }
 
     /// Check if a specific object is currently playing a voice sound.
@@ -2301,35 +2333,36 @@ impl AudioManager {
     pub fn is_object_playing_voice(&self, object_id: ObjectId) -> Bool {
         const ST_VOICE: u32 = 0x00000010;
 
-        with_sound_playback_hook(|hook| {
-            self.active_audio_events
-                .values()
-                .filter_map(|e| {
+        self.playback_recipient
+            .with_hook(|hook| {
+                self.active_audio_events
+                    .values()
+                    .filter_map(|e| {
+                        let is_voice = e
+                            .get_audio_event_info()
+                            .map(|info| (info.type_field & ST_VOICE) != 0)
+                            .unwrap_or(false);
+                        if is_voice
+                            && e.get_object_id() == object_id
+                            && hook.is_playing(e.get_playing_handle())
+                        {
+                            Some(())
+                        } else {
+                            None
+                        }
+                    })
+                    .next()
+                    .is_some()
+            })
+            .unwrap_or_else(|| {
+                self.active_audio_events.values().any(|e| {
                     let is_voice = e
                         .get_audio_event_info()
                         .map(|info| (info.type_field & ST_VOICE) != 0)
                         .unwrap_or(false);
-                    if is_voice
-                        && e.get_object_id() == object_id
-                        && hook.is_playing(e.get_playing_handle())
-                    {
-                        Some(())
-                    } else {
-                        None
-                    }
+                    is_voice && e.get_object_id() == object_id
                 })
-                .next()
-                .is_some()
-        })
-        .unwrap_or_else(|| {
-            self.active_audio_events.values().any(|e| {
-                let is_voice = e
-                    .get_audio_event_info()
-                    .map(|info| (info.type_field & ST_VOICE) != 0)
-                    .unwrap_or(false);
-                is_voice && e.get_object_id() == object_id
             })
-        })
     }
 
     /// Remove all audio requests from the queue
@@ -2355,7 +2388,7 @@ impl AudioManager {
                 event.set_volume(new_volume);
                 let desired_volume = event.get_volume() * event.get_volume_shift();
                 let handle = event.get_playing_handle();
-                let _ = with_sound_playback_hook(|hook| {
+                let _ = self.playback_recipient.with_hook(|hook| {
                     hook.set_sink_volume(handle, desired_volume);
                 });
             }
@@ -2413,12 +2446,13 @@ impl AudioManager {
                 AudioType::SoundEffect => false,
             }
         };
-        with_sound_playback_hook(|hook| {
-            self.active_audio_events
-                .values()
-                .any(|event| is_sensitive(event) && hook.is_playing(event.get_playing_handle()))
-        })
-        .unwrap_or_else(|| self.active_audio_events.values().any(is_sensitive))
+        self.playback_recipient
+            .with_hook(|hook| {
+                self.active_audio_events
+                    .values()
+                    .any(|event| is_sensitive(event) && hook.is_playing(event.get_playing_handle()))
+            })
+            .unwrap_or_else(|| self.active_audio_events.values().any(is_sensitive))
     }
 
     fn begin_music_fade(&mut self) {
@@ -2454,13 +2488,13 @@ impl AudioManager {
         let fading = std::mem::take(&mut self.fading_audio);
         for fade in fading {
             let handle = fade.event.get_playing_handle();
-            let _ = with_sound_playback_hook(|hook| hook.stop(handle));
+            let _ = self.playback_recipient.with_hook(|hook| hook.stop(handle));
         }
     }
 
     fn adjust_playing_volume(&self, event: &AudioEventRts) {
         let volume = self.get_effective_volume(event);
-        let _ = with_sound_playback_hook(|hook| {
+        let _ = self.playback_recipient.with_hook(|hook| {
             hook.set_sink_volume(event.get_playing_handle(), volume);
         });
     }
@@ -2510,14 +2544,22 @@ impl AudioManager {
                         to_stop.push(handle);
                         continue;
                     }
-                    let _ = with_sound_playback_hook(|hook| hook.set_event_volume(&event));
+                    let _ = self
+                        .playback_recipient
+                        .with_hook(|hook| hook.set_event_volume(&event));
                 }
             }
 
-            if !with_sound_playback_hook(|hook| hook.is_playing(handle)).unwrap_or(true) {
+            if !self
+                .playback_recipient
+                .with_hook(|hook| hook.is_playing(handle))
+                .unwrap_or(true)
+            {
                 if self.notify_of_audio_completion_with_visibility(&mut event, visible) {
-                    let still_playing =
-                        with_sound_playback_hook(|hook| hook.is_playing(handle)).unwrap_or(false);
+                    let still_playing = self
+                        .playback_recipient
+                        .with_hook(|hook| hook.is_playing(handle))
+                        .unwrap_or(false);
                     if still_playing {
                         self.active_audio_events.insert(handle, event);
                         continue;
@@ -2534,7 +2576,7 @@ impl AudioManager {
         }
 
         for handle in to_stop {
-            let _ = with_sound_playback_hook(|hook| hook.stop(handle));
+            let _ = self.playback_recipient.with_hook(|hook| hook.stop(handle));
         }
 
         if self.volume_has_changed {
@@ -2549,7 +2591,7 @@ impl AudioManager {
         while i < self.fading_audio.len() {
             if self.fading_audio[i].frames_faded >= fade_frames {
                 let handle = self.fading_audio[i].event.get_playing_handle();
-                let _ = with_sound_playback_hook(|hook| hook.stop(handle));
+                let _ = self.playback_recipient.with_hook(|hook| hook.stop(handle));
                 self.fading_audio.remove(i);
                 continue;
             }
@@ -2559,7 +2601,9 @@ impl AudioManager {
             let mut volume = self.get_effective_volume(&self.fading_audio[i].event);
             volume *= 1.0 - (frames_faded as Real / fade_frames as Real);
             let handle = self.fading_audio[i].event.get_playing_handle();
-            let _ = with_sound_playback_hook(|hook| hook.set_sink_volume(handle, volume));
+            let _ = self
+                .playback_recipient
+                .with_hook(|hook| hook.set_sink_volume(handle, volume));
             i += 1;
         }
     }
@@ -2622,9 +2666,10 @@ impl AudioManager {
         event: &AudioEventRts,
         visible: &mut dyn FnMut(&Coord3D) -> bool,
     ) -> bool {
-        match with_sound_playback_hook(|hook| {
-            hook.play_with_visibility(event, playback_visibility(event, visible))
-        }) {
+        match self
+            .playback_recipient
+            .with_hook(|hook| hook.play_with_visibility(event, playback_visibility(event, visible)))
+        {
             Some(Ok(())) => true,
             Some(Err(_)) => false,
             None => true,
@@ -2743,7 +2788,7 @@ impl AudioManager {
     }
 
     fn purge_inactive_events(&mut self) {
-        let _ = with_sound_playback_hook(|hook| {
+        let _ = self.playback_recipient.with_hook(|hook| {
             self.active_audio_events
                 .retain(|handle, _| hook.is_playing(*handle));
         });

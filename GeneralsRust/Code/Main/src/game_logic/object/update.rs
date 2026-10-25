@@ -19,11 +19,11 @@ impl Object {
 
     /// Explicit temporary exit movement suspending this object's Guard machine.
     pub(crate) fn has_guard_quick_exit_overlay(&self) -> bool {
-        self.ai_state == AIState::Moving
+        self.ai_state() == AIState::Moving
             && self.unit_ai_runtime.guard_phase().is_some()
             && self.unit_ai_runtime.quick_exit_deadline().is_some()
             && self.can_path_through_units
-            && !self.adjust_destinations
+            && !self.adjust_destinations()
     }
 
     /// Native Panic and Guard Return update before the locomotor pass.
@@ -32,12 +32,12 @@ impl Object {
     /// `AIInternalMoveToState::update` returns before `doLocomotor`.
     pub(crate) fn needs_internal_move_arrival_observation(&self) -> bool {
         self.has_guard_quick_exit_overlay()
-            || self.ai_state == AIState::Panic
+            || self.ai_state() == AIState::Panic
             || matches!(
                 self.unit_ai_runtime.guard_phase(),
                 Some(crate::game_logic::object::unit_ai_runtime::GuardPhase::Return { .. })
             ) && matches!(
-                self.ai_state,
+                self.ai_state(),
                 AIState::GuardingArea | AIState::GuardingObject
             )
     }
@@ -59,7 +59,7 @@ impl Object {
     pub fn tick_timers(&mut self, dt: f32, audio: &mut crate::game_logic::ObjectAudio<'_>) -> bool {
         if self.cheer_timer > 0.0 {
             self.cheer_timer -= dt;
-            if self.cheer_timer <= 0.0 && self.ai_state == AIState::SpecialAbility {
+            if self.cheer_timer <= 0.0 && self.ai_state() == AIState::SpecialAbility {
                 self.set_ai_state(AIState::Idle, audio);
                 self.cheer_timer = 0.0;
             }
@@ -374,7 +374,7 @@ impl Object {
         if self.is_kind_of(KindOf::Immobile) {
             return;
         }
-        if matches!(self.ai_state, AIState::Docked | AIState::Garrisoned) {
+        if matches!(self.ai_state(), AIState::Docked | AIState::Garrisoned) {
             self.movement.target_position = None;
             self.movement.velocity = Vec3::ZERO;
             return;
@@ -393,7 +393,7 @@ impl Object {
             return;
         }
 
-        if matches!(self.ai_state, AIState::AttackMoving) && self.target.is_some() {
+        if matches!(self.ai_state(), AIState::AttackMoving) && self.target.is_some() {
             let dest_walk = self.requested_destination.map(|dest| {
                 let near = |p: Vec3| {
                     let dx = p.x - dest.x;
@@ -445,20 +445,21 @@ impl Object {
                     };
                 if let Some(waypoint) = next_waypoint {
                     self.movement.target_position = Some(waypoint);
-                    self.adjust_destinations =
+                    self.set_adjust_destinations(
                         if self.movement.current_path_index + 1 < self.movement.path.len() {
                             false
                         } else {
                             crate::game_logic::PathfindingGrid::is_doing_ground_movement_full(self)
-                        };
+                        },
+                    );
                     self.refresh_follow_path_extra_distance();
-                } else if matches!(self.ai_state, AIState::AttackMoving) {
+                } else if matches!(self.ai_state(), AIState::AttackMoving) {
                     self.movement.path.clear();
                     self.movement.current_path_index = 0;
                     self.movement.target_position = None;
                     self.set_status_moving(false);
                 } else {
-                    if !matches!(self.ai_state, AIState::Panic) {
+                    if !matches!(self.ai_state(), AIState::Panic) {
                         self.note_waypoint_path_arrival();
                         self.ignored_obstacle_id = None;
                         self.queue_for_path_frames = 0;
@@ -651,16 +652,17 @@ impl Object {
                     };
                 if let Some(waypoint) = next_waypoint {
                     self.movement.target_position = Some(waypoint);
-                    self.adjust_destinations =
+                    self.set_adjust_destinations(
                         if self.movement.current_path_index + 1 < self.movement.path.len() {
                             false
                         } else {
                             crate::game_logic::PathfindingGrid::is_doing_ground_movement_full(self)
-                        };
+                        },
+                    );
                     self.is_braking = false;
                     self.refresh_follow_path_extra_distance();
                 } else {
-                    if !matches!(self.ai_state, AIState::Panic) {
+                    if !matches!(self.ai_state(), AIState::Panic) {
                         self.note_waypoint_path_arrival();
                         self.ignored_obstacle_id = None;
                         self.queue_for_path_frames = 0;

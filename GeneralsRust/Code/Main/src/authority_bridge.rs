@@ -4,9 +4,7 @@
 //! Wave 956: host_object/host_objects authority dual-read seal.
 //! Wave 958: host_object dual-read seal (tests + residual).
 use crate::command_system::{CommandType, GameCommand, ModifierKeys};
-use crate::game_logic::{
-    AIState, GameLogic, KindOf, ObjectId, Team, ThingTemplate, VictoryCondition,
-};
+use crate::game_logic::{AIState, GameLogic, KindOf, ObjectId, Team, ThingTemplate, VictoryCondition};
 use crate::presentation_frame::PresentationFrame;
 use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
 use crate::ui::{GameHUD, GameUIState};
@@ -138,7 +136,9 @@ pub fn run_host_only_combat_victory() -> gamelogic::GameLogicResult<(bool, Strin
     let moved = logic
         .host_object(ranger)
         .map(|o| {
-            o.ai_state == AIState::Moving || o.movement.target_position.is_some() || o.status.moving
+            o.ai_state() == AIState::Moving
+                || o.movement.target_position.is_some()
+                || o.status.moving
         })
         .unwrap_or(false);
 

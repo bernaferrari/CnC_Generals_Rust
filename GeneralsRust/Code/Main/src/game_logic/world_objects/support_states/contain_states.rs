@@ -219,7 +219,7 @@ impl GameLogic {
         let now = self.frame;
         if let Some(unit) = self.objects.get_mut(&rider_id) {
             // AIUpdate.cpp:4428–4438: active passengers keep both fields.
-            if unit.ai_state == AIState::Idle {
+            if unit.ai_state() == AIState::Idle {
                 unit.next_mood_check_time = now;
                 unit.randomly_offset_mood_check = true;
             }

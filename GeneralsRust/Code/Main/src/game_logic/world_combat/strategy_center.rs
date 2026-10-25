@@ -284,7 +284,7 @@ impl GameLogic {
                 &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
             );
             let entered_attack = !matches!(
-                attacker.ai_state,
+                attacker.ai_state(),
                 AIState::Patrolling | AIState::AttackMoving | AIState::Attacking
             );
             if entered_attack {
@@ -669,7 +669,7 @@ impl GameLogic {
                 &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
             );
             let entered_attack = !matches!(
-                attacker.ai_state,
+                attacker.ai_state(),
                 AIState::Patrolling | AIState::AttackMoving | AIState::Attacking
             );
             if entered_attack {
@@ -1145,7 +1145,7 @@ impl GameLogic {
                     &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
                 );
                 let entered_attack = !matches!(
-                    asst.ai_state,
+                    asst.ai_state(),
                     AIState::Patrolling | AIState::AttackMoving | AIState::Attacking
                 );
                 if entered_attack {

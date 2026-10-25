@@ -549,7 +549,7 @@ impl<'a> CommandExecutor<'a> {
                 continue;
             };
             saw = true;
-            if o.is_alive() && !matches!(o.ai_state, AIState::Idle) {
+            if o.is_alive() && !matches!(o.ai_state(), AIState::Idle) {
                 return false;
             }
         }
@@ -568,7 +568,7 @@ impl<'a> CommandExecutor<'a> {
             }
             saw = true;
             // Host residual: busy = not idle (C++ AIUpdateInterface::isBusy is narrower).
-            if matches!(o.ai_state, AIState::Idle) {
+            if matches!(o.ai_state(), AIState::Idle) {
                 return false;
             }
         }

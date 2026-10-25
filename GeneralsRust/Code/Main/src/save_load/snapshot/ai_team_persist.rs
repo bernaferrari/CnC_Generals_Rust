@@ -1582,7 +1582,7 @@ mod tests {
         assert_eq!(loaded.pending_waypoint_labels, vec!["HeroPath".to_string()]);
         assert!(loaded.is_exact_path);
         assert!(loaded.is_attack_path);
-        assert_eq!(loaded.ai_state, AIState::AttackMoving);
+        assert_eq!(loaded.ai_state(), AIState::AttackMoving);
     }
 
     #[test]

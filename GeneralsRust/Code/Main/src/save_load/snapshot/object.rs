@@ -359,6 +359,8 @@ pub enum ModuleSnapshot {
     Physics(PhysicsModuleSnapshot),
     Contain(ContainModuleSnapshot),
     Upgrade(UpgradeModuleSnapshot),
+    DozerTasks(DozerTaskObjectSnapshot),
+    BaseAi(super::base_ai_machine_persist::BaseAiObjectSnapshot),
 }
 
 /// AI update module snapshot
@@ -841,10 +843,6 @@ impl XferData for ObjectBuilderTaskSnapshot {
         self.object_id.xfer(xfer)?;
         xfer.xfer_marker_label("BuilderId")?;
         xfer_option(xfer, &mut self.builder_id, ObjectId(0))?;
-        xfer.xfer_marker_label("DozerTaskBuildTarget")?;
-        xfer_option(xfer, &mut self.dozer_task_build_target, ObjectId(0))?;
-        xfer.xfer_marker_label("DozerTaskBuildOrderFrame")?;
-        xfer.xfer_u32(&mut self.dozer_task_build_order_frame)?;
         Ok(())
     }
 }
@@ -1232,6 +1230,11 @@ impl XferData for AIState {
             AIState::FacingPosition => 22,
             AIState::Panic => 23,
             AIState::Exiting => 24,
+            AIState::Uninitialized => 25,
+            AIState::Hunting => 26,
+            AIState::JetReturningForLanding => 27,
+            AIState::JetReturnToDeadAirfield => 28,
+            AIState::JetCirclingDeadAirfield => 29,
         };
         xfer.xfer_u32(&mut value)?;
         *self = match value {
@@ -1260,6 +1263,11 @@ impl XferData for AIState {
             22 => AIState::FacingPosition,
             23 => AIState::Panic,
             24 => AIState::Exiting,
+            25 => AIState::Uninitialized,
+            26 => AIState::Hunting,
+            27 => AIState::JetReturningForLanding,
+            28 => AIState::JetReturnToDeadAirfield,
+            29 => AIState::JetCirclingDeadAirfield,
             other => {
                 return Err(SaveLoadError::Corrupted(format!(
                     "Invalid AIState value in object snapshot: {}",
@@ -1547,6 +1555,8 @@ impl XferData for ModuleSnapshot {
             ModuleSnapshot::Physics(_) => 5,
             ModuleSnapshot::Contain(_) => 6,
             ModuleSnapshot::Upgrade(_) => 7,
+            ModuleSnapshot::DozerTasks(_) => 10,
+            ModuleSnapshot::BaseAi(_) => 14,
         };
         xfer.xfer_u32(&mut disc)?;
         if xfer.get_mode() == XferMode::Save {
@@ -1559,6 +1569,8 @@ impl XferData for ModuleSnapshot {
                 ModuleSnapshot::Physics(d) => d.xfer(xfer)?,
                 ModuleSnapshot::Contain(d) => d.xfer(xfer)?,
                 ModuleSnapshot::Upgrade(d) => d.xfer(xfer)?,
+                ModuleSnapshot::DozerTasks(d) => d.xfer(xfer)?,
+                ModuleSnapshot::BaseAi(d) => d.xfer(xfer)?,
             }
         } else {
             *self = match disc {
@@ -1642,6 +1654,16 @@ impl XferData for ModuleSnapshot {
                     };
                     d.xfer(xfer)?;
                     ModuleSnapshot::Upgrade(d)
+                }
+                10 => {
+                    let mut d = DozerTaskObjectSnapshot::default();
+                    d.xfer(xfer)?;
+                    ModuleSnapshot::DozerTasks(d)
+                }
+                14 => {
+                    let mut d = super::base_ai_machine_persist::BaseAiObjectSnapshot::default();
+                    d.xfer(xfer)?;
+                    ModuleSnapshot::BaseAi(d)
                 }
                 _ => {
                     return Err(SaveLoadError::Corrupted(format!(

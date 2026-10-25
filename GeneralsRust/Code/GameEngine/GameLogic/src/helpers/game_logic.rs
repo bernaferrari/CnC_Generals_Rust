@@ -295,24 +295,6 @@ impl TheGameLogic {
             .unwrap_or(crate::system::game_logic::GAME_NONE)
     }
 
-    pub fn begin_load_screen(game_mode: Int, loading_save_game: Bool) -> Bool {
-        with_load_screen_hooks(|hooks| hooks.begin_load_screen(game_mode, loading_save_game))
-    }
-
-    pub fn update_load_progress(progress: Int) -> Bool {
-        with_load_screen_hooks(|hooks| hooks.update_load_screen(progress))
-    }
-
-    pub fn run_load_screen_completion_transition(loading_save_game: Bool) -> Bool {
-        with_load_screen_hooks(|hooks| {
-            hooks.run_load_screen_completion_transition(loading_save_game)
-        })
-    }
-
-    pub fn end_load_screen() -> Bool {
-        with_load_screen_hooks(|hooks| hooks.end_load_screen())
-    }
-
     /// Prepare for a new game (matches C++ GameLogic::prepareNewGame).
     pub fn prepare_new_game(game_mode: Int, difficulty: Int, rank_points: Int) {
         TheScriptEngine::set_global_difficulty(difficulty);
@@ -340,6 +322,14 @@ impl TheGameLogic {
 
     /// Start a prepared game (C++ parity: GameLogic::startNewGame(FALSE)).
     pub fn start_new_game(is_load_game: Bool) -> Result<(), String> {
+        Self::start_new_game_with_load_screen_hooks(is_load_game, None)
+    }
+
+    /// Start a game while borrowing the receiving UI callback for this synchronous load.
+    pub fn start_new_game_with_load_screen_hooks(
+        is_load_game: Bool,
+        mut hooks: Option<&mut dyn LoadScreenHooks>,
+    ) -> Result<(), String> {
         if !is_load_game {
             Self::request_start_new_game();
             return Ok(());
@@ -385,18 +375,33 @@ impl TheGameLogic {
         if let Ok(mut logic) = crate::system::game_logic::get_game_logic().lock() {
             logic.set_loading_map(true);
         }
-        Self::begin_load_screen(Self::get_game_mode(), is_load_game);
-        Self::update_load_progress(crate::system::game_initialization::LOAD_PROGRESS_START);
+        if let Some(hooks) = hooks
+            .as_mut()
+            .map(|hook| &mut **hook as &mut dyn crate::helpers::LoadScreenHooks)
+        {
+            hooks.begin_load_screen(Self::get_game_mode(), is_load_game);
+            hooks.update_load_screen(crate::system::game_initialization::LOAD_PROGRESS_START);
+        }
 
-        let init_result =
-            crate::system::game_initialization::GameInitializer::initialize_game(params)
+        let init_result = crate::system::game_initialization::GameInitializer::
+            initialize_game_with_load_screen_hooks(params, hooks.as_mut().map(|hook| &mut **hook as &mut dyn crate::helpers::LoadScreenHooks))
                 .map(|_| ())
                 .map_err(|err| format!("Game initialization failed: {}", err));
         if init_result.is_ok() {
-            Self::update_load_progress(crate::system::game_initialization::LOAD_PROGRESS_END);
-            Self::run_load_screen_completion_transition(is_load_game);
+            if let Some(hooks) = hooks
+                .as_mut()
+                .map(|hook| &mut **hook as &mut dyn crate::helpers::LoadScreenHooks)
+            {
+                hooks.update_load_screen(crate::system::game_initialization::LOAD_PROGRESS_END);
+                hooks.run_load_screen_completion_transition(is_load_game);
+            }
         }
-        Self::end_load_screen();
+        if let Some(hooks) = hooks
+            .as_mut()
+            .map(|hook| &mut **hook as &mut dyn crate::helpers::LoadScreenHooks)
+        {
+            hooks.end_load_screen();
+        }
 
         if let Ok(mut logic) = crate::system::game_logic::get_game_logic().lock() {
             logic.set_loading_map(false);

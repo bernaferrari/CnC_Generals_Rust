@@ -100,7 +100,7 @@ fn bomb_truck_disguise_residual_applies_and_hides_from_disguise_team() {
     {
         let truck = game_logic.host_object(truck_id).expect("truck after cmd");
         assert_eq!(
-            truck.ai_state,
+            truck.ai_state(),
             AIState::SpecialAbility,
             "DisguiseAsVehicle command residual must arm SpecialAbility"
         );
@@ -108,7 +108,9 @@ fn bomb_truck_disguise_residual_applies_and_hides_from_disguise_team() {
     }
 
     // Instant residual (StartAbilityRange = 1e6) — one AI update arms transition.
-    game_logic.update_ai(&[truck_id, usa_tank_id], 1.0 / 30.0);
+    game_logic
+        .update_ai(&[truck_id, usa_tank_id], 1.0 / 30.0)
+        .expect("receiving AI operation succeeds");
     // C++ changeVisualDisguise at DisguiseTransitionTime halfpoint.
     advance_disguise_halfpoint(&mut game_logic, &[truck_id, usa_tank_id]);
 
@@ -186,7 +188,9 @@ fn bomb_truck_disguise_residual_reveals_near_attack_target() {
             target_id: usa_tank_id,
         },
     );
-    game_logic.update_ai(&[truck_id, usa_tank_id, victim_id], 1.0 / 30.0);
+    game_logic
+        .update_ai(&[truck_id, usa_tank_id, victim_id], 1.0 / 30.0)
+        .expect("receiving AI operation succeeds");
     advance_disguise_halfpoint(&mut game_logic, &[truck_id, usa_tank_id, victim_id]);
     assert!(
         game_logic
@@ -212,7 +216,9 @@ fn bomb_truck_disguise_residual_reveals_near_attack_target() {
     // Finish remaining reveal frames for STEALTHED clear residual.
     use crate::game_logic::host_bomb_truck_disguise::BOMB_TRUCK_DISGUISE_REVEAL_TRANSITION_FRAMES;
     for _ in 0..(BOMB_TRUCK_DISGUISE_REVEAL_TRANSITION_FRAMES / 2 + 2) {
-        game_logic.update_ai(&[truck_id, usa_tank_id, victim_id], 1.0 / 30.0);
+        game_logic
+            .update_ai(&[truck_id, usa_tank_id, victim_id], 1.0 / 30.0)
+            .expect("receiving AI operation succeeds");
     }
 
     let truck = game_logic
@@ -260,7 +266,9 @@ fn bomb_truck_disguise_holds_without_victim() {
             target_id: usa_tank_id,
         },
     );
-    game_logic.update_ai(&[truck_id, usa_tank_id], 1.0 / 30.0);
+    game_logic
+        .update_ai(&[truck_id, usa_tank_id], 1.0 / 30.0)
+        .expect("receiving AI operation succeeds");
     advance_disguise_halfpoint(&mut game_logic, &[truck_id, usa_tank_id]);
     assert!(
         game_logic
@@ -332,7 +340,9 @@ fn bomb_truck_disguise_residual_rejects_non_bomb_truck_caster() {
         modifier_keys: crate::command_system::ModifierKeys::default(),
     });
     game_logic.process_commands();
-    game_logic.update_ai(&[tank_id, target_id], 1.0 / 30.0);
+    game_logic
+        .update_ai(&[tank_id, target_id], 1.0 / 30.0)
+        .expect("receiving AI operation succeeds");
 
     let tank = game_logic.host_object(tank_id).expect("tank");
     assert!(!tank.status.disguised);
@@ -891,9 +901,7 @@ fn camouflage_upgrade_queue_complete_stealths_rebel() {
 /// C++ GLAInfantryRebel StealthUpdate StealthDelay=2500 / Forbidden=ATTACKING USING_ABILITY.
 #[test]
 fn camouflage_residual_attack_breaks_and_idle_recloaks() {
-    use crate::game_logic::host_upgrades::{
-        CAMOUFLAGE_STEALTH_DELAY_FRAMES, UPGRADE_GLA_CAMOUFLAGE,
-    };
+    use crate::game_logic::host_upgrades::{CAMOUFLAGE_STEALTH_DELAY_FRAMES, UPGRADE_GLA_CAMOUFLAGE};
 
     let mut game_logic = GameLogic::new();
     let mut player = Player::new(0, Team::GLA, "GLA", true);
@@ -2701,9 +2709,7 @@ fn inferno_black_napalm_upgraded_fire_field_residual() {
     use crate::game_logic::host_inferno_cannon::{
         INFERNO_FIRE_DAMAGE_PER_TICK, INFERNO_FIRE_DAMAGE_PER_TICK_UPGRADED,
     };
-    use crate::game_logic::weapon_bootstrap::{
-        INFERNO_CANNON_PRIMARY_WEAPON, ensure_host_weapon_store,
-    };
+    use crate::game_logic::weapon_bootstrap::{INFERNO_CANNON_PRIMARY_WEAPON, ensure_host_weapon_store};
 
     ensure_host_weapon_store();
 
@@ -3844,13 +3850,17 @@ fn tank_hunter_residual_rpg_horde_and_tnt() {
         th0,
         PendingSpecialAbility::PlantTimedDemoCharge { target_id: bldg },
     );
-    game_logic.update_ai(&[th0, bldg], 1.0 / 60.0);
+    game_logic
+        .update_ai(&[th0, bldg], 1.0 / 60.0)
+        .expect("receiving AI operation succeeds");
     // C++ SpecialAbilityUpdate prep completes over multiple logic frames:
     // the first tick only arms the leftover channel (Facing -> Unpacking ->
     // Preparing, special_abilities.rs tick_leftover_special_ability), so keep
     // ticking until the plant lands (Burton plant fixtures do the same).
     for _ in 0..12 {
-        game_logic.update_ai(&[th0, bldg], 1.0 / 30.0);
+        game_logic
+            .update_ai(&[th0, bldg], 1.0 / 30.0)
+            .expect("receiving AI operation succeeds");
         if game_logic.honesty_tank_hunter_tnt_ok() {
             break;
         }

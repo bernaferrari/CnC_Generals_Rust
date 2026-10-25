@@ -79,6 +79,7 @@ use crate::gui::load_screen::{
 use crate::gui::{
     UIRenderer, WindowStatus, get_shell, get_skirmish_setup, set_ui_renderer, with_window_manager,
 };
+use crate::gui::window_manager::WindowManagerOwner;
 use crate::helpers::{register_in_game_ui_backend, register_mouse_backend};
 use crate::input::*;
 use crate::message_stream::command_list::get_command_list;
@@ -93,9 +94,7 @@ use crate::message_stream::{GameMessage, GameMessageDisposition, GameMessageTran
 use crate::network::{NetworkBridgeHandle, is_network_command_message};
 use crate::platform::PlatformContext;
 use crate::system::beacon_display;
-use crate::system::{
-    BeaconNotification, Coord3D, GameMessageResult, SubsystemInterface, TimeOfDay,
-};
+use crate::system::{BeaconNotification, Coord3D, GameMessageResult, SubsystemInterface, TimeOfDay};
 use crate::video_player::{
     VideoPlayerInterface as GlobalVideoPlayerInterface, get_video_player, init_video_player,
     shutdown_video_player,
@@ -118,9 +117,7 @@ use game_engine::common::system::{
 use game_engine::common::thing::{ThingTemplate, get_thing_factory};
 use game_engine::common::user_preferences::UserPreferences;
 
-use game_engine::{
-    Xfer as RuntimeXfer, XferMode as RuntimeXferMode, XferStatus as RuntimeXferStatus,
-};
+use game_engine::{Xfer as RuntimeXfer, XferMode as RuntimeXferMode, XferStatus as RuntimeXferStatus};
 
 // GameLogic integration for object iteration
 // Note: gamelogic is the crate name (from Cargo.toml)
@@ -222,7 +219,7 @@ mod borrowed_snapshot_tests;
 mod native_draw_lifecycle_observer_tests;
 
 #[cfg(test)]
-mod global_boundary_fixture;
+pub(crate) mod global_boundary_fixture;
 
 #[cfg(test)]
 mod native_draw_icon_policy_tests;

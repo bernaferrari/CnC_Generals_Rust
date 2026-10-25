@@ -8,8 +8,9 @@
 //! was reinstalled — so a mid-drop Chinook lost ropes/stagger and the next
 //! combat-drop started from Flying.
 //!
-//! Append a tagged suffix after the historical v9 contain/producer payload so
-//! older decoders ignore the extra bytes. No WorldSnapshot version bump.
+//! Append a tagged CHNK v2 suffix after the historical lifecycle payload.
+//! The outer Rust capability 32 gates the changed idle continuation schema;
+//! active v1 suffixes are rejected rather than inferred or converted.
 
 use crate::game_logic::host_combat_chinook::HostChinookAI;
 use crate::game_logic::{GameLogic, ObjectId};
@@ -17,7 +18,7 @@ use crate::save_load::{SaveLoadError, SaveLoadResult};
 use serde::{Deserialize, Serialize};
 
 const CHNK_MAGIC: &[u8; 4] = b"CHNK";
-const CHNK_VERSION: u32 = 1;
+const CHNK_VERSION: u32 = 2;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 struct ChinookAiPersistPayload {
@@ -211,5 +212,66 @@ mod tests {
     fn absent_suffix_is_ignored() {
         assert!(find_chnk_suffix(b"no-magic-here").is_none());
         apply_from_lifecycle_tail(b"no-magic-here", &mut GameLogic::new()).expect("apply");
+    }
+}
+
+#[cfg(test)]
+mod derived_ai_idle_native_tests {
+    use super::*;
+    #[test]
+    fn native_v2_round_trips_pending_ai_idle_and_rejects_v1_without_mutation() {
+        use crate::game_logic::{Player, Team, ThingTemplate};
+        let mut source = GameLogic::new();
+        source.add_player(Player::new(1, Team::USA, "Owner", true));
+        source
+            .templates
+            .insert("IdleNative".into(), ThingTemplate::new("IdleNative"));
+        let id = source
+            .create_object_for_player("IdleNative", 1, glam::Vec3::ZERO)
+            .expect("object");
+        let object = source.host_object_mut(id).unwrap();
+        object.install_chinook_transport();
+        object.chinook_ai.as_mut().unwrap().pending_ai_idle = true;
+        let mut bytes = Vec::new();
+        append_to_lifecycle_tail(&mut bytes, &source);
+        let mut restored = GameLogic::new();
+        restored.add_player(Player::new(1, Team::USA, "Owner", true));
+        restored
+            .templates
+            .insert("IdleNative".into(), ThingTemplate::new("IdleNative"));
+        let restored_id = restored
+            .create_object_for_player("IdleNative", 1, glam::Vec3::ZERO)
+            .expect("object");
+        assert_eq!(id, restored_id);
+        restored.host_object_mut(id).unwrap().chinook_ai = None;
+        apply_from_lifecycle_tail(&bytes, &mut restored).unwrap();
+        assert!(
+            restored
+                .host_object(id)
+                .unwrap()
+                .chinook_ai
+                .as_ref()
+                .unwrap()
+                .pending_ai_idle
+        );
+        let prior = restored
+            .host_object(id)
+            .unwrap()
+            .chinook_ai
+            .as_ref()
+            .unwrap()
+            .pending_ai_idle;
+        bytes[4..8].copy_from_slice(&1u32.to_le_bytes());
+        assert!(apply_from_lifecycle_tail(&bytes, &mut restored).is_err());
+        assert_eq!(
+            restored
+                .host_object(id)
+                .unwrap()
+                .chinook_ai
+                .as_ref()
+                .unwrap()
+                .pending_ai_idle,
+            prior
+        );
     }
 }

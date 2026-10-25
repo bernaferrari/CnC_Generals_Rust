@@ -44,7 +44,7 @@ fn enter_guard_does_not_shoot_enemies() {
     let hid = ObjectId(4710);
     let mut h = guard_test_object(ht, hid, Team::GLA);
     h.set_position(glam::Vec3::ZERO);
-    h.guard_position = Some(glam::Vec3::ZERO);
+    h.set_guard_position_data(Some(glam::Vec3::ZERO));
     h.vision_range = 150.0;
     h.weapon = Some(Weapon {
         range: 80.0,
@@ -71,7 +71,7 @@ fn enter_guard_does_not_shoot_enemies() {
         "EnterGuard must not shoot; got target {:?}",
         h.target
     );
-    assert_eq!(h.ai_state, AIState::GuardingArea);
+    assert_eq!(h.ai_state(), AIState::GuardingArea);
 }
 
 #[test]
@@ -88,7 +88,7 @@ fn hijack_guard_boards_enemy_vehicle() {
     let hid = ObjectId(4720);
     let mut h = guard_test_object(ht, hid, Team::GLA);
     h.set_position(glam::Vec3::ZERO);
-    h.guard_position = Some(glam::Vec3::ZERO);
+    h.set_guard_position_data(Some(glam::Vec3::ZERO));
     h.vision_range = 150.0;
     h.weapon = Some(Weapon {
         range: 20.0,
@@ -112,7 +112,7 @@ fn hijack_guard_boards_enemy_vehicle() {
     logic.update_support_states(&[hid, vid], 1.0 / 30.0);
     let h = &logic.objects[&hid];
     assert_eq!(h.target, Some(vid), "HijackGuard must pick the vehicle");
-    assert_eq!(h.ai_state, AIState::SpecialAbility);
+    assert_eq!(h.ai_state(), AIState::SpecialAbility);
     match logic.pending_special_abilities.get(&hid) {
         Some(PendingSpecialAbility::Hijack { target_id }) => {
             assert_eq!(*target_id, vid);
@@ -190,7 +190,7 @@ fn sleep_guard_range_is_zero_not_hardcoded_80() {
     let gid = ObjectId(4730);
     let mut g = guard_test_object(gt, gid, Team::China);
     g.set_position(glam::Vec3::ZERO);
-    g.guard_position = Some(glam::Vec3::ZERO);
+    g.set_guard_position_data(Some(glam::Vec3::ZERO));
     g.guard_radius = 80.0;
     g.vision_range = 100.0;
     g.ai_attitude = -2;
@@ -308,7 +308,7 @@ fn begin_guard_retaliate_sets_state_and_anchor() {
         &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
     );
     let o = &logic.objects[&id];
-    assert_eq!(o.ai_state, AIState::GuardRetaliating);
+    assert_eq!(o.ai_state(), AIState::GuardRetaliating);
     assert_eq!(o.guard_retaliate_victim, Some(victim));
     assert_eq!(o.target, Some(victim));
     assert_eq!(o.max_shots_to_fire, 5);
@@ -359,7 +359,7 @@ fn guard_retaliate_ends_when_victim_dead() {
             AIState::GuardingArea | AIState::Idle | AIState::Moving
         ),
         "got {:?}",
-        o.ai_state
+        o.ai_state()
     );
     assert!(o.guard_retaliate_victim.is_none() || matches!(o.ai_state, AIState::Moving));
 }
@@ -429,7 +429,7 @@ fn friends_retaliate_against_nearby_aggressor() {
     assert!(n >= 1, "friend should retaliate, got {n}");
     let f = &logic.objects[&fid];
     assert_eq!(f.target, Some(eid));
-    assert_eq!(f.ai_state, AIState::GuardRetaliating);
+    assert_eq!(f.ai_state(), AIState::GuardRetaliating);
     assert_eq!(f.guard_retaliate_victim, Some(eid));
     assert!(f.guard_retaliate_anchor.is_some());
 }
@@ -489,7 +489,7 @@ fn guard_idle_acquire_uses_inner_not_outer() {
     let gid = ObjectId(6101);
     let mut g = guard_test_object(gt, gid, Team::China);
     g.set_position(glam::Vec3::ZERO);
-    g.guard_position = Some(glam::Vec3::ZERO);
+    g.set_guard_position_data(Some(glam::Vec3::ZERO));
     g.vision_range = 100.0;
     g.weapon = Some(wave21_guard_weapon());
     g.set_ai_state(
@@ -543,7 +543,11 @@ fn guarding_object_flying_only_skips_ground() {
     let mut b = Object::new(bt, bid, Team::USA);
     b.set_position(glam::Vec3::ZERO);
     logic.objects.insert(bid, b);
-    logic.objects.get_mut(&hid).unwrap().guard_target = Some(bid);
+    logic
+        .objects
+        .get_mut(&hid)
+        .unwrap()
+        .set_guard_target_data(Some(bid));
 
     let mut gt = ThingTemplate::new("Tank");
     gt.add_kind_of(KindOf::Vehicle);
@@ -605,8 +609,8 @@ fn guard_area_polygon_rejects_outside_and_covers_far_corner() {
     let gid = ObjectId(6121);
     let mut g = guard_test_object(gt, gid, Team::China);
     g.set_position(glam::Vec3::new(0.0, 0.0, 20.0));
-    g.guard_position = Some(glam::Vec3::new(0.0, 0.0, 20.0));
-    g.guard_area_trigger = Some("Wave21GuardAreaPoly".into());
+    g.set_guard_position_data(Some(glam::Vec3::new(0.0, 0.0, 20.0)));
+    g.set_guard_area_trigger(Some("Wave21GuardAreaPoly".into()));
     g.vision_range = 100.0;
     g.weapon = Some(wave21_guard_weapon());
     g.set_ai_state(
@@ -706,7 +710,7 @@ fn guard_retaliate_chase_gives_up_on_timer() {
             AIState::GuardingArea | AIState::Idle | AIState::Moving
         ),
         "got {:?}",
-        o.ai_state
+        o.ai_state()
     );
 }
 
@@ -861,7 +865,11 @@ fn host_guardee_follow_is_per_axis_two_cells_not_inner_radius() {
     let mut crusader = Object::new(ct, cid, Team::USA);
     crusader.set_position(glam::Vec3::ZERO);
     logic.objects.insert(cid, crusader);
-    logic.objects.get_mut(&gid).unwrap().guard_target = Some(cid);
+    logic
+        .objects
+        .get_mut(&gid)
+        .unwrap()
+        .set_guard_target_data(Some(cid));
 
     let now = logic.frame;
     let runtime = logic.unit_ai_runtime_mut(gid).unwrap();
@@ -903,7 +911,7 @@ fn inner_guard_attack_switches_to_new_last_attacker() {
     let gid = ObjectId(6210);
     let mut g = guard_test_object(gt, gid, Team::USA);
     g.set_position(glam::Vec3::ZERO);
-    g.guard_position = Some(glam::Vec3::ZERO);
+    g.set_guard_position_data(Some(glam::Vec3::ZERO));
     g.guard_radius = 200.0;
     g.vision_range = 200.0;
     g.weapon = Some(wave21_guard_weapon());
@@ -957,7 +965,7 @@ fn guard_idle_acquire_uses_scan_rate_cadence() {
     let gid = ObjectId(6220);
     let mut g = guard_test_object(gt, gid, Team::China);
     g.set_position(glam::Vec3::ZERO);
-    g.guard_position = Some(glam::Vec3::ZERO);
+    g.set_guard_position_data(Some(glam::Vec3::ZERO));
     g.vision_range = 200.0;
     g.weapon = Some(wave21_guard_weapon());
     g.set_ai_state(
@@ -1031,7 +1039,7 @@ fn end_guard_chase_attack_clears_team_attack_common_target() {
     let gid = ObjectId(6301);
     let mut g = guard_test_object(gt, gid, Team::China);
     g.set_position(glam::Vec3::ZERO);
-    g.guard_position = Some(glam::Vec3::ZERO);
+    g.set_guard_position_data(Some(glam::Vec3::ZERO));
     g.vision_range = 200.0;
     g.weapon = Some(wave21_guard_weapon());
     g.set_ai_state(
@@ -1161,7 +1169,11 @@ fn guarding_object_prefers_team_attack_common_target() {
     let mut d = Object::new(dt, did, Team::USA);
     d.set_position(glam::Vec3::ZERO);
     logic.objects.insert(did, d);
-    logic.objects.get_mut(&gid).unwrap().guard_target = Some(did);
+    logic
+        .objects
+        .get_mut(&gid)
+        .unwrap()
+        .set_guard_target_data(Some(did));
 
     let mut close_t = ThingTemplate::new("W26CloseEnemy");
     close_t.add_kind_of(KindOf::Infantry);
@@ -1299,8 +1311,8 @@ fn area_guard_outer_chase_uses_polygon_radius() {
     let mut g = guard_test_object(gt, gid, Team::China);
     let center = glam::Vec3::new(300.0, 0.0, 300.0);
     g.set_position(center);
-    g.guard_position = Some(center);
-    g.guard_area_trigger = Some("Wave26GuardOuterPoly".into());
+    g.set_guard_position_data(Some(center));
+    g.set_guard_area_trigger(Some("Wave26GuardOuterPoly".into()));
     g.vision_range = 100.0;
     g.weapon = Some(wave21_guard_weapon());
     g.set_ai_state(
@@ -1443,7 +1455,7 @@ fn guard_walks_back_to_post_after_chase() {
     let gid = ObjectId(6320);
     let mut g = guard_test_object(gt, gid, Team::China);
     g.set_position(glam::Vec3::new(50.0, 0.0, 0.0));
-    g.guard_position = Some(glam::Vec3::ZERO);
+    g.set_guard_position_data(Some(glam::Vec3::ZERO));
     g.vision_range = 200.0;
     g.weapon = Some(wave21_guard_weapon());
     g.set_ai_state(
@@ -1484,7 +1496,7 @@ fn guard_walks_back_to_post_after_chase() {
     assert!(
         matches!(g.ai_state, AIState::GuardingArea),
         "return must restore GuardingArea, got {:?}",
-        g.ai_state
+        g.ai_state()
     );
 }
 
@@ -1500,7 +1512,7 @@ fn without_pursuit_acquires_while_guarder_outside_ring() {
     let gid = ObjectId(6330);
     let mut g = guard_test_object(gt, gid, Team::China);
     g.set_position(glam::Vec3::new(250.0, 0.0, 0.0));
-    g.guard_position = Some(glam::Vec3::ZERO);
+    g.set_guard_position_data(Some(glam::Vec3::ZERO));
     g.guard_mode = GuardMode::WithoutPursuit;
     g.vision_range = 180.0;
     g.weapon = Some(wave21_guard_weapon());
@@ -1609,7 +1621,7 @@ fn tn_guard_nemesis_uses_tunnel_attack_goal() {
         .expect("rebel");
     if let Some((u, fixture_partition_u)) = logic.host_object_and_partition_mut(uid) {
         u.owner_player_id = Some(1);
-        u.guard_target = Some(tnl);
+        u.set_guard_target_data(Some(tnl));
         u.weapon = Some(wave21_guard_weapon());
         u.team_instance_name = "GLA_TunnelGuard".into();
         u.set_contained_by_with_partition_owner(Some(tnl), true, fixture_partition_u);
@@ -1753,7 +1765,7 @@ fn tn_guard_nemesis_rejects_unattackable_damager() {
         .expect("rebel");
     if let Some((u, fixture_partition_u)) = logic.host_object_and_partition_mut(uid) {
         u.owner_player_id = Some(1);
-        u.guard_target = Some(tnl);
+        u.set_guard_target_data(Some(tnl));
         u.weapon = Some(wave21_guard_weapon());
         u.team_instance_name = "GLA_TunnelGate".into();
         u.set_contained_by_with_partition_owner(Some(tnl), true, fixture_partition_u);
@@ -1830,8 +1842,8 @@ fn named_guard_outer_geometry_is_owner_local_with_same_ids_and_reset() {
             .add_kind_of(KindOf::Attackable);
         let mut guard = guard_test_object(template, GUARD, Team::China);
         guard.set_position(Vec3::new(300.0, 0.0, 300.0));
-        guard.guard_position = Some(Vec3::new(300.0, 0.0, 300.0));
-        guard.guard_area_trigger = Some(NAME.into());
+        guard.set_guard_position_data(Some(Vec3::new(300.0, 0.0, 300.0)));
+        guard.set_guard_area_trigger(Some(NAME.into()));
         guard.vision_range = 100.0;
         guard.weapon = Some(wave21_guard_weapon());
         guard.set_ai_state(

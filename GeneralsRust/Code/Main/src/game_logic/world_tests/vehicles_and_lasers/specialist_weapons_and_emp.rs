@@ -436,7 +436,9 @@ fn rebel_booby_trap_plant_and_capture_detonate_residual() {
         rebel.target = Some(building_id);
     }
     for _ in 0..3 {
-        game_logic.update_ai(&[rebel_id, building_id], 1.0 / 30.0);
+        game_logic
+            .update_ai(&[rebel_id, building_id], 1.0 / 30.0)
+            .expect("receiving AI operation succeeds");
     }
     // Direct residual plant if walk path missed (still host residual API).
     if !game_logic
@@ -576,7 +578,9 @@ fn booby_trap_detonates_enemy_and_refuses_replace() {
         ally.target = Some(building_id);
     }
     for _ in 0..4 {
-        game_logic.update_ai(&[ally_id, building_id], 1.0 / 30.0);
+        game_logic
+            .update_ai(&[ally_id, building_id], 1.0 / 30.0)
+            .expect("receiving AI operation succeeds");
     }
     if !game_logic
         .booby_trap_residual()
@@ -631,7 +635,9 @@ fn booby_trap_detonates_enemy_and_refuses_replace() {
         ally.target = Some(building_id);
     }
     for _ in 0..4 {
-        game_logic.update_ai(&[ally_id, building_id], 1.0 / 30.0);
+        game_logic
+            .update_ai(&[ally_id, building_id], 1.0 / 30.0)
+            .expect("receiving AI operation succeeds");
     }
     let after_ally = game_logic
         .booby_trap_residual()
@@ -672,7 +678,9 @@ fn booby_trap_detonates_enemy_and_refuses_replace() {
         enemy.target = Some(building_id);
     }
     for _ in 0..4 {
-        game_logic.update_ai(&[enemy_id, building_id, ally_id], 1.0 / 30.0);
+        game_logic
+            .update_ai(&[enemy_id, building_id, ally_id], 1.0 / 30.0)
+            .expect("receiving AI operation succeeds");
     }
     game_logic.process_destroy_list();
     let enemy_hp_after = game_logic
@@ -865,9 +873,7 @@ fn supw_patriot_emp_residual_dual_slot_and_disable() {
 
 #[test]
 fn supw_emp_scatter_misses_infantry_residual() {
-    use crate::game_logic::host_base_defense::{
-        SUPW_EMP_SCATTER_VS_INFANTRY, SUPW_PATRIOT_EMP_RADIUS,
-    };
+    use crate::game_logic::host_base_defense::{SUPW_EMP_SCATTER_VS_INFANTRY, SUPW_PATRIOT_EMP_RADIUS};
 
     let mut logic = GameLogic::new();
     ensure_test_infantry_template(&mut logic);

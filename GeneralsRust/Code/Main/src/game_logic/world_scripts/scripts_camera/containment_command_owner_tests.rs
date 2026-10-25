@@ -78,7 +78,7 @@ fn enter_rejected_noncontainer_preserves_ai_after_script_preparation() {
         1
     );
     let unit = a.host_object(id).unwrap();
-    assert_eq!(unit.ai_state, AIState::AttackMoving);
+    assert_eq!(unit.ai_state(), AIState::AttackMoving);
     assert_eq!(unit.target, Some(target));
     assert_eq!(unit.pending_move, Some(old));
     assert_eq!(unit.last_command_source, 99);
@@ -119,7 +119,7 @@ fn enter_command_ignores_capacity_but_arrival_rechecks_it() {
         ),
         1
     );
-    assert_eq!(a.host_object(id).unwrap().ai_state, AIState::Entering);
+    assert_eq!(a.host_object(id).unwrap().ai_state(), AIState::Entering);
     a.set_fixture_object_position(id, Vec3::new(70.0, 0.0, 70.0));
     a.update_support_states(&[id], 1.0 / 30.0);
     assert_eq!(a.host_object(id).unwrap().contained_by, None);
@@ -140,7 +140,7 @@ fn false_evacuation_orders_passenger_without_detection_or_instant_unload() {
     load(&mut b, foreign, foreign_container);
     evacuate(&mut a);
     let rider = a.host_object(id).unwrap();
-    assert_eq!(rider.ai_state, AIState::Exiting);
+    assert_eq!(rider.ai_state(), AIState::Exiting);
     assert_eq!(rider.target, Some(container));
     assert_eq!(rider.contained_by, Some(container));
     assert!(rider.status.stealthed);
@@ -150,7 +150,7 @@ fn false_evacuation_orders_passenger_without_detection_or_instant_unload() {
         crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_SCRIPT
     );
     assert_eq!(
-        b.host_object(foreign).unwrap().ai_state,
+        b.host_object(foreign).unwrap().ai_state(),
         AIState::Garrisoned
     );
     a.update_support_states(&[id], 1.0 / 30.0);
@@ -176,7 +176,7 @@ fn subdued_and_missing_ai_passengers_do_not_receive_exit() {
         .unwrap()
         .set_status_disabled_subdued(true);
     evacuate(&mut a);
-    assert_eq!(a.host_object(id).unwrap().ai_state, AIState::Garrisoned);
+    assert_eq!(a.host_object(id).unwrap().ai_state(), AIState::Garrisoned);
     assert_eq!(a.host_object(id).unwrap().contained_by, Some(container));
 }
 
@@ -194,7 +194,7 @@ fn pending_exit_survives_world_snapshot_and_busy_door() {
     transport(&mut b);
     builder.restore_from_snapshot(&snapshot, &mut b).unwrap();
     for owner in [&mut a, &mut b] {
-        assert_eq!(owner.host_object(id).unwrap().ai_state, AIState::Exiting);
+        assert_eq!(owner.host_object(id).unwrap().ai_state(), AIState::Exiting);
         assert_eq!(owner.host_object(id).unwrap().target, Some(container));
         assert_eq!(
             owner.host_object(id).unwrap().last_command_source,
@@ -208,8 +208,8 @@ fn pending_exit_survives_world_snapshot_and_busy_door() {
         assert_eq!(owner.host_object(id).unwrap().contained_by, None);
     }
     assert_eq!(
-        a.host_object(id).unwrap().ai_state,
-        b.host_object(id).unwrap().ai_state
+        a.host_object(id).unwrap().ai_state(),
+        b.host_object(id).unwrap().ai_state()
     );
     assert_eq!(
         a.host_object(id).unwrap().get_position(),
@@ -255,7 +255,7 @@ fn false_evacuation_preserves_stealth_garrison_detection_flags() {
     let object = owner.host_object(rider).unwrap();
     assert!(object.status.stealthed);
     assert!(!object.status.detected);
-    assert_eq!(object.ai_state, AIState::Exiting);
+    assert_eq!(object.ai_state(), AIState::Exiting);
 }
 
 #[test]
@@ -284,7 +284,7 @@ fn passenger_exit_waits_for_the_previous_riders_transport_door() {
         Some(container)
     );
     assert_eq!(
-        owner.host_object(second).unwrap().ai_state,
+        owner.host_object(second).unwrap().ai_state(),
         AIState::Exiting
     );
     let next = owner.host_object(container).unwrap().frame_exit_not_busy;
@@ -326,7 +326,9 @@ fn exit_request_admits_landing_only_at_chinook_update_and_waits_until_landed() {
         owner.host_object(rider).unwrap().contained_by,
         Some(container)
     );
-    owner.tick_chinook_ai(1.0 / 30.0);
+    owner
+        .tick_chinook_ai(1.0 / 30.0)
+        .expect("receiving AI operation succeeds");
     let ai = owner
         .host_object(container)
         .unwrap()

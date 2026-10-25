@@ -665,6 +665,9 @@ pub struct HostChinookAI {
     pub pending_evac_dest: Option<[f32; 3]>,
     #[serde(default)]
     pub pending_evac_and_exit: bool,
+    /// C++ stored AICMD_IDLE / CMD_FROM_AI; mutually exclusive with pending evac.
+    #[serde(default)]
+    pub pending_ai_idle: bool,
     /// In-flight `aiRappelInto` jobs (rappeller, building, dest Y).
     #[serde(default)]
     pub rappel_into_jobs: Vec<HostRappelJob>,
@@ -727,6 +730,7 @@ impl HostChinookAI {
             combat_drop_target: None,
             pending_evac_dest: None,
             pending_evac_and_exit: false,
+            pending_ai_idle: false,
             rappel_into_jobs: Vec::new(),
         }
     }
@@ -819,6 +823,7 @@ impl HostChinookAI {
 
     /// C++ `AICMD_MOVE_TO_POSITION_AND_EVACUATE[_AND_EXIT]`.
     pub fn command_evac(&mut self, dest: [f32; 3], and_exit: bool) {
+        self.pending_ai_idle = false;
         if chinook::chinook_evac_needs_takeoff_first(
             self.flight_status == HostChinookFlightStatus::Landed,
             host_chinook_dist_sqr(self.pos, dest),
@@ -855,6 +860,7 @@ impl HostChinookAI {
 
     /// C++ `privateGetRepaired` → `MOVE_TO_AND_LAND` (not immediate LANDING).
     pub fn command_repair(&mut self, depot: [f32; 3], depot_id: u32) {
+        self.pending_ai_idle = false;
         if matches!(
             self.flight_status,
             HostChinookFlightStatus::Landing | HostChinookFlightStatus::Landed
@@ -868,6 +874,7 @@ impl HostChinookAI {
 
     /// C++ `privateCombatDrop` → `MOVE_TO_COMBAT_DROP` (MoveToBldg height).
     pub fn command_combat_drop(&mut self, dest: [f32; 3], building_height: Option<f32>) {
+        self.pending_ai_idle = false;
         self.dest = dest;
         self.move_to_bldg_old_preferred = self.preferred_height;
         let new_pref = chinook::chinook_move_to_bldg_preferred_height(
@@ -1006,13 +1013,20 @@ impl HostChinookAI {
     /// Evaluate flight transitions at the pose sampled from the owning Object.
     /// C++ state updates issue locomotor goals; the locomotor alone integrates motion.
     pub fn update_from_observed_pose(&mut self) -> Option<HostChinookEvacuation> {
+        self.update_from_observed_pose_after_idle_replay(false)
+    }
+
+    pub(crate) fn update_from_observed_pose_after_idle_replay(
+        &mut self,
+        replayed_idle: bool,
+    ) -> Option<HostChinookEvacuation> {
         if self.destroyed {
             return None;
         }
         // C++ checks base idleness and reconstitutes pending commands before
         // auto-land, then advances the state machine in the parent update.
         // A takeoff completed below is therefore replayed on the next tick.
-        if self.state == HostChinookAIState::Idle && self.parent_idle {
+        if !replayed_idle && self.state == HostChinookAIState::Idle && self.parent_idle {
             if let Some(dest) = self.pending_evac_dest.take() {
                 let and_exit = self.pending_evac_and_exit;
                 self.pending_evac_and_exit = false;
@@ -1435,7 +1449,9 @@ mod tests {
         }
         // One logic frame (C++ ChinookAIUpdate::update runs per 1/30s tick);
         // 150 u/s speed moves 5u per tick, so an 80u descent stays Landing.
-        logic.tick_chinook_ai(1.0 / 30.0);
+        logic
+            .tick_chinook_ai(1.0 / 30.0)
+            .expect("receiving AI operation succeeds");
         let obj = logic.host_object(id).expect("obj");
         let ai = obj.chinook_ai.as_ref().expect("chinook_ai");
         assert_eq!(ai.flight_status, HostChinookFlightStatus::Landing);
@@ -1528,7 +1544,9 @@ mod tests {
             600
         );
         assert_eq!(logic.host_object(id).unwrap().drawable_supply_boxes, 8);
-        logic.tick_chinook_ai(1.0 / 30.0);
+        logic
+            .tick_chinook_ai(1.0 / 30.0)
+            .expect("receiving AI operation succeeds");
         let obj = logic.host_object(id).expect("obj");
         assert_eq!(
             obj.chinook_ai.as_ref().unwrap().flight_status,
@@ -1555,7 +1573,9 @@ mod tests {
                 ai.arrive_for_combat_drop();
             }
         }
-        logic.tick_chinook_ai(1.0);
+        logic
+            .tick_chinook_ai(1.0)
+            .expect("receiving AI operation succeeds");
         let obj = logic.host_object(id).expect("obj");
         assert_eq!(
             obj.chinook_ai.as_ref().unwrap().flight_status,

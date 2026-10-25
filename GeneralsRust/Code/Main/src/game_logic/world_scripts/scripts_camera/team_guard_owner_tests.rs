@@ -73,9 +73,9 @@ fn execute(world: &mut GameLogic, name: &str) -> i32 {
 
 fn assert_guard(world: &GameLogic, id: ObjectId, position: Vec3) {
     let unit = world.host_object(id).unwrap();
-    assert_eq!(unit.guard_position, Some(position));
+    assert_eq!(unit.active_guard_position(), Some(position));
     assert_eq!(unit.guard_mode, GuardMode::Normal);
-    assert_eq!(unit.ai_state, AIState::GuardingArea);
+    assert_eq!(unit.ai_state(), AIState::GuardingArea);
     assert_eq!(
         unit.last_command_source,
         crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_SCRIPT
@@ -121,7 +121,10 @@ fn team_guard_same_ids_are_owned_by_the_driving_world() {
     second.set_fixture_object_position(id, Vec3::splat(500.0));
     assert_eq!(execute(&mut first, "GuardRoster"), 1);
     assert_guard(&first, id, post);
-    assert_eq!(second.host_object(id).unwrap().guard_position, None);
+    assert_eq!(
+        second.host_object(id).unwrap().active_guard_position(),
+        None
+    );
     assert_eq!(execute(&mut second, "GuardRoster"), 1);
     assert_guard(&second, id, Vec3::splat(500.0));
     second.reset();
@@ -145,7 +148,13 @@ fn team_guard_calling_team_precedes_condition_team() {
     );
     assert_eq!(engine.get_counter("TeamObserved").unwrap().value, 1);
     assert_guard(&world, calling, post);
-    assert_eq!(world.host_object(condition).unwrap().guard_position, None);
+    assert_eq!(
+        world
+            .host_object(condition)
+            .unwrap()
+            .active_guard_position(),
+        None
+    );
     assert_eq!(engine.get_condition_team_id(), Some(condition_id));
     assert_eq!(engine.get_calling_team_id(), None);
 }
@@ -158,7 +167,7 @@ fn team_guard_missing_exact_identity_never_creates_or_uses_faction_census() {
     let before = world.team_factory.lock().unwrap().get_all_teams().len();
     for name in ["MissingTeam", "guardroster", " GuardRoster ", THIS_TEAM] {
         assert_eq!(execute(&mut world, name), 1);
-        assert_eq!(world.host_object(id).unwrap().guard_position, None);
+        assert_eq!(world.host_object(id).unwrap().active_guard_position(), None);
     }
     assert_eq!(
         world.team_factory.lock().unwrap().get_all_teams().len(),
@@ -171,7 +180,7 @@ fn team_guard_inactive_singleton_is_missing_outside_context() {
     let (mut world, id, _) = world();
     team(&world, "InactiveGuard", &[id], true, false);
     assert_eq!(execute(&mut world, "InactiveGuard"), 1);
-    assert_eq!(world.host_object(id).unwrap().guard_position, None);
+    assert_eq!(world.host_object(id).unwrap().active_guard_position(), None);
 }
 
 #[test]
@@ -182,7 +191,10 @@ fn team_guard_literal_selects_newest_instance_without_auto_creation() {
     let post = world.host_object(last).unwrap().get_position();
     assert_eq!(execute(&mut world, "MultipleGuard"), 1);
     assert_guard(&world, last, post);
-    assert_eq!(world.host_object(first).unwrap().guard_position, None);
+    assert_eq!(
+        world.host_object(first).unwrap().active_guard_position(),
+        None
+    );
 }
 
 #[test]
@@ -212,7 +224,7 @@ fn team_guard_skips_non_ai_and_rejected_members_without_named_preparation() {
         assert_eq!(execute(&mut world, "GuardRoster"), 1);
         assert_guard(&world, accepted, post);
         let unit = world.host_object(rejected).unwrap();
-        assert_eq!(unit.guard_position, None);
+        assert_eq!(unit.active_guard_position(), None);
         assert_eq!(unit.formation_id, 19);
         assert_eq!(unit.jet_ai.cur_locomotor_set.as_deref(), Some("SET_PANIC"));
         assert_eq!(
@@ -238,16 +250,16 @@ fn team_guard_reentry_exits_hunt_and_clears_previous_goal_immediately() {
         Some(target),
         &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
     );
-    unit.guard_area_trigger = Some("OldGuardArea".into());
+    unit.set_guard_area_trigger(Some("OldGuardArea".into()));
     let post = unit.get_position();
     assert_eq!(execute(&mut world, "GuardRoster"), 1);
     assert_guard(&world, id, post);
     let unit = world.host_object(id).unwrap();
     assert_eq!(unit.target, None);
-    assert_eq!(unit.guard_target, None);
+    assert_eq!(unit.active_guard_target(), None);
     assert_eq!(unit.pending_move, None);
-    assert_eq!(unit.guard_area_trigger, None);
-    assert!(!unit.hunting);
+    assert_eq!(unit.active_guard_area(), None);
+    assert!(!unit.is_hunting());
     assert_eq!(unit.unit_ai_runtime.hunt_scan_deadline(), None);
 }
 
@@ -302,8 +314,8 @@ fn team_guard_snapshot_continues_without_reissuing_the_team_command() {
         assert_eq!(restored.frame, source.frame);
         let a = source.host_object(id).unwrap();
         let b = restored.host_object(id).unwrap();
-        assert_eq!(a.ai_state, b.ai_state);
-        assert_eq!(a.guard_position, b.guard_position);
+        assert_eq!(a.ai_state(), b.ai_state());
+        assert_eq!(a.active_guard_position(), b.active_guard_position());
         assert_eq!(a.last_command_source, b.last_command_source);
         assert_eq!(a.get_position(), b.get_position());
         assert_eq!(

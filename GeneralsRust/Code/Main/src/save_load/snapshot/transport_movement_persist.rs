@@ -22,9 +22,9 @@ pub(super) fn capture(game_logic: &GameLogic) -> Vec<TransportMovementPersist> {
         .map(|(id, object)| TransportMovementPersist {
             object_id: id.0,
             state: object.transport_return_state,
-            temporary_move_frames: object.temporary_move_frames,
-            temporary_move_saved_dest: object.temporary_move_saved_dest,
-            temporary_move_saved_path_goal: object.temporary_move_saved_path_goal,
+            temporary_move_frames: temporary_projection(object, game_logic.get_frame()).0,
+            temporary_move_saved_dest: temporary_projection(object, game_logic.get_frame()).1,
+            temporary_move_saved_path_goal: temporary_projection(object, game_logic.get_frame()).2,
             pending_evacuate: object.pending_evacuate_on_stop,
             pending_exit: object.pending_exit_after_evacuate,
             pending_stream: object.pending_stream_exit,
@@ -51,18 +51,14 @@ pub(super) fn validate(
         };
         let temporary_consistent = match entry.state {
             Some(TransportReturnState::TemporaryMove { .. }) => {
-                if entry.temporary_move_frames > 0 {
-                    entry.temporary_move_frames <= 601 && entry.temporary_move_saved_dest.is_some()
-                } else {
-                    // Real end_temporary_move_overlay clears both saved goals;
-                    // a phase-boundary save may precede the parent's callback.
-                    entry.temporary_move_saved_dest.is_none()
-                        && entry.temporary_move_saved_path_goal.is_none()
-                }
+                entry.temporary_move_frames <= 601
+                    && (entry.temporary_move_frames == 0
+                        || entry.temporary_move_saved_dest.is_some())
             }
             Some(_) => entry.temporary_move_frames == 0,
-            None => true, // Ordinary nontransport temporary movement is independent.
+            None => entry.temporary_move_frames <= 601,
         };
+
         if !ids.insert(entry.object_id)
             || game_logic.host_object(ObjectId(entry.object_id)).is_none()
             || !finite_state
@@ -85,9 +81,7 @@ pub(super) fn validate(
 pub(super) fn reset(game_logic: &mut GameLogic) {
     for object in game_logic.host_objects_mut().registered_values_mut() {
         object.transport_return_state = None;
-        object.temporary_move_frames = 0;
-        object.temporary_move_saved_dest = None;
-        object.temporary_move_saved_path_goal = None;
+
         object.pending_evacuate_on_stop = false;
         object.pending_exit_after_evacuate = false;
         object.pending_stream_exit = false;
@@ -101,14 +95,54 @@ pub(super) fn apply(game_logic: &mut GameLogic, records: Vec<TransportMovementPe
             .get_mut(&ObjectId(entry.object_id))
         {
             object.transport_return_state = entry.state;
-            object.temporary_move_frames = entry.temporary_move_frames;
-            object.temporary_move_saved_dest = entry.temporary_move_saved_dest;
-            object.temporary_move_saved_path_goal = entry.temporary_move_saved_path_goal;
+
             object.pending_evacuate_on_stop = entry.pending_evacuate;
             object.pending_exit_after_evacuate = entry.pending_exit;
             object.pending_stream_exit = entry.pending_stream;
         }
     }
+}
+
+fn temporary_projection(
+    object: &crate::game_logic::Object,
+    frame: u32,
+) -> (u32, Option<glam::Vec3>, Option<glam::Vec3>) {
+    match object.unit_ai_runtime.temporary_move() {
+        Some(value) => (
+            if frame <= value.deadline {
+                (value.deadline - frame).saturating_add(1)
+            } else {
+                0
+            },
+            value.saved_destination,
+            value.saved_path_goal,
+        ),
+        None => (0, None, None),
+    }
+}
+
+pub(super) fn validate_base_ai_projection_after_restore(
+    game_logic: &GameLogic,
+    records: &[TransportMovementPersist],
+) -> SaveLoadResult<()> {
+    for entry in records {
+        let object = game_logic
+            .host_object(ObjectId(entry.object_id))
+            .ok_or_else(|| SaveLoadError::Corrupted("missing transport projection owner".into()))?;
+        let expected = temporary_projection(object, game_logic.get_frame());
+        if expected
+            != (
+                entry.temporary_move_frames,
+                entry.temporary_move_saved_dest,
+                entry.temporary_move_saved_path_goal,
+            )
+        {
+            return Err(SaveLoadError::Corrupted(
+                "transport temporary projection disagrees with native14 owner".into(),
+            ));
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -133,7 +167,6 @@ mod tests {
             returning: false,
             append_goal: false,
             parent_goal: glam::Vec3::X,
-            expires_frame: 600,
         });
         records[0].temporary_move_frames = 601;
         assert!(
@@ -144,8 +177,15 @@ mod tests {
         assert!(validate(&world, &records).is_ok());
         records[0].temporary_move_frames = 0;
         assert!(
-            validate(&world, &records).is_err(),
-            "zero marker cannot retain an unexecuted exit's saved goal"
+            validate(&world, &records).is_ok(),
+            "expired owner can await its source callback"
+        );
+        let snapshot = crate::save_load::snapshot::SnapshotBuilder::new()
+            .create_world_snapshot(&world)
+            .unwrap();
+        assert!(
+            validate_base_ai_projection_before_restore(&records, &snapshot).is_err(),
+            "forged expired projection disagrees with the actual native14 owner"
         );
         records[0].temporary_move_saved_dest = None;
         assert!(
@@ -214,4 +254,49 @@ mod tests {
         assert!(!owner.pending_exit_after_evacuate);
         assert!(!owner.status.destroyed);
     }
+}
+
+pub(super) fn validate_base_ai_projection_before_restore(
+    records: &[TransportMovementPersist],
+    snapshot: &crate::save_load::snapshot::WorldSnapshot,
+) -> SaveLoadResult<()> {
+    for entry in records {
+        let saved = snapshot
+            .objects
+            .get(&ObjectId(entry.object_id))
+            .ok_or_else(|| SaveLoadError::Corrupted("missing detached temporary owner".into()))?;
+        let control = match saved.modules.get("ReceivingBaseAI") {
+            Some(crate::save_load::snapshot::ModuleSnapshot::BaseAi(owner)) => owner.continuation(),
+            _ => {
+                return Err(SaveLoadError::Corrupted(
+                    "missing detached BaseAI capsule".into(),
+                ));
+            }
+        };
+        let frame = snapshot.frame_number as u32;
+        let expected = match control.and_then(|control| control.temporary_move.as_ref()) {
+            Some(value) => (
+                if frame <= value.deadline {
+                    (value.deadline - frame).saturating_add(1)
+                } else {
+                    0
+                },
+                value.saved_destination,
+                value.saved_path_goal,
+            ),
+            None => (0, None, None),
+        };
+        if expected
+            != (
+                entry.temporary_move_frames,
+                entry.temporary_move_saved_dest,
+                entry.temporary_move_saved_path_goal,
+            )
+        {
+            return Err(SaveLoadError::Corrupted(
+                "detached temporary projection disagrees with native14 owner".into(),
+            ));
+        }
+    }
+    Ok(())
 }

@@ -156,7 +156,7 @@ impl Object {
     /// publishes its terminal here; Panic owns its separate next-waypoint step.
     /// Cancellation must use clear_pending_waypoint_labels instead.
     pub(crate) fn note_waypoint_path_arrival(&mut self) {
-        if !matches!(self.ai_state, AIState::Panic) {
+        if !matches!(self.ai_state(), AIState::Panic) {
             self.commit_completed_waypoint_labels();
         }
     }
@@ -970,62 +970,88 @@ impl Object {
     /// moving/attacking status bits from the authoritative ordinal.
 
     pub fn set_ai_state(&mut self, state: AIState, audio: &mut crate::game_logic::ObjectAudio<'_>) {
+        self.set_ai_state_entry(state, audio, false);
+    }
+    pub(crate) fn set_ai_child_state(
+        &mut self,
+        state: AIState,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
+    ) -> bool {
+        if !self.unit_ai_runtime.can_enter_child() || self.unit_ai_runtime.machine_locked() {
+            return false;
+        }
+        self.set_ai_state_entry(state, audio, true);
+        true
+    }
+    fn set_ai_state_entry(
+        &mut self,
+        state: AIState,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
+        nested: bool,
+    ) {
+        if self.unit_ai_runtime.machine_locked() {
+            return;
+        }
+
         // Leaving the host's Follow movement family exits Exact as well as
         // successful arrival. Same-family replacement is handled at accepted
         // path admission, where the outgoing order is still observable.
-        if self.ai_state != state && state != AIState::Moving && self.pending_waypoint_id.is_some()
+        if self.ai_state() != state
+            && state != AIState::Moving
+            && self.pending_waypoint_id.is_some()
         {
             self.clear_pending_waypoint_labels();
         }
-        if !matches!(state, AIState::Moving) && self.temporary_move_frames == 0 {
+        if !matches!(state, AIState::Moving) && !self.has_temporary_ai_move() {
             self.movement_goal_object = None;
         }
         if matches!(
-            self.ai_state,
+            self.ai_state(),
             AIState::GuardingArea | AIState::GuardingObject
         ) && !matches!(state, AIState::GuardingArea | AIState::GuardingObject)
+            && !nested
             // AIStateMachine::setTemporaryState suspends the base Guard
             // machine. Only the explicitly admitted exit-path overlay retains
             // it; an ordinary move order still exits Guard.
             && !(state == AIState::Moving
                 && self.unit_ai_runtime.quick_exit_deadline().is_some()
                 && self.can_path_through_units
-                && !self.adjust_destinations)
+                && !self.adjust_destinations())
         {
             self.unit_ai_runtime.clear_guard();
         }
         // C++ `StateMachine::internalSetState` fires `onExit(EXIT_RESET)` then
         // `AIDockMachine::halt` → `cancelDock`. Leaving a live dock session
         // must free the approach slot so a re-tasked truck cannot ghost-jam.
-        if crate::game_logic::host_supply_gather::is_live_dock_ai_state(&self.ai_state)
-            && self.ai_state != state
+        if crate::game_logic::host_supply_gather::is_live_dock_ai_state(&self.ai_state())
+            && self.ai_state() != state
         {
             self.dock_cancel_epoch = self.dock_cancel_epoch.wrapping_add(1);
         }
-        let was_entering = matches!(self.ai_state, AIState::Entering);
-        let leaving_panic_state = self.ai_state == AIState::Panic && state != AIState::Panic;
+        let was_entering = matches!(self.ai_state(), AIState::Entering);
+        let leaving_panic_state = self.ai_state() == AIState::Panic && state != AIState::Panic;
         let entering_move = matches!(
             state,
             AIState::Moving | AIState::AttackMoving | AIState::Panic
-        ) && self.ai_state != state;
+        ) && self.ai_state() != state;
         if !matches!(
             state,
             AIState::FacingObject | AIState::FacingPosition | AIState::SpecialAbility
-        ) && self.face_active
+        ) && self.face_active()
         {
-            self.face_active = false;
+            self.set_face_active(false);
             if self.locomotor_goal_type == LocoGoalType::Angle {
                 self.set_locomotor_goal_none();
             }
         }
-        if matches!(state, AIState::Idle) && !matches!(self.ai_state, AIState::Idle) {
+        if matches!(state, AIState::Idle) && !matches!(self.ai_state(), AIState::Idle) {
             // C++ AIIdleState::onEnter → resetNextMoodCheckTime.
             self.idle_mood_reset_pending = true;
         } else if !matches!(state, AIState::Idle) {
             self.idle_mood_reset_pending = false;
         }
         let leaving_move = matches!(
-            self.ai_state,
+            self.ai_state(),
             AIState::Moving | AIState::AttackMoving | AIState::Panic
         ) && !matches!(
             state,
@@ -1048,19 +1074,26 @@ impl Object {
                 }
             }
         }
-        if matches!(state, AIState::AttackMoving) && !matches!(self.ai_state, AIState::AttackMoving)
+        if matches!(state, AIState::AttackMoving)
+            && !matches!(self.ai_state(), AIState::AttackMoving)
         {
             self.attack_move_retry_count = 5;
             self.attack_move_sleep_until = 0;
             self.attack_move_command_src = Some(self.last_command_source);
         }
-        self.ai_state = state;
+        if nested {
+            self.unit_ai_runtime.enter_child(state);
+        } else if state == AIState::Patrolling && self.is_hunting() {
+            self.unit_ai_runtime.enter_hunt();
+        } else {
+            self.unit_ai_runtime.enter_root(state);
+        }
         if leaving_panic_state {
             self.panic_runtime = None;
             self.is_panicking = false;
         }
         if entering_move && self.is_kind_of(crate::game_logic::KindOf::Immobile) {
-            self.ai_state = AIState::Idle;
+            self.unit_ai_runtime.enter_root(AIState::Idle);
             self.set_status_moving(false);
         } else if entering_move {
             // C++ friend_startingMove on move-state onEnter, not path install.
@@ -1077,17 +1110,17 @@ impl Object {
             }
             self.try_one_more_repath = true;
             if self.ultra_accurate {
-                self.adjust_destinations = false;
+                self.set_adjust_destinations(false);
             }
         }
-        if matches!(self.ai_state, AIState::Constructing | AIState::Repairing) {
+        if matches!(self.ai_state(), AIState::Constructing | AIState::Repairing) {
             // Assignment: ULTRA_ACCURATE on dozer/worker precision approach.
             self.set_ultra_accurate(true);
         }
         // C++ AIEnterState::onEnter / onExit setAllowInvalidPosition
         // (AIStates.cpp:6227, :6247) so infantry are not 3x3-shoved off
         // building cells while walking in.
-        if matches!(self.ai_state, AIState::Entering) {
+        if matches!(self.ai_state(), AIState::Entering) {
             self.set_allow_invalid_position(true);
         } else if was_entering {
             self.set_allow_invalid_position(false);

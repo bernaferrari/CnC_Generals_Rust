@@ -55,7 +55,7 @@ fn supply_center_one_shot_collector_enters_authored_wanting_route_without_passiv
     let collector = logic.host_object(collector_id).expect("collector");
     assert_eq!(collector.target, Some(source));
     assert_eq!(collector.preferred_dock_id, Some(center_id));
-    assert_eq!(collector.ai_state, AIState::Gathering);
+    assert_eq!(collector.ai_state(), AIState::Gathering);
 
     // A frame with a still-empty collector is not an economy event.  The
     // only credit path is ReturningResources at the exact owned center.
@@ -254,7 +254,7 @@ fn supply_dock_command_paths_to_the_chosen_warehouse() {
     assert_eq!(truck.supply_truck_state, SupplyTruckState::Wanting);
     assert!(truck.supply_truck_force_pending);
     assert_eq!(truck.preferred_dock_id, Some(source));
-    assert_eq!(truck.ai_state, AIState::Gathering);
+    assert_eq!(truck.ai_state(), AIState::Gathering);
     assert!(
         truck.waiting_for_path || !truck.movement.path.is_empty(),
         "gather must request a path, path={:?}",
@@ -392,7 +392,7 @@ fn adjacent_supply_dock_takes_a_box() {
     assert!(
         carried > 0,
         "a truck on the warehouse must take a box, carried={carried} ai={:?} state={:?}",
-        truck.ai_state,
+        truck.ai_state(),
         truck.supply_truck_state
     );
 }
@@ -453,7 +453,7 @@ fn full_truck_returns_to_its_supply_center() {
     logic.update_support_states(&[id, source, center_id], 1.0 / 30.0);
     let truck = logic.host_object(id).expect("truck");
     assert_eq!(
-        truck.ai_state,
+        truck.ai_state(),
         AIState::ReturningResources,
         "a full truck must head for its supply center, state={:?}",
         truck.supply_truck_state
@@ -1994,9 +1994,7 @@ fn spy_satellite_does_not_queue_superweapon_strike() {
 #[test]
 fn spy_satellite_special_power_reveals_fow() {
     use crate::command_system::{CommandType, GameCommand, PowerTarget, SpecialPowerType};
-    use crate::game_logic::host_spy_satellite::{
-        SPY_SATELLITE_DURATION_FRAMES, SPY_SATELLITE_RADIUS,
-    };
+    use crate::game_logic::host_spy_satellite::{SPY_SATELLITE_DURATION_FRAMES, SPY_SATELLITE_RADIUS};
     use gamelogic::common::Coord3D;
 
     let mut game_logic = GameLogic::new();
@@ -2876,9 +2874,7 @@ fn inferno_cannon_attack_spawns_fire_zone_damaging_enemies() {
         INFERNO_FIRE_DAMAGE_PER_TICK, INFERNO_FIRE_DURATION_FRAMES,
         INFERNO_FIRE_TICK_INTERVAL_FRAMES, is_inferno_cannon_template,
     };
-    use crate::game_logic::weapon_bootstrap::{
-        INFERNO_CANNON_PRIMARY_WEAPON, ensure_host_weapon_store,
-    };
+    use crate::game_logic::weapon_bootstrap::{INFERNO_CANNON_PRIMARY_WEAPON, ensure_host_weapon_store};
 
     ensure_host_weapon_store();
 

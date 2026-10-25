@@ -92,7 +92,18 @@ impl GameLogic {
         frame: u32,
         observe_camera: impl FnOnce() -> Option<crate::helpers::CameraTimeObservation>,
     ) -> Result<(), GameLogicError> {
-        self.update_with_optional_upgrade_services(frame, None, observe_camera)
+        self.update_with_optional_upgrade_services(frame, None, None, observe_camera)
+    }
+
+    /// Update with a borrowed UI callback for a deferred new-game start.
+    /// The callback is consumed synchronously on this driving thread.
+    pub fn update_with_load_screen_hooks(
+        &mut self,
+        frame: u32,
+        hooks: &mut dyn crate::helpers::LoadScreenHooks,
+        observe_camera: impl FnOnce() -> Option<crate::helpers::CameraTimeObservation>,
+    ) -> Result<(), GameLogicError> {
+        self.update_with_optional_upgrade_services(frame, None, Some(hooks), observe_camera)
     }
 
     pub fn update_with_upgrade_services(
@@ -101,13 +112,14 @@ impl GameLogic {
         services: &mut dyn UpgradeCompletionServices,
         observe_camera: impl FnOnce() -> Option<crate::helpers::CameraTimeObservation>,
     ) -> Result<(), GameLogicError> {
-        self.update_with_optional_upgrade_services(frame, Some(services), observe_camera)
+        self.update_with_optional_upgrade_services(frame, Some(services), None, observe_camera)
     }
 
     fn update_with_optional_upgrade_services(
         &mut self,
         frame: u32,
         mut services: Option<&mut dyn UpgradeCompletionServices>,
+        mut load_screen_hooks: Option<&mut dyn crate::helpers::LoadScreenHooks>,
         observe_camera: impl FnOnce() -> Option<crate::helpers::CameraTimeObservation>,
     ) -> Result<(), GameLogicError> {
         self.last_update_was_empty_noop = false;
@@ -131,7 +143,12 @@ impl GameLogic {
         if crate::helpers::TheGameLogic::is_start_new_game_requested()
             && !crate::helpers::TheGameLogic::is_intro_movie_playing()
         {
-            if let Err(e) = self.start_new_game_now(false) {
+            if let Err(e) = self.start_new_game_now_with_load_screen_hooks(
+                false,
+                load_screen_hooks
+                    .as_mut()
+                    .map(|hook| &mut **hook as &mut dyn crate::helpers::LoadScreenHooks),
+            ) {
                 warn!("Deferred new-game start failed: {}", e);
             }
         }

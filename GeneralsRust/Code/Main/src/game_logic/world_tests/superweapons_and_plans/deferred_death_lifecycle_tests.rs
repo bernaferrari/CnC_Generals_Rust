@@ -386,7 +386,9 @@ fn declared_movement_authority_shadow_final_deletion_does_not_reenter_death_star
                     }
                     // update() increments after processing the current logic
                     // frame. At due, run the real AI phase before final cleanup.
-                    world.update_ai(&[id], 1.0 / 30.0);
+                    world
+                        .update_ai(&[id], 1.0 / 30.0)
+                        .expect("receiving AI operation succeeds");
                     let owner = world.host_object(id).unwrap();
                     assert!(owner.status.on_die_started);
                     assert_eq!(
@@ -627,7 +629,9 @@ fn coupled_default_structure_completion_retains_objects_until_explicit_delete() 
                     for frame in 1..=800 {
                         world.frame = frame;
                         {
-                            world.update_ai(&[id], 1.0 / 30.0);
+                            world
+                                .update_ai(&[id], 1.0 / 30.0)
+                                .expect("receiving AI operation succeeds");
                         }
                         shadow.sync_from_host(&world);
                         let _ = crate::gameworld_shadow::run_owned_host_boundary(
@@ -750,7 +754,9 @@ fn saved_zero_hp_dying_body_preserves_motion_and_final_deadline() {
     );
     for world in [&mut owner, &mut restored] {
         world.frame = due;
-        world.update_ai(&[id], 1.0 / 30.0);
+        world
+            .update_ai(&[id], 1.0 / 30.0)
+            .expect("receiving AI operation succeeds");
         world.process_destroy_list();
         assert!(
             world.host_object(id).is_none(),

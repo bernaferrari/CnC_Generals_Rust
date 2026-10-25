@@ -41,12 +41,9 @@ use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::{Snapshot as XferSnapshotTrait, Xfer, XferMode, XferStatus};
 use gamelogic::commands::command::CommandType;
 use gamelogic::common::audio::AudioEventRts as LogicAudioEventRts;
-use gamelogic::helpers::{
-    TerrainTreeRegistration, TheAudio, TheFXList, TheGameLogic, TheScriptEngine,
-};
+use gamelogic::helpers::{TerrainTreeRegistration, TheAudio, TheFXList, TheGameLogic, TheScriptEngine};
 use gamelogic::object::draw::W3DTreeDrawModuleData;
 use glam::{Mat4, Vec3};
-use kira::{AudioManager, AudioManagerSettings, DefaultBackend};
 
 use crate::core::game_client::{InGameUI, VideoPlayerInterface};
 use crate::gui::ingame_ui::MessageText;
@@ -1281,18 +1278,23 @@ impl SubsystemInterface for HeaderTemplateManagerSubsystem {
 }
 
 /// Lightweight window manager wrapper.
-#[derive(Default)]
-pub struct WindowManagerSubsystem;
+pub struct WindowManagerSubsystem {
+    owner: crate::gui::window_manager::WindowManagerOwner,
+}
 
 impl WindowManagerSubsystem {
     pub fn new() -> Self {
-        Self
+        Self::with_owner(crate::gui::window_manager::WindowManagerOwner::new())
+    }
+
+    pub fn with_owner(owner: crate::gui::window_manager::WindowManagerOwner) -> Self {
+        Self { owner }
     }
 }
 
 impl SubsystemInterface for WindowManagerSubsystem {
     fn init(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        crate::gui::window_manager::with_window_manager(|manager| manager.init());
+        self.owner.with_manager(|manager| manager.init());
         Ok(())
     }
 
@@ -1304,7 +1306,7 @@ impl SubsystemInterface for WindowManagerSubsystem {
     }
 
     fn update(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        crate::gui::window_manager::with_window_manager(|manager| manager.update());
+        self.owner.with_manager(|manager| manager.update());
         Ok(())
     }
 }
@@ -2608,35 +2610,29 @@ impl InGameUiHooks for InGameUiHandle {
     }
 }
 
-/// Audio subsystem backed by Kira.
+/// Client audio bridge. Playback is delivered through the existing Common
+/// backend; diagnostic state belongs to this subsystem's client.
 pub struct AudioSubsystem {
-    manager: Mutex<AudioManager<kira::DefaultBackend>>,
-    debug_state: Mutex<AudioDebugState>,
+    debug_state: AudioDebugState,
 }
 
 impl AudioSubsystem {
     pub fn new() -> Result<Self, Box<dyn std::error::Error>> {
-        let manager = AudioManager::new(AudioManagerSettings::default())?;
         Ok(Self {
-            manager: Mutex::new(manager),
-            debug_state: Mutex::new(AudioDebugState::new()),
+            debug_state: AudioDebugState::new(),
         })
     }
 
-    pub fn manager(&self) -> std::sync::MutexGuard<'_, AudioManager<kira::DefaultBackend>> {
-        self.manager.lock().unwrap_or_else(|e| e.into_inner())
-    }
-
     pub fn debug_snapshot(&self) -> AudioDebugSnapshot {
-        let state = self.debug_state.lock().unwrap_or_else(|e| e.into_inner());
+        let state = &self.debug_state;
         AudioDebugSnapshot {
             total_events: state.total_events,
             recent_events: state.recent_events.iter().cloned().collect(),
         }
     }
 
-    fn record_event(&self, event: &str, position: Option<Coord3D>) {
-        let mut state = self.debug_state.lock().unwrap_or_else(|e| e.into_inner());
+    fn record_event(&mut self, event: &str, position: Option<Coord3D>) {
+        let state = &mut self.debug_state;
         state.total_events = state.total_events.saturating_add(1);
         let timestamp_ms = state.start_time.elapsed().as_millis() as u64;
         state.recent_events.push_back(AudioDebugRecord {
@@ -2700,8 +2696,6 @@ impl crate::audio::GameAudio for AudioSubsystem {
             }
         }
 
-        // Hold the manager guard briefly to mirror the C++ audio accessor pattern.
-        let _guard = self.manager();
         Ok(())
     }
 }
@@ -3409,7 +3403,8 @@ mod tests {
         // C++ GameClient::reset (GameClient.cpp:426-457) never calls
         // TheWindowManager->reset()/winDestroyAll(). GAME_SHELL apply must
         // keep MainMenu.wnd:ButtonSinglePlayer (hq-3vo4).
-        crate::gui::window_manager::with_window_manager(|manager| {
+        let owner = crate::gui::window_manager::WindowManagerOwner::new();
+        owner.with_manager(|manager| {
             manager.reset();
             let window = manager
                 .create_window(None, 0, 0, 80, 24)
@@ -3420,10 +3415,10 @@ mod tests {
             assert!(manager.root_window_count() > 0);
         });
 
-        let mut subsystem = WindowManagerSubsystem::new();
+        let mut subsystem = WindowManagerSubsystem::with_owner(owner.clone());
         subsystem.reset().expect("WindowManagerSubsystem::reset");
 
-        crate::gui::window_manager::with_window_manager(|manager| {
+        owner.with_manager(|manager| {
             assert!(
                 manager.root_window_count() > 0,
                 "GameClient reset must not wipe WND roots"
@@ -3508,9 +3503,7 @@ mod tests {
 #[cfg(test)]
 mod radar_presentation_tests {
     use super::*;
-    use game_engine::common::system::radar::{
-        Coord3D as RadarPosition, RadarEventType, RadarSystem,
-    };
+    use game_engine::common::system::radar::{Coord3D as RadarPosition, RadarEventType, RadarSystem};
 
     #[test]
     fn radar_draw_admits_chirp_once_and_acks_only_supplied_owner() {
@@ -3566,9 +3559,7 @@ mod missing_client_snapshot_tests {
         ) {
             return;
         }
-        use crate::core::game_client::{
-            GameClient, clear_live_game_client, register_live_game_client,
-        };
+        use crate::core::game_client::{GameClient, clear_live_game_client, register_live_game_client};
         use game_engine::System::SaveGame::{
             AvailableGameInfo, BorrowedSnapshotBlock, GameState, SaveCode, SaveFileType,
             SaveGameInfo, SnapshotType,
@@ -3638,5 +3629,22 @@ mod missing_client_snapshot_tests {
         assert_eq!(marker.xfer(&mut writer), Err(XferStatus::InvalidData));
         assert_eq!(marker.crc(&mut writer), Err(XferStatus::InvalidData));
         assert_eq!(marker.load_post_process(), Err(XferStatus::InvalidData));
+    }
+}
+
+#[cfg(test)]
+mod client_audio_diagnostic_owner_tests {
+    use super::*;
+
+    #[test]
+    fn diagnostics_construct_without_an_unused_device_and_stay_client_owned() {
+        let mut first = AudioSubsystem::new().unwrap();
+        let peer = AudioSubsystem::new().unwrap();
+        first.record_event("OwnerEvent", None);
+        let recorded = first.debug_snapshot();
+        assert_eq!(recorded.total_events, 1);
+        assert_eq!(recorded.recent_events[0].name, "OwnerEvent");
+        assert_eq!(peer.debug_snapshot().total_events, 0);
+        assert!(peer.debug_snapshot().recent_events.is_empty());
     }
 }

@@ -73,7 +73,6 @@ mod booby_trap_persist;
 mod carpet_bomb_persist;
 mod client_drawable;
 mod client_drawable_xfer;
-mod dozer_repair_persist;
 mod game_client_save;
 mod game_state;
 mod hotkey_squad_persist;
@@ -222,3 +221,8 @@ mod repair_dock_persist;
 
 #[cfg(test)]
 mod promotion_owner_tests;
+
+pub(crate) mod base_ai_machine_persist;
+
+mod dozer_task_module;
+use dozer_task_module::DozerTaskObjectSnapshot;

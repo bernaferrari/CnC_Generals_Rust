@@ -31,9 +31,9 @@ impl GameLogic {
             observation.any_live_member = true;
             if object.has_ai_update_interface() {
                 observation.any_live_ai = true;
-                observation.all_ai_idle &= object.ai_state == AIState::Idle
+                observation.all_ai_idle &= object.ai_state() == AIState::Idle
                     || (matches!(
-                        object.ai_state,
+                        object.ai_state(),
                         AIState::GuardingArea | AIState::GuardingObject
                     ) && object.unit_ai_runtime.guard_phase()
                         == Some(crate::game_logic::object::unit_ai_runtime::GuardPhase::Idle));

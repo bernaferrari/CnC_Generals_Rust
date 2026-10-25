@@ -259,9 +259,7 @@ fn baikonur_launch_door_and_detonation() {
 #[test]
 fn spectre_orbit_spawns_howitzer_shell_objects() {
     use crate::game_logic::KindOf;
-    use crate::game_logic::audio_dispatch_impl::{
-        clear_test_template_voices, set_test_per_unit_sound,
-    };
+    use crate::game_logic::audio_dispatch_impl::{clear_test_template_voices, set_test_per_unit_sound};
     use crate::game_logic::special_power_strikes::{
         SPECTRE_HOWITZER_FIRE_SOUND, SPECTRE_HOWITZER_FOLLOW_LAG_FRAMES,
         SPECTRE_HOWITZER_HEIGHT_DIE_INITIAL_DELAY_FRAMES,
@@ -1200,9 +1198,7 @@ fn particle_cannon_emp_mid_beam_starts_decay_and_stops_killing() {
 #[test]
 fn emp_pulse_spawns_effect_spheroid_residual() {
     use crate::game_logic::KindOf;
-    use crate::game_logic::host_emp_pulse::{
-        EMP_PULSE_EFFECT_SPHEROID, EMP_SPHEROID_LIFETIME_FRAMES,
-    };
+    use crate::game_logic::host_emp_pulse::{EMP_PULSE_EFFECT_SPHEROID, EMP_SPHEROID_LIFETIME_FRAMES};
     let mut logic = GameLogic::new();
     ensure_test_tank_template(&mut logic);
     ensure_test_player_for_team(&mut logic, Team::China);
@@ -1307,9 +1303,7 @@ fn emp_pulse_spawns_effect_spheroid_residual() {
 #[test]
 fn emp_pulse_residual_disables_vehicles_in_radius() {
     use crate::command_system::{CommandType, GameCommand, PowerTarget, SpecialPowerType};
-    use crate::game_logic::host_emp_pulse::{
-        EMP_PULSE_DISABLED_DURATION_FRAMES, HOST_EMP_PULSE_RADIUS,
-    };
+    use crate::game_logic::host_emp_pulse::{EMP_PULSE_DISABLED_DURATION_FRAMES, HOST_EMP_PULSE_RADIUS};
 
     let mut game_logic = GameLogic::new();
     ensure_test_tank_template(&mut game_logic);
@@ -1769,7 +1763,9 @@ fn frenzy_residual_buffs_allies_and_boosts_damage() {
         .weapon_bonus_frenzy_until_frame;
     assert!(until > game_logic.frame);
     game_logic.frame = until;
-    game_logic.update_ai(&[ally_id], 1.0 / 60.0);
+    game_logic
+        .update_ai(&[ally_id], 1.0 / 60.0)
+        .expect("receiving AI operation succeeds");
     let recovered = game_logic.host_object(ally_id).expect("ally");
     assert!(
         !recovered.is_frenzy_buffed(),
@@ -2333,7 +2329,7 @@ fn strategy_center_battle_plan_residual_applies_unit_bonuses() {
             &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         ally.set_status_attacking(true);
-        ally.attack_substate = crate::game_logic::AttackSubState::AimAtTarget;
+        ally.set_attack_substate(crate::game_logic::AttackSubState::AimAtTarget);
         ally.status.is_aiming_weapon = false;
         ally.status.is_firing_weapon = false;
     }
@@ -3250,7 +3246,9 @@ fn pilot_find_vehicle_collide_module_would_like_residual() {
 
     assert!(!game_logic.honesty_pilot_find_vehicle_ok());
     game_logic.frame = PILOT_FIND_VEHICLE_SCAN_FRAMES;
-    game_logic.update_ai(&[pilot_id, heroic_id, elevated_id, ok_id], 1.0 / 30.0);
+    game_logic
+        .update_ai(&[pilot_id, heroic_id, elevated_id, ok_id], 1.0 / 30.0)
+        .expect("receiving AI operation succeeds");
 
     assert!(
         game_logic.honesty_pilot_find_vehicle_collide_ok(),
@@ -3278,7 +3276,9 @@ fn pilot_find_vehicle_collide_module_would_like_residual() {
             Some(ok_id),
             "must skip Heroic/elevated and target valid Rookie vehicle"
         );
-        game_logic.update_ai(&[pilot_id, heroic_id, elevated_id, ok_id], 1.0 / 30.0);
+        game_logic
+            .update_ai(&[pilot_id, heroic_id, elevated_id, ok_id], 1.0 / 30.0)
+            .expect("receiving AI operation succeeds");
     }
 
     let ok = game_logic.host_object(ok_id).expect("ok after recrew");
@@ -3304,9 +3304,7 @@ fn pilot_find_vehicle_collide_module_would_like_residual() {
 #[test]
 fn eject_pilot_invulnerable_time_residual() {
     use crate::game_logic::VeterancyLevel;
-    use crate::game_logic::host_usa_pilot::{
-        EJECT_PILOT_INVULNERABLE_FRAMES, EJECT_PILOT_TEMPLATE,
-    };
+    use crate::game_logic::host_usa_pilot::{EJECT_PILOT_INVULNERABLE_FRAMES, EJECT_PILOT_TEMPLATE};
 
     let mut game_logic = GameLogic::new();
     // C++ EjectPilotDie: authored module + OCL lists + live owner player;
@@ -3415,9 +3413,7 @@ fn eject_pilot_invulnerable_time_residual() {
 #[test]
 fn spectre_orbit_queues_voice_rapid_fire_once_per_fast_crossing() {
     use crate::game_logic::KindOf;
-    use crate::game_logic::audio_dispatch_impl::{
-        clear_test_template_voices, set_test_per_unit_sound,
-    };
+    use crate::game_logic::audio_dispatch_impl::{clear_test_template_voices, set_test_per_unit_sound};
     use crate::game_logic::special_power_strikes::{
         SPECTRE_GATTLING_CONTINUOUS_FIRE_TWO, SPECTRE_VOICE_RAPID_FIRE_SLOT,
     };

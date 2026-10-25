@@ -89,18 +89,15 @@ pub trait GamePauseHooks: Send + Sync {
 
 static GAME_PAUSE_HOOKS: OnceLock<Arc<dyn GamePauseHooks>> = OnceLock::new();
 
-/// Hooks provided by GameClient so GameLogic can drive the visible C++
-/// LoadScreen lifecycle while the map initialization path is running.
-pub trait LoadScreenHooks: Send + Sync {
-    fn begin_load_screen(&self, game_mode: Int, loading_save_game: Bool);
-    fn update_load_screen(&self, progress: Int);
-    fn run_load_screen_completion_transition(&self, _loading_save_game: Bool) {}
-    fn end_load_screen(&self);
-}
-
-fn load_screen_hooks_slot() -> &'static Mutex<Option<Arc<dyn LoadScreenHooks>>> {
-    static LOAD_SCREEN_HOOKS: OnceLock<Mutex<Option<Arc<dyn LoadScreenHooks>>>> = OnceLock::new();
-    LOAD_SCREEN_HOOKS.get_or_init(|| Mutex::new(None))
+/// Borrowed receiving-client callbacks for the synchronous map-load operation.
+///
+/// These hooks are passed down the active GameLogic call stack; they are never
+/// registered process-wide or retained after the load operation returns.
+pub trait LoadScreenHooks {
+    fn begin_load_screen(&mut self, game_mode: Int, loading_save_game: Bool);
+    fn update_load_screen(&mut self, progress: Int);
+    fn run_load_screen_completion_transition(&mut self, _loading_save_game: Bool) {}
+    fn end_load_screen(&mut self);
 }
 
 /// Hooks provided by GameClient so gameplay-side audio locality can query
@@ -135,40 +132,6 @@ pub fn register_game_pause_hooks(hooks: Arc<dyn GamePauseHooks>) -> bool {
 
 fn game_pause_hooks() -> Option<&'static Arc<dyn GamePauseHooks>> {
     GAME_PAUSE_HOOKS.get()
-}
-
-pub fn register_load_screen_hooks(hooks: Arc<dyn LoadScreenHooks>) -> bool {
-    let mut slot = load_screen_hooks_slot()
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
-    *slot = Some(hooks);
-    true
-}
-
-#[cfg(test)]
-pub fn clear_load_screen_hooks() {
-    let mut slot = load_screen_hooks_slot()
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
-    *slot = None;
-}
-
-fn with_load_screen_hooks<F>(f: F) -> bool
-where
-    F: FnOnce(&dyn LoadScreenHooks),
-{
-    let hooks = {
-        let slot = load_screen_hooks_slot()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        slot.clone()
-    };
-    if let Some(hooks) = hooks {
-        f(hooks.as_ref());
-        true
-    } else {
-        false
-    }
 }
 
 pub fn register_observer_audio_locality_hooks(hooks: Arc<dyn ObserverAudioLocalityHooks>) -> bool {

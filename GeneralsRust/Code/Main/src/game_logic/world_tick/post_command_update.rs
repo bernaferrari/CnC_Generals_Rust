@@ -61,7 +61,9 @@ impl GameLogic {
         // / PoisonField stack / B52 DeliverPayload / door loft path.
         // Wave 827: host-sole unless movement authority live: host system residuals sole-tick after GW writeback.
         {
-            self.update_special_power_strikes_with_effects(&mut ui);
+            if let Err(error) = self.update_special_power_strikes_with_effects(&mut ui) {
+                return SimulationStepOutcome::Failed(error);
+            }
         }
         // Gate: no radiation field spawned this frame -> the residual is a
         // pure no-op (its own pending build early-returns empty). Skip the
@@ -134,7 +136,9 @@ impl GameLogic {
         }
         // Wave 817: host-sole unless movement authority live: crate lifetime owned by GW expire + logs.
         {
-            self.update_crate_deletion_updates_with_effects(&mut ui);
+            if let Err(error) = self.update_crate_deletion_updates_with_effects(&mut ui) {
+                return SimulationStepOutcome::Failed(error);
+            }
         }
 
         // Host GLA Rebel Ambush residual: leftover OCLSpecialPower CreateObject
@@ -419,7 +423,9 @@ impl GameLogic {
         // RadarVanPing DeletionUpdate residual + FOW undo.
         // Wave 809: host-sole unless movement authority live: lifetime owned by GW expire + logs.
         {
-            self.update_radar_van_pings_with_effects(&mut ui);
+            if let Err(error) = self.update_radar_van_pings_with_effects(&mut ui) {
+                return SimulationStepOutcome::Failed(error);
+            }
         }
         self.update_radar_scans_with_effects(&mut ui);
 
@@ -427,7 +433,9 @@ impl GameLogic {
         // Fail-closed vs full OCL SpySatellitePing / DynamicShroudClearingRangeUpdate.
         // Wave 803: host-sole unless movement authority live: residual owned by GW expire + logs.
         {
-            self.update_spy_satellite_pings_with_effects(&mut ui);
+            if let Err(error) = self.update_spy_satellite_pings_with_effects(&mut ui) {
+                return SimulationStepOutcome::Failed(error);
+            }
         }
         self.update_spy_satellites_with_effects(&mut ui);
         crate::command_executor::tick_live_beacon_client_updates(self);
@@ -441,7 +449,9 @@ impl GameLogic {
         // FireWallSegment object DeletionUpdate residual + zone damage ticks.
         // Wave 826: host-sole unless movement authority live: combat/field residuals sole-tick after GW writeback.
         {
-            self.update_firewall_segment_objects_with_effects(&mut ui);
+            if let Err(error) = self.update_firewall_segment_objects_with_effects(&mut ui) {
+                return SimulationStepOutcome::Failed(error);
+            }
         }
         // Wave 825: host-sole unless movement authority live: zone/field damage sole-ticks after GW writeback.
         {
@@ -572,30 +582,42 @@ impl GameLogic {
         // Wave 789: host-sole unless movement authority live: AnthraxBomb flight is owned by
         // GW tick_status_timer_expirations + drop/detonate logs.
         {
-            self.update_anthrax_bomb_flights_with_effects(&mut ui);
+            if let Err(error) = self.update_anthrax_bomb_flights_with_effects(&mut ui) {
+                return SimulationStepOutcome::Failed(error);
+            }
         }
         // Wave 790: host-sole unless movement authority live: ClusterMines flight is owned by
         // GW tick_status_timer_expirations + drop/detonate logs.
         {
-            self.update_cluster_mines_flights_with_effects(&mut ui);
+            if let Err(error) = self.update_cluster_mines_flights_with_effects(&mut ui) {
+                return SimulationStepOutcome::Failed(error);
+            }
         }
         // Wave 791: host-sole unless movement authority live: EMP Pulse flight + spheroid is owned by
         // GW tick_status_timer_expirations + drop/detonate/expire logs.
         {
-            self.update_emp_pulse_spheroids_with_effects(&mut ui);
-            self.update_emp_pulse_flights_with_effects(&mut ui);
+            if let Err(error) = self.update_emp_pulse_spheroids_with_effects(&mut ui) {
+                return SimulationStepOutcome::Failed(error);
+            }
+            if let Err(error) = self.update_emp_pulse_flights_with_effects(&mut ui) {
+                return SimulationStepOutcome::Failed(error);
+            }
         }
         // Gate: no frenzy marker spawns or due deletes -> the take-drain is a
         // state-identical no-op (both-empty mem::takes leave both empty).
         if !(self.frenzies.pending_marker_deletes.is_empty()
             && self.frenzies.markers_this_frame.is_empty())
         {
-            self.update_frenzy_invisible_markers_with_effects(&mut ui);
+            if let Err(error) = self.update_frenzy_invisible_markers_with_effects(&mut ui) {
+                return SimulationStepOutcome::Failed(error);
+            }
         } else {
             #[cfg(test)]
             residual_gate_seam::note(&residual_gate_seam::FRENZY_MARKERS);
         }
-        self.update_gps_scrambler_grow_with_effects(&mut ui);
+        if let Err(error) = self.update_gps_scrambler_grow_with_effects(&mut ui) {
+            return SimulationStepOutcome::Failed(error);
+        }
         // Gate: no growing spy-drone activation -> the fn early-returns
         // before any world work; skip the activation scan entirely.
         if self.spy_drones.activations_mut().iter().any(|a| a.growing) {
@@ -667,18 +689,28 @@ impl GameLogic {
         self.update_combat_with_effects(&object_ids, dt, &mut ui);
         self.mirror_overlord_addon_damage_after_combat_with_effects(&mut ui);
         self.flush_pending_garrison_really_damaged_ejects_with_effects(&mut ui);
-        self.flush_subdual_passenger_orders();
+        if let Err(error) = self.flush_subdual_passenger_orders_with_effects(&mut ui) {
+            return SimulationStepOutcome::Failed(error);
+        }
         // Nested AttackStateMachine residual (privateAttackObject enter path).
         let frame = self.frame;
         let t = frame as f32 * LOGIC_FRAME_TIMESTEP;
-        self.tick_nested_attack_machines_with_effects(&object_ids, t, frame, &mut ui);
+        if let Err(error) =
+            self.tick_nested_attack_machines_with_effects(&object_ids, t, frame, &mut ui)
+        {
+            return SimulationStepOutcome::Failed(error);
+        }
         self.tick_all_turret_state_machines_with_effects(&object_ids, t, frame, &mut ui);
         self.sync_attack_priority_from_script_engine();
         self.tick_mood_auto_acquire(&object_ids);
         self.tick_attack_team_persist(&object_ids);
         self.tick_attack_area_persist(&object_ids);
-        self.tick_out_of_ammo_jet_damage_with_effects(&mut ui);
-        self.tick_airfield_parking_heal_with_effects(&mut ui);
+        if let Err(error) = self.tick_out_of_ammo_jet_damage_with_effects(&mut ui) {
+            return SimulationStepOutcome::Failed(error);
+        }
+        if let Err(error) = self.tick_airfield_parking_heal_with_effects(&mut ui) {
+            return SimulationStepOutcome::Failed(error);
+        }
         self.tick_airfield_runway_clear();
         self.tick_shock_stun_all_with_effects(&mut ui);
         // C++ PartitionManager collide residual (broadphase fail-closed O(n²)).
@@ -718,7 +750,11 @@ impl GameLogic {
                 o.last_damage_source
                     .and_then(|src| self.objects.get(&src).map(|s| s.team))
             });
-            self.mark_object_for_destruction_with_effects(victim, killer, &mut ui);
+            if let Err(error) =
+                self.mark_object_for_destruction_with_effects(victim, killer, &mut ui)
+            {
+                return SimulationStepOutcome::Failed(error);
+            }
         }
         // Wave 470: countermeasure flare spawn/object residual stays host-owned
         // even when GameWorld sole-integrates projectile flight.
@@ -857,10 +893,14 @@ impl GameLogic {
         // Object AI is part of the object/module pass, before the system AI
         // queue drain (C++ GameLogic.cpp:3699-3743). The existing owned host
         // executes these module families directly.
-        self.update_ai_with_effects(&object_ids, dt, &mut ui);
+        if let Err(error) = self.update_ai_with_effects(&object_ids, dt, &mut ui) {
+            return SimulationStepOutcome::Failed(error);
+        }
 
         // Phase 8: C++ AI::update — pathfinding, then this match's players.
-        self.update_match_ai_with_effects(&mut ui);
+        if let Err(error) = self.update_match_ai_with_effects(&mut ui) {
+            return SimulationStepOutcome::Failed(error);
+        }
         if let Some(error) = self.team_creation_error() {
             return SimulationStepOutcome::Failed(error);
         }
@@ -882,7 +922,9 @@ impl GameLogic {
         // frame can be immediately reflected.
         // Drain prior-frame upgrade presentation events before research advances.
         self.host_upgrades.clear_frame_events();
-        self.update_production_with_effects(dt, &mut ui);
+        if let Err(error) = self.update_production_with_effects(dt, &mut ui) {
+            return SimulationStepOutcome::Failed(error);
+        }
         // Wave 827: host-sole unless movement authority live: host system residuals sole-tick after GW writeback.
         {
             self.update_player_upgrades_with_effects(&mut ui);
@@ -914,7 +956,9 @@ impl GameLogic {
         // Fail-closed: not full unpack/pack state machine / variation factor.
         // Wave 822: host-sole unless movement authority live: Hacker income owned by GW expire + logs.
         {
-            self.update_hacker_income();
+            if let Err(error) = self.update_hacker_income_with_effects(&mut ui) {
+                return SimulationStepOutcome::Failed(error);
+            }
         }
         // America Supply Drop Zone residual: OCL schedules cargo DeliverPayload
         // residual; cash credits after approach delay + crate spawn.
@@ -959,7 +1003,9 @@ impl GameLogic {
         }
         // C++ BridgeBehavior/Tower onDamage/onHealing/onDie + scaffold rise tick.
         // Residual drain is same-frame after object combat/AI/repair and destroy.
-        self.sync_host_bridge_rubble_and_scaffolds_with_effects(&mut ui);
+        if let Err(error) = self.sync_host_bridge_rubble_and_scaffolds_with_effects(&mut ui) {
+            return SimulationStepOutcome::Failed(error);
+        }
 
         // -----------------------------------------------------------------------
         // Phase 14: Weapon Store Update (C++ line 3767)
@@ -1047,11 +1093,6 @@ impl GameLogic {
         // Post-phase: Audio events
         // -----------------------------------------------------------------------
         self.process_audio_events();
-
-        // C++ DozerAIUpdate.cpp:318-348 — PICK_ACTION_POS re-issues the dozer
-        // approach until arrival; run after the follower phase so a re-issued
-        // path installs on the next frame's movement tick.
-        self.reissue_dozer_approaches();
 
         // C++ GameLogic.cpp:3795-3803: the full update completed, so the step
         // loop owns the m_frame++ / sim-time advancement.

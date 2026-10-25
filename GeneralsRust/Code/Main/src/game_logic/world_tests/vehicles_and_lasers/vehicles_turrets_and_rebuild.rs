@@ -328,9 +328,7 @@ fn runway_reserve_requires_jet_stall() {
 
 #[test]
 fn private_attack_object_enters_attack_state_machine() {
-    use crate::game_logic::{
-        AttackSubState, KindOf, Object, ObjectId, Team, ThingTemplate, Weapon,
-    };
+    use crate::game_logic::{AttackSubState, KindOf, Object, ObjectId, Team, ThingTemplate, Weapon};
     use glam::Vec3;
     let mut logic = GameLogic::new();
     let mut at = ThingTemplate::new("PaA");
@@ -361,13 +359,13 @@ fn private_attack_object_enters_attack_state_machine() {
     assert!(logic.private_attack_object(aid, vid, -1));
     assert!(logic.objects[&aid].status.is_aiming_weapon);
     assert_eq!(
-        logic.objects[&aid].attack_substate,
+        logic.objects[&aid].attack_substate(),
         AttackSubState::AimAtTarget
     );
     // Nested tick should promote Aim → Fire when facing.
     logic.tick_nested_attack_machines(&[aid], 10.0, 1);
     assert_eq!(
-        logic.objects[&aid].attack_substate,
+        logic.objects[&aid].attack_substate(),
         AttackSubState::FireWeapon
     );
 }
@@ -685,9 +683,7 @@ fn tick_turret_aim_continues_while_turning() {
 
 #[test]
 fn turret_move_loop_plays_authored_event_and_stops() {
-    use crate::game_logic::audio_dispatch_impl::{
-        clear_test_template_voices, set_test_per_unit_sound,
-    };
+    use crate::game_logic::audio_dispatch_impl::{clear_test_template_voices, set_test_per_unit_sound};
     use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate, Weapon};
     use glam::Vec3;
     clear_test_template_voices();
@@ -808,9 +804,7 @@ fn turret_move_loop_missing_unit_sound_stays_silent() {
 
 #[test]
 fn voice_rapid_fire_plays_authored_per_unit_sound() {
-    use crate::game_logic::audio_dispatch_impl::{
-        clear_test_template_voices, set_test_per_unit_sound,
-    };
+    use crate::game_logic::audio_dispatch_impl::{clear_test_template_voices, set_test_per_unit_sound};
     use crate::game_logic::host_gattling_tank::GattlingFireLevel;
     use crate::game_logic::{KindOf, ObjectId, Team, ThingTemplate};
     use glam::Vec3;
@@ -954,9 +948,7 @@ fn continuous_fire_coast_deadline_uses_fired_shot_level() {
         GATTLING_BASE_DELAY_FRAMES, GATTLING_COAST_FRAMES, GATTLING_CONTINUOUS_FIRE_ONE,
         GattlingFireLevel, gattling_delay_frames_for_level,
     };
-    use crate::game_logic::host_minigunner::{
-        MINIGUNNER_BASE_DELAY_FRAMES, MINIGUNNER_COAST_FRAMES,
-    };
+    use crate::game_logic::host_minigunner::{MINIGUNNER_BASE_DELAY_FRAMES, MINIGUNNER_COAST_FRAMES};
     use crate::game_logic::{KindOf, ObjectId, Team, ThingTemplate};
     use glam::Vec3;
 
@@ -1231,9 +1223,7 @@ fn want_to_squish_honors_ally_computer_and_dont_auto_crush() {
 
 #[test]
 fn attack_state_machine_oor_chases_fleeing_victim() {
-    use crate::game_logic::{
-        AttackSubState, KindOf, Object, ObjectId, Team, ThingTemplate, Weapon,
-    };
+    use crate::game_logic::{AttackSubState, KindOf, Object, ObjectId, Team, ThingTemplate, Weapon};
     use glam::Vec3;
     let mut logic = GameLogic::new();
     let mut at = ThingTemplate::new("ChaseA");
@@ -1272,16 +1262,14 @@ fn attack_state_machine_oor_chases_fleeing_victim() {
     let r = logic.tick_attack_state_machine(aid, vid, 10.0, 1, 1.0);
     assert_eq!(r, AttackMachineResult::Continue);
     assert_eq!(
-        logic.objects[&aid].attack_substate,
+        logic.objects[&aid].attack_substate(),
         AttackSubState::ChaseTarget
     );
 }
 
 #[test]
 fn attack_state_machine_oor_approaches_stationary_victim() {
-    use crate::game_logic::{
-        AttackSubState, KindOf, Object, ObjectId, Team, ThingTemplate, Weapon,
-    };
+    use crate::game_logic::{AttackSubState, KindOf, Object, ObjectId, Team, ThingTemplate, Weapon};
     use glam::Vec3;
     let mut logic = GameLogic::new();
     let mut at = ThingTemplate::new("AppA");
@@ -1318,16 +1306,14 @@ fn attack_state_machine_oor_approaches_stationary_victim() {
     let r = logic.tick_attack_state_machine(aid, vid, 10.0, 1, 1.0);
     assert_eq!(r, AttackMachineResult::Continue);
     assert_eq!(
-        logic.objects[&aid].attack_substate,
+        logic.objects[&aid].attack_substate(),
         AttackSubState::ApproachTarget
     );
 }
 
 #[test]
 fn attack_chase_drops_when_victim_stops_fleeing() {
-    use crate::game_logic::{
-        AttackSubState, KindOf, Object, ObjectId, Team, ThingTemplate, Weapon,
-    };
+    use crate::game_logic::{AttackSubState, KindOf, Object, ObjectId, Team, ThingTemplate, Weapon};
     use glam::Vec3;
     let mut logic = GameLogic::new();
     let mut at = ThingTemplate::new("DropA");
@@ -1341,7 +1327,7 @@ fn attack_chase_drops_when_victim_stops_fleeing() {
             range: 30.0,
             ..Default::default()
         });
-        o.attack_substate = AttackSubState::ChaseTarget;
+        o.set_attack_substate(AttackSubState::ChaseTarget);
         o
     });
     let mut vt = ThingTemplate::new("DropV");
@@ -1356,16 +1342,14 @@ fn attack_chase_drops_when_victim_stops_fleeing() {
     let r = logic.tick_attack_state_machine(aid, vid, 10.0, 1, 1.0);
     assert_eq!(r, AttackMachineResult::Continue);
     assert_eq!(
-        logic.objects[&aid].attack_substate,
+        logic.objects[&aid].attack_substate(),
         AttackSubState::ApproachTarget
     );
 }
 
 #[test]
 fn attack_chase_crush_floors_to_fast_as_possible() {
-    use crate::game_logic::{
-        AttackSubState, KindOf, Object, ObjectId, Team, ThingTemplate, Weapon,
-    };
+    use crate::game_logic::{AttackSubState, KindOf, Object, ObjectId, Team, ThingTemplate, Weapon};
     use glam::Vec3;
     let mut logic = GameLogic::new();
     let mut at = ThingTemplate::new("CrushTank");
@@ -1387,7 +1371,7 @@ fn attack_chase_crush_floors_to_fast_as_possible() {
             can_target_ground: true,
             ..Default::default()
         });
-        o.attack_substate = AttackSubState::ChaseTarget;
+        o.set_attack_substate(AttackSubState::ChaseTarget);
         o
     });
     let mut vt = ThingTemplate::new("CrushInf");
@@ -1406,7 +1390,7 @@ fn attack_chase_crush_floors_to_fast_as_possible() {
     let r = logic.tick_attack_state_machine(aid, vid, 10.0, 1, 1.0);
     assert_eq!(r, AttackMachineResult::Continue);
     let tank = &logic.objects[&aid];
-    assert_eq!(tank.attack_substate, AttackSubState::ChaseTarget);
+    assert_eq!(tank.attack_substate(), AttackSubState::ChaseTarget);
     assert!(
         (tank.group_speed_factor - 1.0).abs() < 1e-5,
         "canCrushOrSquish must floor to FAST_AS_POSSIBLE, factor={}",
@@ -1544,9 +1528,7 @@ fn update_combat_temp_lock_waits_instead_of_firing_primary() {
 fn choose_best_and_attack_ground_reset_primary_unless_locked() {
     // hq-xpdwb: unlocked chooseBest/attack-ground leftover-resets PRIMARY.
     // A leftover PreferMostDamage SECONDARY (Humvee TOW) must not stick.
-    use crate::game_logic::{
-        KindOf, Object, ObjectId, Team, ThingTemplate, Weapon, WeaponLockType,
-    };
+    use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate, Weapon, WeaponLockType};
     let mut logic = GameLogic::new();
     let mut at = ThingTemplate::new("GroundResetHumvee");
     at.add_kind_of(KindOf::Vehicle);
@@ -1586,7 +1568,7 @@ fn choose_best_and_attack_ground_reset_primary_unless_locked() {
         logic.objects[&aid].active_weapon_slot, 0,
         "unlocked attack-ground leftover-resets PRIMARY"
     );
-    assert_eq!(logic.objects[&aid].ai_state, AIState::AttackingGround);
+    assert_eq!(logic.objects[&aid].ai_state(), AIState::AttackingGround);
 
     assert!(
         logic
@@ -2218,7 +2200,11 @@ fn reconstructing_death_transfers_attackers_back_to_hole() {
         );
         a.target = Some(rid);
     }
-    assert!(logic.handle_reconstructing_death(rid));
+    assert!(
+        logic
+            .handle_reconstructing_death(rid)
+            .expect("reconstruction death handling")
+    );
     assert!(logic.rebuild_hole_recon_deaths > 0);
     assert_eq!(logic.host_object(aid).unwrap().target, Some(hole));
     let h = logic.host_object(hole).unwrap();
@@ -2732,7 +2718,11 @@ fn rebuild_hole_and_scaffold_death_destroys_worker() {
             h.rebuild_worker_id.expect("worker"),
         )
     };
-    assert!(logic.handle_reconstructing_death(rid));
+    assert!(
+        logic
+            .handle_reconstructing_death(rid)
+            .expect("reconstruction death handling")
+    );
     assert!(
         logic.host_object(hole).unwrap().rebuild_worker_id.is_none(),
         "scaffold death must drop the worker id"

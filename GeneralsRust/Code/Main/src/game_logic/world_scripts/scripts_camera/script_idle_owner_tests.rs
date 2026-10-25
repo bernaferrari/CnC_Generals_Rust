@@ -32,7 +32,7 @@ fn roster(owner: &GameLogic, unit: ObjectId) -> u32 {
 }
 fn assert_idle(owner: &GameLogic, unit: ObjectId) {
     let object = owner.host_object(unit).unwrap();
-    assert_eq!(object.ai_state, AIState::Idle);
+    assert_eq!(object.ai_state(), AIState::Idle);
     assert_eq!(object.target, None);
     assert_eq!(object.requested_destination, None);
     assert_eq!(object.formation_id, 19);
@@ -83,7 +83,7 @@ fn named_stop_preserves_group_and_locomotor_in_the_driving_owner() {
         Some(peer_target)
     );
     assert_eq!(
-        peer.host_object(peer_unit).unwrap().ai_state,
+        peer.host_object(peer_unit).unwrap().ai_state(),
         AIState::Attacking
     );
 }
@@ -113,7 +113,10 @@ fn timed_guard_uses_idle_without_guard_or_peer_mutation() {
             .unwrap();
         run(&engine, &mut owner, &action);
         assert_idle(&owner, unit);
-        assert_eq!(owner.host_object(unit).unwrap().guard_position, None);
+        assert_eq!(
+            owner.host_object(unit).unwrap().active_guard_position(),
+            None
+        );
         assert_eq!(
             peer.host_object(peer_unit).unwrap().target,
             Some(peer_target)
@@ -147,7 +150,7 @@ fn missing_sequential_script_preserves_live_ai_then_valid_script_idles_before_ap
     run(&engine, &mut owner, &action);
     assert_eq!(owner.host_object(unit).unwrap().target, Some(target));
     assert_eq!(
-        owner.host_object(unit).unwrap().ai_state,
+        owner.host_object(unit).unwrap().ai_state(),
         AIState::Attacking
     );
     assert!(!engine.has_active_sequential_script_for_team(team));
@@ -166,7 +169,7 @@ fn missing_sequential_script_preserves_live_ai_then_valid_script_idles_before_ap
         Some(peer_target)
     );
     assert_eq!(
-        peer.host_object(peer_unit).unwrap().ai_state,
+        peer.host_object(peer_unit).unwrap().ai_state(),
         AIState::Attacking
     );
 }

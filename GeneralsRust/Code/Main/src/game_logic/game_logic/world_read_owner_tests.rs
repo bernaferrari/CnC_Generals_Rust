@@ -56,7 +56,7 @@ End
     object.status.under_construction = true;
     object.movement.target_position = Some(Vec3::new(x + 10.0, 0.0, 12.0));
     object.target = Some(target);
-    object.attack_substate = crate::game_logic::AttackSubState::ApproachTarget;
+    object.set_attack_substate(crate::game_logic::AttackSubState::ApproachTarget);
     if let Some(building) = object.building_data.as_mut() {
         building.garrisoned_units = vec![target];
     } else {

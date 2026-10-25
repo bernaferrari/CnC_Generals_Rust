@@ -211,7 +211,7 @@ fn china_wall_linebuild_uses_first_constructor_full_body_and_no_cash_debit() {
     }
     for id in [first, second] {
         let builder = a.host_object(id).unwrap();
-        assert_eq!(builder.ai_state, AIState::Idle);
+        assert_eq!(builder.ai_state(), AIState::Idle);
         assert!(builder.dozer_task_build_target.is_none());
         assert!(builder.movement.target_position.is_none());
     }
@@ -356,7 +356,7 @@ fn blocked_ordinary_line_preserves_the_prior_real_dozer_task_and_order() {
         .expect("real single command must create a task");
     let prior_order = builder.target;
     let prior_destination = builder.movement.target_position;
-    let prior_state = builder.ai_state.clone();
+    let prior_state = builder.ai_state().clone();
     assert_eq!(prior_state, AIState::Moving);
     assert!(prior_destination.is_some());
     let prior_object = world.host_object(prior_task).unwrap();
@@ -388,7 +388,7 @@ fn blocked_ordinary_line_preserves_the_prior_real_dozer_task_and_order() {
     assert_eq!(builder.dozer_task_build_target, Some(prior_task));
     assert_eq!(builder.target, prior_order);
     assert_eq!(builder.movement.target_position, prior_destination);
-    assert_eq!(builder.ai_state, prior_state);
+    assert_eq!(builder.ai_state(), prior_state);
     assert_eq!(
         world
             .host_objects()
@@ -538,7 +538,7 @@ fn linebuild_authored_facing_controls_rotated_footprints_in_the_driving_world() 
             walls.len() as u32 * 100
         );
         for id in [*first, *second] {
-            assert_eq!(world.host_object(id).unwrap().ai_state, AIState::Idle);
+            assert_eq!(world.host_object(id).unwrap().ai_state(), AIState::Idle);
             assert!(
                 world
                     .host_object(id)

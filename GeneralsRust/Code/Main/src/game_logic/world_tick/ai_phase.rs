@@ -12,27 +12,29 @@ impl GameLogic {
     /// Compatibility registries are never consulted to choose another driver.
     pub(in super::super) fn update_match_ai(&mut self) {
         self.update_match_ai_with_effects(&mut Default::default())
+            .expect("match AI update failed");
     }
 
     pub(in super::super) fn update_match_ai_with_effects(
         &mut self,
         ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         // AIStates.cpp:2052-2085 updates the selected object goal during
         // object AI; AI.cpp:332 then consumes its path queue. Re-read the
         // driving object here so queued work sees this frame's goal pose.
         let object_ids: Vec<_> = self.objects.registered_keys().copied().collect();
         self.refresh_movement_goal_objects(&object_ids);
-        self.reissue_pending_moves();
+        self.reissue_pending_moves()?;
         self.process_pathfind_queue();
         let current_time = self.sim_time_seconds;
-        crate::ai::AIManager::update_owned_with_effects(self, current_time, ui);
+        crate::ai::AIManager::update_owned_with_effects(self, current_time, ui)?;
+        Ok(())
     }
     // Explicit UI-only adapter for standalone callers; native roots lend both domains.
     pub(in super::super) fn update_match_ai_with_ui(
         &mut self,
         ui: &mut Option<&mut dyn crate::game_logic::ScriptUiEffects>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         let mut effects = crate::game_logic::ScriptPresentationEffects {
             script_events: None,
             partition: None,

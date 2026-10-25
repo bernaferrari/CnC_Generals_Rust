@@ -1,95 +1,25 @@
 use super::*;
 
 #[allow(dead_code)]
-fn leftover_auto_acquire_idle_bits(template_name: &str) -> u32 {
-    leftover_factory_auto_acquire_bits(template_name).unwrap_or(0)
-}
-
 #[allow(dead_code)]
-fn leftover_auto_acquire_idle_yes(template_name: &str) -> bool {
-    (leftover_auto_acquire_idle_bits(template_name)
-        & gamelogic::object::update::ai_update_interface::AUTO_ACQUIRE_IDLE)
-        != 0
-}
-
-fn leftover_factory_auto_acquire_bits(template_name: &str) -> Option<u32> {
-    leftover_factory_ai_update_bits(template_name).map(|(bits, _)| bits)
-}
-
-fn leftover_factory_forbid_player_commands(template_name: &str) -> bool {
-    leftover_factory_ai_update_bits(template_name)
-        .map(|(_, forbid)| forbid)
-        .unwrap_or(false)
-}
 
 /// C++ `ThingTemplate::getOcclusionDelay()`. Leftover factory when loaded,
 /// else GameData DefaultOcclusionDelay 3000ms → 90f.
-fn template_occlusion_delay_frames(template_name: &str) -> u32 {
-    (|| {
-        let guard = game_engine::common::thing::thing_factory::try_get_thing_factory()?;
-        let factory = guard.as_ref()?;
-        let tmpl = factory.find_template(template_name, false)?;
-        Some(tmpl.get_occlusion_delay())
-    })()
-    .unwrap_or(
-        crate::game_logic::host_gamedata_lobby_residual::DEFAULT_OCCLUSION_DELAY_FRAMES_RESIDUAL
-            as u32,
-    )
+fn template_occlusion_delay_frames(template: &ThingTemplate) -> u32 {
+    template
+        .receiving_client_template
+        .as_ref()
+        .map(|definition| definition.occlusion_delay_frames())
+        .unwrap_or(
+            crate::game_logic::host_gamedata_lobby_residual::DEFAULT_OCCLUSION_DELAY_FRAMES_RESIDUAL
+                as u32,
+        )
 }
 
-fn leftover_factory_ai_update_bits(template_name: &str) -> Option<(u32, bool)> {
-    let guard = game_engine::common::thing::thing_factory::try_get_thing_factory()?;
-    let factory = guard.as_ref()?;
-    let tmpl = factory.find_template(template_name, false)?;
-    for entry in tmpl.get_behavior_module_info().iter() {
-        let name = entry.name.as_str();
-        if !name_is_ai_update_module(name) {
-            continue;
-        }
-        if let Some(bits) = leftover_typed_auto_acquire(entry.data.as_ref()) {
-            let forbid = leftover_typed_forbid_player(entry.data.as_ref());
-            return Some((bits, forbid));
-        }
-        if let Some(text) = entry.data.get_ini_field("AutoAcquireEnemiesWhenIdle") {
-            let bits = parse_auto_acquire_idle_bits(text);
-            let forbid = entry
-                .data
-                .get_ini_field("ForbidPlayerCommands")
-                .is_some_and(parse_ini_yes);
-            return Some((bits, forbid));
-        }
-    }
-    None
-}
 /// True only when the template's AI behavior is `WorkerAIUpdate`, not `DozerAIUpdate`.
-pub(crate) fn template_has_worker_ai_update(template_name: &str) -> bool {
-    use gamelogic::object::update::ai_update::WorkerAIUpdateModuleData;
-    let Some(guard) = game_engine::common::thing::thing_factory::try_get_thing_factory() else {
-        return false;
-    };
-    let Some(factory) = guard.as_ref() else {
-        return false;
-    };
-    let Some(tmpl) = factory.find_template(template_name, false) else {
-        return false;
-    };
-    tmpl.get_behavior_module_info().iter().any(|entry| {
-        entry
-            .data
-            .as_any()
-            .downcast_ref::<WorkerAIUpdateModuleData>()
-            .is_some()
-    })
-}
 
 fn parse_ini_real(text: Option<&str>) -> Option<f32> {
     text.and_then(|t| t.trim().parse().ok())
-}
-
-fn name_is_ai_update_module(name: &str) -> bool {
-    name.eq_ignore_ascii_case("AIUpdateInterface")
-        || name.eq_ignore_ascii_case("AIUpdate")
-        || name.to_ascii_lowercase().ends_with("aiupdate")
 }
 
 fn leftover_typed_auto_acquire(
@@ -339,13 +269,17 @@ impl Object {
             template.body_initial_health.unwrap_or(max_health)
         };
         initial_status.effectively_dead |= inactive_body;
-        let auto_acquire_idle_bits = leftover_factory_auto_acquire_bits(&template_name)
-            .unwrap_or(template.auto_acquire_enemies_when_idle);
+        let (auto_acquire_idle_bits, forbid_player_commands) = template
+            .receiving_client_template
+            .as_ref()
+            .and_then(|definition| definition.receiving_ai_policy())
+            .unwrap_or((
+                template.auto_acquire_enemies_when_idle,
+                template.forbid_player_commands,
+            ));
         let auto_acquire_when_idle = (auto_acquire_idle_bits
             & gamelogic::object::update::ai_update_interface::AUTO_ACQUIRE_IDLE)
             != 0;
-        let forbid_player_commands = leftover_factory_forbid_player_commands(&template_name)
-            || template.forbid_player_commands;
 
         let locomotor_set_names = template.locomotor_set_names.clone();
         let cur_locomotor_name = template.locomotor_name.clone();
@@ -497,6 +431,21 @@ impl Object {
         let turret = turret_spawn_for_template(&template_name);
         let is_fs_fake = template.is_kind_of(crate::game_logic::KindOf::FSFake);
 
+        let occlusion_delay_frames = template_occlusion_delay_frames(&template);
+        let mut dozer_tasks = dozer_tasks::DozerTasks::default();
+        if template
+            .receiving_client_template
+            .as_ref()
+            .and_then(|source| source.dozer_ai_identity())
+            .is_some()
+        {
+            dozer_tasks.finish_primary_reset(logic_frame);
+        }
+        let worker_ai_update = template
+            .receiving_client_template
+            .as_ref()
+            .and_then(|definition| definition.dozer_ai_is_worker())
+            .unwrap_or(false);
         Self {
             thing: Thing::new(template),
             id,
@@ -536,11 +485,7 @@ impl Object {
             rebuild_reconstructing_id: None,
             producer_id: None,
             builder_id: None,
-            dozer_task_build_target: None,
-            dozer_task_build_order_frame: 0,
-            dozer_task_repair_target: None,
-            dozer_task_repair_order_frame: 0,
-            dozer_dock_action: None,
+            dozer_tasks,
 
             preferred_dock_id: None,
             supply_center_spawn_behavior_fired: false,
@@ -852,7 +797,6 @@ impl Object {
             scorpion_missile_slot: 0,
             airfield_rearm_ready_frame: None,
             jet_producer_location: None,
-            jet_circling_dead_airfield: false,
             jet_circling_airfield_check_frame: 0,
             airfield_rearm_duration_frames: 0,
             return_to_base_requested: false,
@@ -961,10 +905,6 @@ impl Object {
             min_speed: 0.0,
             locomotor_goal_type: LocoGoalType::None,
             locomotor_goal_angle: 0.0,
-            face_can_turn_in_place: false,
-            face_active: false,
-            face_goal_pos: None,
-            face_loco_frame: 0,
 
             ultra_accurate_slide_factor: 0.0,
             ultra_accurate: false,
@@ -1004,9 +944,6 @@ impl Object {
             requested_destination: None,
             movement_goal_object: None,
             path_goal_position: None,
-            adjust_destinations: true,
-            temporary_move_saved_dest: None,
-            temporary_move_saved_path_goal: None,
             pending_move: None,
             attack_move_retry_count: 0,
             attack_move_sleep_until: 0,
@@ -1017,12 +954,8 @@ impl Object {
             path_timestamp: 0,
             queue_for_path_frames: 0,
             max_shots_to_fire: -1,
-            attack_substate: crate::game_logic::AttackSubState::AimAtTarget,
-            approach_timestamp: 0,
-            prev_victim_pos: None,
-            temporary_move_frames: 0,
             overlay_arrival_snap: false,
-            worker_ai_update: template_has_worker_ai_update(&template_name),
+            worker_ai_update,
             body_damage_state: if inactive_body {
                 crate::game_logic::host_enum_table_residual::HostBodyDamageType::Pristine
             } else {
@@ -1058,21 +991,19 @@ impl Object {
             flash_count: 0,
             flash_color: 0,
 
-            ai_state: AIState::Idle,
             dock_cancel_epoch: 0,
-            unit_ai_runtime: Default::default(),
+            unit_ai_runtime: unit_ai_runtime::UnitAiRuntime::with_auto_acquire(
+                auto_acquire_when_idle,
+            ),
             construction_power_admitted: false,
             object_type,
             template_name: template_name.clone(),
             max_health,
             initial_health,
             target_location: None,
-            guard_position: None,
-            guard_area_trigger: None,
             guard_retaliate_victim: None,
             guard_retaliate_anchor: None,
             crate_created: None,
-            hunting: false,
             hijack_vehicle_id: None,
             hijacker_in_vehicle: false,
             hijacker_update_active: false,
@@ -1082,7 +1013,6 @@ impl Object {
 
             weapon_crate_upgrade: 0,
             armor_crate_upgrade: 0,
-            guard_target: None,
             guard_chase_phase: 0,
             guard_chase_give_up_frame: 0,
 
@@ -1342,7 +1272,6 @@ impl Object {
             partition_last_affect_applied: false,
             partition_last_look: None,
 
-            auto_acquire_when_idle,
             auto_acquire_idle_bits,
             forbid_player_commands,
 
@@ -1376,8 +1305,7 @@ impl Object {
             drawable_loco_accel_roll_rate: 0.0,
             drawable_overlay_icons: Vec::new(),
             // C++ Object.cpp:478-479: m_safeOcclusionFrame = frame + OcclusionDelay.
-            safe_occlusion_frame: logic_frame
-                .saturating_add(template_occlusion_delay_frames(&template_name)),
+            safe_occlusion_frame: logic_frame.saturating_add(occlusion_delay_frames),
         }
     }
 
@@ -1392,13 +1320,17 @@ impl Object {
         let tracker = template.weapon_tracker_bind();
         let team = Team::Neutral;
         let initial_health = template.body_initial_health.unwrap_or(template.max_health);
-        let auto_acquire_idle_bits = leftover_factory_auto_acquire_bits(&template_name)
-            .unwrap_or(template.auto_acquire_enemies_when_idle);
+        let (auto_acquire_idle_bits, forbid_player_commands) = template
+            .receiving_client_template
+            .as_ref()
+            .and_then(|definition| definition.receiving_ai_policy())
+            .unwrap_or((
+                template.auto_acquire_enemies_when_idle,
+                template.forbid_player_commands,
+            ));
         let auto_acquire_when_idle = (auto_acquire_idle_bits
             & gamelogic::object::update::ai_update_interface::AUTO_ACQUIRE_IDLE)
             != 0;
-        let forbid_player_commands = leftover_factory_forbid_player_commands(&template_name)
-            || template.forbid_player_commands;
 
         let locomotor_set_names = template.locomotor_set_names.clone();
         let locomotor_name = template.locomotor_name.clone();
@@ -1453,6 +1385,21 @@ impl Object {
             crate::game_logic::host_squish_collide::template_has_squish_collide(&template_name);
         let is_fs_fake = template.is_kind_of(crate::game_logic::KindOf::FSFake);
 
+        let occlusion_delay_frames = template_occlusion_delay_frames(&template);
+        let mut dozer_tasks = dozer_tasks::DozerTasks::default();
+        if template
+            .receiving_client_template
+            .as_ref()
+            .and_then(|source| source.dozer_ai_identity())
+            .is_some()
+        {
+            dozer_tasks.finish_primary_reset(0);
+        }
+        let worker_ai_update = template
+            .receiving_client_template
+            .as_ref()
+            .and_then(|definition| definition.dozer_ai_is_worker())
+            .unwrap_or(false);
         Self {
             thing: Thing::new(template),
             id,
@@ -1492,11 +1439,7 @@ impl Object {
             rebuild_reconstructing_id: None,
             producer_id: None,
             builder_id: None,
-            dozer_task_build_target: None,
-            dozer_task_build_order_frame: 0,
-            dozer_task_repair_target: None,
-            dozer_task_repair_order_frame: 0,
-            dozer_dock_action: None,
+            dozer_tasks,
 
             preferred_dock_id: None,
             supply_center_spawn_behavior_fired: false,
@@ -1808,7 +1751,6 @@ impl Object {
             scorpion_missile_slot: 0,
             airfield_rearm_ready_frame: None,
             jet_producer_location: None,
-            jet_circling_dead_airfield: false,
             jet_circling_airfield_check_frame: 0,
             airfield_rearm_duration_frames: 0,
             return_to_base_requested: false,
@@ -1917,10 +1859,6 @@ impl Object {
             min_speed: 0.0,
             locomotor_goal_type: LocoGoalType::None,
             locomotor_goal_angle: 0.0,
-            face_can_turn_in_place: false,
-            face_active: false,
-            face_goal_pos: None,
-            face_loco_frame: 0,
 
             ultra_accurate_slide_factor: 0.0,
             ultra_accurate: false,
@@ -1960,9 +1898,6 @@ impl Object {
             requested_destination: None,
             movement_goal_object: None,
             path_goal_position: None,
-            adjust_destinations: true,
-            temporary_move_saved_dest: None,
-            temporary_move_saved_path_goal: None,
             pending_move: None,
             attack_move_retry_count: 0,
             attack_move_sleep_until: 0,
@@ -1973,12 +1908,8 @@ impl Object {
             path_timestamp: 0,
             queue_for_path_frames: 0,
             max_shots_to_fire: -1,
-            attack_substate: crate::game_logic::AttackSubState::AimAtTarget,
-            approach_timestamp: 0,
-            prev_victim_pos: None,
-            temporary_move_frames: 0,
             overlay_arrival_snap: false,
-            worker_ai_update: template_has_worker_ai_update(&template_name),
+            worker_ai_update,
             body_damage_state: body_damage_policy.classify(initial_health, 100.0),
             move_loop_audio: None,
             ambient_audio: None,
@@ -2010,21 +1941,19 @@ impl Object {
             flash_count: 0,
             flash_color: 0,
 
-            ai_state: AIState::Idle,
             dock_cancel_epoch: 0,
-            unit_ai_runtime: Default::default(),
+            unit_ai_runtime: unit_ai_runtime::UnitAiRuntime::with_auto_acquire(
+                auto_acquire_when_idle,
+            ),
             construction_power_admitted: false,
             object_type,
             template_name: template_name.clone(),
             max_health: 100.0,
             initial_health,
             target_location: None,
-            guard_position: None,
-            guard_area_trigger: None,
             guard_retaliate_victim: None,
             guard_retaliate_anchor: None,
             crate_created: None,
-            hunting: false,
             hijack_vehicle_id: None,
             hijacker_in_vehicle: false,
             hijacker_update_active: false,
@@ -2034,7 +1963,6 @@ impl Object {
 
             weapon_crate_upgrade: 0,
             armor_crate_upgrade: 0,
-            guard_target: None,
             guard_chase_phase: 0,
             guard_chase_give_up_frame: 0,
 
@@ -2294,7 +2222,6 @@ impl Object {
             partition_last_affect_applied: false,
             partition_last_look: None,
 
-            auto_acquire_when_idle,
             auto_acquire_idle_bits,
             forbid_player_commands,
 
@@ -2327,7 +2254,7 @@ impl Object {
             drawable_loco_accel_roll: 0.0,
             drawable_loco_accel_roll_rate: 0.0,
             drawable_overlay_icons: Vec::new(),
-            safe_occlusion_frame: template_occlusion_delay_frames(&template_name),
+            safe_occlusion_frame: occlusion_delay_frames,
         }
     }
 
@@ -2346,7 +2273,7 @@ impl Object {
     /// GarrisonContain/TunnelContain `onRemoving` and Object create.
     pub fn stamp_safe_occlusion_frame(&mut self, current_frame: u32) {
         self.safe_occlusion_frame =
-            current_frame.saturating_add(template_occlusion_delay_frames(&self.template_name));
+            current_frame.saturating_add(template_occlusion_delay_frames(&self.thing().template));
     }
 
     /// C++ `GarrisonContain::update` dead-occupant stamp:
@@ -2934,9 +2861,7 @@ mod tests {
 
     #[test]
     fn humvee_authors_recenter_time_not_idle_scan() {
-        use crate::game_logic::host_humvee::{
-            HUMVEE_TURRET_RECENTER_FRAMES, HUMVEE_TURRET_TURN_RATE,
-        };
+        use crate::game_logic::host_humvee::{HUMVEE_TURRET_RECENTER_FRAMES, HUMVEE_TURRET_TURN_RATE};
         let spec = turret_spawn_for_template("AmericaVehicleHumvee");
         assert!(spec.has_turret);
         assert!(spec.enabled);
@@ -2953,7 +2878,7 @@ mod tests {
     fn construct_defaults_auto_acquire_idle_bits_off() {
         let obj = Object::new(ThingTemplate::new("NoAcquireUnit"), ObjectId(9), Team::USA);
         assert_eq!(obj.auto_acquire_idle_bits, 0);
-        assert!(!obj.auto_acquire_when_idle);
+        assert!(!obj.auto_acquire_when_idle());
         assert!(!obj.forbid_player_commands);
     }
 
@@ -2967,7 +2892,7 @@ mod tests {
             obj.auto_acquire_idle_bits,
             gamelogic::object::update::ai_update_interface::AUTO_ACQUIRE_IDLE
         );
-        assert!(obj.auto_acquire_when_idle);
+        assert!(obj.auto_acquire_when_idle());
     }
 
     #[test]
@@ -3196,4 +3121,20 @@ mod defection_timer_owner_tests {
         let timer = restored.defection_helper.as_ref().unwrap();
         assert_eq!((timer.detection_start, timer.detection_end), (10, 70));
     }
+}
+
+/// Read only the installed immutable module data; never consult an active factory.
+pub(crate) fn receiving_ai_policy_data(
+    data: &dyn game_engine::common::thing::module::ModuleData,
+) -> (u32, bool) {
+    let bits = leftover_typed_auto_acquire(data).unwrap_or_else(|| {
+        data.get_ini_field("AutoAcquireEnemiesWhenIdle")
+            .map(parse_auto_acquire_idle_bits)
+            .unwrap_or(0)
+    });
+    let forbid = leftover_typed_forbid_player(data)
+        || data
+            .get_ini_field("ForbidPlayerCommands")
+            .is_some_and(parse_ini_yes);
+    (bits, forbid)
 }

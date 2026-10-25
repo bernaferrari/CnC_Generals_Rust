@@ -3,9 +3,7 @@
 // player. RequiredScience, rather than ScienceVec, supplies the hide source.
 #[test]
 fn presentation_input_owner_sciences_do_not_cross_bars() {
-    use game_engine::common::rts::science::{
-        ScienceInfo, get_science_store_mut, init_science_store,
-    };
+    use game_engine::common::rts::science::{ScienceInfo, get_science_store_mut, init_science_store};
     const SCIENCE: i32 = 2_147_400_001;
     if get_science_store().is_none() {
         init_science_store();
@@ -83,79 +81,79 @@ fn presentation_input_owner_constructor_and_reset_are_isolated() {
 
 #[test]
 fn presentation_input_owner_availability_tick_refreshes_bound_tooltip_without_rebinding() {
-    use crate::gui::gui_callbacks::control_bar_popup_description::presentation_input_owner_tooltip_text;
-    let command = CommandButton {
-        command_name: "OwnerTickBuildCommand".to_owned(),
-        object: "OwnerTickTank".to_owned(),
-        ..CommandButton::default()
-    };
-    // Exercise the authored-INI resolver branch too: it must not discard the
-    // specific live window's optional status when recovering the definition.
-    game_engine::common::ini::ini_command_button::get_control_bar_mut()
-        .unwrap()
-        .new_command_button(command.command_name.clone())
-        .object = command.object.clone();
-    let window = crate::gui::with_window_manager(|wm| {
-        wm.destroy_all_windows();
-        let win = wm.create_window(None, 0, 0, 10, 10).unwrap();
-        win.borrow_mut().set_name("ControlBar.wnd:ButtonCommand01");
-        win.borrow_mut().hide(false).unwrap();
-        win
-    });
-    let mut bar = ControlBar::new();
-    bar.apply_presentation_can_make(&[(command.object.clone(), 2)]);
-    bar.set_control_command(&window, &command);
-    let initial = presentation_input_owner_tooltip_text(&window.borrow());
-    let command_string_pointer = window
-        .borrow()
-        .get_user_data::<CommandButton>()
-        .unwrap()
-        .command_name
-        .as_ptr();
-    bar.apply_presentation_can_make(&[(command.object.clone(), 4)]);
-    let availability = HashMap::from([(
-        command.command_name.clone(),
-        (CommandAvailability::Restricted, None),
-    )]);
-    bar.apply_command_availability_to_windows(std::slice::from_ref(&command), &availability);
-    assert_ne!(
-        presentation_input_owner_tooltip_text(&window.borrow()),
-        initial
-    );
-    assert_eq!(
-        window
-            .borrow()
-            .get_user_data::<CommandButton>()
-            .unwrap()
-            .presentation_can_make_status,
-        Some(4)
-    );
-    assert_eq!(
-        window
-            .borrow()
-            .get_user_data::<CommandButton>()
-            .unwrap()
-            .command_name
-            .as_ptr(),
-        command_string_pointer,
-        "availability updates only the ordinal, without cloning command strings"
-    );
-    bar.apply_presentation_can_make(&[]);
-    bar.apply_command_availability_to_windows(std::slice::from_ref(&command), &availability);
-    assert!(
-        presentation_input_owner_tooltip_text(&window.borrow()).is_empty(),
-        "missing frozen status must not reuse the previous denial"
-    );
+    let owner = crate::gui::window_manager::WindowManagerOwner::new();
+    owner.with_scope(|| {
+
+            use crate::gui::gui_callbacks::control_bar_popup_description::presentation_input_owner_tooltip_text;
+            let command = CommandButton {
+                command_name: "OwnerTickBuildCommand".to_owned(),
+                object: "OwnerTickTank".to_owned(),
+                ..CommandButton::default()
+            };
+            // Exercise the authored-INI resolver branch too: it must not discard the
+            // specific live window's optional status when recovering the definition.
+            game_engine::common::ini::ini_command_button::get_control_bar_mut()
+                .unwrap()
+                .new_command_button(command.command_name.clone())
+                .object = command.object.clone();
+            let window = crate::gui::with_window_manager(|wm| {
+                wm.destroy_all_windows();
+                let win = wm.create_window(None, 0, 0, 10, 10).unwrap();
+                win.borrow_mut().set_name("ControlBar.wnd:ButtonCommand01");
+                win.borrow_mut().hide(false).unwrap();
+                win
+            });
+            let mut bar = ControlBar::new();
+            bar.apply_presentation_can_make(&[(command.object.clone(), 2)]);
+            bar.set_control_command(&window, &command);
+            let initial = presentation_input_owner_tooltip_text(&window.borrow());
+            let command_string_pointer = window
+                .borrow()
+                .get_user_data::<CommandButton>()
+                .unwrap()
+                .command_name
+                .as_ptr();
+            bar.apply_presentation_can_make(&[(command.object.clone(), 4)]);
+            let availability = HashMap::from([(
+                command.command_name.clone(),
+                (CommandAvailability::Restricted, None),
+            )]);
+            bar.apply_command_availability_to_windows(std::slice::from_ref(&command), &availability);
+            assert_ne!(
+                presentation_input_owner_tooltip_text(&window.borrow()),
+                initial
+            );
+            assert_eq!(
+                window
+                    .borrow()
+                    .get_user_data::<CommandButton>()
+                    .unwrap()
+                    .presentation_can_make_status,
+                Some(4)
+            );
+            assert_eq!(
+                window
+                    .borrow()
+                    .get_user_data::<CommandButton>()
+                    .unwrap()
+                    .command_name
+                    .as_ptr(),
+                command_string_pointer,
+                "availability updates only the ordinal, without cloning command strings"
+            );
+            bar.apply_presentation_can_make(&[]);
+            bar.apply_command_availability_to_windows(std::slice::from_ref(&command), &availability);
+            assert!(
+                presentation_input_owner_tooltip_text(&window.borrow()).is_empty(),
+                "missing frozen status must not reuse the previous denial"
+            );
+        });
 }
 
 #[test]
 fn presentation_input_owner_science_preserves_cpp_exceptions_and_player_precedence() {
-    use game_engine::common::rts::science::{
-        ScienceInfo, get_science_store_mut, init_science_store,
-    };
-    use gamelogic::object::special_power_template::{
-        SpecialPowerTemplate, get_special_power_store_mut,
-    };
+    use game_engine::common::rts::science::{ScienceInfo, get_science_store_mut, init_science_store};
+    use gamelogic::object::special_power_template::{SpecialPowerTemplate, get_special_power_store_mut};
     use gamelogic::player::{Player, PlayerList};
     const SCIENCE: i32 = 2_147_400_002;
     if get_science_store().is_none() {

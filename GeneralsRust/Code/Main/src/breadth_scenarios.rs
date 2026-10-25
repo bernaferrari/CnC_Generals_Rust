@@ -210,7 +210,7 @@ pub fn breadth_economy_combat() -> BreadthCategoryResult {
         transport_ok = enter_result == CommandResult::Success
             && logic
                 .host_object(iid)
-                .map(|o| o.ai_state == AIState::Entering && o.target == Some(tid))
+                .map(|o| o.ai_state() == AIState::Entering && o.target == Some(tid))
                 .unwrap_or(false);
     }
 
@@ -242,7 +242,7 @@ pub fn breadth_economy_combat() -> BreadthCategoryResult {
         let entered_capturing = cap_result == CommandResult::Success
             && logic
                 .host_object(iid)
-                .map(|o| o.ai_state == AIState::Capturing && o.target == Some(eid))
+                .map(|o| o.ai_state() == AIState::Capturing && o.target == Some(eid))
                 .unwrap_or(false)
             && logic
                 .host_object(eid)
@@ -285,7 +285,7 @@ pub fn breadth_economy_combat() -> BreadthCategoryResult {
             && logic
                 .host_object(iid)
                 .map(|o| {
-                    o.ai_state == AIState::SpecialAbility
+                    o.ai_state() == AIState::SpecialAbility
                         && !o.special_power_ready
                         && o.special_power_cooldown_remaining > 0.0
                 })

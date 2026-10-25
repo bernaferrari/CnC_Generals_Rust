@@ -44,12 +44,12 @@ fn same_faction_owner_change_idles_and_orders_exit_only_in_receiving_world() {
         .unwrap();
     object.set_team_and_owner_with_partition_owner(Team::USA, Some(2), events, partition);
     world.on_capture_object_owned(transport, Team::USA, Team::USA, true);
-    assert_eq!(world.objects[&transport].ai_state, AIState::Idle);
+    assert_eq!(world.objects[&transport].ai_state(), AIState::Idle);
     assert!(world.objects[&transport].pending_evacuate_on_stop);
     assert_eq!(world.objects[&passenger].contained_by, Some(transport));
     assert_eq!(world.players[&2].statistics.objects_captured(), 0);
     assert_eq!(world.players[&1].statistics.objects_captured(), 0);
-    assert_eq!(peer.objects[&peer_transport].ai_state, AIState::Moving);
+    assert_eq!(peer.objects[&peer_transport].ai_state(), AIState::Moving);
     assert!(!peer.objects[&peer_transport].pending_evacuate_on_stop);
     assert_eq!(peer.players[&2].statistics.objects_captured(), 0);
 }
@@ -63,7 +63,7 @@ fn same_owner_unit_team_callback_preserves_orders_without_scoring_or_evacuation(
         .unwrap()
         .set_script_unsellable(true);
     world.on_capture_object_owned(transport, Team::USA, Team::USA, false);
-    assert_eq!(world.objects[&transport].ai_state, AIState::Moving);
+    assert_eq!(world.objects[&transport].ai_state(), AIState::Moving);
     assert!(!world.objects[&transport].pending_evacuate_on_stop);
     assert_eq!(world.objects[&passenger].contained_by, Some(transport));
     assert_eq!(world.players[&1].statistics.objects_captured(), 0);

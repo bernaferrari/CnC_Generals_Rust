@@ -31,7 +31,7 @@ fn observe(owner: &GameLogic, id: ObjectId) -> Observation {
     let unit = owner.host_object(id).unwrap();
     Observation {
         frame: owner.frame,
-        state: unit.ai_state.clone(),
+        state: unit.ai_state().clone(),
         phase: unit.unit_ai_runtime.guard_phase(),
         deadline: unit.unit_ai_runtime.guard_scan_deadline(),
         updated: unit.unit_ai_runtime.guard_updated_frame(),
@@ -46,7 +46,7 @@ fn observe(owner: &GameLogic, id: ObjectId) -> Observation {
         moving: unit.status.moving,
         waiting: unit.waiting_for_path,
         through_units: unit.can_path_through_units,
-        adjust: unit.adjust_destinations,
+        adjust: unit.adjust_destinations(),
     }
 }
 
@@ -92,7 +92,7 @@ fn overlay(owner: &mut GameLogic, id: ObjectId, until: u32, distance: f32) -> Ve
     unit.waiting_for_path = false;
     unit.close_enough_dist = Some(1.0);
     unit.can_path_through_units = true;
-    unit.adjust_destinations = false;
+    unit.set_adjust_destinations(false);
     unit.unit_ai_runtime.set_quick_exit_deadline(Some(until));
     unit.set_ai_state(
         AIState::Moving,

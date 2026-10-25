@@ -235,11 +235,39 @@ impl SnapshotBuilder {
             ));
         }
         for (id, object) in objects {
+            super::dozer_task_module::validate(object, game_logic)?;
             if id.0 == 0 || *id != object.id {
                 return Err(SaveLoadError::Corrupted(
                     "saved Object roster key must equal its nonzero identity".into(),
                 ));
             }
+        }
+        for snapshot in objects.values() {
+            let capsule = match snapshot.modules.get("ReceivingBaseAI") {
+                Some(ModuleSnapshot::BaseAi(value)) => value,
+                _ => {
+                    return Err(SaveLoadError::Corrupted(
+                        "saved Object lacks ReceivingBaseAI owner".into(),
+                    ));
+                }
+            };
+            if snapshot.modules.iter().any(|(key, value)| {
+                matches!(value, ModuleSnapshot::BaseAi(_)) && key != "ReceivingBaseAI"
+            }) {
+                return Err(SaveLoadError::Corrupted(
+                    "duplicate or foreign ReceivingBaseAI key".into(),
+                ));
+            }
+            let fallback;
+            let template = if let Some(template) = game_logic.templates.get(&snapshot.template_name)
+            {
+                template
+            } else {
+                fallback = ThingTemplate::new(&snapshot.template_name);
+                &fallback
+            };
+            capsule.validate_for_template(template)?;
+            capsule.validate_ai_state_projection(&snapshot.status.ai_state)?;
         }
         super::containment_admission::validate(objects)?;
         Ok(())
@@ -516,7 +544,12 @@ impl SnapshotBuilder {
         object.weapon_bonus_frenzy_until_frame = snapshot.weapon_bonus_frenzy_until_frame;
 
         self.restore_object_type_data(&snapshot.object_type, &mut object)?;
-        self.restore_object_modules(&snapshot.modules, &mut object, game_logic)?;
+        self.restore_object_modules(
+            &snapshot.modules,
+            snapshot.status.ai_state,
+            &mut object,
+            game_logic,
+        )?;
         Self::rebuild_garrisoned_units_from_occupants(&mut object);
 
         // The generic pending-ability map is runtime-only.  Preserve the
@@ -549,16 +582,13 @@ impl SnapshotBuilder {
         // runtime. Restore only the continuation parsed from this save after
         // that boundary, without reentering states or computing paths.
         let id = object.id;
-        let saved_runtime = std::mem::take(&mut object.unit_ai_runtime);
         game_logic
             .try_admit_restored_host_object(object)
             .map_err(|error| {
                 SaveLoadError::Corrupted(format!("saved Object admission: {error}"))
             })?;
-        game_logic
-            .host_object_mut(id)
-            .expect("admitted saved object")
-            .unit_ai_runtime = saved_runtime;
+        super::dozer_task_module::apply_after_admission(snapshot, game_logic)?;
+
         Ok(())
     }
 
@@ -648,19 +678,6 @@ impl SnapshotBuilder {
         object.faerie_fire_until_frame = status.faerie_fire_until_frame;
         object.status.disabled_held = status.disabled_held;
 
-        object.ai_state = if status.destroyed {
-            AIState::Idle
-        } else if status.ai_state == AIState::Idle && status.garrisoned {
-            AIState::Garrisoned
-        } else if status.ai_state == AIState::Idle && status.being_repaired {
-            AIState::SeekingRepair
-        } else if status.ai_state == AIState::Idle && status.attacking {
-            AIState::Attacking
-        } else if status.ai_state == AIState::Idle && status.moving {
-            AIState::Moving
-        } else {
-            status.ai_state.clone()
-        };
         object.special_power_ready = status.special_power_ready;
         object.special_power_cooldown = status.special_power_cooldown;
         object.special_power_cooldown_remaining = status.special_power_cooldown_remaining;
@@ -680,26 +697,22 @@ impl SnapshotBuilder {
     pub(super) fn restore_object_modules(
         &self,
         modules: &HashMap<String, ModuleSnapshot>,
+        saved_state: AIState,
         object: &mut Object,
         game_logic: &GameLogic,
     ) -> SaveLoadResult<()> {
         let mut restored_panic = None;
         for module_snapshot in modules.values() {
             match module_snapshot {
+                ModuleSnapshot::BaseAi(_) => {}
+                ModuleSnapshot::DozerTasks(_) => {}
                 ModuleSnapshot::AIUpdate(snapshot) => {
-                    if super::attack_state_persist::restore(snapshot, object)? {
+                    if matches!(
+                        snapshot.current_state.as_str(),
+                        "AI_ATTACK" | "AI_HUNT" | "AI_FACE" | "AI_GUARD"
+                    ) {
                         continue;
                     }
-                    if super::hunt_state_persist::restore(snapshot, object)? {
-                        continue;
-                    }
-                    if super::face_state_persist::restore(snapshot, object)? {
-                        continue;
-                    }
-                    if super::guard_state_persist::restore(snapshot, object)? {
-                        continue;
-                    }
-
                     if snapshot.current_state == "AI_PANIC" {
                         let encoded =
                             snapshot
@@ -928,7 +941,7 @@ impl SnapshotBuilder {
             }
         }
 
-        match (&object.ai_state, restored_panic) {
+        match (&saved_state, restored_panic) {
             (AIState::Panic, Some(panic)) => {
                 panic.restore_into(object);
             }
@@ -1051,7 +1064,7 @@ impl SnapshotBuilder {
                 source.hacker_disable_channel = None;
                 source.set_status_using_ability(false);
                 source.clear_target(&mut crate::game_logic::ObjectAudio::queue(audio));
-                if source.ai_state == AIState::SpecialAbility {
+                if source.ai_state() == AIState::SpecialAbility {
                     source.set_ai_state(
                         AIState::Idle,
                         &mut crate::game_logic::ObjectAudio::queue(audio),
@@ -1426,8 +1439,8 @@ impl SnapshotBuilder {
             for harvester_id in &depot.harvesters {
                 if let Some(harvester) = game_logic.host_object_mut(*harvester_id) {
                     harvester.target = Some(resource_id);
-                    if matches!(harvester.ai_state, AIState::Idle | AIState::Moving) {
-                        harvester.ai_state = AIState::Gathering;
+                    if matches!(harvester.ai_state(), AIState::Idle | AIState::Moving) {
+                        harvester.restore_ai_state(AIState::Gathering);
                     }
                 }
             }
@@ -1451,8 +1464,8 @@ impl SnapshotBuilder {
             if let Some(attacker) = game_logic.host_object_mut(combat.attacker) {
                 attacker.target = Some(combat.target);
                 attacker.status.attacking = true;
-                if matches!(attacker.ai_state, AIState::Idle | AIState::Moving) {
-                    attacker.ai_state = AIState::Attacking;
+                if matches!(attacker.ai_state(), AIState::Idle | AIState::Moving) {
+                    attacker.restore_ai_state(AIState::Attacking);
                 }
             }
         }
@@ -1465,7 +1478,7 @@ impl SnapshotBuilder {
             if let Some(object) = game_logic.host_object_mut(death.object_id) {
                 object.status.destroyed = true;
                 object.health.current = 0.0;
-                object.ai_state = AIState::Idle;
+                object.restore_ai_state(AIState::Idle);
                 object.target = None;
             }
         }
@@ -1716,8 +1729,8 @@ impl SnapshotBuilder {
             object.name = entry.instance_name.clone();
             // Direct field writes: `set_guard_position` / `set_guard_target`
             // would overwrite independently restored AIState.
-            object.guard_position = entry.guard_position;
-            object.guard_target = entry.guard_target;
+            object.restore_raw_guard_position(entry.guard_position);
+            object.restore_raw_guard_target(entry.guard_target);
             object.guard_radius = entry.guard_radius;
             object.guard_mode = entry.guard_mode;
         }

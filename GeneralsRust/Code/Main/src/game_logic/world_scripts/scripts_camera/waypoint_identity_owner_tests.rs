@@ -302,7 +302,7 @@ fn actual_air_scatter_exits_exact_before_quick_path_overwrites_its_mode() {
         world.apply_owned_named_waypoint("Walker", "Route", Some(true), None);
     }
     assert!(owner.host_object(id).unwrap().is_exact_path);
-    assert_eq!(owner.host_object(id).unwrap().ai_state, AIState::Moving);
+    assert_eq!(owner.host_object(id).unwrap().ai_state(), AIState::Moving);
     assert_eq!(owner.host_object(id).unwrap().pending_waypoint_id, Some(1));
     assert!(owner.unit_command_move_to_moving(id, Vec3::new(60., 50., 20.)));
     assert_eq!(
@@ -425,7 +425,7 @@ fn waypoint_motion_debug(world: &GameLogic, id: ObjectId) -> String {
         "frame={} pos={:?} state={:?} loco={:?} speed={} velocity={:?} target={:?} path={:?} index={} waiting={} requested={:?} pending={:?} completed={:?}",
         world.get_current_frame(),
         actor.get_position(),
-        actor.ai_state,
+        actor.ai_state(),
         actor.cur_locomotor_name,
         actor.movement.max_speed,
         actor.movement.velocity,

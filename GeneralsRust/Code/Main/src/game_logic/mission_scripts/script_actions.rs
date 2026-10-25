@@ -783,16 +783,18 @@ impl ScriptActionHandler for MissionScriptActionHandler {
 
     fn create_win_lose_window(&self, layout_filename: &str) -> GameLogicResult<()> {
         // C++ ScriptActions.cpp:201/204/225/228/247 TheWindowManager->winCreateFromScript.
-        // Live host initialize_scripts overwrites GameClientScriptActionHandler; the
-        // trait default is a no-op, so forward to the GameClient load_window path.
-        game_client::core::script_action_handler::GameClientScriptActionHandler::new()
-            .create_win_lose_window(layout_filename)
+        // Retain the action until the active native ScriptUiEffects receiver
+        // applies it synchronously at HostScriptExecutionDriver::after_action.
+        self.hooks
+            .queue_win_lose_window_action(WinLoseWindowAction::Create(layout_filename.to_string()));
+        Ok(())
     }
 
     fn destroy_win_lose_window(&self) -> GameLogicResult<()> {
         // C++ ScriptActions.cpp:160-162 TheWindowManager->winDestroy(m_messageWindow).
-        game_client::core::script_action_handler::GameClientScriptActionHandler::new()
-            .destroy_win_lose_window()
+        self.hooks
+            .queue_win_lose_window_action(WinLoseWindowAction::Destroy);
+        Ok(())
     }
 
     fn close_game_windows(&self) -> GameLogicResult<()> {

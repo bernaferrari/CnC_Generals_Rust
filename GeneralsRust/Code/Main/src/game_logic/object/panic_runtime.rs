@@ -84,7 +84,7 @@ impl PanicSaveState {
             path_goal_position: object.path_goal_position,
             waiting_for_path: object.waiting_for_path,
             path_timestamp: object.path_timestamp,
-            adjust_destinations: object.adjust_destinations,
+            adjust_destinations: object.adjust_destinations(),
             path_extra_distance: object.path_extra_distance,
             wander_width_factor: Some(object.wander_width_factor),
             retry_path: object.retry_path,
@@ -100,7 +100,7 @@ impl PanicSaveState {
         object.path_goal_position = self.path_goal_position;
         object.waiting_for_path = self.waiting_for_path;
         object.path_timestamp = self.path_timestamp;
-        object.adjust_destinations = self.adjust_destinations;
+        object.set_adjust_destinations(self.adjust_destinations);
         object.path_extra_distance = self.path_extra_distance;
         if let Some(width) = self.wander_width_factor {
             object.wander_width_factor = width;

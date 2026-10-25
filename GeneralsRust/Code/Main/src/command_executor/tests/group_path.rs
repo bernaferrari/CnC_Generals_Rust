@@ -478,8 +478,8 @@ fn group_special_power_fires_every_capable_caster() {
         );
         assert_eq!(res, CommandResult::Success);
     }
-    let sa = logic.host_object(a).unwrap().ai_state.clone();
-    let sb = logic.host_object(b).unwrap().ai_state.clone();
+    let sa = logic.host_object(a).unwrap().ai_state().clone();
+    let sb = logic.host_object(b).unwrap().ai_state().clone();
     assert!(
         sa == crate::game_logic::AIState::SpecialAbility
             || sb == crate::game_logic::AIState::SpecialAbility,
@@ -662,7 +662,9 @@ fn assert_airborne_evacuation(
     expected_height: f32,
 ) {
     assert_eq!(
-        super::CommandExecutor::new(world, 0).execute_evacuate(&[id]),
+        super::CommandExecutor::new(world, 0)
+            .execute_evacuate(&[id])
+            .expect("airborne evacuation command"),
         crate::command_system::CommandResult::Success
     );
     let unit = world.host_object(id).unwrap();
@@ -942,7 +944,7 @@ fn stop_idles_garrison_occupants_and_hive_slaves() {
     }
     let occ = logic.host_object(occ).unwrap();
     assert_eq!(
-        occ.ai_state,
+        occ.ai_state(),
         crate::game_logic::AIState::Idle,
         "S on a garrisoned structure must stop occupants"
     );
@@ -1028,7 +1030,7 @@ fn stealth_mood_delay_skips_while_stealthed_auto_acquire() {
         let u = logic.host_object_mut(id).unwrap();
         u.innate_stealth = true;
         u.stealth_delay_frames = 30;
-        u.auto_acquire_when_idle = true;
+        u.set_auto_acquire_when_idle(true);
         u.stealth_breaks_on_attack = false;
         u.status.stealthed = false;
         u.status.detected = false;

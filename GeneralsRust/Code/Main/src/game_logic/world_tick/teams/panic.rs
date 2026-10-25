@@ -128,7 +128,7 @@ impl GameLogic {
                 AIState::Panic,
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             );
-            if unit.ai_state != AIState::Panic {
+            if unit.ai_state() != AIState::Panic {
                 return;
             }
             unit.panic_runtime = Some(crate::game_logic::object::PanicRuntime::new(
@@ -142,7 +142,7 @@ impl GameLogic {
             }
             unit.is_panicking = true;
             unit.path_extra_distance = extra_distance;
-            unit.adjust_destinations = !append_goal && !has_links;
+            unit.set_adjust_destinations(!append_goal && !has_links);
             if append_goal {
                 unit.set_allow_invalid_position(true);
             }
@@ -159,7 +159,7 @@ impl GameLogic {
             // assign_unit_path installs the shared canonical Movement path;
             // its state transition preserves Panic as a native movement state.
             unit.path_extra_distance = extra_distance;
-            unit.adjust_destinations = !append_goal && !has_links;
+            unit.set_adjust_destinations(!append_goal && !has_links);
             unit.path_goal_position = Some(actual_goal);
             unit.requested_destination = Some(actual_goal);
             if append_goal {
@@ -221,7 +221,7 @@ impl GameLogic {
             let Some((mut panic, can_be_repulsed, vision)) =
                 self.objects.get(&id).and_then(|unit| {
                     let panic = unit.panic_runtime.clone()?;
-                    (unit.ai_state == AIState::Panic
+                    (unit.ai_state() == AIState::Panic
                         && unit.is_alive()
                         && !unit.status.destroyed
                         && !unit.is_disabled()
@@ -425,7 +425,7 @@ impl GameLogic {
             panic.goal_layer = goal_layer;
             if let Some(unit) = self.objects.get_mut(&id) {
                 unit.path_extra_distance = extra;
-                unit.adjust_destinations = !append_goal && !has_links;
+                unit.set_adjust_destinations(!append_goal && !has_links);
                 unit.panic_runtime = Some(panic.clone());
                 if append_goal {
                     unit.set_allow_invalid_position(true);
@@ -439,7 +439,7 @@ impl GameLogic {
                 );
                 unit.panic_runtime = Some(panic);
                 unit.path_extra_distance = extra;
-                unit.adjust_destinations = !append_goal && !has_links;
+                unit.set_adjust_destinations(!append_goal && !has_links);
                 unit.path_goal_position = Some(actual_goal);
                 unit.requested_destination = Some(actual_goal);
                 unit.is_panicking = true;

@@ -102,7 +102,7 @@ fn fire_at_keeps_gattling_store_type() {
         .expect("actual store-bound weapon")
         .last_fire_time = -10.0;
     let target_position = Vec3::new(100.0, 0.0, 0.0);
-    attacker.prev_victim_pos = Some(target_position);
+    attacker.set_prev_victim_pos(Some(target_position));
     assert!(attacker.fire_at(
         ObjectId(2),
         1.0,
@@ -188,7 +188,7 @@ fn fire_at_projectileless_keeps_identity_in_receiving_pending_queue() {
     let mut attacker = Object::new(template, ObjectId(1), Team::USA);
     attacker.set_position(Vec3::ZERO);
     let target_position = Vec3::new(100.0, 0.0, 0.0);
-    attacker.prev_victim_pos = Some(target_position);
+    attacker.set_prev_victim_pos(Some(target_position));
     attacker.weapon = Some(Weapon {
         damage: 20.0,
         range: 200.0,

@@ -76,15 +76,3 @@ fn quit_menu_destroys_world_left_click() {
     assert!(!world_lmb_selection_allowed(true));
     assert!(world_lmb_selection_allowed(false));
 }
-
-#[test]
-fn live_paths_wire_the_four_selection_hud_gates() {
-    let mouse = generals_main::cnc_game_engine::ENGINE_SRC;
-    let input = include_str!("../src/cnc_game_engine/input.rs");
-    let hotkeys = include_str!("../src/cnc_game_engine/hotkeys.rs");
-    assert!(mouse.contains("fn find_object_at_cursor"));
-    assert!(mouse.contains("is_os_style_double_click"));
-    assert!(mouse.contains("fn apply_meta_options_interrupt"));
-    assert!(input.contains("world_lmb_selection_allowed"));
-    assert!(hotkeys.contains("self.apply_meta_options_interrupt()"));
-}

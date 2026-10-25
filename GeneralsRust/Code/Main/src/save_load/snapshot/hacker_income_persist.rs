@@ -9,16 +9,17 @@
 //! and snapshot never rebound, so a field-hacking Hacker stopped (or
 //! restarted unpack) and the cash interval reset (field 60f / IC 54f).
 //!
-//! Append a tagged suffix after the historical v9 contain/producer payload so
-//! older decoders ignore the extra bytes. No WorldSnapshot version bump.
+//! Append a tagged HKIN v2 suffix after the historical lifecycle payload.
+//! The outer Rust capability 32 gates the changed idle continuation schema;
+//! active v1 suffixes are rejected rather than inferred or converted.
 
-use crate::game_logic::host_hacker_income::HostHackerIncomeRegistry;
 use crate::game_logic::GameLogic;
+use crate::game_logic::host_hacker_income::HostHackerIncomeRegistry;
 use crate::save_load::{SaveLoadError, SaveLoadResult};
 use serde::{Deserialize, Serialize};
 
 const HKIN_MAGIC: &[u8; 4] = b"HKIN";
-const HKIN_VERSION: u32 = 1;
+const HKIN_VERSION: u32 = 2;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 struct HackerIncomePersistPayload {
@@ -51,9 +52,10 @@ pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, game_logic: &GameLogic) {
 }
 
 pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> SaveLoadResult<()> {
-    // Fail-closed: a reused GameLogic must not keep pre-load hack cycles.
-    game_logic.hacker_income.clear();
+    // A missing suffix means no continuation. For present data, validate the
+    // complete envelope before replacing the receiving registry.
     let Some(suffix) = find_hkin_suffix(bytes) else {
+        game_logic.hacker_income.clear();
         return Ok(());
     };
     let mut rest = suffix;
@@ -104,10 +106,10 @@ fn take_u32(rest: &mut &[u8]) -> SaveLoadResult<u32> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::game_logic::host_hacker_income::{
-        HackerInternetPhase, PendingHackerCommand, HACKER_CASH_INTERVAL_FRAMES,
-    };
     use crate::game_logic::ObjectId;
+    use crate::game_logic::host_hacker_income::{
+        HACKER_CASH_INTERVAL_FRAMES, HackerInternetPhase, PendingHackerCommand,
+    };
     use glam::Vec3;
 
     #[test]
@@ -167,10 +169,12 @@ mod tests {
             restored.hacker_income.peek_pending_command(packing),
             Some(PendingHackerCommand::MoveTo(Vec3::new(8.0, 0.0, 4.0)))
         );
-        assert!(restored
-            .hacker_income
-            .take_finished_pack(packing, 229)
-            .is_none());
+        assert!(
+            restored
+                .hacker_income
+                .take_finished_pack(packing, 229)
+                .is_none()
+        );
         assert_eq!(
             restored.hacker_income.take_finished_pack(packing, 230),
             Some(PendingHackerCommand::MoveTo(Vec3::new(8.0, 0.0, 4.0)))
@@ -185,5 +189,47 @@ mod tests {
         apply_from_lifecycle_tail(b"no-magic-here", &mut logic).expect("apply");
         assert!(!logic.hacker_income.is_hacking(ObjectId(3)));
         assert!(logic.hacker_income.pack_phase(ObjectId(3)).is_none());
+    }
+}
+
+#[cfg(test)]
+mod derived_ai_idle_native_tests {
+    use super::*;
+    #[test]
+    fn native_v2_round_trips_ai_idle_pack_and_rejects_v1_without_mutation() {
+        use crate::game_logic::ObjectId;
+        use crate::game_logic::host_hacker_income::PendingHackerCommand;
+        let id = ObjectId(42);
+        let mut source = GameLogic::new();
+        source.hacker_income.start_hacking(id, 0, 0, 100);
+        assert!(source.hacker_income.finish_unpack_if_due(id, 0));
+        assert!(
+            source
+                .hacker_income
+                .request_pack(id, 10, 30, PendingHackerCommand::AiIdle)
+        );
+        let mut bytes = Vec::new();
+        append_to_lifecycle_tail(&mut bytes, &source);
+        let mut restored = GameLogic::new();
+        restored.hacker_income.start_hacking(id, 0, 0, 100);
+        assert!(restored.hacker_income.finish_unpack_if_due(id, 0));
+        assert!(
+            restored
+                .hacker_income
+                .request_pack(id, 1, 30, PendingHackerCommand::Stop)
+        );
+        apply_from_lifecycle_tail(&bytes, &mut restored).unwrap();
+        assert_eq!(
+            restored.hacker_income.peek_pending_command(id),
+            Some(PendingHackerCommand::AiIdle)
+        );
+        assert_eq!(restored.hacker_income.peek_pack_until(id), Some(40));
+        bytes[4..8].copy_from_slice(&1u32.to_le_bytes());
+        assert!(apply_from_lifecycle_tail(&bytes, &mut restored).is_err());
+        assert_eq!(
+            restored.hacker_income.peek_pending_command(id),
+            Some(PendingHackerCommand::AiIdle)
+        );
+        assert_eq!(restored.hacker_income.peek_pack_until(id), Some(40));
     }
 }

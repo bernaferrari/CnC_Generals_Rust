@@ -80,7 +80,9 @@ fn technical_residual_transport_and_salvage_weapon() {
             &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
     }
-    game_logic.update_ai(&[infantry_id, tech_id], 1.0 / 30.0);
+    game_logic
+        .update_ai(&[infantry_id, tech_id], 1.0 / 30.0)
+        .expect("receiving AI operation succeeds");
     {
         let t = game_logic.host_object(tech_id).expect("tech");
         assert!(
@@ -1458,7 +1460,7 @@ fn scout_and_hellfire_drone_residual_attach_detect_and_fire() {
         game_logic
             .host_object(hf_id)
             .unwrap()
-            .auto_acquire_when_idle
+            .auto_acquire_when_idle()
     );
     game_logic.tick_mood_auto_acquire(&[hf_id]);
     assert_eq!(
@@ -1670,7 +1672,7 @@ fn hellfire_scatter_misses_infantry_residual() {
                 logic.adjusted_vision_range_for_mood(hf) > 100.0,
                 "actual supplied AIData must enable Infantry search"
             );
-            assert!(logic.host_object(hf).unwrap().auto_acquire_when_idle);
+            assert!(logic.host_object(hf).unwrap().auto_acquire_when_idle());
         }
         logic.tick_mood_auto_acquire(&[hf]);
         if f == 0 {

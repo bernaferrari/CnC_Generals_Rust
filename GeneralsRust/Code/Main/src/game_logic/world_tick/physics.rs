@@ -649,7 +649,7 @@ impl GameLogic {
             .and_then(|a| a.unstack_partner.take());
         if let Some(b_id) = unstack {
             if let Some(a) = self.objects.get(&a_id) {
-                if a.ai_state == crate::game_logic::AIState::Idle {
+                if a.ai_state() == crate::game_logic::AIState::Idle {
                     let mut dest = a.get_position();
                     ({
                         let ground_owner = self.world_services.terrain();
@@ -674,7 +674,7 @@ impl GameLogic {
                 }
             }
             if let Some(b) = self.objects.get(&b_id) {
-                if b.ai_state == crate::game_logic::AIState::Idle {
+                if b.ai_state() == crate::game_logic::AIState::Idle {
                     let mut dest = b.get_position();
                     ({
                         let ground_owner = self.world_services.terrain();
@@ -1265,12 +1265,12 @@ impl GameLogic {
         u.is_blocked = false;
         u.is_blocked_and_stuck = false;
         u.target = Some(target_id);
-        u.face_goal_pos = None;
-        u.face_can_turn_in_place = u.min_speed == 0.0;
-        u.face_active = true;
-        u.face_loco_frame = 0;
+        u.set_face_goal_pos(None);
+        u.set_face_can_turn_in_place(u.min_speed == 0.0);
+        u.set_face_active(true);
+        u.set_face_loco_frame(0);
         let _ = u.arm_face_locomotor_goal(target_pos);
-        let faced = !matches!(u.ai_state, AIState::SpecialAbility | AIState::Capturing);
+        let faced = !matches!(u.ai_state(), AIState::SpecialAbility | AIState::Capturing);
         if faced {
             u.target_location = None;
 
@@ -1295,12 +1295,12 @@ impl GameLogic {
         }
         u.is_blocked = false;
         u.is_blocked_and_stuck = false;
-        u.face_goal_pos = Some(pos);
-        u.face_can_turn_in_place = u.min_speed == 0.0;
-        u.face_active = true;
-        u.face_loco_frame = 0;
+        u.set_face_goal_pos(Some(pos));
+        u.set_face_can_turn_in_place(u.min_speed == 0.0);
+        u.set_face_active(true);
+        u.set_face_loco_frame(0);
         let _ = u.arm_face_locomotor_goal(pos);
-        let faced = !matches!(u.ai_state, AIState::SpecialAbility | AIState::Capturing);
+        let faced = !matches!(u.ai_state(), AIState::SpecialAbility | AIState::Capturing);
         if faced {
             u.target = None;
             u.target_location = None;
@@ -1335,7 +1335,7 @@ impl GameLogic {
 
             u.set_status_force_attack(false);
             u.ignored_obstacle_id = None;
-            if u.ai_state != AIState::Idle {
+            if u.ai_state() != AIState::Idle {
                 u.set_ai_state(
                     AIState::Idle,
                     &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),

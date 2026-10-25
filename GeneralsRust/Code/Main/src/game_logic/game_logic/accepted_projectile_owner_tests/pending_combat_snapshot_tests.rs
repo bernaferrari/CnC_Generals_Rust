@@ -71,7 +71,7 @@ fn pending_combat_snapshot_accepted_fifo_replaces_in_place_queue_and_keeps_retir
         .objects
         .get_mut(&other)
         .unwrap()
-        .prev_victim_pos = Some(victim_pos);
+        .set_prev_victim_pos(Some(victim_pos));
     accept(&mut source_world, source, target, 10.0);
     accept(&mut source_world, other, target, 10.0);
     accept(&mut source_world, source, target, 12.0);
@@ -314,7 +314,11 @@ fn pending_combat_snapshot_common_save_load_continues_both_real_queues() {
         Vec3::ZERO,
     );
     let victim_pos = source.objects[&target].get_position();
-    source.objects.get_mut(&fast).unwrap().prev_victim_pos = Some(victim_pos);
+    source
+        .objects
+        .get_mut(&fast)
+        .unwrap()
+        .set_prev_victim_pos(Some(victim_pos));
     accept(&mut source, fast, target, 10.0);
     assert_eq!(source.combat_system.projectile_count(), 1);
     assert_eq!(source.objects[&target].health.current, 100.0);

@@ -2134,7 +2134,6 @@ fn reset_object_xfer(game_logic: &mut GameLogic) {
         object.status.masked = false;
         object.structure_topple_data = None;
         object.last_damage_info_type = None;
-        object.unit_ai_runtime.clear_saved_deadlines();
         object.status.disabled_held = false;
         object.single_use_command_used = false;
         object.ai_attitude = 0;
@@ -2324,11 +2323,6 @@ fn apply_payload(game_logic: &mut GameLogic, payload: ObjectXferPersistPayload) 
                     }
                 }
             }
-        }
-        if let Some(runtime) = game_logic.unit_ai_runtime_mut(id) {
-            runtime.set_guard_scan_deadline(entry.guard_next_enemy_scan);
-            runtime.set_quick_exit_deadline(entry.quick_exit_until);
-            runtime.set_hunt_scan_deadline(entry.hunt_next_enemy_scan);
         }
     }
 }
@@ -2664,6 +2658,9 @@ mod tests {
             "AmericaInfantryRanger".to_string(),
             ThingTemplate::new("AmericaInfantryRanger"),
         );
+        source.admit_receiving_module_content(crate::assets::ReceivingObjectContent::from_sources([
+            ("native-clock-owner.ini".into(), "Object AmericaInfantryRanger\nKindOf = INFANTRY SELECTABLE\nBody = ActiveBody Body\nMaxHealth = 100\nInitialHealth = 100\nEnd\nBehavior = AIUpdateInterface ActualClockOwner\nEnd\nEnd\n".into()),
+        ]).unwrap()).unwrap();
         source.add_player(Player::new(0, Team::USA, "USA", true));
         let id = source
             .create_object(
@@ -2878,19 +2875,19 @@ mod tests {
             logic
                 .host_objects()
                 .registered_values()
-                .all(|object| object.unit_ai_runtime.guard_scan_deadline().is_none())
+                .all(|object| object.unit_ai_runtime.guard_scan_deadline() == Some(12))
         );
         assert!(
             logic
                 .host_objects()
                 .registered_values()
-                .all(|object| object.unit_ai_runtime.hunt_scan_deadline().is_none())
+                .all(|object| object.unit_ai_runtime.hunt_scan_deadline() == Some(24))
         );
         assert!(
             logic
                 .host_objects()
                 .registered_values()
-                .all(|object| object.unit_ai_runtime.quick_exit_deadline().is_none())
+                .all(|object| object.unit_ai_runtime.quick_exit_deadline() == Some(930))
         );
     }
 
@@ -2932,6 +2929,15 @@ mod tests {
             .create_object("AmericaInfantryRanger", Team::USA, Vec3::ZERO)
             .expect("dest unit");
         assert_eq!(dest_id, id);
+        dest.host_object_mut(dest_id)
+            .unwrap()
+            .restore_base_ai_continuation(
+                source
+                    .host_object(id)
+                    .unwrap()
+                    .capture_base_ai_continuation(),
+            )
+            .unwrap();
         apply_from_lifecycle_tail(&bytes, &mut dest).expect("apply");
 
         let loaded = dest.host_object(dest_id).expect("loaded");
@@ -3474,12 +3480,12 @@ mod tests {
         assert!(
             dest.host_objects()
                 .registered_values()
-                .all(|object| object.unit_ai_runtime.guard_scan_deadline().is_none())
+                .all(|object| object.unit_ai_runtime.guard_scan_deadline() == Some(4))
         );
         assert!(
             dest.host_objects()
                 .registered_values()
-                .all(|object| object.unit_ai_runtime.hunt_scan_deadline().is_none())
+                .all(|object| object.unit_ai_runtime.hunt_scan_deadline() == Some(5))
         );
     }
 }
@@ -3487,3 +3493,94 @@ mod tests {
 #[cfg(test)]
 #[path = "locomotor_restore_tests.rs"]
 mod locomotor_restore_tests;
+
+/// Current OO deadline fields are immutable projections. Validate only after
+/// native14 has been installed and all physical/definition tails have finished.
+pub(super) fn validate_base_ai_projection_after_restore(
+    bytes: &[u8],
+    game_logic: &GameLogic,
+) -> SaveLoadResult<()> {
+    let Some(mut rest) = find_oxob_suffix(bytes) else {
+        return Ok(());
+    };
+    let version = take_u32(&mut rest)?;
+    if version != OXOB_VERSION {
+        return Err(SaveLoadError::Corrupted(
+            "native14 requires current OO projection layout".into(),
+        ));
+    }
+    let length = take_u32(&mut rest)? as usize;
+    let encoded = rest
+        .get(..length)
+        .ok_or_else(|| SaveLoadError::Corrupted("truncated OO projection".into()))?;
+    let payload: ObjectXferPersistPayload = bincode_legacy::deserialize(encoded)
+        .map_err(|e| SaveLoadError::Corrupted(format!("OO projection decode: {e}")))?;
+    for entry in &payload.objects {
+        let runtime = game_logic
+            .unit_ai_runtime(ObjectId(entry.object_id))
+            .ok_or_else(|| SaveLoadError::Corrupted("missing OO projection owner".into()))?;
+        if runtime.guard_scan_deadline() != entry.guard_next_enemy_scan
+            || runtime.hunt_scan_deadline() != entry.hunt_next_enemy_scan
+            || runtime.quick_exit_deadline() != entry.quick_exit_until
+        {
+            return Err(SaveLoadError::Corrupted(
+                "OO deadline projection disagrees with native14 owner".into(),
+            ));
+        }
+    }
+    transport_movement_persist::validate_base_ai_projection_after_restore(
+        game_logic,
+        &payload.transport,
+    )
+}
+
+pub(super) fn validate_base_ai_projection_before_restore(
+    bytes: &[u8],
+    snapshot: &super::WorldSnapshot,
+) -> SaveLoadResult<()> {
+    let Some(mut rest) = find_oxob_suffix(bytes) else {
+        return Ok(());
+    };
+    let version = take_u32(&mut rest)?;
+    if version != OXOB_VERSION {
+        return Err(SaveLoadError::Corrupted(
+            "native14 requires current OO projection layout".into(),
+        ));
+    }
+    let length = take_u32(&mut rest)? as usize;
+    let encoded = rest
+        .get(..length)
+        .ok_or_else(|| SaveLoadError::Corrupted("truncated OO projection".into()))?;
+    let payload: ObjectXferPersistPayload = bincode_legacy::deserialize(encoded)
+        .map_err(|e| SaveLoadError::Corrupted(format!("OO projection decode: {e}")))?;
+    for entry in &payload.objects {
+        let saved = snapshot
+            .objects
+            .get(&ObjectId(entry.object_id))
+            .ok_or_else(|| SaveLoadError::Corrupted("missing detached OO owner".into()))?;
+        let control = match saved.modules.get("ReceivingBaseAI") {
+            Some(super::ModuleSnapshot::BaseAi(owner)) => owner.continuation(),
+            _ => {
+                return Err(SaveLoadError::Corrupted(
+                    "missing detached BaseAI capsule".into(),
+                ));
+            }
+        };
+        let expected = control.map_or((None, None, None), |control| control.deadline_projection());
+        if expected
+            != (
+                entry.guard_next_enemy_scan,
+                entry.hunt_next_enemy_scan,
+                entry.quick_exit_until,
+            )
+        {
+            return Err(SaveLoadError::Corrupted(
+                "detached OO deadline projection disagrees with native14 owner".into(),
+            ));
+        }
+    }
+    transport_movement_persist::validate_base_ai_projection_before_restore(
+        &payload.transport,
+        snapshot,
+    )
+}

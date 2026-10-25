@@ -122,7 +122,7 @@ fn named_attack_leaves_formation_and_sets_script_unlimited_force_order() {
     );
     assert!(!object.is_panicking);
     assert_eq!(object.target, Some(target));
-    assert_eq!(object.ai_state, AIState::Attacking);
+    assert_eq!(object.ai_state(), AIState::Attacking);
     assert!(object.force_attack);
     assert_eq!(object.max_shots_to_fire, -1);
     assert_eq!(
@@ -164,12 +164,12 @@ fn named_face_retains_object_goal_and_clears_route_without_idling_passengers() {
     let object = world.host_object(id).unwrap();
     assert_eq!(object.pending_move, None);
     assert_eq!(
-        object.ai_state,
+        object.ai_state(),
         AIState::FacingObject,
         "face must retain a live target, not a captured position"
     );
     assert_eq!(object.target, Some(target));
-    assert_eq!(object.face_goal_pos, None);
+    assert_eq!(object.face_goal_pos(), None);
     assert_eq!(object.formation_id, 0);
     assert!(!object.is_panicking);
     assert!(object.movement.path.is_empty());
@@ -265,11 +265,11 @@ fn named_attack_then_face_preserves_action_order_and_snapshot_continuation() {
         ],
     );
     assert_eq!(
-        source.host_object(id).unwrap().ai_state,
+        source.host_object(id).unwrap().ai_state(),
         AIState::FacingObject
     );
     assert!(
-        source.host_object(id).unwrap().face_active,
+        source.host_object(id).unwrap().face_active(),
         "save witness must start during an active turn"
     );
     let builder = crate::save_load::SnapshotBuilder::new();
@@ -279,10 +279,10 @@ fn named_attack_then_face_preserves_action_order_and_snapshot_continuation() {
         .restore_from_snapshot(&snapshot, &mut restored)
         .unwrap();
     let loaded = restored.host_object(id).unwrap();
-    assert_eq!(loaded.ai_state, AIState::FacingObject);
+    assert_eq!(loaded.ai_state(), AIState::FacingObject);
     assert_eq!(loaded.target, Some(target));
-    assert_eq!(loaded.face_goal_pos, None);
-    assert!(loaded.face_active);
+    assert_eq!(loaded.face_goal_pos(), None);
+    assert!(loaded.face_active());
     assert_eq!(
         loaded.last_command_source,
         crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_SCRIPT
@@ -298,7 +298,10 @@ fn named_attack_then_face_preserves_action_order_and_snapshot_continuation() {
             )],
         );
         assert_eq!(world.host_object(id).unwrap().target, Some(target));
-        assert_eq!(world.host_object(id).unwrap().ai_state, AIState::Attacking);
+        assert_eq!(
+            world.host_object(id).unwrap().ai_state(),
+            AIState::Attacking
+        );
         assert_eq!(world.host_object(id).unwrap().max_shots_to_fire, -1);
     }
 }
@@ -331,20 +334,20 @@ fn named_commands_ignore_foreign_core_member() {
                 &[(ScriptActionType::NamedFaceNamed, "NamedUnit", "NamedTarget")],
             );
             assert_eq!(
-                world.host_object(id).unwrap().ai_state,
+                world.host_object(id).unwrap().ai_state(),
                 AIState::FacingObject
             );
             execute(
                 &mut world,
                 &[(ScriptActionType::NamedHunt, "NamedUnit", "")],
             );
-            assert!(world.host_object(id).unwrap().hunting);
+            assert!(world.host_object(id).unwrap().is_hunting());
             execute(
                 &mut world,
                 &[(ScriptActionType::NamedGuard, "NamedUnit", "")],
             );
             assert_eq!(
-                world.host_object(id).unwrap().ai_state,
+                world.host_object(id).unwrap().ai_state(),
                 AIState::GuardingArea
             );
             assert_eq!(
@@ -367,8 +370,8 @@ fn active_face_snapshot_calibration() {
     let (mut source, id, target) = world();
     assert!(source.private_face_object(id, target));
     let face = source.host_object(id).unwrap();
-    assert!(face.face_active, "angled target requires an active turn");
-    assert!(face.face_can_turn_in_place);
+    assert!(face.face_active(), "angled target requires an active turn");
+    assert!(face.face_can_turn_in_place());
     assert_eq!(face.locomotor_goal_type, LocoGoalType::Angle);
 }
 
@@ -388,12 +391,12 @@ fn face_projection(
 ) {
     let o = world.host_object(id).unwrap();
     (
-        o.ai_state.clone(),
+        o.ai_state().clone(),
         o.target,
-        o.face_active,
-        o.face_can_turn_in_place,
-        o.face_goal_pos,
-        o.face_loco_frame,
+        o.face_active(),
+        o.face_can_turn_in_place(),
+        o.face_goal_pos(),
+        o.face_loco_frame(),
         o.locomotor_goal_type,
         o.locomotor_goal_angle,
         o.get_orientation(),
@@ -407,9 +410,11 @@ fn active_face_snapshot_preserves_captured_mode_and_future_ai_steps() {
     let (mut source, id, target) = world();
     source.frame = 7;
     assert!(source.private_face_object(id, target));
-    assert!(source.host_object(id).unwrap().face_active);
-    source.update_ai(&[id], 1.0 / 30.0);
-    assert!(source.host_object(id).unwrap().face_active);
+    assert!(source.host_object(id).unwrap().face_active());
+    source
+        .update_ai(&[id], 1.0 / 30.0)
+        .expect("receiving AI operation succeeds");
+    assert!(source.host_object(id).unwrap().face_active());
     let saved = face_projection(&source, id);
     let builder = crate::save_load::SnapshotBuilder::new();
     let snapshot = builder.create_world_snapshot(&source).unwrap();
@@ -423,7 +428,9 @@ fn active_face_snapshot_preserves_captured_mode_and_future_ai_steps() {
         "restore must keep the captured Face state, not re-enter it"
     );
     for world in [&mut source, &mut restored] {
-        world.update_ai(&[id], 1.0 / 30.0);
+        world
+            .update_ai(&[id], 1.0 / 30.0)
+            .expect("receiving AI operation succeeds");
         assert_eq!(
             face_projection(world, id).8,
             saved.8,
@@ -435,14 +442,16 @@ fn active_face_snapshot_preserves_captured_mode_and_future_ai_steps() {
     for frame in 8..188 {
         for world in [&mut source, &mut restored] {
             world.frame = frame;
-            world.update_ai(&[id], 1.0 / 30.0);
+            world
+                .update_ai(&[id], 1.0 / 30.0)
+                .expect("receiving AI operation succeeds");
         }
         assert_eq!(
             face_projection(&restored, id),
             face_projection(&source, id),
             "future face differs at frame {frame}"
         );
-        if source.host_object(id).unwrap().ai_state == AIState::Idle {
+        if source.host_object(id).unwrap().ai_state() == AIState::Idle {
             finished = true;
             break;
         }
@@ -455,7 +464,7 @@ fn face_position_snapshot_preserves_explicit_goal() {
     let (mut source, id, _) = world();
     let goal = Vec3::new(120.0, 0.0, 110.0);
     assert!(source.private_face_position(id, goal));
-    assert!(source.host_object(id).unwrap().face_active);
+    assert!(source.host_object(id).unwrap().face_active());
     let saved = face_projection(&source, id);
     let builder = crate::save_load::SnapshotBuilder::new();
     let snapshot = builder.create_world_snapshot(&source).unwrap();
@@ -466,7 +475,9 @@ fn face_position_snapshot_preserves_explicit_goal() {
     assert_eq!(face_projection(&restored, id), saved);
     for world in [&mut source, &mut restored] {
         world.frame = 1;
-        world.update_ai(&[id], 1.0 / 30.0);
+        world
+            .update_ai(&[id], 1.0 / 30.0)
+            .expect("receiving AI operation succeeds");
     }
     assert_eq!(face_projection(&restored, id), face_projection(&source, id));
 }
@@ -489,7 +500,7 @@ fn world_snapshot_capture_rejects_invalid_continuation_without_dropping_objects(
     );
     assert_eq!(source.host_objects().registered_len(), count);
     assert_eq!(source.frame, 9);
-    assert_eq!(source.host_object(id).unwrap().ai_state, AIState::Panic);
+    assert_eq!(source.host_object(id).unwrap().ai_state(), AIState::Panic);
     assert_eq!(source.host_object(target).unwrap().health.current, 100.0);
 }
 
@@ -531,7 +542,7 @@ fn named_this_object_is_an_owned_id_and_self_face_is_borrow_safe() {
     }
     assert_eq!(world.host_object(id).unwrap().target, Some(id));
     assert_eq!(
-        world.host_object(id).unwrap().ai_state,
+        world.host_object(id).unwrap().ai_state(),
         AIState::FacingObject
     );
     assert_eq!(world.host_object(target).unwrap().target, None);

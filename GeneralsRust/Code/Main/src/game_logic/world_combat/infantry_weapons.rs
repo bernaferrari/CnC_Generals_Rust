@@ -1901,7 +1901,7 @@ impl GameLogic {
                 continue;
             };
             let attacking = obj.status.attacking
-                || matches!(obj.ai_state, crate::game_logic::AIState::Attacking);
+                || matches!(obj.ai_state(), crate::game_logic::AIState::Attacking);
             let Some(rd) = obj.radius_decal_update.as_mut() else {
                 continue;
             };

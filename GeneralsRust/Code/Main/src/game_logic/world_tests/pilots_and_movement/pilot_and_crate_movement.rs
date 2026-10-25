@@ -175,7 +175,9 @@ fn worker_shoes_upgrade_speed_and_supply_boost_residual() {
         .map(|p| p.resources.supplies)
         .unwrap_or(0);
 
-    game_logic.update_ai(&[worker_id, supply_id], 1.0 / 30.0);
+    game_logic
+        .update_ai(&[worker_id, supply_id], 1.0 / 30.0)
+        .expect("receiving AI operation succeeds");
 
     let cash_after = game_logic
         .get_player(0)
@@ -487,9 +489,7 @@ fn stealth_jet_missile_projectile_flies_and_impacts() {
 
 #[test]
 fn mig_missile_projectile_flies_and_impacts() {
-    use crate::game_logic::host_mig::{
-        MIG_MISSILE_FUEL_FRAMES, MIG_PRIMARY_DAMAGE, MIG_PROJECTILE,
-    };
+    use crate::game_logic::host_mig::{MIG_MISSILE_FUEL_FRAMES, MIG_PRIMARY_DAMAGE, MIG_PROJECTILE};
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     use glam::Vec3;
 
@@ -661,9 +661,7 @@ fn flashbang_grenade_bezier_flight_and_blast() {
 
 #[test]
 fn helix_napalm_bomb_projectile_falls_and_height_dies() {
-    use crate::game_logic::host_helix_napalm::{
-        NAPALM_BOMB_HEIGHT_DIE_TARGET, NAPALM_BOMB_PROJECTILE,
-    };
+    use crate::game_logic::host_helix_napalm::{NAPALM_BOMB_HEIGHT_DIE_TARGET, NAPALM_BOMB_PROJECTILE};
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     use glam::Vec3;
 
@@ -996,9 +994,7 @@ fn countermeasures_divert_spawns_flare_objects() {
 
 #[test]
 fn aurora_fuel_air_impact_spawns_gas_object() {
-    use crate::game_logic::host_aurora_bomb::{
-        AURORA_FUEL_AIR_DIVE_IMPACT_FRAMES, HostAuroraBombKind,
-    };
+    use crate::game_logic::host_aurora_bomb::{AURORA_FUEL_AIR_DIVE_IMPACT_FRAMES, HostAuroraBombKind};
     use crate::game_logic::host_fuel_air_gas_slow_death::{
         AIRF_AURORA_BOMB_GAS_OBJECT, FUEL_AIR_GAS_DESTRUCTION_DELAY_FRAMES,
     };
@@ -1350,7 +1346,9 @@ fn plant_timed_demo_charge_command_plants_after_reach() {
     // ticks at the unit's turn rate — drive to the plant with bounded ticks.
     for _ in 0..1200 {
         game_logic.frame = game_logic.frame.saturating_add(1);
-        game_logic.update_ai(&[burton_id, target_id], LOGIC_FRAME_TIMESTEP);
+        game_logic
+            .update_ai(&[burton_id, target_id], LOGIC_FRAME_TIMESTEP)
+            .expect("receiving AI operation succeeds");
         if game_logic.mine_residual_places() >= 1 {
             break;
         }
@@ -1440,7 +1438,9 @@ fn plant_and_detonate_remote_demo_charge_residual() {
     // ticks at the unit's turn rate — drive to the plant with bounded ticks.
     for _ in 0..1200 {
         game_logic.frame = game_logic.frame.saturating_add(1);
-        game_logic.update_ai(&[burton_id, target_id, enemy_id], LOGIC_FRAME_TIMESTEP);
+        game_logic
+            .update_ai(&[burton_id, target_id, enemy_id], LOGIC_FRAME_TIMESTEP)
+            .expect("receiving AI operation succeeds");
         if game_logic.mine_residual_places() >= 1 {
             break;
         }
@@ -2439,9 +2439,7 @@ fn money_crate_collide_unit_pickup_residual() {
 
 #[test]
 fn money_crate_above_terrain_and_forbidden_kindof_residual() {
-    use crate::game_logic::host_deliver_payload::{
-        SUPPLY_DROP_DROP_OFFSET_Y, cargo_crate_drop_height,
-    };
+    use crate::game_logic::host_deliver_payload::{SUPPLY_DROP_DROP_OFFSET_Y, cargo_crate_drop_height};
     use crate::game_logic::{KindOf, ThingTemplate};
 
     let mut game_logic = GameLogic::new();
@@ -2798,9 +2796,7 @@ fn oil_derrick_residual_skips_under_construction() {
 
 #[test]
 fn hacker_internet_center_residual_deposits_cash() {
-    use crate::game_logic::host_hacker_income::{
-        HACKER_CASH_INTERVAL_FAST_FRAMES, HACKER_CASH_REGULAR,
-    };
+    use crate::game_logic::host_hacker_income::{HACKER_CASH_INTERVAL_FAST_FRAMES, HACKER_CASH_REGULAR};
     use crate::game_logic::{
         ContainAdmission, ContainModuleKind, ContainModuleMetadata, HackInternetAIUpdateMetadata,
         KindOf, ThingTemplate,
@@ -2882,7 +2878,9 @@ fn hacker_internet_center_residual_deposits_cash() {
         .unwrap_or(0);
 
     game_logic.frame = 0;
-    game_logic.update_hacker_income();
+    game_logic
+        .update_hacker_income()
+        .expect("receiving AI operation succeeds");
     assert!(
         game_logic.hacker_income().is_hacking(hacker_id),
         "hacker in IC must auto-start residual hacking"
@@ -2894,7 +2892,9 @@ fn hacker_internet_center_residual_deposits_cash() {
     assert_eq!(mid, cash_before, "no deposit before fast interval");
     let first = 219 + HACKER_CASH_INTERVAL_FAST_FRAMES + 1;
     game_logic.frame = first - 1;
-    game_logic.update_hacker_income();
+    game_logic
+        .update_hacker_income()
+        .expect("receiving AI operation succeeds");
     assert_eq!(
         game_logic
             .get_player_mut_by_team(Team::China)
@@ -2904,7 +2904,9 @@ fn hacker_internet_center_residual_deposits_cash() {
         "C++ UNPACKING then fast delay before first cash"
     );
     game_logic.frame = first;
-    game_logic.update_hacker_income();
+    game_logic
+        .update_hacker_income()
+        .expect("receiving AI operation succeeds");
     let cash_after = game_logic
         .get_player_mut_by_team(Team::China)
         .map(|p| p.resources.supplies)
@@ -2934,7 +2936,9 @@ fn hacker_internet_center_residual_deposits_cash() {
 
     // Second fast interval after unpack, again with the following update.
     game_logic.frame = first + HACKER_CASH_INTERVAL_FAST_FRAMES + 1;
-    game_logic.update_hacker_income();
+    game_logic
+        .update_hacker_income()
+        .expect("receiving AI operation succeeds");
     assert_eq!(game_logic.hacker_residual_deposits(), 2);
     assert_eq!(
         game_logic.hacker_residual_cash_total(),

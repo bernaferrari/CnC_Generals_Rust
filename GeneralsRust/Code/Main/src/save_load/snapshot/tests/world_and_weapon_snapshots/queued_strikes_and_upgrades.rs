@@ -619,7 +619,7 @@ fn host_upgrade_capture_mid_flight_save_load_completes_unlock() {
         .host_object(captor_id)
         .expect("captor after unlock");
     assert_eq!(
-        captor.ai_state,
+        captor.ai_state(),
         AIState::Capturing,
         "CaptureBuilding must work after mid-flight save/load + complete"
     );

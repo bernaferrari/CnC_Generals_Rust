@@ -22,9 +22,7 @@ impl GameLogic {
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
         use crate::game_logic::host_deliver_payload::SUPPLY_DROP_PAYLOAD_RESIDUAL_TEMPLATE;
-        use crate::game_logic::host_supply_drop_zone::{
-            SUPPLY_DROP_ZONE_DROP_CASH, drop_cash_amount,
-        };
+        use crate::game_logic::host_supply_drop_zone::{SUPPLY_DROP_ZONE_DROP_CASH, drop_cash_amount};
         use crate::game_logic::host_upgrades::UPGRADE_AMERICA_SUPPLY_LINES;
 
         self.host_deliver_payloads.clear_frame_events();
@@ -237,22 +235,23 @@ impl GameLogic {
     /// C++ DeletionUpdate::update residual for money/salvage crates.
     ///
     /// Destroys (NOT kills) crates whose dieFrame has elapsed.
-    pub fn update_crate_deletion_updates(&mut self) {
+    pub fn update_crate_deletion_updates(&mut self) -> gamelogic::GameLogicResult<()> {
         self.update_crate_deletion_updates_with_effects(&mut Default::default())
     }
 
     pub(crate) fn update_crate_deletion_updates_with_effects(
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         let expired = self.host_money_crates.expired_ids(self.frame);
         for id in expired {
             self.host_money_crates.forget(id);
             // Destroy object if still present (C++ destroyObject, not kill).
             if self.objects.contains_key(&id) {
-                self.mark_object_for_destruction_with_effects(id, None, effects);
+                self.mark_object_for_destruction_with_effects(id, None, effects)?;
             }
         }
+        Ok(())
     }
     pub fn update_money_crate_collides(&mut self) {
         self.update_money_crate_collides_with_effects(&mut Default::default())

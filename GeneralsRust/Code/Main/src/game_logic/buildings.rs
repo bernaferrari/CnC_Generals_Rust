@@ -1103,16 +1103,26 @@ impl BuildingBehavior {
                     if let Some(rally) = rally_point {
                         let _ = game_logic.note_move_to_request_path(new_id);
                         if !game_logic.assign_unit_path(new_id, rally, &[]) {
-                            if let Some(unit) = game_logic.host_object_mut(new_id) {
+                            if let Some((unit, _attack_events, audio_events, _partition)) =
+                                game_logic.host_object_attack_audio_partition_mut(new_id)
+                            {
                                 if unit.is_alive() && !unit.can_move() {
                                     unit.pending_move = Some(rally);
                                     unit.movement.target_position = None;
                                     unit.movement.path.clear();
-                                    unit.ai_state = AIState::Moving;
+                                    unit.set_ai_state(
+                                        AIState::Moving,
+                                        &mut crate::game_logic::ObjectAudio::queue(audio_events),
+                                    );
                                 }
                             }
-                        } else if let Some(unit) = game_logic.host_object_mut(new_id) {
-                            unit.ai_state = AIState::Moving;
+                        } else if let Some((unit, _attack_events, audio_events, _partition)) =
+                            game_logic.host_object_attack_audio_partition_mut(new_id)
+                        {
+                            unit.set_ai_state(
+                                AIState::Moving,
+                                &mut crate::game_logic::ObjectAudio::queue(audio_events),
+                            );
                         }
                     }
                 }
@@ -1176,7 +1186,7 @@ impl BuildingBehavior {
             unit.stop(audio);
             unit.target = Some(building_id);
             unit.contained_by = Some(building_id);
-            unit.ai_state = AIState::Garrisoned;
+            unit.set_ai_state(AIState::Garrisoned, audio);
             unit.status.moving = false;
             unit.status.attacking = false;
         } else {
@@ -1205,6 +1215,7 @@ impl BuildingBehavior {
         building_id: ObjectId,
         objects: &mut crate::game_logic::HostObjectStore,
         ownership_events: &mut crate::game_logic::host_owner_log::OwnershipEvents,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) -> Option<ObjectId> {
         let (unit_id, building_pos, forward) = {
             let building = objects.get_mut(&building_id)?;
@@ -1231,7 +1242,7 @@ impl BuildingBehavior {
             unit.set_position(building_pos + exit_offset);
             unit.target = None;
             unit.contained_by = None;
-            unit.ai_state = AIState::Idle;
+            unit.set_ai_state(AIState::Idle, audio);
             unit.status.moving = false;
             unit.status.attacking = false;
             Some(unit_id)

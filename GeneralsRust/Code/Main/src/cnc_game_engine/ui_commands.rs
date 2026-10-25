@@ -1195,6 +1195,8 @@ impl CnCGameEngine {
         };
         #[cfg(feature = "game_client")]
         let mut last_load_screen_progress = None::<(f32, String)>;
+        #[cfg(feature = "game_client")]
+        let load_screen_owner = self.game_client.window_manager_owner();
 
         let epoch = self.next_native_world_epoch();
         // This existing direct route is intentionally non-atomic. Retire old
@@ -1245,7 +1247,7 @@ impl CnCGameEngine {
                         #[cfg(feature = "game_client")]
                         if let Some(kind) = active_load_screen {
                             let progress = progress.clamp(0.0, 1.0);
-                            Self::pump_cpp_load_screen_progress(kind, progress);
+                            Self::pump_cpp_load_screen_progress(&load_screen_owner, kind, progress);
                             last_load_screen_progress = Some((progress, phase.to_string()));
                         }
                         #[cfg(not(feature = "game_client"))]
@@ -1264,7 +1266,11 @@ impl CnCGameEngine {
                             DEFAULT_SKIRMISH_MAP,
                             |progress, phase| {
                                 let progress = progress.clamp(0.0, 1.0);
-                                Self::pump_cpp_load_screen_progress(kind, progress);
+                                Self::pump_cpp_load_screen_progress(
+                                    &load_screen_owner,
+                                    kind,
+                                    progress,
+                                );
                                 last_load_screen_progress = Some((progress, phase.to_string()));
                             },
                             native,
@@ -1316,7 +1322,7 @@ impl CnCGameEngine {
                 // its map work. The direct host path has no later loading-loop
                 // callback, so finish the visible sequence before presentation
                 // seeding can move the engine to InGame.
-                Self::pump_cpp_load_screen_progress(kind, 1.0);
+                Self::pump_cpp_load_screen_progress(&load_screen_owner, kind, 1.0);
                 last_load_screen_progress = Some((1.0, "Map load complete".to_string()));
             }
         }
@@ -1492,6 +1498,8 @@ impl CnCGameEngine {
         #[cfg(feature = "game_client")]
         let cinematic_ui = self.game_client.in_game_ui_subsystem();
         #[cfg(feature = "game_client")]
+        let window_manager_owner = self.game_client.window_manager_owner();
+        #[cfg(feature = "game_client")]
         let (_frame, snow, presence) = self.game_client.split_frame_snow_and_drawable_owner();
         #[cfg(feature = "game_client")]
         let cinematic_window = &self.window;
@@ -1526,6 +1534,7 @@ impl CnCGameEngine {
             snow,
             &mut self.control_bar,
             &mut self.control_bar_callbacks,
+            window_manager_owner,
         )
         .with_cinematic_input(cinematic_input);
         let mut audio = super::native_audio_effects::NativeAudioService::live();
@@ -2866,9 +2875,7 @@ mod tests {
 
     #[test]
     fn retail_superweapon_button_family_keeps_exact_parsed_variant_and_cursor() {
-        use crate::command_system::{
-            SpecialPowerType as Power, special_power_type_from_template_name,
-        };
+        use crate::command_system::{SpecialPowerType as Power, special_power_type_from_template_name};
 
         let supw_particle =
             special_power_type_from_template_name("SupW_SuperweaponParticleUplinkCannon")

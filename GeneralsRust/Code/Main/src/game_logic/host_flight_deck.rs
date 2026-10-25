@@ -1094,13 +1094,13 @@ impl GameLogic {
             return true;
         }
         let taxiing =
-            jet.ai_state == AIState::Moving && jet.has_object_status_bit("REASSIGN_PARKING");
-        if jet.ai_state != AIState::Idle && !taxiing {
+            jet.ai_state() == AIState::Moving && jet.has_object_status_bit("REASSIGN_PARKING");
+        if jet.ai_state() != AIState::Idle && !taxiing {
             let designated_idle = self
                 .flight_decks
                 .get(&carrier_id)
                 .is_some_and(|s| s.designated_command == HostFlightDeckCommand::Idle);
-            if jet.ai_state == AIState::Entering || designated_idle {
+            if jet.ai_state() == AIState::Entering || designated_idle {
                 return false;
             }
             if self.flight_decks.get(&carrier_id).is_some_and(|state| {
@@ -1122,7 +1122,7 @@ impl GameLogic {
         };
         !jet.status.airborne_target
             && matches!(
-                jet.ai_state,
+                jet.ai_state(),
                 AIState::Idle | AIState::Docked | AIState::SeekingRepair
             )
     }
@@ -1433,7 +1433,7 @@ mod tests {
             .expect("front jet");
         let jet = logic.objects.get(&front).expect("jet");
         assert!(
-            jet.status.airborne_target || jet.ai_state == AIState::Attacking,
+            jet.status.airborne_target || jet.ai_state() == AIState::Attacking,
             "front-row jet must take the carrier attack order after ramp"
         );
         assert!(
@@ -1473,7 +1473,7 @@ mod tests {
         let promoted = state.spaces[0].object_id.expect("promoted");
         let jet = logic.objects.get(&promoted).expect("promoted jet");
         assert!(
-            jet.has_object_status_bit("REASSIGN_PARKING") || jet.ai_state == AIState::Moving,
+            jet.has_object_status_bit("REASSIGN_PARKING") || jet.ai_state() == AIState::Moving,
             "promoted jet taxis with REASSIGN_PARKING"
         );
     }

@@ -276,9 +276,7 @@ fn take_u32(rest: &mut &[u8]) -> SaveLoadResult<u32> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::game_logic::host_hero_abilities::{
-        LeftoverSaChannel, LeftoverSaKind, LeftoverSaPhase,
-    };
+    use crate::game_logic::host_hero_abilities::{LeftoverSaChannel, LeftoverSaKind, LeftoverSaPhase};
     use crate::game_logic::{
         AIState, CaptureChannelPhase, CaptureChannelState, Player, Team, ThingTemplate,
     };
@@ -391,7 +389,7 @@ mod tests {
             loaded_ranger.status.using_ability,
             "IS_USING_ABILITY must survive with the capture channel"
         );
-        assert_eq!(loaded_ranger.ai_state, AIState::Capturing);
+        assert_eq!(loaded_ranger.ai_state(), AIState::Capturing);
 
         let loaded_burton = restored.host_object(burton_id).expect("restored burton");
         assert_eq!(

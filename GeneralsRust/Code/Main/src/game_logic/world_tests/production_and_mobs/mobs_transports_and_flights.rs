@@ -39,7 +39,7 @@ fn group_hunt_includes_immobile_and_disabled_members() {
         "EMP'd tank with AI must still enter hunt"
     );
     assert_eq!(
-        logic.host_object(emp).unwrap().ai_state,
+        logic.host_object(emp).unwrap().ai_state(),
         AIState::Patrolling
     );
     assert!(
@@ -47,7 +47,7 @@ fn group_hunt_includes_immobile_and_disabled_members() {
         "structure-with-AI must still enter hunt"
     );
     assert_eq!(
-        logic.host_object(base).unwrap().ai_state,
+        logic.host_object(base).unwrap().ai_state(),
         AIState::Patrolling
     );
 }
@@ -278,7 +278,9 @@ fn special_power_create_starts_unit_recharge() {
             Vec3::new(0.0, 0.0, 0.0),
         )
         .expect("burton");
-    logic.notify_unit_production_complete(id, id, "AmericaInfantryColonelBurton");
+    logic
+        .notify_unit_production_complete(id, id, "AmericaInfantryColonelBurton")
+        .expect("production callback");
     let o = logic.host_object(id).expect("o");
     assert!(
         !o.is_special_power_ready(&SpecialPowerType::BurtonTimedCharges),
@@ -298,9 +300,7 @@ fn special_power_create_starts_unit_recharge() {
 #[test]
 fn veterancy_gain_create_uses_controlling_player_sciences_only() {
     // C++ VeterancyGainCreate.cpp:61-73 controlling player only.
-    use crate::game_logic::{
-        Player, Team, ThingTemplate, VeterancyGainCreateMetadata, VeterancyLevel,
-    };
+    use crate::game_logic::{Player, Team, ThingTemplate, VeterancyGainCreateMetadata, VeterancyLevel};
 
     let mut logic = GameLogic::new();
     let mut owner = Player::new(0, Team::USA, "Owner", true);
@@ -720,7 +720,7 @@ fn radius_decal_scud_storm_create_and_kill_on_idle() {
     {
         let o = logic.host_object_mut(id).unwrap();
         o.status.attacking = false;
-        o.ai_state = crate::game_logic::AIState::Idle;
+        o.restore_ai_state(crate::game_logic::AIState::Idle);
     }
     logic.set_current_frame(20);
     logic.update_radius_decal_update();
@@ -2110,9 +2110,7 @@ fn base_regenerate_structure_heals_after_delay() {
 #[test]
 fn default_auto_heal_trainable_heals_after_start_delay() {
     // C++ AutoHealBehavior.cpp:205-219 self-heal; :136-157 onDamage StartHealingDelay.
-    use crate::game_logic::host_heal::{
-        DEFAULT_AUTO_HEAL_AMOUNT, DEFAULT_AUTO_HEAL_START_DELAY_FRAMES,
-    };
+    use crate::game_logic::host_heal::{DEFAULT_AUTO_HEAL_AMOUNT, DEFAULT_AUTO_HEAL_START_DELAY_FRAMES};
 
     let mut logic = GameLogic::new();
     let mut tpl = ThingTemplate::new("USA_Ranger");
@@ -2201,9 +2199,7 @@ fn default_auto_heal_trainable_heals_after_start_delay() {
 
 #[test]
 fn fire_spread_tree_ignites_neighbor() {
-    use crate::game_logic::host_fire_spread::{
-        TREE_SPREAD_TRY_RANGE, honesty_fire_spread_residual_ok,
-    };
+    use crate::game_logic::host_fire_spread::{TREE_SPREAD_TRY_RANGE, honesty_fire_spread_residual_ok};
     assert!(honesty_fire_spread_residual_ok());
 
     let mut logic = GameLogic::new();
@@ -2614,7 +2610,9 @@ fn tunnel_network_residual_enter_sets_garrisoned_and_shared_pool() {
         modifier_keys: crate::command_system::ModifierKeys::default(),
     });
     game_logic.process_commands();
-    game_logic.update_ai(&[infantry_id, tunnel_id], 1.0 / 30.0);
+    game_logic
+        .update_ai(&[infantry_id, tunnel_id], 1.0 / 30.0)
+        .expect("receiving AI operation succeeds");
 
     let tunnel = game_logic.host_object(tunnel_id).expect("tunnel after");
     assert!(
@@ -2625,7 +2623,7 @@ fn tunnel_network_residual_enter_sets_garrisoned_and_shared_pool() {
     let infantry = game_logic.host_object(infantry_id).expect("infantry after");
     // C++ TunnelContain::isGarrisonable is FALSE — occupants are DISABLED_HELD
     // and never shoot out of an entrance, so the host parks them Docked.
-    assert_eq!(infantry.ai_state, AIState::Docked);
+    assert_eq!(infantry.ai_state(), AIState::Docked);
     assert_eq!(infantry.contained_by, Some(tunnel_id));
     assert!(!infantry.can_move());
     assert_eq!(game_logic.tunnel_network_residual_enters(), 1);
@@ -2695,10 +2693,12 @@ fn tunnel_network_residual_cross_exit_enter_a_evacuate_b() {
             &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
     }
-    game_logic.update_ai(&[infantry_id, tunnel_a, tunnel_b], 1.0 / 30.0);
+    game_logic
+        .update_ai(&[infantry_id, tunnel_a, tunnel_b], 1.0 / 30.0)
+        .expect("receiving AI operation succeeds");
     // C++ TunnelContain::isGarrisonable is FALSE — occupants are DISABLED_HELD.
     assert_eq!(
-        game_logic.host_object(infantry_id).unwrap().ai_state,
+        game_logic.host_object(infantry_id).unwrap().ai_state(),
         AIState::Docked
     );
     assert_eq!(game_logic.tunnel_network_residual_enters(), 1);
@@ -2717,7 +2717,7 @@ fn tunnel_network_residual_cross_exit_enter_a_evacuate_b() {
 
     let infantry = game_logic.host_object(infantry_id).expect("exited");
     assert_eq!(
-        infantry.ai_state,
+        infantry.ai_state(),
         AIState::Moving,
         "TunnelContain inherits OpenContain ExitStart/End walk"
     );
@@ -2797,7 +2797,9 @@ fn tunnel_network_residual_shared_capacity_full_rejects_enter() {
                 &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
             );
         }
-        game_logic.update_ai(&[id, tunnel_a, tunnel_b], 1.0 / 30.0);
+        game_logic
+            .update_ai(&[id, tunnel_a, tunnel_b], 1.0 / 30.0)
+            .expect("receiving AI operation succeeds");
     }
     assert_eq!(game_logic.tunnel_network_residual_enters() as usize, cap);
     let pool_key = game_logic
@@ -2821,10 +2823,12 @@ fn tunnel_network_residual_shared_capacity_full_rejects_enter() {
     });
     game_logic.process_commands();
     // Enter command may still set Entering, but AI must reject capacity.
-    game_logic.update_ai(&[overflow, tunnel_a, tunnel_b], 1.0 / 30.0);
+    game_logic
+        .update_ai(&[overflow, tunnel_a, tunnel_b], 1.0 / 30.0)
+        .expect("receiving AI operation succeeds");
     let overflow_obj = game_logic.host_object(overflow).unwrap();
     assert_ne!(
-        overflow_obj.ai_state,
+        overflow_obj.ai_state(),
         AIState::Garrisoned,
         "11th unit must not enter shared tunnel pool"
     );
@@ -2860,7 +2864,7 @@ fn tunnel_network_residual_rejects_aircraft() {
 
     let air = game_logic.host_object(air_id).expect("aircraft");
     assert_ne!(
-        air.ai_state,
+        air.ai_state(),
         AIState::Entering,
         "aircraft must not enter tunnel residual"
     );
@@ -2926,7 +2930,9 @@ fn combat_chinook_residual_enter_sets_docked_and_upgrades_weapon_set() {
         modifier_keys: crate::command_system::ModifierKeys::default(),
     });
     game_logic.process_commands();
-    game_logic.update_ai(&[infantry_id, chinook_id], 1.0 / 30.0);
+    game_logic
+        .update_ai(&[infantry_id, chinook_id], 1.0 / 30.0)
+        .expect("receiving AI operation succeeds");
 
     let chinook = game_logic.host_object(chinook_id).expect("chinook after");
     assert!(chinook.contained_units().contains(&infantry_id));
@@ -2951,7 +2957,7 @@ fn combat_chinook_residual_enter_sets_docked_and_upgrades_weapon_set() {
     );
 
     let infantry = game_logic.host_object(infantry_id).expect("infantry after");
-    assert_eq!(infantry.ai_state, AIState::Docked);
+    assert_eq!(infantry.ai_state(), AIState::Docked);
     assert_eq!(infantry.contained_by, Some(chinook_id));
     assert_eq!(game_logic.combat_chinook_residual_loads(), 1);
     assert_eq!(

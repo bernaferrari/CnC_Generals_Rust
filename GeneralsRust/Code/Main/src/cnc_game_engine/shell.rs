@@ -289,6 +289,7 @@ impl CnCGameEngine {
             self.active_load_screen = Some(kind);
 
             let context = self.load_screen_init_context();
+            let owner = self.game_client.window_manager_owner();
             // C++ GameWindowManagerScript layouts always scale against the
             // live display, not the CREATIONRESOLUTION default. Seed the WM
             // screen size with the logical window size before creating the
@@ -299,11 +300,11 @@ impl CnCGameEngine {
                 let size = self.window.inner_size();
                 let logical_w = ((size.width as f64) / scale).round().max(1.0) as i32;
                 let logical_h = ((size.height as f64) / scale).round().max(1.0) as i32;
-                game_client::gui::with_window_manager(|manager| {
+                owner.with_manager(|manager| {
                     manager.set_screen_size(logical_w, logical_h);
                 });
             }
-            if !game_client::gui::load_screen::init_load_screen(kind, &context) {
+            if !self.game_client.init_owned_load_screen(kind, &context) {
                 warn!(
                     "Failed to load {:?} load screen from .wnd assets; loading screen unavailable",
                     kind
@@ -344,7 +345,12 @@ impl CnCGameEngine {
         if now < pending.prelude_retry_at {
             return false;
         }
-        let step = advance_load_screen_prelude(kind, self.message_processor.is_active());
+        let owner = self.game_client.window_manager_owner();
+        let step = game_client::gui::load_screen::advance_load_screen_prelude_for_owner(
+            &owner,
+            kind,
+            self.message_processor.is_active(),
+        );
         let (finished, presentation_needed) = match step {
             LoadScreenPreludeStepResult::Pending {
                 retry_after,
@@ -359,7 +365,9 @@ impl CnCGameEngine {
             } => (true, presentation_needed),
         };
         if presentation_needed {
-            pump_load_screen_prelude_presentation(kind);
+            game_client::gui::load_screen::pump_load_screen_prelude_presentation_for_owner(
+                &owner, kind,
+            );
         }
         finished
     }
@@ -374,8 +382,9 @@ impl CnCGameEngine {
             // Do not early-return on a stale `loading_overlay_active` flag.
             // Timeout Loading→Menu and failed overlay init can leave
             // ShellGameLoadScreen.wnd (92%) stacked over MainMenu.
+            let owner = self.game_client.window_manager_owner();
             if let Some(kind) = self.active_load_screen.take() {
-                game_client::gui::load_screen::reset_load_screen(kind);
+                game_client::gui::load_screen::reset_load_screen_for_owner(&owner, kind);
             }
             for kind in [
                 game_client::gui::load_screen::LoadScreenKind::ShellGame,
@@ -385,7 +394,7 @@ impl CnCGameEngine {
                 game_client::gui::load_screen::LoadScreenKind::GameSpy,
                 game_client::gui::load_screen::LoadScreenKind::MapTransfer,
             ] {
-                game_client::gui::load_screen::reset_load_screen(kind);
+                game_client::gui::load_screen::reset_load_screen_for_owner(&owner, kind);
             }
             self.loading_overlay_active = false;
         }
@@ -515,7 +524,8 @@ impl CnCGameEngine {
         {
             if let Some(kind) = self.active_load_screen {
                 let percent = self.startup_last_reported_progress * 100.0;
-                game_client::gui::load_screen::update_load_screen(kind, percent);
+                let owner = self.game_client.window_manager_owner();
+                game_client::gui::load_screen::update_load_screen_for_owner(&owner, kind, percent);
             }
         }
     }
@@ -525,11 +535,12 @@ impl CnCGameEngine {
     /// and updates the existing engine fields after that borrow ends.
     #[cfg(feature = "game_client")]
     pub(super) fn pump_cpp_load_screen_progress(
+        owner: &game_client::gui::window_manager::WindowManagerOwner,
         kind: game_client::gui::load_screen::LoadScreenKind,
         progress: f32,
     ) {
         let progress = progress.clamp(0.0, 1.0);
-        game_client::gui::load_screen::update_load_screen(kind, progress * 100.0);
+        game_client::gui::load_screen::update_load_screen_for_owner(owner, kind, progress * 100.0);
     }
 
     pub(super) fn observe_startup_progress(&mut self, progress: f32, phase: &str) {
@@ -612,8 +623,16 @@ impl CnCGameEngine {
     /// it resolves retail assets, validates them, and attempts a window load when
     /// the client GUI is available. Missing assets are logged honestly.
     pub(super) fn ensure_gameplay_layouts(&mut self) {
+        #[cfg(feature = "game_client")]
+        let window_manager_owner = self.game_client.window_manager_owner();
         // C++ ShowControlBar: resolve + validate + load into TheWindowManager
         // when assets present. Ready-gate window_count is the live instance.
+        #[cfg(feature = "game_client")]
+        let honesty = crate::gameplay_layout::control_bar_layout_honesty_with_owner(
+            true,
+            &window_manager_owner,
+        );
+        #[cfg(not(feature = "game_client"))]
         let honesty = crate::gameplay_layout::control_bar_layout_honesty(true);
         let report = crate::gameplay_layout::format_control_bar_honesty(&honesty);
         match &honesty.status {
@@ -627,10 +646,15 @@ impl CnCGameEngine {
                 // MainMenu/Skirmish window_count must not skip the load.
                 #[cfg(feature = "game_client")]
                 if !self.runtime_host_headless {
-                    if crate::gameplay_layout::control_bar_parent_is_live() {
+                    if crate::gameplay_layout::control_bar_parent_is_live_with_owner(
+                        &window_manager_owner,
+                    ) {
                         info!("ensure_gameplay_layouts: ControlBar parent already live ({path})");
                     } else {
-                        let loaded = crate::gameplay_layout::materialise_live_control_bar();
+                        let loaded =
+                            crate::gameplay_layout::materialise_live_control_bar_with_owner(
+                                &window_manager_owner,
+                            );
                         if loaded {
                             info!(
                                 "ensure_gameplay_layouts: TheWindowManager ControlBar live=true path={path}"
@@ -645,7 +669,9 @@ impl CnCGameEngine {
                     self.show_owned_control_bar(true);
                     // C++ GameLogic.cpp:2233 setControlBarSchemeByPlayer(local)
                     // then ShowControlBar switches DEFAULT (ControlBarCallback.cpp:489).
-                    if crate::gameplay_layout::control_bar_parent_is_live() {
+                    if crate::gameplay_layout::control_bar_parent_is_live_with_owner(
+                        &window_manager_owner,
+                    ) {
                         let side = self
                             .ui_local_player_team_name()
                             .filter(|name| !name.is_empty())
@@ -671,8 +697,12 @@ impl CnCGameEngine {
         // ControlBarParent on TheWindowManager. Disk-probe Ready/miss must
         // not skip the archive resolver when the live parent is still gone.
         #[cfg(feature = "game_client")]
-        if !self.runtime_host_headless && !crate::gameplay_layout::control_bar_parent_is_live() {
-            let loaded = crate::gameplay_layout::materialise_live_control_bar();
+        if !self.runtime_host_headless
+            && !crate::gameplay_layout::control_bar_parent_is_live_with_owner(&window_manager_owner)
+        {
+            let loaded = crate::gameplay_layout::materialise_live_control_bar_with_owner(
+                &window_manager_owner,
+            );
             if loaded {
                 info!(
                     "ensure_gameplay_layouts: ControlBarParent materialised on live WM after enter"

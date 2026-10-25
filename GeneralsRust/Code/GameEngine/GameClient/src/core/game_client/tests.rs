@@ -763,12 +763,11 @@ mod tests {
             logic.set_game_mode(gamelogic::system::game_logic::GAME_NONE);
         }
 
-        {
-            let mut shell = get_shell();
-            let _ = shell.init();
-            let _ = shell.reset();
-            shell.show_shell_map(false);
-        }
+        let client = GameClient::new().expect("GameClient::new should succeed");
+        let mut shell = client.window_manager_owner().shell_handle();
+        shell.init().unwrap();
+        shell.reset().unwrap();
+        shell.show_shell_map(false);
         {
             let mut stream = THE_MESSAGE_STREAM
                 .write()
@@ -780,7 +779,6 @@ mod tests {
             global.shell_map_on = true;
         }
 
-        let client = GameClient::new().expect("GameClient::new should succeed");
         client
             .ensure_shell_visible()
             .expect("first shell activation should succeed");
@@ -804,34 +802,37 @@ mod tests {
 
     #[test]
     fn game_client_reset_does_not_destroy_main_menu_wnd() {
-        // C++ GameClient::reset (GameClient.cpp:426-457) resets InGameUI,
-        // drawables, Display, TerrainVisual, RayEffects, VideoPlayer, Eva,
-        // Snow — never TheWindowManager. Menu→Menu after GAME_SHELL apply
-        // must keep ButtonSinglePlayer (hq-3vo4).
-        crate::gui::window_manager::with_window_manager(|manager| {
-            manager.reset();
-            let window = manager
-                .create_window(None, 0, 0, 80, 24)
-                .expect("ButtonSinglePlayer");
-            window
-                .borrow_mut()
-                .set_name("MainMenu.wnd:ButtonSinglePlayer");
-        });
+        let owner = crate::gui::window_manager::WindowManagerOwner::new();
+        owner.with_scope(|| {
+            // C++ GameClient::reset (GameClient.cpp:426-457) resets InGameUI,
+            // drawables, Display, TerrainVisual, RayEffects, VideoPlayer, Eva,
+            // Snow — never TheWindowManager. Menu→Menu after GAME_SHELL apply
+            // must keep ButtonSinglePlayer (hq-3vo4).
+            crate::gui::window_manager::with_window_manager(|manager| {
+                manager.reset();
+                let window = manager
+                    .create_window(None, 0, 0, 80, 24)
+                    .expect("ButtonSinglePlayer");
+                window
+                    .borrow_mut()
+                    .set_name("MainMenu.wnd:ButtonSinglePlayer");
+            });
 
-        let mut client = GameClient::new().expect("GameClient::new");
-        client.reset().expect("GameClient::reset");
+            let mut client = GameClient::new().expect("GameClient::new");
+            client.reset().expect("GameClient::reset");
 
-        crate::gui::window_manager::with_window_manager(|manager| {
-            assert!(
-                manager.root_window_count() > 0,
-                "GameClient::reset must leave WindowManager roots"
-            );
-            assert!(
-                manager
-                    .find_window_by_name("MainMenu.wnd:ButtonSinglePlayer")
-                    .is_some(),
-                "MainMenu.wnd:ButtonSinglePlayer must survive GameClient::reset"
-            );
+            crate::gui::window_manager::with_window_manager(|manager| {
+                assert!(
+                    manager.root_window_count() > 0,
+                    "GameClient::reset must leave WindowManager roots"
+                );
+                assert!(
+                    manager
+                        .find_window_by_name("MainMenu.wnd:ButtonSinglePlayer")
+                        .is_some(),
+                    "MainMenu.wnd:ButtonSinglePlayer must survive GameClient::reset"
+                );
+            });
         });
     }
 

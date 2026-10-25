@@ -57,7 +57,7 @@ fn seeded_panic_logic(seed: u32) -> GameLogic {
 fn panic_observation(logic: &GameLogic) -> PanicObservation {
     let unit = logic.objects.get(&PANIC_UNIT).expect("panic unit");
     PanicObservation {
-        ai_state: unit.ai_state.clone(),
+        ai_state: unit.ai_state().clone(),
         panic: unit.panic_runtime.clone(),
         path: unit.movement.path.clone(),
         target: unit.movement.target_position,
@@ -66,7 +66,7 @@ fn panic_observation(logic: &GameLogic) -> PanicObservation {
         path_goal: unit.path_goal_position,
         waiting_for_path: unit.waiting_for_path,
         path_timestamp: unit.path_timestamp,
-        adjust_destinations: unit.adjust_destinations,
+        adjust_destinations: unit.adjust_destinations(),
         path_extra_distance: unit.path_extra_distance,
         retry_path: unit.retry_path,
         try_one_more_repath: unit.try_one_more_repath,
@@ -334,7 +334,7 @@ fn complete_world_restore_keeps_full_ordinary_moving_path_and_index() {
         .expect("restore ordinary moving path");
 
     let unit = restored.objects.get(&PANIC_UNIT).expect("restored unit");
-    assert_eq!(unit.ai_state, AIState::Moving);
+    assert_eq!(unit.ai_state(), AIState::Moving);
     assert_eq!(
         unit.movement.path,
         vec![

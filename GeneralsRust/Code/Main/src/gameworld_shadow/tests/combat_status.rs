@@ -571,7 +571,7 @@ fn host_ai_state_is_canonical_and_shadow_only_observes() {
         &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
     );
     assert_eq!(
-        logic.host_object(id).expect("o").ai_state,
+        logic.host_object(id).expect("o").ai_state(),
         AIState::GuardingObject
     );
     let mut shadow = GameWorldShadow::new(64);
@@ -585,14 +585,14 @@ fn host_ai_state_is_canonical_and_shadow_only_observes() {
         .expect("e")
         .ai_state_ordinal = 0;
     assert_eq!(
-        logic.host_object(id).expect("o").ai_state,
+        logic.host_object(id).expect("o").ai_state(),
         AIState::GuardingObject
     );
     logic.host_object_mut(id).expect("o").set_ai_state(
         AIState::Idle,
         &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
     );
-    assert_eq!(logic.host_object(id).expect("o").ai_state, AIState::Idle);
+    assert_eq!(logic.host_object(id).expect("o").ai_state(), AIState::Idle);
     shadow.sync_from_host(&logic);
     assert_eq!(shadow.world().entity(eid).expect("e").ai_state_ordinal, 0);
 }

@@ -29,7 +29,7 @@ fn finished_move_clears_the_ignored_obstacle() {
             Some(building),
             "a pack or repair stop must keep the building ignore"
         );
-        assert_eq!(unit.ai_state, AIState::Repairing);
+        assert_eq!(unit.ai_state(), AIState::Repairing);
     }
     {
         let (unit, fixture_partition_unit) = logic.host_object_and_partition_mut(id).expect("unit");
@@ -53,7 +53,7 @@ fn finished_move_clears_the_ignored_obstacle() {
     {
         let unit = logic.host_object(id).expect("same admitted mover");
         assert_eq!(unit.ignored_obstacle_id, None);
-        assert_eq!(unit.ai_state, AIState::Idle);
+        assert_eq!(unit.ai_state(), AIState::Idle);
         assert!(unit.movement.path.is_empty());
     }
     {
@@ -197,7 +197,7 @@ fn full_truck_returns_to_the_supply_center_approach() {
     }
     logic.update_support_states_for_test(&[truck], 1.0 / 30.0);
     let unit = logic.host_object(truck).expect("truck");
-    assert_eq!(unit.ai_state, AIState::ReturningResources);
+    assert_eq!(unit.ai_state(), AIState::ReturningResources);
     let end = unit
         .movement
         .path
@@ -258,8 +258,8 @@ fn full_truck_returns_to_the_supply_center_approach() {
     );
     let back = logic.host_object(truck).expect("truck");
     assert_eq!(back.stored_resources.supplies, 0);
-    assert_eq!(back.ai_state, AIState::Gathering);
-    assert_ne!(back.ai_state, AIState::Attacking);
+    assert_eq!(back.ai_state(), AIState::Gathering);
+    assert_ne!(back.ai_state(), AIState::Attacking);
     let back_end = back
         .movement
         .path
@@ -320,7 +320,7 @@ fn empty_truck_regroups_outside_the_supply_center() {
     }
     logic.update_support_states_for_test(&[truck], 1.0 / 30.0);
     let loaded = logic.host_object(truck).expect("truck");
-    assert_eq!(loaded.ai_state, AIState::ReturningResources);
+    assert_eq!(loaded.ai_state(), AIState::ReturningResources);
     let to_center = loaded.movement.path.last().copied().expect("center path");
     assert!(
         to_center.distance(Vec3::new(180.0, 0.0, 0.0)) < 1.0,
@@ -347,7 +347,7 @@ fn empty_truck_regroups_outside_the_supply_center() {
     logic.terrain = Some(terrain);
     logic.update_support_states_for_test(&[truck], 1.0 / 30.0);
     let regrouped = logic.host_object(truck).expect("truck");
-    assert_eq!(regrouped.ai_state, AIState::Moving);
+    assert_eq!(regrouped.ai_state(), AIState::Moving);
     assert_eq!(
         regrouped.supply_truck_state,
         crate::game_logic::SupplyTruckState::Regrouping
@@ -472,7 +472,7 @@ fn repair_approach_crosses_the_buildings_obstacle() {
     logic.process_pathfind_queue();
     let (state, path) = {
         let obj = logic.host_object(dozer).expect("dozer");
-        (obj.ai_state.clone(), obj.movement.path.clone())
+        (obj.ai_state().clone(), obj.movement.path.clone())
     };
     assert_eq!(state, AIState::Repairing);
     let xs: Vec<i32> = path
@@ -546,7 +546,7 @@ fn finished_repair_releases_the_dozer() {
         building.health.current
     );
     let unit = logic.host_object(dozer).expect("dozer");
-    assert_eq!(unit.ai_state, AIState::Idle);
+    assert_eq!(unit.ai_state(), AIState::Idle);
     assert!(unit.ignored_obstacle_id.is_none());
     assert!(unit.movement.path.is_empty());
     assert!(unit.dozer_task_repair_target.is_none());
@@ -599,7 +599,7 @@ fn dead_repair_target_releases_the_dozer() {
     }
     logic.update_support_states_for_test(&[dozer], 1.0 / 30.0);
     let unit = logic.host_object(dozer).expect("dozer");
-    assert_eq!(unit.ai_state, AIState::Idle);
+    assert_eq!(unit.ai_state(), AIState::Idle);
     assert!(unit.ignored_obstacle_id.is_none());
     assert!(unit.movement.path.is_empty());
     assert!(unit.dozer_task_repair_target.is_none());
@@ -644,7 +644,7 @@ fn repair_without_a_target_does_not_keep_the_task() {
     }
     logic.update_support_states_for_test(&[dozer], 1.0 / 30.0);
     let unit = logic.host_object(dozer).expect("dozer");
-    assert_eq!(unit.ai_state, AIState::Idle);
+    assert_eq!(unit.ai_state(), AIState::Idle);
     assert!(unit.dozer_task_repair_target.is_none());
     assert!(unit.ignored_obstacle_id.is_none());
     assert!(unit.movement.path.is_empty());
@@ -675,7 +675,7 @@ fn seeker_without_a_pad_goes_idle() {
     }
     logic.update_support_states_for_test(&[id], 1.0 / 30.0);
     let unit = logic.host_object(id).expect("tank");
-    assert_eq!(unit.ai_state, AIState::Idle);
+    assert_eq!(unit.ai_state(), AIState::Idle);
     assert!(unit.ignored_obstacle_id.is_none());
     assert!(unit.movement.path.is_empty());
     assert!(unit.target.is_none());
@@ -750,7 +750,7 @@ fn full_vehicle_leaves_the_repair_pad_for_its_rally() {
     assert!(
         matches!(unit.ai_state, AIState::Moving | AIState::AttackMoving),
         "left for rally in {:?}, path={:?}",
-        unit.ai_state,
+        unit.ai_state(),
         unit.movement.path
     );
     let end = unit.movement.path.last().copied().expect("rally path");

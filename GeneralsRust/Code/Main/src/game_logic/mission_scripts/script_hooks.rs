@@ -1,8 +1,15 @@
 // C++ ownership: ScriptEngine.cpp host notification queues — push/drain seams and completion tracking for every scripted side effect.
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum WinLoseWindowAction {
+    Create(String),
+    Destroy,
+}
+
 /// Host requests drained by the driving Main world after each script action.
 #[derive(Default)]
 struct ScriptNotificationQueues {
+    win_lose_window_actions: Vec<WinLoseWindowAction>,
     pending_warehouse_set_values: Vec<(String, i32)>,
     messages: Vec<String>,
     sounds: Vec<String>,
@@ -187,6 +194,38 @@ impl MissionScriptHooks {
             &[("message", text.as_str())],
         );
         queue.messages.push(localized);
+    }
+
+    /// Queue an immediate scripted window action for the receiving native UI
+    /// recipient. HostScriptExecutionDriver drains it after this action and at
+    /// ScriptEngine's close-window timer boundary.
+    pub(crate) fn queue_win_lose_window_action(&self, action: WinLoseWindowAction) {
+        let mut queue = self
+            .notifications
+            .lock()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        queue.win_lose_window_actions.push(action);
+    }
+
+    pub(crate) fn drain_win_lose_window_actions(&self) -> Vec<WinLoseWindowAction> {
+        let mut queue = self
+            .notifications
+            .lock()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        std::mem::take(&mut queue.win_lose_window_actions)
+    }
+
+    pub(crate) fn deliver_win_lose_window_actions(
+        &self,
+        ui: &mut dyn crate::game_logic::ScriptUiEffects,
+    ) -> GameLogicResult<()> {
+        for action in self.drain_win_lose_window_actions() {
+            match action {
+                WinLoseWindowAction::Create(layout) => ui.create_win_lose_window(&layout)?,
+                WinLoseWindowAction::Destroy => ui.destroy_win_lose_window()?,
+            }
+        }
+        Ok(())
     }
 
     pub fn push_sound(&self, name: String) {

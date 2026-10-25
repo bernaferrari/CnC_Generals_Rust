@@ -95,7 +95,7 @@ fn vehicle_requests_infantry_move_away() {
     let mut v = Object::new(vt, vid, Team::USA);
     v.cur_locomotor_name = Some("GattlingTankLocomotor".into());
     v.locomotor_surfaces = crate::game_logic::object::LOCO_SURFACE_GROUND;
-    v.ai_state = AIState::Moving;
+    v.restore_ai_state(AIState::Moving);
     v.set_status_moving(true);
     assert!(crate::game_logic::pathfinding::PathfindingGrid::is_doing_ground_movement_full(&v));
     v.movement.velocity = Vec3::new(0.0, 0.0, 3.0);
@@ -157,7 +157,7 @@ fn ai_blocked_sets_speed_cap() {
     let mut a = Object::new(at, aid, Team::USA);
     a.cur_locomotor_name = Some("GattlingTankLocomotor".into());
     a.locomotor_surfaces = crate::game_logic::object::LOCO_SURFACE_GROUND;
-    a.ai_state = AIState::Moving;
+    a.restore_ai_state(AIState::Moving);
     a.set_status_moving(true);
     assert!(crate::game_logic::pathfinding::PathfindingGrid::is_doing_ground_movement_full(&a));
     a.movement.velocity = Vec3::new(3.0, 0.0, 0.0); // moving +X
@@ -207,7 +207,7 @@ fn panicking_infantry_stays_on_the_blocked_path() {
     a.locomotor_surfaces = crate::game_logic::object::LOCO_SURFACE_GROUND;
     assert!(crate::game_logic::pathfinding::PathfindingGrid::is_doing_ground_movement_full(&a));
     a.is_panicking = true;
-    a.ai_state = AIState::Moving;
+    a.restore_ai_state(AIState::Moving);
     a.locomotor_goal_type = LocoGoalType::PositionOnPath;
     a.set_status_moving(true);
     a.movement.velocity = Vec3::new(2.0, 0.0, 0.0);
@@ -247,7 +247,7 @@ fn collision_without_current_locomotor_does_not_mark_blocked() {
     at.add_kind_of(KindOf::Infantry);
     let aid = ObjectId(713);
     let mut a = Object::new(at, aid, Team::USA);
-    a.ai_state = AIState::Moving;
+    a.restore_ai_state(AIState::Moving);
     a.locomotor_goal_type = LocoGoalType::PositionOnPath;
     a.set_status_moving(true);
     a.movement.velocity = Vec3::new(2.0, 0.0, 0.0);
@@ -822,10 +822,10 @@ fn collide_immobile_is_kindof_immobile_not_can_move() {
         );
     });
     let garrisoned = spawn_other(&mut logic, 95, "GarrisonedHusk", |o| {
-        o.ai_state = AIState::Garrisoned;
+        o.restore_ai_state(AIState::Garrisoned);
     });
     let docked = spawn_other(&mut logic, 97, "DockedHumvee", |o| {
-        o.ai_state = AIState::Docked;
+        o.restore_ai_state(AIState::Docked);
     });
 
     for other in [dead, emp, deployed, garrisoned, docked] {
@@ -1848,9 +1848,7 @@ fn minimum_attack_range_too_close_backs_away() {
 
 #[test]
 fn contact_weapon_approach_reaches_target_noncontact_stands_off() {
-    use crate::game_logic::weapon_bootstrap::{
-        compute_approach_target_pos, is_contact_weapon_range,
-    };
+    use crate::game_logic::weapon_bootstrap::{compute_approach_target_pos, is_contact_weapon_range};
     assert!(is_contact_weapon_range(5.0));
     let mut logic = GameLogic::new();
     {
@@ -1995,7 +1993,7 @@ fn airfield_runway_reservation_limits_parallel_takeoff() {
         logic
             .objects
             .get(&jets[2])
-            .map(|o| o.ai_state == AIState::Docked || o.contained_by == Some(af))
+            .map(|o| o.ai_state() == AIState::Docked || o.contained_by == Some(af))
             .unwrap_or(false),
         "waiting jet stays docked"
     );
@@ -2152,7 +2150,7 @@ fn airfield_runway_blocks_rtb_landing_when_busy() {
         assert!(logic.try_return_to_base_rearm(jet));
         let j = logic.objects.get(&jet).unwrap();
         assert_eq!(j.contained_by, Some(af));
-        assert_eq!(j.ai_state, AIState::Docked);
+        assert_eq!(j.ai_state(), AIState::Docked);
         // Landing runway released after dock.
         assert!(
             logic
@@ -2251,7 +2249,7 @@ fn airfield_takeoff_releases_parking_slot() {
     {
         let jet = logic.objects.get(&jet_id).unwrap();
         assert!(jet.contained_by.is_none());
-        assert_ne!(jet.ai_state, AIState::Docked);
+        assert_ne!(jet.ai_state(), AIState::Docked);
         assert!(jet.status.airborne_target);
         assert!(jet.get_position().y >= PARKING_PLACE_AIRFIELD_APPROACH_HEIGHT - 1e-3);
         assert_eq!(jet.target, Some(ObjectId(777)));
@@ -2278,9 +2276,7 @@ fn airfield_takeoff_releases_parking_slot() {
 
 #[test]
 fn helipad_takeoff_is_two_point_climb_not_altitude_pop() {
-    use crate::game_logic::game_logic::world_tick::heli_motion_tests::{
-        authored_match, isolated_at,
-    };
+    use crate::game_logic::game_logic::world_tick::heli_motion_tests::{authored_match, isolated_at};
 
     isolated_at(
         module_path!(),

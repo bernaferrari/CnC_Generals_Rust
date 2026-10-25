@@ -1,7 +1,5 @@
 //! Real normal/passive accepted fire, receiving immutable effects, and callback order.
-use crate::game_logic::{
-    AIState, GameLogic, KindOf, ObjectId, Player, Team, ThingTemplate, Weapon,
-};
+use crate::game_logic::{AIState, GameLogic, KindOf, ObjectId, Player, Team, ThingTemplate, Weapon};
 use gamelogic::effects::ObjectCreationList;
 use gamelogic::object_creation_list::GenericObjectCreationNugget;
 use glam::Vec3;
@@ -70,7 +68,7 @@ fn world(play_hidden: bool, suspend: u32) -> (GameLogic, ObjectId, ObjectId) {
     );
     let actor = world.host_object_mut(source).unwrap();
     actor.target = Some(target);
-    actor.ai_state = AIState::Attacking;
+    actor.restore_ai_state(AIState::Attacking);
     actor.weapon.as_mut().unwrap().suspend_fx_frame = suspend;
     world.frame = 30;
     (world, source, target)
@@ -162,7 +160,7 @@ fn passive_fire_keeps_muzzle_origin_and_effect_gates_do_not_suppress_ocl() {
     ] {
         let (mut owner, source, target) = world(play_hidden, suspend);
         let actor = owner.host_object_mut(source).unwrap();
-        actor.ai_state = AIState::Garrisoned;
+        actor.restore_ai_state(AIState::Garrisoned);
         actor.status.stealthed = true;
         actor.status.detected = false;
         let muzzle = Vec3::new(11.0, 0.0, 19.0);
@@ -199,7 +197,7 @@ fn passive_fire_keeps_muzzle_origin_and_effect_gates_do_not_suppress_ocl() {
             Some(2)
         );
         assert_eq!(
-            owner.host_object(source).unwrap().ai_state,
+            owner.host_object(source).unwrap().ai_state(),
             AIState::Garrisoned
         );
     }

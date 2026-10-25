@@ -1,6 +1,8 @@
 //! Host tick `impl GameLogic` — `production`.
 #![allow(unused_imports, non_snake_case)]
 use super::super::*;
+#[path = "production/construction_action.rs"]
+mod construction_action;
 
 /// The two original callback points cannot be interchanged by exit helpers.
 struct RetainedUpgradeEntry {
@@ -21,17 +23,15 @@ impl GameLogic {
     /// C++ `DozerAIUpdate::internalTaskComplete(DOZER_TASK_BUILD)`.
     /// Clears the task slot and the actively-constructing bit. The end dock
     /// must already have been copied; this also drops `dozer_dock_action`.
-    fn release_finished_builders(&mut self, ids: &[ObjectId]) {
-        for &oid in ids {
-            self.dozer_internal_task_complete(oid, false);
-            if let Some(obj) = self.objects.get_mut(&oid) {
-                obj.set_actively_constructing(false);
-            }
-        }
-    }
 
-    pub(crate) fn update_construction(&mut self, object_ids: &[ObjectId], dt: f32) {
-        self.update_construction_with_effects(object_ids, dt, &mut Default::default());
+    pub(crate) fn update_construction(
+        &mut self,
+        object_ids: &[ObjectId],
+        dt: f32,
+    ) -> gamelogic::GameLogicResult<()> {
+        self.update_construction_with_effects(object_ids, dt, &mut Default::default())?;
+
+        Ok(())
     }
 
     pub(crate) fn update_construction_with_effects(
@@ -39,244 +39,10 @@ impl GameLogic {
         object_ids: &[ObjectId],
         dt: f32,
         ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
-        // C++ parity: calcTimeToBuild applies the same power penalty to dozer
-        // construction as to production queue speed.
-        let player_power_factor = self.compute_player_power_factors();
-        // Resolve legacy ownerless objects before taking mutable object borrows.
-        // A concrete PlayerId is authoritative; the helper only supplies a
-        // compatibility owner when this team has exactly one living player.
-        let owner_raw: Vec<(ObjectId, Option<u32>, crate::game_logic::Team)> = self
-            .objects
-            .registered_values()
-            .map(|obj| (obj.id, obj.owner_player_id, obj.team))
-            .collect();
-        let object_owner_player_ids: std::collections::HashMap<ObjectId, Option<u32>> = owner_raw
-            .into_iter()
-            .map(|(id, owner_id, team)| (id, self.player_owner_for_event(owner_id, team)))
-            .collect();
-
-        // C++ `ThingTemplate::calcTimeToBuild(player)` converts build time to
-        // integer logic frames, multiplies Handicap::BUILDTIME (BUILDINGS vs
-        // GENERIC) then PlayerTemplate `ProductionTimeChange`, and only then
-        // applies low-power timing.
-        // Snapshot the pre-power frame counts before mutable Object borrows;
-        // they remain player-owned start state and do not depend on tick
-        // ordering.
-        // CPP DozerAIUpdate.cpp510: timing belongs to the active builder,
-        // including an allied player resuming another player's scaffold.
-        let authored_time_frames: std::collections::HashMap<ObjectId, u32> = self
-            .objects
-            .registered_values()
-            .filter_map(|builder| {
-                let target_id = builder.dozer_task_build_target.or(builder.target)?;
-                let target = self.objects.get(&target_id)?;
-                let player_id = object_owner_player_ids
-                    .get(&builder.id)
-                    .copied()
-                    .flatten()?;
-                let handicap = self
-                    .players
-                    .get(&player_id)
-                    .map(|player| {
-                        player.handicap_build_time_multiplier(target.is_kind_of(KindOf::Structure))
-                    })
-                    .unwrap_or(1.0);
-                let template_factor =
-                    self.player_template_production_time_factor(player_id, &target.template_name);
-                Some((
-                    builder.id,
-                    Self::cpp_build_time_frames_from_modifiers(
-                        target.thing().template.build_time,
-                        handicap,
-                        template_factor,
-                    ),
-                ))
-            })
-            .collect();
-        let allied_controllers: std::collections::HashSet<(u32, u32)> = self
-            .players
-            .keys()
-            .flat_map(|&builder| self.players.keys().map(move |&owner| (builder, owner)))
-            .filter(|&(builder, owner)| {
-                self.player_relationship(builder, owner) == gamelogic::common::Relationship::Allies
-            })
-            .collect();
-
-        // Pre-scan dozers: exclusive builder + at ACTION dock
-        // (C++ DozerActionDoActionState BUILD, DozerAIUpdate.cpp:482-507).
-        let dozer_info: Vec<(
-            ObjectId,
-            Vec3,
-            f32,
-            Option<u32>,
-            Option<ObjectId>,
-            Option<ObjectId>,
-            Option<ObjectId>,
-            Option<Vec3>,
-            AIState,
-            bool,
-        )> = self
-            .objects
-            .registered_values()
-            .filter(|obj| obj.is_alive() && obj.can_construct())
-            .map(|obj| {
-                (
-                    obj.id,
-                    obj.get_position(),
-                    obj.selection_radius,
-                    object_owner_player_ids.get(&obj.id).copied().flatten(),
-                    obj.dozer_task_build_target,
-                    obj.target,
-                    obj.dozer_task_build_target.or(obj.target),
-                    obj.dozer_dock_action,
-                    obj.ai_state.clone(),
-                    obj.movement.path.is_empty() && !obj.waiting_for_path,
-                )
-            })
-            .collect();
-
-        let mut completed_structures: Vec<ObjectId> = Vec::new();
+    ) -> gamelogic::GameLogicResult<()> {
         let mut ready_superweapons: Vec<ObjectId> = Vec::new();
         let mut radar_extend_done: Vec<ObjectId> = Vec::new();
-        let mut start_build_loops: Vec<(ObjectId, String, Vec3)> = Vec::new();
-        let mut stop_build_loops: Vec<ObjectId> = Vec::new();
-        let mut rejected_builders: Vec<ObjectId> = Vec::new();
-        let mut arrived_moving: Vec<ObjectId> = Vec::new();
         for &id in object_ids {
-            let mut construction_completed = false;
-            if let Some(obj) = self.objects.get_mut(&id) {
-                if obj.status.under_construction {
-                    let build_pos = obj.get_position();
-                    let build_radius = obj.selection_radius;
-                    let site_template = obj.template_name.clone();
-                    let build_owner_player_id = object_owner_player_ids.get(&id).copied().flatten();
-                    let exclusive_builder = obj.builder_id.filter(|bid| {
-                        dozer_info
-                            .iter()
-                            .any(|(did, _, _, _, slot, _, _, _, _, _)| {
-                                did == bid && *slot == Some(id)
-                            })
-                    });
-                    for (did, _, _, _, build_slot, live_target, _, _, ai_state, _) in &dozer_info {
-                        if *build_slot == Some(id)
-                            && *live_target == Some(id)
-                            && matches!(ai_state, AIState::Constructing)
-                            && exclusive_builder != Some(*did)
-                        {
-                            rejected_builders.push(*did);
-                        }
-                    }
-                    let active_builder = dozer_info
-                        .iter()
-                        .filter(|(did, pos, radius, owner_player_id, build_slot, live_target, _, stored_dock, ai_state, arrived)| {
-                            (match (*owner_player_id, build_owner_player_id) {
-                                (Some(builder), Some(owner)) => allied_controllers.contains(&(builder, owner)),
-                                (None, None) => true,
-                                _ => false,
-                            })
-                                && (*build_slot == Some(id)
-                                    || (*ai_state == AIState::Constructing && *live_target == Some(id)))
-                                && match exclusive_builder {
-                                    Some(bid) => bid == *did,
-                                    None => true,
-                                }
-                                && (matches!(ai_state, AIState::Constructing)
-                                    || (*ai_state == AIState::Moving && *arrived))
-                                && {
-                                    let dock = crate::game_logic::host_repair::resolve_dozer_action_dock(
-                                        *stored_dock,
-                                        *pos,
-                                        build_pos,
-                                        build_radius,
-                                    );
-                                    let at = crate::game_logic::host_repair::dozer_within_action_dock(
-                                        *pos,
-                                        *radius,
-                                        dock,
-                                    );
-                                    if at && *ai_state == AIState::Moving {
-                                        arrived_moving.push(*did);
-                                    }
-                                    at
-                                }
-                        })
-                        .next()
-                        .map(|builder| (builder.0, builder.3));
-
-                    // C++ DozerAIUpdate: no docked dozer ⇒ no progress. Do not invent a ghost builder.
-                    let dozer_count = usize::from(active_builder.is_some());
-                    let actively_built = active_builder.is_some();
-                    obj.set_under_construction_model_conditions(actively_built);
-                    self.construction_model_condition_updates =
-                        self.construction_model_condition_updates.saturating_add(1);
-
-                    let power_factor = active_builder
-                        .and_then(|(_, player)| player)
-                        .and_then(|player_id| player_power_factor.get(&player_id).copied())
-                        .unwrap_or(1.0);
-                    let authored_frames = active_builder
-                        .and_then(|(builder, _)| authored_time_frames.get(&builder).copied())
-                        .unwrap_or_else(|| {
-                            Self::cpp_build_time_frames_from_modifiers(
-                                obj.thing().template.build_time,
-                                1.0,
-                                1.0,
-                            )
-                        });
-                    let final_frames =
-                        Self::cpp_build_time_frames_after_power(authored_frames, power_factor);
-                    // Keep the existing zero-duration one-tick safeguard, but
-                    // otherwise use C++ calcTimeToBuild's final integer frame
-                    // count after the low-energy division.
-                    let base_rate = if authored_frames == 0 {
-                        100.0
-                    } else {
-                        30.0 / final_frames.max(1) as f32
-                    };
-                    let effective_rate = base_rate * dozer_count as f32;
-                    let projected = (obj.construction_percent + effective_rate * dt).min(1.0);
-                    obj.construction_percent = projected;
-
-                    // C++ DozerAIUpdate.cpp:526 then :536 — increment health first,
-                    // then complete. Completion itself never writes max health, so
-                    // scaffold damage taken during build persists.
-                    if let Some((builder, _)) = active_builder {
-                        // CPP526-536: contribution refreshes provenance before
-                        // completion callbacks, without changing the controller.
-                        obj.producer_id = Some(builder);
-                        obj.builder_id = Some(builder);
-                        let frames = final_frames.max(1) as f32;
-                        let per_frame = obj.health.maximum / frames;
-                        let logic_frames = (dt * 30.0).max(0.0);
-                        let build_hp = (obj.health.current + per_frame * logic_frames)
-                            .clamp(0.0, obj.health.maximum);
-                        {
-                            obj.internal_change_health(build_hp - obj.health.current);
-                            self.health_events
-                                .record_applied_heal(id, obj.health.current);
-                        }
-                    }
-                    if projected >= 1.0 {
-                        obj.construction_percent = 1.0;
-                        construction_completed = true;
-                    }
-
-                    if projected < 1.0 && actively_built {
-                        start_build_loops.push((id, site_template, build_pos));
-                    }
-                }
-            }
-            if construction_completed {
-                self.set_object_under_construction_with_effects(id, false, ui);
-                if let Some(obj) = self.objects.get_mut(&id) {
-                    obj.clear_under_construction_model_conditions();
-                    self.construction_events
-                        .record(id, obj.template_name.clone());
-                    completed_structures.push(id);
-                    stop_build_loops.push(id);
-                }
-            }
             if let Some(obj) = self.objects.get_mut(&id) {
                 if obj.tick_timers(
                     dt,
@@ -307,39 +73,6 @@ impl GameLogic {
                 }
             }
         }
-        for did in arrived_moving {
-            if self
-                .objects
-                .get(&did)
-                .is_some_and(|dozer| dozer.ai_state == AIState::Moving)
-            {
-                self.set_ai_state_decision_aware(did, AIState::Constructing);
-            }
-        }
-        for did in rejected_builders {
-            let live_construct = self.objects.get(&did).is_some_and(|dozer| {
-                matches!(dozer.ai_state, AIState::Constructing)
-                    && dozer.target.is_some()
-                    && dozer.target == dozer.dozer_task_build_target
-            });
-            self.dozer_internal_task_complete(did, false);
-            if live_construct {
-                if let Some(dozer) = self.objects.get_mut(&did) {
-                    dozer.target = None;
-                    dozer.set_ai_state(
-                        AIState::Idle,
-                        &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
-                    );
-                }
-            }
-        }
-
-        for (site_id, template_name, pos) in start_build_loops {
-            self.start_building_sound(site_id, &template_name, pos);
-        }
-        for site_id in stop_build_loops {
-            self.finish_building_sound(site_id);
-        }
         // C++ Player sharedNSync timers advance with the logic frame.
         self.tick_shared_special_power_timers(dt);
 
@@ -353,116 +86,10 @@ impl GameLogic {
             self.radar_extend_completes = self.radar_extend_completes.saturating_add(1);
         }
 
-        // C++ parity: when a structure finishes construction, release any dozers
-        // that were constructing it — set them to Idle.
-        for &completed_id in &completed_structures {
-            // CPP539-591: visual preparation, Player and CreateModules all
-            // observe the builder's BUILD task before end-dock/task release.
-            self.notify_structure_construction_complete_with_effects(completed_id, None, ui);
-            let building_pos = self.objects.get(&completed_id).map(|o| o.get_position());
-            let mut end_moves: Vec<(ObjectId, glam::Vec3)> = Vec::new();
-            let mut finished_builders: Vec<ObjectId> = Vec::new();
-            for obj in self.objects.registered_values_mut() {
-                let slot = obj.dozer_task_build_target;
-                let constructing = obj.is_alive()
-                    && obj.ai_state == AIState::Constructing
-                    && (slot == Some(completed_id) || obj.target == Some(completed_id));
-                let approaching = obj.is_alive()
-                    && slot == Some(completed_id)
-                    && matches!(obj.ai_state, AIState::Moving | AIState::Idle);
-                if !(constructing || approaching) {
-                    continue;
-                }
-                let oid = obj.id;
-                if constructing {
-                    let dozer_pos = obj.get_position();
-                    let stored_action = obj.dozer_dock_action;
-                    obj.target = None;
-                    obj.target_location = None;
-
-                    obj.set_status_force_attack(false);
-                    obj.set_status_attacking(false);
-                    if let Some(bpos) = building_pos {
-                        end_moves.push((
-                            oid,
-                            crate::game_logic::host_repair::dozer_complete_end_dock(
-                                stored_action,
-                                dozer_pos,
-                                bpos,
-                            ),
-                        ));
-                    } else {
-                        obj.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
-                            &mut self.queued_audio_events,
-                        ));
-                        if obj.ai_state != AIState::Idle {
-                            obj.set_ai_state(
-                                AIState::Idle,
-                                &mut crate::game_logic::ObjectAudio::queue(
-                                    &mut self.queued_audio_events,
-                                ),
-                            );
-                        }
-                        {}
-                    }
-                } else {
-                    let radius = obj.selection_radius;
-                    let on_dock_walk =
-                        obj.dozer_dock_action
-                            .is_some_and(|dock| match obj.movement.path.last() {
-                                Some(end) => {
-                                    crate::game_logic::host_repair::dozer_within_action_dock(
-                                        *end, radius, dock,
-                                    )
-                                }
-                                None => crate::game_logic::host_repair::dozer_within_action_dock(
-                                    obj.get_position(),
-                                    radius,
-                                    dock,
-                                ),
-                            });
-                    if on_dock_walk {
-                        if obj.target == Some(completed_id) {
-                            obj.target = None;
-                            obj.target_location = None;
-
-                            obj.set_status_force_attack(false);
-                            obj.set_status_attacking(false);
-                        }
-                        obj.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
-                            &mut self.queued_audio_events,
-                        ));
-                    }
-                }
-                finished_builders.push(oid);
-            }
-            // C++ internalTaskComplete(DOZER_TASK_BUILD) after the end-dock
-            // move is issued. The dock was already copied into end_moves.
-            // A leftover task greys every dozer-construct cameo.
-            // Seal first. A path computed before the footprint becomes
-            // impassable cannot be followed.
-            self.block_structure_object_path(completed_id);
-            for (oid, mut end) in end_moves {
-                self.adjust_to_possible_destination(oid, &mut end);
-                self.path_approach_with_state_ignoring(
-                    oid,
-                    end,
-                    AIState::Moving,
-                    Some(completed_id),
-                );
-                if let Some(unit) = self.objects.get_mut(&oid) {
-                    if !unit.movement.path.is_empty() {
-                        unit.is_attack_path = false;
-                    }
-                }
-            }
-            self.release_finished_builders(&finished_builders);
-        }
-        // C++ ACTIVELY_CONSTRUCTING residual for dozers/factories.
-        // Wave 815: under coupled shadow, model bit owned by GW expire + logs.
-        {
-            self.update_actively_constructing_model_conditions();
-        }
+        // Construction contributions belong to each Dozer action callback.
+        // This independent tick owns only timers, doors, SP and radar.
+        self.update_actively_constructing_model_conditions();
+        Ok(())
     }
     // Explicit UI-only adapter for standalone callers; native roots lend both domains.
     pub(crate) fn update_construction_with_ui(
@@ -470,7 +97,7 @@ impl GameLogic {
         object_ids: &[ObjectId],
         dt: f32,
         ui: &mut Option<&mut dyn crate::game_logic::ScriptUiEffects>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         let mut effects = crate::game_logic::ScriptPresentationEffects {
             script_events: None,
             partition: None,
@@ -481,7 +108,7 @@ impl GameLogic {
                 .map(|ui| &mut **ui as &mut dyn crate::game_logic::ScriptUiEffects),
             view: None,
         };
-        self.update_construction_with_effects(object_ids, dt, &mut effects)
+        Ok(self.update_construction_with_effects(object_ids, dt, &mut effects)?)
     }
 
     /// C++ DozerAIUpdate.cpp:318-348 — PICK_ACTION_POS re-issues the approach
@@ -490,116 +117,10 @@ impl GameLogic {
     /// integrating (velocity stays zero, percent frozen at 0). Called from
     /// `update()` AFTER the fixed step — the proven integration timing (paths
     /// queued between ticks install and walk). Throttled to once a second.
-    pub(crate) fn reissue_dozer_approaches(&mut self) {
-        if self.frame % 30 != 0 {
-            return;
-        }
-        let raw_dozers: Vec<(
-            ObjectId,
-            Vec3,
-            f32,
-            Option<u32>,
-            crate::game_logic::Team,
-            Option<ObjectId>,
-            Option<Vec3>,
-        )> = self
-            .objects
-            .registered_values()
-            .filter(|obj| obj.is_alive() && obj.can_construct())
-            .map(|obj| {
-                (
-                    obj.id,
-                    obj.get_position(),
-                    obj.selection_radius,
-                    obj.owner_player_id,
-                    obj.team,
-                    obj.dozer_task_build_target.or(obj.target),
-                    obj.dozer_dock_action,
-                )
-            })
-            .collect();
-        let dozer_info: Vec<(
-            ObjectId,
-            Vec3,
-            f32,
-            Option<u32>,
-            Option<ObjectId>,
-            Option<Vec3>,
-        )> = raw_dozers
-            .into_iter()
-            .map(|(id, pos, radius, owner_id, team, target, dock)| {
-                (
-                    id,
-                    pos,
-                    radius,
-                    self.player_owner_for_event(owner_id, team),
-                    target,
-                    dock,
-                )
-            })
-            .collect();
-        for (did, dpos, dradius, downer, dtarget, sdock) in dozer_info.iter() {
-            let Some(sid) = dtarget else {
-                continue;
-            };
-            let Some((under_construction, alive, bpos, bradius, site_owner_id, site_team)) =
-                self.host_object(*sid).map(|site| {
-                    (
-                        site.status.under_construction,
-                        site.is_alive(),
-                        site.get_position(),
-                        site.selection_radius,
-                        site.owner_player_id,
-                        site.team,
-                    )
-                })
-            else {
-                continue;
-            };
-            if !under_construction || !alive {
-                continue;
-            }
-            if self.player_owner_for_event(site_owner_id, site_team) != *downer {
-                continue;
-            }
-            let dock = crate::game_logic::host_repair::resolve_dozer_action_dock(
-                *sdock, *dpos, bpos, bradius,
-            );
-            if crate::game_logic::host_repair::dozer_within_action_dock(*dpos, *dradius, dock) {
-                continue;
-            }
-            let Some(d) = self.objects.get(did) else {
-                continue;
-            };
-            // C++ DozerActionPickActionPosState (DozerAIUpdate.cpp:346-350):
-            // the approach order is re-issued only when the dozer went IDLE
-            // short of the dock (STATE_FAILURE back to PICK_ACTION_POS). A
-            // pending path or an installed path being followed is a healthy
-            // approach — the old speed threshold sat below dozer cruise speed
-            // and re-pathed walking dozers every cycle.
-            if d.waiting_for_path || d.status.moving || d.movement.velocity.length_squared() > 1e-3
-            {
-                continue;
-            }
-            let approach = self.find_good_build_or_repair_position(
-                *dpos,
-                bpos,
-                bradius,
-                false,
-                None,
-                Some(*did),
-            );
-            let _ = self.unit_command_path_with_state_ignoring(
-                *did,
-                approach,
-                AIState::Moving,
-                Some(*sid),
-            );
-        }
-    }
 
     /// C++ `DozerAIUpdate::startBuildingSound` / Worker twin.
     /// Plays the building's PerUnitSound "UnderConstruction" on the site.
+
     pub fn start_building_sound(&mut self, site_id: ObjectId, template_name: &str, pos: Vec3) {
         let Some(event) = crate::game_logic::audio_dispatch_impl::resolve_per_unit_sound(
             template_name,
@@ -736,14 +257,15 @@ impl GameLogic {
     }
 
     pub(crate) fn update_production(&mut self, dt: f32) {
-        self.update_production_with_effects(dt, &mut Default::default());
+        self.update_production_with_effects(dt, &mut Default::default())
+            .expect("production update failed");
     }
 
     pub(crate) fn update_production_with_effects(
         &mut self,
         dt: f32,
         ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         // C++ ProductionUpdate.cpp:671 — re-check allowedToBuild on queue head.
         self.cancel_script_disallowed_production_queue_heads();
         // Wave 613: production complete collect + apply via host helpers.
@@ -753,9 +275,10 @@ impl GameLogic {
         // Wave 875: sole-tick early-return honesty — no host dual-advance.
         {}
 
-        let unit_completions = self.host_collect_production_completions(dt, ui);
+        let unit_completions = self.host_collect_production_completions(dt, ui)?;
         // Wave 595/608: host production complete/spawn apply residual via host helpers.
-        self.apply_unit_production_completions_with_effects(unit_completions, ui);
+        self.apply_unit_production_completions_with_effects(unit_completions, ui)?;
+        Ok(())
     }
 
     /// Wave 613: host production completion collection residual.
@@ -767,7 +290,7 @@ impl GameLogic {
         &mut self,
         dt: f32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> Vec<(Team, String, Vec3, Option<Vec3>, ObjectId)> {
+    ) -> gamelogic::GameLogicResult<Vec<(Team, String, Vec3, Option<Vec3>, ObjectId)>> {
         // Research is completed synchronously on each producer before advancing the next.
 
         // Ownership and Energy are sampled at each producer's boundary below,
@@ -1006,7 +529,7 @@ impl GameLogic {
                 self.apply_unit_production_completions_with_effects(
                     std::mem::take(&mut unit_completions),
                     effects,
-                );
+                )?;
             }
             if let Some((team, name, retained)) = ready_research {
                 self.complete_upgrade_on_owner_with_effects(
@@ -1020,7 +543,7 @@ impl GameLogic {
             }
         }
 
-        unit_completions
+        Ok(unit_completions)
     }
 
     /// Wave 595: host upgrade production completion residual (still host-side under
@@ -1272,7 +795,7 @@ impl GameLogic {
     pub(in super::super) fn apply_unit_production_completions(
         &mut self,
         unit_completions: Vec<(Team, String, Vec3, Option<Vec3>, ObjectId)>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         self.apply_unit_production_completions_with_effects(
             unit_completions,
             &mut Default::default(),
@@ -1283,7 +806,7 @@ impl GameLogic {
         &mut self,
         unit_completions: Vec<(Team, String, Vec3, Option<Vec3>, ObjectId)>,
         ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         self.host_apply_unit_production_completions_with_effects(unit_completions, ui)
     }
 
@@ -1414,18 +937,18 @@ impl GameLogic {
     pub(in super::super) fn host_apply_unit_production_completions(
         &mut self,
         unit_completions: Vec<(Team, String, Vec3, Option<Vec3>, ObjectId)>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         self.host_apply_unit_production_completions_with_effects(
             unit_completions,
             &mut Default::default(),
-        );
+        )
     }
 
     pub(crate) fn host_apply_unit_production_completions_with_effects(
         &mut self,
         unit_completions: Vec<(Team, String, Vec3, Option<Vec3>, ObjectId)>,
         ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         // Wave 608: host production complete/spawn apply residual.
         // Wave 595: host unit production completion residual.
         for (team, template, spawn_pos, rally, producer_id) in unit_completions {
@@ -1457,7 +980,7 @@ impl GameLogic {
                     spawn_pos,
                 },
                 ui,
-            ) {
+            )? {
                 ProductionAuthorityResult::Spawned(id) => id,
                 _ => None,
             };
@@ -1493,7 +1016,7 @@ impl GameLogic {
                             new_id,
                             producer_id
                         );
-                        self.destroy_object_with_effects(new_id, ui);
+                        self.destroy_object_with_effects(new_id, ui)?;
                         continue;
                     }
                 }
@@ -1509,12 +1032,13 @@ impl GameLogic {
                     [spawn_pos.x, spawn_pos.y, spawn_pos.z],
                     rally.map(|r| [r.x, r.y, r.z]),
                 );
-                let _ = self.apply_production_authority_op_with_effects(
+                self.apply_production_authority_op_with_effects(
                     ProductionAuthorityOp::ApplySpawnReadyCompletions,
                     ui,
-                );
+                )?;
             }
         }
+        Ok(())
     }
 
     /// C++ `Pathfinder::getRadiusAndCenter` (AIPathfind.cpp:5026-5054).
@@ -1655,7 +1179,7 @@ impl GameLogic {
         // C++ AI_FOLLOW_EXITPRODUCTION_PATH clears adjust before the nested
         // move, so the first exit search does not spiral.
         if let Some(unit) = self.objects.get_mut(&unit_id) {
-            unit.adjust_destinations = false;
+            unit.set_adjust_destinations(false);
             unit.can_path_through_units = true;
         }
         self.path_approach_with_state_ignoring(unit_id, path[0], AIState::Moving, ignore_producer);
@@ -1722,8 +1246,9 @@ impl GameLogic {
                 crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_AI;
             // C++ AIFollowPathState::onEnter writes m_adjustFinal after
             // requestPath has already copied the pre-search false.
-            unit.adjust_destinations =
-                unit.movement.current_path_index + 1 >= unit.movement.path.len();
+            unit.set_adjust_destinations(
+                unit.movement.current_path_index + 1 >= unit.movement.path.len(),
+            );
             unit.refresh_follow_path_extra_distance();
         }
         if let Some(unit) = self.objects.get_mut(&unit_id) {
@@ -1760,14 +1285,16 @@ impl GameLogic {
         );
     }
 
-    pub fn host_apply_production_spawn_ready_completions(&mut self) -> usize {
+    pub fn host_apply_production_spawn_ready_completions(
+        &mut self,
+    ) -> gamelogic::GameLogicResult<usize> {
         self.host_apply_production_spawn_ready_completions_with_effects(&mut Default::default())
     }
 
     pub(crate) fn host_apply_production_spawn_ready_completions_with_effects(
         &mut self,
         ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> usize {
+    ) -> gamelogic::GameLogicResult<usize> {
         let events = std::mem::take(&mut self.production_spawn_completions);
         self.apply_spawn_ready_events(
             events,
@@ -1780,7 +1307,7 @@ impl GameLogic {
     pub(crate) fn host_apply_production_spawn_ready_completions_with_build_complete(
         &mut self,
         mut on_build_complete: impl FnMut(&mut Self, ObjectId),
-    ) -> usize {
+    ) -> gamelogic::GameLogicResult<usize> {
         // Wave 679: paid ProductionUpdate deliveries retain the drain boundary.
         let events = std::mem::take(&mut self.production_spawn_completions);
         self.apply_spawn_ready_events(
@@ -1796,14 +1323,14 @@ impl GameLogic {
     pub(crate) fn host_apply_supply_spawn_ready_completion(
         &mut self,
         event: crate::game_logic::host_production_spawn_ready_log::HostProductionSpawnReadyEvent,
-    ) -> usize {
+    ) -> gamelogic::GameLogicResult<usize> {
         self.host_apply_supply_spawn_ready_completion_with_effects(event, &mut Default::default())
     }
     pub(crate) fn host_apply_supply_spawn_ready_completion_with_effects(
         &mut self,
         event: crate::game_logic::host_production_spawn_ready_log::HostProductionSpawnReadyEvent,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> usize {
+    ) -> gamelogic::GameLogicResult<usize> {
         self.apply_spawn_ready_events(
             std::iter::once(event),
             SpawnReadyCallbacks::AlreadyNotified,
@@ -1822,7 +1349,7 @@ impl GameLogic {
             &mut crate::game_logic::ScriptPresentationEffects<'_>,
         ),
         ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> usize {
+    ) -> gamelogic::GameLogicResult<usize> {
         let pose_frame = self.frame;
         let mut n = 0usize;
         let mut voice_create_played: std::collections::HashSet<ObjectId> =
@@ -2033,8 +1560,9 @@ impl GameLogic {
                     new_id,
                     producer_id,
                     &template,
-                    |world, id| on_build_complete(world, id, ui),
-                );
+                    ui,
+                    |world, id, effects| on_build_complete(world, id, effects),
+                )?;
             } else {
                 // SpawnBehavior notified AI before exit, and its ordinary
                 // AtCreation path already completed the host Create callbacks.
@@ -2063,7 +1591,7 @@ impl GameLogic {
             }
             n = n.saturating_add(1);
         }
-        n
+        Ok(n)
     }
 
     /// Spawns each active skirmish/SP player's starting construction unit near their
@@ -2401,3 +1929,23 @@ mod allied_construction_tests;
 #[cfg(test)]
 #[path = "upgrade_accounting_tests.rs"]
 mod upgrade_accounting_tests;
+
+impl GameLogic {
+    pub(in super::super) fn host_spawn_rebuild_object_with_effects_checked(
+        &mut self,
+        template: &str,
+        team: Team,
+        owner_player_id: Option<u32>,
+        spawn_pos: Vec3,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<Option<ObjectId>> {
+        self.create_object_for_owner_or_team_with_effects_checked(
+            template,
+            team,
+            owner_player_id,
+            spawn_pos,
+            None,
+            effects,
+        )
+    }
+}

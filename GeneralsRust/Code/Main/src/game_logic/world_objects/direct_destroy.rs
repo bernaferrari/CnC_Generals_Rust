@@ -7,7 +7,10 @@ impl GameLogic {
         !self.objects_to_destroy.is_empty() || self.objects.failed_retirement_reason().is_some()
     }
 
-    pub(in super::super) fn destroy_live_object(&mut self, id: ObjectId) {
+    pub(in super::super) fn destroy_live_object(
+        &mut self,
+        id: ObjectId,
+    ) -> gamelogic::GameLogicResult<()> {
         self.destroy_live_object_with_effects(id, &mut Default::default())
     }
 
@@ -15,12 +18,12 @@ impl GameLogic {
         &mut self,
         id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         let Some(object) = self.objects.get_mut(&id) else {
-            return;
+            return Ok(());
         };
         if object.status.destroyed {
-            return;
+            return Ok(());
         }
         object.status.destroyed = true;
         object.set_locomotor_goal_none();
@@ -29,13 +32,17 @@ impl GameLogic {
         // the DESTROYED latch and appends distinct children to this same list.
         self.objects_to_destroy
             .push_back(DestructionEvent::direct(id));
-        self.apply_object_delete_callbacks_with_effects(id, effects);
+        self.apply_object_delete_callbacks_with_effects(id, effects)?;
+        Ok(())
     }
 
     /// Complete the supported onDelete slice on the installed Object.
     /// This also applies when onDie began earlier; deferred death effects
     /// keep their existing queue completion and are not replayed here.
-    pub(in super::super) fn apply_object_delete_callbacks(&mut self, id: ObjectId) {
+    pub(in super::super) fn apply_object_delete_callbacks(
+        &mut self,
+        id: ObjectId,
+    ) -> gamelogic::GameLogicResult<()> {
         self.apply_object_delete_callbacks_with_effects(id, &mut Default::default())
     }
 
@@ -43,19 +50,20 @@ impl GameLogic {
         &mut self,
         id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         self.object_lifecycle_callback_depth += 1;
-        self.apply_object_delete_callbacks_body_with_effects(id, effects);
+        let result = self.apply_object_delete_callbacks_body_with_effects(id, effects);
         self.object_lifecycle_callback_depth -= 1;
+        result
     }
 
     fn apply_object_delete_callbacks_body_with_effects(
         &mut self,
         id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         self.detach_destroyed_object_from_contain(id);
-        self.delete_direct_containment_with_effects(id, effects);
+        self.delete_direct_containment_with_effects(id, effects)?;
         self.remove_host_radar_provider(id);
         if let Some(object) = self.objects.get_mut(&id) {
             if let Some(bone_fx) = object.bone_fx_damage.as_mut() {
@@ -72,12 +80,13 @@ impl GameLogic {
         {
             self.pathfinding_system.remove_wall_piece(id);
         }
+        Ok(())
     }
 
     /// Supported containment onDelete operations; Cave's shared cave-in is
     /// an onDie operation. The complete authored behavior dispatcher remains
     /// separate from this local OpenContain / TunnelContain migration.
-    fn delete_direct_containment(&mut self, id: ObjectId) {
+    fn delete_direct_containment(&mut self, id: ObjectId) -> gamelogic::GameLogicResult<()> {
         self.delete_direct_containment_with_effects(id, &mut Default::default())
     }
 
@@ -85,7 +94,7 @@ impl GameLogic {
         &mut self,
         id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         let redirected = self.redirected_containment_owner(id);
         if redirected != id {
             let children = self
@@ -95,7 +104,7 @@ impl GameLogic {
             // CPP onDelete removes the child's contents before switching back
             // to the hull's base list; callbacks still see both owners.
             for child in children {
-                self.remove_direct_contained_child_with_effects(redirected, child, effects);
+                self.remove_direct_contained_child_with_effects(redirected, child, effects)?;
             }
             if let Some(outer) = self.host_object_mut(id) {
                 outer.overlord_redirection_active = false;
@@ -105,26 +114,26 @@ impl GameLogic {
                 .map(|object| object.occupants.clone())
                 .unwrap_or_default();
             for payload in payloads {
-                self.remove_direct_contained_child_with_effects(id, payload, effects);
+                self.remove_direct_contained_child_with_effects(id, payload, effects)?;
             }
-            return;
+            return Ok(());
         }
         let Some(object) = self.objects.get(&id) else {
-            return;
+            return Ok(());
         };
         if object.is_cave_style_container() {
-            return;
+            return Ok(());
         }
         if object.is_tunnel_network_style_container() {
-            self.unregister_tunnel_containment_with_effects(id, effects);
-            return;
+            self.unregister_tunnel_containment_with_effects(id, effects)?;
+            return Ok(());
         }
         if object.is_overlord_style_container() {
             let children = object.occupants.clone();
             for child in children {
-                self.destroy_object_with_effects(child, effects);
+                self.destroy_object_with_effects(child, effects)?;
             }
-            return;
+            return Ok(());
         }
         let kind = object.thing().template.contain_module.kind;
         if matches!(
@@ -138,9 +147,10 @@ impl GameLogic {
         ) {
             let children = object.contained_units();
             for child in children {
-                self.destroy_object_with_effects(child, effects);
+                self.destroy_object_with_effects(child, effects)?;
             }
         }
+        Ok(())
     }
 
     /// CPP OverlordContain::onDelete uses removeAllContained, not destroy.
@@ -150,7 +160,7 @@ impl GameLogic {
         &mut self,
         container_id: ObjectId,
         child_id: ObjectId,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         self.remove_direct_contained_child_with_effects(
             container_id,
             child_id,
@@ -163,23 +173,23 @@ impl GameLogic {
         container_id: ObjectId,
         child_id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         let Some(container) = self.host_object(container_id) else {
-            return;
+            return Ok(());
         };
         if !container.contained_units().contains(&child_id)
             || !self
                 .host_object(child_id)
                 .is_some_and(|child| child.contained_by == Some(container_id))
         {
-            return;
+            return Ok(());
         }
         if container.thing().template.contain_module.kind == ContainModuleKind::RiderChange
             && !container.is_alive()
         {
             // CPP RiderChangeContain245 destroys its hidden rider during onRemoving.
-            self.destroy_object_with_effects(child_id, effects);
-            return;
+            self.destroy_object_with_effects(child_id, effects)?;
+            return Ok(());
         }
         let garrison = container.is_garrison_contain();
         let transport = matches!(
@@ -248,12 +258,16 @@ impl GameLogic {
             }
             self.refresh_battle_bus_armed_riders_weapon_set(container_id);
         }
+        Ok(())
     }
 
     /// C++ TunnelContain::onDie/onDelete share m_isCurrentlyRegistered.
     /// Keep the dying entrance installed while remapping or deleting children;
     /// the exact registered ID is consumed before any reentrant callback.
-    pub(in super::super) fn unregister_tunnel_containment(&mut self, id: ObjectId) {
+    pub(in super::super) fn unregister_tunnel_containment(
+        &mut self,
+        id: ObjectId,
+    ) -> gamelogic::GameLogicResult<()> {
         self.unregister_tunnel_containment_with_effects(id, &mut Default::default())
     }
 
@@ -261,18 +275,18 @@ impl GameLogic {
         &mut self,
         id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         let Some(object) = self.objects.get(&id) else {
-            return;
+            return Ok(());
         };
         if !object.is_tunnel_network_style_container() {
-            return;
+            return Ok(());
         }
         let player = object.tunnel_system_key();
         // CPP TunnelContain347: only a currently registered entrance
         // calls onTunnelDestroyed. Construction/reset may leave it inert.
         if !self.tunnel_network.tunnel_ids_for(player).contains(&id) {
-            return;
+            return Ok(());
         }
         let remaining: Vec<_> = self
             .tunnel_network
@@ -302,7 +316,7 @@ impl GameLogic {
                         .get_mut(&containment_actor_id)
                         .expect("containment operation preserves this birth");
                 }
-                self.destroy_object_with_effects(child, effects);
+                self.destroy_object_with_effects(child, effects)?;
             }
         } else if let Some(entrance) = outcome.remapped_to {
             for child in self.tunnel_network.contained_for_player(player) {
@@ -326,6 +340,7 @@ impl GameLogic {
                 }
             }
         }
+        Ok(())
     }
 
     /// Object::onDestroy removes the exact occupant while both identities are
@@ -429,9 +444,9 @@ impl GameLogic {
             self.stop_attack_decision_aware(other);
         }
         for (_other, object) in self.objects.registered_mut() {
-            if object.guard_target == Some(id) {
-                object.guard_target = None;
-                if object.ai_state == AIState::GuardingObject {
+            if object.active_guard_target() == Some(id) {
+                object.set_guard_target_data(None);
+                if object.ai_state() == AIState::GuardingObject {
                     object.set_ai_state(
                         AIState::Idle,
                         &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),

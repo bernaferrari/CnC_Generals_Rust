@@ -45,7 +45,7 @@ fn command_order_target_log() -> bool {
             return false;
         }
         // Must not force Attacking AI state.
-        if unit.ai_state == AIState::Attacking {
+        if unit.ai_state() == AIState::Attacking {
             return false;
         }
         if unit.status.attacking {

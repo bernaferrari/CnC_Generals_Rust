@@ -70,38 +70,41 @@ mod tests {
 
     #[test]
     fn motd_selected_close_button_toggles_window_hidden_state() {
-        let live_window =
-            with_window_manager(|manager| manager.create_window(None, 0, 0, 100, 100).unwrap());
+        let owner = crate::gui::window_manager::WindowManagerOwner::new();
+        owner.with_scope(|| {
+            let live_window =
+                with_window_manager(|manager| manager.create_window(None, 0, 0, 100, 100).unwrap());
 
-        let mut window = GameWindow::new();
-        window.set_id(live_window.borrow().get_id());
-        window.set_status(WindowStatus::ENABLED);
+            let mut window = GameWindow::new();
+            window.set_id(live_window.borrow().get_id());
+            window.set_status(WindowStatus::ENABLED);
 
-        let close_id = NameKeyGenerator::name_to_key("MOTD.wnd:CloseMOTD");
-        set_close_button_id(close_id);
+            let close_id = NameKeyGenerator::name_to_key("MOTD.wnd:CloseMOTD");
+            set_close_button_id(close_id);
 
-        assert!(!live_window.borrow().is_hidden());
-        assert_eq!(
-            motd_system(
-                &window,
-                WindowMessage::GadgetSelected,
-                close_id as WindowMsgData,
-                0,
-            ),
-            WindowMsgHandled::Handled
-        );
-        assert!(live_window.borrow().is_hidden());
+            assert!(!live_window.borrow().is_hidden());
+            assert_eq!(
+                motd_system(
+                    &window,
+                    WindowMessage::GadgetSelected,
+                    close_id as WindowMsgData,
+                    0,
+                ),
+                WindowMsgHandled::Handled
+            );
+            assert!(live_window.borrow().is_hidden());
 
-        assert_eq!(
-            motd_system(
-                &window,
-                WindowMessage::GadgetSelected,
-                close_id as WindowMsgData,
-                0,
-            ),
-            WindowMsgHandled::Handled
-        );
-        assert!(!live_window.borrow().is_hidden());
+            assert_eq!(
+                motd_system(
+                    &window,
+                    WindowMessage::GadgetSelected,
+                    close_id as WindowMsgData,
+                    0,
+                ),
+                WindowMsgHandled::Handled
+            );
+            assert!(!live_window.borrow().is_hidden());
+        });
     }
 
     #[test]

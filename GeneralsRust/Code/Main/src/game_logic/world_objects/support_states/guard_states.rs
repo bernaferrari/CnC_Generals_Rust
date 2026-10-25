@@ -263,7 +263,7 @@ impl GameLogic {
         if let Some(name) = self
             .objects
             .get(&object_id)
-            .and_then(|o| o.guard_area_trigger.as_deref())
+            .and_then(|o| o.active_guard_area())
             .filter(|n| !n.is_empty())
         {
             if let Some((_, poly_r, _)) = self.host_named_guard_area_polygon(name) {
@@ -293,22 +293,23 @@ impl GameLogic {
             let Some(o) = self.objects.get(&object_id) else {
                 return;
             };
-            let anchor = if let Some(gid) = o.guard_target {
+            let anchor = if let Some(gid) = o.active_guard_target() {
                 self.objects
                     .get(&gid)
                     .filter(|g| g.is_alive())
                     .map(|g| g.get_position())
-                    .or(o.guard_position)
+                    .or(o.active_guard_position())
                     .unwrap_or_else(|| o.get_position())
             } else {
-                o.guard_position.unwrap_or_else(|| o.get_position())
+                o.active_guard_position()
+                    .unwrap_or_else(|| o.get_position())
             };
             (anchor, o.guard_radius)
         };
         if let Some(name) = self
             .objects
             .get(&object_id)
-            .and_then(|o| o.guard_area_trigger.as_deref())
+            .and_then(|o| o.active_guard_area())
             .filter(|n| !n.is_empty())
         {
             if let Some((c, _, _)) = self.host_named_guard_area_polygon(name) {
@@ -370,23 +371,23 @@ impl GameLogic {
         let Some(o) = self.objects.get(&object_id) else {
             return;
         };
-        let (goal, state) = if let Some(gid) = o.guard_target {
+        let (goal, state) = if let Some(gid) = o.active_guard_target() {
             let pos = self
                 .objects
                 .get(&gid)
                 .filter(|g| g.is_alive())
                 .map(|g| g.get_position())
-                .or(o.guard_position)
+                .or(o.active_guard_position())
                 .unwrap_or_else(|| o.get_position());
             (pos, AIState::GuardingObject)
-        } else if let Some(name) = o.guard_area_trigger.as_deref().filter(|n| !n.is_empty()) {
+        } else if let Some(name) = o.active_guard_area().filter(|n| !n.is_empty()) {
             let center = self
                 .host_named_guard_area_polygon(name)
                 .map(|(c, _, _)| c)
-                .or(o.guard_position)
+                .or(o.active_guard_position())
                 .unwrap_or_else(|| o.get_position());
             (center, AIState::GuardingArea)
-        } else if let Some(pos) = o.guard_position {
+        } else if let Some(pos) = o.active_guard_position() {
             (pos, AIState::GuardingArea)
         } else {
             return;
@@ -394,6 +395,7 @@ impl GameLogic {
         let deadline = self.guard_initial_scan_deadline(true);
         if !self.objects.get(&object_id).is_some_and(|o| o.can_move()) {
             if let Some(runtime) = self.unit_ai_runtime_mut(object_id) {
+                runtime.set_machine_goal_position(goal);
                 runtime.enter_guard_return(goal, deadline);
             }
             if let Some(o) = self.objects.get_mut(&object_id) {
@@ -415,7 +417,7 @@ impl GameLogic {
         if let Some(o) = self.objects.get_mut(&object_id) {
             // C++ sets adjust true, then AIInternalMoveToState::onEnter clears
             // it for an ultra-accurate locomotor.
-            o.adjust_destinations = !o.ultra_accurate;
+            o.set_adjust_destinations(!o.ultra_accurate);
         }
         let installed = self.path_approach_with_state(object_id, goal, state.clone());
         if let Some(o) = self.objects.get_mut(&object_id) {
@@ -423,6 +425,7 @@ impl GameLogic {
                 state,
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             );
+            o.unit_ai_runtime.set_machine_goal_position(goal);
             o.unit_ai_runtime.enter_guard_return(goal, deadline);
         }
         if installed {
@@ -439,8 +442,8 @@ impl GameLogic {
                 o.guard_chase_phase,
                 o.guard_chase_give_up_frame,
                 o.target,
-                o.guard_position,
-                o.guard_target,
+                o.active_guard_position(),
+                o.active_guard_target(),
                 o.guard_radius,
                 o.guard_mode,
             ),
@@ -474,7 +477,7 @@ impl GameLogic {
         if let Some(name) = self
             .objects
             .get(&object_id)
-            .and_then(|o| o.guard_area_trigger.as_deref())
+            .and_then(|o| o.active_guard_area())
             .filter(|n| !n.is_empty())
         {
             if let Some((c, _, _)) = self.host_named_guard_area_polygon(name) {
@@ -618,7 +621,7 @@ impl GameLogic {
                 self.frame <= until
                     && self.objects.get(&id).is_some_and(|u| {
                         u.can_path_through_units
-                            && !u.adjust_destinations
+                            && !u.adjust_destinations()
                             && u.ignored_obstacle_id.is_none()
                             && u.movement.path.len() >= 2
                     })
@@ -640,12 +643,12 @@ impl GameLogic {
                 && unit.movement.path.is_empty()
                 && !unit.waiting_for_path
                 && matches!(
-                    unit.ai_state,
+                    unit.ai_state(),
                     AIState::GuardingArea | AIState::GuardingObject
                 )
             {
                 match unit.unit_ai_runtime.guard_phase() {
-                    Some(GuardPhase::Return { goal }) => Some((goal, unit.ai_state.clone())),
+                    Some(GuardPhase::Return { goal }) => Some((goal, unit.ai_state().clone())),
                     _ => None,
                 }
             } else {
@@ -661,7 +664,7 @@ impl GameLogic {
             return;
         };
         if !matches!(
-            unit.ai_state,
+            unit.ai_state(),
             AIState::GuardingArea | AIState::GuardingObject
         ) {
             return;
@@ -677,7 +680,7 @@ impl GameLogic {
             && host_guard_xy_dist_sq(unit.get_position(), goal)
                 < PATHFIND_CELL_SIZE_F_RESIDUAL * PATHFIND_CELL_SIZE_F_RESIDUAL;
         let anchor = unit
-            .guard_target
+            .active_guard_target()
             .and_then(|gid| self.objects.get(&gid).map(|g| g.get_position()));
         if ultra_snap {
             let frame = self.frame;

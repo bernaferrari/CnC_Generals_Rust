@@ -1180,7 +1180,7 @@ fn production_queue_freezes_from_building_data() {
         });
         bd.rally_point = Some(glam::Vec3::new(12.0, 0.0, 3.0));
         obj.building_data = Some(bd);
-        obj.guard_position = Some(glam::Vec3::new(1.0, 0.0, 1.0));
+        obj.set_guard_position_data(Some(glam::Vec3::new(1.0, 0.0, 1.0)));
     }
     let frame = PresentationFrame::build_from_logic(&mut logic, 0);
     let ro = frame.objects.iter().find(|o| o.id == id).expect("ro");

@@ -93,9 +93,10 @@ fn actual_native_prefix_uses_supplied_facts_despite_foreign_core_observation() {
     ) {
         return;
     }
-    get_shell().init().unwrap();
     let mut a = client(121);
     let mut b = client(121);
+    a.window_manager_owner().shell_handle().init().unwrap();
+    b.window_manager_owner().shell_handle().init().unwrap();
     // Restore the existing standalone observation on this thread; neither
     // receiving prefix may sample it while processing its explicit facts.
     struct LegacyObservation {
@@ -175,9 +176,10 @@ fn actual_prefix_delivers_receiving_scaled_delta_repeat_zero_and_peer_reset_isol
         return;
     }
     use delta_drawable::DeltaDrawable;
-    get_shell().init().unwrap();
     let mut a = client(151);
     let mut b = client(151);
+    a.window_manager_owner().shell_handle().init().unwrap();
+    b.window_manager_owner().shell_handle().init().unwrap();
     fn install(client: &mut GameClient) -> DrawableId {
         let id = client
             .create_drawable_from_template(&ThingTemplate::new())
@@ -284,7 +286,6 @@ fn native_shell_never_advances_foreign_core_impulse_but_standalone_effects_do() 
     ) {
         return;
     }
-    get_shell().init().unwrap();
     use crate::display::view::{CameraShakeType, Point3};
     let mut rules = game_engine::common::global_data::read().clone();
     rules.shake_normal_intensity = 2.;
@@ -310,6 +311,8 @@ fn native_shell_never_advances_foreign_core_impulse_but_standalone_effects_do() 
     assert!(before.0 > 0. && (before.1 != 0. || before.2 != 0.));
     let mut owner = client(161);
     let mut peer = client(161);
+    owner.window_manager_owner().shell_handle().init().unwrap();
+    peer.window_manager_owner().shell_handle().init().unwrap();
     for receiving in [&mut owner, &mut peer] {
         let prepared = receiving
             .begin_presentation_shell_with_owned_visual_time(1. / 30., frames(161), &[], || {
@@ -341,10 +344,12 @@ fn native_prefix_preserves_foreign_core_tracking_and_standalone_still_follows() 
     }
     use crate::display::view::Point3;
     use crate::drawable::Drawable;
-    get_shell().init().unwrap();
     let mut owner = client(181);
     let mut peer = client(181);
     let mut empty = client(181);
+    owner.window_manager_owner().shell_handle().init().unwrap();
+    peer.window_manager_owner().shell_handle().init().unwrap();
+    empty.window_manager_owner().shell_handle().init().unwrap();
     let id = DrawableId(7301);
     let mut selected = BasicDrawable::new(id);
     selected.set_position(Vector3::new(125., 225., 0.));
@@ -416,9 +421,14 @@ fn fallible_native_observation_rejects_at_late_boundary_without_consuming_visual
     ) {
         return;
     }
-    get_shell().init().unwrap();
     let mut receiver = client(191);
     let mut peer = client(191);
+    receiver
+        .window_manager_owner()
+        .shell_handle()
+        .init()
+        .unwrap();
+    peer.window_manager_owner().shell_handle().init().unwrap();
     let before = receiver.last_visual_time_frame;
     let peer_before = peer.last_visual_time_frame;
     let mut calls = 0;
@@ -479,14 +489,16 @@ fn native_presentation_prefix_does_not_reactivate_hidden_shell_or_replace_match(
         .lock()
         .unwrap()
         .set_game_mode(gamelogic::system::game_logic::GAME_NONE);
-    get_shell().init().unwrap();
-    get_shell().set_shell_active(false);
-    assert!(!get_shell().is_shell_active());
+    let mut a = client(1);
+    let mut b = client(1);
+    let mut a_shell = a.window_manager_owner().shell_handle();
+    a_shell.init().unwrap();
+    a_shell.set_shell_active(false);
+    assert!(!a_shell.is_shell_active());
+    b.window_manager_owner().shell_handle().init().unwrap();
     {
         THE_MESSAGE_STREAM.write().unwrap().clear_messages();
     }
-    let mut a = client(1);
-    let mut b = client(1);
     for receiving in [&mut a, &mut b] {
         let prepared = receiving
             .begin_presentation_shell_with_owned_visual_time(0.033, frames(1), &[], || {

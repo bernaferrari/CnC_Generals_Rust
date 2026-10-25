@@ -1119,7 +1119,9 @@ fn disguise_transition_halfpoint_commits_appearance() {
         modifier_keys: crate::command_system::ModifierKeys::default(),
     });
     game_logic.process_commands();
-    game_logic.update_ai(&[truck_id, tank_id], 1.0 / 30.0);
+    game_logic
+        .update_ai(&[truck_id, tank_id], 1.0 / 30.0)
+        .expect("receiving AI operation succeeds");
     {
         let t = game_logic.host_object(truck_id).unwrap();
         assert!(t.is_disguise_transitioning());
@@ -1129,7 +1131,9 @@ fn disguise_transition_halfpoint_commits_appearance() {
     }
     // Just before halfpoint
     for _ in 0..(BOMB_TRUCK_DISGUISE_TRANSITION_FRAMES / 2 - 2) {
-        game_logic.update_ai(&[truck_id, tank_id], 1.0 / 30.0);
+        game_logic
+            .update_ai(&[truck_id, tank_id], 1.0 / 30.0)
+            .expect("receiving AI operation succeeds");
     }
     assert!(
         !game_logic.host_object(truck_id).unwrap().status.disguised,
@@ -1137,7 +1141,9 @@ fn disguise_transition_halfpoint_commits_appearance() {
     );
     // Cross halfpoint
     for _ in 0..4 {
-        game_logic.update_ai(&[truck_id, tank_id], 1.0 / 30.0);
+        game_logic
+            .update_ai(&[truck_id, tank_id], 1.0 / 30.0)
+            .expect("receiving AI operation succeeds");
     }
     let t = game_logic.host_object(truck_id).unwrap();
     assert!(t.status.disguised, "halfpoint commits DISGUISED");
@@ -1182,7 +1188,9 @@ fn disguise_copies_already_disguised_template() {
         modifier_keys: crate::command_system::ModifierKeys::default(),
     });
     game_logic.process_commands();
-    game_logic.update_ai(&[truck_a, usa_tank], 1.0 / 30.0);
+    game_logic
+        .update_ai(&[truck_a, usa_tank], 1.0 / 30.0)
+        .expect("receiving AI operation succeeds");
     advance_disguise_halfpoint(&mut game_logic, &[truck_a, usa_tank]);
     {
         let a = game_logic.host_object(truck_a).expect("a");
@@ -1201,7 +1209,9 @@ fn disguise_copies_already_disguised_template() {
         modifier_keys: crate::command_system::ModifierKeys::default(),
     });
     game_logic.process_commands();
-    game_logic.update_ai(&[truck_b, truck_a], 1.0 / 30.0);
+    game_logic
+        .update_ai(&[truck_b, truck_a], 1.0 / 30.0)
+        .expect("receiving AI operation succeeds");
     advance_disguise_halfpoint(&mut game_logic, &[truck_b, truck_a]);
 
     let b = game_logic.host_object(truck_b).expect("b after copy");
@@ -1510,7 +1520,7 @@ fn parachute_land_use_spawn_rally_point_walks_factory_exit() {
             || rider.movement.target_position.is_some()
             || !rider.movement.path.is_empty(),
         "rider must follow factory exit/rally, ai={:?}",
-        rider.ai_state
+        rider.ai_state()
     );
 }
 
@@ -1609,7 +1619,7 @@ fn parachute_land_without_spawn_rally_idles_at_lz() {
     assert!(
         matches!(rider.ai_state, AIState::Idle),
         "no UseSpawnRallyPoint must aiIdle, ai={:?}",
-        rider.ai_state
+        rider.ai_state()
     );
 }
 
@@ -1750,7 +1760,7 @@ fn hijack_takes_max_veterancy_and_marks_status() {
     assert!(v.status.hijacked);
     assert_eq!(v.team, Team::GLA);
     assert_eq!(v.experience.level, VeterancyLevel::Elite);
-    assert_eq!(v.ai_state, AIState::Idle);
+    assert_eq!(v.ai_state(), AIState::Idle);
     assert_eq!(v.name, "NamedJacker");
 }
 
@@ -1786,9 +1796,7 @@ fn transfer_script_object_name_moves_host_name() {
 
 #[test]
 fn car_bomb_convert_endows_vision_and_veterancy() {
-    use crate::game_logic::{
-        KindOf, Object, ObjectId, Team, ThingTemplate, VeterancyLevel, Weapon,
-    };
+    use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate, VeterancyLevel, Weapon};
     let mut logic = GameLogic::new();
     let mut tt = ThingTemplate::new("Terrorist");
     tt.add_kind_of(KindOf::Infantry);
@@ -2316,7 +2324,7 @@ fn crate_deletion_update_destroys_expired() {
     logic.host_money_crates.arm_deletion_update(cid, 0, 1, 1, 0);
     assert_eq!(logic.host_money_crates.get(cid).unwrap().expires_frame, 1);
     logic.frame = 1;
-    logic.update_crate_deletion_updates();
+    logic.update_crate_deletion_updates().unwrap();
     assert!(!logic.host_money_crates.contains(cid));
     // Destruction queued
     logic.process_destroy_list();
@@ -2434,9 +2442,7 @@ fn salvage_crate_only_salvager_picks_up() {
 
 #[test]
 fn salvage_money_floating_text_uses_player_color() {
-    use crate::game_logic::{
-        KindOf, Object, ObjectId, Player, Team, ThingTemplate, VeterancyLevel,
-    };
+    use crate::game_logic::{KindOf, Object, ObjectId, Player, Team, ThingTemplate, VeterancyLevel};
     let mut logic = GameLogic::new();
     let mut player = Player::new(0, Team::GLA, "G", true);
     player.color_rgb = (255, 0, 0);
@@ -2729,7 +2735,7 @@ fn try_idle_crate_pickup_moves_to_money_crate() {
     assert!(logic.notify_unit_crate(uid, cid));
     assert!(logic.try_idle_crate_pickup(uid));
     let u = &logic.objects[&uid];
-    assert_eq!(u.ai_state, AIState::Moving);
+    assert_eq!(u.ai_state(), AIState::Moving);
     assert!(
         !u.movement.path.is_empty(),
         "AIMoveToState::onEnter computePath"
@@ -2753,7 +2759,7 @@ fn hunt_and_guard_pick_up_created_crates() {
         AIState::Patrolling,
         &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
     );
-    unit.hunting = true;
+    unit.set_hunting(true);
     unit.movement.max_speed = 8.0;
     unit.set_position(glam::Vec3::ZERO);
     logic.objects.insert(uid, unit);
@@ -2769,7 +2775,7 @@ fn hunt_and_guard_pick_up_created_crates() {
     assert!(logic.try_idle_crate_pickup(uid));
     let u = &logic.objects[&uid];
     assert_eq!(
-        u.ai_state,
+        u.ai_state(),
         AIState::Patrolling,
         "Hunt crate pickup must stay in Hunt, not flip to Moving"
     );
@@ -2789,7 +2795,7 @@ fn guard_retaliate_returns_to_guard_not_idle() {
         range: 40.0,
         ..Default::default()
     });
-    o.guard_position = Some(glam::Vec3::ZERO);
+    o.set_guard_position_data(Some(glam::Vec3::ZERO));
     o.set_ai_state(
         AIState::GuardingArea,
         &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
@@ -2817,17 +2823,17 @@ fn guard_retaliate_returns_to_guard_not_idle() {
     logic.tick_guard_retaliate_states();
     let o = &logic.objects[&id];
     assert_eq!(
-        o.ai_state,
+        o.ai_state(),
         AIState::GuardRetaliating,
         "far from post after kill must RETURN inside retaliate, got {:?}",
-        o.ai_state
+        o.ai_state()
     );
     assert!(o.movement.target_position.is_some());
     // Arrive at post.
     logic.set_fixture_object_position(id, glam::Vec3::ZERO);
     logic.tick_guard_retaliate_states();
     let o = &logic.objects[&id];
-    assert_eq!(o.ai_state, AIState::GuardingArea);
+    assert_eq!(o.ai_state(), AIState::GuardingArea);
 }
 
 #[test]
@@ -2840,7 +2846,7 @@ fn guarding_interrupts_to_last_attacker() {
     let gid = ObjectId(4701);
     let mut g = Object::new(gt, gid, Team::USA);
     g.set_position(glam::Vec3::ZERO);
-    g.guard_position = Some(glam::Vec3::ZERO);
+    g.set_guard_position_data(Some(glam::Vec3::ZERO));
     g.guard_radius = 80.0;
     g.vision_range = 100.0;
     g.weapon = Some(Weapon {
@@ -2902,7 +2908,7 @@ fn attack_move_picks_up_created_crate() {
     assert!(logic.try_idle_crate_pickup(uid));
     let u = &logic.objects[&uid];
     assert_eq!(
-        u.ai_state,
+        u.ai_state(),
         AIState::AttackMoving,
         "Attack-Move crate pickup must keep parent AI"
     );

@@ -30,22 +30,23 @@ impl<'a> CommandExecutor<'a> {
         definition: &game_engine::common::ini::ini_command_button::CommandButton,
         location: Option<Vec3>,
         target: Option<ObjectId>,
-    ) -> CommandResult {
+    ) -> gamelogic::GameLogicResult<CommandResult> {
         if definition.command.eq_ignore_ascii_case("STOP") {
-            return self.execute_stop(units);
+            return Ok(self.execute_stop(units));
         }
         // C++ Object::doCommandButton dispatches the authored GUI command,
         // independently of the special-power source used by the script query.
         if definition.command.eq_ignore_ascii_case("HIJACK_VEHICLE") {
-            return target.map_or(CommandResult::InvalidTarget, |target| {
-                self.execute_hijack(units, target)
-            });
+            let Some(target) = target else {
+                return Ok(CommandResult::InvalidTarget);
+            };
+            return self.execute_hijack(units, target);
         }
         if !definition.command.eq_ignore_ascii_case("SPECIAL_POWER") {
-            return CommandResult::InvalidCommand;
+            return Ok(CommandResult::InvalidCommand);
         }
         let Some(template) = definition.special_power_template.as_deref() else {
-            return CommandResult::InvalidCommand;
+            return Ok(CommandResult::InvalidCommand);
         };
         let target = target
             .map(PowerTarget::Object)
@@ -63,10 +64,10 @@ impl<'a> CommandExecutor<'a> {
                     .and_then(|module| module.command_power.clone())
             });
             if let Some(power) = power {
-                result = self.execute_special_power(&[id], &power, &target);
+                result = self.execute_special_power(&[id], &power, &target)?;
             }
         }
-        result
+        Ok(result)
     }
 
     /// C++ AIGroup::groupDoCommandButtonUsingWaypoints residual.
@@ -75,7 +76,7 @@ impl<'a> CommandExecutor<'a> {
         units: &[ObjectId],
         button: &str,
         waypoints: &[Vec3],
-    ) -> CommandResult {
+    ) -> gamelogic::GameLogicResult<CommandResult> {
         use crate::command_system::{CommandType, command_type_from_button_name};
 
         if waypoints.is_empty() {
@@ -83,15 +84,15 @@ impl<'a> CommandExecutor<'a> {
         }
         let Some(ct) = command_type_from_button_name(button) else {
             // Unknown button: still follow the waypoint path.
-            return self.execute_follow_waypoint_path(units, waypoints, false, true);
+            return Ok(self.execute_follow_waypoint_path(units, waypoints, false, true)?);
         };
         match ct {
             CommandType::AttackMoveTo { .. } | CommandType::ForceMoveTo { .. } => {
                 // Attack-move / force-move along waypoints as a team path.
-                self.execute_follow_waypoint_path(units, waypoints, false, true)
+                Ok(self.execute_follow_waypoint_path(units, waypoints, false, true)?)
             }
             CommandType::MoveTo { .. } | CommandType::FollowWaypointPath { .. } => {
-                self.execute_follow_waypoint_path(units, waypoints, false, true)
+                Ok(self.execute_follow_waypoint_path(units, waypoints, false, true)?)
             }
             CommandType::Guard { .. } => {
                 // Guard at final waypoint.
@@ -101,14 +102,14 @@ impl<'a> CommandExecutor<'a> {
             _ => {
                 // Default: path as team, then fire button at final point.
                 let last = *waypoints.last().unwrap();
-                let path_res = self.execute_follow_waypoint_path(units, waypoints, false, true);
-                let btn_res = self.execute_do_command_button(units, button, Some(last), None);
+                let path_res = self.execute_follow_waypoint_path(units, waypoints, false, true)?;
+                let btn_res = self.execute_do_command_button(units, button, Some(last), None)?;
                 if matches!(path_res, CommandResult::Success)
                     || matches!(btn_res, CommandResult::Success)
                 {
-                    CommandResult::Success
+                    Ok(CommandResult::Success)
                 } else {
-                    path_res
+                    Ok(path_res)
                 }
             }
         }
@@ -121,7 +122,7 @@ impl<'a> CommandExecutor<'a> {
         button: &str,
         location: Option<Vec3>,
         target: Option<ObjectId>,
-    ) -> CommandResult {
+    ) -> gamelogic::GameLogicResult<CommandResult> {
         use crate::command_system::{
             CommandType, DropTarget, GuardTarget, ModifierKeys, PowerTarget,
             command_type_from_button_name,
@@ -129,7 +130,7 @@ impl<'a> CommandExecutor<'a> {
         use std::time::SystemTime;
 
         if button.trim().is_empty() {
-            return CommandResult::InvalidCommand;
+            return Ok(CommandResult::InvalidCommand);
         }
         // CPP Object.cpp5413 and AIUpdate.cpp4826 dispatch the authored
         // Command type, independently of the button's definition name.
@@ -144,7 +145,7 @@ impl<'a> CommandExecutor<'a> {
         } else {
             command_type_from_button_name(button)
         }) else {
-            return CommandResult::InvalidCommand;
+            return Ok(CommandResult::InvalidCommand);
         };
 
         match &mut ct {
@@ -233,8 +234,8 @@ impl<'a> CommandExecutor<'a> {
             modifier_keys: ModifierKeys::default(),
         };
         match self.execute_command(cmd) {
-            Ok(r) => r,
-            Err(_) => CommandResult::InvalidCommand,
+            Ok(r) => Ok(r),
+            Err(error) => Err(gamelogic::GameLogicError::Configuration(error)),
         }
     }
 }

@@ -43,8 +43,8 @@ mod ai_decision_owner_tests {
 
             a.set_ai_state_decision_aware_for_ai(a_id, AIState::Patrolling);
 
-            assert_eq!(a.host_object(a_id).unwrap().ai_state, AIState::Patrolling);
-            assert_eq!(b.host_object(b_id).unwrap().ai_state, AIState::Attacking);
+            assert_eq!(a.host_object(a_id).unwrap().ai_state(), AIState::Patrolling);
+            assert_eq!(b.host_object(b_id).unwrap().ai_state(), AIState::Attacking);
         };
     }
 
@@ -59,10 +59,10 @@ mod ai_decision_owner_tests {
             a.set_ai_state_decision_aware_for_ai(a_id, AIState::FacingPosition);
 
             assert_eq!(
-                a.host_object(a_id).unwrap().ai_state,
+                a.host_object(a_id).unwrap().ai_state(),
                 AIState::FacingPosition
             );
-            assert_eq!(b.host_object(b_id).unwrap().ai_state, AIState::Attacking);
+            assert_eq!(b.host_object(b_id).unwrap().ai_state(), AIState::Attacking);
         };
     }
 }
@@ -120,7 +120,7 @@ mod ai_engagement_owner_tests {
             assert!(a.apply_engagement_decision_aware_for_ai(a_attacker, a_victim));
             let attacker = a.host_object(a_attacker).expect("A attacker");
             assert_eq!(attacker.target, Some(a_victim));
-            assert_eq!(attacker.ai_state, AIState::Attacking);
+            assert_eq!(attacker.ai_state(), AIState::Attacking);
             assert_eq!(b.host_object(b_attacker).unwrap().target, None);
 
             // A same-team target is rejected at the actual public engagement boundary.
@@ -178,7 +178,7 @@ mod ai_fire_owner_tests {
                 can_target_ground: true,
                 ..Weapon::default()
             });
-            unit.prev_victim_pos = Some(Vec3::new(20.0, 0.0, 0.0));
+            unit.set_prev_victim_pos(Some(Vec3::new(20.0, 0.0, 0.0)));
         }
         (logic, source, victim)
     }
@@ -193,7 +193,7 @@ mod ai_fire_owner_tests {
             AttackFireResult::Continue
         );
         let unit = a.host_object(source).unwrap();
-        assert_eq!(unit.ai_state, AIState::Attacking);
+        assert_eq!(unit.ai_state(), AIState::Attacking);
         assert_eq!(unit.target, Some(victim));
         assert_eq!(unit.pre_attack_target, Some(victim));
         assert_eq!(unit.pre_attack_ready_at, 11.0);
@@ -225,12 +225,12 @@ mod ai_fire_owner_tests {
 
         assert!(a.private_stop(source));
         let unit = a.host_object(source).unwrap();
-        assert_eq!(unit.ai_state, AIState::Idle);
+        assert_eq!(unit.ai_state(), AIState::Idle);
         assert_eq!(unit.target, None);
 
         {}
         let foreign = b.host_object(foreign_source).unwrap();
-        assert_eq!(foreign.ai_state, AIState::Idle);
+        assert_eq!(foreign.ai_state(), AIState::Idle);
         assert_eq!(foreign.target, None);
         assert_eq!(foreign.pre_attack_target, None);
         assert_eq!(foreign.weapon.as_ref().unwrap().ammo, Some(4));
@@ -287,14 +287,14 @@ mod ai_move_owner_tests {
             position: destination,
         });
         let unit = a.host_object(source).unwrap();
-        assert_eq!(unit.ai_state, AIState::Moving);
+        assert_eq!(unit.ai_state(), AIState::Moving);
         assert_eq!(unit.path_goal_position, Some(destination));
         assert_eq!(unit.movement.path.last(), Some(&destination));
 
         {}
 
         let foreign = b.host_object(foreign_source).unwrap();
-        assert_eq!(foreign.ai_state, AIState::Idle);
+        assert_eq!(foreign.ai_state(), AIState::Idle);
         assert!(foreign.movement.path.is_empty());
         assert_eq!(foreign.path_goal_position, None);
     }
@@ -318,21 +318,21 @@ mod ai_move_owner_tests {
 
         let destination = Vec3::new(50.0, 10.0, 20.0);
         assert!(a.assign_unit_path_exact(source, destination, &[destination]));
-        assert_eq!(a.host_object(source).unwrap().ai_state, AIState::Moving);
+        assert_eq!(a.host_object(source).unwrap().ai_state(), AIState::Moving);
 
         assert!(a.private_face_position(source, Vec3::new(-20.0, 0.0, 0.0)));
         assert_eq!(
-            a.host_object(source).unwrap().ai_state,
+            a.host_object(source).unwrap().ai_state(),
             AIState::FacingPosition
         );
 
         {}
 
         assert!(a.append_unit_waypoint(source, Vec3::new(70.0, 10.0, 30.0)));
-        assert_eq!(a.host_object(source).unwrap().ai_state, AIState::Moving);
+        assert_eq!(a.host_object(source).unwrap().ai_state(), AIState::Moving);
 
         assert_eq!(
-            b.host_object(foreign_source).unwrap().ai_state,
+            b.host_object(foreign_source).unwrap().ai_state(),
             AIState::Idle
         );
         assert!(

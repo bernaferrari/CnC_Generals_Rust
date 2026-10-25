@@ -124,7 +124,7 @@ fn apply_ai_command_logs_and_host_applies_under_authority() {
         "host applies AttackTarget same-frame"
     );
     assert_eq!(
-        host.ai_state,
+        host.ai_state(),
         crate::game_logic::AIState::Attacking,
         "host applies SetAIState same-frame"
     );
@@ -269,7 +269,7 @@ fn path_approach_with_state_decision_authority() {
     shadow.sync_from_host(&logic);
     shadow.sync_from_host(&logic);
     assert_eq!(
-        logic.host_objects().lookup(&oid).unwrap().ai_state,
+        logic.host_objects().lookup(&oid).unwrap().ai_state(),
         AIState::Gathering
     );
 }
@@ -391,7 +391,7 @@ fn missile_defender_laser_guided_decision_authority() {
     for _ in 0..600 {
         if logic.host_object(mid).is_some_and(|object| {
             object.target == Some(eid)
-                && object.ai_state == crate::game_logic::AIState::Attacking
+                && object.ai_state() == crate::game_logic::AIState::Attacking
                 && object.active_weapon_slot == 1
         }) {
             break;
@@ -620,7 +620,7 @@ fn mood_auto_acquire_logs_decision_under_authority() {
             crate::game_logic::AIState::Idle,
             &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
-        o.auto_acquire_when_idle = true;
+        o.set_auto_acquire_when_idle(true);
         // C++ AutoAcquireEnemiesWhenIdle is a BITFIELD parsed from INI
         // (AIUpdate.cpp; AUTO_ACQUIRE_* flags) — get_next_mood_target gates
         // called_during_idle on AUTO_ACQUIRE_IDLE, not the legacy bool.
@@ -1016,7 +1016,7 @@ fn ai_decision_authority_applies_host_state_when_shadow_disabled() {
         logic.assign_unit_path(id, Vec3::new(50.0, 0.0, 0.0), &[]),
         "assign_unit_path"
     );
-    let st = logic.host_objects().lookup(&id).unwrap().ai_state.clone();
+    let st = logic.host_objects().lookup(&id).unwrap().ai_state().clone();
     assert!(
         matches!(st, crate::game_logic::AIState::Moving),
         "host-only must set Moving immediately under AI_DECISION_AUTH, got {st:?}"

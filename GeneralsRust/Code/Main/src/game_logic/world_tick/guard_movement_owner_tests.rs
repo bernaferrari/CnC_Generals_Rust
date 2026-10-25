@@ -35,7 +35,7 @@ fn guard_return_movement_receipts_stay_with_same_id_owner() {
                 template.add_kind_of(KindOf::Infantry);
                 let mut object = guard_test_object(template, id, Team::USA);
                 object.set_position(anchor + glam::Vec3::new(200.0, 0.0, 0.0));
-                object.guard_position = Some(anchor);
+                object.set_guard_position_data(Some(anchor));
                 object.set_ai_state(
                     AIState::GuardingArea,
                     &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
@@ -65,7 +65,7 @@ fn guard_return_movement_receipts_stay_with_same_id_owner() {
             assert_eq!(first_receipts[0].unit, id);
             assert_eq!(first_receipts[0].destination, Some(first_anchor.to_array()));
             let object = first.host_object(id).unwrap();
-            assert_eq!(object.ai_state, AIState::GuardRetaliating);
+            assert_eq!(object.ai_state(), AIState::GuardRetaliating);
             assert_eq!(object.movement.target_position, Some(first_anchor));
             assert!(object.status.moving);
 
@@ -101,13 +101,13 @@ fn guard_return_movement_receipts_stay_with_same_id_owner() {
             assert_eq!(first.movement_events.take_completed(), receipts);
             assert!(first.movement_events.take_completed().is_empty());
             assert_eq!(
-                first.host_object(id).unwrap().ai_state,
+                first.host_object(id).unwrap().ai_state(),
                 AIState::GuardRetaliating
             );
             first.set_fixture_object_position(id, first_anchor);
             first.tick_guard_retaliate_states();
             assert_eq!(
-                first.host_object(id).unwrap().ai_state,
+                first.host_object(id).unwrap().ai_state(),
                 AIState::GuardingArea
             );
             assert!(first.movement_events.snapshot_pending().is_empty());

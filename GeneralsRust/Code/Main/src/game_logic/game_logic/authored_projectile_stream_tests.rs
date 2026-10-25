@@ -152,7 +152,7 @@ fn prepare_world(
         // A real player-selected slot, not a fabricated queue or registry entry.
         shooter.set_active_weapon_slot(selected);
         assert!(shooter.set_weapon_lock(selected, WeaponLockType::LockedPermanently));
-        shooter.prev_victim_pos = Some(target_position);
+        shooter.set_prev_victim_pos(Some(target_position));
         assert_eq!(shooter.selected_weapon_slot(), Some(selected));
     }
     (world, source, target)

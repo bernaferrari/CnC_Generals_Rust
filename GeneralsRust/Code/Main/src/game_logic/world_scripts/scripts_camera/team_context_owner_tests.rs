@@ -105,17 +105,23 @@ fn literal_context_selects_older_same_name_instance_and_missing_id_cannot_retarg
         &mut HostScriptExecutionDriver::new(&mut world),
     );
     assert_eq!(
-        world.host_object(first).unwrap().ai_state,
+        world.host_object(first).unwrap().ai_state(),
         AIState::GuardingArea
     );
-    assert_eq!(world.host_object(second).unwrap().guard_position, None);
+    assert_eq!(
+        world.host_object(second).unwrap().active_guard_position(),
+        None
+    );
     engine.friend_execute_action_with_driver(
         &guard(THIS_TEAM),
         Some(u32::MAX),
         gamelogic::scripting::executor::ScriptContext::at_frame(0),
         &mut HostScriptExecutionDriver::new(&mut world),
     );
-    assert_eq!(world.host_object(second).unwrap().guard_position, None);
+    assert_eq!(
+        world.host_object(second).unwrap().active_guard_position(),
+        None
+    );
     let driver = HostScriptExecutionDriver::new(&mut world);
     assert_eq!(
         driver.team_instances("SiblingRoster"),
@@ -147,8 +153,11 @@ fn sequential_start_keeps_same_name_chains_distinct_and_stops_only_selected_cont
     );
     let engine = sequence_engine();
     start(&engine, &mut world, first_id);
-    assert_eq!(world.host_object(first).unwrap().ai_state, AIState::Idle);
-    assert_eq!(world.host_object(second).unwrap().ai_state, AIState::Moving);
+    assert_eq!(world.host_object(first).unwrap().ai_state(), AIState::Idle);
+    assert_eq!(
+        world.host_object(second).unwrap().ai_state(),
+        AIState::Moving
+    );
     assert_eq!(
         world.host_object(first).unwrap().last_command_source,
         crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_SCRIPT
@@ -171,11 +180,11 @@ fn sequential_start_keeps_same_name_chains_distinct_and_stops_only_selected_cont
     assert!(before.iter().all(|s| s.times_to_loop == 2));
     update(&engine, &mut world);
     assert_eq!(
-        world.host_object(first).unwrap().ai_state,
+        world.host_object(first).unwrap().ai_state(),
         AIState::GuardingArea
     );
     assert_eq!(
-        world.host_object(second).unwrap().ai_state,
+        world.host_object(second).unwrap().ai_state(),
         AIState::GuardingArea
     );
     assert_eq!(engine.get_counter("AfterGuard").unwrap().value, 0);
@@ -210,23 +219,32 @@ fn same_ids_in_two_worlds_keep_context_sequence_effects_and_reset_independent() 
     start(&second_engine, &mut second_world, second_id);
     update(&first_engine, &mut first_world);
     assert_eq!(
-        second_world.host_object(second).unwrap().guard_position,
+        second_world
+            .host_object(second)
+            .unwrap()
+            .active_guard_position(),
         None
     );
     update(&second_engine, &mut second_world);
     assert_eq!(
-        first_world.host_object(first).unwrap().guard_position,
+        first_world
+            .host_object(first)
+            .unwrap()
+            .active_guard_position(),
         Some(Vec3::new(50.0, 0.0, 50.0))
     );
     assert_eq!(
-        second_world.host_object(second).unwrap().guard_position,
+        second_world
+            .host_object(second)
+            .unwrap()
+            .active_guard_position(),
         Some(Vec3::splat(500.0))
     );
     let retained = first_engine.snapshot_sequential_scripts();
     second_world.reset();
     assert_eq!(first_engine.snapshot_sequential_scripts(), retained);
     assert_eq!(
-        first_world.host_object(first).unwrap().ai_state,
+        first_world.host_object(first).unwrap().ai_state(),
         AIState::GuardingArea
     );
 }
@@ -248,10 +266,16 @@ fn exact_sequence_snapshot_restore_preserves_selected_sibling_identity() {
     restored_engine.restore_sequential_scripts(&saved);
     update(&restored_engine, &mut restored);
     assert_eq!(
-        restored.host_object(first).unwrap().ai_state,
+        restored.host_object(first).unwrap().ai_state(),
         AIState::GuardingArea
     );
-    assert_eq!(restored.host_object(second).unwrap().guard_position, None);
+    assert_eq!(
+        restored
+            .host_object(second)
+            .unwrap()
+            .active_guard_position(),
+        None
+    );
 }
 
 #[test]
@@ -260,7 +284,7 @@ fn retained_missing_team_id_rejects_before_persist_tail_mutates_receiver() {
         SequentialScriptPersist, WorldPersistV18, restore_persist_v18,
     };
     let (mut world, id, _) = world();
-    let before = world.host_object(id).unwrap().ai_state.clone();
+    let before = world.host_object(id).unwrap().ai_state().clone();
     let mut persist = WorldPersistV18::default();
     persist.script_sequential.push(SequentialScriptPersist {
         team_id: u32::MAX,
@@ -273,7 +297,7 @@ fn retained_missing_team_id_rejects_before_persist_tail_mutates_receiver() {
     });
     let error = restore_persist_v18(&persist, &mut world).unwrap_err();
     assert!(error.to_string().contains("missing team"));
-    assert_eq!(world.host_object(id).unwrap().ai_state, before);
+    assert_eq!(world.host_object(id).unwrap().ai_state(), before);
 }
 
 #[test]
@@ -307,7 +331,7 @@ fn sequence_idle_contains_cycle_is_bounded_and_still_visits_each_live_member() {
     start(&engine, &mut world, id);
     for member in [first, second] {
         let unit = world.host_object(member).unwrap();
-        assert_eq!(unit.ai_state, AIState::Idle);
+        assert_eq!(unit.ai_state(), AIState::Idle);
         assert_eq!(
             unit.last_command_source,
             crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_SCRIPT
@@ -422,7 +446,7 @@ fn sequence_script_idle_admits_immobile_ai_without_locomotor_preparation() {
     let engine = sequence_engine();
     start(&engine, &mut world, id);
     let unit = world.host_object(first).unwrap();
-    assert_eq!(unit.ai_state, AIState::Idle);
+    assert_eq!(unit.ai_state(), AIState::Idle);
     assert_eq!(
         unit.last_command_source,
         crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_SCRIPT
@@ -474,14 +498,17 @@ fn sequence_script_idle_rejects_dead_sleep_surrender_and_projectile_members() {
         let engine = sequence_engine();
         start(&engine, &mut world, team_id);
         assert_eq!(
-            world.host_object(rejected).unwrap().ai_state,
+            world.host_object(rejected).unwrap().ai_state(),
             AIState::Moving
         );
         assert_eq!(
             world.host_object(rejected).unwrap().last_command_source,
             before
         );
-        assert_eq!(world.host_object(accepted).unwrap().ai_state, AIState::Idle);
+        assert_eq!(
+            world.host_object(accepted).unwrap().ai_state(),
+            AIState::Idle
+        );
         assert_eq!(
             world.host_object(accepted).unwrap().last_command_source,
             crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_SCRIPT

@@ -48,7 +48,7 @@ fn world_with_type(damage: f32, damage_type: &str) -> (GameLogic, ObjectId, Obje
         .create_object_for_player("ReceivingOrdinaryVictim", 2, Vec3::new(40.0, 0.0, 0.0))
         .unwrap();
     let object = world.host_object_mut(source).unwrap();
-    object.ai_state = AIState::Attacking;
+    object.restore_ai_state(AIState::Attacking);
     object.target = Some(target);
     (world, source, target)
 }

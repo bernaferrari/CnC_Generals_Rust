@@ -19,7 +19,7 @@ pub(crate) fn format_rally_point_set_message(template: &str, display_name: &str)
 /// `LOCKED_TEMPORARILY` on any hunt exit. Guard dispatch has no
 /// `releaseWeaponLockForGroup`; leftover `classic_on_exit` is that path.
 fn release_hunt_temp_lock_when_entering_guard(unit: &mut Object) {
-    if unit.hunting || matches!(unit.ai_state, AIState::Patrolling) {
+    if unit.is_hunting() || matches!(unit.ai_state(), AIState::Patrolling) {
         unit.release_weapon_lock(WeaponLockType::LockedTemporarily);
     }
 }
@@ -28,10 +28,10 @@ fn release_hunt_temp_lock_when_entering_guard(unit: &mut Object) {
 /// replacement: halt the hunt machine and `releaseWeaponLock(LOCKED_TEMPORARILY)`.
 /// Player `aiAttackObject` / `aiMoveTo` replace `AI_HUNT` so hunt never resumes.
 fn end_hunt_on_player_parent_order(unit: &mut Object) {
-    if unit.hunting || matches!(unit.ai_state, AIState::Patrolling) {
+    if unit.is_hunting() || matches!(unit.ai_state(), AIState::Patrolling) {
         unit.release_weapon_lock(WeaponLockType::LockedTemporarily);
     }
-    unit.hunting = false;
+    unit.set_hunting(false);
 }
 
 /// C++ AIUpdateInterface last command source. Player/script orders are not
@@ -156,7 +156,7 @@ impl GameLogic {
     }
 
     /// C++ `HackInternetAIUpdate::aiDoCommand`: PACKING on HACK_INTERNET/PACKING.
-    fn note_hacker_ai_command(
+    pub(super) fn note_hacker_ai_command(
         &mut self,
         id: ObjectId,
         pending: crate::game_logic::host_hacker_income::PendingHackerCommand,
@@ -229,7 +229,13 @@ impl GameLogic {
             return false;
         };
         object.last_command_source = crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_AI;
-        self.unit_command_move_owned(id, destination, false)
+        if self.note_hacker_ai_command(
+            id,
+            crate::game_logic::host_hacker_income::PendingHackerCommand::MoveTo(destination),
+        ) {
+            return true;
+        }
+        self.private_move_to_position(id, destination)
     }
 
     fn unit_command_move_owned(
@@ -257,6 +263,10 @@ impl GameLogic {
         } else {
             destination
         };
+        if let Some(unit) = self.objects.get_mut(&id) {
+            unit.unit_ai_runtime.set_machine_goal_position(destination);
+            unit.unit_ai_runtime.enter_normal_move_body(destination);
+        }
         let ok = self.assign_unit_path(id, destination, &[]);
         if ok {
             if let Some(unit) = self.objects.get_mut(&id) {
@@ -525,7 +535,7 @@ impl GameLogic {
     /// C++ `AIUpdateInterface::privateIdle` then `aiIdle` every contained
     /// rider (`AIUpdate.cpp:3067-3090`) so Humvee/Chinook Stop parks
     /// PassengersAllowedToFire infantry.
-    pub fn unit_command_stop(&mut self, id: ObjectId) -> bool {
+    pub fn unit_command_stop(&mut self, id: ObjectId) -> gamelogic::GameLogicResult<bool> {
         self.unit_command_stop_with_effects(id, &mut Default::default())
     }
 
@@ -533,7 +543,7 @@ impl GameLogic {
         &mut self,
         id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> bool {
+    ) -> gamelogic::GameLogicResult<bool> {
         self.unit_command_stop_with_source_with_effects(
             id,
             crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_PLAYER,
@@ -541,7 +551,11 @@ impl GameLogic {
         )
     }
 
-    pub(crate) fn unit_command_stop_with_source(&mut self, id: ObjectId, source: u32) -> bool {
+    pub(crate) fn unit_command_stop_with_source(
+        &mut self,
+        id: ObjectId,
+        source: u32,
+    ) -> gamelogic::GameLogicResult<bool> {
         self.unit_command_stop_with_source_with_effects(id, source, &mut Default::default())
     }
 
@@ -550,9 +564,10 @@ impl GameLogic {
         id: ObjectId,
         source: u32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> bool {
+    ) -> gamelogic::GameLogicResult<bool> {
         // C++ AIGroup::groupIdle / AICommandInterface::idle: stop clears the
         // latched target and guard anchors up front, then runs the idle state.
+        self.drop_jet_targeters_on_attack_exit(id);
         if let Some(unit) = self.objects.get_mut(&id) {
             unit.set_guard_position(
                 None,
@@ -566,7 +581,6 @@ impl GameLogic {
             ));
         }
         if let Some(unit) = self.objects.get_mut(&id) {
-            unit.last_command_source = source;
             unit.set_movement_goal_object(None);
         }
         let occupants = self
@@ -575,25 +589,24 @@ impl GameLogic {
             .filter(|unit| !unit.is_kind_of(KindOf::Projectile))
             .map(|unit| unit.contained_units())
             .unwrap_or_default();
-        let ok = self.unit_command_stop_self_with_effects(id, effects);
+        let ok = self.unit_command_stop_self_with_effects(id, effects)?;
         if ok {
+            if let Some(unit) = self.objects.get_mut(&id) {
+                unit.last_command_source = source;
+            }
             for occ in occupants {
                 if occ != id {
-                    let _ = self.unit_command_stop_with_source_with_effects(occ, source, effects);
+                    self.unit_command_stop_with_source_with_effects(occ, source, effects)?;
                 }
             }
         }
-        ok
+        Ok(ok)
     }
-    fn unit_command_stop_self(&mut self, id: ObjectId) -> bool {
-        self.unit_command_stop_self_with_effects(id, &mut Default::default())
-    }
-
     fn unit_command_stop_self_with_effects(
         &mut self,
         id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> bool {
+    ) -> gamelogic::GameLogicResult<bool> {
         // C++ AssaultTransportAIUpdate AICMD_IDLE: retrieveMembers then reset.
         self.assault_transport_on_player_idle(id);
         self.drop_jet_targeters_on_attack_exit(id);
@@ -604,14 +617,14 @@ impl GameLogic {
             None,
             effects,
         ) {
-            return true;
+            return Ok(true);
         }
 
         if self.note_hacker_ai_command(
             id,
             crate::game_logic::host_hacker_income::PendingHackerCommand::Stop,
         ) {
-            return true;
+            return Ok(true);
         }
         let should_land = self.objects.get(&id).is_some_and(|unit| {
             unit.is_alive()
@@ -641,16 +654,17 @@ impl GameLogic {
                 unit.end_guard_retaliate(&mut crate::game_logic::ObjectAudio::queue(
                     &mut self.queued_audio_events,
                 ));
-                unit.hunting = false;
+                unit.set_hunting(false);
                 unit.return_to_base_requested = true;
                 unit.jet_ai.allow_interrupt_for_reload = false;
             }
             let _ = self.try_return_to_base_rearm_with_effects(id, effects);
-            return true;
+            return Ok(true);
         }
         let Some(unit) = self.objects.get_mut(&id) else {
-            return false;
+            return Ok(false);
         };
+        let needs_idle_entry = unit.ai_state() != AIState::Idle;
         unit.stop(&mut crate::game_logic::ObjectAudio::queue(
             &mut self.queued_audio_events,
         ));
@@ -671,7 +685,7 @@ impl GameLogic {
         unit.end_guard_retaliate(&mut crate::game_logic::ObjectAudio::queue(
             &mut self.queued_audio_events,
         ));
-        unit.hunting = false;
+        unit.set_hunting(false);
         // C++ SupplyTruckAIUpdate::privateIdle(CMD_FROM_PLAYER) setForceBusyState.
         // Workers omit the latch (WorkerAIUpdate.cpp:516-526).
         if unit.thing().template.supply_truck_metadata.is_some() && !unit.is_kind_of(KindOf::Worker)
@@ -679,11 +693,11 @@ impl GameLogic {
             unit.supply_truck_state = crate::game_logic::SupplyTruckState::Idle;
             unit.supply_truck_force_pending = false;
         }
-        unit.set_ai_state(
-            AIState::Idle,
-            &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
-        );
-        true
+        drop(unit);
+        if needs_idle_entry && !self.enter_base_ai_idle_owned(id, effects)? {
+            return Ok(false);
+        }
+        Ok(true)
     }
 
     pub fn unit_command_guard_position(&mut self, id: ObjectId, pos: glam::Vec3) -> bool {
@@ -723,7 +737,7 @@ impl GameLogic {
                 Some(pos),
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             );
-            unit.hunting = false;
+            unit.set_hunting(false);
             unit.mark_jet_command_for_reload_interrupt(true);
         }
         self.return_guard_to_post(id);
@@ -831,7 +845,7 @@ impl GameLogic {
                 Some(target_id),
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             );
-            unit.hunting = false;
+            unit.set_hunting(false);
             unit.mark_jet_command_for_reload_interrupt(true);
         }
         self.return_guard_to_post(id);
@@ -839,7 +853,11 @@ impl GameLogic {
     }
 
     /// Wave 231/232: attack-move via path + AttackMoving state.
-    pub fn unit_command_attack_move_to(&mut self, id: ObjectId, destination: glam::Vec3) -> bool {
+    pub fn unit_command_attack_move_to(
+        &mut self,
+        id: ObjectId,
+        destination: glam::Vec3,
+    ) -> gamelogic::GameLogicResult<bool> {
         self.unit_command_attack_move_to_with_effects(id, destination, &mut Default::default())
     }
 
@@ -848,7 +866,7 @@ impl GameLogic {
         id: ObjectId,
         destination: glam::Vec3,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> bool {
+    ) -> gamelogic::GameLogicResult<bool> {
         self.unit_command_attack_move_to_ex_with_effects(id, destination, -1, effects)
     }
 
@@ -858,7 +876,7 @@ impl GameLogic {
         id: ObjectId,
         destination: glam::Vec3,
         max_shots: i32,
-    ) -> bool {
+    ) -> gamelogic::GameLogicResult<bool> {
         self.unit_command_attack_move_to_ex_with_effects(
             id,
             destination,
@@ -873,7 +891,7 @@ impl GameLogic {
         destination: glam::Vec3,
         max_shots: i32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> bool {
+    ) -> gamelogic::GameLogicResult<bool> {
         self.stamp_player_command_source(id);
         self.unit_command_attack_move_owned_with_effects(id, destination, max_shots, effects)
     }
@@ -883,7 +901,7 @@ impl GameLogic {
         &mut self,
         id: ObjectId,
         destination: glam::Vec3,
-    ) -> bool {
+    ) -> gamelogic::GameLogicResult<bool> {
         self.unit_command_script_attack_move_to_with_effects(
             id,
             destination,
@@ -896,7 +914,7 @@ impl GameLogic {
         id: ObjectId,
         destination: glam::Vec3,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> bool {
+    ) -> gamelogic::GameLogicResult<bool> {
         if let Some(unit) = self.host_object_mut(id) {
             unit.last_command_source =
                 crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_SCRIPT;
@@ -910,7 +928,7 @@ impl GameLogic {
         id: ObjectId,
         destination: glam::Vec3,
         max_shots: i32,
-    ) -> bool {
+    ) -> gamelogic::GameLogicResult<bool> {
         self.unit_command_attack_move_owned_with_effects(
             id,
             destination,
@@ -925,16 +943,16 @@ impl GameLogic {
         destination: glam::Vec3,
         max_shots: i32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> bool {
+    ) -> gamelogic::GameLogicResult<bool> {
         if self.unit_sleep_mood_blocks_ai_command(id) {
-            return false;
+            return Ok(false);
         }
 
         if self.note_hacker_ai_command(
             id,
             crate::game_logic::host_hacker_income::PendingHackerCommand::MoveTo(destination),
         ) {
-            return true;
+            return Ok(true);
         }
         if self.flight_deck_ai_do_command_with_effects(
             id,
@@ -943,7 +961,7 @@ impl GameLogic {
             Some(destination),
             effects,
         ) {
-            return true;
+            return Ok(true);
         }
 
         // C++ privateAttackMoveToPosition returns before setState when
@@ -955,10 +973,10 @@ impl GameLogic {
                 unit.can_attack() || unit.weapon.is_some(),
                 !unit.is_kind_of(crate::game_logic::KindOf::Immobile) && !unit.is_disabled(),
             ),
-            None => return false,
+            None => return Ok(false),
         };
         if !alive || !mobile {
-            return false;
+            return Ok(false);
         }
         self.drop_jet_targeters_on_attack_exit(id);
         if let Some(unit) = self.objects.get_mut(&id) {
@@ -976,7 +994,7 @@ impl GameLogic {
             unit.is_final_goal = !unit.is_parachuting()
                 && !landed_chinook
                 && !(unit.chinook_ai.is_some() && unit.allow_invalid_position)
-                && unit.adjust_destinations;
+                && unit.adjust_destinations();
         }
         let destination = self.clip_player_goal(id, destination);
         let path_ok = self.assign_unit_path(id, destination, &[]);
@@ -985,7 +1003,7 @@ impl GameLogic {
         // block, !can_move, and an already-there route stay out of AI_IDLE.
         // Only computePath's closest-path miss matches STATE_FAILURE.
         if self.objects.get(&id).is_none() {
-            return false;
+            return Ok(false);
         }
         let hard_miss = !path_ok
             && self
@@ -1004,30 +1022,28 @@ impl GameLogic {
             .map(|unit| unit.get_position())
             .unwrap_or(destination);
         let already_there = !path_ok && Self::route_is_already_there(start, destination, &[]);
+        let mut entered_idle = false;
         if let Some(unit) = self.objects.get_mut(&id) {
             end_hunt_on_player_parent_order(unit);
             if hard_miss {
                 unit.requested_destination = None;
                 unit.retry_path = false;
-                if unit.ai_state != AIState::Idle {
-                    unit.set_ai_state(
-                        AIState::Idle,
-                        &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
-                    );
+                if unit.ai_state() != AIState::Idle {
+                    entered_idle = true;
                 }
             } else if can_attack && (path_ok || deploy_blocked || already_there) {
                 if path_ok {
                     unit.ignored_obstacle_id = None;
                 }
-                unit.auto_acquire_when_idle = true;
+                unit.set_auto_acquire_when_idle(true);
                 unit.requested_destination = Some(destination);
-                if unit.ai_state != AIState::AttackMoving {
+                if unit.ai_state() != AIState::AttackMoving {
                     unit.set_ai_state(
                         AIState::AttackMoving,
                         &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                     );
                 }
-            } else if path_ok && unit.ai_state != AIState::Moving {
+            } else if path_ok && unit.ai_state() != AIState::Moving {
                 unit.ignored_obstacle_id = None;
                 unit.is_attack_path = false;
                 unit.set_ai_state(
@@ -1039,13 +1055,27 @@ impl GameLogic {
                 unit.is_attack_path = false;
             }
             drop(unit);
+            if entered_idle && !self.enter_base_ai_idle_owned(id, effects)? {
+                return Err(gamelogic::GameLogicError::Configuration(
+                    "AttackMove failure lost its receiving actor during Idle entry".into(),
+                ));
+            }
+            if self.objects.get(&id).is_some_and(|unit| {
+                unit.unit_ai_runtime.root_state() == AIState::AttackMoving
+                    && unit.unit_ai_runtime.parent_state().is_none()
+            }) && !self.enter_attack_move_idle_child_owned(id)
+            {
+                return Err(gamelogic::GameLogicError::Configuration(
+                    "AttackMove could not enter its child Idle body".into(),
+                ));
+            }
             if !hard_miss {
                 self.clear_unit_hunt_scan(id);
                 self.assault_transport_on_player_attack_move(id, destination);
             }
-            return true;
+            return Ok(true);
         }
-        false
+        Ok(false)
     }
 
     /// Wave 232: promote unit onto attack-move path after waypoint follow.
@@ -1072,11 +1102,19 @@ impl GameLogic {
                     .copied()
                     .or(unit.movement.target_position);
             }
-            if unit.ai_state != AIState::AttackMoving {
+            if unit.ai_state() != AIState::AttackMoving {
                 unit.set_ai_state(
                     AIState::AttackMoving,
                     &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                 );
+            }
+            drop(unit);
+            if self.objects.get(&id).is_some_and(|unit| {
+                unit.unit_ai_runtime.root_state() == AIState::AttackMoving
+                    && unit.unit_ai_runtime.parent_state().is_none()
+            }) && !self.enter_attack_move_idle_child_owned(id)
+            {
+                return false;
             }
             return true;
         }
@@ -1182,19 +1220,23 @@ impl GameLogic {
     /// Wave 232: dozer construct — path/destination + Constructing AI state.
     /// C++ `findGoodBuildOrRepairPosition` docks at half major radius and
     /// `ignoreObstacle(goalObject)` so the scaffold is not an A* wall.
-    pub fn unit_command_begin_construct(&mut self, id: ObjectId, location: glam::Vec3) -> bool {
+    pub fn unit_command_begin_construct(
+        &mut self,
+        id: ObjectId,
+        location: glam::Vec3,
+    ) -> gamelogic::GameLogicResult<bool> {
         if self.objects.get(&id).is_none() {
-            return false;
+            return Ok(false);
         }
         if self.note_hacker_ai_command(
             id,
             crate::game_logic::host_hacker_income::PendingHackerCommand::Stop,
         ) {
-            return true;
+            return Ok(true);
         }
         let (dozer_pos, airborne, site) = {
             let Some(dozer) = self.objects.get(&id) else {
-                return false;
+                return Ok(false);
             };
             let site = dozer.target.and_then(|tid| {
                 self.objects.get(&tid).and_then(|st| {
@@ -1229,7 +1271,7 @@ impl GameLogic {
             // C++ AIMoveToState::onEnter (AIStates.cpp:2013-2017): the goal
             // object is the ignored obstacle, so the destination must not snap.
             if let Some(unit) = self.objects.get_mut(&id) {
-                unit.adjust_destinations = false;
+                unit.set_adjust_destinations(false);
             }
         }
         if let Some(tid) = ignore {
@@ -1238,7 +1280,8 @@ impl GameLogic {
         let dock = self
             .objects
             .get(&id)
-            .and_then(|unit| unit.dozer_dock_action)
+            .and_then(|unit| unit.dozer_tasks.docks[0][1].point())
+            .map(|dock| Vec3::new(dock.x, dock.z, dock.y))
             .unwrap_or(dock);
         let assigned = self.assign_unit_path_ignoring(id, dock, &[], ignore);
         if !assigned {
@@ -1249,20 +1292,24 @@ impl GameLogic {
                     unit.movement.path.clear();
                 }
             } else {
-                return false;
+                return Ok(false);
             }
         }
         // C++ WorkerAIUpdate::newTask — drop preferred dock and leave supply mode.
         self.worker_exit_supply_for_dozer_task(id);
-        self.set_ai_state_decision_aware(id, AIState::Constructing);
+        self.set_ai_state_decision_aware_with_effects(
+            id,
+            AIState::Constructing,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )?;
         if let Some(unit) = self.objects.get_mut(&id) {
             unit.set_ultra_accurate(true);
             if assigned && !unit.movement.path.is_empty() {
                 unit.set_status_moving(true);
             }
-            return true;
+            return Ok(true);
         }
-        false
+        Ok(false)
     }
 
     /// Additive selection mark on a selectable unit controlled by this player.
@@ -1371,7 +1418,7 @@ impl GameLogic {
         // nested move. update sets it true only once a path exists and
         // the unit is not waiting.
         if let Some(unit) = self.objects.get_mut(&id) {
-            unit.adjust_destinations = false;
+            unit.set_adjust_destinations(false);
         }
         self.pathfinding_system.tighten_restore_adjust = true;
         if !self.assign_unit_path(id, destination, &[]) {
@@ -1380,7 +1427,7 @@ impl GameLogic {
         }
         if let Some(unit) = self.objects.get_mut(&id) {
             if !unit.waiting_for_path && !unit.movement.path.is_empty() {
-                unit.adjust_destinations = true;
+                unit.set_adjust_destinations(true);
             }
             Self::accept_tighten_order(
                 unit,
@@ -1473,9 +1520,9 @@ impl GameLogic {
                 &mut self.queued_audio_events,
             ));
             release_hunt_temp_lock_when_entering_guard(unit);
-            unit.hunting = false;
+            unit.set_hunting(false);
             if let Some(tid) = target {
-                unit.guard_position = None;
+                unit.set_guard_position_data(None);
                 unit.set_guard_target(
                     Some(tid),
                     &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
@@ -1592,7 +1639,7 @@ impl GameLogic {
             return false;
         }
 
-        let entering_hunt = self.objects.get(&id).is_some_and(|u| !u.hunting);
+        let entering_hunt = self.objects.get(&id).is_some_and(|u| !u.is_hunting());
         self.drop_jet_targeters_on_attack_exit(id);
         if let Some(unit) = self.objects.get_mut(&id) {
             unit.clear_target(&mut crate::game_logic::ObjectAudio::queue(
@@ -1611,8 +1658,8 @@ impl GameLogic {
                 &mut self.queued_audio_events,
             ));
 
-            unit.auto_acquire_when_idle = true;
-            unit.hunting = true;
+            unit.set_auto_acquire_when_idle(true);
+            unit.set_hunting(true);
             unit.set_ai_state(
                 AIState::Patrolling,
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
@@ -1652,21 +1699,41 @@ impl GameLogic {
     }
 
     /// Wave 232: toggle deployed status for deploy-style units.
-    pub fn unit_command_set_deployed(&mut self, id: ObjectId, deployed: bool) -> bool {
+    pub fn unit_command_set_deployed(
+        &mut self,
+        id: ObjectId,
+        deployed: bool,
+    ) -> gamelogic::GameLogicResult<bool> {
+        self.unit_command_set_deployed_with_effects(
+            id,
+            deployed,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(crate) fn unit_command_set_deployed_with_effects(
+        &mut self,
+        id: ObjectId,
+        deployed: bool,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<bool> {
+        let Some(unit) = self.objects.get(&id) else {
+            return Ok(false);
+        };
+        if deployed
+            && (unit.unit_ai_runtime.current_leaf_state() != AIState::Idle
+                || unit.unit_ai_runtime.root_state() != AIState::Idle)
+        {
+            self.enter_base_ai_idle_owned(id, effects)?;
+        }
         let Some(unit) = self.objects.get_mut(&id) else {
-            return false;
+            return Ok(false);
         };
         unit.set_deployed(
             deployed,
             &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
         );
-        if deployed {
-            unit.set_ai_state(
-                AIState::Idle,
-                &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
-            );
-        }
-        true
+        Ok(true)
     }
 
     /// Execute an explicit Deploy toggle for an object that owns an exact
@@ -1678,22 +1745,36 @@ impl GameLogic {
     /// arrives.  The compact host state's two directions preserve that timing
     /// behavior; OBJECT_STATUS_DEPLOYED only changes when unpack finishes and
     /// clears immediately when packing begins.
-    pub fn unit_command_toggle_deploy_style(&mut self, id: ObjectId) -> bool {
+    pub fn unit_command_toggle_deploy_style(
+        &mut self,
+        id: ObjectId,
+    ) -> gamelogic::GameLogicResult<bool> {
+        self.unit_command_toggle_deploy_style_with_effects(
+            id,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(crate) fn unit_command_toggle_deploy_style_with_effects(
+        &mut self,
+        id: ObjectId,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<bool> {
         let frame = self.frame;
         let mut deployed_direction = false;
         let mut aligning = false;
         let changed = {
             let Some(unit) = self.objects.get_mut(&id) else {
-                return false;
+                return Ok(false);
             };
             if !unit.is_alive() || unit.get_template().deploy_style_metadata.is_none() {
-                return false;
+                return Ok(false);
             }
             if unit.deploy_style.is_none() {
                 // A template with metadata must have installed state during
                 // normal construction.  A malformed/legacy snapshot without
                 // it is not safe to silently reconstruct mid-command.
-                return false;
+                return Ok(false);
             }
 
             deployed_direction = matches!(
@@ -1714,7 +1795,7 @@ impl GameLogic {
                 );
             let transitioned = {
                 let Some(style) = unit.deploy_style.as_mut() else {
-                    return false;
+                    return Ok(false);
                 };
                 if deployed_direction {
                     style.begin_deploy(frame)
@@ -1722,53 +1803,58 @@ impl GameLogic {
                     style.begin_undeploy_with_weapon_turret(frame, has_turret, turret_natural)
                 }
             };
-            let state = unit.deploy_style.as_ref().map(|s| s.state);
             if transitioned {
                 unit.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
                     &mut self.queued_audio_events,
                 ));
                 unit.set_status_moving(false);
-                if unit.ai_state != AIState::Idle {
-                    unit.set_ai_state(
-                        AIState::Idle,
-                        &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
-                    );
-                }
-                if !deployed_direction {
-                    aligning = unit
-                        .deploy_style
-                        .as_ref()
-                        .is_some_and(|ds| ds.is_aligning_turrets());
-                    if aligning {
-                        unit.turret_substate = crate::game_logic::object::TurretSubState::Recenter;
-                        unit.turret_idle_recentering = true;
-                        unit.turret_target_id = None;
-                        unit.turret_runtime.target_pos = None;
-                        unit.turret_runtime.victim_team = None;
-                        unit.turret_holding = false;
-                    } else {
-                        // C++ setMyState(UNDEPLOY) clears OBJECT_STATUS_DEPLOYED
-                        // before the pack timer elapses.
-                        unit.set_deployed(
-                            false,
-                            &mut crate::game_logic::ObjectAudio::queue(
-                                &mut self.queued_audio_events,
-                            ),
-                        );
-                    }
-                }
-                if let Some(state) = state {
-                    crate::game_logic::host_deploy_style::leftover_stamp_deploy_style_conditions(
-                        &mut unit.model_condition_bits,
-                        state,
-                    );
-                }
             }
             transitioned
         };
 
         if !changed {
-            return false;
+            return Ok(false);
+        }
+        // C++ stops movement before entering Idle and then applies deploy
+        // conditions/turret state. The owner operation commits Idle onEnter
+        // synchronously at that same point.
+        if self.objects.get(&id).is_some_and(|unit| {
+            unit.unit_ai_runtime.current_leaf_state() != AIState::Idle
+                || unit.unit_ai_runtime.root_state() != AIState::Idle
+        }) {
+            self.enter_base_ai_idle_owned(id, effects)?;
+        }
+        {
+            let Some(unit) = self.objects.get_mut(&id) else {
+                return Ok(false);
+            };
+            if !deployed_direction {
+                aligning = unit
+                    .deploy_style
+                    .as_ref()
+                    .is_some_and(|ds| ds.is_aligning_turrets());
+                if aligning {
+                    unit.turret_substate = crate::game_logic::object::TurretSubState::Recenter;
+                    unit.turret_idle_recentering = true;
+                    unit.turret_target_id = None;
+                    unit.turret_runtime.target_pos = None;
+                    unit.turret_runtime.victim_team = None;
+                    unit.turret_holding = false;
+                } else {
+                    // C++ setMyState(UNDEPLOY) clears OBJECT_STATUS_DEPLOYED
+                    // before the pack timer elapses.
+                    unit.set_deployed(
+                        false,
+                        &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
+                    );
+                }
+            }
+            if let Some(state) = unit.deploy_style.as_ref().map(|s| s.state) {
+                crate::game_logic::host_deploy_style::leftover_stamp_deploy_style_conditions(
+                    &mut unit.model_condition_bits,
+                    state,
+                );
+            }
         }
         if deployed_direction {
             self.deploy_style_reg.record_deploy();
@@ -1793,7 +1879,7 @@ impl GameLogic {
                 150,
             );
         }
-        true
+        Ok(true)
     }
 
     /// Wave 232: attack nearest of team without force flag (attack-team residual).
@@ -2457,7 +2543,11 @@ impl GameLogic {
     /// TunnelContain does not override exitObjectViaDoor — execute_exit must
     /// walk the *exit* entrance (not `contained_by` / entry) via
     /// `unit_command_exit_via_open_contain`.
-    pub fn unit_command_exit_drop(&mut self, id: ObjectId, drop_position: glam::Vec3) -> bool {
+    pub fn unit_command_exit_drop(
+        &mut self,
+        id: ObjectId,
+        drop_position: glam::Vec3,
+    ) -> gamelogic::GameLogicResult<bool> {
         self.unit_command_exit_drop_with_effects(id, drop_position, &mut Default::default())
     }
 
@@ -2466,7 +2556,7 @@ impl GameLogic {
         id: ObjectId,
         drop_position: glam::Vec3,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> bool {
+    ) -> gamelogic::GameLogicResult<bool> {
         let container_id = self.objects.get(&id).and_then(|u| u.contained_by);
         let walk = container_id.is_some_and(|cid| {
             self.objects
@@ -2474,7 +2564,7 @@ impl GameLogic {
                 .is_some_and(|c| !c.is_garrison_contain() && !c.is_tunnel_network_style_container())
         });
         if let (true, Some(cid)) = (walk, container_id) {
-            return self.unit_command_exit_via_open_contain_with_effects(id, cid, effects);
+            return Ok(self.unit_command_exit_via_open_contain_with_effects(id, cid, effects));
         }
         // TransportContain::onRemoving wakes only previously idle AI, before
         // exitObjectViaDoor replaces the AI state with an exit/follow order.
@@ -2485,7 +2575,7 @@ impl GameLogic {
             .and_then(|cid| self.objects.get(&cid))
             .is_some_and(|c| c.transport_go_aggressive_on_exit());
         let Some(unit) = self.objects.get_mut(&id) else {
-            return false;
+            return Ok(false);
         };
         unit.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
             &mut self.queued_audio_events,
@@ -2510,12 +2600,15 @@ impl GameLogic {
         unit.clear_target(&mut crate::game_logic::ObjectAudio::queue(
             &mut self.queued_audio_events,
         ));
-        if unit.ai_state != AIState::Idle {
-            unit.set_ai_state(
-                AIState::Idle,
-                &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
-            );
+        let needs_idle_entry = unit.ai_state() != AIState::Idle;
+        drop(unit);
+        if needs_idle_entry && !self.enter_base_ai_idle_owned(id, effects)? {
+            return Ok(false);
         }
+        let unit = self
+            .objects
+            .get_mut(&id)
+            .expect("owned Idle entry preserves this birth");
         if go_aggressive {
             unit.set_ai_attitude(
                 crate::game_logic::host_strategy_center::HostAiAttitude::Aggressive,
@@ -2527,7 +2620,7 @@ impl GameLogic {
         if let Some(cid) = container_id {
             self.play_container_removing_template_sounds(cid, id, effects);
         }
-        true
+        Ok(true)
     }
 
     /// C++ OpenContain::exitObjectViaDoor — walk ExitStart/End even after
@@ -2690,13 +2783,29 @@ impl GameLogic {
     }
 
     /// Wave 233: set AI state if alive.
-    pub fn unit_command_set_ai_state(&mut self, id: ObjectId, state: AIState) -> bool {
+    pub fn unit_command_set_ai_state(
+        &mut self,
+        id: ObjectId,
+        state: AIState,
+    ) -> gamelogic::GameLogicResult<bool> {
+        self.unit_command_set_ai_state_with_effects(
+            id,
+            state,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(crate) fn unit_command_set_ai_state_with_effects(
+        &mut self,
+        id: ObjectId,
+        state: AIState,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<bool> {
         self.cancel_dock_reservation(id);
         if self.objects.get(&id).is_none() {
-            return false;
+            return Ok(false);
         }
-        self.set_ai_state_decision_aware(id, state);
-        true
+        self.set_ai_state_decision_aware_with_effects(id, state, effects)
     }
 
     /// Select a concrete weapon slot for a player-issued `FIRE_WEAPON` command.
@@ -2742,7 +2851,7 @@ impl GameLogic {
         // command behind an old auto-acquired target state.
         unit.set_status_aiming_weapon(false);
         unit.set_status_firing_weapon(false);
-        unit.attack_substate = AttackSubState::AimAtTarget;
+        unit.set_attack_substate(AttackSubState::AimAtTarget);
 
         if let Some(tid) = target_object {
             unit.set_target_with_operation(
@@ -3040,7 +3149,7 @@ impl GameLogic {
         id: ObjectId,
         goal: glam::Vec3,
         state: AIState,
-    ) -> bool {
+    ) -> gamelogic::GameLogicResult<bool> {
         self.unit_command_path_with_state_ignoring(id, goal, state, None)
     }
 
@@ -3051,13 +3160,30 @@ impl GameLogic {
         goal: glam::Vec3,
         state: AIState,
         ignore_obstacle: Option<ObjectId>,
-    ) -> bool {
+    ) -> gamelogic::GameLogicResult<bool> {
+        self.unit_command_path_with_state_ignoring_with_effects(
+            id,
+            goal,
+            state,
+            ignore_obstacle,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(crate) fn unit_command_path_with_state_ignoring_with_effects(
+        &mut self,
+        id: ObjectId,
+        goal: glam::Vec3,
+        state: AIState,
+        ignore_obstacle: Option<ObjectId>,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<bool> {
         if !self.assign_unit_path_ignoring(id, goal, &[], ignore_obstacle) {
-            return false;
+            return Ok(false);
         }
         self.cancel_dock_reservation(id);
         if self.objects.get(&id).is_none() {
-            return false;
+            return Ok(false);
         }
         if let Some(unit) = self.objects.get_mut(&id) {
             if ignore_obstacle.is_some() {
@@ -3066,13 +3192,13 @@ impl GameLogic {
                 unit.ignored_obstacle_id = None;
             }
         }
-        self.set_ai_state_decision_aware(id, state);
+        self.set_ai_state_decision_aware_with_effects(id, state, effects)?;
         if let Some(unit) = self.objects.get_mut(&id) {
             if !unit.movement.path.is_empty() {
                 unit.set_status_moving(true);
             }
         }
-        true
+        Ok(true)
     }
 
     /// Wave 233: C++ groupIdle stealth mood delay residual for one unit.
@@ -3090,7 +3216,7 @@ impl GameLogic {
         };
         let can_stealth = unit.innate_stealth || unit.stealth_delay_frames > 0;
         if can_stealth
-            && unit.auto_acquire_when_idle
+            && unit.auto_acquire_when_idle()
             && unit.can_attack()
             && !unit.status.stealthed
             && !unit.status.detected
@@ -3185,10 +3311,10 @@ impl GameLogic {
     pub fn adjust_unit_guard_radius(&mut self, id: ObjectId, delta: f32) -> Option<f32> {
         let obj = self.objects.get_mut(&id)?;
         let guarding = matches!(
-            obj.ai_state,
+            obj.ai_state(),
             AIState::GuardingArea | AIState::GuardingObject
-        ) || obj.guard_position.is_some()
-            || obj.guard_target.is_some();
+        ) || obj.active_guard_position().is_some()
+            || obj.active_guard_target().is_some();
         if !guarding && obj.guard_radius <= 0.0 {
             let base = obj.selection_radius.max(20.0) * 2.0;
             obj.guard_radius = (base + delta).clamp(30.0, 400.0);
@@ -3269,7 +3395,7 @@ mod tests {
             let object = logic.host_object_mut(id).expect("object");
             object.status.is_aiming_weapon = true;
             object.status.is_firing_weapon = true;
-            object.attack_substate = AttackSubState::FireWeapon;
+            object.set_attack_substate(AttackSubState::FireWeapon);
         }
 
         assert!(logic.unit_command_select_weapon_slot(id, 2));
@@ -3281,7 +3407,7 @@ mod tests {
         assert_eq!(object.weapon_lock_slot, 2);
         assert!(!object.status.is_aiming_weapon);
         assert!(!object.status.is_firing_weapon);
-        assert_eq!(object.attack_substate, AttackSubState::AimAtTarget);
+        assert_eq!(object.attack_substate(), AttackSubState::AimAtTarget);
     }
 
     #[test]
@@ -3325,11 +3451,15 @@ mod tests {
             });
         }
         let dest = glam::Vec3::new(250.0, 0.0, 0.0);
-        assert!(logic.unit_command_attack_move_to(id, dest));
+        assert!(
+            logic
+                .unit_command_attack_move_to(id, dest)
+                .expect("checked AttackMove command")
+        );
         let (state, stored, retry, sleep, target) = {
             let unit = logic.host_object(id).expect("unit");
             (
-                unit.ai_state.clone(),
+                unit.ai_state().clone(),
                 unit.requested_destination,
                 unit.attack_move_retry_count,
                 unit.attack_move_sleep_until,
@@ -3424,7 +3554,7 @@ mod tests {
                 can_target_ground: true,
                 ..Weapon::default()
             });
-            hunter.hunting = true;
+            hunter.set_hunting(true);
             hunter.set_ai_state(
                 AIState::Patrolling,
                 &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
@@ -3448,8 +3578,8 @@ mod tests {
         let (mut logic, hunter_id, enemy_id) = hunting_infantry_pair();
         assert!(logic.unit_command_attack(hunter_id, enemy_id));
         let hunter = logic.objects.get(&hunter_id).expect("hunter");
-        assert!(!hunter.hunting, "player attack must end Hunt");
-        assert_eq!(hunter.ai_state, AIState::Attacking);
+        assert!(!hunter.is_hunting(), "player attack must end Hunt");
+        assert_eq!(hunter.ai_state(), AIState::Attacking);
         assert_eq!(hunter.target, Some(enemy_id));
         assert_eq!(
             hunter.weapon_lock_type,
@@ -3463,13 +3593,15 @@ mod tests {
                 &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
             );
         }
-        logic.update_ai(&[hunter_id, enemy_id], 1.0 / 30.0);
+        logic
+            .update_ai(&[hunter_id, enemy_id], 1.0 / 30.0)
+            .expect("receiving AI operation succeeds");
         let hunter = logic.objects.get(&hunter_id).expect("hunter after tick");
-        assert!(!hunter.hunting);
+        assert!(!hunter.is_hunting());
         assert!(
             !matches!(hunter.ai_state, AIState::Patrolling),
             "Hunt must not resume after the player attack finishes; got {:?}",
-            hunter.ai_state
+            hunter.ai_state()
         );
     }
 
@@ -3478,8 +3610,8 @@ mod tests {
         let (mut logic, hunter_id, enemy_id) = hunting_infantry_pair();
         assert!(logic.unit_command_move_to(hunter_id, glam::Vec3::new(40.0, 0.0, 0.0)));
         let hunter = logic.objects.get(&hunter_id).expect("hunter");
-        assert!(!hunter.hunting, "player move must end Hunt");
-        assert_eq!(hunter.ai_state, AIState::Moving);
+        assert!(!hunter.is_hunting(), "player move must end Hunt");
+        assert_eq!(hunter.ai_state(), AIState::Moving);
         assert_eq!(
             hunter.weapon_lock_type,
             WeaponLockType::NotLocked,
@@ -3492,13 +3624,15 @@ mod tests {
             );
             unit.clear_target(&mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()));
         }
-        logic.update_ai(&[hunter_id, enemy_id], 1.0 / 30.0);
+        logic
+            .update_ai(&[hunter_id, enemy_id], 1.0 / 30.0)
+            .expect("receiving AI operation succeeds");
         let hunter = logic.objects.get(&hunter_id).expect("hunter after tick");
-        assert!(!hunter.hunting);
+        assert!(!hunter.is_hunting());
         assert!(
             !matches!(hunter.ai_state, AIState::Patrolling),
             "Hunt must not resume after the player move finishes; got {:?}",
-            hunter.ai_state
+            hunter.ai_state()
         );
     }
 
@@ -3530,3 +3664,19 @@ mod tests {
 #[cfg(test)]
 #[path = "unit_commands_exit_mood_tests.rs"]
 mod exit_mood_tests;
+
+impl GameLogic {
+    pub(crate) fn unit_command_standard_ai_idle_owned(
+        &mut self,
+        id: ObjectId,
+    ) -> gamelogic::GameLogicResult<bool> {
+        self.unit_command_standard_ai_idle_tail_owned(id, &mut Default::default())
+    }
+    pub(super) fn unit_command_standard_ai_idle_tail_owned(
+        &mut self,
+        id: ObjectId,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<bool> {
+        self.enter_base_ai_idle_owned(id, effects)
+    }
+}

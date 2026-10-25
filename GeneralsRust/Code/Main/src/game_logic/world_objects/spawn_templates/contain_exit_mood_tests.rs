@@ -84,7 +84,7 @@ fn idle_transport_exit_wakes_and_requests_jitter_before_follow_path() {
         let (mut world, transport, rider) = setup_rider(authored, AIState::Idle, false);
         world.walk_unit_via_open_contain_exit(rider, transport);
         let unit = world.host_object(rider).unwrap();
-        assert_eq!(unit.ai_state, AIState::Moving);
+        assert_eq!(unit.ai_state(), AIState::Moving);
         assert_eq!(unit.next_mood_check_time, 77);
         assert!(unit.randomly_offset_mood_check);
         assert!(unit.contained_by.is_none());
@@ -104,7 +104,7 @@ fn authored_false_transport_exit_preserves_both_mood_fields() {
         let (mut world, transport, rider) = setup_rider(Some(false), AIState::Idle, jitter);
         world.walk_unit_via_open_contain_exit(rider, transport);
         let unit = world.host_object(rider).unwrap();
-        assert_eq!(unit.ai_state, AIState::Moving);
+        assert_eq!(unit.ai_state(), AIState::Moving);
         assert_eq!(unit.next_mood_check_time, 9999);
         assert_eq!(unit.randomly_offset_mood_check, jitter);
     }

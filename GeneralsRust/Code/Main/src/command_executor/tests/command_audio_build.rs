@@ -1554,7 +1554,7 @@ fn attack_move_includes_immobile_attacker() {
         );
     }
     let u = logic.host_object(tur).unwrap();
-    assert_ne!(u.ai_state, AIState::AttackMoving);
+    assert_ne!(u.ai_state(), AIState::AttackMoving);
     assert!(!u.is_attack_path);
     assert_ne!(u.max_shots_to_fire, 4);
 }
@@ -1642,7 +1642,7 @@ fn group_attack_object_orders_weaponless_and_dead_victim() {
     }
     let d = logic.host_object(dozer_id).unwrap();
     assert_eq!(d.target, Some(victim));
-    assert_eq!(d.ai_state, AIState::Attacking);
+    assert_eq!(d.ai_state(), AIState::Attacking);
 }
 
 #[test]
@@ -1747,7 +1747,7 @@ fn tighten_scatter_include_stunned_members() {
             CommandResult::Success
         );
     }
-    assert_eq!(logic.host_object(b).unwrap().ai_state, AIState::Moving);
+    assert_eq!(logic.host_object(b).unwrap().ai_state(), AIState::Moving);
     {
         let u = logic.host_object_mut(b).unwrap();
         u.shock_stun_frames = 40;
@@ -1760,7 +1760,7 @@ fn tighten_scatter_include_stunned_members() {
         let mut exec = CommandExecutor::new(&mut logic, 0);
         assert_eq!(exec.execute_scatter(&[a, b]), CommandResult::Success);
     }
-    assert_eq!(logic.host_object(b).unwrap().ai_state, AIState::Moving);
+    assert_eq!(logic.host_object(b).unwrap().ai_state(), AIState::Moving);
 }
 
 #[test]

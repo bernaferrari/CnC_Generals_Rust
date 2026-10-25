@@ -170,7 +170,7 @@ fn authored_airfield_sell_dispatches_ordered_die_callbacks_without_flushing_othe
     assert!(world.start_sell_object(rack));
     assert!(world.host_object(rack).unwrap().status.sold);
     assert_eq!(world.host_object(rack).unwrap().construction_percent, 0.999);
-    assert_eq!(world.host_object(rack).unwrap().ai_state, AIState::Idle);
+    assert_eq!(world.host_object(rack).unwrap().ai_state(), AIState::Idle);
     assert_eq!(
         world.host_object(rack).unwrap().last_command_source,
         crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_AI
@@ -373,7 +373,7 @@ fn authored_airfield_sell_does_not_eject_real_docked_aircraft_through_nonexisten
         let object = world.host_object(id).unwrap();
         assert_eq!(object.get_position(), pad);
         assert_eq!(object.contained_by, Some(rack));
-        assert_eq!(object.ai_state, AIState::Docked);
+        assert_eq!(object.ai_state(), AIState::Docked);
         assert!(!object.is_above_terrain());
         assert!(world.airfield_has_reserved_space(rack, id));
     }
@@ -413,7 +413,7 @@ fn authored_airfield_sell_does_not_eject_real_docked_aircraft_through_nonexisten
         "no synthetic passenger ejection"
     );
     assert_eq!(
-        live.ai_state,
+        live.ai_state(),
         AIState::Docked,
         "no nonexistent OpenContain aiIdle"
     );

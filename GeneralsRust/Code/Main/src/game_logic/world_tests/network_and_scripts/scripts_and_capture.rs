@@ -30,7 +30,9 @@ fn capturing_state_does_not_transfer_under_construction_building() {
         );
     }
 
-    game_logic.update_ai(&[captor_id, building_id], 1.0 / 60.0);
+    game_logic
+        .update_ai(&[captor_id, building_id], 1.0 / 60.0)
+        .expect("receiving AI operation succeeds");
 
     let building = game_logic
         .host_object(building_id)
@@ -40,7 +42,7 @@ fn capturing_state_does_not_transfer_under_construction_building() {
     let captor = game_logic
         .host_object(captor_id)
         .expect("captor should exist");
-    assert_eq!(captor.ai_state, AIState::Idle);
+    assert_eq!(captor.ai_state(), AIState::Idle);
     assert!(captor.target.is_none());
 }
 
@@ -70,7 +72,7 @@ fn capture_command_rejects_non_infantry_units() {
     game_logic.process_commands();
 
     let tank = game_logic.host_object(tank_id).expect("tank should exist");
-    assert_ne!(tank.ai_state, AIState::Capturing);
+    assert_ne!(tank.ai_state(), AIState::Capturing);
     assert_ne!(tank.target, Some(building_id));
 
     let building = game_logic
@@ -120,8 +122,8 @@ fn repair_command_sets_all_selected_repairers_to_repairing() {
         .host_object(repairer_b)
         .expect("repairer B should exist");
 
-    assert_eq!(a.ai_state, AIState::Repairing);
-    assert_eq!(b.ai_state, AIState::Repairing);
+    assert_eq!(a.ai_state(), AIState::Repairing);
+    assert_eq!(b.ai_state(), AIState::Repairing);
     assert_eq!(a.target, Some(target_id));
     assert_eq!(b.target, Some(target_id));
 }
@@ -158,7 +160,7 @@ fn repair_command_ignores_non_worker_units() {
 
     let tank = game_logic.host_object(tank_id).expect("tank should exist");
     assert_ne!(
-        tank.ai_state,
+        tank.ai_state(),
         AIState::Repairing,
         "non-worker units should not enter repairing state from repair commands"
     );
@@ -205,12 +207,14 @@ fn repair_command_allows_repairing_neutral_structures() {
     // (0 > 0 is false on a virgin frame-0 fixture), so stamp frame 1 to model
     // the live clock before the in-range heal tick.
     game_logic.frame = 1;
-    game_logic.update_ai(&[repairer_id, target_id], 1.0 / 60.0);
+    game_logic
+        .update_ai(&[repairer_id, target_id], 1.0 / 60.0)
+        .expect("receiving AI operation succeeds");
 
     let repairer = game_logic
         .host_object(repairer_id)
         .expect("repairer should exist");
-    assert_eq!(repairer.ai_state, AIState::Repairing);
+    assert_eq!(repairer.ai_state(), AIState::Repairing);
     assert_eq!(repairer.target, Some(target_id));
 
     let after = game_logic
@@ -286,7 +290,7 @@ fn dozer_structure_repair_residual_recovers_hp_over_time() {
     );
     {
         let dozer = game_logic.host_object(dozer_id).expect("dozer");
-        assert_eq!(dozer.ai_state, AIState::Repairing);
+        assert_eq!(dozer.ai_state(), AIState::Repairing);
         assert_eq!(dozer.target, Some(structure_id));
     }
     // Frame-0 stamp models the live clock: the C++-faithful sole-benefactor
@@ -296,7 +300,9 @@ fn dozer_structure_repair_residual_recovers_hp_over_time() {
 
     // Several logic frames: HP must increase over time.
     for _ in 0..30 {
-        game_logic.update_ai(&[dozer_id, structure_id], 1.0 / 30.0);
+        game_logic
+            .update_ai(&[dozer_id, structure_id], 1.0 / 30.0)
+            .expect("receiving AI operation succeeds");
     }
 
     let after = game_logic
@@ -366,7 +372,7 @@ fn dozer_structure_repair_residual_walk_into_range_recovers_hp() {
 
     {
         let dozer = game_logic.host_object(dozer_id).expect("dozer");
-        assert_eq!(dozer.ai_state, AIState::Repairing);
+        assert_eq!(dozer.ai_state(), AIState::Repairing);
         assert_eq!(dozer.target, Some(structure_id));
         assert!(
             !dozer.movement.path.is_empty(),
@@ -402,7 +408,7 @@ fn dozer_structure_repair_residual_walk_into_range_recovers_hp() {
         recovered,
         "dozer must walk into repair range and restore structure HP; pos={:?}, state={:?}, target={:?}, moving={}, path_index={}, path_len={}, movement_target={:?}",
         dozer_after_walk.get_position(),
-        dozer_after_walk.ai_state,
+        dozer_after_walk.ai_state(),
         dozer_after_walk.target,
         dozer_after_walk.status.moving,
         dozer_after_walk.movement.current_path_index,
@@ -421,7 +427,7 @@ fn dozer_structure_repair_residual_walk_into_range_recovers_hp() {
     assert!(
         matches!(dozer.ai_state, AIState::Repairing | AIState::Idle),
         "dozer should still be repairing or finished idle, got {:?}",
-        dozer.ai_state
+        dozer.ai_state()
     );
 }
 
@@ -490,7 +496,7 @@ fn war_factory_vehicle_repair_residual_recovers_hp() {
     {
         let vehicle = game_logic.host_object(vehicle_id).expect("vehicle");
         assert_eq!(
-            vehicle.ai_state,
+            vehicle.ai_state(),
             AIState::SeekingRepair,
             "WarFactory must accept GetRepaired for vehicles"
         );
@@ -501,7 +507,9 @@ fn war_factory_vehicle_repair_residual_recovers_hp() {
     game_logic.frame = 1;
 
     for _ in 0..30 {
-        game_logic.update_ai(&[war_factory_id, vehicle_id], 1.0 / 30.0);
+        game_logic
+            .update_ai(&[war_factory_id, vehicle_id], 1.0 / 30.0)
+            .expect("receiving AI operation succeeds");
     }
 
     let after = game_logic
@@ -1138,12 +1146,14 @@ fn heal_pad_seeking_healing_residual_recovers_infantry_hp() {
 
     {
         let infantry = game_logic.host_object(infantry_id).expect("infantry");
-        assert_eq!(infantry.ai_state, AIState::SeekingHealing);
+        assert_eq!(infantry.ai_state(), AIState::SeekingHealing);
         assert_eq!(infantry.target, Some(heal_pad_id));
     }
 
     for _ in 0..30 {
-        game_logic.update_ai(&[heal_pad_id, infantry_id], 1.0 / 30.0);
+        game_logic
+            .update_ai(&[heal_pad_id, infantry_id], 1.0 / 30.0)
+            .expect("receiving AI operation succeeds");
     }
 
     let after = game_logic
@@ -1342,7 +1352,7 @@ fn physical_service_commands_use_player_relationship_and_revalidate_owner_change
     let tank = game_logic
         .host_object(tank_id)
         .expect("tank after rejected command");
-    assert_ne!(tank.ai_state, AIState::SeekingRepair);
+    assert_ne!(tank.ai_state(), AIState::SeekingRepair);
     assert_ne!(tank.target, Some(same_faction_enemy_pad));
 
     let ally_click = command_system
@@ -1366,13 +1376,15 @@ fn physical_service_commands_use_player_relationship_and_revalidate_owner_change
     let tank = game_logic
         .host_object(tank_id)
         .expect("tank after allied command");
-    assert_eq!(tank.ai_state, AIState::SeekingRepair);
+    assert_eq!(tank.ai_state(), AIState::SeekingRepair);
     assert_eq!(tank.target, Some(cross_faction_ally_pad));
 
     // Revalidate while moving/docked: a captured or reassigned repair pad may
     // no longer service this tank even if its original RMB was legal.
     assert!(game_logic.transfer_object_to_player(cross_faction_ally_pad, 1));
-    game_logic.update_ai(&[tank_id, cross_faction_ally_pad], 1.0 / 30.0);
+    game_logic
+        .update_ai(&[tank_id, cross_faction_ally_pad], 1.0 / 30.0)
+        .expect("receiving AI operation succeeds");
     let tank = game_logic
         .host_object(tank_id)
         .expect("tank after owner change");
@@ -1427,8 +1439,8 @@ fn get_repaired_command_targets_only_damaged_vehicles() {
     let infantry = game_logic
         .host_object(infantry_id)
         .expect("infantry should exist");
-    assert_eq!(vehicle.ai_state, AIState::SeekingRepair);
-    assert_ne!(infantry.ai_state, AIState::SeekingRepair);
+    assert_eq!(vehicle.ai_state(), AIState::SeekingRepair);
+    assert_ne!(infantry.ai_state(), AIState::SeekingRepair);
 }
 
 #[test]
@@ -1465,7 +1477,7 @@ fn get_repaired_command_requires_repair_destination_type() {
     let vehicle = game_logic
         .host_object(vehicle_id)
         .expect("vehicle should exist");
-    assert_ne!(vehicle.ai_state, AIState::SeekingRepair);
+    assert_ne!(vehicle.ai_state(), AIState::SeekingRepair);
     assert_ne!(vehicle.target, Some(non_repair_structure));
 }
 
@@ -1509,7 +1521,7 @@ fn get_repaired_command_rejects_under_construction_destination() {
     let vehicle = game_logic
         .host_object(vehicle_id)
         .expect("vehicle should exist");
-    assert_ne!(vehicle.ai_state, AIState::SeekingRepair);
+    assert_ne!(vehicle.ai_state(), AIState::SeekingRepair);
     assert_ne!(vehicle.target, Some(repair_pad_id));
 }
 
@@ -1554,7 +1566,7 @@ fn get_repaired_command_aircraft_requires_airfield() {
     let aircraft = game_logic
         .host_object(aircraft_id)
         .expect("aircraft should exist");
-    assert_ne!(aircraft.ai_state, AIState::SeekingRepair);
+    assert_ne!(aircraft.ai_state(), AIState::SeekingRepair);
 
     game_logic.queue_command(crate::command_system::GameCommand {
         command_type: crate::command_system::CommandType::GetRepaired {
@@ -1577,7 +1589,7 @@ fn get_repaired_command_aircraft_requires_airfield() {
     // rather than the generic order target. The contract under test is that
     // the airfield ACCEPTS the above-terrain aircraft (command not refused).
     assert_ne!(
-        aircraft.ai_state,
+        aircraft.ai_state(),
         AIState::Idle,
         "airfield must accept GetRepaired for an above-terrain aircraft"
     );
@@ -1631,8 +1643,8 @@ fn get_healed_command_targets_only_injured_infantry() {
     let vehicle = game_logic
         .host_object(vehicle_id)
         .expect("vehicle should exist");
-    assert_eq!(infantry.ai_state, AIState::SeekingHealing);
-    assert_ne!(vehicle.ai_state, AIState::SeekingHealing);
+    assert_eq!(infantry.ai_state(), AIState::SeekingHealing);
+    assert_ne!(vehicle.ai_state(), AIState::SeekingHealing);
 }
 
 #[test]
@@ -1669,7 +1681,7 @@ fn get_healed_command_requires_heal_destination_type() {
     let infantry = game_logic
         .host_object(infantry_id)
         .expect("infantry should exist");
-    assert_ne!(infantry.ai_state, AIState::SeekingHealing);
+    assert_ne!(infantry.ai_state(), AIState::SeekingHealing);
     assert_ne!(infantry.target, Some(non_heal_structure));
 }
 
@@ -1713,7 +1725,7 @@ fn get_healed_command_rejects_under_construction_destination() {
     let infantry = game_logic
         .host_object(infantry_id)
         .expect("infantry should exist");
-    assert_ne!(infantry.ai_state, AIState::SeekingHealing);
+    assert_ne!(infantry.ai_state(), AIState::SeekingHealing);
     assert_ne!(infantry.target, Some(heal_pad_id));
 }
 
@@ -1740,12 +1752,14 @@ fn special_ability_state_without_pending_order_resets_to_idle() {
         );
     }
 
-    game_logic.update_ai(&[actor_id, target_id], 1.0 / 60.0);
+    game_logic
+        .update_ai(&[actor_id, target_id], 1.0 / 60.0)
+        .expect("receiving AI operation succeeds");
 
     let actor = game_logic
         .host_object(actor_id)
         .expect("actor should exist");
-    assert_eq!(actor.ai_state, AIState::Idle);
+    assert_eq!(actor.ai_state(), AIState::Idle);
     assert!(actor.target.is_none());
 }
 
@@ -1782,7 +1796,7 @@ fn build_command_rejects_non_worker_constructor() {
     assert_eq!(created_structures, 0);
 
     let tank = game_logic.host_object(tank_id).expect("tank should exist");
-    assert_ne!(tank.ai_state, AIState::Constructing);
+    assert_ne!(tank.ai_state(), AIState::Constructing);
 }
 
 #[test]
@@ -1855,8 +1869,8 @@ fn dozer_line_ordinary_scaffolds_use_one_constructor_in_selection_order() {
         .expect("dozer B should exist");
     // C++ reuses the first selected constructor for every ordinary tile.
     // Each construct retargets it; no task is assigned to the second worker.
-    assert_eq!(dozer_a_state.ai_state, AIState::Moving);
-    assert_eq!(dozer_b_state.ai_state, AIState::Idle);
+    assert_eq!(dozer_a_state.ai_state(), AIState::Moving);
+    assert_eq!(dozer_b_state.ai_state(), AIState::Idle);
     assert!(dozer_a_state.movement.target_position.is_some());
     assert!(dozer_b_state.movement.target_position.is_none());
     assert!(dozer_b_state.dozer_task_build_target.is_none());
@@ -1924,7 +1938,9 @@ fn hijack_transfers_vehicle_and_updates_team_color() {
         modifier_keys: crate::command_system::ModifierKeys::default(),
     });
     game_logic.process_commands();
-    game_logic.update_ai(&[hijacker_id, target_id], 1.0 / 60.0);
+    game_logic
+        .update_ai(&[hijacker_id, target_id], 1.0 / 60.0)
+        .expect("receiving AI operation succeeds");
 
     let target = game_logic
         .host_object(target_id)
@@ -1983,7 +1999,9 @@ fn hijack_rejects_already_hijacked_vehicle() {
         modifier_keys: crate::command_system::ModifierKeys::default(),
     });
     game_logic.process_commands();
-    game_logic.update_ai(&[hijacker_id, target_id], 1.0 / 60.0);
+    game_logic
+        .update_ai(&[hijacker_id, target_id], 1.0 / 60.0)
+        .expect("receiving AI operation succeeds");
 
     let target = game_logic
         .host_object(target_id)
@@ -2045,7 +2063,9 @@ fn hijack_command_applies_only_after_unit_reaches_target() {
         "hijack should not transfer target immediately on command issue"
     );
 
-    game_logic.update_ai(&[hijacker_id, target_id], 1.0 / 60.0);
+    game_logic
+        .update_ai(&[hijacker_id, target_id], 1.0 / 60.0)
+        .expect("receiving AI operation succeeds");
     let target_after_far_update = game_logic
         .host_object(target_id)
         .expect("target should exist");
@@ -2071,7 +2091,9 @@ fn hijack_command_applies_only_after_unit_reaches_target() {
         );
         hijacker.target = Some(target_id);
     }
-    game_logic.update_ai(&[hijacker_id, target_id], 1.0 / 60.0);
+    game_logic
+        .update_ai(&[hijacker_id, target_id], 1.0 / 60.0)
+        .expect("receiving AI operation succeeds");
 
     let target_after_contact = game_logic
         .host_object(target_id)
@@ -2119,7 +2141,9 @@ fn sabotage_command_applies_only_after_unit_reaches_target() {
         0
     );
 
-    game_logic.update_ai(&[saboteur_id, target_id], 1.0 / 60.0);
+    game_logic
+        .update_ai(&[saboteur_id, target_id], 1.0 / 60.0)
+        .expect("receiving AI operation succeeds");
     assert!(!game_logic.honesty_saboteur_power_ok());
 
     {
@@ -2139,7 +2163,9 @@ fn sabotage_command_applies_only_after_unit_reaches_target() {
         saboteur.target = Some(target_id);
     }
     game_logic.frame = 30;
-    game_logic.update_ai(&[saboteur_id, target_id], 1.0 / 60.0);
+    game_logic
+        .update_ai(&[saboteur_id, target_id], 1.0 / 60.0)
+        .expect("receiving AI operation succeeds");
 
     assert!(
         game_logic.honesty_saboteur_power_ok(),
@@ -2187,7 +2213,7 @@ fn sabotage_command_rejects_non_structure_targets() {
     let saboteur = game_logic
         .host_object(saboteur_id)
         .expect("saboteur should exist");
-    assert_ne!(saboteur.ai_state, AIState::SpecialAbility);
+    assert_ne!(saboteur.ai_state(), AIState::SpecialAbility);
     assert_ne!(saboteur.target, Some(target_id));
 }
 
@@ -2230,7 +2256,9 @@ fn saboteur_military_factory_residual_disables_production() {
         s.target = Some(target_id);
     }
     game_logic.frame = 10;
-    game_logic.update_ai(&[saboteur_id, target_id], 1.0 / 60.0);
+    game_logic
+        .update_ai(&[saboteur_id, target_id], 1.0 / 60.0)
+        .expect("receiving AI operation succeeds");
 
     assert!(
         game_logic.honesty_saboteur_military_ok(),
@@ -2270,7 +2298,7 @@ fn sabotage_command_rejects_non_saboteur_units() {
     });
     game_logic.process_commands();
     let tank = game_logic.host_object(tank_id).expect("tank");
-    assert_ne!(tank.ai_state, AIState::SpecialAbility);
+    assert_ne!(tank.ai_state(), AIState::SpecialAbility);
     assert!(!game_logic.honesty_saboteur_ok());
 }
 
@@ -2314,7 +2342,9 @@ fn snipe_vehicle_command_applies_only_after_unit_reaches_target() {
         "vehicle must remain manned until sniper resolves"
     );
 
-    game_logic.update_ai(&[sniper_id, target_id], 1.0 / 60.0);
+    game_logic
+        .update_ai(&[sniper_id, target_id], 1.0 / 60.0)
+        .expect("receiving AI operation succeeds");
     let target_after_far_update = game_logic
         .host_object(target_id)
         .expect("target should exist");
@@ -2342,7 +2372,9 @@ fn snipe_vehicle_command_applies_only_after_unit_reaches_target() {
         );
         sniper.target = Some(target_id);
     }
-    game_logic.update_ai(&[sniper_id, target_id], 1.0 / 60.0);
+    game_logic
+        .update_ai(&[sniper_id, target_id], 1.0 / 60.0)
+        .expect("receiving AI operation succeeds");
 
     let target_after_contact = game_logic
         .host_object(target_id)
@@ -2583,11 +2615,13 @@ fn retail_pilot_metadata_drives_starting_veteran_and_same_owner_recrew() {
     game_logic.process_commands();
     {
         let p = game_logic.host_object(pilot_id).expect("pilot after cmd");
-        assert_eq!(p.ai_state, AIState::Entering);
+        assert_eq!(p.ai_state(), AIState::Entering);
         assert_eq!(p.target, Some(tank_id));
     }
 
-    game_logic.update_ai(&[pilot_id, tank_id], 1.0 / 30.0);
+    game_logic
+        .update_ai(&[pilot_id, tank_id], 1.0 / 30.0)
+        .expect("receiving AI operation succeeds");
 
     let tank = game_logic.host_object(tank_id).expect("tank after recrew");
     assert!(!tank.is_unmanned(), "recrew must clear DISABLED_UNMANNED");
@@ -2854,9 +2888,7 @@ fn live_named_and_skirmish_conditions_use_receiving_driver() {
 fn live_named_set_attitude_drains_to_host_ai() {
     use crate::game_logic::host_strategy_center::HostAiAttitude;
     use gamelogic::object::registry::OBJECT_REGISTRY;
-    use gamelogic::scripting::{
-        HostScriptNamedAttitudeRequest, request_host_script_named_attitude,
-    };
+    use gamelogic::scripting::{HostScriptNamedAttitudeRequest, request_host_script_named_attitude};
 
     OBJECT_REGISTRY.clear();
     drain_script_act_b_queues();
@@ -3113,7 +3145,7 @@ fn live_named_enter_and_exit_all_drain_ai_enter_evacuate() {
         Some(transport),
         "NAMED_ENTER_NAMED must issue the owning aiEnter"
     );
-    assert_eq!(infantry_after.ai_state, AIState::Entering);
+    assert_eq!(infantry_after.ai_state(), AIState::Entering);
     assert_eq!(infantry_after.formation_id, 0);
     assert_eq!(
         infantry_after.last_command_source,
@@ -3121,7 +3153,7 @@ fn live_named_enter_and_exit_all_drain_ai_enter_evacuate() {
     );
     assert_eq!(foreign.host_object(foreign_infantry).unwrap().target, None);
     assert_eq!(
-        foreign.host_object(foreign_infantry).unwrap().ai_state,
+        foreign.host_object(foreign_infantry).unwrap().ai_state(),
         AIState::Idle
     );
     assert_eq!(
@@ -3135,7 +3167,7 @@ fn live_named_enter_and_exit_all_drain_ai_enter_evacuate() {
     // CPP privateEvacuate orders Exit; the following AI update performs
     // physical removal after observing the receiving container's readiness.
     assert_eq!(
-        logic.host_object(infantry).unwrap().ai_state,
+        logic.host_object(infantry).unwrap().ai_state(),
         AIState::Exiting
     );
     assert_eq!(
@@ -3279,6 +3311,6 @@ fn live_team_garrison_specific_building_drains_ai_enter() {
         Some(bunker),
         "TEAM_GARRISON_SPECIFIC_BUILDING must leftover-drain aiEnter"
     );
-    assert_eq!(infantry_after.ai_state, AIState::Entering);
+    assert_eq!(infantry_after.ai_state(), AIState::Entering);
     assert!(OBJECT_REGISTRY.is_empty());
 }

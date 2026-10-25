@@ -168,7 +168,7 @@ fn missing_master_stops_slave_effects_before_unmanned_idle() {
     assert!(!owner.status.unselectable);
     assert!(!owner.status.disabled_held);
     assert!(owner.status.disabled_unmanned);
-    assert_eq!(owner.ai_state, crate::game_logic::AIState::Idle);
+    assert_eq!(owner.ai_state(), crate::game_logic::AIState::Idle);
     assert_eq!(owner.slaved_update.as_ref().unwrap().master, None);
     assert_eq!(
         owner.slaved_update.as_ref().unwrap().guard_offset,
@@ -347,7 +347,7 @@ fn slaved_update_recalls_past_two_times_guard_max() {
     game.update_owned_slaved_object(drone);
     assert_eq!(move_goal(&game, drone), [100.0, 0.0, 0.0]);
     assert_eq!(
-        game.host_object(drone).unwrap().ai_state,
+        game.host_object(drone).unwrap().ai_state(),
         crate::game_logic::AIState::Moving
     );
 }

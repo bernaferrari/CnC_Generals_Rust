@@ -267,7 +267,7 @@ fn missile_defender_laser_trigger_sets_temporary_secondary_weapon_lock() {
     assert_eq!(o.weapon_lock_slot, 1);
     assert_eq!(o.active_weapon_slot, 1);
     assert_eq!(o.target, Some(target));
-    assert_eq!(o.ai_state, AIState::Attacking);
+    assert_eq!(o.ai_state(), AIState::Attacking);
 }
 
 #[test]
@@ -425,7 +425,9 @@ fn missile_defender_laser_guided_special_locks_secondary() {
         .expect("enemy");
 
     assert!(logic.activate_missile_defender_laser_guided(src, tgt));
-    logic.update_ai(&[src, tgt], 1.1);
+    logic
+        .update_ai(&[src, tgt], 1.1)
+        .expect("receiving AI operation succeeds");
     let o = logic.host_object(src).unwrap();
     assert_eq!(o.active_weapon_slot, 1);
     assert_eq!(o.target, Some(tgt));
@@ -484,7 +486,7 @@ fn missile_defender_laser_oor_click_approaches() {
         "beam waits for StartAbilityRange"
     );
     let md = logic.host_object(src).unwrap();
-    assert_eq!(md.ai_state, AIState::SpecialAbility);
+    assert_eq!(md.ai_state(), AIState::SpecialAbility);
     assert!(
         md.movement.target_position.is_some() || md.requested_destination.is_some(),
         "must walk toward the laser target"
@@ -527,7 +529,9 @@ fn missile_defender_laser_persist_survives_attacking() {
         )
         .expect("enemy");
     assert!(logic.activate_missile_defender_laser_guided(src, tgt));
-    logic.update_ai(&[src, tgt], 1.1);
+    logic
+        .update_ai(&[src, tgt], 1.1)
+        .expect("receiving AI operation succeeds");
     assert!(logic.missile_defender_residual_laser_specials >= 1);
     let ch = logic
         .hero_abilities
@@ -536,7 +540,9 @@ fn missile_defender_laser_persist_survives_attacking() {
         .expect("persist channel");
     assert_eq!(ch.kind, LeftoverSaKind::LaserGuided);
     assert_eq!(ch.phase, LeftoverSaPhase::Preparing);
-    logic.update_ai(&[src, tgt], 1.0 / 30.0);
+    logic
+        .update_ai(&[src, tgt], 1.0 / 30.0)
+        .expect("receiving AI operation succeeds");
     assert!(
         logic.hero_abilities.leftover_channel(src).is_some(),
         "CMD_FROM_AI Attacking must not abort PersistentPrepTime"
@@ -1953,9 +1959,7 @@ fn host_upgrade_complete_slave_drone_attaches_to_humvee() {
 #[test]
 fn host_upgrade_complete_chemical_suits_reduces_poison() {
     use crate::game_logic::combat::DamageType;
-    use crate::game_logic::host_armor_residual::{
-        CHEM_SUIT_HUMAN_ARMOR_POISON, apply_residual_armor,
-    };
+    use crate::game_logic::host_armor_residual::{CHEM_SUIT_HUMAN_ARMOR_POISON, apply_residual_armor};
     use crate::game_logic::host_upgrades::UPGRADE_AMERICA_CHEMICAL_SUITS;
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
@@ -1995,9 +1999,7 @@ fn host_upgrade_complete_chemical_suits_reduces_poison() {
 #[test]
 fn host_upgrade_complete_moab_and_satellite_hack_unlock() {
     use crate::game_logic::Team;
-    use crate::game_logic::host_upgrades::{
-        UPGRADE_AMERICA_MOAB, UPGRADE_CHINA_SATELLITE_HACK_TWO,
-    };
+    use crate::game_logic::host_upgrades::{UPGRADE_AMERICA_MOAB, UPGRADE_CHINA_SATELLITE_HACK_TWO};
     let mut logic = GameLogic::new();
     logic
         .players
@@ -2112,9 +2114,7 @@ fn host_upgrade_complete_mines_radar_fortified() {
 
 #[test]
 fn host_upgrade_complete_drone_and_aircraft_armor() {
-    use crate::game_logic::host_mig::{
-        MIG_AIRCRAFT_ARMOR_ADD_MAX_HEALTH, UPGRADE_CHINA_AIRCRAFT_ARMOR,
-    };
+    use crate::game_logic::host_mig::{MIG_AIRCRAFT_ARMOR_ADD_MAX_HEALTH, UPGRADE_CHINA_AIRCRAFT_ARMOR};
     use crate::game_logic::host_slave_drones::{
         SlaveDroneKind, UPGRADE_AMERICA_DRONE_ARMOR, drone_armor_add_max_health,
     };

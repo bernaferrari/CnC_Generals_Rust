@@ -3,9 +3,7 @@
 use crate::game_logic::combat::DamageType;
 use crate::game_logic::host_usa_pilot::HostDeathType;
 use crate::game_logic::object::DamageHitContext;
-use crate::game_logic::{
-    AIState, AudioEventRequest, GameLogic, ObjectAudio, ObjectId, Player, Team,
-};
+use crate::game_logic::{AIState, AudioEventRequest, GameLogic, ObjectAudio, ObjectId, Player, Team};
 use glam::Vec3;
 
 fn isolated(name: &str, run: impl FnOnce()) {
@@ -35,7 +33,7 @@ fn running(owner: &mut GameLogic, id: ObjectId, pose: Vec3) {
         fixture_partition_object,
     );
     // Prepare the source move state; actual sound start runs its production API.
-    object.ai_state = AIState::Moving;
+    object.restore_ai_state(AIState::Moving);
     object.status.moving = true;
     owner.start_move_sound(id);
     assert!(owner.host_object(id).unwrap().move_loop_audio.is_some());
@@ -97,7 +95,7 @@ fn state_exit_uses_its_receiving_session_without_peer_publication() {
             );
             b.retry_dropped_ambient_sounds();
             assert!(b.queued_audio_events.is_empty());
-            assert_eq!(b.host_object(peer).unwrap().ai_state, AIState::Moving);
+            assert_eq!(b.host_object(peer).unwrap().ai_state(), AIState::Moving);
         },
     );
 }
@@ -115,8 +113,15 @@ fn ordinary_stop_then_waited_overlay_failure_keeps_exact_emission_order() {
             running(&mut owner, overlay, Vec3::new(70., 0., 0.));
             {
                 let object = owner.host_object_mut(overlay).unwrap();
-                object.ai_state = AIState::GuardingArea;
-                object.temporary_move_frames = 9;
+                object.restore_ai_state(AIState::GuardingArea);
+                object.unit_ai_runtime.begin_temporary_move(
+                    crate::game_logic::object::TemporaryAiMove {
+                        deadline: 9,
+                        goal: object.get_position(),
+                        saved_destination: object.requested_destination,
+                        saved_path_goal: object.path_goal_position,
+                    },
+                );
                 object.waiting_for_path = true;
             }
             assert!(owner.unit_command_stop(ordinary));
@@ -134,9 +139,15 @@ fn ordinary_stop_then_waited_overlay_failure_keeps_exact_emission_order() {
                 "OrderedLoop",
                 Vec3::new(70., 0., 0.),
             );
-            assert_eq!(owner.host_object(overlay).unwrap().temporary_move_frames, 0);
             assert_eq!(
-                owner.host_object(overlay).unwrap().ai_state,
+                owner
+                    .host_object(overlay)
+                    .unwrap()
+                    .temporary_ai_move_remaining(owner.frame),
+                0
+            );
+            assert_eq!(
+                owner.host_object(overlay).unwrap().ai_state(),
                 AIState::GuardingArea
             );
         },
@@ -173,7 +184,15 @@ fn nested_stop_and_overlay_exit_take_the_loop_handle_exactly_once() {
         || {
             let (mut owner, id) = world("NestedLoop");
             running(&mut owner, id, Vec3::ZERO);
-            owner.host_object_mut(id).unwrap().temporary_move_frames = 8;
+            let object = owner.host_object_mut(id).unwrap();
+            object.unit_ai_runtime.begin_temporary_move(
+                crate::game_logic::object::TemporaryAiMove {
+                    deadline: 8,
+                    goal: object.get_position(),
+                    saved_destination: object.requested_destination,
+                    saved_path_goal: object.path_goal_position,
+                },
+            );
             assert!(owner.unit_command_stop(id));
             // stop -> stop_moving -> overlay exit all share one receiving loan.
             let (object, output) = owner.host_object_and_audio_events_mut(id).unwrap();
@@ -198,12 +217,25 @@ fn actual_physics_timer_exit_admits_stop_before_returning() {
             running(&mut owner, id, Vec3::ZERO);
             {
                 let object = owner.host_object_mut(id).unwrap();
-                object.ai_state = AIState::GuardingArea;
-                object.temporary_move_frames = 1;
+                object.restore_ai_state(AIState::GuardingArea);
+                object.unit_ai_runtime.begin_temporary_move(
+                    crate::game_logic::object::TemporaryAiMove {
+                        deadline: 1,
+                        goal: object.get_position(),
+                        saved_destination: object.requested_destination,
+                        saved_path_goal: object.path_goal_position,
+                    },
+                );
                 object.movement.target_position = Some(Vec3::new(100., 0., 0.));
             }
             owner.tick_physics_collisions_all();
-            assert_eq!(owner.host_object(id).unwrap().temporary_move_frames, 0);
+            assert_eq!(
+                owner
+                    .host_object(id)
+                    .unwrap()
+                    .temporary_ai_move_remaining(owner.frame),
+                0
+            );
             assert_eq!(owner.queued_audio_events.len(), 1);
             stop(&owner.queued_audio_events[0], id, "TimerLoop", Vec3::ZERO);
             peer.retry_dropped_ambient_sounds();

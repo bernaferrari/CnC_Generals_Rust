@@ -47,9 +47,7 @@ impl GameLogic {
         location: glam::Vec3,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> bool {
-        use crate::game_logic::host_baikonur_launch::{
-            BAIKONUR_DETONATION_OBJECT, BAIKONUR_NUKE_FX,
-        };
+        use crate::game_logic::host_baikonur_launch::{BAIKONUR_DETONATION_OBJECT, BAIKONUR_NUKE_FX};
         let Some(src) = self.objects.get(&source_id) else {
             return false;
         };
@@ -574,7 +572,7 @@ impl GameLogic {
         let busy_non_mood = !has_mood
             && (obj.status.attacking
                 || matches!(
-                    obj.ai_state,
+                    obj.ai_state(),
                     AIState::Attacking | AIState::AttackMoving | AIState::AttackingGround
                 ));
 
@@ -694,7 +692,7 @@ impl GameLogic {
                 o.turret_hold_until_frame = 0;
                 o.turret_idle_recentering = false;
                 entered_attack = !matches!(
-                    o.ai_state,
+                    o.ai_state(),
                     AIState::Patrolling | AIState::AttackMoving | AIState::Attacking
                 );
                 if entered_attack {
@@ -810,7 +808,7 @@ impl GameLogic {
                         o.turret_mood_target = false;
                         o.set_status_attacking(false);
                         o.target = None;
-                        if matches!(o.ai_state, AIState::Attacking) {
+                        if matches!(o.ai_state(), AIState::Attacking) {
                             o.set_ai_state(
                                 AIState::Idle,
                                 &mut crate::game_logic::ObjectAudio::queue(
@@ -827,7 +825,7 @@ impl GameLogic {
                     // established host engagement bookkeeping in this late pass.
                     if let Some(o) = self.objects.get_mut(&cid) {
                         o.set_status_attacking(true);
-                        let entered_attack = o.ai_state != AIState::Attacking;
+                        let entered_attack = o.ai_state() != AIState::Attacking;
                         if entered_attack {
                             o.set_ai_state(
                                 AIState::Attacking,

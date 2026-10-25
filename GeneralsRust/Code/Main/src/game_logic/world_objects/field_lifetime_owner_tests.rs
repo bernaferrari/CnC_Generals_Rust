@@ -3,9 +3,7 @@ use super::super::*;
 use crate::game_logic::host_inferno_cannon::INFERNO_FIRE_FIELD_TEMPLATE;
 use crate::game_logic::host_usa_pilot::HostDeathType;
 use crate::game_logic::native_lifecycle::NativeLifecycleState;
-use crate::game_logic::special_power_strikes::{
-    ANTHRAX_TOXIN_OBJECT_NAME, NUKE_RADIATION_OBJECT_NAME,
-};
+use crate::game_logic::special_power_strikes::{ANTHRAX_TOXIN_OBJECT_NAME, NUKE_RADIATION_OBJECT_NAME};
 
 #[cfg(feature = "game_client")]
 struct ExpiryWitness(std::sync::mpsc::Sender<gamelogic::helpers::HostFxObjectPose>);
@@ -249,7 +247,9 @@ fn normal_lifetime_die(field: Field) {
         assert!(!canonical_lifetime(object).1);
         assert!(field.deadline(object).is_none());
         field.update(&mut world);
-        world.update_ai(&[id], 1.0 / 30.0);
+        world
+            .update_ai(&[id], 1.0 / 30.0)
+            .expect("receiving AI operation succeeds");
         assert!(world.host_object(id).unwrap().pending_death_fx.is_none());
         #[cfg(feature = "game_client")]
         assert!(
@@ -315,7 +315,9 @@ fn rejected_kill_stays_asleep(field: Field) {
             .set_indestructible(false);
         receiving.frame = due + 100;
         field.update(receiving);
-        receiving.update_ai(&[id], 1.0 / 30.0);
+        receiving
+            .update_ai(&[id], 1.0 / 30.0)
+            .expect("receiving AI operation succeeds");
         assert!(receiving.host_object(id).unwrap().is_alive());
         assert_eq!(receiving.host_object(id).unwrap().health.current, 100.0);
         assert!(!receiving.has_pending_object_removals());

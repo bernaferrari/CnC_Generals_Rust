@@ -8,31 +8,35 @@ mod tests {
 
     #[test]
     fn score_push_payload_is_owned_while_deferred_and_plain_push_supersedes_it() {
-        let mut shell = Shell::new();
-        shell.initialized = true;
-        let events = StdRc::new(StdRefCell::new(Vec::new()));
-        let mut top = TestLayout::new("existing.wnd", false, events);
-        top.hidden = false;
-        shell.screen_stack.push(Box::new(top));
-        let snapshot = |frame| crate::gui::callbacks::score_screen::ScoreScreenAcademySnapshot {
-            end_frame: frame,
-            show_advice: true,
-            advice: game_engine::common::rts::AcademyAdviceInfo::default(),
-        };
-        shell.push_score_screen(snapshot(100), false).unwrap();
-        assert_eq!(
-            shell.pending_score_snapshot.as_ref().unwrap().end_frame,
-            100
-        );
-        shell.screen_stack.last_mut().unwrap().hide(false);
-        shell.push_score_screen(snapshot(700), false).unwrap();
-        assert_eq!(
-            shell.pending_score_snapshot.as_ref().unwrap().end_frame,
-            700
-        );
-        shell.screen_stack.last_mut().unwrap().hide(false);
-        shell.push("Menus/MainMenu.wnd", false).unwrap();
-        assert!(shell.pending_score_snapshot.is_none());
+        let test_owner = crate::gui::window_manager::WindowManagerOwner::new();
+        test_owner.with_scope(|| {
+            let mut shell = Shell::new();
+            shell.initialized = true;
+            let events = StdRc::new(StdRefCell::new(Vec::new()));
+            let mut top = TestLayout::new("existing.wnd", false, events);
+            top.hidden = false;
+            shell.screen_stack.push(Box::new(top));
+            let snapshot =
+                |frame| crate::gui::callbacks::score_screen::ScoreScreenAcademySnapshot {
+                    end_frame: frame,
+                    show_advice: true,
+                    advice: game_engine::common::rts::AcademyAdviceInfo::default(),
+                };
+            shell.push_score_screen(snapshot(100), false).unwrap();
+            assert_eq!(
+                shell.pending_score_snapshot.as_ref().unwrap().end_frame,
+                100
+            );
+            shell.screen_stack.last_mut().unwrap().hide(false);
+            shell.push_score_screen(snapshot(700), false).unwrap();
+            assert_eq!(
+                shell.pending_score_snapshot.as_ref().unwrap().end_frame,
+                700
+            );
+            shell.screen_stack.last_mut().unwrap().hide(false);
+            shell.push("Menus/MainMenu.wnd", false).unwrap();
+            assert!(shell.pending_score_snapshot.is_none());
+        });
     }
 
     fn shell_global_test_lock() -> &'static Mutex<()> {
@@ -191,40 +195,55 @@ mod tests {
 
     #[test]
     fn test_shell_creation() {
-        let shell = Shell::new();
-        assert_eq!(shell.get_screen_count(), 0);
-        assert!(shell.is_shell_active());
-        assert!(!shell.shell_map_on);
+        let test_owner = crate::gui::window_manager::WindowManagerOwner::new();
+        test_owner.with_scope(|| {
+            let shell = Shell::new();
+            assert_eq!(shell.get_screen_count(), 0);
+            assert!(shell.is_shell_active());
+            assert!(!shell.shell_map_on);
+        });
     }
 
     #[test]
     fn test_shell_init() {
-        let mut shell = Shell::new();
-        assert!(shell.init().is_ok());
-        assert!(shell.initialized);
+        let test_owner = crate::gui::window_manager::WindowManagerOwner::new();
+        test_owner.with_scope(|| {
+            let mut shell = Shell::new();
+            assert!(shell.init().is_ok());
+            assert!(shell.initialized);
+        });
     }
 
     #[test]
     fn test_push_before_init() {
-        let mut shell = Shell::new();
-        let result = shell.push("test.wnd", false);
-        assert!(matches!(result, Err(ShellError::NotInitialized)));
+        let test_owner = crate::gui::window_manager::WindowManagerOwner::new();
+        test_owner.with_scope(|| {
+            let mut shell = Shell::new();
+            let result = shell.push("test.wnd", false);
+            assert!(matches!(result, Err(ShellError::NotInitialized)));
+        });
     }
 
     #[test]
     fn test_push_empty_filename() {
-        let mut shell = Shell::new();
-        shell.init().unwrap();
-        let result = shell.push("", false);
-        assert!(matches!(result, Err(ShellError::LayoutNotFound(_))));
+        let test_owner = crate::gui::window_manager::WindowManagerOwner::new();
+        test_owner.with_scope(|| {
+            let mut shell = Shell::new();
+            shell.init().unwrap();
+            let result = shell.push("", false);
+            assert!(matches!(result, Err(ShellError::LayoutNotFound(_))));
+        });
     }
 
     #[test]
     fn test_pop_empty_stack() {
-        let mut shell = Shell::new();
-        shell.init().unwrap();
-        let result = shell.pop();
-        assert!(matches!(result, Err(ShellError::EmptyStack)));
+        let test_owner = crate::gui::window_manager::WindowManagerOwner::new();
+        test_owner.with_scope(|| {
+            let mut shell = Shell::new();
+            shell.init().unwrap();
+            let result = shell.pop();
+            assert!(matches!(result, Err(ShellError::EmptyStack)));
+        });
     }
 
     #[test]
@@ -558,28 +577,31 @@ End
 
     #[test]
     fn shell_register_with_animate_manager_respects_global_animate_windows_flag() {
-        let _guard = shell_global_test_lock()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        let global = game_engine::ini::ini_game_data::ensure_global_data();
-        let old_animate_windows = {
-            let mut data = global.write();
-            let old = data.animate_windows;
-            data.animate_windows = false;
-            old
-        };
+        let test_owner = crate::gui::window_manager::WindowManagerOwner::new();
+        test_owner.with_scope(|| {
+            let _guard = shell_global_test_lock()
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            let global = game_engine::ini::ini_game_data::ensure_global_data();
+            let old_animate_windows = {
+                let mut data = global.write();
+                let old = data.animate_windows;
+                data.animate_windows = false;
+                old
+            };
 
-        let mut shell = Shell::new();
-        let window = Rc::new(RefCell::new(GameWindow::new()));
-        window.borrow_mut().set_position(25, 40).unwrap();
-        window.borrow_mut().set_size(120, 80).unwrap();
+            let mut shell = Shell::new();
+            let window = Rc::new(RefCell::new(GameWindow::new()));
+            window.borrow_mut().set_position(25, 40).unwrap();
+            window.borrow_mut().set_size(120, 80).unwrap();
 
-        shell.register_with_animate_manager(window.clone(), AnimationType::SlideRight, true, 0);
+            shell.register_with_animate_manager(window.clone(), AnimationType::SlideRight, true, 0);
 
-        assert_eq!(window.borrow().get_position(), (25, 40));
-        assert!(shell.animate_window_manager.is_empty());
+            assert_eq!(window.borrow().get_position(), (25, 40));
+            assert!(shell.animate_window_manager.is_empty());
 
-        global.write().animate_windows = old_animate_windows;
+            global.write().animate_windows = old_animate_windows;
+        });
     }
 
     #[test]
@@ -604,352 +626,395 @@ End
 
     #[test]
     fn test_global_shell() {
-        let mut shell = get_shell();
-        assert!(shell.init().is_ok());
-        assert!(shell.is_shell_active());
+        let test_owner = crate::gui::window_manager::WindowManagerOwner::new();
+        test_owner.with_scope(|| {
+            let mut shell = get_shell();
+            assert!(shell.init().is_ok());
+            assert!(shell.is_shell_active());
+        });
     }
 
     #[test]
     fn reentrant_shell_operations_drain_at_lifecycle_boundary_and_survive_unwind() {
-        let _guard = shell_global_test_lock()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        let events = StdRc::new(StdRefCell::new(Vec::new()));
+        let test_owner = crate::gui::window_manager::WindowManagerOwner::new();
+        test_owner.with_scope(|| {
 
-        let pop = with_shell_mut(|shell| {
-            shell.screen_stack.clear();
-            shell.initialized = true;
-            shell
-                .screen_stack
-                .push(Box::new(ReentrantQueueLayout::new(events.clone())));
-            shell.pop_immediate()
+                let _guard = shell_global_test_lock()
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner());
+                let events = StdRc::new(StdRefCell::new(Vec::new()));
+
+                let pop = with_shell_mut(|shell| {
+                    shell.screen_stack.clear();
+                    shell.initialized = true;
+                    shell
+                        .screen_stack
+                        .push(Box::new(ReentrantQueueLayout::new(events.clone())));
+                    shell.pop_immediate()
+                });
+                assert!(matches!(pop, Some(Ok(()))));
+                assert_eq!(
+                    events.borrow().as_slice(),
+                    &["shutdown", "destroy", "queued"],
+                    "a layout callback queues work, which runs after pop lifecycle work but before the outer shell borrow releases"
+                );
+
+                let unwind_events = StdRc::new(StdRefCell::new(Vec::new()));
+                let panic_events = unwind_events.clone();
+                let trailing_events = unwind_events.clone();
+                let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    let _ = with_shell_mut(|_| {
+                        queue_shell_operation(move |_| {
+                            panic_events.borrow_mut().push("panicking".to_string());
+                            panic!("intentional queued shell operation panic");
+                        });
+                        queue_shell_operation(move |_| {
+                            trailing_events.borrow_mut().push("trailing".to_string());
+                        });
+                    });
+                }));
+                assert!(result.is_err());
+                assert_eq!(unwind_events.borrow().as_slice(), &["panicking"]);
+
+                let _ = with_shell_mut(|_| ());
+                assert_eq!(
+                    unwind_events.borrow().as_slice(),
+                    &["panicking", "trailing"],
+                    "unstarted queued work must survive the previous callback unwind"
+                );
+
         });
-        assert!(matches!(pop, Some(Ok(()))));
-        assert_eq!(
-            events.borrow().as_slice(),
-            &["shutdown", "destroy", "queued"],
-            "a layout callback queues work, which runs after pop lifecycle work but before the outer shell borrow releases"
-        );
-
-        let unwind_events = StdRc::new(StdRefCell::new(Vec::new()));
-        let panic_events = unwind_events.clone();
-        let trailing_events = unwind_events.clone();
-        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            let _ = with_shell_mut(|_| {
-                queue_shell_operation(move |_| {
-                    panic_events.borrow_mut().push("panicking".to_string());
-                    panic!("intentional queued shell operation panic");
-                });
-                queue_shell_operation(move |_| {
-                    trailing_events.borrow_mut().push("trailing".to_string());
-                });
-            });
-        }));
-        assert!(result.is_err());
-        assert_eq!(unwind_events.borrow().as_slice(), &["panicking"]);
-
-        let _ = with_shell_mut(|_| ());
-        assert_eq!(
-            unwind_events.borrow().as_slice(),
-            &["panicking", "trailing"],
-            "unstarted queued work must survive the previous callback unwind"
-        );
     }
 
     #[test]
     fn test_shell_special_layouts() {
-        let mut shell = Shell::new();
-        shell.init().unwrap();
+        let test_owner = crate::gui::window_manager::WindowManagerOwner::new();
+        test_owner.with_scope(|| {
+            let mut shell = Shell::new();
+            shell.init().unwrap();
 
-        // Test save/load menu layout
-        let _layout = shell.get_save_load_menu_layout().unwrap();
+            // Test save/load menu layout
+            let _layout = shell.get_save_load_menu_layout().unwrap();
 
-        // Test popup replay layout
-        let _layout = shell.get_popup_replay_layout().unwrap();
+            // Test popup replay layout
+            let _layout = shell.get_popup_replay_layout().unwrap();
 
-        // Test options layout
-        let layout = shell.get_options_layout(true);
-        assert!(layout.is_some());
+            // Test options layout
+            let layout = shell.get_options_layout(true);
+            assert!(layout.is_some());
 
-        shell.destroy_options_layout();
-        let layout = shell.get_options_layout(false);
-        assert!(layout.is_none());
+            shell.destroy_options_layout();
+            let layout = shell.get_options_layout(false);
+            assert!(layout.is_none());
+        });
     }
 
     #[test]
     fn test_find_screen_by_filename_is_case_insensitive() {
-        let mut shell = Shell::new();
-        shell.init().unwrap();
-        shell.screen_stack.push(Box::new(BasicWindowLayout::new(
-            "Menus/MainMenu.wnd".to_string(),
-        )));
+        let test_owner = crate::gui::window_manager::WindowManagerOwner::new();
+        test_owner.with_scope(|| {
+            let mut shell = Shell::new();
+            shell.init().unwrap();
+            shell.screen_stack.push(Box::new(BasicWindowLayout::new(
+                "Menus/MainMenu.wnd".to_string(),
+            )));
 
-        assert!(
-            shell
-                .find_screen_by_filename("menus/mainmenu.wnd")
-                .is_some()
-        );
+            assert!(
+                shell
+                    .find_screen_by_filename("menus/mainmenu.wnd")
+                    .is_some()
+            );
+        });
     }
 
     #[test]
     fn test_shell_show_hide() {
-        let _guard = shell_global_test_lock()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        game_engine::common::ini::ini_game_data::init_global_data();
-        if let Some(global) = get_global_data() {
-            let mut global = global.write();
-            global.initial_file.clear();
-            global.shell_map_on = true;
-        }
-        if let Ok(mut logic) = gamelogic::system::game_logic::get_game_logic().lock() {
-            logic.set_game_mode(GAME_NONE);
-        }
+        let test_owner = crate::gui::window_manager::WindowManagerOwner::new();
+        test_owner.with_scope(|| {
+            let _guard = shell_global_test_lock()
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            game_engine::common::ini::ini_game_data::init_global_data();
+            if let Some(global) = get_global_data() {
+                let mut global = global.write();
+                global.initial_file.clear();
+                global.shell_map_on = true;
+            }
+            if let Ok(mut logic) = gamelogic::system::game_logic::get_game_logic().lock() {
+                logic.set_game_mode(GAME_NONE);
+            }
 
-        let mut shell = Shell::new();
-        shell.init().unwrap();
+            let mut shell = Shell::new();
+            shell.init().unwrap();
 
-        // Test hide/show functionality
-        shell.hide(true);
-        shell.hide(false);
+            // Test hide/show functionality
+            shell.hide(true);
+            shell.hide(false);
 
-        // Test shell map functionality
-        shell.show_shell_map(true);
-        assert!(shell.shell_map_on);
+            // Test shell map functionality
+            shell.show_shell_map(true);
+            assert!(shell.shell_map_on);
 
-        shell.show_shell_map(false);
-        assert!(!shell.shell_map_on);
+            shell.show_shell_map(false);
+            assert!(!shell.shell_map_on);
+        });
     }
 
     #[test]
     fn test_show_shell_does_not_push_main_menu_when_shell_map_is_on() {
-        let _guard = shell_global_test_lock()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        game_engine::common::ini::ini_game_data::init_global_data();
-        if let Some(global) = get_global_data() {
-            let mut global = global.write();
-            global.initial_file.clear();
-            global.shell_map_on = true;
-        }
-        if let Ok(mut logic) = gamelogic::system::game_logic::get_game_logic().lock() {
-            logic.set_game_mode(GAME_NONE);
-        }
+        let test_owner = crate::gui::window_manager::WindowManagerOwner::new();
+        test_owner.with_scope(|| {
+            let _guard = shell_global_test_lock()
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            game_engine::common::ini::ini_game_data::init_global_data();
+            if let Some(global) = get_global_data() {
+                let mut global = global.write();
+                global.initial_file.clear();
+                global.shell_map_on = true;
+            }
+            if let Ok(mut logic) = gamelogic::system::game_logic::get_game_logic().lock() {
+                logic.set_game_mode(GAME_NONE);
+            }
 
-        let mut shell = Shell::new();
-        shell.init().unwrap();
-        shell.show_shell_map(true);
-        shell.show_shell(false).unwrap();
-        assert_eq!(shell.get_screen_count(), 0);
+            let mut shell = Shell::new();
+            shell.init().unwrap();
+            shell.show_shell_map(true);
+            shell.show_shell(false).unwrap();
+            assert_eq!(shell.get_screen_count(), 0);
+        });
     }
 
     #[test]
     fn shell_game_start_pushes_main_menu_when_stack_is_empty_like_cpp() {
-        let mut shell = Shell::new();
-        shell.init().unwrap();
+        let test_owner = crate::gui::window_manager::WindowManagerOwner::new();
+        test_owner.with_scope(|| {
+            let mut shell = Shell::new();
+            shell.init().unwrap();
 
-        shell.show_main_menu_after_shell_game_start().unwrap();
+            shell.show_main_menu_after_shell_game_start().unwrap();
 
-        assert_eq!(shell.get_screen_count(), 1);
-        assert_eq!(
-            shell.top().map(|layout| layout.get_filename().to_string()),
-            Some("Menus/MainMenu.wnd".to_string())
-        );
+            assert_eq!(shell.get_screen_count(), 1);
+            assert_eq!(
+                shell.top().map(|layout| layout.get_filename().to_string()),
+                Some("Menus/MainMenu.wnd".to_string())
+            );
+        });
     }
 
     #[test]
     fn shell_game_start_reveals_existing_top_screen_like_cpp() {
-        let mut shell = Shell::new();
-        shell.init().unwrap();
-        let events = StdRc::new(StdRefCell::new(Vec::new()));
-        shell.screen_stack.push(Box::new(TestLayout::new(
-            "existing.wnd",
-            true,
-            events.clone(),
-        )));
+        let test_owner = crate::gui::window_manager::WindowManagerOwner::new();
+        test_owner.with_scope(|| {
+            let mut shell = Shell::new();
+            shell.init().unwrap();
+            let events = StdRc::new(StdRefCell::new(Vec::new()));
+            shell.screen_stack.push(Box::new(TestLayout::new(
+                "existing.wnd",
+                true,
+                events.clone(),
+            )));
 
-        shell.show_main_menu_after_shell_game_start().unwrap();
+            shell.show_main_menu_after_shell_game_start().unwrap();
 
-        assert_eq!(shell.get_screen_count(), 1);
-        assert_eq!(
-            events.borrow().as_slice(),
-            &[
-                "hide:existing.wnd:false".to_string(),
-                "bring_forward:existing.wnd".to_string(),
-            ]
-        );
+            assert_eq!(shell.get_screen_count(), 1);
+            assert_eq!(
+                events.borrow().as_slice(),
+                &[
+                    "hide:existing.wnd:false".to_string(),
+                    "bring_forward:existing.wnd".to_string(),
+                ]
+            );
+        });
     }
 
     #[test]
     fn test_show_shell_map_reapplies_background_image_status() {
-        let _guard = shell_global_test_lock()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        game_engine::common::ini::ini_game_data::init_global_data();
-        if let Some(global) = get_global_data() {
-            let mut global = global.write();
-            global.initial_file.clear();
-            global.shell_map_on = false;
-        }
+        let test_owner = crate::gui::window_manager::WindowManagerOwner::new();
+        test_owner.with_scope(|| {
+            let _guard = shell_global_test_lock()
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            game_engine::common::ini::ini_game_data::init_global_data();
+            if let Some(global) = get_global_data() {
+                let mut global = global.write();
+                global.initial_file.clear();
+                global.shell_map_on = false;
+            }
 
-        let events = StdRc::new(StdRefCell::new(Vec::new()));
-        let mut shell = Shell::new();
-        shell.init().unwrap();
-        shell.background = Some(Box::new(TestLayout::new(
-            "background.wnd",
-            false,
-            events.clone(),
-        )));
+            let events = StdRc::new(StdRefCell::new(Vec::new()));
+            let mut shell = Shell::new();
+            shell.init().unwrap();
+            shell.background = Some(Box::new(TestLayout::new(
+                "background.wnd",
+                false,
+                events.clone(),
+            )));
 
-        shell.show_shell_map(false);
+            shell.show_shell_map(false);
 
-        let event_log = events.borrow();
-        let image_index = event_log
-            .iter()
-            .position(|event| event == "set_first_window_image:background.wnd")
-            .expect("expected background image status to be reapplied");
-        let hide_index = event_log
-            .iter()
-            .position(|event| event == "hide:background.wnd:false")
-            .expect("expected background to be shown");
-        assert!(image_index < hide_index);
+            let event_log = events.borrow();
+            let image_index = event_log
+                .iter()
+                .position(|event| event == "set_first_window_image:background.wnd")
+                .expect("expected background image status to be reapplied");
+            let hide_index = event_log
+                .iter()
+                .position(|event| event == "hide:background.wnd:false")
+                .expect("expected background to be shown");
+            assert!(image_index < hide_index);
+        });
     }
 
     #[test]
     fn test_shutdown_complete_keeps_clear_background_when_no_background_exists() {
-        let mut shell = Shell::new();
-        shell.clear_background = true;
+        let test_owner = crate::gui::window_manager::WindowManagerOwner::new();
+        test_owner.with_scope(|| {
+            let mut shell = Shell::new();
+            shell.clear_background = true;
 
-        shell.shutdown_complete(None, false).unwrap();
+            shell.shutdown_complete(None, false).unwrap();
 
-        assert!(shell.clear_background);
+            assert!(shell.clear_background);
+        });
     }
 
     #[test]
     fn test_reset_keeps_special_layouts_like_cpp() {
-        let events = StdRc::new(StdRefCell::new(Vec::new()));
-        let mut shell = Shell::new();
-        shell.init().unwrap();
-        shell.screen_stack.push(Box::new(TestLayout::new(
-            "stack.wnd",
-            false,
-            events.clone(),
-        )));
-        shell.save_load_menu_layout = Some(Box::new(TestLayout::new(
-            "save_load.wnd",
-            false,
-            events.clone(),
-        )));
-        shell.popup_replay_layout = Some(Box::new(TestLayout::new(
-            "popup_replay.wnd",
-            false,
-            events.clone(),
-        )));
-        shell.options_layout = Some(Box::new(TestLayout::new(
-            "options.wnd",
-            false,
-            events.clone(),
-        )));
-        shell.background = Some(Box::new(TestLayout::new(
-            "background.wnd",
-            false,
-            events.clone(),
-        )));
-        shell.clear_background = true;
-        shell.pending_push = true;
-        shell.pending_pop = true;
-        shell.pending_push_name = "Menus/MainMenu.wnd".to_string();
-        shell.last_update = Instant::now() - shell.update_interval;
+        let test_owner = crate::gui::window_manager::WindowManagerOwner::new();
+        test_owner.with_scope(|| {
+            let events = StdRc::new(StdRefCell::new(Vec::new()));
+            let mut shell = Shell::new();
+            shell.init().unwrap();
+            shell.screen_stack.push(Box::new(TestLayout::new(
+                "stack.wnd",
+                false,
+                events.clone(),
+            )));
+            shell.save_load_menu_layout = Some(Box::new(TestLayout::new(
+                "save_load.wnd",
+                false,
+                events.clone(),
+            )));
+            shell.popup_replay_layout = Some(Box::new(TestLayout::new(
+                "popup_replay.wnd",
+                false,
+                events.clone(),
+            )));
+            shell.options_layout = Some(Box::new(TestLayout::new(
+                "options.wnd",
+                false,
+                events.clone(),
+            )));
+            shell.background = Some(Box::new(TestLayout::new(
+                "background.wnd",
+                false,
+                events.clone(),
+            )));
+            shell.clear_background = true;
+            shell.pending_push = true;
+            shell.pending_pop = true;
+            shell.pending_push_name = "Menus/MainMenu.wnd".to_string();
+            shell.last_update = Instant::now() - shell.update_interval;
 
-        shell.reset().unwrap();
+            shell.reset().unwrap();
 
-        assert_eq!(shell.get_screen_count(), 0);
-        assert!(shell.save_load_menu_layout.is_some());
-        assert!(shell.popup_replay_layout.is_some());
-        assert!(shell.options_layout.is_some());
-        assert!(shell.background.is_some());
-        assert!(shell.clear_background);
-        assert!(shell.pending_push);
-        assert!(!shell.pending_pop);
-        assert_eq!(shell.pending_push_name, "Menus/MainMenu.wnd");
+            assert_eq!(shell.get_screen_count(), 0);
+            assert!(shell.save_load_menu_layout.is_some());
+            assert!(shell.popup_replay_layout.is_some());
+            assert!(shell.options_layout.is_some());
+            assert!(shell.background.is_some());
+            assert!(shell.clear_background);
+            assert!(shell.pending_push);
+            assert!(!shell.pending_pop);
+            assert_eq!(shell.pending_push_name, "Menus/MainMenu.wnd");
 
-        let event_log = events.borrow();
-        assert!(event_log.iter().any(|event| event == "destroy:stack.wnd"));
-        assert!(
-            !event_log
-                .iter()
-                .any(|event| event == "destroy:save_load.wnd")
-        );
-        assert!(
-            !event_log
-                .iter()
-                .any(|event| event == "destroy:popup_replay.wnd")
-        );
-        assert!(!event_log.iter().any(|event| event == "destroy:options.wnd"));
-        assert!(
-            !event_log
-                .iter()
-                .any(|event| event == "destroy:background.wnd")
-        );
+            let event_log = events.borrow();
+            assert!(event_log.iter().any(|event| event == "destroy:stack.wnd"));
+            assert!(
+                !event_log
+                    .iter()
+                    .any(|event| event == "destroy:save_load.wnd")
+            );
+            assert!(
+                !event_log
+                    .iter()
+                    .any(|event| event == "destroy:popup_replay.wnd")
+            );
+            assert!(!event_log.iter().any(|event| event == "destroy:options.wnd"));
+            assert!(
+                !event_log
+                    .iter()
+                    .any(|event| event == "destroy:background.wnd")
+            );
+        });
     }
 
     #[test]
     fn test_push_hidden_top_completes_immediately_like_cpp() {
-        let events = StdRc::new(StdRefCell::new(Vec::new()));
-        let mut shell = Shell::new();
-        shell.init().unwrap();
-        shell.screen_stack.push(Box::new(TestLayout::new(
-            "hidden_top.wnd",
-            true,
-            events.clone(),
-        )));
+        let test_owner = crate::gui::window_manager::WindowManagerOwner::new();
+        test_owner.with_scope(|| {
 
-        shell.push("Menus/MainMenu.wnd", false).unwrap();
+                let events = StdRc::new(StdRefCell::new(Vec::new()));
+                let mut shell = Shell::new();
+                shell.init().unwrap();
+                shell.screen_stack.push(Box::new(TestLayout::new(
+                    "hidden_top.wnd",
+                    true,
+                    events.clone(),
+                )));
 
-        assert_eq!(shell.get_screen_count(), 2);
-        assert!(shell.pending_push_name.is_empty());
-        assert!(!shell.pending_push);
-        let event_log = events.borrow();
-        assert!(
-            !event_log
-                .iter()
-                .any(|event| event == "shutdown:hidden_top.wnd"),
-            "hidden top should not run shutdown before immediate push completion"
-        );
-        assert!(
-            !event_log
-                .iter()
-                .any(|event| event == "hide:hidden_top.wnd:true"),
-            "C++ Shell::shutdownComplete() does not re-hide the current top during a pending push"
-        );
+                shell.push("Menus/MainMenu.wnd", false).unwrap();
+
+                assert_eq!(shell.get_screen_count(), 2);
+                assert!(shell.pending_push_name.is_empty());
+                assert!(!shell.pending_push);
+                let event_log = events.borrow();
+                assert!(
+                    !event_log
+                        .iter()
+                        .any(|event| event == "shutdown:hidden_top.wnd"),
+                    "hidden top should not run shutdown before immediate push completion"
+                );
+                assert!(
+                    !event_log
+                        .iter()
+                        .any(|event| event == "hide:hidden_top.wnd:true"),
+                    "C++ Shell::shutdownComplete() does not re-hide the current top during a pending push"
+                );
+
+        });
     }
 
     #[test]
     fn test_pop_immediate_runs_shutdown_before_destroy() {
-        let events = StdRc::new(StdRefCell::new(Vec::new()));
-        let mut shell = Shell::new();
-        shell.init().unwrap();
-        shell.screen_stack.push(Box::new(TestLayout::new(
-            "first.wnd",
-            false,
-            events.clone(),
-        )));
-        shell
-            .screen_stack
-            .push(Box::new(TestLayout::new("top.wnd", false, events.clone())));
+        let test_owner = crate::gui::window_manager::WindowManagerOwner::new();
+        test_owner.with_scope(|| {
+            let events = StdRc::new(StdRefCell::new(Vec::new()));
+            let mut shell = Shell::new();
+            shell.init().unwrap();
+            shell.screen_stack.push(Box::new(TestLayout::new(
+                "first.wnd",
+                false,
+                events.clone(),
+            )));
+            shell
+                .screen_stack
+                .push(Box::new(TestLayout::new("top.wnd", false, events.clone())));
 
-        shell.pop_immediate().unwrap();
+            shell.pop_immediate().unwrap();
 
-        let event_log = events.borrow();
-        let shutdown_index = event_log
-            .iter()
-            .position(|event| event == "shutdown:top.wnd")
-            .unwrap();
-        let destroy_index = event_log
-            .iter()
-            .position(|event| event == "destroy:top.wnd")
-            .unwrap();
-        assert!(shutdown_index < destroy_index);
-        assert_eq!(shell.get_screen_count(), 1);
+            let event_log = events.borrow();
+            let shutdown_index = event_log
+                .iter()
+                .position(|event| event == "shutdown:top.wnd")
+                .unwrap();
+            let destroy_index = event_log
+                .iter()
+                .position(|event| event == "destroy:top.wnd")
+                .unwrap();
+            assert!(shutdown_index < destroy_index);
+            assert_eq!(shell.get_screen_count(), 1);
+        });
     }
 }

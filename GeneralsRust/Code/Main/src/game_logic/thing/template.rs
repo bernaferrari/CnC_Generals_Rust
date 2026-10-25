@@ -104,6 +104,88 @@ impl PartialEq for ReceivingClientTemplate {
 }
 
 impl ReceivingClientTemplate {
+    // Object.cpp caches the first non-null getAIUpdateInterface in authored order.
+    // Do not allow a later specialized module to replace that interface.
+    fn receiving_ai_source_index(&self) -> Option<usize> {
+        self.0.behavior_modules().iter().position(|entry| {
+            game_engine::common::thing::module_factory::builtin_behavior_has_ai_update_interface(
+                entry.name.as_str(),
+            ) == Some(true)
+                || entry.data.is_ai_module_data()
+        })
+    }
+
+    pub(crate) fn occlusion_delay_frames(&self) -> u32 {
+        self.0.occlusion_delay_frames()
+    }
+    pub(crate) fn receiving_ai_policy(&self) -> Option<(u32, bool)> {
+        let entry = self
+            .0
+            .behavior_modules()
+            .iter()
+            .nth(self.receiving_ai_source_index()?)?;
+        Some(crate::game_logic::object::receiving_ai_policy_data(
+            entry.data.as_ref(),
+        ))
+    }
+
+    pub(crate) fn receiving_ai_identity(&self) -> Option<(u32, String, String)> {
+        let ordinal = self.receiving_ai_source_index()?;
+        let entry = self.0.behavior_modules().iter().nth(ordinal)?;
+        Some((
+            ordinal as u32,
+            entry.module_tag.as_str().to_owned(),
+            entry.name.as_str().to_owned(),
+        ))
+    }
+
+    pub(crate) fn receiving_ai_module_name(&self) -> Option<&str> {
+        Some(
+            self.0
+                .behavior_modules()
+                .iter()
+                .nth(self.receiving_ai_source_index()?)?
+                .name
+                .as_str(),
+        )
+    }
+
+    pub(crate) fn dozer_ai_is_worker(&self) -> Option<bool> {
+        let entry = self
+            .0
+            .behavior_modules()
+            .iter()
+            .nth(self.receiving_ai_source_index()?)?;
+        let data = entry.data.as_any();
+        if data
+            .is::<gamelogic::object::update::ai_update::worker_ai_update::WorkerAIUpdateModuleData>(
+            )
+        {
+            Some(true)
+        } else if data
+            .is::<gamelogic::object::update::ai_update::dozer_ai_update::DozerAIUpdateModuleData>()
+        {
+            Some(false)
+        } else {
+            None
+        }
+    }
+
+    pub(crate) fn dozer_ai_identity(&self) -> Option<(u32, String)> {
+        let ordinal = self.receiving_ai_source_index()?;
+        self.dozer_ai_is_worker()?;
+        Some((
+            ordinal as u32,
+            self.0
+                .behavior_modules()
+                .iter()
+                .nth(ordinal)?
+                .module_tag
+                .as_str()
+                .to_owned(),
+        ))
+    }
+
     /// Immutable sound slot of this actor's admitted receiving definition.
     pub(crate) fn per_unit_sound_event(&self, slot: &str) -> Option<&str> {
         self.0.per_unit_sound_event(slot)
@@ -1865,3 +1947,7 @@ mod authored_model_identity_tests {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "template_ai_source_tests.rs"]
+mod template_ai_source_tests;

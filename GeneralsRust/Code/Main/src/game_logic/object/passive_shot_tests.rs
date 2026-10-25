@@ -7,7 +7,7 @@ fn passenger() -> Object {
         ObjectId(17),
         Team::USA,
     );
-    object.ai_state = AIState::Idle;
+    object.restore_ai_state(AIState::Idle);
     object.contained_by = Some(ObjectId(91));
     object.weapon = Some(Weapon {
         damage: 5.0,
@@ -67,7 +67,7 @@ fn passive_exact_slot_returns_only_its_shot_and_preserves_contained_ai_and_peer(
     assert_eq!(shot.speed, 9.0);
     assert_eq!(source.secondary_weapon.as_ref().unwrap().ammo, Some(1));
     assert_eq!(source.weapon.as_ref().unwrap().last_fire_time, -10.0);
-    assert_eq!(source.ai_state, AIState::Idle);
+    assert_eq!(source.ai_state(), AIState::Idle);
     assert_eq!(source.contained_by, Some(ObjectId(91)));
     assert_eq!(peer.secondary_weapon.as_ref().unwrap().ammo, Some(2));
     assert_eq!(
@@ -103,7 +103,7 @@ fn passive_windup_and_rejection_keep_ammo_and_never_enter_attack_state() {
             .is_none()
     );
     assert_eq!(source.secondary_weapon.as_ref().unwrap().ammo, Some(2));
-    assert_eq!(source.ai_state, AIState::Idle);
+    assert_eq!(source.ai_state(), AIState::Idle);
     assert!(
         source
             .prepare_passive_weapon_shot(
@@ -122,7 +122,7 @@ fn passive_windup_and_rejection_keep_ammo_and_never_enter_attack_state() {
             .is_some()
     );
     assert_eq!(source.secondary_weapon.as_ref().unwrap().ammo, Some(1));
-    assert_eq!(source.ai_state, AIState::Idle);
+    assert_eq!(source.ai_state(), AIState::Idle);
     source.status.weapons_jammed = true;
     assert!(
         source

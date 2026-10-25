@@ -682,7 +682,11 @@ fn host_guard_is_canonical_and_shadow_only_observes() {
     shadow.sync_from_host(&logic);
     let entity = shadow.entity_for_host(oid).unwrap();
     assert_eq!(
-        shadow.world().entity(entity).unwrap().guard_position,
+        shadow
+            .world()
+            .entity(entity)
+            .unwrap()
+            .active_guard_position(),
         Some([3.0, 0.0, 5.0])
     );
     assert_eq!(
@@ -690,13 +694,16 @@ fn host_guard_is_canonical_and_shadow_only_observes() {
         tid.0
     );
     let copy = shadow.world_mut().world_mut().entity_mut(entity).unwrap();
-    copy.guard_position = None;
+    copy.set_guard_position_data(None);
     copy.guard_target_host = 0;
     assert_eq!(
-        logic.host_object(oid).unwrap().guard_position,
+        logic.host_object(oid).unwrap().active_guard_position(),
         Some(position)
     );
-    assert_eq!(logic.host_object(oid).unwrap().guard_target, Some(tid));
+    assert_eq!(
+        logic.host_object(oid).unwrap().active_guard_target(),
+        Some(tid)
+    );
     logic.host_object_mut(oid).unwrap().set_guard_position(
         None,
         &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
@@ -706,9 +713,16 @@ fn host_guard_is_canonical_and_shadow_only_observes() {
         &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
     );
     shadow.sync_from_host(&logic);
-    assert_eq!(shadow.world().entity(entity).unwrap().guard_position, None);
+    assert_eq!(
+        shadow
+            .world()
+            .entity(entity)
+            .unwrap()
+            .active_guard_position(),
+        None
+    );
     assert_eq!(shadow.world().entity(entity).unwrap().guard_target_host, 0);
-    assert_eq!(logic.host_object(oid).unwrap().guard_target, None);
+    assert_eq!(logic.host_object(oid).unwrap().active_guard_target(), None);
 }
 
 #[test]

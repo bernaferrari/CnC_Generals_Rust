@@ -1536,7 +1536,7 @@ fn owned_fat_fields_remain_visible_without_implicit_shadow_publication() {
     {
         if let Some(o) = logic.host_object_mut(carrier) {
             o.movement.target_position = Some(glam::Vec3::new(99.0, 0.0, 99.0));
-            o.attack_substate = crate::game_logic::AttackSubState::AimAtTarget;
+            o.set_attack_substate(crate::game_logic::AttackSubState::AimAtTarget);
         }
     };
     let ent = shadow.world().entity(eid).expect("e");
@@ -1624,7 +1624,7 @@ fn host_object_store_mutation_is_canonical_without_shadow_writeback() {
     // Split-borrow: mutate store field while reading frame.
     let frame = logic.frame;
     let obj = logic.objects.get_mut(&oid).expect("store");
-    obj.attack_substate = crate::game_logic::AttackSubState::AimAtTarget;
+    obj.set_attack_substate(crate::game_logic::AttackSubState::AimAtTarget);
     assert_eq!(frame, logic.frame);
 }
 
@@ -2167,7 +2167,7 @@ fn canonical_attack_receipts_keep_owner_fifo_across_same_id_peer_lifecycle() {
             &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         assert_eq!(object.target, Some(target));
-        assert_eq!(object.ai_state, crate::game_logic::AIState::Attacking);
+        assert_eq!(object.ai_state(), crate::game_logic::AIState::Attacking);
         assert!(object.status.attacking);
         logic.attack_events.complete_boundary();
     }

@@ -65,7 +65,7 @@ impl GameLogic {
                     return None;
                 }
                 // C++ `wakeUpAndAttemptToTarget` no-ops unless idle.
-                let idle = matches!(o.ai_state, AIState::Idle) && o.target.is_none();
+                let idle = matches!(o.ai_state(), AIState::Idle) && o.target.is_none();
                 idle.then_some(id)
             })
             .collect();

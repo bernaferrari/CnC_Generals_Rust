@@ -171,6 +171,9 @@ impl AdmittedReceivingTemplate {
         self.template.get_template_id()
     }
     /// Original immutable ThingTemplate::getThreatValue, including authored zero.
+    pub fn occlusion_delay_frames(&self) -> u32 {
+        self.template.get_occlusion_delay()
+    }
     pub fn threat_value(&self) -> u16 {
         self.template.get_threat_value()
     }

@@ -29,7 +29,7 @@ impl super::super::GameLogic {
             let Some(other) = self.objects.get(&other_id) else {
                 return;
             };
-            let entering = matches!(us.ai_state, AIState::Entering)
+            let entering = matches!(us.ai_state(), AIState::Entering)
                 && (us.target == Some(other_id) || us.container_id() == Some(other_id))
                 && other.can_contain();
             let crate_name = other.template_name.to_ascii_lowercase();
@@ -48,7 +48,10 @@ impl super::super::GameLogic {
                         true,
                         &mut self.partition_manager,
                     );
-                    us.ai_state = AIState::Garrisoned;
+                    us.set_ai_state(
+                        AIState::Garrisoned,
+                        &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
+                    );
                     us.status.moving = false;
                 }
                 self.admit_object_drawable_deselection(self_id);

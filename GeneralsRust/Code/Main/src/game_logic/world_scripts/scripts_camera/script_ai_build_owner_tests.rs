@@ -440,7 +440,7 @@ fn panic_action_uses_actual_team_member_and_own_closest_waypoint() {
             .current_waypoint_id,
         81
     );
-    assert_eq!(owner.host_object(unit).unwrap().ai_state, AIState::Panic);
+    assert_eq!(owner.host_object(unit).unwrap().ai_state(), AIState::Panic);
     assert!(owner.host_object(foreign).unwrap().panic_runtime.is_none());
     assert!(peer.host_object(peer_unit).unwrap().panic_runtime.is_none());
 }

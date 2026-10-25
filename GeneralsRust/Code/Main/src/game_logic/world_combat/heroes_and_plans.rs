@@ -57,7 +57,7 @@ impl GameLogic {
             let busy = obj.status.attacking
                 || obj.target.is_some()
                 || matches!(
-                    obj.ai_state,
+                    obj.ai_state(),
                     AIState::Attacking | AIState::AttackMoving | AIState::AttackingGround
                 );
             // Snapshot residual state.
@@ -1340,7 +1340,7 @@ impl GameLogic {
             match center {
                 Some(c) => {
                     let is_attacking =
-                        c.status.attacking || matches!(c.ai_state, AIState::Attacking);
+                        c.status.attacking || matches!(c.ai_state(), AIState::Attacking);
                     let has_target = c.target.is_some();
                     let now_secs = self.frame as f32 * LOGIC_FRAME_TIMESTEP;
                     let last_fire_age = c.weapon.as_ref().map(|w| {
@@ -1601,7 +1601,7 @@ impl GameLogic {
             }
             let cpos = caster.get_position();
             let dest = caster.movement.target_position;
-            let ai = caster.ai_state.clone();
+            let ai = caster.ai_state().clone();
             let caster_team = caster.team;
 
             // Player cancel residual: a new move far from the click is not AI cleanup.

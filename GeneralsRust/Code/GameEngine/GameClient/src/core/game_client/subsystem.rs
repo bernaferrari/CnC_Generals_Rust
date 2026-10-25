@@ -9,7 +9,7 @@ pub struct SubsystemManager {
     input_keyboard: Option<crate::input::Keyboard>,
     input_mouse: Option<MouseHandle>,
     terrain_visual: Option<Arc<Mutex<TerrainVisualStub>>>,
-    window_manager: Option<Arc<Mutex<WindowManagerSubsystem>>>,
+    window_manager: Option<WindowManagerSubsystem>,
     font_library: Option<Arc<Mutex<FontLibrarySubsystem>>>,
     header_templates: Option<Arc<Mutex<HeaderTemplateManagerSubsystem>>>,
     display_strings: Option<Arc<Mutex<DisplayStringManagerSubsystem>>>,

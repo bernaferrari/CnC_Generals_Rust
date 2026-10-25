@@ -114,7 +114,9 @@ fn pilot_find_vehicle_ai_auto_scan_min_health_residual() {
 
     assert!(!game_logic.honesty_pilot_find_vehicle_ok());
     game_logic.frame = PILOT_FIND_VEHICLE_SCAN_FRAMES; // scan tick residual
-    game_logic.update_ai(&[pilot_id, tank_id, low_id], 1.0 / 30.0);
+    game_logic
+        .update_ai(&[pilot_id, tank_id, low_id], 1.0 / 30.0)
+        .expect("receiving AI operation succeeds");
 
     assert!(
         game_logic.honesty_pilot_find_vehicle_ok(),
@@ -131,7 +133,7 @@ fn pilot_find_vehicle_ai_auto_scan_min_health_residual() {
     {
         let p = game_logic.host_object(pilot_id).expect("pilot after scan");
         assert_eq!(
-            p.ai_state,
+            p.ai_state(),
             AIState::Entering,
             "AI pilot residual must Enter after scan"
         );
@@ -140,7 +142,9 @@ fn pilot_find_vehicle_ai_auto_scan_min_health_residual() {
             Some(tank_id),
             "must target healthy vehicle (MinHealth skips low-HP closer tank)"
         );
-        game_logic.update_ai(&[pilot_id, tank_id, low_id], 1.0 / 30.0);
+        game_logic
+            .update_ai(&[pilot_id, tank_id, low_id], 1.0 / 30.0)
+            .expect("receiving AI operation succeeds");
     }
 
     let tank = game_logic.host_object(tank_id).expect("tank after recrew");
@@ -198,7 +202,9 @@ fn pilot_find_vehicle_ai_auto_scan_min_health_residual() {
         );
     }
     human_logic.frame = PILOT_FIND_VEHICLE_SCAN_FRAMES;
-    human_logic.update_ai(&[hp, ht], 1.0 / 30.0);
+    human_logic
+        .update_ai(&[hp, ht], 1.0 / 30.0)
+        .expect("receiving AI operation succeeds");
     assert!(
         !human_logic.honesty_pilot_find_vehicle_ok(),
         "human pilot residual must not auto-scan"
@@ -274,7 +280,9 @@ fn pilot_find_vehicle_base_center_fallback_residual() {
 
     assert!(!game_logic.honesty_pilot_base_center_ok());
     game_logic.frame = PILOT_FIND_VEHICLE_SCAN_FRAMES;
-    game_logic.update_ai(&[pilot_id, cc_id], 1.0 / 30.0);
+    game_logic
+        .update_ai(&[pilot_id, cc_id], 1.0 / 30.0)
+        .expect("receiving AI operation succeeds");
 
     assert!(
         game_logic.honesty_pilot_base_center_ok(),
@@ -290,7 +298,7 @@ fn pilot_find_vehicle_base_center_fallback_residual() {
             "m_didMoveToBase residual must latch after fallback"
         );
         assert_eq!(
-            p.ai_state,
+            p.ai_state(),
             AIState::Moving,
             "fallback residual must issue Move to base"
         );
@@ -315,7 +323,9 @@ fn pilot_find_vehicle_base_center_fallback_residual() {
         p.stop_moving(&mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()));
     }
     game_logic.frame = PILOT_FIND_VEHICLE_SCAN_FRAMES * 2;
-    game_logic.update_ai(&[pilot_id, cc_id], 1.0 / 30.0);
+    game_logic
+        .update_ai(&[pilot_id, cc_id], 1.0 / 30.0)
+        .expect("receiving AI operation succeeds");
     assert_eq!(
         game_logic.usa_pilot_residual().base_center_moves,
         1,
@@ -364,7 +374,9 @@ fn pilot_find_vehicle_base_center_fallback_residual() {
         );
     }
     human_logic.frame = PILOT_FIND_VEHICLE_SCAN_FRAMES;
-    human_logic.update_ai(&[hp, hcc], 1.0 / 30.0);
+    human_logic
+        .update_ai(&[hp, hcc], 1.0 / 30.0)
+        .expect("receiving AI operation succeeds");
     assert!(
         !human_logic.honesty_pilot_base_center_ok(),
         "human pilot residual must not base-center fallback"
@@ -420,7 +432,9 @@ fn pilot_auto_find_healing_hospital_path_residual() {
 
     assert!(!game_logic.honesty_pilot_auto_heal_ok());
     game_logic.frame = AUTO_FIND_HEALING_SCAN_FRAMES;
-    game_logic.update_ai(&[pilot_id, pad_id], 1.0 / 30.0);
+    game_logic
+        .update_ai(&[pilot_id, pad_id], 1.0 / 30.0)
+        .expect("receiving AI operation succeeds");
 
     assert!(
         game_logic.honesty_pilot_auto_heal_ok(),
@@ -430,7 +444,7 @@ fn pilot_auto_find_healing_hospital_path_residual() {
     {
         let p = game_logic.host_object(pilot_id).expect("pilot after scan");
         assert_eq!(
-            p.ai_state,
+            p.ai_state(),
             AIState::SeekingHealing,
             "injured AI pilot residual must SeekHealing"
         );
@@ -440,7 +454,9 @@ fn pilot_auto_find_healing_hospital_path_residual() {
     // Complete heal residual at pad (existing SeekingHealing honesty path).
     // First scan tick already issued SeekingHealing; subsequent frames tick HP.
     for _ in 0..60 {
-        game_logic.update_ai(&[pilot_id, pad_id], 1.0 / 30.0);
+        game_logic
+            .update_ai(&[pilot_id, pad_id], 1.0 / 30.0)
+            .expect("receiving AI operation succeeds");
     }
     let hp_after = game_logic
         .host_object(pilot_id)
@@ -487,14 +503,16 @@ fn pilot_auto_find_healing_hospital_path_residual() {
         );
     }
     healthy_logic.frame = AUTO_FIND_HEALING_SCAN_FRAMES;
-    healthy_logic.update_ai(&[hpilot, hpad], 1.0 / 30.0);
+    healthy_logic
+        .update_ai(&[hpilot, hpad], 1.0 / 30.0)
+        .expect("receiving AI operation succeeds");
     assert!(
         !healthy_logic.honesty_pilot_auto_heal_ok(),
         "NeverHeal residual must skip healthy pilot auto-scan"
     );
     assert_eq!(healthy_logic.usa_pilot_residual().auto_heal_orders, 0);
     assert_eq!(
-        healthy_logic.host_object(hpilot).unwrap().ai_state,
+        healthy_logic.host_object(hpilot).unwrap().ai_state(),
         AIState::Idle,
         "healthy pilot residual stays Idle"
     );
@@ -529,14 +547,16 @@ fn pilot_auto_find_healing_hospital_path_residual() {
         );
     }
     human_logic.frame = AUTO_FIND_HEALING_SCAN_FRAMES;
-    human_logic.update_ai(&[hp2, hpad2], 1.0 / 30.0);
+    human_logic
+        .update_ai(&[hp2, hpad2], 1.0 / 30.0)
+        .expect("receiving AI operation succeeds");
     assert!(
         !human_logic.honesty_pilot_auto_heal_ok(),
         "human pilot residual must not AutoFindHealing"
     );
     assert_eq!(human_logic.usa_pilot_residual().auto_heal_orders, 0);
     assert_eq!(
-        human_logic.host_object(hp2).unwrap().ai_state,
+        human_logic.host_object(hp2).unwrap().ai_state(),
         AIState::Idle,
         "human injured pilot residual stays Idle without GetHealed command"
     );
@@ -588,7 +608,9 @@ fn usa_infantry_auto_find_healing_hospital_path_residual() {
 
     assert!(!game_logic.honesty_infantry_auto_heal_ok());
     game_logic.frame = AUTO_FIND_HEALING_SCAN_FRAMES;
-    game_logic.update_ai(&[ranger_id, pad_id], 1.0 / 30.0);
+    game_logic
+        .update_ai(&[ranger_id, pad_id], 1.0 / 30.0)
+        .expect("receiving AI operation succeeds");
 
     assert!(
         game_logic.honesty_infantry_auto_heal_ok(),
@@ -614,7 +636,9 @@ fn usa_infantry_auto_find_healing_hospital_path_residual() {
 
     // Complete heal residual at pad.
     for _ in 0..60 {
-        game_logic.update_ai(&[ranger_id, pad_id], 1.0 / 30.0);
+        game_logic
+            .update_ai(&[ranger_id, pad_id], 1.0 / 30.0)
+            .expect("receiving AI operation succeeds");
     }
     let hp_after = game_logic
         .host_object(ranger_id)
@@ -660,10 +684,12 @@ fn usa_infantry_auto_find_healing_hospital_path_residual() {
         );
     }
     china_logic.frame = AUTO_FIND_HEALING_SCAN_FRAMES;
-    china_logic.update_ai(&[cred, cpad], 1.0 / 30.0);
+    china_logic
+        .update_ai(&[cred, cpad], 1.0 / 30.0)
+        .expect("receiving AI operation succeeds");
     assert!(
         china_logic.honesty_infantry_auto_heal_ok()
-            || china_logic.host_object(cred).unwrap().ai_state != AIState::Idle,
+            || china_logic.host_object(cred).unwrap().ai_state() != AIState::Idle,
         "China Redguard AutoFindHealingUpdate must seek a HealPad"
     );
 }
@@ -763,7 +789,9 @@ fn eject_pilot_air_ocl_parachute_residual() {
     assert!(!game_logic.honesty_pilot_parachute_land_ok());
     let ids = [pilot_id];
     for _ in 0..120 {
-        game_logic.update_ai(&ids, 1.0 / 30.0);
+        game_logic
+            .update_ai(&ids, 1.0 / 30.0)
+            .expect("receiving AI operation succeeds");
         if game_logic.honesty_pilot_parachute_land_ok() {
             break;
         }
@@ -956,7 +984,9 @@ fn pilot_find_vehicle_same_player_partition_filter_residual() {
 
     assert!(!game_logic.honesty_pilot_find_vehicle_player_ok());
     game_logic.frame = PILOT_FIND_VEHICLE_SCAN_FRAMES;
-    game_logic.update_ai(&[pilot_id, foreign_id, own_id], 1.0 / 30.0);
+    game_logic
+        .update_ai(&[pilot_id, foreign_id, own_id], 1.0 / 30.0)
+        .expect("receiving AI operation succeeds");
 
     assert!(
         game_logic.honesty_pilot_find_vehicle_player_ok(),
@@ -979,7 +1009,9 @@ fn pilot_find_vehicle_same_player_partition_filter_residual() {
             Some(own_id),
             "must skip foreign-owner Neutral and target own-owner vehicle"
         );
-        game_logic.update_ai(&[pilot_id, foreign_id, own_id], 1.0 / 30.0);
+        game_logic
+            .update_ai(&[pilot_id, foreign_id, own_id], 1.0 / 30.0)
+            .expect("receiving AI operation succeeds");
     }
 
     let own = game_logic.host_object(own_id).expect("own after recrew");

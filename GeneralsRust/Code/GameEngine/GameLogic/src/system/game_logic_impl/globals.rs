@@ -376,6 +376,28 @@ pub fn reset_game_logic() -> Result<(), String> {
 }
 
 /// Step the GameLogic singleton
+/// Update the singleton while borrowing the receiving load-screen callback for
+/// this synchronous frame. No hook is stored in process-global state.
+pub fn update_game_logic_with_load_screen_hooks(
+    hooks: &mut dyn crate::helpers::LoadScreenHooks,
+    observe_camera: impl FnOnce() -> Option<crate::helpers::CameraTimeObservation>,
+) -> Result<(), String> {
+    let mut guard = game_logic_mutex()
+        .lock()
+        .map_err(|_| "GameLogic mutex poisoned".to_string())?;
+    let frame = guard.get_frame();
+    guard
+        .update_with_load_screen_hooks(frame, hooks, observe_camera)
+        .map_err(|error| format!("GameLogic update failed: {error}"))?;
+    if guard.last_update_was_empty_noop() {
+        debug!(
+            "GameLogic crate tick was empty-world no-op (count={}); not a C++ GameLogic.cpp frame",
+            guard.empty_world_tick_count()
+        );
+    }
+    Ok(())
+}
+
 pub fn update_game_logic(
     observe_camera: impl FnOnce() -> Option<crate::helpers::CameraTimeObservation>,
 ) -> Result<(), String> {

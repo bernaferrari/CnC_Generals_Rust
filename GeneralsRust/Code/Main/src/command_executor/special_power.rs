@@ -271,7 +271,7 @@ impl<'a> CommandExecutor<'a> {
         units: &[ObjectId],
         power_type: &crate::command_system::SpecialPowerType,
         location: Vec3,
-    ) -> CommandResult {
+    ) -> gamelogic::GameLogicResult<CommandResult> {
         self.execute_special_power(
             units,
             power_type,
@@ -285,7 +285,7 @@ impl<'a> CommandExecutor<'a> {
         units: &[ObjectId],
         power_type: &crate::command_system::SpecialPowerType,
         target: ObjectId,
-    ) -> CommandResult {
+    ) -> gamelogic::GameLogicResult<CommandResult> {
         self.execute_special_power(
             units,
             power_type,
@@ -300,7 +300,7 @@ impl<'a> CommandExecutor<'a> {
         units: &[ObjectId],
         power_type: &SpecialPowerType,
         target: &PowerTarget,
-    ) -> CommandResult {
+    ) -> gamelogic::GameLogicResult<CommandResult> {
         // C++ CommandXlat.cpp:1055-1078 NEED_TARGET_POS: unit under the cursor
         // is only object-in-way. Leftover canDoSpecialPowerAtObject is FALSE;
         // leftover canDoSpecialPowerAtLocation is the gate.
@@ -312,7 +312,7 @@ impl<'a> CommandExecutor<'a> {
             {
                 match self.game_logic.host_object(*id).map(|o| o.get_position()) {
                     Some(pos) => Some(pos),
-                    None => return CommandResult::InvalidTarget,
+                    None => return Ok(CommandResult::InvalidTarget),
                 }
             }
             _ => None,
@@ -328,12 +328,12 @@ impl<'a> CommandExecutor<'a> {
         // Basic validation: ensure object targets exist when required and power is ready.
         if let PowerTarget::Object(id) = target {
             if self.game_logic.host_object(*id).is_none() {
-                return CommandResult::InvalidTarget;
+                return Ok(CommandResult::InvalidTarget);
             }
         }
         if let Some(loc) = target.location_pos() {
             if !loc.x.is_finite() || !loc.y.is_finite() || !loc.z.is_finite() {
-                return CommandResult::InvalidLocation;
+                return Ok(CommandResult::InvalidLocation);
             }
             // C++ ActionManager.cpp:1439-1523 leftover can_do_special_power_at_location
             // participates only in the leftover NEED_TARGET_POS path (unit-under-cursor
@@ -361,7 +361,7 @@ impl<'a> CommandExecutor<'a> {
                     loc,
                     player_index,
                 ) {
-                    return CommandResult::InvalidLocation;
+                    return Ok(CommandResult::InvalidLocation);
                 }
             }
         }
@@ -435,9 +435,10 @@ impl<'a> CommandExecutor<'a> {
             crate::game_logic::CapturePowerKind::from_special_power_type(power_type);
         if capture_power != crate::game_logic::CapturePowerKind::None {
             let PowerTarget::Object(target_id) = target else {
-                return CommandResult::InvalidTarget;
+                return Ok(CommandResult::InvalidTarget);
             };
-            let any = casters.iter().copied().any(|unit_id| {
+            let mut any = false;
+            for unit_id in casters.iter().copied() {
                 let allowed = match (
                     self.game_logic.host_object(unit_id),
                     self.game_logic.host_object(*target_id),
@@ -447,23 +448,27 @@ impl<'a> CommandExecutor<'a> {
                     }
                     _ => false,
                 };
-                allowed
+                if allowed
                     && matches!(
                         self.execute_capture_building_for_power(
                             &[unit_id],
                             *target_id,
                             Some(capture_power),
-                        ),
+                        )?,
                         CommandResult::Success
                     )
-            });
-            return if any {
+                {
+                    any = true;
+                    break;
+                }
+            }
+            return Ok(if any {
                 // C++ CommandXlat.cpp:637-651 MSG_DO_SPECIAL_POWER* InitiateSound.
                 self.play_special_power_initiate_sound(&casters, power_type);
                 CommandResult::Success
             } else {
                 CommandResult::InvalidCommand
-            };
+            });
         }
 
         // Hacker / Microwave Disable Building share C++ SPECIAL_HACKER_DISABLE_BUILDING.
@@ -474,7 +479,7 @@ impl<'a> CommandExecutor<'a> {
             SpecialPowerType::HackerDisableBuilding | SpecialPowerType::MicrowaveDisableBuilding
         ) {
             let PowerTarget::Object(target_id) = target else {
-                return CommandResult::InvalidTarget;
+                return Ok(CommandResult::InvalidTarget);
             };
             let any = casters.iter().copied().any(|unit_id| {
                 let allowed = match (
@@ -492,12 +497,12 @@ impl<'a> CommandExecutor<'a> {
                         CommandResult::Success
                     )
             });
-            return if any {
+            return Ok(if any {
                 self.play_special_power_initiate_sound(&casters, power_type);
                 CommandResult::Success
             } else {
                 CommandResult::InvalidCommand
-            };
+            });
         }
 
         let mut any = false;
@@ -607,7 +612,7 @@ impl<'a> CommandExecutor<'a> {
                     continue;
                 };
                 if !matches!(
-                    self.execute_disguise_as_vehicle(&[unit_id], *tid),
+                    self.execute_disguise_as_vehicle(&[unit_id], *tid)?,
                     CommandResult::Success
                 ) {
                     continue;
@@ -617,7 +622,7 @@ impl<'a> CommandExecutor<'a> {
                     continue;
                 };
                 if !matches!(
-                    self.execute_disable_vehicle_hack(&[unit_id], *tid),
+                    self.execute_disable_vehicle_hack(&[unit_id], *tid)?,
                     CommandResult::Success
                 ) {
                     continue;
@@ -627,7 +632,7 @@ impl<'a> CommandExecutor<'a> {
                     continue;
                 };
                 if !matches!(
-                    self.execute_steal_cash_hack(&[unit_id], *tid),
+                    self.execute_steal_cash_hack(&[unit_id], *tid)?,
                     CommandResult::Success
                 ) {
                     continue;
@@ -643,7 +648,7 @@ impl<'a> CommandExecutor<'a> {
                 let PowerTarget::Object(tid) = target else {
                     continue;
                 };
-                if !self.queue_special_timed_charge(unit_id, *tid, power_type) {
+                if !self.queue_special_timed_charge(unit_id, *tid, power_type)? {
                     continue;
                 }
             } else if matches!(
@@ -653,7 +658,7 @@ impl<'a> CommandExecutor<'a> {
                 let PowerTarget::Object(tid) = target else {
                     continue;
                 };
-                if !self.queue_special_remote_charge(unit_id, *tid) {
+                if !self.queue_special_remote_charge(unit_id, *tid)? {
                     continue;
                 }
             } else if *power_type == SpecialPowerType::TankHunterTnt {
@@ -661,7 +666,7 @@ impl<'a> CommandExecutor<'a> {
                     continue;
                 };
                 // Walk-to-target then plant timed charge residual (same as command path).
-                if !self.queue_tank_hunter_tnt(unit_id, *tid) {
+                if !self.queue_tank_hunter_tnt(unit_id, *tid)? {
                     continue;
                 }
             } else if *power_type == SpecialPowerType::MissileDefenderLaserGuided
@@ -975,7 +980,7 @@ impl<'a> CommandExecutor<'a> {
                 } else if *power_type == SpecialPowerType::HelixNapalmBomb
                     || *power_type == SpecialPowerType::HelixNukeBomb
                 {
-                    if !self.queue_helix_napalm_bomb(unit_id, pos) {
+                    if !self.queue_helix_napalm_bomb(unit_id, pos)? {
                         continue;
                     }
                 } else if *power_type == SpecialPowerType::CrateDrop {
@@ -1046,7 +1051,7 @@ impl<'a> CommandExecutor<'a> {
                 }
             }
         }
-        if any {
+        Ok(if any {
             // C++ CommandXlat.cpp:637-651 spmInterface->getInitiateSound().
             // CleanupAreaPower does not call the SpecialPowerModule base.
             if *power_type != SpecialPowerType::CleanupArea {
@@ -1055,7 +1060,7 @@ impl<'a> CommandExecutor<'a> {
             CommandResult::Success
         } else {
             CommandResult::InvalidCommand
-        }
+        })
     }
 
     /// C++ `pickAndPlayUnitVoiceResponse` MSG_DO_SPECIAL_POWER* (skip=TRUE).
@@ -1183,17 +1188,17 @@ impl<'a> CommandExecutor<'a> {
         unit_id: ObjectId,
         target_id: ObjectId,
         power_type: &SpecialPowerType,
-    ) -> bool {
+    ) -> gamelogic::GameLogicResult<bool> {
         use crate::game_logic::{AIState, PendingSpecialAbility};
 
         let Some(unit) = self.game_logic.host_object(unit_id) else {
-            return false;
+            return Ok(false);
         };
         if !unit.is_alive() || !unit.can_move() {
-            return false;
+            return Ok(false);
         }
         let Some(target) = self.game_logic.host_object(target_id) else {
-            return false;
+            return Ok(false);
         };
         if !crate::game_logic::host_hero_abilities::leftover_charge_plant_target_ok(
             target.is_alive(),
@@ -1202,13 +1207,13 @@ impl<'a> CommandExecutor<'a> {
             target.is_kind_of(KindOf::Structure),
             target.is_kind_of(KindOf::Vehicle),
         ) {
-            return false;
+            return Ok(false);
         }
         let target_team = target.team;
         if target_team == unit.team || target_team == crate::game_logic::Team::Neutral {
             // BattleBus trap rollout may target ground near self; allow structure/vehicle enemies only residual.
             if !matches!(*power_type, SpecialPowerType::BattleBusDemoTrapRollout) {
-                return false;
+                return Ok(false);
             }
         }
         let target_pos = target.get_position();
@@ -1216,13 +1221,13 @@ impl<'a> CommandExecutor<'a> {
         let _ = self
             .game_logic
             .unit_command_stop_moving_order_target(unit_id, Some(target_id));
-        let _ = self.path_to_goal_with_state(unit_id, target_pos, AIState::SpecialAbility);
+        let _ = self.path_to_goal_with_state(unit_id, target_pos, AIState::SpecialAbility)?;
         self.game_logic.queue_pending_special_ability_with_effects(
             unit_id,
             PendingSpecialAbility::PlantTimedDemoCharge { target_id },
             &mut self.ui,
         );
-        true
+        Ok(true)
     }
 
     /// Remote-charge special residual (Burton/Demo Kell): walk + plant remote charge.
@@ -1230,17 +1235,17 @@ impl<'a> CommandExecutor<'a> {
         &mut self,
         unit_id: ObjectId,
         target_id: ObjectId,
-    ) -> bool {
+    ) -> gamelogic::GameLogicResult<bool> {
         use crate::game_logic::{AIState, PendingSpecialAbility};
 
         let Some(unit) = self.game_logic.host_object(unit_id) else {
-            return false;
+            return Ok(false);
         };
         if !unit.is_alive() || !unit.can_move() {
-            return false;
+            return Ok(false);
         }
         let Some(target) = self.game_logic.host_object(target_id) else {
-            return false;
+            return Ok(false);
         };
         if !crate::game_logic::host_hero_abilities::leftover_charge_plant_target_ok(
             target.is_alive(),
@@ -1249,43 +1254,47 @@ impl<'a> CommandExecutor<'a> {
             target.is_kind_of(KindOf::Structure),
             target.is_kind_of(KindOf::Vehicle),
         ) {
-            return false;
+            return Ok(false);
         }
         let target_pos = target.get_position();
         // Wave 233: stop-moving + order-target via GameLogic authority API.
         let _ = self
             .game_logic
             .unit_command_stop_moving_order_target(unit_id, Some(target_id));
-        let _ = self.path_to_goal_with_state(unit_id, target_pos, AIState::SpecialAbility);
+        let _ = self.path_to_goal_with_state(unit_id, target_pos, AIState::SpecialAbility)?;
         self.game_logic.queue_pending_special_ability_with_effects(
             unit_id,
             PendingSpecialAbility::PlantRemoteDemoCharge { target_id },
             &mut self.ui,
         );
-        true
+        Ok(true)
     }
 
     /// Tank Hunter TNT special residual: path to target and plant timed sticky charge.
-    pub(super) fn queue_tank_hunter_tnt(&mut self, unit_id: ObjectId, target_id: ObjectId) -> bool {
+    pub(super) fn queue_tank_hunter_tnt(
+        &mut self,
+        unit_id: ObjectId,
+        target_id: ObjectId,
+    ) -> gamelogic::GameLogicResult<bool> {
         use crate::game_logic::host_tank_hunter::{
             TNT_START_ABILITY_RANGE, is_tank_hunter_template, tnt_in_start_range, tnt_ready,
         };
         use crate::game_logic::{AIState, PendingSpecialAbility};
 
         let Some(unit) = self.game_logic.host_object(unit_id) else {
-            return false;
+            return Ok(false);
         };
         if !unit.is_alive() || !is_tank_hunter_template(&unit.template_name) {
-            return false;
+            return Ok(false);
         }
         if !tnt_ready(
             self.game_logic.get_frame(),
             self.game_logic.tank_hunter_tnt_last_plant_frame(unit_id),
         ) {
-            return false;
+            return Ok(false);
         }
         let Some(target) = self.game_logic.host_object(target_id) else {
-            return false;
+            return Ok(false);
         };
         if !crate::game_logic::host_hero_abilities::leftover_tank_hunter_tnt_target_ok(
             target.is_alive(),
@@ -1293,7 +1302,7 @@ impl<'a> CommandExecutor<'a> {
             target.is_kind_of(KindOf::Vehicle),
             target.is_kind_of(KindOf::Aircraft) || target.status.airborne_target,
         ) {
-            return false;
+            return Ok(false);
         }
         let target_pos = target.get_position();
         // Always queue walk-to; plant resolves on reach (StartAbilityRange 5 residual).
@@ -1301,7 +1310,7 @@ impl<'a> CommandExecutor<'a> {
         let _ = self
             .game_logic
             .unit_command_stop_moving_order_target(unit_id, Some(target_id));
-        if !self.path_to_goal_with_state(unit_id, target_pos, AIState::SpecialAbility) {
+        if !self.path_to_goal_with_state(unit_id, target_pos, AIState::SpecialAbility)? {
             // If already in range, still queue plant.
             let unit_pos = self
                 .game_logic
@@ -1312,7 +1321,7 @@ impl<'a> CommandExecutor<'a> {
             let dz = unit_pos.z - target_pos.z;
             let dist = (dx * dx + dz * dz).sqrt();
             if !tnt_in_start_range(dist) && dist > TNT_START_ABILITY_RANGE * 2.0 {
-                return false;
+                return Ok(false);
             }
         }
         self.game_logic.queue_pending_special_ability_with_effects(
@@ -1321,12 +1330,16 @@ impl<'a> CommandExecutor<'a> {
             &mut self.ui,
         );
         let _ = TNT_START_ABILITY_RANGE;
-        true
+        Ok(true)
     }
 
     /// C++ SpecialAbilityUpdate: initiateIntent then approach until
     /// StartAbilityRange 3; markSpecialPowerTriggered at startPreparation.
-    pub(super) fn queue_helix_napalm_bomb(&mut self, unit_id: ObjectId, pos: Vec3) -> bool {
+    pub(super) fn queue_helix_napalm_bomb(
+        &mut self,
+        unit_id: ObjectId,
+        pos: Vec3,
+    ) -> gamelogic::GameLogicResult<bool> {
         use crate::game_logic::host_helix_napalm::{
             UPGRADE_HELIX_NAPALM_BOMB, UPGRADE_HELIX_NUKE_BOMB, helix_napalm_unlocked,
             is_helix_napalm_caster,
@@ -1334,10 +1347,10 @@ impl<'a> CommandExecutor<'a> {
         use crate::game_logic::{AIState, PendingSpecialAbility};
 
         let Some(unit) = self.game_logic.host_object(unit_id) else {
-            return false;
+            return Ok(false);
         };
         if !unit.is_alive() || !is_helix_napalm_caster(&unit.template_name) {
-            return false;
+            return Ok(false);
         }
         let has_upgrade = unit.has_upgrade_tag(UPGRADE_HELIX_NAPALM_BOMB)
             || unit.has_upgrade_tag("Upgrade_HelixNapalmBomb")
@@ -1345,17 +1358,17 @@ impl<'a> CommandExecutor<'a> {
             || unit.has_upgrade_tag("Nuke_Upgrade_HelixNukeBomb")
             || unit.has_upgrade_tag("Upgrade_HelixNukeBomb");
         if !helix_napalm_unlocked(&unit.template_name, has_upgrade) {
-            return false;
+            return Ok(false);
         }
         let _ = self
             .game_logic
             .unit_command_stop_moving_order_target(unit_id, None);
-        let _ = self.path_to_goal_with_state(unit_id, pos, AIState::SpecialAbility);
+        let _ = self.path_to_goal_with_state(unit_id, pos, AIState::SpecialAbility)?;
         self.game_logic.queue_pending_special_ability_with_effects(
             unit_id,
             PendingSpecialAbility::helix_napalm_at(pos),
             &mut self.ui,
         );
-        true
+        Ok(true)
     }
 }

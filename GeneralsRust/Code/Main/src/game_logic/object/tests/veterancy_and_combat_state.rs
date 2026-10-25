@@ -1649,9 +1649,7 @@ fn bone_fx_pristine_slots_fire_without_state_change() {
 
 #[test]
 fn crush_die_sets_model_condition_bits() {
-    use crate::game_logic::host_neutron_missile_slow_death::{
-        MC_BIT_BACKCRUSHED, MC_BIT_FRONTCRUSHED,
-    };
+    use crate::game_logic::host_neutron_missile_slow_death::{MC_BIT_BACKCRUSHED, MC_BIT_FRONTCRUSHED};
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut t = ThingTemplate::new("TestInfantry");
     t.set_health(100.0);
@@ -1760,7 +1758,9 @@ fn jet_slow_death_begins_for_raptor() {
     let mut o = Object::new(t, ObjectId(3), Team::USA);
     o.health.current = 0.0;
     o.set_position(glam::Vec3::new(0.0, 80.0, 0.0));
-    assert!(o.begin_jet_slow_death(&mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())));
+    let start = o.begin_jet_slow_death(&mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()));
+    assert!(start.defer_destruction);
+    assert!(start.enter_idle, "the owning World performs the Idle entry");
     assert!(o.jet_slow_death.as_ref().unwrap().is_active());
 }
 
@@ -1772,9 +1772,10 @@ fn helicopter_slow_death_begins() {
     t.add_kind_of(KindOf::Aircraft);
     let mut o = Object::new(t, ObjectId(2), Team::USA);
     o.health.current = 0.0;
-    assert!(
-        o.begin_helicopter_slow_death(&mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()))
-    );
+    let start =
+        o.begin_helicopter_slow_death(&mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()));
+    assert!(start.defer_destruction);
+    assert!(start.enter_idle, "the owning World performs the Idle entry");
     assert!(o.helicopter_slow_death.as_ref().unwrap().is_active());
 }
 
@@ -1885,9 +1886,7 @@ fn crush_die_queues_sound_on_crushed_death() {
 
 #[test]
 fn crush_die_zero_flags_defaults_to_total() {
-    use crate::game_logic::host_neutron_missile_slow_death::{
-        MC_BIT_BACKCRUSHED, MC_BIT_FRONTCRUSHED,
-    };
+    use crate::game_logic::host_neutron_missile_slow_death::{MC_BIT_BACKCRUSHED, MC_BIT_FRONTCRUSHED};
     use crate::game_logic::host_usa_pilot::HostDeathType;
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut t = ThingTemplate::new("AmericaRanger");
@@ -1906,9 +1905,7 @@ fn crush_die_zero_flags_defaults_to_total() {
 
 #[test]
 fn crush_die_recomputes_front_from_crusher_pose() {
-    use crate::game_logic::host_neutron_missile_slow_death::{
-        MC_BIT_BACKCRUSHED, MC_BIT_FRONTCRUSHED,
-    };
+    use crate::game_logic::host_neutron_missile_slow_death::{MC_BIT_BACKCRUSHED, MC_BIT_FRONTCRUSHED};
     use crate::game_logic::host_usa_pilot::HostDeathType;
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut t = ThingTemplate::new("AmericaRanger");

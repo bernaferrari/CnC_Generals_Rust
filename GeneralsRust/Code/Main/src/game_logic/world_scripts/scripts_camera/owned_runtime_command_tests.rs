@@ -266,7 +266,7 @@ fn guard_object_rejects_missing_owner_target_and_preserves_group_and_locomotor()
         ),
         1
     );
-    assert_eq!(owner.host_object(unit).unwrap().guard_target, None);
+    assert_eq!(owner.host_object(unit).unwrap().active_guard_target(), None);
     assert_eq!(
         execute(
             &mut owner,
@@ -279,7 +279,7 @@ fn guard_object_rejects_missing_owner_target_and_preserves_group_and_locomotor()
         1
     );
     let object = owner.host_object(unit).unwrap();
-    assert_eq!(object.guard_target, Some(target));
+    assert_eq!(object.active_guard_target(), Some(target));
     assert_eq!(object.formation_id, 19);
     assert_eq!(
         object.jet_ai.cur_locomotor_set.as_deref(),
@@ -289,7 +289,10 @@ fn guard_object_rejects_missing_owner_target_and_preserves_group_and_locomotor()
         object.last_command_source,
         crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_SCRIPT
     );
-    assert_eq!(peer.host_object(peer_unit).unwrap().guard_target, None);
+    assert_eq!(
+        peer.host_object(peer_unit).unwrap().active_guard_target(),
+        None
+    );
 }
 
 #[test]

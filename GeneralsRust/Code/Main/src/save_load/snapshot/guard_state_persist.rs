@@ -18,6 +18,7 @@ use crate::game_logic::{AIState, GameLogic, Object};
 use crate::save_load::{SaveLoadError, SaveLoadResult};
 use glam::Vec3;
 use serde::{Deserialize, Serialize};
+#[cfg(test)]
 use std::collections::HashMap;
 
 const GUARD_VERSION: u8 = 1;
@@ -86,6 +87,7 @@ fn decode(snapshot: &AIUpdateModuleSnapshot) -> SaveLoadResult<Option<GuardSaveS
     Ok(Some(state))
 }
 
+#[cfg(test)]
 pub(super) fn capture(object: &Object) -> SaveLoadResult<Option<AIUpdateModuleSnapshot>> {
     let runtime = &object.unit_ai_runtime;
     let Some(phase) = runtime.guard_phase() else {
@@ -99,11 +101,11 @@ pub(super) fn capture(object: &Object) -> SaveLoadResult<Option<AIUpdateModuleSn
         version: GUARD_VERSION,
         // Temporary movement overlays may retain the nested Guard phase.
         // Preserve their actual parent rather than reentering Guard on load.
-        parent_state: object.ai_state.clone(),
+        parent_state: object.ai_state().clone(),
         return_goal,
         path_goal: object.path_goal_position,
         wander_width_factor: object.wander_width_factor,
-        adjust_destinations: object.adjust_destinations,
+        adjust_destinations: object.adjust_destinations(),
         scan_deadline: runtime
             .guard_scan_deadline()
             .ok_or_else(|| corrupted("Active Guard phase is missing its scan deadline"))?,
@@ -122,7 +124,7 @@ pub(super) fn capture(object: &Object) -> SaveLoadResult<Option<AIUpdateModuleSn
     }))
 }
 
-/// Parse and validate before copying any fields; no callbacks or phase entry.
+/// Read-only redundant projection check, after native14 and physical tails.
 pub(super) fn restore(
     snapshot: &AIUpdateModuleSnapshot,
     object: &mut Object,
@@ -130,18 +132,23 @@ pub(super) fn restore(
     let Some(state) = decode(snapshot)? else {
         return Ok(false);
     };
-    if state.parent_state != object.ai_state {
+    if state.parent_state != object.ai_state() {
         return Err(corrupted("Guard continuation disagrees with object status"));
     }
     let phase = state.phase(&snapshot.current_state)?;
-    let runtime = &mut object.unit_ai_runtime;
-    runtime.set_guard_phase(Some(phase));
-    runtime.set_guard_scan_deadline(Some(state.scan_deadline));
-    runtime.set_guard_updated_frame(state.updated_frame);
-    runtime.set_guard_anchor(state.anchor);
-    object.path_goal_position = state.path_goal;
-    object.wander_width_factor = state.wander_width_factor;
-    object.adjust_destinations = state.adjust_destinations;
+    let runtime = &object.unit_ai_runtime;
+    if runtime.guard_phase() != Some(phase)
+        || runtime.guard_scan_deadline() != Some(state.scan_deadline)
+        || runtime.guard_updated_frame() != state.updated_frame
+        || runtime.guard_anchor() != state.anchor
+        || object.path_goal_position != state.path_goal
+        || object.wander_width_factor != state.wander_width_factor
+        || object.adjust_destinations() != state.adjust_destinations
+    {
+        return Err(corrupted(
+            "legacy Guard projection disagrees with native14/locomotor owners",
+        ));
+    }
     Ok(true)
 }
 
@@ -193,7 +200,11 @@ mod tests {
 
     fn object(phase: GuardPhase) -> Object {
         let mut object = Object::new(ThingTemplate::new("SavedGuard"), ObjectId(1), Team::USA);
-        object.ai_state = AIState::GuardingArea;
+        {
+            let mut owner = object.capture_base_ai_continuation();
+            owner.ai_state = AIState::GuardingArea;
+            object.restore_base_ai_continuation(owner).unwrap();
+        }
         object.unit_ai_runtime.set_guard_phase(Some(phase));
         object
             .unit_ai_runtime
@@ -226,7 +237,7 @@ mod tests {
         let before = target.clone();
         assert!(restore(snapshot, target).is_err());
         assert_runtime(target, &before);
-        assert_eq!(target.ai_state, before.ai_state);
+        assert_eq!(target.ai_state(), before.ai_state());
         assert_eq!(target.movement.path, before.movement.path);
         assert_eq!(target.waiting_for_path, before.waiting_for_path);
     }
@@ -245,6 +256,9 @@ mod tests {
             target.unit_ai_runtime.clear_guard();
             target.movement.path = vec![Vec3::splat(20.0)];
             target.waiting_for_path = true;
+            target
+                .restore_base_ai_continuation(source.capture_base_ai_continuation())
+                .unwrap();
             assert!(restore(&snapshot, &mut target).unwrap());
             assert_runtime(&source, &target);
             assert_eq!(target.movement.path, vec![Vec3::splat(20.0)]);
@@ -253,33 +267,55 @@ mod tests {
     }
 
     #[test]
-    fn destination_adjustment_projection_roundtrips_and_accepts_older_capsules() {
+    fn destination_adjustment_projection_checks_owner_without_overwriting_it() {
         let mut source = object(GuardPhase::Idle);
-        source.ai_state = AIState::Moving;
-        source.adjust_destinations = false;
+        {
+            let mut owner = source.capture_base_ai_continuation();
+            owner.ai_state = AIState::Moving;
+            source.restore_base_ai_continuation(owner).unwrap();
+        }
+        {
+            let mut owner = source.capture_base_ai_continuation();
+            owner.adjust_destinations = false;
+            source.restore_base_ai_continuation(owner).unwrap();
+        }
         let mut saved = capture(&source).unwrap().unwrap();
         let mut target = source.clone();
-        target.adjust_destinations = true;
+        {
+            let mut owner = target.capture_base_ai_continuation();
+            owner.adjust_destinations = true;
+            target.restore_base_ai_continuation(owner).unwrap();
+        }
+        target
+            .restore_base_ai_continuation(source.capture_base_ai_continuation())
+            .unwrap();
         assert!(restore(&saved, &mut target).unwrap());
-        assert!(!target.adjust_destinations);
+        assert!(!target.adjust_destinations());
         let encoded = saved.state_machine_data.get_mut(GUARD_KEY).unwrap();
         let mut older: serde_json::Value = serde_json::from_str(encoded).unwrap();
         older.as_object_mut().unwrap().remove("adjust_destinations");
         *encoded = serde_json::to_string(&older).unwrap();
-        assert!(restore(&saved, &mut target).unwrap());
-        assert!(target.adjust_destinations);
+        assert!(restore(&saved, &mut target).is_err());
+        assert!(!target.adjust_destinations());
         assert_runtime(&source, &target);
     }
 
     #[test]
     fn overlay_parent_is_preserved_without_forcing_guard_entry() {
         let mut source = object(GuardPhase::Idle);
-        source.ai_state = AIState::Moving;
+        {
+            let mut owner = source.capture_base_ai_continuation();
+            owner.ai_state = AIState::Moving;
+            source.restore_base_ai_continuation(owner).unwrap();
+        }
         let snapshot = capture(&source).unwrap().unwrap();
         let mut target = source.clone();
         target.unit_ai_runtime.clear_guard();
+        target
+            .restore_base_ai_continuation(source.capture_base_ai_continuation())
+            .unwrap();
         assert!(restore(&snapshot, &mut target).unwrap());
-        assert_eq!(target.ai_state, AIState::Moving);
+        assert_eq!(target.ai_state(), AIState::Moving);
         assert_runtime(&source, &target);
     }
 

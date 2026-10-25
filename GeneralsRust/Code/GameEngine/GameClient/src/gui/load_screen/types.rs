@@ -199,7 +199,6 @@ struct SinglePlayerLoadScreenState {
 thread_local! {
     static SINGLE_PLAYER_LOAD_SCREEN_STATE: RefCell<SinglePlayerLoadScreenState> =
         RefCell::new(SinglePlayerLoadScreenState::default());
-    static SHELL_GAME_FIRST_LOAD: RefCell<bool> = RefCell::new(true);
     static MULTIPLAYER_LOAD_SCREEN_STATE: RefCell<MultiplayerLoadScreenState> =
         RefCell::new(MultiplayerLoadScreenState::default());
     static MAP_TRANSFER_LOAD_SCREEN_STATE: RefCell<MapTransferLoadScreenState> =

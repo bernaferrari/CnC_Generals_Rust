@@ -509,7 +509,11 @@ impl GameLogic {
             .unwrap_or(false)
     }
 
-    pub(crate) fn mark_object_for_destruction(&mut self, id: ObjectId, killer: Option<Team>) {
+    pub(crate) fn mark_object_for_destruction(
+        &mut self,
+        id: ObjectId,
+        killer: Option<Team>,
+    ) -> gamelogic::GameLogicResult<()> {
         self.mark_object_for_destruction_with_effects(
             id,
             killer,
@@ -522,10 +526,10 @@ impl GameLogic {
         id: ObjectId,
         killer: Option<Team>,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         // This existing adapter has no accepted Body input. Do not fabricate
         // one from preferred history; migrating its callers remains explicit.
-        self.begin_object_death_with_effects(id, killer, None, None, presentation_effects);
+        self.begin_object_death_with_effects(id, killer, None, None, presentation_effects)
     }
 
     pub(in crate::game_logic) fn mark_object_for_destruction_with_topple(
@@ -534,7 +538,7 @@ impl GameLogic {
         killer: Option<Team>,
         input: crate::game_logic::object::OnDieInput,
         topple_interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         self.mark_object_for_destruction_with_topple_with_effects(
             id,
             killer,
@@ -551,20 +555,20 @@ impl GameLogic {
         input: crate::game_logic::object::OnDieInput,
         topple_interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         self.begin_object_death_with_effects(
             id,
             killer,
             Some(input),
             topple_interpreter,
             presentation_effects,
-        );
+        )
     }
 
     /// C++ GameLogic::destroyObject requests deletion independently of body
     /// death. Already-started death retains its pending completion effects;
     /// a live direct request never manufactures an onDie operation.
-    pub fn destroy_object(&mut self, id: ObjectId) {
+    pub fn destroy_object(&mut self, id: ObjectId) -> gamelogic::GameLogicResult<()> {
         self.destroy_object_with_effects(
             id,
             &mut crate::game_logic::ScriptPresentationEffects::default(),
@@ -575,8 +579,8 @@ impl GameLogic {
         &mut self,
         id: ObjectId,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
-        self.request_object_destruction_with_effects(id, None, presentation_effects);
+    ) -> gamelogic::GameLogicResult<()> {
+        self.request_object_destruction_with_effects(id, None, presentation_effects)
     }
 
     /// A synchronous authored Die callback retains its admitted death credit.
@@ -585,7 +589,7 @@ impl GameLogic {
         &mut self,
         id: ObjectId,
         death_credit: Option<Team>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         self.request_object_destruction_with_effects(
             id,
             death_credit,
@@ -598,12 +602,12 @@ impl GameLogic {
         id: ObjectId,
         death_credit: Option<Team>,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         let Some(object) = self.objects.get(&id) else {
-            return;
+            return Ok(());
         };
         if self.objects_to_destroy.iter().any(|event| event.id == id) {
-            return;
+            return Ok(());
         }
         if object.status.on_die_started {
             if let Some(object) = self.objects.get_mut(&id) {
@@ -611,10 +615,11 @@ impl GameLogic {
                 object.movement.path.clear();
             }
             self.enqueue_object_destruction_with_effects(id, death_credit, presentation_effects);
-            self.apply_object_delete_callbacks_with_effects(id, presentation_effects);
+            self.apply_object_delete_callbacks_with_effects(id, presentation_effects)?;
         } else {
-            self.destroy_live_object_with_effects(id, presentation_effects);
+            self.destroy_live_object_with_effects(id, presentation_effects)?;
         }
+        Ok(())
     }
 
     pub(in crate::game_logic) fn queue_after_death_completion(
@@ -691,7 +696,7 @@ impl GameLogic {
         killer: Option<Team>,
         input: Option<crate::game_logic::object::OnDieInput>,
         topple_interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         self.begin_object_death_with_effects(
             id,
             killer,
@@ -708,7 +713,7 @@ impl GameLogic {
         input: Option<crate::game_logic::object::OnDieInput>,
         topple_interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         let mut receiving_effects = presentation_effects.reborrow();
         if let Some(interpreter) = topple_interpreter {
             receiving_effects.script_events =
@@ -717,7 +722,7 @@ impl GameLogic {
         let presentation_effects = &mut receiving_effects;
 
         self.object_lifecycle_callback_depth += 1;
-        self.begin_object_death_callbacks_with_effects(
+        let result = self.begin_object_death_callbacks_with_effects(
             id,
             killer,
             input,
@@ -725,6 +730,7 @@ impl GameLogic {
             presentation_effects,
         );
         self.object_lifecycle_callback_depth -= 1;
+        result
     }
 
     fn begin_object_death_callbacks_with_effects(
@@ -734,20 +740,20 @@ impl GameLogic {
         input: Option<crate::game_logic::object::OnDieInput>,
         topple_interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         if self
             .objects_to_destroy
             .iter()
             .any(|event| event.id == id && !event.needs_death_effects())
         {
-            return;
+            return Ok(());
         }
         if self
             .objects
             .get(&id)
             .is_some_and(|o| o.status.on_die_started)
         {
-            return;
+            return Ok(());
         }
         if let Some(obj) = self.objects.get_mut(&id) {
             obj.status.on_die_started = true;
@@ -764,8 +770,8 @@ impl GameLogic {
                 input.expect("checked incoming death"),
                 topple_interpreter,
                 presentation_effects,
-            );
-            return;
+            )?;
+            return Ok(());
         }
         let fx_source = match input {
             Some(input) => input.source,
@@ -809,7 +815,7 @@ impl GameLogic {
                 }
             }
             self.apply_owned_bridge_death_links_with_effects(id, presentation_effects);
-            return;
+            return Ok(());
         }
 
         // C++ AIDockState::onExit → AIDockMachine::halt → cancelDock on death.
@@ -830,7 +836,7 @@ impl GameLogic {
             );
             // Base TransportContain::onDie now sees the physical payload in
             // the hull's literal roster, not the redirected infantry list.
-            self.remove_direct_contained_child_with_effects(id, redirected, presentation_effects);
+            self.remove_direct_contained_child_with_effects(id, redirected, presentation_effects)?;
         }
 
         // All contained effects complete on the installed owner before later
@@ -865,7 +871,7 @@ impl GameLogic {
                 obj.status.destroyed = true;
             }
 
-            return;
+            return Ok(());
         }
         let source = match input {
             Some(input) => input.source,
@@ -929,20 +935,21 @@ impl GameLogic {
                 topple_interpreter,
                 presentation_effects,
             ) {
-                return;
+                return Ok(());
             }
             // C++ SlowDeathBehavior residual: infantry/vehicles delay destroy + sink.
-            if self.try_begin_slow_death_instead_of_destroy(id) {
-                return;
+            if self.try_begin_slow_death_instead_of_destroy(id, presentation_effects)? {
+                return Ok(());
             }
             // C++ KeepObjectDie residual: leave rubble, do not DestroyDie-remove.
             if self
                 .try_begin_keep_object_die_instead_of_destroy_with_effects(id, presentation_effects)
             {
-                return;
+                return Ok(());
             }
         }
         self.enqueue_object_destruction_with_effects(id, killer, presentation_effects);
+        Ok(())
     }
 
     /// C++ InstantDeathBehavior::onDie residual.
@@ -1146,18 +1153,20 @@ impl GameLogic {
     pub(in super::super::super) fn try_begin_slow_death_instead_of_destroy(
         &mut self,
         id: ObjectId,
-    ) -> bool {
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<bool> {
         let frame = self.frame;
-        let Some(obj) = self.objects.get_mut(&id) else {
-            return false;
-        };
         // Jet crash residual. Ground/deck explode must not fall through to heli/slow.
-        let is_jet =
+        let is_jet = self.objects.get(&id).is_some_and(|obj| {
             crate::game_logic::host_jet_slow_death::is_jet_slow_death_template(&obj.template_name)
-                || obj.jet_slow_death.is_some();
+                || obj.jet_slow_death.is_some()
+        });
         if is_jet {
+            let Some(obj) = self.objects.get(&id) else {
+                return Ok(false);
+            };
             if obj.jet_slow_death.as_ref().map(|j| j.done).unwrap_or(false) {
-                return false;
+                return Ok(false);
             }
             if obj
                 .jet_slow_death
@@ -1165,21 +1174,31 @@ impl GameLogic {
                 .map(|j| j.is_active())
                 .unwrap_or(false)
             {
-                return true;
+                return Ok(true);
             }
-            let deferred = obj.begin_jet_slow_death(&mut crate::game_logic::ObjectAudio::queue(
-                &mut self.queued_audio_events,
-            ));
-            return deferred;
+            let start = self
+                .objects
+                .get_mut(&id)
+                .map(|obj| {
+                    obj.begin_jet_slow_death(&mut crate::game_logic::ObjectAudio::queue(
+                        &mut self.queued_audio_events,
+                    ))
+                })
+                .unwrap_or_default();
+            self.commit_slow_death_idle_owned(id, start, effects)?;
+            return Ok(start.defer_destruction);
         }
         // Helicopter spiral crash residual.
+        let Some(obj) = self.objects.get(&id) else {
+            return Ok(false);
+        };
         if obj
             .helicopter_slow_death
             .as_ref()
             .map(|h| h.done)
             .unwrap_or(false)
         {
-            return false;
+            return Ok(false);
         }
         if obj
             .helicopter_slow_death
@@ -1187,13 +1206,24 @@ impl GameLogic {
             .map(|h| h.is_active())
             .unwrap_or(false)
         {
-            return true;
+            return Ok(true);
         }
-        if obj.begin_helicopter_slow_death(&mut crate::game_logic::ObjectAudio::queue(
-            &mut self.queued_audio_events,
-        )) {
-            return true;
+        let start = self
+            .objects
+            .get_mut(&id)
+            .map(|obj| {
+                obj.begin_helicopter_slow_death(&mut crate::game_logic::ObjectAudio::queue(
+                    &mut self.queued_audio_events,
+                ))
+            })
+            .unwrap_or_default();
+        self.commit_slow_death_idle_owned(id, start, effects)?;
+        if start.defer_destruction {
+            return Ok(true);
         }
+        let Some(obj) = self.objects.get_mut(&id) else {
+            return Ok(false);
+        };
         // Already finished slow death → allow destroy.
         if obj
             .slow_death
@@ -1201,7 +1231,7 @@ impl GameLogic {
             .map(|s| s.is_done())
             .unwrap_or(false)
         {
-            return false;
+            return Ok(false);
         }
         // Mid slow death → keep deferring.
         if obj
@@ -1210,15 +1240,32 @@ impl GameLogic {
             .map(|s| s.is_active())
             .unwrap_or(false)
         {
-            return true;
+            return Ok(true);
         }
         if obj.begin_slow_death(
             frame,
             &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
         ) {
-            return true;
+            return Ok(true);
         }
-        false
+        Ok(false)
+    }
+
+    fn commit_slow_death_idle_owned(
+        &mut self,
+        id: ObjectId,
+        start: crate::game_logic::object::SlowDeathStart,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<()> {
+        if !start.enter_idle {
+            return Ok(());
+        }
+        self.set_ai_state_decision_aware_with_effects(id, AIState::Idle, effects)?;
+        // C++ beginSlowDeath clears the target after setState(Idle) onExit.
+        if let Some(object) = self.objects.get_mut(&id) {
+            object.target = None;
+        }
+        Ok(())
     }
 
     /// CPP doDamageLine fires each real weapon before that point's FX. The

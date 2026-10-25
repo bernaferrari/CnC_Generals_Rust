@@ -160,6 +160,7 @@ pub use weapon::{
 pub use system::game_logic::{
     BuildableStatus, CrcMode, GameLogic, GameMode, MAX_SLOTS, Snapshot, SubsystemInterface,
     get_game_logic, init_game_logic, reset_game_logic, update_game_logic,
+    update_game_logic_with_load_screen_hooks,
 };
 
 pub use common::INVALID_ID;
@@ -313,14 +314,34 @@ pub fn reset() -> GameLogicResult<()> {
     Ok(())
 }
 
-/// Update all game logic systems for one frame
-///
-/// This function should be called once per game frame to update all subsystems.
+/// Update all game logic systems for one frame.
 pub fn update(
     observe_camera: impl FnOnce() -> Option<crate::helpers::CameraTimeObservation>,
 ) -> GameLogicResult<()> {
-    // Update core GameLogic system (this handles the main game loop)
-    update_game_logic(observe_camera).map_err(|e| {
+    update_with_optional_load_screen_hooks(None, observe_camera)
+}
+
+/// Update with the receiving client's load-screen callback borrowed for the
+/// synchronous deferred-start/map-load path.
+pub fn update_with_load_screen_hooks(
+    hooks: &mut dyn helpers::LoadScreenHooks,
+    observe_camera: impl FnOnce() -> Option<crate::helpers::CameraTimeObservation>,
+) -> GameLogicResult<()> {
+    update_with_optional_load_screen_hooks(Some(hooks), observe_camera)
+}
+
+fn update_with_optional_load_screen_hooks(
+    mut hooks: Option<&mut dyn helpers::LoadScreenHooks>,
+    observe_camera: impl FnOnce() -> Option<crate::helpers::CameraTimeObservation>,
+) -> GameLogicResult<()> {
+    // Update core GameLogic system (this handles the main game loop). The
+    // callback remains borrowed and cannot outlive this synchronous call.
+    let update_result = if let Some(hooks) = hooks.as_deref_mut() {
+        update_game_logic_with_load_screen_hooks(hooks, observe_camera)
+    } else {
+        update_game_logic(observe_camera)
+    };
+    update_result.map_err(|e| {
         GameLogicError::SystemNotInitialized(format!("GameLogic update failed: {}", e))
     })?;
 

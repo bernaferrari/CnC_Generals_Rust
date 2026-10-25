@@ -3,9 +3,7 @@
 //! retail map or a synthetic HostScriptQueryObject/AI callback witness.
 
 use super::*;
-use gamelogic::scripting::core::{
-    Parameter, ParameterType, Script, ScriptAction, ScriptActionType,
-};
+use gamelogic::scripting::core::{Parameter, ParameterType, Script, ScriptAction, ScriptActionType};
 use gamelogic::scripting::engine::{ScriptEngine, SequentialScript, get_script_engine};
 use gamelogic::system::map_loader::{MapData, MapWaypoint};
 fn set_flag(name: &str) -> Box<ScriptAction> {
@@ -122,7 +120,7 @@ fn normal_runtime_sequential_actor_move_pauses_and_idle_resumes_same_tick() {
                 .unwrap();
             world.host_object_mut(actor).unwrap().name = "SeqHero".into();
             assert_eq!(world.host_object(actor).unwrap().owner_player_id, Some(0));
-            assert_eq!(world.host_object(actor).unwrap().ai_state, AIState::Idle);
+            assert_eq!(world.host_object(actor).unwrap().ai_state(), AIState::Idle);
             assert!(world.unit_can_move(actor));
 
             let mut movement = ScriptAction::new(ScriptActionType::MoveNamedUnitTo);
@@ -161,7 +159,7 @@ fn normal_runtime_sequential_actor_move_pauses_and_idle_resumes_same_tick() {
             world.evaluate_and_execute_scripts(0.0);
             assert!(flag(&world, "SeqBefore"));
             assert_eq!(
-                world.host_object(actor).unwrap().ai_state,
+                world.host_object(actor).unwrap().ai_state(),
                 AIState::Moving,
                 "idle SET_FLAG must advance into the actual MOVE in this script tick"
             );
@@ -186,7 +184,7 @@ fn normal_runtime_sequential_actor_move_pauses_and_idle_resumes_same_tick() {
             world.evaluate_and_execute_scripts(0.0);
             assert!(!flag(&world, "SeqAfter"), "moving actor stays paused");
             assert!(world.unit_command_stop(actor));
-            assert_eq!(world.host_object(actor).unwrap().ai_state, AIState::Idle);
+            assert_eq!(world.host_object(actor).unwrap().ai_state(), AIState::Idle);
             let frame = world.frame;
             world.evaluate_and_execute_scripts(0.0);
             assert_eq!(world.frame, frame);

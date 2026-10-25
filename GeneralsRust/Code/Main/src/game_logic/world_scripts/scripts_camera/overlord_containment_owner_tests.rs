@@ -93,7 +93,9 @@ fn enter(owner: &mut GameLogic, unit: ObjectId, hull: ObjectId) {
     });
     owner.process_commands();
     assert_eq!(owner.host_object(unit).unwrap().target, Some(hull));
-    owner.update_ai(&[unit, hull], 1.0 / 30.0);
+    owner
+        .update_ai(&[unit, hull], 1.0 / 30.0)
+        .expect("receiving AI operation succeeds");
 }
 #[test]
 fn overlord_enter_uses_actual_payload_roster_and_preserves_same_id_peer() {

@@ -106,7 +106,7 @@ fn capture_building_upgrade_queue_complete_unlocks_capture_ability() {
     });
     game_logic.process_commands();
     let captor = game_logic.host_object(captor_id).expect("captor");
-    assert_ne!(captor.ai_state, AIState::Capturing);
+    assert_ne!(captor.ai_state(), AIState::Capturing);
     assert_ne!(captor.target, Some(building_id));
 
     // Queue capture research from barracks.
@@ -234,7 +234,7 @@ fn capture_building_upgrade_queue_complete_unlocks_capture_ability() {
         .host_object(captor_id)
         .expect("captor after unlock");
     assert_eq!(
-        captor.ai_state,
+        captor.ai_state(),
         AIState::Capturing,
         "CaptureBuilding must work after research complete"
     );
@@ -291,7 +291,7 @@ fn capture_building_upgrade_queue_complete_unlocks_capture_ability() {
     let captor = game_logic
         .host_object(captor_id)
         .expect("captor after capture complete");
-    assert_eq!(captor.ai_state, AIState::Capturing);
+    assert_eq!(captor.ai_state(), AIState::Capturing);
     for _ in 0..59 {
         game_logic.update_with_dt(1.0 / 30.0);
     }
@@ -300,7 +300,7 @@ fn capture_building_upgrade_queue_complete_unlocks_capture_ability() {
     let captor = game_logic
         .host_object(captor_id)
         .expect("captor after capture packing");
-    assert_eq!(captor.ai_state, AIState::Idle);
+    assert_eq!(captor.ai_state(), AIState::Idle);
     assert!(captor.target.is_none());
 }
 
@@ -340,7 +340,7 @@ fn zero_unpack_capture_clears_approach_goal_and_survives_preparation() {
     });
     logic.process_commands();
     assert_eq!(
-        logic.host_object(captor_id).unwrap().ai_state,
+        logic.host_object(captor_id).unwrap().ai_state(),
         AIState::Capturing
     );
     logic.update_with_dt(1.0 / 30.0);
@@ -456,7 +456,7 @@ fn capture_building_walk_into_range_transfers_ownership_after_upgrade() {
 
     {
         let captor = game_logic.host_object(captor_id).expect("captor after cmd");
-        assert_eq!(captor.ai_state, AIState::Capturing);
+        assert_eq!(captor.ai_state(), AIState::Capturing);
         assert_eq!(captor.target, Some(building_id));
     }
     {
@@ -489,12 +489,14 @@ fn capture_building_walk_into_range_transfers_ownership_after_upgrade() {
     let captor = game_logic
         .host_object(captor_id)
         .expect("captor after transfer");
-    assert_eq!(captor.ai_state, AIState::Capturing);
-    game_logic.update_ai(&[captor_id, building_id], 2.0);
+    assert_eq!(captor.ai_state(), AIState::Capturing);
+    game_logic
+        .update_ai(&[captor_id, building_id], 2.0)
+        .expect("receiving AI operation succeeds");
     let captor = game_logic
         .host_object(captor_id)
         .expect("captor after capture packing");
-    assert_eq!(captor.ai_state, AIState::Idle);
+    assert_eq!(captor.ai_state(), AIState::Idle);
     assert!(captor.target.is_none());
 }
 
@@ -1130,7 +1132,9 @@ fn retail_harvesters_parse_and_accept_gather_through_live_command_authority() {
             "{object_name} must have a valid authoritative path to the supply source"
         );
         assert!(
-            game_logic.unit_command_stop(collector_id),
+            game_logic
+                .unit_command_stop(collector_id)
+                .expect("checked Stop operation"),
             "path probe must leave {object_name} ready for the real Gather order"
         );
 
@@ -1261,7 +1265,7 @@ fn retail_harvesters_parse_and_accept_gather_through_live_command_authority() {
             accepted.len(),
             1,
             "{object_name} Gather acceptance (state={:?}, path={:?}, target={:?})",
-            collector_after.ai_state,
+            collector_after.ai_state(),
             collector_after.movement.path,
             collector_after.target,
         );
@@ -1632,7 +1636,7 @@ fn loaded_combat_chinook_does_not_auto_gather() {
         .supplies;
     assert_eq!(cargo, 0, "loaded Combat Chinook must not gather");
     assert_eq!(
-        logic.host_object(chinook_id).expect("state").ai_state,
+        logic.host_object(chinook_id).expect("state").ai_state(),
         AIState::Idle,
         "loaded Chinook must leave Gathering"
     );
@@ -1712,7 +1716,7 @@ fn supply_truck_force_wanting_reenters_gathering() {
 
     let after = logic.host_object(collector_id).expect("truck after");
     assert_eq!(
-        after.ai_state,
+        after.ai_state(),
         AIState::Gathering,
         "force-wanting Idle must re-enter Wanting/Gathering"
     );
@@ -1824,14 +1828,16 @@ fn garrison_residual_enter_sets_garrisoned_state_and_capacity() {
 
     let infantry = game_logic.host_object(infantry_id).expect("infantry cmd");
     assert_eq!(
-        infantry.ai_state,
+        infantry.ai_state(),
         AIState::Entering,
         "Enter command must start residual enter"
     );
     assert_eq!(infantry.target, Some(bunker_id));
 
     // Walk-into-range residual: close enough that Entering completes this frame.
-    game_logic.update_ai(&[infantry_id, bunker_id], 1.0 / 30.0);
+    game_logic
+        .update_ai(&[infantry_id, bunker_id], 1.0 / 30.0)
+        .expect("receiving AI operation succeeds");
 
     let bunker = game_logic.host_object(bunker_id).expect("bunker after");
     assert!(
@@ -1846,7 +1852,7 @@ fn garrison_residual_enter_sets_garrisoned_state_and_capacity() {
 
     let infantry = game_logic.host_object(infantry_id).expect("infantry after");
     assert_eq!(
-        infantry.ai_state,
+        infantry.ai_state(),
         AIState::Garrisoned,
         "infantry must be Garrisoned after enter residual"
     );
@@ -1881,9 +1887,11 @@ fn garrison_residual_exit_frees_unit_and_capacity() {
             &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
     }
-    game_logic.update_ai(&[infantry_id, bunker_id], 1.0 / 30.0);
+    game_logic
+        .update_ai(&[infantry_id, bunker_id], 1.0 / 30.0)
+        .expect("receiving AI operation succeeds");
     assert_eq!(
-        game_logic.host_object(infantry_id).unwrap().ai_state,
+        game_logic.host_object(infantry_id).unwrap().ai_state(),
         AIState::Garrisoned
     );
     assert_eq!(game_logic.garrison_residual_enters(), 1);
@@ -1911,7 +1919,7 @@ fn garrison_residual_exit_frees_unit_and_capacity() {
     let infantry = game_logic.host_object(infantry_id).expect("infantry free");
     // C++ GarrisonContain::exitObjectViaDoor walks the occupant out
     // (burst/left/right); the unit is free but still completing its walk.
-    assert_eq!(infantry.ai_state, AIState::Moving);
+    assert_eq!(infantry.ai_state(), AIState::Moving);
     assert!(infantry.contained_by.is_none());
     assert!(infantry.target.is_none());
     assert!(infantry.can_move(), "exited unit must be free to move");
@@ -1953,7 +1961,9 @@ fn garrison_residual_capacity_full_rejects_enter() {
             &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
     }
-    game_logic.update_ai(&[first_id, bunker_id], 1.0 / 30.0);
+    game_logic
+        .update_ai(&[first_id, bunker_id], 1.0 / 30.0)
+        .expect("receiving AI operation succeeds");
     assert!(
         game_logic
             .host_object(bunker_id)
@@ -1980,7 +1990,7 @@ fn garrison_residual_capacity_full_rejects_enter() {
 
     let second = game_logic.host_object(second_id).expect("second after");
     assert_ne!(
-        second.ai_state,
+        second.ai_state(),
         AIState::Entering,
         "full garrison must reject Enter"
     );
@@ -2020,7 +2030,7 @@ fn garrison_residual_rejects_vehicle_enter_structure() {
     game_logic.process_commands();
 
     let tank = game_logic.host_object(tank_id).expect("tank");
-    assert_ne!(tank.ai_state, AIState::Entering);
+    assert_ne!(tank.ai_state(), AIState::Entering);
     assert_ne!(tank.target, Some(bunker_id));
 }
 
@@ -2065,7 +2075,7 @@ fn garrison_really_damaged_rejects_enter() {
 
     let infantry = game_logic.host_object(infantry_id).expect("infantry");
     assert_ne!(
-        infantry.ai_state,
+        infantry.ai_state(),
         AIState::Entering,
         "Enter command must not start against a ReallyDamaged wreck"
     );
@@ -2097,9 +2107,11 @@ fn garrison_really_damaged_edge_ejects_occupants() {
             &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
     }
-    game_logic.update_ai(&[infantry_id, bunker_id], 1.0 / 30.0);
+    game_logic
+        .update_ai(&[infantry_id, bunker_id], 1.0 / 30.0)
+        .expect("receiving AI operation succeeds");
     assert_eq!(
-        game_logic.host_object(infantry_id).unwrap().ai_state,
+        game_logic.host_object(infantry_id).unwrap().ai_state(),
         AIState::Garrisoned
     );
     assert!(
@@ -2130,7 +2142,7 @@ fn garrison_really_damaged_edge_ejects_occupants() {
         "ejected occupant must leave the container"
     );
     assert_ne!(
-        infantry.ai_state,
+        infantry.ai_state(),
         AIState::Garrisoned,
         "ejected occupant must not stay Garrisoned"
     );
@@ -2175,9 +2187,11 @@ fn garrisonable_until_destroyed_still_allows_occupy_when_really_damaged() {
             &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
     }
-    game_logic.update_ai(&[infantry_id, bunker_id], 1.0 / 30.0);
+    game_logic
+        .update_ai(&[infantry_id, bunker_id], 1.0 / 30.0)
+        .expect("receiving AI operation succeeds");
     assert_eq!(
-        game_logic.host_object(infantry_id).unwrap().ai_state,
+        game_logic.host_object(infantry_id).unwrap().ai_state(),
         AIState::Garrisoned,
         "Firebase-style bunker must still complete occupy"
     );
@@ -2272,7 +2286,7 @@ fn garrison_residual_fire_from_garrison_damages_nearby_enemy() {
         "fire-from-garrison residual honesty"
     );
     assert_eq!(
-        game_logic.host_object(infantry_id).unwrap().ai_state,
+        game_logic.host_object(infantry_id).unwrap().ai_state(),
         AIState::Garrisoned,
         "firing must not eject garrisoned unit"
     );
@@ -2341,13 +2355,15 @@ fn transport_residual_enter_sets_docked_state_and_capacity() {
 
     let infantry = game_logic.host_object(infantry_id).expect("infantry cmd");
     assert_eq!(
-        infantry.ai_state,
+        infantry.ai_state(),
         AIState::Entering,
         "Enter command must start residual transport enter"
     );
     assert_eq!(infantry.target, Some(transport_id));
 
-    game_logic.update_ai(&[infantry_id, transport_id], 1.0 / 30.0);
+    game_logic
+        .update_ai(&[infantry_id, transport_id], 1.0 / 30.0)
+        .expect("receiving AI operation succeeds");
 
     let transport = game_logic
         .host_object(transport_id)
@@ -2361,7 +2377,7 @@ fn transport_residual_enter_sets_docked_state_and_capacity() {
 
     let infantry = game_logic.host_object(infantry_id).expect("infantry after");
     assert_eq!(
-        infantry.ai_state,
+        infantry.ai_state(),
         AIState::Docked,
         "infantry must be Docked after transport residual load"
     );
@@ -2412,7 +2428,9 @@ fn transport_residual_load_two_unload_both_free() {
                 &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
             );
         }
-        game_logic.update_ai(&[unit_id, transport_id], 1.0 / 30.0);
+        game_logic
+            .update_ai(&[unit_id, transport_id], 1.0 / 30.0)
+            .expect("receiving AI operation succeeds");
     }
 
     let transport = game_logic
@@ -2428,7 +2446,7 @@ fn transport_residual_load_two_unload_both_free() {
 
     for unit_id in [unit_a, unit_b] {
         let unit = game_logic.host_object(unit_id).expect("loaded unit");
-        assert_eq!(unit.ai_state, AIState::Docked);
+        assert_eq!(unit.ai_state(), AIState::Docked);
         assert_eq!(unit.contained_by, Some(transport_id));
         assert!(!unit.can_move());
     }
@@ -2459,7 +2477,7 @@ fn transport_residual_load_two_unload_both_free() {
         // and issues aiFollowPath to ExitEnd (OpenContain.cpp:915-1020);
         // the freed rider walks out instead of Idling in place.
         assert_eq!(
-            unit.ai_state,
+            unit.ai_state(),
             AIState::Moving,
             "unloaded unit must walk its exit path (C++ aiFollowPath)"
         );
@@ -2515,7 +2533,9 @@ fn transport_residual_exit_command_unloads_all() {
                 &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
             );
         }
-        game_logic.update_ai(&[unit_id, transport_id], 1.0 / 30.0);
+        game_logic
+            .update_ai(&[unit_id, transport_id], 1.0 / 30.0)
+            .expect("receiving AI operation succeeds");
     }
     assert_eq!(
         game_logic
@@ -2578,7 +2598,9 @@ fn transport_residual_capacity_full_rejects_enter() {
             &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
     }
-    game_logic.update_ai(&[first_id, transport_id], 1.0 / 30.0);
+    game_logic
+        .update_ai(&[first_id, transport_id], 1.0 / 30.0)
+        .expect("receiving AI operation succeeds");
     assert!(
         game_logic
             .host_object(transport_id)
@@ -2605,7 +2627,7 @@ fn transport_residual_capacity_full_rejects_enter() {
 
     let second = game_logic.host_object(second_id).expect("second after");
     assert_ne!(
-        second.ai_state,
+        second.ai_state(),
         AIState::Entering,
         "full transport must reject Enter"
     );
@@ -2658,7 +2680,7 @@ fn overlord_bunker_residual_without_bunker_rejects_enter() {
 
     let infantry = game_logic.host_object(infantry_id).expect("infantry");
     assert_ne!(
-        infantry.ai_state,
+        infantry.ai_state(),
         AIState::Entering,
         "enter must be rejected without bunker residual"
     );
@@ -2715,13 +2737,15 @@ fn overlord_bunker_residual_enter_sets_docked_state_and_capacity() {
 
     let infantry = game_logic.host_object(infantry_id).expect("infantry cmd");
     assert_eq!(
-        infantry.ai_state,
+        infantry.ai_state(),
         AIState::Entering,
         "Enter command must start residual Overlord bunker enter"
     );
     assert_eq!(infantry.target, Some(overlord_id));
 
-    game_logic.update_ai(&[infantry_id, overlord_id], 1.0 / 30.0);
+    game_logic
+        .update_ai(&[infantry_id, overlord_id], 1.0 / 30.0)
+        .expect("receiving AI operation succeeds");
 
     let overlord = game_logic.host_object(overlord_id).expect("overlord after");
     assert!(
@@ -2737,7 +2761,7 @@ fn overlord_bunker_residual_enter_sets_docked_state_and_capacity() {
 
     let infantry = game_logic.host_object(infantry_id).expect("infantry after");
     assert_eq!(
-        infantry.ai_state,
+        infantry.ai_state(),
         AIState::Docked,
         "infantry must be Docked after Overlord bunker residual load"
     );
@@ -2788,7 +2812,9 @@ fn overlord_bunker_payload_sink_does_not_transfer_ordinary_infantry_experience()
         modifier_keys: crate::command_system::ModifierKeys::default(),
     });
     game_logic.process_commands();
-    game_logic.update_ai(&[infantry_id, overlord_id], 1.0 / 30.0);
+    game_logic
+        .update_ai(&[infantry_id, overlord_id], 1.0 / 30.0)
+        .expect("receiving AI operation succeeds");
 
     let infantry = game_logic.host_object(infantry_id).expect("rider");
     assert_eq!(
@@ -2873,7 +2899,9 @@ fn overlord_bunker_residual_load_two_unload_both_free() {
                 &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
             );
         }
-        game_logic.update_ai(&[unit_id, overlord_id], 1.0 / 30.0);
+        game_logic
+            .update_ai(&[unit_id, overlord_id], 1.0 / 30.0)
+            .expect("receiving AI operation succeeds");
     }
 
     let overlord = game_logic
@@ -2904,7 +2932,7 @@ fn overlord_bunker_residual_load_two_unload_both_free() {
 
     for unit_id in [unit_a, unit_b] {
         let unit = game_logic.host_object(unit_id).expect("loaded unit");
-        assert_eq!(unit.ai_state, AIState::Docked);
+        assert_eq!(unit.ai_state(), AIState::Docked);
         assert_eq!(unit.contained_by, Some(payload_id));
         assert!(!unit.can_move());
     }
@@ -2937,7 +2965,7 @@ fn overlord_bunker_residual_load_two_unload_both_free() {
         // and issues aiFollowPath to ExitEnd (OpenContain.cpp:915-1020);
         // the freed rider walks out instead of Idling in place.
         assert_eq!(
-            unit.ai_state,
+            unit.ai_state(),
             AIState::Moving,
             "unloaded unit must walk its exit path (C++ aiFollowPath)"
         );
@@ -2988,7 +3016,9 @@ fn overlord_bunker_residual_capacity_full_rejects_enter() {
             &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
     }
-    game_logic.update_ai(&[first_id, overlord_id], 1.0 / 30.0);
+    game_logic
+        .update_ai(&[first_id, overlord_id], 1.0 / 30.0)
+        .expect("receiving AI operation succeeds");
     assert!(
         game_logic
             .host_object(payload_id)
@@ -3015,7 +3045,7 @@ fn overlord_bunker_residual_capacity_full_rejects_enter() {
 
     let second = game_logic.host_object(second_id).expect("second after");
     assert_ne!(
-        second.ai_state,
+        second.ai_state(),
         AIState::Entering,
         "full Overlord bunker residual must reject Enter"
     );
@@ -3059,7 +3089,7 @@ fn overlord_bunker_residual_rejects_vehicle_enter() {
 
     let tank = game_logic.host_object(tank_id).expect("tank");
     assert_ne!(
-        tank.ai_state,
+        tank.ai_state(),
         AIState::Entering,
         "vehicles must not enter Overlord BattleBunker residual"
     );

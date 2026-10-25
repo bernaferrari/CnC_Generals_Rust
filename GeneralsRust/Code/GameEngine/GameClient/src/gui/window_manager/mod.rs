@@ -136,13 +136,18 @@ mod wnd_parse;
 pub use control_bar_dispatch::{CameraOptionsInputContext, ControlBarInputContext};
 pub use layout::{WindowLayout, WindowLayoutInfo};
 pub use reentry::{
-    ReentryFallback, WindowMouseFacts, dispatch_os_key_to_window_manager,
-    dispatch_os_key_to_window_manager_with_control_bar, dispatch_os_mouse_to_window_manager,
-    dispatch_os_mouse_to_window_manager_with_control_bar,
+    ReentryFallback, WindowManagerOwner, WindowMouseFacts, dispatch_os_key_to_window_manager,
+    dispatch_os_key_to_window_manager_for_owner,
+    dispatch_os_key_to_window_manager_with_control_bar,
+    dispatch_os_key_to_window_manager_with_control_bar_for_owner,
+    dispatch_os_mouse_to_window_manager, dispatch_os_mouse_to_window_manager_with_control_bar,
+    dispatch_os_mouse_to_window_manager_for_owner,
+    dispatch_os_mouse_to_window_manager_with_control_bar_for_owner,
     dispatch_os_mouse_to_window_manager_with_facts, hide_window_rc, queue_create_layout,
     queue_set_focus, queue_window_manager_op, queue_window_manager_op_deferred,
     window_manager_try_borrow_free, with_window_manager, with_window_manager_ref,
 };
+pub(crate) use reentry::current_window_manager_owner;
 pub use types::{CaptureFlags, ModalWindow, TabDirection};
 
 pub(crate) use reentry::apply_w3d_main_menu_runtime_draw_overrides;
@@ -311,6 +316,13 @@ impl WindowManager {
     /// Get the current screen size used for layout scaling.
     pub fn screen_size(&self) -> (i32, i32) {
         self.screen_size
+    }
+
+    /// Give isolated unit fixtures the authored transitions without relying on
+    /// Cargo's temporary process CWD or asset-archive state.
+    #[cfg(test)]
+    pub(crate) fn init_with_transition_ini_for_test(&mut self, contents: &str) {
+        self.transitions.init_with_contents_for_test(contents);
     }
 
     /// Initialize the window manager

@@ -201,9 +201,7 @@ fn cash_hack_and_defector_consume_only_on_valid_object() {
 #[test]
 fn microwave_disable_building_starts_hdb_channel() {
     use crate::command_system::PowerTarget;
-    use crate::game_logic::{
-        AIState, HackerDisableBuildingMetadata, HackerDisableChannelPhase, KindOf,
-    };
+    use crate::game_logic::{AIState, HackerDisableBuildingMetadata, HackerDisableChannelPhase, KindOf};
 
     let mut logic = GameLogic::new();
     logic.add_player(Player::new(0, Team::China, "China", false));
@@ -267,7 +265,7 @@ fn microwave_disable_building_starts_hdb_channel() {
         );
     }
     let issued = logic.host_object(tank_id).expect("tank after issue");
-    assert_eq!(issued.ai_state, AIState::SpecialAbility);
+    assert_eq!(issued.ai_state(), AIState::SpecialAbility);
     assert_eq!(issued.target, Some(building_id));
     assert_eq!(
         issued

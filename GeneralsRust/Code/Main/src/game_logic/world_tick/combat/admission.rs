@@ -39,7 +39,7 @@ impl GameLogic {
             if attacker.status.is_aiming_weapon
                 || attacker.status.is_firing_weapon
                 || !matches!(
-                    attacker.attack_substate,
+                    attacker.attack_substate(),
                     crate::game_logic::AttackSubState::AimAtTarget
                 )
             {
@@ -47,7 +47,7 @@ impl GameLogic {
             }
             // Interaction orders set `target` without being attacks.
             if matches!(
-                attacker.ai_state,
+                attacker.ai_state(),
                 AIState::Capturing
                     | AIState::SpecialAbility
                     | AIState::Repairing
@@ -66,9 +66,9 @@ impl GameLogic {
             let is_ac = attacker.is_kind_of(KindOf::Aircraft)
                 || attacker.object_type == ObjectType::Aircraft;
             let docked_sortie =
-                attacker.ai_state == AIState::Docked && is_ac && attacker.target.is_some();
-            let docked_passenger = attacker.ai_state == AIState::Docked && !docked_sortie;
-            let garrisoned = attacker.ai_state == AIState::Garrisoned;
+                attacker.ai_state() == AIState::Docked && is_ac && attacker.target.is_some();
+            let docked_passenger = attacker.ai_state() == AIState::Docked && !docked_sortie;
+            let garrisoned = attacker.ai_state() == AIState::Garrisoned;
             (docked_sortie, docked_passenger, garrisoned)
         };
         if docked_sortie {
@@ -101,7 +101,7 @@ impl GameLogic {
                 && attacker.is_constructed()
                 && attacker.can_attack()
                 && matches!(
-                    attacker.ai_state,
+                    attacker.ai_state(),
                     AIState::Idle | AIState::Attacking | AIState::Patrolling
                 )
                 && !self.skirmish_ai_auto_engage_paused(attacker_id);
@@ -115,9 +115,7 @@ impl GameLogic {
         // Strategy Center Bombardment turret residual: StrategyCenterGun auto-fire
         // only while Bombardment plan is active (C++ enableTurret residual).
         {
-            use crate::game_logic::host_strategy_center::{
-                HostBattlePlan, is_strategy_center_template,
-            };
+            use crate::game_logic::host_strategy_center::{HostBattlePlan, is_strategy_center_template};
             let is_sc = is_strategy_center_template(&attacker.template_name)
                 || attacker.is_kind_of(KindOf::FSStrategyCenter);
             let sc_auto_ok = is_sc
@@ -125,7 +123,7 @@ impl GameLogic {
                 && attacker.weapon.is_some()
                 && attacker.can_attack()
                 && matches!(
-                    attacker.ai_state,
+                    attacker.ai_state(),
                     AIState::Idle | AIState::Attacking | AIState::Patrolling
                 )
                 && !self.skirmish_ai_auto_engage_paused(attacker_id);
@@ -151,7 +149,7 @@ impl GameLogic {
             };
             let is_sentry = is_sentry_drone_template(&attacker.template_name);
             let idle_ok = matches!(
-                attacker.ai_state,
+                attacker.ai_state(),
                 AIState::Idle | AIState::Attacking | AIState::Patrolling
             );
             let sentry_auto_ok = sentry_auto_fire_eligible(

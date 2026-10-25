@@ -1,7 +1,5 @@
 //! Real native Draw selection, material ordering and receiving particle lifetime.
-use super::receiving_native_draw_tests::{
-    authored_template, static_asset, visible_emitter_manager,
-};
+use super::receiving_native_draw_tests::{authored_template, static_asset, visible_emitter_manager};
 use super::*;
 use crate::drawable::drawable::StealthLook;
 use crate::effects::particle_manager::ParticleSystemManager;
@@ -289,8 +287,8 @@ fn native_views_empty_view_list_does_not_advance_draw_or_install_emitters() {
 
 #[test]
 fn public_split_shell_defers_draw_and_rejects_changed_client_frame() {
-    get_shell().init().unwrap();
     let mut client = GameClient::new().unwrap();
+    client.window_manager_owner().shell_handle().init().unwrap();
     client.initialized = true;
     client.set_frame(37);
     let id = client
@@ -349,9 +347,10 @@ fn public_split_shell_defers_draw_and_rejects_changed_client_frame() {
 
 #[test]
 fn split_shell_rejects_equal_frame_peer_reset_and_superseded_operation() {
-    get_shell().init().unwrap();
     let mut client = GameClient::new().unwrap();
     let mut peer = GameClient::new().unwrap();
+    client.window_manager_owner().shell_handle().init().unwrap();
+    peer.window_manager_owner().shell_handle().init().unwrap();
     client.initialized = true;
     peer.initialized = true;
     client.set_frame(37);
@@ -631,9 +630,7 @@ fn native_retirement_releases_particle_guard_before_actual_module_drop() {
     ) {
         return;
     }
-    use crate::effects::particle_manager::{
-        PARTICLE_SYSTEM_MANAGER, get_particle_system_manager_mut,
-    };
+    use crate::effects::particle_manager::{PARTICLE_SYSTEM_MANAGER, get_particle_system_manager_mut};
     use std::sync::atomic::{AtomicBool, Ordering};
     #[derive(Debug)]
     struct DropProbe(Arc<AtomicBool>);

@@ -34,10 +34,14 @@ fn dual_world_registry_unavailable() -> bool {
     crate::object::registry::OBJECT_REGISTRY.is_empty()
 }
 
+pub mod action_kernel;
+pub mod phase;
+pub mod task_owner;
+use task_owner::DozerTaskOwner;
 mod primary_owned;
-use primary_owned::DozerPrimaryIdle;
+pub use primary_owned::DozerPrimaryIdle;
 mod delete_owned;
-pub(crate) mod owned_state;
+pub mod owned_state;
 mod snapshot;
 #[cfg(test)]
 use owned_state::DozerOwnedObservation;
@@ -55,7 +59,7 @@ const AUTO_ACQUIRE_ENEMIES_NAMES: &[&str] = &[
 ];
 
 /// Dozer task types (matches C++ DozerTask).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum DozerTask {
     Invalid = -1,
     Build = 0,
@@ -88,7 +92,7 @@ impl DozerDockPoint {
 const DOZER_NUM_DOCK_POINTS: usize = 3;
 
 /// Build subtask (matches C++ DozerBuildSubTask).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum DozerBuildSubTask {
     SelectBuildDockLocation = 0,
     MovingToBuildDockLocation = 1,
@@ -392,10 +396,27 @@ impl Default for DozerTaskEntry {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-struct DozerDockPointInfo {
-    valid: bool,
-    location: Coord3D,
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct DozerDockPointInfo {
+    pub valid: bool,
+    pub location: Coord3D,
+}
+
+impl DozerDockPointInfo {
+    pub fn from_position(location: Coord3D) -> Self {
+        Self {
+            valid: true,
+            location,
+        }
+    }
+    pub fn point(self) -> Option<Coord3D> {
+        self.valid.then_some(self.location)
+    }
+    /// CPP internalTaskComplete invalidates the dock without erasing its raw
+    /// coordinates. Both fields remain in the original Xfer payload.
+    pub fn invalidate(&mut self) {
+        self.valid = false;
+    }
 }
 
 impl Default for DozerDockPointInfo {
@@ -423,7 +444,6 @@ struct DozerActionTask {
     failed_attempts: u32,
     build_total_frames: u32,
     build_max_health: f32,
-    is_rebuild: bool,
     started_construction: bool,
 }
 
@@ -451,12 +471,7 @@ pub struct DozerAIUpdate {
     object_id: ObjectID,
     dozer_task: Option<DozerActionTask>,
     action_state: DozerActionState,
-    tasks: [DozerTaskEntry; DOZER_NUM_TASKS],
-    dock_points: [[DozerDockPointInfo; DOZER_NUM_DOCK_POINTS]; DOZER_NUM_TASKS],
-    current_task: DozerTask,
-    primary: PrimaryMachine,
-    build_sub_task: DozerBuildSubTask,
-    is_rebuild: bool,
+    task_owner: DozerTaskOwner<DozerTaskEntry, DozerDockPointInfo>,
     building_sound: Option<AudioEventRts>,
     building_sound_target: ObjectID,
 }
@@ -468,9 +483,9 @@ impl std::fmt::Debug for DozerAIUpdate {
             .field("object_id", &self.object_id)
             .field("dozer_task", &self.dozer_task)
             .field("action_state", &self.action_state)
-            .field("current_task", &self.current_task)
-            .field("build_sub_task", &self.build_sub_task)
-            .field("is_rebuild", &self.is_rebuild)
+            .field("current_task", &self.task_owner.current)
+            .field("build_sub_task", &self.task_owner.build_sub_task)
+            .field("is_rebuild", &self.task_owner.construct_is_rebuild)
             .finish()
     }
 }
@@ -482,32 +497,7 @@ impl DozerAIUpdate {
             object_id,
             dozer_task: None,
             action_state: DozerActionState::PickActionPos,
-            tasks: [
-                DozerTaskEntry::default(),
-                DozerTaskEntry::default(),
-                DozerTaskEntry::default(),
-            ],
-            dock_points: [
-                [
-                    DozerDockPointInfo::default(),
-                    DozerDockPointInfo::default(),
-                    DozerDockPointInfo::default(),
-                ],
-                [
-                    DozerDockPointInfo::default(),
-                    DozerDockPointInfo::default(),
-                    DozerDockPointInfo::default(),
-                ],
-                [
-                    DozerDockPointInfo::default(),
-                    DozerDockPointInfo::default(),
-                    DozerDockPointInfo::default(),
-                ],
-            ],
-            current_task: DozerTask::Invalid,
-            primary: PrimaryMachine::new(),
-            build_sub_task: DozerBuildSubTask::SelectBuildDockLocation,
-            is_rebuild: false,
+            task_owner: DozerTaskOwner::default(),
             building_sound: None,
             building_sound_target: INVALID_ID,
         }
@@ -558,30 +548,30 @@ impl DozerAIUpdate {
     }
 
     pub fn get_current_task(&self) -> DozerTask {
-        self.current_task
+        self.task_owner.current
     }
 
     pub fn set_current_task(&mut self, task: DozerTask) {
-        self.current_task = task;
+        self.task_owner.current = task;
     }
 
     pub fn get_is_rebuild(&self) -> bool {
-        self.is_rebuild
+        self.task_owner.construct_is_rebuild
     }
 
     pub fn set_build_sub_task(&mut self, sub: DozerBuildSubTask) {
-        self.build_sub_task = sub;
+        self.task_owner.build_sub_task = sub;
     }
 
     pub fn get_build_sub_task(&self) -> DozerBuildSubTask {
-        self.build_sub_task
+        self.task_owner.build_sub_task
     }
 
     pub fn is_task_pending(&self, task: DozerTask) -> bool {
         if task == DozerTask::Invalid {
             return false;
         }
-        self.tasks[task.as_index()].target_id != INVALID_ID
+        self.task_owner.requests[task.as_index()].target_id != INVALID_ID
     }
 
     pub fn is_any_task_pending(&self) -> bool {
@@ -597,29 +587,19 @@ impl DozerAIUpdate {
         if task == DozerTask::Invalid {
             return INVALID_ID;
         }
-        self.tasks[task.as_index()].target_id
+        self.task_owner.requests[task.as_index()].target_id
     }
 
     pub fn get_most_recent_command(&self) -> DozerTask {
-        let mut most_recent = DozerTask::Invalid;
-        let mut most_recent_frame = 0;
-        for task in [DozerTask::Build, DozerTask::Repair, DozerTask::Fortify] {
-            if self.is_task_pending(task) {
-                let entry = &self.tasks[task.as_index()];
-                if entry.order_frame > most_recent_frame {
-                    most_recent = task;
-                    most_recent_frame = entry.order_frame;
-                }
-            }
-        }
-        most_recent
+        self.task_owner
+            .most_recent(|entry| (entry.target_id != INVALID_ID).then_some(entry.order_frame))
     }
 
     pub fn get_dock_point(&self, task: DozerTask, point: DozerDockPoint) -> Option<Coord3D> {
         if task == DozerTask::Invalid {
             return None;
         }
-        let info = self.dock_points[task.as_index()][point.as_index()];
+        let info = self.task_owner.docks[task.as_index()][point.as_index()];
         if info.valid {
             Some(info.location)
         } else {
@@ -655,11 +635,11 @@ impl DozerAIUpdate {
             )
             .unwrap_or(target_id);
             let idx = task.as_index();
-            self.dock_points[idx][DozerDockPoint::Start.as_index()] = DozerDockPointInfo {
+            self.task_owner.docks[idx][DozerDockPoint::Start.as_index()] = DozerDockPointInfo {
                 valid: true,
                 location: position,
             };
-            self.dock_points[idx][DozerDockPoint::Action.as_index()] = DozerDockPointInfo {
+            self.task_owner.docks[idx][DozerDockPoint::Action.as_index()] = DozerDockPointInfo {
                 valid: true,
                 location: position,
             };
@@ -682,7 +662,7 @@ impl DozerAIUpdate {
             let mut end_pos = position;
             end_pos.x += offset.x;
             end_pos.y += offset.y;
-            self.dock_points[idx][DozerDockPoint::End.as_index()] = DozerDockPointInfo {
+            self.task_owner.docks[idx][DozerDockPoint::End.as_index()] = DozerDockPointInfo {
                 valid: true,
                 location: end_pos,
             };
@@ -694,14 +674,14 @@ impl DozerAIUpdate {
                     },
                 );
             }
-            self.tasks[task.as_index()].target_id = target_id;
+            self.task_owner.requests[task.as_index()].target_id = target_id;
         }
 
-        if self.tasks[task.as_index()].target_id == INVALID_ID {
-            self.tasks[task.as_index()].target_id = target_id;
+        if self.task_owner.requests[task.as_index()].target_id == INVALID_ID {
+            self.task_owner.requests[task.as_index()].target_id = target_id;
         }
-        self.tasks[task.as_index()].order_frame = TheGameLogic::get_frame();
-        self.current_task = task;
+        self.task_owner.requests[task.as_index()].order_frame = TheGameLogic::get_frame();
+        self.task_owner.current = task;
     }
 
     pub fn cancel_task(&mut self, task: DozerTask) {
@@ -711,8 +691,8 @@ impl DozerAIUpdate {
     pub fn internal_task_complete(&mut self, task: DozerTask) {
         self.internal_task_complete_or_cancelled(task);
         if task != DozerTask::Invalid {
-            self.tasks[task.as_index()] = DozerTaskEntry::default();
-            for point in &mut self.dock_points[task.as_index()] {
+            self.task_owner.requests[task.as_index()] = DozerTaskEntry::default();
+            for point in &mut self.task_owner.docks[task.as_index()] {
                 point.valid = false;
             }
         }
@@ -724,8 +704,8 @@ impl DozerAIUpdate {
         if task == DozerTask::Invalid {
             return Err("invalid cancellation task".into());
         }
-        self.tasks[task.as_index()] = DozerTaskEntry::default();
-        for point in &mut self.dock_points[task.as_index()] {
+        self.task_owner.requests[task.as_index()] = DozerTaskEntry::default();
+        for point in &mut self.task_owner.docks[task.as_index()] {
             point.valid = false;
         }
         Ok(())
@@ -741,8 +721,8 @@ impl DozerAIUpdate {
         if task == DozerTask::Invalid {
             return Err("invalid cancellation task".into());
         }
-        if self.current_task == task {
-            self.current_task = DozerTask::Invalid;
+        if self.task_owner.current == task {
+            self.task_owner.current = DozerTask::Invalid;
             self.dozer_task = None;
             self.action_state = DozerActionState::PickActionPos;
         }
@@ -815,10 +795,10 @@ impl DozerAIUpdate {
             return false;
         }
 
-        if self.current_task != DozerTask::Repair {
+        if self.task_owner.current != DozerTask::Repair {
             return true;
         }
-        let current_id = self.tasks[DozerTask::Repair.as_index()].target_id;
+        let current_id = self.task_owner.requests[DozerTask::Repair.as_index()].target_id;
         if current_id == INVALID_ID {
             return true;
         }
@@ -872,7 +852,6 @@ impl DozerAIUpdate {
             failed_attempts: 0,
             build_total_frames: 0,
             build_max_health: 0.0,
-            is_rebuild: false,
             started_construction: false,
         });
         self.action_state = DozerActionState::PickActionPos;
@@ -929,7 +908,6 @@ impl DozerAIUpdate {
             failed_attempts: 0,
             build_total_frames: frames,
             build_max_health: max_health,
-            is_rebuild: false,
             started_construction: false,
         });
         self.action_state = DozerActionState::PickActionPos;
@@ -942,7 +920,7 @@ impl DozerAIUpdate {
         max_health: f32,
         is_rebuild: bool,
     ) {
-        self.is_rebuild = is_rebuild;
+        self.task_owner.construct_is_rebuild = is_rebuild;
         self.new_task(DozerTask::Build, building_id);
         self.dozer_task = Some(DozerActionTask {
             task_type: DozerTask::Build,
@@ -951,7 +929,6 @@ impl DozerAIUpdate {
             failed_attempts: 0,
             build_total_frames: total_build_frames.max(1),
             build_max_health: max_health,
-            is_rebuild,
             started_construction: false,
         });
         self.action_state = DozerActionState::PickActionPos;
@@ -1076,7 +1053,7 @@ impl DozerAIUpdate {
             if let Some(ai) = owner_guard.get_ai_update_interface() {
                 if let Ok(mut ai_guard) = ai.lock() {
                     let mut end_pos = self
-                        .get_dock_point(self.current_task, DozerDockPoint::End)
+                        .get_dock_point(self.task_owner.current, DozerDockPoint::End)
                         .unwrap_or(*owner_guard.get_position());
                     let start = *owner_guard.get_position();
                     let is_crusher = owner_guard.get_crusher_level() > 0;
@@ -1116,7 +1093,7 @@ impl DozerAIUpdate {
         }
 
         // validate current task if repair
-        if self.current_task == DozerTask::Repair {
+        if self.task_owner.current == DozerTask::Repair {
             let target_id = self.get_task_target(DozerTask::Repair);
             if let (Some(owner), Some(target)) = (
                 TheGameLogic::find_object_by_id(self.object_id),
@@ -1135,10 +1112,10 @@ impl DozerAIUpdate {
         }
 
         if self.dozer_task.is_none() {
-            if self.current_task == DozerTask::Invalid {
-                self.current_task = self.get_most_recent_command();
+            if self.task_owner.current == DozerTask::Invalid {
+                self.task_owner.current = self.get_most_recent_command();
             }
-            if self.current_task != DozerTask::Invalid {
+            if self.task_owner.current != DozerTask::Invalid {
                 self.spawn_dozer_task_from_current();
                 if self.dozer_task.is_some() {
                     self.action_state = DozerActionState::PickActionPos;
@@ -1154,7 +1131,7 @@ impl DozerAIUpdate {
     }
 
     fn spawn_dozer_task_from_current(&mut self) {
-        let task = self.current_task;
+        let task = self.task_owner.current;
         if task == DozerTask::Invalid {
             return;
         }
@@ -1169,7 +1146,6 @@ impl DozerAIUpdate {
             failed_attempts: 0,
             build_total_frames: 0,
             build_max_health: 0.0,
-            is_rebuild: false,
             started_construction: false,
         });
     }
@@ -1214,8 +1190,10 @@ impl DozerAIUpdate {
         drop(owner_guard);
 
         if task.dock_point.is_none() && self.action_state == DozerActionState::PickActionPos {
-            if self.current_task != DozerTask::Invalid {
-                if let Some(point) = self.get_dock_point(self.current_task, DozerDockPoint::Start) {
+            if self.task_owner.current != DozerTask::Invalid {
+                if let Some(point) =
+                    self.get_dock_point(self.task_owner.current, DozerDockPoint::Start)
+                {
                     task.dock_point = Some(point);
                 }
             }
@@ -1371,7 +1349,7 @@ impl DozerAIUpdate {
                                 self.object_id,
                                 max_health,
                                 frames,
-                                task.is_rebuild,
+                                self.task_owner.construct_is_rebuild,
                             )
                             .is_ok()
                         {
@@ -1405,7 +1383,11 @@ impl DozerAIUpdate {
                         }
                     }
                     if completed.contains(&task.target_id) {
-                        self.handle_build_completion(&owner, &target, task.is_rebuild);
+                        self.handle_build_completion(
+                            &owner,
+                            &target,
+                            self.task_owner.construct_is_rebuild,
+                        );
                         self.internal_task_complete(DozerTask::Build);
                         return;
                     }

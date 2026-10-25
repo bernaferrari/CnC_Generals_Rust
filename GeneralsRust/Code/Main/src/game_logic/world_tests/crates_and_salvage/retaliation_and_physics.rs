@@ -1290,9 +1290,7 @@ fn jarmen_rifle_mode_has_no_vehicle_attack_cursor() {
 
 #[test]
 fn player_attack_command_uses_weaponset_target_legality_before_stamping_target() {
-    use crate::game_logic::{
-        KindOf, Object, ObjectId, Team, ThingTemplate, Weapon, WeaponLockType,
-    };
+    use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate, Weapon, WeaponLockType};
     use glam::Vec3;
 
     let mut logic = GameLogic::new();
@@ -1678,9 +1676,7 @@ fn attack_state_enter_fails_without_legal_weapon() {
 
 #[test]
 fn attack_state_machine_aim_to_fire_when_facing() {
-    use crate::game_logic::{
-        AttackSubState, KindOf, Object, ObjectId, Team, ThingTemplate, Weapon,
-    };
+    use crate::game_logic::{AttackSubState, KindOf, Object, ObjectId, Team, ThingTemplate, Weapon};
     use glam::Vec3;
     let mut logic = GameLogic::new();
     let mut at = ThingTemplate::new("AsmA");
@@ -1713,23 +1709,21 @@ fn attack_state_machine_aim_to_fire_when_facing() {
         AttackMachineResult::Continue
     );
     assert_eq!(
-        logic.objects[&aid].attack_substate,
+        logic.objects[&aid].attack_substate(),
         AttackSubState::AimAtTarget
     );
     // Facing target: one tick should promote Aim → Fire.
     let r = logic.tick_attack_state_machine(aid, vid, 10.0, 1, 1.0);
     assert_eq!(r, AttackMachineResult::Continue);
     assert_eq!(
-        logic.objects[&aid].attack_substate,
+        logic.objects[&aid].attack_substate(),
         AttackSubState::FireWeapon
     );
 }
 
 #[test]
 fn attack_state_machine_out_of_range_approaches() {
-    use crate::game_logic::{
-        AttackSubState, KindOf, Object, ObjectId, Team, ThingTemplate, Weapon,
-    };
+    use crate::game_logic::{AttackSubState, KindOf, Object, ObjectId, Team, ThingTemplate, Weapon};
     use glam::Vec3;
     let mut logic = GameLogic::new();
     let mut at = ThingTemplate::new("AsmA2");
@@ -1761,7 +1755,7 @@ fn attack_state_machine_out_of_range_approaches() {
     let r = logic.tick_attack_state_machine(aid, vid, 10.0, 1, 1.0);
     assert_eq!(r, AttackMachineResult::Continue);
     assert_eq!(
-        logic.objects[&aid].attack_substate,
+        logic.objects[&aid].attack_substate(),
         AttackSubState::ApproachTarget
     );
 }
@@ -1799,9 +1793,7 @@ fn attack_state_machine_success_when_victim_dies() {
 
 #[test]
 fn attack_state_machine_fire_returns_to_aim() {
-    use crate::game_logic::{
-        AttackSubState, KindOf, Object, ObjectId, Team, ThingTemplate, Weapon,
-    };
+    use crate::game_logic::{AttackSubState, KindOf, Object, ObjectId, Team, ThingTemplate, Weapon};
     use glam::Vec3;
     let mut logic = GameLogic::new();
     let mut at = ThingTemplate::new("AsmA4");
@@ -1819,7 +1811,7 @@ fn attack_state_machine_fire_returns_to_aim() {
             projectile_speed: 200.0,
             ..Default::default()
         });
-        o.attack_substate = AttackSubState::FireWeapon;
+        o.set_attack_substate(AttackSubState::FireWeapon);
         o.set_status_firing_weapon(true);
         o
     });
@@ -1834,7 +1826,7 @@ fn attack_state_machine_fire_returns_to_aim() {
     let r = logic.tick_attack_state_machine(aid, vid, 10.0, 1, 1.0);
     assert_eq!(r, AttackMachineResult::Continue);
     assert_eq!(
-        logic.objects[&aid].attack_substate,
+        logic.objects[&aid].attack_substate(),
         AttackSubState::AimAtTarget
     );
 }
@@ -1968,7 +1960,7 @@ fn attack_fire_weapon_enter_exit_flags() {
     });
     assert!(logic.attack_fire_weapon_enter(id));
     assert!(logic.objects[&id].status.is_firing_weapon);
-    assert_eq!(logic.objects[&id].ai_state, AIState::Attacking);
+    assert_eq!(logic.objects[&id].ai_state(), AIState::Attacking);
     logic.attack_fire_weapon_exit(id);
     assert!(!logic.objects[&id].status.is_firing_weapon);
 }
@@ -2112,7 +2104,7 @@ fn private_idle_clears_state() {
     });
     assert!(logic.private_idle(id));
     let o = logic.objects.get(&id).unwrap();
-    assert_eq!(o.ai_state, AIState::Idle);
+    assert_eq!(o.ai_state(), AIState::Idle);
     assert!(!o.status.attacking);
 }
 
@@ -2145,16 +2137,21 @@ fn private_face_turns_toward_target() {
     assert!(!logic.private_face_object(aid, ObjectId(u32::MAX)));
     let unchanged = logic.objects.get(&aid).unwrap();
     assert_eq!(unchanged.get_orientation(), yaw0);
-    assert!(!unchanged.face_active);
+    assert!(!unchanged.face_active());
     assert_eq!(unchanged.target, None);
     assert!(logic.private_face_object(aid, vid));
     let after_cmd = logic.objects.get(&aid).unwrap();
-    assert_eq!(after_cmd.ai_state, crate::game_logic::AIState::FacingObject);
-    assert!(after_cmd.face_active);
-    assert!(after_cmd.face_can_turn_in_place);
+    assert_eq!(
+        after_cmd.ai_state(),
+        crate::game_logic::AIState::FacingObject
+    );
+    assert!(after_cmd.face_active());
+    assert!(after_cmd.face_can_turn_in_place());
     assert_eq!(after_cmd.locomotor_goal_type, LocoGoalType::Angle);
     assert_eq!(after_cmd.get_orientation(), yaw0);
-    logic.update_ai(&[aid, vid], 1.0 / 30.0);
+    logic
+        .update_ai(&[aid, vid], 1.0 / 30.0)
+        .expect("receiving AI operation succeeds");
     let after_tick = logic.objects.get(&aid).unwrap();
     let yaw1 = after_tick.get_orientation();
     assert!((yaw1 - yaw0).abs() > 1e-4);
@@ -2182,8 +2179,8 @@ fn private_face_position_sets_angle_goal_without_yaw_snap() {
     assert!(logic.private_face_position(aid, goal));
     {
         let o = logic.objects.get(&aid).unwrap();
-        assert_eq!(o.ai_state, crate::game_logic::AIState::FacingPosition);
-        assert!(o.face_active);
+        assert_eq!(o.ai_state(), crate::game_logic::AIState::FacingPosition);
+        assert!(o.face_active());
         assert_eq!(o.locomotor_goal_type, LocoGoalType::Angle);
         assert_eq!(o.get_orientation(), yaw0);
     }
@@ -2219,7 +2216,7 @@ fn private_face_object_min_speed_uses_position_explicit() {
     });
     assert!(logic.private_face_object(aid, vid));
     let o = logic.objects.get(&aid).unwrap();
-    assert!(!o.face_can_turn_in_place);
+    assert!(!o.face_can_turn_in_place());
     assert_eq!(o.locomotor_goal_type, LocoGoalType::PositionExplicit);
     assert_eq!(o.movement.target_position, Some(vpos));
     assert_eq!(o.get_orientation(), 0.0);
@@ -2305,6 +2302,10 @@ fn private_stop_clears_attack() {
     let id = ObjectId(1202);
     logic.objects.insert(id, {
         let mut o = Object::new(t, id, Team::USA);
+        o.set_ai_state(
+            crate::game_logic::AIState::Attacking,
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+        );
         o.set_status_attacking(true);
         o.target = Some(ObjectId(9));
         o.movement.target_position = Some(Vec3::ONE);
@@ -2315,6 +2316,9 @@ fn private_stop_clears_attack() {
     assert!(!o.status.attacking);
     assert!(o.target.is_none());
     assert!(o.movement.target_position.is_none());
+    assert_eq!(o.ai_state(), crate::game_logic::AIState::Idle);
+    assert!(!o.idle_mood_reset_pending);
+    assert!(o.unit_ai_runtime.machine().idle_initialized);
 }
 
 #[test]
@@ -2346,8 +2350,8 @@ fn attack_approach_skips_when_victim_still() {
             range: 50.0,
             ..Default::default()
         });
-        o.approach_timestamp = 100;
-        o.prev_victim_pos = Some(Vec3::new(40.0, 0.0, 0.0));
+        o.set_approach_timestamp(100);
+        o.set_prev_victim_pos(Some(Vec3::new(40.0, 0.0, 0.0)));
         o
     });
     let mut vt = ThingTemplate::new("AV");
@@ -2889,9 +2893,7 @@ fn loco_set_physics_options_sticks_infantry() {
 
 #[test]
 fn apply_motive_force_arms_lateral_window() {
-    use crate::game_logic::{
-        KindOf, MOTIVE_FRAMES_RESIDUAL, Object, ObjectId, Team, ThingTemplate,
-    };
+    use crate::game_logic::{KindOf, MOTIVE_FRAMES_RESIDUAL, Object, ObjectId, Team, ThingTemplate};
     use glam::Vec3;
     assert_eq!(MOTIVE_FRAMES_RESIDUAL, 10);
     let mut t = ThingTemplate::new("MotF");

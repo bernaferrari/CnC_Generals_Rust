@@ -869,32 +869,35 @@ mod tests {
 
     #[test]
     fn os_wnd_skirmish_map_select_hits_select_map_and_ok_then_commits_setup() {
-        with_window_manager(|manager| {
-            let select = manager
-                .create_window(None, 10, 10, 80, 24)
-                .expect("ButtonSelectMap");
-            select
-                .borrow_mut()
-                .set_name("SkirmishGameOptionsMenu.wnd:ButtonSelectMap");
-            let _ = select.borrow_mut().hide(false);
-            let ok = manager
-                .create_window(None, 10, 40, 80, 24)
-                .expect("ButtonOK");
-            ok.borrow_mut()
-                .set_name("SkirmishMapSelectMenu.wnd:ButtonOK");
-            let _ = ok.borrow_mut().hide(false);
+        let owner = crate::gui::window_manager::WindowManagerOwner::new();
+        owner.with_scope(|| {
+            with_window_manager(|manager| {
+                let select = manager
+                    .create_window(None, 10, 10, 80, 24)
+                    .expect("ButtonSelectMap");
+                select
+                    .borrow_mut()
+                    .set_name("SkirmishGameOptionsMenu.wnd:ButtonSelectMap");
+                let _ = select.borrow_mut().hide(false);
+                let ok = manager
+                    .create_window(None, 10, 40, 80, 24)
+                    .expect("ButtonOK");
+                ok.borrow_mut()
+                    .set_name("SkirmishMapSelectMenu.wnd:ButtonOK");
+                let _ = ok.borrow_mut().hide(false);
+            });
+            assert!(
+                drive_os_wnd_skirmish_map_select_like_cpp("maps\\alpine_war.map"),
+                "OS WND clicks must commit map into skirmish setup"
+            );
+            let committed = get_skirmish_setup()
+                .game_info()
+                .game_info()
+                .get_map()
+                .to_string();
+            assert_eq!(committed, "maps\\alpine_war.map");
+            assert!(!drive_os_wnd_skirmish_map_select_like_cpp(""));
         });
-        assert!(
-            drive_os_wnd_skirmish_map_select_like_cpp("maps\\alpine_war.map"),
-            "OS WND clicks must commit map into skirmish setup"
-        );
-        let committed = get_skirmish_setup()
-            .game_info()
-            .game_info()
-            .get_map()
-            .to_string();
-        assert_eq!(committed, "maps\\alpine_war.map");
-        assert!(!drive_os_wnd_skirmish_map_select_like_cpp(""));
     }
 
     #[test]

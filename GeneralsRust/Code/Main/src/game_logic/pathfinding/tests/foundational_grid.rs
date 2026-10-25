@@ -455,7 +455,7 @@ fn open_ground_move_changes_position() {
             unit.waiting_for_path,
             unit.movement.path,
             unit.movement.target_position,
-            unit.ai_state,
+            unit.ai_state(),
             unit.movement.velocity
         )
     };
@@ -498,7 +498,7 @@ fn attack_order_closes_on_open_ground() {
     }
     let unit = logic.host_object(id).expect("ranger");
     let end = unit.get_position();
-    assert_eq!(unit.ai_state, AIState::Attacking);
+    assert_eq!(unit.ai_state(), AIState::Attacking);
     assert!(
         end.distance(origin) > 1.0,
         "attack out of range must chase, end={end:?}"

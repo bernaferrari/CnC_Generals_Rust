@@ -2,7 +2,11 @@
 #![allow(unused_imports, non_snake_case)]
 use super::super::*;
 impl GameLogic {
-    pub(in super::super) fn update_ai(&mut self, object_ids: &[ObjectId], dt: f32) {
+    pub(in super::super) fn update_ai(
+        &mut self,
+        object_ids: &[ObjectId],
+        dt: f32,
+    ) -> gamelogic::GameLogicResult<()> {
         self.update_ai_with_effects(
             object_ids,
             dt,
@@ -15,7 +19,7 @@ impl GameLogic {
         object_ids: &[ObjectId],
         dt: f32,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         use crate::ai_decisions::*;
         self.flush_countermeasure_flare_spawns_with_effects(presentation_effects);
         // Wave 806: under coupled shadow, lifetime owned by GW expire + logs.
@@ -25,7 +29,6 @@ impl GameLogic {
 
         self.propagate_hacked_to_spawn_slaves();
 
-        let mut ai_commands = Vec::new();
         let current_time = self.frame as f32 * LOGIC_FRAME_TIMESTEP; // Convert frame to seconds
         let game_phase = GamePhase::from_time(current_time);
         // Campaign maps place thousands of decorative props. Skip AI for
@@ -51,6 +54,7 @@ impl GameLogic {
             let mut disguise_halfpoint: Option<(glam::Vec3, bool, bool)> = None;
             let mut missile_idle_audio: Option<(Option<String>, bool, Option<String>, glam::Vec3)> =
                 None;
+            let mut fire_weapon_power_shot = false;
             let height_die_terrain = {
                 let (pos, ground, name) = match self.objects.get(&object_id) {
                     Some(o) => (o.get_position(), o.ground_height, o.template_name.clone()),
@@ -104,10 +108,7 @@ impl GameLogic {
                 });
                 if let Some((tx, tz, _has_loc)) = fwp_shot {
                     obj.target_location = Some(glam::Vec3::new(tx, 0.0, tz));
-                    obj.set_ai_state(
-                        crate::game_logic::AIState::Attacking,
-                        &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
-                    );
+                    fire_weapon_power_shot = true;
                     if let Some(req) = obj.fire_weapon_power.as_mut() {
                         req.shots_remaining = req.shots_remaining.saturating_sub(1);
                         if req.shots_remaining == 0 {
@@ -115,6 +116,17 @@ impl GameLogic {
                         }
                     }
                 }
+                let _ = obj;
+                if fire_weapon_power_shot {
+                    self.unit_command_set_ai_state_with_effects(
+                        object_id,
+                        crate::game_logic::AIState::Attacking,
+                        presentation_effects,
+                    )?;
+                }
+                let Some(obj) = self.objects.get_mut(&object_id) else {
+                    continue;
+                };
                 // Drain defector audio residual (collect then queue outside obj borrow).
                 defector_audio = obj
                     .defection_helper
@@ -704,14 +716,14 @@ impl GameLogic {
                     object_id,
                     None,
                     presentation_effects,
-                );
+                )?;
                 continue;
             }
             if topple_kill {
                 if final_death_destroy {
                     // CPP SlowDeath/JetSlowDeath/HelicopterSlowDeath finish with
                     // destroyObject; they must not re-enter the onDie latch.
-                    self.destroy_object_with_effects(object_id, presentation_effects);
+                    self.destroy_object_with_effects(object_id, presentation_effects)?;
                 } else {
                     // Topple and HeightDie trigger damage/kill. Preserve the
                     // existing structure completion policy separately.
@@ -719,7 +731,7 @@ impl GameLogic {
                         object_id,
                         None,
                         presentation_effects,
-                    );
+                    )?;
                 }
                 continue;
             }
@@ -740,29 +752,31 @@ impl GameLogic {
             self.try_auto_find_healing_residual(object_id);
             // AutoFindRepair residual: AI idle damaged vehicles → RepairPad/WarFactory.
             self.try_auto_find_repair_residual(object_id);
-            self.try_auto_resume_construction_residual(object_id);
+            self.try_auto_resume_construction_residual(object_id, presentation_effects)?;
             // C++ AIIdleState: CAN_BE_REPULSED idle units flee closest repulsor.
             let _ = self.try_idle_repulse(object_id);
             // C++ AIIdleState: checkForCrateToPickup → aiMoveToObject.
             let _ = self.try_idle_crate_pickup(object_id);
             // C++ AIHuntState parent machine: after AttackThenIdle kill, stay in hunt.
-            if let Some(obj) = self.objects.get_mut(&object_id) {
-                if obj.hunting
-                    && matches!(obj.ai_state, AIState::Idle)
+            let resume_hunt = self.objects.get(&object_id).is_some_and(|obj| {
+                obj.is_hunting()
+                    && matches!(obj.ai_state(), AIState::Idle)
                     && obj.target.is_none()
                     && obj.is_alive()
-                {
-                    obj.set_ai_state(
-                        AIState::Patrolling,
-                        &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
-                    );
-                }
+            });
+            if resume_hunt {
+                self.unit_command_set_ai_state_with_effects(
+                    object_id,
+                    AIState::Patrolling,
+                    presentation_effects,
+                )?;
             }
             // C++ AIIdleState::onEnter → resetNextMoodCheckTime, before the scan.
             self.apply_pending_idle_mood_reset_with_effects(object_id, presentation_effects);
             // C++ AIIdleState::update: mood scan / attack only — never AI_HUNT wander.
             if let Some(obj) = self.objects.get(&object_id) {
-                if obj.temporary_move_frames > 0 {
+                if obj.has_temporary_ai_move() {
+                    self.dozer_update_primary_owned_with_effects(object_id, presentation_effects)?;
                     continue;
                 }
                 let can_attack = obj.can_attack();
@@ -774,13 +788,14 @@ impl GameLogic {
                     && !obj.is_kind_of(KindOf::Vehicle)
                     && !obj.is_kind_of(KindOf::Aircraft)
                     && obj.target.is_none()
-                    && matches!(obj.ai_state, AIState::Idle)
+                    && matches!(obj.ai_state(), AIState::Idle)
                 {
+                    self.dozer_update_primary_owned_with_effects(object_id, presentation_effects)?;
                     continue;
                 }
                 let position = obj.get_position();
                 let team = obj.team;
-                let ai_state = obj.ai_state.clone();
+                let ai_state = obj.ai_state().clone();
                 let current_target = obj.target;
                 if let Some(command) = self.process_ai_behavior_with_effects(
                     object_id,
@@ -793,9 +808,12 @@ impl GameLogic {
                     dt,
                     presentation_effects,
                 ) {
-                    ai_commands.push(command);
+                    self.apply_ai_command_with_effects(command, presentation_effects)?;
                 }
             }
+            // C++ DozerAIUpdate::update invokes the retained derived machine
+            // immediately after this actor's inherited AI update and command.
+            self.dozer_update_primary_owned_with_effects(object_id, presentation_effects)?;
         }
 
         // Second pass: Handle production buildings
@@ -857,7 +875,7 @@ impl GameLogic {
         // C++ UndeadBody + BattleBusSlowDeathBehavior residual.
         self.tick_battle_bus_slow_deaths_with_effects(presentation_effects);
         // C++ ChinookAIUpdate idle auto-land / evac / combat-drop residual.
-        self.tick_chinook_ai_with_effects(1.0 / 30.0, presentation_effects);
+        self.tick_chinook_ai_with_effects(1.0 / 30.0, presentation_effects)?;
 
         // C++ AssaultTransportAIUpdate wounded-retrieve residual.
         self.tick_assault_transport_updates_with_effects(presentation_effects);
@@ -866,21 +884,15 @@ impl GameLogic {
         // C++ CommandButtonHuntUpdate residual.
         self.tick_command_button_hunt_updates_with_effects(presentation_effects);
 
-        // Apply all AI commands (or log-only when GameWorld owns decision apply).
-
-        for command in ai_commands {
-            {
-                self.apply_ai_command(command);
-            }
-        }
-
         // Resolve command-driven support states (guard/repair/docking/garrison) after AI decisions.
         // C++ SlavedUpdate.cpp:91-261 follow / guard / 2x GuardMaxRange recall.
         self.update_slaved_drone_follow_with_effects(object_ids, presentation_effects);
         self.sync_all_spawn_behavior_veterancy();
         // C++ DemoTrapUpdate.cpp:124-130 isEffectivelyDead + DetonateWhenKilled.
         self.update_demo_trap_detonate_when_killed_with_effects(presentation_effects);
-        self.update_support_states_with_effects(object_ids, dt, presentation_effects);
+        self.update_support_states_with_effects(object_ids, dt, presentation_effects)?;
+
+        Ok(())
     }
 
     /// C++ SlavedUpdate::update — drones follow/guard/recall their producer master.

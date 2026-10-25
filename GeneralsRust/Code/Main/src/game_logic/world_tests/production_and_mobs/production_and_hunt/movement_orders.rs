@@ -51,7 +51,7 @@ fn repair_action_after_filling_the_vehicle_leaves_for_the_rally() {
     {
         let unit = logic.host_object(tank).expect("tank");
         assert_eq!(unit.health.current, unit.health.maximum);
-        assert_eq!(unit.ai_state, AIState::SeekingRepair);
+        assert_eq!(unit.ai_state(), AIState::SeekingRepair);
         assert_eq!(unit.target, Some(pad));
         assert_eq!(
             logic.host_object(pad).unwrap().dock_active_docker,
@@ -68,7 +68,7 @@ fn repair_action_after_filling_the_vehicle_leaves_for_the_rally() {
     assert!(
         matches!(unit.ai_state, AIState::Moving | AIState::AttackMoving),
         "filled vehicle left in {:?}, path={:?}",
-        unit.ai_state,
+        unit.ai_state(),
         unit.movement.path
     );
     let end = unit.movement.path.last().copied().expect("rally path");
@@ -146,7 +146,7 @@ fn repair_action_after_filling_without_a_rally_goes_idle() {
     {
         let unit = logic.host_object(tank).expect("tank");
         assert_eq!(unit.health.current, unit.health.maximum);
-        assert_eq!(unit.ai_state, AIState::SeekingRepair);
+        assert_eq!(unit.ai_state(), AIState::SeekingRepair);
         assert_eq!(unit.target, Some(pad));
         assert_eq!(
             logic.host_object(pad).unwrap().dock_active_docker,
@@ -156,7 +156,7 @@ fn repair_action_after_filling_without_a_rally_goes_idle() {
     logic.update_support_states_for_test(&[tank], 0.0);
     let unit = logic.host_object(tank).expect("tank");
     assert!(unit.health.current >= unit.health.maximum - 0.01);
-    assert_eq!(unit.ai_state, AIState::Idle);
+    assert_eq!(unit.ai_state(), AIState::Idle);
     assert!(unit.ignored_obstacle_id.is_none());
     assert!(unit.movement.path.is_empty());
 }
@@ -190,7 +190,7 @@ fn aborted_capture_clears_the_building_ignore() {
     }
     logic.update_support_states_for_test(&[infantry], 1.0 / 30.0);
     let unit = logic.host_object(infantry).expect("infantry");
-    assert_eq!(unit.ai_state, AIState::Idle);
+    assert_eq!(unit.ai_state(), AIState::Idle);
     assert!(unit.ignored_obstacle_id.is_none());
     assert!(unit.movement.path.is_empty());
     assert!(unit.target.is_none());
@@ -225,7 +225,7 @@ fn dropped_special_ability_clears_the_building_ignore() {
     }
     logic.update_support_states_for_test(&[hacker], 1.0 / 30.0);
     let unit = logic.host_object(hacker).expect("hacker");
-    assert_eq!(unit.ai_state, AIState::Idle);
+    assert_eq!(unit.ai_state(), AIState::Idle);
     assert!(unit.ignored_obstacle_id.is_none());
     assert!(unit.movement.path.is_empty());
 }
@@ -265,7 +265,7 @@ fn finished_hacker_channel_clears_the_building_ignore() {
     }
     logic.update_support_states_for_test(&[hacker], 1.0 / 30.0);
     let unit = logic.host_object(hacker).expect("hacker");
-    assert_eq!(unit.ai_state, AIState::Idle);
+    assert_eq!(unit.ai_state(), AIState::Idle);
     assert!(unit.ignored_obstacle_id.is_none());
     assert!(unit.movement.path.is_empty());
     assert!(!logic.pending_special_abilities.contains_key(&hacker));
@@ -305,13 +305,13 @@ fn queued_hacker_path_stays_special_ability() {
     ));
     {
         let unit = logic.host_object(hacker).expect("hacker");
-        assert_eq!(unit.ai_state, AIState::SpecialAbility);
+        assert_eq!(unit.ai_state(), AIState::SpecialAbility);
         assert!(unit.waiting_for_path);
     }
     logic.process_pathfind_queue();
     let unit = logic.host_object(hacker).expect("hacker");
     assert_eq!(
-        unit.ai_state,
+        unit.ai_state(),
         AIState::SpecialAbility,
         "installing the hacker path must not look like a new move order"
     );
@@ -373,7 +373,7 @@ fn reissued_hacker_move_keeps_special_ability_and_the_building() {
     logic.reissue_pending_moves();
     logic.process_pathfind_queue();
     let unit = logic.host_object(hacker).expect("hacker");
-    assert_eq!(unit.ai_state, AIState::SpecialAbility);
+    assert_eq!(unit.ai_state(), AIState::SpecialAbility);
     assert_eq!(unit.ignored_obstacle_id, Some(building));
     assert!(unit.pending_move.is_none());
     let xs: Vec<i32> = unit
@@ -448,7 +448,7 @@ fn reissued_attack_crosses_the_target_building() {
     logic.reissue_pending_moves();
     logic.process_pathfind_queue();
     let unit = logic.host_object(attacker).expect("attacker");
-    assert_eq!(unit.ai_state, AIState::Attacking);
+    assert_eq!(unit.ai_state(), AIState::Attacking);
     assert_eq!(unit.ignored_obstacle_id, Some(building));
     let xs: Vec<i32> = unit
         .movement
@@ -510,7 +510,7 @@ fn reissued_gather_paths_to_the_approach() {
     logic.reissue_pending_moves();
     logic.process_pathfind_queue();
     let unit = logic.host_object(truck).expect("truck");
-    assert_eq!(unit.ai_state, AIState::Gathering);
+    assert_eq!(unit.ai_state(), AIState::Gathering);
     assert!(unit.ignored_obstacle_id.is_none());
     assert!(
         unit.is_approach_path,
@@ -565,7 +565,7 @@ fn gather_click_paths_to_the_warehouse_approach() {
     assert!(logic.unit_command_dock_at_supply_warehouse(truck, warehouse));
     logic.process_pathfind_queue();
     let unit = logic.host_object(truck).expect("truck");
-    assert_eq!(unit.ai_state, AIState::Gathering);
+    assert_eq!(unit.ai_state(), AIState::Gathering);
     assert_reserved_dock_approach_path(&logic, warehouse, truck, Vec3::ZERO, warehouse_pos, 40.0);
 }
 
@@ -603,7 +603,7 @@ fn stunned_gather_click_holds_the_approach() {
         "a stunned gather must hold the approach, not the center, held={held:?}"
     );
     assert!(unit.ignored_obstacle_id.is_none());
-    assert_eq!(unit.ai_state, AIState::Gathering);
+    assert_eq!(unit.ai_state(), AIState::Gathering);
 }
 
 #[test]
@@ -645,7 +645,7 @@ fn return_click_paths_to_the_supply_center_approach() {
     assert!(logic.unit_command_return_supplies(truck, center));
     logic.process_pathfind_queue();
     let unit = logic.host_object(truck).expect("truck");
-    assert_eq!(unit.ai_state, AIState::ReturningResources);
+    assert_eq!(unit.ai_state(), AIState::ReturningResources);
     assert_reserved_dock_approach_path(
         &logic,
         center,
@@ -697,7 +697,7 @@ fn stunned_return_click_holds_the_approach() {
         "a stunned return must hold the approach, not the center, held={held:?}"
     );
     assert!(unit.ignored_obstacle_id.is_none());
-    assert_eq!(unit.ai_state, AIState::ReturningResources);
+    assert_eq!(unit.ai_state(), AIState::ReturningResources);
 }
 
 #[test]
@@ -751,7 +751,7 @@ fn guard_object_adjusts_off_an_impassable_post() {
     assert!(logic.unit_command_guard_object(guard, building));
     logic.process_pathfind_queue();
     let unit = logic.host_object(guard).expect("guard");
-    assert_eq!(unit.ai_state, AIState::GuardingObject);
+    assert_eq!(unit.ai_state(), AIState::GuardingObject);
     let end_cell = logic
         .pathfinding_system
         .grid
@@ -787,7 +787,7 @@ fn guard_object_adjusts_off_an_impassable_post() {
     assert!(logic.unit_command_guard_full(guard2, None, Some(building), 100.0, GuardMode::Normal,));
     logic.process_pathfind_queue();
     let unit2 = logic.host_object(guard2).expect("guard2");
-    assert_eq!(unit2.ai_state, AIState::GuardingObject);
+    assert_eq!(unit2.ai_state(), AIState::GuardingObject);
     let end2 = logic
         .pathfinding_system
         .grid
@@ -910,7 +910,7 @@ fn player_stop_clears_a_building_ignore() {
     }
     assert!(logic.unit_command_stop(unit_id));
     let unit = logic.host_object(unit_id).expect("unit");
-    assert_eq!(unit.ai_state, AIState::Idle);
+    assert_eq!(unit.ai_state(), AIState::Idle);
     assert!(unit.ignored_obstacle_id.is_none());
     assert!(unit.movement.path.is_empty());
 }
@@ -975,7 +975,7 @@ fn player_move_clears_a_building_ignore() {
     }
     assert!(logic.unit_command_move_to(unit_id, Vec3::new(30.0, 0.0, 10.0)));
     let unit = logic.host_object(unit_id).expect("unit");
-    assert_eq!(unit.ai_state, AIState::Moving);
+    assert_eq!(unit.ai_state(), AIState::Moving);
     assert!(unit.ignored_obstacle_id.is_none());
 }
 
@@ -1045,7 +1045,7 @@ fn carrier_idle_replaces_the_jet_building_ignore_with_the_carrier() {
     logic.flight_decks.insert(carrier, state);
     assert!(logic.flight_deck_ai_do_command(carrier, HostFlightDeckCommand::Idle, None, None));
     let unit = logic.host_object(jet).expect("jet");
-    assert_eq!(unit.ai_state, AIState::Entering);
+    assert_eq!(unit.ai_state(), AIState::Entering);
     assert_eq!(unit.ignored_obstacle_id, Some(carrier));
 }
 
@@ -1079,7 +1079,7 @@ fn leaving_enter_clears_the_carrier_ignore() {
         );
     }
     let unit = logic.host_object(jet).expect("jet");
-    assert_eq!(unit.ai_state, AIState::Docked);
+    assert_eq!(unit.ai_state(), AIState::Docked);
     assert!(unit.ignored_obstacle_id.is_none());
 }
 
@@ -1117,7 +1117,7 @@ fn queued_enter_path_keeps_the_carrier_ignore() {
     assert!(logic.assign_unit_path_ignoring(jet, Vec3::new(80.0, 0.0, 0.0), &[], Some(deck)));
     logic.process_pathfind_queue();
     let unit = logic.host_object(jet).expect("jet");
-    assert_eq!(unit.ai_state, AIState::Entering);
+    assert_eq!(unit.ai_state(), AIState::Entering);
     assert_eq!(unit.ignored_obstacle_id, Some(deck));
     assert!(!unit.movement.path.is_empty() || unit.waiting_for_path);
 }
@@ -1175,7 +1175,7 @@ fn reissued_enter_crosses_the_carrier() {
     logic.reissue_pending_moves();
     logic.process_pathfind_queue();
     let unit = logic.host_object(jet).expect("jet");
-    assert_eq!(unit.ai_state, AIState::Entering);
+    assert_eq!(unit.ai_state(), AIState::Entering);
     assert_eq!(unit.ignored_obstacle_id, Some(deck));
     let xs: Vec<i32> = unit
         .movement
@@ -1196,9 +1196,7 @@ fn reissued_enter_crosses_the_carrier() {
 
 #[test]
 fn cliff_cell_picks_the_cliff_member_when_the_set_changes() {
-    use crate::game_logic::host_upgrade_module_residuals::{
-        AuthoredLocomotorSet, HostLocomotorSetKind,
-    };
+    use crate::game_logic::host_upgrade_module_residuals::{AuthoredLocomotorSet, HostLocomotorSetKind};
     use crate::game_logic::{KindOf, Player, ThingTemplate};
     use gamelogic::ai::pathfind_astar::PathfindCellType;
 
@@ -1286,7 +1284,7 @@ fn garrison_enter_ignores_the_bunker() {
     );
     logic.process_pathfind_queue();
     let unit = logic.host_object(infantry).expect("infantry");
-    assert_eq!(unit.ai_state, AIState::Entering);
+    assert_eq!(unit.ai_state(), AIState::Entering);
     assert_eq!(unit.ignored_obstacle_id, Some(bunker));
     let xs: Vec<i32> = unit
         .movement
@@ -1306,7 +1304,7 @@ fn garrison_enter_ignores_the_bunker() {
     logic.update_support_states_for_test(&[infantry], 1.0 / 30.0);
     logic.process_pathfind_queue();
     let unit = logic.host_object(infantry).expect("infantry");
-    assert_eq!(unit.ai_state, AIState::Entering);
+    assert_eq!(unit.ai_state(), AIState::Entering);
     let xs: Vec<i32> = unit
         .movement
         .path
@@ -1367,7 +1365,7 @@ fn hijack_paths_through_the_vehicle() {
     assert!(logic.try_guard_enter_or_hijack(infantry, vehicle, true, Team::USA));
     logic.process_pathfind_queue();
     let unit = logic.host_object(infantry).expect("infantry");
-    assert_eq!(unit.ai_state, AIState::SpecialAbility);
+    assert_eq!(unit.ai_state(), AIState::SpecialAbility);
     assert_eq!(unit.ignored_obstacle_id, Some(vehicle));
     let xs: Vec<i32> = unit
         .movement
@@ -1430,7 +1428,7 @@ fn non_hijacker_at_the_vehicle_is_released() {
     }
     logic.update_support_states_for_test(&[infantry], 1.0 / 30.0);
     let unit = logic.host_object(infantry).expect("infantry");
-    assert_eq!(unit.ai_state, AIState::Idle);
+    assert_eq!(unit.ai_state(), AIState::Idle);
     assert!(unit.ignored_obstacle_id.is_none());
     assert!(unit.movement.path.is_empty());
     assert!(!logic.pending_special_abilities.contains_key(&infantry));
@@ -1481,7 +1479,7 @@ fn rejected_car_bomb_releases_the_infantry() {
     }
     logic.update_support_states_for_test(&[infantry], 1.0 / 30.0);
     let unit = logic.host_object(infantry).expect("infantry");
-    assert_eq!(unit.ai_state, AIState::Idle);
+    assert_eq!(unit.ai_state(), AIState::Idle);
     assert!(unit.ignored_obstacle_id.is_none());
     assert!(unit.movement.path.is_empty());
     assert!(!logic.pending_special_abilities.contains_key(&infantry));
@@ -1532,7 +1530,7 @@ fn rejected_disguise_releases_the_infantry() {
     }
     logic.update_support_states_for_test(&[infantry], 1.0 / 30.0);
     let unit = logic.host_object(infantry).expect("infantry");
-    assert_eq!(unit.ai_state, AIState::Idle);
+    assert_eq!(unit.ai_state(), AIState::Idle);
     assert!(unit.ignored_obstacle_id.is_none());
     assert!(unit.movement.path.is_empty());
     assert!(!logic.pending_special_abilities.contains_key(&infantry));
@@ -1582,7 +1580,7 @@ fn sabotage_of_a_vehicle_releases_the_infantry() {
     }
     logic.update_support_states_for_test(&[infantry], 1.0 / 30.0);
     let unit = logic.host_object(infantry).expect("infantry");
-    assert_eq!(unit.ai_state, AIState::Idle);
+    assert_eq!(unit.ai_state(), AIState::Idle);
     assert!(unit.ignored_obstacle_id.is_none());
     assert!(unit.movement.path.is_empty());
     assert!(!logic.pending_special_abilities.contains_key(&infantry));
@@ -1649,7 +1647,7 @@ fn hijack_followup_tick_still_crosses_the_vehicle() {
     logic.update_support_states_for_test(&[infantry], 1.0 / 30.0);
     logic.process_pathfind_queue();
     let unit = logic.host_object(infantry).expect("infantry");
-    assert_eq!(unit.ai_state, AIState::SpecialAbility);
+    assert_eq!(unit.ai_state(), AIState::SpecialAbility);
     assert_eq!(unit.ignored_obstacle_id, Some(vehicle));
     let xs: Vec<i32> = unit
         .movement

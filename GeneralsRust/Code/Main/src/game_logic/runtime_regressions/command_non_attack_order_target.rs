@@ -47,7 +47,7 @@ fn command_non_attack_order_target() -> bool {
         if unit.target != Some(pad) {
             return false;
         }
-        if unit.ai_state != AIState::Docking {
+        if unit.ai_state() != AIState::Docking {
             return false;
         }
         if unit.status.attacking {

@@ -116,9 +116,12 @@ fn live_flight_callback_observes_pose_without_integrating_again() {
             combat_drop(&mut b, other);
             let before_a = a.host_object(transport).unwrap().get_position();
             let before_b = b.host_object(other).unwrap().get_position();
-            a.tick_chinook_ai(1.0 / 30.0);
-            b.tick_chinook_ai(1.0);
-            a.tick_chinook_ai(0.0);
+            a.tick_chinook_ai(1.0 / 30.0)
+                .expect("receiving AI operation succeeds");
+            b.tick_chinook_ai(1.0)
+                .expect("receiving AI operation succeeds");
+            a.tick_chinook_ai(0.0)
+                .expect("receiving AI operation succeeds");
             assert_eq!(a.host_object(transport).unwrap().get_position(), before_a);
             assert_eq!(b.host_object(other).unwrap().get_position(), before_b);
             assert_eq!(
@@ -126,7 +129,8 @@ fn live_flight_callback_observes_pose_without_integrating_again() {
                 Some(transport)
             );
             drop(b);
-            a.tick_chinook_ai(1.0 / 30.0);
+            a.tick_chinook_ai(1.0 / 30.0)
+                .expect("receiving AI operation succeeds");
             assert_eq!(a.host_object(transport).unwrap().get_position(), before_a);
         },
     );
@@ -145,7 +149,9 @@ fn live_takeoff_publishes_explicit_goal_and_preserves_pose() {
             ai.state = HostChinookAIState::TakingOff;
             ai.flight_status = HostChinookFlightStatus::TakingOff;
             ai.dest = [before.x, before.z, before.y + 20.0];
-            logic.tick_chinook_ai(1.0 / 30.0);
+            logic
+                .tick_chinook_ai(1.0 / 30.0)
+                .expect("receiving AI operation succeeds");
             let object = logic.host_object(transport).unwrap();
             assert_eq!(object.get_position(), before);
             assert_eq!(object.locomotor_goal_type, LocoGoalType::PositionExplicit);
@@ -176,7 +182,9 @@ fn live_takeoff_exit_arms_original_position_path_without_integrating() {
             object.set_position(arrival);
             object.status.moving = true;
             object.set_locomotor_goal_position_explicit(arrival);
-            logic.tick_chinook_ai(1.0 / 30.0);
+            logic
+                .tick_chinook_ai(1.0 / 30.0)
+                .expect("receiving AI operation succeeds");
             let object = logic.host_object(transport).unwrap();
             assert_eq!(object.get_position(), arrival);
             assert_eq!(
@@ -189,7 +197,9 @@ fn live_takeoff_exit_arms_original_position_path_without_integrating() {
             assert_eq!(object.locomotor_goal_type, LocoGoalType::PositionOnPath);
             assert!(object.allow_invalid_position);
             assert!(!object.precise_z_pos && !object.ultra_accurate);
-            logic.tick_chinook_ai(1.0);
+            logic
+                .tick_chinook_ai(1.0)
+                .expect("receiving AI operation succeeds");
             assert_eq!(
                 logic.host_object(transport).unwrap().get_position(),
                 arrival
@@ -395,7 +405,9 @@ fn live_host_chinooks_unstack_landing_dest() {
             assert!(object.cur_locomotor_name.is_some());
             object.pending_evacuate_on_stop = true;
         }
-        logic.tick_chinook_ai(1.0 / 30.0);
+        logic
+            .tick_chinook_ai(1.0 / 30.0)
+            .expect("receiving AI operation succeeds");
         let destinations = [a, b].map(|id| {
             let object = logic.host_object(id).unwrap();
             let ai = object.chinook_ai.as_ref().unwrap();

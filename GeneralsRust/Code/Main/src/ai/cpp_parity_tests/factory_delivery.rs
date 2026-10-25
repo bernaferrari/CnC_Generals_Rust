@@ -295,7 +295,7 @@ fn work_order_waits_for_live_factory_output_before_completing() {
     for _ in 0..300 {
         if logic.host_object(unit).is_some_and(|unit| {
             matches!(
-                unit.ai_state,
+                unit.ai_state(),
                 crate::game_logic::AIState::Idle
                     | crate::game_logic::AIState::GuardingArea
                     | crate::game_logic::AIState::GuardingObject
@@ -439,7 +439,7 @@ fn supply_center_spawns_free_collector_then_ai_pays_for_next_collector() {
     let free = logic
         .host_object(free_collector)
         .expect("free collector live");
-    assert_eq!(free.ai_state, crate::game_logic::AIState::Gathering);
+    assert_eq!(free.ai_state(), crate::game_logic::AIState::Gathering);
     assert_eq!(free.target, Some(source_id));
     assert_eq!(free.preferred_dock_id, Some(center_id));
 
@@ -481,7 +481,7 @@ fn supply_center_spawns_free_collector_then_ai_pays_for_next_collector() {
     let paid = logic
         .host_object(paid_collector)
         .expect("paid collector live");
-    assert_eq!(paid.ai_state, crate::game_logic::AIState::Gathering);
+    assert_eq!(paid.ai_state(), crate::game_logic::AIState::Gathering);
     assert_eq!(paid.target, Some(source_id));
     assert_eq!(paid.preferred_dock_id, Some(center_id));
     assert!(

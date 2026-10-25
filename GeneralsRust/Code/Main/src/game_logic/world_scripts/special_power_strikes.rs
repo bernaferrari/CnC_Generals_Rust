@@ -636,14 +636,14 @@ impl GameLogic {
     /// CarpetBomb residual applies multi-point line damage after approach delay.
     /// ArtilleryBarrage residual applies multi-shell scatter damage after delay.
     /// CruiseMissile residual applies MOAB area damage after loft delay.
-    pub fn update_special_power_strikes(&mut self) {
-        self.update_special_power_strikes_with_effects(&mut Default::default());
+    pub fn update_special_power_strikes(&mut self) -> gamelogic::GameLogicResult<()> {
+        self.update_special_power_strikes_with_effects(&mut Default::default())
     }
 
     pub(crate) fn update_special_power_strikes_with_effects(
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         use crate::game_logic::special_power_strikes::{
             ANTHRAX_TOXIN_AUDIO, HostSuperweaponKind, NUKE_RADIATION_AUDIO, SPECTRE_ORBIT_AUDIO,
         };
@@ -697,7 +697,7 @@ impl GameLogic {
             }
 
             for (id, killer_team) in destroy_ids {
-                self.mark_object_for_destruction_with_effects(id, Some(killer_team), effects);
+                self.mark_object_for_destruction_with_effects(id, Some(killer_team), effects)?;
             }
 
             // C++ one SlowDeath on the flying missile — no registry instant blast.
@@ -871,64 +871,67 @@ impl GameLogic {
         }
         // Wave 825: under coupled shadow, zone/field damage sole-ticks after GW writeback.
         {
-            self.update_neutron_slow_death_fields_with_effects(effects);
+            self.update_neutron_slow_death_fields_with_effects(effects)?;
         }
-        self.update_wave_guides_with_effects(effects);
+        self.update_wave_guides_with_effects(effects)?;
         // AnthraxBomb residual toxin field ticks (after impact blasts).
         // Wave 825: under coupled shadow, zone/field damage sole-ticks after GW writeback.
         {
-            self.update_anthrax_toxin_fields_with_effects(effects);
+            self.update_anthrax_toxin_fields_with_effects(effects)?;
         }
         // SpectreGunship residual orbit damage ticks (after insertion).
         // Wave 825: under coupled shadow, zone/field damage sole-ticks after GW writeback.
         {
-            self.update_spectre_orbit_fields_with_effects(effects);
+            self.update_spectre_orbit_fields_with_effects(effects)?;
         }
         self.spawn_spectre_howitzer_shell_objects_for_new_spawns_with_effects(effects);
         // Wave 806: under coupled shadow, lifetime owned by GW expire + logs.
         {
-            self.update_spectre_howitzer_shell_objects_with_effects(effects);
+            self.update_spectre_howitzer_shell_objects_with_effects(effects)?;
         }
         // ParticleCannon residual continuous beam pulses (after charge residual).
-        self.update_particle_beam_fields_with_effects(effects);
+        self.update_particle_beam_fields_with_effects(effects)?;
         self.spawn_particle_orbital_laser_objects_for_new_beams_with_effects(effects);
         self.spawn_particle_connector_laser_objects_for_new_beams_with_effects(effects);
         // Wave 808: under coupled shadow, lifetime owned by GW expire + logs.
         {
-            self.update_particle_orbital_laser_objects_with_effects(effects);
+            self.update_particle_orbital_laser_objects_with_effects(effects)?;
         }
         // Wave 808: under coupled shadow, lifetime owned by GW expire + logs.
         {
-            self.update_particle_connector_laser_objects_with_effects(effects);
+            self.update_particle_connector_laser_objects_with_effects(effects)?;
         }
         // Particle Uplink DamagePulseRemnant trail residual ticks.
         self.spawn_particle_trail_remnant_objects_for_new_fields_with_effects(effects);
         // Wave 808: under coupled shadow, lifetime owned by GW expire + logs.
         {
-            self.update_particle_trail_remnant_objects_with_effects(effects);
+            self.update_particle_trail_remnant_objects_with_effects(effects)?;
         }
-        self.update_particle_remnant_fields_with_effects(effects);
+        self.update_particle_remnant_fields_with_effects(effects)?;
+        Ok(())
     }
 
     /// Tick residual radiation fields spawned by NuclearMissile impacts.
     /// Fail-closed vs full HazardousMaterialArmor / cleanup-hazard objects.
 
     /// C++ NeutronMissileSlowDeathBehavior multi-blast residual.
-    pub(in super::super) fn update_neutron_slow_death_fields(&mut self) {
-        self.update_neutron_slow_death_fields_with_effects(&mut Default::default());
+    pub(in super::super) fn update_neutron_slow_death_fields(
+        &mut self,
+    ) -> gamelogic::GameLogicResult<()> {
+        self.update_neutron_slow_death_fields_with_effects(&mut Default::default())
     }
 
     pub(in super::super) fn update_neutron_slow_death_fields_with_effects(
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         use crate::game_logic::host_neutron_missile_slow_death::{
             MC_BIT_BURNED, neutron_blast_can_topple, plan_neutron_frame,
         };
 
         let n = self.special_power_strikes.neutron_slow_death_field_count();
         if n == 0 {
-            return;
+            return Ok(());
         }
 
         // Snapshot object xyz + ids for 3D falloff planning.
@@ -1086,19 +1089,20 @@ impl GameLogic {
             .restore_neutron_slow_death_fields(keep_fields, keep_metas);
 
         for (id, team) in destroy_ids {
-            self.mark_object_for_destruction_with_effects(id, Some(team), effects);
+            self.mark_object_for_destruction_with_effects(id, Some(team), effects)?;
         }
+        Ok(())
     }
 
     /// C++ WaveGuideUpdate residual — flood wave motion + damage after DamDie.
-    pub(in super::super) fn update_wave_guides(&mut self) {
-        self.update_wave_guides_with_effects(&mut Default::default());
+    pub(in super::super) fn update_wave_guides(&mut self) -> gamelogic::GameLogicResult<()> {
+        self.update_wave_guides_with_effects(&mut Default::default())
     }
 
     pub(in super::super) fn update_wave_guides_with_effects(
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         let tree_move_frame = self.frame;
         use crate::game_logic::host_bridge_behavior::is_bridge_span_template;
         use crate::game_logic::host_topple::{
@@ -1170,7 +1174,7 @@ impl GameLogic {
                     }
                 }
             }
-            return;
+            return Ok(());
         }
 
         // C++ startMoving + splash roll, delivered by this world's audio queue.
@@ -1436,8 +1440,9 @@ impl GameLogic {
         }
 
         for (id, team) in destroy_ids {
-            self.mark_object_for_destruction_with_effects(id, Some(team), effects);
+            self.mark_object_for_destruction_with_effects(id, Some(team), effects)?;
         }
+        Ok(())
     }
 
     pub(in super::super) fn update_nuclear_radiation_fields(&mut self) {
@@ -1498,14 +1503,16 @@ impl GameLogic {
 
     /// Tick residual toxin fields spawned by AnthraxBomb impacts.
     /// Fail-closed vs full HazardousMaterialArmor / cleanup-hazard / gamma objects.
-    pub(in super::super) fn update_anthrax_toxin_fields(&mut self) {
+    pub(in super::super) fn update_anthrax_toxin_fields(
+        &mut self,
+    ) -> gamelogic::GameLogicResult<()> {
         self.update_anthrax_toxin_fields_with_effects(&mut Default::default())
     }
 
     pub(in super::super) fn update_anthrax_toxin_fields_with_effects(
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         let object_positions: Vec<(ObjectId, Vec3, Team, bool, bool)> = self
             .objects
             .registered()
@@ -1560,7 +1567,7 @@ impl GameLogic {
             }
 
             for (id, killer_team) in destroy_ids {
-                self.mark_object_for_destruction_with_effects(id, Some(killer_team), effects);
+                self.mark_object_for_destruction_with_effects(id, Some(killer_team), effects)?;
             }
 
             self.special_power_strikes.record_toxin_tick_complete(
@@ -1578,6 +1585,7 @@ impl GameLogic {
             self.update_anthrax_toxin_field_objects_with_effects(effects);
         }
         self.special_power_strikes.prune_expired_toxin(frame);
+        Ok(())
     }
 
     fn apply_pending_special_power_overrides(&mut self) {
@@ -1955,14 +1963,16 @@ impl GameLogic {
 
     /// Tick residual Spectre orbit fields spawned at orbit insertion.
     /// Fail-closed vs full SpectreGunshipUpdate gattling-strafe / howitzer projectile.
-    pub(in super::super) fn update_spectre_orbit_fields(&mut self) {
+    pub(in super::super) fn update_spectre_orbit_fields(
+        &mut self,
+    ) -> gamelogic::GameLogicResult<()> {
         self.update_spectre_orbit_fields_with_effects(&mut Default::default())
     }
 
     pub(in super::super) fn update_spectre_orbit_fields_with_effects(
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         use crate::game_logic::special_power_strikes::{
             HostSpectreOrbitDamageStream, SPECTRE_VOICE_RAPID_FIRE_SLOT,
             spectre_voice_rapid_fire_crossings,
@@ -2082,7 +2092,7 @@ impl GameLogic {
             }
 
             for (id, killer_team) in destroy_ids {
-                self.mark_object_for_destruction_with_effects(id, Some(killer_team), effects);
+                self.mark_object_for_destruction_with_effects(id, Some(killer_team), effects)?;
             }
 
             // C++ AI wide-acquire steer (:530-556): m_positionToShootAt snaps
@@ -2140,6 +2150,7 @@ impl GameLogic {
         self.spawn_spectre_gattling_strafe_smoke();
 
         self.special_power_strikes.prune_expired_orbit(frame);
+        Ok(())
     }
 
     /// C++ `SpectreGunshipUpdate.cpp:598-643` — leftover `createParticleSystem`
@@ -2194,14 +2205,16 @@ impl GameLogic {
     /// BeamLaunchFX residual closed.
     /// Fail-closed vs full bone-extract lasers / GPU OuterBeamWidth matrix.
     /// Swath + DamagePulseRemnant residual closed.
-    pub(in super::super) fn update_particle_beam_fields(&mut self) {
-        self.update_particle_beam_fields_with_effects(&mut Default::default());
+    pub(in super::super) fn update_particle_beam_fields(
+        &mut self,
+    ) -> gamelogic::GameLogicResult<()> {
+        self.update_particle_beam_fields_with_effects(&mut Default::default())
     }
 
     pub(in super::super) fn update_particle_beam_fields_with_effects(
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         let frame = self.frame;
         self.apply_pending_special_power_overrides();
         let aborting: std::collections::HashSet<ObjectId> = self
@@ -2387,7 +2400,7 @@ impl GameLogic {
             }
 
             for (id, killer_team) in destroy_ids {
-                self.mark_object_for_destruction_with_effects(id, Some(killer_team), effects);
+                self.mark_object_for_destruction_with_effects(id, Some(killer_team), effects)?;
             }
 
             self.special_power_strikes.record_beam_tick_complete(
@@ -2400,6 +2413,7 @@ impl GameLogic {
         }
 
         self.special_power_strikes.prune_expired_beam(frame);
+        Ok(())
     }
 
     /// C++ SpectreHowitzerShell ThingFactory Object residual (orbit howitzer ticks).
@@ -2495,14 +2509,14 @@ impl GameLogic {
     }
 
     /// Natural shell end (HeightDie impact or MaxLifespan detonate-at-end).
-    pub fn update_spectre_howitzer_shell_objects(&mut self) {
+    pub fn update_spectre_howitzer_shell_objects(&mut self) -> gamelogic::GameLogicResult<()> {
         self.update_spectre_howitzer_shell_objects_with_effects(&mut Default::default())
     }
 
     pub(crate) fn update_spectre_howitzer_shell_objects_with_effects(
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         use crate::game_logic::special_power_strikes::{
             SPECTRE_HOWITZER_DETONATION_FX, SPECTRE_HOWITZER_HEIGHT_DIE_INITIAL_DELAY_FRAMES,
             SPECTRE_HOWITZER_HEIGHT_DIE_TARGET_HEIGHT, SPECTRE_HOWITZER_SHELL_MAX_LIFESPAN_FRAMES,
@@ -2575,8 +2589,9 @@ impl GameLogic {
                 o.status.effectively_dead = true;
                 o.spectre_howitzer_shell = false;
             }
-            self.mark_object_for_destruction_with_effects(id, None, effects);
+            self.mark_object_for_destruction_with_effects(id, None, effects)?;
         }
+        Ok(())
     }
 
     /// C++ PoisonFieldAnthraxBomb / PoisonFieldLarge ThingFactory Object residual.
@@ -2888,14 +2903,14 @@ impl GameLogic {
         }
     }
 
-    pub fn update_particle_connector_laser_objects(&mut self) {
+    pub fn update_particle_connector_laser_objects(&mut self) -> gamelogic::GameLogicResult<()> {
         self.update_particle_connector_laser_objects_with_effects(&mut Default::default())
     }
 
     pub(crate) fn update_particle_connector_laser_objects_with_effects(
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         let frame = self.frame;
         let due: Vec<ObjectId> = self
             .objects
@@ -2922,8 +2937,9 @@ impl GameLogic {
                 o.status.effectively_dead = true;
                 o.particle_connector_laser = false;
             }
-            self.mark_object_for_destruction_with_effects(id, None, effects);
+            self.mark_object_for_destruction_with_effects(id, None, effects)?;
         }
+        Ok(())
     }
 
     /// C++ ParticleUplinkCannon_OrbitalLaser ThingFactory Object residual.
@@ -2998,14 +3014,14 @@ impl GameLogic {
         }
     }
 
-    pub fn update_particle_orbital_laser_objects(&mut self) {
+    pub fn update_particle_orbital_laser_objects(&mut self) -> gamelogic::GameLogicResult<()> {
         self.update_particle_orbital_laser_objects_with_effects(&mut Default::default())
     }
 
     pub(crate) fn update_particle_orbital_laser_objects_with_effects(
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         let frame = self.frame;
         let due: Vec<ObjectId> = self
             .objects
@@ -3032,8 +3048,9 @@ impl GameLogic {
                 o.status.effectively_dead = true;
                 o.particle_orbital_laser = false;
             }
-            self.mark_object_for_destruction_with_effects(id, None, effects);
+            self.mark_object_for_destruction_with_effects(id, None, effects)?;
         }
+        Ok(())
     }
 
     /// C++ ParticleUplinkCannonTrailRemnant ThingFactory Object residual.
@@ -3101,14 +3118,14 @@ impl GameLogic {
         }
     }
 
-    pub fn update_particle_trail_remnant_objects(&mut self) {
+    pub fn update_particle_trail_remnant_objects(&mut self) -> gamelogic::GameLogicResult<()> {
         self.update_particle_trail_remnant_objects_with_effects(&mut Default::default())
     }
 
     pub(crate) fn update_particle_trail_remnant_objects_with_effects(
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         let frame = self.frame;
         let due: Vec<ObjectId> = self
             .objects
@@ -3135,20 +3152,23 @@ impl GameLogic {
                 o.status.effectively_dead = true;
                 o.particle_trail_remnant = false;
             }
-            self.mark_object_for_destruction_with_effects(id, None, effects);
+            self.mark_object_for_destruction_with_effects(id, None, effects)?;
         }
+        Ok(())
     }
 
     /// Tick residual DamagePulseRemnant trail fields spawned by Particle Uplink
     /// beam pulses. ParticleUplinkCannonTrailRemnant Object residual closed.
-    pub(in super::super) fn update_particle_remnant_fields(&mut self) {
+    pub(in super::super) fn update_particle_remnant_fields(
+        &mut self,
+    ) -> gamelogic::GameLogicResult<()> {
         self.update_particle_remnant_fields_with_effects(&mut Default::default())
     }
 
     pub(in super::super) fn update_particle_remnant_fields_with_effects(
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         let object_positions: Vec<(ObjectId, Vec3, Team, bool)> = self
             .objects
             .registered()
@@ -3197,7 +3217,7 @@ impl GameLogic {
             }
 
             for (id, killer_team) in destroy_ids {
-                self.mark_object_for_destruction_with_effects(id, Some(killer_team), effects);
+                self.mark_object_for_destruction_with_effects(id, Some(killer_team), effects)?;
             }
 
             self.special_power_strikes.record_remnant_tick_complete(
@@ -3210,6 +3230,7 @@ impl GameLogic {
         }
 
         self.special_power_strikes.prune_expired_remnant(frame);
+        Ok(())
     }
 }
 

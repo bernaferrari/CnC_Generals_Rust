@@ -7,9 +7,7 @@ use crate::gui::control_bar::{
     host_control_bar_input_provenance_for_current_dispatch, HostControlBarInputProvenance,
 };
 use crate::gui::gadgets::ListBoxItemData;
-use crate::gui::menu_flags::{
-    get_dont_show_main_menu, get_replay_was_pressed, set_replay_was_pressed,
-};
+use crate::gui::menu_flags::{get_dont_show_main_menu, get_replay_was_pressed, set_replay_was_pressed};
 use crate::gui::shell::Color as WindowColor;
 use crate::gui::{
     queue_set_focus, queue_shell_hide, queue_shell_pop, queue_shell_show,
@@ -668,90 +666,96 @@ mod tests {
 
     #[test]
     fn named_live_load_confirms_the_exact_host_row() {
-        let _bridge_guard = acquire_host_popup_save_load_bridge_test_guard();
-        clear_host_popup_save_load_bridge();
-        with_window_manager(|manager| manager.reset());
-        // QuitMenu opens this popup while a game is running.  The retail
-        // in-game path presents LoadConfirm; the shell path instead loads
-        // directly, so model the former here.
-        let previous_shell_active = crate::gui::shell::get_shell().is_shell_active();
-        crate::gui::shell::get_shell().set_shell_active(false);
-        publish_host_popup_save_load_entries(vec![
-            PopupSaveLoadEntry {
-                filename: "older_user_save".into(),
-                description: "Older user save".into(),
-                ..Default::default()
-            },
-            PopupSaveLoadEntry {
-                filename: "wnd_pause".into(),
-                description: "Windowed pause save".into(),
-                ..Default::default()
-            },
-        ]);
+        let owner = crate::gui::window_manager::WindowManagerOwner::new();
+        owner.with_scope(|| {
+            let _bridge_guard = acquire_host_popup_save_load_bridge_test_guard();
+            clear_host_popup_save_load_bridge();
+            with_window_manager(|manager| manager.reset());
+            // QuitMenu opens this popup while a game is running.  The retail
+            // in-game path presents LoadConfirm; the shell path instead loads
+            // directly, so model the former here.
+            let previous_shell_active = crate::gui::shell::get_shell().is_shell_active();
+            crate::gui::shell::get_shell().set_shell_active(false);
+            publish_host_popup_save_load_entries(vec![
+                PopupSaveLoadEntry {
+                    filename: "older_user_save".into(),
+                    description: "Older user save".into(),
+                    ..Default::default()
+                },
+                PopupSaveLoadEntry {
+                    filename: "wnd_pause".into(),
+                    description: "Windowed pause save".into(),
+                    ..Default::default()
+                },
+            ]);
 
-        assert!(
-            drive_os_wnd_popup_save_load_load_named_and_confirm_like_cpp("wnd_pause"),
-            "the real listbox/load/confirmation widgets must accept the requested row"
-        );
-        assert_eq!(
-            take_host_popup_save_load_requests(),
-            vec![PopupSaveLoadRequest::Load {
-                filename: "wnd_pause".into(),
-            }],
-            "a named load must never fall through to the first pre-existing row"
-        );
+            assert!(
+                drive_os_wnd_popup_save_load_load_named_and_confirm_like_cpp("wnd_pause"),
+                "the real listbox/load/confirmation widgets must accept the requested row"
+            );
+            assert_eq!(
+                take_host_popup_save_load_requests(),
+                vec![PopupSaveLoadRequest::Load {
+                    filename: "wnd_pause".into(),
+                }],
+                "a named load must never fall through to the first pre-existing row"
+            );
 
-        clear_host_popup_save_load_bridge();
-        with_window_manager(|manager| manager.reset());
-        crate::gui::shell::get_shell().set_shell_active(previous_shell_active);
+            clear_host_popup_save_load_bridge();
+            with_window_manager(|manager| manager.reset());
+            crate::gui::shell::get_shell().set_shell_active(previous_shell_active);
+        });
     }
 
     #[test]
     fn live_save_description_confirm_emits_the_host_request() {
-        let _bridge_guard = acquire_host_popup_save_load_bridge_test_guard();
-        clear_host_popup_save_load_bridge();
-        with_window_manager(|manager| manager.reset());
-        let previous_shell_active = crate::gui::shell::get_shell().is_shell_active();
-        crate::gui::shell::get_shell().set_shell_active(false);
-        // The empty published inventory is intentional: it proves the real
-        // New Save Game pseudo-row opens the description confirmation rather
-        // than falling back to incompatible Common rows.
-        publish_host_popup_save_load_entries(Vec::new());
+        let owner = crate::gui::window_manager::WindowManagerOwner::new();
+        owner.with_scope(|| {
+            let _bridge_guard = acquire_host_popup_save_load_bridge_test_guard();
+            clear_host_popup_save_load_bridge();
+            with_window_manager(|manager| manager.reset());
+            let previous_shell_active = crate::gui::shell::get_shell().is_shell_active();
+            crate::gui::shell::get_shell().set_shell_active(false);
+            // The empty published inventory is intentional: it proves the real
+            // New Save Game pseudo-row opens the description confirmation rather
+            // than falling back to incompatible Common rows.
+            publish_host_popup_save_load_entries(Vec::new());
 
-        assert!(prepare_live_popup_save_load_for_click());
-        assert!(crate::gui::dispatch_os_click_named_window(
-            "PopupSaveLoad.wnd:ButtonSave"
-        ));
-        assert!(live_popup_save_load_window_visible(
-            "PopupSaveLoad.wnd:SaveDescParent"
-        ));
+            assert!(prepare_live_popup_save_load_for_click());
+            assert!(crate::gui::dispatch_os_click_named_window(
+                "PopupSaveLoad.wnd:ButtonSave"
+            ));
+            assert!(live_popup_save_load_window_visible(
+                "PopupSaveLoad.wnd:SaveDescParent"
+            ));
 
-        let edit_desc = {
-            let state_handle = save_load_menu_state();
-            let state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
-            state.edit_desc.clone().expect("retail EntryDesc")
-        };
-        edit_desc
-            .borrow_mut()
-            .text_entry_mut()
-            .expect("retail EntryDesc text widget")
-            .set_text("Windowed pause save");
+            let edit_desc = {
+                let state_handle = save_load_menu_state();
+                let state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
+                state.edit_desc.clone().expect("retail EntryDesc")
+            };
+            edit_desc
+                .borrow_mut()
+                .text_entry_mut()
+                .expect("retail EntryDesc text widget")
+                .set_text("Windowed pause save");
 
-        assert!(crate::gui::dispatch_os_click_named_window(
-            "PopupSaveLoad.wnd:ButtonSaveDescConfirm"
-        ));
-        assert_eq!(
-            take_host_popup_save_load_requests(),
-            vec![PopupSaveLoadRequest::Save {
-                filename: String::new(),
-                description: "Windowed pause save".into(),
-                save_file_type: SaveFileType::Normal,
-            }]
-        );
+            assert!(crate::gui::dispatch_os_click_named_window(
+                "PopupSaveLoad.wnd:ButtonSaveDescConfirm"
+            ));
+            assert_eq!(
+                take_host_popup_save_load_requests(),
+                vec![PopupSaveLoadRequest::Save {
+                    filename: String::new(),
+                    description: "Windowed pause save".into(),
+                    save_file_type: SaveFileType::Normal,
+                }]
+            );
 
-        clear_host_popup_save_load_bridge();
-        with_window_manager(|manager| manager.reset());
-        crate::gui::shell::get_shell().set_shell_active(previous_shell_active);
+            clear_host_popup_save_load_bridge();
+            with_window_manager(|manager| manager.reset());
+            crate::gui::shell::get_shell().set_shell_active(previous_shell_active);
+        });
     }
 
     #[test]
@@ -1711,11 +1715,7 @@ pub fn residual_save_load_last_action() -> ResidualSaveLoadAction {
 /// Residual: last selected slot index (-1 if none).
 pub fn residual_save_load_selected_slot() -> Option<i32> {
     let slot = RESIDUAL_SAVE_LOAD_SLOT.load(std::sync::atomic::Ordering::Relaxed);
-    if slot < 0 {
-        None
-    } else {
-        Some(slot)
-    }
+    if slot < 0 { None } else { Some(slot) }
 }
 
 /// Residual: bind SaveLoad gadget IDs for popup or full-screen layout.

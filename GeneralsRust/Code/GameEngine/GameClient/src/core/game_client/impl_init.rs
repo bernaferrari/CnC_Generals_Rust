@@ -30,7 +30,10 @@ impl GameClient {
 
     /// Creates a new GameClient instance
     pub fn new() -> GameClientResult<Self> {
+        let window_manager_owner = WindowManagerOwner::new();
         let client = Self {
+            window_manager_owner: window_manager_owner.clone(),
+            shell_game_first_load: true,
             frame: 0,
             owned_world_animations: OwnedWorldAnimations::default(),
             receiving_draw_icon_ui: true,
@@ -81,7 +84,37 @@ impl GameClient {
     }
 
     /// Initializes all subsystems and resources
+    /// Initialize a load screen using this client's persistent first-load state.
+    /// Run a synchronous GameLogic operation with this client's load-screen recipient.
+    /// The callback borrows both the adapter and client for the operation duration.
+    pub fn with_load_screen_hooks<R>(
+        &mut self,
+        operation: impl FnOnce(&mut dyn gamelogic::helpers::LoadScreenHooks) -> R,
+    ) -> R {
+        let mut hooks = crate::helpers::GameClientLoadScreenHooks::new(self);
+        operation(&mut hooks)
+    }
+
+    pub fn init_owned_load_screen(
+        &mut self,
+        kind: crate::gui::load_screen::LoadScreenKind,
+        context: &crate::gui::load_screen::LoadScreenInitContext,
+    ) -> bool {
+        let owner = self.window_manager_owner.clone();
+        crate::gui::load_screen::init_load_screen_for_owner(
+            &owner,
+            kind,
+            context,
+            &mut self.shell_game_first_load,
+        )
+    }
+
     pub fn init(&mut self) -> GameClientResult<()> {
+        let owner = self.window_manager_owner.clone();
+        owner.with_scope(|| self.init_with_window_owner())
+    }
+
+    fn init_with_window_owner(&mut self) -> GameClientResult<()> {
         if self.initialized {
             return Err(GameClientError::InvalidOperation(
                 "GameClient already initialized".to_string(),
@@ -238,13 +271,18 @@ impl GameClient {
 
     /// Resets the game client for a new game
     pub fn reset(&mut self) -> GameClientResult<()> {
+        let owner = self.window_manager_owner.clone();
+        owner.with_scope(|| self.reset_with_window_owner())
+    }
+
+    fn reset_with_window_owner(&mut self) -> GameClientResult<()> {
         self.receiving_draw_icon_ui = true;
         reset_script_action_runtime_state();
         Self::reset_global_video_player_streams();
         self.startup_sizzle_pending = false;
 
         // C++ parity: show a blank transition window while subsystems reset.
-        let reset_background = with_window_manager(|manager| {
+        let reset_background = self.window_manager_owner.with_manager(|manager| {
             manager
                 .create_layout_with_windows("Menus/BlankWindow.wnd")
                 .ok()
@@ -277,7 +315,8 @@ impl GameClient {
         }
 
         if let Some(layout) = reset_background {
-            with_window_manager(|manager| manager.destroy_layout(&layout));
+            self.window_manager_owner
+                .with_manager(|manager| manager.destroy_layout(&layout));
         }
 
         // C++ GameClient.cpp:451-452 TheSnowManager->reset() restores
@@ -460,6 +499,14 @@ impl GameClient {
         &mut self,
         replay_menu: Option<crate::gui::shell::replay_menu::ReplayMenuInputs>,
     ) -> GameClientResult<()> {
+        let owner = self.window_manager_owner.clone();
+        owner.with_scope(|| self.init_display_subsystems_with_replay_menu_scoped(replay_menu))
+    }
+
+    fn init_display_subsystems_with_replay_menu_scoped(
+        &mut self,
+        replay_menu: Option<crate::gui::shell::replay_menu::ReplayMenuInputs>,
+    ) -> GameClientResult<()> {
         log::info!("init_display_subsystems: starting");
 
         self.init_localized_ui_resources()?;
@@ -520,13 +567,15 @@ impl GameClient {
 
         if self.subsystem_manager.window_manager.is_none() {
             log::info!("init_display_subsystems: initializing WindowManager");
-            let mut window_manager = WindowManagerSubsystem::new();
+            let mut window_manager =
+                WindowManagerSubsystem::with_owner(self.window_manager_owner.clone());
             window_manager.init()?;
-            self.subsystem_manager.window_manager = Some(Arc::new(Mutex::new(window_manager)));
+            self.subsystem_manager.window_manager = Some(window_manager);
         }
 
         if let Some(inputs) = replay_menu {
-            crate::gui::with_window_manager(|manager| manager.configure_replay_menu_owned(inputs));
+            self.window_manager_owner
+                .with_manager(|manager| manager.configure_replay_menu_owned(inputs));
         }
 
         {
@@ -540,7 +589,7 @@ impl GameClient {
 
         {
             log::info!("init_display_subsystems: initializing Shell");
-            let mut shell = get_shell();
+            let mut shell = self.window_manager_owner.shell_handle();
             shell.init().map_err(|err| {
                 GameClientError::SubsystemError(format!("Shell init failed: {err}"))
             })?;
@@ -580,6 +629,11 @@ impl GameClient {
 
         log::debug!("init_display_subsystems done");
         Ok(())
+    }
+
+    /// Clone the handle to this client's sole native WND tree.
+    pub fn window_manager_owner(&self) -> WindowManagerOwner {
+        self.window_manager_owner.clone()
     }
 
     pub fn init_audio_subsystems(&mut self) -> GameClientResult<()> {
@@ -725,7 +779,6 @@ impl GameClient {
         crate::core::subsystems::register_tactical_view_snapshot_block();
 
         crate::helpers::register_prepare_new_game_hooks();
-        crate::helpers::register_load_screen_hooks();
         crate::helpers::register_observer_audio_locality_hooks();
         crate::helpers::register_observer_audio_view_hooks();
         crate::helpers::register_live_control_bar_hooks();
@@ -995,5 +1048,22 @@ mod native_world_install_tests {
         assert_eq!(peer.drawables.next_drawable_id, DrawableId(80));
         assert_eq!(receiving.drawables.alloc_drawable_id(), DrawableId(52));
         assert_eq!(peer.drawables.alloc_drawable_id(), DrawableId(80));
+    }
+}
+
+#[cfg(test)]
+mod load_screen_latch_owner_tests {
+    use super::GameClient;
+
+    #[test]
+    fn shell_first_load_memory_is_owned_by_the_persistent_client() {
+        let mut receiving = GameClient::new().unwrap();
+        let peer = GameClient::new().unwrap();
+
+        assert!(receiving.shell_game_first_load);
+        assert!(peer.shell_game_first_load);
+        receiving.shell_game_first_load = false;
+        assert!(!receiving.shell_game_first_load);
+        assert!(peer.shell_game_first_load);
     }
 }

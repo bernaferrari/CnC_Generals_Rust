@@ -77,7 +77,7 @@ fn airfield_parking_rearm_docks_and_heals() {
         assert!(jet.needs_return_to_base_rearm());
         // Docked AI state last-write under AI_DECISION_AUTHORITY (default on).
         {
-            assert_eq!(jet.ai_state, AIState::Docked);
+            assert_eq!(jet.ai_state(), AIState::Docked);
         }
     }
     assert!(

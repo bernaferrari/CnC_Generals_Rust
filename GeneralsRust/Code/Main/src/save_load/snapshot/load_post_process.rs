@@ -234,8 +234,6 @@ impl Snapshot for WorldSnapshot {
             ObjectBuilderTaskSnapshot {
                 object_id: ObjectId(0),
                 builder_id: None,
-                dozer_task_build_target: None,
-                dozer_task_build_order_frame: 0,
             },
         )?;
         xfer.xfer_marker_label("SellList")?;

@@ -42,7 +42,7 @@ fn snapshot_restore_rebuilds_state_and_object_id_counter() {
     assert_eq!(restored_obj.get_position(), Vec3::new(11.0, 0.0, 7.0));
     assert_eq!(restored_obj.health.current, 42.0);
     assert!(restored_obj.status.moving);
-    assert_eq!(restored_obj.ai_state, AIState::Moving);
+    assert_eq!(restored_obj.ai_state(), AIState::Moving);
 
     let next_id = restored
         .create_object("TestTank", Team::USA, Vec3::ZERO)
@@ -546,7 +546,7 @@ fn snapshot_restore_rebuilds_resource_depots_and_harvesters() {
             .host_object_mut(worker_id)
             .expect("worker object should exist");
         worker.target = Some(supply_id);
-        worker.ai_state = AIState::Gathering;
+        worker.restore_ai_state(AIState::Gathering);
     }
 
     let builder = SnapshotBuilder::new();
@@ -569,7 +569,7 @@ fn snapshot_restore_rebuilds_resource_depots_and_harvesters() {
         .host_object(worker_id)
         .expect("restored worker should exist");
     assert_eq!(restored_worker.target, Some(supply_id));
-    assert_eq!(restored_worker.ai_state, AIState::Gathering);
+    assert_eq!(restored_worker.ai_state(), AIState::Gathering);
 }
 
 #[test]
@@ -925,7 +925,7 @@ fn snapshot_restore_does_not_replace_authoritative_empty_movement_from_path_cach
     assert!(mover.movement.path.is_empty());
     assert_eq!(mover.movement.current_path_index, 0);
     assert!(!mover.status.moving);
-    assert_eq!(mover.ai_state, AIState::Idle);
+    assert_eq!(mover.ai_state(), AIState::Idle);
 }
 
 #[test]

@@ -55,9 +55,11 @@ impl CnCGameEngine {
     fn control_bar_parent_handle(
         &self,
     ) -> Option<std::rc::Rc<std::cell::RefCell<game_client::gui::GameWindow>>> {
-        game_client::gui::with_window_manager(|manager| {
-            manager.find_window_by_name(crate::gameplay_layout::CONTROL_BAR_PARENT_NAME)
-        })
+        self.game_client
+            .window_manager_owner()
+            .with_manager_ref(|manager| {
+                manager.find_window_by_name(crate::gameplay_layout::CONTROL_BAR_PARENT_NAME)
+            })
     }
 
     pub(super) fn update_owned_control_bar_animations(&mut self) {
@@ -94,9 +96,11 @@ impl CnCGameEngine {
             tooltips_disabled,
             cursor_mouse: cursor_mouse.as_ref(),
         };
-        game_client::gui::with_window_manager(|manager| {
-            manager.refresh_control_bar_tooltip(x as i32, y as i32, &mut context);
-        });
+        self.game_client
+            .window_manager_owner()
+            .with_manager(|manager| {
+                manager.refresh_control_bar_tooltip(x as i32, y as i32, &mut context);
+            });
         self.control_bar
             .update_build_tooltip_layout_owned(game_ending);
         let parent = self.control_bar_parent_handle();
@@ -129,12 +133,15 @@ impl CnCGameEngine {
             self.game_logic.game_mode(),
             crate::game_logic::GameMode::Replay
         );
-        let parent = game_client::gui::with_window_manager(|manager| {
-            game_client::gui::callbacks::replay_controls::show_replay_controls_owned(
-                manager, replay,
-            );
-            manager.find_window_by_name(crate::gameplay_layout::CONTROL_BAR_PARENT_NAME)
-        });
+        let parent = self
+            .game_client
+            .window_manager_owner()
+            .with_manager(|manager| {
+                game_client::gui::callbacks::replay_controls::show_replay_controls_owned(
+                    manager, replay,
+                );
+                manager.find_window_by_name(crate::gameplay_layout::CONTROL_BAR_PARENT_NAME)
+            });
         self.control_bar_callbacks.show_control_bar_receiving(
             &mut self.control_bar,
             &mut self.game_logic.session_view.camera,
@@ -151,12 +158,15 @@ impl CnCGameEngine {
             self.game_logic.game_mode(),
             crate::game_logic::GameMode::Replay
         );
-        let parent = game_client::gui::with_window_manager(|manager| {
-            game_client::gui::callbacks::replay_controls::hide_replay_controls_owned(
-                manager, replay,
-            );
-            manager.find_window_by_name(crate::gameplay_layout::CONTROL_BAR_PARENT_NAME)
-        });
+        let parent = self
+            .game_client
+            .window_manager_owner()
+            .with_manager(|manager| {
+                game_client::gui::callbacks::replay_controls::hide_replay_controls_owned(
+                    manager, replay,
+                );
+                manager.find_window_by_name(crate::gameplay_layout::CONTROL_BAR_PARENT_NAME)
+            });
         self.control_bar_callbacks.hide_control_bar_owned(
             &mut self.control_bar,
             &mut self.game_logic.session_view.camera,
@@ -174,12 +184,15 @@ impl CnCGameEngine {
             self.game_logic.game_mode(),
             crate::game_logic::GameMode::Replay
         );
-        let parent = game_client::gui::with_window_manager(|manager| {
-            game_client::gui::callbacks::replay_controls::toggle_replay_controls_owned(
-                manager, replay,
-            );
-            manager.find_window_by_name(crate::gameplay_layout::CONTROL_BAR_PARENT_NAME)
-        });
+        let parent = self
+            .game_client
+            .window_manager_owner()
+            .with_manager(|manager| {
+                game_client::gui::callbacks::replay_controls::toggle_replay_controls_owned(
+                    manager, replay,
+                );
+                manager.find_window_by_name(crate::gameplay_layout::CONTROL_BAR_PARENT_NAME)
+            });
         self.control_bar_callbacks.toggle_control_bar_receiving(
             &mut self.control_bar,
             &mut self.game_logic.session_view.camera,
@@ -197,6 +210,7 @@ impl CnCGameEngine {
 #[cfg(feature = "game_client")]
 pub(super) struct NativeScriptUi<'a> {
     pub(super) input: Option<super::mouse::CinematicInputLoan<'a>>,
+    window_manager_owner: game_client::gui::window_manager::WindowManagerOwner,
     snow: &'a mut game_client::snow::SnowManager,
     bar: &'a mut game_client::gui::control_bar::ControlBar,
     callbacks: &'a mut game_client::gui::callbacks::control_bar_callbacks::ControlBarCallbacks,
@@ -208,9 +222,11 @@ impl<'a> NativeScriptUi<'a> {
         snow: &'a mut game_client::snow::SnowManager,
         bar: &'a mut game_client::gui::control_bar::ControlBar,
         callbacks: &'a mut game_client::gui::callbacks::control_bar_callbacks::ControlBarCallbacks,
+        window_manager_owner: game_client::gui::window_manager::WindowManagerOwner,
     ) -> Self {
         Self {
             input: None,
+            window_manager_owner,
             snow,
             bar,
             callbacks,
@@ -292,7 +308,7 @@ impl crate::game_logic::ScriptUiEffects for NativeScriptUi<'_> {
         >,
         game_ending: bool,
     ) {
-        let parent = game_client::gui::with_window_manager(|manager| {
+        let parent = self.window_manager_owner.with_manager(|manager| {
             if enabled {
                 game_client::gui::callbacks::replay_controls::hide_replay_controls_owned(
                     manager, replay,
@@ -305,6 +321,18 @@ impl crate::game_logic::ScriptUiEffects for NativeScriptUi<'_> {
             manager.find_window_by_name(crate::gameplay_layout::CONTROL_BAR_PARENT_NAME)
         });
         self.letterbox_with_parent(camera, enabled, replay, parent, upgrade_source, game_ending);
+    }
+
+    fn create_win_lose_window(&mut self, layout_filename: &str) -> gamelogic::GameLogicResult<()> {
+        self.window_manager_owner
+            .with_manager(|manager| manager.create_script_message_window(layout_filename));
+        Ok(())
+    }
+
+    fn destroy_win_lose_window(&mut self) -> gamelogic::GameLogicResult<()> {
+        self.window_manager_owner
+            .with_manager(|manager| manager.destroy_script_message_window());
+        Ok(())
     }
 }
 

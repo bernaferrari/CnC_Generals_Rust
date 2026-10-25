@@ -47,8 +47,8 @@ impl GameLogic {
         );
         unit.last_command_source =
             crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_SCRIPT;
-        unit.auto_acquire_when_idle = true;
-        unit.hunting = true;
+        unit.set_auto_acquire_when_idle(true);
+        unit.set_hunting(true);
         unit.set_ai_state(
             AIState::Patrolling,
             &mut crate::game_logic::ObjectAudio::queue(audio_events),
@@ -83,13 +83,13 @@ impl GameLogic {
         unit: &mut Object,
         audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) {
-        if unit.hunting || matches!(unit.ai_state, AIState::Patrolling) {
+        if unit.is_hunting() || matches!(unit.ai_state(), AIState::Patrolling) {
             unit.release_weapon_lock(WeaponLockType::LockedTemporarily);
         }
         // Deleting the parent also exits its active attack submachine
         // (CPP AIAttackState::onExit5668), including Hunt -> Hunt reentry.
         if matches!(
-            unit.ai_state,
+            unit.ai_state(),
             AIState::Attacking
                 | AIState::AttackingGround
                 | AIState::AttackMoving
@@ -181,7 +181,7 @@ impl GameLogic {
         unit.clear_guard_chase();
         unit.unit_ai_runtime.clear_guard();
         unit.unit_ai_runtime.clear_hunt();
-        unit.hunting = false;
+        unit.set_hunting(false);
         unit.set_ai_state(
             AIState::Idle,
             &mut crate::game_logic::ObjectAudio::queue(audio_events),
@@ -240,7 +240,7 @@ impl GameLogic {
         unit.clear_guard_chase();
         unit.unit_ai_runtime.clear_guard();
         unit.unit_ai_runtime.clear_hunt();
-        unit.hunting = false;
+        unit.set_hunting(false);
         unit.set_guard_mode(GuardMode::Normal);
         unit.set_guard_position(
             Some(position),
@@ -362,7 +362,7 @@ impl GameLogic {
         }
         if self
             .host_object(passenger)
-            .is_some_and(|p| p.ai_state == AIState::Exiting)
+            .is_some_and(|p| p.ai_state() == AIState::Exiting)
         {
             self.apply_owned_script_idle(passenger);
         }
@@ -372,39 +372,39 @@ impl GameLogic {
         &mut self,
         request: ScriptNamedCommand<'_>,
         this_object: Option<ObjectId>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         match request {
             ScriptNamedCommand::Stop { unit } => {
                 if let Some(id) = self.owned_named_script_object(unit, this_object) {
                     // CPP4519 Idle alone: retain group and current locomotor.
                     self.apply_owned_script_idle(id);
                 }
-                return;
+                return Ok(());
             }
             ScriptNamedCommand::Hunt { unit } => {
                 self.apply_owned_named_hunt(unit, this_object);
-                return;
+                return Ok(());
             }
             ScriptNamedCommand::Guard { unit } => {
                 self.apply_owned_named_guard(unit, this_object);
-                return;
+                return Ok(());
             }
             ScriptNamedCommand::Enter { unit, target } => {
                 let Some(id) = self.owned_named_script_object(unit, this_object) else {
-                    return;
+                    return Ok(());
                 };
                 let Some(target) = self.owned_named_script_object(target, this_object) else {
-                    return;
+                    return Ok(());
                 };
                 let Some(position) = self.host_object(target).map(|object| object.get_position())
                 else {
-                    return;
+                    return Ok(());
                 };
                 if !self
                     .host_object(id)
                     .is_some_and(|object| object.has_ai_update_interface())
                 {
-                    return;
+                    return Ok(());
                 }
                 // CPP ScriptActions1499: leaveGroup and NORMAL precede aiEnter.
                 // Canonical formation belongs to this owner, not a Core registry.
@@ -415,7 +415,7 @@ impl GameLogic {
                 if !self.owned_named_ai_command_admitted(id)
                     || !self.can_unit_enter_script_target(id, target)
                 {
-                    return;
+                    return Ok(());
                 }
                 self.host_object_mut(id).unwrap().last_command_source =
                     crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_SCRIPT;
@@ -425,7 +425,7 @@ impl GameLogic {
                     position,
                     AIState::Entering,
                     Some(target),
-                ) {
+                )? {
                     // Preserve the existing Enter state's obstacle continuation
                     // when no ordinary path reaches the contained destination.
                     if let Some((object, audio_events)) = self.host_object_and_audio_events_mut(id)
@@ -437,17 +437,17 @@ impl GameLogic {
                         );
                     }
                 }
-                return;
+                return Ok(());
             }
             ScriptNamedCommand::Evacuate { unit } => {
                 let Some(id) = self.owned_named_script_object(unit, this_object) else {
-                    return;
+                    return Ok(());
                 };
                 if !self
                     .host_object(id)
                     .is_some_and(|object| object.has_ai_update_interface())
                 {
-                    return;
+                    return Ok(());
                 }
                 // CPP ScriptActions1544: leaveGroup, NORMAL, aiEvacuate(FALSE).
                 self.host_object_mut(id)
@@ -455,7 +455,7 @@ impl GameLogic {
                     .set_formation(0, glam::Vec2::ZERO);
                 self.apply_unit_locomotor_set(id, "normal");
                 self.order_owned_script_passengers_to_exit(id);
-                return;
+                return Ok(());
             }
             _ => {}
         }
@@ -471,16 +471,16 @@ impl GameLogic {
             }
         };
         let Some(id) = self.owned_named_script_object(unit, this_object) else {
-            return;
+            return Ok(());
         };
         let Some(target_id) = self.owned_named_script_object(target, this_object) else {
-            return;
+            return Ok(());
         };
         if !self
             .host_object(id)
             .is_some_and(|o| o.has_ai_update_interface())
         {
-            return;
+            return Ok(());
         }
         if matches!(request, ScriptNamedCommand::FaceObject { .. }) {
             // Main's AddWaypoint appends to this object's movement route. Clear
@@ -524,7 +524,7 @@ impl GameLogic {
             ScriptNamedCommand::FaceObject { .. } => {
                 let unit = self.host_object_mut(id).expect("resolved script unit");
                 if !unit.can_move() {
-                    return;
+                    return Ok(());
                 }
                 unit.last_command_source =
                     crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_SCRIPT;
@@ -532,5 +532,6 @@ impl GameLogic {
                 self.private_face_object(id, target_id);
             }
         }
+        Ok(())
     }
 }

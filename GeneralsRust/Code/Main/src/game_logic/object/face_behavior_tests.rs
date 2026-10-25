@@ -10,8 +10,8 @@ fn face_object(id: u32, min_speed: f32) -> Object {
     object.set_position(glam::Vec3::ZERO);
     object.set_orientation(0.0);
     object.min_speed = min_speed;
-    object.face_can_turn_in_place = min_speed == 0.0;
-    object.face_active = true;
+    object.set_face_can_turn_in_place(min_speed == 0.0);
+    object.set_face_active(true);
     object
 }
 
@@ -45,7 +45,7 @@ fn face_within_threshold_completes_without_a_turn_or_move_goal() {
     for min_speed in [0.0, 1.0] {
         let mut object = face_object(3, min_speed);
         assert!(!object.arm_face_locomotor_goal(glam::Vec3::new(1.0, 0.0, 0.01)));
-        assert!(!object.face_active);
+        assert!(!object.face_active());
         assert_eq!(object.locomotor_goal_type, LocoGoalType::None);
         assert_eq!(object.movement.target_position, None);
         assert_eq!(object.get_orientation(), 0.0);
@@ -74,10 +74,10 @@ fn face_relative_angle_respects_cpp_two_degree_boundary() {
     assert!(object.relative_angle_2d_to(near).abs() < FACE_REL_THRESH_RAD);
     assert!(!object.arm_face_locomotor_goal(near));
     assert_eq!(object.locomotor_goal_type, LocoGoalType::None);
-    object.face_active = true;
+    object.set_face_active(true);
     assert!(object.relative_angle_2d_to(far).abs() > FACE_REL_THRESH_RAD);
     assert!(object.arm_face_locomotor_goal(far));
     assert_eq!(object.locomotor_goal_type, LocoGoalType::Angle);
-    assert!(object.face_active);
+    assert!(object.face_active());
     assert_eq!(object.get_orientation(), 0.0);
 }

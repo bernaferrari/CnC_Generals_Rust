@@ -165,9 +165,9 @@ impl<'a> CommandExecutor<'a> {
 
         let result = match &command.command_type {
             // Movement commands
-            CommandType::Move { destination } => {
-                self.execute_move(&command.selected_units, *destination)
-            }
+            CommandType::Move { destination } => self
+                .execute_move(&command.selected_units, *destination)
+                .map_err(|error| error.to_string())?,
             CommandType::MoveTo {
                 destination,
                 waypoints,
@@ -179,7 +179,9 @@ impl<'a> CommandExecutor<'a> {
             CommandType::AttackMoveTo {
                 destination,
                 max_shots,
-            } => self.execute_attack_move(&command.selected_units, *destination, *max_shots),
+            } => self
+                .execute_attack_move(&command.selected_units, *destination, *max_shots)
+                .map_err(|error| error.to_string())?,
             CommandType::ForceMoveTo { destination } => {
                 self.execute_force_move(&command.selected_units, *destination)
             }
@@ -242,62 +244,69 @@ impl<'a> CommandExecutor<'a> {
                 waypoints,
                 exact,
                 as_team,
-            } => self.execute_follow_waypoint_path(
-                &command.selected_units,
-                waypoints,
-                *exact,
-                *as_team,
-            ),
+            } => self
+                .execute_follow_waypoint_path(&command.selected_units, waypoints, *exact, *as_team)
+                .map_err(|error| error.to_string())?,
             CommandType::AttackFollowWaypointPath {
                 waypoints,
                 exact,
                 as_team,
-            } => self.execute_attack_follow_waypoint_path(
-                &command.selected_units,
-                waypoints,
-                *exact,
-                *as_team,
-            ),
+            } => self
+                .execute_attack_follow_waypoint_path(
+                    &command.selected_units,
+                    waypoints,
+                    *exact,
+                    *as_team,
+                )
+                .map_err(|error| error.to_string())?,
             CommandType::DoCommandButtonUsingWaypoints { button, waypoints } => self
                 .execute_do_command_button_using_waypoints(
                     &command.selected_units,
                     button,
                     waypoints,
-                ),
+                )
+                .map_err(|error| error.to_string())?,
             CommandType::Surrender { surrendered } => {
                 self.execute_surrender(&command.selected_units, *surrendered)
             }
-            CommandType::DoCommandButton { button } => {
-                self.execute_do_command_button(&command.selected_units, button, None, None)
-            }
+            CommandType::DoCommandButton { button } => self
+                .execute_do_command_button(&command.selected_units, button, None, None)
+                .map_err(|error| error.to_string())?,
             CommandType::DoCommandButtonAtPosition { button, location } => self
-                .execute_do_command_button(&command.selected_units, button, Some(*location), None),
-            CommandType::DoCommandButtonAtObject { button, target } => {
-                self.execute_do_command_button(&command.selected_units, button, None, Some(*target))
-            }
+                .execute_do_command_button(&command.selected_units, button, Some(*location), None)
+                .map_err(|error| error.to_string())?,
+            CommandType::DoCommandButtonAtObject { button, target } => self
+                .execute_do_command_button(&command.selected_units, button, None, Some(*target))
+                .map_err(|error| error.to_string())?,
             CommandType::ExecuteRailedTransport => {
                 self.execute_railed_transport(&command.selected_units)
             }
-            CommandType::Deploy => self.execute_deploy(&command.selected_units),
-            CommandType::Gather { target_id } => {
-                self.execute_gather(&command.selected_units, *target_id)
-            }
+            CommandType::Deploy => self
+                .execute_deploy(&command.selected_units)
+                .map_err(|error| error.to_string())?,
+            CommandType::Gather { target_id } => self
+                .execute_gather(&command.selected_units, *target_id)
+                .map_err(|error| error.to_string())?,
 
             // Building and construction
             CommandType::Build {
                 template_name,
                 location,
-            } => self.execute_build(&command.selected_units, template_name, *location, 0.0),
+            } => self
+                .execute_build(&command.selected_units, template_name, *location, 0.0)
+                .map_err(|error| error.to_string())?,
             CommandType::DozerConstruct {
                 template_name,
                 location,
                 orientation,
-            } => self.execute_dozer_construct(
-                &command.selected_units,
-                template_name,
-                *location,
-                *orientation,
-            ),
+            } => self
+                .execute_dozer_construct(
+                    &command.selected_units,
+                    template_name,
+                    *location,
+                    *orientation,
+                )
+                .map_err(|error| error.to_string())?,
             CommandType::DozerConstructLine {
                 template_name,
                 start,
@@ -312,25 +321,28 @@ impl<'a> CommandExecutor<'a> {
                     *end,
                     delta.z.atan2(delta.x),
                 )
+                .map_err(|error| error.to_string())?
             }
             CommandType::DozerConstructLineFacing {
                 template_name,
                 start,
                 end,
                 orientation,
-            } => self.execute_dozer_line(
-                &command.selected_units,
-                template_name,
-                *start,
-                *end,
-                *orientation,
-            ),
-            CommandType::DozerCancelConstruct { object_id } => {
-                self.execute_cancel_construction(*object_id, command.player_id)
-            }
-            CommandType::ResumeConstruction { target_id } => {
-                self.execute_resume_construction(&command.selected_units, *target_id)
-            }
+            } => self
+                .execute_dozer_line(
+                    &command.selected_units,
+                    template_name,
+                    *start,
+                    *end,
+                    *orientation,
+                )
+                .map_err(|error| error.to_string())?,
+            CommandType::DozerCancelConstruct { object_id } => self
+                .execute_cancel_construction(*object_id, command.player_id)
+                .map_err(|error| error.to_string())?,
+            CommandType::ResumeConstruction { target_id } => self
+                .execute_resume_construction(&command.selected_units, *target_id)
+                .map_err(|error| error.to_string())?,
             CommandType::Sell { object_id } => {
                 // C++ MSG_SELL → currentlySelectedGroup->groupSell.
                 if command.selected_units.is_empty() {
@@ -350,9 +362,9 @@ impl<'a> CommandExecutor<'a> {
             }
 
             // Special abilities
-            CommandType::DoSpecialPower { power_type, target } => {
-                self.execute_special_power(&command.selected_units, power_type, target)
-            }
+            CommandType::DoSpecialPower { power_type, target } => self
+                .execute_special_power(&command.selected_units, power_type, target)
+                .map_err(|error| error.to_string())?,
             CommandType::DoWeapon {
                 weapon_slot,
                 max_shots_to_fire,
@@ -365,21 +377,29 @@ impl<'a> CommandExecutor<'a> {
             ),
 
             // Transport and container
-            CommandType::Enter { target_id } => {
-                self.execute_enter(&command.selected_units, *target_id)
-            }
+            CommandType::Enter { target_id } => self
+                .execute_enter(&command.selected_units, *target_id)
+                .map_err(|error| error.to_string())?,
             CommandType::Exit => self.execute_exit(&command.selected_units),
-            CommandType::Evacuate => self.execute_evacuate(&command.selected_units),
+            CommandType::Evacuate => self
+                .execute_evacuate(&command.selected_units)
+                .map_err(|error| error.to_string())?,
             CommandType::MoveToAndEvacuate {
                 destination,
                 and_exit,
-            } => {
-                self.execute_move_to_and_evacuate(&command.selected_units, *destination, *and_exit)
-            }
-            CommandType::HackInternet => self.execute_hack_internet(&command.selected_units),
+            } => self
+                .execute_move_to_and_evacuate(&command.selected_units, *destination, *and_exit)
+                .map_err(|error| error.to_string())?,
+            CommandType::HackInternet => self
+                .execute_hack_internet(&command.selected_units)
+                .map_err(|error| error.to_string())?,
             CommandType::ReturnToBase => self.execute_return_to_base(&command.selected_units),
-            CommandType::ReturnSupplies => self.execute_return_supplies(&command.selected_units),
-            CommandType::ClearMines => self.execute_clear_mines(&command.selected_units),
+            CommandType::ReturnSupplies => self
+                .execute_return_supplies(&command.selected_units)
+                .map_err(|error| error.to_string())?,
+            CommandType::ClearMines => self
+                .execute_clear_mines(&command.selected_units)
+                .map_err(|error| error.to_string())?,
             CommandType::SetMineClearingDetail { enabled } => {
                 self.execute_set_mine_clearing_detail(&command.selected_units, *enabled)
             }
@@ -404,23 +424,23 @@ impl<'a> CommandExecutor<'a> {
                 *radius,
                 polygon_name.as_deref(),
             ),
-            CommandType::Dock { target_id } => {
-                self.execute_dock(&command.selected_units, *target_id)
-            }
-            CommandType::CombatDrop { target } => {
-                self.execute_combat_drop(&command.selected_units, target)
-            }
+            CommandType::Dock { target_id } => self
+                .execute_dock(&command.selected_units, *target_id)
+                .map_err(|error| error.to_string())?,
+            CommandType::CombatDrop { target } => self
+                .execute_combat_drop(&command.selected_units, target)
+                .map_err(|error| error.to_string())?,
 
             // Utility commands
-            CommandType::Repair { target_id } => {
-                self.execute_repair(&command.selected_units, *target_id)
-            }
-            CommandType::GetRepaired { target_id } => {
-                self.execute_get_repaired(&command.selected_units, *target_id)
-            }
-            CommandType::GetHealed { target_id } => {
-                self.execute_get_healed(&command.selected_units, *target_id)
-            }
+            CommandType::Repair { target_id } => self
+                .execute_repair(&command.selected_units, *target_id)
+                .map_err(|error| error.to_string())?,
+            CommandType::GetRepaired { target_id } => self
+                .execute_get_repaired(&command.selected_units, *target_id)
+                .map_err(|error| error.to_string())?,
+            CommandType::GetHealed { target_id } => self
+                .execute_get_healed(&command.selected_units, *target_id)
+                .map_err(|error| error.to_string())?,
             CommandType::SetRallyPoint { location } => {
                 self.execute_set_rally_point(&command.selected_units, *location)
             }
@@ -437,48 +457,48 @@ impl<'a> CommandExecutor<'a> {
             }
 
             // Special unit abilities
-            CommandType::Hijack { target_id } => {
-                self.execute_hijack(&command.selected_units, *target_id)
-            }
-            CommandType::Sabotage { target_id } => {
-                self.execute_sabotage(&command.selected_units, *target_id)
-            }
-            CommandType::ConvertToCarbomb { target_id } => {
-                self.execute_convert_carbomb(&command.selected_units, *target_id)
-            }
-            CommandType::CaptureBuilding { target_id } => {
-                self.execute_capture_building(&command.selected_units, *target_id)
-            }
-            CommandType::SnipeVehicle { target_id } => {
-                self.execute_snipe_vehicle(&command.selected_units, *target_id)
-            }
-            CommandType::PlantTimedDemoCharge { target_id } => {
-                self.execute_plant_timed_demo_charge(&command.selected_units, *target_id)
-            }
-            CommandType::PlantRemoteDemoCharge { target_id } => {
-                self.execute_plant_remote_demo_charge(&command.selected_units, *target_id)
-            }
+            CommandType::Hijack { target_id } => self
+                .execute_hijack(&command.selected_units, *target_id)
+                .map_err(|error| error.to_string())?,
+            CommandType::Sabotage { target_id } => self
+                .execute_sabotage(&command.selected_units, *target_id)
+                .map_err(|error| error.to_string())?,
+            CommandType::ConvertToCarbomb { target_id } => self
+                .execute_convert_carbomb(&command.selected_units, *target_id)
+                .map_err(|error| error.to_string())?,
+            CommandType::CaptureBuilding { target_id } => self
+                .execute_capture_building(&command.selected_units, *target_id)
+                .map_err(|error| error.to_string())?,
+            CommandType::SnipeVehicle { target_id } => self
+                .execute_snipe_vehicle(&command.selected_units, *target_id)
+                .map_err(|error| error.to_string())?,
+            CommandType::PlantTimedDemoCharge { target_id } => self
+                .execute_plant_timed_demo_charge(&command.selected_units, *target_id)
+                .map_err(|error| error.to_string())?,
+            CommandType::PlantRemoteDemoCharge { target_id } => self
+                .execute_plant_remote_demo_charge(&command.selected_units, *target_id)
+                .map_err(|error| error.to_string())?,
             CommandType::DetonateRemoteDemoCharges => {
                 self.execute_detonate_remote_demo_charges(&command.selected_units)
             }
             CommandType::DemoTertiarySuicide => {
                 self.execute_demo_tertiary_suicide(&command.selected_units)
             }
-            CommandType::StealCashHack { target_id } => {
-                self.execute_steal_cash_hack(&command.selected_units, *target_id)
-            }
-            CommandType::DisableVehicleHack { target_id } => {
-                self.execute_disable_vehicle_hack(&command.selected_units, *target_id)
-            }
+            CommandType::StealCashHack { target_id } => self
+                .execute_steal_cash_hack(&command.selected_units, *target_id)
+                .map_err(|error| error.to_string())?,
+            CommandType::DisableVehicleHack { target_id } => self
+                .execute_disable_vehicle_hack(&command.selected_units, *target_id)
+                .map_err(|error| error.to_string())?,
             CommandType::HackerDisableBuilding { target_id } => {
                 self.execute_hacker_disable_building(&command.selected_units, *target_id)
             }
-            CommandType::DisguiseAsVehicle { target_id } => {
-                self.execute_disguise_as_vehicle(&command.selected_units, *target_id)
-            }
-            CommandType::PlantBoobyTrap { target_id } => {
-                self.execute_plant_booby_trap(&command.selected_units, *target_id)
-            }
+            CommandType::DisguiseAsVehicle { target_id } => self
+                .execute_disguise_as_vehicle(&command.selected_units, *target_id)
+                .map_err(|error| error.to_string())?,
+            CommandType::PlantBoobyTrap { target_id } => self
+                .execute_plant_booby_trap(&command.selected_units, *target_id)
+                .map_err(|error| error.to_string())?,
             CommandType::SwitchWeapons { slot } => {
                 self.execute_switch_weapons(&command.selected_units, *slot)
             }
@@ -620,7 +640,10 @@ impl<'a> CommandExecutor<'a> {
     }
 
     /// C++ `DozerAIUpdate::aiDoCommand` / `WorkerAIUpdate::aiDoCommand`.
-    fn apply_dozer_ai_do_command(&mut self, command: &GameCommand) {
+    fn apply_dozer_ai_do_command(
+        &mut self,
+        command: &GameCommand,
+    ) -> gamelogic::GameLogicResult<()> {
         if Self::player_command_clears_dozer_constructing(&command.command_type) {
             for &unit_id in &command.selected_units {
                 self.game_logic
@@ -630,7 +653,7 @@ impl<'a> CommandExecutor<'a> {
         if Self::player_command_cancels_current_dozer_task(&command.command_type) {
             for &unit_id in &command.selected_units {
                 self.game_logic
-                    .dozer_cancel_current_task_from_player(unit_id);
+                    .dozer_cancel_current_task_from_player(unit_id)?;
             }
         }
         // C++ WorkerAIUpdate::aiDoCommand tail: drop boxes only if already
@@ -649,6 +672,7 @@ impl<'a> CommandExecutor<'a> {
                     .worker_exit_supply_for_player_command(unit_id);
             }
         }
+        Ok(())
     }
 
     /// C++ `ownerNotDockingOrIdle` → ST_BUSY → `supplyTruckSubMachineReadyToLeave`.

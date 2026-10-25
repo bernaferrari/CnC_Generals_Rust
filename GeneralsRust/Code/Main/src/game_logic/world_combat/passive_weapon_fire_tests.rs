@@ -17,7 +17,7 @@ fn world(state: AIState, delay: f32) -> GameLogic {
         .insert(template.name.clone(), template.clone());
     let mut source = Object::new(template, SOURCE, Team::USA);
     source.owner_player_id = Some(0);
-    source.ai_state = state;
+    source.restore_ai_state(state);
     source.contained_by = Some(ObjectId(98403));
     source.weapon = Some(Weapon {
         damage: 5.0,
@@ -65,7 +65,7 @@ fn real_passive_secondary_preserves_container_state_and_delays_damage_from_actua
             .weapon_barrel_cursor_for_snapshot(1);
         assert!(game.fire_owned_passive_weapon(SOURCE, TARGET, 1, MUZZLE));
         let source = game.host_object(SOURCE).unwrap();
-        assert_eq!(source.ai_state, state);
+        assert_eq!(source.ai_state(), state);
         assert_eq!(source.contained_by, Some(ObjectId(98403)));
         assert_eq!(source.secondary_weapon.as_ref().unwrap().ammo, Some(1));
         assert_eq!(source.weapon.as_ref().unwrap().last_fire_time, -10.0);
@@ -166,7 +166,10 @@ fn shipping_transport_passenger_driver_uses_owned_delayed_discharge() {
     game.add_object(carrier);
     let hp = health(&game);
     game.try_transport_passenger_residual_fire(SOURCE);
-    assert_eq!(game.host_object(SOURCE).unwrap().ai_state, AIState::Docked);
+    assert_eq!(
+        game.host_object(SOURCE).unwrap().ai_state(),
+        AIState::Docked
+    );
     assert_eq!(
         game.host_object(SOURCE)
             .unwrap()
@@ -233,7 +236,7 @@ fn normal_encoded_save_restores_selected_passive_slot_and_delayed_damage_once() 
         .unwrap();
     assert_eq!(restored.host_object(SOURCE).unwrap().active_weapon_slot, 1);
     assert_eq!(
-        restored.host_object(SOURCE).unwrap().ai_state,
+        restored.host_object(SOURCE).unwrap().ai_state(),
         AIState::Docked
     );
     assert_eq!(

@@ -5,9 +5,9 @@ impl GameLogic {
     fn ready_object_is_idle(&self, id: ObjectId) -> bool {
         self.host_object(id).is_some_and(|object| {
             object.has_ai_update_interface()
-                && (object.ai_state == AIState::Idle
+                && (object.ai_state() == AIState::Idle
                     || (matches!(
-                        object.ai_state,
+                        object.ai_state(),
                         AIState::GuardingArea | AIState::GuardingObject
                     ) && object.unit_ai_runtime.guard_phase()
                         == Some(crate::game_logic::object::unit_ai_runtime::GuardPhase::Idle)))
@@ -198,7 +198,10 @@ mod tests {
     #[test]
     fn ready_deadline_is_strict_logic_frames_and_does_not_invent_host_orders() {
         let (mut world, unit, id) = fixture();
-        world.host_object_mut(unit).unwrap().ai_state = AIState::Moving;
+        world
+            .host_object_mut(unit)
+            .unwrap()
+            .restore_ai_state(AIState::Moving);
         // A name alone is never permission to issue a Hunt order.
         let mut prototype = (*world
             .team_factory
@@ -221,14 +224,17 @@ mod tests {
         world.check_owned_ai_ready_teams(1);
         assert!(active(&world, id));
         assert!(world.ai_manager.ai_players[&1].team_ready_queue.is_empty());
-        assert_eq!(world.host_object(unit).unwrap().ai_state, AIState::Moving);
+        assert_eq!(world.host_object(unit).unwrap().ai_state(), AIState::Moving);
         assert_eq!(world.ai_manager.ai_players.len(), 1);
     }
 
     #[test]
     fn ready_team_reads_live_roster_and_ignores_dead_or_non_ai_members() {
         let (mut world, unit, id) = fixture();
-        world.host_object_mut(unit).unwrap().ai_state = AIState::Moving;
+        world
+            .host_object_mut(unit)
+            .unwrap()
+            .restore_ai_state(AIState::Moving);
         world.host_object_mut(unit).unwrap().status.effectively_dead = true;
         world.frame = 101;
         world.check_owned_ai_ready_teams(1);
@@ -266,12 +272,15 @@ mod tests {
             before
         );
         assert_eq!(world.ai_manager.ai_players[&1].team_ready_queue.len(), 1);
-        assert_eq!(world.host_object(unit).unwrap().ai_state, AIState::Idle);
+        assert_eq!(world.host_object(unit).unwrap().ai_state(), AIState::Idle);
     }
     #[test]
     fn ready_reinforcement_joins_actual_team_order_without_activating_team() {
         let (mut world, leader, id) = fixture();
-        world.host_object_mut(leader).unwrap().ai_state = AIState::Moving;
+        world
+            .host_object_mut(leader)
+            .unwrap()
+            .restore_ai_state(AIState::Moving);
         let reinforcement = world
             .create_object_for_player("ReadyInfantry", 1, Vec3::new(5.0, 0.0, 0.0))
             .unwrap();
@@ -297,7 +306,7 @@ mod tests {
         world.frame = 101;
         world.check_owned_ai_ready_teams(1);
         assert_eq!(
-            world.host_object(reinforcement).unwrap().ai_state,
+            world.host_object(reinforcement).unwrap().ai_state(),
             AIState::Moving
         );
         assert!(!active(&world, id));

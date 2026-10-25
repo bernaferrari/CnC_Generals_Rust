@@ -53,17 +53,17 @@ impl<'a> CommandExecutor<'a> {
         waypoints: &[Vec3],
         exact: bool,
         as_team: bool,
-    ) -> CommandResult {
+    ) -> gamelogic::GameLogicResult<CommandResult> {
         // Wave 232: promote attack-path via GameLogic unit_command_promote_attack_path.
-        let path_res = self.execute_follow_waypoint_path(units, waypoints, exact, as_team);
+        let path_res = self.execute_follow_waypoint_path(units, waypoints, exact, as_team)?;
         if !matches!(path_res, CommandResult::Success) {
-            return path_res;
+            return Ok(path_res);
         }
         // Promote movers that can attack into AttackMoving + is_attack_path.
         for &unit_id in units {
             let _ = self.game_logic.unit_command_promote_attack_path(unit_id);
         }
-        CommandResult::Success
+        Ok(CommandResult::Success)
     }
 
     /// C++ AIGroup::groupAttackTeam — persistent `aiAttackTeam` (`AIGroup.cpp:2179-2193`).
@@ -113,7 +113,7 @@ impl<'a> CommandExecutor<'a> {
             );
             if let Some(unit) = self.game_logic.host_object_mut(unit_id) {
                 unit.set_max_shots_to_fire(max_shots);
-                unit.auto_acquire_when_idle = true;
+                unit.set_auto_acquire_when_idle(true);
                 unit.attack_priority_set = Some(tag.clone());
             }
             any = true;
@@ -121,7 +121,7 @@ impl<'a> CommandExecutor<'a> {
                 let _ = self.game_logic.unit_command_attack_soft(unit_id, tid);
                 if let Some(unit) = self.game_logic.host_object_mut(unit_id) {
                     unit.set_max_shots_to_fire(max_shots);
-                    unit.auto_acquire_when_idle = true;
+                    unit.set_auto_acquire_when_idle(true);
                     unit.attack_priority_set = Some(tag.clone());
                 }
                 let tpos = self.game_logic.host_object(tid).map(|o| o.get_position());
@@ -342,7 +342,7 @@ impl<'a> CommandExecutor<'a> {
                 let _ = self.game_logic.unit_command_set_guard_radius(id, r);
                 if let Some(name) = polygon_name.filter(|n| !n.is_empty()) {
                     if let Some(u) = self.game_logic.host_object_mut(id) {
-                        u.guard_area_trigger = Some(name.to_string());
+                        u.set_guard_area_trigger(Some(name.to_string()));
                     }
                 }
             }
@@ -723,7 +723,7 @@ impl<'a> CommandExecutor<'a> {
                 continue;
             }
             if let Some(u) = self.game_logic.host_object_mut(unit_id) {
-                u.auto_acquire_when_idle = true;
+                u.set_auto_acquire_when_idle(true);
                 u.attack_priority_set = Some(tag.clone());
             }
             any = true;
@@ -734,7 +734,7 @@ impl<'a> CommandExecutor<'a> {
                 let _ = self.execute_attack_object(&[unit_id], enemy_id);
                 if let Some(u) = self.game_logic.host_object_mut(unit_id) {
                     u.attack_priority_set = Some(tag.clone());
-                    u.auto_acquire_when_idle = true;
+                    u.set_auto_acquire_when_idle(true);
                 }
             } else if can_move {
                 let _ = self.path_to_goal_with_state(unit_id, center, AIState::AttackMoving);
@@ -994,7 +994,7 @@ impl crate::game_logic::GameLogic {
             // alias ("GLA") while live members answer to the default instance
             // name ("teamGLA"). Resolve once, keep the stored tag verbatim.
             let team_name = self.canonical_attack_team_census_name(raw_team_name);
-            if !matches!(o.ai_state, AIState::Attacking | AIState::Idle) {
+            if !matches!(o.ai_state(), AIState::Attacking | AIState::Idle) {
                 continue;
             }
             let team_members: HashSet<ObjectId> = self
@@ -1036,7 +1036,7 @@ impl crate::game_logic::GameLogic {
             let ok = self.unit_command_attack_soft(id, tid);
             if let Some(unit) = self.host_object_mut(id) {
                 unit.set_max_shots_to_fire(shots);
-                unit.auto_acquire_when_idle = true;
+                unit.set_auto_acquire_when_idle(true);
                 unit.attack_priority_set = Some(tag);
             }
         }
@@ -1124,7 +1124,7 @@ impl crate::game_logic::GameLogic {
                 continue;
             };
             if !matches!(
-                o.ai_state,
+                o.ai_state(),
                 AIState::Attacking | AIState::AttackMoving | AIState::Idle
             ) {
                 continue;
@@ -1147,7 +1147,7 @@ impl crate::game_logic::GameLogic {
             // This rescan is a continuation, not a new scripted order.
             let _ = self.unit_command_attack_soft(id, tid);
             if let Some(unit) = self.host_object_mut(id) {
-                unit.auto_acquire_when_idle = true;
+                unit.set_auto_acquire_when_idle(true);
                 unit.attack_priority_set = Some(tag);
             }
         }

@@ -78,7 +78,7 @@ impl Object {
         }
         // C++ AIMoveOutOfTheWayState::onEnter forces adjust true only when
         // getPath() is already non-null (AIStates.cpp:2127-2133).
-        self.adjust_destinations = true;
+        self.set_adjust_destinations(true);
         self.movement.path = path.to_vec();
         self.movement.current_path_index = 1;
         self.movement.target_position = path.last().copied();
@@ -92,7 +92,7 @@ impl Object {
         self.try_one_more_repath = true;
         self.locomotor_goal_type = super::LocoGoalType::PositionOnPath;
         if self.ultra_accurate {
-            self.adjust_destinations = false;
+            self.set_adjust_destinations(false);
         }
         self.move_away_from_2 = self.move_away_from;
         self.move_away_from = Some(threat_id);

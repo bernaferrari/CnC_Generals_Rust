@@ -491,7 +491,8 @@ impl GameLogic {
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
         let pending = self.objects.get(&unit_id).is_some_and(|obj| {
-            obj.idle_mood_reset_pending && matches!(obj.ai_state, AIState::Idle)
+            matches!(obj.unit_ai_runtime.current_leaf_state(), AIState::Idle)
+                && (obj.unit_ai_runtime.machine().idle_initialized || obj.idle_mood_reset_pending)
         });
         if !pending {
             return;
@@ -584,11 +585,16 @@ impl GameLogic {
         };
         obj.target = None;
         obj.set_locomotor_goal_none();
-        let delay =
-            crate::game_logic::host_ai_path_combat_residual_wave105::FORCE_IDLE_FRAMES_RESIDUAL;
-        obj.next_mood_check_time = self.frame.saturating_add(delay);
-        obj.randomly_offset_mood_check = true;
-        obj.idle_mood_reset_pending = false;
+        obj.unit_ai_runtime.consume_idle_initialization();
+        if obj.idle_mood_reset_pending {
+            // Old generic transition callers remain behavior-preserved until
+            // their operation-local World entry is transferred. The explicit
+            // owned Idle command has already committed mood at entry.
+            let delay = self.ai_definitions.data().force_idle_frames_count;
+            obj.next_mood_check_time = self.frame.wrapping_add(delay);
+            obj.randomly_offset_mood_check = true;
+            obj.idle_mood_reset_pending = false;
+        }
     }
 
     pub fn get_next_mood_target(
@@ -621,7 +627,7 @@ impl GameLogic {
             (
                 o.is_alive() && !o.status.destroyed,
                 o.status.using_ability,
-                o.status.attacking || o.ai_state == AIState::Attacking,
+                o.status.attacking || o.ai_state() == AIState::Attacking,
                 o.status.stealthed,
                 o.auto_acquire_idle_bits,
                 o.ai_attitude,
@@ -754,8 +760,8 @@ impl GameLogic {
         is_player_controlled: bool,
     ) -> Option<ObjectId> {
         let eligible = self.objects.get(&unit_id).map(|o| {
-            let idle = matches!(o.ai_state, AIState::Idle) && !o.status.attacking;
-            let attack_moving = matches!(o.ai_state, AIState::AttackMoving) || o.is_attack_path;
+            let idle = matches!(o.ai_state(), AIState::Idle) && !o.status.attacking;
+            let attack_moving = matches!(o.ai_state(), AIState::AttackMoving) || o.is_attack_path;
             let disabled_skip = o.status.disabled_paralyzed
                 || o.status.disabled_unmanned
                 || o.status.disabled_emp
@@ -1412,9 +1418,7 @@ impl GameLogic {
 #[cfg(test)]
 mod common_target_parity {
     use super::*;
-    use crate::game_logic::{
-        GameLogic, KindOf, Object, ObjectId, Player, Team, ThingTemplate, Weapon,
-    };
+    use crate::game_logic::{GameLogic, KindOf, Object, ObjectId, Player, Team, ThingTemplate, Weapon};
 
     #[test]
     fn set_common_target_skips_easy_and_human() {
@@ -1948,6 +1952,68 @@ mod common_target_parity {
         assert_eq!(
             o.next_mood_check_time,
             (53i32 + 30).wrapping_add(jitter) as u32
+        );
+    }
+
+    #[test]
+    fn owned_idle_entry_commits_mood_now_and_doinit_consumes_only_receiving_leaf() {
+        let mut logic = GameLogic::new();
+        logic.frame = 50;
+        let id = logic
+            .create_object("Ranger", Team::USA, glam::Vec3::ZERO)
+            .expect("ranger");
+        let jet_id = ObjectId(9109);
+        logic.objects.insert(
+            jet_id,
+            Object::new(ThingTemplate::new("IdleEntryTarget"), jet_id, Team::GLA),
+        );
+        if let Some(unit) = logic.host_object_mut(id) {
+            unit.set_ai_state(
+                crate::game_logic::AIState::Moving,
+                &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            );
+            unit.target = Some(jet_id);
+            unit.locomotor_goal_type = crate::game_logic::object::LocoGoalType::PositionOnPath;
+        }
+        logic
+            .host_object_mut(jet_id)
+            .expect("target")
+            .jet_ai
+            .targeted_by
+            .push(id);
+
+        assert!(
+            logic
+                .unit_command_set_ai_state(id, crate::game_logic::AIState::Idle)
+                .expect("owned Idle entry")
+        );
+        {
+            let unit = logic.host_object(id).expect("ranger");
+            assert_eq!(unit.next_mood_check_time, 53);
+            assert!(unit.randomly_offset_mood_check);
+            assert!(!unit.idle_mood_reset_pending);
+            assert!(unit.unit_ai_runtime.machine().idle_initialized);
+        }
+
+        logic.apply_pending_idle_mood_reset(id);
+        let unit = logic.host_object(id).expect("ranger");
+        assert_eq!(
+            unit.next_mood_check_time, 53,
+            "doInit does not re-enter Idle"
+        );
+        assert!(!unit.unit_ai_runtime.machine().idle_initialized);
+        assert!(unit.target.is_none());
+        assert_eq!(
+            unit.locomotor_goal_type,
+            crate::game_logic::object::LocoGoalType::None
+        );
+        assert!(
+            logic
+                .host_object(jet_id)
+                .expect("target")
+                .jet_ai
+                .targeted_by
+                .is_empty()
         );
     }
 

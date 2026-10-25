@@ -15,8 +15,8 @@ fn actual_presentation_shell_preserves_the_admitted_client_frame() {
         .expect("standalone command manager")
         .initialize_player(0)
         .expect("fresh local player command queue");
-    get_shell().init().unwrap();
     let mut client = GameClient::new().unwrap();
+    client.window_manager_owner().shell_handle().init().unwrap();
     client.initialized = true;
     client.set_frame(37);
     client.update_presentation_shell(0.0).unwrap();
@@ -28,6 +28,7 @@ fn actual_presentation_shell_preserves_the_admitted_client_frame() {
         "extra presentation cannot create a new client phase"
     );
     let mut peer = GameClient::new().unwrap();
+    peer.window_manager_owner().shell_handle().init().unwrap();
     peer.initialized = true;
     peer.set_frame(900);
     peer.update_presentation_shell(0.0).unwrap();

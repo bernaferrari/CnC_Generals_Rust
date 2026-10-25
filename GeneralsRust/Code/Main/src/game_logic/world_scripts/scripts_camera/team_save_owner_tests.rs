@@ -46,13 +46,19 @@ fn roster(world: &mut GameLogic, first: ObjectId, second: ObjectId, reversed: bo
 
 fn assert_guarded(world: &GameLogic, selected: ObjectId, untouched: ObjectId) {
     let unit = world.host_object(selected).unwrap();
-    assert_eq!(unit.guard_position, Some(unit.get_position()));
-    assert_eq!(unit.ai_state, AIState::GuardingArea);
+    assert_eq!(unit.active_guard_position(), Some(unit.get_position()));
+    assert_eq!(unit.ai_state(), AIState::GuardingArea);
     assert_eq!(
         unit.last_command_source,
         crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_SCRIPT
     );
-    assert_eq!(world.host_object(untouched).unwrap().guard_position, None);
+    assert_eq!(
+        world
+            .host_object(untouched)
+            .unwrap()
+            .active_guard_position(),
+        None
+    );
 }
 
 #[test]
@@ -70,7 +76,10 @@ fn team_save_walk_calibration_restores_objects_without_a_roster() {
         source.host_object(first).unwrap().get_position()
     );
     loaded.execute_team_guard_script_for_test("MissingRoster");
-    assert_eq!(loaded.host_object(first).unwrap().guard_position, None);
+    assert_eq!(
+        loaded.host_object(first).unwrap().active_guard_position(),
+        None
+    );
 }
 
 #[test]
@@ -200,7 +209,10 @@ fn inactive_singleton_keeps_its_saved_head_and_does_not_activate_on_restore() {
         .restore_from_snapshot(&snapshot, &mut loaded)
         .unwrap();
     loaded.execute_team_guard_script_for_test("SavedRoster");
-    assert_eq!(loaded.host_object(second).unwrap().guard_position, None);
+    assert_eq!(
+        loaded.host_object(second).unwrap().active_guard_position(),
+        None
+    );
     let factory = loaded.team_factory.lock().unwrap();
     let instance = factory
         .find_team_by_id(10)

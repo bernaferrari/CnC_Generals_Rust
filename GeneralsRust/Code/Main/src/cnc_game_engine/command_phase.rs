@@ -109,6 +109,8 @@ impl CnCGameEngine {
         #[cfg(feature = "game_client")]
         let cinematic_ui = self.game_client.in_game_ui_subsystem();
         #[cfg(feature = "game_client")]
+        let window_manager_owner = self.game_client.window_manager_owner();
+        #[cfg(feature = "game_client")]
         let (mut client_frame, snow, presence) =
             self.game_client.split_frame_snow_and_drawable_owner();
         #[cfg(feature = "game_client")]
@@ -144,6 +146,7 @@ impl CnCGameEngine {
             snow,
             &mut self.control_bar,
             &mut self.control_bar_callbacks,
+            window_manager_owner,
         )
         .with_cinematic_input(cinematic_input);
         let mut audio = super::native_audio_effects::NativeAudioService::live();
@@ -333,12 +336,14 @@ impl CnCGameEngine {
         {
             if self.source_new_game_background.is_none() {
                 let mut created = None;
-                game_client::gui::with_window_manager(|manager| {
-                    created = Some(create_source_background_layout(
-                        manager,
-                        "Menus/BlankWindow.wnd",
-                    ));
-                });
+                self.game_client
+                    .window_manager_owner()
+                    .with_manager(|manager| {
+                        created = Some(create_source_background_layout(
+                            manager,
+                            "Menus/BlankWindow.wnd",
+                        ));
+                    });
                 match created {
                     Some(Ok(layout)) => self.source_new_game_background = Some(layout),
                     Some(Err(error)) => {
@@ -393,7 +398,9 @@ impl CnCGameEngine {
     pub(super) fn destroy_source_new_game_background(&mut self) {
         #[cfg(feature = "game_client")]
         if let Some(layout) = self.source_new_game_background.take() {
-            game_client::gui::with_window_manager(|manager| manager.destroy_layout(&layout));
+            self.game_client
+                .window_manager_owner()
+                .with_manager(|manager| manager.destroy_layout(&layout));
         }
     }
 

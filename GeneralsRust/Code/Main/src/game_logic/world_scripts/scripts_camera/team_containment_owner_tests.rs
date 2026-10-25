@@ -127,7 +127,9 @@ fn actual_transport_team_wait_observes_only_driving_roster_and_physical_containm
         modifier_keys: ModifierKeys::default(),
     });
     owner.process_commands();
-    owner.update_ai(&[unit, transport], 1.0 / 30.0);
+    owner
+        .update_ai(&[unit, transport], 1.0 / 30.0)
+        .expect("receiving AI operation succeeds");
     assert_eq!(
         owner.host_object(unit).unwrap().contained_by,
         Some(transport)
@@ -154,7 +156,10 @@ fn actual_transport_team_wait_observes_only_driving_roster_and_physical_containm
         );
     }
     owner.set_fixture_object_contained_by(unit, None);
-    owner.host_object_mut(unit).unwrap().ai_state = AIState::Exiting;
+    owner
+        .host_object_mut(unit)
+        .unwrap()
+        .restore_ai_state(AIState::Exiting);
     assert_eq!(
         HostScriptExecutionDriver::with_interpreter(&mut owner, &engine).team_contained(
             "ContainedTeam",

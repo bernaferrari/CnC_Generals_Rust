@@ -1633,7 +1633,9 @@ fn run_synthetic_host_skirmish(
     let moved_units = logic
         .host_object(dozer)
         .map(|o| {
-            o.ai_state == AIState::Moving || o.movement.target_position.is_some() || o.status.moving
+            o.ai_state() == AIState::Moving
+                || o.movement.target_position.is_some()
+                || o.status.moving
         })
         .unwrap_or(false);
 
@@ -1703,7 +1705,7 @@ fn run_synthetic_host_skirmish(
     logic.process_commands();
     let gather_engaged = logic
         .host_object(gatherer)
-        .map(|o| o.ai_state == AIState::Gathering && o.target == Some(supply))
+        .map(|o| o.ai_state() == AIState::Gathering && o.target == Some(supply))
         .unwrap_or(false);
     // Cash-backed engagement: state authorship alone proved nothing (the old
     // check read ai_state and masked a dead economy). C++ gather accrues by
@@ -2007,7 +2009,9 @@ fn run_map_world_skirmish(
     let moved_units = logic
         .host_object(dozer)
         .map(|o| {
-            o.ai_state == AIState::Moving || o.movement.target_position.is_some() || o.status.moving
+            o.ai_state() == AIState::Moving
+                || o.movement.target_position.is_some()
+                || o.status.moving
         })
         .unwrap_or(false);
 
@@ -2092,7 +2096,7 @@ fn run_map_world_skirmish(
         logic.process_commands();
         gathered = logic
             .host_object(gatherer)
-            .map(|o| o.ai_state == AIState::Gathering && o.target == Some(sid))
+            .map(|o| o.ai_state() == AIState::Gathering && o.target == Some(sid))
             .unwrap_or(false);
         // If retail/map target rejected, fall back to GoldenSupply so slice stays green.
         if !gathered && retail_supply_target {
@@ -2112,7 +2116,7 @@ fn run_map_world_skirmish(
                 logic.process_commands();
                 gathered = logic
                     .host_object(gatherer)
-                    .map(|o| o.ai_state == AIState::Gathering && o.target == Some(gid))
+                    .map(|o| o.ai_state() == AIState::Gathering && o.target == Some(gid))
                     .unwrap_or(false);
             }
         }

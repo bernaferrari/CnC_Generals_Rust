@@ -15,26 +15,28 @@ impl GameLogic {
     /// queue [`gamelogic::scripting::HostScriptMoveAttackRequest`].
     pub(super) fn apply_host_move_attack_script_requests(&mut self) {
         self.apply_host_move_attack_script_requests_with_effects(&mut Default::default())
+            .expect("move/attack script requests failed");
     }
 
     pub(super) fn apply_host_move_attack_script_requests_with_effects(
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         self.with_owned_script_engine(|interpreter, world| {
             world.apply_host_move_attack_script_requests_with_interpreter_and_effects(
                 interpreter,
                 effects,
-            );
+            )
         })
-        .expect("movement delivery requires its receiving interpreter");
+        .expect("movement delivery requires its receiving interpreter")?;
+        Ok(())
     }
 
     pub(super) fn apply_host_move_attack_script_requests_with_interpreter_and_effects(
         &mut self,
         interpreter: &gamelogic::scripting::engine::ScriptEngine,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         use gamelogic::scripting::HostScriptMoveAttackRequest;
         for req in gamelogic::scripting::take_host_script_move_attack_requests() {
             match req {
@@ -43,7 +45,7 @@ impl GameLogic {
                         continue;
                     };
                     for id in self.host_script_team_member_ids(&team) {
-                        let _ = self.unit_command_move_to(id, dest);
+                        self.unit_command_move_to(id, dest);
                     }
                 }
                 HostScriptMoveAttackRequest::NamedMove { unit, waypoint } => {
@@ -54,7 +56,7 @@ impl GameLogic {
                         continue;
                     };
                     let _ = self.apply_unit_locomotor_set(id, "normal");
-                    let _ = self.unit_command_move_to(id, dest);
+                    self.unit_command_move_to(id, dest);
                 }
                 HostScriptMoveAttackRequest::TeamAttackTeam { attacker, victim } => {
                     let members = self.host_script_team_member_ids(&attacker);
@@ -69,7 +71,7 @@ impl GameLogic {
                             target: &victim,
                         },
                         None,
-                    );
+                    )?;
                 }
                 HostScriptMoveAttackRequest::NamedAttackArea { unit, area } => {
                     let Some(id) = self.host_object_id_by_script_name(&unit) else {
@@ -96,7 +98,7 @@ impl GameLogic {
                         continue;
                     };
                     for id in self.host_script_team_member_ids(&team) {
-                        let _ = self.unit_command_attack(id, vid);
+                        self.unit_command_attack(id, vid);
                     }
                 }
                 HostScriptMoveAttackRequest::NamedMoveTowardsNearest {
@@ -119,7 +121,7 @@ impl GameLogic {
                         continue;
                     };
                     let _ = self.apply_unit_locomotor_set(id, "normal");
-                    let _ = self.unit_command_move_to(id, dest);
+                    self.unit_command_move_to(id, dest);
                 }
                 HostScriptMoveAttackRequest::TeamMoveTowardsNearest {
                     team,
@@ -143,11 +145,12 @@ impl GameLogic {
                     };
                     for id in members {
                         let _ = self.apply_unit_locomotor_set(id, "normal");
-                        let _ = self.unit_command_move_to(id, dest);
+                        self.unit_command_move_to(id, dest);
                     }
                 }
             }
         }
+        Ok(())
     }
 
     /// C++ ScriptActions TEAM/NAMED HUNT, TEAM/NAMED GUARD, PLAYER_HUNT.
@@ -277,7 +280,7 @@ impl GameLogic {
                             obj.is_alive()
                                 && !obj.status.destroyed
                                 && !obj.is_kind_of(crate::game_logic::KindOf::Structure)
-                                && obj.ai_state == crate::game_logic::AIState::Idle
+                                && obj.ai_state() == crate::game_logic::AIState::Idle
                                 && (obj.is_kind_of(crate::game_logic::KindOf::Harvester)
                                     || obj.is_kind_of(crate::game_logic::KindOf::Dozer))
                                 && obj
@@ -1221,7 +1224,7 @@ impl GameLogic {
             );
         } else if let Some(&dest) = path.points.first() {
             for id in members {
-                let _ = self.unit_command_move_to(id, dest);
+                self.unit_command_move_to(id, dest);
             }
         }
         Ok(())
@@ -1250,12 +1253,13 @@ impl GameLogic {
     /// Leftover queues [`gamelogic::scripting::HostScriptFaceRequest`].
     pub(super) fn apply_host_face_script_requests(&mut self) {
         self.apply_host_face_script_requests_with_effects(&mut Default::default())
+            .expect("face script requests failed");
     }
 
     pub(super) fn apply_host_face_script_requests_with_effects(
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         use gamelogic::scripting::HostScriptFaceRequest;
         for req in gamelogic::scripting::take_host_script_face_requests() {
             match req {
@@ -1266,7 +1270,7 @@ impl GameLogic {
                             target: &target,
                         },
                         None,
-                    );
+                    )?;
                 }
                 HostScriptFaceRequest::NamedFaceWaypoint { unit, waypoint } => {
                     let Some(id) = self.host_object_id_by_script_name(&unit) else {
@@ -1302,6 +1306,7 @@ impl GameLogic {
                 }
             }
         }
+        Ok(())
     }
 
     /// C++ `clearWaypointQueue` + `leaveGroup` + `chooseLocomotorSet(NORMAL)` +

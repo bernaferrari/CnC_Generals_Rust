@@ -178,7 +178,7 @@ fn authored_team_panic_enters_distinct_state_and_keeps_ordinary_move_control() {
     issue_authored_team_panic(&mut logic);
 
     let unit = &logic.objects[&PANIC_UNIT];
-    assert_panic_state(&unit.ai_state);
+    assert_panic_state(&unit.ai_state());
     assert!(
         unit.is_panicking,
         "panic model condition remains independent"
@@ -194,7 +194,7 @@ fn authored_team_panic_enters_distinct_state_and_keeps_ordinary_move_control() {
     if unit.panic_runtime.as_ref().unwrap().append_goal_position {
         assert!(unit.allow_invalid_position);
         assert!(
-            !unit.adjust_destinations,
+            !unit.adjust_destinations(),
             "C++ FollowWaypointPath disables destination adjustment for an appended off-map goal"
         );
     }
@@ -209,7 +209,7 @@ fn authored_team_panic_enters_distinct_state_and_keeps_ordinary_move_control() {
     ordinary.movement.max_speed = 10.0;
     logic.objects.insert(ordinary_id, ordinary);
     assert!(logic.unit_command_move_to(ordinary_id, Vec3::new(100.0, 0.0, 0.0)));
-    assert_eq!(logic.objects[&ordinary_id].ai_state, AIState::Moving);
+    assert_eq!(logic.objects[&ordinary_id].ai_state(), AIState::Moving);
 }
 
 #[test]
@@ -235,7 +235,7 @@ fn authored_panic_waypoint_on_wall_keeps_wall_height_and_layer() {
 
     issue_authored_team_panic(&mut logic);
     let unit = &logic.objects[&PANIC_UNIT];
-    assert_panic_state(&unit.ai_state);
+    assert_panic_state(&unit.ai_state());
     assert_eq!(unit.panic_runtime.as_ref().unwrap().goal_layer, 15);
     assert_eq!(unit.requested_destination.unwrap().y, 12.0);
 }
@@ -254,7 +254,7 @@ fn off_map_panic_entry_disables_destination_adjustment_without_waypoint_links() 
     );
     assert!(unit.allow_invalid_position);
     assert!(
-        !unit.adjust_destinations,
+        !unit.adjust_destinations(),
         "C++ off-map goal handling overrides the no-links destination-adjustment default"
     );
 }
@@ -300,7 +300,7 @@ fn authored_team_panic_bounces_infantry_collision_before_blocked_state() {
         !unit.is_blocked,
         "AI_PANIC collision returns bounce before setting m_isBlocked"
     );
-    assert_panic_state(&unit.ai_state);
+    assert_panic_state(&unit.ai_state());
     assert_panic_runtime(unit, WAYPOINT_START, None);
 }
 
@@ -329,7 +329,7 @@ fn panic_state_and_waypoint_path_survive_world_snapshot_roundtrip() {
         .expect("restore panic snapshot");
 
     let restored_unit = &restored.objects[&PANIC_UNIT];
-    assert_panic_state(&restored_unit.ai_state);
+    assert_panic_state(&restored_unit.ai_state());
     assert_panic_runtime(restored_unit, WAYPOINT_START, None);
     assert_eq!(
         restored_unit.movement.path, path_before,
@@ -355,8 +355,8 @@ fn panic_state_and_waypoint_path_survive_world_snapshot_roundtrip() {
         source_unit.wander_width_factor
     );
     assert_eq!(
-        restored_unit.adjust_destinations,
-        source_unit.adjust_destinations
+        restored_unit.adjust_destinations(),
+        source_unit.adjust_destinations()
     );
     assert_eq!(
         restored_unit.path_extra_distance,
@@ -468,11 +468,11 @@ fn panic_follows_multiple_waypoints_and_finishes_after_real_locomotor_arrivals()
         {
             assert!(unit.allow_invalid_position);
             assert!(
-                !unit.adjust_destinations,
+                !unit.adjust_destinations(),
                 "the next off-map waypoint also disables destination adjustment"
             );
         }
-        if unit.ai_state == AIState::Idle {
+        if unit.ai_state() == AIState::Idle {
             break;
         }
     }
@@ -487,7 +487,7 @@ fn panic_follows_multiple_waypoints_and_finishes_after_real_locomotor_arrivals()
         "the route was traversed across multiple simulation frames"
     );
     assert_eq!(
-        unit.ai_state,
+        unit.ai_state(),
         AIState::Idle,
         "the terminal path returns to Idle"
     );
@@ -515,11 +515,11 @@ fn panic_follows_multiple_waypoints_and_finishes_after_real_locomotor_arrivals()
 fn ordinary_move_command_interrupts_panic_and_retires_its_continuation() {
     let mut logic = panic_logic();
     issue_authored_team_panic(&mut logic);
-    assert_panic_state(&logic.objects[&PANIC_UNIT].ai_state);
+    assert_panic_state(&logic.objects[&PANIC_UNIT].ai_state());
 
     assert!(logic.unit_command_move_to(PANIC_UNIT, Vec3::new(300.0, 0.0, 0.0)));
     let unit = &logic.objects[&PANIC_UNIT];
-    assert_eq!(unit.ai_state, AIState::Moving);
+    assert_eq!(unit.ai_state(), AIState::Moving);
     assert!(unit.panic_runtime.is_none());
     assert!(!unit.is_panicking);
 }
@@ -541,7 +541,7 @@ fn panic_failure_does_not_advance_the_waypoint_and_terminal_uses_terminal_labels
         unit.retry_path = true;
     }
     logic.tick_host_panic_states(&[PANIC_UNIT]);
-    assert_panic_state(&logic.objects[&PANIC_UNIT].ai_state);
+    assert_panic_state(&logic.objects[&PANIC_UNIT].ai_state());
     assert_panic_runtime(&logic.objects[&PANIC_UNIT], WAYPOINT_START, None);
 
     // Give the terminal InternalMove update a completed one-node path at the
@@ -565,7 +565,7 @@ fn panic_failure_does_not_advance_the_waypoint_and_terminal_uses_terminal_labels
     logic.tick_host_panic_states(&[PANIC_UNIT]);
 
     let unit = &logic.objects[&PANIC_UNIT];
-    assert_eq!(unit.ai_state, AIState::Idle);
+    assert_eq!(unit.ai_state(), AIState::Idle);
     assert_eq!(
         unit.completed_waypoint_labels,
         vec!["PanicTerminal", "", ""]

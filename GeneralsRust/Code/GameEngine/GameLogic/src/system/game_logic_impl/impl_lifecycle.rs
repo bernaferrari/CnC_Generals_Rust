@@ -634,6 +634,14 @@ impl GameLogic {
     /// The request is staged first, then this method performs the actual map
     /// load once the movie gate allows it.
     pub(crate) fn start_new_game_now(&mut self, loading_save_game: Bool) -> Result<(), String> {
+        self.start_new_game_now_with_load_screen_hooks(loading_save_game, None)
+    }
+
+    pub(crate) fn start_new_game_now_with_load_screen_hooks(
+        &mut self,
+        loading_save_game: Bool,
+        mut load_screen_hooks: Option<&mut dyn crate::helpers::LoadScreenHooks>,
+    ) -> Result<(), String> {
         let map_path = game_engine::common::ini::get_global_data()
             .map(|data| data.read().map_name.clone())
             .unwrap_or_default();
@@ -663,10 +671,13 @@ impl GameLogic {
         self.set_loading_map(true);
         crate::helpers::TheGameLogic::clear_start_new_game_request();
         let game_mode_int = self.get_game_mode();
-        crate::helpers::TheGameLogic::begin_load_screen(game_mode_int, loading_save_game);
-        crate::helpers::TheGameLogic::update_load_progress(
-            crate::system::game_initialization::LOAD_PROGRESS_START,
-        );
+        if let Some(hooks) = load_screen_hooks
+            .as_mut()
+            .map(|hook| &mut **hook as &mut dyn crate::helpers::LoadScreenHooks)
+        {
+            hooks.begin_load_screen(game_mode_int, loading_save_game);
+            hooks.update_load_screen(crate::system::game_initialization::LOAD_PROGRESS_START);
+        }
 
         let game_mode = match game_mode_int {
             GAME_SHELL => crate::system::game_initialization::GameMode::ShellMap,
@@ -711,19 +722,27 @@ impl GameLogic {
             ai_script: "DefaultAI".to_string(),
         };
 
-        let init_result =
-            crate::system::game_initialization::GameInitializer::initialize_game(params)
+        let init_result = crate::system::game_initialization::GameInitializer::
+            initialize_game_with_load_screen_hooks(params, load_screen_hooks.as_mut().map(|hook| &mut **hook as &mut dyn crate::helpers::LoadScreenHooks))
                 .map(|_| ())
                 .map_err(|err| format!("Game initialization failed: {}", err));
         if init_result.is_ok() {
             // C++ GameLogic.cpp:2073-2119 after PlayerList::newMap.
             apply_challenge_the_player_relationships();
-            crate::helpers::TheGameLogic::update_load_progress(
-                crate::system::game_initialization::LOAD_PROGRESS_END,
-            );
-            crate::helpers::TheGameLogic::run_load_screen_completion_transition(loading_save_game);
+            if let Some(hooks) = load_screen_hooks
+                .as_mut()
+                .map(|hook| &mut **hook as &mut dyn crate::helpers::LoadScreenHooks)
+            {
+                hooks.update_load_screen(crate::system::game_initialization::LOAD_PROGRESS_END);
+                hooks.run_load_screen_completion_transition(loading_save_game);
+            }
         }
-        crate::helpers::TheGameLogic::end_load_screen();
+        if let Some(hooks) = load_screen_hooks
+            .as_mut()
+            .map(|hook| &mut **hook as &mut dyn crate::helpers::LoadScreenHooks)
+        {
+            hooks.end_load_screen();
+        }
         self.set_loading_map(false);
         // C++ GameLogic.cpp:2009-2010 — TheRecorder->initControls() after preload.
         game_engine::common::recorder::with_recorder_mut(|recorder| {

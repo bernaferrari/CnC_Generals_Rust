@@ -308,7 +308,7 @@ fn empty_jet_circles_last_airfield_not_own_pos() {
         1,
         &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
     ));
-    assert!(jet.jet_circling_dead_airfield);
+    assert!(jet.jet_circling_dead_airfield());
     jet.leave_circling_dead_airfield();
     jet.set_position(Vec3::new(10.0, 50.0, 0.0));
     assert!(jet.is_at_jet_producer_location(80.0));
@@ -353,11 +353,11 @@ fn parked_jet_takeoff_on_attack_and_move() {
         &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
     );
     assert!(jet.contained_by.is_none());
-    assert_ne!(jet.ai_state, AIState::Docked);
+    assert_ne!(jet.ai_state(), AIState::Docked);
     assert!(jet.status.airborne_target);
     assert!(jet.get_position().y >= PARKING_PLACE_AIRFIELD_APPROACH_HEIGHT - 1e-3);
     assert_eq!(jet.target, Some(ObjectId(7)));
-    assert_eq!(jet.ai_state, AIState::Attacking);
+    assert_eq!(jet.ai_state(), AIState::Attacking);
 
     // Re-dock and move.
     jet.contained_by = Some(ObjectId(99));
@@ -375,7 +375,7 @@ fn parked_jet_takeoff_on_attack_and_move() {
         &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
     );
     assert!(jet.contained_by.is_none());
-    assert!(jet.status.airborne_target || jet.ai_state != AIState::Docked);
+    assert!(jet.status.airborne_target || jet.ai_state() != AIState::Docked);
     assert!(jet.get_position().y >= PARKING_PLACE_AIRFIELD_APPROACH_HEIGHT - 1e-3);
 }
 
@@ -1920,7 +1920,7 @@ fn shock_stun_blocks_attack_fire_and_flail_move() {
         &mut _attack_output,
         &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
     );
-    assert!(o.target.is_none() || o.ai_state != AIState::Attacking || !o.can_attack());
+    assert!(o.target.is_none() || o.ai_state() != AIState::Attacking || !o.can_attack());
     // After stun clears, combat again.
     o.shock_stun_frames = 0;
     o.refresh_model_condition_bits();
@@ -2200,9 +2200,7 @@ fn jet_lockon_rearms_after_targeter_removed() {
 
 #[test]
 fn jet_taxi_to_takeoff_does_not_enable_afterburners() {
-    use crate::game_logic::host_enum_table_residual::{
-        jetafterburner_model_bit, jetexhaust_model_bit,
-    };
+    use crate::game_logic::host_enum_table_residual::{jetafterburner_model_bit, jetexhaust_model_bit};
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     use glam::Vec3;
     let mut t = ThingTemplate::new("AmericaJetRaptor");
@@ -2330,10 +2328,14 @@ fn jet_stop_and_enter_airfield_land() {
         );
         j.target = Some(ObjectId(99));
     }
-    assert!(logic.unit_command_stop(jet));
+    assert!(
+        logic
+            .unit_command_stop(jet)
+            .expect("checked Stop operation")
+    );
     let j = logic.objects.get(&jet).unwrap();
     assert!(
-        j.return_to_base_requested || j.contained_by == Some(af) || j.ai_state == AIState::Moving
+        j.return_to_base_requested || j.contained_by == Some(af) || j.ai_state() == AIState::Moving
     );
 
     let jet2 = logic
@@ -2459,7 +2461,9 @@ End
         .map(|p| Vec3::new(p[0], p[1], p[2]))
         .expect("runway start");
     logic.set_fixture_object_position(jet, start);
-    logic.tick_jet_ai_update_all();
+    logic
+        .tick_jet_ai_update_all()
+        .expect("receiving AI operation succeeds");
     {
         let j = logic.objects.get(&jet).unwrap();
         assert!(
@@ -2485,7 +2489,9 @@ End
     if let Some(j) = logic.objects.get_mut(&jet) {
         j.finish_jet_takeoff();
     }
-    logic.tick_jet_ai_update_all();
+    logic
+        .tick_jet_ai_update_all()
+        .expect("receiving AI operation succeeds");
     assert!(
         logic
             .queued_audio_events

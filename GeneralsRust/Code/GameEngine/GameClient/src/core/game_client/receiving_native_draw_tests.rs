@@ -148,7 +148,6 @@ fn receiving_native_draw_admits_authored_emitter_before_next_client_bone_update(
         .expect("standalone command manager")
         .initialize_player(0)
         .expect("fresh local player command queue");
-    get_shell().init().unwrap();
     let assets = static_asset();
     let mut bridge = crate::render_bridge::RenderBridge::new();
     *bridge.asset_manager_mut() = assets;
@@ -161,6 +160,11 @@ fn receiving_native_draw_admits_authored_emitter_before_next_client_bone_update(
         .replace(emitter_manager());
     let observed = (|| -> Result<_, String> {
         let mut client = GameClient::new().map_err(|e| e.to_string())?;
+        client
+            .window_manager_owner()
+            .shell_handle()
+            .init()
+            .map_err(|e| e.to_string())?;
         client.initialized = true;
         let id = client
             .create_drawable_from_template(&authored_template())

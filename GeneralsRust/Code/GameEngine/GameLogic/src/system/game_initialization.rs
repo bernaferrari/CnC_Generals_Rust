@@ -204,6 +204,13 @@ impl GameInitializer {
     ///
     /// Matches C++ flow from GameLogic.cpp startNewGame()
     pub fn initialize_game(params: GameInitParams) -> io::Result<GameState> {
+        Self::initialize_game_with_load_screen_hooks(params, None)
+    }
+
+    pub(crate) fn initialize_game_with_load_screen_hooks(
+        params: GameInitParams,
+        mut load_screen_hooks: Option<&mut dyn crate::helpers::LoadScreenHooks>,
+    ) -> io::Result<GameState> {
         #[cfg(test)]
         START_NEW_GAME_REQUEST_AT_INIT_ENTRY.with(|slot| {
             slot.set(crate::helpers::TheGameLogic::is_start_new_game_requested());
@@ -215,9 +222,13 @@ impl GameInitializer {
         // =====================================================================
         // Load the map file, parse heightmap, objects, waypoints
         // Matches C++ map loading from MapUtil.cpp
-        crate::helpers::TheGameLogic::update_load_progress(LOAD_PROGRESS_POST_PARTICLE_INI_LOAD);
+        if let Some(hooks) = load_screen_hooks.as_deref_mut() {
+            hooks.update_load_screen(LOAD_PROGRESS_POST_PARTICLE_INI_LOAD);
+        }
         Self::load_map(&mut game_state, &params.map_path)?;
-        crate::helpers::TheGameLogic::update_load_progress(LOAD_PROGRESS_POST_LOAD_MAP);
+        if let Some(hooks) = load_screen_hooks.as_deref_mut() {
+            hooks.update_load_screen(LOAD_PROGRESS_POST_LOAD_MAP);
+        }
         Self::prepare_sides_for_new_game(&params);
 
         // PHASE 2: PLAYER INITIALIZATION
@@ -225,16 +236,18 @@ impl GameInitializer {
         // Create players from map data, assign colors, resources, alliances
         // Matches C++ player initialization from GameLogic.cpp
         Self::initialize_players(&mut game_state, &params)?;
-        crate::helpers::TheGameLogic::update_load_progress(
-            LOAD_PROGRESS_POST_SCRIPT_ENGINE_NEW_MAP,
-        );
+        if let Some(hooks) = load_screen_hooks.as_deref_mut() {
+            hooks.update_load_screen(LOAD_PROGRESS_POST_SCRIPT_ENGINE_NEW_MAP);
+        }
 
         // PHASE 3: GAME START SEQUENCE
         // =====================================================================
         // Run scripts, position camera, init fog of war, generate minimap, start AI
         // Matches C++ startup sequence from GameLogic.cpp and GameClient.cpp
         Self::execute_start_sequence(&mut game_state, &params)?;
-        crate::helpers::TheGameLogic::update_load_progress(LOAD_PROGRESS_POST_STARTING_CAMERA_2);
+        if let Some(hooks) = load_screen_hooks.as_deref_mut() {
+            hooks.update_load_screen(LOAD_PROGRESS_POST_STARTING_CAMERA_2);
+        }
 
         // PHASE 4: VICTORY CONDITIONS
         // =====================================================================

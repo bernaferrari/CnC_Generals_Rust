@@ -211,7 +211,11 @@ impl<'a> CommandExecutor<'a> {
         pos
     }
 
-    pub(crate) fn execute_move(&mut self, units: &[ObjectId], destination: Vec3) -> CommandResult {
+    pub(crate) fn execute_move(
+        &mut self,
+        units: &[ObjectId],
+        destination: Vec3,
+    ) -> gamelogic::GameLogicResult<CommandResult> {
         // Wave 232: move last-writes via GameLogic unit_command_move_free.
         // C++ AIGroup::groupMoveToPosition (AIGroup.cpp:1559-1615): click-to-gather
         // only when !isFormation. A stamped formation always takes
@@ -224,14 +228,14 @@ impl<'a> CommandExecutor<'a> {
             if matches!(result, CommandResult::Success) {
                 self.play_context_move_voice(units);
             }
-            return result;
+            return Ok(result);
         }
         if is_formation && units.len() > 1 {
-            let result = self.execute_move_formation_to_position(units, destination);
+            let result = self.execute_move_formation_to_position(units, destination)?;
             if matches!(result, CommandResult::Success) {
                 self.play_context_move_voice(units);
             }
-            return result;
+            return Ok(result);
         }
         self.apply_group_desired_speed(units, false);
         let goals = self.group_move_destinations(units, destination);
@@ -301,7 +305,7 @@ impl<'a> CommandExecutor<'a> {
                 }
                 self.apply_player_stealth_mood_delay(&moved);
                 self.play_context_move_voice(units);
-                return CommandResult::Success;
+                return Ok(CommandResult::Success);
             }
         }
         let mut moved: Vec<ObjectId> = Vec::new();
@@ -327,14 +331,14 @@ impl<'a> CommandExecutor<'a> {
             debug!("Unit {} moving to {:?}", unit_id.0, goal);
         }
         if moved.is_empty() && missing {
-            return CommandResult::InvalidTarget;
+            return Ok(CommandResult::InvalidTarget);
         }
         if moved.is_empty() && !goals.is_empty() {
-            return CommandResult::InvalidCommand;
+            return Ok(CommandResult::InvalidCommand);
         }
         self.apply_player_stealth_mood_delay(&moved);
         self.play_context_move_voice(units);
-        CommandResult::Success
+        Ok(CommandResult::Success)
     }
 
     pub(super) fn execute_move_to(
@@ -846,14 +850,14 @@ impl<'a> CommandExecutor<'a> {
         waypoints: &[Vec3],
         exact: bool,
         as_team: bool,
-    ) -> CommandResult {
+    ) -> gamelogic::GameLogicResult<CommandResult> {
         // `exact` → assign_unit_path_exact (C++ AIFollowWaypointPathExactState).
         if waypoints.is_empty() {
-            return CommandResult::InvalidLocation;
+            return Ok(CommandResult::InvalidLocation);
         }
         for wp in waypoints {
             if !wp.x.is_finite() || !wp.z.is_finite() {
-                return CommandResult::InvalidLocation;
+                return Ok(CommandResult::InvalidLocation);
             }
         }
 
@@ -869,7 +873,7 @@ impl<'a> CommandExecutor<'a> {
             movers.push((unit_id, unit.get_position(), unit.formation_offset));
         }
         if movers.is_empty() {
-            return CommandResult::InvalidCommand;
+            return Ok(CommandResult::InvalidCommand);
         }
 
         // Group center from current positions.
@@ -939,15 +943,15 @@ impl<'a> CommandExecutor<'a> {
             }
             if ok {
                 any = true;
-            } else if self.path_to_goal_with_state(unit_id, goal, AIState::Moving) {
+            } else if self.path_to_goal_with_state(unit_id, goal, AIState::Moving)? {
                 any = true;
             }
         }
-        if any {
+        Ok(if any {
             CommandResult::Success
         } else {
             CommandResult::InvalidCommand
-        }
+        })
     }
 
     /// C++ AIGroup column path residual (infantry 3-col / vehicle group).
@@ -1270,12 +1274,12 @@ impl<'a> CommandExecutor<'a> {
         units: &[ObjectId],
         destination: Vec3,
         max_shots: i32,
-    ) -> CommandResult {
+    ) -> gamelogic::GameLogicResult<CommandResult> {
         // Wave 232: attack-move last-writes via GameLogic unit_command_attack_move_to_ex.
         // C++ AIGroup::groupAttackMoveToPosition (`AIGroup.cpp:2260-2273`):
         // every member gets the identical `pos` — no column/formation spread.
         if !destination.x.is_finite() || !destination.z.is_finite() {
-            return CommandResult::InvalidLocation;
+            return Ok(CommandResult::InvalidLocation);
         }
         let destination = self.clamp_group_waypoint(units, destination);
         let mut any = false;
@@ -1298,12 +1302,15 @@ impl<'a> CommandExecutor<'a> {
                 continue;
             }
             if can_attack {
-                if self.game_logic.unit_command_attack_move_to_ex_with_effects(
-                    unit_id,
-                    destination,
-                    max_shots,
-                    &mut self.ui,
-                ) {
+                if self
+                    .game_logic
+                    .unit_command_attack_move_to_ex_with_effects(
+                        unit_id,
+                        destination,
+                        max_shots,
+                        &mut self.ui,
+                    )?
+                {
                     any = true;
                 }
             } else if self
@@ -1313,13 +1320,13 @@ impl<'a> CommandExecutor<'a> {
                 any = true;
             }
         }
-        if any {
+        Ok(if any {
             // C++ MSG_DO_ATTACKMOVETO uses VoiceMove (`CommandXlat.cpp:384-412`).
             self.play_context_move_voice(units);
             CommandResult::Success
         } else {
             CommandResult::InvalidCommand
-        }
+        })
     }
 
     pub(super) fn execute_force_move(
@@ -1404,10 +1411,10 @@ impl<'a> CommandExecutor<'a> {
         &mut self,
         units: &[ObjectId],
         destination: Vec3,
-    ) -> CommandResult {
+    ) -> gamelogic::GameLogicResult<CommandResult> {
         // Wave 232: formation move via unit_command_force_move_to.
         if !destination.x.is_finite() || !destination.z.is_finite() {
-            return CommandResult::InvalidLocation;
+            return Ok(CommandResult::InvalidLocation);
         }
         // Ensure formation stamps exist.
         let need_stamp = {
@@ -1465,16 +1472,16 @@ impl<'a> CommandExecutor<'a> {
                 continue;
             }
             if self.game_logic.unit_command_force_move_to(unit_id, goal)
-                || self.path_to_goal_with_state(unit_id, goal, AIState::Moving)
+                || self.path_to_goal_with_state(unit_id, goal, AIState::Moving)?
             {
                 any = true;
             }
         }
-        if any {
+        Ok(if any {
             CommandResult::Success
         } else {
             CommandResult::InvalidCommand
-        }
+        })
     }
 
     /// C++ AIGroup::groupFollowPath residual (empty body in retail) —
@@ -1483,7 +1490,7 @@ impl<'a> CommandExecutor<'a> {
         &mut self,
         units: &[ObjectId],
         path: &[Vec3],
-    ) -> CommandResult {
+    ) -> gamelogic::GameLogicResult<CommandResult> {
         self.execute_follow_waypoint_path(units, path, false, false)
     }
 

@@ -1854,6 +1854,13 @@
           },
           {
             "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/Common/src/common/audio/game_audio/playback.rs"
+          },
+          {
+            "cargo_reachable": true,
             "classification": "test",
             "owned_source_ranges": [],
             "owned_symbols": [],
@@ -15838,6 +15845,13 @@
             "classification": "implementation",
             "owned_source_ranges": [],
             "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/action_kernel.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/delete_owned.rs"
           },
           {
@@ -15852,6 +15866,13 @@
             "classification": "implementation",
             "owned_source_ranges": [],
             "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/phase.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/primary_owned.rs"
           },
           {
@@ -15860,6 +15881,20 @@
             "owned_source_ranges": [],
             "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/snapshot.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "test",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/snapshot/original_xfer_oracle_tests.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/task_owner.rs"
           },
           {
             "cargo_reachable": true,
@@ -18698,6 +18733,13 @@
             "classification": "implementation",
             "owned_source_ranges": [],
             "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/action_kernel.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/delete_owned.rs"
           },
           {
@@ -18712,6 +18754,13 @@
             "classification": "implementation",
             "owned_source_ranges": [],
             "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/phase.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/primary_owned.rs"
           },
           {
@@ -18720,6 +18769,20 @@
             "owned_source_ranges": [],
             "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/snapshot.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "test",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/snapshot/original_xfer_oracle_tests.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/task_owner.rs"
           }
         ],
         "mode": "split_inferred",
@@ -30252,6 +30315,13 @@
             "classification": "implementation",
             "owned_source_ranges": [],
             "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/action_kernel.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/delete_owned.rs"
           },
           {
@@ -30266,6 +30336,13 @@
             "classification": "implementation",
             "owned_source_ranges": [],
             "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/phase.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/primary_owned.rs"
           },
           {
@@ -30274,6 +30351,20 @@
             "owned_source_ranges": [],
             "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/snapshot.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "test",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/snapshot/original_xfer_oracle_tests.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/task_owner.rs"
           },
           {
             "cargo_reachable": true,
@@ -35316,6 +35407,13 @@
             "owned_source_ranges": [],
             "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/Common/src/common/audio/game_audio.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/Common/src/common/audio/game_audio/playback.rs"
           },
           {
             "cargo_reachable": true,
@@ -60703,10 +60801,13 @@
         "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/deliver_payload_data.rs",
         "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/deploy_style_ai_update.rs",
         "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update.rs",
+        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/action_kernel.rs",
         "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/delete_owned.rs",
         "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/owned_state.rs",
+        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/phase.rs",
         "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/primary_owned.rs",
         "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/snapshot.rs",
+        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/task_owner.rs",
         "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/hack_internet_ai_update.rs",
         "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/jet_ai_update.rs",
         "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/mod.rs",
@@ -64252,6 +64353,13 @@
             "classification": "implementation",
             "owned_source_ranges": [],
             "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/action_kernel.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/delete_owned.rs"
           },
           {
@@ -64266,6 +64374,13 @@
             "classification": "implementation",
             "owned_source_ranges": [],
             "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/phase.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/primary_owned.rs"
           },
           {
@@ -64274,6 +64389,20 @@
             "owned_source_ranges": [],
             "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/snapshot.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "test",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/snapshot/original_xfer_oracle_tests.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/task_owner.rs"
           },
           {
             "cargo_reachable": true,
@@ -66527,10 +66656,13 @@
         "unreviewed_symbol_ownership",
         "unreviewed_source_range_ownership",
         "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update.rs",
+        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/action_kernel.rs",
         "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/delete_owned.rs",
         "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/owned_state.rs",
+        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/phase.rs",
         "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/primary_owned.rs",
-        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/snapshot.rs"
+        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/snapshot.rs",
+        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/task_owner.rs"
       ],
       "id": "game_engine:Source/GameLogic/Object/Update/AIUpdate/DozerAIUpdate.cpp",
       "inventory_class": "required_runtime",
@@ -66556,6 +66688,13 @@
             "classification": "implementation",
             "owned_source_ranges": [],
             "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/action_kernel.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/delete_owned.rs"
           },
           {
@@ -66570,6 +66709,13 @@
             "classification": "implementation",
             "owned_source_ranges": [],
             "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/phase.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/primary_owned.rs"
           },
           {
@@ -66578,6 +66724,20 @@
             "owned_source_ranges": [],
             "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/snapshot.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "test",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/snapshot/original_xfer_oracle_tests.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/task_owner.rs"
           }
         ],
         "mode": "split_inferred",
@@ -67126,10 +67286,13 @@
         "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/deliver_payload_data.rs",
         "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/deploy_style_ai_update.rs",
         "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update.rs",
+        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/action_kernel.rs",
         "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/delete_owned.rs",
         "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/owned_state.rs",
+        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/phase.rs",
         "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/primary_owned.rs",
         "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/snapshot.rs",
+        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/task_owner.rs",
         "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/hack_internet_ai_update.rs",
         "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/jet_ai_update.rs",
         "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/mod.rs",
@@ -67283,6 +67446,13 @@
             "classification": "implementation",
             "owned_source_ranges": [],
             "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/action_kernel.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/delete_owned.rs"
           },
           {
@@ -67297,6 +67467,13 @@
             "classification": "implementation",
             "owned_source_ranges": [],
             "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/phase.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/primary_owned.rs"
           },
           {
@@ -67305,6 +67482,20 @@
             "owned_source_ranges": [],
             "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/snapshot.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "test",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/snapshot/original_xfer_oracle_tests.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/task_owner.rs"
           },
           {
             "cargo_reachable": true,
@@ -160800,7 +160991,7 @@
     }
   ],
   "generator": "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-  "input_digest": "18d86f7cd6e53f55b8cb43a881124d2c0dd1c07d22f036be931d2e3bfb4d56ca",
+  "input_digest": "29f43001972f365bff0644e93f096ca2296b2c529655df99ee4f4c6880dbec2a",
   "metric_contract": {
     "behavior_requires_explicit_evidence": true,
     "candidate_mapping_is_reviewed": false,
@@ -161081,1461 +161272,1494 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 3674,
+        "end_line": 23,
+        "start_line": 1
+      },
+      "path": "GeneralsRust/Code/GameEngine/Common/src/common/audio/game_audio/playback.rs",
+      "sha256": "1682d061fc05c4f9a92680e33ec927bc953127ad8f6d8acf038541e219b6db84",
+      "symbol_index_status": "indexed",
+      "symbols": [
+        {
+          "kind": "struct",
+          "line": 4,
+          "name": "PlaybackRecipient"
+        },
+        {
+          "kind": "fn",
+          "line": 8,
+          "name": "owned"
+        },
+        {
+          "kind": "fn",
+          "line": 13,
+          "name": "with_hook"
+        }
+      ]
+    },
+    {
+      "cargo_reachable": true,
+      "classification": "implementation",
+      "file_range": {
+        "end_line": 3719,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/Common/src/common/audio/game_audio.rs",
-      "sha256": "17a76a0c736cb6f1ff5538a5a20e888f56613aade1775009e1b24640f4070255",
+      "sha256": "0b77808df51d7a9f25a23ddaf1bfe23e6e783c303eb83bef478425686ff30c2e",
       "symbol_index_status": "indexed",
       "symbols": [
         {
           "kind": "type",
-          "line": 48,
+          "line": 50,
           "name": "AsciiString"
         },
         {
           "kind": "type",
-          "line": 49,
+          "line": 51,
           "name": "Real"
         },
         {
           "kind": "type",
-          "line": 50,
+          "line": 52,
           "name": "Bool"
         },
         {
           "kind": "type",
-          "line": 51,
+          "line": 53,
           "name": "Int"
         },
         {
           "kind": "type",
-          "line": 52,
+          "line": 54,
           "name": "UnsignedInt"
         },
         {
           "kind": "trait",
-          "line": 55,
+          "line": 57,
           "name": "SoundPlaybackHook"
         },
         {
           "kind": "fn",
-          "line": 56,
+          "line": 58,
           "name": "play"
         },
         {
           "kind": "fn",
-          "line": 57,
+          "line": 59,
           "name": "play_with_visibility"
-        },
-        {
-          "kind": "fn",
-          "line": 60,
-          "name": "stop"
-        },
-        {
-          "kind": "fn",
-          "line": 61,
-          "name": "pause"
         },
         {
           "kind": "fn",
           "line": 62,
-          "name": "resume"
+          "name": "stop"
         },
         {
           "kind": "fn",
           "line": 63,
-          "name": "is_playing"
+          "name": "pause"
         },
         {
           "kind": "fn",
           "line": 64,
-          "name": "set_listener_position"
+          "name": "resume"
+        },
+        {
+          "kind": "fn",
+          "line": 65,
+          "name": "is_playing"
         },
         {
           "kind": "fn",
           "line": 66,
-          "name": "set_listener_orientation"
+          "name": "set_listener_position"
         },
         {
           "kind": "fn",
-          "line": 67,
-          "name": "set_event_volume"
+          "line": 68,
+          "name": "set_listener_orientation"
         },
         {
           "kind": "fn",
           "line": 69,
-          "name": "set_sink_volume"
-        },
-        {
-          "kind": "fn",
-          "line": 71,
-          "name": "music_loop_count"
-        },
-        {
-          "kind": "fn",
-          "line": 74,
-          "name": "is_sink_paused"
-        },
-        {
-          "kind": "static",
-          "line": 78,
-          "name": "SOUND_PLAYBACK_HOOK"
-        },
-        {
-          "kind": "enum",
-          "line": 82,
-          "name": "AudioLocalityRelationship"
-        },
-        {
-          "kind": "trait",
-          "line": 89,
-          "name": "AudioLocalityResolver"
-        },
-        {
-          "kind": "fn",
-          "line": 90,
-          "name": "get_local_player_index"
-        },
-        {
-          "kind": "fn",
-          "line": 91,
-          "name": "get_observer_look_at_player_index"
-        },
-        {
-          "kind": "fn",
-          "line": 94,
-          "name": "is_player_active"
-        },
-        {
-          "kind": "fn",
-          "line": 95,
-          "name": "player_exists"
-        },
-        {
-          "kind": "fn",
-          "line": 96,
-          "name": "has_default_team"
-        },
-        {
-          "kind": "fn",
-          "line": 97,
-          "name": "get_relationship_to_local_team"
-        },
-        {
-          "kind": "struct",
-          "line": 107,
-          "name": "AudioSubmissionLocality"
-        },
-        {
-          "kind": "fn",
-          "line": 118,
-          "name": "from_resolver"
-        },
-        {
-          "kind": "fn",
-          "line": 151,
-          "name": "should_play_locally"
-        },
-        {
-          "kind": "enum",
-          "line": 166,
-          "name": "AudioSubmission"
-        },
-        {
-          "kind": "static",
-          "line": 171,
-          "name": "AUDIO_LOCALITY_RESOLVER"
-        },
-        {
-          "kind": "trait",
-          "line": 175,
-          "name": "AudioViewResolver"
-        },
-        {
-          "kind": "fn",
-          "line": 176,
-          "name": "get_tactical_view_position"
-        },
-        {
-          "kind": "fn",
-          "line": 177,
-          "name": "get_tactical_view_angle"
-        },
-        {
-          "kind": "fn",
-          "line": 178,
-          "name": "get_3d_camera_position"
-        },
-        {
-          "kind": "fn",
-          "line": 179,
-          "name": "get_ground_height"
-        },
-        {
-          "kind": "fn",
-          "line": 181,
-          "name": "is_world_position_on_screen"
-        },
-        {
-          "kind": "static",
-          "line": 211,
-          "name": "AUDIO_VIEW_RESOLVER"
-        },
-        {
-          "kind": "fn",
-          "line": 213,
-          "name": "register_audio_view_resolver"
-        },
-        {
-          "kind": "fn",
-          "line": 217,
-          "name": "register_sound_playback_hook"
-        },
-        {
-          "kind": "fn",
-          "line": 221,
-          "name": "sound_playback_hook_registered"
-        },
-        {
-          "kind": "fn",
-          "line": 225,
-          "name": "register_audio_locality_resolver"
-        },
-        {
-          "kind": "fn",
-          "line": 229,
-          "name": "with_sound_playback_hook"
-        },
-        {
-          "kind": "static",
-          "line": 249,
-          "name": "PLAY_FAILURE_REPORTS"
-        },
-        {
-          "kind": "fn",
-          "line": 255,
-          "name": "report_play_failure_once"
-        },
-        {
-          "kind": "fn",
-          "line": 268,
-          "name": "reset_play_failure_reports_for_tests"
-        },
-        {
-          "kind": "fn",
-          "line": 273,
-          "name": "play_failure_report_reason_for_tests"
-        },
-        {
-          "kind": "fn",
-          "line": 276,
-          "name": "with_audio_locality_resolver"
-        },
-        {
-          "kind": "const",
-          "line": 287,
-          "name": "MAX_HW_PROVIDERS"
-        },
-        {
-          "kind": "const",
-          "line": 288,
-          "name": "NUM_VOLUME_TYPES"
-        },
-        {
-          "kind": "fn",
-          "line": 295,
-          "name": "should_play_locally_for_players"
-        },
-        {
-          "kind": "fn",
-          "line": 349,
-          "name": "affect_has"
-        },
-        {
-          "kind": "fn",
-          "line": 352,
-          "name": "event_matches_audio_affect"
-        },
-        {
-          "kind": "fn",
-          "line": 375,
-          "name": "music_repeats_source_infinitely"
-        },
-        {
-          "kind": "static",
-          "line": 382,
-          "name": "SPEAKER_TYPES"
-        },
-        {
-          "kind": "enum",
-          "line": 394,
-          "name": "AudioAffect"
-        },
-        {
-          "kind": "const",
-          "line": 412,
-          "name": "fn"
-        },
-        {
-          "kind": "const",
-          "line": 415,
-          "name": "fn"
-        },
-        {
-          "kind": "const",
-          "line": 419,
-          "name": "fn"
-        },
-        {
-          "kind": "struct",
-          "line": 443,
-          "name": "AudioSettings"
-        },
-        {
-          "kind": "fn",
-          "line": 488,
-          "name": "default"
-        },
-        {
-          "kind": "struct",
-          "line": 542,
-          "name": "MiscAudio"
-        },
-        {
-          "kind": "trait",
-          "line": 548,
-          "name": "MusicManager"
-        },
-        {
-          "kind": "fn",
-          "line": 549,
-          "name": "add_audio_event"
-        },
-        {
-          "kind": "fn",
-          "line": 550,
-          "name": "remove_audio_event"
-        },
-        {
-          "kind": "trait",
-          "line": 552,
-          "name": "SoundManager"
-        },
-        {
-          "kind": "fn",
-          "line": 554,
-          "name": "add_audio_event"
-        },
-        {
-          "kind": "fn",
-          "line": 555,
-          "name": "can_play_now"
-        },
-        {
-          "kind": "fn",
-          "line": 556,
-          "name": "can_play_now_checked"
-        },
-        {
-          "kind": "fn",
-          "line": 564,
-          "name": "post_process_load"
-        },
-        {
-          "kind": "fn",
-          "line": 565,
-          "name": "update"
-        },
-        {
-          "kind": "fn",
-          "line": 566,
-          "name": "reset"
-        },
-        {
-          "kind": "fn",
-          "line": 567,
-          "name": "set_listener_position"
-        },
-        {
-          "kind": "fn",
-          "line": 568,
-          "name": "configure_sample_capacity"
-        },
-        {
-          "kind": "fn",
-          "line": 569,
-          "name": "notify_of_2d_sample_start"
-        },
-        {
-          "kind": "fn",
-          "line": 570,
-          "name": "notify_of_3d_sample_start"
-        },
-        {
-          "kind": "fn",
-          "line": 571,
-          "name": "notify_of_2d_sample_completion"
-        },
-        {
-          "kind": "fn",
-          "line": 572,
-          "name": "notify_of_3d_sample_completion"
-        },
-        {
-          "kind": "fn",
-          "line": 573,
-          "name": "get_available_samples"
-        },
-        {
-          "kind": "fn",
-          "line": 574,
-          "name": "get_available_3d_samples"
-        },
-        {
-          "kind": "fn",
-          "line": 575,
-          "name": "stop_all_sounds"
-        },
-        {
-          "kind": "fn",
-          "line": 578,
-          "name": "cleanup_completed_sounds"
-        },
-        {
-          "kind": "struct",
-          "line": 584,
-          "name": "FadingAudio"
-        },
-        {
-          "kind": "struct",
-          "line": 598,
-          "name": "AudioManager"
-        },
-        {
-          "kind": "fn",
-          "line": 656,
-          "name": "new"
-        },
-        {
-          "kind": "fn",
-          "line": 708,
-          "name": "init"
-        },
-        {
-          "kind": "fn",
-          "line": 727,
-          "name": "post_process_load"
-        },
-        {
-          "kind": "fn",
-          "line": 733,
-          "name": "reset"
-        },
-        {
-          "kind": "fn",
-          "line": 779,
-          "name": "add_audio_event"
-        },
-        {
-          "kind": "fn",
-          "line": 787,
-          "name": "add_audio_event_for_player"
-        },
-        {
-          "kind": "fn",
-          "line": 800,
-          "name": "add_audio_event_with_locality"
-        },
-        {
-          "kind": "fn",
-          "line": 809,
-          "name": "add_audio_event_with_locality_and_selection"
-        },
-        {
-          "kind": "fn",
-          "line": 821,
-          "name": "add_audio_event_with_submission"
-        },
-        {
-          "kind": "fn",
-          "line": 833,
-          "name": "add_audio_event_with_submission_and_selection"
-        },
-        {
-          "kind": "fn",
-          "line": 937,
-          "name": "get_audio_event_info"
-        },
-        {
-          "kind": "fn",
-          "line": 941,
-          "name": "remove_audio_event"
-        },
-        {
-          "kind": "fn",
-          "line": 986,
-          "name": "is_currently_playing"
-        },
-        {
-          "kind": "fn",
-          "line": 997,
-          "name": "is_named_event_playing_for_object"
-        },
-        {
-          "kind": "fn",
-          "line": 1007,
-          "name": "test_insert_active_named_event"
-        },
-        {
-          "kind": "fn",
-          "line": 1013,
-          "name": "get_audio_length_ms"
-        },
-        {
-          "kind": "fn",
-          "line": 1033,
-          "name": "get_file_length_ms"
-        },
-        {
-          "kind": "static",
-          "line": 1043,
-          "name": "FILE_LENGTH_CACHE"
-        },
-        {
-          "kind": "fn",
-          "line": 1063,
-          "name": "read_audio_file_bytes"
-        },
-        {
-          "kind": "fn",
-          "line": 1101,
-          "name": "read_from_virtual_file_system"
-        },
-        {
-          "kind": "fn",
-          "line": 1110,
-          "name": "duration_ms_from_audio_data"
-        },
-        {
-          "kind": "fn",
-          "line": 1116,
-          "name": "duration_ms_from_wav"
-        },
-        {
-          "kind": "fn",
-          "line": 1130,
-          "name": "duration_ms_from_mp3"
-        },
-        {
-          "kind": "fn",
-          "line": 1162,
-          "name": "duration_ms_from_ogg"
-        },
-        {
-          "kind": "fn",
-          "line": 1184,
-          "name": "is_valid_audio_event"
-        },
-        {
-          "kind": "fn",
-          "line": 1195,
-          "name": "add_track_name"
-        },
-        {
-          "kind": "fn",
-          "line": 1199,
-          "name": "set_music_track_name"
-        },
-        {
-          "kind": "fn",
-          "line": 1206,
-          "name": "get_music_track_name"
-        },
-        {
-          "kind": "fn",
-          "line": 1242,
-          "name": "next_track_name"
-        },
-        {
-          "kind": "fn",
-          "line": 1256,
-          "name": "next_music_track"
-        },
-        {
-          "kind": "fn",
-          "line": 1265,
-          "name": "prev_music_track"
-        },
-        {
-          "kind": "fn",
-          "line": 1272,
-          "name": "prev_track_name"
-        },
-        {
-          "kind": "fn",
-          "line": 1286,
-          "name": "playing_or_current_music_name"
-        },
-        {
-          "kind": "fn",
-          "line": 1307,
-          "name": "queue_music_track"
-        },
-        {
-          "kind": "fn",
-          "line": 1319,
-          "name": "set_audio_event_enabled"
-        },
-        {
-          "kind": "fn",
-          "line": 1324,
-          "name": "set_audio_event_volume_override"
-        },
-        {
-          "kind": "fn",
-          "line": 1357,
-          "name": "is_on"
-        },
-        {
-          "kind": "fn",
-          "line": 1369,
-          "name": "set_on"
-        },
-        {
-          "kind": "fn",
-          "line": 1384,
-          "name": "set_volume"
-        },
-        {
-          "kind": "fn",
-          "line": 1426,
-          "name": "get_volume"
-        },
-        {
-          "kind": "fn",
-          "line": 1440,
-          "name": "miles_volume_sliders"
-        },
-        {
-          "kind": "fn",
-          "line": 1452,
-          "name": "get_effective_volume"
-        },
-        {
-          "kind": "fn",
-          "line": 1455,
-          "name": "set_3d_volume_adjustment"
-        },
-        {
-          "kind": "fn",
-          "line": 1467,
-          "name": "set_listener_position"
-        },
-        {
-          "kind": "fn",
-          "line": 1483,
-          "name": "get_listener_position"
-        },
-        {
-          "kind": "fn",
-          "line": 1487,
-          "name": "get_listener_orientation"
-        },
-        {
-          "kind": "fn",
-          "line": 1491,
-          "name": "allocate_audio_request"
-        },
-        {
-          "kind": "fn",
-          "line": 1498,
-          "name": "append_audio_request"
-        },
-        {
-          "kind": "fn",
-          "line": 1504,
-          "name": "process_request_list"
-        },
-        {
-          "kind": "fn",
-          "line": 1507,
-          "name": "process_request_list_with_visibility"
-        },
-        {
-          "kind": "fn",
-          "line": 1550,
-          "name": "should_process_request_this_frame"
-        },
-        {
-          "kind": "fn",
-          "line": 1560,
-          "name": "adjust_request"
-        },
-        {
-          "kind": "fn",
-          "line": 1574,
-          "name": "check_for_sample"
-        },
-        {
-          "kind": "fn",
-          "line": 1584,
-          "name": "check_event_can_play_now"
-        },
-        {
-          "kind": "fn",
-          "line": 1598,
-          "name": "play_now_queries"
-        },
-        {
-          "kind": "fn",
-          "line": 1610,
-          "name": "process_request"
-        },
-        {
-          "kind": "fn",
-          "line": 1635,
-          "name": "new_audio_event_info"
-        },
-        {
-          "kind": "fn",
-          "line": 1674,
-          "name": "find_audio_event_info"
-        },
-        {
-          "kind": "fn",
-          "line": 1678,
-          "name": "register_audio_event_info"
-        },
-        {
-          "kind": "fn",
-          "line": 1685,
-          "name": "remove_level_specific_audio_event_infos"
-        },
-        {
-          "kind": "fn",
-          "line": 1689,
-          "name": "audio_paths"
-        },
-        {
-          "kind": "fn",
-          "line": 1693,
-          "name": "get_audio_settings"
-        },
-        {
-          "kind": "fn",
-          "line": 1697,
-          "name": "get_misc_audio"
-        },
-        {
-          "kind": "fn",
-          "line": 1701,
-          "name": "get_disallow_speech"
-        },
-        {
-          "kind": "fn",
-          "line": 1705,
-          "name": "set_disallow_speech"
-        },
-        {
-          "kind": "fn",
-          "line": 1712,
-          "name": "stop_all_speech"
-        },
-        {
-          "kind": "fn",
-          "line": 1727,
-          "name": "notify_sample_completion_if_effect"
-        },
-        {
-          "kind": "fn",
-          "line": 1745,
-          "name": "stop_playing_handle"
-        },
-        {
-          "kind": "fn",
-          "line": 1754,
-          "name": "release_playing_handle"
-        },
-        {
-          "kind": "fn",
-          "line": 1763,
-          "name": "play_audio_event"
-        },
-        {
-          "kind": "fn",
-          "line": 1832,
-          "name": "friend_force_play_audio_event_rts"
-        },
-        {
-          "kind": "fn",
-          "line": 1884,
-          "name": "force_played_count"
-        },
-        {
-          "kind": "fn",
-          "line": 1888,
-          "name": "force_played_volume"
-        },
-        {
-          "kind": "fn",
-          "line": 1894,
-          "name": "pending_play_delay"
-        },
-        {
-          "kind": "fn",
-          "line": 1902,
-          "name": "get_zoom_volume"
-        },
-        {
-          "kind": "fn",
-          "line": 1906,
-          "name": "allocate_new_handle"
-        },
-        {
-          "kind": "fn",
-          "line": 1912,
-          "name": "lose_focus"
-        },
-        {
-          "kind": "fn",
-          "line": 1932,
-          "name": "regain_focus"
-        },
-        {
-          "kind": "fn",
-          "line": 1946,
-          "name": "pause_audio"
-        },
-        {
-          "kind": "fn",
-          "line": 1966,
-          "name": "resume_audio"
-        },
-        {
-          "kind": "fn",
-          "line": 1996,
-          "name": "stop_audio"
-        },
-        {
-          "kind": "fn",
-          "line": 2011,
-          "name": "is_music_playing_from_cd"
-        },
-        {
-          "kind": "fn",
-          "line": 2016,
-          "name": "is_music_playing"
-        },
-        {
-          "kind": "fn",
-          "line": 2030,
-          "name": "has_music_track_completed"
-        },
-        {
-          "kind": "fn",
-          "line": 2042,
-          "name": "translate_speaker_type_to_unsigned_int"
-        },
-        {
-          "kind": "fn",
-          "line": 2051,
-          "name": "translate_unsigned_int_to_speaker_type"
-        },
-        {
-          "kind": "fn",
-          "line": 2063,
-          "name": "should_play_locally"
-        },
-        {
-          "kind": "fn",
-          "line": 2067,
-          "name": "should_play_locally_for_player"
-        },
-        {
-          "kind": "fn",
-          "line": 2101,
-          "name": "should_play_locally_with_resolver"
-        },
-        {
-          "kind": "fn",
-          "line": 2120,
-          "name": "does_violate_limit"
-        },
-        {
-          "kind": "fn",
-          "line": 2182,
-          "name": "event_counts_as_playing"
-        },
-        {
-          "kind": "fn",
-          "line": 2189,
-          "name": "is_playing_lower_priority"
-        },
-        {
-          "kind": "fn",
-          "line": 2210,
-          "name": "sample_event_priority"
-        },
-        {
-          "kind": "fn",
-          "line": 2217,
-          "name": "is_playing_sample"
-        },
-        {
-          "kind": "fn",
-          "line": 2223,
-          "name": "sample_slot_available"
-        },
-        {
-          "kind": "fn",
-          "line": 2243,
-          "name": "find_lowest_priority_sound"
-        },
-        {
-          "kind": "fn",
-          "line": 2269,
-          "name": "kill_lowest_priority_sound_immediately"
-        },
-        {
-          "kind": "fn",
-          "line": 2279,
-          "name": "is_playing_already"
-        },
-        {
-          "kind": "fn",
-          "line": 2301,
-          "name": "is_object_playing_voice"
-        },
-        {
-          "kind": "const",
-          "line": 2302,
-          "name": "ST_VOICE"
-        },
-        {
-          "kind": "fn",
-          "line": 2336,
-          "name": "remove_all_audio_requests"
-        },
-        {
-          "kind": "fn",
-          "line": 2341,
-          "name": "get_num_2d_samples"
-        },
-        {
-          "kind": "fn",
-          "line": 2346,
-          "name": "get_num_3d_samples"
-        },
-        {
-          "kind": "fn",
-          "line": 2352,
-          "name": "adjust_volume_of_playing_audio"
-        },
-        {
-          "kind": "fn",
-          "line": 2366,
-          "name": "remove_playing_audio"
-        },
-        {
-          "kind": "fn",
-          "line": 2385,
-          "name": "remove_all_disabled_audio"
-        },
-        {
-          "kind": "fn",
-          "line": 2405,
-          "name": "has_3d_sensitive_streams_playing"
-        },
-        {
-          "kind": "fn",
-          "line": 2423,
-          "name": "begin_music_fade"
-        },
-        {
-          "kind": "fn",
-          "line": 2452,
-          "name": "release_fading_audio"
-        },
-        {
-          "kind": "fn",
-          "line": 2460,
-          "name": "adjust_playing_volume"
-        },
-        {
-          "kind": "fn",
-          "line": 2467,
-          "name": "process_playing_list"
-        },
-        {
-          "kind": "fn",
-          "line": 2544,
-          "name": "process_fading_list"
-        },
-        {
-          "kind": "fn",
-          "line": 2566,
-          "name": "notify_of_audio_completion"
-        },
-        {
-          "kind": "fn",
-          "line": 2570,
-          "name": "notify_of_audio_completion_with_visibility"
-        },
-        {
-          "kind": "fn",
-          "line": 2619,
-          "name": "replay_playing_event"
-        },
-        {
-          "kind": "fn",
-          "line": 2633,
-          "name": "start_next_loop"
-        },
-        {
-          "kind": "fn",
-          "line": 2660,
-          "name": "pending_play_events"
-        },
-        {
-          "kind": "fn",
-          "line": 2666,
-          "name": "pending_play_request_count"
-        },
-        {
-          "kind": "fn",
-          "line": 2676,
-          "name": "pending_play_request_count_for"
-        },
-        {
-          "kind": "fn",
-          "line": 2687,
-          "name": "fading_audio_count"
-        },
-        {
-          "kind": "fn",
-          "line": 2691,
-          "name": "volume_has_changed_flag"
-        },
-        {
-          "kind": "fn",
-          "line": 2695,
-          "name": "fading_frames"
-        },
-        {
-          "kind": "fn",
-          "line": 2702,
-          "name": "force_notify_completion_for_test"
-        },
-        {
-          "kind": "fn",
-          "line": 2713,
-          "name": "active_event_mut_for_test"
-        },
-        {
-          "kind": "fn",
-          "line": 2717,
-          "name": "insert_playing_event_for_test"
-        },
-        {
-          "kind": "fn",
-          "line": 2721,
-          "name": "active_event_count"
-        },
-        {
-          "kind": "fn",
-          "line": 2725,
-          "name": "active_event_loop_count"
-        },
-        {
-          "kind": "fn",
-          "line": 2731,
-          "name": "active_event_portion"
-        },
-        {
-          "kind": "fn",
-          "line": 2737,
-          "name": "track_active_event"
-        },
-        {
-          "kind": "fn",
-          "line": 2744,
-          "name": "purge_inactive_events"
-        },
-        {
-          "kind": "fn",
-          "line": 2754,
-          "name": "default"
-        },
-        {
-          "kind": "fn",
-          "line": 2760,
-          "name": "get_rodio_stream_handle"
-        },
-        {
-          "kind": "static",
-          "line": 2762,
-          "name": "STATE"
-        },
-        {
-          "kind": "static",
-          "line": 2776,
-          "name": "LIVE_AUDIO_FILE_CACHE"
-        },
-        {
-          "kind": "fn",
-          "line": 2778,
-          "name": "live_audio_file_cache"
-        },
-        {
-          "kind": "fn",
-          "line": 2784,
-          "name": "wav_channel_count"
-        },
-        {
-          "kind": "struct",
-          "line": 2790,
-          "name": "CachedAudioBytes"
-        },
-        {
-          "kind": "fn",
-          "line": 2794,
-          "name": "as_ref"
-        },
-        {
-          "kind": "enum",
-          "line": 2800,
-          "name": "RodioVoice"
-        },
-        {
-          "kind": "fn",
-          "line": 2807,
-          "name": "set_volume"
-        },
-        {
-          "kind": "fn",
-          "line": 2813,
-          "name": "stop"
-        },
-        {
-          "kind": "fn",
-          "line": 2820,
-          "name": "pause"
-        },
-        {
-          "kind": "fn",
-          "line": 2827,
-          "name": "play"
-        },
-        {
-          "kind": "fn",
-          "line": 2834,
-          "name": "empty"
-        },
-        {
-          "kind": "fn",
-          "line": 2841,
-          "name": "is_paused"
-        },
-        {
-          "kind": "fn",
-          "line": 2848,
-          "name": "set_stereo_pan"
-        },
-        {
-          "kind": "struct",
-          "line": 2859,
-          "name": "RodioPlaybackHook"
-        },
-        {
-          "kind": "struct",
-          "line": 2868,
-          "name": "RodioSinkState"
-        },
-        {
-          "kind": "fn",
-          "line": 2882,
-          "name": "new"
-        },
-        {
-          "kind": "fn",
-          "line": 2906,
-          "name": "new"
-        },
-        {
-          "kind": "fn",
-          "line": 2918,
-          "name": "build_path_candidates"
-        },
-        {
-          "kind": "fn",
-          "line": 2944,
-          "name": "portion_filename"
-        },
-        {
-          "kind": "fn",
-          "line": 2956,
-          "name": "resolve_audio_data"
-        },
-        {
-          "kind": "fn",
-          "line": 2985,
-          "name": "calculate_3d_volume_falloff"
-        },
-        {
-          "kind": "fn",
-          "line": 3004,
-          "name": "effective_volume"
-        },
-        {
-          "kind": "fn",
-          "line": 3013,
-          "name": "refresh_sink_volume"
-        },
-        {
-          "kind": "fn",
-          "line": 3017,
-          "name": "listener_pose"
-        },
-        {
-          "kind": "fn",
-          "line": 3037,
-          "name": "refresh_positional_pan"
-        },
-        {
-          "kind": "fn",
-          "line": 3050,
-          "name": "play_with_observation"
-        },
-        {
-          "kind": "fn",
-          "line": 3164,
-          "name": "play"
-        },
-        {
-          "kind": "fn",
-          "line": 3167,
-          "name": "play_with_visibility"
-        },
-        {
-          "kind": "fn",
-          "line": 3170,
-          "name": "stop"
-        },
-        {
-          "kind": "fn",
-          "line": 3175,
-          "name": "pause"
-        },
-        {
-          "kind": "fn",
-          "line": 3181,
-          "name": "set_listener_position"
-        },
-        {
-          "kind": "fn",
-          "line": 3194,
-          "name": "set_listener_orientation"
-        },
-        {
-          "kind": "fn",
-          "line": 3207,
-          "name": "resume"
-        },
-        {
-          "kind": "fn",
-          "line": 3213,
-          "name": "is_playing"
-        },
-        {
-          "kind": "fn",
-          "line": 3228,
           "name": "set_event_volume"
         },
         {
           "kind": "fn",
-          "line": 3246,
+          "line": 71,
           "name": "set_sink_volume"
         },
         {
           "kind": "fn",
-          "line": 3255,
+          "line": 73,
           "name": "music_loop_count"
         },
         {
           "kind": "fn",
-          "line": 3270,
+          "line": 76,
           "name": "is_sink_paused"
         },
         {
+          "kind": "static",
+          "line": 80,
+          "name": "SOUND_PLAYBACK_HOOK"
+        },
+        {
+          "kind": "enum",
+          "line": 84,
+          "name": "AudioLocalityRelationship"
+        },
+        {
+          "kind": "trait",
+          "line": 91,
+          "name": "AudioLocalityResolver"
+        },
+        {
           "kind": "fn",
-          "line": 3281,
-          "name": "register_rodio_playback_hook"
+          "line": 92,
+          "name": "get_local_player_index"
+        },
+        {
+          "kind": "fn",
+          "line": 93,
+          "name": "get_observer_look_at_player_index"
+        },
+        {
+          "kind": "fn",
+          "line": 96,
+          "name": "is_player_active"
+        },
+        {
+          "kind": "fn",
+          "line": 97,
+          "name": "player_exists"
+        },
+        {
+          "kind": "fn",
+          "line": 98,
+          "name": "has_default_team"
+        },
+        {
+          "kind": "fn",
+          "line": 99,
+          "name": "get_relationship_to_local_team"
         },
         {
           "kind": "struct",
-          "line": 3288,
-          "name": "WasmPlaybackHook"
+          "line": 109,
+          "name": "AudioSubmissionLocality"
         },
         {
           "kind": "fn",
-          "line": 3292,
-          "name": "play"
+          "line": 120,
+          "name": "from_resolver"
         },
         {
           "kind": "fn",
-          "line": 3295,
-          "name": "stop"
+          "line": 153,
+          "name": "should_play_locally"
         },
         {
-          "kind": "fn",
-          "line": 3296,
-          "name": "pause"
-        },
-        {
-          "kind": "fn",
-          "line": 3297,
-          "name": "resume"
-        },
-        {
-          "kind": "fn",
-          "line": 3298,
-          "name": "is_playing"
-        },
-        {
-          "kind": "fn",
-          "line": 3304,
-          "name": "register_wasm_playback_hook"
-        },
-        {
-          "kind": "const",
-          "line": 3307,
-          "name": "AHSV_NO_SOUND"
-        },
-        {
-          "kind": "const",
-          "line": 3309,
-          "name": "AHSV_ERROR"
-        },
-        {
-          "kind": "const",
-          "line": 3310,
-          "name": "AHSV_NOT_FOR_LOCAL"
-        },
-        {
-          "kind": "const",
-          "line": 3311,
-          "name": "AHSV_MUTED"
-        },
-        {
-          "kind": "const",
-          "line": 3312,
-          "name": "AHSV_STOP_THE_MUSIC"
-        },
-        {
-          "kind": "const",
-          "line": 3313,
-          "name": "AHSV_STOP_THE_MUSIC_FADE"
-        },
-        {
-          "kind": "const",
-          "line": 3314,
-          "name": "AHSV_FIRST_HANDLE"
+          "kind": "enum",
+          "line": 168,
+          "name": "AudioSubmission"
         },
         {
           "kind": "static",
-          "line": 3319,
-          "name": "THE_AUDIO"
+          "line": 173,
+          "name": "AUDIO_LOCALITY_RESOLVER"
         },
         {
-          "kind": "struct",
-          "line": 3320,
-          "name": "AnimatedSoundBridge"
+          "kind": "trait",
+          "line": 177,
+          "name": "AudioViewResolver"
         },
         {
           "kind": "fn",
-          "line": 3328,
+          "line": 178,
+          "name": "get_tactical_view_position"
+        },
+        {
+          "kind": "fn",
+          "line": 179,
+          "name": "get_tactical_view_angle"
+        },
+        {
+          "kind": "fn",
+          "line": 180,
+          "name": "get_3d_camera_position"
+        },
+        {
+          "kind": "fn",
+          "line": 181,
+          "name": "get_ground_height"
+        },
+        {
+          "kind": "fn",
+          "line": 183,
+          "name": "is_world_position_on_screen"
+        },
+        {
+          "kind": "static",
+          "line": 213,
+          "name": "AUDIO_VIEW_RESOLVER"
+        },
+        {
+          "kind": "fn",
+          "line": 215,
+          "name": "register_audio_view_resolver"
+        },
+        {
+          "kind": "fn",
+          "line": 219,
+          "name": "register_sound_playback_hook"
+        },
+        {
+          "kind": "fn",
+          "line": 223,
+          "name": "sound_playback_hook_registered"
+        },
+        {
+          "kind": "fn",
+          "line": 227,
+          "name": "register_audio_locality_resolver"
+        },
+        {
+          "kind": "fn",
+          "line": 231,
+          "name": "with_sound_playback_hook"
+        },
+        {
+          "kind": "static",
+          "line": 251,
+          "name": "PLAY_FAILURE_REPORTS"
+        },
+        {
+          "kind": "fn",
+          "line": 257,
+          "name": "report_play_failure_once"
+        },
+        {
+          "kind": "fn",
+          "line": 270,
+          "name": "reset_play_failure_reports_for_tests"
+        },
+        {
+          "kind": "fn",
+          "line": 275,
+          "name": "play_failure_report_reason_for_tests"
+        },
+        {
+          "kind": "fn",
+          "line": 278,
+          "name": "with_audio_locality_resolver"
+        },
+        {
+          "kind": "const",
+          "line": 289,
+          "name": "MAX_HW_PROVIDERS"
+        },
+        {
+          "kind": "const",
+          "line": 290,
+          "name": "NUM_VOLUME_TYPES"
+        },
+        {
+          "kind": "fn",
+          "line": 297,
+          "name": "should_play_locally_for_players"
+        },
+        {
+          "kind": "fn",
+          "line": 351,
+          "name": "affect_has"
+        },
+        {
+          "kind": "fn",
+          "line": 354,
+          "name": "event_matches_audio_affect"
+        },
+        {
+          "kind": "fn",
+          "line": 377,
+          "name": "music_repeats_source_infinitely"
+        },
+        {
+          "kind": "static",
+          "line": 384,
+          "name": "SPEAKER_TYPES"
+        },
+        {
+          "kind": "enum",
+          "line": 396,
+          "name": "AudioAffect"
+        },
+        {
+          "kind": "const",
+          "line": 414,
+          "name": "fn"
+        },
+        {
+          "kind": "const",
+          "line": 417,
+          "name": "fn"
+        },
+        {
+          "kind": "const",
+          "line": 421,
+          "name": "fn"
+        },
+        {
+          "kind": "struct",
+          "line": 445,
+          "name": "AudioSettings"
+        },
+        {
+          "kind": "fn",
+          "line": 490,
+          "name": "default"
+        },
+        {
+          "kind": "struct",
+          "line": 544,
+          "name": "MiscAudio"
+        },
+        {
+          "kind": "trait",
+          "line": 550,
+          "name": "MusicManager"
+        },
+        {
+          "kind": "fn",
+          "line": 551,
+          "name": "add_audio_event"
+        },
+        {
+          "kind": "fn",
+          "line": 552,
+          "name": "remove_audio_event"
+        },
+        {
+          "kind": "trait",
+          "line": 554,
+          "name": "SoundManager"
+        },
+        {
+          "kind": "fn",
+          "line": 556,
+          "name": "add_audio_event"
+        },
+        {
+          "kind": "fn",
+          "line": 557,
+          "name": "can_play_now"
+        },
+        {
+          "kind": "fn",
+          "line": 558,
+          "name": "can_play_now_checked"
+        },
+        {
+          "kind": "fn",
+          "line": 566,
+          "name": "post_process_load"
+        },
+        {
+          "kind": "fn",
+          "line": 567,
+          "name": "update"
+        },
+        {
+          "kind": "fn",
+          "line": 568,
+          "name": "reset"
+        },
+        {
+          "kind": "fn",
+          "line": 569,
+          "name": "set_listener_position"
+        },
+        {
+          "kind": "fn",
+          "line": 570,
+          "name": "configure_sample_capacity"
+        },
+        {
+          "kind": "fn",
+          "line": 571,
+          "name": "notify_of_2d_sample_start"
+        },
+        {
+          "kind": "fn",
+          "line": 572,
+          "name": "notify_of_3d_sample_start"
+        },
+        {
+          "kind": "fn",
+          "line": 573,
+          "name": "notify_of_2d_sample_completion"
+        },
+        {
+          "kind": "fn",
+          "line": 574,
+          "name": "notify_of_3d_sample_completion"
+        },
+        {
+          "kind": "fn",
+          "line": 575,
+          "name": "get_available_samples"
+        },
+        {
+          "kind": "fn",
+          "line": 576,
+          "name": "get_available_3d_samples"
+        },
+        {
+          "kind": "fn",
+          "line": 577,
+          "name": "stop_all_sounds"
+        },
+        {
+          "kind": "fn",
+          "line": 580,
+          "name": "cleanup_completed_sounds"
+        },
+        {
+          "kind": "struct",
+          "line": 586,
+          "name": "FadingAudio"
+        },
+        {
+          "kind": "struct",
+          "line": 600,
+          "name": "AudioManager"
+        },
+        {
+          "kind": "fn",
+          "line": 660,
           "name": "new"
         },
         {
           "kind": "fn",
-          "line": 3334,
-          "name": "normalized_key"
+          "line": 716,
+          "name": "with_playback_hook"
         },
         {
           "kind": "fn",
-          "line": 3343,
-          "name": "record_handle"
+          "line": 721,
+          "name": "init"
         },
         {
           "kind": "fn",
-          "line": 3362,
-          "name": "take_handles"
+          "line": 740,
+          "name": "post_process_load"
         },
         {
           "kind": "fn",
-          "line": 3371,
-          "name": "play_internal"
+          "line": 746,
+          "name": "reset"
         },
         {
           "kind": "fn",
-          "line": 3408,
-          "name": "play_3d_audio"
+          "line": 798,
+          "name": "add_audio_event"
         },
         {
           "kind": "fn",
-          "line": 3417,
-          "name": "play_2d_audio"
+          "line": 806,
+          "name": "add_audio_event_for_player"
         },
         {
           "kind": "fn",
-          "line": 3421,
+          "line": 819,
+          "name": "add_audio_event_with_locality"
+        },
+        {
+          "kind": "fn",
+          "line": 828,
+          "name": "add_audio_event_with_locality_and_selection"
+        },
+        {
+          "kind": "fn",
+          "line": 840,
+          "name": "add_audio_event_with_submission"
+        },
+        {
+          "kind": "fn",
+          "line": 852,
+          "name": "add_audio_event_with_submission_and_selection"
+        },
+        {
+          "kind": "fn",
+          "line": 956,
+          "name": "get_audio_event_info"
+        },
+        {
+          "kind": "fn",
+          "line": 960,
+          "name": "remove_audio_event"
+        },
+        {
+          "kind": "fn",
+          "line": 1005,
+          "name": "is_currently_playing"
+        },
+        {
+          "kind": "fn",
+          "line": 1018,
+          "name": "is_named_event_playing_for_object"
+        },
+        {
+          "kind": "fn",
+          "line": 1028,
+          "name": "test_insert_active_named_event"
+        },
+        {
+          "kind": "fn",
+          "line": 1034,
+          "name": "get_audio_length_ms"
+        },
+        {
+          "kind": "fn",
+          "line": 1054,
+          "name": "get_file_length_ms"
+        },
+        {
+          "kind": "static",
+          "line": 1064,
+          "name": "FILE_LENGTH_CACHE"
+        },
+        {
+          "kind": "fn",
+          "line": 1084,
+          "name": "read_audio_file_bytes"
+        },
+        {
+          "kind": "fn",
+          "line": 1122,
+          "name": "read_from_virtual_file_system"
+        },
+        {
+          "kind": "fn",
+          "line": 1131,
+          "name": "duration_ms_from_audio_data"
+        },
+        {
+          "kind": "fn",
+          "line": 1137,
+          "name": "duration_ms_from_wav"
+        },
+        {
+          "kind": "fn",
+          "line": 1151,
+          "name": "duration_ms_from_mp3"
+        },
+        {
+          "kind": "fn",
+          "line": 1183,
+          "name": "duration_ms_from_ogg"
+        },
+        {
+          "kind": "fn",
+          "line": 1205,
+          "name": "is_valid_audio_event"
+        },
+        {
+          "kind": "fn",
+          "line": 1216,
+          "name": "add_track_name"
+        },
+        {
+          "kind": "fn",
+          "line": 1220,
+          "name": "set_music_track_name"
+        },
+        {
+          "kind": "fn",
+          "line": 1227,
+          "name": "get_music_track_name"
+        },
+        {
+          "kind": "fn",
+          "line": 1263,
+          "name": "next_track_name"
+        },
+        {
+          "kind": "fn",
+          "line": 1277,
+          "name": "next_music_track"
+        },
+        {
+          "kind": "fn",
+          "line": 1286,
+          "name": "prev_music_track"
+        },
+        {
+          "kind": "fn",
+          "line": 1293,
+          "name": "prev_track_name"
+        },
+        {
+          "kind": "fn",
+          "line": 1307,
+          "name": "playing_or_current_music_name"
+        },
+        {
+          "kind": "fn",
+          "line": 1328,
+          "name": "queue_music_track"
+        },
+        {
+          "kind": "fn",
+          "line": 1340,
+          "name": "set_audio_event_enabled"
+        },
+        {
+          "kind": "fn",
+          "line": 1345,
+          "name": "set_audio_event_volume_override"
+        },
+        {
+          "kind": "fn",
+          "line": 1378,
+          "name": "is_on"
+        },
+        {
+          "kind": "fn",
+          "line": 1390,
+          "name": "set_on"
+        },
+        {
+          "kind": "fn",
+          "line": 1405,
+          "name": "set_volume"
+        },
+        {
+          "kind": "fn",
+          "line": 1447,
+          "name": "get_volume"
+        },
+        {
+          "kind": "fn",
+          "line": 1461,
+          "name": "miles_volume_sliders"
+        },
+        {
+          "kind": "fn",
+          "line": 1473,
+          "name": "get_effective_volume"
+        },
+        {
+          "kind": "fn",
+          "line": 1476,
+          "name": "set_3d_volume_adjustment"
+        },
+        {
+          "kind": "fn",
+          "line": 1488,
+          "name": "set_listener_position"
+        },
+        {
+          "kind": "fn",
+          "line": 1504,
+          "name": "get_listener_position"
+        },
+        {
+          "kind": "fn",
+          "line": 1508,
+          "name": "get_listener_orientation"
+        },
+        {
+          "kind": "fn",
+          "line": 1512,
+          "name": "allocate_audio_request"
+        },
+        {
+          "kind": "fn",
+          "line": 1519,
+          "name": "append_audio_request"
+        },
+        {
+          "kind": "fn",
+          "line": 1525,
+          "name": "process_request_list"
+        },
+        {
+          "kind": "fn",
+          "line": 1528,
+          "name": "process_request_list_with_visibility"
+        },
+        {
+          "kind": "fn",
+          "line": 1571,
+          "name": "should_process_request_this_frame"
+        },
+        {
+          "kind": "fn",
+          "line": 1581,
+          "name": "adjust_request"
+        },
+        {
+          "kind": "fn",
+          "line": 1595,
+          "name": "check_for_sample"
+        },
+        {
+          "kind": "fn",
+          "line": 1605,
+          "name": "check_event_can_play_now"
+        },
+        {
+          "kind": "fn",
+          "line": 1619,
+          "name": "play_now_queries"
+        },
+        {
+          "kind": "fn",
+          "line": 1631,
+          "name": "process_request"
+        },
+        {
+          "kind": "fn",
+          "line": 1656,
+          "name": "new_audio_event_info"
+        },
+        {
+          "kind": "fn",
+          "line": 1695,
+          "name": "find_audio_event_info"
+        },
+        {
+          "kind": "fn",
+          "line": 1699,
+          "name": "register_audio_event_info"
+        },
+        {
+          "kind": "fn",
+          "line": 1706,
+          "name": "remove_level_specific_audio_event_infos"
+        },
+        {
+          "kind": "fn",
+          "line": 1710,
+          "name": "audio_paths"
+        },
+        {
+          "kind": "fn",
+          "line": 1714,
+          "name": "get_audio_settings"
+        },
+        {
+          "kind": "fn",
+          "line": 1718,
+          "name": "get_misc_audio"
+        },
+        {
+          "kind": "fn",
+          "line": 1722,
+          "name": "get_disallow_speech"
+        },
+        {
+          "kind": "fn",
+          "line": 1726,
+          "name": "set_disallow_speech"
+        },
+        {
+          "kind": "fn",
+          "line": 1733,
+          "name": "stop_all_speech"
+        },
+        {
+          "kind": "fn",
+          "line": 1748,
+          "name": "notify_sample_completion_if_effect"
+        },
+        {
+          "kind": "fn",
+          "line": 1766,
+          "name": "stop_playing_handle"
+        },
+        {
+          "kind": "fn",
+          "line": 1775,
+          "name": "release_playing_handle"
+        },
+        {
+          "kind": "fn",
+          "line": 1784,
+          "name": "play_audio_event"
+        },
+        {
+          "kind": "fn",
+          "line": 1853,
+          "name": "friend_force_play_audio_event_rts"
+        },
+        {
+          "kind": "fn",
+          "line": 1905,
+          "name": "force_played_count"
+        },
+        {
+          "kind": "fn",
+          "line": 1909,
+          "name": "force_played_volume"
+        },
+        {
+          "kind": "fn",
+          "line": 1915,
+          "name": "pending_play_delay"
+        },
+        {
+          "kind": "fn",
+          "line": 1923,
+          "name": "get_zoom_volume"
+        },
+        {
+          "kind": "fn",
+          "line": 1927,
+          "name": "allocate_new_handle"
+        },
+        {
+          "kind": "fn",
+          "line": 1933,
+          "name": "lose_focus"
+        },
+        {
+          "kind": "fn",
+          "line": 1953,
+          "name": "regain_focus"
+        },
+        {
+          "kind": "fn",
+          "line": 1967,
+          "name": "pause_audio"
+        },
+        {
+          "kind": "fn",
+          "line": 1987,
+          "name": "resume_audio"
+        },
+        {
+          "kind": "fn",
+          "line": 2019,
           "name": "stop_audio"
         },
         {
           "kind": "fn",
-          "line": 3435,
+          "line": 2034,
+          "name": "is_music_playing_from_cd"
+        },
+        {
+          "kind": "fn",
+          "line": 2039,
+          "name": "is_music_playing"
+        },
+        {
+          "kind": "fn",
+          "line": 2055,
+          "name": "has_music_track_completed"
+        },
+        {
+          "kind": "fn",
+          "line": 2069,
+          "name": "translate_speaker_type_to_unsigned_int"
+        },
+        {
+          "kind": "fn",
+          "line": 2078,
+          "name": "translate_unsigned_int_to_speaker_type"
+        },
+        {
+          "kind": "fn",
+          "line": 2090,
+          "name": "should_play_locally"
+        },
+        {
+          "kind": "fn",
+          "line": 2094,
+          "name": "should_play_locally_for_player"
+        },
+        {
+          "kind": "fn",
+          "line": 2128,
+          "name": "should_play_locally_with_resolver"
+        },
+        {
+          "kind": "fn",
+          "line": 2147,
+          "name": "does_violate_limit"
+        },
+        {
+          "kind": "fn",
+          "line": 2209,
+          "name": "event_counts_as_playing"
+        },
+        {
+          "kind": "fn",
+          "line": 2218,
+          "name": "is_playing_lower_priority"
+        },
+        {
+          "kind": "fn",
+          "line": 2240,
+          "name": "sample_event_priority"
+        },
+        {
+          "kind": "fn",
+          "line": 2247,
+          "name": "is_playing_sample"
+        },
+        {
+          "kind": "fn",
+          "line": 2253,
+          "name": "sample_slot_available"
+        },
+        {
+          "kind": "fn",
+          "line": 2273,
+          "name": "find_lowest_priority_sound"
+        },
+        {
+          "kind": "fn",
+          "line": 2299,
+          "name": "kill_lowest_priority_sound_immediately"
+        },
+        {
+          "kind": "fn",
+          "line": 2309,
+          "name": "is_playing_already"
+        },
+        {
+          "kind": "fn",
+          "line": 2333,
+          "name": "is_object_playing_voice"
+        },
+        {
+          "kind": "const",
+          "line": 2334,
+          "name": "ST_VOICE"
+        },
+        {
+          "kind": "fn",
+          "line": 2369,
+          "name": "remove_all_audio_requests"
+        },
+        {
+          "kind": "fn",
+          "line": 2374,
+          "name": "get_num_2d_samples"
+        },
+        {
+          "kind": "fn",
+          "line": 2379,
+          "name": "get_num_3d_samples"
+        },
+        {
+          "kind": "fn",
+          "line": 2385,
+          "name": "adjust_volume_of_playing_audio"
+        },
+        {
+          "kind": "fn",
+          "line": 2399,
+          "name": "remove_playing_audio"
+        },
+        {
+          "kind": "fn",
+          "line": 2418,
+          "name": "remove_all_disabled_audio"
+        },
+        {
+          "kind": "fn",
+          "line": 2438,
+          "name": "has_3d_sensitive_streams_playing"
+        },
+        {
+          "kind": "fn",
+          "line": 2457,
+          "name": "begin_music_fade"
+        },
+        {
+          "kind": "fn",
+          "line": 2486,
+          "name": "release_fading_audio"
+        },
+        {
+          "kind": "fn",
+          "line": 2494,
+          "name": "adjust_playing_volume"
+        },
+        {
+          "kind": "fn",
+          "line": 2501,
+          "name": "process_playing_list"
+        },
+        {
+          "kind": "fn",
+          "line": 2586,
+          "name": "process_fading_list"
+        },
+        {
+          "kind": "fn",
+          "line": 2610,
+          "name": "notify_of_audio_completion"
+        },
+        {
+          "kind": "fn",
+          "line": 2614,
+          "name": "notify_of_audio_completion_with_visibility"
+        },
+        {
+          "kind": "fn",
+          "line": 2663,
+          "name": "replay_playing_event"
+        },
+        {
+          "kind": "fn",
+          "line": 2678,
+          "name": "start_next_loop"
+        },
+        {
+          "kind": "fn",
+          "line": 2705,
+          "name": "pending_play_events"
+        },
+        {
+          "kind": "fn",
+          "line": 2711,
+          "name": "pending_play_request_count"
+        },
+        {
+          "kind": "fn",
+          "line": 2721,
+          "name": "pending_play_request_count_for"
+        },
+        {
+          "kind": "fn",
+          "line": 2732,
+          "name": "fading_audio_count"
+        },
+        {
+          "kind": "fn",
+          "line": 2736,
+          "name": "volume_has_changed_flag"
+        },
+        {
+          "kind": "fn",
+          "line": 2740,
+          "name": "fading_frames"
+        },
+        {
+          "kind": "fn",
+          "line": 2747,
+          "name": "force_notify_completion_for_test"
+        },
+        {
+          "kind": "fn",
+          "line": 2758,
+          "name": "active_event_mut_for_test"
+        },
+        {
+          "kind": "fn",
+          "line": 2762,
+          "name": "insert_playing_event_for_test"
+        },
+        {
+          "kind": "fn",
+          "line": 2766,
+          "name": "active_event_count"
+        },
+        {
+          "kind": "fn",
+          "line": 2770,
+          "name": "active_event_loop_count"
+        },
+        {
+          "kind": "fn",
+          "line": 2776,
+          "name": "active_event_portion"
+        },
+        {
+          "kind": "fn",
+          "line": 2782,
+          "name": "track_active_event"
+        },
+        {
+          "kind": "fn",
+          "line": 2789,
+          "name": "purge_inactive_events"
+        },
+        {
+          "kind": "fn",
+          "line": 2799,
+          "name": "default"
+        },
+        {
+          "kind": "fn",
+          "line": 2805,
+          "name": "get_rodio_stream_handle"
+        },
+        {
+          "kind": "static",
+          "line": 2807,
+          "name": "STATE"
+        },
+        {
+          "kind": "static",
+          "line": 2821,
+          "name": "LIVE_AUDIO_FILE_CACHE"
+        },
+        {
+          "kind": "fn",
+          "line": 2823,
+          "name": "live_audio_file_cache"
+        },
+        {
+          "kind": "fn",
+          "line": 2829,
+          "name": "wav_channel_count"
+        },
+        {
+          "kind": "struct",
+          "line": 2835,
+          "name": "CachedAudioBytes"
+        },
+        {
+          "kind": "fn",
+          "line": 2839,
+          "name": "as_ref"
+        },
+        {
+          "kind": "enum",
+          "line": 2845,
+          "name": "RodioVoice"
+        },
+        {
+          "kind": "fn",
+          "line": 2852,
+          "name": "set_volume"
+        },
+        {
+          "kind": "fn",
+          "line": 2858,
+          "name": "stop"
+        },
+        {
+          "kind": "fn",
+          "line": 2865,
+          "name": "pause"
+        },
+        {
+          "kind": "fn",
+          "line": 2872,
+          "name": "play"
+        },
+        {
+          "kind": "fn",
+          "line": 2879,
+          "name": "empty"
+        },
+        {
+          "kind": "fn",
+          "line": 2886,
+          "name": "is_paused"
+        },
+        {
+          "kind": "fn",
+          "line": 2893,
+          "name": "set_stereo_pan"
+        },
+        {
+          "kind": "struct",
+          "line": 2904,
+          "name": "RodioPlaybackHook"
+        },
+        {
+          "kind": "struct",
+          "line": 2913,
+          "name": "RodioSinkState"
+        },
+        {
+          "kind": "fn",
+          "line": 2927,
+          "name": "new"
+        },
+        {
+          "kind": "fn",
+          "line": 2951,
+          "name": "new"
+        },
+        {
+          "kind": "fn",
+          "line": 2963,
+          "name": "build_path_candidates"
+        },
+        {
+          "kind": "fn",
+          "line": 2989,
+          "name": "portion_filename"
+        },
+        {
+          "kind": "fn",
+          "line": 3001,
+          "name": "resolve_audio_data"
+        },
+        {
+          "kind": "fn",
+          "line": 3030,
+          "name": "calculate_3d_volume_falloff"
+        },
+        {
+          "kind": "fn",
+          "line": 3049,
+          "name": "effective_volume"
+        },
+        {
+          "kind": "fn",
+          "line": 3058,
+          "name": "refresh_sink_volume"
+        },
+        {
+          "kind": "fn",
+          "line": 3062,
+          "name": "listener_pose"
+        },
+        {
+          "kind": "fn",
+          "line": 3082,
+          "name": "refresh_positional_pan"
+        },
+        {
+          "kind": "fn",
+          "line": 3095,
+          "name": "play_with_observation"
+        },
+        {
+          "kind": "fn",
+          "line": 3209,
+          "name": "play"
+        },
+        {
+          "kind": "fn",
+          "line": 3212,
+          "name": "play_with_visibility"
+        },
+        {
+          "kind": "fn",
+          "line": 3215,
+          "name": "stop"
+        },
+        {
+          "kind": "fn",
+          "line": 3220,
+          "name": "pause"
+        },
+        {
+          "kind": "fn",
+          "line": 3226,
+          "name": "set_listener_position"
+        },
+        {
+          "kind": "fn",
+          "line": 3239,
+          "name": "set_listener_orientation"
+        },
+        {
+          "kind": "fn",
+          "line": 3252,
+          "name": "resume"
+        },
+        {
+          "kind": "fn",
+          "line": 3258,
+          "name": "is_playing"
+        },
+        {
+          "kind": "fn",
+          "line": 3273,
+          "name": "set_event_volume"
+        },
+        {
+          "kind": "fn",
+          "line": 3291,
+          "name": "set_sink_volume"
+        },
+        {
+          "kind": "fn",
+          "line": 3300,
+          "name": "music_loop_count"
+        },
+        {
+          "kind": "fn",
+          "line": 3315,
+          "name": "is_sink_paused"
+        },
+        {
+          "kind": "fn",
+          "line": 3326,
+          "name": "register_rodio_playback_hook"
+        },
+        {
+          "kind": "struct",
+          "line": 3333,
+          "name": "WasmPlaybackHook"
+        },
+        {
+          "kind": "fn",
+          "line": 3337,
+          "name": "play"
+        },
+        {
+          "kind": "fn",
+          "line": 3340,
+          "name": "stop"
+        },
+        {
+          "kind": "fn",
+          "line": 3341,
+          "name": "pause"
+        },
+        {
+          "kind": "fn",
+          "line": 3342,
+          "name": "resume"
+        },
+        {
+          "kind": "fn",
+          "line": 3343,
+          "name": "is_playing"
+        },
+        {
+          "kind": "fn",
+          "line": 3349,
+          "name": "register_wasm_playback_hook"
+        },
+        {
+          "kind": "const",
+          "line": 3352,
+          "name": "AHSV_NO_SOUND"
+        },
+        {
+          "kind": "const",
+          "line": 3354,
+          "name": "AHSV_ERROR"
+        },
+        {
+          "kind": "const",
+          "line": 3355,
+          "name": "AHSV_NOT_FOR_LOCAL"
+        },
+        {
+          "kind": "const",
+          "line": 3356,
+          "name": "AHSV_MUTED"
+        },
+        {
+          "kind": "const",
+          "line": 3357,
+          "name": "AHSV_STOP_THE_MUSIC"
+        },
+        {
+          "kind": "const",
+          "line": 3358,
+          "name": "AHSV_STOP_THE_MUSIC_FADE"
+        },
+        {
+          "kind": "const",
+          "line": 3359,
+          "name": "AHSV_FIRST_HANDLE"
+        },
+        {
+          "kind": "static",
+          "line": 3364,
+          "name": "THE_AUDIO"
+        },
+        {
+          "kind": "struct",
+          "line": 3365,
+          "name": "AnimatedSoundBridge"
+        },
+        {
+          "kind": "fn",
+          "line": 3373,
+          "name": "new"
+        },
+        {
+          "kind": "fn",
+          "line": 3379,
+          "name": "normalized_key"
+        },
+        {
+          "kind": "fn",
+          "line": 3388,
+          "name": "record_handle"
+        },
+        {
+          "kind": "fn",
+          "line": 3407,
+          "name": "take_handles"
+        },
+        {
+          "kind": "fn",
+          "line": 3416,
+          "name": "play_internal"
+        },
+        {
+          "kind": "fn",
+          "line": 3453,
+          "name": "play_3d_audio"
+        },
+        {
+          "kind": "fn",
+          "line": 3462,
+          "name": "play_2d_audio"
+        },
+        {
+          "kind": "fn",
+          "line": 3466,
+          "name": "stop_audio"
+        },
+        {
+          "kind": "fn",
+          "line": 3480,
           "name": "register_animation_sound_library"
         },
         {
           "kind": "fn",
-          "line": 3445,
+          "line": 3490,
           "name": "initialize_global_audio_manager"
         },
         {
           "kind": "fn",
-          "line": 3470,
+          "line": 3515,
           "name": "get_global_audio_manager"
         },
         {
           "kind": "fn",
-          "line": 3478,
+          "line": 3523,
           "name": "load_audio_event_inis"
         },
         {
           "kind": "const",
-          "line": 3479,
+          "line": 3524,
           "name": "AUDIO_INI_FILES"
         },
         {
           "kind": "fn",
-          "line": 3525,
+          "line": 3570,
           "name": "read_audio_settings_from_game_fs"
         },
         {
           "kind": "fn",
-          "line": 3537,
+          "line": 3582,
           "name": "apply_loaded_audio_settings_to_manager"
         },
         {
           "kind": "fn",
-          "line": 3630,
+          "line": 3675,
           "name": "assets_root"
         },
         {
           "kind": "fn",
-          "line": 3640,
+          "line": 3685,
           "name": "archived_audio_settings_apply_retail_mix_values"
         }
       ]
@@ -166668,11 +166892,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 301,
+        "end_line": 304,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/Common/src/common/thing/thing_template/receiving_candidate.rs",
-      "sha256": "58ed3a70baae698c724f0bf91018e2750c5f5a7fac41d1f190b202f95925000d",
+      "sha256": "58018e4273c97399037441df988742e8210112050a9ae4a867864441dc77dad3",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -167136,11 +167360,11 @@
       "cargo_reachable": true,
       "classification": "test",
       "file_range": {
-        "end_line": 75,
+        "end_line": 76,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/client_clock_tests.rs",
-      "sha256": "9f35e69f1915a609f0aefa1d90f0a47a3b19c6f5e59db1259496f13c81af3390",
+      "sha256": "863763f6ac3b67f6b75d49208f654ab4d6efe7e6ef6b061f2e4a6a5c6ca5cc96",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -167148,11 +167372,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 99,
+        "end_line": 103,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/client_types.rs",
-      "sha256": "081e98f693f6ee898c340c8a7daa87f46158b29e429e0557e9ef2c0efdba9855",
+      "sha256": "71004af70fb49c6e4041a7c9006dbba80ab496cf6aded25fa630a0638fdc06b2",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -167236,7 +167460,7 @@
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/global_boundary_fixture.rs",
-      "sha256": "33adc4d638bee9fc4671a9a09c077f74c989660ff3668d21e494e4288943b4f8",
+      "sha256": "dffb4cd8eb99d815827914328cc330c4e70126683892ca5855645cfcf75fc599",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -167256,11 +167480,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 789,
+        "end_line": 794,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/impl_draw.rs",
-      "sha256": "59cc83cf9d421da219178aa257d24a0289732875df8f27a5a64a0da409246cce",
+      "sha256": "d0e93f90016a5ad4a20d006c516265758b79db04b30fa8ca2e2b26e18ccda9d0",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -167268,11 +167492,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 1000,
+        "end_line": 1070,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/impl_init.rs",
-      "sha256": "3370991837d181cc6875c980df0af29b7d3f6238b6c8e242ede2c38546f022a9",
+      "sha256": "bb45e377d40cb5bbbda1f7213cc77be60a1478e29ecf9a3caa266287780a18fa",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -167280,11 +167504,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 2637,
+        "end_line": 2636,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/impl_update.rs",
-      "sha256": "24afc0c32acdff33ecf07a780a495de31543b63bccc62be1aa4e7bf2b0911697",
+      "sha256": "93a6a13a577118ab3b1d23d526c3e330aec057b54e95e0bcb1e6379c133ce588",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -167340,11 +167564,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 229,
+        "end_line": 226,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/mod.rs",
-      "sha256": "9f88cff2fb8c38bc6cc9572ca2257ddc4862f2f800b26e49735a499f5fc6ba47",
+      "sha256": "10e5191e8fa42a1b22a0ae234d6a109b5c295265a90681efc052838d3345f333",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -167412,11 +167636,11 @@
       "cargo_reachable": true,
       "classification": "test",
       "file_range": {
-        "end_line": 716,
+        "end_line": 713,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/native_presentation_tests.rs",
-      "sha256": "7ba8ac5af0ac016fe729671dddb92be11d112ea2a067355aff32cd45fbf4ed1f",
+      "sha256": "4f444e3c850be225642b90ac9efe47078adba7fdbb40b7218ac1a79fae11b9ef",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -167460,11 +167684,11 @@
       "cargo_reachable": true,
       "classification": "test",
       "file_range": {
-        "end_line": 529,
+        "end_line": 541,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/native_visual_time_tests.rs",
-      "sha256": "1d546c8388d9cc25d732415a45212864c42f2d5dc299e9d058977daaa9442550",
+      "sha256": "38d56e6f62ec793d55566abef832c663c32cd02c0b0b70d77c9506753a621a7d",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -167592,11 +167816,11 @@
       "cargo_reachable": true,
       "classification": "test",
       "file_range": {
-        "end_line": 273,
+        "end_line": 277,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/receiving_material_phase_tests.rs",
-      "sha256": "b4da78f9f0bda403f58e78506eacb477b9f35d255a203c78888c002bcd12e708",
+      "sha256": "59972aeb15e7a03206d8af5f9087ad8b358f6a469a4c5c3bd574aed70dd0e51d",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -167604,11 +167828,11 @@
       "cargo_reachable": true,
       "classification": "test",
       "file_range": {
-        "end_line": 253,
+        "end_line": 257,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/receiving_native_capability_tests.rs",
-      "sha256": "51f83357ba52071607b1bf538ffb212224a10a064de78cfea86e19c207ea8f1c",
+      "sha256": "dd8c970d4171b7e9e92468728ddc18e98b94444a0b6824603ea29574605f0b8e",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -167616,11 +167840,11 @@
       "cargo_reachable": true,
       "classification": "test",
       "file_range": {
-        "end_line": 896,
+        "end_line": 900,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/receiving_native_draw_tests.rs",
-      "sha256": "03fb3ed6c68117bb954b10f441e22230cc103c5adb1160d48382af2be10fa57c",
+      "sha256": "79197450eea75f453d37298fad05cfb265ee5a48c7031ea1f729c2550cb6212a",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -167716,7 +167940,7 @@
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/subsystem.rs",
-      "sha256": "8a5606d0c1fac00e5cf9fccef19c570f65fd5e22ad451abb523ecf67dec7b948",
+      "sha256": "486cb99bd10a2840ecda3a0a09b08b629508f4726cb1cca697cc8b855e2d013a",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -167772,11 +167996,11 @@
       "cargo_reachable": true,
       "classification": "test",
       "file_range": {
-        "end_line": 2883,
+        "end_line": 2884,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/tests.rs",
-      "sha256": "457db77530f83f59e1105ce82aeb08d774ef4db58cc4c39771f33deada07536c",
+      "sha256": "ef01c9ed60f9f24760ad0f78841a816b087fd5d5af35c47c24bc73f15033328c",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -167808,11 +168032,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 866,
+        "end_line": 869,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/credits.rs",
-      "sha256": "97437df748a6d34a1888710541dff30ae06b64477c81141eea151bd3f9916962",
+      "sha256": "74d0924ca6764f9983d688a192af2a35217fc8245ecca282e28484785706630d",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -172255,11 +172479,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 1140,
+        "end_line": 1146,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/callbacks/challenge_menu.rs",
-      "sha256": "a0b66c2bca16f6530b2c4a68423285f85cc97aa616ce5d9fabd8a8edb7c8c78a",
+      "sha256": "e4ba42753612a4f4e6544faf035117eace62192c47bc4589c544d8ceab27bfde",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -172339,11 +172563,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 592,
+        "end_line": 598,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/callbacks/in_game_popup_message.rs",
-      "sha256": "9862806b78c0315f5b7a3edf9ca294f6de4f7f552bd2455984cb987abb71b0f8",
+      "sha256": "bed21631f920fbe0064dc6cfea40b324c4afb8320bee9d97bcf847874021dbe3",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -172499,7 +172723,7 @@
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/callbacks/popup_save_load.rs",
-      "sha256": "3acbb5b0ec763f4ca9a75dd4762e2e3741c2102d4200cf04ca687507465ac6fb",
+      "sha256": "28664aa0dce50b0c0d4427eebc5d53bd2355a0094302de774d06f24b112c8dfa",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -172507,11 +172731,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 1139,
+        "end_line": 1145,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/callbacks/quit_menu.rs",
-      "sha256": "c8ed2cc78191be2b204b70fd76cfb2f9b6f9dfb20cfea4b3887e39977764b03f",
+      "sha256": "ee1be9a08d8a13ea4cdb4d71e54313fa039d2a2d90eb446cd2ecd23857fff5ed",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -172591,11 +172815,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 2203,
+        "end_line": 2206,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/callbacks/skirmish_game_options_menu.rs",
-      "sha256": "09ec4c03076c996fb2f586bd48b61a8cbf63b438038f1df9ed27015e063ba81a",
+      "sha256": "57f64868e7cd09508f2a42a459b3a72f50c9afafa403626e720f9d5dc0943018",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -172615,11 +172839,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 1024,
+        "end_line": 1027,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/callbacks/skirmish_map_select_menu.rs",
-      "sha256": "531ecc63d608a12128aca65e98fc495591e543f5a8111358218e3a110b91a4b4",
+      "sha256": "3a4143975d4119273a471c587502aca89f43263bf7fb85e342dacf36e1927c4b",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -172987,11 +173211,11 @@
       "cargo_reachable": true,
       "classification": "test",
       "file_range": {
-        "end_line": 227,
+        "end_line": 225,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/control_bar/control_bar_impl/presentation_input_owner_tests.rs",
-      "sha256": "a116751213539e5bf322d47867f23a23c755319136e6b812cd5143e8a6b29647",
+      "sha256": "58f3f249c7f97682e535b53d08432045ceae97dde50f2773cf95358aaace7b4d",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -172999,11 +173223,11 @@
       "cargo_reachable": true,
       "classification": "test",
       "file_range": {
-        "end_line": 173,
+        "end_line": 179,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/control_bar/control_bar_impl/shortcut_upgrade_population_tests.rs",
-      "sha256": "8b5ed33c983b7c403d6f13ccb514ac09f921ee1c61ce5fa320693047e84c65f2",
+      "sha256": "2cf99d0037561c0f6f881a234c89715a2da9c8b4b3f199086ef1507a62e7af87",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -173011,11 +173235,11 @@
       "cargo_reachable": true,
       "classification": "test",
       "file_range": {
-        "end_line": 693,
+        "end_line": 726,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/control_bar/control_bar_impl/tests.rs",
-      "sha256": "2d73b622a81f8824c96b32f3bf6087e3bdf46ad228ebf8da587ded47abd4ac10",
+      "sha256": "f87993be9f756be5b4e5d25ccf16e4befd9bb6c454859653f3411817c6054392",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -173647,11 +173871,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 2944,
+        "end_line": 2950,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/game_window_transitions.rs",
-      "sha256": "2076d734de90c755907a3cf71afb815ccb6872280be9a263f617fa82f4cf191e",
+      "sha256": "d5c0878bdc2b455ba39ea4808b7c08c92849184f35d50a79611bd2d2421df7ad",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -173719,11 +173943,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 1102,
+        "end_line": 1107,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/gui_callbacks/control_bar_popup_description.rs",
-      "sha256": "b4c663dcf76d255116bf14006f0f5dd9e986b1ef8819e649742ae68510b2d854",
+      "sha256": "622f29457ccc48fc24d5540a3213d4e74c4ebbf08eb1ce56f139c6b76ef111cf",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -174595,11 +174819,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 625,
+        "end_line": 675,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/load_screen/api.rs",
-      "sha256": "6ce2c43f4d7984ba87eb492477175ba767353d257a4eeaeb47bdc69cdff554e0",
+      "sha256": "a1351d737e283fec7d5d2ac828ae32d72c0b52d9f193f0b0632d2041392d4532",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -174631,11 +174855,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 136,
+        "end_line": 137,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/load_screen/init_windows.rs",
-      "sha256": "45077253793c818c3f9ba71fadf387e0e7f06cc1a8b8b6edf777593d9a347e97",
+      "sha256": "046140f218be353df3e776e4f557cf028188b7fa0e8a071157c6f8596ab2c54d",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -174655,11 +174879,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 45,
+        "end_line": 44,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/load_screen/mod.rs",
-      "sha256": "c87c64cc2f84b5959cc0174d348bd086b663ede040e27bad423d0203cc77f139",
+      "sha256": "a9a2fc43e7b30f5b30baa8ec77aad937d6d9f70c146de36daa20d8ab9d6a6229",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -174703,11 +174927,11 @@
       "cargo_reachable": true,
       "classification": "test",
       "file_range": {
-        "end_line": 2874,
+        "end_line": 2931,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/load_screen/tests.rs",
-      "sha256": "d173b860037ac27aab3359f9dd212c016029ba7acb7296ff1d0bb7747545430b",
+      "sha256": "f317a1f39a4f35193af3d2eb536cff9deb63a368304992069da8c8b0eafae5d2",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -174715,11 +174939,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 340,
+        "end_line": 339,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/load_screen/types.rs",
-      "sha256": "4a4def52f6c7a83b152f5f06e47f8e903bbaa511ae5cfa5b413cc2ac409ded5b",
+      "sha256": "82c7f04d2d5d38c493aba652d47c2824a46bda78475f00a8bfeb6fbbea310bad",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -174763,11 +174987,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 79,
+        "end_line": 83,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/shell/base/residual.rs",
-      "sha256": "15aaa8f91815d79d0cd76d6db57d4b241869d91a44440ed2995d5d99d05b7b16",
+      "sha256": "3822c883dd928160e3a85ffa40704d31d54c9d9f03eeeb21139401dcd65ef660",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -174791,7 +175015,7 @@
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/shell/base/shell_lifecycle.rs",
-      "sha256": "d1937cbf9a280238b649a5cf6ef756fdcf7f4da1a26d34396f805749c7707c15",
+      "sha256": "72c21804ebea73b0ea10e36fc93f7217c0309196b80728146bae31dcca1a69d1",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -174799,11 +175023,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 405,
+        "end_line": 377,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/shell/base/shell_ops.rs",
-      "sha256": "3c094bc2a772fe6f92368d2283f1c3f8de5ad102717e15db42ebbcd9d76d25f7",
+      "sha256": "3fe3308fa210f16da874aa177b5302ef4098f26e35e8f881a205cc7a0aa849f1",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -174811,11 +175035,11 @@
       "cargo_reachable": true,
       "classification": "test",
       "file_range": {
-        "end_line": 956,
+        "end_line": 1021,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/shell/base/tests.rs",
-      "sha256": "3b52fbb5482ed50ce11127b82a63ded2da20c1a18059a23cd399686752a5ea11",
+      "sha256": "136a999b465152243a055edf8edc9d1745dde229b1a4c01c7c353e43faeee69a",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -174835,11 +175059,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 3232,
+        "end_line": 3285,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/shell/main_menu.rs",
-      "sha256": "744c05ef137fee361a12976af6a844c2c9a182d819e41f2b284abfbfe64898f1",
+      "sha256": "77f9e440b3a03d106463634c19011f18ed6a0a617e914a5890c9d8c7e6ed20e7",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -174859,11 +175083,11 @@
       "cargo_reachable": true,
       "classification": "test",
       "file_range": {
-        "end_line": 1887,
+        "end_line": 1939,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/shell/main_menu_tests.rs",
-      "sha256": "947b21575bbb63014f4335e2b2f57195e8fd68bfbe3d35c3a7fc0c55219de40d",
+      "sha256": "311b1f779aca3879a6346c7a84c923c0d82ed9a978153520e6684778e87ede02",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -174871,11 +175095,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 69,
+        "end_line": 70,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/shell/mod.rs",
-      "sha256": "eb942f2840084e6a4a0a6a9631d600b7aabbcd635c15f05abf782862ded5a921",
+      "sha256": "33d2974d547d3b658195f76a9e7b7472a9bdd43bdc1b2c70226bd06f9ac0c18b",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -208402,11 +208626,23 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 27,
+        "end_line": 135,
+        "start_line": 1
+      },
+      "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/action_kernel.rs",
+      "sha256": "10cd557a28a47923258796f70fe0be7e70c1d60abdae12c1e38d74f8289cdc68",
+      "symbol_index_status": "awaiting_mapping_review",
+      "symbols": []
+    },
+    {
+      "cargo_reachable": true,
+      "classification": "implementation",
+      "file_range": {
+        "end_line": 29,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/delete_owned.rs",
-      "sha256": "ac17d74f7bf3541f53c939ca30a5661965f68ed0585931d129769b5ade12ebc9",
+      "sha256": "800cfdc18b0ec104cf2169b6e78be9c49872b2aa9db7471ea69a5c96316cfe46",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -208414,11 +208650,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 339,
+        "end_line": 363,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/owned_state.rs",
-      "sha256": "a5d941386d51f9c76ce27ea82a7c864740d11f5e42835134ce64b136835fb59d",
+      "sha256": "d6ead6d32157c5c137adc7e7e3d46d3fd9310b9e814bcaf2450cc926d2385c58",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -208426,11 +208662,35 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 147,
+        "end_line": 76,
+        "start_line": 1
+      },
+      "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/phase.rs",
+      "sha256": "0070d7a9fbb0a2bf6e756b27c44123cd8d348018b4446633a59c836a93f06c97",
+      "symbol_index_status": "awaiting_mapping_review",
+      "symbols": []
+    },
+    {
+      "cargo_reachable": true,
+      "classification": "implementation",
+      "file_range": {
+        "end_line": 145,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/primary_owned.rs",
-      "sha256": "4cd1a8b8919d5b0f68c54d6bb3ebe0660abfdc8752d01c8ebb497a68a52bd238",
+      "sha256": "3bbae99b06d9c8ed43d602922b831975c713730372b5602e8104a7cf5df66d56",
+      "symbol_index_status": "awaiting_mapping_review",
+      "symbols": []
+    },
+    {
+      "cargo_reachable": true,
+      "classification": "test",
+      "file_range": {
+        "end_line": 49,
+        "start_line": 1
+      },
+      "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/snapshot/original_xfer_oracle_tests.rs",
+      "sha256": "6663d0c5eb856f812107c4d8990152c705e1790839211778370291fe999a7718",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -208438,11 +208698,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 157,
+        "end_line": 187,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/snapshot.rs",
-      "sha256": "cbfb3d7af45db9044c90331a3a9110b9f2e121e6633a0c8e8a175d0a3d1e6f46",
+      "sha256": "f099b9dbe3b7e0124e0ff99a952336a3331d94e363191706d69f9378905211df",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -208450,11 +208710,23 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 1870,
+        "end_line": 57,
+        "start_line": 1
+      },
+      "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/task_owner.rs",
+      "sha256": "1e0065f7c3c2cd5d2cf17ec6bbded9dbaf8b061c2ac7ee786831d40a75a3d65f",
+      "symbol_index_status": "awaiting_mapping_review",
+      "symbols": []
+    },
+    {
+      "cargo_reachable": true,
+      "classification": "implementation",
+      "file_range": {
+        "end_line": 1852,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update.rs",
-      "sha256": "f6520ad6d1e0ce27a978bdf77f7cbb188abe0dc622d30e4cdc7e01cc488cb057",
+      "sha256": "95a69d6147e9829b904bd027c9b323e7fc1371e85c37f10df47e04bf4455992d",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -224687,7 +224959,7 @@
     },
     "behavior_verified": 1,
     "blockers_by_kind": {
-      "duplicate_implementation_destination": 705,
+      "duplicate_implementation_destination": 714,
       "missing_mapping": 23,
       "no_reachable_implementation": 686,
       "ownership_symbol": 6,
@@ -224753,13 +225025,13 @@
       }
     },
     "deferred_network_translation_units": 47,
-    "duplicate_implementation_destinations": 332,
+    "duplicate_implementation_destinations": 335,
     "orphan_ownership_records": 0,
     "reachable_implementation_candidates": 703,
     "required_translation_units": 1389,
     "reviewed_path_implementations": 8,
     "source_range_ownership_reviewed": 3,
-    "strict_blockers": 4250,
+    "strict_blockers": 4259,
     "symbol_ownership_reviewed": 1,
     "translation_units": 1436
   }

@@ -525,400 +525,423 @@ mod tests {
 
     #[test]
     fn map_transfer_progress_timeout_and_filename_cache_like_cpp() {
-        #[cfg(not(target_arch = "wasm32"))]
-        if let crate::test_process::TestProcess::ParentVerified = crate::test_process::run_bounded(
-            module_path!(),
-            "map_transfer_progress_timeout_and_filename_cache_like_cpp",
-        ) {
-            return;
-        }
-        // This exact process owns the classic GameText catalog. A Language
-        // fallback registration cannot override an already loaded retail CSF.
-        // Admit the selected strings through the actual map-string parser,
-        // without changing the production CSF-first lookup order.
-        let directory = tempfile::tempdir().unwrap();
-        let strings = directory.path().join("MapTransferFixture.str");
-        std::fs::write(
-            &strings,
-            concat!(
-                "MapTransfer:Unpacking\n\"Unpacking map\"\nEND\n",
-                "MapTransfer:Timeout\n\"%d:%d remaining\"\nEND\n",
-                "MapTransfer:CurrentFile\n\"Current: %s\"\nEND\n",
-            ),
-        )
-        .unwrap();
-        GameText::init_map_string_file(strings.to_str().unwrap())
-            .expect("admit actual selected map-string catalog");
-        for (label, expected) in [
-            ("MapTransfer:Unpacking", "Unpacking map"),
-            ("MapTransfer:Timeout", "%d:%d remaining"),
-            ("MapTransfer:CurrentFile", "Current: %s"),
-        ] {
-            assert_eq!(
-                GameText::fetch_with_exists(label),
-                (expected.to_owned(), true)
-            );
-        }
-        reset_map_transfer_load_screen_state();
+        let owner = crate::gui::window_manager::WindowManagerOwner::new();
+        owner.with_scope(|| {
+            #[cfg(not(target_arch = "wasm32"))]
+            if let crate::test_process::TestProcess::ParentVerified =
+                crate::test_process::run_bounded(
+                    module_path!(),
+                    "map_transfer_progress_timeout_and_filename_cache_like_cpp",
+                )
+            {
+                return;
+            }
+            // This exact process owns the classic GameText catalog. A Language
+            // fallback registration cannot override an already loaded retail CSF.
+            // Admit the selected strings through the actual map-string parser,
+            // without changing the production CSF-first lookup order.
+            let directory = tempfile::tempdir().unwrap();
+            let strings = directory.path().join("MapTransferFixture.str");
+            std::fs::write(
+                &strings,
+                concat!(
+                    "MapTransfer:Unpacking\n\"Unpacking map\"\nEND\n",
+                    "MapTransfer:Timeout\n\"%d:%d remaining\"\nEND\n",
+                    "MapTransfer:CurrentFile\n\"Current: %s\"\nEND\n",
+                ),
+            )
+            .unwrap();
+            GameText::init_map_string_file(strings.to_str().unwrap())
+                .expect("admit actual selected map-string catalog");
+            for (label, expected) in [
+                ("MapTransfer:Unpacking", "Unpacking map"),
+                ("MapTransfer:Timeout", "%d:%d remaining"),
+                ("MapTransfer:CurrentFile", "Current: %s"),
+            ] {
+                assert_eq!(
+                    GameText::fetch_with_exists(label),
+                    (expected.to_owned(), true)
+                );
+            }
+            reset_map_transfer_load_screen_state();
 
-        let mut wm = WindowManager::new();
-        create_map_transfer_slot_windows(&mut wm, 2);
-        let context = LoadScreenInitContext {
-            local_player_name: "Local".to_string(),
-            local_side_name: "USA".to_string(),
-            local_template_name: "FactionAmerica".to_string(),
-            local_general_name: "USA".to_string(),
-            local_general_features: "USA".to_string(),
-            local_general_portrait: None,
-            local_load_screen_music: String::new(),
-            local_team_number: 0,
-            shell_game_did_mem_pass: true,
-            map_name: None,
-            start_positions: Vec::new(),
-            slots: vec![load_screen_slot_with_map(
-                2, "NeedsMap", None, false, false, true,
-            )],
-        };
-        initialize_map_transfer_windows(&mut wm, &context);
-        with_window_manager(|global_wm| {
-            *global_wm = wm;
-        });
+            let mut wm = WindowManager::new();
+            create_map_transfer_slot_windows(&mut wm, 2);
+            let context = LoadScreenInitContext {
+                local_player_name: "Local".to_string(),
+                local_side_name: "USA".to_string(),
+                local_template_name: "FactionAmerica".to_string(),
+                local_general_name: "USA".to_string(),
+                local_general_features: "USA".to_string(),
+                local_general_portrait: None,
+                local_load_screen_music: String::new(),
+                local_team_number: 0,
+                shell_game_did_mem_pass: true,
+                map_name: None,
+                start_positions: Vec::new(),
+                slots: vec![load_screen_slot_with_map(
+                    2, "NeedsMap", None, false, false, true,
+                )],
+            };
+            initialize_map_transfer_windows(&mut wm, &context);
+            with_window_manager(|global_wm| {
+                *global_wm = wm;
+            });
 
-        assert!(!process_load_screen_progress(
-            LoadScreenKind::MapTransfer,
-            2,
-            47.0
-        ));
-        assert!(process_map_transfer_progress(
-            2,
-            47,
-            "MapTransfer:Unpacking"
-        ));
-        assert_eq!(
-            progress_value("MapTransferScreen.wnd:ProgressLoad0"),
-            Some(0.47)
-        );
-        with_window_manager(|wm| {
+            assert!(!process_load_screen_progress(
+                LoadScreenKind::MapTransfer,
+                2,
+                47.0
+            ));
+            assert!(process_map_transfer_progress(
+                2,
+                47,
+                "MapTransfer:Unpacking"
+            ));
             assert_eq!(
-                window_text(wm, "MapTransferScreen.wnd:StaticTextProgress0"),
-                "Unpacking map"
+                progress_value("MapTransferScreen.wnd:ProgressLoad0"),
+                Some(0.47)
             );
-        });
-        assert!(!process_map_transfer_progress(
-            2,
-            47,
-            "MapTransfer:Unpacking"
-        ));
-        assert!(!process_map_transfer_progress(
-            7,
-            30,
-            "MapTransfer:Unpacking"
-        ));
+            with_window_manager(|wm| {
+                assert_eq!(
+                    window_text(wm, "MapTransferScreen.wnd:StaticTextProgress0"),
+                    "Unpacking map"
+                );
+            });
+            assert!(!process_map_transfer_progress(
+                2,
+                47,
+                "MapTransfer:Unpacking"
+            ));
+            assert!(!process_map_transfer_progress(
+                7,
+                30,
+                "MapTransfer:Unpacking"
+            ));
 
-        assert!(process_map_transfer_timeout(125));
-        with_window_manager(|wm| {
-            assert_eq!(
-                window_text(wm, "MapTransferScreen.wnd:StaticTextTimeout"),
-                "2:5 remaining"
-            );
-        });
-        assert!(!process_map_transfer_timeout(125));
+            assert!(process_map_transfer_timeout(125));
+            with_window_manager(|wm| {
+                assert_eq!(
+                    window_text(wm, "MapTransferScreen.wnd:StaticTextTimeout"),
+                    "2:5 remaining"
+                );
+            });
+            assert!(!process_map_transfer_timeout(125));
 
-        set_map_transfer_current_filename("Maps\\Official\\Tournament.map");
-        with_window_manager(|wm| {
-            assert_eq!(
-                window_text(wm, "MapTransferScreen.wnd:StaticTextCurrentFile"),
-                "Current: Tournament.map"
-            );
+            set_map_transfer_current_filename("Maps\\Official\\Tournament.map");
+            with_window_manager(|wm| {
+                assert_eq!(
+                    window_text(wm, "MapTransferScreen.wnd:StaticTextCurrentFile"),
+                    "Current: Tournament.map"
+                );
+            });
         });
     }
 
     #[test]
     fn multiplayer_process_progress_uses_cpp_player_lookup_mapping() {
-        let _state_guard = lock_test_load_screen_state();
-        reset_multiplayer_load_screen_state();
-        let mut wm = WindowManager::new();
-        create_multiplayer_slot_windows(&mut wm, "MultiplayerLoadScreen.wnd", 3);
-        named_test_window(&mut wm, "MultiplayerLoadScreen.wnd:LocalGeneralPortrait");
-        named_test_window(&mut wm, "MultiplayerLoadScreen.wnd:LocalGeneralFeatures");
-        named_test_window(&mut wm, "MultiplayerLoadScreen.wnd:LocalGeneralName");
+        let owner = crate::gui::window_manager::WindowManagerOwner::new();
+        owner.with_scope(|| {
+            let _state_guard = lock_test_load_screen_state();
+            reset_multiplayer_load_screen_state();
+            let mut wm = WindowManager::new();
+            create_multiplayer_slot_windows(&mut wm, "MultiplayerLoadScreen.wnd", 3);
+            named_test_window(&mut wm, "MultiplayerLoadScreen.wnd:LocalGeneralPortrait");
+            named_test_window(&mut wm, "MultiplayerLoadScreen.wnd:LocalGeneralFeatures");
+            named_test_window(&mut wm, "MultiplayerLoadScreen.wnd:LocalGeneralName");
 
-        let context = LoadScreenInitContext {
-            local_player_name: "Alice".to_string(),
-            local_side_name: "USA".to_string(),
-            local_template_name: "FactionAmerica".to_string(),
-            local_general_name: "USA".to_string(),
-            local_general_features: "USA".to_string(),
-            local_general_portrait: None,
-            local_load_screen_music: String::new(),
-            local_team_number: 0,
-            shell_game_did_mem_pass: true,
-            map_name: None,
-            start_positions: Vec::new(),
-            slots: vec![
-                load_screen_slot("Alice", "USA", 0, false, true),
-                load_screen_slot("Empty", "GLA", 1, false, false),
-                load_screen_slot("Bob", "China", 2, false, true),
-            ],
-        };
+            let context = LoadScreenInitContext {
+                local_player_name: "Alice".to_string(),
+                local_side_name: "USA".to_string(),
+                local_template_name: "FactionAmerica".to_string(),
+                local_general_name: "USA".to_string(),
+                local_general_features: "USA".to_string(),
+                local_general_portrait: None,
+                local_load_screen_music: String::new(),
+                local_team_number: 0,
+                shell_game_did_mem_pass: true,
+                map_name: None,
+                start_positions: Vec::new(),
+                slots: vec![
+                    load_screen_slot("Alice", "USA", 0, false, true),
+                    load_screen_slot("Empty", "GLA", 1, false, false),
+                    load_screen_slot("Bob", "China", 2, false, true),
+                ],
+            };
 
-        initialize_multiplayer_windows(&mut wm, "MultiplayerLoadScreen.wnd", &context);
-        with_window_manager(|global_wm| {
-            *global_wm = wm;
+            initialize_multiplayer_windows(&mut wm, "MultiplayerLoadScreen.wnd", &context);
+            with_window_manager(|global_wm| {
+                *global_wm = wm;
+            });
+
+            assert!(process_load_screen_progress(
+                LoadScreenKind::Multiplayer,
+                2,
+                62.0
+            ));
+            assert_eq!(
+                progress_value("MultiplayerLoadScreen.wnd:ProgressLoad1"),
+                Some(0.62)
+            );
+            assert_eq!(
+                progress_value("MultiplayerLoadScreen.wnd:ProgressLoad0"),
+                Some(0.0)
+            );
+            assert!(!process_load_screen_progress(
+                LoadScreenKind::Multiplayer,
+                1,
+                30.0
+            ));
         });
-
-        assert!(process_load_screen_progress(
-            LoadScreenKind::Multiplayer,
-            2,
-            62.0
-        ));
-        assert_eq!(
-            progress_value("MultiplayerLoadScreen.wnd:ProgressLoad1"),
-            Some(0.62)
-        );
-        assert_eq!(
-            progress_value("MultiplayerLoadScreen.wnd:ProgressLoad0"),
-            Some(0.0)
-        );
-        assert!(!process_load_screen_progress(
-            LoadScreenKind::Multiplayer,
-            1,
-            30.0
-        ));
     }
 
     #[test]
     fn multiplayer_update_without_lookup_does_not_fallback_to_slot_zero() {
-        let _state_guard = lock_test_load_screen_state();
-        reset_multiplayer_load_screen_state();
-        let mut wm = WindowManager::new();
-        create_multiplayer_slot_windows(&mut wm, "MultiplayerLoadScreen.wnd", 2);
-        named_test_window(&mut wm, "MultiplayerLoadScreen.wnd:LocalGeneralPortrait");
-        named_test_window(&mut wm, "MultiplayerLoadScreen.wnd:LocalGeneralFeatures");
-        named_test_window(&mut wm, "MultiplayerLoadScreen.wnd:LocalGeneralName");
+        let owner = crate::gui::window_manager::WindowManagerOwner::new();
+        owner.with_scope(|| {
+            let _state_guard = lock_test_load_screen_state();
+            reset_multiplayer_load_screen_state();
+            let mut wm = WindowManager::new();
+            create_multiplayer_slot_windows(&mut wm, "MultiplayerLoadScreen.wnd", 2);
+            named_test_window(&mut wm, "MultiplayerLoadScreen.wnd:LocalGeneralPortrait");
+            named_test_window(&mut wm, "MultiplayerLoadScreen.wnd:LocalGeneralFeatures");
+            named_test_window(&mut wm, "MultiplayerLoadScreen.wnd:LocalGeneralName");
 
-        let context = LoadScreenInitContext {
-            local_player_name: "Missing".to_string(),
-            local_side_name: "USA".to_string(),
-            local_template_name: "FactionAmerica".to_string(),
-            local_general_name: "USA".to_string(),
-            local_general_features: "USA".to_string(),
-            local_general_portrait: None,
-            local_load_screen_music: String::new(),
-            local_team_number: 7,
-            shell_game_did_mem_pass: true,
-            map_name: None,
-            start_positions: Vec::new(),
-            slots: vec![load_screen_slot("Alice", "USA", 0, false, true)],
-        };
+            let context = LoadScreenInitContext {
+                local_player_name: "Missing".to_string(),
+                local_side_name: "USA".to_string(),
+                local_template_name: "FactionAmerica".to_string(),
+                local_general_name: "USA".to_string(),
+                local_general_features: "USA".to_string(),
+                local_general_portrait: None,
+                local_load_screen_music: String::new(),
+                local_team_number: 7,
+                shell_game_did_mem_pass: true,
+                map_name: None,
+                start_positions: Vec::new(),
+                slots: vec![load_screen_slot("Alice", "USA", 0, false, true)],
+            };
 
-        initialize_multiplayer_windows(&mut wm, "MultiplayerLoadScreen.wnd", &context);
-        with_window_manager(|global_wm| {
-            *global_wm = wm;
+            initialize_multiplayer_windows(&mut wm, "MultiplayerLoadScreen.wnd", &context);
+            with_window_manager(|global_wm| {
+                *global_wm = wm;
+            });
+
+            update_load_screen(LoadScreenKind::Multiplayer, 41.0);
+
+            assert_eq!(
+                progress_value("MultiplayerLoadScreen.wnd:ProgressLoad0"),
+                Some(0.0)
+            );
         });
-
-        update_load_screen(LoadScreenKind::Multiplayer, 41.0);
-
-        assert_eq!(
-            progress_value("MultiplayerLoadScreen.wnd:ProgressLoad0"),
-            Some(0.0)
-        );
     }
 
     #[test]
     fn multiplayer_update_reports_progress_before_local_ui_like_cpp() {
-        let _state_guard = lock_test_load_screen_state();
-        reset_multiplayer_load_screen_state();
-        clear_multiplayer_load_progress_hook();
-        let calls = Arc::new(Mutex::new(Vec::new()));
-        let hook_calls = Arc::clone(&calls);
-        register_multiplayer_load_progress_hook(move |player_id, percent| {
-            hook_calls.lock().unwrap().push((player_id, percent));
+        let owner = crate::gui::window_manager::WindowManagerOwner::new();
+        owner.with_scope(|| {
+            let _state_guard = lock_test_load_screen_state();
+            reset_multiplayer_load_screen_state();
+            clear_multiplayer_load_progress_hook();
+            let calls = Arc::new(Mutex::new(Vec::new()));
+            let hook_calls = Arc::clone(&calls);
+            register_multiplayer_load_progress_hook(move |player_id, percent| {
+                hook_calls.lock().unwrap().push((player_id, percent));
+            });
+
+            let mut wm = WindowManager::new();
+            create_multiplayer_slot_windows(&mut wm, "MultiplayerLoadScreen.wnd", 2);
+            named_test_window(&mut wm, "MultiplayerLoadScreen.wnd:LocalGeneralPortrait");
+            named_test_window(&mut wm, "MultiplayerLoadScreen.wnd:LocalGeneralFeatures");
+            named_test_window(&mut wm, "MultiplayerLoadScreen.wnd:LocalGeneralName");
+
+            let context = LoadScreenInitContext {
+                local_player_name: "Bob".to_string(),
+                local_side_name: "China".to_string(),
+                local_template_name: "FactionChina".to_string(),
+                local_general_name: "China".to_string(),
+                local_general_features: "China".to_string(),
+                local_general_portrait: None,
+                local_load_screen_music: String::new(),
+                local_team_number: 1,
+                shell_game_did_mem_pass: true,
+                map_name: None,
+                start_positions: Vec::new(),
+                slots: vec![
+                    load_screen_slot("Alice", "USA", 0, false, true),
+                    load_screen_slot("Bob", "China", 1, false, true),
+                ],
+            };
+
+            initialize_multiplayer_windows(&mut wm, "MultiplayerLoadScreen.wnd", &context);
+            with_window_manager(|global_wm| {
+                *global_wm = wm;
+            });
+
+            update_load_screen(LoadScreenKind::Multiplayer, 41.0);
+
+            assert_eq!(*calls.lock().unwrap(), vec![(1, 41)]);
+            assert_eq!(
+                progress_value("MultiplayerLoadScreen.wnd:ProgressLoad1"),
+                Some(0.41)
+            );
+            clear_multiplayer_load_progress_hook();
         });
-
-        let mut wm = WindowManager::new();
-        create_multiplayer_slot_windows(&mut wm, "MultiplayerLoadScreen.wnd", 2);
-        named_test_window(&mut wm, "MultiplayerLoadScreen.wnd:LocalGeneralPortrait");
-        named_test_window(&mut wm, "MultiplayerLoadScreen.wnd:LocalGeneralFeatures");
-        named_test_window(&mut wm, "MultiplayerLoadScreen.wnd:LocalGeneralName");
-
-        let context = LoadScreenInitContext {
-            local_player_name: "Bob".to_string(),
-            local_side_name: "China".to_string(),
-            local_template_name: "FactionChina".to_string(),
-            local_general_name: "China".to_string(),
-            local_general_features: "China".to_string(),
-            local_general_portrait: None,
-            local_load_screen_music: String::new(),
-            local_team_number: 1,
-            shell_game_did_mem_pass: true,
-            map_name: None,
-            start_positions: Vec::new(),
-            slots: vec![
-                load_screen_slot("Alice", "USA", 0, false, true),
-                load_screen_slot("Bob", "China", 1, false, true),
-            ],
-        };
-
-        initialize_multiplayer_windows(&mut wm, "MultiplayerLoadScreen.wnd", &context);
-        with_window_manager(|global_wm| {
-            *global_wm = wm;
-        });
-
-        update_load_screen(LoadScreenKind::Multiplayer, 41.0);
-
-        assert_eq!(*calls.lock().unwrap(), vec![(1, 41)]);
-        assert_eq!(
-            progress_value("MultiplayerLoadScreen.wnd:ProgressLoad1"),
-            Some(0.41)
-        );
-        clear_multiplayer_load_progress_hook();
     }
 
     #[test]
     fn multiplayer_update_above_complete_only_pumps_like_cpp() {
-        let _state_guard = lock_test_load_screen_state();
-        reset_multiplayer_load_screen_state();
-        clear_multiplayer_load_progress_hook();
-        let calls = Arc::new(Mutex::new(Vec::new()));
-        let hook_calls = Arc::clone(&calls);
-        register_multiplayer_load_progress_hook(move |player_id, percent| {
-            hook_calls.lock().unwrap().push((player_id, percent));
+        let owner = crate::gui::window_manager::WindowManagerOwner::new();
+        owner.with_scope(|| {
+            let _state_guard = lock_test_load_screen_state();
+            reset_multiplayer_load_screen_state();
+            clear_multiplayer_load_progress_hook();
+            let calls = Arc::new(Mutex::new(Vec::new()));
+            let hook_calls = Arc::clone(&calls);
+            register_multiplayer_load_progress_hook(move |player_id, percent| {
+                hook_calls.lock().unwrap().push((player_id, percent));
+            });
+
+            let mut wm = WindowManager::new();
+            create_multiplayer_slot_windows(&mut wm, "MultiplayerLoadScreen.wnd", 1);
+            named_test_window(&mut wm, "MultiplayerLoadScreen.wnd:LocalGeneralPortrait");
+            named_test_window(&mut wm, "MultiplayerLoadScreen.wnd:LocalGeneralFeatures");
+            named_test_window(&mut wm, "MultiplayerLoadScreen.wnd:LocalGeneralName");
+
+            let context = LoadScreenInitContext {
+                local_player_name: "Alice".to_string(),
+                local_side_name: "USA".to_string(),
+                local_template_name: "FactionAmerica".to_string(),
+                local_general_name: "USA".to_string(),
+                local_general_features: "USA".to_string(),
+                local_general_portrait: None,
+                local_load_screen_music: String::new(),
+                local_team_number: 0,
+                shell_game_did_mem_pass: true,
+                map_name: None,
+                start_positions: Vec::new(),
+                slots: vec![load_screen_slot("Alice", "USA", 0, false, true)],
+            };
+
+            initialize_multiplayer_windows(&mut wm, "MultiplayerLoadScreen.wnd", &context);
+            with_window_manager(|global_wm| {
+                *global_wm = wm;
+            });
+
+            update_load_screen(LoadScreenKind::Multiplayer, 101.0);
+
+            assert!(calls.lock().unwrap().is_empty());
+            assert_eq!(
+                progress_value("MultiplayerLoadScreen.wnd:ProgressLoad0"),
+                Some(0.0)
+            );
+            clear_multiplayer_load_progress_hook();
         });
-
-        let mut wm = WindowManager::new();
-        create_multiplayer_slot_windows(&mut wm, "MultiplayerLoadScreen.wnd", 1);
-        named_test_window(&mut wm, "MultiplayerLoadScreen.wnd:LocalGeneralPortrait");
-        named_test_window(&mut wm, "MultiplayerLoadScreen.wnd:LocalGeneralFeatures");
-        named_test_window(&mut wm, "MultiplayerLoadScreen.wnd:LocalGeneralName");
-
-        let context = LoadScreenInitContext {
-            local_player_name: "Alice".to_string(),
-            local_side_name: "USA".to_string(),
-            local_template_name: "FactionAmerica".to_string(),
-            local_general_name: "USA".to_string(),
-            local_general_features: "USA".to_string(),
-            local_general_portrait: None,
-            local_load_screen_music: String::new(),
-            local_team_number: 0,
-            shell_game_did_mem_pass: true,
-            map_name: None,
-            start_positions: Vec::new(),
-            slots: vec![load_screen_slot("Alice", "USA", 0, false, true)],
-        };
-
-        initialize_multiplayer_windows(&mut wm, "MultiplayerLoadScreen.wnd", &context);
-        with_window_manager(|global_wm| {
-            *global_wm = wm;
-        });
-
-        update_load_screen(LoadScreenKind::Multiplayer, 101.0);
-
-        assert!(calls.lock().unwrap().is_empty());
-        assert_eq!(
-            progress_value("MultiplayerLoadScreen.wnd:ProgressLoad0"),
-            Some(0.0)
-        );
-        clear_multiplayer_load_progress_hook();
     }
 
     #[test]
     fn gamespy_update_reports_progress_like_cpp() {
-        let _state_guard = lock_test_load_screen_state();
-        reset_multiplayer_load_screen_state();
-        clear_multiplayer_load_progress_hook();
-        let calls = Arc::new(Mutex::new(Vec::new()));
-        let hook_calls = Arc::clone(&calls);
-        register_multiplayer_load_progress_hook(move |player_id, percent| {
-            hook_calls.lock().unwrap().push((player_id, percent));
+        let owner = crate::gui::window_manager::WindowManagerOwner::new();
+        owner.with_scope(|| {
+            let _state_guard = lock_test_load_screen_state();
+            reset_multiplayer_load_screen_state();
+            clear_multiplayer_load_progress_hook();
+            let calls = Arc::new(Mutex::new(Vec::new()));
+            let hook_calls = Arc::clone(&calls);
+            register_multiplayer_load_progress_hook(move |player_id, percent| {
+                hook_calls.lock().unwrap().push((player_id, percent));
+            });
+
+            let mut wm = WindowManager::new();
+            create_multiplayer_slot_windows(&mut wm, "GameSpyLoadScreen.wnd", 1);
+            create_gamespy_slot_windows(&mut wm, 1);
+
+            let context = LoadScreenInitContext {
+                local_player_name: "Alice".to_string(),
+                local_side_name: "USA".to_string(),
+                local_template_name: "FactionAmerica".to_string(),
+                local_general_name: "USA".to_string(),
+                local_general_features: "USA".to_string(),
+                local_general_portrait: None,
+                local_load_screen_music: String::new(),
+                local_team_number: 0,
+                shell_game_did_mem_pass: true,
+                map_name: None,
+                start_positions: Vec::new(),
+                slots: vec![load_screen_slot("Alice", "USA", 0, false, true)],
+            };
+
+            initialize_gamespy_windows(&mut wm, &context);
+            with_window_manager(|global_wm| {
+                *global_wm = wm;
+            });
+
+            update_load_screen(LoadScreenKind::GameSpy, 77.0);
+
+            assert_eq!(*calls.lock().unwrap(), vec![(0, 77)]);
+            assert_eq!(
+                progress_value("GameSpyLoadScreen.wnd:ProgressLoad0"),
+                Some(0.77)
+            );
+            clear_multiplayer_load_progress_hook();
         });
-
-        let mut wm = WindowManager::new();
-        create_multiplayer_slot_windows(&mut wm, "GameSpyLoadScreen.wnd", 1);
-        create_gamespy_slot_windows(&mut wm, 1);
-
-        let context = LoadScreenInitContext {
-            local_player_name: "Alice".to_string(),
-            local_side_name: "USA".to_string(),
-            local_template_name: "FactionAmerica".to_string(),
-            local_general_name: "USA".to_string(),
-            local_general_features: "USA".to_string(),
-            local_general_portrait: None,
-            local_load_screen_music: String::new(),
-            local_team_number: 0,
-            shell_game_did_mem_pass: true,
-            map_name: None,
-            start_positions: Vec::new(),
-            slots: vec![load_screen_slot("Alice", "USA", 0, false, true)],
-        };
-
-        initialize_gamespy_windows(&mut wm, &context);
-        with_window_manager(|global_wm| {
-            *global_wm = wm;
-        });
-
-        update_load_screen(LoadScreenKind::GameSpy, 77.0);
-
-        assert_eq!(*calls.lock().unwrap(), vec![(0, 77)]);
-        assert_eq!(
-            progress_value("GameSpyLoadScreen.wnd:ProgressLoad0"),
-            Some(0.77)
-        );
-        clear_multiplayer_load_progress_hook();
     }
 
     #[test]
     fn multiplayer_init_resets_all_progress_bars_like_cpp() {
-        let _state_guard = lock_test_load_screen_state();
-        reset_multiplayer_load_screen_state();
-        let mut wm = WindowManager::new();
-        create_multiplayer_slot_windows(&mut wm, "MultiplayerLoadScreen.wnd", 3);
-        named_test_window(&mut wm, "MultiplayerLoadScreen.wnd:LocalGeneralPortrait");
-        named_test_window(&mut wm, "MultiplayerLoadScreen.wnd:LocalGeneralFeatures");
-        named_test_window(&mut wm, "MultiplayerLoadScreen.wnd:LocalGeneralName");
+        let owner = crate::gui::window_manager::WindowManagerOwner::new();
+        owner.with_scope(|| {
+            let _state_guard = lock_test_load_screen_state();
+            reset_multiplayer_load_screen_state();
+            let mut wm = WindowManager::new();
+            create_multiplayer_slot_windows(&mut wm, "MultiplayerLoadScreen.wnd", 3);
+            named_test_window(&mut wm, "MultiplayerLoadScreen.wnd:LocalGeneralPortrait");
+            named_test_window(&mut wm, "MultiplayerLoadScreen.wnd:LocalGeneralFeatures");
+            named_test_window(&mut wm, "MultiplayerLoadScreen.wnd:LocalGeneralName");
 
-        for slot in 0..3 {
-            let name = format!("MultiplayerLoadScreen.wnd:ProgressLoad{slot}");
-            wm.find_window_by_name(&name)
-                .expect("progress")
-                .borrow_mut()
-                .progress_bar_mut()
-                .expect("progress widget")
-                .set_value(0.87);
-        }
+            for slot in 0..3 {
+                let name = format!("MultiplayerLoadScreen.wnd:ProgressLoad{slot}");
+                wm.find_window_by_name(&name)
+                    .expect("progress")
+                    .borrow_mut()
+                    .progress_bar_mut()
+                    .expect("progress widget")
+                    .set_value(0.87);
+            }
 
-        let context = LoadScreenInitContext {
-            local_player_name: "Alice".to_string(),
-            local_side_name: "USA".to_string(),
-            local_template_name: "FactionAmerica".to_string(),
-            local_general_name: "USA".to_string(),
-            local_general_features: "USA".to_string(),
-            local_general_portrait: None,
-            local_load_screen_music: String::new(),
-            local_team_number: 0,
-            shell_game_did_mem_pass: true,
-            map_name: None,
-            start_positions: Vec::new(),
-            slots: vec![load_screen_slot("Alice", "USA", 0, false, true)],
-        };
+            let context = LoadScreenInitContext {
+                local_player_name: "Alice".to_string(),
+                local_side_name: "USA".to_string(),
+                local_template_name: "FactionAmerica".to_string(),
+                local_general_name: "USA".to_string(),
+                local_general_features: "USA".to_string(),
+                local_general_portrait: None,
+                local_load_screen_music: String::new(),
+                local_team_number: 0,
+                shell_game_did_mem_pass: true,
+                map_name: None,
+                start_positions: Vec::new(),
+                slots: vec![load_screen_slot("Alice", "USA", 0, false, true)],
+            };
 
-        initialize_multiplayer_windows(&mut wm, "MultiplayerLoadScreen.wnd", &context);
-        with_window_manager(|global_wm| {
-            *global_wm = wm;
+            initialize_multiplayer_windows(&mut wm, "MultiplayerLoadScreen.wnd", &context);
+            with_window_manager(|global_wm| {
+                *global_wm = wm;
+            });
+
+            assert_eq!(
+                progress_value("MultiplayerLoadScreen.wnd:ProgressLoad0"),
+                Some(0.0)
+            );
+            assert_eq!(
+                progress_value("MultiplayerLoadScreen.wnd:ProgressLoad1"),
+                Some(0.0)
+            );
+            assert_eq!(
+                progress_value("MultiplayerLoadScreen.wnd:ProgressLoad2"),
+                Some(0.0)
+            );
         });
-
-        assert_eq!(
-            progress_value("MultiplayerLoadScreen.wnd:ProgressLoad0"),
-            Some(0.0)
-        );
-        assert_eq!(
-            progress_value("MultiplayerLoadScreen.wnd:ProgressLoad1"),
-            Some(0.0)
-        );
-        assert_eq!(
-            progress_value("MultiplayerLoadScreen.wnd:ProgressLoad2"),
-            Some(0.0)
-        );
     }
 
     #[test]
@@ -1542,318 +1565,330 @@ mod tests {
 
     #[test]
     fn single_player_movie_open_failure_returns_before_audio_like_cpp() {
-        let _state_guard = lock_test_load_screen_state();
-        reset_single_player_load_screen_audio_state();
-        clear_single_player_movie_play_hook();
-        clear_single_player_movie_playing_hook();
-        let movie_requests = Arc::new(Mutex::new(Vec::new()));
-        let hook_requests = Arc::clone(&movie_requests);
-        register_single_player_movie_play_hook(move |movie_name| {
-            hook_requests.lock().unwrap().push(movie_name.to_string());
-            false
-        });
-
-        {
-            let mut manager = get_campaign_manager();
-            let campaign = manager.new_campaign("USA".to_string());
-            let mission = campaign.new_mission("Mission1".to_string());
-            mission.movie_label = "MissingMovie.bik".to_string();
-            mission.briefing_voice =
-                game_engine::common::ini::ini_misc_audio::AudioEventRTS::from_sound_file(
-                    "BriefingVoiceEvent".to_string(),
-                );
-            manager.set_campaign_and_mission("USA", "Mission1");
-        }
-
-        let mut wm = WindowManager::new();
-        named_test_window(
-            &mut wm,
-            "SinglePlayerLoadScreen.wnd:ParentSinglePlayerLoadScreen",
-        );
-        named_progress_test_window(&mut wm, "SinglePlayerLoadScreen.wnd:ProgressLoad");
-        named_test_window(&mut wm, "SinglePlayerLoadScreen.wnd:Percent");
-
-        initialize_single_player_windows(&mut wm, true);
-
-        assert_eq!(
-            *movie_requests.lock().unwrap(),
-            vec!["MissingMovie.bik".to_string()]
-        );
-        let (prelude_active, briefing_played, briefing_handle, ambient_handle) =
-            with_single_player_load_screen_state(|state| {
-                (
-                    state.movie_prelude_active,
-                    state.briefing_voice_played,
-                    state.briefing_voice_handle,
-                    state.ambient_loop_handle,
-                )
+        let owner = crate::gui::window_manager::WindowManagerOwner::new();
+        owner.with_scope(|| {
+            let _state_guard = lock_test_load_screen_state();
+            reset_single_player_load_screen_audio_state();
+            clear_single_player_movie_play_hook();
+            clear_single_player_movie_playing_hook();
+            let movie_requests = Arc::new(Mutex::new(Vec::new()));
+            let hook_requests = Arc::clone(&movie_requests);
+            register_single_player_movie_play_hook(move |movie_name| {
+                hook_requests.lock().unwrap().push(movie_name.to_string());
+                false
             });
-        assert!(!prelude_active);
-        assert!(!briefing_played);
-        assert_eq!(briefing_handle, 0);
-        assert_eq!(ambient_handle, 0);
-        assert!(
-            wm.find_window_by_name("SinglePlayerLoadScreen.wnd:Percent")
-                .expect("percent")
-                .borrow()
-                .is_hidden()
-        );
-        assert_eq!(
-            window_enabled_image_name(
-                &wm,
+
+            {
+                let mut manager = get_campaign_manager();
+                let campaign = manager.new_campaign("USA".to_string());
+                let mission = campaign.new_mission("Mission1".to_string());
+                mission.movie_label = "MissingMovie.bik".to_string();
+                mission.briefing_voice =
+                    game_engine::common::ini::ini_misc_audio::AudioEventRTS::from_sound_file(
+                        "BriefingVoiceEvent".to_string(),
+                    );
+                manager.set_campaign_and_mission("USA", "Mission1");
+            }
+
+            let mut wm = WindowManager::new();
+            named_test_window(
+                &mut wm,
                 "SinglePlayerLoadScreen.wnd:ParentSinglePlayerLoadScreen",
-                0
-            ),
-            None
-        );
-        assert_eq!(
-            window_enabled_image_name(&wm, "SinglePlayerLoadScreen.wnd:ProgressLoad", 6),
-            None
-        );
+            );
+            named_progress_test_window(&mut wm, "SinglePlayerLoadScreen.wnd:ProgressLoad");
+            named_test_window(&mut wm, "SinglePlayerLoadScreen.wnd:Percent");
 
-        with_window_manager(|global_wm| *global_wm = wm);
-        assert_eq!(
-            run_load_screen_prelude_with_limit(LoadScreenKind::SinglePlayer, 1),
-            LoadScreenPreludeOutcome::Failed,
-            "a failed movie open must not turn into a synthetic prelude or audio path"
-        );
+            initialize_single_player_windows(&mut wm, true);
 
-        clear_single_player_movie_play_hook();
-        clear_single_player_movie_playing_hook();
-        reset_single_player_load_screen_audio_state();
+            assert_eq!(
+                *movie_requests.lock().unwrap(),
+                vec!["MissingMovie.bik".to_string()]
+            );
+            let (prelude_active, briefing_played, briefing_handle, ambient_handle) =
+                with_single_player_load_screen_state(|state| {
+                    (
+                        state.movie_prelude_active,
+                        state.briefing_voice_played,
+                        state.briefing_voice_handle,
+                        state.ambient_loop_handle,
+                    )
+                });
+            assert!(!prelude_active);
+            assert!(!briefing_played);
+            assert_eq!(briefing_handle, 0);
+            assert_eq!(ambient_handle, 0);
+            assert!(
+                wm.find_window_by_name("SinglePlayerLoadScreen.wnd:Percent")
+                    .expect("percent")
+                    .borrow()
+                    .is_hidden()
+            );
+            assert_eq!(
+                window_enabled_image_name(
+                    &wm,
+                    "SinglePlayerLoadScreen.wnd:ParentSinglePlayerLoadScreen",
+                    0
+                ),
+                None
+            );
+            assert_eq!(
+                window_enabled_image_name(&wm, "SinglePlayerLoadScreen.wnd:ProgressLoad", 6),
+                None
+            );
+
+            with_window_manager(|global_wm| *global_wm = wm);
+            assert_eq!(
+                run_load_screen_prelude_with_limit(LoadScreenKind::SinglePlayer, 1),
+                LoadScreenPreludeOutcome::Failed,
+                "a failed movie open must not turn into a synthetic prelude or audio path"
+            );
+
+            clear_single_player_movie_play_hook();
+            clear_single_player_movie_playing_hook();
+            reset_single_player_load_screen_audio_state();
+        });
     }
 
     #[test]
     fn single_player_movie_prelude_defers_ambient_until_movie_finishes_like_cpp() {
-        let _state_guard = lock_test_load_screen_state();
-        reset_single_player_load_screen_audio_state();
-        clear_single_player_movie_play_hook();
-        clear_single_player_movie_playing_hook();
-        let movie_requests = Arc::new(Mutex::new(Vec::new()));
-        let hook_requests = Arc::clone(&movie_requests);
-        register_single_player_movie_play_hook(move |movie_name| {
-            hook_requests.lock().unwrap().push(movie_name.to_string());
-            true
-        });
-        let movie_playing = Arc::new(AtomicBool::new(true));
-        let hook_movie_playing = Arc::clone(&movie_playing);
-        register_single_player_movie_playing_hook(move |movie_name| {
-            assert_eq!(movie_name, "EA_LOGO.BIK");
-            hook_movie_playing.load(Ordering::SeqCst)
-        });
+        let owner = crate::gui::window_manager::WindowManagerOwner::new();
+        owner.with_scope(|| {
+            let _state_guard = lock_test_load_screen_state();
+            reset_single_player_load_screen_audio_state();
+            clear_single_player_movie_play_hook();
+            clear_single_player_movie_playing_hook();
+            let movie_requests = Arc::new(Mutex::new(Vec::new()));
+            let hook_requests = Arc::clone(&movie_requests);
+            register_single_player_movie_play_hook(move |movie_name| {
+                hook_requests.lock().unwrap().push(movie_name.to_string());
+                true
+            });
+            let movie_playing = Arc::new(AtomicBool::new(true));
+            let hook_movie_playing = Arc::clone(&movie_playing);
+            register_single_player_movie_playing_hook(move |movie_name| {
+                assert_eq!(movie_name, "EA_LOGO.BIK");
+                hook_movie_playing.load(Ordering::SeqCst)
+            });
 
-        {
-            let mut manager = get_campaign_manager();
-            let campaign = manager.new_campaign("China".to_string());
-            let mission = campaign.new_mission("Mission1".to_string());
-            mission.movie_label = "EA_LOGO.BIK".to_string();
-            manager.set_campaign_and_mission("China", "Mission1");
-        }
+            {
+                let mut manager = get_campaign_manager();
+                let campaign = manager.new_campaign("China".to_string());
+                let mission = campaign.new_mission("Mission1".to_string());
+                mission.movie_label = "EA_LOGO.BIK".to_string();
+                manager.set_campaign_and_mission("China", "Mission1");
+            }
 
-        let mut wm = WindowManager::new();
-        named_test_window(
-            &mut wm,
-            "SinglePlayerLoadScreen.wnd:ParentSinglePlayerLoadScreen",
-        );
-        named_progress_test_window(&mut wm, "SinglePlayerLoadScreen.wnd:ProgressLoad");
-        named_test_window(&mut wm, "SinglePlayerLoadScreen.wnd:Percent");
-
-        initialize_single_player_windows(&mut wm, true);
-
-        assert_eq!(
-            *movie_requests.lock().unwrap(),
-            vec!["EA_LOGO.BIK".to_string()]
-        );
-        let (prelude_active, ambient_handle) = with_single_player_load_screen_state(|state| {
-            (state.movie_prelude_active, state.ambient_loop_handle)
-        });
-        assert!(prelude_active);
-        assert_eq!(ambient_handle, 0);
-        assert!(
-            wm.find_window_by_name("SinglePlayerLoadScreen.wnd:Percent")
-                .expect("percent")
-                .borrow()
-                .is_hidden()
-        );
-        assert_eq!(
-            window_enabled_image_name(
-                &wm,
+            let mut wm = WindowManager::new();
+            named_test_window(
+                &mut wm,
                 "SinglePlayerLoadScreen.wnd:ParentSinglePlayerLoadScreen",
-                0
-            ),
-            Some("MissionLoad_China".to_string())
-        );
-        assert_eq!(
-            window_enabled_image_name(&wm, "SinglePlayerLoadScreen.wnd:ProgressLoad", 6),
-            Some("LoadingBar_ProgressCenter1".to_string())
-        );
+            );
+            named_progress_test_window(&mut wm, "SinglePlayerLoadScreen.wnd:ProgressLoad");
+            named_test_window(&mut wm, "SinglePlayerLoadScreen.wnd:Percent");
 
-        with_window_manager(|global_wm| {
-            *global_wm = wm;
-        });
+            initialize_single_player_windows(&mut wm, true);
 
-        update_load_screen(LoadScreenKind::SinglePlayer, 25.0);
-        let (prelude_active, ambient_handle) = with_single_player_load_screen_state(|state| {
-            (state.movie_prelude_active, state.ambient_loop_handle)
-        });
-        assert!(prelude_active);
-        assert_eq!(ambient_handle, 0);
-        assert_eq!(
-            progress_value("SinglePlayerLoadScreen.wnd:ProgressLoad"),
-            Some(0.42)
-        );
-        with_window_manager(|wm| {
-            assert_eq!(window_text(wm, "SinglePlayerLoadScreen.wnd:Percent"), "42%");
+            assert_eq!(
+                *movie_requests.lock().unwrap(),
+                vec!["EA_LOGO.BIK".to_string()]
+            );
+            let (prelude_active, ambient_handle) = with_single_player_load_screen_state(|state| {
+                (state.movie_prelude_active, state.ambient_loop_handle)
+            });
+            assert!(prelude_active);
+            assert_eq!(ambient_handle, 0);
             assert!(
                 wm.find_window_by_name("SinglePlayerLoadScreen.wnd:Percent")
                     .expect("percent")
                     .borrow()
                     .is_hidden()
             );
-        });
-
-        movie_playing.store(false, Ordering::SeqCst);
-        update_load_screen(LoadScreenKind::SinglePlayer, 50.0);
-        let (prelude_active, ambient_handle) = with_single_player_load_screen_state(|state| {
-            (state.movie_prelude_active, state.ambient_loop_handle)
-        });
-        assert!(!prelude_active);
-        assert_eq!(ambient_handle, add_audio_event("LoadScreenAmbient"));
-        assert_eq!(
-            progress_value("SinglePlayerLoadScreen.wnd:ProgressLoad"),
-            Some(0.61)
-        );
-        with_window_manager(|wm| {
-            assert_eq!(window_text(wm, "SinglePlayerLoadScreen.wnd:Percent"), "61%");
-            assert!(
-                wm.find_window_by_name("SinglePlayerLoadScreen.wnd:Percent")
-                    .expect("percent")
-                    .borrow()
-                    .is_hidden()
+            assert_eq!(
+                window_enabled_image_name(
+                    &wm,
+                    "SinglePlayerLoadScreen.wnd:ParentSinglePlayerLoadScreen",
+                    0
+                ),
+                Some("MissionLoad_China".to_string())
             );
-        });
+            assert_eq!(
+                window_enabled_image_name(&wm, "SinglePlayerLoadScreen.wnd:ProgressLoad", 6),
+                Some("LoadingBar_ProgressCenter1".to_string())
+            );
 
-        reset_single_player_load_screen_audio_state();
-        clear_single_player_movie_play_hook();
-        clear_single_player_movie_playing_hook();
+            with_window_manager(|global_wm| {
+                *global_wm = wm;
+            });
+
+            update_load_screen(LoadScreenKind::SinglePlayer, 25.0);
+            let (prelude_active, ambient_handle) = with_single_player_load_screen_state(|state| {
+                (state.movie_prelude_active, state.ambient_loop_handle)
+            });
+            assert!(prelude_active);
+            assert_eq!(ambient_handle, 0);
+            assert_eq!(
+                progress_value("SinglePlayerLoadScreen.wnd:ProgressLoad"),
+                Some(0.42)
+            );
+            with_window_manager(|wm| {
+                assert_eq!(window_text(wm, "SinglePlayerLoadScreen.wnd:Percent"), "42%");
+                assert!(
+                    wm.find_window_by_name("SinglePlayerLoadScreen.wnd:Percent")
+                        .expect("percent")
+                        .borrow()
+                        .is_hidden()
+                );
+            });
+
+            movie_playing.store(false, Ordering::SeqCst);
+            update_load_screen(LoadScreenKind::SinglePlayer, 50.0);
+            let (prelude_active, ambient_handle) = with_single_player_load_screen_state(|state| {
+                (state.movie_prelude_active, state.ambient_loop_handle)
+            });
+            assert!(!prelude_active);
+            assert_eq!(ambient_handle, add_audio_event("LoadScreenAmbient"));
+            assert_eq!(
+                progress_value("SinglePlayerLoadScreen.wnd:ProgressLoad"),
+                Some(0.61)
+            );
+            with_window_manager(|wm| {
+                assert_eq!(window_text(wm, "SinglePlayerLoadScreen.wnd:Percent"), "61%");
+                assert!(
+                    wm.find_window_by_name("SinglePlayerLoadScreen.wnd:Percent")
+                        .expect("percent")
+                        .borrow()
+                        .is_hidden()
+                );
+            });
+
+            reset_single_player_load_screen_audio_state();
+            clear_single_player_movie_play_hook();
+            clear_single_player_movie_playing_hook();
+        });
     }
 
     #[test]
     fn single_player_prelude_driver_pumps_until_movie_completion_before_map_work() {
-        let _state_guard = lock_test_load_screen_state();
-        reset_single_player_load_screen_audio_state();
-        clear_single_player_movie_play_hook();
-        clear_single_player_movie_playing_hook();
-        clear_load_screen_presentation_pump();
+        let owner = crate::gui::window_manager::WindowManagerOwner::new();
+        owner.with_scope(|| {
+            let _state_guard = lock_test_load_screen_state();
+            reset_single_player_load_screen_audio_state();
+            clear_single_player_movie_play_hook();
+            clear_single_player_movie_playing_hook();
+            clear_load_screen_presentation_pump();
 
-        register_single_player_movie_play_hook(|movie_name| movie_name == "EA_LOGO.BIK");
-        let checks = Arc::new(AtomicUsize::new(0));
-        let hook_checks = Arc::clone(&checks);
-        register_single_player_movie_playing_hook(move |movie_name| {
-            assert_eq!(movie_name, "EA_LOGO.BIK");
-            hook_checks.fetch_add(1, Ordering::SeqCst) < 2
-        });
-
-        {
-            let mut manager = get_campaign_manager();
-            let campaign = manager.new_campaign("USA".to_string());
-            let mission = campaign.new_mission("MissionPrelude".to_string());
-            mission.movie_label = "EA_LOGO.BIK".to_string();
-            manager.set_campaign_and_mission("USA", "MissionPrelude");
-        }
-
-        let mut wm = WindowManager::new();
-        named_test_window(
-            &mut wm,
-            "SinglePlayerLoadScreen.wnd:ParentSinglePlayerLoadScreen",
-        );
-        named_progress_test_window(&mut wm, "SinglePlayerLoadScreen.wnd:ProgressLoad");
-        named_test_window(&mut wm, "SinglePlayerLoadScreen.wnd:Percent");
-        initialize_single_player_windows(&mut wm, true);
-        with_window_manager(|global_wm| *global_wm = wm);
-
-        let presentation_pumps = Rc::new(Cell::new(0));
-        let hook_pumps = Rc::clone(&presentation_pumps);
-        register_load_screen_presentation_pump(move || {
-            hook_pumps.set(hook_pumps.get() + 1);
-        });
-
-        assert_eq!(
-            run_load_screen_prelude_with_limit(LoadScreenKind::SinglePlayer, 8),
-            LoadScreenPreludeOutcome::Complete
-        );
-        assert_eq!(checks.load(Ordering::SeqCst), 3);
-        assert_eq!(presentation_pumps.get(), 3);
-        let (prelude_state, briefing_played, ambient_handle) =
-            with_single_player_load_screen_state(|state| {
-                (
-                    state.prelude_state,
-                    state.briefing_voice_played,
-                    state.ambient_loop_handle,
-                )
+            register_single_player_movie_play_hook(|movie_name| movie_name == "EA_LOGO.BIK");
+            let checks = Arc::new(AtomicUsize::new(0));
+            let hook_checks = Arc::clone(&checks);
+            register_single_player_movie_playing_hook(move |movie_name| {
+                assert_eq!(movie_name, "EA_LOGO.BIK");
+                hook_checks.fetch_add(1, Ordering::SeqCst) < 2
             });
-        assert_eq!(prelude_state, LoadScreenPreludeState::Complete);
-        assert!(
-            !briefing_played,
-            "ZH MD LoadScreen.cpp:532-533 never plays BriefingVoice after prelude"
-        );
-        assert_eq!(ambient_handle, add_audio_event("LoadScreenAmbient"));
 
-        clear_load_screen_presentation_pump();
-        clear_single_player_movie_play_hook();
-        clear_single_player_movie_playing_hook();
-        reset_single_player_load_screen_audio_state();
+            {
+                let mut manager = get_campaign_manager();
+                let campaign = manager.new_campaign("USA".to_string());
+                let mission = campaign.new_mission("MissionPrelude".to_string());
+                mission.movie_label = "EA_LOGO.BIK".to_string();
+                manager.set_campaign_and_mission("USA", "MissionPrelude");
+            }
+
+            let mut wm = WindowManager::new();
+            named_test_window(
+                &mut wm,
+                "SinglePlayerLoadScreen.wnd:ParentSinglePlayerLoadScreen",
+            );
+            named_progress_test_window(&mut wm, "SinglePlayerLoadScreen.wnd:ProgressLoad");
+            named_test_window(&mut wm, "SinglePlayerLoadScreen.wnd:Percent");
+            initialize_single_player_windows(&mut wm, true);
+            with_window_manager(|global_wm| *global_wm = wm);
+
+            let presentation_pumps = Rc::new(Cell::new(0));
+            let hook_pumps = Rc::clone(&presentation_pumps);
+            register_load_screen_presentation_pump(move || {
+                hook_pumps.set(hook_pumps.get() + 1);
+            });
+
+            assert_eq!(
+                run_load_screen_prelude_with_limit(LoadScreenKind::SinglePlayer, 8),
+                LoadScreenPreludeOutcome::Complete
+            );
+            assert_eq!(checks.load(Ordering::SeqCst), 3);
+            assert_eq!(presentation_pumps.get(), 3);
+            let (prelude_state, briefing_played, ambient_handle) =
+                with_single_player_load_screen_state(|state| {
+                    (
+                        state.prelude_state,
+                        state.briefing_voice_played,
+                        state.ambient_loop_handle,
+                    )
+                });
+            assert_eq!(prelude_state, LoadScreenPreludeState::Complete);
+            assert!(
+                !briefing_played,
+                "ZH MD LoadScreen.cpp:532-533 never plays BriefingVoice after prelude"
+            );
+            assert_eq!(ambient_handle, add_audio_event("LoadScreenAmbient"));
+
+            clear_load_screen_presentation_pump();
+            clear_single_player_movie_play_hook();
+            clear_single_player_movie_playing_hook();
+            reset_single_player_load_screen_audio_state();
+        });
     }
 
     #[test]
     fn single_player_prelude_driver_forces_terminal_skip_when_movie_never_finishes() {
-        let _state_guard = lock_test_load_screen_state();
-        reset_single_player_load_screen_audio_state();
-        clear_single_player_movie_play_hook();
-        clear_single_player_movie_playing_hook();
-        clear_load_screen_presentation_pump();
+        let owner = crate::gui::window_manager::WindowManagerOwner::new();
+        owner.with_scope(|| {
+            let _state_guard = lock_test_load_screen_state();
+            reset_single_player_load_screen_audio_state();
+            clear_single_player_movie_play_hook();
+            clear_single_player_movie_playing_hook();
+            clear_load_screen_presentation_pump();
 
-        register_single_player_movie_play_hook(|movie_name| movie_name == "StuckMovie.bik");
-        register_single_player_movie_playing_hook(|movie_name| movie_name == "StuckMovie.bik");
-        {
-            let mut manager = get_campaign_manager();
-            let campaign = manager.new_campaign("GLA".to_string());
-            let mission = campaign.new_mission("MissionStuck".to_string());
-            mission.movie_label = "StuckMovie.bik".to_string();
-            manager.set_campaign_and_mission("GLA", "MissionStuck");
-        }
+            register_single_player_movie_play_hook(|movie_name| movie_name == "StuckMovie.bik");
+            register_single_player_movie_playing_hook(|movie_name| movie_name == "StuckMovie.bik");
+            {
+                let mut manager = get_campaign_manager();
+                let campaign = manager.new_campaign("GLA".to_string());
+                let mission = campaign.new_mission("MissionStuck".to_string());
+                mission.movie_label = "StuckMovie.bik".to_string();
+                manager.set_campaign_and_mission("GLA", "MissionStuck");
+            }
 
-        let mut wm = WindowManager::new();
-        named_test_window(
-            &mut wm,
-            "SinglePlayerLoadScreen.wnd:ParentSinglePlayerLoadScreen",
-        );
-        named_progress_test_window(&mut wm, "SinglePlayerLoadScreen.wnd:ProgressLoad");
-        named_test_window(&mut wm, "SinglePlayerLoadScreen.wnd:Percent");
-        initialize_single_player_windows(&mut wm, true);
-        with_window_manager(|global_wm| *global_wm = wm);
+            let mut wm = WindowManager::new();
+            named_test_window(
+                &mut wm,
+                "SinglePlayerLoadScreen.wnd:ParentSinglePlayerLoadScreen",
+            );
+            named_progress_test_window(&mut wm, "SinglePlayerLoadScreen.wnd:ProgressLoad");
+            named_test_window(&mut wm, "SinglePlayerLoadScreen.wnd:Percent");
+            initialize_single_player_windows(&mut wm, true);
+            with_window_manager(|global_wm| *global_wm = wm);
 
-        let presentation_pumps = Rc::new(Cell::new(0));
-        let hook_pumps = Rc::clone(&presentation_pumps);
-        register_load_screen_presentation_pump(move || {
-            hook_pumps.set(hook_pumps.get() + 1);
+            let presentation_pumps = Rc::new(Cell::new(0));
+            let hook_pumps = Rc::clone(&presentation_pumps);
+            register_load_screen_presentation_pump(move || {
+                hook_pumps.set(hook_pumps.get() + 1);
+            });
+
+            assert_eq!(
+                run_load_screen_prelude_with_limit(LoadScreenKind::SinglePlayer, 2),
+                LoadScreenPreludeOutcome::Skipped
+            );
+            assert_eq!(presentation_pumps.get(), 2);
+            let (prelude_state, ambient_handle) = with_single_player_load_screen_state(|state| {
+                (state.prelude_state, state.ambient_loop_handle)
+            });
+            assert_eq!(prelude_state, LoadScreenPreludeState::Skipped);
+            assert_eq!(ambient_handle, add_audio_event("LoadScreenAmbient"));
+
+            clear_load_screen_presentation_pump();
+            clear_single_player_movie_play_hook();
+            clear_single_player_movie_playing_hook();
+            reset_single_player_load_screen_audio_state();
         });
-
-        assert_eq!(
-            run_load_screen_prelude_with_limit(LoadScreenKind::SinglePlayer, 2),
-            LoadScreenPreludeOutcome::Skipped
-        );
-        assert_eq!(presentation_pumps.get(), 2);
-        let (prelude_state, ambient_handle) = with_single_player_load_screen_state(|state| {
-            (state.prelude_state, state.ambient_loop_handle)
-        });
-        assert_eq!(prelude_state, LoadScreenPreludeState::Skipped);
-        assert_eq!(ambient_handle, add_audio_event("LoadScreenAmbient"));
-
-        clear_load_screen_presentation_pump();
-        clear_single_player_movie_play_hook();
-        clear_single_player_movie_playing_hook();
-        reset_single_player_load_screen_audio_state();
     }
 
     #[test]
@@ -2218,13 +2253,9 @@ mod tests {
             .fill_color()
     }
 
-    fn reset_shell_game_first_load_for_tests(value: bool) {
-        with_shell_game_first_load(|first_load| *first_load = value);
-    }
-
     #[test]
     fn shell_game_first_load_matches_cpp_title_and_legal_state() {
-        reset_shell_game_first_load_for_tests(true);
+        let mut first_load = true;
         clear_load_screen_presentation_pump();
         let presentation_calls = Arc::new(AtomicUsize::new(0));
         let hook_presentation_calls = Arc::clone(&presentation_calls);
@@ -2239,7 +2270,7 @@ mod tests {
         named_test_window(&mut wm, "ShellGameLoadScreen.wnd:StaticTextLegal");
         named_test_window(&mut wm, "ShellGameLoadScreen.wnd:ProgressLoad");
 
-        initialize_shell_game_windows(&mut wm, true);
+        initialize_shell_game_windows(&mut wm, true, &mut first_load);
 
         let root = wm
             .find_window_by_name("ShellGameLoadScreen.wnd:ParentShellGameLoadScreen")
@@ -2259,6 +2290,7 @@ mod tests {
             .find_window_by_name("ShellGameLoadScreen.wnd:ProgressLoad")
             .expect("progress");
         assert!(!progress.borrow().is_hidden());
+        assert!(!first_load);
         assert_eq!(presentation_calls.load(Ordering::SeqCst), 1);
 
         let mut second_wm = WindowManager::new();
@@ -2268,19 +2300,32 @@ mod tests {
             .set_name("ShellGameLoadScreen.wnd:ParentShellGameLoadScreen");
         named_test_window(&mut second_wm, "ShellGameLoadScreen.wnd:StaticTextLegal");
 
-        initialize_shell_game_windows(&mut second_wm, true);
+        initialize_shell_game_windows(&mut second_wm, true, &mut first_load);
 
         let second_legal = second_wm
             .find_window_by_name("ShellGameLoadScreen.wnd:StaticTextLegal")
             .expect("legal");
         assert!(second_legal.borrow().is_hidden());
-        reset_shell_game_first_load_for_tests(true);
+
+        let mut peer_first_load = true;
+        let mut peer_wm = WindowManager::new();
+        let peer_root = peer_wm
+            .create_window(None, 0, 0, 800, 600)
+            .expect("peer root");
+        peer_root
+            .borrow_mut()
+            .set_name("ShellGameLoadScreen.wnd:ParentShellGameLoadScreen");
+        named_test_window(&mut peer_wm, "ShellGameLoadScreen.wnd:StaticTextLegal");
+        named_test_window(&mut peer_wm, "ShellGameLoadScreen.wnd:ProgressLoad");
+        initialize_shell_game_windows(&mut peer_wm, true, &mut peer_first_load);
+        assert!(!peer_first_load);
+        assert_eq!(presentation_calls.load(Ordering::SeqCst), 2);
         clear_load_screen_presentation_pump();
     }
 
     #[test]
     fn shell_game_first_load_skips_legal_intro_when_mem_check_fails_like_cpp() {
-        reset_shell_game_first_load_for_tests(true);
+        let mut first_load = true;
         let mut wm = WindowManager::new();
         let root = wm.create_window(None, 0, 0, 800, 600).expect("root");
         root.borrow_mut()
@@ -2288,7 +2333,7 @@ mod tests {
         named_test_window(&mut wm, "ShellGameLoadScreen.wnd:StaticTextLegal");
         named_test_window(&mut wm, "ShellGameLoadScreen.wnd:ProgressLoad");
 
-        initialize_shell_game_windows(&mut wm, false);
+        initialize_shell_game_windows(&mut wm, false, &mut first_load);
 
         let root = wm
             .find_window_by_name("ShellGameLoadScreen.wnd:ParentShellGameLoadScreen")
@@ -2312,7 +2357,7 @@ mod tests {
         named_test_window(&mut later_wm, "ShellGameLoadScreen.wnd:StaticTextLegal");
         named_test_window(&mut later_wm, "ShellGameLoadScreen.wnd:ProgressLoad");
 
-        initialize_shell_game_windows(&mut later_wm, true);
+        initialize_shell_game_windows(&mut later_wm, true, &mut first_load);
 
         assert_eq!(
             later_wm
@@ -2331,7 +2376,7 @@ mod tests {
                 .borrow()
                 .is_hidden()
         );
-        reset_shell_game_first_load_for_tests(true);
+        let mut first_load = true;
     }
 
     fn challenge_test_windows(wm: &mut WindowManager) {
@@ -2487,38 +2532,42 @@ mod tests {
 
     #[test]
     fn challenge_init_resets_window_video_manager_like_cpp() {
-        let _state_guard = lock_test_load_screen_state();
-        clear_challenge_movie_play_hook();
-        clear_challenge_movie_advance_hook();
-        register_challenge_movie_play_hook(|_| false);
-        setup_current_challenge_for_tests("ChallengeIntro");
-        let mut wm = WindowManager::new();
-        challenge_test_windows(&mut wm);
-        with_window_video_manager(|manager| manager.set_global_flags_for_tests(true, true));
+        let owner = crate::gui::window_manager::WindowManagerOwner::new();
+        owner.with_scope(|| {
+            let _state_guard = lock_test_load_screen_state();
+            clear_challenge_movie_play_hook();
+            clear_challenge_movie_advance_hook();
+            register_challenge_movie_play_hook(|_| false);
+            setup_current_challenge_for_tests("ChallengeIntro");
+            let mut wm = WindowManager::new();
+            challenge_test_windows(&mut wm);
+            with_window_video_manager(|manager| manager.set_global_flags_for_tests(true, true));
 
-        initialize_challenge_windows(&mut wm, true);
+            initialize_challenge_windows(&mut wm, true);
 
-        let flags = with_window_video_manager(|manager| manager.global_flags_for_tests());
-        assert_eq!(flags, (false, false));
-        assert_eq!(
-            with_challenge_load_screen_state(|state| state.prelude_state),
-            LoadScreenPreludeState::Failed
-        );
-        with_window_manager(|global_wm| *global_wm = wm);
-        assert_eq!(
-            run_load_screen_prelude_with_limit(LoadScreenKind::Challenge, 1),
-            LoadScreenPreludeOutcome::Failed
-        );
-        update_load_screen(LoadScreenKind::Challenge, 100.0);
-        let (postlude_audio_played, ambient_handle) = with_challenge_load_screen_state(|state| {
-            (state.postlude_audio_played, state.ambient_loop_handle)
+            let flags = with_window_video_manager(|manager| manager.global_flags_for_tests());
+            assert_eq!(flags, (false, false));
+            assert_eq!(
+                with_challenge_load_screen_state(|state| state.prelude_state),
+                LoadScreenPreludeState::Failed
+            );
+            with_window_manager(|global_wm| *global_wm = wm);
+            assert_eq!(
+                run_load_screen_prelude_with_limit(LoadScreenKind::Challenge, 1),
+                LoadScreenPreludeOutcome::Failed
+            );
+            update_load_screen(LoadScreenKind::Challenge, 100.0);
+            let (postlude_audio_played, ambient_handle) =
+                with_challenge_load_screen_state(|state| {
+                    (state.postlude_audio_played, state.ambient_loop_handle)
+                });
+            assert!(!postlude_audio_played);
+            assert_eq!(ambient_handle, 0);
+            clear_challenge_movie_play_hook();
+            clear_challenge_movie_advance_hook();
+            reset_challenge_load_screen_audio_state();
+            Language::clear_localized_strings();
         });
-        assert!(!postlude_audio_played);
-        assert_eq!(ambient_handle, 0);
-        clear_challenge_movie_play_hook();
-        clear_challenge_movie_advance_hook();
-        reset_challenge_load_screen_audio_state();
-        Language::clear_localized_strings();
     }
 
     #[test]
@@ -2560,59 +2609,66 @@ mod tests {
 
     #[test]
     fn challenge_prelude_driver_pumps_authored_frames_before_completion() {
-        let _state_guard = lock_test_load_screen_state();
-        reset_challenge_load_screen_audio_state();
-        clear_challenge_movie_play_hook();
-        clear_challenge_movie_advance_hook();
-        clear_load_screen_presentation_pump();
-        Language::clear_localized_strings();
+        let owner = crate::gui::window_manager::WindowManagerOwner::new();
+        owner.with_scope(|| {
+            let _state_guard = lock_test_load_screen_state();
+            reset_challenge_load_screen_audio_state();
+            clear_challenge_movie_play_hook();
+            clear_challenge_movie_advance_hook();
+            clear_load_screen_presentation_pump();
+            Language::clear_localized_strings();
 
-        register_challenge_movie_play_hook(|movie_name| movie_name == "ChallengeIntro");
-        let advances = Arc::new(AtomicUsize::new(0));
-        let hook_advances = Arc::clone(&advances);
-        register_challenge_movie_advance_hook(move |movie_name| {
-            assert_eq!(movie_name, "ChallengeIntro");
-            let advance = hook_advances.fetch_add(1, Ordering::SeqCst);
-            Some(if advance == 0 {
-                LoadScreenMovieAdvance {
-                    frame_index: FRAME_TITLES_START,
-                    frame_count: 200,
-                    completed: false,
+            register_challenge_movie_play_hook(|movie_name| movie_name == "ChallengeIntro");
+            let advances = Arc::new(AtomicUsize::new(0));
+            let hook_advances = Arc::clone(&advances);
+            register_challenge_movie_advance_hook(move |movie_name| {
+                assert_eq!(movie_name, "ChallengeIntro");
+                let advance = hook_advances.fetch_add(1, Ordering::SeqCst);
+                Some(if advance == 0 {
+                    LoadScreenMovieAdvance {
+                        frame_index: FRAME_TITLES_START,
+                        frame_count: 200,
+                        completed: false,
+                    }
+                } else {
+                    LoadScreenMovieAdvance {
+                        frame_index: FRAME_RIGHT_VOICE,
+                        frame_count: 200,
+                        completed: true,
+                    }
+                })
+            });
+            setup_current_challenge_for_tests("ChallengeIntro");
+
+            let mut wm = WindowManager::new();
+            challenge_test_windows(&mut wm);
+            initialize_challenge_windows(&mut wm, true);
+            with_window_manager(|global_wm| *global_wm = wm);
+
+            let presentation_pumps = Rc::new(Cell::new(0));
+            let hook_pumps = Rc::clone(&presentation_pumps);
+            register_load_screen_presentation_pump(move || {
+                hook_pumps.set(hook_pumps.get() + 1);
+            });
+
+            assert_eq!(
+                run_load_screen_prelude_with_limit(LoadScreenKind::Challenge, 8),
+                LoadScreenPreludeOutcome::Complete
+            );
+            assert_eq!(advances.load(Ordering::SeqCst), 2);
+            assert_eq!(presentation_pumps.get(), 2);
+            with_window_manager(|wm| {
+                for name in CHALLENGE_BIO_LABEL_WINDOWS {
+                    assert!(!window_hidden(wm, name), "{name}");
                 }
-            } else {
-                LoadScreenMovieAdvance {
-                    frame_index: FRAME_RIGHT_VOICE,
-                    frame_count: 200,
-                    completed: true,
-                }
-            })
-        });
-        setup_current_challenge_for_tests("ChallengeIntro");
-
-        let mut wm = WindowManager::new();
-        challenge_test_windows(&mut wm);
-        initialize_challenge_windows(&mut wm, true);
-        with_window_manager(|global_wm| *global_wm = wm);
-
-        let presentation_pumps = Rc::new(Cell::new(0));
-        let hook_pumps = Rc::clone(&presentation_pumps);
-        register_load_screen_presentation_pump(move || {
-            hook_pumps.set(hook_pumps.get() + 1);
-        });
-
-        assert_eq!(
-            run_load_screen_prelude_with_limit(LoadScreenKind::Challenge, 8),
-            LoadScreenPreludeOutcome::Complete
-        );
-        assert_eq!(advances.load(Ordering::SeqCst), 2);
-        assert_eq!(presentation_pumps.get(), 2);
-        with_window_manager(|wm| {
-            for name in CHALLENGE_BIO_LABEL_WINDOWS {
-                assert!(!window_hidden(wm, name), "{name}");
-            }
-        });
-        let (prelude_state, current_frame, high_spec_active, postlude_audio_played, ambient_handle) =
-            with_challenge_load_screen_state(|state| {
+            });
+            let (
+                prelude_state,
+                current_frame,
+                high_spec_active,
+                postlude_audio_played,
+                ambient_handle,
+            ) = with_challenge_load_screen_state(|state| {
                 (
                     state.prelude_state,
                     state.current_frame,
@@ -2621,17 +2677,18 @@ mod tests {
                     state.ambient_loop_handle,
                 )
             });
-        assert_eq!(prelude_state, LoadScreenPreludeState::Complete);
-        assert_eq!(current_frame, FRAME_RIGHT_VOICE);
-        assert!(!high_spec_active);
-        assert!(postlude_audio_played);
-        assert_eq!(ambient_handle, add_audio_event("LoadScreenAmbient"));
+            assert_eq!(prelude_state, LoadScreenPreludeState::Complete);
+            assert_eq!(current_frame, FRAME_RIGHT_VOICE);
+            assert!(!high_spec_active);
+            assert!(postlude_audio_played);
+            assert_eq!(ambient_handle, add_audio_event("LoadScreenAmbient"));
 
-        clear_load_screen_presentation_pump();
-        clear_challenge_movie_play_hook();
-        clear_challenge_movie_advance_hook();
-        reset_challenge_load_screen_audio_state();
-        Language::clear_localized_strings();
+            clear_load_screen_presentation_pump();
+            clear_challenge_movie_play_hook();
+            clear_challenge_movie_advance_hook();
+            reset_challenge_load_screen_audio_state();
+            Language::clear_localized_strings();
+        });
     }
 
     #[test]

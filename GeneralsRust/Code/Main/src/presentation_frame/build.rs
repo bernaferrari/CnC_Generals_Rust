@@ -615,7 +615,7 @@ impl PresentationFrame {
                 terrain_decal_opacity: obj.terrain_decal_opacity,
                 move_destination: auth_dest,
                 target_location: obj.target_location,
-                guard_target: obj.guard_target,
+                guard_target: obj.active_guard_target(),
                 using_ability: obj.status.using_ability,
                 airborne_target: obj.status.airborne_target,
                 producer_id: obj.producer_id,
@@ -655,7 +655,7 @@ impl PresentationFrame {
                 move_max_speed: obj.movement.max_speed,
                 velocity: obj.movement.velocity,
                 ai_state_ordinal: crate::gameworld_shadow::GameWorldShadow::host_ai_state_ordinal(
-                    &obj.ai_state,
+                    &obj.ai_state(),
                 ),
                 attack_target: auth_target,
                 path_waypoints: obj.movement.path.iter().copied().take(16).collect(),
@@ -682,7 +682,7 @@ impl PresentationFrame {
                     .map(|b| b.production_paused)
                     .unwrap_or(false),
                 rally_point: obj.building_data.as_ref().and_then(|b| b.rally_point),
-                guard_position: obj.guard_position,
+                guard_position: obj.active_guard_position(),
                 // Freeze every containment roster, not only structure
                 // garrisons.  TransportContain capacity is weighted by each
                 // rider's authored TransportSlotCount, so physical RMB input
@@ -775,7 +775,7 @@ impl PresentationFrame {
                     String::new()
                 },
                 under_construction: auth_under_construction,
-                is_dozer_task_pending: obj.dozer_task_build_target.is_some(),
+                is_dozer_task_pending: obj.dozer_tasks.requests[0].target.is_some(),
                 construction_percent: auth_construction_percent.clamp(0.0, 1.0),
                 // Wave 1031: OCL timer residual for dual-world ControlBar OclTimer context.
                 ocl_timer_seconds:

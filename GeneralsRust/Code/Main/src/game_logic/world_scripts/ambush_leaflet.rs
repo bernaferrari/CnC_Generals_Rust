@@ -1139,7 +1139,7 @@ impl GameLogic {
         // Check if any objects are currently in combat
         self.objects
             .registered_values()
-            .any(|obj| obj.status.attacking || obj.ai_state == AIState::Attacking)
+            .any(|obj| obj.status.attacking || obj.ai_state() == AIState::Attacking)
     }
 
     pub fn get_world_dimensions(&self) -> (f32, f32) {

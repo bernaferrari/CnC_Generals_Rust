@@ -190,7 +190,7 @@ impl SnapshotBuilder {
         object: &Object,
     ) -> ObjectStatusSnapshot {
         ObjectStatusSnapshot {
-            ai_state: object.ai_state.clone(),
+            ai_state: object.ai_state().clone(),
             destroyed: object.status.destroyed,
             under_construction: game_logic
                 .host_authoritative_construction(object.id)
@@ -202,8 +202,8 @@ impl SnapshotBuilder {
             airborne_target: object.status.airborne_target,
             stealthed: object.status.stealthed,
             detected: object.status.detected,
-            garrisoned: matches!(object.ai_state, AIState::Garrisoned),
-            being_repaired: matches!(object.ai_state, AIState::SeekingRepair),
+            garrisoned: matches!(object.ai_state(), AIState::Garrisoned),
+            being_repaired: matches!(object.ai_state(), AIState::SeekingRepair),
             on_fire: false,
             poisoned: false,
             radar_jammed: false,
@@ -259,12 +259,14 @@ impl SnapshotBuilder {
     ) -> SaveLoadResult<HashMap<String, ModuleSnapshot>> {
         let mut modules = HashMap::new();
 
-        if object.ai_state == crate::game_logic::AIState::Panic && object.panic_runtime.is_none() {
+        if object.ai_state() == crate::game_logic::AIState::Panic && object.panic_runtime.is_none()
+        {
             return Err(SaveLoadError::Corrupted(
                 "AI_PANIC object is missing its owned continuation".to_owned(),
             ));
         }
-        if object.ai_state != crate::game_logic::AIState::Panic && object.panic_runtime.is_some() {
+        if object.ai_state() != crate::game_logic::AIState::Panic && object.panic_runtime.is_some()
+        {
             return Err(SaveLoadError::Corrupted(
                 "AI_PANIC continuation is attached to a non-panic object".to_owned(),
             ));
@@ -289,24 +291,17 @@ impl SnapshotBuilder {
             );
         }
 
-        if let Some(hunt) = super::hunt_state_persist::capture(object) {
-            modules.insert("AIHuntState".to_owned(), ModuleSnapshot::AIUpdate(hunt));
-        }
+        modules.insert(
+            "ReceivingDozerTasks".into(),
+            ModuleSnapshot::DozerTasks(DozerTaskObjectSnapshot::capture(object)?),
+        );
 
-        if let Some(face) = super::face_state_persist::capture(object)? {
-            modules.insert("AIFaceState".to_owned(), ModuleSnapshot::AIUpdate(face));
-        }
-
-        if let Some(guard) = super::guard_state_persist::capture(object)? {
-            modules.insert("AIGuardState".to_owned(), ModuleSnapshot::AIUpdate(guard));
-        }
-
-        if let Some(attack) = super::attack_state_persist::capture(object)? {
-            modules.insert(
-                "AttackStateMachine".to_owned(),
-                ModuleSnapshot::AIUpdate(attack),
-            );
-        }
+        modules.insert(
+            "ReceivingBaseAI".to_owned(),
+            ModuleSnapshot::BaseAi(
+                super::base_ai_machine_persist::BaseAiObjectSnapshot::capture(object)?,
+            ),
+        );
 
         if let Some(building_data) = &object.building_data {
             let production_queue = building_data
@@ -553,8 +548,8 @@ impl SnapshotBuilder {
             entries.push(ObjectInstanceGuardSnapshot {
                 object_id: id,
                 instance_name: object.name.clone(),
-                guard_position: object.guard_position,
-                guard_target: object.guard_target,
+                guard_position: object.guard_position(),
+                guard_target: object.guard_target(),
                 guard_radius: object.guard_radius,
                 guard_mode: object.guard_mode,
             });
@@ -650,14 +645,12 @@ impl SnapshotBuilder {
             let Some(object) = game_logic.host_object(id) else {
                 continue;
             };
-            if object.builder_id.is_none() && object.dozer_task_build_target.is_none() {
+            if object.builder_id.is_none() {
                 continue;
             }
             entries.push(ObjectBuilderTaskSnapshot {
                 object_id: id,
                 builder_id: object.builder_id,
-                dozer_task_build_target: object.dozer_task_build_target,
-                dozer_task_build_order_frame: object.dozer_task_build_order_frame,
             });
         }
         entries
@@ -1182,8 +1175,6 @@ impl SnapshotBuilder {
                 continue;
             };
             object.builder_id = entry.builder_id;
-            object.dozer_task_build_target = entry.dozer_task_build_target;
-            object.dozer_task_build_order_frame = entry.dozer_task_build_order_frame;
         }
 
         game_logic.restore_cia_intelligence(snapshot.cia_intelligence.clone());
@@ -1495,7 +1486,7 @@ impl SnapshotBuilder {
                 .registered()
                 .filter_map(|(id, object)| {
                     (object.target == Some(resource_id)
-                        && (object.ai_state == AIState::Gathering || object.is_worker()))
+                        && (object.ai_state() == AIState::Gathering || object.is_worker()))
                     .then_some(*id)
                 })
                 .collect();
@@ -1591,7 +1582,7 @@ impl SnapshotBuilder {
             }
             if !attacker.status.attacking
                 && !matches!(
-                    attacker.ai_state,
+                    attacker.ai_state(),
                     AIState::Attacking | AIState::AttackMoving | AIState::GuardingObject
                 )
             {

@@ -10,18 +10,18 @@ impl CommandExecutor<'_> {
         start: Vec3,
         end: Vec3,
         orientation: f32,
-    ) -> CommandResult {
+    ) -> gamelogic::GameLogicResult<CommandResult> {
         let Some(&builder) = units.first() else {
-            return CommandResult::InvalidCommand;
+            return Ok(CommandResult::InvalidCommand);
         };
         if !start.is_finite() || !end.is_finite() || !orientation.is_finite() {
-            return CommandResult::InvalidLocation;
+            return Ok(CommandResult::InvalidLocation);
         }
         let Some(producer) = self.game_logic.host_object(builder) else {
-            return CommandResult::InvalidCommand;
+            return Ok(CommandResult::InvalidCommand);
         };
         if !producer.is_alive() || producer.owner_player_id != Some(self.current_player_id) {
-            return CommandResult::InvalidCommand;
+            return Ok(CommandResult::InvalidCommand);
         }
         let positions =
             self.line_build_tiled_positions(builder, template_name, start, end, orientation);
@@ -61,7 +61,7 @@ impl CommandExecutor<'_> {
                     location,
                     orientation,
                     &collision_candidates,
-                ) == CommandResult::Success;
+                )? == CommandResult::Success;
                 continue;
             }
             self.clear_removable_for_construction_with_candidates(
@@ -102,9 +102,9 @@ impl CommandExecutor<'_> {
             AudioEventRequest::new(translate_audio_event("PlaceBuilding")).with_object(builder),
         );
         if !placed {
-            return CommandResult::InvalidCommand;
+            return Ok(CommandResult::InvalidCommand);
         }
-        CommandResult::Success
+        Ok(CommandResult::Success)
     }
     /// C++ `BuildAssistant::buildTiledLocations` (BuildAssistant.cpp:1090-1191).
     fn line_build_tiled_positions(

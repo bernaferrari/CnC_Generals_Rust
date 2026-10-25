@@ -937,7 +937,7 @@ impl GameLogic {
                         p.last_command_source =
                             crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_AI;
                         p.refresh_follow_path_extra_distance();
-                        p.adjust_destinations = !p.ultra_accurate;
+                        p.set_adjust_destinations(!p.ultra_accurate);
                         p.set_destination_with_operation(
                             end,
                             &mut self.movement_events.writer(self.frame),
@@ -983,7 +983,7 @@ impl GameLogic {
                     p.last_command_source =
                         crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_AI;
                     p.refresh_follow_path_extra_distance();
-                    p.adjust_destinations = !p.ultra_accurate;
+                    p.set_adjust_destinations(!p.ultra_accurate);
                     p.set_destination_with_operation(
                         end,
                         &mut self.movement_events.writer(self.frame),
@@ -3777,7 +3777,7 @@ mod garrison_evac_door_tests {
             .unwrap();
         assert!(logic.garrison_exit_occupant_via_door(pax, bunker));
         let p = logic.host_object(pax).unwrap();
-        assert_eq!(p.ai_state, AIState::Moving);
+        assert_eq!(p.ai_state(), AIState::Moving);
         let dest = p.movement.target_position.expect("door dest");
         assert!(
             (dest - origin).length() > 8.0,

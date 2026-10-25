@@ -232,7 +232,7 @@ impl GameLogic {
                         rider.is_alive()
                             && (rider.status.attacking
                                 || matches!(
-                                    rider.ai_state,
+                                    rider.ai_state(),
                                     AIState::Attacking
                                         | AIState::AttackMoving
                                         | AIState::AttackingGround
@@ -301,7 +301,7 @@ impl GameLogic {
                 };
                 let attacking = obj.stealth_is_firing_weapon();
                 let using_ability =
-                    obj.status.using_ability || matches!(obj.ai_state, AIState::SpecialAbility);
+                    obj.status.using_ability || matches!(obj.ai_state(), AIState::SpecialAbility);
                 // Delay is applied in apply_stealth_allowed_update, not allowedToStealth.
                 let Some(allowed) = camouflage_unit_stealth_desired(
                     obj.innate_stealth,
@@ -375,7 +375,7 @@ impl GameLogic {
                 let attacking = obj.stealth_is_firing_weapon();
                 // C++ OBJECT_STATUS_IS_USING_ABILITY residual.
                 let using_ability =
-                    obj.status.using_ability || matches!(obj.ai_state, AIState::SpecialAbility);
+                    obj.status.using_ability || matches!(obj.ai_state(), AIState::SpecialAbility);
                 let taking_damage = obj.stealth_taking_non_healing_damage(frame);
                 let has_live_black_market = live_markets.iter().any(|(team, player)| {
                     stealth_same_controlling_player(obj.team, obj.owner_player_id, *team, *player)
@@ -524,7 +524,7 @@ impl GameLogic {
                     let Some(enemy) = self.objects.get_mut(&eid) else {
                         continue;
                     };
-                    let idle = matches!(enemy.ai_state, AIState::Idle) && enemy.target.is_none();
+                    let idle = matches!(enemy.ai_state(), AIState::Idle) && enemy.target.is_none();
                     if !camo_netting_order_idle_enemy_in_range(
                         enemy.is_alive(),
                         idle,
@@ -564,9 +564,7 @@ impl GameLogic {
             use crate::game_logic::host_hero_abilities::{
                 is_black_lotus_template, lotus_stealth_desired,
             };
-            use crate::game_logic::host_jarmen_kell::{
-                is_jarmen_kell_template, jarmen_stealth_desired,
-            };
+            use crate::game_logic::host_jarmen_kell::{is_jarmen_kell_template, jarmen_stealth_desired};
             use crate::game_logic::host_radar_stealth_vision_residual::hero_stealth_delay_frames_residual;
             let hero_ids: Vec<ObjectId> = self
                 .objects
@@ -595,7 +593,7 @@ impl GameLogic {
                 // C++ FIRING_PRIMARY only — Burton knife (secondary) does not destalth.
                 let firing_primary = obj.stealth_fired_primary_recently(frame);
                 let using_ability =
-                    obj.status.using_ability || matches!(obj.ai_state, AIState::SpecialAbility);
+                    obj.status.using_ability || matches!(obj.ai_state(), AIState::SpecialAbility);
                 let allowed = if is_colonel_burton_template(&obj.template_name) {
                     burton_stealth_desired(true, obj.innate_stealth, obj.is_alive(), firing_primary)
                 } else if is_jarmen_kell_template(&obj.template_name) {
@@ -808,7 +806,7 @@ impl GameLogic {
                             o.temporary_stealth_expires_frame,
                             frame,
                             matches!(
-                                o.ai_state,
+                                o.ai_state(),
                                 AIState::Moving
                                     | AIState::Attacking
                                     | AIState::AttackMoving
@@ -829,7 +827,7 @@ impl GameLogic {
                         rider.is_alive()
                             && (rider.status.attacking
                                 || matches!(
-                                    rider.ai_state,
+                                    rider.ai_state(),
                                     AIState::Attacking
                                         | AIState::AttackMoving
                                         | AIState::AttackingGround
@@ -1439,7 +1437,7 @@ impl GameLogic {
                 && local_owner
                 && (obj.stealth_is_firing_weapon()
                     || obj.status.using_ability
-                    || matches!(obj.ai_state, AIState::SpecialAbility));
+                    || matches!(obj.ai_state(), AIState::SpecialAbility));
             let can_disguise =
                 crate::game_logic::host_bomb_truck_disguise::has_disguises_as_team_stealth_residual(
                     &obj.template_name,
@@ -2842,7 +2840,7 @@ impl GameLogic {
                     return None;
                 }
                 let busy = matches!(
-                    obj.ai_state,
+                    obj.ai_state(),
                     AIState::Constructing
                         | AIState::Repairing
                         | AIState::Gathering
@@ -2870,7 +2868,8 @@ impl GameLogic {
                     .map(crate::game_logic::weapon_bootstrap::host_weapon_is_disarm_damage)
                     .unwrap_or(false)
                     || obj.weapon_set_mine_clearing_detail;
-                let attacking = obj.status.attacking || matches!(obj.ai_state, AIState::Attacking);
+                let attacking =
+                    obj.status.attacking || matches!(obj.ai_state(), AIState::Attacking);
                 if demo_trap_skips_dozer_disarm_while_attacking(is_dozer, weapon_disarm, attacking)
                 {
                     return None;
@@ -3170,7 +3169,7 @@ impl GameLogic {
             if let Some(obj) = self.objects.get_mut(&clearer_id) {
                 // Don't clobber an explicit non-idle order already in flight.
                 if matches!(
-                    obj.ai_state,
+                    obj.ai_state(),
                     AIState::Idle | AIState::Moving | AIState::Attacking
                 ) || obj.target.is_none()
                 {
@@ -3434,7 +3433,7 @@ impl GameLogic {
             if clearer.target == Some(mine_id) {
                 clearer.target = None;
             }
-            if matches!(clearer.ai_state, AIState::Attacking | AIState::Moving) {
+            if matches!(clearer.ai_state(), AIState::Attacking | AIState::Moving) {
                 clearer.set_ai_state(
                     AIState::Idle,
                     &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),

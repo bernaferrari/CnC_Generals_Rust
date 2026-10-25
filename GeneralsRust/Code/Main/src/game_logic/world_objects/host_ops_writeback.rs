@@ -449,7 +449,7 @@ impl GameLogic {
     pub fn apply_production_authority_op(
         &mut self,
         op: ProductionAuthorityOp,
-    ) -> ProductionAuthorityResult {
+    ) -> gamelogic::GameLogicResult<ProductionAuthorityResult> {
         self.apply_production_authority_op_with_effects(op, &mut Default::default())
     }
 
@@ -457,7 +457,7 @@ impl GameLogic {
         &mut self,
         op: ProductionAuthorityOp,
         ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> ProductionAuthorityResult {
+    ) -> gamelogic::GameLogicResult<ProductionAuthorityResult> {
         match op {
             ProductionAuthorityOp::SpawnUnit {
                 template,
@@ -468,21 +468,23 @@ impl GameLogic {
                 let team = match owner_player_id {
                     Some(owner) => match self.players.get(&owner) {
                         Some(player) => player.team,
-                        None => return ProductionAuthorityResult::Spawned(None),
+                        None => return Ok(ProductionAuthorityResult::Spawned(None)),
                     },
                     None => team,
                 };
-                ProductionAuthorityResult::Spawned(self.host_spawn_production_unit_with_effects(
-                    &template,
-                    team,
-                    owner_player_id,
-                    spawn_pos,
-                    ui,
+                Ok(ProductionAuthorityResult::Spawned(
+                    self.host_spawn_production_unit_with_effects(
+                        &template,
+                        team,
+                        owner_player_id,
+                        spawn_pos,
+                        ui,
+                    ),
                 ))
             }
             ProductionAuthorityOp::ApplySpawnReadyCompletions => {
-                self.host_apply_production_spawn_ready_completions_with_effects(ui);
-                ProductionAuthorityResult::Unit
+                self.host_apply_production_spawn_ready_completions_with_effects(ui)?;
+                Ok(ProductionAuthorityResult::Unit)
             }
         }
     }
@@ -908,14 +910,15 @@ impl GameLogic {
     ) -> Option<u32> {
         let frame = self.frame;
         let obj = self.objects.get_mut(&id)?;
-        obj.attack_substate = sub;
-        obj.approach_timestamp = frame;
+        obj.set_attack_substate(sub);
+        obj.set_approach_timestamp(frame);
         Some(frame)
     }
 
     /// AttackStateMachine substate on the receiving object.
     pub fn host_authoritative_attack_substate(&self, id: ObjectId) -> Option<u8> {
-        self.host_object(id).map(|o| o.attack_substate.to_ordinal())
+        self.host_object(id)
+            .map(|o| o.attack_substate().to_ordinal())
     }
 
     /// Occupant/garrison count on the receiving world.

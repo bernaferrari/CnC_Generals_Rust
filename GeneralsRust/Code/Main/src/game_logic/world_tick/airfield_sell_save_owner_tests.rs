@@ -88,7 +88,9 @@ fn authored_airfield_sale_slow_death_world_snapshot_continues_to_original_retire
     for frame in 41..=70 {
         for world in [&mut source, &mut restored] {
             world.frame = frame;
-            world.update_ai(&[slow], LOGIC_FRAME_TIMESTEP);
+            world
+                .update_ai(&[slow], LOGIC_FRAME_TIMESTEP)
+                .expect("receiving AI operation succeeds");
             let body = world
                 .host_object(slow)
                 .expect("AI queues before physical retirement");

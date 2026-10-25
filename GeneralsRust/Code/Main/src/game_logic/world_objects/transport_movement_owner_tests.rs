@@ -40,7 +40,10 @@ fn transport_death_scatter_records_own_pose_before_path_order() {
             // TransportContain::onRemoving first admits Aggressive attitude,
             // then scatterToNearbyPosition; the owned movement command
             // correctly carries that attitude as an attack-move order.
-            assert_eq!(passenger.ai_state, crate::game_logic::AIState::AttackMoving);
+            assert_eq!(
+                passenger.ai_state(),
+                crate::game_logic::AIState::AttackMoving
+            );
             assert_eq!(passenger.ignored_obstacle_id, Some(transport));
             assert_eq!(passenger.next_mood_check_time, 9_999);
             assert!(!passenger.randomly_offset_mood_check);

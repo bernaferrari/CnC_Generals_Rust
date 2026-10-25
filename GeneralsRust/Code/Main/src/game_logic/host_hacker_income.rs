@@ -227,6 +227,8 @@ pub enum PendingHackerCommand {
     MoveTo(Vec3),
     Attack(ObjectId),
     Stop,
+    /// Exact aiIdle(CMD_FROM_AI), replayed through derived dispatch after PACKING.
+    AiIdle,
 }
 
 /// C++ per-unit `UnitUnpack` / `UnitPack` / `UnitCashPing` slots (resolve before queue).
@@ -362,6 +364,19 @@ impl HostHackerIncomeRegistry {
 
     pub fn is_packing(&self, hacker_id: ObjectId) -> bool {
         self.pack_phase.get(&hacker_id) == Some(&HackerInternetPhase::Packing)
+    }
+
+    /// Replace a pending order while PACKING without restarting its timer.
+    pub(crate) fn replace_packing_command(
+        &mut self,
+        hacker_id: ObjectId,
+        command: PendingHackerCommand,
+    ) -> bool {
+        if self.pack_phase.get(&hacker_id) != Some(&HackerInternetPhase::Packing) {
+            return false;
+        }
+        self.pending_command.insert(hacker_id, command);
+        true
     }
 
     /// C++ `aiDoCommand` while HACK_INTERNET/PACKING: hold the order and pack.
@@ -1025,7 +1040,9 @@ mod tests {
         }
 
         logic.frame = 0;
-        logic.update_hacker_income();
+        logic
+            .update_hacker_income()
+            .expect("receiving AI operation succeeds");
         assert!(
             logic.hacker_income().is_hacking(hacker),
             "contained hacker must auto-start"
@@ -1041,10 +1058,12 @@ mod tests {
         );
         let rider = logic.host_object(hacker).expect("rider");
         assert!(rider.contained_by.is_none());
-        assert_ne!(rider.ai_state, crate::game_logic::AIState::Docked);
+        assert_ne!(rider.ai_state(), crate::game_logic::AIState::Docked);
 
         logic.frame = HACKER_CASH_INTERVAL_FRAMES + 2;
-        logic.update_hacker_income();
+        logic
+            .update_hacker_income()
+            .expect("receiving AI operation succeeds");
         let cash = logic
             .get_player(1)
             .map(|p| p.resources.supplies)

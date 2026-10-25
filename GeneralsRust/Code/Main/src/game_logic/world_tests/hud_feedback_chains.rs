@@ -187,54 +187,57 @@ fn defeat_message_routes_localized_to_hud_and_local_defeat_forces_radar_and_chat
 /// (C++ ControlBarUnderConstruction.cpp:24-41, ControlBar.cpp:2271).
 #[test]
 fn under_construction_selection_writes_localized_percent_label() {
-    let _guard = HUD_FEEDBACK_CHAIN_LOCK
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
+    let owner = game_client::gui::window_manager::WindowManagerOwner::new();
+    owner.with_scope(|| {
+        let _guard = HUD_FEEDBACK_CHAIN_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
 
-    install_named_window("ControlBar.wnd:UnderConstructionDesc", 80, 24);
-    install_named_window("ControlBar.wnd:UnderConstructionWindow", 200, 60);
-    set_window_hidden("ControlBar.wnd:UnderConstructionWindow", true);
-    game_client::gui::with_window_manager(|manager| {
-        if let Some(win) = manager.find_window_by_name("ControlBar.wnd:UnderConstructionDesc") {
-            let _ = win
-                .borrow_mut()
-                .set_text("CONTROLBAR:UnderConstructionDesc");
-        }
+        install_named_window("ControlBar.wnd:UnderConstructionDesc", 80, 24);
+        install_named_window("ControlBar.wnd:UnderConstructionWindow", 200, 60);
+        set_window_hidden("ControlBar.wnd:UnderConstructionWindow", true);
+        game_client::gui::with_window_manager(|manager| {
+            if let Some(win) = manager.find_window_by_name("ControlBar.wnd:UnderConstructionDesc") {
+                let _ = win
+                    .borrow_mut()
+                    .set_text("CONTROLBAR:UnderConstructionDesc");
+            }
+        });
+
+        let mut bar = game_client::gui::control_bar::ControlBar::new();
+        // Host presentation freeze: one selected structure, 35% constructed.
+        bar.sync_selection_display_from_presentation(
+            Some("AmericaCommandCenter"),
+            100.0,
+            100.0,
+            1,
+            None,
+            None,
+            None,
+            &[],
+            false,
+        );
+        bar.sync_structure_context_from_presentation(0, 0, true, 0.35);
+
+        bar.update_for_selection(vec![UC_OBJECT_ID])
+            .expect("update_for_selection");
+
+        let text = window_text("ControlBar.wnd:UnderConstructionDesc");
+        let text = text.as_deref();
+        assert!(
+            text.is_some_and(|t| t.contains("Under Construction") && t.contains("35%")),
+            "under-construction label must be localized with the live percent, got {text:?}"
+        );
+        assert!(
+            !text.is_some_and(|t| t.contains("CONTROLBAR:")),
+            "the raw WND label key must never show, got {text:?}"
+        );
+        assert_eq!(
+            window_hidden("ControlBar.wnd:UnderConstructionWindow"),
+            Some(false),
+            "under-construction context window must be revealed"
+        );
     });
-
-    let mut bar = game_client::gui::control_bar::ControlBar::new();
-    // Host presentation freeze: one selected structure, 35% constructed.
-    bar.sync_selection_display_from_presentation(
-        Some("AmericaCommandCenter"),
-        100.0,
-        100.0,
-        1,
-        None,
-        None,
-        None,
-        &[],
-        false,
-    );
-    bar.sync_structure_context_from_presentation(0, 0, true, 0.35);
-
-    bar.update_for_selection(vec![UC_OBJECT_ID])
-        .expect("update_for_selection");
-
-    let text = window_text("ControlBar.wnd:UnderConstructionDesc");
-    let text = text.as_deref();
-    assert!(
-        text.is_some_and(|t| t.contains("Under Construction") && t.contains("35%")),
-        "under-construction label must be localized with the live percent, got {text:?}"
-    );
-    assert!(
-        !text.is_some_and(|t| t.contains("CONTROLBAR:")),
-        "the raw WND label key must never show, got {text:?}"
-    );
-    assert_eq!(
-        window_hidden("ControlBar.wnd:UnderConstructionWindow"),
-        Some(false),
-        "under-construction context window must be revealed"
-    );
 }
 
 /// A host presentation OCL countdown must reveal the timer window and tick

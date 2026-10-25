@@ -660,7 +660,10 @@ impl GameLogic {
 
     /// C++ `ActiveBody::onSubdualChange` passenger walk (leftover
     /// `order_all_passengers_to_idle` / `order_all_passengers_to_hack_internet`).
-    pub(crate) fn flush_subdual_passenger_orders(&mut self) {
+    pub(crate) fn flush_subdual_passenger_orders_with_effects(
+        &mut self,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<()> {
         use crate::game_logic::host_hacker_income::is_legal_hacker_income_source;
         let mut idle_containers: Vec<ObjectId> = Vec::new();
         let mut hack_containers: Vec<ObjectId> = Vec::new();
@@ -681,15 +684,17 @@ impl GameLogic {
                 None => continue,
             };
             for occ_id in occupants {
-                if let Some(occ) = self.objects.get_mut(&occ_id) {
+                let should_idle = if let Some(occ) = self.objects.get_mut(&occ_id) {
                     occ.status.attacking = false;
                     occ.set_status_force_attack(false);
                     occ.target = None;
                     occ.target_location = None;
-                    occ.set_ai_state(
-                        AIState::Idle,
-                        &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
-                    );
+                    occ.ai_state() != AIState::Idle
+                } else {
+                    false
+                };
+                if should_idle {
+                    self.set_ai_state_decision_aware_with_effects(occ_id, AIState::Idle, effects)?;
                 }
                 // C++ `aiIdle` leaves HACK_INTERNET (`aiDoCommand` PACKING).
                 self.hacker_income.stop_hacking(occ_id);
@@ -735,12 +740,16 @@ impl GameLogic {
                 );
             }
         }
+        Ok(())
     }
 
-    pub(crate) fn update_hacker_income(&mut self) {
+    pub(crate) fn update_hacker_income_with_effects(
+        &mut self,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<()> {
         use crate::game_logic::host_hacker_income::is_legal_hacker_income_source;
-        self.flush_subdual_passenger_orders();
-        self.tick_hacker_pack_phases();
+        self.flush_subdual_passenger_orders_with_effects(effects)?;
+        self.tick_hacker_pack_phases(effects)?;
 
         let frame = self.frame;
 
@@ -846,7 +855,7 @@ impl GameLogic {
                     container_radius: c_radius,
                     container_subdued: c_subdued,
                     moving: obj.status.moving,
-                    ai_state: obj.ai_state.clone(),
+                    ai_state: obj.ai_state().clone(),
                 })
             })
             .collect();
@@ -976,28 +985,44 @@ impl GameLogic {
                 150,
             );
         }
+
+        Ok(())
     }
 
     /// Residual field command: start HackInternet for selected hacker unit(s).
     /// C++ `hackInternet()` enters UNPACKING then HACK_INTERNET cash delay.
-    pub fn start_hacker_internet_hack(&mut self, hacker_id: ObjectId) -> bool {
+    pub fn start_hacker_internet_hack(
+        &mut self,
+        hacker_id: ObjectId,
+    ) -> gamelogic::GameLogicResult<bool> {
+        self.start_hacker_internet_hack_with_effects(
+            hacker_id,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(crate) fn start_hacker_internet_hack_with_effects(
+        &mut self,
+        hacker_id: ObjectId,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<bool> {
         use crate::game_logic::host_hacker_income::is_legal_hacker_income_source;
         if self.hacker_income.is_hacking(hacker_id) {
-            return false;
+            return Ok(false);
         }
         let frame = self.frame;
         let Some(obj) = self.objects.get(&hacker_id) else {
-            return false;
+            return Ok(false);
         };
         let Some(metadata) = obj.thing().template.hack_internet_ai_update else {
-            return false;
+            return Ok(false);
         };
         if !is_legal_hacker_income_source(
             obj.is_alive(),
             obj.team == Team::Neutral,
             obj.status.disabled_hacked,
         ) {
-            return false;
+            return Ok(false);
         }
         self.hacker_income.start_hacking(
             hacker_id,
@@ -1005,17 +1030,17 @@ impl GameLogic {
             metadata.unpack_time_frames,
             metadata.cash_update_delay_frames(false),
         );
-        if let Some(obj) = self.objects.get_mut(&hacker_id) {
+        let should_idle = if let Some(obj) = self.objects.get_mut(&hacker_id) {
             obj.set_status_moving(false);
             obj.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
                 &mut self.queued_audio_events,
             ));
-            if obj.ai_state != AIState::Idle {
-                obj.set_ai_state(
-                    AIState::Idle,
-                    &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
-                );
-            }
+            obj.ai_state() != AIState::Idle
+        } else {
+            false
+        };
+        if should_idle {
+            self.set_ai_state_decision_aware_with_effects(hacker_id, AIState::Idle, effects)?;
         }
         self.leftover_sa_set_pack_model(hacker_id, true, false, false);
         self.queue_resolved_per_unit_sound(
@@ -1026,7 +1051,7 @@ impl GameLogic {
             None,
             150,
         );
-        true
+        Ok(true)
     }
 
     /// C++ `HackInternetAIUpdate::aiDoCommand`: PACKING on any new command.
@@ -1034,7 +1059,10 @@ impl GameLogic {
         self.hacker_income.stop_hacking(hacker_id);
     }
 
-    fn tick_hacker_pack_phases(&mut self) {
+    fn tick_hacker_pack_phases(
+        &mut self,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<()> {
         use crate::game_logic::host_hacker_income::PendingHackerCommand;
         let frame = self.frame;
         let ids = self.hacker_income.tracked_pack_ids();
@@ -1056,21 +1084,21 @@ impl GameLogic {
                 PendingHackerCommand::Attack(target_id) => {
                     let _ = self.unit_command_attack(id, target_id);
                 }
+                PendingHackerCommand::AiIdle => {
+                    self.unit_command_ai_idle_owned_with_effects(id, effects)?;
+                }
                 PendingHackerCommand::Stop => {
                     if let Some(unit) = self.objects.get_mut(&id) {
                         unit.stop(&mut crate::game_logic::ObjectAudio::queue(
                             &mut self.queued_audio_events,
                         ));
-                        unit.set_ai_state(
-                            AIState::Idle,
-                            &mut crate::game_logic::ObjectAudio::queue(
-                                &mut self.queued_audio_events,
-                            ),
-                        );
                     }
+                    self.set_ai_state_decision_aware_with_effects(id, AIState::Idle, effects)?;
                 }
             }
         }
+
+        Ok(())
     }
 
     /// America Supply Drop Zone residual: OCL interval queues cargo DeliverPayload.
@@ -1206,3 +1234,9 @@ impl GameLogic {
 #[cfg(test)]
 #[path = "nullable_controller_owner_tests.rs"]
 mod nullable_controller_owner_tests;
+
+impl GameLogic {
+    pub(crate) fn update_hacker_income(&mut self) -> gamelogic::GameLogicResult<()> {
+        self.update_hacker_income_with_effects(&mut Default::default())
+    }
+}

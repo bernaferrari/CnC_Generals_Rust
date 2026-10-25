@@ -497,24 +497,9 @@ pub struct Object {
     /// (DozerAIUpdate.cpp:305).
     #[serde(default)]
     pub builder_id: Option<ObjectId>,
-    /// C++ `DozerAIUpdate::m_task[DOZER_TASK_BUILD]` — kept while REPAIR runs
-    /// so idle `isBuildMostImportant` can resume the scaffold (DozerAIUpdate.cpp:1948).
+    /// Canonical requested/entered Dozer task owner, initialized with Object.
     #[serde(default)]
-    pub dozer_task_build_target: Option<ObjectId>,
-    /// C++ `m_task[DOZER_TASK_BUILD].m_taskOrderFrame`.
-    #[serde(default)]
-    pub dozer_task_build_order_frame: u32,
-    /// C++ `DozerAIUpdate::m_task[DOZER_TASK_REPAIR]`.
-    #[serde(default)]
-    pub dozer_task_repair_target: Option<ObjectId>,
-    /// C++ `m_task[DOZER_TASK_REPAIR].m_taskOrderFrame`.
-    #[serde(default)]
-    pub dozer_task_repair_order_frame: u32,
-    /// C++ `m_dockPoint[DOZER_TASK_BUILD][DOZER_DOCK_POINT_ACTION]` (DozerAIUpdate.cpp:1990-1991).
-    /// Seeded by `findGoodBuildOrRepairPosition` (half major radius). Build HP
-    /// starts only when idle at this point, not the structure centre.
-    #[serde(default)]
-    pub dozer_dock_action: Option<Vec3>,
+    pub dozer_tasks: dozer_tasks::DozerTasks,
 
     /// C++ SupplyTruckAIUpdate/WorkerAIUpdate::m_preferredDock.
     ///
@@ -877,17 +862,9 @@ pub struct Object {
     #[serde(default)]
     pub locomotor_goal_angle: f32,
     /// C++ `AIFaceState::m_canTurnInPlace` (`minSpeed == 0`).
-    #[serde(default)]
-    pub face_can_turn_in_place: bool,
     /// Host persist: FACE is still marching toward the goal.
-    #[serde(default)]
-    pub face_active: bool,
     /// C++ Face-position machine goal (`m_obj == false`).
-    #[serde(default)]
-    pub face_goal_pos: Option<glam::Vec3>,
     /// Logic frame last leftover-marched by Face (prevents double apply).
-    #[serde(default)]
-    pub face_loco_frame: u32,
 
     /// C++ LocomotorTemplate `m_ultraAccurateSlideIntoPlaceFactor`.
     #[serde(default)]
@@ -1005,15 +982,6 @@ pub struct Object {
     /// C++ `AIInternalMoveToState::m_pathGoalPosition`. Goal used for the last path.
     #[serde(default)]
     pub path_goal_position: Option<glam::Vec3>,
-    /// C++ `AIInternalMoveToState::m_adjustDestinations`. Defaults true.
-    #[serde(default = "default_adjust_destinations")]
-    pub adjust_destinations: bool,
-    /// Parent `requested_destination` while a 20s AI `setTemporaryState` move
-    /// owns the live goal.
-    #[serde(default)]
-    pub temporary_move_saved_dest: Option<glam::Vec3>,
-    #[serde(default)]
-    pub temporary_move_saved_path_goal: Option<glam::Vec3>,
     /// Move order kept while the unit cannot path (stun, deploy, EMP).
     /// Not `target_position`: that empty-path click is walked as soon as
     /// the unit can move. Reissued through `assign_unit_path`.
@@ -1047,17 +1015,9 @@ pub struct Object {
     #[serde(default = "default_max_shots")]
     pub max_shots_to_fire: i32,
     /// C++ AttackStateMachine current substate residual.
-    #[serde(default)]
-    pub attack_substate: crate::game_logic::AttackSubState,
     /// C++ AIAttackApproachTargetState m_approachTimestamp residual.
-    #[serde(default)]
-    pub approach_timestamp: u32,
     /// C++ m_prevVictimPos residual (attack approach).
-    #[serde(default)]
-    pub prev_victim_pos: Option<glam::Vec3>,
     /// C++ temporary move-to frames remaining (AI_MOVE_TO temporary state).
-    #[serde(default)]
-    pub temporary_move_frames: u32,
     /// Set when a temporary move times out on the object. The logic tick snaps.
     #[serde(default)]
     pub overlay_arrival_snap: bool,
@@ -1156,14 +1116,11 @@ pub struct Object {
     #[serde(default)]
     pub flash_color: u32,
 
-    /// AI state for autonomous behavior
-    pub ai_state: AIState,
     /// Monotonic callback stamp for synchronous DockUpdate reservation cancel.
     /// Runtime-only; the owning GameLogic reconciles changes before queue use.
     #[serde(skip)]
     pub(crate) dock_cancel_epoch: u64,
-    /// C++ AI state lifetime belongs to this Object, including reused IDs.
-    #[serde(skip)]
+    /// Canonical retained AI state belongs to this admitted Object.
     pub(crate) unit_ai_runtime: unit_ai_runtime::UnitAiRuntime,
     /// Player completion admits power even when instant construction retains UC.
     #[serde(skip)]
@@ -1188,10 +1145,7 @@ pub struct Object {
     pub target_location: Option<Vec3>,
 
     /// Guard position
-    pub guard_position: Option<Vec3>,
     /// C++ AIGuardMachine::m_areaToGuard trigger name residual.
-    #[serde(default)]
-    pub guard_area_trigger: Option<String>,
     /// C++ AIGuardRetaliateMachine goal victim residual.
     #[serde(default)]
     pub guard_retaliate_victim: Option<ObjectId>,
@@ -1199,8 +1153,6 @@ pub struct Object {
     #[serde(default)]
     pub crate_created: Option<ObjectId>,
     /// C++ AI_HUNT parent-machine residual. Host Patrolling is AI_HUNT.
-    #[serde(default)]
-    pub hunting: bool,
     /// C++ HijackerUpdate::m_targetID residual (vehicle being driven).
     #[serde(default)]
     pub hijack_vehicle_id: Option<ObjectId>,
@@ -1231,7 +1183,6 @@ pub struct Object {
     pub guard_retaliate_anchor: Option<Vec3>,
 
     /// Guard target
-    pub guard_target: Option<ObjectId>,
     /// C++ AIGuardInner / Outer / AttackAggressor residual (0 none, 1 inner, 2 outer, 3 aggressor).
     #[serde(default)]
     pub guard_chase_phase: u8,
@@ -2374,8 +2325,6 @@ pub struct Object {
     #[serde(default)]
     pub jet_producer_location: Option<[f32; 3]>,
     /// C++ `JetOrHeliCirclingDeadAirfieldState` — hover at last airfield.
-    #[serde(default)]
-    pub jet_circling_dead_airfield: bool,
     /// C++ CirclingDeadAirfield `m_checkAirfield` next findSuitableAirfield frame.
     #[serde(default)]
     pub jet_circling_airfield_check_frame: u32,
@@ -2893,8 +2842,6 @@ pub struct Object {
         Option<crate::game_logic::partition_manager::HostPartitionLookStamp>,
 
     /// C++ AutoAcquireEnemiesWhenIdle residual (AAS_Idle bit).
-    #[serde(default)]
-    pub auto_acquire_when_idle: bool,
     /// C++ `AIUpdateModuleData::m_autoAcquireEnemiesWhenIdle` bitfield.
     #[serde(default)]
     pub auto_acquire_idle_bits: u32,
@@ -3046,7 +2993,7 @@ pub enum GuardMode {
 pub const GUARD_CHASE_PHASE_RETALIATE: u8 = 4;
 
 /// AI behavior states
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AIState {
     Idle,
     Moving,
@@ -3080,6 +3027,13 @@ pub enum AIState {
     /// C++ AI_EXIT: passenger remains contained while its door is unavailable.
     /// Appended so existing save variant indices retain their meanings.
     Exiting,
+    /// StateMachine::INVALID_STATE_ID between clear and a new entry.
+    Uninitialized,
+    /// Original AI_HUNT parent, distinct from its active attack/idle child.
+    Hunting,
+    JetReturningForLanding,
+    JetReturnToDeadAirfield,
+    JetCirclingDeadAirfield,
 }
 
 /// C++ `SpecialAbilityUpdate::PackingState` subset for capture abilities.
@@ -3261,7 +3215,7 @@ mod attack;
 mod barrels;
 mod bonuses;
 mod construct;
-pub(crate) use construct::template_has_worker_ai_update;
+pub(crate) use construct::receiving_ai_policy_data;
 mod damage;
 pub(in crate::game_logic) use damage::{BridgeBodyCallbacks, DamageApplication};
 mod death;
@@ -3310,14 +3264,13 @@ mod update;
 pub mod visual;
 mod weapons;
 
-pub use entity_lifecycle_envelope::{
-    decode_lifecycle_snapshot_block, encode_lifecycle_snapshot_block,
-};
+pub use entity_lifecycle_envelope::{decode_lifecycle_snapshot_block, encode_lifecycle_snapshot_block};
 pub use entity_lifecycle_tags::INVENTORY_TAGS;
 pub(crate) use panic_runtime::{PanicRuntime, PanicSaveState};
 
 pub use barrels::WeaponBarrelState;
 mod damage_context;
+mod dozer_tasks;
 pub(crate) use damage_context::{
     BodyPlayerEffect, DamageHitContext, LastDamageSourceObservation, OnDieInput,
 };
@@ -3328,6 +3281,7 @@ pub use jets::{
     JET_WHEEL_SCREECH_SOUND, JET_WHEEL_SCREECH_Z_SLOP, JetAiTickAction,
     STEALTH_FIGHTER_LOCKON_CURSOR, STEALTH_FIGHTER_LOCKON_TIME_FRAMES,
 };
+pub(crate) use jets::SlowDeathStart;
 pub(crate) use stealth::DrawableTintEnvelopes;
 pub use stealth::{
     DRAWABLE_FADE_IN, DRAWABLE_FADE_NONE, DRAWABLE_FADE_OUT, DrawableTintEnvelopePersist,
@@ -3353,3 +3307,202 @@ mod healing_state_callback_owner_tests;
 pub(crate) mod unit_ai_runtime;
 
 // Concatenated live `object/*.rs` sources (excluding tests) for residual scans.
+
+pub use unit_ai_runtime::{BaseAiContinuation, GuardTargetType, TemporaryAiMove};
+
+impl Object {
+    pub(crate) fn capture_base_ai_continuation(&self) -> BaseAiContinuation {
+        self.unit_ai_runtime.capture_machine()
+    }
+    pub(crate) fn restore_base_ai_continuation(
+        &mut self,
+        value: BaseAiContinuation,
+    ) -> Result<(), String> {
+        self.unit_ai_runtime.restore_machine(value)
+    }
+    pub(crate) fn restore_ai_state(&mut self, state: AIState) {
+        self.unit_ai_runtime.enter_root(state);
+    }
+    pub(crate) fn retained_ai_root_state(&self) -> AIState {
+        self.unit_ai_runtime.machine().root_state()
+    }
+}
+
+impl Object {
+    pub fn is_hunting(&self) -> bool {
+        self.retained_ai_root_state() == AIState::Hunting
+    }
+    pub(crate) fn set_hunting(&mut self, value: bool) {
+        if value {
+            self.unit_ai_runtime.enter_hunt();
+        } else {
+            self.unit_ai_runtime.leave_hunt();
+        }
+    }
+    pub(crate) fn set_attack_substate(&mut self, state: AttackSubState) {
+        self.unit_ai_runtime.set_attack_substate(state);
+    }
+    pub(crate) fn set_auto_acquire_when_idle(&mut self, value: bool) {
+        self.unit_ai_runtime.set_auto_acquire(value);
+    }
+    pub(crate) fn active_guard_position(&self) -> Option<Vec3> {
+        matches!(
+            self.unit_ai_runtime.guard_target_type(),
+            GuardTargetType::Location | GuardTargetType::Area
+        )
+        .then_some(self.guard_position())
+        .flatten()
+    }
+    pub(crate) fn active_guard_target(&self) -> Option<ObjectId> {
+        (self.unit_ai_runtime.guard_target_type() == GuardTargetType::Object)
+            .then_some(self.guard_target())
+            .flatten()
+    }
+    pub(crate) fn active_guard_area(&self) -> Option<&str> {
+        (self.unit_ai_runtime.guard_target_type() == GuardTargetType::Area)
+            .then_some(self.guard_area_trigger().as_deref())
+            .flatten()
+    }
+    pub(crate) fn set_guard_area_trigger(&mut self, value: Option<String>) {
+        if value.is_some() {
+            self.unit_ai_runtime.set_raw_guard_area(value);
+            self.unit_ai_runtime
+                .set_guard_target_type(GuardTargetType::Area);
+        } else if self.unit_ai_runtime.guard_target_type() == GuardTargetType::Area {
+            self.unit_ai_runtime
+                .set_guard_target_type(GuardTargetType::None);
+        }
+    }
+    pub(crate) fn restore_raw_guard_position(&mut self, value: Option<Vec3>) {
+        self.unit_ai_runtime.set_raw_guard_position(value);
+    }
+    pub(crate) fn restore_raw_guard_target(&mut self, value: Option<ObjectId>) {
+        self.unit_ai_runtime.set_raw_guard_target(value);
+    }
+    pub(crate) fn restore_raw_guard_area(&mut self, value: Option<String>) {
+        self.unit_ai_runtime.set_raw_guard_area(value);
+    }
+}
+
+impl Object {
+    pub(crate) fn set_approach_timestamp(&mut self, value: u32) {
+        self.unit_ai_runtime.set_approach_timestamp(value);
+    }
+    pub(crate) fn set_prev_victim_pos(&mut self, value: Option<Vec3>) {
+        self.unit_ai_runtime.set_prev_victim_pos(value);
+    }
+    pub(crate) fn set_face_can_turn_in_place(&mut self, value: bool) {
+        self.unit_ai_runtime.set_face_can_turn_in_place(value);
+    }
+    pub(crate) fn set_face_active(&mut self, value: bool) {
+        self.unit_ai_runtime.set_face_active(value);
+    }
+    pub(crate) fn set_face_goal_pos(&mut self, value: Option<Vec3>) {
+        self.unit_ai_runtime.set_face_goal_pos(value);
+    }
+    pub(crate) fn set_face_loco_frame(&mut self, value: u32) {
+        self.unit_ai_runtime.set_face_loco_frame(value);
+    }
+    pub(crate) fn set_adjust_destinations(&mut self, value: bool) {
+        self.unit_ai_runtime.set_adjust_destinations(value);
+    }
+    pub(crate) fn set_wander_width(&mut self, value: f32) {
+        self.unit_ai_runtime.set_wander_width(value);
+    }
+}
+
+impl Object {
+    pub fn ai_state(&self) -> AIState {
+        self.unit_ai_runtime.machine().projected_state()
+    }
+    pub fn attack_substate(&self) -> AttackSubState {
+        self.unit_ai_runtime.machine().attack_substate
+    }
+    pub fn auto_acquire_when_idle(&self) -> bool {
+        self.unit_ai_runtime.machine().auto_acquire_when_idle
+    }
+    pub fn guard_position(&self) -> Option<Vec3> {
+        self.unit_ai_runtime.machine().guard_position
+    }
+    pub fn guard_target(&self) -> Option<ObjectId> {
+        self.unit_ai_runtime.machine().guard_target
+    }
+    pub fn guard_area_trigger(&self) -> &Option<String> {
+        &self.unit_ai_runtime.machine().guard_area_trigger
+    }
+    pub fn approach_timestamp(&self) -> u32 {
+        self.unit_ai_runtime.machine().approach_timestamp
+    }
+    pub fn prev_victim_pos(&self) -> Option<Vec3> {
+        self.unit_ai_runtime.machine().prev_victim_pos
+    }
+    pub fn face_can_turn_in_place(&self) -> bool {
+        self.unit_ai_runtime.machine().face_can_turn_in_place
+    }
+    pub fn face_active(&self) -> bool {
+        self.unit_ai_runtime.machine().face_active
+    }
+    pub fn face_goal_pos(&self) -> Option<Vec3> {
+        self.unit_ai_runtime.machine().face_goal_pos
+    }
+    pub fn face_loco_frame(&self) -> u32 {
+        self.unit_ai_runtime.machine().face_loco_frame
+    }
+    pub fn adjust_destinations(&self) -> bool {
+        self.unit_ai_runtime.machine().adjust_destinations
+    }
+    pub fn wander_width(&self) -> f32 {
+        self.unit_ai_runtime.machine().wander_width
+    }
+    pub(crate) fn base_ai_control_is_inert(&self) -> bool {
+        self.unit_ai_runtime.machine().is_inert()
+    }
+}
+
+impl crate::game_logic::game_logic::ObjectInfo {
+    pub fn ai_state(&self) -> AIState {
+        self.ai_state
+    }
+}
+
+impl Object {
+    pub(crate) fn set_guard_position_data(&mut self, value: Option<Vec3>) {
+        if value.is_some() {
+            self.unit_ai_runtime.set_raw_guard_position(value);
+            self.unit_ai_runtime
+                .set_guard_target_type(GuardTargetType::Location);
+        } else {
+            self.unit_ai_runtime
+                .set_guard_target_type(GuardTargetType::None);
+        }
+    }
+    pub(crate) fn set_guard_target_data(&mut self, value: Option<ObjectId>) {
+        if value.is_some() {
+            self.unit_ai_runtime.set_raw_guard_target(value);
+            self.unit_ai_runtime
+                .set_guard_target_type(GuardTargetType::Object);
+        } else {
+            self.unit_ai_runtime
+                .set_guard_target_type(GuardTargetType::None);
+        }
+    }
+}
+
+impl Object {}
+
+impl Object {
+    pub(crate) fn has_temporary_ai_move(&self) -> bool {
+        self.unit_ai_runtime.temporary_move().is_some()
+    }
+    pub(crate) fn temporary_ai_move_remaining(&self, frame: u32) -> u32 {
+        self.unit_ai_runtime.temporary_move().map_or(0, |value| {
+            if frame <= value.deadline {
+                (value.deadline - frame).saturating_add(1)
+            } else {
+                0
+            }
+        })
+    }
+}
+
+mod base_ai_exits;

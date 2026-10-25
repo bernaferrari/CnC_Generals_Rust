@@ -61,7 +61,7 @@ fn ai_mood_is_canonical_and_shadow_only_observes() {
         let o = logic.host_object_mut(oid).expect("o");
         o.idle_since_frame = 120;
         o.mood_attack_check_rate = 45;
-        o.auto_acquire_when_idle = false;
+        o.set_auto_acquire_when_idle(false);
         o.attack_priority_set = Some("Soldier".into());
     }
     let mut shadow = GameWorldShadow::new(64);
@@ -80,7 +80,7 @@ fn ai_mood_is_canonical_and_shadow_only_observes() {
     let o = logic.host_objects().lookup(&oid).unwrap();
     assert_eq!(o.idle_since_frame, 120);
     assert_eq!(o.mood_attack_check_rate, 45);
-    assert!(!o.auto_acquire_when_idle);
+    assert!(!o.auto_acquire_when_idle());
     assert_eq!(o.attack_priority_set.as_deref(), Some("Soldier"));
     shadow.sync_from_host(&logic);
     let e = shadow.world().entity(eid).expect("e");
@@ -115,7 +115,11 @@ fn guard_radius_is_owned_and_shadow_only_observes() {
     let entity = shadow.entity_for_host(oid).unwrap();
     assert_eq!(shadow.world().entity(entity).unwrap().guard_radius, 175.0);
     assert_eq!(
-        shadow.world().entity(entity).unwrap().guard_position,
+        shadow
+            .world()
+            .entity(entity)
+            .unwrap()
+            .active_guard_position(),
         Some([55.0, 0.0, 55.0])
     );
     shadow
@@ -129,7 +133,7 @@ fn guard_radius_is_owned_and_shadow_only_observes() {
     shadow.sync_from_host(&logic);
     assert_eq!(shadow.world().entity(entity).unwrap().guard_radius, 80.0);
     assert_eq!(
-        logic.host_object(oid).unwrap().guard_position,
+        logic.host_object(oid).unwrap().active_guard_position(),
         Some(position)
     );
 }
@@ -425,18 +429,25 @@ fn combat_attack_channel_via_set_combat_attack() {
     let tgt = logic
         .create_object("CbtU", Team::China, glam::Vec3::new(160.0, 0.0, 130.0))
         .expect("tgt");
+    let temporary_deadline = logic.get_frame().wrapping_add(6);
     {
         let o = logic.host_object_mut(oid).expect("o");
         o.pre_attack_target = Some(tgt);
         o.pre_attack_ready_at = 12.5;
         o.consecutive_shots_at_target = 3;
         o.max_shots_to_fire = 5;
-        o.attack_substate = AttackSubState::FireWeapon;
-        o.approach_timestamp = 90;
+        o.set_attack_substate(AttackSubState::FireWeapon);
+        o.set_approach_timestamp(90);
         o.consecutive_shot_target = Some(ObjectId(tgt.0));
         o.maintain_pos_valid = true;
         o.maintain_pos = Some(glam::Vec3::new(1.0, 2.0, 3.0));
-        o.temporary_move_frames = 7;
+        o.unit_ai_runtime
+            .begin_temporary_move(crate::game_logic::object::TemporaryAiMove {
+                deadline: temporary_deadline,
+                goal: o.get_position(),
+                saved_destination: o.requested_destination,
+                saved_path_goal: o.path_goal_position,
+            });
         o.group_speed_factor = 0.85;
     }
 
@@ -461,7 +472,7 @@ fn combat_attack_channel_via_set_combat_attack() {
 
     let o = logic.host_objects().lookup(&oid).unwrap();
     assert_eq!(o.pre_attack_target, Some(tgt));
-    assert_eq!(o.attack_substate, AttackSubState::FireWeapon);
+    assert_eq!(o.attack_substate(), AttackSubState::FireWeapon);
     assert_eq!(o.consecutive_shots_at_target, 3);
     assert_eq!(o.maintain_pos, Some(glam::Vec3::new(1.0, 2.0, 3.0)));
     assert!((o.group_speed_factor - 0.85).abs() < 1e-5);
@@ -559,7 +570,7 @@ fn canonical_ai_request_is_projected_from_receiving_owner() {
         let o = logic.host_object_mut(oid).expect("o");
         o.requested_victim_id = Some(victim);
         o.requested_destination = Some(glam::Vec3::new(9.0, 0.0, 8.0));
-        o.prev_victim_pos = Some(glam::Vec3::new(1.0, 2.0, 3.0));
+        o.set_prev_victim_pos(Some(glam::Vec3::new(1.0, 2.0, 3.0)));
         o.crate_created = Some(ObjectId(99));
         o.guard_retaliate_victim = Some(victim);
         o.guard_retaliate_anchor = Some(glam::Vec3::new(4.0, 0.0, 5.0));

@@ -17,7 +17,6 @@ pub enum TransportReturnState {
         returning: bool,
         append_goal: bool,
         parent_goal: Vec3,
-        expires_frame: u32,
     },
 }
 
@@ -39,7 +38,6 @@ impl GameLogic {
 
     /// The shared AI temporary-move entry suspends, rather than exits, its parent.
     pub(crate) fn suspend_transport_for_temporary_move(&mut self, id: ObjectId) -> bool {
-        let expires_frame = self.frame.wrapping_add(600);
         let Some(object) = self.host_object_mut(id) else {
             return false;
         };
@@ -70,7 +68,6 @@ impl GameLogic {
             returning,
             append_goal,
             parent_goal,
-            expires_frame,
         });
         true
     }
@@ -78,7 +75,7 @@ impl GameLogic {
     fn resume_transport_after_temporary_move(&mut self, id: ObjectId) {
         let Some((origin, returning, append_goal, parent_goal)) =
             self.host_object(id).and_then(|object| {
-                if object.temporary_move_frames > 0 {
+                if object.has_temporary_ai_move() {
                     return None;
                 }
                 match object.transport_return_state {
@@ -156,17 +153,24 @@ impl GameLogic {
         id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
-        if let Some((active, expires_frame)) = self.host_object(id).and_then(|object| match object
-            .transport_return_state
-        {
-            Some(TransportReturnState::TemporaryMove { expires_frame, .. }) => {
-                Some((object.temporary_move_frames > 0, expires_frame))
-            }
-            _ => None,
+        if self.host_object(id).is_some_and(|object| {
+            matches!(
+                object.transport_return_state,
+                Some(TransportReturnState::TemporaryMove { .. })
+            )
         }) {
-            // CPP executes the temporary body before comparing the saved
-            // absolute deadline, then continues the parent in this callback.
-            if active && self.frame <= expires_frame {
+            let continuing = self.host_object(id).is_some_and(|object| {
+                object
+                    .unit_ai_runtime
+                    .temporary_move()
+                    .is_some_and(|temporary| {
+                        let arrived = !object.waiting_for_path
+                            && object.movement.path.is_empty()
+                            && object.movement.target_position.is_none();
+                        !arrived && !(temporary.deadline < self.frame)
+                    })
+            });
+            if continuing {
                 return;
             }
             if let Some((object, audio_events)) = self.host_object_and_audio_events_mut(id) {
@@ -223,7 +227,7 @@ impl GameLogic {
     fn begin_transport_return(&mut self, id: ObjectId, origin: Vec3) {
         self.note_move_to_request_path(id);
         if let Some(object) = self.host_object_mut(id) {
-            object.adjust_destinations = false;
+            object.set_adjust_destinations(false);
             object.is_final_goal = false;
             object.allow_invalid_position = true;
             object.pending_exit_after_evacuate = false;
@@ -375,7 +379,7 @@ mod tests {
         }
         assert!(logic.private_move_to_position(id, Vec3::new(900.0, 0.0, 900.0)));
         let owner = logic.host_object(id).unwrap();
-        assert_eq!(owner.temporary_move_frames, 601);
+        assert_eq!(owner.temporary_ai_move_remaining(logic.frame), 601);
         let suspended = owner.transport_return_state.unwrap();
         assert_eq!(
             serde_json::from_slice::<TransportReturnState>(
@@ -396,12 +400,18 @@ mod tests {
         for _ in 0..600 {
             let (object, output) = logic.host_object_and_audio_events_mut(id).unwrap();
             assert!(
-                !object.tick_path_queue(&mut crate::game_logic::ObjectAudio::queue(output)),
+                !object.tick_path_queue(0, &mut crate::game_logic::ObjectAudio::queue(output)),
                 "transport owns the absolute temporary deadline; observing the path queue does not expire it"
             );
         }
         // Repeated observations in one logic frame never consume the saved deadline.
-        assert_eq!(logic.host_object(id).unwrap().temporary_move_frames, 601);
+        assert_eq!(
+            logic
+                .host_object(id)
+                .unwrap()
+                .temporary_ai_move_remaining(logic.frame),
+            601
+        );
         logic.frame = 600;
         logic.finish_transport_return_phase(id);
         assert!(matches!(
@@ -466,8 +476,14 @@ mod tests {
                 source.host_object(id).unwrap().transport_return_state
             );
             assert_eq!(
-                receiving.host_object(id).unwrap().temporary_move_frames,
-                source.host_object(id).unwrap().temporary_move_frames
+                receiving
+                    .host_object(id)
+                    .unwrap()
+                    .temporary_ai_move_remaining(receiving.frame),
+                source
+                    .host_object(id)
+                    .unwrap()
+                    .temporary_ai_move_remaining(source.frame)
             );
             assert!(receiving.host_object(id).unwrap().pending_evacuate_on_stop);
             if temporary {

@@ -457,7 +457,7 @@ fn sneak_attack_residual_spawns_tunnel_and_shockwave() {
     let caster = game_logic.host_object(caster_id).expect("caster after cmd");
     assert!(!caster.special_power_ready);
     assert!(caster.special_power_cooldown_remaining > 0.0);
-    assert_eq!(caster.ai_state, AIState::SpecialAbility);
+    assert_eq!(caster.ai_state(), AIState::SpecialAbility);
     assert!(
         game_logic
             .queued_audio_events
@@ -660,7 +660,9 @@ End
     assert!(!target_after_command.status.is_carbomb);
     assert_eq!(target_after_command.team, Team::GLA);
 
-    game_logic.update_ai(&[bomber_id, target_id], 1.0 / 60.0);
+    game_logic
+        .update_ai(&[bomber_id, target_id], 1.0 / 60.0)
+        .expect("receiving AI operation succeeds");
     let target_after_far_update = game_logic
         .host_object(target_id)
         .expect("target should exist");
@@ -686,7 +688,9 @@ End
         );
         bomber.target = Some(target_id);
     }
-    game_logic.update_ai(&[bomber_id, target_id], 1.0 / 60.0);
+    game_logic
+        .update_ai(&[bomber_id, target_id], 1.0 / 60.0)
+        .expect("receiving AI operation succeeds");
 
     let target_after_contact = game_logic
         .host_object(target_id)
@@ -821,7 +825,7 @@ End
         let bomber = game_logic
             .host_object(bomber_id)
             .expect("bomber should exist");
-        assert_eq!(bomber.ai_state, AIState::SpecialAbility);
+        assert_eq!(bomber.ai_state(), AIState::SpecialAbility);
         assert_eq!(bomber.target, Some(target_id));
     }
 
@@ -841,7 +845,9 @@ End
         );
         bomber.target = Some(target_id);
     }
-    game_logic.update_ai(&[bomber_id, target_id], 1.0 / 60.0);
+    game_logic
+        .update_ai(&[bomber_id, target_id], 1.0 / 60.0)
+        .expect("receiving AI operation succeeds");
 
     let target_after_contact = game_logic
         .host_object(target_id)
@@ -1018,7 +1024,7 @@ fn attack_order_chases_target_when_out_of_range() {
     // current target; the chase destination is the pathfinder's cell, not the
     // target pose. The chase is observable through the attack state machine.
     assert_eq!(
-        attacker.ai_state,
+        attacker.ai_state(),
         AIState::Attacking,
         "attacker must enter the attack chase state machine"
     );
@@ -1061,7 +1067,7 @@ fn attack_order_clears_dead_target() {
         .host_object(attacker_id)
         .expect("attacker should exist");
     assert!(attacker.target.is_none(), "dead targets should be cleared");
-    assert_eq!(attacker.ai_state, AIState::Idle);
+    assert_eq!(attacker.ai_state(), AIState::Idle);
     assert!(!attacker.status.attacking);
 }
 
@@ -1099,7 +1105,9 @@ fn ai_production_does_not_spawn_when_player_cannot_afford_unit() {
         .expect("war factory should be created");
 
     game_logic.frame = 600; // AI production pulse
-    game_logic.update_ai(&[factory_id], 1.0 / 60.0);
+    game_logic
+        .update_ai(&[factory_id], 1.0 / 60.0)
+        .expect("receiving AI operation succeeds");
 
     assert_eq!(
         game_logic.objects.registered_len(),
@@ -1151,7 +1159,9 @@ fn ai_production_queues_units_instead_of_spawning_immediately() {
         .expect("war factory should be created");
 
     game_logic.frame = 600; // AI production pulse
-    game_logic.update_ai(&[factory_id], 1.0 / 60.0);
+    game_logic
+        .update_ai(&[factory_id], 1.0 / 60.0)
+        .expect("receiving AI operation succeeds");
 
     assert_eq!(
         game_logic.objects.registered_len(),
@@ -1368,7 +1378,7 @@ fn china_barracks_quantity_modifier_spawns_two_redguards_residual() {
         .filter(|o| {
             o.template_name.contains("Redguard")
                 && o.is_alive()
-                && matches!(o.ai_state, AIState::Moving)
+                && matches!(o.ai_state(), AIState::Moving)
         })
         .count();
     assert!(
@@ -1387,9 +1397,7 @@ fn china_barracks_quantity_modifier_spawns_two_redguards_residual() {
 #[test]
 fn queue_factory_exit_follows_snapped_production_path() {
     use crate::game_logic::buildings::BuildingType;
-    use crate::game_logic::{
-        KindOf, ProductionExitMetadata, ProductionExitStyle, Team, ThingTemplate,
-    };
+    use crate::game_logic::{KindOf, ProductionExitMetadata, ProductionExitStyle, Team, ThingTemplate};
 
     let mut logic = GameLogic::new();
     ensure_test_player_for_team(&mut logic, Team::China);
@@ -1438,13 +1446,18 @@ fn queue_factory_exit_follows_snapped_production_path() {
         [100.0, 15.0, 75.0],
         None,
     );
-    assert_eq!(logic.host_apply_production_spawn_ready_completions(), 1);
+    assert_eq!(
+        logic
+            .host_apply_production_spawn_ready_completions()
+            .expect("spawn-ready completion"),
+        1
+    );
 
     let (can_path, ai_state, dest, path, index, extra) = {
         let unit = logic.host_object(uid).expect("unit after exit");
         (
             unit.can_path_through_units,
-            unit.ai_state.clone(),
+            unit.ai_state().clone(),
             unit.movement.target_position,
             unit.movement.path.clone(),
             unit.movement.current_path_index,
@@ -1518,9 +1531,7 @@ fn queue_factory_exit_follows_snapped_production_path() {
 #[test]
 fn queue_exit_with_a_rally_keeps_the_next_segment() {
     use crate::game_logic::buildings::BuildingType;
-    use crate::game_logic::{
-        KindOf, ProductionExitMetadata, ProductionExitStyle, Team, ThingTemplate,
-    };
+    use crate::game_logic::{KindOf, ProductionExitMetadata, ProductionExitStyle, Team, ThingTemplate};
     let mut logic = GameLogic::new();
     ensure_test_player_for_team(&mut logic, Team::China);
     let mut bar = ThingTemplate::new("ChinaBarracks");
@@ -1566,7 +1577,12 @@ fn queue_exit_with_a_rally_keeps_the_next_segment() {
         [100.0, 15.0, 75.0],
         Some([220.0, 15.0, 100.0]),
     );
-    assert_eq!(logic.host_apply_production_spawn_ready_completions(), 1);
+    assert_eq!(
+        logic
+            .host_apply_production_spawn_ready_completions()
+            .expect("spawn-ready completion"),
+        1
+    );
     let unit = logic.host_object(uid).expect("unit");
     assert!(!unit.is_exact_path, "exit production is AIFollowPathState");
     let index = unit.movement.current_path_index;
@@ -1598,9 +1614,7 @@ fn queue_exit_with_a_rally_keeps_the_next_segment() {
 #[test]
 fn factory_spawn_keeps_unit_create_point_without_selection_radius_jitter() {
     use crate::game_logic::buildings::BuildingType;
-    use crate::game_logic::{
-        KindOf, ProductionExitMetadata, ProductionExitStyle, Team, ThingTemplate,
-    };
+    use crate::game_logic::{KindOf, ProductionExitMetadata, ProductionExitStyle, Team, ThingTemplate};
 
     let mut logic = GameLogic::new();
     ensure_test_player_for_team(&mut logic, Team::China);
@@ -1649,7 +1663,12 @@ fn factory_spawn_keeps_unit_create_point_without_selection_radius_jitter() {
         [create_pos.x, create_pos.y, create_pos.z],
         None,
     );
-    assert_eq!(logic.host_apply_production_spawn_ready_completions(), 1);
+    assert_eq!(
+        logic
+            .host_apply_production_spawn_ready_completions()
+            .expect("spawn-ready completion"),
+        1
+    );
 
     let pos = logic
         .host_object(uid)
@@ -1727,7 +1746,12 @@ fn queue_exit_applies_airborne_motive_and_pitch_after_ground_snap() {
         [create_pos.x, create_pos.y, create_pos.z],
         None,
     );
-    assert_eq!(logic.host_apply_production_spawn_ready_completions(), 1);
+    assert_eq!(
+        logic
+            .host_apply_production_spawn_ready_completions()
+            .expect("spawn-ready completion"),
+        1
+    );
 
     let unit = logic.host_object(uid).expect("unit after exit");
     assert!(
@@ -1809,7 +1833,12 @@ fn queue_exit_airborne_kick_keeps_y_when_allow_airborne() {
         [create_pos.x, create_pos.y, create_pos.z],
         None,
     );
-    assert_eq!(logic.host_apply_production_spawn_ready_completions(), 1);
+    assert_eq!(
+        logic
+            .host_apply_production_spawn_ready_completions()
+            .expect("spawn-ready completion"),
+        1
+    );
 
     let unit = logic.host_object(uid).expect("unit after exit");
     assert!(
@@ -1825,9 +1854,7 @@ fn queue_exit_airborne_kick_keeps_y_when_allow_airborne() {
 #[test]
 fn queue_exit_ground_spawn_skips_airborne_kick() {
     use crate::game_logic::buildings::BuildingType;
-    use crate::game_logic::{
-        KindOf, ProductionExitMetadata, ProductionExitStyle, Team, ThingTemplate,
-    };
+    use crate::game_logic::{KindOf, ProductionExitMetadata, ProductionExitStyle, Team, ThingTemplate};
 
     let mut logic = GameLogic::new();
     ensure_test_player_for_team(&mut logic, Team::China);
@@ -1879,7 +1906,12 @@ fn queue_exit_ground_spawn_skips_airborne_kick() {
         [create_pos.x, create_pos.y, create_pos.z],
         None,
     );
-    assert_eq!(logic.host_apply_production_spawn_ready_completions(), 1);
+    assert_eq!(
+        logic
+            .host_apply_production_spawn_ready_completions()
+            .expect("spawn-ready completion"),
+        1
+    );
 
     let unit = logic.host_object(uid).expect("unit after exit");
     assert_eq!(unit.physics_accel, glam::Vec3::ZERO);
@@ -1924,16 +1956,14 @@ fn attack_move_to_command_sets_moving_residual() {
         ) || o.movement.target_position.is_some()
             || !o.movement.path.is_empty(),
         "attack-move should order unit motion residual: state={:?}",
-        o.ai_state
+        o.ai_state()
     );
 }
 
 #[test]
 fn parsed_queue_exit_runtime_uses_authored_initial_burst_and_delay() {
     use crate::game_logic::buildings::BuildingType;
-    use crate::game_logic::{
-        KindOf, ProductionExitMetadata, ProductionExitStyle, Team, ThingTemplate,
-    };
+    use crate::game_logic::{KindOf, ProductionExitMetadata, ProductionExitStyle, Team, ThingTemplate};
 
     let mut logic = GameLogic::new();
     admit_china_queue_timing_power_supply(&mut logic);
@@ -2325,9 +2355,7 @@ fn can_make_unit_residual_gates_prereq_money_queue_disabled() {
 
 #[test]
 fn can_make_unit_missing_or_dead_producer_is_no_prereq() {
-    use crate::game_logic::host_production_buildable_command_residual::{
-        CANMAKE_NO_PREREQ, CANMAKE_OK,
-    };
+    use crate::game_logic::host_production_buildable_command_residual::{CANMAKE_NO_PREREQ, CANMAKE_OK};
     use crate::game_logic::{ObjectId, Team};
 
     let mut logic = GameLogic::new();
@@ -2741,7 +2769,7 @@ fn script_idle_all_units_and_resume_supply_write_live() {
         dest.map(|d| (d - tank_pos).length() < 1.0).unwrap_or(true)
             || logic
                 .host_object(tank)
-                .map(|o| o.ai_state == AIState::Idle)
+                .map(|o| o.ai_state() == AIState::Idle)
                 .unwrap_or(false),
         "IDLE_ALL_UNITS must aiMoveToPosition(self) on live non-structures"
     );
@@ -2807,14 +2835,14 @@ fn script_idle_and_guard_for_framecount_write_live() {
     assert!(
         logic
             .host_object(named)
-            .map(|o| o.ai_state == AIState::Idle || !o.status.moving)
+            .map(|o| o.ai_state() == AIState::Idle || !o.status.moving)
             .unwrap_or(false),
         "UNIT_IDLE_FOR_FRAMECOUNT must aiIdle the live named unit"
     );
     assert!(
         logic
             .host_object(teammate)
-            .map(|o| o.ai_state == AIState::Idle || !o.status.moving)
+            .map(|o| o.ai_state() == AIState::Idle || !o.status.moving)
             .unwrap_or(false),
         "TEAM_IDLE_FOR_FRAMECOUNT must groupIdle live team members"
     );
@@ -2917,7 +2945,9 @@ fn script_move_towards_nearest_writes_live() {
         "MOVE_TOWARDS_NEAREST must aiMoveToObject the closest live type in the trigger: {moving:?}"
     );
 
-    let _ = logic.unit_command_stop(scout);
+    let _ = logic
+        .unit_command_stop(scout)
+        .expect("checked Stop operation");
     logic.execute_nearest_object_script_for_test(
         true,
         "USA_Scout",
@@ -2941,9 +2971,7 @@ fn script_wait_for_not_contained_uses_live_contained_by_census() {
     let dispatch_engine = gamelogic::scripting::engine::ScriptEngine::new().expect("script engine");
 
     use gamelogic::scripting::core::{Parameter, ParameterType, ScriptAction, ScriptActionType};
-    use gamelogic::scripting::executor::{
-        ScriptActionDispatcher, ScriptActionResult, ScriptContext,
-    };
+    use gamelogic::scripting::executor::{ScriptActionDispatcher, ScriptActionResult, ScriptContext};
     use std::sync::{Arc, RwLock};
 
     let mut logic = GameLogic::new();
@@ -3057,7 +3085,7 @@ fn script_named_use_command_button_stops_live_unit() {
     });
     logic.evaluate_and_execute_scripts(0.0);
     assert_eq!(
-        logic.host_object(id).expect("unit").ai_state,
+        logic.host_object(id).expect("unit").ai_state(),
         AIState::Idle,
         "NAMED_USE_COMMANDBUTTON Command_Stop must idle the live unit"
     );
@@ -3069,7 +3097,7 @@ fn script_named_use_command_button_stops_live_unit() {
     });
     logic.evaluate_and_execute_scripts(0.0);
     assert_eq!(
-        logic.host_object(id).expect("unit").ai_state,
+        logic.host_object(id).expect("unit").ai_state(),
         AIState::Idle,
         "TEAM_USE_COMMANDBUTTON Command_Stop must idle live team members"
     );
@@ -3199,8 +3227,8 @@ fn script_team_nearest_and_partial_command_button_live() {
             ),
         ],
     );
-    let near_idle = logic.host_object(near).expect("near").ai_state == AIState::Idle;
-    let far_idle = logic.host_object(far).expect("far").ai_state == AIState::Idle;
+    let near_idle = logic.host_object(near).expect("near").ai_state() == AIState::Idle;
+    let far_idle = logic.host_object(far).expect("far").ai_state() == AIState::Idle;
     assert!(
         near_idle ^ far_idle,
         "TEAM_PARTIAL 50% of two members must stop exactly one, near_idle={near_idle} far_idle={far_idle}"
@@ -3296,7 +3324,7 @@ fn script_skirmish_command_button_most_valuable_does_button_not_force_attack() {
     }
     let _ = logic.unit_command_move_to(attacker, glam::Vec3::new(300.0, 0.0, 0.0));
     assert_ne!(
-        logic.host_object(attacker).expect("attacker").ai_state,
+        logic.host_object(attacker).expect("attacker").ai_state(),
         AIState::Idle
     );
 
@@ -3332,7 +3360,7 @@ fn script_skirmish_command_button_most_valuable_does_button_not_force_attack() {
 
     let after = logic.host_object(attacker).expect("attacker");
     assert_eq!(
-        after.ai_state,
+        after.ai_state(),
         AIState::Idle,
         "SKIRMISH most-valuable must execute the scripted button, not force-attack"
     );

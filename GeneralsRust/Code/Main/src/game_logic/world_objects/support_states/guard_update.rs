@@ -18,13 +18,13 @@ impl GameLogic {
             };
             if !unit.is_alive()
                 || !matches!(
-                    unit.ai_state,
+                    unit.ai_state(),
                     AIState::GuardingArea | AIState::GuardingObject
                 ) && !unit.has_guard_quick_exit_overlay()
             {
                 continue;
             }
-            let guard_target = unit.guard_target;
+            let guard_target = unit.active_guard_target();
             let now = self.frame;
             if !self
                 .unit_ai_runtime_mut(object_id)
@@ -55,7 +55,7 @@ impl GameLogic {
             return;
         };
         if !matches!(
-            unit.ai_state,
+            unit.ai_state(),
             AIState::GuardingArea | AIState::GuardingObject
         ) || self.guard_quick_exit_active(object_id)
         {
@@ -71,11 +71,11 @@ impl GameLogic {
             guard_mode,
             can_attack,
         ) = (
-            unit.ai_state.clone(),
+            unit.ai_state().clone(),
             unit.team,
             unit.get_position(),
-            unit.guard_position,
-            unit.guard_target,
+            unit.active_guard_position(),
+            unit.active_guard_target(),
             unit.guard_radius,
             unit.guard_mode,
             unit.can_attack(),
@@ -142,7 +142,7 @@ impl GameLogic {
                 let polygon_name = self
                     .objects
                     .get(&object_id)
-                    .and_then(|o| o.guard_area_trigger.clone());
+                    .and_then(|o| o.active_guard_area().clone());
                 let polygon = polygon_name
                     .as_deref()
                     .filter(|n| !n.is_empty())

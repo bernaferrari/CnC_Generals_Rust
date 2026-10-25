@@ -6,9 +6,10 @@ impl AIPlayer {
         &mut self,
         game_logic: &mut GameLogic,
         current_time: f32,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         let ai_data = AiDataView::from_world(game_logic);
-        self.update_economic_management_with_ai_data(game_logic, current_time, &ai_data);
+        self.update_economic_management_with_ai_data(game_logic, current_time, &ai_data)?;
+        Ok(())
     }
 
     pub(super) fn update_economic_management_with_ai_data(
@@ -16,9 +17,9 @@ impl AIPlayer {
         game_logic: &mut GameLogic,
         current_time: f32,
         ai_data: &AiDataView,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         if current_time < self.next_building_time {
-            return;
+            return Ok(());
         }
 
         // Check if we need more resources
@@ -50,11 +51,12 @@ impl AIPlayer {
         // structure per economic pass.  Starting every eligible entry here
         // spends the AI's money in a burst and leaves most scaffolds without a
         // dozer, which is not a viable skirmish base build lifecycle.
-        self.process_building_queue_with_ai_data(game_logic, current_time, ai_data);
+        self.process_building_queue_with_ai_data(game_logic, current_time, ai_data)?;
 
         // StructureSeconds residual + wealth/poor rate (AIData Structures*Rate).
         let interval = self.scaled_interval_seconds(game_logic, Self::STRUCTURE_SECONDS, true);
         self.next_building_time = current_time + interval;
+        Ok(())
     }
 
     /// Update military management (unit production, attack coordination).
@@ -83,7 +85,8 @@ impl AIPlayer {
         if queue_due {
             // C++ queueUnits runs before selection, so established orders get
             // first use of an idle factory.
-            self.process_team_queue_with_ai_data(game_logic, current_time, ai_data);
+            self.process_team_queue_with_ai_data(game_logic, current_time, ai_data)
+                .expect("AI team queue failed");
 
             let selected_team = if current_time >= self.next_team_time
                 && self.should_build_new_team_with_ai_data(game_logic, ai_data)
@@ -97,7 +100,8 @@ impl AIPlayer {
                 // C++ processTeamBuilding invokes queueUnits immediately after
                 // a successful selectTeamToBuild. Timer is armed only on a new
                 // pick inside selectTeamToBuild; reinforce returns with ready set.
-                self.process_team_queue_with_ai_data(game_logic, current_time, ai_data);
+                self.process_team_queue_with_ai_data(game_logic, current_time, ai_data)
+                    .expect("AI team queue failed");
             } else if current_time >= self.next_team_time {
                 // A failed selection leaves m_readyToBuildTeam set.  Retry on
                 // the short m_teamDelay cadence rather than sleeping 10 sec.
@@ -148,7 +152,7 @@ impl AIPlayer {
                     return false;
                 }
                 !matches!(
-                    object.ai_state,
+                    object.ai_state(),
                     AIState::Constructing
                         | AIState::Repairing
                         | AIState::Gathering
@@ -160,7 +164,7 @@ impl AIPlayer {
                 let position = object.get_position();
                 let dx = position.x - target.x;
                 let dz = position.z - target.z;
-                let busy_rank = u8::from(object.ai_state != AIState::Idle);
+                let busy_rank = u8::from(object.ai_state() != AIState::Idle);
                 (busy_rank, dx * dx + dz * dz, object.id)
             })
             .min_by(|left, right| {
@@ -272,7 +276,10 @@ impl AIPlayer {
     /// structure, and calls `aiResumeConstruction` whenever the remembered
     /// dozer was killed/captured or no longer has a build task.  Without this,
     /// one interrupted construction permanently blocks its planned base slot.
-    pub(super) fn resume_interrupted_construction(&self, game_logic: &mut GameLogic) {
+    pub(super) fn resume_interrupted_construction(
+        &self,
+        game_logic: &mut GameLogic,
+    ) -> gamelogic::GameLogicResult<()> {
         let unfinished: Vec<(ObjectId, Vec3)> = self
             .building_queue
             .iter()
@@ -291,7 +298,8 @@ impl AIPlayer {
             self.team,
             self.repair_dozer,
             unfinished,
-        );
+        )?;
+        Ok(())
     }
 
     /// C++ `AIPlayer::buildStructureWithDozer` position wiggle
@@ -361,9 +369,14 @@ impl AIPlayer {
     /// it chooses one legal plan, finds a dozer, and gives that dozer the live
     /// build task immediately.  Keep an unstartable plan in the queue instead
     /// of fabricating a builder or charging the player.
-    pub(super) fn process_building_queue(&mut self, game_logic: &mut GameLogic, current_time: f32) {
+    pub(super) fn process_building_queue(
+        &mut self,
+        game_logic: &mut GameLogic,
+        current_time: f32,
+    ) -> gamelogic::GameLogicResult<()> {
         let ai_data = AiDataView::from_world(game_logic);
-        self.process_building_queue_with_ai_data(game_logic, current_time, &ai_data);
+        self.process_building_queue_with_ai_data(game_logic, current_time, &ai_data)?;
+        Ok(())
     }
 
     pub(super) fn process_building_queue_with_ai_data(
@@ -371,17 +384,18 @@ impl AIPlayer {
         game_logic: &mut GameLogic,
         current_time: f32,
         ai_data: &AiDataView,
-    ) {
-        self.resume_interrupted_construction(game_logic);
+    ) -> gamelogic::GameLogicResult<()> {
+        self.resume_interrupted_construction(game_logic)?;
         if !Self::team_has_any_dozer(game_logic, self.team) {
             self.queue_dozer(game_logic, current_time);
         }
         if let Some(attempt) = self.prepare_scaffold_attempt(game_logic, current_time, ai_data) {
-            if let Some(object) = attempt.execute(game_logic) {
+            if let Some(object) = attempt.execute(game_logic)? {
                 self.finish_scaffold_attempt(&attempt, object);
             }
         }
         self.sync_build_list_object_status(game_logic, current_time);
+        Ok(())
     }
 
     pub(super) fn prepare_scaffold_attempt(
@@ -1371,9 +1385,9 @@ impl AIPlayer {
         game_logic: &mut GameLogic,
         collector_id: ObjectId,
         center_id: ObjectId,
-    ) -> bool {
+    ) -> gamelogic::GameLogicResult<bool> {
         let Some(source_id) = self.nearest_supply_source_for_center(game_logic, center_id) else {
-            return false;
+            return Ok(false);
         };
         let valid_collector = game_logic
             .host_object(collector_id)
@@ -1383,11 +1397,12 @@ impl AIPlayer {
                     && collector.is_resource_collector()
             });
         if !valid_collector {
-            return false;
+            return Ok(false);
         }
-        let routed = game_logic
-            .unit_command_stop_moving_order_target(collector_id, Some(source_id))
-            && game_logic.unit_command_set_ai_state(collector_id, AIState::Gathering);
+        if !game_logic.unit_command_stop_moving_order_target(collector_id, Some(source_id)) {
+            return Ok(false);
+        }
+        let routed = game_logic.unit_command_set_ai_state(collector_id, AIState::Gathering)?;
         if routed {
             if let Some(collector) = game_logic.host_object_mut(collector_id) {
                 // C++ AIPlayer::queueSupplyTruck uses aiDock(...,
@@ -1396,7 +1411,7 @@ impl AIPlayer {
                 collector.preferred_dock_id = Some(center_id);
             }
         }
-        routed
+        Ok(routed)
     }
 
     /// The SpawnBehavior collector has no AI work order, so give an idle
@@ -1406,7 +1421,7 @@ impl AIPlayer {
         &self,
         game_logic: &mut GameLogic,
         center_id: ObjectId,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         let mut collectors: Vec<ObjectId> = game_logic
             .host_objects()
             .registered()
@@ -1428,8 +1443,9 @@ impl AIPlayer {
             .collect();
         collectors.sort_by_key(|id| id.0);
         for collector_id in collectors {
-            let _ = self.route_collector_to_supply_center(game_logic, collector_id, center_id);
+            self.route_collector_to_supply_center(game_logic, collector_id, center_id)?;
         }
+        Ok(())
     }
 
     /// C++ `SupplyTruckAIUpdate::isCurrentlyFerryingSupplies` returns true
@@ -1440,7 +1456,7 @@ impl AIPlayer {
     #[inline]
     pub(super) fn collector_is_currently_ferrying_supplies(collector: &Object) -> bool {
         matches!(
-            collector.ai_state,
+            collector.ai_state(),
             AIState::Gathering | AIState::ReturningResources | AIState::Docking
         )
     }
@@ -1519,13 +1535,17 @@ impl AIPlayer {
     /// collector separately, then prepend one paid, priority collector work
     /// order when a completed supply center has a nearby live source and is
     /// below its SideInfo gatherer target.
-    pub(super) fn queue_supply_truck(&mut self, game_logic: &mut GameLogic, current_time: f32) {
+    pub(super) fn queue_supply_truck(
+        &mut self,
+        game_logic: &mut GameLogic,
+        current_time: f32,
+    ) -> gamelogic::GameLogicResult<()> {
         if self.team_queue.iter().any(|team| {
             team.work_orders
                 .iter()
                 .any(|order| order.is_resource_gatherer)
         }) {
-            return;
+            return Ok(());
         }
 
         let fallback_desired = self.desired_gatherers_per_supply_center();
@@ -1542,7 +1562,7 @@ impl AIPlayer {
             if desired == 0 {
                 continue;
             }
-            self.route_idle_supply_center_collectors(game_logic, center_id);
+            self.route_idle_supply_center_collectors(game_logic, center_id)?;
 
             let current = self.collector_count_for_supply_center(game_logic, center_id);
             if current >= desired {
@@ -1553,7 +1573,7 @@ impl AIPlayer {
             // returns after one such rescue, which also preserves its
             // one-collector-per-economic-tick reassignment cadence.
             if self.reattach_one_loose_supply_collector(game_logic, center_id) {
-                return;
+                return Ok(());
             }
             // The first collector must be the actual one-shot SpawnBehavior
             // result, not an unpaid factory item.  Once that behavior has
@@ -1603,6 +1623,7 @@ impl AIPlayer {
             // Do not return: retail keeps walking completed centers and may
             // begin one collector order for each in the same economic tick.
         }
+        Ok(())
     }
 }
 

@@ -29,6 +29,14 @@ pub fn control_bar_parent_is_live() -> bool {
     false
 }
 
+/// Query the receiving client's actual ControlBar tree.
+#[cfg(feature = "game_client")]
+pub fn control_bar_parent_is_live_with_owner(
+    owner: &game_client::gui::window_manager::WindowManagerOwner,
+) -> bool {
+    owner.with_manager_ref(|wm| wm.find_window_by_name(CONTROL_BAR_PARENT_NAME).is_some())
+}
+
 /// Load ControlBar.wnd into TheWindowManager if the parent is missing.
 ///
 /// C++ `ShowControlBar` (ControlBarCallback.cpp:477-507) only looks up
@@ -54,6 +62,25 @@ pub fn materialise_live_control_bar() -> bool {
     {
         false
     }
+}
+
+/// Materialize ControlBar through the receiving client's owned WindowManager.
+#[cfg(feature = "game_client")]
+pub fn materialise_live_control_bar_with_owner(
+    owner: &game_client::gui::window_manager::WindowManagerOwner,
+) -> bool {
+    if !control_bar_parent_is_live_with_owner(owner) {
+        if let Some(path) = resolve_control_bar_path() {
+            let _ = try_load_control_bar_via_window_manager_with_owner(
+                &path.display().to_string(),
+                owner,
+            );
+        }
+        if !control_bar_parent_is_live_with_owner(owner) {
+            let _ = try_load_control_bar_via_window_manager_with_owner("ControlBar.wnd", owner);
+        }
+    }
+    control_bar_parent_is_live_with_owner(owner) && live_window_count_with_owner(owner) > 0
 }
 
 #[cfg(feature = "game_client")]
@@ -401,6 +428,17 @@ pub fn control_bar_layout_honesty(attempt_window_load: bool) -> ControlBarLayout
     ControlBarLayoutHonesty::from_status_with_count(status, window_count)
 }
 
+/// Resolve and optionally load ControlBar through one explicit receiving owner.
+#[cfg(feature = "game_client")]
+pub fn control_bar_layout_honesty_with_owner(
+    attempt_window_load: bool,
+    owner: &game_client::gui::window_manager::WindowManagerOwner,
+) -> ControlBarLayoutHonesty {
+    let (status, window_count) =
+        ensure_control_bar_layout_with_count_with_owner(attempt_window_load, owner);
+    ControlBarLayoutHonesty::from_status_with_count(status, window_count)
+}
+
 /// Residual: ControlBar.wnd materialisation honesty (Wave 165).
 ///
 /// When retail assets resolve, require a throwaway WindowManager parse with
@@ -518,6 +556,111 @@ pub fn ensure_control_bar_layout_with_count(
             0,
         )
     }
+}
+
+/// Resolve/validate/load ControlBar using an explicit receiving owner.
+#[cfg(feature = "game_client")]
+fn ensure_control_bar_layout_with_count_with_owner(
+    attempt_window_load: bool,
+    owner: &game_client::gui::window_manager::WindowManagerOwner,
+) -> (GameplayLayoutStatus, usize) {
+    let Some(path) = resolve_control_bar_path() else {
+        return (
+            GameplayLayoutStatus::AssetsUnavailable {
+                searched: CONTROL_BAR_CANDIDATES
+                    .iter()
+                    .map(|s| s.to_string())
+                    .collect(),
+            },
+            0,
+        );
+    };
+    let path_str = path.display().to_string();
+    if let Err(error) = validate_control_bar_file(&path) {
+        return (
+            GameplayLayoutStatus::LoadFailed {
+                path: path_str,
+                error,
+            },
+            0,
+        );
+    }
+    if !attempt_window_load {
+        return (
+            GameplayLayoutStatus::Ready {
+                path: path_str,
+                loaded: false,
+            },
+            0,
+        );
+    }
+    match try_load_control_bar_via_window_manager_with_owner(&path_str, owner) {
+        Ok(count) => (
+            GameplayLayoutStatus::Ready {
+                path: path_str,
+                loaded: true,
+            },
+            count,
+        ),
+        Err(error) => {
+            log::warn!(
+                "ControlBar.wnd validated at {} but window load failed: {}",
+                path_str,
+                error
+            );
+            (
+                GameplayLayoutStatus::LoadFailed {
+                    path: path_str,
+                    error,
+                },
+                0,
+            )
+        }
+    }
+}
+
+#[cfg(feature = "game_client")]
+fn live_window_count_with_owner(
+    owner: &game_client::gui::window_manager::WindowManagerOwner,
+) -> usize {
+    owner.with_manager_ref(|wm| wm.window_count())
+}
+
+#[cfg(feature = "game_client")]
+fn try_load_control_bar_via_window_manager_with_owner(
+    path: &str,
+    owner: &game_client::gui::window_manager::WindowManagerOwner,
+) -> Result<usize, String> {
+    if control_bar_parent_is_live_with_owner(owner) {
+        let count = live_window_count_with_owner(owner);
+        return if count == 0 {
+            Err("ControlBarParent live but window_count=0".into())
+        } else {
+            Ok(count)
+        };
+    }
+    let names = [path, "ControlBar.wnd", "Window/ControlBar.wnd"];
+    let mut last_err = String::from("no load attempted");
+    for name in names {
+        match owner.with_manager(|wm| wm.load_window(name)) {
+            Ok(_) => {
+                if !control_bar_parent_is_live_with_owner(owner) {
+                    return Err(format!(
+                        "{name}: loaded but ControlBarParent missing on receiving WindowManager"
+                    ));
+                }
+                let count = live_window_count_with_owner(owner);
+                if count == 0 {
+                    return Err(format!(
+                        "{name}: load returned window but owner window_count=0"
+                    ));
+                }
+                return Ok(count);
+            }
+            Err(error) => last_err = format!("{name}: {error:?}"),
+        }
+    }
+    Err(last_err)
 }
 
 /// Load ControlBar.wnd into the live `TheWindowManager` (C++ `TheWindowManager`).
@@ -1173,28 +1316,31 @@ mod tests {
     #[test]
     #[cfg(feature = "game_client")]
     fn leftover_main_menu_skirmish_tree_is_not_live_control_bar() {
-        use game_client::gui::{with_window_manager, with_window_manager_ref};
-        with_window_manager(|wm| {
-            wm.destroy_all_windows();
-            wm.update();
-            for i in 0..98 {
-                let win = wm.create_window(None, 0, 0, 8, 8).unwrap();
-                win.borrow_mut()
-                    .set_name(&format!("MainMenu.wnd:Leftover{i}"));
-            }
-        });
-        let count = with_window_manager_ref(|wm| wm.window_count());
-        assert!(
-            count >= 98,
-            "leftover MainMenu/Skirmish-sized tree should exist, got {count}"
-        );
-        assert!(
-            !control_bar_parent_is_live(),
-            "leftover MainMenu windows must not count as ControlBar.wnd:ControlBarParent"
-        );
-        with_window_manager(|wm| {
-            wm.destroy_all_windows();
-            wm.update();
+        let owner = game_client::gui::window_manager::WindowManagerOwner::new();
+        owner.with_scope(|| {
+            use game_client::gui::{with_window_manager, with_window_manager_ref};
+            with_window_manager(|wm| {
+                wm.destroy_all_windows();
+                wm.update();
+                for i in 0..98 {
+                    let win = wm.create_window(None, 0, 0, 8, 8).unwrap();
+                    win.borrow_mut()
+                        .set_name(&format!("MainMenu.wnd:Leftover{i}"));
+                }
+            });
+            let count = with_window_manager_ref(|wm| wm.window_count());
+            assert!(
+                count >= 98,
+                "leftover MainMenu/Skirmish-sized tree should exist, got {count}"
+            );
+            assert!(
+                !control_bar_parent_is_live(),
+                "leftover MainMenu windows must not count as ControlBar.wnd:ControlBarParent"
+            );
+            with_window_manager(|wm| {
+                wm.destroy_all_windows();
+                wm.update();
+            });
         });
     }
 

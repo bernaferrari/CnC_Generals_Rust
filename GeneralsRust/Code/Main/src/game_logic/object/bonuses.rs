@@ -290,7 +290,7 @@ impl Object {
         // (Humvee, Chinook, hospital, tunnel, prison) does not.
         if self.contained_by.is_some()
             && self.is_kind_of(KindOf::Infantry)
-            && matches!(self.ai_state, AIState::Garrisoned)
+            && matches!(self.ai_state(), AIState::Garrisoned)
         {
             append_field(&mut bonus, Range, 1.33);
         }
@@ -412,7 +412,7 @@ impl Object {
             }
             if self.contained_by.is_some()
                 && self.is_kind_of(KindOf::Infantry)
-                && matches!(self.ai_state, AIState::Garrisoned)
+                && matches!(self.ai_state(), AIState::Garrisoned)
             {
                 flags.set(WeaponBonusConditionType::Garrisoned);
             }
@@ -685,7 +685,7 @@ impl Object {
         self.target = None;
         self.target_location = None;
         self.set_status_force_attack(false);
-        if self.ai_state != AIState::Idle {
+        if self.ai_state() != AIState::Idle {
             self.set_ai_state(AIState::Idle, audio);
         }
         if let Some(d) = donor {
@@ -747,7 +747,7 @@ impl Object {
         self.set_status_moving(false);
         self.stop_moving(audio);
         self.target = None;
-        if self.ai_state != AIState::Idle {
+        if self.ai_state() != AIState::Idle {
             self.set_ai_state(AIState::Idle, audio);
         }
         // C++ ConvertToHijackedVehicleCrateCollide: setDrawableHidden(true).
@@ -925,7 +925,7 @@ impl Object {
         self.target_location = None;
         self.set_status_force_attack(false);
         // C++ aiMoveToPosition(self) then aiIdle — host: clear move + Idle.
-        if self.ai_state != AIState::Idle {
+        if self.ai_state() != AIState::Idle {
             self.set_ai_state(AIState::Idle, audio);
         }
         if self.is_kind_of(KindOf::Worker) || self.is_worker() {
@@ -977,7 +977,7 @@ impl Object {
     /// True when this aircraft is parked at an airfield (ParkingPlace residual).
     pub fn is_parked_at_airfield(&self) -> bool {
         (self.is_kind_of(KindOf::Aircraft) || self.object_type == ObjectType::Aircraft)
-            && self.ai_state == AIState::Docked
+            && self.ai_state() == AIState::Docked
             && self.contained_by.is_some()
     }
 
@@ -1003,7 +1003,7 @@ impl Object {
         if !(self.is_kind_of(KindOf::Aircraft) || self.object_type == ObjectType::Aircraft) {
             return None;
         }
-        if self.ai_state != AIState::Docked && self.contained_by.is_none() {
+        if self.ai_state() != AIState::Docked && self.contained_by.is_none() {
             return None;
         }
         let af = self.contained_by.take();
@@ -1049,7 +1049,7 @@ impl Object {
             && !self.is_disabled()
             && !self.is_shock_stunned()
             && !self.status.weapons_jammed
-            && (parked_aircraft || !matches!(self.ai_state, AIState::Docked | AIState::Entering))
+            && (parked_aircraft || !matches!(self.ai_state(), AIState::Docked | AIState::Entering))
     }
 
     /// Authoritative container for docked/garrisoned units.
@@ -1058,7 +1058,7 @@ impl Object {
         if let Some(id) = self.contained_by {
             return Some(id);
         }
-        if matches!(self.ai_state, AIState::Docked | AIState::Garrisoned) {
+        if matches!(self.ai_state(), AIState::Docked | AIState::Garrisoned) {
             self.target
         } else {
             None
@@ -1067,7 +1067,7 @@ impl Object {
 
     /// True when this unit is currently inside a transport or garrison.
     pub fn is_contained(&self) -> bool {
-        matches!(self.ai_state, AIState::Docked | AIState::Garrisoned)
+        matches!(self.ai_state(), AIState::Docked | AIState::Garrisoned)
             || self.contained_by.is_some()
     }
 

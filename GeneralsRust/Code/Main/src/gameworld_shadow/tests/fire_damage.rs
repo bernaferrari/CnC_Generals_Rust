@@ -121,7 +121,7 @@ fn assign_unit_path_decision_authority() {
     assert!(ok, "path assign should succeed");
 
     assert_eq!(
-        logic.host_objects().lookup(&oid).unwrap().ai_state,
+        logic.host_objects().lookup(&oid).unwrap().ai_state(),
         AIState::Moving,
         "host Moving immediate"
     );
@@ -147,7 +147,7 @@ fn assign_unit_path_decision_authority() {
     shadow.sync_from_host(&logic);
 
     assert_eq!(
-        logic.host_objects().lookup(&oid).unwrap().ai_state,
+        logic.host_objects().lookup(&oid).unwrap().ai_state(),
         AIState::Moving
     );
 }
@@ -187,7 +187,7 @@ fn private_idle_decision_authority() {
     // AIUpdate.cpp:3067 clears the state machine and enters Idle immediately.
     let idle = logic.host_objects().lookup(&oid).unwrap();
     assert!(idle.target.is_none());
-    assert_eq!(idle.ai_state, AIState::Idle);
+    assert_eq!(idle.ai_state(), AIState::Idle);
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
 
@@ -213,7 +213,7 @@ fn private_idle_decision_authority() {
     // The canonical command has already entered Idle.
     let o = logic.host_objects().lookup(&oid).unwrap();
     assert!(o.target.is_none());
-    assert_eq!(o.ai_state, AIState::Idle);
+    assert_eq!(o.ai_state(), AIState::Idle);
 }
 
 #[test]
@@ -269,7 +269,7 @@ fn append_unit_waypoint_decision_authority() {
     assert!(logic.append_unit_waypoint_for_test(oid, glam::Vec3::new(30.0, 0.0, 0.0)));
 
     assert_eq!(
-        logic.host_objects().lookup(&oid).unwrap().ai_state,
+        logic.host_objects().lookup(&oid).unwrap().ai_state(),
         AIState::Moving,
         "host Moving immediate"
     );
@@ -277,7 +277,7 @@ fn append_unit_waypoint_decision_authority() {
     shadow.sync_from_host(&logic);
 
     assert_eq!(
-        logic.host_objects().lookup(&oid).unwrap().ai_state,
+        logic.host_objects().lookup(&oid).unwrap().ai_state(),
         AIState::Moving
     );
 }
@@ -302,14 +302,14 @@ fn set_ai_state_decision_aware_writeback() {
 
     // C++ AIUpdate applies this state synchronously to the receiving owner.
     assert_eq!(
-        logic.host_objects().lookup(&oid).unwrap().ai_state,
+        logic.host_objects().lookup(&oid).unwrap().ai_state(),
         AIState::Gathering
     );
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
 
     assert_eq!(
-        logic.host_objects().lookup(&oid).unwrap().ai_state,
+        logic.host_objects().lookup(&oid).unwrap().ai_state(),
         AIState::Gathering
     );
 }
@@ -721,7 +721,7 @@ fn dozer_bored_repair_state_decision_authority() {
     logic.set_ai_state_decision_aware_for_test(oid, AIState::Repairing);
 
     assert_eq!(
-        logic.host_objects().lookup(&oid).unwrap().ai_state,
+        logic.host_objects().lookup(&oid).unwrap().ai_state(),
         AIState::Repairing,
         "host AI state applies immediately"
     );
@@ -729,7 +729,7 @@ fn dozer_bored_repair_state_decision_authority() {
     shadow.sync_from_host(&logic);
 
     assert_eq!(
-        logic.host_objects().lookup(&oid).unwrap().ai_state,
+        logic.host_objects().lookup(&oid).unwrap().ai_state(),
         AIState::Repairing
     );
 }
@@ -753,7 +753,7 @@ fn hijacker_docked_state_decision_authority() {
     logic.set_ai_state_decision_aware_for_test(oid, AIState::Docked);
 
     assert_eq!(
-        logic.host_objects().lookup(&oid).unwrap().ai_state,
+        logic.host_objects().lookup(&oid).unwrap().ai_state(),
         AIState::Docked,
         "host AI state applies immediately"
     );
@@ -761,7 +761,7 @@ fn hijacker_docked_state_decision_authority() {
     shadow.sync_from_host(&logic);
 
     assert_eq!(
-        logic.host_objects().lookup(&oid).unwrap().ai_state,
+        logic.host_objects().lookup(&oid).unwrap().ai_state(),
         AIState::Docked
     );
 }

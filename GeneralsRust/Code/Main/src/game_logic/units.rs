@@ -305,7 +305,7 @@ impl UnitBehavior {
         if let Some(obj) = objects.get_mut(&object_id) {
             if let Some(_gatherer) = &mut obj.movement.path.first().copied() {
                 // Simplified gathering logic - would need proper resource gatherer component
-                if obj.ai_state == AIState::Gathering {
+                if obj.ai_state() == AIState::Gathering {
                     // Simulate gathering
                     gathered_amount = (100.0 * dt) as u32; // 100 resources per second
                     if gathered_amount > 0 {
@@ -397,7 +397,7 @@ impl UnitBehavior {
     ) {
         let ai_state = {
             if let Some(obj) = objects.lookup(&object_id) {
-                obj.ai_state.clone()
+                obj.ai_state().clone()
             } else {
                 return;
             }
@@ -503,7 +503,7 @@ impl UnitBehavior {
         if let Some(obj) = objects.get_mut(&object_id) {
             if obj.movement.target_position.is_none() && obj.target.is_none() {
                 // Would return to original guard position in full implementation
-                obj.ai_state = AIState::Idle;
+                obj.set_ai_state(AIState::Idle, audio);
             }
         }
     }

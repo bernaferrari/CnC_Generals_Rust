@@ -867,7 +867,7 @@ impl GameLogic {
             if rel == gamelogic::common::Relationship::Allies
                 && (obj.status.using_ability
                     || matches!(
-                        obj.ai_state,
+                        obj.ai_state(),
                         crate::game_logic::AIState::SpecialAbility
                             | crate::game_logic::AIState::Capturing
                     ))
@@ -2437,7 +2437,8 @@ impl GameLogic {
         let team = producer.team;
         let owner_player_id = producer.owner_player_id;
         // C++ ControlBarCommand.cpp:1139-1141 — pending BUILD greys every construct cameo.
-        let factory_disabled = producer.is_disabled() || producer.dozer_task_build_target.is_some();
+        let factory_disabled =
+            producer.is_disabled() || producer.dozer_tasks.requests[0].target.is_some();
         let has_prereq = match owner_player_id {
             Some(player_id) => {
                 self.player_satisfies_build_prerequisites(player_id, template_name)

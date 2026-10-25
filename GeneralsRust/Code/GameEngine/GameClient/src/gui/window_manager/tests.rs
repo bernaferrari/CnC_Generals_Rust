@@ -1211,75 +1211,81 @@ fn hide_window_unsets_modal_head_like_cpp() {
 
 #[test]
 fn layout_hide_routes_through_manager_side_effects_like_cpp() {
-    let window = with_window_manager(|manager| {
-        manager.destroy_all_windows();
-        manager.update();
-        let layout = manager.create_layout("test_layout.wnd".to_string());
-        let window = manager.create_window(None, 0, 0, 100, 100).unwrap();
-        window
-            .borrow_mut()
-            .set_system_callback(|_, msg, data1, data2| match msg {
-                WindowMessage::InputFocus if data1 != 0 => {
-                    write_input_focus_response(data1, data2, true)
-                }
-                _ => WindowMsgHandled::Ignored,
-            });
-        layout.borrow_mut().add_window(window.clone());
-        manager.set_focus(Some(&window)).unwrap();
-        manager.capture_mouse(&window).unwrap();
+    let owner = crate::gui::window_manager::WindowManagerOwner::new();
+    owner.with_scope(|| {
+        let window = with_window_manager(|manager| {
+            manager.destroy_all_windows();
+            manager.update();
+            let layout = manager.create_layout("test_layout.wnd".to_string());
+            let window = manager.create_window(None, 0, 0, 100, 100).unwrap();
+            window
+                .borrow_mut()
+                .set_system_callback(|_, msg, data1, data2| match msg {
+                    WindowMessage::InputFocus if data1 != 0 => {
+                        write_input_focus_response(data1, data2, true)
+                    }
+                    _ => WindowMsgHandled::Ignored,
+                });
+            layout.borrow_mut().add_window(window.clone());
+            manager.set_focus(Some(&window)).unwrap();
+            manager.capture_mouse(&window).unwrap();
 
-        // Re-enters `with_window_manager`; hide is queued and flushed when
-        // this outer borrow returns (no overlapping `&mut`).
-        layout.borrow().hide(true);
-        window
-    });
+            // Re-enters `with_window_manager`; hide is queued and flushed when
+            // this outer borrow returns (no overlapping `&mut`).
+            layout.borrow().hide(true);
+            window
+        });
 
-    assert!(window.borrow().is_hidden());
-    with_window_manager(|manager| {
-        assert!(manager.get_focus().is_none());
-        assert!(manager.get_capture().is_none());
-        assert!(!manager.capture_flags.contains(CaptureFlags::MOUSE));
-        manager.destroy_all_windows();
-        manager.update();
+        assert!(window.borrow().is_hidden());
+        with_window_manager(|manager| {
+            assert!(manager.get_focus().is_none());
+            assert!(manager.get_capture().is_none());
+            assert!(!manager.capture_flags.contains(CaptureFlags::MOUSE));
+            manager.destroy_all_windows();
+            manager.update();
+        });
     });
 }
 
 #[test]
 fn direct_window_hide_clears_runtime_references_like_cpp_win_hide() {
-    let parent = with_window_manager(|manager| {
-        manager.destroy_all_windows();
-        manager.update();
-        let parent = manager.create_window(None, 0, 0, 100, 100).unwrap();
-        let child = manager
-            .create_window(Some(&parent), 10, 10, 20, 20)
-            .unwrap();
-        child
-            .borrow_mut()
-            .set_system_callback(|_, msg, data1, data2| match msg {
-                WindowMessage::InputFocus if data1 != 0 => {
-                    write_input_focus_response(data1, data2, true)
-                }
-                _ => WindowMsgHandled::Ignored,
-            });
+    let owner = crate::gui::window_manager::WindowManagerOwner::new();
+    owner.with_scope(|| {
+        let parent = with_window_manager(|manager| {
+            manager.destroy_all_windows();
+            manager.update();
+            let parent = manager.create_window(None, 0, 0, 100, 100).unwrap();
+            let child = manager
+                .create_window(Some(&parent), 10, 10, 20, 20)
+                .unwrap();
+            child
+                .borrow_mut()
+                .set_system_callback(|_, msg, data1, data2| match msg {
+                    WindowMessage::InputFocus if data1 != 0 => {
+                        write_input_focus_response(data1, data2, true)
+                    }
+                    _ => WindowMsgHandled::Ignored,
+                });
 
-        manager.set_focus(Some(&child)).unwrap();
-        manager.capture_mouse(&child).unwrap();
-        manager.set_modal(parent.clone()).unwrap();
+            manager.set_focus(Some(&child)).unwrap();
+            manager.capture_mouse(&child).unwrap();
+            manager.set_modal(parent.clone()).unwrap();
 
-        // `GameWindow::hide` re-enters `with_window_manager`. Manager-side
-        // focus/capture/modal cleanup is queued and flushed on return.
-        parent.borrow_mut().hide(true).unwrap();
-        parent
-    });
+            // `GameWindow::hide` re-enters `with_window_manager`. Manager-side
+            // focus/capture/modal cleanup is queued and flushed on return.
+            parent.borrow_mut().hide(true).unwrap();
+            parent
+        });
 
-    assert!(parent.borrow().is_hidden());
-    with_window_manager(|manager| {
-        assert!(manager.get_focus().is_none());
-        assert!(manager.get_capture().is_none());
-        assert!(manager.modal_stack.is_none());
-        assert!(!manager.capture_flags.contains(CaptureFlags::MOUSE));
-        manager.destroy_all_windows();
-        manager.update();
+        assert!(parent.borrow().is_hidden());
+        with_window_manager(|manager| {
+            assert!(manager.get_focus().is_none());
+            assert!(manager.get_capture().is_none());
+            assert!(manager.modal_stack.is_none());
+            assert!(!manager.capture_flags.contains(CaptureFlags::MOUSE));
+            manager.destroy_all_windows();
+            manager.update();
+        });
     });
 }
 
@@ -1768,264 +1774,291 @@ fn get_window_by_id_returns_first_traversal_match_like_cpp() {
 
 #[test]
 fn os_mouse_dispatch_selects_push_button_when_shell_inactive() {
-    use std::sync::Arc;
-    use std::sync::atomic::{AtomicBool, Ordering};
+    let owner = crate::gui::window_manager::WindowManagerOwner::new();
+    owner.with_scope(|| {
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicBool, Ordering};
 
-    let _lock = lock_test_mouse();
-    crate::gui::shell::get_shell().set_shell_active(false);
-    let clicked = Arc::new(AtomicBool::new(false));
-    with_window_manager(|manager| {
-        manager.reset();
-        let window = manager.create_window(None, 10, 10, 80, 30).unwrap();
-        let mut button = PushButton::new(99, 0, 0, 80, 30);
-        button.set_triggers_on_mouse_down(true);
-        let flag = Arc::clone(&clicked);
-        button.set_callback(Box::new(move |_| flag.store(true, Ordering::SeqCst)));
-        window
-            .borrow_mut()
-            .set_widget(WindowWidget::PushButton(button));
+        let _lock = lock_test_mouse();
+        crate::gui::shell::get_shell().set_shell_active(false);
+        let clicked = Arc::new(AtomicBool::new(false));
+        with_window_manager(|manager| {
+            manager.reset();
+            let window = manager.create_window(None, 10, 10, 80, 30).unwrap();
+            let mut button = PushButton::new(99, 0, 0, 80, 30);
+            button.set_triggers_on_mouse_down(true);
+            let flag = Arc::clone(&clicked);
+            button.set_callback(Box::new(move |_| flag.store(true, Ordering::SeqCst)));
+            window
+                .borrow_mut()
+                .set_widget(WindowWidget::PushButton(button));
+            assert!(
+                window.borrow().point_in_window(20, 20),
+                "test click must land inside created window"
+            );
+            let rc = manager.process_mouse_event(WindowMessage::LeftDown, 20, 20, 0);
+            assert_eq!(rc, WindowInputReturnCode::Used);
+        });
         assert!(
-            window.borrow().point_in_window(20, 20),
-            "test click must land inside created window"
+            clicked.load(Ordering::SeqCst),
+            "OS LeftDown must hit-test the push button and fire GadgetSelected"
         );
-        let rc = manager.process_mouse_event(WindowMessage::LeftDown, 20, 20, 0);
-        assert_eq!(rc, WindowInputReturnCode::Used);
+        let wrapped = dispatch_os_mouse_to_window_manager(WindowMessage::LeftDown, 20, 20);
+        assert_eq!(wrapped, WindowInputReturnCode::Used);
+        crate::gui::shell::get_shell().set_shell_active(true);
     });
-    assert!(
-        clicked.load(Ordering::SeqCst),
-        "OS LeftDown must hit-test the push button and fire GadgetSelected"
-    );
-    let wrapped = dispatch_os_mouse_to_window_manager(WindowMessage::LeftDown, 20, 20);
-    assert_eq!(wrapped, WindowInputReturnCode::Used);
-    crate::gui::shell::get_shell().set_shell_active(true);
 }
 
 #[test]
 fn os_click_named_window_hit_tests_widget_tree_and_selects_owner() {
-    use crate::gui::shell::main_menu::{
-        dispatch_os_click_named_window, last_os_wnd_widget_tree_click_ok,
-        reset_os_wnd_widget_tree_nav_for_tests,
-    };
-    use std::sync::Arc;
-    use std::sync::atomic::{AtomicBool, Ordering};
+    let owner = crate::gui::window_manager::WindowManagerOwner::new();
+    owner.with_scope(|| {
+        use crate::gui::shell::main_menu::{
+            dispatch_os_click_named_window, last_os_wnd_widget_tree_click_ok,
+            reset_os_wnd_widget_tree_nav_for_tests,
+        };
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicBool, Ordering};
 
-    let _lock = lock_test_mouse();
-    reset_os_wnd_widget_tree_nav_for_tests();
-    crate::gui::shell::get_shell().set_shell_active(false);
-    let selected = Arc::new(AtomicBool::new(false));
-    let button_name = "TestMenu.wnd:ButtonStart";
-    with_window_manager(|manager| {
-        manager.reset();
-        let parent = manager.create_window(None, 0, 0, 200, 80).unwrap();
-        let flag = Arc::clone(&selected);
-        parent
-            .borrow_mut()
-            .set_system_callback(move |_, msg, _, _| {
-                if msg == WindowMessage::GadgetSelected {
-                    flag.store(true, Ordering::SeqCst);
-                    WindowMsgHandled::Handled
-                } else {
-                    WindowMsgHandled::Ignored
-                }
-            });
-        let id = manager
-            .gogo_gadget_push_button(Some(&parent), (10, 10), (80, 30))
-            .expect("push button");
-        let button = manager.get_window_by_id(id).expect("button window");
-        button.borrow_mut().set_name(button_name);
-        let (sx, sy) = button.borrow().get_screen_position();
-        let (w, h) = button.borrow().get_size();
-        let hit = manager
-            .get_window_under_cursor(sx + w / 2, sy + h / 2, false)
-            .expect("hit");
+        let _lock = lock_test_mouse();
+        reset_os_wnd_widget_tree_nav_for_tests();
+        crate::gui::shell::get_shell().set_shell_active(false);
+        let selected = Arc::new(AtomicBool::new(false));
+        let button_name = "TestMenu.wnd:ButtonStart";
+        with_window_manager(|manager| {
+            manager.reset();
+            let parent = manager.create_window(None, 0, 0, 200, 80).unwrap();
+            let flag = Arc::clone(&selected);
+            parent
+                .borrow_mut()
+                .set_system_callback(move |_, msg, _, _| {
+                    if msg == WindowMessage::GadgetSelected {
+                        flag.store(true, Ordering::SeqCst);
+                        WindowMsgHandled::Handled
+                    } else {
+                        WindowMsgHandled::Ignored
+                    }
+                });
+            let id = manager
+                .gogo_gadget_push_button(Some(&parent), (10, 10), (80, 30))
+                .expect("push button");
+            let button = manager.get_window_by_id(id).expect("button window");
+            button.borrow_mut().set_name(button_name);
+            let (sx, sy) = button.borrow().get_screen_position();
+            let (w, h) = button.borrow().get_size();
+            let hit = manager
+                .get_window_under_cursor(sx + w / 2, sy + h / 2, false)
+                .expect("hit");
+            assert!(
+                Rc::ptr_eq(&hit, &button),
+                "center of named gadget must be the get_window_under_cursor hit"
+            );
+        });
         assert!(
-            Rc::ptr_eq(&hit, &button),
-            "center of named gadget must be the get_window_under_cursor hit"
+            dispatch_os_click_named_window(button_name),
+            "named click must hit-test the live gadget"
         );
+        assert!(
+            last_os_wnd_widget_tree_click_ok(),
+            "LeftDown/Up must be consumed by the WND widget tree"
+        );
+        assert!(
+            crate::gui::shell::main_menu::os_wnd_widget_tree_nav_ok(),
+            "named dispatch must latch sticky wnd_widget_tree_nav"
+        );
+        assert!(
+            selected.load(Ordering::SeqCst),
+            "owner must receive GBM_SELECTED without simulate_*"
+        );
+        assert!(!dispatch_os_click_named_window("TestMenu.wnd:Missing"));
+        assert!(!last_os_wnd_widget_tree_click_ok());
+        crate::gui::shell::get_shell().set_shell_active(true);
     });
-    assert!(
-        dispatch_os_click_named_window(button_name),
-        "named click must hit-test the live gadget"
-    );
-    assert!(
-        last_os_wnd_widget_tree_click_ok(),
-        "LeftDown/Up must be consumed by the WND widget tree"
-    );
-    assert!(
-        crate::gui::shell::main_menu::os_wnd_widget_tree_nav_ok(),
-        "named dispatch must latch sticky wnd_widget_tree_nav"
-    );
-    assert!(
-        selected.load(Ordering::SeqCst),
-        "owner must receive GBM_SELECTED without simulate_*"
-    );
-    assert!(!dispatch_os_click_named_window("TestMenu.wnd:Missing"));
-    assert!(!last_os_wnd_widget_tree_click_ok());
-    crate::gui::shell::get_shell().set_shell_active(true);
 }
 
 #[test]
 fn os_click_named_window_rejects_when_another_window_covers_hit() {
-    use crate::gui::shell::main_menu::{
-        dispatch_os_click_named_window, last_os_wnd_widget_tree_click_ok,
-        reset_os_wnd_widget_tree_nav_for_tests,
-    };
+    let owner = crate::gui::window_manager::WindowManagerOwner::new();
+    owner.with_scope(|| {
+        use crate::gui::shell::main_menu::{
+            dispatch_os_click_named_window, last_os_wnd_widget_tree_click_ok,
+            reset_os_wnd_widget_tree_nav_for_tests,
+        };
 
-    let _lock = lock_test_mouse();
-    reset_os_wnd_widget_tree_nav_for_tests();
-    crate::gui::shell::get_shell().set_shell_active(false);
-    with_window_manager(|manager| {
-        manager.reset();
-        let named = manager.create_window(None, 10, 10, 80, 30).unwrap();
-        named.borrow_mut().set_name("Covered.wnd:Button");
-        named
-            .borrow_mut()
-            .set_widget(WindowWidget::PushButton(PushButton::new(1, 0, 0, 80, 30)));
-        let cover = manager.create_window(None, 10, 10, 80, 30).unwrap();
-        cover.borrow_mut().set_status(WindowStatus::ABOVE);
-        cover.borrow_mut().set_name("Covered.wnd:Blocker");
+        let _lock = lock_test_mouse();
+        reset_os_wnd_widget_tree_nav_for_tests();
+        crate::gui::shell::get_shell().set_shell_active(false);
+        with_window_manager(|manager| {
+            manager.reset();
+            let named = manager.create_window(None, 10, 10, 80, 30).unwrap();
+            named.borrow_mut().set_name("Covered.wnd:Button");
+            named
+                .borrow_mut()
+                .set_widget(WindowWidget::PushButton(PushButton::new(1, 0, 0, 80, 30)));
+            let cover = manager.create_window(None, 10, 10, 80, 30).unwrap();
+            cover.borrow_mut().set_status(WindowStatus::ABOVE);
+            cover.borrow_mut().set_name("Covered.wnd:Blocker");
+        });
+        assert!(
+            !dispatch_os_click_named_window("Covered.wnd:Button"),
+            "named click must fail when get_window_under_cursor is not the named gadget"
+        );
+        assert!(!last_os_wnd_widget_tree_click_ok());
+        crate::gui::shell::get_shell().set_shell_active(true);
     });
-    assert!(
-        !dispatch_os_click_named_window("Covered.wnd:Button"),
-        "named click must fail when get_window_under_cursor is not the named gadget"
-    );
-    assert!(!last_os_wnd_widget_tree_click_ok());
-    crate::gui::shell::get_shell().set_shell_active(true);
 }
 
 #[test]
 fn os_wnd_widget_under_cursor_name_returns_enabled_gadget() {
-    use crate::gui::shell::main_menu::os_wnd_widget_under_cursor_name;
+    let owner = crate::gui::window_manager::WindowManagerOwner::new();
+    owner.with_scope(|| {
+        use crate::gui::shell::main_menu::os_wnd_widget_under_cursor_name;
 
-    let _lock = lock_test_mouse();
-    crate::gui::shell::get_shell().set_shell_active(false);
-    with_window_manager(|manager| {
-        manager.reset();
-        let named = manager.create_window(None, 0, 0, 80, 30).unwrap();
-        named.borrow_mut().set_name("MainMenu.wnd:ButtonSkirmish");
+        let _lock = lock_test_mouse();
+        crate::gui::shell::get_shell().set_shell_active(false);
+        with_window_manager(|manager| {
+            manager.reset();
+            let named = manager.create_window(None, 0, 0, 80, 30).unwrap();
+            named.borrow_mut().set_name("MainMenu.wnd:ButtonSkirmish");
+        });
+        assert_eq!(
+            os_wnd_widget_under_cursor_name(40, 15).as_deref(),
+            Some("MainMenu.wnd:ButtonSkirmish")
+        );
+        assert_eq!(os_wnd_widget_under_cursor_name(400, 400), None);
     });
-    assert_eq!(
-        os_wnd_widget_under_cursor_name(40, 15).as_deref(),
-        Some("MainMenu.wnd:ButtonSkirmish")
-    );
-    assert_eq!(os_wnd_widget_under_cursor_name(400, 400), None);
 }
 
 #[test]
 fn note_os_wnd_widget_tree_hit_latches_sticky_nav() {
-    use crate::gui::shell::main_menu::{
-        note_os_wnd_widget_tree_hit, os_wnd_widget_tree_nav_ok,
-        reset_os_wnd_widget_tree_nav_for_tests,
-    };
+    let owner = crate::gui::window_manager::WindowManagerOwner::new();
+    owner.with_scope(|| {
+        use crate::gui::shell::main_menu::{
+            note_os_wnd_widget_tree_hit, os_wnd_widget_tree_nav_ok,
+            reset_os_wnd_widget_tree_nav_for_tests,
+        };
 
-    let _lock = lock_test_mouse();
-    reset_os_wnd_widget_tree_nav_for_tests();
-    with_window_manager(|manager| {
-        manager.reset();
-        let _ = manager.create_window(None, 0, 0, 80, 30).unwrap();
+        let _lock = lock_test_mouse();
+        reset_os_wnd_widget_tree_nav_for_tests();
+        with_window_manager(|manager| {
+            manager.reset();
+            let _ = manager.create_window(None, 0, 0, 80, 30).unwrap();
+        });
+        assert!(note_os_wnd_widget_tree_hit(40, 15));
+        assert!(os_wnd_widget_tree_nav_ok());
+        assert!(!note_os_wnd_widget_tree_hit(400, 400));
+        assert!(
+            os_wnd_widget_tree_nav_ok(),
+            "sticky nav must survive a later miss"
+        );
     });
-    assert!(note_os_wnd_widget_tree_hit(40, 15));
-    assert!(os_wnd_widget_tree_nav_ok());
-    assert!(!note_os_wnd_widget_tree_hit(400, 400));
-    assert!(
-        os_wnd_widget_tree_nav_ok(),
-        "sticky nav must survive a later miss"
-    );
 }
 
 #[test]
 fn os_mouse_dispatch_consumed_when_shell_active() {
-    let _lock = lock_test_mouse();
-    crate::gui::shell::get_shell().set_shell_active(true);
-    let rc = dispatch_os_mouse_to_window_manager(WindowMessage::MousePos, 4, 4);
-    assert_eq!(rc, WindowInputReturnCode::Used);
+    let owner = crate::gui::window_manager::WindowManagerOwner::new();
+    owner.with_scope(|| {
+        let _lock = lock_test_mouse();
+        crate::gui::shell::get_shell().set_shell_active(true);
+        let rc = dispatch_os_mouse_to_window_manager(WindowMessage::MousePos, 4, 4);
+        assert_eq!(rc, WindowInputReturnCode::Used);
+    });
 }
 
 #[test]
 fn os_mouse_dispatch_skips_wm_when_mouse_locked_unless_scrolling_lmb() {
-    // C++ WindowXlat.cpp:147-167 — locked view KEEP_MESSAGE except LMB
-    // while TheInGameUI::isScrolling so ControlBar clicks still land.
-    let _lock = lock_test_mouse();
-    crate::gui::shell::get_shell().set_shell_active(false);
-    crate::display::view::with_tactical_view(|view| view.set_mouse_lock(true));
-    crate::helpers::TheInGameUI::set_scrolling(false);
-    assert_eq!(
-        dispatch_os_mouse_to_window_manager(WindowMessage::LeftDown, 20, 20),
-        WindowInputReturnCode::NotUsed,
-        "locked, not scrolling: skip WM (C++ KEEP_MESSAGE)"
-    );
+    let owner = crate::gui::window_manager::WindowManagerOwner::new();
+    owner.with_scope(|| {
+        // C++ WindowXlat.cpp:147-167 — locked view KEEP_MESSAGE except LMB
+        // while TheInGameUI::isScrolling so ControlBar clicks still land.
+        let _lock = lock_test_mouse();
+        crate::gui::shell::get_shell().set_shell_active(false);
+        crate::display::view::with_tactical_view(|view| view.set_mouse_lock(true));
+        crate::helpers::TheInGameUI::set_scrolling(false);
+        assert_eq!(
+            dispatch_os_mouse_to_window_manager(WindowMessage::LeftDown, 20, 20),
+            WindowInputReturnCode::NotUsed,
+            "locked, not scrolling: skip WM (C++ KEEP_MESSAGE)"
+        );
 
-    crate::helpers::TheInGameUI::set_scrolling(true);
-    with_window_manager(|manager| {
-        manager.reset();
-        let window = manager.create_window(None, 10, 10, 80, 30).unwrap();
-        window
-            .borrow_mut()
-            .set_widget(WindowWidget::PushButton(PushButton::new(1, 0, 0, 80, 30)));
+        crate::helpers::TheInGameUI::set_scrolling(true);
+        with_window_manager(|manager| {
+            manager.reset();
+            let window = manager.create_window(None, 10, 10, 80, 30).unwrap();
+            window
+                .borrow_mut()
+                .set_widget(WindowWidget::PushButton(PushButton::new(1, 0, 0, 80, 30)));
+        });
+        assert_eq!(
+            dispatch_os_mouse_to_window_manager(WindowMessage::LeftDown, 20, 20),
+            WindowInputReturnCode::Used,
+            "locked + scrolling: LMB must still hit ControlBar"
+        );
+        assert_eq!(
+            dispatch_os_mouse_to_window_manager(WindowMessage::RightDown, 20, 20),
+            WindowInputReturnCode::NotUsed,
+            "locked + scrolling: non-LMB still KEEP_MESSAGE"
+        );
+
+        crate::helpers::TheInGameUI::set_scrolling(false);
+        crate::display::view::with_tactical_view(|view| view.set_mouse_lock(false));
+        crate::gui::shell::get_shell().set_shell_active(true);
     });
-    assert_eq!(
-        dispatch_os_mouse_to_window_manager(WindowMessage::LeftDown, 20, 20),
-        WindowInputReturnCode::Used,
-        "locked + scrolling: LMB must still hit ControlBar"
-    );
-    assert_eq!(
-        dispatch_os_mouse_to_window_manager(WindowMessage::RightDown, 20, 20),
-        WindowInputReturnCode::NotUsed,
-        "locked + scrolling: non-LMB still KEEP_MESSAGE"
-    );
-
-    crate::helpers::TheInGameUI::set_scrolling(false);
-    crate::display::view::with_tactical_view(|view| view.set_mouse_lock(false));
-    crate::gui::shell::get_shell().set_shell_active(true);
 }
 
 #[test]
 fn os_key_dispatch_enter_reaches_focused_window_when_shell_inactive() {
-    let _lock = lock_test_mouse();
-    crate::gui::shell::get_shell().set_shell_active(false);
-    let seen = Rc::new(RefCell::new(Vec::new()));
-    with_window_manager(|manager| {
-        manager.reset();
-        let window = manager.create_window(None, 0, 0, 100, 40).unwrap();
-        window
-            .borrow_mut()
-            .set_system_callback(|_, msg, data1, data2| match msg {
-                WindowMessage::InputFocus if data1 != 0 => {
-                    write_input_focus_response(data1, data2, true)
-                }
-                _ => WindowMsgHandled::Ignored,
-            });
-        {
-            let seen = Rc::clone(&seen);
+    let owner = crate::gui::window_manager::WindowManagerOwner::new();
+    owner.with_scope(|| {
+        let _lock = lock_test_mouse();
+        crate::gui::shell::get_shell().set_shell_active(false);
+        let seen = Rc::new(RefCell::new(Vec::new()));
+        with_window_manager(|manager| {
+            manager.reset();
+            let window = manager.create_window(None, 0, 0, 100, 40).unwrap();
             window
                 .borrow_mut()
-                .set_input_callback(move |_, msg, data1, data2| {
-                    seen.borrow_mut().push((msg, data1, data2));
-                    WindowMsgHandled::Handled
+                .set_system_callback(|_, msg, data1, data2| match msg {
+                    WindowMessage::InputFocus if data1 != 0 => {
+                        write_input_focus_response(data1, data2, true)
+                    }
+                    _ => WindowMsgHandled::Ignored,
                 });
-        }
-        manager.set_focus(Some(&window)).unwrap();
-        let rc = manager.process_key_event(13, 0x02);
-        assert_eq!(rc, WindowInputReturnCode::Used);
+            {
+                let seen = Rc::clone(&seen);
+                window
+                    .borrow_mut()
+                    .set_input_callback(move |_, msg, data1, data2| {
+                        seen.borrow_mut().push((msg, data1, data2));
+                        WindowMsgHandled::Handled
+                    });
+            }
+            manager.set_focus(Some(&window)).unwrap();
+            let rc = manager.process_key_event(13, 0x02);
+            assert_eq!(rc, WindowInputReturnCode::Used);
+        });
+        let wrapped = dispatch_os_key_to_window_manager(13, 0x02);
+        assert_eq!(wrapped, WindowInputReturnCode::Used);
+        assert_eq!(
+            seen.borrow().as_slice(),
+            &[
+                (WindowMessage::Char, 13, 0x02),
+                (WindowMessage::Char, 13, 0x02)
+            ]
+        );
+        crate::gui::shell::get_shell().set_shell_active(true);
     });
-    let wrapped = dispatch_os_key_to_window_manager(13, 0x02);
-    assert_eq!(wrapped, WindowInputReturnCode::Used);
-    assert_eq!(
-        seen.borrow().as_slice(),
-        &[
-            (WindowMessage::Char, 13, 0x02),
-            (WindowMessage::Char, 13, 0x02)
-        ]
-    );
-    crate::gui::shell::get_shell().set_shell_active(true);
 }
 
 #[test]
 fn os_key_dispatch_consumed_when_shell_active() {
-    let _lock = lock_test_mouse();
-    crate::gui::shell::get_shell().set_shell_active(true);
-    let rc = dispatch_os_key_to_window_manager(0x1B, 0x01);
-    assert_eq!(rc, WindowInputReturnCode::Used);
+    let owner = crate::gui::window_manager::WindowManagerOwner::new();
+    owner.with_scope(|| {
+        let _lock = lock_test_mouse();
+        crate::gui::shell::get_shell().set_shell_active(true);
+        let rc = dispatch_os_key_to_window_manager(0x1B, 0x01);
+        assert_eq!(rc, WindowInputReturnCode::Used);
+    });
 }
 
 #[test]
@@ -2433,7 +2466,7 @@ fn test_layout_hide_toggles_all_layout_windows_like_cpp() {
         layout_mut.add_window(child.clone());
     }
 
-    layout.borrow().hide(false);
+    layout.borrow().hide_with_manager(&mut manager, false);
 
     assert!(!parent.borrow().is_hidden());
     assert!(!child.borrow().is_hidden());
@@ -2582,7 +2615,7 @@ fn test_window_layout() {
     assert_eq!(layout.borrow().get_filename(), "test.wnd");
 
     // Test hiding layout
-    layout.borrow_mut().hide(true);
+    layout.borrow().hide_with_manager(&mut manager, true);
     assert!(layout.borrow().is_hidden());
     assert!(window1.borrow().is_hidden());
     assert!(window2.borrow().is_hidden());
@@ -2667,169 +2700,191 @@ fn layout_add_and_remove_updates_window_back_reference_like_cpp() {
 
 #[test]
 fn reentrant_with_window_manager_does_not_panic() {
-    let _lock = lock_test_mouse();
-    with_window_manager(|manager| {
-        manager.destroy_all_windows();
+    let owner = crate::gui::window_manager::WindowManagerOwner::new();
+    owner.with_scope(|| {
+        let _lock = lock_test_mouse();
         with_window_manager(|manager| {
             manager.destroy_all_windows();
-            with_window_manager(|_manager| ());
+            with_window_manager(|manager| {
+                manager.destroy_all_windows();
+                with_window_manager(|_manager| ());
+            });
         });
     });
 }
 
 #[test]
 fn reentrant_with_window_manager_unit_op_is_fail_closed_not_aliased() {
-    let _lock = lock_test_mouse();
-    let hits = Rc::new(Cell::new(0));
-    let hits_inner = Rc::clone(&hits);
-    with_window_manager(|manager| {
-        manager.destroy_all_windows();
-        with_window_manager(move |_manager| {
-            hits_inner.set(hits_inner.get() + 1);
+    let owner = crate::gui::window_manager::WindowManagerOwner::new();
+    owner.with_scope(|| {
+        let _lock = lock_test_mouse();
+        let hits = Rc::new(Cell::new(0));
+        let hits_inner = Rc::clone(&hits);
+        with_window_manager(|manager| {
+            manager.destroy_all_windows();
+            with_window_manager(move |_manager| {
+                hits_inner.set(hits_inner.get() + 1);
+            });
+            // Nested unit callback is dropped fail-closed, not transmuted into the queue.
+            assert_eq!(hits.get(), 0);
         });
-        // Nested unit callback is dropped fail-closed, not transmuted into the queue.
         assert_eq!(hits.get(), 0);
-    });
-    assert_eq!(hits.get(), 0);
 
-    let queued = Rc::new(Cell::new(0));
-    let queued_inner = Rc::clone(&queued);
-    with_window_manager(|_manager| {
-        queue_window_manager_op(move |_manager| {
-            queued_inner.set(queued_inner.get() + 1);
+        let queued = Rc::new(Cell::new(0));
+        let queued_inner = Rc::clone(&queued);
+        with_window_manager(|_manager| {
+            queue_window_manager_op(move |_manager| {
+                queued_inner.set(queued_inner.get() + 1);
+            });
+            assert_eq!(queued.get(), 0);
         });
-        assert_eq!(queued.get(), 0);
-    });
-    assert_eq!(queued.get(), 1);
-    with_window_manager(|manager| {
-        manager.destroy_all_windows();
+        assert_eq!(queued.get(), 1);
+        with_window_manager(|manager| {
+            manager.destroy_all_windows();
+        });
     });
 }
 
 #[test]
 fn hide_parent_during_outstanding_borrow_applies_after_drain() {
-    let _lock = lock_test_mouse();
-    let parent = with_window_manager(|manager| {
-        manager.destroy_all_windows();
-        manager.update();
-        manager.create_window(None, 0, 0, 100, 100).unwrap()
-    });
-    {
-        let _held = parent.borrow_mut();
-        with_window_manager(|_manager| {
-            hide_window_rc(&parent, true);
+    let owner = crate::gui::window_manager::WindowManagerOwner::new();
+    owner.with_scope(|| {
+        let _lock = lock_test_mouse();
+        let parent = with_window_manager(|manager| {
+            manager.destroy_all_windows();
+            manager.update();
+            manager.create_window(None, 0, 0, 100, 100).unwrap()
         });
-        // Outstanding `&mut` still held; hide is deferred, not applied.
-    }
-    with_window_manager(|_manager| {});
-    assert!(
-        parent.borrow().is_hidden(),
-        "hide-parent must take effect after the outstanding borrow drains"
-    );
-    with_window_manager(|manager| {
-        manager.destroy_all_windows();
-        manager.update();
+        {
+            let _held = parent.borrow_mut();
+            with_window_manager(|_manager| {
+                hide_window_rc(&parent, true);
+            });
+            // Outstanding `&mut` still held; hide is deferred, not applied.
+        }
+        with_window_manager(|_manager| {});
+        assert!(
+            parent.borrow().is_hidden(),
+            "hide-parent must take effect after the outstanding borrow drains"
+        );
+        with_window_manager(|manager| {
+            manager.destroy_all_windows();
+            manager.update();
+        });
     });
 }
 
 #[test]
 fn hide_and_enable_during_callback_do_not_panic() {
-    let _lock = lock_test_mouse();
-    let parent = with_window_manager(|manager| {
-        manager.destroy_all_windows();
-        manager.update();
-        let parent = manager.create_window(None, 0, 0, 100, 100).unwrap();
-        let _child = manager
-            .create_window(Some(&parent), 10, 10, 20, 20)
-            .unwrap();
-        parent
-    });
-    let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        with_window_manager(|_manager| {
-            parent.borrow_mut().enable(false).unwrap();
-            parent.borrow_mut().hide(true).unwrap();
-            parent.borrow_mut().enable(true).unwrap();
-            parent.borrow_mut().hide(false).unwrap();
+    let owner = crate::gui::window_manager::WindowManagerOwner::new();
+    owner.with_scope(|| {
+        let _lock = lock_test_mouse();
+        let parent = with_window_manager(|manager| {
+            manager.destroy_all_windows();
+            manager.update();
+            let parent = manager.create_window(None, 0, 0, 100, 100).unwrap();
+            let _child = manager
+                .create_window(Some(&parent), 10, 10, 20, 20)
+                .unwrap();
+            parent
         });
-    }));
-    assert!(
-        panicked.is_ok(),
-        "enable/hide during with_window_manager must not panic"
-    );
-    assert!(!parent.borrow().is_hidden());
-    with_window_manager(|manager| {
-        manager.destroy_all_windows();
-        manager.update();
+        let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            with_window_manager(|_manager| {
+                parent.borrow_mut().enable(false).unwrap();
+                parent.borrow_mut().hide(true).unwrap();
+                parent.borrow_mut().enable(true).unwrap();
+                parent.borrow_mut().hide(false).unwrap();
+            });
+        }));
+        assert!(
+            panicked.is_ok(),
+            "enable/hide during with_window_manager must not panic"
+        );
+        assert!(!parent.borrow().is_hidden());
+        with_window_manager(|manager| {
+            manager.destroy_all_windows();
+            manager.update();
+        });
     });
 }
 
 #[test]
 fn nested_create_and_focus_queue_instead_of_fail_closed_noop() {
-    let _lock = lock_test_mouse();
-    let created = Rc::new(Cell::new(false));
-    let created_flag = Rc::clone(&created);
-    with_window_manager(|manager| {
-        manager.destroy_all_windows();
-        manager.update();
-        let window = manager.create_window(None, 0, 0, 80, 24).unwrap();
-        window
-            .borrow_mut()
-            .set_system_callback(|_, msg, data1, data2| match msg {
-                WindowMessage::InputFocus if data1 != 0 => {
-                    write_input_focus_response(data1, data2, true)
-                }
-                _ => WindowMsgHandled::Ignored,
-            });
-        queue_set_focus(window);
-        queue_create_layout("Menus/DoesNotNeedToExistForQueue.wnd");
-        created_flag.set(true);
-        assert_eq!(
-            with_window_manager(|_m| true),
-            false,
-            "valued re-entry still fail-closes; create/focus must use queue"
-        );
-    });
-    assert!(created.get());
-    with_window_manager(|manager| {
-        // Queued set_focus flushed when the outer borrow ended.
-        assert!(manager.get_focus().is_some());
-        manager.destroy_all_windows();
-        manager.update();
+    let owner = crate::gui::window_manager::WindowManagerOwner::new();
+    owner.with_scope(|| {
+        let _lock = lock_test_mouse();
+        let created = Rc::new(Cell::new(false));
+        let created_flag = Rc::clone(&created);
+        with_window_manager(|manager| {
+            manager.destroy_all_windows();
+            manager.update();
+            let window = manager.create_window(None, 0, 0, 80, 24).unwrap();
+            window
+                .borrow_mut()
+                .set_system_callback(|_, msg, data1, data2| match msg {
+                    WindowMessage::InputFocus if data1 != 0 => {
+                        write_input_focus_response(data1, data2, true)
+                    }
+                    _ => WindowMsgHandled::Ignored,
+                });
+            queue_set_focus(window);
+            queue_create_layout("Menus/DoesNotNeedToExistForQueue.wnd");
+            created_flag.set(true);
+            assert_eq!(
+                with_window_manager(|_m| true),
+                false,
+                "valued re-entry still fail-closes; create/focus must use queue"
+            );
+        });
+        assert!(created.get());
+        with_window_manager(|manager| {
+            // Queued set_focus flushed when the outer borrow ended.
+            assert!(manager.get_focus().is_some());
+            manager.destroy_all_windows();
+            manager.update();
+        });
     });
 }
 
 #[test]
 fn reentrant_with_window_manager_value_is_fail_closed() {
-    let _lock = lock_test_mouse();
-    let result = with_window_manager(|manager| {
-        manager.destroy_all_windows();
-        with_window_manager(|_manager| true)
-    });
-    assert!(
-        !result,
-        "non-unit re-entry must fail-closed (bool default = false) without aliasing"
-    );
-    let found =
-        with_window_manager(|manager| with_window_manager(|manager| manager.get_window_by_id(1)));
-    assert!(found.is_none());
-    with_window_manager(|manager| {
-        manager.destroy_all_windows();
+    let owner = crate::gui::window_manager::WindowManagerOwner::new();
+    owner.with_scope(|| {
+        let _lock = lock_test_mouse();
+        let result = with_window_manager(|manager| {
+            manager.destroy_all_windows();
+            with_window_manager(|_manager| true)
+        });
+        assert!(
+            !result,
+            "non-unit re-entry must fail-closed (bool default = false) without aliasing"
+        );
+        let found = with_window_manager(|manager| {
+            with_window_manager(|manager| manager.get_window_by_id(1))
+        });
+        assert!(found.is_none());
+        with_window_manager(|manager| {
+            manager.destroy_all_windows();
+        });
     });
 }
 
 #[test]
 fn reentrant_with_window_manager_ref_is_fail_closed_without_alias() {
-    let _lock = lock_test_mouse();
-    with_window_manager(|manager| {
-        manager.destroy_all_windows();
-        let _ = manager.create_window(None, 0, 0, 10, 10).unwrap();
-        let count = with_window_manager_ref(|manager| manager.root_window_count());
-        assert_eq!(
-            count, 0,
-            "shared re-entry while mutably borrowed uses the empty fail-closed snapshot"
-        );
-        assert_eq!(manager.root_window_count(), 1);
-        manager.destroy_all_windows();
+    let owner = crate::gui::window_manager::WindowManagerOwner::new();
+    owner.with_scope(|| {
+        let _lock = lock_test_mouse();
+        with_window_manager(|manager| {
+            manager.destroy_all_windows();
+            let _ = manager.create_window(None, 0, 0, 10, 10).unwrap();
+            let count = with_window_manager_ref(|manager| manager.root_window_count());
+            assert_eq!(
+                count, 0,
+                "shared re-entry while mutably borrowed uses the empty fail-closed snapshot"
+            );
+            assert_eq!(manager.root_window_count(), 1);
+            manager.destroy_all_windows();
+        });
     });
 }
 
@@ -2878,51 +2933,54 @@ fn layout_load_adds_only_top_level_windows_like_cpp() {
 
 #[test]
 fn combo_field_click_opens_list_and_claims_lone_window() {
-    let _lock = lock_test_mouse();
-    let combo = with_window_manager(|manager| {
-        manager.reset();
-        let layout = Rc::new(RefCell::new(WindowLayout::new("test.wnd".to_string())));
-        let layout_def = WindowLayoutDefinition::default();
-        let mut info = WindowLayoutInfo::default();
-        let combo_def = WindowDefinition {
-            name: "test.wnd:Combo".to_string(),
-            window_type: "COMBOBOX".to_string(),
-            status: WindowStatus::ENABLED,
-            style: GWS_COMBO_BOX,
-            size: (120, 20),
-            combo_box_data: Some(ComboBoxData {
-                is_editable: false,
-                max_display: 5,
-                ..Default::default()
-            }),
-            ..WindowDefinition::default()
-        };
-        let combo = manager
-            .create_window_from_definition(&combo_def, None, &layout, &layout_def, &mut info)
-            .unwrap();
-        let _ = with_payload(WindowMsgPayload::Text("Alpha".to_string()), |token| {
+    let owner = crate::gui::window_manager::WindowManagerOwner::new();
+    owner.with_scope(|| {
+        let _lock = lock_test_mouse();
+        let combo = with_window_manager(|manager| {
+            manager.reset();
+            let layout = Rc::new(RefCell::new(WindowLayout::new("test.wnd".to_string())));
+            let layout_def = WindowLayoutDefinition::default();
+            let mut info = WindowLayoutInfo::default();
+            let combo_def = WindowDefinition {
+                name: "test.wnd:Combo".to_string(),
+                window_type: "COMBOBOX".to_string(),
+                status: WindowStatus::ENABLED,
+                style: GWS_COMBO_BOX,
+                size: (120, 20),
+                combo_box_data: Some(ComboBoxData {
+                    is_editable: false,
+                    max_display: 5,
+                    ..Default::default()
+                }),
+                ..WindowDefinition::default()
+            };
+            let combo = manager
+                .create_window_from_definition(&combo_def, None, &layout, &layout_def, &mut info)
+                .unwrap();
+            let _ = with_payload(WindowMsgPayload::Text("Alpha".to_string()), |token| {
+                combo
+                    .borrow_mut()
+                    .send_system_message(WindowMessage::User(GCM_ADD_ENTRY), token, 0)
+            });
+            let packed = 10usize | (10usize << 16);
+            let _ = manager.process_mouse_event(WindowMessage::LeftUp, 10, 10, packed);
             combo
-                .borrow_mut()
-                .send_system_message(WindowMessage::User(GCM_ADD_ENTRY), token, 0)
         });
-        let packed = 10usize | (10usize << 16);
-        let _ = manager.process_mouse_event(WindowMessage::LeftUp, 10, 10, packed);
-        combo
-    });
 
-    let links = combo.borrow().combobox_links().unwrap();
-    let list = combo.borrow().find_child_by_id(links.list_box).unwrap();
-    assert!(
-        !list.borrow().is_hidden(),
-        "combo field click must unhide the child list"
-    );
-
-    with_window_manager(|manager| {
-        let lone = manager.lone_window.as_ref().and_then(|w| w.upgrade());
+        let links = combo.borrow().combobox_links().unwrap();
+        let list = combo.borrow().find_child_by_id(links.list_box).unwrap();
         assert!(
-            lone.is_some_and(|window| Rc::ptr_eq(&window, &combo)),
-            "opening a combo must claim the lone window"
+            !list.borrow().is_hidden(),
+            "combo field click must unhide the child list"
         );
-        manager.reset();
+
+        with_window_manager(|manager| {
+            let lone = manager.lone_window.as_ref().and_then(|w| w.upgrade());
+            assert!(
+                lone.is_some_and(|window| Rc::ptr_eq(&window, &combo)),
+                "opening a combo must claim the lone window"
+            );
+            manager.reset();
+        });
     });
 }

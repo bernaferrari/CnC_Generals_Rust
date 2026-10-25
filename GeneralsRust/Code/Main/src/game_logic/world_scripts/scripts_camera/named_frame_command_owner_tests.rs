@@ -35,7 +35,7 @@ fn timed_named_guard_and_idle_keep_group_and_mutate_only_the_driving_ai() {
         "NamedUnit",
     );
     let object = owner.host_object(unit).unwrap();
-    assert_eq!(object.ai_state, AIState::Idle);
+    assert_eq!(object.ai_state(), AIState::Idle);
     assert_eq!(object.formation_id, 19);
     assert_eq!(
         object.jet_ai.cur_locomotor_set.as_deref(),

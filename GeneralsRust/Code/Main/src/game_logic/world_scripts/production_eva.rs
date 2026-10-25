@@ -1215,33 +1215,45 @@ impl GameLogic {
         }
     }
 
-    pub fn notify_structure_construction_complete(&mut self, structure_id: ObjectId) {
-        self.notify_structure_construction_complete_with_prepared_observer(structure_id, |_, _| {});
+    pub fn notify_structure_construction_complete(
+        &mut self,
+        structure_id: ObjectId,
+    ) -> gamelogic::GameLogicResult<()> {
+        self.notify_structure_construction_complete_with_prepared_observer(
+            structure_id,
+            |_, _| {},
+        )?;
+
+        Ok(())
     }
 
     pub(crate) fn notify_structure_construction_complete_with_prepared_observer(
         &mut self,
         structure_id: ObjectId,
         observe_prepared: impl FnMut(&GameLogic, ObjectId),
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         self.finish_structure_construction(
             structure_id,
             None,
             observe_prepared,
             &mut Default::default(),
-        );
+        )?;
+
+        Ok(())
     }
 
     pub(crate) fn notify_structure_construction_complete_with_interpreter(
         &mut self,
         structure_id: ObjectId,
         interpreter: &gamelogic::scripting::engine::ScriptEngine,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         self.notify_structure_construction_complete_with_effects(
             structure_id,
             Some(interpreter),
             &mut Default::default(),
-        );
+        )?;
+
+        Ok(())
     }
 
     pub(crate) fn notify_structure_construction_complete_with_effects(
@@ -1249,8 +1261,10 @@ impl GameLogic {
         structure_id: ObjectId,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
-        self.finish_structure_construction(structure_id, interpreter, |_, _| {}, ui);
+    ) -> gamelogic::GameLogicResult<()> {
+        self.finish_structure_construction(structure_id, interpreter, |_, _| {}, ui)?;
+
+        Ok(())
     }
     // Explicit UI-only adapter for standalone callers; native roots lend both domains.
     pub(crate) fn notify_structure_construction_complete_with_ui(
@@ -1258,7 +1272,7 @@ impl GameLogic {
         structure_id: ObjectId,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         ui: &mut Option<&mut dyn crate::game_logic::ScriptUiEffects>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         let mut effects = crate::game_logic::ScriptPresentationEffects {
             script_events: None,
             partition: None,
@@ -1269,151 +1283,27 @@ impl GameLogic {
                 .map(|ui| &mut **ui as &mut dyn crate::game_logic::ScriptUiEffects),
             view: None,
         };
-        self.notify_structure_construction_complete_with_effects(
+        Ok(self.notify_structure_construction_complete_with_effects(
             structure_id,
             interpreter,
             &mut effects,
-        )
+        )?)
     }
 
     fn finish_structure_construction(
         &mut self,
         structure_id: ObjectId,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
-        mut observe_prepared: impl FnMut(&GameLogic, ObjectId),
-        ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
-        if self
-            .objects
-            .get(&structure_id)
-            .is_some_and(|object| object.construction_power_admitted)
-        {
-            return;
-        }
-        let owner_and_rebuild = self.objects.get(&structure_id).and_then(|object| {
-            self.player_owner_for_host_object(object)
-                .map(|owner| (owner, object.status.reconstructing))
-        });
-        // Complete the inline status callback before model/player/Create callbacks.
-        let now = self.frame.max(1);
-        self.set_object_under_construction_with_effects(structure_id, false, ui);
-        let Some(obj) = self.objects.get_mut(&structure_id) else {
-            return;
-        };
-        obj.status.reconstructing = false;
-        obj.clear_under_construction_model_conditions();
-        obj.construction_percent = 1.0;
-        // Setting COMPLETE refreshes damage visuals from canonical body HP,
-        // after construction model flags have been cleared (CPP544-559).
-        obj.set_construction_complete_condition_at(now);
-        let team = obj.team;
-        let pos = obj.get_position();
-        let name = obj.template_name.clone();
-        observe_prepared(self, structure_id);
-        if let Some((owner, rebuilding)) = owner_and_rebuild {
-            self.complete_owned_structure_player_with_effects(
-                structure_id,
-                owner,
-                rebuilding,
-                interpreter,
-                ui,
-            );
-        }
-        // DozerAIUpdate: owning Academy observes completed Player/AI effects
-        // before any CreateModule callback. Re-resolve after synchronous scripts.
-        if let Some(object) = self.objects.get(&structure_id) {
-            let mask =
-                crate::game_logic::host_radar_stealth_vision_residual::live_object_kind_of_cpp_mask(
-                    object.thing().template.kind_of.iter(),
-                );
-            let tunnel = object.is_tunnel_network;
-            if let Some(owner) = self.player_owner_for_host_object(object) {
-                if let Some(player) = self.players.get_mut(&owner) {
-                    player
-                        .academy_stats
-                        .record_production_at(mask, tunnel, self.frame);
-                }
-            }
-        }
-        let Some(obj) = self.objects.get_mut(&structure_id) else {
-            return;
-        };
-        // C++ SpecialPowerModule ctor (SpecialPowerModule.cpp:88-94) skips
-        // startPowerRecharge while UNDER_CONSTRUCTION; construction completion
-        // resolves that skip, so non-SharedNSync, non-StartsPaused modules
-        // begin their authored ReloadTime countdown here.
-        let arm_recharge: Vec<(crate::command_system::SpecialPowerType, u32)> = obj
-            .thing()
-            .template
-            .special_power_modules
-            .iter()
-            .filter(|module| !module.starts_paused && !module.shared_n_sync)
-            .filter_map(|module| {
-                module
-                    .command_power
-                    .clone()
-                    .map(|power| (power, module.reload_time_frames))
-            })
-            .collect();
-        for (power, frames) in arm_recharge {
-            obj.start_power_recharge_with_frames(&power, frames);
-        }
-        // C++ CreateModules onBuildComplete (Preorder/GrantUpgrade/LockWeapon/SP/Supply).
-        self.apply_create_modules_on_build_complete_with_effects(structure_id, interpreter, ui);
-        if let Some(object) = self.objects.get_mut(&structure_id) {
-            object.handle_partition_cell_maintenance_with_partition_owner(
-                &mut self.partition_manager,
-            );
-            object.stamp_partition_value_threat_with_partition_owner(&mut self.partition_manager);
-        }
-        // C++ Object::updateUpgradeModules after UNDER_CONSTRUCTION clears
-        // (DozerAIUpdate.cpp:539-591 / Object.cpp:2410-2438).
-        self.apply_researched_player_upgrades_to_object_with_interpreter(
+        observe_prepared: impl FnMut(&GameLogic, ObjectId),
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<()> {
+        self.finish_structure_construction_from_builder(
             structure_id,
+            None,
             interpreter,
-            ui,
-        );
-        let local = self
-            .players
-            .values()
-            .any(|p| p.is_local && p.is_alive && p.team == team);
-        if !local {
-            self.structure_complete_events = self.structure_complete_events.saturating_add(1);
-            return;
-        }
-        // C++ DozerAIUpdate complete residual: DOZER:ConstructionComplete +
-        // VoiceTaskComplete on dozer + RADAR_EVENT_CONSTRUCTION.
-        let msg = localization::localize(
-            "DOZER:ConstructionComplete",
-            &format!("Construction complete: {name}"),
-        );
-        self.queue_radar_message_at(msg, pos, radar_notifications::RadarKind::Generic);
-        self.host_create_radar_event(
-            pos,
-            game_engine::common::system::radar::RadarEventType::Construction,
-        );
-        self.radar_construction_events = self.radar_construction_events.saturating_add(1);
-        // C++ DozerAIUpdate.cpp:597-617 — local dozer getVoiceTaskComplete only.
-        // Never the slot token or invented BuildingComplete.
-        let dozer = self.objects.registered().find(|(_, o)| {
-            o.team == team
-                && o.is_alive()
-                && o.can_construct()
-                && o.get_position().distance(pos) <= 80.0
-        });
-        if let Some((&did, obj)) = dozer {
-            let dpos = obj.get_position();
-            let tmpl = obj.template_name.clone();
-            if let Some(event) = resolve_dozer_voice_task_complete(&tmpl) {
-                self.queue_audio_event(
-                    AudioEventRequest::new(&event)
-                        .with_object(did)
-                        .with_position(dpos)
-                        .with_priority(155),
-                );
-            }
-        }
-        self.structure_complete_events = self.structure_complete_events.saturating_add(1);
+            observe_prepared,
+            effects,
+        )
     }
 
     /// C++ unit production complete residual: VoiceCreated + UnitReady radar for local.
@@ -1422,13 +1312,14 @@ impl GameLogic {
         unit_id: ObjectId,
         producer_id: ObjectId,
         template_name: &str,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         self.notify_unit_production_complete_with_build_complete(
             unit_id,
             producer_id,
             template_name,
-            Self::apply_create_modules_on_build_complete,
-        );
+            &mut Default::default(),
+            |world, id, _effects| Self::apply_create_modules_on_build_complete(world, id),
+        )
     }
 
     /// Synchronous domain callback seam: production owns delivery ordering,
@@ -1438,19 +1329,25 @@ impl GameLogic {
         unit_id: ObjectId,
         producer_id: ObjectId,
         template_name: &str,
-        on_build_complete: impl FnOnce(&mut Self, ObjectId),
-    ) {
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+        on_build_complete: impl FnOnce(
+            &mut Self,
+            ObjectId,
+            &mut crate::game_logic::ScriptPresentationEffects<'_>,
+        ),
+    ) -> gamelogic::GameLogicResult<()> {
         if !self.objects.contains_key(&unit_id) {
-            return;
+            return Ok(());
         }
         self.notify_unit_production_presentation(unit_id, template_name);
         // C++ Player::onUnitCreated (ProductionUpdate.cpp:815) completes
         // this match's AI work order before authored Create callbacks.
-        self.notify_owned_ai_unit_produced(producer_id, unit_id);
+        self.notify_owned_ai_unit_produced_with_effects(producer_id, unit_id, effects)?;
         // C++ ProductionUpdate.cpp:819-825 create onBuildComplete after spawn,
         // including SpecialPowerCreate::startPowerRecharge.
-        on_build_complete(self, unit_id);
+        on_build_complete(self, unit_id, effects);
         self.unit_ready_events = self.unit_ready_events.saturating_add(1);
+        Ok(())
     }
 
     /// Existing VoiceCreated presentation, independent of the two original
@@ -1506,67 +1403,6 @@ impl GameLogic {
         use crate::game_logic::host_enum_table_residual::actively_constructing_model_bit;
         let ac_mask = 1u128 << actively_constructing_model_bit();
         let mut updates = 0u32;
-        // C++ DozerAIUpdate.cpp:511/670: ACTIVELY_CONSTRUCTING only while AT the dock.
-        let dozer_ids: Vec<ObjectId> = self
-            .objects
-            .registered()
-            .filter(|(_, o)| {
-                o.is_alive()
-                    && o.can_construct()
-                    && matches!(o.ai_state, AIState::Constructing | AIState::Repairing)
-            })
-            .map(|(&id, _)| id)
-            .collect();
-        let mut dozer_at_site: std::collections::HashMap<ObjectId, bool> =
-            std::collections::HashMap::new();
-        for id in dozer_ids {
-            let Some((tid, repairing, pos, dozer_radius, airborne, stored_dock)) =
-                self.objects.get(&id).map(|o| {
-                    (
-                        o.target,
-                        matches!(o.ai_state, AIState::Repairing),
-                        o.get_position(),
-                        o.selection_radius,
-                        o.is_kind_of(KindOf::Aircraft) || o.status.airborne_target,
-                        o.dozer_dock_action,
-                    )
-                })
-            else {
-                continue;
-            };
-            let Some(tid) = tid else {
-                dozer_at_site.insert(id, false);
-                continue;
-            };
-            let Some((target_pos, target_radius)) = self
-                .objects
-                .get(&tid)
-                .map(|target| (target.get_position(), target.selection_radius))
-            else {
-                dozer_at_site.insert(id, false);
-                continue;
-            };
-            let at = if repairing {
-                let dock = self.find_good_build_or_repair_position(
-                    pos,
-                    target_pos,
-                    target_radius,
-                    airborne,
-                    airborne.then_some(tid),
-                    Some(id),
-                );
-                crate::game_logic::host_repair::dozer_within_action_dock(pos, dozer_radius, dock)
-            } else {
-                let goal = crate::game_logic::host_repair::resolve_dozer_action_dock(
-                    stored_dock,
-                    pos,
-                    target_pos,
-                    target_radius,
-                );
-                crate::game_logic::host_repair::dozer_within_action_dock(pos, dozer_radius, goal)
-            };
-            dozer_at_site.insert(id, at);
-        }
         // Only workers / producers / objects already carrying the bit — skip the
         // rest of Lone Eagle's ~900 decorative props each frame.
         let ids: Vec<ObjectId> = self
@@ -1587,9 +1423,10 @@ impl GameLogic {
             let Some(obj) = self.objects.get_mut(&id) else {
                 continue;
             };
-            let is_dozer_building = obj.can_construct()
-                && matches!(obj.ai_state, AIState::Constructing | AIState::Repairing)
-                && dozer_at_site.get(&id).copied().unwrap_or(false);
+            use gamelogic::object::update::ai_update::dozer_ai_update::{DozerBuildSubTask, DozerTask};
+            let is_dozer_building = (obj.dozer_tasks.action_is_running(DozerTask::Build)
+                && obj.dozer_tasks.build_sub_task == DozerBuildSubTask::DoBuildAtDock)
+                || obj.dozer_tasks.action_is_running(DozerTask::Repair);
             let is_producing = obj
                 .building_data
                 .as_ref()
@@ -2210,3 +2047,214 @@ mod tests {
 #[cfg(test)]
 #[path = "construction_ui_tests.rs"]
 mod construction_ui_tests;
+
+impl GameLogic {
+    fn finish_structure_construction_from_builder(
+        &mut self,
+        structure_id: ObjectId,
+        source_builder: Option<ObjectId>,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+        mut observe_prepared: impl FnMut(&GameLogic, ObjectId),
+        ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<()> {
+        if self
+            .objects
+            .get(&structure_id)
+            .is_some_and(|object| object.construction_power_admitted)
+        {
+            return Ok(());
+        }
+        let Some(object) = self.objects.get(&structure_id) else {
+            return Ok(());
+        };
+        let birth = std::sync::Arc::clone(&object.visual_draw_identity_token);
+        let builder = source_builder.or(object.builder_id).and_then(|id| {
+            self.objects
+                .get(&id)
+                .map(|actor| (id, std::sync::Arc::clone(&actor.visual_draw_identity_token)))
+        });
+        if source_builder.is_some() && builder.is_none() {
+            return Err(gamelogic::GameLogicError::Configuration(
+                "Construction builder missing before callbacks".into(),
+            ));
+        }
+        let stable = |world: &GameLogic| -> gamelogic::GameLogicResult<()> {
+            if !world.objects.get(&structure_id).is_some_and(|object| {
+                std::sync::Arc::ptr_eq(&birth, &object.visual_draw_identity_token)
+            }) || builder.as_ref().is_some_and(|(id, birth)| {
+                !world.objects.get(id).is_some_and(|actor| {
+                    std::sync::Arc::ptr_eq(birth, &actor.visual_draw_identity_token)
+                })
+            }) {
+                return Err(gamelogic::GameLogicError::Configuration(
+                    "Construction lifetime changed during completion callbacks".into(),
+                ));
+            }
+            Ok(())
+        };
+        // Complete the inline status callback before model/player/Create callbacks.
+        let now = self.frame.max(1);
+        self.set_object_under_construction_with_effects(structure_id, false, ui);
+        stable(self)?;
+        if let Some(object) = self.objects.get_mut(&structure_id) {
+            object.status.reconstructing = false;
+        }
+        self.finish_building_sound(structure_id); // CPP539-548 before construction model clear
+        let Some(obj) = self.objects.get_mut(&structure_id) else {
+            return Ok(());
+        };
+        obj.status.reconstructing = false;
+        obj.clear_under_construction_model_conditions();
+        obj.construction_percent = 1.0;
+        // Setting COMPLETE refreshes damage visuals from canonical body HP,
+        // after construction model flags have been cleared (CPP544-559).
+        obj.set_construction_complete_condition_at(now);
+        observe_prepared(self, structure_id);
+        let rebuilding = builder
+            .as_ref()
+            .and_then(|(id, _)| self.objects.get(id))
+            .is_some_and(|actor| actor.dozer_tasks.construct_is_rebuild);
+        let owner_and_rebuild = self
+            .objects
+            .get(&structure_id)
+            .and_then(|object| object.owner_player_id)
+            .map(|owner| (owner, rebuilding));
+        if let Some((owner, rebuilding)) = owner_and_rebuild {
+            self.complete_owned_structure_player_with_effects(
+                structure_id,
+                owner,
+                rebuilding,
+                interpreter,
+                ui,
+            );
+            stable(self)?;
+        }
+        // DozerAIUpdate: owning Academy observes completed Player/AI effects
+        // before any CreateModule callback. Re-resolve after synchronous scripts.
+        if let Some((owner, _)) = owner_and_rebuild {
+            if let Some(object) = self.objects.get(&structure_id) {
+                let mask =
+                    crate::game_logic::host_radar_stealth_vision_residual::live_object_kind_of_cpp_mask(
+                        object.thing().template.kind_of.iter(),
+                    );
+                let tunnel = object.is_tunnel_network;
+                if let Some(player) = self.players.get_mut(&owner) {
+                    player
+                        .academy_stats
+                        .record_production_at(mask, tunnel, self.frame);
+                }
+            }
+        }
+        if owner_and_rebuild.is_some() {
+            let Some(obj) = self.objects.get_mut(&structure_id) else {
+                return Ok(());
+            };
+            // C++ SpecialPowerModule ctor (SpecialPowerModule.cpp:88-94) skips
+            // startPowerRecharge while UNDER_CONSTRUCTION; construction completion
+            // resolves that skip, so non-SharedNSync, non-StartsPaused modules
+            // begin their authored ReloadTime countdown here.
+            let arm_recharge: Vec<(crate::command_system::SpecialPowerType, u32)> = obj
+                .thing()
+                .template
+                .special_power_modules
+                .iter()
+                .filter(|module| !module.starts_paused && !module.shared_n_sync)
+                .filter_map(|module| {
+                    module
+                        .command_power
+                        .clone()
+                        .map(|power| (power, module.reload_time_frames))
+                })
+                .collect();
+            for (power, frames) in arm_recharge {
+                obj.start_power_recharge_with_frames(&power, frames);
+            }
+            // C++ CreateModules onBuildComplete (Preorder/GrantUpgrade/LockWeapon/SP/Supply).
+            self.apply_create_modules_on_build_complete_with_effects_checked(
+                structure_id,
+                interpreter,
+                ui,
+            )?;
+            stable(self)?;
+        }
+        if let Some(object) = self.objects.get_mut(&structure_id) {
+            object.handle_partition_cell_maintenance_with_partition_owner(
+                &mut self.partition_manager,
+            );
+            object.stamp_partition_value_threat_with_partition_owner(&mut self.partition_manager);
+        }
+        // C++ Object::updateUpgradeModules after UNDER_CONSTRUCTION clears
+        // (DozerAIUpdate.cpp:539-591 / Object.cpp:2410-2438).
+        self.apply_researched_player_upgrades_to_object_with_interpreter(
+            structure_id,
+            interpreter,
+            ui,
+        );
+        stable(self)?;
+        let object = self
+            .objects
+            .get(&structure_id)
+            .expect("validated completion birth");
+        let (team, pos, name) = (
+            object.team,
+            object.get_position(),
+            object.template_name.clone(),
+        );
+        let local = builder
+            .as_ref()
+            .map(|(id, _)| self.is_object_locally_controlled(*id))
+            .unwrap_or_else(|| {
+                self.players
+                    .values()
+                    .any(|p| p.is_local && p.is_alive && p.team == team)
+            });
+        if !local {
+            self.structure_complete_events = self.structure_complete_events.saturating_add(1);
+            return Ok(());
+        }
+        // C++ DozerAIUpdate complete residual: DOZER:ConstructionComplete +
+        // VoiceTaskComplete on dozer + RADAR_EVENT_CONSTRUCTION.
+        let msg = localization::localize(
+            "DOZER:ConstructionComplete",
+            &format!("Construction complete: {name}"),
+        );
+        self.queue_radar_message_at(msg, pos, radar_notifications::RadarKind::Generic);
+        // CPP607 VoiceTaskComplete belongs to this exact builder, never a proximity scan.
+        if let Some((did, _)) = builder.as_ref() {
+            if let Some(object) = self.objects.get(did) {
+                let (pos, name) = (object.get_position(), object.template_name.clone());
+                if let Some(event) = resolve_dozer_voice_task_complete(&name) {
+                    self.queue_audio_event(
+                        AudioEventRequest::new(&event)
+                            .with_object(*did)
+                            .with_position(pos)
+                            .with_priority(155),
+                    );
+                }
+            }
+        }
+        self.host_create_radar_event(
+            pos,
+            game_engine::common::system::radar::RadarEventType::Construction,
+        );
+        self.radar_construction_events = self.radar_construction_events.saturating_add(1);
+        self.structure_complete_events = self.structure_complete_events.saturating_add(1);
+
+        Ok(())
+    }
+
+    pub(in crate::game_logic) fn notify_structure_construction_complete_from_builder_with_effects(
+        &mut self,
+        structure_id: ObjectId,
+        builder: ObjectId,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<()> {
+        self.finish_structure_construction_from_builder(
+            structure_id,
+            Some(builder),
+            None,
+            |_, _| {},
+            effects,
+        )
+    }
+}

@@ -189,7 +189,7 @@ fn construct_and_produce(world: &mut GameLogic, dozer: ObjectId) -> (ObjectId, O
             assert_eq!(producer_id, Some(barracks));
             for _ in 0..240 {
                 let unit = world.host_object(unit_id).unwrap();
-                if unit.ai_state == AIState::Idle && !unit.status.moving {
+                if unit.ai_state() == AIState::Idle && !unit.status.moving {
                     assert_eq!(unit.ignored_obstacle_id, None);
                     assert!(!unit.can_path_through_units);
                     return (barracks, unit_id);
@@ -216,7 +216,7 @@ fn connected_construction_movement_combat_save_continues_without_peer_interferen
         },
     );
     let moving = source.host_object(unit).unwrap();
-    assert_eq!(moving.ai_state, AIState::Moving);
+    assert_eq!(moving.ai_state(), AIState::Moving);
     assert!(moving.status.moving);
     let admitted_goal = *moving.movement.path.last().expect("actual admitted path");
     let arrival_band = moving
@@ -251,7 +251,7 @@ fn connected_construction_movement_combat_save_continues_without_peer_interferen
         );
     }
     let arrived = source.host_object(unit).unwrap();
-    assert_eq!(arrived.ai_state, AIState::Idle);
+    assert_eq!(arrived.ai_state(), AIState::Idle);
     assert!(!arrived.status.moving);
     assert!(
         arrived.get_position().distance(admitted_goal) < arrival_band,
@@ -293,14 +293,14 @@ fn connected_construction_movement_combat_save_continues_without_peer_interferen
             "saved combat must continue at the same observation phase: frame={} source={:?} receiver={:?}",
             source.frame,
             source.host_object(unit).map(|o| (
-                &o.attack_substate,
+                &o.attack_substate(),
                 o.status.is_aiming_weapon,
                 o.status.is_firing_weapon,
                 o.fire_intent_count,
                 &o.weapon
             )),
             receiver.host_object(unit).map(|o| (
-                &o.attack_substate,
+                &o.attack_substate(),
                 o.status.is_aiming_weapon,
                 o.status.is_firing_weapon,
                 o.fire_intent_count,
@@ -317,7 +317,7 @@ fn connected_construction_movement_combat_save_continues_without_peer_interferen
         witnessed_damage,
         "actual attack must reach damage: actor={:?} target={:?}",
         source.host_object(unit).map(|o| (
-            &o.ai_state,
+            &o.ai_state(),
             o.target,
             o.fire_intent_count,
             o.last_fire_damage,
@@ -325,7 +325,7 @@ fn connected_construction_movement_combat_save_continues_without_peer_interferen
         )),
         source
             .host_object(target)
-            .map(|o| (o.health.current, &o.ai_state, o.owner_player_id)),
+            .map(|o| (o.health.current, &o.ai_state(), o.owner_player_id)),
     );
     assert!(
         source

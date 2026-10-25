@@ -228,7 +228,7 @@ impl Object {
             if !self.is_kind_of(KindOf::Structure) {
                 self.set_status_moving(false);
                 self.stop_moving(audio);
-                if self.ai_state != AIState::Idle {
+                if self.ai_state() != AIState::Idle {
                     self.set_ai_state(AIState::Idle, audio);
                 }
             }
@@ -288,7 +288,7 @@ impl Object {
         self.target = None;
         self.target_location = None;
         self.set_status_force_attack(false);
-        if self.ai_state != AIState::Idle {
+        if self.ai_state() != AIState::Idle {
             self.set_ai_state(AIState::Idle, audio);
         }
         // C++ TheGameLogic->deselectObject(obj, PLAYERMASK_ALL, TRUE).
@@ -378,7 +378,7 @@ impl Object {
         self.target = None;
         self.target_location = None;
         self.set_status_force_attack(false);
-        if self.ai_state != AIState::Idle {
+        if self.ai_state() != AIState::Idle {
             self.set_ai_state(AIState::Idle, audio);
         }
         self.set_team_and_owner_with_partition_context(
@@ -839,7 +839,7 @@ impl Object {
         self.target = None;
         self.target_location = None;
         self.set_status_force_attack(false);
-        if self.ai_state != AIState::Idle {
+        if self.ai_state() != AIState::Idle {
             self.set_ai_state(AIState::Idle, audio);
         }
         // C++ setDisabledUntil: KINDOF_SPAWNS_ARE_THE_WEAPONS orderSlavesDisabledUntil.
@@ -898,7 +898,7 @@ impl Object {
         self.target = None;
         self.target_location = None;
         self.set_status_force_attack(false);
-        if self.ai_state != AIState::Idle {
+        if self.ai_state() != AIState::Idle {
             self.set_ai_state(AIState::Idle, audio);
         }
         if becoming {
@@ -948,7 +948,7 @@ impl Object {
         self.target = None;
         self.target_location = None;
         self.set_status_force_attack(false);
-        if self.ai_state != AIState::Idle {
+        if self.ai_state() != AIState::Idle {
             self.set_ai_state(AIState::Idle, audio);
         }
         if becoming {

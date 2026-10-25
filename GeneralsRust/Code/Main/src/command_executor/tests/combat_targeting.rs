@@ -30,7 +30,7 @@ fn attack_move_sets_is_attack_path_flag() {
     }
     let u = logic.host_object(id).unwrap();
     assert!(!u.is_attack_path);
-    assert_eq!(u.ai_state, AIState::AttackMoving);
+    assert_eq!(u.ai_state(), AIState::AttackMoving);
 }
 
 #[test]
@@ -166,7 +166,7 @@ fn do_command_button_dispatches_stop() {
     assert!(
         matches!(u.ai_state, AIState::Idle) || u.target.is_none() || !u.status.moving,
         "stop should clear action state={:?} target={:?}",
-        u.ai_state,
+        u.ai_state(),
         u.target
     );
 }
@@ -279,7 +279,7 @@ fn attack_team_engages_member_of_team() {
             ),
         "target={:?} state={:?}",
         unit.target,
-        unit.ai_state
+        unit.ai_state()
     );
     assert_eq!(unit.max_shots_to_fire, -1);
     assert_eq!(
@@ -398,9 +398,7 @@ fn move_to_releases_temporary_but_not_permanent_weapon_lock() {
 fn do_weapon_locks_the_requested_secondary_slot_before_targeting() {
     use super::CommandExecutor;
     use crate::command_system::{CommandResult, WeaponSlot, WeaponTarget};
-    use crate::game_logic::{
-        AIState, GameLogic, KindOf, Team, ThingTemplate, Weapon, WeaponLockType,
-    };
+    use crate::game_logic::{AIState, GameLogic, KindOf, Team, ThingTemplate, Weapon, WeaponLockType};
     use glam::Vec3;
 
     let mut logic = GameLogic::new();
@@ -440,7 +438,7 @@ fn do_weapon_locks_the_requested_secondary_slot_before_targeting() {
     assert_eq!(unit.weapon_lock_type, WeaponLockType::LockedTemporarily);
     assert_eq!(unit.weapon_lock_slot, 1);
     assert_eq!(unit.target_location, Some(target));
-    assert_eq!(unit.ai_state, AIState::AttackingGround);
+    assert_eq!(unit.ai_state(), AIState::AttackingGround);
     assert_eq!(unit.max_shots_to_fire, 1);
 }
 
@@ -448,9 +446,7 @@ fn do_weapon_locks_the_requested_secondary_slot_before_targeting() {
 fn do_weapon_uses_the_real_tertiary_slot_without_secondary_aliasing() {
     use super::CommandExecutor;
     use crate::command_system::{CommandResult, WeaponSlot, WeaponTarget};
-    use crate::game_logic::{
-        GameLogic, KindOf, ObjectId, Team, ThingTemplate, Weapon, WeaponLockType,
-    };
+    use crate::game_logic::{GameLogic, KindOf, ObjectId, Team, ThingTemplate, Weapon, WeaponLockType};
     use glam::Vec3;
 
     let mut logic = GameLogic::new();
@@ -794,7 +790,7 @@ fn attack_area_engages_enemy_inside_radius() {
             ),
         "attack area should engage or path, target={:?} state={:?}",
         unit.target,
-        unit.ai_state
+        unit.ai_state()
     );
 }
 
@@ -925,7 +921,7 @@ fn move_to_and_evacuate_unloads_when_path_completes() {
     );
     let p = logic.host_object(pax).unwrap();
     assert!(p.contained_by.is_none());
-    assert_ne!(p.ai_state, crate::game_logic::AIState::Docked);
+    assert_ne!(p.ai_state(), crate::game_logic::AIState::Docked);
 }
 
 #[test]
@@ -946,7 +942,10 @@ fn evacuate_requires_container_not_passenger_only() {
         .unwrap();
     let mut exec = CommandExecutor::new(&mut logic, 0);
     // C++ groupEvacuate no-ops on non-containers without AI contain.
-    assert_eq!(exec.execute_evacuate(&[a]), CommandResult::InvalidCommand);
+    assert_eq!(
+        exec.execute_evacuate(&[a]).expect("evacuate command"),
+        CommandResult::InvalidCommand
+    );
 }
 
 // These are source contracts, so delimit the exact production methods rather
@@ -1118,7 +1117,7 @@ fn stop_delays_mood_for_unstealthed_stealth_unit() {
         let u = logic.host_object_mut(a).unwrap();
         u.innate_stealth = true;
         u.stealth_delay_frames = 45;
-        u.auto_acquire_when_idle = true;
+        u.set_auto_acquire_when_idle(true);
         u.status.stealthed = false;
         u.status.detected = false;
         u.next_mood_check_time = 0;
@@ -1130,7 +1129,7 @@ fn stop_delays_mood_for_unstealthed_stealth_unit() {
     let mut exec = CommandExecutor::new(&mut logic, 0);
     assert_eq!(exec.execute_stop(&[a]), CommandResult::Success);
     let u = logic.host_object(a).unwrap();
-    assert_eq!(u.ai_state, AIState::Idle);
+    assert_eq!(u.ai_state(), AIState::Idle);
     // now=100 + delay 45 + skew 0
     assert_eq!(
         u.next_mood_check_time, 145,
@@ -1356,8 +1355,11 @@ fn add_waypoint_breaks_off_attack() {
         u.target.is_none(),
         "queued waypoint must drop attack target"
     );
-    assert!(u.guard_target.is_none(), "queued waypoint must drop guard");
-    assert_eq!(u.ai_state, AIState::Moving);
+    assert!(
+        u.active_guard_target().is_none(),
+        "queued waypoint must drop guard"
+    );
+    assert_eq!(u.ai_state(), AIState::Moving);
     assert!(!u.status.attacking);
 }
 
@@ -1380,7 +1382,7 @@ fn move_delays_mood_for_unstealthed_stealth_unit() {
         let u = logic.host_object_mut(a).unwrap();
         u.innate_stealth = true;
         u.stealth_delay_frames = 30;
-        u.auto_acquire_when_idle = true;
+        u.set_auto_acquire_when_idle(true);
         u.status.stealthed = false;
         u.status.detected = false;
         u.next_mood_check_time = 0;
@@ -1765,10 +1767,10 @@ End
     assert_eq!(ferry.movement.path, original_path);
     assert_eq!(ferry.movement.target_position, original_target);
     assert_eq!(ferry.movement.current_path_index, 1);
-    assert_eq!(ferry.ai_state, AIState::Idle);
+    assert_eq!(ferry.ai_state(), AIState::Idle);
     let passenger = logic.host_object(rider).expect("passenger after rejection");
     assert_eq!(passenger.contained_by, Some(carrier));
-    assert_eq!(passenger.ai_state, AIState::Docked);
+    assert_eq!(passenger.ai_state(), AIState::Docked);
 }
 
 #[test]
@@ -1976,7 +1978,7 @@ fn attack_team_persist_never_bleeds_into_same_faction_team() {
             &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         unit.attack_priority_set = Some("AIGroup.AttackTeam.GLA_TargetSquad".into());
-        unit.auto_acquire_when_idle = true;
+        unit.set_auto_acquire_when_idle(true);
     }
 
     logic.host_object_mut(first).unwrap().health.current = 0.0;

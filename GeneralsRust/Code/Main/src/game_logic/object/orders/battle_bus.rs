@@ -226,7 +226,7 @@ impl Object {
             self.model_condition_bits |= 1u128 << BATTLE_BUS_MC_BIT_SECOND_LIFE;
             self.set_status_disabled_held(true);
             self.stop_moving(audio);
-            if self.ai_state != AIState::Idle {
+            if self.ai_state() != AIState::Idle {
                 self.set_ai_state(AIState::Idle, audio);
             }
             self.refresh_model_condition_bits();

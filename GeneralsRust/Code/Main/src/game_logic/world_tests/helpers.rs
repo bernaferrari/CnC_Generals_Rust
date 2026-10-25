@@ -821,7 +821,9 @@ pub(super) fn advance_disguise_halfpoint(game_logic: &mut GameLogic, ids: &[Obje
     use crate::game_logic::host_bomb_truck_disguise::BOMB_TRUCK_DISGUISE_TRANSITION_FRAMES;
     let frames = (BOMB_TRUCK_DISGUISE_TRANSITION_FRAMES / 2).saturating_add(1);
     for _ in 0..frames {
-        game_logic.update_ai(ids, 1.0 / 30.0);
+        game_logic
+            .update_ai(ids, 1.0 / 30.0)
+            .expect("receiving AI operation succeeds");
     }
 }
 
@@ -843,7 +845,9 @@ pub(super) fn advance_disguise_reveal_halfpoint(game_logic: &mut GameLogic, ids:
     use crate::game_logic::host_bomb_truck_disguise::BOMB_TRUCK_DISGUISE_REVEAL_TRANSITION_FRAMES;
     let frames = (BOMB_TRUCK_DISGUISE_REVEAL_TRANSITION_FRAMES / 2).saturating_add(1);
     for _ in 0..frames {
-        game_logic.update_ai(ids, 1.0 / 30.0);
+        game_logic
+            .update_ai(ids, 1.0 / 30.0)
+            .expect("receiving AI operation succeeds");
     }
 }
 

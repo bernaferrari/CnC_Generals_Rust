@@ -169,9 +169,7 @@ pub use window_manager::{
 pub use display_string::{
     DisplayString, DisplayStringHandle, DisplayStringManager, get_display_string_manager,
 };
-pub use font::{
-    FontData, FontDesc, FontError, FontLibrary, FontMetrics, GameFont, get_font_library,
-};
+pub use font::{FontData, FontDesc, FontError, FontLibrary, FontMetrics, GameFont, get_font_library};
 pub use header_template::{HeaderTemplate, HeaderTemplateManager, get_header_template_manager};
 
 // Re-export shell system types for convenience
@@ -192,8 +190,9 @@ pub use shell::{
     drive_os_wnd_start_campaign_like_cpp, drive_os_wnd_start_china_campaign_like_cpp,
     drive_os_wnd_start_gla_campaign_like_cpp, drive_os_wnd_start_usa_campaign_like_cpp, get_shell,
     last_os_wnd_widget_tree_click_ok, log_named_window_screen_rect, mark_host_match_start,
-    note_os_wnd_widget_tree_hit, notify_physical_main_menu_gadget_gbm_selected,
-    os_wnd_widget_tree_nav_ok, os_wnd_widget_under_cursor_name, queue_shell_hide,
+    note_os_wnd_widget_tree_hit, note_os_wnd_widget_tree_hit_for_owner,
+    notify_physical_main_menu_gadget_gbm_selected, os_wnd_widget_tree_nav_ok,
+    os_wnd_widget_under_cursor_name, os_wnd_widget_under_cursor_name_for_owner, queue_shell_hide,
     queue_shell_operation, queue_shell_pop, queue_shell_push, queue_shell_reverse_animate_window,
     queue_shell_show, queue_shell_shutdown_complete, queue_shell_window_animation,
     residual_last_campaign_difficulty, residual_shell_map_is_on, residual_shell_map_last_action,
@@ -334,9 +333,7 @@ pub use command_panel::{
 };
 
 // Re-export UI renderer types
-pub use ui_renderer::{
-    RenderStats, UIBlendMode, UIDrawCommand, UIRect, UIRenderer, UIRendererError,
-};
+pub use ui_renderer::{RenderStats, UIBlendMode, UIDrawCommand, UIRect, UIRenderer, UIRendererError};
 
 // Re-export integrated UI system types
 pub use integrated_ui_system::{

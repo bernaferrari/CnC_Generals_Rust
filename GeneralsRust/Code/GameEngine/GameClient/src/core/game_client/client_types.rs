@@ -23,6 +23,10 @@ pub const TRANSLATOR_ID_INVALID: TranslatorId = 0;
 /// The main GameClient struct - central hub for all client operations
 pub struct GameClient {
     // Core state
+    /// The single native WND tree owned for this client's lifetime.
+    window_manager_owner: crate::gui::window_manager::WindowManagerOwner,
+    /// C++ shell-game load-screen first-load latch for this receiving client.
+    shell_game_first_load: bool,
     frame: u32,
     owned_world_animations: OwnedWorldAnimations,
     /// DrawIconUI admitted from the driving Main session before native draw.

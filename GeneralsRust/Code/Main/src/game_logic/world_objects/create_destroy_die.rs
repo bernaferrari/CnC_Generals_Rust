@@ -21,6 +21,7 @@ enum FactoryCreationPurpose {
     ProductionExit,
     InstantLineBuild,
     OrdinaryConstruction,
+    Reconstruction,
 }
 
 /// Zero the continuous-fire ramp state when a template re-seeds base weapons.
@@ -445,7 +446,7 @@ impl GameLogic {
         }
         // CPP SpawnBehavior.cpp:613-616 notifies Player/AI immediately after
         // allocation, before exitObjectViaDoor (705). Paid production differs.
-        self.notify_owned_ai_unit_produced(center_id, spawned_id);
+        self.notify_owned_ai_unit_produced_with_effects(center_id, spawned_id, ui)?;
         after_player_created(self, spawned_id);
         let event =
             crate::game_logic::host_production_spawn_ready_log::HostProductionSpawnReadyEvent {
@@ -455,7 +456,7 @@ impl GameLogic {
                 spawn_pos: [spawn_pos.x, spawn_pos.y, spawn_pos.z],
                 rally: custom_rally.map(|rally| [rally.x, rally.y, rally.z]),
             };
-        let _ = self.host_apply_supply_spawn_ready_completion_with_effects(event, ui);
+        self.host_apply_supply_spawn_ready_completion_with_effects(event, ui)?;
         self.grant_supply_center_exit_temporary_stealth(center_id, spawned_id);
         if let Some(center) = self.host_object_mut(center_id) {
             center.supply_center_spawn_behavior_fired = true;
@@ -2057,8 +2058,11 @@ impl GameLogic {
             let partition_cash = template.build_cost.supplies;
             let partition_threat = u32::from(template.get_threat_value());
             let mut initial_status = ObjectStatus::default();
-            if creation_purpose == FactoryCreationPurpose::OrdinaryConstruction
-                || (creation_purpose == FactoryCreationPurpose::InstantLineBuild && is_structure)
+            if matches!(
+                creation_purpose,
+                FactoryCreationPurpose::OrdinaryConstruction
+                    | FactoryCreationPurpose::Reconstruction
+            ) || (creation_purpose == FactoryCreationPurpose::InstantLineBuild && is_structure)
             {
                 initial_status.under_construction = true;
             }
@@ -2361,9 +2365,7 @@ impl GameLogic {
             // Host residual: GLA Marauder PRIMARY MarauderTankGun residual (salvage tiers).
             // Fail-closed: not full SalvageCrate W3D turret subobject matrix.
             if crate::game_logic::host_marauder::is_marauder_template(template_name) {
-                use crate::game_logic::host_marauder::{
-                    MarauderWeaponTier, marauder_weapon_for_tier,
-                };
+                use crate::game_logic::host_marauder::{MarauderWeaponTier, marauder_weapon_for_tier};
                 object.weapon = Some(marauder_weapon_for_tier(MarauderWeaponTier::Base));
             }
 
@@ -3052,6 +3054,7 @@ impl GameLogic {
                 creation_purpose,
                 FactoryCreationPurpose::InstantLineBuild
                     | FactoryCreationPurpose::OrdinaryConstruction
+                    | FactoryCreationPurpose::Reconstruction
             ) {
                 let _ = self.spawn_supply_center_one_shot_collector_with_effects_checked(
                     id,
@@ -3075,6 +3078,7 @@ impl GameLogic {
                 creation_purpose,
                 FactoryCreationPurpose::InstantLineBuild
                     | FactoryCreationPurpose::OrdinaryConstruction
+                    | FactoryCreationPurpose::Reconstruction
             ) {
                 if let Some(obj) = self.objects.get(&id) {
                     if obj.is_kind_of(KindOf::WalkOnTopOfWall) {

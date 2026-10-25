@@ -124,7 +124,11 @@ fn accepted_healing_timestamp_uses_driving_frame_after_foreign_normal_drain() {
         Vec3::ZERO,
     );
     let target_pos = first.objects[&target].get_position();
-    first.objects.get_mut(&healer).unwrap().prev_victim_pos = Some(target_pos);
+    first
+        .objects
+        .get_mut(&healer)
+        .unwrap()
+        .set_prev_victim_pos(Some(target_pos));
     accept(&mut first, healer, target, 11.0);
     materialize_only(&mut first);
     assert_eq!(first.objects[&target].health.current, 83.0);

@@ -415,7 +415,7 @@ impl GameLogic {
                     // AI_FOLLOW_EXITPRODUCTION_PATH (AIStates.cpp:3250-3273).
                     unit.can_path_through_units = true;
                     unit.is_attack_path = false;
-                    unit.adjust_destinations = false;
+                    unit.set_adjust_destinations(false);
                     unit.refresh_follow_path_extra_distance();
                     unit.ignore_collisions_with = None;
                     unit.ignore_collisions_until_frame = self.frame.saturating_add(30);
@@ -448,7 +448,7 @@ impl GameLogic {
                 }
                 Some((
                     unit.tunnel_system_key(),
-                    matches!(unit.ai_state, AIState::Entering),
+                    matches!(unit.ai_state(), AIState::Entering),
                     unit.get_position(),
                 ))
             }) else {
@@ -551,7 +551,7 @@ impl GameLogic {
         let Some(unit) = self.objects.get(&uid) else {
             return false;
         };
-        let guard_is_tunnel = unit.guard_target.is_some_and(|gid| {
+        let guard_is_tunnel = unit.active_guard_target().is_some_and(|gid| {
             self.objects
                 .get(&gid)
                 .is_some_and(|g| self.is_living_tunnel_network(g))
@@ -635,7 +635,7 @@ impl GameLogic {
         owner_player_id: Option<u32>,
         position: Vec3,
         can_move: bool,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         use crate::game_logic::host_supply_gather::{WantingDockTarget, wanting_dock_target};
         const SUPPLY_BOX_VALUE: u32 =
             crate::game_logic::host_structure_economy_residual::VALUE_PER_SUPPLY_BOX as u32;
@@ -654,11 +654,14 @@ impl GameLogic {
                     .preferred_or_allied_supply_center(object_id, team, owner_player_id, position)
                     .is_some();
                 if has_center && can_move {
-                    self.begin_return_to_supply_center(object_id, team, owner_player_id, position);
+                    self.begin_return_to_supply_center(object_id, team, owner_player_id, position)?;
                 } else if has_center {
-                    self.set_ai_state_decision_aware(object_id, AIState::ReturningResources);
+                    self.set_ai_state_decision_aware_for_ai(
+                        object_id,
+                        AIState::ReturningResources,
+                    )?;
                 } else {
-                    self.begin_supply_regroup(object_id, team, owner_player_id, position);
+                    self.begin_supply_regroup(object_id, team, owner_player_id, position)?;
                 }
             }
             WantingDockTarget::Warehouse => {
@@ -684,17 +687,18 @@ impl GameLogic {
                         );
                         obj.supply_truck_state = SupplyTruckState::Wanting;
                     }
-                    self.set_ai_state_decision_aware(object_id, AIState::Gathering);
+                    self.set_ai_state_decision_aware_for_ai(object_id, AIState::Gathering)?;
                     if warehouse {
-                        let _ = self.try_claim_dock(next, object_id);
+                        let _claimed = self.try_claim_dock(next, object_id)?;
                     } else if let Some(dest) = self.objects.get(&next).map(|s| s.get_position()) {
                         self.path_approach_with_state(object_id, dest, AIState::Gathering);
                     }
-                    return;
+                    return Ok(());
                 }
-                self.begin_supply_regroup(object_id, team, owner_player_id, position);
+                self.begin_supply_regroup(object_id, team, owner_player_id, position)?;
             }
         }
+        Ok(())
     }
 
     /// C++ Idle `isForcedIntoWantingState` → Wanting, and Regrouping success → Wanting.
@@ -705,29 +709,29 @@ impl GameLogic {
         owner_player_id: Option<u32>,
         position: Vec3,
         can_move: bool,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         let Some(obj) = self.objects.get(&object_id) else {
-            return;
+            return Ok(());
         };
         if obj.thing().template.supply_truck_metadata.is_none() {
-            return;
+            return Ok(());
         }
         let force = obj.supply_truck_force_pending;
         let state = obj.supply_truck_state;
         if !force && state != SupplyTruckState::Regrouping && state != SupplyTruckState::Wanting {
-            return;
+            return Ok(());
         }
         let still_moving =
             obj.status.moving || obj.movement.current_path_index < obj.movement.path.len();
         // C++ RegroupingState::update succeeds only once AI is idle.
         if still_moving {
-            return;
+            return Ok(());
         }
         if !self.collector_available_for_supplying(object_id) {
             if let Some(obj) = self.objects.get_mut(&object_id) {
                 obj.supply_truck_force_pending = false;
             }
-            return;
+            return Ok(());
         }
         // C++ Wanting onEnter: setForceWantingState(false) — one try.
         if let Some(obj) = self.objects.get_mut(&object_id) {
@@ -735,7 +739,8 @@ impl GameLogic {
             obj.supply_truck_state = SupplyTruckState::Wanting;
         }
         self.arm_worker_harvest_mine_clearing(object_id);
-        self.route_supply_wanting(object_id, team, owner_player_id, position, can_move);
+        self.route_supply_wanting(object_id, team, owner_player_id, position, can_move)?;
+        Ok(())
     }
 
     pub(super) fn collector_warehouse_scan(
@@ -759,7 +764,7 @@ impl GameLogic {
         team: Team,
         owner_player_id: Option<u32>,
         from: Vec3,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         use crate::game_logic::host_repair::{DozerFindPositionQuery, find_position_around_dozer};
         use crate::game_logic::host_supply_gather::REGROUP_SUCCESS_DISTANCE_SQUARED;
         use gamelogic::ai::pathfind_astar::PathfindCellType;
@@ -770,8 +775,8 @@ impl GameLogic {
         let Some((dest_pos, radius)) = self.find_supply_regroup_target(team, owner_player_id, from)
         else {
             self.stop_attack_decision_aware(object_id);
-            self.set_ai_state_decision_aware(object_id, AIState::Idle);
-            return;
+            self.set_ai_state_decision_aware_for_ai(object_id, AIState::Idle)?;
+            return Ok(());
         };
         let truck_r = self
             .objects
@@ -844,6 +849,7 @@ impl GameLogic {
             object.supply_truck_force_pending = true;
             object.supply_truck_next_dock_action_frame = 0;
         }
+        Ok(())
     }
 
     fn find_supply_regroup_target(

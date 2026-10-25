@@ -265,7 +265,7 @@ fn ordinary_hit(world: &mut GameLogic, source: ObjectId, victim: ObjectId) {
         &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
     );
     assert_eq!(world.objects[&source].target, Some(victim));
-    assert_eq!(world.objects[&source].ai_state, AIState::Attacking);
+    assert_eq!(world.objects[&source].ai_state(), AIState::Attacking);
     assert!(
         take_dispatched_armor_damage_fx().is_empty(),
         "no setup impact FX"
@@ -528,7 +528,7 @@ fn normal_ground_kill_promotion_is_visible_to_damage_fx() {
                 shooter.set_force_attack(true);
                 assert_eq!(shooter.target, None);
                 assert_eq!(shooter.target_location, Some(impact));
-                assert_eq!(shooter.ai_state, AIState::Attacking);
+                assert_eq!(shooter.ai_state(), AIState::Attacking);
                 assert!(shooter.force_attack);
                 assert!(shooter.is_within_attack_range_pos_for_slot(0, impact));
             }

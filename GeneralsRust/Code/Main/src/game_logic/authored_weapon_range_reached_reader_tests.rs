@@ -1,9 +1,7 @@
 //! Existing garrison distance policy, actual named admission and actual enter/fire seams.
 //! Zero authored sphere radii make that policy equal the C++ geometry distance here.
 use super::*;
-use crate::game_logic::{
-    AIState, ContainAdmission, ContainModuleKind, ContainModuleMetadata, Player,
-};
+use crate::game_logic::{AIState, ContainAdmission, ContainModuleKind, ContainModuleMetadata, Player};
 
 fn garrison_world(
     victim_distance: f32,
@@ -59,7 +57,7 @@ fn garrison_world(
         "actual authored admission must allow this infantry"
     );
     assert!(logic.unit_command_order_enter(source, bunker));
-    assert_eq!(logic.objects[&source].ai_state, AIState::Entering);
+    assert_eq!(logic.objects[&source].ai_state(), AIState::Entering);
     assert_eq!(logic.objects[&source].target, Some(bunker));
     let before_enter_frame = logic.frame;
     logic.update();
@@ -73,7 +71,7 @@ fn garrison_world(
         Some(bunker),
         "actual enter must complete"
     );
-    assert_eq!(logic.objects[&source].ai_state, AIState::Garrisoned);
+    assert_eq!(logic.objects[&source].ai_state(), AIState::Garrisoned);
     assert!(logic.objects[&bunker].contained_units().contains(&source));
     assert_eq!(
         logic.objects[&source]
@@ -147,7 +145,7 @@ fn garrison_named_range_admits_exact_native_bonus_boundary() {
         "one admitted native-boundary shot"
     );
     assert!(logic.honesty_garrison_fire_ok());
-    assert_eq!(logic.objects[&source].ai_state, AIState::Garrisoned);
+    assert_eq!(logic.objects[&source].ai_state(), AIState::Garrisoned);
 }
 
 #[test]
@@ -161,7 +159,7 @@ fn garrison_named_range_rejects_beyond_native_bonus_boundary() {
         "raw100 * RANGE1.33 cannot admit beyond native130.5"
     );
     assert!(!logic.honesty_garrison_fire_ok());
-    assert_eq!(logic.objects[&source].ai_state, AIState::Garrisoned);
+    assert_eq!(logic.objects[&source].ai_state(), AIState::Garrisoned);
 }
 
 fn base_defense_world(

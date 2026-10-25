@@ -44,7 +44,8 @@ impl Object {
             && !self.status.deployed
             && !self.is_disabled()
             && !flailing
-            && (parked_aircraft || !matches!(self.ai_state, AIState::Docked | AIState::Garrisoned))
+            && (parked_aircraft
+                || !matches!(self.ai_state(), AIState::Docked | AIState::Garrisoned))
     }
 
     pub(crate) fn set_destination(
@@ -771,12 +772,14 @@ impl Object {
         position: Option<Vec3>,
         audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) {
-        self.guard_position = position;
-        // A fresh position guard is not a polygon area unless a caller stamps
-        // `guard_area_trigger` after this (TEAM_GUARD_AREA / execute_guard_area).
-        self.guard_area_trigger = None;
-        if position.is_some() {
+        if let Some(position) = position {
+            self.unit_ai_runtime.set_raw_guard_position(Some(position));
+            self.unit_ai_runtime
+                .set_guard_target_type(GuardTargetType::Location);
             self.set_ai_state(AIState::GuardingArea, audio);
+        } else {
+            self.unit_ai_runtime
+                .set_guard_target_type(GuardTargetType::None);
         }
     }
 
@@ -789,10 +792,14 @@ impl Object {
         target: Option<ObjectId>,
         audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) {
-        self.guard_target = target;
-        self.guard_area_trigger = None;
-        if target.is_some() {
+        if let Some(target) = target {
+            self.unit_ai_runtime.set_raw_guard_target(Some(target));
+            self.unit_ai_runtime
+                .set_guard_target_type(GuardTargetType::Object);
             self.set_ai_state(AIState::GuardingObject, audio);
+        } else {
+            self.unit_ai_runtime
+                .set_guard_target_type(GuardTargetType::None);
         }
     }
 
@@ -840,8 +847,8 @@ impl Object {
 
         self.guard_retaliate_anchor = Some(anchor_pos);
         // Preserve ordinary guard anchors if already guarding.
-        if self.guard_position.is_none() && self.guard_target.is_none() {
-            self.guard_position = Some(anchor_pos);
+        if self.active_guard_position().is_none() && self.active_guard_target().is_none() {
+            self.set_guard_position_data(Some(anchor_pos));
         }
         self.target = Some(victim);
         self.target_location = None;
@@ -866,9 +873,9 @@ impl Object {
         self.guard_retaliate_anchor = None;
         self.target = None;
         self.status.attacking = false;
-        if self.guard_target.is_some() {
+        if self.active_guard_target().is_some() {
             self.set_ai_state(AIState::GuardingObject, audio);
-        } else if self.guard_position.is_some() {
+        } else if self.active_guard_position().is_some() {
             self.set_ai_state(AIState::GuardingArea, audio);
         } else {
             self.set_ai_state(AIState::Idle, audio);
@@ -886,7 +893,7 @@ impl Object {
         movement_events: &mut crate::game_logic::movement_events::MovementEventWriter<'_>,
         audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) {
-        if !matches!(self.ai_state, AIState::GuardRetaliating) {
+        if !matches!(self.ai_state(), AIState::GuardRetaliating) {
             return;
         }
         if !victim_alive || self.guard_retaliate_victim.is_none() {

@@ -1364,7 +1364,9 @@ fn entering_state_docks_unit_into_transport_when_close() {
         unit.set_status_moving(true);
     }
 
-    game_logic.update_ai(&[transport_id, unit_id], 1.0 / 60.0);
+    game_logic
+        .update_ai(&[transport_id, unit_id], 1.0 / 60.0)
+        .expect("receiving AI operation succeeds");
 
     let transport = game_logic
         .host_object(transport_id)
@@ -1375,7 +1377,7 @@ fn entering_state_docks_unit_into_transport_when_close() {
     );
 
     let unit = game_logic.host_object(unit_id).expect("unit should exist");
-    assert_eq!(unit.ai_state, AIState::Docked);
+    assert_eq!(unit.ai_state(), AIState::Docked);
     assert_eq!(unit.target, Some(transport_id));
     assert!(!unit.can_move(), "docked units should not be movable");
     assert!(
@@ -1407,7 +1409,9 @@ fn docking_state_moves_unit_toward_transport_when_far() {
         );
     }
 
-    game_logic.update_ai(&[transport_id, unit_id], 1.0 / 60.0);
+    game_logic
+        .update_ai(&[transport_id, unit_id], 1.0 / 60.0)
+        .expect("receiving AI operation succeeds");
 
     let unit = game_logic.host_object(unit_id).expect("unit should exist");
     let destination = unit
@@ -1415,7 +1419,7 @@ fn docking_state_moves_unit_toward_transport_when_far() {
         .target_position
         .expect("docking unit should move toward transport");
     assert!(destination.distance(Vec3::new(0.0, 0.0, 0.0)) < 0.01);
-    assert_eq!(unit.ai_state, AIState::Docking);
+    assert_eq!(unit.ai_state(), AIState::Docking);
 }
 
 #[test]
@@ -1475,7 +1479,7 @@ fn enter_command_rejects_enemy_occupied_transport() {
         "enter command should not target occupied enemy transport"
     );
     assert_ne!(
-        friendly.ai_state,
+        friendly.ai_state(),
         AIState::Entering,
         "unit should not start entering an occupied enemy transport"
     );
@@ -1511,7 +1515,7 @@ fn enter_command_allows_empty_enemy_non_faction_structure() {
         .host_object(friendly_unit_id)
         .expect("friendly unit should exist");
     assert_eq!(friendly.target, Some(enemy_garrison_id));
-    assert_eq!(friendly.ai_state, AIState::Entering);
+    assert_eq!(friendly.ai_state(), AIState::Entering);
 }
 
 #[test]
@@ -1539,7 +1543,9 @@ fn entering_state_clears_enemy_structure_target() {
         unit.set_status_moving(true);
     }
 
-    game_logic.update_ai(&[unit_id, enemy_barracks_id], 1.0 / 60.0);
+    game_logic
+        .update_ai(&[unit_id, enemy_barracks_id], 1.0 / 60.0)
+        .expect("receiving AI operation succeeds");
 
     let unit = game_logic.host_object(unit_id).expect("unit should exist");
     assert!(
@@ -1547,7 +1553,7 @@ fn entering_state_clears_enemy_structure_target() {
         "entering should clear enemy structure targets"
     );
     assert_eq!(
-        unit.ai_state,
+        unit.ai_state(),
         AIState::Idle,
         "unit should return to idle when enter legality fails"
     );
@@ -1578,7 +1584,9 @@ fn entering_state_allows_empty_enemy_non_faction_structure() {
         unit.set_status_moving(true);
     }
 
-    game_logic.update_ai(&[unit_id, enemy_garrison_id], 1.0 / 60.0);
+    game_logic
+        .update_ai(&[unit_id, enemy_garrison_id], 1.0 / 60.0)
+        .expect("receiving AI operation succeeds");
 
     let garrison = game_logic
         .host_object(enemy_garrison_id)
@@ -1586,7 +1594,7 @@ fn entering_state_allows_empty_enemy_non_faction_structure() {
     assert!(garrison.contained_units().contains(&unit_id));
 
     let unit = game_logic.host_object(unit_id).expect("unit should exist");
-    assert_eq!(unit.ai_state, AIState::Garrisoned);
+    assert_eq!(unit.ai_state(), AIState::Garrisoned);
     assert_eq!(unit.target, Some(enemy_garrison_id));
     assert_eq!(unit.contained_by, Some(enemy_garrison_id));
 }
@@ -1611,7 +1619,7 @@ fn guard_state_engages_nearby_enemy() {
             AIState::GuardingArea,
             &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
-        guard.guard_position = Some(Vec3::new(0.0, 0.0, 0.0));
+        guard.set_guard_position_data(Some(Vec3::new(0.0, 0.0, 0.0)));
         guard.guard_radius = 100.0;
     }
     let scan_deadline = game_logic.frame;
@@ -1619,12 +1627,14 @@ fn guard_state_engages_nearby_enemy() {
         .unit_ai_runtime_mut(guard_id)
         .expect("unit")
         .set_guard_scan_deadline(Some(scan_deadline));
-    game_logic.update_ai(&[guard_id, enemy_id], 1.0 / 60.0);
+    game_logic
+        .update_ai(&[guard_id, enemy_id], 1.0 / 60.0)
+        .expect("receiving AI operation succeeds");
 
     let guard = game_logic
         .host_object(guard_id)
         .expect("guard should exist");
-    assert_eq!(guard.ai_state, AIState::Attacking);
+    assert_eq!(guard.ai_state(), AIState::Attacking);
     assert_eq!(guard.target, Some(enemy_id));
 }
 
@@ -1814,7 +1824,9 @@ fn repairing_state_heals_target_in_range() {
     // the refused heal cancels the dozer task; the real clock has advanced
     // past frame 0 before any player-issued repair tick.
     game_logic.frame = 1;
-    game_logic.update_ai(&[repairer_id, damaged_id], 1.0);
+    game_logic
+        .update_ai(&[repairer_id, damaged_id], 1.0)
+        .expect("receiving AI operation succeeds");
 
     let after = game_logic
         .host_object(damaged_id)
@@ -1857,7 +1869,9 @@ fn seeking_repair_state_heals_self_in_range() {
         .health
         .current;
 
-    game_logic.update_ai(&[repair_bay_id, unit_id], 1.0);
+    game_logic
+        .update_ai(&[repair_bay_id, unit_id], 1.0)
+        .expect("receiving AI operation succeeds");
 
     let after = game_logic
         .host_object(unit_id)
@@ -1902,14 +1916,16 @@ fn seeking_repair_state_clears_under_construction_destination() {
         unit.set_status_moving(true);
     }
 
-    game_logic.update_ai(&[repair_bay_id, unit_id], 1.0 / 60.0);
+    game_logic
+        .update_ai(&[repair_bay_id, unit_id], 1.0 / 60.0)
+        .expect("receiving AI operation succeeds");
 
     let unit = game_logic.host_object(unit_id).expect("unit should exist");
     assert!(
         unit.target.is_none(),
         "seeking repair should clear under-construction destinations"
     );
-    assert_eq!(unit.ai_state, AIState::Idle);
+    assert_eq!(unit.ai_state(), AIState::Idle);
 }
 
 #[test]
@@ -1969,7 +1985,7 @@ fn evacuate_command_unloads_selected_transport_occupants() {
     // C++ OpenContain::exitObjectViaDoor (OpenContain.cpp:1006) issues
     // aiFollowPath through ExitStart/End — NumberOfExitPaths defaults to 1 —
     // so the exiting rider walks out in the host Moving state, not Idle.
-    assert_eq!(unit.ai_state, AIState::Moving);
+    assert_eq!(unit.ai_state(), AIState::Moving);
     assert!(unit.target.is_none());
     assert!(unit.can_move());
 }
@@ -2010,7 +2026,7 @@ fn capture_command_does_not_instantly_flip_building_owner() {
     let captor = game_logic
         .host_object(captor_id)
         .expect("captor should exist");
-    assert_eq!(captor.ai_state, AIState::Capturing);
+    assert_eq!(captor.ai_state(), AIState::Capturing);
     assert_eq!(captor.target, Some(building_id));
 }
 
@@ -2055,7 +2071,7 @@ fn infantry_capture_requires_completed_capture_upgrade_when_player_exists() {
     let captor = game_logic
         .host_object(captor_id)
         .expect("captor should exist");
-    assert_ne!(captor.ai_state, AIState::Capturing);
+    assert_ne!(captor.ai_state(), AIState::Capturing);
     assert_ne!(captor.target, Some(building_id));
 
     game_logic
@@ -2083,7 +2099,7 @@ fn infantry_capture_requires_completed_capture_upgrade_when_player_exists() {
     let captor = game_logic
         .host_object(captor_id)
         .expect("captor should exist after upgraded command");
-    assert_eq!(captor.ai_state, AIState::Capturing);
+    assert_eq!(captor.ai_state(), AIState::Capturing);
     assert_eq!(captor.target, Some(building_id));
 }
 
@@ -2116,7 +2132,9 @@ fn capture_channel_uses_authored_ranger_unpack_prepare_and_pack_timing() {
 
     // C++ `SpecialAbilityUpdate` starts unpacking on arrival, but it does not
     // mark the SpecialPower triggered—or transfer ownership—at click time.
-    game_logic.update_ai(&[captor_id, building_id], 1.0 / 60.0);
+    game_logic
+        .update_ai(&[captor_id, building_id], 1.0 / 60.0)
+        .expect("receiving AI operation succeeds");
 
     let captor = game_logic
         .host_object(captor_id)
@@ -2138,7 +2156,9 @@ fn capture_channel_uses_authored_ranger_unpack_prepare_and_pack_timing() {
     );
 
     // Retail Ranger: UnpackTime=3000ms, PreparationTime=20000ms.
-    game_logic.update_ai(&[captor_id, building_id], 3.0);
+    game_logic
+        .update_ai(&[captor_id, building_id], 3.0)
+        .expect("receiving AI operation succeeds");
     let captor = game_logic.host_object(captor_id).expect("captor preparing");
     assert_eq!(
         captor.capture_channel.map(|channel| channel.phase),
@@ -2155,13 +2175,17 @@ fn capture_channel_uses_authored_ranger_unpack_prepare_and_pack_timing() {
         "Ranger preparation must start the real 15s reload, got {ranger_reload}"
     );
 
-    game_logic.update_ai(&[captor_id, building_id], 19.9);
+    game_logic
+        .update_ai(&[captor_id, building_id], 19.9)
+        .expect("receiving AI operation succeeds");
     assert_eq!(
         game_logic.host_object(building_id).expect("building").team,
         Team::GLA,
         "the target remains enemy until the entire preparation completes"
     );
-    game_logic.update_ai(&[captor_id, building_id], 0.1);
+    game_logic
+        .update_ai(&[captor_id, building_id], 0.1)
+        .expect("receiving AI operation succeeds");
 
     let building = game_logic
         .host_object(building_id)
@@ -2175,7 +2199,7 @@ fn capture_channel_uses_authored_ranger_unpack_prepare_and_pack_timing() {
     let captor = game_logic
         .host_object(captor_id)
         .expect("captor should exist");
-    assert_eq!(captor.ai_state, AIState::Capturing);
+    assert_eq!(captor.ai_state(), AIState::Capturing);
     assert_eq!(
         captor.capture_channel.map(|channel| channel.phase),
         Some(CaptureChannelPhase::Packing),
@@ -2184,11 +2208,13 @@ fn capture_channel_uses_authored_ranger_unpack_prepare_and_pack_timing() {
     assert!(!captor.status.using_ability);
 
     // Retail Ranger PackTime=2000ms.
-    game_logic.update_ai(&[captor_id, building_id], 2.0);
+    game_logic
+        .update_ai(&[captor_id, building_id], 2.0)
+        .expect("receiving AI operation succeeds");
     let captor = game_logic
         .host_object(captor_id)
         .expect("captor after packing");
-    assert_eq!(captor.ai_state, AIState::Idle);
+    assert_eq!(captor.ai_state(), AIState::Idle);
     assert!(captor.target.is_none());
 }
 
@@ -2222,9 +2248,15 @@ fn capture_trigger_awards_ranger_award_xp_for_triggering() {
     // SpecialAbilityUpdate advances one phase per update call (the channel is
     // created on the first tick, unpack drains on the second, preparation on
     // the third), so the trigger needs the third tick.
-    game_logic.update_ai(&[captor_id, building_id], 3.0);
-    game_logic.update_ai(&[captor_id, building_id], 20.0);
-    game_logic.update_ai(&[captor_id, building_id], 20.0);
+    game_logic
+        .update_ai(&[captor_id, building_id], 3.0)
+        .expect("receiving AI operation succeeds");
+    game_logic
+        .update_ai(&[captor_id, building_id], 20.0)
+        .expect("receiving AI operation succeeds");
+    game_logic
+        .update_ai(&[captor_id, building_id], 20.0)
+        .expect("receiving AI operation succeeds");
 
     let captor = game_logic
         .host_object(captor_id)
@@ -2274,9 +2306,15 @@ fn capture_does_not_heal_building_to_full() {
 
     // Same one-phase-per-tick channel progression as the XP test: the third
     // tick completes the 20s preparation and fires the ownership trigger.
-    game_logic.update_ai(&[captor_id, building_id], 3.0);
-    game_logic.update_ai(&[captor_id, building_id], 20.0);
-    game_logic.update_ai(&[captor_id, building_id], 20.0);
+    game_logic
+        .update_ai(&[captor_id, building_id], 3.0)
+        .expect("receiving AI operation succeeds");
+    game_logic
+        .update_ai(&[captor_id, building_id], 20.0)
+        .expect("receiving AI operation succeeds");
+    game_logic
+        .update_ai(&[captor_id, building_id], 20.0)
+        .expect("receiving AI operation succeeds");
 
     let building = game_logic.host_object(building_id).expect("building");
     assert_eq!(building.team, Team::USA, "capture must transfer ownership");
@@ -2335,7 +2373,9 @@ fn black_lotus_capture_uses_its_zero_reload_at_preparation_not_ranger_timer() {
         );
     }
 
-    game_logic.update_ai(&[lotus_id, building_id], 1.0 / 30.0);
+    game_logic
+        .update_ai(&[lotus_id, building_id], 1.0 / 30.0)
+        .expect("receiving AI operation succeeds");
     let lotus = game_logic.host_object(lotus_id).expect("Lotus preparing");
     assert_eq!(
         lotus.capture_channel.map(|channel| channel.phase),
@@ -2349,7 +2389,9 @@ fn black_lotus_capture_uses_its_zero_reload_at_preparation_not_ranger_timer() {
         "Black Lotus ReloadTime is 0, never borrow Ranger's 15s timer"
     );
 
-    game_logic.update_ai(&[lotus_id, building_id], 6.0);
+    game_logic
+        .update_ai(&[lotus_id, building_id], 6.0)
+        .expect("receiving AI operation succeeds");
     assert_eq!(
         game_logic
             .host_object(building_id)
@@ -2464,8 +2506,12 @@ fn infantry_capture_prep_stamps_raising_flag() {
     // Tick 1 creates the Unpacking channel (UNPACKING pose, no dt consumed);
     // tick 2 drains the 3s unpack and reaches Preparing, where C++
     // startPreparation stamps RAISING_FLAG (special_abilities.rs:2304).
-    game_logic.update_ai(&[captor_id, building_id], 3.0);
-    game_logic.update_ai(&[captor_id, building_id], 3.0);
+    game_logic
+        .update_ai(&[captor_id, building_id], 3.0)
+        .expect("receiving AI operation succeeds");
+    game_logic
+        .update_ai(&[captor_id, building_id], 3.0)
+        .expect("receiving AI operation succeeds");
     let bits = game_logic
         .host_object(captor_id)
         .expect("captor")
@@ -2501,7 +2547,9 @@ fn infantry_capture_start_range_requires_approach_los() {
     if let Some(building) = blocked.host_object_mut(building_id) {
         building.set_selection_radius(80.0);
     }
-    blocked.update_ai(&[captor_id, building_id], 1.0 / 30.0);
+    blocked
+        .update_ai(&[captor_id, building_id], 1.0 / 30.0)
+        .expect("receiving AI operation succeeds");
     assert_eq!(
         blocked
             .host_object(captor_id)
@@ -2531,7 +2579,9 @@ fn infantry_capture_start_range_requires_approach_los() {
     if let Some(building) = clear.host_object_mut(building_id) {
         building.set_selection_radius(80.0);
     }
-    clear.update_ai(&[captor_id, building_id], 1.0 / 30.0);
+    clear
+        .update_ai(&[captor_id, building_id], 1.0 / 30.0)
+        .expect("receiving AI operation succeeds");
     assert_eq!(
         clear
             .host_object(captor_id)
@@ -2585,10 +2635,12 @@ fn capture_approach_keeps_capturing_and_requests_a_path() {
         );
     }
     logic.force_map_loaded_for_path_test(true);
-    logic.update_ai(&[captor, building], 1.0 / 30.0);
+    logic
+        .update_ai(&[captor, building], 1.0 / 30.0)
+        .expect("receiving AI operation succeeds");
     logic.process_pathfind_queue();
     let unit = logic.host_object(captor).expect("captor");
-    assert_eq!(unit.ai_state, AIState::Capturing);
+    assert_eq!(unit.ai_state(), AIState::Capturing);
     let path = unit.movement.path.clone();
     let xs: Vec<i32> = path
         .iter()
@@ -2642,7 +2694,9 @@ fn lotus_capture_prep_stamps_firing_a() {
             &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
     }
-    game_logic.update_ai(&[lotus_id, building_id], 1.0 / 30.0);
+    game_logic
+        .update_ai(&[lotus_id, building_id], 1.0 / 30.0)
+        .expect("receiving AI operation succeeds");
     let bits = game_logic
         .host_object(lotus_id)
         .expect("lotus")
@@ -2713,7 +2767,9 @@ fn hacker_disable_prep_stamps_firing_a() {
     // channel leaves Approaching.
     let mut phase = None;
     for _ in 0..600 {
-        game_logic.update_ai(&[hacker_id, building_id], 1.0 / 30.0);
+        game_logic
+            .update_ai(&[hacker_id, building_id], 1.0 / 30.0)
+            .expect("receiving AI operation succeeds");
         phase = game_logic
             .host_object(hacker_id)
             .and_then(|o| o.hacker_disable_channel)
@@ -3001,7 +3057,7 @@ fn physical_rmb_dock_uses_exact_controller_not_same_faction_friendliness() {
     let collector = game_logic
         .host_object(collector_id)
         .expect("collector after executor authority");
-    assert_eq!(collector.ai_state, AIState::ReturningResources);
+    assert_eq!(collector.ai_state(), AIState::ReturningResources);
     assert_eq!(collector.preferred_dock_id, Some(own_center_id));
 }
 
@@ -3048,9 +3104,15 @@ fn capturing_structure_refunds_old_owner_queued_production() {
         );
     }
 
-    game_logic.update_ai(&[captor_id, barracks_id], 1.0 / 60.0);
-    game_logic.update_ai(&[captor_id, barracks_id], 3.0);
-    game_logic.update_ai(&[captor_id, barracks_id], 20.0);
+    game_logic
+        .update_ai(&[captor_id, barracks_id], 1.0 / 60.0)
+        .expect("receiving AI operation succeeds");
+    game_logic
+        .update_ai(&[captor_id, barracks_id], 3.0)
+        .expect("receiving AI operation succeeds");
+    game_logic
+        .update_ai(&[captor_id, barracks_id], 20.0)
+        .expect("receiving AI operation succeeds");
 
     let barracks = game_logic
         .host_object(barracks_id)
@@ -3120,7 +3182,7 @@ fn capture_command_rejects_under_construction_building() {
     let captor = game_logic
         .host_object(captor_id)
         .expect("captor should exist");
-    assert_ne!(captor.ai_state, AIState::Capturing);
+    assert_ne!(captor.ai_state(), AIState::Capturing);
     assert_ne!(captor.target, Some(building_id));
 
     let building = game_logic

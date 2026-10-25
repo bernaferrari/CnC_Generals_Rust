@@ -102,7 +102,7 @@ fn dozer_bored_mine_clear_assigns_enemy_mine() {
     // AttackTarget + SetAIState(Attacking) logged; host target/ai_state not mutated.
     {
         assert_eq!(d.target, Some(mid));
-        assert_eq!(d.ai_state, AIState::Attacking);
+        assert_eq!(d.ai_state(), AIState::Attacking);
     }
 }
 
@@ -156,7 +156,7 @@ fn dozer_bored_auto_repair_assigns_damaged_structure() {
     // Before bored time: no assign.
     logic.frame = 50;
     logic.update_dozer_bored_repair();
-    assert_eq!(logic.host_object(did).unwrap().ai_state, AIState::Idle);
+    assert_eq!(logic.host_object(did).unwrap().ai_state(), AIState::Idle);
     // After bored time (150f).
 
     logic.frame = 1 + crate::game_logic::host_repair::DOZER_BORED_TIME_FRAMES;
@@ -168,7 +168,7 @@ fn dozer_bored_auto_repair_assigns_damaged_structure() {
     // AI state last-write under AI_DECISION_AUTHORITY (default): host ai_state stays
     // Idle; SetAIState(Repairing) is logged for GameWorld writeback.
     {
-        assert_eq!(d.ai_state, AIState::Repairing);
+        assert_eq!(d.ai_state(), AIState::Repairing);
     }
 }
 

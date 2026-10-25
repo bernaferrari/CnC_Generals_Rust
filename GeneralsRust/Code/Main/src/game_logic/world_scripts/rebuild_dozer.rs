@@ -1140,105 +1140,34 @@ impl GameLogic {
     ///
     /// Dozers targeting `structure_id` (or actively Constructing nearby same team)
     /// go Idle and clear ACTIVELY_CONSTRUCTING model residual.
-    pub fn cancel_dozers_building(&mut self, structure_id: ObjectId) {
-        let (build_pos, structure_owner) = match self.objects.get(&structure_id) {
-            Some(structure) => (
-                Some(structure.get_position()),
-                self.player_owner_for_host_object(structure),
-            ),
-            None => (None, None),
-        };
-        // An active builder belongs to the same controller, not simply the
-        // same faction.  Build this immutable set before mutably clearing
-        // dozer orders below.
-        let nearby_owner_builders: std::collections::HashSet<ObjectId> = structure_owner
-            .map(|owner_player_id| {
-                self.objects
-                    .registered()
-                    .filter(|(_, object)| {
-                        object.is_alive()
-                            && object.can_construct()
-                            && self.player_owner_for_host_object(object) == Some(owner_player_id)
-                    })
-                    .map(|(id, _)| *id)
-                    .collect()
-            })
-            .unwrap_or_default();
-        let ids: Vec<ObjectId> = self.objects.registered_keys().copied().collect();
-        let mut cancelled = 0u32;
-        for id in ids {
-            let Some(obj) = self.objects.get_mut(&id) else {
-                continue;
-            };
-            if !obj.is_alive() || !obj.can_construct() {
-                continue;
-            }
-            let slot = obj.dozer_task_build_target == Some(structure_id);
-            let targeting = obj.target == Some(structure_id);
-            let constructing = matches!(obj.ai_state, AIState::Constructing);
-            let nearby = match build_pos {
-                Some(bp) => {
-                    nearby_owner_builders.contains(&id) && obj.get_position().distance(bp) <= 40.0
-                }
-                _ => false,
-            };
-            if slot || targeting || (constructing && nearby) {
-                if obj.dozer_task_build_target == Some(structure_id) {
-                    obj.dozer_task_build_target = None;
-                    obj.dozer_task_build_order_frame = 0;
-                    obj.dozer_dock_action = None;
-                }
-                obj.target = None;
-                obj.set_ai_state(
-                    AIState::Idle,
-                    &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
-                );
-                {}
-                obj.set_actively_constructing(false);
-                cancelled = cancelled.saturating_add(1);
-            }
+    pub fn cancel_dozers_building(
+        &mut self,
+        structure_id: ObjectId,
+    ) -> gamelogic::GameLogicResult<()> {
+        let ids: Vec<_> = self
+            .objects
+            .registered_values()
+            .filter(|o| o.dozer_tasks.requests[0].target == Some(structure_id))
+            .map(|o| o.id)
+            .collect();
+        for id in &ids {
+            let _ = self.dozer_cancel_task_owned(
+                *id,
+                gamelogic::object::update::ai_update::dozer_ai_update::DozerTask::Build,
+            )?;
         }
-        if cancelled > 0 {
-            self.dozer_cancel_task_events = self.dozer_cancel_task_events.saturating_add(cancelled);
-            // Refresh ACTIVELY_CONSTRUCTING residual globally after cancel.
-            // Wave 828: under coupled shadow, ACTIVELY_CONSTRUCTING bit owned by GW expire.
-            {
-                self.update_actively_constructing_model_conditions();
-            }
-        }
+        self.dozer_cancel_task_events = self
+            .dozer_cancel_task_events
+            .saturating_add(ids.len() as u32);
+        Ok(())
     }
 
     /// C++ ActionManager.cpp:463-485 — builder still owns the BUILD task.
     fn builder_is_actively_building(&self, builder_id: ObjectId, structure_id: ObjectId) -> bool {
-        if self.worker_is_acting_as_supply_truck(builder_id) {
-            return false;
-        }
-        self.objects.get(&builder_id).is_some_and(|builder| {
-            if !builder.is_alive() {
-                return false;
-            }
-            let slot = builder.dozer_task_build_target == Some(structure_id);
-            let aimed = builder.target == Some(structure_id);
-            if matches!(builder.ai_state, AIState::Constructing) && (slot || aimed) {
-                return true;
-            }
-            if !matches!(builder.ai_state, AIState::Moving) || !slot {
-                return false;
-            }
-            let Some(dock) = builder.dozer_dock_action else {
-                return false;
-            };
-            let radius = builder.selection_radius;
-            match builder.movement.path.last() {
-                Some(end) => {
-                    crate::game_logic::host_repair::dozer_within_action_dock(*end, radius, dock)
-                }
-                None => crate::game_logic::host_repair::dozer_within_action_dock(
-                    builder.get_position(),
-                    radius,
-                    dock,
-                ),
-            }
+        self.objects.get(&builder_id).is_some_and(|o| {
+            o.dozer_tasks.current
+                == gamelogic::object::update::ai_update::dozer_ai_update::DozerTask::Build
+                && o.dozer_tasks.requests[0].target == Some(structure_id)
         })
     }
 
@@ -1288,7 +1217,7 @@ impl GameLogic {
             return;
         }
         let ferrying = matches!(
-            obj.ai_state,
+            obj.ai_state(),
             AIState::Gathering | AIState::ReturningResources
         ) || matches!(
             obj.supply_truck_state,
@@ -1340,98 +1269,43 @@ impl GameLogic {
         // builder is alive and currently DOZER_TASK_BUILD on this structure.
         // A dead or re-tasked exclusive builder must not freeze the scaffold.
         if let Some(bid) = structure.builder_id {
-            if bid != dozer_id && self.builder_is_actively_building(bid, structure_id) {
+            if self.builder_is_actively_building(bid, structure_id) {
                 return false;
             }
         }
-        // Another dozer already actively building this structure.
-        for (id, obj) in self.objects.registered() {
-            if *id == dozer_id || !obj.is_alive() || !obj.can_construct() {
-                continue;
-            }
-            if self.player_owner_for_host_object(obj) != Some(dozer_owner_player_id) {
-                continue;
-            }
-            if self.builder_is_actively_building(*id, structure_id) {
-                return false;
-            }
+        // ActionManager.cpp463 consults exactly the stored builder's entered
+        // task; it does not scan other coincident targets or rewrite provenance.
+        if self.is_enter_target_shrouded_for_action(dozer_id, structure_id) {
+            return false;
         }
         true
     }
 
     /// C++ DozerAIUpdate::privateResumeConstruction residual.
     /// Returns true if a dozer was assigned.
-    pub fn resume_construction(&mut self, dozer_ids: &[ObjectId], structure_id: ObjectId) -> bool {
-        self.clear_stale_structure_builder(structure_id);
+    pub fn resume_construction(
+        &mut self,
+        dozer_ids: &[ObjectId],
+        structure_id: ObjectId,
+    ) -> gamelogic::GameLogicResult<bool> {
         // Only one dozer resumes (C++ groupResumeConstruction — first that accepts).
         for &dozer_id in dozer_ids {
+            self.dozer_prepare_repair_or_resume_owned(dozer_id)?;
             if !self.can_resume_construction_of(dozer_id, structure_id) {
                 continue;
             }
             self.worker_exit_supply_for_dozer_task(dozer_id);
             // C++ privateResumeConstruction → newTask BUILD (stores ACTION dock).
-            self.dozer_new_task_build(dozer_id, structure_id);
-
-            if let Some(dozer) = self.objects.get_mut(&dozer_id) {
-                dozer.target = Some(structure_id);
-                dozer.target_location = None;
-
-                dozer.set_status_force_attack(false);
-                dozer.set_status_attacking(false);
-            }
-            self.set_ai_state_decision_aware(dozer_id, AIState::Constructing);
-            // C++ sets MODELCONDITION_ACTIVELY_CONSTRUCTING only at the dock
-            // (DozerAIUpdate.cpp:511). Driving there stays un-animated.
-            let approach = self
-                .objects
-                .get(&dozer_id)
-                .and_then(|d| d.dozer_dock_action)
-                .unwrap_or_else(|| {
-                    let dozer_pos = self
-                        .objects
-                        .get(&dozer_id)
-                        .map(|d| d.get_position())
-                        .unwrap_or(glam::Vec3::ZERO);
-                    let airborne = self.objects.get(&dozer_id).is_some_and(|d| {
-                        d.is_kind_of(KindOf::Aircraft) || d.status.airborne_target
-                    });
-                    let (st_pos, st_radius) = self
-                        .objects
-                        .get(&structure_id)
-                        .map(|s| (s.get_position(), s.selection_radius))
-                        .unwrap_or((glam::Vec3::ZERO, 0.0));
-                    self.find_good_build_or_repair_position(
-                        dozer_pos,
-                        st_pos,
-                        st_radius,
-                        airborne,
-                        airborne.then_some(structure_id),
-                        Some(dozer_id),
-                    )
-                });
-            // C++ DozerActionPickActionPosState::update ignores the scaffold
-            // then aiMoveToPosition (DozerAIUpdate.cpp:210-211).
-            self.path_approach_with_state_ignoring(
-                dozer_id,
-                approach,
-                AIState::Constructing,
-                Some(structure_id),
-            );
-            // Structure awaiting → actively being constructed residual when dozer assigned.
-            if let Some(st) = self.objects.get_mut(&structure_id) {
-                st.set_under_construction_model_conditions(true);
-                // C++ DozerAIUpdate::newTask setBuilder (DozerAIUpdate.cpp:1986).
-                st.builder_id = Some(dozer_id);
-            }
+            let _ = self.dozer_new_task_build(dozer_id, structure_id)?;
 
             self.resume_construction_events = self.resume_construction_events.saturating_add(1);
             // Wave 828: under coupled shadow, ACTIVELY_CONSTRUCTING bit owned by GW expire.
             {
                 self.update_actively_constructing_model_conditions();
             }
-            return true;
+            return Ok(true);
         }
-        false
+        Ok(false)
     }
 
     pub fn honesty_resume_construction_ok(&self) -> bool {
@@ -1483,7 +1357,7 @@ impl GameLogic {
         let Some(obj) = self.objects.get(&id) else {
             return false;
         };
-        let attacking = obj.status.attacking || matches!(obj.ai_state, AIState::Attacking);
+        let attacking = obj.status.attacking || matches!(obj.ai_state(), AIState::Attacking);
         if !attacking {
             return false;
         }
@@ -1501,7 +1375,7 @@ impl GameLogic {
             return false;
         }
         matches!(
-            obj.ai_state,
+            obj.ai_state(),
             AIState::Gathering | AIState::ReturningResources
         ) || matches!(
             obj.supply_truck_state,
@@ -1644,9 +1518,12 @@ impl GameLogic {
     }
 
     /// C++ DozerPrimaryIdleState bored residual: repair, else mine-clear.
-    pub(crate) fn process_dozer_bored_event(&mut self, id: ObjectId) {
+    pub(crate) fn process_dozer_bored_event(
+        &mut self,
+        id: ObjectId,
+    ) -> gamelogic::GameLogicResult<()> {
         if self.worker_is_acting_as_supply_truck(id) {
-            return;
+            return Ok(());
         }
         let Some((alive, can_repair, busy)) = self.objects.get(&id).map(|obj| {
             (
@@ -1655,19 +1532,17 @@ impl GameLogic {
                 obj.status.under_construction || obj.contained_by.is_some(),
             )
         }) else {
-            return;
+            return Ok(());
         };
         if !alive || !can_repair || busy {
-            return;
+            return Ok(());
         }
         // C++ idleConditions: isBuildMostImportant before bored scan.
-        if self.dozer_idle_resume_pending_build(id) {
-            return;
-        }
         if self.objects.get(&id).is_some_and(|obj| {
-            obj.dozer_task_repair_target.is_some() || obj.dozer_task_build_target.is_some()
+            obj.dozer_tasks.requests[1].target.is_some()
+                || obj.dozer_tasks.requests[0].target.is_some()
         }) {
-            return;
+            return Ok(());
         }
         // Idle stamp already advanced on GW; attempt service residual once.
         if let Some(target_id) = self.find_dozer_bored_repair_target(id) {
@@ -1678,52 +1553,11 @@ impl GameLogic {
                         .is_some_and(|healer| healer != id)
             });
             if claimed_by_other {
-                return;
+                return Ok(());
             }
-            self.dozer_new_task_repair(id, target_id);
-            if let Some(obj) = self.objects.get_mut(&id) {
-                obj.target = Some(target_id);
-                obj.idle_since_frame = 0;
-            }
-            self.set_ai_state_decision_aware(id, AIState::Repairing);
-            let (dozer_pos, dozer_radius, airborne) = self
-                .objects
-                .get(&id)
-                .map(|d| {
-                    (
-                        d.get_position(),
-                        d.selection_radius,
-                        d.is_kind_of(KindOf::Aircraft) || d.status.airborne_target,
-                    )
-                })
-                .unwrap_or((glam::Vec3::ZERO, 0.0, false));
-            let (target_pos, target_radius) = self
-                .objects
-                .get(&target_id)
-                .map(|t| (t.get_position(), t.selection_radius))
-                .unwrap_or((glam::Vec3::ZERO, 0.0));
-            let dock = self.find_good_build_or_repair_position(
-                dozer_pos,
-                target_pos,
-                target_radius,
-                airborne,
-                airborne.then_some(target_id),
-                Some(id),
-            );
-            if !crate::game_logic::host_repair::dozer_within_action_dock(
-                dozer_pos,
-                dozer_radius,
-                dock,
-            ) {
-                self.path_approach_with_state_ignoring(
-                    id,
-                    dock,
-                    AIState::Repairing,
-                    Some(target_id),
-                );
-            }
+            let _ = self.dozer_new_task_repair(id, target_id)?;
             self.dozer_bored_repair_events = self.dozer_bored_repair_events.saturating_add(1);
-            return;
+            return Ok(());
         }
         if let Some(mine_id) = self.find_dozer_bored_mine_target(id) {
             let mine_pos = self
@@ -1742,9 +1576,10 @@ impl GameLogic {
                     self.dozer_bored_mine_clear_events.saturating_add(1);
             }
         }
+        Ok(())
     }
 
-    pub(in super::super) fn update_dozer_bored_repair(&mut self) {
+    pub(in super::super) fn update_dozer_bored_repair(&mut self) -> gamelogic::GameLogicResult<()> {
         let now = self.frame;
         let bored = crate::game_logic::host_repair::DOZER_BORED_TIME_FRAMES;
         let ids: Vec<ObjectId> = self.objects.registered_keys().copied().collect();
@@ -1765,7 +1600,7 @@ impl GameLogic {
                     continue;
                 }
                 // Track idle timestamp residual.
-                if matches!(obj.ai_state, AIState::Idle) {
+                if matches!(obj.ai_state(), AIState::Idle) {
                     if obj.idle_since_frame == 0 {
                         obj.idle_since_frame = now.max(1);
                     }
@@ -1775,9 +1610,6 @@ impl GameLogic {
                 }
             }
             // C++ DozerPrimaryStateMachine idleConditions before bored (DozerAIUpdate.cpp:1260).
-            if self.dozer_idle_resume_pending_build(id) {
-                continue;
-            }
             let idle_since = self
                 .objects
                 .get(&id)
@@ -1787,7 +1619,8 @@ impl GameLogic {
                 continue;
             }
             if self.objects.get(&id).is_some_and(|obj| {
-                obj.dozer_task_repair_target.is_some() || obj.dozer_task_build_target.is_some()
+                obj.dozer_tasks.requests[1].target.is_some()
+                    || obj.dozer_tasks.requests[0].target.is_some()
             }) {
                 continue;
             }
@@ -1806,48 +1639,8 @@ impl GameLogic {
                 if claimed_by_other {
                     continue;
                 }
-                self.dozer_new_task_repair(id, target_id);
-                if let Some(obj) = self.objects.get_mut(&id) {
-                    // Repair target is non-combat host association (not AttackTarget).
-                    obj.target = Some(target_id);
-                    obj.idle_since_frame = 0;
-                }
-                self.set_ai_state_decision_aware(id, AIState::Repairing);
-                let (dozer_pos, dozer_radius, airborne) = self
-                    .objects
-                    .get(&id)
-                    .map(|d| {
-                        (
-                            d.get_position(),
-                            d.selection_radius,
-                            d.is_kind_of(KindOf::Aircraft) || d.status.airborne_target,
-                        )
-                    })
-                    .unwrap_or((glam::Vec3::ZERO, 0.0, false));
-                let (target_pos, target_radius) = self
-                    .objects
-                    .get(&target_id)
-                    .map(|t| (t.get_position(), t.selection_radius))
-                    .unwrap_or((glam::Vec3::ZERO, 0.0));
-                let dock = self.find_good_build_or_repair_position(
-                    dozer_pos,
-                    target_pos,
-                    target_radius,
-                    airborne,
-                    airborne.then_some(target_id),
-                    Some(id),
-                );
-                if !crate::game_logic::host_repair::dozer_within_action_dock(
-                    dozer_pos,
-                    dozer_radius,
-                    dock,
-                ) {
-                    self.path_approach_with_state_ignoring(
-                        id,
-                        dock,
-                        AIState::Repairing,
-                        Some(target_id),
-                    );
+                if !self.dozer_new_task_repair(id, target_id)? {
+                    continue;
                 }
                 self.dozer_bored_repair_events = self.dozer_bored_repair_events.saturating_add(1);
                 continue;
@@ -1874,6 +1667,7 @@ impl GameLogic {
                 }
             }
         }
+        Ok(())
     }
 
     pub fn honesty_dozer_bored_repair_ok(&self) -> bool {
@@ -1883,7 +1677,7 @@ impl GameLogic {
     /// C++ RebuildHoleBehavior::onDie / newWorkerRespawnProcess / dtor:
     /// always `TheGameLogic->destroyObject(worker)` so the UNSELECTABLE
     /// generated worker cannot leak when the hole or scaffold dies.
-    fn destroy_rebuild_hole_worker(&mut self, hole_id: ObjectId) {
+    fn destroy_rebuild_hole_worker(&mut self, hole_id: ObjectId) -> gamelogic::GameLogicResult<()> {
         self.destroy_rebuild_hole_worker_with_effects(hole_id, &mut Default::default())
     }
 
@@ -1891,21 +1685,25 @@ impl GameLogic {
         &mut self,
         hole_id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         let Some(wid) = self.objects.get(&hole_id).and_then(|h| h.rebuild_worker_id) else {
-            return;
+            return Ok(());
         };
         if self.objects.contains_key(&wid) {
-            self.destroy_object_with_effects(wid, effects);
+            self.destroy_object_with_effects(wid, effects)?;
         }
         if let Some(h) = self.objects.get_mut(&hole_id) {
             h.rebuild_worker_id = None;
         }
+        Ok(())
     }
 
     /// C++ Object::onDie RECONSTRUCTING residual — transfer attackers back to hole
     /// and restart RebuildHole worker spawn process.
-    pub fn handle_reconstructing_death(&mut self, destroyed_id: ObjectId) -> bool {
+    pub fn handle_reconstructing_death(
+        &mut self,
+        destroyed_id: ObjectId,
+    ) -> gamelogic::GameLogicResult<bool> {
         self.handle_reconstructing_death_with_effects(destroyed_id, &mut Default::default())
     }
 
@@ -1913,10 +1711,10 @@ impl GameLogic {
         &mut self,
         destroyed_id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> bool {
+    ) -> gamelogic::GameLogicResult<bool> {
         let (is_recon, producer, template_name) = {
             let Some(o) = self.objects.get(&destroyed_id) else {
-                return false;
+                return Ok(false);
             };
             (
                 o.status.reconstructing,
@@ -1925,21 +1723,21 @@ impl GameLogic {
             )
         };
         if !is_recon {
-            return false;
+            return Ok(false);
         }
         let Some(hole_id) = producer else {
-            return false;
+            return Ok(false);
         };
         let Some(hole) = self.objects.get(&hole_id) else {
-            return false;
+            return Ok(false);
         };
         if !hole.is_rebuild_hole {
-            return false;
+            return Ok(false);
         }
         // C++ startRebuildProcess → newWorkerRespawnProcess(existingWorker).
-        self.destroy_rebuild_hole_worker_with_effects(hole_id, effects);
+        self.destroy_rebuild_hole_worker_with_effects(hole_id, effects)?;
         let Some(hole) = self.objects.get_mut(&hole_id) else {
-            return false;
+            return Ok(false);
         };
         // Restart rebuild process residual.
         hole.rebuild_template_name = Some(template_name);
@@ -1957,7 +1755,7 @@ impl GameLogic {
                 self.rebuild_hole_attack_transfers.saturating_add(n as u32);
         }
         self.rebuild_hole_recon_deaths = self.rebuild_hole_recon_deaths.saturating_add(1);
-        true
+        Ok(true)
     }
 
     /// C++ RebuildHoleBehavior::transferBombs residual.
@@ -2163,14 +1961,14 @@ impl GameLogic {
     /// - spawn unselectable worker after WorkerRespawnDelay
     /// - worker starts reconstruction; hole masked while reconstructing
     /// - when reconstruction completes, hole is destroyed
-    pub fn update_rebuild_holes(&mut self) {
+    pub fn update_rebuild_holes(&mut self) -> gamelogic::GameLogicResult<()> {
         self.update_rebuild_holes_with_effects(&mut Default::default())
     }
 
     pub(crate) fn update_rebuild_holes_with_effects(
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         let now = self.frame;
         let dt = 1.0 / 30.0;
         let heal_frac = REBUILD_HOLE_HEALTH_REGEN_PERCENT_PER_SEC * dt;
@@ -2274,14 +2072,14 @@ impl GameLogic {
                     // Destroy residual unselectable worker if still around.
                     if let Some(wid) = self.objects.get(&hole_id).and_then(|h| h.rebuild_worker_id)
                     {
-                        self.destroy_object_with_effects(wid, effects);
+                        self.destroy_object_with_effects(wid, effects)?;
                     }
                     holes_to_remove.push(hole_id);
                     self.rebuild_hole_completes = self.rebuild_hole_completes.saturating_add(1);
                     continue;
                 } else {
                     // Reconstructing object died — C++ newWorkerRespawnProcess(worker).
-                    self.destroy_rebuild_hole_worker_with_effects(hole_id, effects);
+                    self.destroy_rebuild_hole_worker_with_effects(hole_id, effects)?;
                     if let Some(h) = self.objects.get_mut(&hole_id) {
                         h.rebuild_reconstructing_id = None;
                         h.set_status_masked(false);
@@ -2314,36 +2112,21 @@ impl GameLogic {
                 None => continue,
             };
 
-            // Ensure worker template residual. Prefer existing INI GLAInfantryWorker.
-            if !self.templates.contains_key(REBUILD_HOLE_WORKER_TEMPLATE) {
-                let mut wt = ThingTemplate::new(REBUILD_HOLE_WORKER_TEMPLATE);
-                wt.add_kind_of(KindOf::Infantry)
-                    .add_kind_of(KindOf::Worker)
-                    .set_health(100.0);
-                self.templates
-                    .insert(REBUILD_HOLE_WORKER_TEMPLATE.to_string(), wt);
-            }
-            let worker_id = self.host_spawn_rebuild_object_with_effects(
+            // Original findTemplate resolves admitted content; do not fabricate
+            // a classless Worker runtime when the authored template is absent.
+            let worker_id = self.host_spawn_rebuild_object_with_effects_checked(
                 REBUILD_HOLE_WORKER_TEMPLATE,
                 team,
                 owner_player_id,
                 pos,
                 effects,
-            );
+            )?;
             let Some(worker_id) = worker_id else {
                 continue;
             };
-            if let Some(w) = self.objects.get_mut(&worker_id) {
-                w.set_team_and_owner_with_partition_owner(
-                    team,
-                    owner_player_id,
-                    &mut self.ownership_events,
-                    &mut self.partition_manager,
-                );
-                w.set_status_unselectable(true);
-                w.set_status_masked(false);
+            if let Some(hole) = self.objects.get_mut(&hole_id) {
+                hole.rebuild_worker_id = Some(worker_id);
             }
-            self.set_ai_state_decision_aware(worker_id, AIState::Constructing);
             self.rebuild_hole_workers = self.rebuild_hole_workers.saturating_add(1);
 
             // C++ ai->aiResumeConstruction when the scaffold is still standing.
@@ -2358,129 +2141,58 @@ impl GameLogic {
                         .unwrap_or(false)
                 });
             if let Some(rid) = existing_recon {
+                self.dozer_prepare_repair_or_resume_owned(worker_id)?;
+                self.worker_exit_supply_for_dozer_task(worker_id);
+                let _ = self.dozer_new_task_build(worker_id, rid)?;
+                let n = self.transfer_attack(hole_id, rid);
+                if n > 0 {
+                    self.rebuild_hole_attack_transfers =
+                        self.rebuild_hole_attack_transfers.saturating_add(n as u32);
+                }
                 if let Some(o) = self.objects.get_mut(&rid) {
                     o.producer_id = Some(hole_id);
-                    o.builder_id = Some(worker_id);
-                    o.set_under_construction_model_conditions(true);
                 }
-                if let Some(w) = self.objects.get_mut(&worker_id) {
-                    w.target = Some(rid);
-                    w.target_location = None;
+                if let Some(worker) = self.objects.get_mut(&worker_id) {
+                    worker.set_status_unselectable(true);
+                }
 
-                    w.set_status_force_attack(false);
-                    w.set_status_attacking(false);
-                }
-                self.dozer_new_task_build(worker_id, rid);
-                let dock_state = self.objects.get(&worker_id).and_then(|worker| {
-                    let dock = worker.dozer_dock_action?;
-                    let at = crate::game_logic::host_repair::dozer_within_action_dock(
-                        worker.get_position(),
-                        worker.selection_radius,
-                        dock,
-                    );
-                    Some((dock, at))
-                });
-                match dock_state {
-                    Some((dock, false)) => {
-                        self.path_approach_with_state_ignoring(
-                            worker_id,
-                            dock,
-                            AIState::Constructing,
-                            Some(rid),
-                        );
-                    }
-                    Some((_, true)) => {
-                        if let Some(w) = self.objects.get_mut(&worker_id) {
-                            w.set_actively_constructing(true);
-                        }
-                    }
-                    None => {}
-                }
                 if let Some(h) = self.objects.get_mut(&hole_id) {
                     h.rebuild_worker_id = Some(worker_id);
                     h.set_status_masked(true);
                     h.set_status_unselectable(true);
                 }
                 self.admit_object_drawable_deselection(hole_id);
-                let n = self.transfer_attack(hole_id, rid);
-                if n > 0 {
-                    self.rebuild_hole_attack_transfers =
-                        self.rebuild_hole_attack_transfers.saturating_add(n as u32);
-                }
                 let _ = self.transfer_bombs(hole_id, rid);
                 continue;
             }
 
-            // Spawn reconstructing building (C++ ai->construct residual).
-            // Wave 740: entity-first bind when GW pre-spawned the structure.
-            let Some(new_id) = self.host_spawn_rebuild_object_with_effects(
+            // The real construct factory supplies both status bits before onCreate,
+            // skips rebuild payment, and admits the supplied worker task once.
+            let Some(new_id) = self.create_rebuild_scaffold_with_effects(
                 &rebuild_name,
                 team,
                 owner_player_id,
+                worker_id,
                 pos,
+                orient,
                 effects,
-            ) else {
-                self.destroy_object_with_effects(worker_id, effects);
+            )?
+            else {
+                self.destroy_object_with_effects(worker_id, effects)?;
                 continue;
             };
-            if let Some(o) = self.objects.get_mut(&new_id) {
-                o.set_team_and_owner_with_partition_owner(
-                    team,
-                    owner_player_id,
-                    &mut self.ownership_events,
-                    &mut self.partition_manager,
-                );
-                o.set_orientation_with_partition_owner(orient, &mut self.partition_manager);
+            // RebuildHole keeps the hole as producer until the first actual piece.
+            let n = self.transfer_attack(hole_id, new_id);
+            if n > 0 {
+                self.rebuild_hole_attack_transfers =
+                    self.rebuild_hole_attack_transfers.saturating_add(n as u32);
             }
-            self.set_object_under_construction_with_effects(new_id, true, effects);
-            if let Some(o) = self.objects.get_mut(&new_id) {
-                o.set_status_reconstructing(true);
-
-                o.construction_percent = 0.0;
-
-                o.set_under_construction_model_conditions(true);
-                // C++ DozerAIUpdate::construct starts at 1 HP (DozerAIUpdate.cpp:1708).
-                Self::write_object_health_authority_aware(o, 1.0, &mut self.health_events);
-                // C++ setProducer(hole) residual.
-                o.producer_id = Some(hole_id);
-                o.builder_id = Some(worker_id);
+            if let Some(site) = self.objects.get_mut(&new_id) {
+                site.producer_id = Some(hole_id);
             }
-            if let Some(w) = self.objects.get_mut(&worker_id) {
-                // Construction target association stays host (not combat AttackTarget).
-                w.target = Some(new_id);
-                w.target_location = None;
-
-                w.set_status_force_attack(false);
-                w.set_status_attacking(false);
+            if let Some(worker) = self.objects.get_mut(&worker_id) {
+                worker.set_status_unselectable(true);
             }
-            self.set_ai_state_decision_aware(worker_id, AIState::Constructing);
-            self.dozer_new_task_build(worker_id, new_id);
-            let dock_state = self.objects.get(&worker_id).and_then(|worker| {
-                let dock = worker.dozer_dock_action?;
-                let at = crate::game_logic::host_repair::dozer_within_action_dock(
-                    worker.get_position(),
-                    worker.selection_radius,
-                    dock,
-                );
-                Some((dock, at))
-            });
-            match dock_state {
-                Some((dock, false)) => {
-                    self.path_approach_with_state_ignoring(
-                        worker_id,
-                        dock,
-                        AIState::Constructing,
-                        Some(new_id),
-                    );
-                }
-                Some((_, true)) => {
-                    if let Some(w) = self.objects.get_mut(&worker_id) {
-                        w.set_actively_constructing(true);
-                    }
-                }
-                None => {}
-            }
-
             if let Some(h) = self.objects.get_mut(&hole_id) {
                 h.rebuild_worker_id = Some(worker_id);
                 h.rebuild_reconstructing_id = Some(new_id);
@@ -2489,12 +2201,6 @@ impl GameLogic {
                 h.set_status_unselectable(true);
             }
             self.admit_object_drawable_deselection(hole_id);
-            // C++ transferAttack(hole, reconstructing) residual.
-            let n = self.transfer_attack(hole_id, new_id);
-            if n > 0 {
-                self.rebuild_hole_attack_transfers =
-                    self.rebuild_hole_attack_transfers.saturating_add(n as u32);
-            }
             // C++ transferBombs(reconstructing) residual.
             let _ = self.transfer_bombs(hole_id, new_id);
             self.rebuild_hole_reconstructs = self.rebuild_hole_reconstructs.saturating_add(1);
@@ -2502,8 +2208,10 @@ impl GameLogic {
         for hid in holes_to_remove {
             // C++ RebuildHoleBehavior.cpp:309 TheGameLogic->destroyObject(hole).
             // Hashmap-remove left radar / pathfind / GameWorld crater ghosts.
-            self.destroy_object_with_effects(hid, effects);
+            self.destroy_object_with_effects(hid, effects)?;
         }
+
+        Ok(())
     }
 
     pub fn honesty_rebuild_hole_ok(&self) -> bool {

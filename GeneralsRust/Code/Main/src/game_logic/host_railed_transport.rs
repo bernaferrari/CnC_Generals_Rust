@@ -252,7 +252,7 @@ impl GameLogic {
                     obj.railed_current_path,
                     obj.railed_in_transit,
                     obj.get_position(),
-                    matches!(obj.ai_state, AIState::Idle)
+                    matches!(obj.ai_state(), AIState::Idle)
                         || obj.movement.path.is_empty()
                         || obj.movement.current_path_index >= obj.movement.path.len(),
                 )
@@ -287,9 +287,7 @@ impl GameLogic {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::game_logic::{
-        ContainModuleKind, ContainModuleMetadata, KindOf, Team, ThingTemplate,
-    };
+    use crate::game_logic::{ContainModuleKind, ContainModuleMetadata, KindOf, Team, ThingTemplate};
 
     fn ferry_template(name: &str, prefix: &str) -> ThingTemplate {
         let mut t = ThingTemplate::new(name);
@@ -336,7 +334,7 @@ mod tests {
         let ferry = logic.host_object(id).expect("ferry after execute");
         assert!(ferry.railed_in_transit);
         assert_eq!(ferry.railed_current_path, 0);
-        assert_eq!(ferry.ai_state, AIState::Moving);
+        assert_eq!(ferry.ai_state(), AIState::Moving);
         assert_eq!(
             ferry.movement.path,
             vec![Vec3::new(100.0, 0.0, 0.0), Vec3::new(200.0, 0.0, 0.0)]

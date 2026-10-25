@@ -55,9 +55,9 @@ fn sync_from_host_copies_entity_combat_intent_residual() {
         obj.force_attack = true;
         obj.show_health_bar = false;
         obj.target_location = Some(glam::Vec3::new(10.0, 0.0, 10.0));
-        obj.guard_position = Some(glam::Vec3::new(1.0, 0.0, 1.0));
-        obj.guard_target = Some(guard);
-        obj.ai_state = crate::game_logic::AIState::GuardingObject;
+        obj.set_guard_position_data(Some(glam::Vec3::new(1.0, 0.0, 1.0)));
+        obj.set_guard_target_data(Some(guard));
+        obj.restore_ai_state(crate::game_logic::AIState::GuardingObject);
         obj.occupants = vec![guard];
     }
     let mut shadow = GameWorldShadow::new(64);

@@ -414,7 +414,7 @@ impl GameLogic {
             discovered_by: host_discovered_by_player_names(self, id.0, obj),
             waypoint_labels: obj.completed_waypoint_labels.clone(),
             selected: obj.selected,
-            idle: matches!(obj.ai_state, crate::game_logic::AIState::Idle)
+            idle: matches!(obj.ai_state(), crate::game_logic::AIState::Idle)
                 && !obj.status.moving
                 && !obj.status.attacking,
             vision_range: obj.vision_range,

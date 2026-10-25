@@ -461,7 +461,7 @@ impl Object {
                     operation_effects,
                 );
                 let entered_attack = !matches!(
-                    self.ai_state,
+                    self.ai_state(),
                     AIState::Patrolling | AIState::AttackMoving | AIState::Attacking
                 );
                 if autonomous && entered_attack {
@@ -483,7 +483,7 @@ impl Object {
             operation_effects,
         );
         let entered_attack = !matches!(
-            self.ai_state,
+            self.ai_state(),
             AIState::Patrolling | AIState::AttackMoving | AIState::Attacking
         );
         if autonomous && entered_attack {
@@ -957,19 +957,21 @@ impl Object {
     }
     /// Drop a `setTemporaryState` move without `onExit` of the underlying state.
     pub fn end_temporary_move_overlay(&mut self, audio: &mut crate::game_logic::ObjectAudio<'_>) {
-        self.temporary_move_frames = 0;
+        let Some(previous_temporary) = self.unit_ai_runtime.take_temporary_move() else {
+            return;
+        };
         audio.stop_loop(self);
         self.movement.velocity = glam::Vec3::ZERO;
         self.movement.path.clear();
         self.movement.current_path_index = 0;
         self.movement.target_position = None;
         self.set_status_moving(false);
-        if let Some(dest) = self.temporary_move_saved_dest.take() {
-            self.requested_destination = Some(dest);
-        }
-        if let Some(goal) = self.temporary_move_saved_path_goal.take() {
-            self.path_goal_position = Some(goal);
-        }
+        self.queue_for_path_frames = 0;
+        self.waiting_for_path = false;
+        // None is meaningful: do not leave the temporary goal installed when
+        // the underlying machine never had a physical destination.
+        self.requested_destination = previous_temporary.saved_destination;
+        self.path_goal_position = previous_temporary.saved_path_goal;
     }
 
     pub(crate) fn movement_goal_object(&self) -> Option<ObjectId> {
@@ -981,12 +983,14 @@ impl Object {
     }
 
     pub fn stop_moving(&mut self, audio: &mut crate::game_logic::ObjectAudio<'_>) {
-        self.movement_goal_object = None;
-        let overlay = self.temporary_move_frames > 0;
+        let overlay = self.has_temporary_ai_move();
         self.end_temporary_move_overlay(audio);
+        if overlay {
+            return;
+        }
+        self.movement_goal_object = None;
         audio.stop_loop(self);
         self.movement.target_position = None;
-        self.temporary_move_frames = 0;
         self.movement.velocity = Vec3::ZERO;
         self.set_status_moving(false);
         self.queue_for_path_frames = 0;
@@ -1009,7 +1013,13 @@ impl Object {
         // Interaction states (Capturing, Repairing, SpecialAbility, Entering, …)
         // set a destination while remaining in-state; clobbering them to Idle
         // aborted capture/repair on arrival before support-state resolution.
-        if !overlay && matches!(self.ai_state, AIState::Moving | AIState::AttackMoving) {
+        if !overlay
+            && !matches!(
+                self.retained_ai_root_state(),
+                AIState::JetReturningForLanding | AIState::JetReturnToDeadAirfield
+            )
+            && matches!(self.ai_state(), AIState::Moving | AIState::AttackMoving)
+        {
             self.set_ai_state(AIState::Idle, audio);
         }
     }
@@ -1178,15 +1188,33 @@ impl Object {
         self.status.attacking = false;
         self.set_status_aiming_weapon(false);
         self.set_status_firing_weapon(false);
-        self.attack_substate = crate::game_logic::AttackSubState::AimAtTarget;
+        self.set_attack_substate(crate::game_logic::AttackSubState::AimAtTarget);
+
+        let retained_parent = self.capture_base_ai_continuation().parent_state();
+        self.unit_ai_runtime.set_machine_goal_object(None);
+        if self.unit_ai_runtime.resume_parent() {
+            if retained_parent == Some(AIState::AttackMoving) {
+                self.next_mood_check_time = 0;
+                if let Some(src) = self.attack_move_command_src.take() {
+                    self.last_command_source = src;
+                }
+                if let Some(dest) = self.requested_destination {
+                    self.movement.path.clear();
+                    self.movement.current_path_index = 0;
+                    self.movement.target_position = Some(dest);
+                    self.set_status_moving(true);
+                }
+            }
+            return;
+        }
 
         // C++ parity: guard units return to guard; Hunt stays in AI_HUNT;
         // attack-move keeps AI_ATTACK_MOVE_TO so dest can resume.
-        let stay_hunt = matches!(self.ai_state, AIState::Patrolling);
-        let stay_attack_move = matches!(self.ai_state, AIState::AttackMoving);
-        if self.guard_target.is_some() {
+        let stay_hunt = matches!(self.ai_state(), AIState::Patrolling);
+        let stay_attack_move = matches!(self.ai_state(), AIState::AttackMoving);
+        if self.active_guard_target().is_some() {
             self.set_ai_state(AIState::GuardingObject, audio);
-        } else if self.guard_position.is_some() {
+        } else if self.active_guard_position().is_some() {
             self.set_ai_state(AIState::GuardingArea, audio);
         } else if stay_hunt {
             self.set_ai_state(AIState::Patrolling, audio);

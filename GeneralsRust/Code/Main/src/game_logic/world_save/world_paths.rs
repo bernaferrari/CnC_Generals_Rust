@@ -103,7 +103,7 @@ impl GameLogic {
             unit.path_timestamp = self.frame;
             unit.path_extra_distance = unit.waypoint_link_extra_distance();
             unit.start_move();
-            let entered_move = !matches!(unit.ai_state, AIState::Moving | AIState::Panic);
+            let entered_move = !matches!(unit.ai_state(), AIState::Moving | AIState::Panic);
             if entered_move {
                 unit.set_ai_state(
                     AIState::Moving,
@@ -369,7 +369,7 @@ impl GameLogic {
                     adjust_destinations: self
                         .objects
                         .lookup(&unit_id)
-                        .is_some_and(|unit| unit.adjust_destinations),
+                        .is_some_and(|unit| unit.adjust_destinations()),
                     restore_adjust_on_install: restore_adjust,
                 });
             if !queued {
@@ -382,7 +382,7 @@ impl GameLogic {
                 unit.movement.velocity = glam::Vec3::ZERO;
                 unit.start_move();
                 entered_move = !matches!(
-                    unit.ai_state,
+                    unit.ai_state(),
                     AIState::Constructing
                         | AIState::Gathering
                         | AIState::ReturningResources
@@ -693,7 +693,7 @@ impl GameLogic {
                 .lookup(&unit_id)
                 .map(|unit| {
                     (
-                        unit.adjust_destinations,
+                        unit.adjust_destinations(),
                         unit.is_kind_of(crate::game_logic::KindOf::Projectile),
                     )
                 })
@@ -901,7 +901,7 @@ impl GameLogic {
         unit.waiting_for_path = false;
         unit.queue_for_path_frames = 0;
         if unit.is_safe_path {
-            unit.adjust_destinations = false;
+            unit.set_adjust_destinations(false);
         }
         unit.is_exact_path = false;
         // path[0] is the current cell (segment_start). Match the other
@@ -935,7 +935,7 @@ impl GameLogic {
         // path lead. Do not stamp max speed at the raw click: a detour
         // would spend the first frames driving into the obstacle.
         let entered_move = !matches!(
-            unit.ai_state,
+            unit.ai_state(),
             AIState::Constructing
                 | AIState::Gathering
                 | AIState::ReturningResources
@@ -1361,7 +1361,7 @@ impl GameLogic {
     /// even though `can_move` is false: only `assign_unit_path` starts the
     /// pack and clears that bit. A queued path clears the order before A*
     /// runs, so a later wall refusal does not retry every frame.
-    pub(crate) fn reissue_pending_moves(&mut self) {
+    pub(crate) fn reissue_pending_moves(&mut self) -> gamelogic::GameLogicResult<()> {
         let ready: Vec<(ObjectId, Vec3, AIState, Option<ObjectId>, bool)> = self
             .objects
             .registered()
@@ -1370,9 +1370,9 @@ impl GameLogic {
                     return None;
                 }
                 let dest = unit.pending_move?;
-                let ignore = match unit.ai_state {
-                    AIState::Constructing => unit.dozer_task_build_target.or(unit.target),
-                    AIState::Repairing => unit.dozer_task_repair_target.or(unit.target),
+                let ignore = match unit.ai_state() {
+                    AIState::Constructing => unit.dozer_tasks.requests[0].target.or(unit.target),
+                    AIState::Repairing => unit.dozer_tasks.requests[1].target.or(unit.target),
                     AIState::Capturing | AIState::Attacking | AIState::AttackMoving => unit.target,
                     AIState::Entering => unit.ignored_obstacle_id.or(unit.target),
                     AIState::SpecialAbility => unit
@@ -1385,7 +1385,7 @@ impl GameLogic {
                 Some((
                     *id,
                     dest,
-                    unit.ai_state.clone(),
+                    unit.ai_state().clone(),
                     ignore,
                     unit.is_approach_path,
                 ))
@@ -1404,7 +1404,7 @@ impl GameLogic {
                     unit.is_final_goal = !unit.is_parachuting()
                         && !landed_chinook
                         && !(unit.chinook_ai.is_some() && unit.allow_invalid_position)
-                        && unit.adjust_destinations;
+                        && unit.adjust_destinations();
                 }
             }
             let ok = if ignore.is_some() {
@@ -1448,9 +1448,9 @@ impl GameLogic {
                     let already = self
                         .objects
                         .lookup(&id)
-                        .is_some_and(|unit| unit.ai_state == task);
+                        .is_some_and(|unit| unit.ai_state() == task);
                     if !already {
-                        self.set_ai_state_decision_aware(id, task);
+                        self.set_ai_state_decision_aware_for_ai(id, task)?;
                     }
                     if let Some(unit) = self.objects.get_mut(&id) {
                         if !unit.movement.path.is_empty() {
@@ -1460,6 +1460,7 @@ impl GameLogic {
                 }
             }
         }
+        Ok(())
     }
     fn pending_move_ready(unit: &crate::game_logic::Object) -> bool {
         if unit.pending_move.is_none()
@@ -1474,7 +1475,7 @@ impl GameLogic {
         }
         if !unit.is_parked_at_airfield()
             && matches!(
-                unit.ai_state,
+                unit.ai_state(),
                 crate::game_logic::AIState::Docked | crate::game_logic::AIState::Garrisoned
             )
         {
@@ -1669,7 +1670,7 @@ impl GameLogic {
         let Some(unit) = self.objects.get_mut(&unit_id) else {
             return;
         };
-        let overlay = unit.temporary_move_frames > 0 && !matches!(unit.ai_state, AIState::Moving);
+        let overlay = unit.has_temporary_ai_move() && !matches!(unit.ai_state(), AIState::Moving);
         unit.waiting_for_path = false;
         if overlay {
             unit.end_temporary_move_overlay(&mut crate::game_logic::ObjectAudio::queue(
@@ -1677,7 +1678,7 @@ impl GameLogic {
             ));
             unit.ignored_obstacle_id = None;
             unit.set_locomotor_goal_none();
-        } else if unit.ai_state == AIState::Panic {
+        } else if unit.ai_state() == AIState::Panic {
             // C++ AIInternalMoveToState reports FAILURE for a missing waited
             // path, but AIPanicState::update deliberately converts failure
             // to CONTINUE and stays on the same waypoint.
@@ -1685,7 +1686,7 @@ impl GameLogic {
                 &mut self.queued_audio_events,
             ));
             unit.retry_path = true;
-        } else if matches!(unit.ai_state, AIState::Moving) {
+        } else if matches!(unit.ai_state(), AIState::Moving) {
             unit.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
                 &mut self.queued_audio_events,
             ));
@@ -1711,7 +1712,7 @@ impl GameLogic {
         let adjusts = !unit.is_parachuting()
             && !landed_chinook
             && !(unit.chinook_ai.is_some() && unit.allow_invalid_position)
-            && unit.adjust_destinations;
+            && unit.adjust_destinations();
         let last = unit.movement.path.last().copied();
         if adjusts {
             if let Some(last) = last {
@@ -1997,7 +1998,7 @@ impl GameLogic {
                         unit.path_extra_distance = 0.0;
                     }
                     unit.set_status_moving(true);
-                    if !matches!(unit.ai_state, AIState::AttackMoving | AIState::Patrolling) {
+                    if !matches!(unit.ai_state(), AIState::AttackMoving | AIState::Patrolling) {
                         unit.set_ai_state(
                             AIState::Attacking,
                             &mut crate::game_logic::ObjectAudio::queue(
@@ -2047,7 +2048,7 @@ impl GameLogic {
                     unit.path_extra_distance =
                         10.0 * crate::game_logic::PATHFIND_CELL_SIZE_F_RESIDUAL;
                 }
-                if !matches!(unit.ai_state, AIState::AttackMoving | AIState::Patrolling) {
+                if !matches!(unit.ai_state(), AIState::AttackMoving | AIState::Patrolling) {
                     unit.set_ai_state(
                         AIState::Attacking,
                         &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
@@ -2236,7 +2237,7 @@ impl GameLogic {
         let already = self
             .objects
             .lookup(&object_id)
-            .is_some_and(|obj| obj.ai_state == state);
+            .is_some_and(|obj| obj.ai_state() == state);
         let mut assigned = false;
         if self.assign_unit_path_ignoring(object_id, goal, &[], ignore_obstacle) {
             if approach_path {
@@ -2255,7 +2256,7 @@ impl GameLogic {
             let already = self
                 .objects
                 .lookup(&object_id)
-                .is_some_and(|obj| obj.ai_state == state);
+                .is_some_and(|obj| obj.ai_state() == state);
             {}
             if let Some(obj) = self.objects.get_mut(&object_id) {
                 if !already {
@@ -2396,7 +2397,7 @@ impl GameLogic {
         unit.end_guard_retaliate(&mut crate::game_logic::ObjectAudio::queue(
             &mut self.queued_audio_events,
         ));
-        unit.hunting = false;
+        unit.set_hunting(false);
         unit.stop_attack(&mut crate::game_logic::ObjectAudio::queue(
             &mut self.queued_audio_events,
         ));
@@ -2411,7 +2412,7 @@ impl GameLogic {
             unit_id,
             Some([waypoint.x, waypoint.y, waypoint.z]),
         );
-        let entered_move = !matches!(unit.ai_state, AIState::Moving | AIState::Panic);
+        let entered_move = !matches!(unit.ai_state(), AIState::Moving | AIState::Panic);
         if entered_move {
             unit.set_ai_state(
                 AIState::Moving,
@@ -2611,7 +2612,7 @@ mod group_lane_tests {
         logic.objects.insert(ObjectId(8700), car);
         let mut unit = ranger(8701, start);
         unit.is_final_goal = true;
-        unit.adjust_destinations = adjust;
+        unit.set_adjust_destinations(adjust);
         unit.owner_player_id = Some(0);
         logic.objects.insert(ObjectId(8701), unit);
         ({

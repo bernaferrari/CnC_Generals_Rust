@@ -631,14 +631,14 @@ impl SubsystemInterface for Shell {
     fn update(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         let now = Instant::now();
         if now.duration_since(self.last_update) >= self.update_interval {
-            if let Some(name) = PENDING_SHELL_SCHEME.with(|pending| pending.borrow_mut().take()) {
+            if let Some(name) = take_pending_shell_scheme_for_layout() {
                 self.load_scheme(&name);
             }
 
             // C++ MainMenuUpdate reads TheShell->isAnimFinished() while
             // Shell::update already holds *this. Snapshot so callbacks
             // cannot fail-closed and leave pending_push stuck.
-            SHELL_ANIM_FINISHED.with(|flag| flag.set(self.is_anim_finished()));
+            record_shell_anim_finished_for_layout(self.is_anim_finished());
 
             // Update all layouts on the stack (from top to bottom)
             for i in (0..self.screen_stack.len()).rev() {

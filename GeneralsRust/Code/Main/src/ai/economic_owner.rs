@@ -10,7 +10,10 @@ pub(super) struct ScaffoldAttempt {
     pub cost: Resources,
 }
 impl ScaffoldAttempt {
-    pub(super) fn execute(&self, world: &mut GameLogic) -> Option<ObjectId> {
+    pub(super) fn execute(
+        &self,
+        world: &mut GameLogic,
+    ) -> gamelogic::GameLogicResult<Option<ObjectId>> {
         self.execute_with_effects(world, &mut Default::default())
     }
 
@@ -18,8 +21,11 @@ impl ScaffoldAttempt {
         &self,
         world: &mut GameLogic,
         ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> Option<ObjectId> {
-        let structure = world.create_dozer_scaffold_with_effects(
+    ) -> gamelogic::GameLogicResult<Option<ObjectId>> {
+        let Some(birth) = world.dozer_prepare_construct_owned_with_effects(self.dozer, ui)? else {
+            return Ok(None);
+        };
+        let Some(structure) = world.create_dozer_scaffold_with_effects(
             &self.template_name,
             self.player,
             self.dozer,
@@ -27,8 +33,12 @@ impl ScaffoldAttempt {
             0.0,
             self.cost,
             ui,
-        )?;
-        self.admit_construct_order(world, structure, ui)
+        )?
+        else {
+            return Ok(None);
+        };
+        world.dozer_admit_constructed_scaffold_owned(self.dozer, &birth, structure)?;
+        Ok(Some(structure))
     }
 
     #[cfg(test)]
@@ -36,31 +46,25 @@ impl ScaffoldAttempt {
         &self,
         world: &mut GameLogic,
         observe: impl FnMut(&GameLogic, ObjectId),
-    ) -> Option<ObjectId> {
-        let structure = world.create_dozer_scaffold_observing(
+    ) -> gamelogic::GameLogicResult<Option<ObjectId>> {
+        let Some(birth) = world
+            .dozer_prepare_construct_owned_with_effects(self.dozer, &mut Default::default())?
+        else {
+            return Ok(None);
+        };
+        let Some(structure) = world.create_dozer_scaffold_observing(
             &self.template_name,
             self.player,
             self.dozer,
             self.position,
             self.cost,
             observe,
-        )?;
-        self.admit_construct_order(world, structure, &mut Default::default())
-    }
-    fn admit_construct_order(
-        &self,
-        world: &mut GameLogic,
-        structure: ObjectId,
-        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> Option<ObjectId> {
-        if world.resume_construction(&[self.dozer], structure)
-            && world.unit_command_begin_construct(self.dozer, self.position)
-        {
-            return Some(structure);
-        }
-        world.cancel_dozers_building(structure);
-        world.destroy_object_with_effects(structure, effects);
-        None
+        )?
+        else {
+            return Ok(None);
+        };
+        world.dozer_admit_constructed_scaffold_owned(self.dozer, &birth, structure)?;
+        Ok(Some(structure))
     }
 }
 
@@ -79,7 +83,12 @@ impl DozerQueueAttempt {
 }
 
 impl GameLogic {
-    pub(crate) fn update_owned_ai_economy(&mut self, player: u32, now: f32, data: &AiDataView) {
+    pub(crate) fn update_owned_ai_economy(
+        &mut self,
+        player: u32,
+        now: f32,
+        data: &AiDataView,
+    ) -> gamelogic::GameLogicResult<()> {
         self.update_owned_ai_economy_with_effects(player, now, data, &mut Default::default())
     }
 
@@ -89,12 +98,12 @@ impl GameLogic {
         now: f32,
         data: &AiDataView,
         ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         let Some(ai) = self.ai_manager.ai_players.get(&player) else {
-            return;
+            return Ok(());
         };
         if now < ai.next_building_time {
-            return;
+            return Ok(());
         }
         let team = ai.team;
         let repair = ai.repair_dozer;
@@ -110,27 +119,28 @@ impl GameLogic {
                     .then_some((id, object.get_position()))
             })
             .collect();
-        self.resume_owned_ai_construction(player, team, repair, unfinished);
+        self.resume_owned_ai_construction(player, team, repair, unfinished)?;
         self.queue_owned_ai_dozer(player, now);
         let Some(mut ai) = self.ai_manager.ai_players.remove(&player) else {
-            return;
+            return Ok(());
         };
         let attempt = ai.prepare_scaffold_attempt(self, now, data);
         self.ai_manager.ai_players.insert(player, ai);
         if let Some(attempt) = attempt {
-            if let Some(object) = attempt.execute_with_effects(self, ui) {
+            if let Some(object) = attempt.execute_with_effects(self, ui)? {
                 if let Some(ai) = self.ai_manager.ai_players.get_mut(&player) {
                     ai.finish_scaffold_attempt(&attempt, object);
                 }
             }
         }
         let Some(mut ai) = self.ai_manager.ai_players.remove(&player) else {
-            return;
+            return Ok(());
         };
         ai.sync_build_list_object_status(self, now);
         ai.next_building_time =
             now + ai.scaled_interval_seconds(self, AIPlayer::STRUCTURE_SECONDS, true);
         self.ai_manager.ai_players.insert(player, ai);
+        Ok(())
     }
 
     pub(super) fn resume_owned_ai_construction(
@@ -139,23 +149,21 @@ impl GameLogic {
         team: Team,
         repair: Option<ObjectId>,
         unfinished: Vec<(ObjectId, Vec3)>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         for (id, position) in unfinished {
             let builder = self.host_objects().registered_values().any(|object| {
                 self.object_owned_by_player(object, player)
                     && object.is_alive()
                     && object.can_construct()
-                    && object.target == Some(id)
-                    && object.ai_state == AIState::Constructing
+                    && object.dozer_tasks.requests[0].target == Some(id)
             });
             if !builder {
                 if let Some(dozer) = AIPlayer::find_available_dozer(self, team, position, repair) {
-                    if self.resume_construction(&[dozer], id) {
-                        self.unit_command_begin_construct(dozer, position);
-                    }
+                    let _ = self.resume_construction(&[dozer], id)?;
                 }
             }
         }
+        Ok(())
     }
 
     pub(super) fn queue_owned_ai_dozer(&mut self, player: u32, now: f32) {
@@ -245,6 +253,7 @@ mod tests {
                 assert_eq!(world.ai_manager.ai_players[&2].player_id, 2);
                 observed = true;
             })
+            .unwrap()
             .unwrap();
         assert!(observed);
         world
@@ -258,7 +267,10 @@ mod tests {
         assert_eq!(pads[1].object_id, Some(structure));
         assert_eq!(pads[1].rebuild_count, 1);
         assert_eq!(world.get_player(1).unwrap().resources.supplies, 9900);
-        assert_eq!(world.host_object(dozer).unwrap().target, Some(structure));
+        assert_eq!(
+            world.host_object(dozer).unwrap().dozer_tasks.requests[0].target,
+            Some(structure)
+        );
         assert!(
             world
                 .host_object(structure)
@@ -272,7 +284,7 @@ mod tests {
     fn owned_economic_pass_builds_one_paid_scaffold_with_peer_unchanged() {
         let (mut world, _) = world();
         let data = AiDataView::from_world(&world);
-        world.update_owned_ai_economy(1, 0.0, &data);
+        world.update_owned_ai_economy(1, 0.0, &data).unwrap();
         assert!(
             world.ai_manager.ai_players[&1].building_queue[0]
                 .object_id

@@ -180,7 +180,7 @@ impl GameLogic {
                     .veterancy_crate_collide
                     .as_ref()
                     .is_some_and(|metadata| metadata.supports_pilot_recrew());
-                let is_idle = matches!(obj.ai_state, AIState::Idle);
+                let is_idle = matches!(obj.ai_state(), AIState::Idle);
                 // C++ PLAYER_HUMAN → no scan. Host residual: local player is human.
                 // No mapped player → fail-closed treat as non-AI (no auto-scan).
                 let is_ai = self
@@ -901,7 +901,7 @@ impl GameLogic {
                 AIState::Idle,
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             );
-            r.hunting = false;
+            r.set_hunting(false);
             r.target = None;
             r.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
                 &mut self.queued_audio_events,
@@ -1023,7 +1023,7 @@ impl GameLogic {
                     return;
                 }
                 let has_module = is_auto_find_healing_template(&obj.template_name);
-                let is_idle = matches!(obj.ai_state, AIState::Idle);
+                let is_idle = matches!(obj.ai_state(), AIState::Idle);
                 let is_ai = self
                     .player_owner_for_host_object(obj)
                     .and_then(|pid| self.players.get(&pid))
@@ -1721,7 +1721,7 @@ impl GameLogic {
                 if !is_vehicle || obj.is_kind_of(KindOf::Structure) {
                     return;
                 }
-                if !matches!(obj.ai_state, AIState::Idle) || obj.target.is_some() {
+                if !matches!(obj.ai_state(), AIState::Idle) || obj.target.is_some() {
                     return;
                 }
                 // Human player residual: no auto-seek.
@@ -1811,10 +1811,14 @@ impl GameLogic {
     }
 
     /// AI dozer/worker residual: idle builders resume unfinished ally structures.
-    pub(in super::super) fn try_auto_resume_construction_residual(&mut self, unit_id: ObjectId) {
+    pub(in super::super) fn try_auto_resume_construction_residual(
+        &mut self,
+        unit_id: ObjectId,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<()> {
         use crate::game_logic::host_usa_pilot::auto_find_healing_scan_frame;
         if !auto_find_healing_scan_frame(self.frame) {
-            return;
+            return Ok(());
         }
         let snapshot = match self.objects.get(&unit_id) {
             Some(obj) if obj.is_alive() => {
@@ -1823,11 +1827,11 @@ impl GameLogic {
                     || name.contains("dozer")
                     || name.contains("worker")
                     || name.contains("crane");
-                if !is_builder || !matches!(obj.ai_state, AIState::Idle) || obj.target.is_some() {
-                    return;
+                if !is_builder || !matches!(obj.ai_state(), AIState::Idle) || obj.target.is_some() {
+                    return Ok(());
                 }
                 if !obj.can_move() {
-                    return;
+                    return Ok(());
                 }
                 let is_ai = self
                     .player_owner_for_host_object(obj)
@@ -1835,11 +1839,11 @@ impl GameLogic {
                     .map(|p| !p.is_local)
                     .unwrap_or(false);
                 if !is_ai {
-                    return;
+                    return Ok(());
                 }
                 (obj.get_position(), obj.team)
             }
-            _ => return,
+            _ => return Ok(()),
         };
         let (unit_pos, unit_team) = snapshot;
         const SCAN: f32 = 350.0;
@@ -1870,7 +1874,7 @@ impl GameLogic {
             |c| c.is_alive && c.team == unit_team && c.under_construction && c.combat_kind,
         );
         let Some((tid, _, tpos)) = best else {
-            return;
+            return Ok(());
         };
         if let Some(obj) = self.objects.get_mut(&unit_id) {
             // Construction target association stays host.
@@ -1884,8 +1888,9 @@ impl GameLogic {
             );
             obj.target_location = None;
         }
-        self.set_ai_state_decision_aware(unit_id, AIState::Constructing);
+        self.set_ai_state_decision_aware_with_effects(unit_id, AIState::Constructing, effects)?;
         self.path_approach_with_state_ignoring(unit_id, tpos, AIState::Constructing, Some(tid));
+        Ok(())
     }
 
     pub(in super::super) fn update_bomb_truck_poison_zones(&mut self) {

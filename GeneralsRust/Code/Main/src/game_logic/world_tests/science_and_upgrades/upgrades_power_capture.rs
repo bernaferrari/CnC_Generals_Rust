@@ -486,9 +486,7 @@ fn host_upgrade_complete_uranium_and_black_napalm() {
 #[test]
 fn host_upgrade_complete_scorpion_rocket_and_laser_missiles() {
     use crate::game_logic::host_raptor::{UPGRADE_AMERICA_LASER_MISSILES, is_raptor_template};
-    use crate::game_logic::host_scorpion::{
-        UPGRADE_GLA_SCORPION_ROCKET, has_scorpion_rocket_upgrade,
-    };
+    use crate::game_logic::host_scorpion::{UPGRADE_GLA_SCORPION_ROCKET, has_scorpion_rocket_upgrade};
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
     logic
@@ -1660,7 +1658,7 @@ fn capture_object_residual_idle_deselect_ai_sell() {
     logic.on_capture_object_residual(id, Team::USA, Team::GLA);
 
     let obj = logic.host_object(id).expect("barracks");
-    assert_eq!(obj.ai_state, AIState::Idle);
+    assert_eq!(obj.ai_state(), AIState::Idle);
     assert!(!obj.status.attacking);
     assert!(
         logic
@@ -1832,9 +1830,7 @@ fn capture_kicks_transport_passengers_but_not_tunnel_pool() {
 #[test]
 fn capture_team_flips_overlord_helix_portable_addon() {
     // hq-96958: C++ OverlordContain.cpp:227-235 / HelixContain.cpp:217-222.
-    use crate::game_logic::host_overlord_addons::{
-        UPGRADE_HELIX_GATTLING, UPGRADE_OVERLORD_GATTLING,
-    };
+    use crate::game_logic::host_overlord_addons::{UPGRADE_HELIX_GATTLING, UPGRADE_OVERLORD_GATTLING};
     let mut logic = GameLogic::new();
     logic
         .players
@@ -1961,7 +1957,7 @@ fn sell_last_tunnel_ejects_shared_pool() {
     assert_eq!(logic.tunnel_network.contain_count(gla_key), 0);
     let u = logic.host_object(uid).expect("ejected");
     assert!(u.contained_by.is_none());
-    assert_eq!(u.ai_state, AIState::Idle);
+    assert_eq!(u.ai_state(), AIState::Idle);
 }
 
 #[test]
@@ -2666,7 +2662,9 @@ fn structure_and_unit_complete_notify_local_feedback() {
             glam::Vec3::new(3.0, 0.0, 4.0),
         )
         .expect("r");
-    logic.notify_unit_production_complete(uid, sid, "AmericaInfantryRanger");
+    logic
+        .notify_unit_production_complete(uid, sid, "AmericaInfantryRanger")
+        .expect("production callback");
     assert!(logic.honesty_unit_ready_ok());
 }
 

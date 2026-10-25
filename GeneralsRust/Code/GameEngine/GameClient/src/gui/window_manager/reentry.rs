@@ -1,9 +1,9 @@
-//! Singleton re-entry queue, typed fail-closed payloads, and OS dispatch.
+//! Owner-scoped re-entry queues, typed fail-closed payloads, and OS dispatch.
 #![allow(unused_imports)]
 
 use crate::gui::game_window::*;
 use crate::gui::load_screen::{LoadScreenPreludeOutcome, LoadScreenPreludeStep};
-use crate::gui::shell::get_shell;
+use crate::gui::shell::{ResidualShellMapAction, Shell, get_shell};
 use crate::gui::w3d_gadget_draw::{
     w3d_main_menu_button_drop_shadow_draw, w3d_main_menu_random_text_draw,
 };
@@ -18,26 +18,295 @@ use std::time::Instant;
 
 use super::*;
 
-thread_local! {
-    static THE_WINDOW_MANAGER: RefCell<WindowManager> = RefCell::new(WindowManager::new());
-    /// Side-effecting ops queued via [`queue_window_manager_op`] when the singleton
-    /// is already borrowed. Flushed by the stack owner after the outer
-    /// `&mut WindowManager` is the only live mut ref.
-    static WINDOW_MANAGER_OP_QUEUE: RefCell<Vec<Box<dyn FnOnce(&mut WindowManager) + 'static>>> =
-        RefCell::new(Vec::new());
-    /// Ops that could not mutate a live window RefCell during drain. Spliced
-    /// into the regular queue at the next `with_window_manager` entry so we
-    /// do not spin the drain loop while the cell is still borrowed.
-    static WINDOW_MANAGER_DEFERRED_OPS: RefCell<Vec<Box<dyn FnOnce(&mut WindowManager) + 'static>>> =
-        RefCell::new(Vec::new());
-    /// Empty snapshot used when a shared read re-enters while a mutable borrow is live.
-    /// Draw helpers (`win_font_height`, `win_draw_image`, …) ignore `self`; lookups fail-closed.
-    static WINDOW_MANAGER_FAIL_CLOSED: WindowManager = WindowManager::new();
+type WindowManagerOperation = Box<dyn FnOnce(&mut WindowManager) + 'static>;
+type ShellOperation = Box<dyn FnOnce(&mut Shell) + 'static>;
+
+struct WindowManagerOwnerState {
+    manager: RefCell<WindowManager>,
+    operations: RefCell<Vec<WindowManagerOperation>>,
+    deferred_operations: RefCell<Vec<WindowManagerOperation>>,
+    shell: RefCell<Shell>,
+    shell_operations: RefCell<VecDeque<ShellOperation>>,
+    pending_shell_scheme: RefCell<Option<String>>,
+    shell_anim_finished: Cell<bool>,
+    residual_shell_map_action: Cell<ResidualShellMapAction>,
+    residual_shell_map_on: Cell<bool>,
+    deferred_shell_pushes: RefCell<Vec<String>>,
 }
 
-fn drain_window_manager_ops(manager: &mut WindowManager) {
+/// Persistent owner for one native client's WND tree and its re-entry queues.
+/// The handle is single-threaded because WindowManager owns Rc-backed windows.
+#[derive(Clone)]
+pub struct WindowManagerOwner {
+    state: Rc<WindowManagerOwnerState>,
+}
+
+impl WindowManagerOwner {
+    pub fn new() -> Self {
+        Self {
+            state: Rc::new(WindowManagerOwnerState {
+                manager: RefCell::new(WindowManager::new()),
+                operations: RefCell::new(Vec::new()),
+                deferred_operations: RefCell::new(Vec::new()),
+                shell: RefCell::new(Shell::new()),
+                shell_operations: RefCell::new(VecDeque::new()),
+                pending_shell_scheme: RefCell::new(None),
+                shell_anim_finished: Cell::new(true),
+                residual_shell_map_action: Cell::new(ResidualShellMapAction::None),
+                residual_shell_map_on: Cell::new(false),
+                deferred_shell_pushes: RefCell::new(Vec::new()),
+            }),
+        }
+    }
+
+    /// Run one synchronous operation with this owner selected for legacy nested
+    /// callbacks. The selector is restored on return and unwind and cannot escape.
+    pub fn with_scope<R>(&self, operation: impl FnOnce() -> R) -> R {
+        let _scope = self.enter_scoped();
+        operation()
+    }
+
+    fn enter_scoped(&self) -> WindowManagerScope {
+        let previous = ACTIVE_WINDOW_MANAGER_OWNER
+            .with(|current| current.replace(Some(Rc::clone(&self.state))));
+        WindowManagerScope { previous }
+    }
+
+    /// Borrow this exact owner's manager for one synchronous operation.
+    pub fn with_manager<R: ReentryFallback>(&self, f: impl FnOnce(&mut WindowManager) -> R) -> R {
+        let owner = Rc::clone(&self.state);
+        self.with_scope(|| match owner.manager.try_borrow_mut() {
+            Ok(mut borrow) => {
+                splice_deferred_window_manager_ops(&owner);
+                drain_window_manager_ops(&owner, &mut borrow);
+                let result = f(&mut borrow);
+                drain_window_manager_ops(&owner, &mut borrow);
+                result
+            }
+            Err(_) => window_manager_reentry(f),
+        })
+    }
+
+    /// Attempt a shared read of this owner's manager without selecting an
+    /// ambient callback owner. `None` means the manager is currently mutably
+    /// borrowed by a synchronous operation.
+    pub fn try_with_manager_ref<R>(&self, f: impl FnOnce(&WindowManager) -> R) -> Option<R> {
+        let owner = Rc::clone(&self.state);
+        let borrow = owner.manager.try_borrow().ok()?;
+        Some(f(&borrow))
+    }
+
+    /// Attempt one owner-scoped mutable operation without a re-entry fallback.
+    /// A live borrow means the callback must retry at its owning boundary.
+    pub fn try_with_manager<R>(&self, f: impl FnOnce(&mut WindowManager) -> R) -> Option<R> {
+        let owner = Rc::clone(&self.state);
+        self.with_scope(|| {
+            let mut manager = owner.manager.try_borrow_mut().ok()?;
+            splice_deferred_window_manager_ops(&owner);
+            drain_window_manager_ops(&owner, &mut manager);
+            let result = f(&mut manager);
+            drain_window_manager_ops(&owner, &mut manager);
+            Some(result)
+        })
+    }
+
+    /// Read this exact owner's manager for one synchronous operation.
+    pub fn with_manager_ref<R: ReentryFallback>(&self, f: impl FnOnce(&WindowManager) -> R) -> R {
+        let owner = Rc::clone(&self.state);
+        self.with_scope(|| match owner.manager.try_borrow() {
+            Ok(borrow) => f(&borrow),
+            Err(_) => {
+                // A live mutable borrow must not be aliased with a shared one.
+                let inert = WindowManager::new();
+                f(&inert)
+            }
+        })
+    }
+
+    /// Mutate this client's Shell for one synchronous lifecycle operation.
+    /// Nested callback work is drained before the sole mutable borrow ends.
+    pub fn with_shell_mut<R>(&self, f: impl FnOnce(&mut Shell) -> R) -> Option<R> {
+        let owner = Rc::clone(&self.state);
+        self.with_scope(|| {
+            let mut shell = owner.shell.try_borrow_mut().ok()?;
+            drain_shell_operations(&owner, &mut shell);
+            let mut drain = ShellOperationDrain {
+                owner: Rc::clone(&owner),
+                shell: &mut shell,
+            };
+            let result = f(drain.shell);
+            drop(drain);
+            Some(result)
+        })
+    }
+
+    /// Read this client's Shell when no mutable lifecycle operation is active.
+    pub fn with_shell_ref<R>(&self, f: impl FnOnce(&Shell) -> R) -> Option<R> {
+        let owner = Rc::clone(&self.state);
+        self.with_scope(|| owner.shell.try_borrow().ok().map(|shell| f(&shell)))
+    }
+
+    /// Run or queue work on this owner's Shell, preserving the same re-entry boundary.
+    pub fn queue_shell_operation(&self, operation: impl FnOnce(&mut Shell) + 'static) {
+        let owner = Rc::clone(&self.state);
+        self.with_scope(|| match owner.shell.try_borrow_mut() {
+            Ok(mut shell) => {
+                drain_shell_operations(&owner, &mut shell);
+                operation(&mut shell);
+                drain_shell_operations(&owner, &mut shell);
+            }
+            Err(_) => owner
+                .shell_operations
+                .borrow_mut()
+                .push_back(Box::new(operation)),
+        });
+    }
+
+    /// Owner-local value read by layout callbacks during the Shell update borrow.
+    pub(crate) fn shell_anim_finished(&self) -> bool {
+        self.state.shell_anim_finished.get()
+    }
+
+    pub(crate) fn record_shell_anim_finished(&self, finished: bool) {
+        self.state.shell_anim_finished.set(finished);
+    }
+
+    pub(crate) fn take_pending_shell_scheme(&self) -> Option<String> {
+        self.state.pending_shell_scheme.borrow_mut().take()
+    }
+
+    pub(crate) fn set_residual_shell_map(
+        &self,
+        action: ResidualShellMapAction,
+        shell_map_on: bool,
+    ) {
+        self.state.residual_shell_map_action.set(action);
+        self.state.residual_shell_map_on.set(shell_map_on);
+    }
+
+    pub(crate) fn residual_shell_map_action(&self) -> ResidualShellMapAction {
+        self.state.residual_shell_map_action.get()
+    }
+
+    pub(crate) fn residual_shell_map_on(&self) -> bool {
+        self.state.residual_shell_map_on.get()
+    }
+
+    pub(crate) fn queue_deferred_shell_push(&self, screen: &str) -> bool {
+        let mut queue = self.state.deferred_shell_pushes.borrow_mut();
+        if queue.iter().any(|existing| existing == screen) {
+            return false;
+        }
+        queue.push(screen.to_string());
+        true
+    }
+
+    pub(crate) fn drain_deferred_shell_pushes(&self) -> Vec<String> {
+        std::mem::take(&mut *self.state.deferred_shell_pushes.borrow_mut())
+    }
+
+    pub(crate) fn clear_deferred_shell_pushes(&self) -> usize {
+        let mut queue = self.state.deferred_shell_pushes.borrow_mut();
+        let count = queue.len();
+        queue.clear();
+        count
+    }
+}
+
+impl Default for WindowManagerOwner {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+fn drain_shell_operations(owner: &Rc<WindowManagerOwnerState>, shell: &mut Shell) {
     loop {
-        let ops = WINDOW_MANAGER_OP_QUEUE.with(|queue| queue.replace(Vec::new()));
+        let mut operations = std::mem::take(&mut *owner.shell_operations.borrow_mut());
+        if operations.is_empty() {
+            return;
+        }
+        while let Some(operation) = operations.pop_front() {
+            let mut restore_remaining = RestoreShellOperationsOnUnwind {
+                owner,
+                pending: &mut operations,
+                armed: true,
+            };
+            operation(shell);
+            restore_remaining.armed = false;
+        }
+    }
+}
+
+struct RestoreShellOperationsOnUnwind<'a> {
+    owner: &'a WindowManagerOwnerState,
+    pending: &'a mut VecDeque<ShellOperation>,
+    armed: bool,
+}
+
+impl Drop for RestoreShellOperationsOnUnwind<'_> {
+    fn drop(&mut self) {
+        if self.armed && std::thread::panicking() && !self.pending.is_empty() {
+            let mut remaining = std::mem::take(self.pending);
+            let mut queued = self.owner.shell_operations.borrow_mut();
+            remaining.append(&mut queued);
+            *queued = remaining;
+        }
+    }
+}
+
+struct ShellOperationDrain<'a> {
+    owner: Rc<WindowManagerOwnerState>,
+    shell: &'a mut Shell,
+}
+
+impl Drop for ShellOperationDrain<'_> {
+    fn drop(&mut self) {
+        if std::thread::panicking() {
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                drain_shell_operations(&self.owner, self.shell);
+            }));
+            if result.is_err() {
+                log::error!("queued shell operation panicked while a layout callback unwound");
+            }
+        } else {
+            drain_shell_operations(&self.owner, self.shell);
+        }
+    }
+}
+
+pub(crate) fn current_window_manager_owner() -> Option<WindowManagerOwner> {
+    active_window_manager_owner().map(|state| WindowManagerOwner { state })
+}
+
+/// Restores the prior explicit manager selection at the end of a synchronous
+/// native UI operation. It contains no pointer and does not outlive the stack.
+struct WindowManagerScope {
+    previous: Option<Rc<WindowManagerOwnerState>>,
+}
+
+impl Drop for WindowManagerScope {
+    fn drop(&mut self) {
+        let previous = self.previous.take();
+        ACTIVE_WINDOW_MANAGER_OWNER.with(|current| {
+            current.replace(previous);
+        });
+    }
+}
+
+thread_local! {
+    /// Scoped compatibility context only. Production callers establish it from
+    /// their persistent GameClient owner; it never owns a fallback WND tree.
+    static ACTIVE_WINDOW_MANAGER_OWNER: RefCell<Option<Rc<WindowManagerOwnerState>>> =
+        const { RefCell::new(None) };
+}
+
+fn active_window_manager_owner() -> Option<Rc<WindowManagerOwnerState>> {
+    ACTIVE_WINDOW_MANAGER_OWNER.with(|current| current.borrow().clone())
+}
+
+fn drain_window_manager_ops(owner: &WindowManagerOwnerState, manager: &mut WindowManager) {
+    loop {
+        let ops = owner.operations.replace(Vec::new());
         if ops.is_empty() {
             break;
         }
@@ -47,18 +316,20 @@ fn drain_window_manager_ops(manager: &mut WindowManager) {
     }
 }
 
-fn splice_deferred_window_manager_ops() {
-    let deferred = WINDOW_MANAGER_DEFERRED_OPS.with(|q| q.replace(Vec::new()));
+fn splice_deferred_window_manager_ops(owner: &WindowManagerOwnerState) {
+    let deferred = owner.deferred_operations.replace(Vec::new());
     if deferred.is_empty() {
         return;
     }
-    WINDOW_MANAGER_OP_QUEUE.with(|queue| queue.borrow_mut().extend(deferred));
+    owner.operations.borrow_mut().extend(deferred);
 }
 
 /// Queue work for the *next* `with_window_manager` entry, not the in-flight drain.
 /// Used when a window RefCell is still borrowed during drain.
 pub fn queue_window_manager_op_deferred(f: impl FnOnce(&mut WindowManager) + 'static) {
-    WINDOW_MANAGER_DEFERRED_OPS.with(|queue| queue.borrow_mut().push(Box::new(f)));
+    if let Some(owner) = active_window_manager_owner() {
+        owner.deferred_operations.borrow_mut().push(Box::new(f));
+    }
 }
 
 /// Hide/show without panicking if the window RefCell is already borrowed.
@@ -81,17 +352,20 @@ pub fn hide_window_rc(win_rc: &Rc<RefCell<GameWindow>>, hide: bool) {
 
 /// Queue a `'static` window-manager side effect.
 ///
-/// Runs immediately when the singleton is free; otherwise runs when the outer
-/// `with_window_manager` / input dispatch drains the queue.
+/// Runs immediately when the receiving owner is free; otherwise runs when the outer
+/// `with_window_manager` / input dispatch drains that owner’s queue.
 pub fn queue_window_manager_op(f: impl FnOnce(&mut WindowManager) + 'static) {
-    THE_WINDOW_MANAGER.with(|manager| {
-        if let Ok(mut borrow) = manager.try_borrow_mut() {
+    let Some(owner) = active_window_manager_owner() else {
+        return;
+    };
+    {
+        if let Ok(mut borrow) = owner.manager.try_borrow_mut() {
             f(&mut borrow);
-            drain_window_manager_ops(&mut borrow);
+            drain_window_manager_ops(&owner, &mut borrow);
             return;
         }
-        WINDOW_MANAGER_OP_QUEUE.with(|queue| queue.borrow_mut().push(Box::new(f)));
-    });
+        owner.operations.borrow_mut().push(Box::new(f));
+    }
 }
 
 /// Nested Start / hide-parent create must queue, not fail-closed no-op.
@@ -119,34 +393,49 @@ pub fn queue_set_focus(window: Rc<RefCell<GameWindow>>) {
 /// [`queue_window_manager_op`] with owned (`'static`) command data. That is the
 /// working unit-reentry path: queue, then flush when the outer borrow ends.
 pub fn with_window_manager<R: ReentryFallback>(f: impl FnOnce(&mut WindowManager) -> R) -> R {
-    THE_WINDOW_MANAGER.with(|manager| match manager.try_borrow_mut() {
+    let Some(owner) = active_window_manager_owner() else {
+        log::error!(
+            "WindowManager access outside its receiving GameClient owner; using an inert fail-closed tree"
+        );
+        let mut inert = WindowManager::new();
+        return f(&mut inert);
+    };
+    match owner.manager.try_borrow_mut() {
         Ok(mut borrow) => {
-            splice_deferred_window_manager_ops();
-            drain_window_manager_ops(&mut borrow);
+            splice_deferred_window_manager_ops(&owner);
+            drain_window_manager_ops(&owner, &mut borrow);
             let result = f(&mut borrow);
-            drain_window_manager_ops(&mut borrow);
+            drain_window_manager_ops(&owner, &mut borrow);
             result
         }
         Err(_) => window_manager_reentry(f),
-    })
+    }
 }
 
 pub fn with_window_manager_ref<R>(f: impl FnOnce(&WindowManager) -> R) -> R {
-    THE_WINDOW_MANAGER.with(|manager| match manager.try_borrow() {
+    let Some(owner) = active_window_manager_owner() else {
+        log::error!(
+            "WindowManager read outside its receiving GameClient owner; using an inert fail-closed tree"
+        );
+        let inert = WindowManager::new();
+        return f(&inert);
+    };
+    match owner.manager.try_borrow() {
         Ok(borrow) => f(&borrow),
         Err(_) => {
             // Mutable borrow is live. Do not alias `&WindowManager` with that `&mut`.
-            // Fail-closed: empty snapshot. Font/image draw helpers ignore `self`.
-            WINDOW_MANAGER_FAIL_CLOSED.with(|dummy| f(dummy))
+            // Fail-closed: an empty snapshot. Font/image draw helpers ignore `self`.
+            let inert = WindowManager::new();
+            f(&inert)
         }
-    })
+    }
 }
 
-/// True when the thread-local WindowManager is not currently mutably borrowed.
+/// True when the active owner’s WindowManager is not currently mutably borrowed.
 /// Used by MainMenuInit to skip hide/bring-forward work that would stall while
 /// Shell::push still holds the manager.
 pub fn window_manager_try_borrow_free() -> bool {
-    THE_WINDOW_MANAGER.with(|manager| manager.try_borrow_mut().is_ok())
+    active_window_manager_owner().is_some_and(|owner| owner.manager.try_borrow_mut().is_ok())
 }
 
 fn window_manager_reentry<R: ReentryFallback>(f: impl FnOnce(&mut WindowManager) -> R) -> R {
@@ -278,6 +567,61 @@ pub fn dispatch_os_mouse_to_window_manager(
     dispatch_os_mouse_to_window_manager_with_facts(msg, x, y, facts)
 }
 
+/// Dispatch a native mouse event to the explicitly receiving client's WND
+/// tree. The owner is passed by Main at the OS-event boundary; the scoped
+/// compatibility selection exists only while nested legacy gadget callbacks run.
+pub fn dispatch_os_mouse_to_window_manager_for_owner(
+    owner: &WindowManagerOwner,
+    msg: WindowMessage,
+    x: i32,
+    y: i32,
+    facts: WindowMouseFacts,
+) -> WindowInputReturnCode {
+    dispatch_mouse_with_facts(
+        msg,
+        x,
+        y,
+        facts,
+        |msg, x, y, data| {
+            owner.with_manager(|manager| manager.process_mouse_event(msg, x, y, data))
+        },
+        || {
+            owner
+                .with_shell_ref(Shell::is_shell_active)
+                .unwrap_or(false)
+        },
+    )
+}
+
+/// Native mouse dispatch with Main's receiving ControlBar context.
+pub fn dispatch_os_mouse_to_window_manager_with_control_bar_for_owner(
+    owner: &WindowManagerOwner,
+    msg: WindowMessage,
+    x: i32,
+    y: i32,
+    facts: WindowMouseFacts,
+    context: &mut super::ControlBarInputContext<'_>,
+) -> WindowInputReturnCode {
+    let result = dispatch_mouse_with_facts(
+        msg,
+        x,
+        y,
+        facts,
+        |msg, x, y, data| {
+            owner.with_manager(|manager| {
+                manager.process_mouse_event_with_control_bar(msg, x, y, data, context)
+            })
+        },
+        || {
+            owner
+                .with_shell_ref(Shell::is_shell_active)
+                .unwrap_or(false)
+        },
+    );
+    context.complete_options_accept();
+    result
+}
+
 /// Native receiving route. The manager callback/re-entry and shell policy are
 /// the same as ordinary Core dispatch; only camera fact discovery differs.
 pub fn dispatch_os_mouse_to_window_manager_with_facts(
@@ -380,6 +724,32 @@ pub fn dispatch_os_key_to_window_manager(key: u8, state: u8) -> WindowInputRetur
     }
 }
 
+/// Dispatch a native keyboard event to the explicitly receiving client's WND
+/// tree. Focus and callback order belong to that owner.
+pub fn dispatch_os_key_to_window_manager_for_owner(
+    owner: &WindowManagerOwner,
+    key: u8,
+    state: u8,
+) -> WindowInputReturnCode {
+    // C++ WindowXlat.cpp RAW_KEY_DOWN/UP consumes only the focused WND result
+    // (plus its separate Escape fallbacks); unlike mouse input, Shell-active
+    // alone does not consume an otherwise-unhandled key.
+    owner.with_manager(|manager| manager.process_key_event(key, state))
+}
+
+/// Native keyboard dispatch with Main's receiving ControlBar context.
+pub fn dispatch_os_key_to_window_manager_with_control_bar_for_owner(
+    owner: &WindowManagerOwner,
+    key: u8,
+    state: u8,
+    context: &mut super::ControlBarInputContext<'_>,
+) -> WindowInputReturnCode {
+    let result = owner
+        .with_manager(|manager| manager.process_key_event_with_control_bar(key, state, context));
+    context.complete_options_accept();
+    result
+}
+
 pub(crate) fn apply_draw_callback_override(
     window_name: &str,
     draw: fn(&GameWindow, &WindowInstanceData),
@@ -420,5 +790,200 @@ pub(crate) fn apply_w3d_main_menu_runtime_draw_overrides() {
         "MainMenu.wnd:StaticTextRandom2",
     ] {
         apply_draw_callback_override(window_name, w3d_main_menu_random_text_draw);
+    }
+}
+
+#[cfg(test)]
+mod owner_tests {
+    use super::{
+        WindowManagerOwner, queue_window_manager_op, queue_window_manager_op_deferred,
+        with_window_manager,
+    };
+    use std::rc::Rc;
+
+    #[test]
+    fn scoped_owner_keeps_same_id_windows_in_distinct_client_trees() {
+        let first = WindowManagerOwner::new();
+        let second = WindowManagerOwner::new();
+        let first_window =
+            first.with_manager(|manager| manager.create_window(None, 0, 0, 20, 20).unwrap());
+        let second_window =
+            second.with_manager(|manager| manager.create_window(None, 0, 0, 20, 20).unwrap());
+        assert_eq!(first_window.borrow().id, second_window.borrow().id);
+        assert!(!Rc::ptr_eq(&first_window, &second_window));
+
+        first.with_manager(|manager| {
+            manager.destroy_window(first_window.clone()).unwrap();
+            manager.flush_destroy_queue();
+            assert!(manager.get_window_by_id(first_window.borrow().id).is_none());
+        });
+        second.with_manager(|manager| {
+            assert!(Rc::ptr_eq(
+                &manager.get_window_by_id(second_window.borrow().id).unwrap(),
+                &second_window
+            ));
+        });
+    }
+
+    #[test]
+    fn nested_explicit_owner_scope_restores_its_predecessor() {
+        let first = WindowManagerOwner::new();
+        let second = WindowManagerOwner::new();
+        first.with_scope(|| {
+            let first_window =
+                with_window_manager(|manager| manager.create_window(None, 0, 0, 20, 20).unwrap());
+            second.with_scope(|| {
+                with_window_manager(|manager| {
+                    manager.create_window(None, 0, 0, 20, 20).unwrap();
+                });
+            });
+            assert!(with_window_manager(|manager| {
+                manager
+                    .get_window_by_id(first_window.borrow().id)
+                    .is_some_and(|window| Rc::ptr_eq(&window, &first_window))
+            }));
+        });
+    }
+
+    #[test]
+    fn shell_stack_and_late_owner_handle_survive_equal_id_peer_reset() {
+        if crate::core::game_client::global_boundary_fixture::run_in_private_child(
+            module_path!(),
+            "shell_stack_and_late_owner_handle_survive_equal_id_peer_reset",
+        ) {
+            return;
+        }
+        let first = WindowManagerOwner::new();
+        let second = WindowManagerOwner::new();
+        let first_window =
+            first.with_manager(|manager| manager.create_window(None, 0, 0, 20, 20).unwrap());
+        let second_window =
+            second.with_manager(|manager| manager.create_window(None, 0, 0, 20, 20).unwrap());
+        assert_eq!(first_window.borrow().id, second_window.borrow().id);
+        assert!(!Rc::ptr_eq(&first_window, &second_window));
+
+        let mut first_shell = first.shell_handle();
+        let mut second_shell = second.shell_handle();
+        first_shell.init().unwrap();
+        second_shell.init().unwrap();
+        first_shell.push("Menus/MainMenu.wnd", false).unwrap();
+        second_shell.push("Menus/MainMenu.wnd", false).unwrap();
+        assert_eq!(first_shell.get_screen_count(), 1);
+        assert_eq!(second_shell.get_screen_count(), 1);
+        assert_eq!(
+            first_shell.top_filename(),
+            Some("Menus/MainMenu.wnd".to_string())
+        );
+        assert_eq!(
+            second_shell.top_filename(),
+            Some("Menus/MainMenu.wnd".to_string())
+        );
+
+        let mut late_first_shell = first.shell_handle();
+        let late_callback_owner = first.clone();
+        second_shell.reset().unwrap();
+        assert_eq!(second_shell.get_screen_count(), 0);
+        assert_eq!(late_first_shell.get_screen_count(), 1);
+        assert!(first.with_manager_ref(|manager| {
+            manager.get_window_by_id(first_window.borrow().id).is_some()
+        }));
+        assert!(second.with_manager_ref(|manager| {
+            manager
+                .get_window_by_id(second_window.borrow().id)
+                .is_some()
+        }));
+
+        late_callback_owner.queue_shell_operation(|shell| {
+            assert_eq!(shell.top_filename(), Some("Menus/MainMenu.wnd"));
+            shell.pop().unwrap();
+        });
+        // C++ Shell::pop marks pendingPop and starts layout shutdown. The stack
+        // entry remains until that layout reports shutdownComplete.
+        assert_eq!(late_first_shell.get_screen_count(), 1);
+        assert_eq!(
+            late_first_shell.top_filename(),
+            Some("Menus/MainMenu.wnd".to_string())
+        );
+        late_first_shell.shutdown_complete(None, false).unwrap();
+        assert_eq!(late_first_shell.get_screen_count(), 0);
+        late_first_shell.push("Menus/MainMenu.wnd", false).unwrap();
+        assert_eq!(late_first_shell.get_screen_count(), 1);
+        assert_eq!(second_shell.get_screen_count(), 0);
+    }
+
+    #[test]
+    fn shell_residuals_and_deferred_pushes_are_receiving_owner_state() {
+        use crate::gui::shell::{
+            ResidualShellMapAction, residual_shell_map_is_on, residual_shell_map_last_action,
+            simulate_shell_map_hide, simulate_shell_map_show,
+        };
+        let first = WindowManagerOwner::new();
+        let second = WindowManagerOwner::new();
+
+        assert!(first.queue_deferred_shell_push("Menus/MainMenu.wnd"));
+        assert!(!first.queue_deferred_shell_push("Menus/MainMenu.wnd"));
+        assert!(second.queue_deferred_shell_push("Menus/OptionsMenu.wnd"));
+        assert_eq!(
+            first.drain_deferred_shell_pushes(),
+            vec!["Menus/MainMenu.wnd".to_string()]
+        );
+        assert_eq!(second.clear_deferred_shell_pushes(), 1);
+        assert!(second.drain_deferred_shell_pushes().is_empty());
+
+        assert!(first.with_scope(simulate_shell_map_show));
+        assert!(second.with_scope(simulate_shell_map_hide));
+        first.with_scope(|| {
+            assert!(residual_shell_map_is_on());
+            assert_eq!(
+                residual_shell_map_last_action(),
+                ResidualShellMapAction::Show
+            );
+        });
+        second.with_scope(|| {
+            assert!(!residual_shell_map_is_on());
+            assert_eq!(
+                residual_shell_map_last_action(),
+                ResidualShellMapAction::Hide
+            );
+        });
+    }
+
+    #[test]
+    fn owner_scope_restores_after_unwind_and_keeps_deferred_queues_separate() {
+        use std::cell::{Cell, RefCell};
+        use std::panic::{AssertUnwindSafe, catch_unwind};
+        let first = WindowManagerOwner::new();
+        let second = WindowManagerOwner::new();
+        let first_log = Rc::new(RefCell::new(Vec::new()));
+        let second_log = Rc::new(RefCell::new(Vec::new()));
+        let first_result = Rc::clone(&first_log);
+        first.with_scope(|| {
+            with_window_manager(|_| {
+                queue_window_manager_op_deferred(move |_| first_result.borrow_mut().push("first"));
+            });
+            with_window_manager(|_| {});
+            second.with_scope(|| {
+                let second_result = Rc::clone(&second_log);
+                with_window_manager(|_| {
+                    queue_window_manager_op_deferred(move |_| {
+                        second_result.borrow_mut().push("second")
+                    });
+                });
+                with_window_manager(|_| {});
+            });
+        });
+        assert_eq!(&*first_log.borrow(), &["first"]);
+        assert_eq!(&*second_log.borrow(), &["second"]);
+
+        let _ = catch_unwind(AssertUnwindSafe(|| {
+            first.with_scope(|| {
+                second.with_scope(|| panic!("exercise scoped owner unwind restoration"));
+            });
+        }));
+        first.with_scope(|| {
+            let actual = Rc::clone(&first_log);
+            queue_window_manager_op(move |_| actual.borrow_mut().push("after unwind"));
+        });
+        assert_eq!(&*first_log.borrow(), &["first", "after unwind"]);
     }
 }

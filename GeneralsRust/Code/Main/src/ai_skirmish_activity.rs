@@ -543,7 +543,7 @@ mod tests {
 
         let mut gates = |tag: &str, hunting: bool| {
             if let Some(o) = game_logic.host_object_mut(aa) {
-                o.hunting = hunting;
+                o.set_hunting(hunting);
             }
             let refuses = game_logic.computer_refuses_non_hunt_airborne_chase(aa, jet);
             let can_atk = game_logic.host_object(aa).map(|o| o.can_attack());

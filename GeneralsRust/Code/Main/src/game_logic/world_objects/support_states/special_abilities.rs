@@ -190,7 +190,10 @@ impl GameLogic {
         }
     }
 
-    pub(super) fn abort_capture_channel(&mut self, object_id: ObjectId) {
+    pub(super) fn abort_capture_channel(
+        &mut self,
+        object_id: ObjectId,
+    ) -> gamelogic::GameLogicResult<()> {
         if let Some(object) = self.objects.get_mut(&object_id) {
             object.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
                 &mut self.queued_audio_events,
@@ -207,13 +210,17 @@ impl GameLogic {
         self.leftover_sa_set_pack_model(object_id, false, false, false);
         // C++ shouldAbort: aiIdle(CMD_FROM_AI) then onExit. Pack-abort
         // without a replacement order must leave the source Idle.
-        self.set_ai_state_decision_aware(object_id, AIState::Idle);
+        self.set_ai_state_decision_aware_for_ai(object_id, AIState::Idle)?;
         self.hero_abilities.clear_capture_flash(object_id);
+        Ok(())
     }
 
     /// Complete C++ capture packing.  Ownership changes at the end of
     /// preparation, but the source remains busy until PackTime has elapsed.
-    pub(super) fn finish_capture_channel(&mut self, object_id: ObjectId) {
+    pub(super) fn finish_capture_channel(
+        &mut self,
+        object_id: ObjectId,
+    ) -> gamelogic::GameLogicResult<()> {
         if let Some(object) = self.objects.get_mut(&object_id) {
             object.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
                 &mut self.queued_audio_events,
@@ -229,8 +236,9 @@ impl GameLogic {
         self.stop_lotus_prep_sound_loop(object_id);
         self.leftover_sa_set_pack_model(object_id, false, false, false);
         // C++ handlePackingProcessing pack-complete → finishAbility → aiIdle.
-        self.set_ai_state_decision_aware(object_id, AIState::Idle);
+        self.set_ai_state_decision_aware_for_ai(object_id, AIState::Idle)?;
         self.hero_abilities.clear_capture_flash(object_id);
+        Ok(())
     }
 
     /// C++ `onExit` when a player/script order replaces capture.
@@ -1126,9 +1134,9 @@ impl GameLogic {
         };
         let frame = self.frame;
         if let Some(obj) = self.objects.get_mut(&object_id) {
-            if !obj.face_active {
-                obj.face_can_turn_in_place = obj.min_speed == 0.0;
-                obj.face_active = true;
+            if !obj.face_active() {
+                obj.set_face_can_turn_in_place(obj.min_speed == 0.0);
+                obj.set_face_active(true);
             }
             obj.tick_face_towards_with_effects(
                 target_pos,

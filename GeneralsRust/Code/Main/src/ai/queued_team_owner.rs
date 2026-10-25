@@ -148,6 +148,7 @@ impl GameLogic {
     /// selection script runs with all canonical controllers installed.
     pub(crate) fn update_owned_ai_military(&mut self, player: u32, now: f32, data: &AiDataView) {
         self.update_owned_ai_military_with_effects(player, now, data, &mut Default::default())
+            .expect("owned AI military update failed");
     }
 
     pub(crate) fn update_owned_ai_military_with_effects(
@@ -156,16 +157,19 @@ impl GameLogic {
         now: f32,
         data: &AiDataView,
         ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         use super::teams::OwnedTeamSelection;
         let Some(mut ai) = self.ai_manager.ai_players.remove(&player) else {
-            return;
+            return Ok(());
         };
         let due = now >= ai.next_team_queue_time;
-        if due {
-            ai.process_team_queue_with_ai_data(self, now, data);
-        }
+        let queue_result = if due {
+            ai.process_team_queue_with_ai_data(self, now, data)
+        } else {
+            Ok(())
+        };
         self.ai_manager.ai_players.insert(player, ai);
+        queue_result?;
         let candidates: Vec<(String, i32)> = self
             .ai_manager
             .ai_players
@@ -200,7 +204,7 @@ impl GameLogic {
             })
             .collect::<HashMap<_, _>>();
         let Some(mut ai) = self.ai_manager.ai_players.remove(&player) else {
-            return;
+            return Ok(());
         };
         let selection = if due {
             if now >= ai.next_team_time
@@ -235,21 +239,31 @@ impl GameLogic {
             }
         };
         let Some(mut ai) = self.ai_manager.ai_players.remove(&player) else {
-            return;
+            return Ok(());
         };
-        if due {
+        let queue_result = if due {
             if new_pick {
                 ai.arm_team_timer_after_build_with_ai_data(self, now, data);
             }
-            if selected {
-                ai.process_team_queue_with_ai_data(self, now, data);
-            } else if now >= ai.next_team_time {
+            let result = if selected {
+                ai.process_team_queue_with_ai_data(self, now, data)
+            } else {
+                Ok(())
+            };
+            if !selected && now >= ai.next_team_time {
                 ai.next_team_time = now + AIPlayer::TEAM_QUEUE_RETRY_SECONDS;
             }
             ai.next_team_queue_time = now + AIPlayer::TEAM_QUEUE_RETRY_SECONDS;
+            result
+        } else {
+            Ok(())
+        };
+        if queue_result.is_ok() {
+            ai.evaluate_attack_opportunities(self, now);
         }
-        ai.evaluate_attack_opportunities(self, now);
         self.ai_manager.ai_players.insert(player, ai);
+        queue_result?;
+        Ok(())
     }
     // Explicit UI-only adapter for standalone callers; native roots lend both domains.
     pub(crate) fn update_owned_ai_military_with_ui(
@@ -270,6 +284,7 @@ impl GameLogic {
             view: None,
         };
         self.update_owned_ai_military_with_effects(player, now, data, &mut effects)
+            .expect("owned AI military UI update failed");
     }
 
     /// Commit queue admission before its synchronous production-condition action.
@@ -545,8 +560,8 @@ impl GameLogic {
                     .collect();
                 let idle = members.iter().any(|id| {
                     self.host_object(*id)
-                        .is_some_and(|o| o.has_ai_update_interface() && (o.ai_state == AIState::Idle
-                            || (matches!(o.ai_state, AIState::GuardingArea | AIState::GuardingObject)
+                        .is_some_and(|o| o.has_ai_update_interface() && (o.ai_state() == AIState::Idle
+                            || (matches!(o.ai_state(), AIState::GuardingArea | AIState::GuardingObject)
                                 && o.unit_ai_runtime.guard_phase() == Some(crate::game_logic::object::unit_ai_runtime::GuardPhase::Idle))))
                 });
                 (idle && ai.prototype_execute_actions_on_create(&team.name))
@@ -1061,7 +1076,7 @@ mod tests {
             world.peek_new_script_messages(),
             vec!["Transmission: leaf:phase"; 2]
         );
-        assert_eq!(world.host_object(unit).unwrap().ai_state, AIState::Moving);
+        assert_eq!(world.host_object(unit).unwrap().ai_state(), AIState::Moving);
         let leaf = world.ai_manager.ai_players[&1]
             .team_queue
             .iter()
@@ -1151,7 +1166,7 @@ mod tests {
         team.write().unwrap().remove_member(no_ai.0);
         team.write().unwrap().add_member(unit.0);
         let object = world.host_object_mut(unit).unwrap();
-        object.ai_state = AIState::GuardingArea;
+        object.restore_ai_state(AIState::GuardingArea);
         object
             .unit_ai_runtime
             .set_guard_phase(Some(GuardPhase::Return { goal: Vec3::ZERO }));
@@ -1168,7 +1183,7 @@ mod tests {
             ["Transmission: roster:idle"]
         );
         assert_eq!(
-            world.host_object(unit).unwrap().ai_state,
+            world.host_object(unit).unwrap().ai_state(),
             AIState::GuardingArea,
             "script name must not invent Hunt orders"
         );

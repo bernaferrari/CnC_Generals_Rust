@@ -40,12 +40,14 @@ fn production_world_with_exit(
 }
 
 fn spawn_finished_output(world: &mut GameLogic, factory: ObjectId, name: &str) -> ObjectId {
-    let result = world.apply_production_authority_op(ProductionAuthorityOp::SpawnUnit {
-        template: name.into(),
-        team: Team::USA,
-        owner_player_id: Some(1),
-        spawn_pos: Vec3::new(12.0, 0.0, 0.0),
-    });
+    let result = world
+        .apply_production_authority_op(ProductionAuthorityOp::SpawnUnit {
+            template: name.into(),
+            team: Team::USA,
+            owner_player_id: Some(1),
+            spawn_pos: Vec3::new(12.0, 0.0, 0.0),
+        })
+        .expect("production unit spawn");
     let ProductionAuthorityResult::Spawned(Some(unit)) = result else {
         panic!("production output");
     };
@@ -122,41 +124,43 @@ fn factory_exit_callback_observes_completed_owned_order_before_authored_create()
     );
     let mut callbacks = 0;
     assert_eq!(
-        world.host_apply_production_spawn_ready_completions_with_build_complete(
-            |world, delivered| {
-                callbacks += 1;
-                assert_eq!(delivered, unit);
-                assert!(
-                    world.host_object(unit).is_some(),
-                    "unit stays in canonical store during callback"
-                );
-                let ai = &world.ai_manager.ai_players[&1];
-                let team = &ai.team_queue[0];
-                assert_eq!(
-                    team.work_orders
-                        .iter()
-                        .map(|w| w.num_completed)
-                        .collect::<Vec<_>>(),
-                    vec![1, 0, 1, 0]
-                );
-                assert_eq!(team.work_orders[2].factory_id, None);
-                assert_eq!(team.work_orders[2].queued_count, 0);
-                assert_eq!(team.reinforcement_id, Some(unit));
-                assert_eq!(ai.next_team_queue_time, 0.0);
-                assert_eq!(
-                    ai.next_team_time, 88.0,
-                    "delivery resets team delay, not team selection timer"
-                );
-                let output = world.host_object(unit).unwrap();
-                assert_eq!(output.team_instance_name, "DeliveredTeam");
-                assert_eq!(
-                    output.movement.path.last(),
-                    Some(&home),
-                    "AI home path follows already installed factory exit"
-                );
-                world.apply_create_modules_on_build_complete(unit);
-            }
-        ),
+        world
+            .host_apply_production_spawn_ready_completions_with_build_complete(
+                |world, delivered| {
+                    callbacks += 1;
+                    assert_eq!(delivered, unit);
+                    assert!(
+                        world.host_object(unit).is_some(),
+                        "unit stays in canonical store during callback"
+                    );
+                    let ai = &world.ai_manager.ai_players[&1];
+                    let team = &ai.team_queue[0];
+                    assert_eq!(
+                        team.work_orders
+                            .iter()
+                            .map(|w| w.num_completed)
+                            .collect::<Vec<_>>(),
+                        vec![1, 0, 1, 0]
+                    );
+                    assert_eq!(team.work_orders[2].factory_id, None);
+                    assert_eq!(team.work_orders[2].queued_count, 0);
+                    assert_eq!(team.reinforcement_id, Some(unit));
+                    assert_eq!(ai.next_team_queue_time, 0.0);
+                    assert_eq!(
+                        ai.next_team_time, 88.0,
+                        "delivery resets team delay, not team selection timer"
+                    );
+                    let output = world.host_object(unit).unwrap();
+                    assert_eq!(output.team_instance_name, "DeliveredTeam");
+                    assert_eq!(
+                        output.movement.path.last(),
+                        Some(&home),
+                        "AI home path follows already installed factory exit"
+                    );
+                    world.apply_create_modules_on_build_complete(unit);
+                }
+            )
+            .expect("spawn-ready completion"),
         1
     );
     assert_eq!(callbacks, 1);
@@ -178,7 +182,9 @@ fn factory_exit_callback_observes_completed_owned_order_before_authored_create()
     assert_eq!(ai.team_queue[0].reinforcement_id, Some(unit));
     assert_eq!(ai.team_queue[0].work_orders[2].num_completed, 1);
     assert_eq!(
-        world.host_apply_production_spawn_ready_completions(),
+        world
+            .host_apply_production_spawn_ready_completions()
+            .expect("spawn-ready completion"),
         0,
         "restoring progress does not redeliver previously completed production"
     );
@@ -193,7 +199,12 @@ fn unqueued_factory_dozer_delivery_uses_cpp_repair_or_next_frame_build_shortcut(
         ai.next_building_time = 80.0;
         ai.next_team_queue_time = 99.0;
         let unit = spawn_finished_output(&mut world, factory, "AmericaVehicleDozer");
-        assert_eq!(world.host_apply_production_spawn_ready_completions(), 1);
+        assert_eq!(
+            world
+                .host_apply_production_spawn_ready_completions()
+                .expect("spawn-ready completion"),
+            1
+        );
         let ai = &world.ai_manager.ai_players[&1];
         assert_eq!(ai.next_team_queue_time, 0.0);
         assert!(!ai.dozer_queued_for_repair);
@@ -234,7 +245,11 @@ fn same_id_factory_deliveries_update_only_the_driving_world_queue() {
     let bu = spawn_finished_output(&mut b, bf, name);
     assert_eq!(au, bu);
     // Both same-ID callbacks are pending before either receiving owner drains.
-    assert_eq!(a.host_apply_production_spawn_ready_completions(), 1);
+    assert_eq!(
+        a.host_apply_production_spawn_ready_completions()
+            .expect("spawn-ready completion"),
+        1
+    );
     assert_eq!(
         a.ai_manager.ai_players[&1].team_queue[0].work_orders[0].num_completed,
         1
@@ -243,7 +258,11 @@ fn same_id_factory_deliveries_update_only_the_driving_world_queue() {
         b.ai_manager.ai_players[&1].team_queue[0].work_orders[0].num_completed,
         0
     );
-    assert_eq!(b.host_apply_production_spawn_ready_completions(), 1);
+    assert_eq!(
+        b.host_apply_production_spawn_ready_completions()
+            .expect("spawn-ready completion"),
+        1
+    );
     assert_eq!(
         b.ai_manager.ai_players[&1].team_queue[0].work_orders[0].num_completed,
         1
@@ -267,7 +286,9 @@ fn missing_factory_delivery_keeps_owned_ai_timers_and_orders_unchanged() {
         0,
     ));
     let unit = world.create_object_for_player(name, 1, Vec3::ZERO).unwrap();
-    world.notify_owned_ai_unit_produced(ObjectId(u32::MAX), unit);
+    world
+        .notify_owned_ai_unit_produced(ObjectId(u32::MAX), unit)
+        .expect("missing factory is a no-op");
     let ai = &world.ai_manager.ai_players[&1];
     assert_eq!(ai.next_team_queue_time, 99.0);
     assert_eq!(ai.team_queue[0].work_orders[0].num_completed, 0);
@@ -402,7 +423,9 @@ fn supply_spawn_notifies_ai_before_exit_without_replaying_create_or_draining_pai
                 "one-shot remains consumed"
             );
             assert_eq!(
-                world.host_apply_production_spawn_ready_completions(),
+                world
+                    .host_apply_production_spawn_ready_completions()
+                    .expect("spawn-ready completion"),
                 1,
                 "the pending paid output remains for its own original callback point"
             );

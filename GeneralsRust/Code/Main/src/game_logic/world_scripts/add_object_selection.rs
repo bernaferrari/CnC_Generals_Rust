@@ -134,7 +134,18 @@ impl GameLogic {
         object.visual_object_generation = self.allocate_visual_object_generation();
         object.visual_draw_identity_token = std::sync::Arc::new(());
         object.partition_namespace = Default::default();
-        object.unit_ai_runtime = Default::default();
+        let idle_bits = object
+            .thing()
+            .template
+            .receiving_client_template
+            .as_ref()
+            .and_then(|definition| definition.receiving_ai_policy())
+            .map(|policy| policy.0)
+            .unwrap_or(object.thing().template.auto_acquire_enemies_when_idle);
+        object.unit_ai_runtime =
+            crate::game_logic::object::unit_ai_runtime::UnitAiRuntime::with_auto_acquire(
+                idle_bits & gamelogic::object::update::ai_update_interface::AUTO_ACQUIRE_IDLE != 0,
+            );
         let id = object.id;
         self.objects.admit(id, object);
         self.attach_host_fog_ghost(id);
@@ -334,7 +345,7 @@ impl GameLogic {
                     obj.stop_attack(&mut crate::game_logic::ObjectAudio::queue(
                         &mut self.queued_audio_events,
                     ));
-                    if obj.ai_state != AIState::Idle {
+                    if obj.ai_state() != AIState::Idle {
                         obj.set_ai_state(
                             AIState::Idle,
                             &mut crate::game_logic::ObjectAudio::queue(
@@ -405,7 +416,7 @@ impl GameLogic {
                     );
                     if can_attack && installed {
                         if let Some(obj) = self.objects.get_mut(&object_id) {
-                            obj.auto_acquire_when_idle = true;
+                            obj.set_auto_acquire_when_idle(true);
                             obj.set_max_shots_to_fire(-1);
                             obj.requested_destination = Some(target_position);
                             obj.set_ai_state(
@@ -419,7 +430,7 @@ impl GameLogic {
                         if let Some(obj) = self.objects.get_mut(&object_id) {
                             obj.requested_destination = None;
                             obj.retry_path = false;
-                            if obj.ai_state != AIState::Idle {
+                            if obj.ai_state() != AIState::Idle {
                                 obj.set_ai_state(
                                     AIState::Idle,
                                     &mut crate::game_logic::ObjectAudio::queue(
@@ -459,7 +470,7 @@ impl GameLogic {
             under_construction: obj.status.under_construction,
             construction_percent: obj.construction_percent,
             experience_level: obj.experience.level,
-            ai_state: obj.ai_state.clone(),
+            ai_state: obj.ai_state().clone(),
             can_attack: obj.can_attack(),
             can_move: obj.is_mobile(),
         })
@@ -1455,10 +1466,10 @@ impl GameLogic {
                     ));
                     obj.movement.target_position = None;
                     if matches!(
-                        obj.ai_state,
+                        obj.ai_state(),
                         AIState::Moving | AIState::Constructing | AIState::Repairing
                     ) {
-                        if obj.ai_state != AIState::Idle {
+                        if obj.ai_state() != AIState::Idle {
                             obj.set_ai_state(
                                 AIState::Idle,
                                 &mut crate::game_logic::ObjectAudio::queue(
@@ -1469,7 +1480,7 @@ impl GameLogic {
                     }
                 }
                 if matches!(
-                    obj.ai_state,
+                    obj.ai_state(),
                     AIState::Attacking | AIState::AttackMoving | AIState::AttackingGround
                 ) {
                     obj.set_ai_state(

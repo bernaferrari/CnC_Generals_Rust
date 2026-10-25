@@ -3151,42 +3151,48 @@ mod credits_os_wnd_tests {
 
     #[test]
     fn os_wnd_credits_menu_skip_hits_parent_then_latches() {
-        with_window_manager(|manager| {
-            let parent = manager
-                .create_window(None, 10, 10, 200, 120)
-                .expect("ParentCreditsWindow");
-            parent
-                .borrow_mut()
-                .set_name("CreditsMenu.wnd:ParentCreditsWindow");
-            let _ = parent.borrow_mut().hide(false);
+        let owner = crate::gui::window_manager::WindowManagerOwner::new();
+        owner.with_scope(|| {
+            with_window_manager(|manager| {
+                let parent = manager
+                    .create_window(None, 10, 10, 200, 120)
+                    .expect("ParentCreditsWindow");
+                parent
+                    .borrow_mut()
+                    .set_name("CreditsMenu.wnd:ParentCreditsWindow");
+                let _ = parent.borrow_mut().hide(false);
+            });
+            assert!(
+                drive_os_wnd_credits_menu_skip_like_cpp(),
+                "OS WND click on ParentCreditsWindow must latch skip residual"
+            );
+            assert_eq!(
+                residual_credits_menu_last_action(),
+                ResidualCreditsMenuAction::Skip
+            );
+            assert!(!residual_credits_menu_is_active());
         });
-        assert!(
-            drive_os_wnd_credits_menu_skip_like_cpp(),
-            "OS WND click on ParentCreditsWindow must latch skip residual"
-        );
-        assert_eq!(
-            residual_credits_menu_last_action(),
-            ResidualCreditsMenuAction::Skip
-        );
-        assert!(!residual_credits_menu_is_active());
     }
 
     #[test]
     fn os_wnd_credits_menu_finished_hits_parent_then_latches() {
-        with_window_manager(|manager| {
-            let parent = manager
-                .create_window(None, 10, 140, 200, 120)
-                .expect("ParentCreditsWindow finished");
-            parent
-                .borrow_mut()
-                .set_name("CreditsMenu.wnd:ParentCreditsWindow");
-            let _ = parent.borrow_mut().hide(false);
+        let owner = crate::gui::window_manager::WindowManagerOwner::new();
+        owner.with_scope(|| {
+            with_window_manager(|manager| {
+                let parent = manager
+                    .create_window(None, 10, 140, 200, 120)
+                    .expect("ParentCreditsWindow finished");
+                parent
+                    .borrow_mut()
+                    .set_name("CreditsMenu.wnd:ParentCreditsWindow");
+                let _ = parent.borrow_mut().hide(false);
+            });
+            assert!(drive_os_wnd_credits_menu_finished_like_cpp());
+            assert_eq!(
+                residual_credits_menu_last_action(),
+                ResidualCreditsMenuAction::Finished
+            );
         });
-        assert!(drive_os_wnd_credits_menu_finished_like_cpp());
-        assert_eq!(
-            residual_credits_menu_last_action(),
-            ResidualCreditsMenuAction::Finished
-        );
     }
 }
 

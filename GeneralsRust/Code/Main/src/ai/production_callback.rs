@@ -200,28 +200,40 @@ impl GameLogic {
         &mut self,
         factory_id: ObjectId,
         unit_id: ObjectId,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
+        self.notify_owned_ai_unit_produced_with_effects(
+            factory_id,
+            unit_id,
+            &mut Default::default(),
+        )
+    }
+
+    pub(crate) fn notify_owned_ai_unit_produced_with_effects(
+        &mut self,
+        factory_id: ObjectId,
+        unit_id: ObjectId,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<()> {
         let Some(factory) = self.host_object(factory_id) else {
-            return;
+            return Ok(());
         };
         let Some(owner) = self.player_owner_for_host_object(factory) else {
-            return;
+            return Ok(());
         };
         let Some(unit) = self.host_object(unit_id) else {
-            return;
+            return Ok(());
         };
         if self.player_owner_for_host_object(unit) != Some(owner) {
-            return;
+            return Ok(());
         }
         let Some(ai) = self.ai_manager.ai_players.get(&owner) else {
-            return;
+            return Ok(());
         };
         let delivery = ai.prepare_delivery(self, factory_id, unit);
         let dozer = unit.is_kind_of(KindOf::Dozer);
         let collector = unit.is_resource_collector();
         let unit_position = unit.get_position();
         let exit_goal = unit.movement.target_position.unwrap_or(unit_position);
-        let team_factory = ai.team_factory.clone();
         let now = self.get_frame() as f32 / LOGIC_FRAMES_PER_SECOND;
 
         // Mutate only this player's owned queue, then release the borrow before
@@ -258,18 +270,25 @@ impl GameLogic {
 
         if let Some(delivery) = delivery {
             if let Some(team_id) = delivery.team_id {
-                let factory = team_factory
-                    .lock()
-                    .unwrap_or_else(|poison| poison.into_inner());
-                for team in factory.get_all_teams() {
-                    let mut team = team.write().unwrap_or_else(|poison| poison.into_inner());
-                    if team.get_id() == team_id {
-                        team.add_member(unit_id.0);
-                    } else {
-                        team.remove_member(unit_id.0);
+                {
+                    let team_factory = &self
+                        .ai_manager
+                        .ai_players
+                        .get(&owner)
+                        .expect("owned AI remains installed during production callback")
+                        .team_factory;
+                    let factory = team_factory
+                        .lock()
+                        .unwrap_or_else(|poison| poison.into_inner());
+                    for team in factory.get_all_teams() {
+                        let mut team = team.write().unwrap_or_else(|poison| poison.into_inner());
+                        if team.get_id() == team_id {
+                            team.add_member(unit_id.0);
+                        } else {
+                            team.remove_member(unit_id.0);
+                        }
                     }
                 }
-                drop(factory);
                 if let Some(unit) = self.host_object_mut(unit_id) {
                     unit.team_instance_name = delivery.team_name;
                 }
@@ -287,11 +306,16 @@ impl GameLogic {
                     }
                     if let Some(source) = source {
                         let _ = self.unit_command_stop_moving_order_target(unit_id, Some(source));
-                        let _ = self.unit_command_set_ai_state(unit_id, AIState::Gathering);
+                        self.unit_command_set_ai_state_with_effects(
+                            unit_id,
+                            AIState::Gathering,
+                            effects,
+                        )?;
                     }
                 }
             }
         }
+        Ok(())
     }
 }
 
