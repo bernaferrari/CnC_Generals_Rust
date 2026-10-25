@@ -1,7 +1,7 @@
 //! Split from `gui/game_window.rs` for module-size parity.
 //! Observable window behavior is unchanged.
 
-use std::cell::RefCell;
+use super::WindowEventEffects;
 
 use crate::gui::gadgets::{ListBoxAddEntry, ListBoxItemData, ListBoxTextAndColor};
 
@@ -25,7 +25,7 @@ pub(crate) const GADGET_SIZE: i32 = 16;
 /// [`push_payload`] / [`with_payload`]. Tokens are never raw pointers.
 pub type WindowMsgData = usize;
 
-/// Owned payload stored in the thread-local window-message arena.
+/// Owned payload stored for one receiving synchronous window operation.
 ///
 /// Tokens are indices with a generation tag and a high bit set so random small
 /// integers (`KEY_STATE_*`, gadget ids, `-1`) are never treated as payloads.
@@ -57,19 +57,13 @@ pub(crate) struct WindowMsgPayloadSlot {
     value: Option<WindowMsgPayload>,
 }
 
+#[derive(Default)]
 pub(crate) struct WindowMsgPayloadArena {
     slots: Vec<WindowMsgPayloadSlot>,
     free: Vec<usize>,
 }
 
 impl WindowMsgPayloadArena {
-    fn new() -> Self {
-        Self {
-            slots: Vec::new(),
-            free: Vec::new(),
-        }
-    }
-
     fn encode_token(index: usize, generation: u32) -> WindowMsgData {
         WINDOW_MSG_TOKEN_TAG
             | (((generation as usize) & WINDOW_MSG_GEN_MASK) << WINDOW_MSG_GEN_SHIFT)
@@ -89,7 +83,7 @@ impl WindowMsgPayloadArena {
     }
 
     fn bump_generation(current: u32) -> u32 {
-        let next = current.wrapping_add(1);
+        let next = (current.wrapping_add(1) as usize & WINDOW_MSG_GEN_MASK) as u32;
         if next == 0 { 1 } else { next }
     }
 
@@ -98,6 +92,10 @@ impl WindowMsgPayloadArena {
             index
         } else {
             let index = self.slots.len();
+            assert!(
+                index <= WINDOW_MSG_INDEX_MASK,
+                "window message payload capacity exceeded"
+            );
             self.slots.push(WindowMsgPayloadSlot {
                 generation: 0,
                 value: None,
@@ -141,72 +139,79 @@ impl WindowMsgPayloadArena {
     }
 }
 
-thread_local! {
-    static WINDOW_MSG_PAYLOAD_ARENA: RefCell<WindowMsgPayloadArena> =
-        RefCell::new(WindowMsgPayloadArena::new());
+/// Returns true when `data` is live in this receiving operation.
+pub fn is_window_msg_payload(effects: &WindowEventEffects<'_>, data: WindowMsgData) -> bool {
+    effects.payloads.get(data).is_some()
 }
 
-/// Returns true when `data` is a live typed payload token (not an integer flag).
-pub fn is_window_msg_payload(data: WindowMsgData) -> bool {
-    WINDOW_MSG_PAYLOAD_ARENA.with(|arena| arena.borrow().get(data).is_some())
-}
-
-/// Push an owned payload and return a token suitable for `WindowMsgData`.
-pub fn push_payload(payload: WindowMsgPayload) -> WindowMsgData {
-    WINDOW_MSG_PAYLOAD_ARENA.with(|arena| arena.borrow_mut().push(payload))
-}
-
-/// Clone the payload for `data` if it is a live token.
-pub fn payload(data: WindowMsgData) -> Option<WindowMsgPayload> {
-    WINDOW_MSG_PAYLOAD_ARENA.with(|arena| arena.borrow().get(data).cloned())
-}
-
-/// Take (and free) the payload for `data` if it is a live token.
-pub fn pop_payload(data: WindowMsgData) -> Option<WindowMsgPayload> {
-    WINDOW_MSG_PAYLOAD_ARENA.with(|arena| arena.borrow_mut().take(data))
-}
-
-/// Replace the payload stored at `data`. Returns false if `data` is not a token.
-pub fn replace_payload(data: WindowMsgData, payload: WindowMsgPayload) -> bool {
-    WINDOW_MSG_PAYLOAD_ARENA.with(|arena| {
-        if let Some(slot) = arena.borrow_mut().get_mut(data) {
-            *slot = payload;
-            true
-        } else {
-            false
-        }
-    })
-}
-
-/// Push `payload`, invoke `f`, then pop the token (even if `f` panics).
-pub fn with_payload<R>(payload: WindowMsgPayload, f: impl FnOnce(WindowMsgData) -> R) -> R {
-    let token = push_payload(payload);
-    struct PopOnDrop(WindowMsgData);
-    impl Drop for PopOnDrop {
-        fn drop(&mut self) {
-            let _ = pop_payload(self.0);
-        }
-    }
-    let _guard = PopOnDrop(token);
-    f(token)
-}
-
-/// Push `payload`, invoke `f`, then return both the result and the (possibly updated) payload.
-pub fn with_payload_mut<R>(
+/// Push an owned payload for this synchronous operation.
+pub fn push_payload(
+    effects: &mut WindowEventEffects<'_>,
     payload: WindowMsgPayload,
-    f: impl FnOnce(WindowMsgData) -> R,
+) -> WindowMsgData {
+    effects.payloads.push(payload)
+}
+
+pub fn payload(effects: &WindowEventEffects<'_>, data: WindowMsgData) -> Option<WindowMsgPayload> {
+    effects.payloads.get(data).cloned()
+}
+
+pub fn pop_payload(
+    effects: &mut WindowEventEffects<'_>,
+    data: WindowMsgData,
+) -> Option<WindowMsgPayload> {
+    effects.payloads.take(data)
+}
+
+pub fn replace_payload(
+    effects: &mut WindowEventEffects<'_>,
+    data: WindowMsgData,
+    payload: WindowMsgPayload,
+) -> bool {
+    if let Some(slot) = effects.payloads.get_mut(data) {
+        *slot = payload;
+        true
+    } else {
+        false
+    }
+}
+
+/// Deliver a scoped payload, reclaiming it even when a nested callback unwinds.
+pub fn with_payload<R>(
+    effects: &mut WindowEventEffects<'_>,
+    payload: WindowMsgPayload,
+    f: impl FnOnce(&mut WindowEventEffects<'_>, WindowMsgData) -> R,
+) -> R {
+    with_payload_mut(effects, payload, f).0
+}
+
+pub fn with_payload_mut<R>(
+    effects: &mut WindowEventEffects<'_>,
+    payload: WindowMsgPayload,
+    f: impl FnOnce(&mut WindowEventEffects<'_>, WindowMsgData) -> R,
 ) -> (R, Option<WindowMsgPayload>) {
-    let token = push_payload(payload);
-    let result = f(token);
-    (result, pop_payload(token))
+    let token = push_payload(effects, payload);
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| f(effects, token)));
+    let payload = pop_payload(effects, token);
+    match result {
+        Ok(value) => (value, payload),
+        Err(panic) => std::panic::resume_unwind(panic),
+    }
 }
 
-pub(crate) fn write_bool_payload(data: WindowMsgData, value: bool) -> bool {
-    replace_payload(data, WindowMsgPayload::Bool(value))
+pub(crate) fn write_bool_payload(
+    effects: &mut WindowEventEffects<'_>,
+    data: WindowMsgData,
+    value: bool,
+) -> bool {
+    replace_payload(effects, data, WindowMsgPayload::Bool(value))
 }
 
-pub(crate) fn payload_text(data: WindowMsgData) -> Option<String> {
-    match payload(data) {
+pub(crate) fn payload_text(
+    effects: &WindowEventEffects<'_>,
+    data: WindowMsgData,
+) -> Option<String> {
+    match payload(effects, data) {
         Some(WindowMsgPayload::Text(text)) => Some(text),
         _ => None,
     }
@@ -226,4 +231,135 @@ pub struct RightClickStruct {
     pub pos: i32,
     pub mouse_x: i32,
     pub mouse_y: i32,
+}
+
+#[cfg(test)]
+mod ownership_tests {
+    use super::*;
+    use crate::gui::game_window::{
+        GameWindow, WindowMessage, WindowMsgHandled, write_input_focus_response,
+    };
+    use crate::gui::window_manager::WindowManager;
+
+    #[test]
+    fn repeated_payload_reuse_keeps_generation_encodable() {
+        let mut messages = Vec::new();
+        let mut effects = WindowEventEffects::new(&mut messages);
+        for value in 0..300 {
+            let token = push_payload(&mut effects, WindowMsgPayload::Int(value));
+            assert_eq!(payload(&effects, token), Some(WindowMsgPayload::Int(value)));
+            assert_eq!(
+                pop_payload(&mut effects, token),
+                Some(WindowMsgPayload::Int(value))
+            );
+            assert_eq!(payload(&effects, token), None);
+            assert_eq!(pop_payload(&mut effects, token), None);
+        }
+        assert_eq!(
+            WindowMsgPayloadArena::bump_generation(WINDOW_MSG_GEN_MASK as u32),
+            1
+        );
+    }
+
+    #[test]
+    fn receiving_operations_with_identical_tokens_do_not_share_payloads() {
+        let mut messages_a = Vec::new();
+        let mut messages_b = Vec::new();
+        let mut a = WindowEventEffects::new(&mut messages_a);
+        let mut b = WindowEventEffects::new(&mut messages_b);
+        let token_a = push_payload(&mut a, WindowMsgPayload::Text("A".into()));
+        let token_b = push_payload(&mut b, WindowMsgPayload::Text("B".into()));
+        assert_eq!(token_a, token_b);
+        assert!(replace_payload(&mut b, token_b, WindowMsgPayload::Int(7)));
+        assert_eq!(pop_payload(&mut b, token_b), Some(WindowMsgPayload::Int(7)));
+        drop(b);
+        assert_eq!(
+            payload(&a, token_a),
+            Some(WindowMsgPayload::Text("A".into()))
+        );
+        assert_eq!(
+            pop_payload(&mut a, token_a),
+            Some(WindowMsgPayload::Text("A".into()))
+        );
+    }
+
+    #[test]
+    fn nested_manager_borrow_keeps_outer_payload_and_cleans_up_on_panic() {
+        let mut messages = Vec::new();
+        let mut effects = WindowEventEffects::new(&mut messages);
+        let mut manager = WindowManager::new();
+        let outer = push_payload(&mut effects, WindowMsgPayload::Int(1));
+        let mut inner = 0;
+        let unwind = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            effects.with_receiving_manager(&mut manager, |effects| {
+                let nested = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    effects.with_manager(|_, effects| {
+                        with_payload(effects, WindowMsgPayload::Int(2), |effects, token| {
+                            inner = token;
+                            assert_eq!(payload(effects, outer), Some(WindowMsgPayload::Int(1)));
+                            assert!(replace_payload(effects, outer, WindowMsgPayload::Int(3)));
+                            panic!("nested callback");
+                        });
+                    });
+                }));
+                assert!(
+                    effects.manager.is_some(),
+                    "caught callback must retain its receiving manager"
+                );
+                assert!(!is_window_msg_payload(effects, inner));
+                effects.with_manager(|_, effects| {
+                    assert_eq!(payload(effects, outer), Some(WindowMsgPayload::Int(3)));
+                });
+                std::panic::resume_unwind(nested.unwrap_err());
+            });
+        }));
+        assert!(unwind.is_err());
+        assert!(!is_window_msg_payload(&effects, inner));
+        assert_eq!(
+            pop_payload(&mut effects, outer),
+            Some(WindowMsgPayload::Int(3))
+        );
+    }
+
+    #[test]
+    fn nested_focus_response_is_visible_before_the_caller_continues() {
+        let mut messages = Vec::new();
+        let mut effects = WindowEventEffects::new(&mut messages);
+        let mut parent = GameWindow::new();
+        parent.set_system_callback_with_message_sink(|_, msg, _, outer, effects| {
+            assert_eq!(msg, WindowMessage::InputFocus);
+            let mut child = GameWindow::new();
+            child.set_system_callback(|_, _, data1, data2| {
+                write_input_focus_response(data1, data2, true)
+            });
+            let (_, child_value) =
+                with_payload_mut(effects, WindowMsgPayload::Bool(false), |effects, inner| {
+                    assert_eq!(
+                        child.send_system_message(WindowMessage::InputFocus, 1, inner, effects),
+                        WindowMsgHandled::Handled
+                    );
+                    assert_eq!(payload(effects, inner), Some(WindowMsgPayload::Bool(true)));
+                    assert_eq!(payload(effects, outer), Some(WindowMsgPayload::Bool(false)));
+                });
+            assert_eq!(child_value, Some(WindowMsgPayload::Bool(true)));
+            write_input_focus_response(1, outer, true)
+        });
+        let (handled, value) = with_payload_mut(
+            &mut effects,
+            WindowMsgPayload::Bool(false),
+            |effects, token| {
+                parent.send_system_message(WindowMessage::InputFocus, 1, token, effects)
+            },
+        );
+        assert_eq!(handled, WindowMsgHandled::Handled);
+        assert_eq!(value, Some(WindowMsgPayload::Bool(true)));
+        // A raw C++ integer is never dereferenced or admitted as a typed payload.
+        let mut raw = GameWindow::new();
+        raw.set_system_callback(|_, _, d1, d2| write_input_focus_response(d1, d2, true));
+        assert_eq!(
+            raw.send_system_message(WindowMessage::InputFocus, 1, 17, &mut effects),
+            WindowMsgHandled::Handled
+        );
+        assert!(!is_window_msg_payload(&effects, 17));
+    }
 }

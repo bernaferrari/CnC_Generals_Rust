@@ -1,16 +1,5 @@
-//! Typed host delivery for OptionsMenu settings that affect Main-owned input
-//! and presentation.
-//!
-//! GameClient still owns the retail OptionsMenu WND and its standalone
-//! `TheInGameUI` compatibility state.  The Main executable owns camera input
-//! for an AuthorityOnly match, so a setting that changes camera behaviour must
-//! cross that boundary as typed data rather than through the legacy singleton.
-
-use std::{
-    cell::RefCell,
-    collections::VecDeque,
-    sync::{Mutex, OnceLock},
-};
+//! Camera preferences queued by the receiving client for its native host.
+use std::collections::VecDeque;
 
 /// A user preference selected through the retail OptionsMenu WND whose live
 /// effect belongs to Main's input/camera authority.
@@ -28,131 +17,43 @@ pub enum HostOptionsRequest {
     DrawRmbScrollAnchor { enabled: bool },
 }
 
+/// Plain per-client delivery state. Construction has no publication effects.
 #[derive(Default)]
-struct HostOptionsBridge {
-    enabled: bool,
+pub struct HostOptionsBridge {
     requests: VecDeque<HostOptionsRequest>,
 }
-
-// THREAD: main thread only — published by GUI-thread OptionsMenu WND callbacks
-// and drained by the host on the same thread.
-thread_local! {
-    static HOST_OPTIONS_BRIDGE: RefCell<HostOptionsBridge> =
-        RefCell::new(HostOptionsBridge::default());
-}
-
-fn with_host_options_bridge<R>(f: impl FnOnce(&mut HostOptionsBridge) -> R) -> R {
-    HOST_OPTIONS_BRIDGE.with_borrow_mut(f)
-}
-
-/// Enable or disable Main-host delivery for OptionsMenu camera preferences.
-///
-/// Standalone GameClient keeps the C++ compatibility route when this is
-/// disabled. Changing owners drops only unconsumed preference updates; Main
-/// retains the preference it has already applied.
-pub fn set_host_options_bridge_enabled(enabled: bool) {
-    with_host_options_bridge(|bridge| {
-        if bridge.enabled != enabled {
-            bridge.enabled = enabled;
-            bridge.requests.clear();
-        }
-    });
-}
-
-/// Drain the camera-preference requests published by live OptionsMenu WND
-/// callbacks.
-pub fn take_host_options_requests() -> Vec<HostOptionsRequest> {
-    with_host_options_bridge(|bridge| bridge.requests.drain(..).collect())
-}
-
-/// Publish an OptionsMenu update only when Main owns its live effect.
-/// Returning `false` preserves the standalone legacy callback behaviour.
-pub(crate) fn publish_host_move_rmb_scroll_anchor(enabled: bool) -> bool {
-    with_host_options_bridge(|bridge| {
-        if !bridge.enabled {
-            return false;
-        }
-        bridge
-            .requests
-            .push_back(HostOptionsRequest::MoveRmbScrollAnchor { enabled });
-        true
-    })
-}
-
-/// Publish an Alternate Mouse update only when Main owns physical world
-/// input.  Returning `false` deliberately leaves the standalone GameClient
-/// compatibility path untouched.
-pub(crate) fn publish_host_alternate_mouse(enabled: bool) -> bool {
-    with_host_options_bridge(|bridge| {
-        if !bridge.enabled {
-            return false;
-        }
-        bridge
-            .requests
-            .push_back(HostOptionsRequest::AlternateMouse { enabled });
-        true
-    })
-}
-
-/// Publish a DrawRMBScrollAnchor update only when Main owns the active
-/// camera-drag presentation.  The setting remains process/UI state rather
-/// than savegame state, just like its moving-anchor sibling.
-pub(crate) fn publish_host_draw_rmb_scroll_anchor(enabled: bool) -> bool {
-    with_host_options_bridge(|bridge| {
-        if !bridge.enabled {
-            return false;
-        }
-        bridge
-            .requests
-            .push_back(HostOptionsRequest::DrawRmbScrollAnchor { enabled });
-        true
-    })
-}
-
-#[cfg(test)]
-static HOST_OPTIONS_BRIDGE_TEST_LOCK: Mutex<()> = Mutex::new(());
-
-/// Serialize tests that mutate the process-global host-options bridge.
-#[cfg(test)]
-pub(crate) struct HostOptionsBridgeTestGuard {
-    _lock: std::sync::MutexGuard<'static, ()>,
-}
-
-#[cfg(test)]
-pub(crate) fn acquire_host_options_bridge_test_guard() -> HostOptionsBridgeTestGuard {
-    let lock = HOST_OPTIONS_BRIDGE_TEST_LOCK
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    let _ = take_host_options_requests();
-    set_host_options_bridge_enabled(false);
-    HostOptionsBridgeTestGuard { _lock: lock }
-}
-
-#[cfg(test)]
-impl Drop for HostOptionsBridgeTestGuard {
-    fn drop(&mut self) {
-        let _ = take_host_options_requests();
-        set_host_options_bridge_enabled(false);
+impl HostOptionsBridge {
+    pub fn publish(&mut self, request: HostOptionsRequest) {
+        self.requests.push_back(request);
+    }
+    pub fn take_requests(&mut self) -> Vec<HostOptionsRequest> {
+        self.requests.drain(..).collect()
+    }
+    pub fn clear_pending(&mut self) {
+        self.requests.clear();
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
     #[test]
-    fn alternate_mouse_is_published_only_while_main_owns_world_input() {
-        let _guard = acquire_host_options_bridge_test_guard();
-
-        set_host_options_bridge_enabled(true);
-        assert!(publish_host_alternate_mouse(true));
+    fn peers_cannot_drain_or_reset_each_others_preferences() {
+        let mut a = HostOptionsBridge::default();
+        let mut b = HostOptionsBridge::default();
+        a.publish(HostOptionsRequest::AlternateMouse { enabled: true });
+        b.publish(HostOptionsRequest::AlternateMouse { enabled: false });
         assert_eq!(
-            take_host_options_requests(),
+            b.take_requests(),
+            vec![HostOptionsRequest::AlternateMouse { enabled: false }]
+        );
+        b.publish(HostOptionsRequest::DrawRmbScrollAnchor { enabled: false });
+        b.clear_pending();
+        drop(b);
+        assert_eq!(
+            a.take_requests(),
             vec![HostOptionsRequest::AlternateMouse { enabled: true }]
         );
-
-        set_host_options_bridge_enabled(false);
-        assert!(!publish_host_alternate_mouse(false));
-        assert!(take_host_options_requests().is_empty());
+        assert!(a.take_requests().is_empty());
     }
 }

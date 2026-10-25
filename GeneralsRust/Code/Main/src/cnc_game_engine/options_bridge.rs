@@ -9,7 +9,7 @@
 
 use super::*;
 #[cfg(feature = "game_client")]
-use game_client::gui::options_host_bridge::{HostOptionsRequest, take_host_options_requests};
+use game_client::gui::options_host_bridge::HostOptionsRequest;
 
 /// Build the visual C++ `DrawRMBScrollAnchor` residual only for a live Main
 /// RMB drag. This keeps the preference separate from camera simulation and
@@ -65,7 +65,7 @@ impl CnCGameEngine {
     /// match: a player may configure them before starting a game, and they
     /// remain process/UI preferences rather than savegame state.
     pub(crate) fn host_tick_options_bridge(&mut self) {
-        for request in take_host_options_requests() {
+        for request in self.game_client.take_host_options_requests() {
             match request {
                 HostOptionsRequest::AlternateMouse { enabled } => {
                     self.use_alternate_mouse = enabled;

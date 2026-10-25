@@ -10,10 +10,7 @@ use crate::gui::gadgets::ComboBoxItem;
 use crate::gui::gadgets::ListBoxItemData;
 use crate::gui::game_window::WindowEventEffects;
 use crate::gui::header_template::get_header_template_manager;
-use crate::gui::options_host_bridge::{
-    publish_host_alternate_mouse, publish_host_draw_rmb_scroll_anchor,
-    publish_host_move_rmb_scroll_anchor,
-};
+use crate::gui::options_host_bridge::HostOptionsRequest;
 use crate::gui::shell::main_menu::DisplaySettings;
 use crate::gui::{
     AnimationType, GLM_DOUBLE_CLICKED, GameWindow, WindowLayout, WindowMessage, WindowMsgData,
@@ -59,6 +56,12 @@ fn close_options_overlay() {
 
 #[cfg(not(feature = "online_ui"))]
 fn close_options_overlay() {}
+
+fn publish_host_option(effects: &mut WindowEventEffects<'_>, request: HostOptionsRequest) {
+    if let Some(host) = effects.menu_host.as_deref_mut() {
+        host.options.publish(request);
+    }
+}
 
 /// Menu callback trait
 pub trait MenuCallbacks {
@@ -868,13 +871,21 @@ impl OptionsMenu {
         pref.set_string(key, if value { "Yes" } else { "No" }.to_string());
     }
 
-    fn apply_immediate_checkbox_effect(&self, control_id: i32, checked: bool) -> bool {
+    fn apply_immediate_checkbox_effect(
+        &self,
+        control_id: i32,
+        checked: bool,
+        effects: &mut WindowEventEffects<'_>,
+    ) -> bool {
         if control_id == self.check_draw_anchor_id {
             TheInGameUI::set_draw_rmb_scroll_anchor(checked);
             // Main owns the active RMB camera-drag presentation for an
             // AuthorityOnly match. Preserve the legacy standalone state, then
             // publish the same visual preference only while Main hosts it.
-            let _ = publish_host_draw_rmb_scroll_anchor(checked);
+            publish_host_option(
+                effects,
+                HostOptionsRequest::DrawRmbScrollAnchor { enabled: checked },
+            );
             return true;
         }
         if control_id == self.check_move_anchor_id {
@@ -882,7 +893,10 @@ impl OptionsMenu {
             // Main owns live camera input for AuthorityOnly. Preserve this
             // standalone GameClient update, then send the same typed checkbox
             // choice to Main only while its host bridge is installed.
-            let _ = publish_host_move_rmb_scroll_anchor(checked);
+            publish_host_option(
+                effects,
+                HostOptionsRequest::MoveRmbScrollAnchor { enabled: checked },
+            );
             return true;
         }
         if control_id == self.check_save_camera_id {
@@ -1191,8 +1205,18 @@ impl OptionsMenu {
         // C++ OptionsMenuInit applies these to TheInGameUI on open.
         TheInGameUI::set_draw_rmb_scroll_anchor(draw_anchor);
         TheInGameUI::set_move_rmb_scroll_anchor(move_anchor);
-        let _ = publish_host_draw_rmb_scroll_anchor(draw_anchor);
-        let _ = publish_host_move_rmb_scroll_anchor(move_anchor);
+        publish_host_option(
+            effects,
+            HostOptionsRequest::DrawRmbScrollAnchor {
+                enabled: draw_anchor,
+            },
+        );
+        publish_host_option(
+            effects,
+            HostOptionsRequest::MoveRmbScrollAnchor {
+                enabled: move_anchor,
+            },
+        );
         Self::set_checkbox(
             self.check_3d_shadows_id,
             use_shadow_volumes,
@@ -1735,6 +1759,7 @@ impl OptionsMenu {
         Self::set_yes_no_title(pref, "MoveScrollAnchor", move_anchor);
         // C++ saveOptions writes advanced LOD only when Detail == CUSTOMDETAIL.
         // FPSLimit is never written (`//Never write this out`).
+
         const CUSTOMDETAIL: usize = 3;
         if detail_index == CUSTOMDETAIL {
             pref.set_int("TextureReduction", texture_reduction);
@@ -1758,10 +1783,26 @@ impl OptionsMenu {
 
         TheInGameUI::set_draw_rmb_scroll_anchor(draw_anchor);
         TheInGameUI::set_move_rmb_scroll_anchor(move_anchor);
-        let _ = publish_host_draw_rmb_scroll_anchor(draw_anchor);
-        let _ = publish_host_move_rmb_scroll_anchor(move_anchor);
+        publish_host_option(
+            effects,
+            HostOptionsRequest::DrawRmbScrollAnchor {
+                enabled: draw_anchor,
+            },
+        );
+        publish_host_option(
+            effects,
+            HostOptionsRequest::MoveRmbScrollAnchor {
+                enabled: move_anchor,
+            },
+        );
 
-        Self::commit_alternate_mouse_setting(alternate_mouse);
+        Self::commit_alternate_mouse_setting(
+            alternate_mouse,
+            effects
+                .menu_host
+                .as_deref_mut()
+                .map(|host| &mut host.options),
+        );
         let display_gamma = Self::slider_to_gamma(gamma_slider);
         {
             let mut global = runtime_global_data::write();
@@ -1869,16 +1910,23 @@ impl OptionsMenu {
     /// C++ has one writable GlobalData object. Rust's live consumers span a
     /// parsed-INI residence and a runtime options residence, so commit this
     /// setting to both before a later LeftHUD callback snapshots it for Main.
-    pub fn commit_alternate_mouse_setting(alternate_mouse: bool) {
+    pub fn commit_alternate_mouse_setting(
+        alternate_mouse: bool,
+        host: Option<&mut crate::gui::options_host_bridge::HostOptionsBridge>,
+    ) {
         if let Some(data) = game_engine::common::ini::get_global_data() {
             data.write().use_alternate_mouse = alternate_mouse;
         }
         runtime_global_data::write().use_alternate_mouse = alternate_mouse;
+        if let Some(host) = host {
+            host.publish(HostOptionsRequest::AlternateMouse {
+                enabled: alternate_mouse,
+            });
+        }
         // Main is the physical-world input authority in an AuthorityOnly
         // match.  Keep the legacy residences above for standalone GameClient,
         // then deliver the same accepted setting through the bounded host
         // bridge when it is installed.
-        let _ = publish_host_alternate_mouse(alternate_mouse);
     }
 
     fn close_menu(&mut self, effects: &mut crate::gui::game_window::WindowEventEffects<'_>) {
@@ -2164,6 +2212,7 @@ impl MenuCallbacks for OptionsMenu {
                         effects.with_manager(|receiving_manager, effects| {
                             Self::checkbox_value(control_id, receiving_manager)
                         }),
+                        effects,
                     );
                 }
                 WindowMsgHandled::Handled
@@ -3033,6 +3082,7 @@ impl MenuCallbacks for LanLobbyMenu {
 
 /// Menu state belongs to one receiving GameClient; construction is inert.
 pub struct MenuManager {
+    quit: crate::gui::callbacks::quit_menu::QuitMenuState,
     establish_connections: crate::gui::menus::establish_connections_menu::EstablishConnectionsMenu,
     disconnect: crate::gui::menus::disconnect_menu::DisconnectMenu,
     main_menu: MainMenu,
@@ -3057,7 +3107,12 @@ impl MenuManager {
             credits_menu: CreditsMenu::new(),
             lan_lobby_menu: LanLobbyMenu::new(),
             popup: Default::default(),
+            quit: Default::default(),
         }
+    }
+
+    pub(crate) fn quit_menu_visible(&self) -> bool {
+        self.quit.is_visible()
     }
 
     pub fn main_menu_mut(&mut self) -> &mut MainMenu {
@@ -3588,14 +3643,18 @@ mod options_os_wnd_tests {
             crate::test_process::TestProcess::ParentVerified => return,
             crate::test_process::TestProcess::Child => {}
         }
-        use crate::gui::options_host_bridge::{
-            HostOptionsRequest, acquire_host_options_bridge_test_guard,
-            set_host_options_bridge_enabled, take_host_options_requests,
-        };
+        use crate::gui::options_host_bridge::HostOptionsRequest;
 
-        let _bridge_guard = acquire_host_options_bridge_test_guard();
-        set_host_options_bridge_enabled(true);
-        let _ = take_host_options_requests();
+        let mut messages = Vec::new();
+        let mut mailbox = crate::gui::campaign_launch_host_bridge::MenuHostMailbox::default();
+        let mut effects = WindowEventEffects::new(&mut messages);
+        effects.menu_host = Some(&mut mailbox);
+
+        let _ = effects
+            .menu_host
+            .as_deref_mut()
+            .map(|host| host.options.take_requests())
+            .unwrap_or_default();
         let original_draw = TheInGameUI::get_draw_rmb_scroll_anchor();
         let original_move = TheInGameUI::get_move_rmb_scroll_anchor();
 
@@ -3603,8 +3662,12 @@ mod options_os_wnd_tests {
         apply.draw_anchor = true;
         apply.move_anchor = true;
         apply.resolution = (1024, 768);
-        assert!(apply_options_from_host(apply, effects));
-        let reqs = take_host_options_requests();
+        assert!(apply_options_from_host(apply, &mut effects));
+        let reqs = effects
+            .menu_host
+            .as_deref_mut()
+            .map(|host| host.options.take_requests())
+            .unwrap_or_default();
         assert!(
             reqs.contains(&HostOptionsRequest::DrawRmbScrollAnchor { enabled: true }),
             "{reqs:?}"
@@ -4295,6 +4358,10 @@ mod tests {
 
     #[test]
     fn options_checkbox_immediate_effects_match_cpp() {
+        let mut messages = Vec::new();
+        let mut mailbox = crate::gui::campaign_launch_host_bridge::MenuHostMailbox::default();
+        let mut effects = WindowEventEffects::new(&mut messages);
+        effects.menu_host = Some(&mut mailbox);
         let original_draw_anchor = TheInGameUI::get_draw_rmb_scroll_anchor();
         let original_move_anchor = TheInGameUI::get_move_rmb_scroll_anchor();
         let (original_save_camera, original_use_camera) = {
@@ -4308,19 +4375,35 @@ mod tests {
         menu.check_save_camera_id = 13;
         menu.check_use_camera_id = 14;
 
-        assert!(menu.apply_immediate_checkbox_effect(menu.check_draw_anchor_id, true));
+        assert!(menu.apply_immediate_checkbox_effect(
+            menu.check_draw_anchor_id,
+            true,
+            &mut effects
+        ));
         assert!(TheInGameUI::get_draw_rmb_scroll_anchor());
 
-        assert!(menu.apply_immediate_checkbox_effect(menu.check_move_anchor_id, true));
+        assert!(menu.apply_immediate_checkbox_effect(
+            menu.check_move_anchor_id,
+            true,
+            &mut effects
+        ));
         assert!(TheInGameUI::get_move_rmb_scroll_anchor());
 
-        assert!(menu.apply_immediate_checkbox_effect(menu.check_save_camera_id, false));
+        assert!(menu.apply_immediate_checkbox_effect(
+            menu.check_save_camera_id,
+            false,
+            &mut effects
+        ));
         assert!(!runtime_global_data::read().save_camera_in_replay);
 
-        assert!(menu.apply_immediate_checkbox_effect(menu.check_use_camera_id, false));
+        assert!(menu.apply_immediate_checkbox_effect(
+            menu.check_use_camera_id,
+            false,
+            &mut effects
+        ));
         assert!(!runtime_global_data::read().use_camera_in_replay);
 
-        assert!(!menu.apply_immediate_checkbox_effect(99, true));
+        assert!(!menu.apply_immediate_checkbox_effect(99, true, &mut effects));
 
         TheInGameUI::set_draw_rmb_scroll_anchor(original_draw_anchor);
         TheInGameUI::set_move_rmb_scroll_anchor(original_move_anchor);
@@ -4331,27 +4414,45 @@ mod tests {
 
     #[test]
     fn options_move_rmb_scroll_anchor_publishes_only_to_an_enabled_host() {
-        use crate::gui::options_host_bridge::{
-            HostOptionsRequest, acquire_host_options_bridge_test_guard,
-            set_host_options_bridge_enabled, take_host_options_requests,
-        };
+        use crate::gui::options_host_bridge::HostOptionsRequest;
 
-        let _bridge_guard = acquire_host_options_bridge_test_guard();
+        let mut messages = Vec::new();
+        let mut mailbox = crate::gui::campaign_launch_host_bridge::MenuHostMailbox::default();
+        let mut effects = WindowEventEffects::new(&mut messages);
+        effects.menu_host = Some(&mut mailbox);
         let original_move_anchor = TheInGameUI::get_move_rmb_scroll_anchor();
         let mut menu = OptionsMenu::new();
         menu.check_move_anchor_id = 12;
 
-        set_host_options_bridge_enabled(true);
-        assert!(menu.apply_immediate_checkbox_effect(menu.check_move_anchor_id, true));
+        assert!(menu.apply_immediate_checkbox_effect(
+            menu.check_move_anchor_id,
+            true,
+            &mut effects
+        ));
         assert_eq!(
-            take_host_options_requests(),
+            effects
+                .menu_host
+                .as_deref_mut()
+                .map(|host| host.options.take_requests())
+                .unwrap_or_default(),
             vec![HostOptionsRequest::MoveRmbScrollAnchor { enabled: true }]
         );
         assert!(TheInGameUI::get_move_rmb_scroll_anchor());
 
-        set_host_options_bridge_enabled(false);
-        assert!(menu.apply_immediate_checkbox_effect(menu.check_move_anchor_id, false));
-        assert!(take_host_options_requests().is_empty());
+        effects.menu_host = None;
+        assert!(menu.apply_immediate_checkbox_effect(
+            menu.check_move_anchor_id,
+            false,
+            &mut effects
+        ));
+        assert!(
+            effects
+                .menu_host
+                .as_deref_mut()
+                .map(|host| host.options.take_requests())
+                .unwrap_or_default()
+                .is_empty()
+        );
         assert!(
             !TheInGameUI::get_move_rmb_scroll_anchor(),
             "disabled host delivery must retain the standalone legacy callback"
@@ -4362,27 +4463,45 @@ mod tests {
 
     #[test]
     fn options_draw_rmb_scroll_anchor_publishes_only_to_an_enabled_host() {
-        use crate::gui::options_host_bridge::{
-            HostOptionsRequest, acquire_host_options_bridge_test_guard,
-            set_host_options_bridge_enabled, take_host_options_requests,
-        };
+        use crate::gui::options_host_bridge::HostOptionsRequest;
 
-        let _bridge_guard = acquire_host_options_bridge_test_guard();
+        let mut messages = Vec::new();
+        let mut mailbox = crate::gui::campaign_launch_host_bridge::MenuHostMailbox::default();
+        let mut effects = WindowEventEffects::new(&mut messages);
+        effects.menu_host = Some(&mut mailbox);
         let original_draw_anchor = TheInGameUI::get_draw_rmb_scroll_anchor();
         let mut menu = OptionsMenu::new();
         menu.check_draw_anchor_id = 11;
 
-        set_host_options_bridge_enabled(true);
-        assert!(menu.apply_immediate_checkbox_effect(menu.check_draw_anchor_id, true));
+        assert!(menu.apply_immediate_checkbox_effect(
+            menu.check_draw_anchor_id,
+            true,
+            &mut effects
+        ));
         assert_eq!(
-            take_host_options_requests(),
+            effects
+                .menu_host
+                .as_deref_mut()
+                .map(|host| host.options.take_requests())
+                .unwrap_or_default(),
             vec![HostOptionsRequest::DrawRmbScrollAnchor { enabled: true }]
         );
         assert!(TheInGameUI::get_draw_rmb_scroll_anchor());
 
-        set_host_options_bridge_enabled(false);
-        assert!(menu.apply_immediate_checkbox_effect(menu.check_draw_anchor_id, false));
-        assert!(take_host_options_requests().is_empty());
+        effects.menu_host = None;
+        assert!(menu.apply_immediate_checkbox_effect(
+            menu.check_draw_anchor_id,
+            false,
+            &mut effects
+        ));
+        assert!(
+            effects
+                .menu_host
+                .as_deref_mut()
+                .map(|host| host.options.take_requests())
+                .unwrap_or_default()
+                .is_empty()
+        );
         assert!(
             !TheInGameUI::get_draw_rmb_scroll_anchor(),
             "disabled host delivery must retain the standalone legacy callback"
@@ -4393,31 +4512,51 @@ mod tests {
 
     #[test]
     fn options_accept_converges_alternate_mouse_residences_and_publishes_to_main() {
-        use crate::gui::options_host_bridge::{
-            HostOptionsRequest, acquire_host_options_bridge_test_guard,
-            set_host_options_bridge_enabled, take_host_options_requests,
-        };
+        use crate::gui::options_host_bridge::HostOptionsRequest;
 
-        let _bridge_guard = acquire_host_options_bridge_test_guard();
-        set_host_options_bridge_enabled(true);
+        let mut messages = Vec::new();
+        let mut mailbox = crate::gui::campaign_launch_host_bridge::MenuHostMailbox::default();
+        let mut effects = WindowEventEffects::new(&mut messages);
+        effects.menu_host = Some(&mut mailbox);
+
         with_global_data_residences_restored(|| {
             let ini_global = game_engine::common::ini::ini_game_data::ensure_global_data();
             ini_global.write().use_alternate_mouse = false;
             runtime_global_data::write().use_alternate_mouse = true;
 
-            OptionsMenu::commit_alternate_mouse_setting(true);
+            OptionsMenu::commit_alternate_mouse_setting(
+                true,
+                effects
+                    .menu_host
+                    .as_deref_mut()
+                    .map(|host| &mut host.options),
+            );
             assert!(ini_global.read().use_alternate_mouse);
             assert!(runtime_global_data::read().use_alternate_mouse);
             assert_eq!(
-                take_host_options_requests(),
+                effects
+                    .menu_host
+                    .as_deref_mut()
+                    .map(|host| host.options.take_requests())
+                    .unwrap_or_default(),
                 vec![HostOptionsRequest::AlternateMouse { enabled: true }]
             );
 
-            OptionsMenu::commit_alternate_mouse_setting(false);
+            OptionsMenu::commit_alternate_mouse_setting(
+                false,
+                effects
+                    .menu_host
+                    .as_deref_mut()
+                    .map(|host| &mut host.options),
+            );
             assert!(!ini_global.read().use_alternate_mouse);
             assert!(!runtime_global_data::read().use_alternate_mouse);
             assert_eq!(
-                take_host_options_requests(),
+                effects
+                    .menu_host
+                    .as_deref_mut()
+                    .map(|host| host.options.take_requests())
+                    .unwrap_or_default(),
                 vec![HostOptionsRequest::AlternateMouse { enabled: false }]
             );
         });
@@ -4512,6 +4651,7 @@ mod menu_callbacks_shell_borrow_residual_tests {}
 /// Disjoint operation-scoped loans of the canonical client menu fields.
 /// Taking a loan never moves, replaces, or publishes the menu object.
 pub struct MenuCallbackRecipients<'a> {
+    pub(crate) quit: Option<&'a mut crate::gui::callbacks::quit_menu::QuitMenuState>,
     pub(crate) popup:
         Option<&'a mut crate::gui::callbacks::in_game_popup_message::PopupMessageState>,
     pub(crate) establish_connections:
@@ -4527,6 +4667,7 @@ pub struct MenuCallbackRecipients<'a> {
 impl MenuManager {
     pub(crate) fn receiving_menus(&mut self) -> MenuCallbackRecipients<'_> {
         MenuCallbackRecipients {
+            quit: Some(&mut self.quit),
             popup: Some(&mut self.popup),
             establish_connections: Some(&mut self.establish_connections),
             disconnect: Some(&mut self.disconnect),
@@ -4542,6 +4683,7 @@ impl MenuManager {
 impl MenuCallbackRecipients<'_> {
     pub fn reborrow(&mut self) -> MenuCallbackRecipients<'_> {
         MenuCallbackRecipients {
+            quit: self.quit.as_deref_mut(),
             popup: self.popup.as_deref_mut(),
             establish_connections: self.establish_connections.as_deref_mut(),
             disconnect: self.disconnect.as_deref_mut(),

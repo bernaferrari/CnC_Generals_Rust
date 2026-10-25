@@ -249,7 +249,13 @@ pub fn difficulty_select_system(
     let choice = DIFFICULTY_SELECT_STATE.with_borrow_mut(|state| match msg {
         WindowMessage::Create | WindowMessage::Destroy => DifficultyChoice::Handled,
         WindowMessage::InputFocus => {
-            write_input_focus_response(data1, data2, true);
+            if data1 != 0 {
+                let _ = crate::gui::replace_payload(
+                    effects,
+                    data2,
+                    crate::gui::WindowMsgPayload::Bool(true),
+                );
+            }
             DifficultyChoice::Handled
         }
         WindowMessage::GadgetSelected => {

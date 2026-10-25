@@ -538,11 +538,12 @@ impl CnCGameEngine {
             .unwrap_or(true);
         #[cfg(feature = "game_client")]
         {
-            game_client::gui::OptionsMenu::commit_alternate_mouse_setting(enabled);
+            game_client::gui::OptionsMenu::commit_alternate_mouse_setting(enabled, None);
+            self.use_alternate_mouse = enabled;
         }
         self.runtime_host_last_gameplay_cmd = format!("alternate_mouse_ok:{enabled}");
         log::info!(
-            "alternate_mouse: committed UseAlternateMouse={enabled} (host bridge applies next tick)"
+            "alternate_mouse: committed UseAlternateMouse={enabled} (receiving host applied)"
         );
     }
 }

@@ -1242,7 +1242,13 @@ impl MainMenu {
                     return false;
                 }
                 // Accept focus when gaining (data1 != 0); write via payload arena.
-                let _ = write_input_focus_response(data1, data2, true);
+                if data1 != 0 {
+                    let _ = crate::gui::game_window::replace_payload(
+                        effects,
+                        data2,
+                        crate::gui::WindowMsgPayload::Bool(true),
+                    );
+                }
                 return true;
             }
 

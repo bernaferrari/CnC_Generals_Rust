@@ -325,12 +325,35 @@ impl GameClient {
 
     /// Resets the game client for a new game
     pub fn reset(&mut self) -> GameClientResult<()> {
-        self.window_manager_owner.clear_replay_steps();
-        self.window_videos.reset();
-        self.reset_with_window_owner()
+        self.reset_receiving_core(None)
     }
 
-    fn reset_with_window_owner(&mut self) -> GameClientResult<()> {
+    fn reset_receiving_core(
+        &mut self,
+        world: Option<&mut gamelogic::system::game_logic::GameLogic>,
+    ) -> GameClientResult<()> {
+        // A paused standalone popup owns a world pause. A client-only reset
+        // cannot infer that owner, and must not discard its resume receipt.
+        if world.is_none()
+            && self.with_window_event_effects(None, |effects| {
+                crate::gui::callbacks::in_game_popup_message::receiving_popup_message(effects)
+                    .is_some_and(|data| data.pause)
+            })
+        {
+            return Err(GameClientError::SubsystemError(
+                "paused popup reset requires its receiving Core world or native host retirement"
+                    .into(),
+            ));
+        }
+        self.window_manager_owner.clear_replay_steps();
+        self.window_videos.reset();
+        self.reset_with_window_owner(world)
+    }
+
+    fn reset_with_window_owner(
+        &mut self,
+        world: Option<&mut gamelogic::system::game_logic::GameLogic>,
+    ) -> GameClientResult<()> {
         self.command_hints.clear();
         self.receiving_draw_icon_ui = true;
         self.startup_sizzle_pending = false;
@@ -351,6 +374,20 @@ impl GameClient {
                     })
             })
         });
+
+        // GameClient.cpp:435 resets InGameUI before destroying Drawables.
+        // Its popup clear destroys the WND before resuming the paired world
+        // (InGameUI.cpp:5187). Keep both operations in this same reset phase.
+        self.subsystem_manager.reset_in_game_ui()?;
+        self.with_window_event_effects(None, |effects| {
+            crate::gui::callbacks::quit_menu::reset_quit_menu(effects);
+        });
+        match world {
+            Some(world) => self.clear_core_popup_message(world),
+            None => {
+                let _ = self.clear_owned_popup_message();
+            }
+        }
 
         self.try_invalidate_presentation_drawable_world()?;
 
@@ -1008,6 +1045,11 @@ impl GameClient {
             &mut self.menu_host,
         )
     }
+    pub fn take_host_options_requests(
+        &mut self,
+    ) -> Vec<crate::gui::options_host_bridge::HostOptionsRequest> {
+        self.menu_host.options.take_requests()
+    }
     pub fn take_menu_host_requests(
         &mut self,
     ) -> Vec<crate::gui::campaign_launch_host_bridge::MenuHostRequest> {
@@ -1093,6 +1135,7 @@ impl GameClient {
         let owner = &self.window_manager_owner;
         let mut messages = Vec::new();
         let mut effects = crate::gui::game_window::WindowEventEffects {
+            payloads: Default::default(),
             menus: Some(self.menu_manager.receiving_menus()),
             manager: None,
             ime: Some(&mut self.ime),
@@ -1129,6 +1172,7 @@ impl GameClient {
         let owner = &self.window_manager_owner;
         let mut messages = Vec::new();
         let mut effects = crate::gui::game_window::WindowEventEffects {
+            payloads: Default::default(),
             menus: Some(self.menu_manager.receiving_menus()),
             manager: None,
             ime: Some(&mut self.ime),
@@ -1162,6 +1206,7 @@ impl GameClient {
             .bind(self.subsystem_manager.display.as_ref());
         let owner = &self.window_manager_owner;
         let mut effects = crate::gui::game_window::WindowEventEffects {
+            payloads: Default::default(),
             menus: Some(self.menu_manager.receiving_menus()),
             manager: None,
             ime: Some(&mut self.ime),
@@ -1200,6 +1245,7 @@ impl GameClient {
              _emitted_messages: &mut Vec<GameMessage>| {
                 let mut pending_clicks = Vec::new();
                 let mut effects = crate::gui::game_window::WindowEventEffects {
+                    payloads: Default::default(),
                     menus: Some(menus.reborrow()),
                     manager: None,
                     ime: Some(ime),

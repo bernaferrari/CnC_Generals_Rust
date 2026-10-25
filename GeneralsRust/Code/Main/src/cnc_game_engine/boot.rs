@@ -773,7 +773,6 @@ impl CnCGameEngine {
                 // separate legacy GameLogic global queue.
                 game_client::gui::control_bar::clear_host_control_bar_requests();
                 game_client::gui::control_bar::set_host_control_bar_bridge_enabled(true);
-                game_client::gui::options_host_bridge::set_host_options_bridge_enabled(true);
 
                 game_client::core::game_client::GameClient::new()
                     .map_err(|e| anyhow::anyhow!("Failed to create GameClient: {e}"))?

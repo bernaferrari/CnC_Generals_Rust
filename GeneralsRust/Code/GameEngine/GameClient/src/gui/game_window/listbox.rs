@@ -17,14 +17,14 @@ pub fn gadget_list_box_get_selected(
     select_list: &mut WindowMsgData,
     effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) {
-    let token = push_payload(WindowMsgPayload::None);
+    let token = push_payload(effects, WindowMsgPayload::None);
     let _ = listbox.send_system_message(WindowMessage::User(GLM_GET_SELECTION), 0, token, effects);
-    match pop_payload(token) {
+    match pop_payload(effects, token) {
         Some(WindowMsgPayload::Int(index)) => {
             *select_list = index as isize as WindowMsgData;
         }
         Some(payload @ WindowMsgPayload::IntList(_)) => {
-            *select_list = push_payload(payload);
+            *select_list = push_payload(effects, payload);
         }
         _ => *select_list = 0,
     }

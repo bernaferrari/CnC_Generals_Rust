@@ -42,6 +42,13 @@ impl SubsystemManager {
         }
     }
 
+    fn reset_in_game_ui(&mut self) -> GameClientResult<()> {
+        if let Some(ref ui) = self.in_game_ui {
+            ui.lock().unwrap_or_else(|e| e.into_inner()).reset()?;
+        }
+        Ok(())
+    }
+
     fn reset_all(
         &mut self,
         fx: &mut crate::display::display_fx::DisplayFxState,
@@ -90,10 +97,6 @@ impl SubsystemManager {
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
                 .reset()?;
-        }
-
-        if let Some(ref ui) = self.in_game_ui {
-            ui.lock().unwrap_or_else(|e| e.into_inner()).reset()?;
         }
 
         if let Some(ref video) = self.video_player {

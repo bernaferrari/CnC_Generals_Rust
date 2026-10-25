@@ -38,12 +38,17 @@ impl GameWindow {
             return WindowMsgHandled::Ignored;
         }
         if let Some(callback) = self.callbacks.input_with_message_sink.clone() {
-            let result = callback(self, msg, data1, data2, emitted_messages);
+            let result = callback(self, msg, data1, data2, emitted_messages)
+                .deliver_focus_response(msg, data2, emitted_messages);
             if !result.is_ignored() {
                 return result;
             }
         } else if let Some(callback) = self.callbacks.input.clone() {
-            let result = callback(self, msg, data1, data2);
+            let result = callback(self, msg, data1, data2).deliver_focus_response(
+                msg,
+                data2,
+                emitted_messages,
+            );
             if !result.is_ignored() {
                 return result;
             }
@@ -356,7 +361,7 @@ impl GameWindow {
                     (
                         WindowMessage::User(GLM_RIGHT_CLICKED),
                         self.id as WindowMsgData,
-                        push_payload(WindowMsgPayload::RightClick(payload)),
+                        push_payload(effects, WindowMsgPayload::RightClick(payload)),
                     )
                 }
 
@@ -750,14 +755,17 @@ impl GameWindow {
         if let WindowMessage::User(code) = msg {
             match code {
                 GGM_SET_LABEL | GEM_SET_TEXT => {
-                    if let Some(text) = payload_text(data1) {
+                    if let Some(text) = payload_text(effects, data1) {
                         let _ = self.set_text(&text);
                     }
                     return WindowMsgHandled::Handled;
                 }
                 GGM_GET_LABEL | GEM_GET_TEXT => {
-                    let _ =
-                        replace_payload(data2, WindowMsgPayload::Text(self.get_text().to_string()));
+                    let _ = replace_payload(
+                        effects,
+                        data2,
+                        WindowMsgPayload::Text(self.get_text().to_string()),
+                    );
                     return WindowMsgHandled::Handled;
                 }
                 _ => {}
@@ -776,11 +784,11 @@ impl GameWindow {
                 match code {
                     GCM_GET_TEXT => {
                         let text = gadget_combo_box_get_text(self);
-                        let _ = replace_payload(data2, WindowMsgPayload::Text(text));
+                        let _ = replace_payload(effects, data2, WindowMsgPayload::Text(text));
                         return WindowMsgHandled::Handled;
                     }
                     GCM_SET_TEXT => {
-                        if let Some(text) = payload_text(data1) {
+                        if let Some(text) = payload_text(effects, data1) {
                             let mut set_child = false;
                             if let Some(links) = self.combobox_links {
                                 if let Some(edit_box) = self.find_child_by_id(links.edit_box) {
@@ -801,7 +809,7 @@ impl GameWindow {
                         return WindowMsgHandled::Handled;
                     }
                     GCM_ADD_ENTRY => {
-                        let added_index = if let Some(text) = payload_text(data1) {
+                        let added_index = if let Some(text) = payload_text(effects, data1) {
                             gadget_combo_box_add_entry(
                                 self,
                                 &text,
@@ -889,7 +897,7 @@ impl GameWindow {
                         } else {
                             -1
                         };
-                        let _ = replace_payload(data2, WindowMsgPayload::Int(selected));
+                        let _ = replace_payload(effects, data2, WindowMsgPayload::Int(selected));
                         return WindowMsgHandled::Handled;
                     }
                     GCM_SET_ITEM_DATA => {
@@ -913,7 +921,7 @@ impl GameWindow {
                         } else {
                             0
                         };
-                        let _ = replace_payload(data2, WindowMsgPayload::UInt(data));
+                        let _ = replace_payload(effects, data2, WindowMsgPayload::UInt(data));
                         return WindowMsgHandled::Handled;
                     }
                     _ => {}
@@ -1025,7 +1033,7 @@ impl GameWindow {
                 match code {
                     GLM_ADD_ENTRY => {
                         let mut added_index = -1;
-                        if let Some(WindowMsgPayload::AddEntry(entry)) = payload(data1) {
+                        if let Some(WindowMsgPayload::AddEntry(entry)) = payload(effects, data1) {
                             if let Some(WindowWidget::ListBox(listbox)) = self.widget.as_mut() {
                                 added_index = listbox.add_entry(entry);
                             }
@@ -1050,7 +1058,8 @@ impl GameWindow {
                     GLM_SET_SELECTION => {
                         if let Some(WindowWidget::ListBox(listbox)) = self.widget.as_mut() {
                             if listbox.selection_mode() == SelectionMode::Multiple {
-                                if let Some(WindowMsgPayload::IntList(select_list)) = payload(data1)
+                                if let Some(WindowMsgPayload::IntList(select_list)) =
+                                    payload(effects, data1)
                                 {
                                     let indices = select_list
                                         .iter()
@@ -1113,7 +1122,7 @@ impl GameWindow {
                                     WindowMsgPayload::IntList(indices)
                                 }
                             };
-                            let _ = replace_payload(data2, selection);
+                            let _ = replace_payload(effects, data2, selection);
                         }
                         return WindowMsgHandled::Handled;
                     }
@@ -1124,9 +1133,10 @@ impl GameWindow {
                         return WindowMsgHandled::Handled;
                     }
                     GLM_GET_TEXT => {
-                        if let Some(WindowMsgPayload::CellPosition(pos)) = payload(data1) {
+                        if let Some(WindowMsgPayload::CellPosition(pos)) = payload(effects, data1) {
                             if let Some(WindowWidget::ListBox(listbox)) = self.widget.as_mut() {
                                 let _ = replace_payload(
+                                    effects,
                                     data2,
                                     WindowMsgPayload::TextAndColor(
                                         listbox.get_text_and_color(pos.y, pos.x),
@@ -1170,9 +1180,10 @@ impl GameWindow {
                         return WindowMsgHandled::Handled;
                     }
                     GLM_GET_ITEM_DATA => {
-                        if let Some(WindowMsgPayload::CellPosition(pos)) = payload(data1) {
+                        if let Some(WindowMsgPayload::CellPosition(pos)) = payload(effects, data1) {
                             if let Some(WindowWidget::ListBox(listbox)) = self.widget.as_mut() {
                                 let _ = replace_payload(
+                                    effects,
                                     data2,
                                     WindowMsgPayload::ItemDataOpt(
                                         listbox.get_item_data_at(pos.y, pos.x).cloned(),
@@ -1183,9 +1194,9 @@ impl GameWindow {
                         return WindowMsgHandled::Handled;
                     }
                     GLM_SET_ITEM_DATA => {
-                        if let Some(WindowMsgPayload::CellPosition(pos)) = payload(data1) {
+                        if let Some(WindowMsgPayload::CellPosition(pos)) = payload(effects, data1) {
                             if let Some(WindowWidget::ListBox(listbox)) = self.widget.as_mut() {
-                                let data = match payload(data2) {
+                                let data = match payload(effects, data2) {
                                     Some(WindowMsgPayload::ItemData(data)) => Some(data),
                                     Some(WindowMsgPayload::ItemDataOpt(data)) => data,
                                     _ => None,
@@ -1352,7 +1363,7 @@ impl GameWindow {
                             );
                         }
                     }
-                    let _ = write_bool_payload(data2, true);
+                    let _ = write_bool_payload(effects, data2, true);
                     return WindowMsgHandled::Handled;
                 }
                 WindowMessage::User(code) if code == GBM_SET_SELECTION => {
@@ -1456,7 +1467,7 @@ impl GameWindow {
 
         if msg == WindowMessage::InputFocus {
             let focused = data1 != 0;
-            let _ = write_bool_payload(data2, focused);
+            let _ = write_bool_payload(effects, data2, focused);
             let event = if focused {
                 InputEvent::FocusGained
             } else {
@@ -1516,17 +1527,21 @@ impl GameWindow {
                 }
                 if let Some(links) = self.combobox_links {
                     if let Some(edit_box) = self.find_child_by_id(links.edit_box) {
-                        let _ = with_payload(WindowMsgPayload::Bool(false), |token| {
-                            edit_box.borrow_mut().send_system_message(
-                                WindowMessage::InputFocus,
-                                data1,
-                                token,
-                                effects,
-                            )
-                        });
+                        let _ = with_payload(
+                            effects,
+                            WindowMsgPayload::Bool(false),
+                            |effects, token| {
+                                edit_box.borrow_mut().send_system_message(
+                                    WindowMessage::InputFocus,
+                                    data1,
+                                    token,
+                                    effects,
+                                )
+                            },
+                        );
                     }
                 }
-                let _ = write_bool_payload(data2, true);
+                let _ = write_bool_payload(effects, data2, true);
                 return WindowMsgHandled::Handled;
             }
 

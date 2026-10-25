@@ -69,6 +69,7 @@ pub enum MenuHostRequest {
 #[derive(Default)]
 pub struct MenuHostMailbox {
     requests: Vec<MenuHostRequest>,
+    pub(crate) options: crate::gui::options_host_bridge::HostOptionsBridge,
     shell_map: ShellMapSettings,
     shell_map_configured: bool,
 }

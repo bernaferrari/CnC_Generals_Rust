@@ -17,7 +17,7 @@ pub fn close_receiving_game_windows(
     let _ = crate::gui::callbacks::ingame_callbacks::reset_in_game_chat(manager, effects);
     bar.hide_purchase_science(manager);
     bar.hide_special_power_shortcut(manager);
-    crate::gui::callbacks::quit_menu::hide_quit_menu(manager, None);
+    crate::gui::callbacks::quit_menu::hide_quit_menu(manager, None, effects);
 }
 struct ReceivingClientScriptDriver<'a, 'effects> {
     effects: WindowEventEffects<'effects>,
@@ -146,6 +146,34 @@ impl ScriptExecutionDriver for ReceivingClientScriptDriver<'_, '_> {
     }
 }
 impl GameClient {
+    pub fn quit_menu_visible(&self) -> bool {
+        self.menu_manager.quit_menu_visible()
+    }
+
+    /// Retire this client's popup before resetting a standalone Core session.
+    /// C++ InGameUI::clearPopupMessageData destroys its layout before resuming
+    /// logic. The paired borrow identifies which world is allowed to resume;
+    /// constructing, resetting or dropping another client cannot select it.
+    pub fn reset_core(
+        &mut self,
+        world: &mut gamelogic::system::game_logic::GameLogic,
+    ) -> GameClientResult<()> {
+        self.reset_receiving_core(Some(world))
+    }
+
+    /// Clear at the current operation boundary, including queued Destroy
+    /// callbacks, and only then release this popup's pause on its world.
+    pub fn clear_core_popup_message(
+        &mut self,
+        world: &mut gamelogic::system::game_logic::GameLogic,
+    ) {
+        let old = self.clear_owned_popup_message();
+        // with_window_event_effects completes the receiving owner's callbacks
+        // before returning. Never resume through a global GameLogic adapter.
+        if let Some((true, pause_music)) = old {
+            world.set_game_paused(false, pause_music);
+        }
+    }
     /// Paired standalone Core input/callback boundary. Native Main owns its
     /// tagged popup acknowledgements through MenuHostMailbox instead.
     pub fn with_core_window_event_effects<R>(
@@ -183,6 +211,7 @@ impl GameClient {
         let mut driver = ReceivingClientScriptDriver {
             world,
             effects: WindowEventEffects {
+                payloads: Default::default(),
                 menus: Some(self.menu_manager.receiving_menus()),
                 manager: None,
                 ime: Some(&mut self.ime),
@@ -254,5 +283,77 @@ impl GameClient {
         self.with_receiving_core_script_driver(bar, world, |driver| {
             scripts.execute_subroutine_by_name_with_driver(name, context, driver)
         })
+    }
+}
+
+#[cfg(test)]
+mod popup_owner_tests {
+    use super::*;
+
+    fn popup(client: &mut GameClient, pause: bool) {
+        client.with_window_event_effects(None, |effects| {
+            crate::gui::callbacks::in_game_popup_message::show_receiving_popup_message(
+                "OwnershipPopup",
+                0,
+                0,
+                50,
+                0xffffffff,
+                pause,
+                false,
+                None,
+                effects,
+            );
+        });
+    }
+
+    fn has_popup(client: &mut GameClient) -> bool {
+        client.with_window_event_effects(None, |effects| {
+            crate::gui::callbacks::in_game_popup_message::receiving_popup_message(effects).is_some()
+        })
+    }
+
+    #[test]
+    fn resetting_peer_popup_only_resumes_the_borrowed_world() {
+        let mut first = GameClient::new().unwrap();
+        let mut peer = GameClient::new().unwrap();
+        let mut first_world = gamelogic::system::game_logic::GameLogic::new();
+        let mut peer_world = gamelogic::system::game_logic::GameLogic::new();
+        popup(&mut first, true);
+        popup(&mut peer, true);
+        first_world.set_game_paused(true, false);
+        peer_world.set_game_paused(true, false);
+
+        peer.reset_core(&mut peer_world).unwrap();
+        assert!(!peer_world.is_game_paused());
+        assert!(!has_popup(&mut peer));
+        assert!(first_world.is_game_paused());
+        assert!(has_popup(&mut first));
+        drop(peer);
+        drop(peer_world);
+        assert!(first_world.is_game_paused());
+        assert!(has_popup(&mut first));
+
+        first.clear_core_popup_message(&mut first_world);
+        assert!(!first_world.is_game_paused());
+        assert!(!has_popup(&mut first));
+    }
+
+    #[test]
+    fn client_only_reset_preserves_a_paused_popup_resume_receipt() {
+        let mut client = GameClient::new().unwrap();
+        popup(&mut client, true);
+        assert!(client.reset().is_err());
+        assert!(has_popup(&mut client));
+    }
+
+    #[test]
+    fn clearing_nonpausing_popup_preserves_an_independent_pause() {
+        let mut client = GameClient::new().unwrap();
+        let mut world = gamelogic::system::game_logic::GameLogic::new();
+        popup(&mut client, false);
+        world.set_game_paused(true, false);
+        client.clear_core_popup_message(&mut world);
+        assert!(world.is_game_paused());
+        assert!(!has_popup(&mut client));
     }
 }

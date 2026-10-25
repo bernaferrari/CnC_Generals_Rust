@@ -734,6 +734,7 @@ impl GameClient {
             self.drawables.borrow_native(),
             &mut self.command_hints,
             crate::gui::game_window::WindowEventEffects {
+                payloads: Default::default(),
                 menus: Some(self.menu_manager.receiving_menus()),
                 manager: None,
                 ime: Some(&mut self.ime),

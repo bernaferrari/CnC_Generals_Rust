@@ -41,6 +41,8 @@ pub type SystemCallback =
 /// Effects borrowed from the receiving GameClient for one synchronous window event.
 /// The effects never outlive callback delivery or enter a queued continuation.
 pub struct WindowEventEffects<'a> {
+    /// Stack-owned typed parameters, lent across the same synchronous callbacks.
+    pub(crate) payloads: super::payload::WindowMsgPayloadArena,
     pub(crate) ime: Option<&'a mut crate::gui::ime_manager::ImeManager>,
     pub(crate) manager: Option<&'a mut crate::gui::window_manager::WindowManager>,
     pub(crate) menus: Option<crate::gui::callbacks::menu_callbacks::MenuCallbackRecipients<'a>>,
@@ -60,7 +62,29 @@ pub struct WindowEventEffects<'a> {
         Option<crate::gui::callbacks::OptionsCameraInputObservation>,
     )>,
 }
-impl WindowEventEffects<'_> {
+impl<'effects> WindowEventEffects<'effects> {
+    /// Begin a synchronous operation with its own typed message storage.
+    /// Capabilities are supplied by the receiving client when needed.
+    pub fn new(emitted_messages: &'effects mut Vec<GameMessage>) -> Self {
+        Self {
+            payloads: Default::default(),
+            ime: None,
+            manager: None,
+            menus: None,
+            window_manager_owner: None,
+            selected_window: None,
+            emitted_messages,
+            pending_control_bar_clicks: None,
+            campaign_manager: None,
+            menu_world: None,
+            menu_host: None,
+            window_videos: None,
+            script_display: None,
+            main_menu: None,
+            pending_main_menu_actions: Vec::new(),
+        }
+    }
+
     pub(crate) fn queue_compatibility_replay(
         &mut self,
         step: crate::gui::callbacks::replay_menu::ingress::ReplayMenuStep,
@@ -68,6 +92,22 @@ impl WindowEventEffects<'_> {
         self.window_manager_owner
             .expect("replay command requires receiving owner")
             .queue_replay_step(step);
+    }
+
+    /// A bounded phase on this client's canonical QuitMenu state. No callbacks
+    /// may execute while the state is borrowed.
+    pub fn with_quit_menu<R>(
+        &mut self,
+        operation: impl FnOnce(&mut crate::gui::callbacks::quit_menu::QuitMenuState) -> R,
+    ) -> R {
+        let menu = self
+            .menus
+            .as_mut()
+            .expect("QuitMenu requires receiving client")
+            .quit
+            .as_deref_mut()
+            .expect("QuitMenu phase remains available");
+        operation(menu)
     }
 
     pub(crate) fn with_disconnect_menu<R>(
@@ -327,6 +367,7 @@ impl WindowEventEffects<'_> {
         operation: impl FnOnce(&mut WindowEventEffects<'_>) -> R,
     ) -> R {
         let mut local = WindowEventEffects {
+            payloads: std::mem::take(&mut self.payloads),
             manager: Some(manager),
             menus: self.menus.as_mut().map(|menus| menus.reborrow()),
             ime: self.ime.as_deref_mut(),
@@ -342,10 +383,15 @@ impl WindowEventEffects<'_> {
             main_menu: self.main_menu.as_deref_mut(),
             pending_main_menu_actions: Vec::new(),
         };
-        let result = operation(&mut local);
+        let result =
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| operation(&mut local)));
+        self.payloads = std::mem::take(&mut local.payloads);
         self.pending_main_menu_actions
             .append(&mut local.pending_main_menu_actions);
-        result
+        match result {
+            Ok(value) => value,
+            Err(panic) => std::panic::resume_unwind(panic),
+        }
     }
     /// Borrow the supplied manager or this operation's explicit owner. Never
     /// discover an active tree or manufacture a replacement on reentry.
@@ -357,9 +403,13 @@ impl WindowEventEffects<'_> {
         ) -> R,
     ) -> R {
         if let Some(manager) = self.manager.take() {
-            let result = operation(manager, self);
+            let result =
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| operation(manager, self)));
             self.manager = Some(manager);
-            result
+            match result {
+                Ok(value) => value,
+                Err(panic) => std::panic::resume_unwind(panic),
+            }
         } else {
             let owner = self
                 .window_manager_owner

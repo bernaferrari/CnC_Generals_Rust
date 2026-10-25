@@ -2318,37 +2318,21 @@ mod tests {
     #[test]
     fn skirmish_parent_focus_does_not_hilite_user_window() {
         use crate::gui::{WindowMsgPayload, WindowState, pop_payload, push_payload};
-
-        let window = GameWindow::new();
-        let token = push_payload(WindowMsgPayload::Bool(false));
+        let mut window = GameWindow::new();
+        window.set_system_callback_with_message_sink(|window, msg, d1, d2, effects| {
+            skirmish_game_options_menu_system(window, msg, d1, d2, effects)
+        });
         let mut emitted = Vec::new();
-        let mut effects = WindowEventEffects {
-            menus: None,
-            ime: None,
-            manager: None,
-            script_display: None,
-            window_videos: None,
-            selected_window: None,
-            window_manager_owner: None,
-            emitted_messages: &mut emitted,
-            pending_control_bar_clicks: None,
-            campaign_manager: None,
-            main_menu: None,
-            menu_world: None,
-            menu_host: None,
-            pending_main_menu_actions: Vec::new(),
-        };
+        let mut effects = WindowEventEffects::new(&mut emitted);
+        let token = push_payload(&mut effects, WindowMsgPayload::Bool(false));
         assert_eq!(
-            skirmish_game_options_menu_system(
-                &window,
-                WindowMessage::InputFocus,
-                1,
-                token,
-                &mut effects
-            ),
+            window.send_system_message(WindowMessage::InputFocus, 1, token, &mut effects),
             WindowMsgHandled::Handled
         );
-        assert_eq!(pop_payload(token), Some(WindowMsgPayload::Bool(true)));
+        assert_eq!(
+            pop_payload(&mut effects, token),
+            Some(WindowMsgPayload::Bool(true))
+        );
         assert!(!window.instance_data().state.contains(WindowState::HILITED));
     }
 
@@ -2399,6 +2383,7 @@ mod tests {
             });
             let mut emitted = Vec::new();
             let mut effects = WindowEventEffects {
+                payloads: Default::default(),
                 menus: None,
                 ime: None,
                 manager: None,

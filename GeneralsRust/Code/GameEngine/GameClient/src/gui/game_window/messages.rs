@@ -242,6 +242,8 @@ pub enum WindowMsgHandled {
     Ignored,
     Handled,
     Value(WindowMsgData),
+    /// Synchronous focus out-parameter, applied by the receiving dispatcher.
+    FocusResponse(bool),
 }
 
 impl WindowMsgHandled {
@@ -265,15 +267,36 @@ impl WindowMsgHandled {
     }
 }
 
+/// Return the focus out-parameter without discovering mutable thread state.
+/// The canonical window dispatcher writes it before returning to its caller.
 pub fn write_input_focus_response(
     data1: WindowMsgData,
-    data2: WindowMsgData,
+    _data2: WindowMsgData,
     wants_focus: bool,
 ) -> WindowMsgHandled {
     if data1 != 0 {
-        let _ = write_bool_payload(data2, wants_focus);
+        WindowMsgHandled::FocusResponse(wants_focus)
+    } else {
+        WindowMsgHandled::Handled
     }
-    WindowMsgHandled::Handled
+}
+
+impl WindowMsgHandled {
+    pub(crate) fn deliver_focus_response(
+        self,
+        msg: WindowMessage,
+        data2: WindowMsgData,
+        effects: &mut super::WindowEventEffects<'_>,
+    ) -> Self {
+        if let Self::FocusResponse(wants_focus) = self {
+            if msg == WindowMessage::InputFocus {
+                let _ = write_bool_payload(effects, data2, wants_focus);
+            }
+            Self::Handled
+        } else {
+            self
+        }
+    }
 }
 
 /// Window error types

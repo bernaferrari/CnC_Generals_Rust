@@ -2957,11 +2957,22 @@ fn combo_field_click_opens_list_and_claims_lone_window() {
             let combo = manager
                 .create_window_from_definition(&combo_def, None, &layout, &layout_def, &mut info)
                 .unwrap();
-            let _ = with_payload(WindowMsgPayload::Text("Alpha".to_string()), |token| {
-                combo
-                    .borrow_mut()
-                    .send_system_message(WindowMessage::User(GCM_ADD_ENTRY), token, 0)
-            });
+            let mut payload_messages = Vec::new();
+            let mut effects = WindowEventEffects::new(&mut payload_messages);
+            effects.manager = Some(manager);
+            let _ = with_payload(
+                &mut effects,
+                WindowMsgPayload::Text("Alpha".to_string()),
+                |effects, token| {
+                    combo.borrow_mut().send_system_message(
+                        WindowMessage::User(GCM_ADD_ENTRY),
+                        token,
+                        0,
+                        effects,
+                    )
+                },
+            );
+            drop(effects);
             let packed = 10usize | (10usize << 16);
             let _ = manager.process_mouse_event(WindowMessage::LeftUp, 10, 10, packed);
             combo

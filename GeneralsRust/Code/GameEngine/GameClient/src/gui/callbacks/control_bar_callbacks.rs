@@ -603,7 +603,7 @@ impl ControlBarCallbacks {
 
         if control_id == beacon_general_id {
             effects.with_manager(|receiving_manager, effects| {
-                hide_quit_menu(receiving_manager, selected_window.as_deref_mut())
+                hide_quit_menu(receiving_manager, selected_window.as_deref_mut(), effects)
             });
             TheControlBar::toggle_purchase_science();
             return;
@@ -621,7 +621,7 @@ impl ControlBarCallbacks {
 
         if control_id == button_idle_worker_id {
             effects.with_manager(|receiving_manager, effects| {
-                hide_quit_menu(receiving_manager, selected_window.as_deref_mut())
+                hide_quit_menu(receiving_manager, selected_window.as_deref_mut(), effects)
             });
             // C++ calls InGameUI::selectNextIdleWorker directly here.  While
             // Main owns the match, send the same UI intent to its typed

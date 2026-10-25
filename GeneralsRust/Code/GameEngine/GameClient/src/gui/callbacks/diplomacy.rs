@@ -165,7 +165,11 @@ impl DiplomacyCallbacks {
         mut selected_window: Option<&mut crate::gui::GameWindow>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         info!("Toggling diplomacy screen (immediate: {})", immediate);
-        super::quit_menu::hide_quit_menu(receiving_manager, selected_window.as_deref_mut());
+        super::quit_menu::hide_quit_menu(
+            receiving_manager,
+            selected_window.as_deref_mut(),
+            effects,
+        );
         self.active = !self.active;
 
         if immediate {

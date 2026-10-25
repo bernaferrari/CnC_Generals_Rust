@@ -157,6 +157,7 @@ impl ControlBarInputContext<'_> {
         ) -> R,
     ) -> R {
         let mut effects = crate::gui::game_window::WindowEventEffects {
+            payloads: Default::default(),
             menus: self.menus.as_mut().map(|menus| menus.reborrow()),
             ime: self.ime.as_deref_mut(),
             manager: None,

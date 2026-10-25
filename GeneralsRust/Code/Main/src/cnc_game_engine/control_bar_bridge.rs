@@ -333,15 +333,11 @@ impl CnCGameEngine {
 
         self.game_logic.take_popup_message_requests();
         self.host_clear_active_popup_presentation_residual();
-        // The frozen record is a presentation mirror and can have been
-        // replaced/drained by the time its WND callback arrives. Reconcile
-        // unconditionally so a stale popup-owned marker cannot survive an
-        // acknowledgement; the resolver preserves every independent pause.
-        self.host_reconcile_active_popup_pause(None);
-
-        // The host has atomically removed the authoritative record first;
-        // this cleanup only destroys the client-owned WND/presentation data.
+        // The host record is retired first. Destroy callbacks still observe
+        // the paused outgoing world, as in clearPopupMessageData in C++.
         self.game_client.clear_owned_popup_message();
+        // Preserve independent pause owners when releasing this popup's pause.
+        self.host_reconcile_active_popup_pause(None);
     }
 
     /// A full offline-world boundary invalidates both C++'s visible popup WND
@@ -351,8 +347,9 @@ impl CnCGameEngine {
     pub(super) fn host_invalidate_active_popup_for_world_boundary(&mut self) {
         self.game_logic.take_popup_message_requests();
         self.host_clear_active_popup_presentation_residual();
-        self.host_reconcile_active_popup_pause(None);
+        // Destroy callbacks observe the outgoing paused world before release.
         self.game_client.clear_owned_popup_message();
+        self.host_reconcile_active_popup_pause(None);
     }
 
     fn host_clear_active_popup_presentation_residual(&mut self) {

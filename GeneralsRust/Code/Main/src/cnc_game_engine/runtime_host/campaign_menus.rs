@@ -367,7 +367,9 @@ impl CnCGameEngine {
         if !wnd_ok {
             #[cfg(feature = "game_client")]
             {
-                wnd_ok = game_client::gui::callbacks::simulate_quit_menu_toggle_show();
+                wnd_ok = self.with_receiving_menu_effects(|effects| {
+                    game_client::gui::callbacks::simulate_quit_menu_toggle_show(effects)
+                })?;
             }
         }
         self.runtime_host_last_gameplay_cmd = if wnd_ok {
@@ -407,38 +409,60 @@ impl CnCGameEngine {
                 "return" => {
                     self.with_receiving_menu_effects(|effects| {
                         drive_os_wnd_quit_menu_return_like_cpp(effects)
-                    })? || simulate_quit_menu_return_button_gadget_selected()
+                    })? || self.with_receiving_menu_effects(|effects| {
+                        simulate_quit_menu_return_button_gadget_selected(effects)
+                    })?
                 }
                 "options" => {
                     self.with_receiving_menu_effects(|effects| {
                         drive_os_wnd_quit_menu_options_like_cpp(effects)
-                    })? || simulate_quit_menu_options_button_gadget_selected()
+                    })? || self.with_receiving_menu_effects(|effects| {
+                        simulate_quit_menu_options_button_gadget_selected(effects)
+                    })?
                 }
                 "restart" => {
                     self.with_receiving_menu_effects(|effects| {
                         drive_os_wnd_quit_menu_restart_like_cpp(effects)
-                    })? || simulate_quit_menu_restart_button_gadget_selected()
+                    })? || self.with_receiving_menu_effects(|effects| {
+                        simulate_quit_menu_restart_button_gadget_selected(effects)
+                    })?
                 }
                 "save_load" | "saveload" => {
                     self.with_receiving_menu_effects(|effects| {
                         drive_os_wnd_quit_menu_save_load_like_cpp(effects)
-                    })? || simulate_quit_menu_save_load_button_gadget_selected()
+                    })? || self.with_receiving_menu_effects(|effects| {
+                        simulate_quit_menu_save_load_button_gadget_selected(effects)
+                    })?
                 }
-                "hide" => simulate_quit_menu_toggle_hide(),
-                "show" => simulate_quit_menu_toggle_show(),
-                "destroy" => simulate_quit_menu_destroy(),
-                "confirm_exit" | "confirm" => simulate_quit_menu_confirm_exit(),
+                "hide" => self.with_receiving_menu_effects(|effects| {
+                    simulate_quit_menu_toggle_hide(effects)
+                })?,
+                "show" => self.with_receiving_menu_effects(|effects| {
+                    simulate_quit_menu_toggle_show(effects)
+                })?,
+                "destroy" => {
+                    self.with_receiving_menu_effects(|effects| simulate_quit_menu_destroy(effects))?
+                }
+                "confirm_exit" | "confirm" => self.with_receiving_menu_effects(|effects| {
+                    simulate_quit_menu_confirm_exit(effects)
+                })?,
                 "prepare_exit" => {
                     self.with_receiving_menu_effects(|effects| {
                         drive_os_wnd_quit_menu_prepare_exit_like_cpp(effects)
-                    })? || simulate_quit_menu_prepare_exit()
+                    })? || self.with_receiving_menu_effects(|effects| {
+                        simulate_quit_menu_prepare_exit(effects)
+                    })?
                 }
                 _ => {
                     self.with_receiving_menu_effects(|effects| {
                         drive_os_wnd_quit_menu_exit_like_cpp(effects)
                     })? || {
-                        let _ = simulate_quit_menu_toggle_show();
-                        simulate_quit_menu_exit_button_gadget_selected()
+                        let _ = self.with_receiving_menu_effects(|effects| {
+                            simulate_quit_menu_toggle_show(effects)
+                        })?;
+                        self.with_receiving_menu_effects(|effects| {
+                            simulate_quit_menu_exit_button_gadget_selected(effects)
+                        })?
                     }
                 }
             };

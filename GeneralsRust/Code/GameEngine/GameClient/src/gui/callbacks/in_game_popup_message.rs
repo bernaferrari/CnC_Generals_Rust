@@ -242,7 +242,7 @@ pub fn in_game_popup_message_input(
     else {
         return WindowMsgHandled::Handled;
     };
-    let token = push_payload(WindowMsgPayload::UInt(generation));
+    let token = push_payload(effects, WindowMsgPayload::UInt(generation));
     // C++ sends GBM_SELECTED to this exact canonical window synchronously.
     let _ = window.send_system_message(
         WindowMessage::GadgetSelected,
@@ -250,7 +250,7 @@ pub fn in_game_popup_message_input(
         token,
         effects,
     );
-    let _ = pop_payload(token);
+    let _ = pop_payload(effects, token);
     WindowMsgHandled::Handled
 }
 pub fn in_game_popup_message_system_with_sink(
@@ -266,7 +266,7 @@ pub fn in_game_popup_message_system_with_sink(
         }
         WindowMessage::InputFocus => write_input_focus_response(data1, data2, true),
         WindowMessage::GadgetSelected => {
-            let token = match payload(data2) {
+            let token = match payload(effects, data2) {
                 Some(WindowMsgPayload::UInt(value)) if value != 0 => Some(value),
                 _ => None,
             };

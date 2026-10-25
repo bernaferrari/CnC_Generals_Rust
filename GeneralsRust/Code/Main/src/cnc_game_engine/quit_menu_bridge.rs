@@ -62,7 +62,7 @@ impl CnCGameEngine {
         // The QuitMenu can also be opened by its retail ControlBar callback.
         // Adopting any live WND here keeps Main authoritative without making
         // that callback depend on an out-of-band pause command.
-        if game_client::gui::callbacks::is_quit_menu_visible() {
+        if self.game_client.quit_menu_visible() {
             self.quit_menu_host_active = true;
             self.host_set_paused(true);
             return Ok(());

@@ -63,6 +63,7 @@ impl GameClient {
             renderer: self.ui_renderer.as_mut(),
             message_stream: &mut self.message_stream,
             effects: crate::gui::game_window::WindowEventEffects {
+                payloads: Default::default(),
                 manager: None,
                 menus: Some(self.menu_manager.receiving_menus()),
                 ime: Some(&mut self.ime),

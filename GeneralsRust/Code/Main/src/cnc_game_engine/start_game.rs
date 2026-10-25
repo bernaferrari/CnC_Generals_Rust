@@ -2217,6 +2217,11 @@ impl CnCGameEngine {
                 });
         }
 
+        // Retire this world's popup while its UI and pause owner still exist.
+        // Client reset cannot discover or resume a native host implicitly.
+        #[cfg(feature = "game_client")]
+        self.host_invalidate_active_popup_for_world_boundary();
+
         #[cfg(feature = "game_client")]
         let reset_result = self
             .subsystem_manager

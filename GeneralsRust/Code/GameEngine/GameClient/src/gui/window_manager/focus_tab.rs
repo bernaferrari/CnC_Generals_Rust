@@ -54,7 +54,7 @@ impl WindowManager {
                     .map(|new_focus| !Rc::ptr_eq(&old_focus, new_focus))
                     .unwrap_or(true);
                 if changing_focus {
-                    let token = push_payload(WindowMsgPayload::Bool(false));
+                    let token = push_payload(effects, WindowMsgPayload::Bool(false));
                     effects.with_receiving_manager(self, |effects| {
                         super::transition_access::borrow_callback_window(
                             &old_focus,
@@ -67,7 +67,7 @@ impl WindowManager {
                             effects,
                         )
                     });
-                    let _ = pop_payload(token);
+                    let _ = pop_payload(effects, token);
                 }
             }
         }
@@ -79,7 +79,7 @@ impl WindowManager {
             let mut wants_focus = false;
             let mut focus_probe = Some(new_focus.clone());
             while let Some(window) = focus_probe {
-                let token = push_payload(WindowMsgPayload::Bool(false));
+                let token = push_payload(effects, WindowMsgPayload::Bool(false));
                 effects.with_receiving_manager(self, |effects| {
                     super::transition_access::borrow_callback_window(
                         &window,
@@ -92,7 +92,10 @@ impl WindowManager {
                         effects,
                     )
                 });
-                wants_focus = matches!(pop_payload(token), Some(WindowMsgPayload::Bool(true)));
+                wants_focus = matches!(
+                    pop_payload(effects, token),
+                    Some(WindowMsgPayload::Bool(true))
+                );
                 if wants_focus {
                     break;
                 }

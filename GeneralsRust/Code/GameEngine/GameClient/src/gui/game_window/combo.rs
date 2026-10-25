@@ -31,9 +31,13 @@ pub fn gadget_combo_box_set_text(
     text: &str,
     effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) {
-    let _ = with_payload(WindowMsgPayload::Text(text.to_string()), |token| {
-        combo_box.send_system_message(WindowMessage::User(GCM_SET_TEXT), token, 0, effects)
-    });
+    let _ = with_payload(
+        effects,
+        WindowMsgPayload::Text(text.to_string()),
+        |effects, token| {
+            combo_box.send_system_message(WindowMessage::User(GCM_SET_TEXT), token, 0, effects)
+        },
+    );
 }
 
 pub fn gadget_combo_box_add_entry(
@@ -74,10 +78,10 @@ pub fn gadget_combo_box_get_selected_pos(
     selected_index: &mut i32,
     effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) {
-    let token = push_payload(WindowMsgPayload::Int(-1));
+    let token = push_payload(effects, WindowMsgPayload::Int(-1));
     let _ =
         combo_box.send_system_message(WindowMessage::User(GCM_GET_SELECTION), 0, token, effects);
-    if let Some(WindowMsgPayload::Int(value)) = pop_payload(token) {
+    if let Some(WindowMsgPayload::Int(value)) = pop_payload(effects, token) {
         *selected_index = value;
     }
 }
@@ -115,14 +119,14 @@ pub fn gadget_combo_box_get_item_data(
     index: i32,
     effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> WindowMsgData {
-    let token = push_payload(WindowMsgPayload::UInt(0));
+    let token = push_payload(effects, WindowMsgPayload::UInt(0));
     let _ = combo_box.send_system_message(
         WindowMessage::User(GCM_GET_ITEM_DATA),
         index as WindowMsgData,
         token,
         effects,
     );
-    match pop_payload(token) {
+    match pop_payload(effects, token) {
         Some(WindowMsgPayload::UInt(value)) => value,
         Some(WindowMsgPayload::Int(value)) => value as WindowMsgData,
         _ => 0,

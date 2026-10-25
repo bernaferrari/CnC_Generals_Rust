@@ -501,21 +501,28 @@ mod tests {
     #[test]
     fn test_input_focus_writeback_sets_keyboard_focus() {
         use crate::gui::{
-            WindowMsgPayload, pop_payload, push_payload, write_input_focus_response as safe_focus,
+            GameWindow, WindowMessage, WindowMsgPayload, pop_payload, push_payload,
+            write_input_focus_response as safe_focus,
         };
+        let mut messages = Vec::new();
+        let mut effects = crate::gui::game_window::WindowEventEffects::new(&mut messages);
+        let mut window = GameWindow::new();
+        window.set_system_callback(|_, _, data1, data2| safe_focus(data1, data2, true));
 
-        // Production path: set_focus pushes a Bool payload token, never a raw ptr.
-        let token = push_payload(WindowMsgPayload::Bool(false));
-        let _ = safe_focus(1, token, true);
-        assert_eq!(pop_payload(token), Some(WindowMsgPayload::Bool(true)));
-
-        // Losing focus (data1 == 0) must not clobber payload.
-        let lose = push_payload(WindowMsgPayload::Bool(false));
-        let _ = safe_focus(0, lose, true);
-        assert_eq!(pop_payload(lose), Some(WindowMsgPayload::Bool(false)));
-
-        // Garbage data2 must not SIGSEGV (fail closed).
-        let _ = safe_focus(1, 0xDEAD_BEEF, true);
+        // The production dispatcher writes the receiving out-parameter synchronously.
+        let token = push_payload(&mut effects, WindowMsgPayload::Bool(false));
+        let _ = window.send_system_message(WindowMessage::InputFocus, 1, token, &mut effects);
+        assert_eq!(
+            pop_payload(&mut effects, token),
+            Some(WindowMsgPayload::Bool(true))
+        );
+        let lose = push_payload(&mut effects, WindowMsgPayload::Bool(false));
+        let _ = window.send_system_message(WindowMessage::InputFocus, 0, lose, &mut effects);
+        assert_eq!(
+            pop_payload(&mut effects, lose),
+            Some(WindowMsgPayload::Bool(false))
+        );
+        let _ = window.send_system_message(WindowMessage::InputFocus, 1, 0xDEAD_BEEF, &mut effects);
     }
 
     #[test]

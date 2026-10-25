@@ -27,8 +27,9 @@ pub fn HideQuitMenu(
     effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     mut selected_window: Option<&mut crate::gui::GameWindow>,
 ) {
-    effects
-        .with_manager(|manager, effects| hide_quit_menu(manager, selected_window.as_deref_mut()));
+    effects.with_manager(|manager, effects| {
+        hide_quit_menu(manager, selected_window.as_deref_mut(), effects)
+    });
 }
 
 pub fn DestroyQuitMenu(effects: &mut crate::gui::game_window::WindowEventEffects<'_>) {

@@ -31,7 +31,7 @@ impl CnCGameEngine {
         #[cfg(feature = "game_client")]
         {
             return game_client::helpers::TheInGameUI::is_quit_menu_visible()
-                || game_client::gui::callbacks::is_quit_menu_visible();
+                || self.game_client.quit_menu_visible();
         }
         #[cfg(not(feature = "game_client"))]
         {

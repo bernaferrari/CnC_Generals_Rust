@@ -503,6 +503,7 @@ pub fn dispatch_translated_window_input_for_owner(
     owner.with_manager(|manager| context.complete_options_accept(manager));
     {
         let mut effects = crate::gui::game_window::WindowEventEffects {
+            payloads: Default::default(),
             menus: context.menus.as_mut().map(|menus| menus.reborrow()),
             ime: context.ime.as_deref_mut(),
             manager: None,

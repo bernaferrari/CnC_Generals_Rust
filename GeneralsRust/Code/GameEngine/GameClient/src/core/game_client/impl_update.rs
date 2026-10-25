@@ -2502,6 +2502,7 @@ impl GameClient {
             let mut shell = self.window_manager_owner.shell_handle();
             let mut messages = Vec::new();
             let mut effects = crate::gui::game_window::WindowEventEffects {
+                payloads: Default::default(),
                 menus: Some(self.menu_manager.receiving_menus()),
                 ime: Some(&mut self.ime),
                 manager: None,
@@ -2549,6 +2550,7 @@ impl GameClient {
             let mut shell = self.window_manager_owner.shell_handle();
             let mut messages = Vec::new();
             let mut effects = crate::gui::game_window::WindowEventEffects {
+                payloads: Default::default(),
                 menus: Some(self.menu_manager.receiving_menus()),
                 ime: Some(&mut self.ime),
                 manager: None,

@@ -1959,12 +1959,14 @@ impl GameWindow {
             return (WindowMsgHandled::Ignored, None);
         }
         if let Some(callback) = self.callbacks.input_with_message_sink.clone() {
-            let result = callback(self, msg, data1, data2, effects);
+            let result = callback(self, msg, data1, data2, effects)
+                .deliver_focus_response(msg, data2, effects);
             if !result.is_ignored() {
                 return (result, None);
             }
         } else if let Some(callback) = self.callbacks.input.clone() {
-            let result = callback(self, msg, data1, data2);
+            let result =
+                callback(self, msg, data1, data2).deliver_focus_response(msg, data2, effects);
             if !result.is_ignored() {
                 return (result, None);
             }
@@ -2037,7 +2039,8 @@ impl GameWindow {
             return WindowMsgHandled::Ignored;
         }
         if let Some(callback) = self.callbacks.system_with_message_sink.clone() {
-            let result = callback(self, msg, data1, data2, emitted_messages);
+            let result = callback(self, msg, data1, data2, emitted_messages)
+                .deliver_focus_response(msg, data2, emitted_messages);
             if result.is_ignored() {
                 self.handle_widget_system(msg, data1, data2, emitted_messages)
             } else {
@@ -2045,7 +2048,11 @@ impl GameWindow {
             }
         } else {
             if let Some(callback) = self.callbacks.system.clone() {
-                let result = callback(self, msg, data1, data2);
+                let result = callback(self, msg, data1, data2).deliver_focus_response(
+                    msg,
+                    data2,
+                    emitted_messages,
+                );
                 if !result.is_ignored() {
                     return result;
                 }

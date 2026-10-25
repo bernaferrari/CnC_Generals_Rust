@@ -15,16 +15,21 @@ fn combo_fixture() -> (
     Rc<RefCell<GameWindow>>,
     Rc<RefCell<GameWindow>>,
 ) {
+    let mut payload_messages = Vec::new();
+    let mut payload_manager = crate::gui::window_manager::WindowManager::new();
+    let effects = &mut WindowEventEffects::new(&mut payload_messages);
+    effects.manager = Some(&mut payload_manager);
+
     let mut combo = GameWindow::new();
     combo.set_id(1);
-    combo.set_size(120, 20).unwrap();
+    combo.set_size(120, 20, effects).unwrap();
     combo.set_widget(WindowWidget::ComboBox(ComboBox::new(1, 0, 0, 120, 20)));
 
     let edit_box = Rc::new(RefCell::new(GameWindow::new()));
     {
         let mut edit_box = edit_box.borrow_mut();
         edit_box.set_id(2);
-        edit_box.set_size(120, 20).unwrap();
+        edit_box.set_size(120, 20, effects).unwrap();
         edit_box.set_widget(WindowWidget::TextEntry(TextEntry::new(2, 0, 0, 120, 20)));
     }
 
@@ -32,9 +37,9 @@ fn combo_fixture() -> (
     {
         let mut list_box = list_box.borrow_mut();
         list_box.set_id(3);
-        list_box.set_size(120, 40).unwrap();
+        list_box.set_size(120, 40, effects).unwrap();
         list_box.set_widget(WindowWidget::ListBox(ListBox::new(3, 0, 20, 120, 40)));
-        list_box.hide(true).unwrap();
+        list_box.hide(true, effects).unwrap();
     }
 
     let drop_down = Rc::new(RefCell::new(GameWindow::new()));
@@ -82,13 +87,21 @@ fn legacy_virtual_keys_map_to_gadget_key_codes_like_cpp() {
 
 #[test]
 fn static_text_label_system_messages_match_cpp() {
+    let mut payload_messages = Vec::new();
+    let mut payload_manager = crate::gui::window_manager::WindowManager::new();
+    let effects = &mut WindowEventEffects::new(&mut payload_messages);
+    effects.manager = Some(&mut payload_manager);
+
     let mut window = GameWindow::new();
     window.set_widget(WindowWidget::StaticText(StaticText::new(7, 0, 0, 120, 24)));
 
     assert_eq!(
         with_payload(
+            effects,
             WindowMsgPayload::Text("Mission Objective".to_string()),
-            |token| { window.send_system_message(WindowMessage::User(GGM_SET_LABEL), token, 0) },
+            |effects, token| {
+                window.send_system_message(WindowMessage::User(GGM_SET_LABEL), token, 0, effects)
+            },
         ),
         WindowMsgHandled::Handled
     );
@@ -101,19 +114,24 @@ fn static_text_label_system_messages_match_cpp() {
         Some("Mission Objective")
     );
 
-    let token = push_payload(WindowMsgPayload::Text(String::new()));
+    let token = push_payload(effects, WindowMsgPayload::Text(String::new()));
     assert_eq!(
-        window.send_system_message(WindowMessage::User(GGM_GET_LABEL), 0, token),
+        window.send_system_message(WindowMessage::User(GGM_GET_LABEL), 0, token, effects),
         WindowMsgHandled::Handled
     );
     assert_eq!(
-        pop_payload(token),
+        pop_payload(effects, token),
         Some(WindowMsgPayload::Text("Mission Objective".to_string()))
     );
 }
 
 #[test]
 fn garbage_window_msg_data_is_not_a_payload_and_does_not_panic() {
+    let mut payload_messages = Vec::new();
+    let mut payload_manager = crate::gui::window_manager::WindowManager::new();
+    let effects = &mut WindowEventEffects::new(&mut payload_messages);
+    effects.manager = Some(&mut payload_manager);
+
     for garbage in [
         0usize,
         1,
@@ -124,77 +142,111 @@ fn garbage_window_msg_data_is_not_a_payload_and_does_not_panic() {
         usize::MAX,
         usize::MAX - 7,
     ] {
-        assert!(!is_window_msg_payload(garbage), "garbage={garbage:#x}");
-        assert_eq!(payload(garbage), None);
-        assert_eq!(pop_payload(garbage), None);
-        assert!(!replace_payload(garbage, WindowMsgPayload::Bool(true)));
+        assert!(
+            !is_window_msg_payload(effects, garbage),
+            "garbage={garbage:#x}"
+        );
+        assert_eq!(payload(effects, garbage), None);
+        assert_eq!(pop_payload(effects, garbage), None);
+        assert!(!replace_payload(
+            effects,
+            garbage,
+            WindowMsgPayload::Bool(true)
+        ));
     }
 
     let mut window = GameWindow::new();
     window.set_widget(WindowWidget::StaticText(StaticText::new(7, 0, 0, 120, 24)));
     assert_eq!(
-        window.send_system_message(WindowMessage::User(GGM_SET_LABEL), 0xDEAD_BEEF, 0,),
+        window.send_system_message(WindowMessage::User(GGM_SET_LABEL), 0xDEAD_BEEF, 0, effects),
         WindowMsgHandled::Handled
     );
     assert_eq!(window.get_text(), "");
     assert_eq!(
-        window.send_system_message(WindowMessage::User(GGM_GET_LABEL), 0, 0xDEAD_BEEF,),
+        window.send_system_message(WindowMessage::User(GGM_GET_LABEL), 0, 0xDEAD_BEEF, effects),
         WindowMsgHandled::Handled
     );
     assert_eq!(
-        window.send_system_message(WindowMessage::InputFocus, 1, 0xDEAD_BEEF),
+        window.send_system_message(WindowMessage::InputFocus, 1, 0xDEAD_BEEF, effects),
         WindowMsgHandled::Ignored
     );
     assert_eq!(
-        write_input_focus_response(1, 0xDEAD_BEEF, true),
+        dispatch_focus_response(effects, 1, 0xDEAD_BEEF, true),
         WindowMsgHandled::Handled
     );
 }
 
 #[test]
 fn typed_text_payload_roundtrip_works() {
+    let mut payload_messages = Vec::new();
+    let mut payload_manager = crate::gui::window_manager::WindowManager::new();
+    let effects = &mut WindowEventEffects::new(&mut payload_messages);
+    effects.manager = Some(&mut payload_manager);
+
     let mut window = GameWindow::new();
     window.set_widget(WindowWidget::StaticText(StaticText::new(8, 0, 0, 120, 24)));
 
     assert_eq!(
-        with_payload(WindowMsgPayload::Text("Zero Hour".to_string()), |token| {
-            window.send_system_message(WindowMessage::User(GGM_SET_LABEL), token, 0)
-        }),
+        with_payload(
+            effects,
+            WindowMsgPayload::Text("Zero Hour".to_string()),
+            |effects, token| {
+                window.send_system_message(WindowMessage::User(GGM_SET_LABEL), token, 0, effects)
+            }
+        ),
         WindowMsgHandled::Handled
     );
     assert_eq!(window.get_text(), "Zero Hour");
 
-    let (handled, out) = with_payload_mut(WindowMsgPayload::Text(String::new()), |token| {
-        window.send_system_message(WindowMessage::User(GGM_GET_LABEL), 0, token)
-    });
+    let (handled, out) = with_payload_mut(
+        effects,
+        WindowMsgPayload::Text(String::new()),
+        |effects, token| {
+            window.send_system_message(WindowMessage::User(GGM_GET_LABEL), 0, token, effects)
+        },
+    );
     assert_eq!(handled, WindowMsgHandled::Handled);
     assert_eq!(out, Some(WindowMsgPayload::Text("Zero Hour".to_string())));
 }
 
 #[test]
 fn write_input_focus_response_uses_payload_token_not_raw_ptr() {
-    let token = push_payload(WindowMsgPayload::Bool(false));
-    assert_eq!(
-        write_input_focus_response(1, token, true),
-        WindowMsgHandled::Handled
-    );
-    assert_eq!(pop_payload(token), Some(WindowMsgPayload::Bool(true)));
+    let mut payload_messages = Vec::new();
+    let mut payload_manager = crate::gui::window_manager::WindowManager::new();
+    let effects = &mut WindowEventEffects::new(&mut payload_messages);
+    effects.manager = Some(&mut payload_manager);
 
-    let lose_token = push_payload(WindowMsgPayload::Bool(true));
+    let token = push_payload(effects, WindowMsgPayload::Bool(false));
     assert_eq!(
-        write_input_focus_response(0, lose_token, false),
+        dispatch_focus_response(effects, 1, token, true),
         WindowMsgHandled::Handled
     );
-    assert_eq!(pop_payload(lose_token), Some(WindowMsgPayload::Bool(true)));
+    assert_eq!(
+        pop_payload(effects, token),
+        Some(WindowMsgPayload::Bool(true))
+    );
+
+    let lose_token = push_payload(effects, WindowMsgPayload::Bool(true));
+    assert_eq!(
+        dispatch_focus_response(effects, 0, lose_token, false),
+        WindowMsgHandled::Handled
+    );
+    assert_eq!(
+        pop_payload(effects, lose_token),
+        Some(WindowMsgPayload::Bool(true))
+    );
 
     let mut window = GameWindow::new();
     window.set_widget(WindowWidget::CheckBox(CheckBox::new(31, 0, 0, 16)));
-    let focus_token = push_payload(WindowMsgPayload::Bool(false));
+    let focus_token = push_payload(effects, WindowMsgPayload::Bool(false));
     assert_eq!(
-        window.send_system_message(WindowMessage::InputFocus, 1, focus_token),
+        window.send_system_message(WindowMessage::InputFocus, 1, focus_token, effects),
         WindowMsgHandled::Handled
     );
-    assert_eq!(pop_payload(focus_token), Some(WindowMsgPayload::Bool(true)));
+    assert_eq!(
+        pop_payload(effects, focus_token),
+        Some(WindowMsgPayload::Bool(true))
+    );
 }
 
 #[test]
@@ -214,6 +266,11 @@ fn static_text_create_destroy_are_consumed_like_cpp_system_callback() {
 
 #[test]
 fn static_text_input_focus_is_ignored_like_cpp_system_callback() {
+    let mut payload_messages = Vec::new();
+    let mut payload_manager = crate::gui::window_manager::WindowManager::new();
+    let effects = &mut WindowEventEffects::new(&mut payload_messages);
+    effects.manager = Some(&mut payload_manager);
+
     let owner_seen = Rc::new(RefCell::new(Vec::new()));
     let owner = Rc::new(RefCell::new(GameWindow::new()));
     {
@@ -226,17 +283,20 @@ fn static_text_input_focus_is_ignored_like_cpp_system_callback() {
             });
     }
 
-    let token = push_payload(WindowMsgPayload::Bool(true));
+    let token = push_payload(effects, WindowMsgPayload::Bool(true));
     let mut window = GameWindow::new();
     window.set_id(9);
     window.set_owner(Some(&owner));
     window.set_widget(WindowWidget::StaticText(StaticText::new(9, 0, 0, 120, 24)));
 
     assert_eq!(
-        window.send_system_message(WindowMessage::InputFocus, 1, token),
+        window.send_system_message(WindowMessage::InputFocus, 1, token, effects),
         WindowMsgHandled::Ignored
     );
-    assert_eq!(pop_payload(token), Some(WindowMsgPayload::Bool(true)));
+    assert_eq!(
+        pop_payload(effects, token),
+        Some(WindowMsgPayload::Bool(true))
+    );
     assert!(!window.instance_data().state.contains(WindowState::HILITED));
     assert!(owner_seen.borrow().is_empty());
 }
@@ -578,6 +638,11 @@ fn combo_box_set_colors_propagates_to_sub_gadgets_like_cpp() {
 
 #[test]
 fn combo_box_set_text_uses_edit_child_without_selecting_matching_item_like_cpp() {
+    let mut payload_messages = Vec::new();
+    let mut payload_manager = crate::gui::window_manager::WindowManager::new();
+    let effects = &mut WindowEventEffects::new(&mut payload_messages);
+    effects.manager = Some(&mut payload_manager);
+
     let (mut combo, edit_box, _list_box, _drop_down) = combo_fixture();
     {
         let combo_widget = combo.combo_box_mut().unwrap();
@@ -586,9 +651,13 @@ fn combo_box_set_text_uses_edit_child_without_selecting_matching_item_like_cpp()
     }
 
     assert_eq!(
-        with_payload(WindowMsgPayload::Text("Alpha".to_string()), |token| {
-            combo.send_system_message(WindowMessage::User(GCM_SET_TEXT), token, 0)
-        }),
+        with_payload(
+            effects,
+            WindowMsgPayload::Text("Alpha".to_string()),
+            |effects, token| {
+                combo.send_system_message(WindowMessage::User(GCM_SET_TEXT), token, 0, effects)
+            }
+        ),
         WindowMsgHandled::Handled
     );
 
@@ -605,34 +674,56 @@ fn combo_box_set_text_uses_edit_child_without_selecting_matching_item_like_cpp()
     );
     assert_eq!(combo.combo_box_mut().unwrap().selected_index(), None);
 
-    let token = push_payload(WindowMsgPayload::Text("stale".to_string()));
-    let _ = combo.send_system_message(WindowMessage::User(GCM_GET_TEXT), 0, token);
+    let token = push_payload(effects, WindowMsgPayload::Text("stale".to_string()));
+    let _ = combo.send_system_message(WindowMessage::User(GCM_GET_TEXT), 0, token, effects);
     assert_eq!(
-        pop_payload(token),
+        pop_payload(effects, token),
         Some(WindowMsgPayload::Text("Alpha".to_string()))
     );
 }
 
 #[test]
 fn combo_box_item_data_round_trips_pointer_sized_values_like_cpp() {
+    let mut payload_messages = Vec::new();
+    let mut payload_manager = crate::gui::window_manager::WindowManager::new();
+    let effects = &mut WindowEventEffects::new(&mut payload_messages);
+    effects.manager = Some(&mut payload_manager);
+
     let (mut combo, _edit_box, _list_box, _drop_down) = combo_fixture();
-    let _ = with_payload(WindowMsgPayload::Text("Alpha".to_string()), |token| {
-        combo.send_system_message(WindowMessage::User(GCM_ADD_ENTRY), token, 0xFF11_2233)
-    });
+    let _ = with_payload(
+        effects,
+        WindowMsgPayload::Text("Alpha".to_string()),
+        |effects, token| {
+            combo.send_system_message(
+                WindowMessage::User(GCM_ADD_ENTRY),
+                token,
+                0xFF11_2233,
+                effects,
+            )
+        },
+    );
 
     let raw_data = usize::MAX - 7;
     assert_eq!(
-        combo.send_system_message(WindowMessage::User(GCM_SET_ITEM_DATA), 0, raw_data,),
+        combo.send_system_message(WindowMessage::User(GCM_SET_ITEM_DATA), 0, raw_data, effects),
         WindowMsgHandled::Handled
     );
 
-    let token = push_payload(WindowMsgPayload::UInt(0));
-    let _ = combo.send_system_message(WindowMessage::User(GCM_GET_ITEM_DATA), 0, token);
-    assert_eq!(pop_payload(token), Some(WindowMsgPayload::UInt(raw_data)));
+    let token = push_payload(effects, WindowMsgPayload::UInt(0));
+    let _ = combo.send_system_message(WindowMessage::User(GCM_GET_ITEM_DATA), 0, token, effects);
+    assert_eq!(
+        pop_payload(effects, token),
+        Some(WindowMsgPayload::UInt(raw_data))
+    );
 }
 
 #[test]
 fn combo_box_selection_hides_list_updates_edit_and_notifies_owner_like_cpp() {
+    let mut payload_messages = Vec::new();
+    let mut payload_manager = crate::gui::window_manager::WindowManager::new();
+    let effects = &mut WindowEventEffects::new(&mut payload_messages);
+    effects.manager = Some(&mut payload_manager);
+
     let (mut combo, edit_box, list_box, _drop_down) = combo_fixture();
     let owner_seen = Rc::new(RefCell::new(Vec::new()));
     let owner = Rc::new(RefCell::new(GameWindow::new()));
@@ -647,17 +738,35 @@ fn combo_box_selection_hides_list_updates_edit_and_notifies_owner_like_cpp() {
     }
     combo.set_owner(Some(&owner));
 
-    let _ = with_payload(WindowMsgPayload::Text("Alpha".to_string()), |token| {
-        combo.send_system_message(WindowMessage::User(GCM_ADD_ENTRY), token, 0xFF11_2233)
-    });
-    let _ = with_payload(WindowMsgPayload::Text("Bravo".to_string()), |token| {
-        combo.send_system_message(WindowMessage::User(GCM_ADD_ENTRY), token, 0xFF44_5566)
-    });
-    list_box.borrow_mut().hide(false).unwrap();
-    combo.set_size(120, 80).unwrap();
+    let _ = with_payload(
+        effects,
+        WindowMsgPayload::Text("Alpha".to_string()),
+        |effects, token| {
+            combo.send_system_message(
+                WindowMessage::User(GCM_ADD_ENTRY),
+                token,
+                0xFF11_2233,
+                effects,
+            )
+        },
+    );
+    let _ = with_payload(
+        effects,
+        WindowMsgPayload::Text("Bravo".to_string()),
+        |effects, token| {
+            combo.send_system_message(
+                WindowMessage::User(GCM_ADD_ENTRY),
+                token,
+                0xFF44_5566,
+                effects,
+            )
+        },
+    );
+    list_box.borrow_mut().hide(false, effects).unwrap();
+    combo.set_size(120, 80, effects).unwrap();
 
     assert_eq!(
-        combo.send_system_message(WindowMessage::User(GCM_SET_SELECTION), 1, 0),
+        combo.send_system_message(WindowMessage::User(GCM_SET_SELECTION), 1, 0, effects),
         WindowMsgHandled::Handled
     );
 
@@ -682,6 +791,11 @@ fn combo_box_selection_hides_list_updates_edit_and_notifies_owner_like_cpp() {
 
 #[test]
 fn combo_box_edit_update_clears_selection_hides_list_and_notifies_owner_like_cpp() {
+    let mut payload_messages = Vec::new();
+    let mut payload_manager = crate::gui::window_manager::WindowManager::new();
+    let effects = &mut WindowEventEffects::new(&mut payload_messages);
+    effects.manager = Some(&mut payload_manager);
+
     let (mut combo, _edit_box, list_box, _drop_down) = combo_fixture();
     let owner_seen = Rc::new(RefCell::new(Vec::new()));
     let owner = Rc::new(RefCell::new(GameWindow::new()));
@@ -696,16 +810,25 @@ fn combo_box_edit_update_clears_selection_hides_list_and_notifies_owner_like_cpp
     }
     combo.set_owner(Some(&owner));
 
-    let _ = with_payload(WindowMsgPayload::Text("Alpha".to_string()), |token| {
-        combo.send_system_message(WindowMessage::User(GCM_ADD_ENTRY), token, 0xFF11_2233)
-    });
-    let _ = combo.send_system_message(WindowMessage::User(GCM_SET_SELECTION), 0, 0);
-    list_box.borrow_mut().hide(false).unwrap();
-    combo.set_size(120, 80).unwrap();
+    let _ = with_payload(
+        effects,
+        WindowMsgPayload::Text("Alpha".to_string()),
+        |effects, token| {
+            combo.send_system_message(
+                WindowMessage::User(GCM_ADD_ENTRY),
+                token,
+                0xFF11_2233,
+                effects,
+            )
+        },
+    );
+    let _ = combo.send_system_message(WindowMessage::User(GCM_SET_SELECTION), 0, 0, effects);
+    list_box.borrow_mut().hide(false, effects).unwrap();
+    combo.set_size(120, 80, effects).unwrap();
     owner_seen.borrow_mut().clear();
 
     assert_eq!(
-        combo.send_system_message(WindowMessage::GadgetValueChanged, 2, 0),
+        combo.send_system_message(WindowMessage::GadgetValueChanged, 2, 0, effects),
         WindowMsgHandled::Handled
     );
 
@@ -1460,6 +1583,11 @@ fn checkbox_right_up_notifies_without_right_click_status_like_cpp() {
 
 #[test]
 fn input_focus_notifies_owner_and_updates_hilite_like_cpp_gadgets() {
+    let mut payload_messages = Vec::new();
+    let mut payload_manager = crate::gui::window_manager::WindowManager::new();
+    let effects = &mut WindowEventEffects::new(&mut payload_messages);
+    effects.manager = Some(&mut payload_manager);
+
     let owner_seen = Rc::new(RefCell::new(Vec::new()));
     let owner = Rc::new(RefCell::new(GameWindow::new()));
     {
@@ -1477,20 +1605,26 @@ fn input_focus_notifies_owner_and_updates_hilite_like_cpp_gadgets() {
     window.set_owner(Some(&owner));
     window.set_widget(WindowWidget::CheckBox(CheckBox::new(31, 0, 0, 16)));
 
-    let gain_token = push_payload(WindowMsgPayload::Bool(false));
+    let gain_token = push_payload(effects, WindowMsgPayload::Bool(false));
     assert_eq!(
-        window.send_system_message(WindowMessage::InputFocus, 1, gain_token),
+        window.send_system_message(WindowMessage::InputFocus, 1, gain_token, effects),
         WindowMsgHandled::Handled
     );
-    assert_eq!(pop_payload(gain_token), Some(WindowMsgPayload::Bool(true)));
+    assert_eq!(
+        pop_payload(effects, gain_token),
+        Some(WindowMsgPayload::Bool(true))
+    );
     assert!(window.instance_data().state.contains(WindowState::HILITED));
 
-    let lose_token = push_payload(WindowMsgPayload::Bool(true));
+    let lose_token = push_payload(effects, WindowMsgPayload::Bool(true));
     assert_eq!(
-        window.send_system_message(WindowMessage::InputFocus, 0, lose_token),
+        window.send_system_message(WindowMessage::InputFocus, 0, lose_token, effects),
         WindowMsgHandled::Handled
     );
-    assert_eq!(pop_payload(lose_token), Some(WindowMsgPayload::Bool(false)));
+    assert_eq!(
+        pop_payload(effects, lose_token),
+        Some(WindowMsgPayload::Bool(false))
+    );
     assert!(!window.instance_data().state.contains(WindowState::HILITED));
 
     assert_eq!(
@@ -1504,6 +1638,11 @@ fn input_focus_notifies_owner_and_updates_hilite_like_cpp_gadgets() {
 
 #[test]
 fn radio_input_focus_does_not_set_hilite_on_gain_like_cpp() {
+    let mut payload_messages = Vec::new();
+    let mut payload_manager = crate::gui::window_manager::WindowManager::new();
+    let effects = &mut WindowEventEffects::new(&mut payload_messages);
+    effects.manager = Some(&mut payload_manager);
+
     let owner_seen = Rc::new(RefCell::new(Vec::new()));
     let owner = Rc::new(RefCell::new(GameWindow::new()));
     {
@@ -1527,21 +1666,27 @@ fn radio_input_focus_does_not_set_hilite_on_gain_like_cpp() {
         RadioButtonGroup::new(4),
     )));
 
-    let gain_token = push_payload(WindowMsgPayload::Bool(false));
+    let gain_token = push_payload(effects, WindowMsgPayload::Bool(false));
     assert_eq!(
-        window.send_system_message(WindowMessage::InputFocus, 1, gain_token),
+        window.send_system_message(WindowMessage::InputFocus, 1, gain_token, effects),
         WindowMsgHandled::Handled
     );
-    assert_eq!(pop_payload(gain_token), Some(WindowMsgPayload::Bool(true)));
+    assert_eq!(
+        pop_payload(effects, gain_token),
+        Some(WindowMsgPayload::Bool(true))
+    );
     assert!(!window.instance_data().state.contains(WindowState::HILITED));
 
     window.set_hilite_state(true);
-    let lose_token = push_payload(WindowMsgPayload::Bool(false));
+    let lose_token = push_payload(effects, WindowMsgPayload::Bool(false));
     assert_eq!(
-        window.send_system_message(WindowMessage::InputFocus, 0, lose_token),
+        window.send_system_message(WindowMessage::InputFocus, 0, lose_token, effects),
         WindowMsgHandled::Handled
     );
-    assert_eq!(pop_payload(lose_token), Some(WindowMsgPayload::Bool(true)));
+    assert_eq!(
+        pop_payload(effects, lose_token),
+        Some(WindowMsgPayload::Bool(true))
+    );
     assert!(!window.instance_data().state.contains(WindowState::HILITED));
 
     assert_eq!(
@@ -2153,6 +2298,11 @@ fn listbox_toggle_multi_selection_system_message_matches_cpp() {
 
 #[test]
 fn listbox_pointer_system_messages_bridge_cpp_payloads() {
+    let mut payload_messages = Vec::new();
+    let mut payload_manager = crate::gui::window_manager::WindowManager::new();
+    let effects = &mut WindowEventEffects::new(&mut payload_messages);
+    effects.manager = Some(&mut payload_manager);
+
     let mut window = GameWindow::new();
     let mut listbox = ListBox::new(42, 0, 0, 100, 60);
     listbox.set_columns(2);
@@ -2165,9 +2315,13 @@ fn listbox_pointer_system_messages_bridge_cpp_payloads() {
         data: ListBoxItemData::Text("Alpha".to_string()),
         color: Some(ShellColor::new(10, 20, 30, 40)),
     };
-    let result = with_payload(WindowMsgPayload::AddEntry(entry), |token| {
-        window.send_system_message(WindowMessage::User(GLM_ADD_ENTRY), token, 0)
-    });
+    let result = with_payload(
+        effects,
+        WindowMsgPayload::AddEntry(entry),
+        |effects, token| {
+            window.send_system_message(WindowMessage::User(GLM_ADD_ENTRY), token, 0, effects)
+        },
+    );
     assert_eq!(result.value_i32(), Some(0));
     assert!(result.is_handled());
 
@@ -2178,53 +2332,74 @@ fn listbox_pointer_system_messages_bridge_cpp_payloads() {
         data: ListBoxItemData::Text("Bravo".to_string()),
         color: Some(ShellColor::new(50, 60, 70, 80)),
     };
-    let result = with_payload(WindowMsgPayload::AddEntry(entry), |token| {
-        window.send_system_message(WindowMessage::User(GLM_ADD_ENTRY), token, 0)
-    });
+    let result = with_payload(
+        effects,
+        WindowMsgPayload::AddEntry(entry),
+        |effects, token| {
+            window.send_system_message(WindowMessage::User(GLM_ADD_ENTRY), token, 0, effects)
+        },
+    );
     assert_eq!(result.value_i32(), Some(0));
 
-    let pos_token = push_payload(WindowMsgPayload::CellPosition(ListBoxCellPosition {
-        x: 1,
-        y: 0,
-    }));
-    let text_token = push_payload(WindowMsgPayload::TextAndColor(ListBoxTextAndColor {
-        text: String::new(),
-        color: ShellColor::new(0, 0, 0, 0),
-    }));
+    let pos_token = push_payload(
+        effects,
+        WindowMsgPayload::CellPosition(ListBoxCellPosition { x: 1, y: 0 }),
+    );
+    let text_token = push_payload(
+        effects,
+        WindowMsgPayload::TextAndColor(ListBoxTextAndColor {
+            text: String::new(),
+            color: ShellColor::new(0, 0, 0, 0),
+        }),
+    );
     assert_eq!(
-        window.send_system_message(WindowMessage::User(GLM_GET_TEXT), pos_token, text_token,),
+        window.send_system_message(
+            WindowMessage::User(GLM_GET_TEXT),
+            pos_token,
+            text_token,
+            effects
+        ),
         WindowMsgHandled::Handled
     );
     assert_eq!(
-        pop_payload(text_token),
+        pop_payload(effects, text_token),
         Some(WindowMsgPayload::TextAndColor(ListBoxTextAndColor {
             text: "Bravo".to_string(),
             color: ShellColor::new(50, 60, 70, 80),
         }))
     );
 
-    let item_token = push_payload(WindowMsgPayload::ItemData(ListBoxItemData::Integer(99)));
+    let item_token = push_payload(
+        effects,
+        WindowMsgPayload::ItemData(ListBoxItemData::Integer(99)),
+    );
     assert_eq!(
         window.send_system_message(
             WindowMessage::User(GLM_SET_ITEM_DATA),
             pos_token,
             item_token,
+            effects
         ),
         WindowMsgHandled::Handled
     );
-    let _ = pop_payload(item_token);
-    let out_token = push_payload(WindowMsgPayload::ItemDataOpt(None));
+    let _ = pop_payload(effects, item_token);
+    let out_token = push_payload(effects, WindowMsgPayload::ItemDataOpt(None));
     assert_eq!(
-        window.send_system_message(WindowMessage::User(GLM_GET_ITEM_DATA), pos_token, out_token,),
+        window.send_system_message(
+            WindowMessage::User(GLM_GET_ITEM_DATA),
+            pos_token,
+            out_token,
+            effects
+        ),
         WindowMsgHandled::Handled
     );
     assert_eq!(
-        pop_payload(out_token),
+        pop_payload(effects, out_token),
         Some(WindowMsgPayload::ItemDataOpt(Some(
             ListBoxItemData::Integer(99)
         )))
     );
-    let _ = pop_payload(pos_token);
+    let _ = pop_payload(effects, pos_token);
 
     let mut full_window = GameWindow::new();
     let mut full_listbox = ListBox::new(43, 0, 0, 100, 60);
@@ -2238,15 +2413,24 @@ fn listbox_pointer_system_messages_bridge_cpp_payloads() {
         data: ListBoxItemData::Text("overflow".to_string()),
         color: Some(ShellColor::new(90, 91, 92, 93)),
     };
-    let result = with_payload(WindowMsgPayload::AddEntry(entry), |token| {
-        full_window.send_system_message(WindowMessage::User(GLM_ADD_ENTRY), token, 0)
-    });
+    let result = with_payload(
+        effects,
+        WindowMsgPayload::AddEntry(entry),
+        |effects, token| {
+            full_window.send_system_message(WindowMessage::User(GLM_ADD_ENTRY), token, 0, effects)
+        },
+    );
     assert_eq!(result.value_i32(), Some(-1));
     assert!(result.is_handled());
 }
 
 #[test]
 fn listbox_selection_system_messages_match_cpp_out_pointer_shape() {
+    let mut payload_messages = Vec::new();
+    let mut payload_manager = crate::gui::window_manager::WindowManager::new();
+    let effects = &mut WindowEventEffects::new(&mut payload_messages);
+    effects.manager = Some(&mut payload_manager);
+
     let mut window = GameWindow::new();
     let mut listbox = ListBox::new(42, 0, 0, 100, 60).with_selection_mode(SelectionMode::Multiple);
     listbox.add_item("alpha");
@@ -2255,9 +2439,18 @@ fn listbox_selection_system_messages_match_cpp_out_pointer_shape() {
     window.set_widget(WindowWidget::ListBox(listbox));
 
     assert_eq!(
-        with_payload(WindowMsgPayload::IntList(vec![0, 2]), |token| {
-            window.send_system_message(WindowMessage::User(GLM_SET_SELECTION), token, 2)
-        }),
+        with_payload(
+            effects,
+            WindowMsgPayload::IntList(vec![0, 2]),
+            |effects, token| {
+                window.send_system_message(
+                    WindowMessage::User(GLM_SET_SELECTION),
+                    token,
+                    2,
+                    effects,
+                )
+            }
+        ),
         WindowMsgHandled::Handled
     );
     assert_eq!(window.list_box_mut().unwrap().selected_indices(), &[0, 2]);
@@ -2267,9 +2460,9 @@ fn listbox_selection_system_messages_match_cpp_out_pointer_shape() {
     assert_eq!(result.multiple, vec![0, 2]);
 
     let mut selected_out: WindowMsgData = 0;
-    gadget_list_box_get_selected(&mut window, &mut selected_out);
+    gadget_list_box_get_selected(&mut window, &mut selected_out, effects);
     assert_eq!(
-        pop_payload(selected_out),
+        pop_payload(effects, selected_out),
         Some(WindowMsgPayload::IntList(vec![0, 2]))
     );
 
@@ -2279,12 +2472,20 @@ fn listbox_selection_system_messages_match_cpp_out_pointer_shape() {
     single.add_item("bravo");
     assert!(single.select_index(1, KeyModifiers::none()));
     single_window.set_widget(WindowWidget::ListBox(single));
-    let single_token = push_payload(WindowMsgPayload::None);
+    let single_token = push_payload(effects, WindowMsgPayload::None);
     assert_eq!(
-        single_window.send_system_message(WindowMessage::User(GLM_GET_SELECTION), 0, single_token,),
+        single_window.send_system_message(
+            WindowMessage::User(GLM_GET_SELECTION),
+            0,
+            single_token,
+            effects
+        ),
         WindowMsgHandled::Handled
     );
-    assert_eq!(pop_payload(single_token), Some(WindowMsgPayload::Int(1)));
+    assert_eq!(
+        pop_payload(effects, single_token),
+        Some(WindowMsgPayload::Int(1))
+    );
 }
 
 #[test]
@@ -2676,22 +2877,31 @@ fn non_image_status_emits_color_fill_and_border() {
 
 #[test]
 fn combo_left_up_toggles_child_list_like_cpp() {
+    let mut payload_messages = Vec::new();
+    let mut payload_manager = crate::gui::window_manager::WindowManager::new();
+    let effects = &mut WindowEventEffects::new(&mut payload_messages);
+    effects.manager = Some(&mut payload_manager);
+
     let (mut combo, _edit_box, list_box, _drop_down) = combo_fixture();
     combo.enable(true).unwrap();
-    let _ = with_payload(WindowMsgPayload::Text("Alpha".to_string()), |token| {
-        combo.send_system_message(WindowMessage::User(GCM_ADD_ENTRY), token, 0)
-    });
+    let _ = with_payload(
+        effects,
+        WindowMsgPayload::Text("Alpha".to_string()),
+        |effects, token| {
+            combo.send_system_message(WindowMessage::User(GCM_ADD_ENTRY), token, 0, effects)
+        },
+    );
     assert!(list_box.borrow().is_hidden());
 
     assert_eq!(
-        combo.send_input_message(WindowMessage::LeftUp, 0, 0),
+        combo.send_input_message(WindowMessage::LeftUp, 0, 0, effects),
         WindowMsgHandled::Handled
     );
     assert!(!list_box.borrow().is_hidden());
     assert!(combo.get_size().1 > 20);
 
     assert_eq!(
-        combo.send_input_message(WindowMessage::LeftUp, 0, 0),
+        combo.send_input_message(WindowMessage::LeftUp, 0, 0, effects),
         WindowMsgHandled::Handled
     );
     assert!(list_box.borrow().is_hidden());
@@ -2700,20 +2910,29 @@ fn combo_left_up_toggles_child_list_like_cpp() {
 
 #[test]
 fn combo_drop_down_button_toggles_via_shared_open_path() {
+    let mut payload_messages = Vec::new();
+    let mut payload_manager = crate::gui::window_manager::WindowManager::new();
+    let effects = &mut WindowEventEffects::new(&mut payload_messages);
+    effects.manager = Some(&mut payload_manager);
+
     let (mut combo, _edit_box, list_box, _drop_down) = combo_fixture();
     combo.enable(true).unwrap();
-    let _ = with_payload(WindowMsgPayload::Text("Alpha".to_string()), |token| {
-        combo.send_system_message(WindowMessage::User(GCM_ADD_ENTRY), token, 0)
-    });
+    let _ = with_payload(
+        effects,
+        WindowMsgPayload::Text("Alpha".to_string()),
+        |effects, token| {
+            combo.send_system_message(WindowMessage::User(GCM_ADD_ENTRY), token, 0, effects)
+        },
+    );
 
     assert_eq!(
-        combo.send_system_message(WindowMessage::GadgetSelected, 4, 0),
+        combo.send_system_message(WindowMessage::GadgetSelected, 4, 0, effects),
         WindowMsgHandled::Handled
     );
     assert!(!list_box.borrow().is_hidden());
 
     assert_eq!(
-        combo.send_system_message(WindowMessage::GadgetSelected, 4, 0),
+        combo.send_system_message(WindowMessage::GadgetSelected, 4, 0, effects),
         WindowMsgHandled::Handled
     );
     assert!(list_box.borrow().is_hidden());
@@ -2721,16 +2940,24 @@ fn combo_drop_down_button_toggles_via_shared_open_path() {
 
 #[test]
 fn combo_input_focus_forwards_to_edit_child_like_cpp() {
+    let mut payload_messages = Vec::new();
+    let mut payload_manager = crate::gui::window_manager::WindowManager::new();
+    let effects = &mut WindowEventEffects::new(&mut payload_messages);
+    effects.manager = Some(&mut payload_manager);
+
     let (mut combo, edit_box, _list_box, _drop_down) = combo_fixture();
     combo.enable(true).unwrap();
     edit_box.borrow_mut().enable(true).unwrap();
 
-    let token = push_payload(WindowMsgPayload::Bool(false));
+    let token = push_payload(effects, WindowMsgPayload::Bool(false));
     assert_eq!(
-        combo.send_system_message(WindowMessage::InputFocus, 1, token),
+        combo.send_system_message(WindowMessage::InputFocus, 1, token, effects),
         WindowMsgHandled::Handled
     );
-    assert_eq!(pop_payload(token), Some(WindowMsgPayload::Bool(true)));
+    assert_eq!(
+        pop_payload(effects, token),
+        Some(WindowMsgPayload::Bool(true))
+    );
     assert!(
         edit_box
             .borrow()
@@ -2823,6 +3050,11 @@ fn slider_keyboard_sends_gsm_slider_track_like_cpp() {
 
 #[test]
 fn listbox_right_click_sends_right_click_struct_payload() {
+    let mut payload_messages = Vec::new();
+    let mut payload_manager = crate::gui::window_manager::WindowManager::new();
+    let effects = &mut WindowEventEffects::new(&mut payload_messages);
+    effects.manager = Some(&mut payload_manager);
+
     let owner_seen = Rc::new(RefCell::new(Vec::new()));
     let owner = Rc::new(RefCell::new(GameWindow::new()));
     {
@@ -2840,7 +3072,7 @@ fn listbox_right_click_sends_right_click_struct_payload() {
     window.enable(true).unwrap();
     window.set_owner(Some(&owner));
     window.set_position(10, 20).unwrap();
-    window.set_size(120, 40).unwrap();
+    window.set_size(120, 40, effects).unwrap();
     let mut listbox = ListBox::new(3, 0, 0, 120, 40);
     listbox.add_item("Alpha");
     listbox.add_item("Bravo");
@@ -2848,7 +3080,7 @@ fn listbox_right_click_sends_right_click_struct_payload() {
     window.set_cursor_position(5, 8).unwrap();
 
     assert_eq!(
-        window.send_input_message(WindowMessage::RightUp, 0, 0),
+        window.send_input_message(WindowMessage::RightUp, 0, 0, effects),
         WindowMsgHandled::Handled
     );
     let seen = owner_seen.borrow();
@@ -2856,7 +3088,7 @@ fn listbox_right_click_sends_right_click_struct_payload() {
     assert_eq!(seen[0], (WindowMessage::User(GGM_FOCUS_CHANGE), 1, 3));
     assert_eq!(seen[1].0, WindowMessage::User(GLM_RIGHT_CLICKED));
     assert_eq!(seen[1].1, 3);
-    match payload(seen[1].2) {
+    match payload(effects, seen[1].2) {
         Some(WindowMsgPayload::RightClick(rc)) => {
             assert_eq!(rc.mouse_x, 15);
             assert_eq!(rc.mouse_y, 28);
@@ -2899,4 +3131,15 @@ fn tab_pane_forwards_selected_to_tab_control_parent_like_cpp() {
         root_seen.borrow().as_slice(),
         &[(WindowMessage::GadgetSelected, 21, 0)]
     );
+}
+
+fn dispatch_focus_response(
+    effects: &mut WindowEventEffects<'_>,
+    data1: WindowMsgData,
+    data2: WindowMsgData,
+    wants_focus: bool,
+) -> WindowMsgHandled {
+    let mut window = GameWindow::new();
+    window.set_system_callback(move |_, _, d1, d2| write_input_focus_response(d1, d2, wants_focus));
+    window.send_system_message(WindowMessage::InputFocus, data1, data2, effects)
 }

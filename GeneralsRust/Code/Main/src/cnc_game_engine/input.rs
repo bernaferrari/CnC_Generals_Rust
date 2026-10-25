@@ -279,7 +279,7 @@ impl CnCGameEngine {
                         physical_key,
                         winit::keyboard::PhysicalKey::Code(winit::keyboard::KeyCode::Escape)
                     )
-                    && game_client::gui::callbacks::is_quit_menu_visible();
+                    && self.game_client.quit_menu_visible();
                 #[cfg(not(feature = "game_client"))]
                 let escape_toggles_live_quit_menu = false;
                 let route_keyboard_to_legacy_ui = !wnd_used

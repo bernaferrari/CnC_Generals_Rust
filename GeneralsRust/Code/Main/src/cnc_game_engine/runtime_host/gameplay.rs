@@ -318,7 +318,7 @@ impl CnCGameEngine {
             // the live quit layout first (idempotent: only when hidden).
             let game_ending = self.game_logic.owned_script_game_ending();
             let quit_layout = self.with_receiving_menu_effects(|effects| {
-                if !game_client::gui::callbacks::is_quit_menu_visible() {
+                if !game_client::gui::callbacks::is_quit_menu_visible(effects) {
                     let _ = game_client::gui::callbacks::toggle_quit_menu_receiving(
                         game_ending,
                         effects,
@@ -386,7 +386,7 @@ impl CnCGameEngine {
             // the SaveLoad button dispatch hits a visible gadget.
             let game_ending = self.game_logic.owned_script_game_ending();
             let quit_layout = self.with_receiving_menu_effects(|effects| {
-                if !game_client::gui::callbacks::is_quit_menu_visible() {
+                if !game_client::gui::callbacks::is_quit_menu_visible(effects) {
                     let _ = game_client::gui::callbacks::toggle_quit_menu_receiving(
                         game_ending,
                         effects,
