@@ -2,8 +2,8 @@
 //!
 //! This producer intentionally does not claim to run either full game loop.
 //! Object, player, and command records come from the shared fixture; the RNG
-//! state is produced by Rust's port of `RandomValue.cpp` and is the component
-//! under differential test.
+//! state is produced by Rust's seeded generator. The RNG sequence is an approved
+//! deviation from C++; this fixture is not a gameplay parity test.
 
 use anyhow::{Context, Result, bail};
 use generals_main::deterministic_trace::{
@@ -125,6 +125,20 @@ fn produce_trace(mut scenario: FixtureScenario) -> TraceDump {
             victory_state: None,
             crc,
         });
+    }
+
+    TraceDump {
+        schema: "generals.frame_trace.v2",
+        scenario: scenario.scenario,
+        final_frame: scenario.final_frame,
+        producer: "generalsrust-seeded-rng",
+        authority: Authority {
+            rng: "GeneralsRust/Code/GameEngine/Common/src/common/random_value.rs",
+            objects: "fixture-only (portable component differential)",
+            players: "fixture-only (portable component differential)",
+            commands: "fixture-only (portable component differential)",
+        },
+        frames,
     }
 }
 
