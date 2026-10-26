@@ -1309,9 +1309,17 @@ impl GameClient {
                 {
                     radar.force_on(true);
                 }
-                let _ = crate::gui::callbacks::ingame_callbacks::set_in_game_chat_type(
+                let label = self.menu_manager.ingame_ui_mut().assign_chat_type(
                     crate::gui::callbacks::ingame_callbacks::InGameChatType::Everyone,
                 );
+                if let Some(label) = label {
+                    let _ = label.borrow_mut().set_text(
+                        &crate::gui::callbacks::ingame_callbacks::chat_type_label(
+                            &crate::gui::callbacks::ingame_callbacks::InGameChatType::Everyone,
+                            false,
+                        ),
+                    );
+                }
             }
         }
     }
@@ -2583,7 +2591,7 @@ impl GameClient {
                 logic_frame: menu_world.map(|facts| facts.logic_frame),
                 ui: self.subsystem_manager.in_game_ui.as_mut(),
                 payloads: Default::default(),
-                menus: Some(self.menu_manager.receiving_menus()),
+                menus: Some(self.menu_manager.receiving_menus(self.input_authority)),
                 ime: Some(&mut self.ime),
                 manager: None,
                 script_display: None,

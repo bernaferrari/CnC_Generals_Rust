@@ -456,3 +456,19 @@ impl WindowManager {
         handled
     }
 }
+
+impl ControlBarInputContext<'_> {
+    pub fn update_control_bar_animations(
+        &mut self,
+        parent: Option<std::rc::Rc<std::cell::RefCell<crate::gui::GameWindow>>>,
+        manager: &mut crate::gui::window_manager::WindowManager,
+    ) {
+        self.menus
+            .as_mut()
+            .expect("receiving menus")
+            .control_bar_callbacks
+            .as_deref_mut()
+            .expect("receiving control bar callbacks")
+            .update_window_animations(parent, manager);
+    }
+}

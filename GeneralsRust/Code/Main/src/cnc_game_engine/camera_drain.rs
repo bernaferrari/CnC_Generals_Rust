@@ -2377,8 +2377,9 @@ impl CnCGameEngine {
                 self.host_game_logic_mut().set_radar_forced(true);
                 #[cfg(feature = "game_client")]
                 {
-                    let _ = game_client::gui::callbacks::ingame_callbacks::set_in_game_chat_type(
+                    self.game_client.set_in_game_chat_type_owned(
                         game_client::gui::callbacks::ingame_callbacks::InGameChatType::Everyone,
+                        false, // This exact local player was just eliminated.
                     );
                     self.set_owned_control_bar_scheme("Observer");
                 }

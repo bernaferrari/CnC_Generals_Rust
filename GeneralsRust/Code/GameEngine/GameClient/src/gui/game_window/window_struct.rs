@@ -93,6 +93,24 @@ impl<'effects> WindowEventEffects<'effects> {
         }
     }
 
+    pub fn input_authority(&self) -> crate::core::game_client::ClientInputAuthority {
+        self.menus
+            .as_ref()
+            .expect("operation requires receiving menu owner")
+            .input_authority
+    }
+    /// A state phase cannot retain Effects or execute a WND callback.
+    pub fn with_ingame_ui<R>(
+        &mut self,
+        operation: impl FnOnce(&mut crate::gui::callbacks::ingame_callbacks::InGameUISystem) -> R,
+    ) -> R {
+        operation(
+            self.menus
+                .as_mut()
+                .expect("operation requires receiving menu owner")
+                .ingame_ui,
+        )
+    }
     pub(crate) fn queue_compatibility_replay(
         &mut self,
         step: crate::gui::callbacks::replay_menu::ingress::ReplayMenuStep,
@@ -866,4 +884,29 @@ pub(crate) struct ControlBarNotification {
     pub(crate) owner: Rc<RefCell<GameWindow>>,
     pub(crate) action: SelectedOwnerAction,
     pub(crate) control_id: WindowMsgData,
+}
+
+impl WindowEventEffects<'_> {
+    /// Ordinary callback-state loans. Callers end this phase before nested
+    /// WND lifecycle effects; the canonical state is never removed/replaced.
+    pub fn control_bar_callbacks(
+        &self,
+    ) -> &crate::gui::callbacks::control_bar_callbacks::ControlBarCallbacks {
+        self.menus
+            .as_ref()
+            .expect("receiving menus")
+            .control_bar_callbacks
+            .as_deref()
+            .expect("receiving control bar callbacks")
+    }
+    pub fn control_bar_callbacks_mut(
+        &mut self,
+    ) -> &mut crate::gui::callbacks::control_bar_callbacks::ControlBarCallbacks {
+        self.menus
+            .as_mut()
+            .expect("receiving menus")
+            .control_bar_callbacks
+            .as_deref_mut()
+            .expect("receiving control bar callbacks")
+    }
 }

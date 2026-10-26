@@ -27,34 +27,29 @@ impl CnCGameEngine {
                 simulate_replay_control_seek, simulate_replay_control_stop,
                 simulate_replay_control_toggle_fast_forward,
             };
-            wnd_ok = match action.as_str() {
+            wnd_ok = self.with_receiving_menu_effects(|effects| match action.as_str() {
                 "pause" => {
-                    self.with_receiving_menu_effects(|effects| {
-                        drive_os_wnd_replay_control_pause_like_cpp(effects)
-                    })? || simulate_replay_control_pause()
+                    drive_os_wnd_replay_control_pause_like_cpp(effects)
+                        || simulate_replay_control_pause(effects)
                 }
                 "stop" => {
-                    self.with_receiving_menu_effects(|effects| {
-                        drive_os_wnd_replay_control_stop_like_cpp(effects)
-                    })? || simulate_replay_control_stop()
+                    drive_os_wnd_replay_control_stop_like_cpp(effects)
+                        || simulate_replay_control_stop(effects)
                 }
                 "ff" | "fast_forward" => {
-                    self.with_receiving_menu_effects(|effects| {
-                        drive_os_wnd_replay_control_fast_forward_like_cpp(effects)
-                    })? || simulate_replay_control_toggle_fast_forward()
+                    drive_os_wnd_replay_control_fast_forward_like_cpp(effects)
+                        || simulate_replay_control_toggle_fast_forward(effects)
                 }
-                "seek" => simulate_replay_control_seek(position),
+                "seek" => simulate_replay_control_seek(position, effects),
                 "prepare" | "prepare_play" => {
-                    self.with_receiving_menu_effects(|effects| {
-                        drive_os_wnd_replay_control_prepare_play_at_like_cpp(position, effects)
-                    })? || simulate_replay_control_prepare_play_at(position)
+                    drive_os_wnd_replay_control_prepare_play_at_like_cpp(position, effects)
+                        || simulate_replay_control_prepare_play_at(position, effects)
                 }
                 _ => {
-                    self.with_receiving_menu_effects(|effects| {
-                        drive_os_wnd_replay_control_play_like_cpp(effects)
-                    })? || simulate_replay_control_play()
+                    drive_os_wnd_replay_control_play_like_cpp(effects)
+                        || simulate_replay_control_play(effects)
                 }
-            };
+            })?;
         }
         self.runtime_host_last_gameplay_cmd = if wnd_ok {
             format!("click_replay_control_ok_wnd_{action}")

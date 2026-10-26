@@ -5,7 +5,6 @@ use crate::game_logic::{
     ThingTemplate,
 };
 use game_client::core::subsystems::InGameUISubsystem;
-use game_client::gui::callbacks::control_bar_callbacks::ControlBarCallbacks;
 use game_client::gui::control_bar::ControlBar;
 use gamelogic::scripting::core::{
     Condition, ConditionType, OrCondition, Script, ScriptAction, ScriptActionType, ScriptList,
@@ -188,8 +187,7 @@ fn actual_authored_input_resets_receiving_native_fields_before_next_action_witho
             let (_, snow, _, _, window_effects, stream) =
                 client.split_frame_snow_drawable_script_ui_and_hints(&mut messages);
             let mut bar = ControlBar::new();
-            let mut callbacks = ControlBarCallbacks::new();
-            let native = NativeScriptUi::new(snow, &mut bar, &mut callbacks, window_owner)
+            let native = NativeScriptUi::new(snow, &mut bar, window_owner)
                 .with_window_effects(window_effects, stream)
                 .with_cinematic_input(fields.loan(&mut cursor_effect));
             let mut observer = ObserveNext {
@@ -266,14 +264,8 @@ fn missing_native_input_capability_rejects_without_ambient_handler_or_owner_writ
     let mut owner = world();
     let mut snow = game_client::snow::SnowManager::new();
     let mut bar = ControlBar::new();
-    let mut callbacks = ControlBarCallbacks::new();
     let client = game_client::core::GameClient::new().unwrap();
-    let native = NativeScriptUi::new(
-        &mut snow,
-        &mut bar,
-        &mut callbacks,
-        client.window_manager_owner(),
-    );
+    let native = NativeScriptUi::new(&mut snow, &mut bar, client.window_manager_owner());
     let mut observer = ObserveNext {
         native,
         observed: Vec::new(),

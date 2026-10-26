@@ -1089,9 +1089,6 @@ pub struct CnCGameEngine {
     /// ControlBar selection panel (portrait + health). Presentation-fed; WND load optional.
     #[cfg(feature = "game_client")]
     pub(crate) control_bar: game_client::gui::control_bar::ControlBar,
-    #[cfg(feature = "game_client")]
-    pub(crate) control_bar_callbacks:
-        game_client::gui::callbacks::control_bar_callbacks::ControlBarCallbacks,
 
     // Game state
     pub(crate) game_logic: GameLogic,

@@ -157,8 +157,7 @@ impl CnCGameEngine {
                 .update_build_tooltip_layout_owned(game_ending, manager);
             let parent =
                 manager.find_window_by_name(crate::gameplay_layout::CONTROL_BAR_PARENT_NAME);
-            self.control_bar_callbacks
-                .update_window_animations(parent, manager);
+            context.update_control_bar_animations(parent, manager);
         });
     }
 
@@ -212,7 +211,7 @@ impl CnCGameEngine {
             });
         self.game_client.with_window_event_effects(None, |effects| {
             effects.with_manager(|manager, effects| {
-                self.control_bar_callbacks.show_control_bar_receiving(
+                game_client::gui::callbacks::control_bar_callbacks::show_control_bar_receiving(
                     &mut self.control_bar,
                     &mut self.game_logic.session_view.camera,
                     parent,
@@ -243,13 +242,14 @@ impl CnCGameEngine {
             });
         self.game_client.with_window_event_effects(None, |effects| {
             effects.with_manager(|manager, effects| {
-                self.control_bar_callbacks.hide_control_bar_owned(
+                game_client::gui::callbacks::control_bar_callbacks::hide_control_bar_owned(
                     &mut self.control_bar,
                     &mut self.game_logic.session_view.camera,
                     parent,
                     true,
                     immediate,
                     manager,
+                    effects,
                 )
             })
         });
@@ -281,7 +281,7 @@ impl CnCGameEngine {
             });
         self.game_client.with_window_event_effects(None, |effects| {
             effects.with_manager(|manager, effects| {
-                self.control_bar_callbacks.toggle_control_bar_receiving(
+                game_client::gui::callbacks::control_bar_callbacks::toggle_control_bar_receiving(
                     &mut self.control_bar,
                     &mut self.game_logic.session_view.camera,
                     parent,
@@ -305,7 +305,6 @@ pub(super) struct NativeScriptUi<'a> {
     window_manager_owner: game_client::gui::window_manager::WindowManagerOwner,
     snow: &'a mut game_client::snow::SnowManager,
     bar: &'a mut game_client::gui::control_bar::ControlBar,
-    callbacks: &'a mut game_client::gui::callbacks::control_bar_callbacks::ControlBarCallbacks,
     campaign_manager: Option<&'a mut game_client::gui::campaign_manager::CampaignManager>,
     command_hints: Option<&'a mut game_client::gui::command_hints::CommandHintState>,
     command_hint_frame: Option<u32>,
@@ -318,7 +317,6 @@ impl<'a> NativeScriptUi<'a> {
     pub(super) fn new(
         snow: &'a mut game_client::snow::SnowManager,
         bar: &'a mut game_client::gui::control_bar::ControlBar,
-        callbacks: &'a mut game_client::gui::callbacks::control_bar_callbacks::ControlBarCallbacks,
         window_manager_owner: game_client::gui::window_manager::WindowManagerOwner,
     ) -> Self {
         Self {
@@ -326,7 +324,6 @@ impl<'a> NativeScriptUi<'a> {
             window_manager_owner,
             snow,
             bar,
-            callbacks,
             campaign_manager: None,
             command_hints: None,
             command_hint_frame: None,
@@ -510,12 +507,13 @@ impl crate::game_logic::ScriptUiEffects for NativeScriptUi<'_> {
             .as_mut()
             .expect("native letterbox requires receiving callback services");
         let bar = &mut *self.bar;
-        let callbacks = &mut *self.callbacks;
         effects.with_manager(|manager, effects| {
             if enabled {
-                callbacks.hide_control_bar_owned(bar, camera, parent, true, true, manager);
+                game_client::gui::callbacks::control_bar_callbacks::hide_control_bar_owned(
+                    bar, camera, parent, true, true, manager, effects,
+                );
             } else {
-                callbacks.show_control_bar_receiving(
+                game_client::gui::callbacks::control_bar_callbacks::show_control_bar_receiving(
                     bar,
                     camera,
                     parent,

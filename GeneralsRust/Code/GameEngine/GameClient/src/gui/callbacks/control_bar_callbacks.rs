@@ -28,7 +28,6 @@ use gamelogic::commands::command::CommandType;
 use gamelogic::commands::selection::get_selection_manager;
 use gamelogic::helpers::{TheGameLogic, TheScriptEngine};
 use gamelogic::player::ThePlayerList;
-use std::sync::{Arc, RwLock};
 
 const CMD_NEED_TARGET_POS: u32 = 0x0000_0020;
 const CMD_ATTACK_OBJECTS_POSITION: u32 = 0x0000_1000;
@@ -329,6 +328,7 @@ pub struct ControlBarCallbacks {
     state: ControlBarState,
     animate_manager: AnimateWindowManager,
     button_communicator: u32,
+    last_action: ResidualControlBarAction,
 }
 
 impl ControlBarCallbacks {
@@ -337,6 +337,7 @@ impl ControlBarCallbacks {
             state: ControlBarState::default(),
             animate_manager: AnimateWindowManager::new(),
             button_communicator: 0,
+            last_action: ResidualControlBarAction::None,
         }
     }
 
@@ -420,6 +421,18 @@ impl ControlBarCallbacks {
             receiving_manager,
             effects,
         );
+        self.finish_show_control_bar(bar, viewport, parent, replay, immediate, receiving_manager);
+    }
+
+    fn finish_show_control_bar(
+        &mut self,
+        bar: &mut ControlBar,
+        viewport: &mut dyn ControlBarViewport,
+        parent: Option<std::rc::Rc<std::cell::RefCell<GameWindow>>>,
+        replay: bool,
+        immediate: bool,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    ) {
         if let Some(parent) = parent {
             bar.switch_control_bar_stage_on_window_owned(
                 ControlBarStage::Default,
@@ -528,13 +541,37 @@ impl ControlBarCallbacks {
         let Some(parent) = parent else {
             return;
         };
-        if parent.borrow().is_hidden() {
+        let show = parent.borrow().is_hidden();
+        if show {
             bar.show_special_power_shortcut_receiving(
                 upgrade_source,
                 game_ending,
                 receiving_manager,
                 effects,
             );
+        }
+        self.finish_toggle_control_bar(
+            bar,
+            viewport,
+            parent,
+            show,
+            replay,
+            immediate,
+            receiving_manager,
+        );
+    }
+
+    fn finish_toggle_control_bar(
+        &mut self,
+        bar: &mut ControlBar,
+        viewport: &mut dyn ControlBarViewport,
+        parent: std::rc::Rc<std::cell::RefCell<GameWindow>>,
+        show: bool,
+        replay: bool,
+        immediate: bool,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    ) {
+        if show {
             viewport.set_height_px((viewport.display_size().1 as f32 * 0.80) as i32);
             let _ = parent.borrow_mut().hide(false, receiving_manager);
             bar.switch_control_bar_stage_on_window_owned(
@@ -594,7 +631,8 @@ impl ControlBarCallbacks {
             }
             WindowMessage::GadgetSelected | WindowMessage::GadgetRightClick => {
                 let control_id = data1 as u32;
-                self.handle_button_selected(
+                Self::handle_button_selected(
+                    self.button_communicator,
                     control_id,
                     msg == WindowMessage::GadgetRightClick,
                     effects,
@@ -604,12 +642,12 @@ impl ControlBarCallbacks {
             }
             WindowMessage::GadgetEditDone => {
                 effects.with_manager(|receiving_manager, effects| {
-                    self.handle_edit_done(data1 as u32, effects.emitted_messages, receiving_manager)
+                    Self::handle_edit_done(
+                        data1 as u32,
+                        effects.emitted_messages,
+                        receiving_manager,
+                    )
                 });
-                WindowMsgHandled::Handled
-            }
-            WindowMessage::None => {
-                self.animate_manager.update();
                 WindowMsgHandled::Handled
             }
             _ => WindowMsgHandled::Ignored,
@@ -617,7 +655,7 @@ impl ControlBarCallbacks {
     }
 
     fn handle_button_selected(
-        &mut self,
+        button_communicator: u32,
         control_id: u32,
         right_click: bool,
         effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
@@ -633,7 +671,7 @@ impl ControlBarCallbacks {
         let button_idle_worker_id =
             NameKeyGenerator::name_to_key("ControlBar.wnd:ButtonIdleWorker");
 
-        if control_id == self.button_communicator {
+        if control_id == button_communicator {
             let _ = effects.with_manager(|manager, _effects| {
                 toggle_diplomacy(false, manager, _effects, selected_window.as_deref_mut())
             });
@@ -736,7 +774,6 @@ impl ControlBarCallbacks {
     }
 
     fn handle_edit_done(
-        &mut self,
         control_id: u32,
         emitted_messages: &mut Vec<GameMessage>,
         receiving_manager: &mut crate::gui::window_manager::WindowManager,
@@ -934,375 +971,385 @@ pub fn beacon_window_input(
 }
 
 /// Left HUD input handler
-pub struct LeftHUDCallbacks {}
 
-impl Default for LeftHUDCallbacks {
-    fn default() -> Self {
-        Self::new()
+/// Handle left HUD input messages
+pub fn left_hud_input(
+    window: &mut GameWindow,
+    msg: WindowMessage,
+    data1: WindowMsgData,
+    _data2: WindowMsgData,
+    emitted_messages: &mut Vec<GameMessage>,
+    _pending_clicks: Option<&mut Vec<crate::helpers::LiveControlBarClick>>,
+    ui: &mut crate::core::subsystems::InGameUISubsystem,
+) -> WindowMsgHandled {
+    let host_bridge = host_control_bar_bridge_enabled();
+
+    // C++ first eats input when the radar is unavailable, then checks
+    // held MMB.  Main owns radar authority while the bridge is active,
+    // so defer the equivalent check to its existing presentation-side
+    // gate rather than consulting the dormant standalone globals.
+    if !host_bridge && !radar_allows_input(ui) {
+        return WindowMsgHandled::Handled;
+    }
+
+    // C++ ControlBarCallback.cpp checks middleState before its switch.
+    // In particular, do not turn an LMB/RMB held alongside MMB into an
+    // authoritative-host minimap interaction; returning Ignored lets the
+    // normal middle-mouse route retain ownership.
+    if middle_mouse_is_held() {
+        return WindowMsgHandled::Ignored;
+    }
+
+    // The executable owns the Rust simulation, not this standalone
+    // GameClient's legacy GameLogic globals.  Send real LeftHUD clicks to
+    // Main before consulting those globals, while leaving the standalone
+    // path below exactly intact when the bridge is disabled.
+    if host_bridge && matches!(msg, WindowMessage::LeftDown | WindowMessage::RightDown) {
+        left_hud_publish_host_minimap_mouse_down(window, msg, data1, ui);
+        return WindowMsgHandled::Handled;
+    }
+
+    if !radar_allows_input(ui) {
+        return WindowMsgHandled::Handled;
+    }
+
+    match msg {
+        WindowMessage::MiddleDown => WindowMsgHandled::Ignored,
+        WindowMessage::None | WindowMessage::MouseEntering | WindowMessage::MouseLeaving => {
+            refresh_radar_cursor(msg, ui);
+            WindowMsgHandled::Handled
+        }
+        WindowMessage::MousePos => {
+            left_hud_handle_mouse_pos(window, data1, ui);
+            WindowMsgHandled::Handled
+        }
+        WindowMessage::LeftDown | WindowMessage::RightDown => {
+            left_hud_handle_mouse_down(window, msg, data1, emitted_messages, ui);
+            WindowMsgHandled::Handled
+        }
+        WindowMessage::LeftUp | WindowMessage::RightUp => WindowMsgHandled::Handled,
+        _ => WindowMsgHandled::Ignored,
     }
 }
 
-impl LeftHUDCallbacks {
-    pub fn new() -> Self {
-        Self {}
+fn left_hud_handle_mouse_pos(
+    window: &GameWindow,
+    data1: WindowMsgData,
+    ui: &mut crate::core::subsystems::InGameUISubsystem,
+) {
+    let (mouse_x, mouse_y) = decode_mouse_pos(data1);
+    let (screen_x, screen_y) = window.get_screen_position();
+    let (width, height) = window.get_size();
+    let local_x = mouse_x - screen_x;
+    let local_y = mouse_y - screen_y;
+    if local_pixel_to_radar(local_x, local_y, width, height, ui).is_some() {
+        refresh_radar_cursor(WindowMessage::MousePos, ui);
+    }
+}
+
+/// Publish a real `ControlBar.wnd:LeftHUD` click for Main's WGPU minimap.
+///
+/// We only establish that the pointer belongs to this WND rectangle here.
+/// World conversion and FOW remain at Main's authoritative presentation
+/// boundary. `publish_host_minimap_interaction` captures the WND dispatch
+/// provenance itself, so `FromUser`-style legacy state cannot forge an OS
+/// physical click.
+fn left_hud_publish_host_minimap_mouse_down(
+    window: &GameWindow,
+    msg: WindowMessage,
+    data1: WindowMsgData,
+    ui: &mut crate::core::subsystems::InGameUISubsystem,
+) {
+    let (mouse_x, mouse_y) = decode_mouse_pos(data1);
+    let (screen_x, screen_y) = window.get_screen_position();
+    let (width, height) = window.get_size();
+    let local_x = mouse_x - screen_x;
+    let local_y = mouse_y - screen_y;
+    if local_pixel_to_radar(local_x, local_y, width, height, ui).is_none() {
+        return;
     }
 
-    /// Handle left HUD input messages
-    pub fn input(
-        &mut self,
-        window: &mut GameWindow,
-        msg: WindowMessage,
-        data1: WindowMsgData,
-        _data2: WindowMsgData,
-        emitted_messages: &mut Vec<GameMessage>,
-        _pending_clicks: Option<&mut Vec<crate::helpers::LiveControlBarClick>>,
-        ui: &mut crate::core::subsystems::InGameUISubsystem,
-    ) -> WindowMsgHandled {
-        let host_bridge = host_control_bar_bridge_enabled();
+    let button = match msg {
+        WindowMessage::LeftDown => HostMinimapMouseButton::Left,
+        WindowMessage::RightDown => HostMinimapMouseButton::Right,
+        _ => return,
+    };
+    let _ = publish_host_minimap_interaction(HostMinimapInteractionRequest {
+        screen_position: [mouse_x, mouse_y],
+        screen_top_left: [screen_x, screen_y],
+        screen_size: [width, height],
+        button,
+        alternate_mouse: is_alternate_mouse_enabled(),
+    });
+}
 
-        // C++ first eats input when the radar is unavailable, then checks
-        // held MMB.  Main owns radar authority while the bridge is active,
-        // so defer the equivalent check to its existing presentation-side
-        // gate rather than consulting the dormant standalone globals.
-        if !host_bridge && !radar_allows_input(ui) {
-            return WindowMsgHandled::Handled;
-        }
+fn left_hud_handle_mouse_down(
+    window: &GameWindow,
+    msg: WindowMessage,
+    data1: WindowMsgData,
+    emitted_messages: &mut Vec<GameMessage>,
+    ui: &mut crate::core::subsystems::InGameUISubsystem,
+) {
+    let (mouse_x, mouse_y) = decode_mouse_pos(data1);
+    let (screen_x, screen_y) = window.get_screen_position();
+    let (width, height) = window.get_size();
+    let local_x = mouse_x - screen_x;
+    let local_y = mouse_y - screen_y;
+    let Some(radar_pos) = local_pixel_to_radar(local_x, local_y, width, height, ui) else {
+        return;
+    };
+    let Some(radar) = ui.radar_presentation() else {
+        return;
+    };
+    let Some(world) = radar.radar_to_world(&radar_pos) else {
+        return;
+    };
 
-        // C++ ControlBarCallback.cpp checks middleState before its switch.
-        // In particular, do not turn an LMB/RMB held alongside MMB into an
-        // authoritative-host minimap interaction; returning Ignored lets the
-        // normal middle-mouse route retain ownership.
-        if middle_mouse_is_held() {
-            return WindowMsgHandled::Ignored;
-        }
+    let use_alternate = is_alternate_mouse_enabled();
+    let selection_empty = selection_is_empty();
+    let uses_right = msg == WindowMessage::RightDown;
+    let uses_left = msg == WindowMessage::LeftDown;
 
-        // The executable owns the Rust simulation, not this standalone
-        // GameClient's legacy GameLogic globals.  Send real LeftHUD clicks to
-        // Main before consulting those globals, while leaving the standalone
-        // path below exactly intact when the bridge is disabled.
-        if host_bridge && matches!(msg, WindowMessage::LeftDown | WindowMessage::RightDown) {
-            self.publish_host_minimap_mouse_down(window, msg, data1, ui);
-            return WindowMsgHandled::Handled;
-        }
-
-        if !radar_allows_input(ui) {
-            return WindowMsgHandled::Handled;
-        }
-
-        match msg {
-            WindowMessage::MiddleDown => WindowMsgHandled::Ignored,
-            WindowMessage::None | WindowMessage::MouseEntering | WindowMessage::MouseLeaving => {
-                refresh_radar_cursor(msg, ui);
-                WindowMsgHandled::Handled
-            }
-            WindowMessage::MousePos => {
-                self.handle_mouse_pos(window, data1, ui);
-                WindowMsgHandled::Handled
-            }
-            WindowMessage::LeftDown | WindowMessage::RightDown => {
-                self.handle_mouse_down(window, msg, data1, emitted_messages, ui);
-                WindowMsgHandled::Handled
-            }
-            WindowMessage::LeftUp | WindowMessage::RightUp => WindowMsgHandled::Handled,
-            _ => WindowMsgHandled::Ignored,
-        }
-    }
-
-    fn handle_mouse_pos(
-        &self,
-        window: &GameWindow,
-        data1: WindowMsgData,
-        ui: &mut crate::core::subsystems::InGameUISubsystem,
-    ) {
-        let (mouse_x, mouse_y) = decode_mouse_pos(data1);
-        let (screen_x, screen_y) = window.get_screen_position();
-        let (width, height) = window.get_size();
-        let local_x = mouse_x - screen_x;
-        let local_y = mouse_y - screen_y;
-        if local_pixel_to_radar(local_x, local_y, width, height, ui).is_some() {
-            refresh_radar_cursor(WindowMessage::MousePos, ui);
-        }
-    }
-
-    /// Publish a real `ControlBar.wnd:LeftHUD` click for Main's WGPU minimap.
-    ///
-    /// We only establish that the pointer belongs to this WND rectangle here.
-    /// World conversion and FOW remain at Main's authoritative presentation
-    /// boundary. `publish_host_minimap_interaction` captures the WND dispatch
-    /// provenance itself, so `FromUser`-style legacy state cannot forge an OS
-    /// physical click.
-    fn publish_host_minimap_mouse_down(
-        &self,
-        window: &GameWindow,
-        msg: WindowMessage,
-        data1: WindowMsgData,
-        ui: &mut crate::core::subsystems::InGameUISubsystem,
-    ) {
-        let (mouse_x, mouse_y) = decode_mouse_pos(data1);
-        let (screen_x, screen_y) = window.get_screen_position();
-        let (width, height) = window.get_size();
-        let local_x = mouse_x - screen_x;
-        let local_y = mouse_y - screen_y;
-        if local_pixel_to_radar(local_x, local_y, width, height, ui).is_none() {
-            return;
-        }
-
-        let button = match msg {
-            WindowMessage::LeftDown => HostMinimapMouseButton::Left,
-            WindowMessage::RightDown => HostMinimapMouseButton::Right,
-            _ => return,
-        };
-        let _ = publish_host_minimap_interaction(HostMinimapInteractionRequest {
-            screen_position: [mouse_x, mouse_y],
-            screen_top_left: [screen_x, screen_y],
-            screen_size: [width, height],
-            button,
-            alternate_mouse: is_alternate_mouse_enabled(),
+    if selection_empty || (!use_alternate && uses_right) || (use_alternate && uses_left) {
+        with_tactical_view(|view| {
+            view.look_at(&Point3::new(world.x, world.y, world.z));
         });
-    }
+    } else {
+        let world_pos =
+            crate::message_stream::game_message::Coord3D::new(world.x, world.y, world.z);
 
-    fn handle_mouse_down(
-        &self,
-        window: &GameWindow,
-        msg: WindowMessage,
-        data1: WindowMsgData,
-        emitted_messages: &mut Vec<GameMessage>,
-        ui: &mut crate::core::subsystems::InGameUISubsystem,
-    ) {
-        let (mouse_x, mouse_y) = decode_mouse_pos(data1);
-        let (screen_x, screen_y) = window.get_screen_position();
-        let (width, height) = window.get_size();
-        let local_x = mouse_x - screen_x;
-        let local_y = mouse_y - screen_y;
-        let Some(radar_pos) = local_pixel_to_radar(local_x, local_y, width, height, ui) else {
-            return;
-        };
-        let Some(radar) = ui.radar_presentation() else {
-            return;
-        };
-        let Some(world) = radar.radar_to_world(&radar_pos) else {
-            return;
-        };
+        if let Some(pending_power) = ui.get_pending_special_power() {
+            if (pending_power.options & (CMD_NEED_TARGET_POS | CMD_ATTACK_OBJECTS_POSITION)) != 0 {
+                emitted_messages.push(GameMessage::new(GameMessageType::DoSpecialPowerAtLocation(
+                    pending_power.power_id,
+                    world_pos,
+                    0.0,
+                    0,
+                    pending_power.options,
+                    pending_power.source_object_id,
+                )));
+                ui.clear_pending_special_power();
+                ui.clear_attack_move_to_mode();
+                return;
+            }
+        }
 
-        let use_alternate = is_alternate_mouse_enabled();
-        let selection_empty = selection_is_empty();
-        let uses_right = msg == WindowMessage::RightDown;
-        let uses_left = msg == WindowMessage::LeftDown;
+        if let Some(pending_command) = ui.get_pending_command() {
+            if (pending_command.options & (CMD_NEED_TARGET_POS | CMD_ATTACK_OBJECTS_POSITION)) != 0
+            {
+                let pending_message = match pending_command.command_type {
+                    CommandType::DoAttackMoveTo => {
+                        Some(GameMessageType::DoAttackMoveTo(world_pos.clone()))
+                    }
+                    CommandType::DoGuardPosition => {
+                        Some(GameMessageType::DoGuardPosition(world_pos.clone(), 0))
+                    }
+                    CommandType::PlaceBeacon => {
+                        Some(GameMessageType::PlaceBeacon(world_pos.clone()))
+                    }
+                    CommandType::RemoveBeacon => {
+                        Some(GameMessageType::RemoveBeacon(world_pos.clone()))
+                    }
+                    CommandType::SetRallyPoint => Some(GameMessageType::SetRallyPoint(
+                        pending_command.source_object_id,
+                        world_pos.clone(),
+                    )),
+                    _ => None,
+                };
 
-        if selection_empty || (!use_alternate && uses_right) || (use_alternate && uses_left) {
-            with_tactical_view(|view| {
-                view.look_at(&Point3::new(world.x, world.y, world.z));
-            });
-        } else {
-            let world_pos =
-                crate::message_stream::game_message::Coord3D::new(world.x, world.y, world.z);
-
-            if let Some(pending_power) = ui.get_pending_special_power() {
-                if (pending_power.options & (CMD_NEED_TARGET_POS | CMD_ATTACK_OBJECTS_POSITION))
-                    != 0
-                {
-                    emitted_messages.push(GameMessage::new(
-                        GameMessageType::DoSpecialPowerAtLocation(
-                            pending_power.power_id,
-                            world_pos,
-                            0.0,
-                            0,
-                            pending_power.options,
-                            pending_power.source_object_id,
-                        ),
-                    ));
-                    ui.clear_pending_special_power();
+                if let Some(message) = pending_message {
+                    emitted_messages.push(GameMessage::new(message));
+                    ui.clear_pending_command();
                     ui.clear_attack_move_to_mode();
                     return;
                 }
             }
-
-            if let Some(pending_command) = ui.get_pending_command() {
-                if (pending_command.options & (CMD_NEED_TARGET_POS | CMD_ATTACK_OBJECTS_POSITION))
-                    != 0
-                {
-                    let pending_message = match pending_command.command_type {
-                        CommandType::DoAttackMoveTo => {
-                            Some(GameMessageType::DoAttackMoveTo(world_pos.clone()))
-                        }
-                        CommandType::DoGuardPosition => {
-                            Some(GameMessageType::DoGuardPosition(world_pos.clone(), 0))
-                        }
-                        CommandType::PlaceBeacon => {
-                            Some(GameMessageType::PlaceBeacon(world_pos.clone()))
-                        }
-                        CommandType::RemoveBeacon => {
-                            Some(GameMessageType::RemoveBeacon(world_pos.clone()))
-                        }
-                        CommandType::SetRallyPoint => Some(GameMessageType::SetRallyPoint(
-                            pending_command.source_object_id,
-                            world_pos.clone(),
-                        )),
-                        _ => None,
-                    };
-
-                    if let Some(message) = pending_message {
-                        emitted_messages.push(GameMessage::new(message));
-                        ui.clear_pending_command();
-                        ui.clear_attack_move_to_mode();
-                        return;
-                    }
-                }
-            }
-
-            if ui.is_in_attack_move_to_mode() {
-                emitted_messages.push(GameMessage::new(GameMessageType::DoAttackMoveTo(
-                    world_pos.clone(),
-                )));
-            } else {
-                emitted_messages.push(GameMessage::new(GameMessageType::DoMoveTo(world_pos)));
-            }
         }
 
-        ui.clear_attack_move_to_mode();
-    }
-}
-
-/// Control bar observer system handler
-pub struct ControlBarObserverCallbacks {}
-
-impl ControlBarObserverCallbacks {
-    pub fn new() -> Self {
-        Self {}
-    }
-
-    /// Handle control bar observer system messages
-    pub fn system(
-        &mut self,
-        window: &mut GameWindow,
-        msg: WindowMessage,
-        data1: WindowMsgData,
-        data2: WindowMsgData,
-        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
-    ) -> WindowMsgHandled {
-        crate::gui::control_bar::control_bar_observer::control_bar_observer_system(
-            window, msg, data1, data2, effects,
-        )
-    }
-}
-
-impl Default for ControlBarObserverCallbacks {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-/// Combined control bar callback system
-pub struct ControlBarSystem {
-    callbacks: Arc<RwLock<ControlBarCallbacks>>,
-    left_hud: Arc<RwLock<LeftHUDCallbacks>>,
-    observer: Arc<RwLock<ControlBarObserverCallbacks>>,
-}
-
-impl ControlBarSystem {
-    pub fn new() -> Self {
-        Self {
-            callbacks: Arc::new(RwLock::new(ControlBarCallbacks::new())),
-            left_hud: Arc::new(RwLock::new(LeftHUDCallbacks::new())),
-            observer: Arc::new(RwLock::new(ControlBarObserverCallbacks::new())),
+        if ui.is_in_attack_move_to_mode() {
+            emitted_messages.push(GameMessage::new(GameMessageType::DoAttackMoveTo(
+                world_pos.clone(),
+            )));
+        } else {
+            emitted_messages.push(GameMessage::new(GameMessageType::DoMoveTo(world_pos)));
         }
     }
 
-    pub fn get_callbacks(&self) -> Arc<RwLock<ControlBarCallbacks>> {
-        self.callbacks.clone()
-    }
-
-    pub fn get_left_hud(&self) -> Arc<RwLock<LeftHUDCallbacks>> {
-        self.left_hud.clone()
-    }
-
-    pub fn get_observer(&self) -> Arc<RwLock<ControlBarObserverCallbacks>> {
-        self.observer.clone()
-    }
-
-    /// Toggle control bar visibility through the system
-    pub fn toggle_control_bar(
-        &self,
-        immediate: bool,
-        receiving_manager: &mut crate::gui::window_manager::WindowManager,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        let mut callbacks = self.callbacks.write().unwrap_or_else(|e| e.into_inner());
-        callbacks.toggle_control_bar(immediate, receiving_manager)
-    }
-
-    /// Hide control bar through the system
-    pub fn hide_control_bar(
-        &self,
-        immediate: bool,
-        receiving_manager: &mut crate::gui::window_manager::WindowManager,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        let mut callbacks = self.callbacks.write().unwrap_or_else(|e| e.into_inner());
-        callbacks.hide_control_bar(immediate, receiving_manager)
-    }
-
-    /// Show control bar through the system  
-    pub fn show_control_bar(
-        &self,
-        immediate: bool,
-        receiving_manager: &mut crate::gui::window_manager::WindowManager,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        let mut callbacks = self.callbacks.write().unwrap_or_else(|e| e.into_inner());
-        callbacks.show_control_bar(immediate, receiving_manager)
+    ui.clear_attack_move_to_mode();
+}
+/// Receiving control-bar operations; no global callback owner exists.
+pub fn show_control_bar_receiving(
+    bar: &mut ControlBar,
+    viewport: &mut dyn ControlBarViewport,
+    parent: Option<std::rc::Rc<std::cell::RefCell<GameWindow>>>,
+    replay: bool,
+    immediate: bool,
+    upgrade_source: crate::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource<
+        '_,
+    >,
+    game_ending: bool,
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) {
+    let had_parent = parent.is_some();
+    bar.show_special_power_shortcut_receiving(
+        upgrade_source,
+        game_ending,
+        receiving_manager,
+        effects,
+    );
+    effects.control_bar_callbacks_mut().finish_show_control_bar(
+        bar,
+        viewport,
+        parent,
+        replay,
+        immediate,
+        receiving_manager,
+    );
+    if had_parent {
+        effects.control_bar_callbacks_mut().last_action = ResidualControlBarAction::Show;
     }
 }
 
-impl Default for ControlBarSystem {
-    fn default() -> Self {
-        Self::new()
+pub fn toggle_control_bar_receiving(
+    bar: &mut ControlBar,
+    viewport: &mut dyn ControlBarViewport,
+    parent: Option<std::rc::Rc<std::cell::RefCell<GameWindow>>>,
+    replay: bool,
+    immediate: bool,
+    upgrade_source: crate::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource<
+        '_,
+    >,
+    game_ending: bool,
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) {
+    let Some(parent) = parent else {
+        return;
+    };
+    let show = parent.borrow().is_hidden();
+    if show {
+        bar.show_special_power_shortcut_receiving(
+            upgrade_source,
+            game_ending,
+            receiving_manager,
+            effects,
+        );
+    }
+    effects
+        .control_bar_callbacks_mut()
+        .finish_toggle_control_bar(
+            bar,
+            viewport,
+            parent,
+            show,
+            replay,
+            immediate,
+            receiving_manager,
+        );
+    effects.control_bar_callbacks_mut().last_action = ResidualControlBarAction::Toggle;
+}
+
+pub fn receiving_control_bar_system(
+    _window: &mut GameWindow,
+    msg: WindowMessage,
+    data1: WindowMsgData,
+    _data2: WindowMsgData,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> WindowMsgHandled {
+    if TheScriptEngine::is_game_ending() {
+        return WindowMsgHandled::Ignored;
+    }
+
+    match msg {
+        WindowMessage::Create => {
+            effects.control_bar_callbacks_mut().button_communicator =
+                NameKeyGenerator::name_to_key("ControlBar.wnd:PopupCommunicator");
+            WindowMsgHandled::Handled
+        }
+        WindowMessage::GadgetMouseEntering | WindowMessage::GadgetMouseLeaving => {
+            let control_id = data1 as u32;
+            let entering = msg == WindowMessage::GadgetMouseEntering;
+            TheControlBar::process_context_sensitive_button_transition(control_id, entering);
+            WindowMsgHandled::Handled
+        }
+        WindowMessage::GadgetSelected | WindowMessage::GadgetRightClick => {
+            let control_id = data1 as u32;
+            let communicator = effects.control_bar_callbacks().button_communicator;
+            ControlBarCallbacks::handle_button_selected(
+                communicator,
+                control_id,
+                msg == WindowMessage::GadgetRightClick,
+                effects,
+                Some(&mut *_window),
+            );
+            WindowMsgHandled::Handled
+        }
+        WindowMessage::GadgetEditDone => {
+            effects.with_manager(|receiving_manager, effects| {
+                ControlBarCallbacks::handle_edit_done(
+                    data1 as u32,
+                    effects.emitted_messages,
+                    receiving_manager,
+                )
+            });
+            WindowMsgHandled::Handled
+        }
+        _ => WindowMsgHandled::Ignored,
     }
 }
 
-thread_local! {
-    static THE_CONTROL_BAR_SYSTEM: Arc<RwLock<ControlBarSystem>> =
-        Arc::new(RwLock::new(ControlBarSystem::new()));
+pub fn hide_control_bar_owned(
+    bar: &mut ControlBar,
+    viewport: &mut dyn ControlBarViewport,
+    parent: Option<std::rc::Rc<std::cell::RefCell<GameWindow>>>,
+    manager_present: bool,
+    immediate: bool,
+    manager: &mut crate::gui::window_manager::WindowManager,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) {
+    let had_parent = parent.is_some() && manager_present;
+    effects.control_bar_callbacks_mut().hide_control_bar_owned(
+        bar,
+        viewport,
+        parent,
+        manager_present,
+        immediate,
+        manager,
+    );
+    if had_parent {
+        effects.control_bar_callbacks_mut().last_action = ResidualControlBarAction::Hide;
+    }
 }
-
-/// Helper function to get the global control bar system
-pub fn get_control_bar_system() -> Arc<RwLock<ControlBarSystem>> {
-    THE_CONTROL_BAR_SYSTEM.with(|system| system.clone())
-}
-
-/// Convenience functions for global control bar operations
 pub fn toggle_control_bar(
     immediate: bool,
     receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let system = get_control_bar_system();
-    let system = system.read().unwrap_or_else(|e| e.into_inner());
-    system.toggle_control_bar(immediate, receiving_manager)
+    effects
+        .control_bar_callbacks_mut()
+        .toggle_control_bar(immediate, receiving_manager)
 }
-
 pub fn hide_control_bar(
     immediate: bool,
     receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let system = get_control_bar_system();
-    let system = system.read().unwrap_or_else(|e| e.into_inner());
-    system.hide_control_bar(immediate, receiving_manager)
+    effects
+        .control_bar_callbacks_mut()
+        .hide_control_bar(immediate, receiving_manager)
 }
-
 pub fn show_control_bar(
     immediate: bool,
     receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let system = get_control_bar_system();
-    let system = system.read().unwrap_or_else(|e| e.into_inner());
-    system.show_control_bar(immediate, receiving_manager)
+    effects
+        .control_bar_callbacks_mut()
+        .show_control_bar(immediate, receiving_manager)
 }
-
-pub fn is_control_bar_visible() -> bool {
-    let system = get_control_bar_system();
-    let system = system.read().unwrap_or_else(|e| e.into_inner());
-    system
-        .get_callbacks()
-        .read()
-        .unwrap_or_else(|e| e.into_inner())
-        .is_visible()
+pub fn is_control_bar_visible(effects: &crate::gui::game_window::WindowEventEffects<'_>) -> bool {
+    effects.control_bar_callbacks().is_visible()
 }
 
 #[cfg(test)]
@@ -1333,38 +1380,72 @@ mod tests {
     }
 
     #[test]
-    fn test_control_bar_system() {
-        let system = ControlBarSystem::new();
-
-        // Test that all components are accessible
-        assert!(system.get_callbacks().read().is_ok());
-        assert!(system.get_left_hud().read().is_ok());
-        assert!(system.get_observer().read().is_ok());
-
-        // Test system-level operations
-        assert!(system.toggle_control_bar(true).is_ok());
-        assert!(system.hide_control_bar(true).is_ok());
-        assert!(system.show_control_bar(true).is_ok());
+    fn callbacks_begin_with_owned_state() {
+        let callbacks = ControlBarCallbacks::new();
+        assert!(callbacks.is_visible());
+        assert_eq!(callbacks.last_action, ResidualControlBarAction::None);
     }
 
     #[test]
-    fn test_global_functions() {
-        assert!(toggle_control_bar(true).is_ok());
-        assert!(hide_control_bar(true).is_ok());
-        assert!(show_control_bar(true).is_ok());
-    }
-
-    struct OwnedViewport {
-        display: (u32, u32),
-        height: i32,
-    }
-    impl ControlBarViewport for OwnedViewport {
-        fn display_size(&self) -> (u32, u32) {
-            self.display
-        }
-        fn set_height_px(&mut self, height: i32) {
-            self.height = height;
-        }
+    fn client_callback_actions_are_independent() {
+        let mut a = crate::core::GameClient::new().unwrap();
+        let mut b = crate::core::GameClient::new().unwrap();
+        let mut bar = ControlBar::new();
+        let mut viewport = OwnedViewport {
+            display: (800, 600),
+            height: 600,
+        };
+        let first_id = a.with_window_event_effects(None, |effects| {
+            effects.with_manager(|manager, effects| {
+                let parent = manager
+                    .create_window(None, 0, 0, 100, 100, effects)
+                    .unwrap();
+                hide_control_bar_owned(
+                    &mut bar,
+                    &mut viewport,
+                    Some(parent.clone()),
+                    true,
+                    true,
+                    manager,
+                    effects,
+                );
+                assert!(parent.borrow().is_hidden());
+                assert!(!residual_control_bar_is_visible(effects));
+                assert_eq!(
+                    residual_control_bar_last_action(effects),
+                    ResidualControlBarAction::Hide
+                );
+                let id = parent.borrow().get_id();
+                id
+            })
+        });
+        let second_id = b.with_window_event_effects(None, |effects| {
+            let id = effects.with_manager(|manager, effects| {
+                let parent = manager
+                    .create_window(None, 0, 0, 100, 100, effects)
+                    .unwrap();
+                parent.borrow_mut().hide(false, manager).unwrap();
+                assert!(!parent.borrow().is_hidden());
+                let id = parent.borrow().get_id();
+                id
+            });
+            assert!(residual_control_bar_is_visible(effects));
+            assert_eq!(
+                residual_control_bar_last_action(effects),
+                ResidualControlBarAction::None
+            );
+            assert!(
+                !simulate_control_bar_options_button_gadget_selected(effects),
+                "missing button cannot report a click"
+            );
+            id
+        });
+        assert_eq!(
+            first_id, second_id,
+            "identity collision does not select the peer callback state"
+        );
+        drop(b);
+        a.with_window_event_effects(None, |effects| assert!(!is_control_bar_visible(effects)));
     }
 
     #[test]
@@ -1588,10 +1669,9 @@ mod tests {
                 .set_size(167, 152)
                 .expect("synthetic LeftHUD size is valid");
 
-            let mut callbacks = LeftHUDCallbacks::new();
             let click = 42usize | (491usize << 16);
             assert_eq!(
-                callbacks.input(
+                left_hud_input(
                     &window,
                     WindowMessage::LeftDown,
                     click,
@@ -1639,11 +1719,10 @@ mod tests {
                     mouse.handle_mouse_button(MouseButton::Middle, true, std::time::Instant::now());
             });
 
-            let mut callbacks = LeftHUDCallbacks::new();
             let click = 42usize | (491usize << 16);
             for message in [WindowMessage::LeftDown, WindowMessage::RightDown] {
                 assert_eq!(
-                    callbacks.input(&window, message, click, 0, &mut Vec::new(), None, ui),
+                    left_hud_input(&window, message, click, 0, &mut Vec::new(), None, ui),
                     WindowMsgHandled::Ignored,
                     "C++ LeftHUDInput yields to the held-middle route before {message:?}"
                 );
@@ -1682,153 +1761,158 @@ pub enum ResidualControlBarAction {
     Communicator = 11,
 }
 
-static RESIDUAL_CONTROL_BAR_ACTION: std::sync::atomic::AtomicU8 =
-    std::sync::atomic::AtomicU8::new(0);
-static RESIDUAL_CONTROL_BAR_VISIBLE: std::sync::atomic::AtomicBool =
-    std::sync::atomic::AtomicBool::new(true);
-
-fn residual_control_bar_action_store(action: ResidualControlBarAction) {
-    RESIDUAL_CONTROL_BAR_ACTION.store(action as u8, std::sync::atomic::Ordering::Relaxed);
+fn residual_control_bar_action_store(
+    action: ResidualControlBarAction,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) {
+    effects.control_bar_callbacks_mut().last_action = action;
 }
-
-/// Residual: last ControlBar residual action.
-pub fn residual_control_bar_last_action() -> ResidualControlBarAction {
-    match RESIDUAL_CONTROL_BAR_ACTION.load(std::sync::atomic::Ordering::Relaxed) {
-        1 => ResidualControlBarAction::Show,
-        2 => ResidualControlBarAction::Hide,
-        3 => ResidualControlBarAction::Toggle,
-        4 => ResidualControlBarAction::Options,
-        5 => ResidualControlBarAction::IdleWorker,
-        6 => ResidualControlBarAction::General,
-        7 => ResidualControlBarAction::Large,
-        8 => ResidualControlBarAction::PlaceBeacon,
-        9 => ResidualControlBarAction::DeleteBeacon,
-        10 => ResidualControlBarAction::ClearBeaconText,
-        11 => ResidualControlBarAction::Communicator,
-        _ => ResidualControlBarAction::None,
+pub fn residual_control_bar_last_action(
+    effects: &crate::gui::game_window::WindowEventEffects<'_>,
+) -> ResidualControlBarAction {
+    effects.control_bar_callbacks().last_action
+}
+pub fn residual_control_bar_is_visible(
+    effects: &crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
+    effects.control_bar_callbacks().state.visible
+}
+/// Bind only an existing receiving ControlBar; absence is a miss.
+pub fn simulate_control_bar_bind_controls(
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
+    let present = effects.with_manager_ref(|manager| {
+        manager
+            .find_window_by_name("ControlBar.wnd:ControlBarParent")
+            .is_some()
+    });
+    if present {
+        effects.control_bar_callbacks_mut().button_communicator =
+            NameKeyGenerator::name_to_key("ControlBar.wnd:PopupCommunicator");
     }
+    present
 }
 
-/// Residual: ControlBar visibility latch (independent of live layout).
-pub fn residual_control_bar_is_visible() -> bool {
-    RESIDUAL_CONTROL_BAR_VISIBLE.load(std::sync::atomic::Ordering::Relaxed)
-}
-
-fn with_control_bar_callbacks_mut<R>(f: impl FnOnce(&mut ControlBarCallbacks) -> R) -> R {
-    let system = get_control_bar_system();
-    let system = system.read().unwrap_or_else(|e| e.into_inner());
-    let callbacks = system.get_callbacks();
-    let mut callbacks = callbacks.write().unwrap_or_else(|e| e.into_inner());
-    f(&mut callbacks)
-}
-
-/// Residual: bind ControlBar control name keys (no layout load).
-pub fn simulate_control_bar_bind_controls() -> bool {
-    with_control_bar_callbacks_mut(|cb| {
-        cb.button_communicator = NameKeyGenerator::name_to_key("ControlBar.wnd:PopupCommunicator");
-        let _ = NameKeyGenerator::name_to_key("ControlBar.wnd:ButtonOptions");
-        let _ = NameKeyGenerator::name_to_key("ControlBar.wnd:ButtonIdleWorker");
-        let _ = NameKeyGenerator::name_to_key("ControlBar.wnd:ButtonGeneral");
-        let _ = NameKeyGenerator::name_to_key("ControlBar.wnd:ButtonLarge");
-        let _ = NameKeyGenerator::name_to_key("ControlBar.wnd:ButtonPlaceBeacon");
-        let _ = NameKeyGenerator::name_to_key("ControlBar.wnd:ControlBarParent");
-        true
-    })
-}
-
-/// Residual: show ControlBar without animate/layout.
-pub fn simulate_control_bar_show() -> bool {
-    with_control_bar_callbacks_mut(|cb| {
-        cb.state.visible = true;
-        RESIDUAL_CONTROL_BAR_VISIBLE.store(true, std::sync::atomic::Ordering::Relaxed);
-        residual_control_bar_action_store(ResidualControlBarAction::Show);
-        residual_control_bar_is_visible()
-    })
-}
-
-/// Residual: hide ControlBar without animate/layout.
-pub fn simulate_control_bar_hide() -> bool {
-    with_control_bar_callbacks_mut(|cb| {
-        cb.state.visible = false;
-        RESIDUAL_CONTROL_BAR_VISIBLE.store(false, std::sync::atomic::Ordering::Relaxed);
-        residual_control_bar_action_store(ResidualControlBarAction::Hide);
-        !residual_control_bar_is_visible()
-    })
-}
-
-/// Residual: toggle ControlBar visibility without animate.
-pub fn simulate_control_bar_toggle() -> bool {
-    with_control_bar_callbacks_mut(|cb| {
-        cb.state.visible = !cb.state.visible;
-        RESIDUAL_CONTROL_BAR_VISIBLE.store(cb.state.visible, std::sync::atomic::Ordering::Relaxed);
-        residual_control_bar_action_store(ResidualControlBarAction::Toggle);
-        true
-    })
-}
-
-/// Residual: fire ButtonOptions without opening options layout.
-pub fn simulate_control_bar_options_button_gadget_selected() -> bool {
-    let _ = simulate_control_bar_bind_controls();
-    residual_control_bar_action_store(ResidualControlBarAction::Options);
-    true
-}
-
-/// Residual: fire ButtonIdleWorker without idle worker cycle.
-pub fn simulate_control_bar_idle_worker_button_gadget_selected() -> bool {
-    let _ = simulate_control_bar_bind_controls();
-    residual_control_bar_action_store(ResidualControlBarAction::IdleWorker);
-    true
-}
-
-/// Residual: fire ButtonGeneral without generals exp UI.
-pub fn simulate_control_bar_general_button_gadget_selected() -> bool {
-    let _ = simulate_control_bar_bind_controls();
-    residual_control_bar_action_store(ResidualControlBarAction::General);
-    true
-}
-
-/// Residual: fire ButtonLarge without control bar size toggle side effects.
-pub fn simulate_control_bar_large_button_gadget_selected() -> bool {
-    let _ = simulate_control_bar_bind_controls();
-    residual_control_bar_action_store(ResidualControlBarAction::Large);
-    true
-}
-
-/// Residual: fire ButtonPlaceBeacon without pending command set.
-pub fn simulate_control_bar_place_beacon_button_gadget_selected() -> bool {
-    let _ = simulate_control_bar_bind_controls();
-    residual_control_bar_action_store(ResidualControlBarAction::PlaceBeacon);
-    true
-}
-
-/// Residual: fire ButtonDeleteBeacon without multiplayer delete.
-pub fn simulate_control_bar_delete_beacon_button_gadget_selected() -> bool {
-    let _ = simulate_control_bar_bind_controls();
-    residual_control_bar_action_store(ResidualControlBarAction::DeleteBeacon);
-    true
-}
-
-/// Residual: fire ButtonClearBeaconText without edit clear.
-pub fn simulate_control_bar_clear_beacon_text_button_gadget_selected() -> bool {
-    let _ = simulate_control_bar_bind_controls();
-    residual_control_bar_action_store(ResidualControlBarAction::ClearBeaconText);
-    true
-}
-
-/// Residual: fire PopupCommunicator without diplomacy toggle.
-pub fn simulate_control_bar_communicator_button_gadget_selected() -> bool {
-    let _ = simulate_control_bar_bind_controls();
-    residual_control_bar_action_store(ResidualControlBarAction::Communicator);
-    true
-}
-
-/// Residual: show + Options composite (in-game options path honesty).
-pub fn simulate_control_bar_prepare_options() -> bool {
-    if !simulate_control_bar_bind_controls() {
+fn simulate_control_bar_visibility(
+    action: ResidualControlBarAction,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
+    if !simulate_control_bar_bind_controls(effects) {
         return false;
     }
-    if !simulate_control_bar_show() {
-        return false;
+    let result = effects.with_manager(|manager, effects| match action {
+        ResidualControlBarAction::Show => show_control_bar(true, manager, effects),
+        ResidualControlBarAction::Hide => hide_control_bar(true, manager, effects),
+        ResidualControlBarAction::Toggle => toggle_control_bar(true, manager, effects),
+        _ => unreachable!("visibility action"),
+    });
+    if result.is_ok() {
+        residual_control_bar_action_store(action, effects);
     }
-    simulate_control_bar_options_button_gadget_selected()
+    result.is_ok()
+}
+pub fn simulate_control_bar_show(
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
+    simulate_control_bar_visibility(ResidualControlBarAction::Show, effects)
+}
+pub fn simulate_control_bar_hide(
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
+    simulate_control_bar_visibility(ResidualControlBarAction::Hide, effects)
+}
+pub fn simulate_control_bar_toggle(
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
+    simulate_control_bar_visibility(ResidualControlBarAction::Toggle, effects)
+}
+
+fn simulate_control_bar_button(
+    name: &str,
+    action: ResidualControlBarAction,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
+    let clicked = crate::gui::dispatch_os_click_named_window(name, effects);
+    if clicked {
+        residual_control_bar_action_store(action, effects);
+    }
+    clicked
+}
+pub fn simulate_control_bar_options_button_gadget_selected(
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
+    simulate_control_bar_button(
+        "ControlBar.wnd:ButtonOptions",
+        ResidualControlBarAction::Options,
+        effects,
+    )
+}
+pub fn simulate_control_bar_idle_worker_button_gadget_selected(
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
+    simulate_control_bar_button(
+        "ControlBar.wnd:ButtonIdleWorker",
+        ResidualControlBarAction::IdleWorker,
+        effects,
+    )
+}
+pub fn simulate_control_bar_general_button_gadget_selected(
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
+    simulate_control_bar_button(
+        "ControlBar.wnd:ButtonGeneral",
+        ResidualControlBarAction::General,
+        effects,
+    )
+}
+pub fn simulate_control_bar_large_button_gadget_selected(
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
+    simulate_control_bar_button(
+        "ControlBar.wnd:ButtonLarge",
+        ResidualControlBarAction::Large,
+        effects,
+    )
+}
+pub fn simulate_control_bar_place_beacon_button_gadget_selected(
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
+    simulate_control_bar_button(
+        "ControlBar.wnd:ButtonPlaceBeacon",
+        ResidualControlBarAction::PlaceBeacon,
+        effects,
+    )
+}
+pub fn simulate_control_bar_delete_beacon_button_gadget_selected(
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
+    simulate_control_bar_button(
+        "ControlBar.wnd:ButtonDeleteBeacon",
+        ResidualControlBarAction::DeleteBeacon,
+        effects,
+    )
+}
+pub fn simulate_control_bar_clear_beacon_text_button_gadget_selected(
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
+    simulate_control_bar_button(
+        "ControlBar.wnd:ButtonClearBeaconText",
+        ResidualControlBarAction::ClearBeaconText,
+        effects,
+    )
+}
+pub fn simulate_control_bar_communicator_button_gadget_selected(
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
+    simulate_control_bar_button(
+        "ControlBar.wnd:PopupCommunicator",
+        ResidualControlBarAction::Communicator,
+        effects,
+    )
+}
+pub fn simulate_control_bar_prepare_options(
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
+    simulate_control_bar_show(effects)
+        && simulate_control_bar_options_button_gadget_selected(effects)
 }

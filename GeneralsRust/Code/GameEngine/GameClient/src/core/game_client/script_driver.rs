@@ -229,7 +229,7 @@ impl GameClient {
                 logic_frame: Some(logic_frame),
                 ui: self.subsystem_manager.in_game_ui.as_mut(),
                 payloads: Default::default(),
-                menus: Some(self.menu_manager.receiving_menus()),
+                menus: Some(self.menu_manager.receiving_menus(self.input_authority)),
                 manager: None,
                 ime: Some(&mut self.ime),
                 window_manager_owner: Some(&self.window_manager_owner),

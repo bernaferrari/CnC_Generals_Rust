@@ -1128,7 +1128,9 @@ mod os_wnd_tests {
         let mut messages = Vec::new();
         let mut effects = WindowEventEffects::new(&mut messages);
         effects.window_manager_owner = Some(&owner);
-        effects.menus = Some(menus.receiving_menus());
+        effects.menus = Some(
+            menus.receiving_menus(crate::core::game_client::ClientInputAuthority::NativeHosted),
+        );
         operation(&mut effects);
     }
 
@@ -1302,7 +1304,9 @@ mod receiving_script_ending_tests {
         let mut menus = super::super::menu_callbacks::MenuManager::new();
         let mut messages = Vec::new();
         let mut effects = WindowEventEffects::new(&mut messages);
-        effects.menus = Some(menus.receiving_menus());
+        effects.menus = Some(
+            menus.receiving_menus(crate::core::game_client::ClientInputAuthority::NativeHosted),
+        );
         let visible = is_quit_menu_visible(&mut effects);
         assert_eq!(
             toggle_quit_menu_receiving(true, &mut effects, None),
@@ -1319,8 +1323,10 @@ mod receiving_script_ending_tests {
         let mut messages_b = Vec::new();
         let mut a_effects = WindowEventEffects::new(&mut messages_a);
         let mut b_effects = WindowEventEffects::new(&mut messages_b);
-        a_effects.menus = Some(a.receiving_menus());
-        b_effects.menus = Some(b.receiving_menus());
+        a_effects.menus =
+            Some(a.receiving_menus(crate::core::game_client::ClientInputAuthority::NativeHosted));
+        b_effects.menus =
+            Some(b.receiving_menus(crate::core::game_client::ClientInputAuthority::NativeHosted));
         assert!(simulate_quit_menu_toggle_show(&mut a_effects));
         assert!(!residual_quit_menu_is_visible(&mut b_effects));
         assert_eq!(

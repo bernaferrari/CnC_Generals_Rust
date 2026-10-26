@@ -1621,7 +1621,6 @@ impl CnCGameEngine {
         let mut ui = super::control_bar_viewport::NativeScriptUi::new(
             snow,
             &mut self.control_bar,
-            &mut self.control_bar_callbacks,
             window_manager_owner,
         )
         .with_cinematic_input(cinematic_input)

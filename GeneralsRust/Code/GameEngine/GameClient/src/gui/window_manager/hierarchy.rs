@@ -346,6 +346,26 @@ impl WindowManager {
         self.window_hiding_from_direct_hide(window.as_ptr(), children);
     }
 
+    /// Visit the source sibling order while preserving the already-borrowed
+    /// canonical callback window, including a selected child of this parent.
+    pub fn enable_window_with_selected(
+        &mut self,
+        window: &Rc<RefCell<GameWindow>>,
+        enable: bool,
+        mut selected: Option<&mut GameWindow>,
+    ) -> WindowResult<()> {
+        let children = {
+            let mut window =
+                super::transition_access::borrow_callback_window(window, selected.as_deref_mut());
+            window.set_enabled_status(enable);
+            window.children().to_vec()
+        };
+        for child in children {
+            self.enable_window_with_selected(&child, enable, selected.as_deref_mut())?;
+        }
+        Ok(())
+    }
+
     /// Enable windows in ID range
     pub fn enable_windows_in_range(
         &mut self,

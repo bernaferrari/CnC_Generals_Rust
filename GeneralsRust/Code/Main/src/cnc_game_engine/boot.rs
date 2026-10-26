@@ -781,9 +781,6 @@ impl CnCGameEngine {
             },
             #[cfg(feature = "game_client")]
             control_bar: game_client::gui::control_bar::ControlBar::new(),
-            #[cfg(feature = "game_client")]
-            control_bar_callbacks:
-                game_client::gui::callbacks::control_bar_callbacks::ControlBarCallbacks::new(),
 
             game_logic,
             camera_rule_base,

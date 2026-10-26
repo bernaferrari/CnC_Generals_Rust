@@ -1957,12 +1957,7 @@ fn control_bar_system(
     data2: WindowMsgData,
     effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> WindowMsgHandled {
-    let system = cb::get_control_bar_system();
-    let system = system.read().unwrap_or_else(|e| e.into_inner());
-    let callbacks = system.get_callbacks();
-    with_arc_write(&callbacks, |callbacks| {
-        callbacks.system(window, msg, data1, data2, effects)
-    })
+    cb::receiving_control_bar_system(window, msg, data1, data2, effects)
 }
 
 fn control_bar_observer_system(
@@ -1972,12 +1967,9 @@ fn control_bar_observer_system(
     data2: WindowMsgData,
     effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> WindowMsgHandled {
-    let system = cb::get_control_bar_system();
-    let system = system.read().unwrap_or_else(|e| e.into_inner());
-    let callbacks = system.get_observer();
-    with_arc_write(&callbacks, |callbacks| {
-        callbacks.system(window, msg, data1, data2, effects)
-    })
+    crate::gui::control_bar::control_bar_observer::control_bar_observer_system(
+        window, msg, data1, data2, effects,
+    )
 }
 
 fn control_bar_input(
@@ -1987,12 +1979,7 @@ fn control_bar_input(
     data2: WindowMsgData,
     effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> WindowMsgHandled {
-    let system = cb::get_control_bar_system();
-    let system = system.read().unwrap_or_else(|e| e.into_inner());
-    let callbacks = system.get_callbacks();
-    with_arc_write(&callbacks, |callbacks| {
-        callbacks.system(window, msg, data1, data2, effects)
-    })
+    cb::receiving_control_bar_system(window, msg, data1, data2, effects)
 }
 
 fn left_hud_input(
@@ -2002,20 +1989,15 @@ fn left_hud_input(
     data2: WindowMsgData,
     effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> WindowMsgHandled {
-    let system = cb::get_control_bar_system();
-    let system = system.read().unwrap_or_else(|e| e.into_inner());
-    let callbacks = system.get_left_hud();
-    with_arc_write(&callbacks, |callbacks| {
-        callbacks.input(
-            window,
-            msg,
-            data1,
-            data2,
-            effects.emitted_messages,
-            effects.pending_control_bar_clicks.as_deref_mut(),
-            effects.ui.as_deref_mut().expect("receiving UI"),
-        )
-    })
+    cb::left_hud_input(
+        window,
+        msg,
+        data1,
+        data2,
+        effects.emitted_messages,
+        effects.pending_control_bar_clicks.as_deref_mut(),
+        effects.ui.as_deref_mut().expect("receiving UI"),
+    )
 }
 
 fn diplomacy_system(
@@ -2057,14 +2039,7 @@ fn in_game_chat_system(
     data2: WindowMsgData,
     effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> WindowMsgHandled {
-    let system = cb::get_ingame_ui_system();
-    let system = system.read().unwrap_or_else(|e| e.into_inner());
-    let chat = system.get_chat();
-    with_arc_write(&chat, |chat| {
-        effects.with_manager(|manager, effects| {
-            chat.system(window, msg, data1, data2, manager, effects)
-        })
-    })
+    cb::in_game_chat_system_receiving(window, msg, data1, data2, effects)
 }
 
 fn in_game_chat_input(
@@ -2074,14 +2049,7 @@ fn in_game_chat_input(
     data2: WindowMsgData,
     effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> WindowMsgHandled {
-    let system = cb::get_ingame_ui_system();
-    let system = system.read().unwrap_or_else(|e| e.into_inner());
-    let chat = system.get_chat();
-    with_arc_write(&chat, |chat| {
-        effects.with_manager(|manager, effects| {
-            chat.input(window, msg, data1, data2, manager, effects)
-        })
-    })
+    cb::in_game_chat_input_receiving(window, msg, data1, data2, effects)
 }
 
 fn idle_worker_system(
@@ -2091,14 +2059,7 @@ fn idle_worker_system(
     data2: WindowMsgData,
     effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> WindowMsgHandled {
-    let system = cb::get_ingame_ui_system();
-    let system = system.read().unwrap_or_else(|e| e.into_inner());
-    let idle_worker = system.get_idle_worker();
-    with_arc_write(&idle_worker, |idle_worker| {
-        effects.with_manager(|manager, effects| {
-            idle_worker.system(window, msg, data1, data2, manager, effects.ui())
-        })
-    })
+    cb::idle_worker_system_receiving(window, msg, data1, data2, effects)
 }
 
 fn message_box_system(

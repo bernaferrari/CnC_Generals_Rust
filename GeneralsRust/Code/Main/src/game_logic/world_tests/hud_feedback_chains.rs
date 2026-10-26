@@ -164,7 +164,7 @@ fn defeat_message_routes_localized_to_hud_and_local_defeat_forces_radar_and_chat
         "local defeat must force the radar on (TheRadar->forceOn(TRUE))"
     );
     assert_eq!(
-        game_client::gui::callbacks::ingame_callbacks::get_in_game_chat_type(),
+        client.in_game_callbacks().chat().get_chat_type().clone(),
         game_client::gui::callbacks::ingame_callbacks::InGameChatType::Everyone,
         "local defeat must switch in-game chat to Everyone"
     );

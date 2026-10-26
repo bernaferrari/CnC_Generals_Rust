@@ -7,7 +7,16 @@ impl CnCGameEngine {
         let mut wnd_ok = false;
         #[cfg(feature = "game_client")]
         {
-            wnd_ok = game_client::gui::callbacks::simulate_control_bar_toggle();
+            let parent = self
+                .game_client
+                .window_manager_owner()
+                .with_manager_ref(|manager| {
+                    manager.find_window_by_name(crate::gameplay_layout::CONTROL_BAR_PARENT_NAME)
+                });
+            if parent.is_some() {
+                self.toggle_owned_control_bar(true);
+                wnd_ok = true;
+            }
         }
         self.runtime_host_last_gameplay_cmd = if wnd_ok {
             "toggle_control_bar_ok_wnd".into()
@@ -40,20 +49,57 @@ impl CnCGameEngine {
                 simulate_control_bar_prepare_options, simulate_control_bar_show,
             };
             wnd_ok = match action.as_str() {
-                "show" => simulate_control_bar_show(),
-                "hide" => simulate_control_bar_hide(),
-                "idle" | "idle_worker" => simulate_control_bar_idle_worker_button_gadget_selected(),
-                "general" => simulate_control_bar_general_button_gadget_selected(),
-                "large" => simulate_control_bar_large_button_gadget_selected(),
-                "place_beacon" | "beacon" => {
-                    simulate_control_bar_place_beacon_button_gadget_selected()
+                "show" => {
+                    self.show_owned_control_bar(true);
+                    self.with_receiving_menu_effects(|effects| {
+                        effects.with_manager_ref(|manager| {
+                            manager
+                                .find_window_by_name(
+                                    crate::gameplay_layout::CONTROL_BAR_PARENT_NAME,
+                                )
+                                .is_some()
+                        })
+                    })?
                 }
-                "delete_beacon" => simulate_control_bar_delete_beacon_button_gadget_selected(),
-                "clear_beacon" => simulate_control_bar_clear_beacon_text_button_gadget_selected(),
-                "communicator" | "diplomacy" => {
-                    simulate_control_bar_communicator_button_gadget_selected()
+                "hide" => {
+                    self.hide_owned_control_bar(true);
+                    self.with_receiving_menu_effects(|effects| {
+                        effects.with_manager_ref(|manager| {
+                            manager
+                                .find_window_by_name(
+                                    crate::gameplay_layout::CONTROL_BAR_PARENT_NAME,
+                                )
+                                .is_some()
+                        })
+                    })?
                 }
-                "prepare_options" => simulate_control_bar_prepare_options(),
+                "idle" | "idle_worker" => self.with_receiving_menu_effects(|effects| {
+                    simulate_control_bar_idle_worker_button_gadget_selected(effects)
+                })?,
+                "general" => self.with_receiving_menu_effects(|effects| {
+                    simulate_control_bar_general_button_gadget_selected(effects)
+                })?,
+                "large" => self.with_receiving_menu_effects(|effects| {
+                    simulate_control_bar_large_button_gadget_selected(effects)
+                })?,
+                "place_beacon" | "beacon" => self.with_receiving_menu_effects(|effects| {
+                    simulate_control_bar_place_beacon_button_gadget_selected(effects)
+                })?,
+                "delete_beacon" => self.with_receiving_menu_effects(|effects| {
+                    simulate_control_bar_delete_beacon_button_gadget_selected(effects)
+                })?,
+                "clear_beacon" => self.with_receiving_menu_effects(|effects| {
+                    simulate_control_bar_clear_beacon_text_button_gadget_selected(effects)
+                })?,
+                "communicator" | "diplomacy" => self.with_receiving_menu_effects(|effects| {
+                    simulate_control_bar_communicator_button_gadget_selected(effects)
+                })?,
+                "prepare_options" => {
+                    self.show_owned_control_bar(true);
+                    self.with_receiving_menu_effects(|effects| {
+                        simulate_control_bar_options_button_gadget_selected(effects)
+                    })?
+                }
                 // Wave 165: ControlBar.wnd headless materialise residual.
                 "resolve" | "validate" => {
                     crate::gameplay_layout::control_bar_layout_honesty(false).shell_residual_ok()
@@ -64,7 +110,9 @@ impl CnCGameEngine {
                 })?,
                 #[cfg(not(feature = "game_client"))]
                 "load" | "materialise" => false,
-                _ => simulate_control_bar_options_button_gadget_selected(),
+                _ => self.with_receiving_menu_effects(|effects| {
+                    simulate_control_bar_options_button_gadget_selected(effects)
+                })?,
             };
         }
         self.runtime_host_last_gameplay_cmd = if wnd_ok {
@@ -84,10 +132,8 @@ impl CnCGameEngine {
         {
             wnd_ok = self.with_receiving_menu_effects(|effects| {
                 game_client::gui::callbacks::drive_os_wnd_in_game_chat_toggle_like_cpp(effects)
+                    || game_client::gui::callbacks::simulate_in_game_chat_toggle(effects)
             })?;
-            if !wnd_ok {
-                wnd_ok = game_client::gui::callbacks::simulate_in_game_chat_toggle();
-            }
         }
         self.runtime_host_last_gameplay_cmd = if wnd_ok {
             "toggle_in_game_chat_ok_wnd".into()
@@ -126,33 +172,30 @@ impl CnCGameEngine {
                 simulate_in_game_chat_set_type, simulate_in_game_chat_show,
                 simulate_in_game_chat_submit,
             };
-            wnd_ok = match action.as_str() {
+            wnd_ok = self.with_receiving_menu_effects(|effects| match action.as_str() {
                 "show" => {
-                    self.with_receiving_menu_effects(|effects| {
-                        drive_os_wnd_in_game_chat_show_like_cpp(effects)
-                    })? || simulate_in_game_chat_show()
+                    drive_os_wnd_in_game_chat_show_like_cpp(effects)
+                        || simulate_in_game_chat_show(effects)
                 }
                 "hide" => {
-                    self.with_receiving_menu_effects(|effects| {
-                        drive_os_wnd_in_game_chat_hide_like_cpp(effects)
-                    })? || simulate_in_game_chat_hide()
+                    drive_os_wnd_in_game_chat_hide_like_cpp(effects)
+                        || simulate_in_game_chat_hide(effects)
                 }
                 "clear" => {
-                    self.with_receiving_menu_effects(|effects| {
-                        drive_os_wnd_in_game_chat_clear_like_cpp(effects)
-                    })? || simulate_in_game_chat_clear_button_gadget_selected()
+                    drive_os_wnd_in_game_chat_clear_like_cpp(effects)
+                        || simulate_in_game_chat_clear_button_gadget_selected(effects)
                 }
-                "type" => simulate_in_game_chat_set_type(chat_type),
-                "reset" => simulate_in_game_chat_reset(),
-                "prepare_submit" => self.with_receiving_menu_effects(|effects| {
+                "type" => simulate_in_game_chat_set_type(chat_type, effects),
+                "reset" => simulate_in_game_chat_reset(effects),
+                "prepare_submit" => {
                     drive_os_wnd_in_game_chat_prepare_submit_like_cpp(&message, effects)
                         || simulate_in_game_chat_prepare_submit(&message, effects)
-                })?,
-                _ => self.with_receiving_menu_effects(|effects| {
+                }
+                _ => {
                     drive_os_wnd_in_game_chat_submit_like_cpp(&message, effects)
                         || simulate_in_game_chat_submit(&message, effects)
-                })?,
-            };
+                }
+            })?;
         }
         self.runtime_host_last_gameplay_cmd = if wnd_ok {
             format!("click_in_game_chat_ok_wnd_{action}")
@@ -183,13 +226,13 @@ impl CnCGameEngine {
                 .with_receiving_menu_effects(|effects| {
                     effects.with_manager(|manager, effects| match action.as_str() {
                         "count" | "set_count" => {
-                            simulate_idle_worker_set_count(count, manager, effects.ui())
+                            simulate_idle_worker_set_count(count, manager, effects)
                         }
-                        "next" => simulate_idle_worker_select_next(),
+                        "next" => simulate_idle_worker_select_next(effects),
                         "prepare" | "prepare_select" => {
-                            simulate_idle_worker_prepare_select(count, manager, effects.ui())
+                            simulate_idle_worker_prepare_select(count, manager, effects)
                         }
-                        _ => simulate_idle_worker_button_gadget_selected(),
+                        _ => simulate_idle_worker_button_gadget_selected(effects),
                     })
                 })
                 .unwrap_or(false);

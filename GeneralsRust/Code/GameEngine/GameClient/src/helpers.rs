@@ -361,10 +361,12 @@ impl<'a> GameClientLoadScreenHooks<'a> {
                 log::warn!("Failed to activate shell main menu after shell-map load: {err}");
             }
         });
-        self.client.window_manager_owner().with_manager(|manager| {
-            if let Err(err) = hide_control_bar(true, manager) {
-                log::warn!("Failed to hide control bar after shell-map load: {err}");
-            }
+        self.client.with_window_event_effects(None, |effects| {
+            effects.with_manager(|manager, effects| {
+                if let Err(err) = hide_control_bar(true, manager, effects) {
+                    log::warn!("Failed to hide control bar after shell-map load: {err}");
+                }
+            });
         });
     }
 }

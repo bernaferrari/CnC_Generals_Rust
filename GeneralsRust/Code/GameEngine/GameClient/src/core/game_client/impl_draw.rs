@@ -71,7 +71,7 @@ impl GameClient {
                 ui: self.subsystem_manager.in_game_ui.as_mut(),
                 payloads: Default::default(),
                 manager: None,
-                menus: Some(self.menu_manager.receiving_menus()),
+                menus: Some(self.menu_manager.receiving_menus(self.input_authority)),
                 ime: Some(&mut self.ime),
                 window_manager_owner: Some(&self.window_manager_owner),
                 selected_window: None,

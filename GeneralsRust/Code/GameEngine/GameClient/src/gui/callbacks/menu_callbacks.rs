@@ -3082,6 +3082,8 @@ impl MenuCallbacks for LanLobbyMenu {
 
 /// Menu state belongs to one receiving GameClient; construction is inert.
 pub struct MenuManager {
+    control_bar_callbacks: crate::gui::callbacks::control_bar_callbacks::ControlBarCallbacks,
+    ingame_ui: crate::gui::callbacks::ingame_callbacks::InGameUISystem,
     quit: crate::gui::callbacks::quit_menu::QuitMenuState,
     establish_connections: crate::gui::menus::establish_connections_menu::EstablishConnectionsMenu,
     disconnect: crate::gui::menus::disconnect_menu::DisconnectMenu,
@@ -3095,8 +3097,17 @@ pub struct MenuManager {
 }
 
 impl MenuManager {
+    pub fn ingame_ui(&self) -> &crate::gui::callbacks::ingame_callbacks::InGameUISystem {
+        &self.ingame_ui
+    }
+    pub fn ingame_ui_mut(
+        &mut self,
+    ) -> &mut crate::gui::callbacks::ingame_callbacks::InGameUISystem {
+        &mut self.ingame_ui
+    }
     pub fn new() -> Self {
         Self {
+            control_bar_callbacks: Default::default(),
             establish_connections:
                 crate::gui::menus::establish_connections_menu::EstablishConnectionsMenu::new(),
             disconnect: crate::gui::menus::disconnect_menu::DisconnectMenu::new(),
@@ -3108,6 +3119,7 @@ impl MenuManager {
             lan_lobby_menu: LanLobbyMenu::new(),
             popup: Default::default(),
             quit: Default::default(),
+            ingame_ui: Default::default(),
         }
     }
 
@@ -4299,7 +4311,8 @@ mod tests {
         let mut peer = MenuManager::new();
         let expected = std::ptr::from_mut(owner.options_menu_mut());
         {
-            let mut recipients = owner.receiving_menus();
+            let mut recipients =
+                owner.receiving_menus(crate::core::game_client::ClientInputAuthority::NativeHosted);
             assert_eq!(
                 std::ptr::from_mut(recipients.options.as_deref_mut().unwrap()),
                 expected
@@ -4651,6 +4664,10 @@ mod menu_callbacks_shell_borrow_residual_tests {}
 /// Disjoint operation-scoped loans of the canonical client menu fields.
 /// Taking a loan never moves, replaces, or publishes the menu object.
 pub struct MenuCallbackRecipients<'a> {
+    pub(crate) control_bar_callbacks:
+        Option<&'a mut crate::gui::callbacks::control_bar_callbacks::ControlBarCallbacks>,
+    pub(crate) input_authority: crate::core::game_client::ClientInputAuthority,
+    pub(crate) ingame_ui: &'a mut crate::gui::callbacks::ingame_callbacks::InGameUISystem,
     pub(crate) quit: Option<&'a mut crate::gui::callbacks::quit_menu::QuitMenuState>,
     pub(crate) popup:
         Option<&'a mut crate::gui::callbacks::in_game_popup_message::PopupMessageState>,
@@ -4665,8 +4682,14 @@ pub struct MenuCallbackRecipients<'a> {
     pub(crate) lan_lobby: Option<&'a mut LanLobbyMenu>,
 }
 impl MenuManager {
-    pub(crate) fn receiving_menus(&mut self) -> MenuCallbackRecipients<'_> {
+    pub(crate) fn receiving_menus(
+        &mut self,
+        input_authority: crate::core::game_client::ClientInputAuthority,
+    ) -> MenuCallbackRecipients<'_> {
         MenuCallbackRecipients {
+            control_bar_callbacks: Some(&mut self.control_bar_callbacks),
+            input_authority,
+            ingame_ui: &mut self.ingame_ui,
             quit: Some(&mut self.quit),
             popup: Some(&mut self.popup),
             establish_connections: Some(&mut self.establish_connections),
@@ -4683,6 +4706,9 @@ impl MenuManager {
 impl MenuCallbackRecipients<'_> {
     pub fn reborrow(&mut self) -> MenuCallbackRecipients<'_> {
         MenuCallbackRecipients {
+            control_bar_callbacks: self.control_bar_callbacks.as_deref_mut(),
+            input_authority: self.input_authority,
+            ingame_ui: &mut *self.ingame_ui,
             quit: self.quit.as_deref_mut(),
             popup: self.popup.as_deref_mut(),
             establish_connections: self.establish_connections.as_deref_mut(),

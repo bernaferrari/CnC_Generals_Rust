@@ -527,7 +527,10 @@ pub(crate) fn execute_ui_input_action(
                 .is_ok()
         }
         Action::ToggleControlBar => {
-            crate::gui::callbacks::control_bar_callbacks::toggle_control_bar(false, manager).is_ok()
+            crate::gui::callbacks::control_bar_callbacks::toggle_control_bar(
+                false, manager, effects,
+            )
+            .is_ok()
         }
         Action::ToggleQuitMenu => {
             effects.with_receiving_manager(manager, |effects| {

@@ -7,31 +7,31 @@ use crate::gui::callbacks::{
     challenge_menu_system, challenge_menu_update, difficulty_select_init, difficulty_select_input,
     difficulty_select_system, download_menu_init, download_menu_input, download_menu_shutdown,
     download_menu_system, download_menu_update, game_info_window_init, game_info_window_system,
-    generals_exp_points_input, generals_exp_points_system, get_control_bar_system,
-    get_diplomacy_system, get_ingame_ui_system, get_message_box_system, ime_candidate_main_draw,
-    ime_candidate_text_area_draw, ime_candidate_window_input, ime_candidate_window_system,
-    in_game_popup_message_init, in_game_popup_message_input,
-    in_game_popup_message_system_with_sink, keyboard_options_menu_init,
-    keyboard_options_menu_input, keyboard_options_menu_shutdown, keyboard_options_menu_system,
-    keyboard_options_menu_update, lan_game_options_menu_init, lan_game_options_menu_input,
-    lan_game_options_menu_shutdown, lan_game_options_menu_system, lan_game_options_menu_update,
-    lan_map_select_menu_init, lan_map_select_menu_input, lan_map_select_menu_shutdown,
-    lan_map_select_menu_system, lan_map_select_menu_update, network_direct_connect_init,
-    network_direct_connect_input, network_direct_connect_shutdown, network_direct_connect_system,
-    network_direct_connect_update, popup_buddy_notification_system, popup_communicator_init,
-    popup_communicator_input, popup_communicator_shutdown, popup_communicator_system,
-    popup_communicator_update, popup_host_game_init, popup_host_game_input, popup_host_game_system,
-    popup_host_game_update, popup_join_game_init, popup_join_game_input, popup_join_game_system,
-    popup_ladder_select_init, popup_ladder_select_input, popup_ladder_select_shutdown,
-    popup_ladder_select_system, popup_ladder_select_update, popup_player_info_init,
-    popup_player_info_input, popup_player_info_shutdown, popup_player_info_system,
-    popup_player_info_update, popup_replay_init, popup_replay_input, popup_replay_shutdown,
-    popup_replay_system, popup_replay_update, quit_menu_system, rc_game_details_menu_init,
-    rc_game_details_menu_system, replay_menu_init, replay_menu_input, replay_menu_shutdown,
-    replay_menu_system, replay_menu_update, save_load_menu_full_screen_init, save_load_menu_init,
-    save_load_menu_input, save_load_menu_shutdown, save_load_menu_system, save_load_menu_update,
-    score_screen_init, score_screen_input, score_screen_shutdown, score_screen_system,
-    score_screen_update, skirmish_game_options_menu_init, skirmish_game_options_menu_input,
+    generals_exp_points_input, generals_exp_points_system, get_diplomacy_system,
+    get_message_box_system, ime_candidate_main_draw, ime_candidate_text_area_draw,
+    ime_candidate_window_input, ime_candidate_window_system, in_game_popup_message_init,
+    in_game_popup_message_input, in_game_popup_message_system_with_sink,
+    keyboard_options_menu_init, keyboard_options_menu_input, keyboard_options_menu_shutdown,
+    keyboard_options_menu_system, keyboard_options_menu_update, lan_game_options_menu_init,
+    lan_game_options_menu_input, lan_game_options_menu_shutdown, lan_game_options_menu_system,
+    lan_game_options_menu_update, lan_map_select_menu_init, lan_map_select_menu_input,
+    lan_map_select_menu_shutdown, lan_map_select_menu_system, lan_map_select_menu_update,
+    network_direct_connect_init, network_direct_connect_input, network_direct_connect_shutdown,
+    network_direct_connect_system, network_direct_connect_update, popup_buddy_notification_system,
+    popup_communicator_init, popup_communicator_input, popup_communicator_shutdown,
+    popup_communicator_system, popup_communicator_update, popup_host_game_init,
+    popup_host_game_input, popup_host_game_system, popup_host_game_update, popup_join_game_init,
+    popup_join_game_input, popup_join_game_system, popup_ladder_select_init,
+    popup_ladder_select_input, popup_ladder_select_shutdown, popup_ladder_select_system,
+    popup_ladder_select_update, popup_player_info_init, popup_player_info_input,
+    popup_player_info_shutdown, popup_player_info_system, popup_player_info_update,
+    popup_replay_init, popup_replay_input, popup_replay_shutdown, popup_replay_system,
+    popup_replay_update, quit_menu_system, rc_game_details_menu_init, rc_game_details_menu_system,
+    replay_menu_init, replay_menu_input, replay_menu_shutdown, replay_menu_system,
+    replay_menu_update, save_load_menu_full_screen_init, save_load_menu_init, save_load_menu_input,
+    save_load_menu_shutdown, save_load_menu_system, save_load_menu_update, score_screen_init,
+    score_screen_input, score_screen_shutdown, score_screen_system, score_screen_update,
+    skirmish_game_options_menu_init, skirmish_game_options_menu_input,
     skirmish_game_options_menu_shutdown, skirmish_game_options_menu_system,
     skirmish_game_options_menu_update, skirmish_map_select_menu_init,
     skirmish_map_select_menu_input, skirmish_map_select_menu_shutdown,
@@ -982,12 +982,7 @@ impl WindowManager {
                 "ControlBarSystem" => {
                     window.set_system_callback_with_message_sink(
                         |window, msg, data1, data2, effects| {
-                            let system = get_control_bar_system();
-                            let system = system.read().unwrap_or_else(|e| e.into_inner());
-                            let callbacks = system.get_callbacks();
-                            with_arc_write(&callbacks, |callbacks| {
-                                callbacks.system(window, msg, data1, data2, effects)
-                            })
+                            crate::gui::callbacks::control_bar_callbacks::receiving_control_bar_system(window, msg, data1, data2, effects)
                         },
                     );
                     window.mark_control_bar_system_callback();
@@ -995,12 +990,7 @@ impl WindowManager {
                 "ControlBarObserverSystem" => {
                     window.set_system_callback_with_message_sink(
                         |window, msg, data1, data2, effects| {
-                            let system = get_control_bar_system();
-                            let system = system.read().unwrap_or_else(|e| e.into_inner());
-                            let callbacks = system.get_observer();
-                            with_arc_write(&callbacks, |callbacks| {
-                                callbacks.system(window, msg, data1, data2, effects)
-                            })
+                            crate::gui::control_bar::control_bar_observer::control_bar_observer_system(window, msg, data1, data2, effects)
                         },
                     );
                     window.mark_control_bar_observer_system_callback();
@@ -1032,53 +1022,22 @@ impl WindowManager {
                 }
                 "InGameChatSystem" => {
                     window.set_system_callback_with_message_sink(
-                        |window, msg, data1, data2, effects| {
-                            let system = get_ingame_ui_system();
-                            let system = system.read().unwrap_or_else(|e| e.into_inner());
-                            let chat = system.get_chat();
-                            with_arc_write(&chat, |chat| {
-                                effects.with_manager(|manager, effects| {
-                                    chat.system(window, msg, data1, data2, manager, effects)
-                                })
-                            })
-                        },
+                        crate::gui::callbacks::ingame_callbacks::in_game_chat_system_receiving,
                     );
                 }
+
                 "ReplayControlSystem" => {
                     window.set_system_callback_with_message_sink(
-                        |window, msg, data1, data2, effects| {
-                            let system = get_ingame_ui_system();
-                            let system = system.read().unwrap_or_else(|e| e.into_inner());
-                            let replay = system.get_replay();
-                            with_arc_write(&replay, |replay| {
-                                effects.with_manager(|manager, effects| {
-                                    replay.system(window, msg, data1, data2, manager)
-                                })
-                            })
-                        },
+                        crate::gui::callbacks::ingame_callbacks::replay_control_system_receiving,
                     );
                 }
+
                 "IdleWorkerSystem" => {
                     window.set_system_callback_with_message_sink(
-                        |window, msg, data1, data2, effects| {
-                            let system = get_ingame_ui_system();
-                            let system = system.read().unwrap_or_else(|e| e.into_inner());
-                            let idle_worker = system.get_idle_worker();
-                            with_arc_write(&idle_worker, |idle_worker| {
-                                effects.with_manager(|manager, effects| {
-                                    idle_worker.system(
-                                        window,
-                                        msg,
-                                        data1,
-                                        data2,
-                                        manager,
-                                        effects.ui(),
-                                    )
-                                })
-                            })
-                        },
+                        crate::gui::callbacks::ingame_callbacks::idle_worker_system_receiving,
                     );
                 }
+
                 "MessageBoxSystem" => {
                     window.set_system_callback_with_message_sink(
                         |window, msg, data1, data2, effects| {
@@ -1604,32 +1563,22 @@ impl WindowManager {
                 "ControlBarInput" => {
                     window.set_input_callback_with_message_sink(
                         |window, msg, data1, data2, effects| {
-                            let system = get_control_bar_system();
-                            let system = system.read().unwrap_or_else(|e| e.into_inner());
-                            let callbacks = system.get_callbacks();
-                            with_arc_write(&callbacks, |callbacks| {
-                                callbacks.system(window, msg, data1, data2, effects)
-                            })
+                            crate::gui::callbacks::control_bar_callbacks::receiving_control_bar_system(window, msg, data1, data2, effects)
                         },
                     );
                 }
                 "LeftHUDInput" => {
                     window.set_input_callback_with_message_sink(
                         |window, msg, data1, data2, effects| {
-                            let system = get_control_bar_system();
-                            let system = system.read().unwrap_or_else(|e| e.into_inner());
-                            let callbacks = system.get_left_hud();
-                            with_arc_write(&callbacks, |callbacks| {
-                                callbacks.input(
-                                    window,
-                                    msg,
-                                    data1,
-                                    data2,
-                                    effects.emitted_messages,
-                                    effects.pending_control_bar_clicks.as_deref_mut(),
-                                    effects.ui.as_deref_mut().expect("receiving UI"),
-                                )
-                            })
+                            crate::gui::callbacks::control_bar_callbacks::left_hud_input(
+                                window,
+                                msg,
+                                data1,
+                                data2,
+                                effects.emitted_messages,
+                                effects.pending_control_bar_clicks.as_deref_mut(),
+                                effects.ui.as_deref_mut().expect("receiving UI"),
+                            )
                         },
                     );
                 }
@@ -1660,32 +1609,16 @@ impl WindowManager {
                 }
                 "InGameChatInput" => {
                     window.set_input_callback_with_message_sink(
-                        |window, msg, data1, data2, effects| {
-                            let system = get_ingame_ui_system();
-                            let system = system.read().unwrap_or_else(|e| e.into_inner());
-                            let chat = system.get_chat();
-                            with_arc_write(&chat, |chat| {
-                                effects.with_manager(|manager, effects| {
-                                    chat.input(window, msg, data1, data2, manager, effects)
-                                })
-                            })
-                        },
+                        crate::gui::callbacks::ingame_callbacks::in_game_chat_input_receiving,
                     );
                 }
+
                 "ReplayControlInput" => {
                     window.set_input_callback_with_message_sink(
-                        |window, msg, data1, data2, effects| {
-                            let system = get_ingame_ui_system();
-                            let system = system.read().unwrap_or_else(|e| e.into_inner());
-                            let replay = system.get_replay();
-                            with_arc_write(&replay, |replay| {
-                                effects.with_manager(|manager, effects| {
-                                    replay.input(window, msg, data1, data2, manager)
-                                })
-                            })
-                        },
+                        crate::gui::callbacks::ingame_callbacks::replay_control_input_receiving,
                     );
                 }
+
                 "MainMenuInput" => {
                     window.set_input_callback_with_message_sink(
                         |window, msg, data1, data2, effects| {

@@ -3,6 +3,27 @@
 // so this stays one logical `game_client` module (public API identical).
 
 impl GameClient {
+    pub fn in_game_callbacks(&self) -> &crate::gui::callbacks::ingame_callbacks::InGameUISystem {
+        self.menu_manager.ingame_ui()
+    }
+    pub fn set_in_game_chat_type_owned(
+        &mut self,
+        chat_type: crate::gui::callbacks::ingame_callbacks::InGameChatType,
+        local_player_active: bool,
+    ) {
+        let label = self
+            .menu_manager
+            .ingame_ui_mut()
+            .assign_chat_type(chat_type.clone());
+        if let Some(label) = label {
+            let text = crate::gui::callbacks::ingame_callbacks::chat_type_label(
+                &chat_type,
+                local_player_active,
+            );
+            let _ = label.borrow_mut().set_text(&text);
+        }
+    }
+
     /// Publish the logic-owned W3D ghost source and the Mesh/HLOD final
     /// capture bridge at the same lifecycle boundary as the live client.
     /// Other classes and incomplete HLOD animation facts remain fail-closed.
@@ -1015,7 +1036,7 @@ impl GameClient {
             &mut self.script_display,
             &mut self.window_videos,
             &mut self.ime,
-            self.menu_manager.receiving_menus(),
+            self.menu_manager.receiving_menus(self.input_authority),
             self.subsystem_manager.in_game_ui.as_mut(),
         )
     }
@@ -1130,7 +1151,7 @@ impl GameClient {
             logic_frame: menu_world.map(|facts| facts.logic_frame),
             ui: self.subsystem_manager.in_game_ui.as_mut(),
             payloads: Default::default(),
-            menus: Some(self.menu_manager.receiving_menus()),
+            menus: Some(self.menu_manager.receiving_menus(self.input_authority)),
             manager: None,
             ime: Some(&mut self.ime),
             window_manager_owner: Some(owner),
@@ -1171,7 +1192,7 @@ impl GameClient {
             logic_frame: menu_world.map(|facts| facts.logic_frame),
             ui: self.subsystem_manager.in_game_ui.as_mut(),
             payloads: Default::default(),
-            menus: Some(self.menu_manager.receiving_menus()),
+            menus: Some(self.menu_manager.receiving_menus(self.input_authority)),
             manager: None,
             ime: Some(&mut self.ime),
             window_manager_owner: Some(owner),
@@ -1209,7 +1230,7 @@ impl GameClient {
             logic_frame: menu_world.map(|facts| facts.logic_frame),
             ui: self.subsystem_manager.in_game_ui.as_mut(),
             payloads: Default::default(),
-            menus: Some(self.menu_manager.receiving_menus()),
+            menus: Some(self.menu_manager.receiving_menus(self.input_authority)),
             manager: None,
             ime: Some(&mut self.ime),
             window_manager_owner: Some(owner),
@@ -1386,7 +1407,7 @@ impl GameClient {
         let campaign = &mut self.campaign_manager;
         let menu = &mut self.main_menu;
         let host = &mut self.menu_host;
-        let mut menus = self.menu_manager.receiving_menus();
+        let mut menus = self.menu_manager.receiving_menus(self.input_authority);
         let display = &mut self.script_display;
         let videos = &mut self.window_videos;
         let ime = &mut self.ime;

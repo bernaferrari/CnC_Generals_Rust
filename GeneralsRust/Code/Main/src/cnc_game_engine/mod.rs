@@ -90,6 +90,7 @@ mod camera_filter;
 mod camera_height;
 mod camera_motion;
 mod camera_view_effects;
+mod chat_owner;
 mod clear_game_data;
 mod command_phase;
 #[cfg(feature = "game_client")]

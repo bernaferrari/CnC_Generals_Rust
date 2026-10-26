@@ -409,7 +409,7 @@ impl GameWindow {
     }
 
     /// Enable or disable the window
-    pub fn enable(&mut self, enable: bool) -> WindowResult<()> {
+    pub(crate) fn set_enabled_status(&mut self, enable: bool) {
         if enable {
             self.status |= WindowStatus::ENABLED;
         } else {
@@ -419,6 +419,9 @@ impl GameWindow {
         if let Some(widget) = &mut self.widget {
             widget.set_enabled(enable);
         }
+    }
+    pub fn enable(&mut self, enable: bool) -> WindowResult<()> {
+        self.set_enabled_status(enable);
 
         // C++ GameWindow::winEnable visits children synchronously in sibling
         // order. Callers must release any child borrow before enabling a parent.

@@ -265,3 +265,124 @@ fn radar_draw_receipts_only_change_the_supplied_event_owner() {
     assert!(first.presentation().draw_events()[0].sound_played);
     assert!(!peer.presentation().draw_events()[0].sound_played);
 }
+
+mod control_bar_owner {
+    use super::*;
+    use game_client_rust::gui::callbacks::control_bar_callbacks::*;
+    use game_client_rust::gui::control_bar::ControlBar;
+    use game_client_rust::gui::{GameWindow, WindowMessage, WindowMsgHandled};
+    struct OwnedViewport {
+        display: (u32, u32),
+        height: i32,
+    }
+    impl ControlBarViewport for OwnedViewport {
+        fn display_size(&self) -> (u32, u32) {
+            self.display
+        }
+        fn set_height_px(&mut self, height: i32) {
+            self.height = height;
+        }
+    }
+    #[test]
+    fn client_callback_actions_are_independent() {
+        let mut a = GameClient::new().unwrap();
+        let mut b = GameClient::new().unwrap();
+        let mut bar = ControlBar::new();
+        let mut viewport = OwnedViewport {
+            display: (800, 600),
+            height: 600,
+        };
+        let first_id = a.with_window_event_effects(None, |effects| {
+            effects.with_manager(|manager, effects| {
+                let parent = manager
+                    .create_window(None, 0, 0, 100, 100, effects)
+                    .unwrap();
+                hide_control_bar_owned(
+                    &mut bar,
+                    &mut viewport,
+                    Some(parent.clone()),
+                    true,
+                    true,
+                    manager,
+                    effects,
+                );
+                assert!(parent.borrow().is_hidden());
+                assert!(!residual_control_bar_is_visible(effects));
+                assert_eq!(
+                    residual_control_bar_last_action(effects),
+                    ResidualControlBarAction::Hide
+                );
+                let id = parent.borrow().get_id();
+                id
+            })
+        });
+        let second_id = b.with_window_event_effects(None, |effects| {
+            let id = effects.with_manager(|manager, effects| {
+                let parent = manager
+                    .create_window(None, 0, 0, 100, 100, effects)
+                    .unwrap();
+                parent.borrow_mut().hide(false, manager).unwrap();
+                assert!(!parent.borrow().is_hidden());
+                let id = parent.borrow().get_id();
+                id
+            });
+            assert!(residual_control_bar_is_visible(effects));
+            assert_eq!(
+                residual_control_bar_last_action(effects),
+                ResidualControlBarAction::None
+            );
+            assert!(
+                !simulate_control_bar_options_button_gadget_selected(effects),
+                "missing button cannot report a click"
+            );
+            id
+        });
+        assert_eq!(
+            first_id, second_id,
+            "identity collision does not select the peer callback state"
+        );
+        drop(b);
+        a.with_window_event_effects(None, |effects| assert!(!is_control_bar_visible(effects)));
+    }
+
+    #[test]
+    fn empty_callback_does_not_advance_the_control_bar_animation_phase() {
+        let mut client = GameClient::new().unwrap();
+        client.with_window_event_effects(None, |effects| {
+            let mut window = GameWindow::new();
+            assert_eq!(
+                receiving_control_bar_system(&mut window, WindowMessage::None, 0, 0, effects),
+                WindowMsgHandled::Ignored
+            );
+        });
+    }
+}
+
+#[test]
+fn chat_requests_change_only_the_receiving_client() {
+    use game_client_rust::gui::callbacks::ingame_callbacks::*;
+    let mut first = client("A", "A");
+    let mut peer = client("B", "B");
+    first.with_window_event_effects(None, |effects| {
+        assert!(simulate_in_game_chat_set_text("first draft", effects));
+        assert!(simulate_in_game_chat_set_type(2, effects));
+    });
+    peer.with_window_event_effects(None, |effects| {
+        assert!(simulate_in_game_chat_set_text("peer draft", effects));
+        assert!(simulate_in_game_chat_reset(effects));
+    });
+    assert_eq!(
+        residual_in_game_chat_text(first.in_game_callbacks()),
+        "first draft"
+    );
+    assert_eq!(
+        residual_in_game_chat_type_ordinal(first.in_game_callbacks()),
+        2
+    );
+    assert!(residual_in_game_chat_text(peer.in_game_callbacks()).is_empty());
+    drop(peer);
+    assert_eq!(
+        residual_in_game_chat_text(first.in_game_callbacks()),
+        "first draft"
+    );
+}

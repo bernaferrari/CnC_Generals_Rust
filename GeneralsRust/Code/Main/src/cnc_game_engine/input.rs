@@ -3088,6 +3088,7 @@ impl CnCGameEngine {
     ) -> game_client::gui::campaign_launch_host_bridge::MenuWorldFacts {
         let mode = self.game_logic.game_mode();
         game_client::gui::campaign_launch_host_bridge::MenuWorldFacts {
+            chat: self.receiving_chat_world_facts(),
             client_frame: self.game_client.get_frame(),
             logic_frame: self.game_logic.get_frame(),
             game_mode: match mode {
