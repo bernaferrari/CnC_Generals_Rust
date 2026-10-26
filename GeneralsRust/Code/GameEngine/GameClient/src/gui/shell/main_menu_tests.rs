@@ -22,6 +22,7 @@ mod tests {
     ) -> R {
         client.with_window_event_effects(
             Some(crate::gui::campaign_launch_host_bridge::MenuWorldFacts {
+                script_engine_available: false,
                 in_game: false,
                 in_shell_game: false,
             }),
@@ -35,6 +36,7 @@ mod tests {
     ) -> R {
         client.with_window_event_effects(
             Some(crate::gui::campaign_launch_host_bridge::MenuWorldFacts {
+                script_engine_available: false,
                 in_game: true,
                 in_shell_game: true,
             }),

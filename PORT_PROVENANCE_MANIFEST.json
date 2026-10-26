@@ -12111,9 +12111,16 @@
             "owned_source_ranges": [],
             "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/callbacks/message_box.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/callbacks/message_box/owner.rs"
           }
         ],
-        "mode": "stem_inferred",
+        "mode": "split_inferred",
         "ownership_diagnostics": [],
         "range_validation": "not_required",
         "review_state": "unreviewed",
@@ -48393,7 +48400,8 @@
       },
       "blockers": [
         "unreviewed_mapping",
-        "unreviewed_symbol_ownership"
+        "unreviewed_symbol_ownership",
+        "unreviewed_source_range_ownership"
       ],
       "id": "game_engine:Source/GameClient/GUI/GUICallbacks/MessageBox.cpp",
       "inventory_class": "required_runtime",
@@ -48406,11 +48414,18 @@
             "owned_source_ranges": [],
             "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/callbacks/message_box.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/callbacks/message_box/owner.rs"
           }
         ],
-        "mode": "stem_inferred",
+        "mode": "split_inferred",
         "ownership_diagnostics": [],
-        "range_validation": "not_required",
+        "range_validation": "unreviewed",
         "review_state": "unreviewed",
         "reviewed_path_implementation": false,
         "stale_reviewed_destinations": [],
@@ -161076,7 +161091,7 @@
     }
   ],
   "generator": "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-  "input_digest": "6efde7f45b739fda5135663f499320d4efc8fdb94b801a051c1d46e1e8d70ced",
+  "input_digest": "d31d6742da224d9632aa82c1b5ed530a3880882e3e27ea68788df564d54aaca1",
   "metric_contract": {
     "behavior_requires_explicit_evidence": true,
     "candidate_mapping_is_reviewed": false,
@@ -167575,11 +167590,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 926,
+        "end_line": 927,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/impl_draw.rs",
-      "sha256": "d05e1da3b2c298c408e71e5307937f7fc0b362c056cf64326702aeab9052c8d5",
+      "sha256": "e2722c5efae2101829a56821980a0919eb5bcbf4e03062ae035145750d42d86d",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -167587,11 +167602,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 1692,
+        "end_line": 1703,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/impl_init.rs",
-      "sha256": "abaab0cad4a8493f5cf1fbc4fcecd0385f8cff138abc0b2bef68eea6fee321b9",
+      "sha256": "0ad0fb46489269fbc7d240c4bcc16c3f5bed732d12f91c833006b847978a1cdb",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -167599,11 +167614,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 2714,
+        "end_line": 2715,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/impl_update.rs",
-      "sha256": "6bd56f099824a6ea946653622e8953ab8f44eeb7e15e350b31c10c669f84f1e5",
+      "sha256": "e68684641c1626295f82542b3275e3d2aaa56864dffcdeba25137ea7e429668d",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -167635,11 +167650,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 865,
+        "end_line": 866,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/live_slot.rs",
-      "sha256": "fdbb5b612c3bdcad0093af0469f318242eaed943cd1b7a48389352836602809a",
+      "sha256": "22994574b8a4818a045fb5345a54b8033da745e8c028956a294758357f1a889a",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -168019,11 +168034,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 428,
+        "end_line": 429,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/script_driver.rs",
-      "sha256": "1a3545e204584a75a43c78460f92be5e659e18dcc87803748733614701c1e085",
+      "sha256": "53de738586c09c5c74176f624768e69f1964d2736784882838f41615a32b681e",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -172637,11 +172652,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 1279,
+        "end_line": 1282,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/callbacks/challenge_menu.rs",
-      "sha256": "46b907e5cc4d002069caf3a8a463ce916836e10d08020c35818121f31f2f23b5",
+      "sha256": "c42f74cda04d428e9c10d5be65d08217c043aeebf32e1233d239fa6d2207fb65",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -172649,11 +172664,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 583,
+        "end_line": 613,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/callbacks/difficulty_select.rs",
-      "sha256": "276179a0a5062345b196d0ef3d57e6ce72d8c4ca2db7f19a29e7f423653b7447",
+      "sha256": "f2cbf574b568d404a094ef47d0d0ac0a2d694f0b734930fc1911971595b442b0",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -172805,11 +172820,23 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 2244,
+        "end_line": 257,
+        "start_line": 1
+      },
+      "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/callbacks/message_box/owner.rs",
+      "sha256": "81f7e61b273f9c743b3e319f54b571d6c9d9858e88a568117799c27250208147",
+      "symbol_index_status": "awaiting_mapping_review",
+      "symbols": []
+    },
+    {
+      "cargo_reachable": true,
+      "classification": "implementation",
+      "file_range": {
+        "end_line": 1772,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/callbacks/message_box.rs",
-      "sha256": "b3d100e67996d41a72f5bfb5d526eaaab11477eb5a02005c242acff221dcd395",
+      "sha256": "0c6f01e0c59ceede18ebd6e828cd4a6aa03faf8db964adf26c0fbf5c26899afa",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -172941,7 +172968,7 @@
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/callbacks/replay_menu/ingress.rs",
-      "sha256": "93746d908606c39418ae90569c7dbd3f8264f1723768be42fb275d9bb341a21b",
+      "sha256": "a993c2b886d20d656a6398ecb9142ee483432aa56f4ce397b0a9d15d79a62db3",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -172973,11 +173000,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 2973,
+        "end_line": 2976,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/callbacks/score_screen.rs",
-      "sha256": "6b9837402bf511a4ac35c7732a14d1d094d48d1ed8d89d9a0c442820681f8395",
+      "sha256": "31861c4a747d8dff4a72baaf96cdd3fd05d84dcb3a3ac90e36fb7f90c0f7d4dc",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -172997,11 +173024,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 2436,
+        "end_line": 2437,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/callbacks/skirmish_game_options_menu.rs",
-      "sha256": "de0262d2d89158acca1f738a23716675e5b71925068fb2fd1231e80043eec97e",
+      "sha256": "e480cbe24cfe6ee6a16dc66e4294add619ca0a3ffd35e7245929d997d524da0a",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -173985,7 +174012,7 @@
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/game_window/window_impl_input.rs",
-      "sha256": "68ed2f80789da9bb12653c9428205ca90f397481b9fd943ee20c4864a8850507",
+      "sha256": "5239a3e2aa71f5e0551fe8d8a58c65012c370931a35a8c35d1aff9f3c6554af1",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -174005,11 +174032,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 1096,
+        "end_line": 1157,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/game_window/window_struct.rs",
-      "sha256": "b3bbaa63b3d7bb4824e5cfa800843582b6c9570471297e49d91ba2f0891ac752",
+      "sha256": "4055d66dfe543d54994b8049c4ef004b9e2535ccc2d3801223b2b1e49569dfa4",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -174041,11 +174068,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 3639,
+        "end_line": 3624,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/game_window_manager_script.rs",
-      "sha256": "f072442a1c6b23c7c8a0bd2cacdf4fe0e466e96d177d16cbd8023f809f6e23a6",
+      "sha256": "4e46c617821c3fad44c0e95ac72fd371894682a1649cfbdc396ad17adf3ac513",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -175265,11 +175292,11 @@
       "cargo_reachable": true,
       "classification": "test",
       "file_range": {
-        "end_line": 2094,
+        "end_line": 2096,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/shell/main_menu_tests.rs",
-      "sha256": "37146e6586708f6d3bf91731fa02665d223f8dae64bb144d7f056a4d7e9b2e29",
+      "sha256": "fe28aaaa98a59c5b847f20cbe5386e7c6c511aa4af7188a4fbe0705f369953ef",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -225146,7 +225173,7 @@
       "no_reachable_implementation": 686,
       "ownership_symbol": 6,
       "unreviewed_mapping": 1381,
-      "unreviewed_source_range_ownership": 62,
+      "unreviewed_source_range_ownership": 63,
       "unreviewed_symbol_ownership": 1388
     },
     "by_scope": {
@@ -225213,7 +225240,7 @@
     "required_translation_units": 1389,
     "reviewed_path_implementations": 8,
     "source_range_ownership_reviewed": 3,
-    "strict_blockers": 4260,
+    "strict_blockers": 4261,
     "symbol_ownership_reviewed": 1,
     "translation_units": 1436
   }

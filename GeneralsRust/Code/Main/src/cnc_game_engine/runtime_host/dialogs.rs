@@ -23,12 +23,16 @@ impl CnCGameEngine {
                 simulate_message_box_show_ok, simulate_message_box_show_ok_cancel,
                 simulate_message_box_show_yes_no, simulate_message_box_show_yes_no_cancel,
             };
-            wnd_ok = match kind.as_str() {
-                "ok" => simulate_message_box_show_ok(&title, &body),
-                "ok_cancel" => simulate_message_box_show_ok_cancel(&title, &body),
-                "yes_no_cancel" => simulate_message_box_show_yes_no_cancel(&title, &body),
-                _ => simulate_message_box_show_yes_no(&title, &body),
-            };
+            wnd_ok = self
+                .with_receiving_menu_effects(|effects| match kind.as_str() {
+                    "ok" => simulate_message_box_show_ok(&title, &body, effects),
+                    "ok_cancel" => simulate_message_box_show_ok_cancel(&title, &body, effects),
+                    "yes_no_cancel" => {
+                        simulate_message_box_show_yes_no_cancel(&title, &body, effects)
+                    }
+                    _ => simulate_message_box_show_yes_no(&title, &body, effects),
+                })
+                .unwrap_or(false);
         }
         self.runtime_host_last_gameplay_cmd = if wnd_ok {
             format!("show_message_box_ok_wnd_{kind}")
@@ -95,7 +99,7 @@ impl CnCGameEngine {
                         })
                     })?
                 }
-                "hide" => simulate_message_box_hide(),
+                "hide" => self.with_receiving_menu_effects(simulate_message_box_hide)?,
                 "prepare_yes" => {
                     self.with_receiving_menu_effects(|effects| {
                         drive_os_wnd_message_box_prepare_yes_like_cpp(&title, &body, effects)

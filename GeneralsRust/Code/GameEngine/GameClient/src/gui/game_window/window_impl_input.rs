@@ -538,7 +538,7 @@ impl GameWindow {
                     ]
                     .contains(&(data1 as u32))
                     && owner_ref
-                        .get_user_data::<crate::gui::callbacks::message_box::WindowMessageBoxData>()
+                        .get_user_data::<std::rc::Rc<crate::gui::callbacks::message_box::WindowMessageBoxData>>()
                         .is_some_and(|data| data.has_owned_replay())
                 {
                     Some(SelectedOwnerAction::ReplayMenuConfirm)

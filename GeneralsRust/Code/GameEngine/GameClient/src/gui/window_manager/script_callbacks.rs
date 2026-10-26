@@ -7,9 +7,9 @@ use crate::gui::callbacks::{
     challenge_menu_system, challenge_menu_update, difficulty_select_init, difficulty_select_input,
     difficulty_select_system, download_menu_init, download_menu_input, download_menu_shutdown,
     download_menu_system, download_menu_update, game_info_window_init, game_info_window_system,
-    generals_exp_points_input, generals_exp_points_system, get_message_box_system,
-    ime_candidate_main_draw, ime_candidate_text_area_draw, ime_candidate_window_input,
-    ime_candidate_window_system, in_game_popup_message_init, in_game_popup_message_input,
+    generals_exp_points_input, generals_exp_points_system, ime_candidate_main_draw,
+    ime_candidate_text_area_draw, ime_candidate_window_input, ime_candidate_window_system,
+    in_game_popup_message_init, in_game_popup_message_input,
     in_game_popup_message_system_with_sink, keyboard_options_menu_init,
     keyboard_options_menu_input, keyboard_options_menu_shutdown, keyboard_options_menu_system,
     keyboard_options_menu_update, lan_game_options_menu_init, lan_game_options_menu_input,
@@ -1019,26 +1019,12 @@ impl WindowManager {
 
                 "MessageBoxSystem" => {
                     window.set_system_callback_with_message_sink(
-                        |window, msg, data1, data2, effects| {
-                            let system = get_message_box_system();
-                            let system = system.read().unwrap_or_else(|e| e.into_inner());
-                            let standard = system.get_standard();
-                            with_arc_write(&standard, |standard| {
-                                standard.system(window, msg, data1, data2, effects)
-                            })
-                        },
+                        crate::gui::callbacks::message_box::message_box_system_receiving,
                     );
                 }
                 "ExtendedMessageBoxSystem" => {
                     window.set_system_callback_with_message_sink(
-                        |window, msg, data1, data2, effects| {
-                            let system = get_message_box_system();
-                            let system = system.read().unwrap_or_else(|e| e.into_inner());
-                            let extended = system.get_extended();
-                            with_arc_write(&extended, |extended| {
-                                extended.system(window, msg, data1, data2, effects)
-                            })
-                        },
+                        crate::gui::callbacks::message_box::extended_message_box_system_receiving,
                     );
                 }
                 "EstablishConnectionsControlSystem" => {
@@ -1130,14 +1116,7 @@ impl WindowManager {
                 }
                 "QuitMessageBoxSystem" => {
                     window.set_system_callback_with_message_sink(
-                        |window, msg, data1, data2, effects| {
-                            let system = get_message_box_system();
-                            let system = system.read().unwrap_or_else(|e| e.into_inner());
-                            let quit = system.get_quit();
-                            with_arc_write(&quit, |quit| {
-                                quit.system(window, msg, data1, data2, effects)
-                            })
-                        },
+                        crate::gui::callbacks::message_box::quit_message_box_system_receiving,
                     );
                 }
                 "GeneralsExpPointsSystem" => {

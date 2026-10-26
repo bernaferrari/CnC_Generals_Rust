@@ -24,9 +24,11 @@ impl WindowManager {
         effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) -> WindowMsgHandled {
         effects.with_receiving_manager(self, |effects| {
-            window
+            let result = window
                 .borrow_mut()
-                .send_system_message(msg, data1, data2, effects)
+                .send_system_message(msg, data1, data2, effects);
+            effects.complete_window_callbacks();
+            result
         })
     }
 
@@ -40,9 +42,11 @@ impl WindowManager {
         effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) -> WindowMsgHandled {
         effects.with_receiving_manager(self, |effects| {
-            window
+            let result = window
                 .borrow_mut()
-                .send_input_message(msg, data1, data2, effects)
+                .send_input_message(msg, data1, data2, effects);
+            effects.complete_window_callbacks();
+            result
         })
     }
 }

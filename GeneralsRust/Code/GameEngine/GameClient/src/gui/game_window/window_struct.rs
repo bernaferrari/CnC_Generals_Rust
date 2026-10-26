@@ -25,6 +25,20 @@ use super::font::{
 use super::messages::{WINDOW_ID_INVALID, WindowMessage, WindowMsgHandled, WindowStatus};
 use super::payload::{WindowId, WindowMsgData};
 
+/// Domain-specific synchronous callback phases completed after selected loans.
+pub(crate) enum PendingWindowCallback {
+    MessageBox(crate::gui::callbacks::message_box::PendingMessageBox),
+    Difficulty(crate::gui::callbacks::difficulty_select::PendingDifficultySelect),
+}
+impl PendingWindowCallback {
+    fn complete(self, effects: &mut WindowEventEffects<'_>) {
+        match self {
+            Self::MessageBox(step) => step.complete(effects),
+            Self::Difficulty(step) => step.complete(effects),
+        }
+    }
+}
+
 /// Callback function types
 pub type DrawCallback = Box<
     dyn Fn(
@@ -48,6 +62,7 @@ pub struct WindowEventEffects<'a> {
     pub(crate) ui: Option<&'a mut crate::core::subsystems::InGameUISubsystem>,
     /// Stack-owned typed parameters, lent across the same synchronous callbacks.
     pub(crate) payloads: super::payload::WindowMsgPayloadArena,
+    pub(crate) pending_window_callbacks: std::collections::VecDeque<PendingWindowCallback>,
     pub(crate) ime: Option<&'a mut crate::gui::ime_manager::ImeManager>,
     pub(crate) manager: Option<&'a mut crate::gui::window_manager::WindowManager>,
     pub(crate) menus: Option<crate::gui::callbacks::menu_callbacks::MenuCallbackRecipients<'a>>,
@@ -69,6 +84,23 @@ pub struct WindowEventEffects<'a> {
     )>,
 }
 impl<'effects> WindowEventEffects<'effects> {
+    pub(crate) fn difficulty_select(
+        &self,
+    ) -> &crate::gui::callbacks::difficulty_select::DifficultySelectMenuState {
+        self.menus
+            .as_ref()
+            .expect("difficulty menu requires receiving menus")
+            .difficulty_select
+    }
+    pub(crate) fn difficulty_select_mut(
+        &mut self,
+    ) -> &mut crate::gui::callbacks::difficulty_select::DifficultySelectMenuState {
+        self.menus
+            .as_mut()
+            .expect("difficulty menu requires receiving menus")
+            .difficulty_select
+    }
+
     /// Origin of this exact synchronous input operation; preserved through
     /// bounded receiving-manager loans and discarded when it finishes.
     pub fn input_provenance(&self) -> crate::gui::control_bar::HostControlBarInputProvenance {
@@ -113,6 +145,7 @@ impl<'effects> WindowEventEffects<'effects> {
             input_provenance:
                 crate::gui::control_bar::HostControlBarInputProvenance::InjectedOrUnknown,
             payloads: Default::default(),
+            pending_window_callbacks: Default::default(),
             diplomacy_world: None,
             ui: None,
             logic_frame: None,
@@ -135,6 +168,30 @@ impl<'effects> WindowEventEffects<'effects> {
         }
     }
 
+    pub(crate) fn queue_window_callback(&mut self, step: PendingWindowCallback) {
+        self.pending_window_callbacks.push_back(step);
+    }
+    pub(crate) fn has_pending_window_callbacks(&self) -> bool {
+        !self.pending_window_callbacks.is_empty()
+    }
+    /// Call only after every selected GameWindow RefMut for the message ends.
+    /// This is part of dispatch, before its return or any subsequent message.
+    pub(crate) fn complete_window_callbacks(&mut self) {
+        while let Some(step) = self.pending_window_callbacks.pop_front() {
+            step.complete(self);
+        }
+    }
+    pub fn with_message_boxes<R>(
+        &mut self,
+        operation: impl FnOnce(&mut crate::gui::callbacks::message_box::MessageBoxSystem) -> R,
+    ) -> R {
+        operation(
+            self.menus
+                .as_mut()
+                .expect("MessageBox requires receiving menu owner")
+                .message_boxes,
+        )
+    }
     pub fn with_diplomacy<R>(
         &mut self,
         operation: impl FnOnce(&mut crate::gui::callbacks::diplomacy::DiplomacyCallbacks) -> R,
@@ -558,6 +615,7 @@ impl<'effects> WindowEventEffects<'effects> {
     ) -> R {
         let mut local = WindowEventEffects {
             payloads: std::mem::take(&mut self.payloads),
+            pending_window_callbacks: std::mem::take(&mut self.pending_window_callbacks),
             diplomacy_world: facts,
             input_provenance: self.input_provenance,
             ui: self.ui.as_deref_mut(),
@@ -582,6 +640,7 @@ impl<'effects> WindowEventEffects<'effects> {
         let result =
             std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| operation(&mut local)));
         self.payloads = std::mem::take(&mut local.payloads);
+        self.pending_window_callbacks = std::mem::take(&mut local.pending_window_callbacks);
         self.pending_main_menu_actions
             .append(&mut local.pending_main_menu_actions);
         match result {
@@ -599,6 +658,7 @@ impl<'effects> WindowEventEffects<'effects> {
         let mut local = WindowEventEffects {
             input_provenance: self.input_provenance,
             payloads: std::mem::take(&mut self.payloads),
+            pending_window_callbacks: std::mem::take(&mut self.pending_window_callbacks),
             diplomacy_world: self.diplomacy_world,
             ui: self.ui.as_deref_mut(),
             logic_frame: self.logic_frame,
@@ -622,6 +682,7 @@ impl<'effects> WindowEventEffects<'effects> {
         let result =
             std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| operation(&mut local)));
         self.payloads = std::mem::take(&mut local.payloads);
+        self.pending_window_callbacks = std::mem::take(&mut local.pending_window_callbacks);
         self.pending_main_menu_actions
             .append(&mut local.pending_main_menu_actions);
         match result {

@@ -2065,12 +2065,7 @@ fn message_box_system(
     data2: WindowMsgData,
     effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> WindowMsgHandled {
-    let system = cb::get_message_box_system();
-    let system = system.read().unwrap_or_else(|e| e.into_inner());
-    let standard = system.get_standard();
-    with_arc_write(&standard, |standard| {
-        standard.system(window, msg, data1, data2, effects)
-    })
+    cb::message_box_system_receiving(window, msg, data1, data2, effects)
 }
 
 fn extended_message_box_system(
@@ -2080,12 +2075,7 @@ fn extended_message_box_system(
     data2: WindowMsgData,
     effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> WindowMsgHandled {
-    let system = cb::get_message_box_system();
-    let system = system.read().unwrap_or_else(|e| e.into_inner());
-    let extended = system.get_extended();
-    with_arc_write(&extended, |extended| {
-        extended.system(window, msg, data1, data2, effects)
-    })
+    cb::extended_message_box_system_receiving(window, msg, data1, data2, effects)
 }
 
 fn quit_message_box_system(
@@ -2095,12 +2085,7 @@ fn quit_message_box_system(
     data2: WindowMsgData,
     effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> WindowMsgHandled {
-    let system = cb::get_message_box_system();
-    let system = system.read().unwrap_or_else(|e| e.into_inner());
-    let quit = system.get_quit();
-    with_arc_write(&quit, |quit| {
-        quit.system(window, msg, data1, data2, effects)
-    })
+    cb::quit_message_box_system_receiving(window, msg, data1, data2, effects)
 }
 
 fn disconnect_control_system(

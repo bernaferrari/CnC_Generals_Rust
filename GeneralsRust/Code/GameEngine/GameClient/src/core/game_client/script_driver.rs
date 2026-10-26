@@ -229,6 +229,7 @@ impl GameClient {
                 logic_frame: Some(logic_frame),
                 ui: self.subsystem_manager.in_game_ui.as_mut(),
                 payloads: Default::default(),
+                pending_window_callbacks: Default::default(),
                 diplomacy_world: None,
                 menus: Some(self.menu_manager.receiving_menus(self.input_authority)),
                 manager: None,

@@ -168,6 +168,7 @@ impl ControlBarInputContext<'_> {
             logic_frame: self.logic_frame,
             client_frame: self.client_frame,
             payloads: Default::default(),
+            pending_window_callbacks: Default::default(),
             diplomacy_world: self.diplomacy_world,
             menus: self.menus.as_mut().map(|menus| menus.reborrow()),
             ime: self.ime.as_deref_mut(),
@@ -194,6 +195,7 @@ impl ControlBarInputContext<'_> {
             &mut self.control_bar.tooltip,
         );
         effects.with_receiving_manager(manager, |effects| {
+            effects.complete_window_callbacks();
             effects.complete_pending_main_menu_actions();
         });
         result
@@ -249,9 +251,11 @@ impl WindowManager {
     ) -> WindowMsgHandled {
         emitted_messages.selected_window = Some(Rc::downgrade(window));
         emitted_messages.with_receiving_manager(self, |effects| {
-            window
+            let result = window
                 .borrow_mut()
-                .send_input_message_with_message_sink(msg, data1, data2, routed, effects, None)
+                .send_input_message_with_message_sink(msg, data1, data2, routed, effects, None);
+            effects.complete_window_callbacks();
+            result
         })
     }
 

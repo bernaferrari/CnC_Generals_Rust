@@ -12,7 +12,7 @@ use log::{debug, info, warn};
 use std::any::Any;
 use std::cell::RefCell;
 use std::rc::Rc;
-use std::sync::{Arc, RwLock};
+use std::rc::Weak;
 
 const MSG_BOX_YES: u16 = 0x01;
 const MSG_BOX_NO: u16 = 0x02;
@@ -216,6 +216,8 @@ pub struct MessageBoxCallbacks {
     message_type: MessageBoxType,
     result: Option<MessageBoxResult>,
     window_id: Option<WindowId>,
+    window: Option<Weak<RefCell<GameWindow>>>,
+    generation: u64,
 }
 
 impl MessageBoxCallbacks {
@@ -227,170 +229,18 @@ impl MessageBoxCallbacks {
             message_type: MessageBoxType::Ok,
             result: None,
             window_id: None,
+            window: None,
+            generation: 0,
         }
     }
 
     /// Handle message box system messages
-    pub fn system(
-        &mut self,
-        window: &mut GameWindow,
-        msg: WindowMessage,
-        data1: WindowMsgData,
-        data2: WindowMsgData,
-        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
-    ) -> WindowMsgHandled {
-        debug!(
-            "Message box system message: {:?} for window: {}",
-            msg,
-            window.get_name()
-        );
-
-        match msg {
-            WindowMessage::Destroy => {
-                self.visible = false;
-                self.window_id = None;
-                WindowMsgHandled::Handled
-            }
-            WindowMessage::InputFocus => {
-                if data1 != 0 {
-                    write_input_focus_response(data1, data2, true)
-                } else {
-                    WindowMsgHandled::Ignored
-                }
-            }
-            WindowMessage::GadgetSelected => {
-                let control_id = data1 as WindowId;
-                let button_ok_id =
-                    NameKeyGenerator::name_to_key("MessageBox.wnd:ButtonOk") as WindowId;
-                let button_yes_id =
-                    NameKeyGenerator::name_to_key("MessageBox.wnd:ButtonYes") as WindowId;
-                let button_no_id =
-                    NameKeyGenerator::name_to_key("MessageBox.wnd:ButtonNo") as WindowId;
-                let button_cancel_id =
-                    NameKeyGenerator::name_to_key("MessageBox.wnd:ButtonCancel") as WindowId;
-
-                if let Some(callbacks) = window.get_user_data::<WindowMessageBoxData>() {
-                    if control_id == button_ok_id {
-                        callbacks.call_ok(effects);
-                        self.result = Some(MessageBoxResult::Ok);
-                    } else if control_id == button_yes_id {
-                        callbacks.call_yes(effects);
-                        self.result = Some(MessageBoxResult::Yes);
-                    } else if control_id == button_no_id {
-                        callbacks.call_no(effects);
-                        self.result = Some(MessageBoxResult::No);
-                    } else if control_id == button_cancel_id {
-                        callbacks.call_cancel(effects);
-                        self.result = Some(MessageBoxResult::Cancel);
-                    }
-                } else if control_id == button_ok_id {
-                    self.result = Some(MessageBoxResult::Ok);
-                } else if control_id == button_yes_id {
-                    self.result = Some(MessageBoxResult::Yes);
-                } else if control_id == button_no_id {
-                    self.result = Some(MessageBoxResult::No);
-                } else if control_id == button_cancel_id {
-                    self.result = Some(MessageBoxResult::Cancel);
-                }
-
-                self.visible = false;
-                let window_id = window.get_id();
-                effects.with_manager(|manager, effects| {
-                    if let Some(handle) = manager.get_window_by_id(window_id) {
-                        let _ = manager.destroy_window(handle);
-                        manager.flush_destroy_queue(effects);
-                    }
-                });
-
-                WindowMsgHandled::Handled
-            }
-            _ => WindowMsgHandled::Ignored,
-        }
-    }
 
     /// Show message box with specified parameters
-    pub fn show_message_box(
-        &mut self,
-        title: &str,
-        message: &str,
-        message_type: MessageBoxType,
-        receiving_manager: &mut crate::gui::window_manager::WindowManager,
-        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        info!("Showing message box: '{}' - '{}'", title, message);
-
-        self.title = title.to_string();
-        self.message = message.to_string();
-        self.message_type = message_type;
-        self.visible = true;
-        self.result = None;
-
-        let button_flags = match self.message_type {
-            MessageBoxType::Ok => MSG_BOX_OK,
-            MessageBoxType::OkCancel => MSG_BOX_OK | MSG_BOX_CANCEL,
-            MessageBoxType::YesNo => MSG_BOX_YES | MSG_BOX_NO,
-            MessageBoxType::YesNoCancel => MSG_BOX_YES | MSG_BOX_NO | MSG_BOX_CANCEL,
-            MessageBoxType::RetryCancel => MSG_BOX_OK | MSG_BOX_CANCEL,
-            MessageBoxType::AbortRetryIgnore => MSG_BOX_OK | MSG_BOX_CANCEL,
-        };
-
-        let window = gogo_message_box(
-            -1,
-            -1,
-            -1,
-            -1,
-            button_flags,
-            &self.title,
-            &self.message,
-            None,
-            None,
-            None,
-            None,
-            false,
-            receiving_manager,
-            effects,
-        );
-        self.window_id = window.as_ref().map(|win| win.borrow().get_id());
-
-        Ok(())
-    }
 
     /// Hide message box
-    pub fn hide_message_box(
-        &mut self,
-        receiving_manager: &mut crate::gui::window_manager::WindowManager,
-        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        info!("Hiding message box");
-
-        self.visible = false;
-
-        if let Some(window_id) = self.window_id.take() {
-            (|manager: &mut crate::gui::window_manager::WindowManager| {
-                if let Some(handle) = manager.get_window_by_id(window_id) {
-                    let _ = manager.destroy_window(handle);
-                    manager.flush_destroy_queue(effects);
-                }
-            })(receiving_manager);
-        }
-
-        Ok(())
-    }
 
     /// Set message box result
-    pub fn set_result(
-        &mut self,
-        result: MessageBoxResult,
-        receiving_manager: &mut crate::gui::window_manager::WindowManager,
-        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        debug!("Setting message box result: {:?}", result);
-
-        self.result = Some(result);
-        self.hide_message_box(receiving_manager, effects)?;
-
-        Ok(())
-    }
 
     /// Get message box result (non-blocking)
     pub fn get_result(&self) -> Option<MessageBoxResult> {
@@ -443,146 +293,8 @@ impl ExtendedMessageBoxCallbacks {
     }
 
     /// Handle extended message box system messages
-    pub fn system(
-        &mut self,
-        window: &mut GameWindow,
-        msg: WindowMessage,
-        data1: WindowMsgData,
-        data2: WindowMsgData,
-        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
-    ) -> WindowMsgHandled {
-        debug!(
-            "Extended message box system message: {:?} for window: {}",
-            msg,
-            window.get_name()
-        );
-
-        match msg {
-            WindowMessage::Destroy => {
-                self.base.system(window, msg, data1, data2, effects);
-                WindowMsgHandled::Handled
-            }
-            WindowMessage::InputFocus => {
-                if data1 != 0 {
-                    write_input_focus_response(data1, data2, true)
-                } else {
-                    WindowMsgHandled::Ignored
-                }
-            }
-            WindowMessage::GadgetSelected => {
-                let control_id = data1 as WindowId;
-                let button_ok_id =
-                    NameKeyGenerator::name_to_key("MessageBox.wnd:ButtonOk") as WindowId;
-                let button_yes_id =
-                    NameKeyGenerator::name_to_key("MessageBox.wnd:ButtonYes") as WindowId;
-                let button_no_id =
-                    NameKeyGenerator::name_to_key("MessageBox.wnd:ButtonNo") as WindowId;
-                let button_cancel_id =
-                    NameKeyGenerator::name_to_key("MessageBox.wnd:ButtonCancel") as WindowId;
-
-                let mut close = true;
-                if let Some(callbacks) = window.get_user_data::<WindowExMessageBoxData>() {
-                    let result = if control_id == button_ok_id {
-                        self.base.result = Some(MessageBoxResult::Ok);
-                        callbacks.call_ok(effects)
-                    } else if control_id == button_yes_id {
-                        self.base.result = Some(MessageBoxResult::Yes);
-                        callbacks.call_yes(effects)
-                    } else if control_id == button_no_id {
-                        self.base.result = Some(MessageBoxResult::No);
-                        callbacks.call_no(effects)
-                    } else if control_id == button_cancel_id {
-                        self.base.result = Some(MessageBoxResult::Cancel);
-                        callbacks.call_cancel(effects)
-                    } else {
-                        MessageBoxReturnType::Close
-                    };
-                    close = result == MessageBoxReturnType::Close;
-                } else {
-                    if control_id == button_ok_id {
-                        self.base.result = Some(MessageBoxResult::Ok);
-                    } else if control_id == button_yes_id {
-                        self.base.result = Some(MessageBoxResult::Yes);
-                    } else if control_id == button_no_id {
-                        self.base.result = Some(MessageBoxResult::No);
-                    } else if control_id == button_cancel_id {
-                        self.base.result = Some(MessageBoxResult::Cancel);
-                    }
-                }
-
-                self.base.visible = !close;
-                if close {
-                    let window_id = window.get_id();
-                    effects.with_manager(|manager, effects| {
-                        if let Some(handle) = manager.get_window_by_id(window_id) {
-                            let _ = manager.destroy_window(handle);
-                            manager.flush_destroy_queue(effects);
-                        }
-                    });
-                }
-
-                WindowMsgHandled::Handled
-            }
-            _ => self.base.system(window, msg, data1, data2, effects),
-        }
-    }
 
     /// Show extended message box with timeout and default button
-    pub fn show_extended_message_box(
-        &mut self,
-        title: &str,
-        message: &str,
-        message_type: MessageBoxType,
-        timeout: Option<u32>,
-        default_button: Option<MessageBoxButton>,
-        icon_type: &str,
-        receiving_manager: &mut crate::gui::window_manager::WindowManager,
-        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        info!(
-            "Showing extended message box: '{}' with timeout: {:?}, default: {:?}",
-            title, timeout, default_button
-        );
-
-        self.timeout = timeout;
-        self.default_button = default_button;
-        self.icon_type = icon_type.to_string();
-
-        self.base.title = title.to_string();
-        self.base.message = message.to_string();
-        self.base.message_type = message_type;
-        self.base.visible = true;
-        self.base.result = None;
-
-        let button_flags = match self.base.message_type {
-            MessageBoxType::Ok => MSG_BOX_OK,
-            MessageBoxType::OkCancel => MSG_BOX_OK | MSG_BOX_CANCEL,
-            MessageBoxType::YesNo => MSG_BOX_YES | MSG_BOX_NO,
-            MessageBoxType::YesNoCancel => MSG_BOX_YES | MSG_BOX_NO | MSG_BOX_CANCEL,
-            MessageBoxType::RetryCancel => MSG_BOX_OK | MSG_BOX_CANCEL,
-            MessageBoxType::AbortRetryIgnore => MSG_BOX_OK | MSG_BOX_CANCEL,
-        };
-
-        let window = gogo_ex_message_box(
-            -1,
-            -1,
-            -1,
-            -1,
-            button_flags,
-            &self.base.title,
-            &self.base.message,
-            None,
-            None,
-            None,
-            None,
-            None,
-            receiving_manager,
-            effects,
-        );
-        self.base.window_id = window.as_ref().map(|win| win.borrow().get_id());
-
-        Ok(())
-    }
 
     /// Get timeout value
     pub fn get_timeout(&self) -> Option<u32> {
@@ -600,22 +312,6 @@ impl ExtendedMessageBoxCallbacks {
     }
 
     /// Delegate methods to base implementation
-    pub fn hide_message_box(
-        &mut self,
-        receiving_manager: &mut crate::gui::window_manager::WindowManager,
-        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        self.base.hide_message_box(receiving_manager, effects)
-    }
-
-    pub fn set_result(
-        &mut self,
-        result: MessageBoxResult,
-        receiving_manager: &mut crate::gui::window_manager::WindowManager,
-        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        self.base.set_result(result, receiving_manager, effects)
-    }
 
     pub fn get_result(&self) -> Option<MessageBoxResult> {
         self.base.get_result()
@@ -659,109 +355,8 @@ impl QuitMessageBoxCallbacks {
     }
 
     /// Handle quit message box system messages
-    pub fn system(
-        &mut self,
-        window: &mut GameWindow,
-        msg: WindowMessage,
-        data1: WindowMsgData,
-        data2: WindowMsgData,
-        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
-    ) -> WindowMsgHandled {
-        debug!(
-            "Quit message box system message: {:?} for window: {}",
-            msg,
-            window.get_name()
-        );
-
-        match msg {
-            WindowMessage::Destroy => {
-                self.base.system(window, msg, data1, data2, effects);
-                WindowMsgHandled::Handled
-            }
-            WindowMessage::InputFocus => {
-                if data1 != 0 {
-                    write_input_focus_response(data1, data2, true)
-                } else {
-                    WindowMsgHandled::Ignored
-                }
-            }
-            WindowMessage::GadgetSelected => {
-                let control_id = data1 as WindowId;
-                let button_ok_id =
-                    NameKeyGenerator::name_to_key("QuitMessageBox.wnd:ButtonOk") as WindowId;
-                let button_yes_id =
-                    NameKeyGenerator::name_to_key("QuitMessageBox.wnd:ButtonYes") as WindowId;
-                let button_no_id =
-                    NameKeyGenerator::name_to_key("QuitMessageBox.wnd:ButtonNo") as WindowId;
-                let button_cancel_id =
-                    NameKeyGenerator::name_to_key("QuitMessageBox.wnd:ButtonCancel") as WindowId;
-
-                if let Some(callbacks) = window.get_user_data::<WindowMessageBoxData>() {
-                    if control_id == button_ok_id {
-                        callbacks.call_ok(effects);
-                        self.base.result = Some(MessageBoxResult::Ok);
-                    } else if control_id == button_yes_id {
-                        callbacks.call_yes(effects);
-                        self.base.result = Some(MessageBoxResult::Yes);
-                    } else if control_id == button_no_id {
-                        callbacks.call_no(effects);
-                        self.base.result = Some(MessageBoxResult::No);
-                    } else if control_id == button_cancel_id {
-                        callbacks.call_cancel(effects);
-                        self.base.result = Some(MessageBoxResult::Cancel);
-                    }
-                } else if control_id == button_ok_id {
-                    self.base.result = Some(MessageBoxResult::Ok);
-                } else if control_id == button_yes_id {
-                    self.base.result = Some(MessageBoxResult::Yes);
-                } else if control_id == button_no_id {
-                    self.base.result = Some(MessageBoxResult::No);
-                } else if control_id == button_cancel_id {
-                    self.base.result = Some(MessageBoxResult::Cancel);
-                }
-
-                self.base.visible = false;
-                let window_id = window.get_id();
-                effects.with_manager(|manager, effects| {
-                    if let Some(handle) = manager.get_window_by_id(window_id) {
-                        let _ = manager.destroy_window(handle);
-                        manager.flush_destroy_queue(effects);
-                    }
-                });
-
-                WindowMsgHandled::Handled
-            }
-            _ => WindowMsgHandled::Ignored,
-        }
-    }
 
     /// Show quit confirmation dialog
-    pub fn show_quit_dialog(
-        &mut self,
-        force_quit: bool,
-        receiving_manager: &mut crate::gui::window_manager::WindowManager,
-        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        info!("Showing quit dialog (force: {})", force_quit);
-
-        self.force_quit = force_quit;
-
-        let message = if force_quit {
-            "Are you sure you want to quit immediately?"
-        } else {
-            "Are you sure you want to quit? Any unsaved progress will be lost."
-        };
-
-        let window =
-            quit_message_box_yes_no("Quit Game", message, None, None, receiving_manager, effects);
-        self.base.visible = true;
-        self.base.title = "Quit Game".to_string();
-        self.base.message = message.to_string();
-        self.base.message_type = MessageBoxType::YesNo;
-        self.base.window_id = window.as_ref().map(|win| win.borrow().get_id());
-
-        Ok(())
-    }
 
     /// Process quit result
     pub fn process_quit_result(&mut self) -> Result<Option<bool>, Box<dyn std::error::Error>> {
@@ -791,22 +386,6 @@ impl QuitMessageBoxCallbacks {
     }
 
     /// Delegate methods to base implementation
-    pub fn hide_message_box(
-        &mut self,
-        receiving_manager: &mut crate::gui::window_manager::WindowManager,
-        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        self.base.hide_message_box(receiving_manager, effects)
-    }
-
-    pub fn set_result(
-        &mut self,
-        result: MessageBoxResult,
-        receiving_manager: &mut crate::gui::window_manager::WindowManager,
-        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        self.base.set_result(result, receiving_manager, effects)
-    }
 
     pub fn get_result(&self) -> Option<MessageBoxResult> {
         self.base.get_result()
@@ -1037,13 +616,25 @@ fn gogo_message_box_in(
 
     true_parent
         .borrow_mut()
-        .set_user_data(WindowMessageBoxData::new(
+        .set_user_data(Rc::new(WindowMessageBoxData::new(
             yes_callback,
             no_callback,
             ok_callback,
             cancel_callback,
-        ));
+        )));
 
+    bind_created(
+        if use_logo {
+            MessageBoxLane::Quit
+        } else {
+            MessageBoxLane::Standard
+        },
+        &true_parent,
+        title,
+        body,
+        button_flags,
+        effects,
+    );
     let _ = parent.borrow_mut().show();
     let _ = parent.borrow_mut().bring_to_front();
 
@@ -1171,21 +762,23 @@ fn gogo_ex_message_box(
 
         parent
             .borrow_mut()
-            .set_user_data(WindowExMessageBoxData::new(
+            .set_user_data(Rc::new(WindowExMessageBoxData::new(
                 yes_callback,
                 no_callback,
                 ok_callback,
                 cancel_callback,
                 user_data,
-            ));
-        parent.borrow_mut().set_system_callback_with_message_sink(
-            |window, msg, data1, data2, effects| {
-                let system = get_message_box_system();
-                let system = system.read().unwrap_or_else(|e| e.into_inner());
-                let extended = system.get_extended().clone();
-                let mut extended_guard = extended.write().unwrap_or_else(|e| e.into_inner());
-                extended_guard.system(window, msg, data1, data2, effects)
-            },
+            )));
+        parent
+            .borrow_mut()
+            .set_system_callback_with_message_sink(extended_message_box_system_receiving);
+        bind_created(
+            MessageBoxLane::Extended,
+            &parent,
+            title,
+            body,
+            button_flags,
+            effects,
         );
 
         let _ = parent.borrow_mut().show();
@@ -1317,7 +910,7 @@ pub(crate) fn replay_version_confirmation_in(
         false,
         effects,
     ) {
-        if let Some(data) = window.borrow().get_user_data::<WindowMessageBoxData>() {
+        if let Some(data) = window.borrow().get_user_data::<Rc<WindowMessageBoxData>>() {
             *data.owned_replay.borrow_mut() = Some(
                 super::replay_menu::ingress::ReplayMenuStep::Playback(playback),
             );
@@ -1345,7 +938,7 @@ pub(crate) fn restart_confirmation_in(
         false,
         effects,
     ) {
-        if let Some(data) = window.borrow().get_user_data::<WindowMessageBoxData>() {
+        if let Some(data) = window.borrow().get_user_data::<Rc<WindowMessageBoxData>>() {
             *data.owned_replay.borrow_mut() =
                 Some(super::replay_menu::ingress::ReplayMenuStep::Restart);
         }
@@ -1366,7 +959,7 @@ pub fn message_box_restart_confirmation(
         receiving_manager,
         effects,
     ) {
-        if let Some(data) = window.borrow().get_user_data::<WindowMessageBoxData>() {
+        if let Some(data) = window.borrow().get_user_data::<Rc<WindowMessageBoxData>>() {
             *data.owned_replay.borrow_mut() =
                 Some(super::replay_menu::ingress::ReplayMenuStep::Restart);
         }
@@ -1388,7 +981,7 @@ pub fn message_box_replay_confirmation(
         receiving_manager,
         effects,
     ) {
-        if let Some(data) = window.borrow().get_user_data::<WindowMessageBoxData>() {
+        if let Some(data) = window.borrow().get_user_data::<Rc<WindowMessageBoxData>>() {
             *data.owned_replay.borrow_mut() = Some(
                 super::replay_menu::ingress::ReplayMenuStep::Playback(playback),
             );
@@ -1607,50 +1200,35 @@ pub fn ex_message_box_cancel(
 }
 
 /// Combined message box system
+/// Plain callback metadata belonging to one receiving client.
+#[derive(Default)]
 pub struct MessageBoxSystem {
-    standard: Arc<RwLock<MessageBoxCallbacks>>,
-    extended: Arc<RwLock<ExtendedMessageBoxCallbacks>>,
-    quit: Arc<RwLock<QuitMessageBoxCallbacks>>,
+    standard: MessageBoxCallbacks,
+    extended: ExtendedMessageBoxCallbacks,
+    quit: QuitMessageBoxCallbacks,
+    last_action: ResidualMessageBoxAction,
 }
-
 impl MessageBoxSystem {
     pub fn new() -> Self {
-        Self {
-            standard: Arc::new(RwLock::new(MessageBoxCallbacks::new())),
-            extended: Arc::new(RwLock::new(ExtendedMessageBoxCallbacks::new())),
-            quit: Arc::new(RwLock::new(QuitMessageBoxCallbacks::new())),
-        }
+        Self::default()
     }
-
-    pub fn get_standard(&self) -> Arc<RwLock<MessageBoxCallbacks>> {
-        self.standard.clone()
+    pub fn get_standard(&self) -> &MessageBoxCallbacks {
+        &self.standard
     }
-
-    pub fn get_extended(&self) -> Arc<RwLock<ExtendedMessageBoxCallbacks>> {
-        self.extended.clone()
+    pub fn get_extended(&self) -> &ExtendedMessageBoxCallbacks {
+        &self.extended
     }
-
-    pub fn get_quit(&self) -> Arc<RwLock<QuitMessageBoxCallbacks>> {
-        self.quit.clone()
+    pub fn get_quit(&self) -> &QuitMessageBoxCallbacks {
+        &self.quit
     }
 }
-
-impl Default for MessageBoxSystem {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-/// Global message box system instance
-lazy_static::lazy_static! {
-    pub static ref THE_MESSAGE_BOX_SYSTEM: Arc<RwLock<MessageBoxSystem>> =
-        Arc::new(RwLock::new(MessageBoxSystem::new()));
-}
-
-/// Helper function to get the global message box system
-pub fn get_message_box_system() -> Arc<RwLock<MessageBoxSystem>> {
-    THE_MESSAGE_BOX_SYSTEM.clone()
-}
+mod owner;
+pub(crate) use owner::PendingMessageBox;
+use owner::{MessageBoxLane, bind_created};
+pub use owner::{
+    extended_message_box_system_receiving, message_box_system_receiving,
+    quit_message_box_system_receiving,
+};
 
 #[cfg(test)]
 mod tests {
@@ -1748,7 +1326,7 @@ mod tests {
         assert!(
             window
                 .borrow()
-                .get_user_data::<WindowMessageBoxData>()
+                .get_user_data::<Rc<WindowMessageBoxData>>()
                 .is_some()
         );
         let menu = if use_logo {
@@ -1872,58 +1450,20 @@ pub enum ResidualMessageBoxAction {
     Hide = 9,
 }
 
-static RESIDUAL_MSGBOX_ACTION: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
-static RESIDUAL_MSGBOX_VISIBLE: std::sync::atomic::AtomicBool =
-    std::sync::atomic::AtomicBool::new(false);
-static RESIDUAL_MSGBOX_TYPE: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
-
-fn residual_msgbox_action_store(action: ResidualMessageBoxAction) {
-    RESIDUAL_MSGBOX_ACTION.store(action as u8, std::sync::atomic::Ordering::Relaxed);
+pub fn residual_message_box_last_action(owner: &MessageBoxSystem) -> ResidualMessageBoxAction {
+    owner.last_action
 }
-
-/// Residual: last MessageBox residual action.
-pub fn residual_message_box_last_action() -> ResidualMessageBoxAction {
-    match RESIDUAL_MSGBOX_ACTION.load(std::sync::atomic::Ordering::Relaxed) {
-        1 => ResidualMessageBoxAction::ShowOk,
-        2 => ResidualMessageBoxAction::ShowYesNo,
-        3 => ResidualMessageBoxAction::ShowOkCancel,
-        4 => ResidualMessageBoxAction::ShowYesNoCancel,
-        5 => ResidualMessageBoxAction::Ok,
-        6 => ResidualMessageBoxAction::Yes,
-        7 => ResidualMessageBoxAction::No,
-        8 => ResidualMessageBoxAction::Cancel,
-        9 => ResidualMessageBoxAction::Hide,
-        _ => ResidualMessageBoxAction::None,
-    }
+pub fn residual_message_box_is_visible(owner: &MessageBoxSystem) -> bool {
+    owner.standard.visible
 }
-
-/// Residual: MessageBox visibility latch (independent of live layout).
-pub fn residual_message_box_is_visible() -> bool {
-    RESIDUAL_MSGBOX_VISIBLE.load(std::sync::atomic::Ordering::Relaxed)
-}
-
-/// Residual: last residual MessageBoxType discriminant (0=Ok,1=OkCancel,2=YesNo,3=YesNoCancel).
-pub fn residual_message_box_type_ordinal() -> u8 {
-    RESIDUAL_MSGBOX_TYPE.load(std::sync::atomic::Ordering::Relaxed)
-}
-
-fn residual_message_box_type_store(message_type: MessageBoxType) {
-    let ord = match message_type {
+pub fn residual_message_box_type_ordinal(owner: &MessageBoxSystem) -> u8 {
+    match owner.standard.message_type {
         MessageBoxType::Ok => 0,
         MessageBoxType::OkCancel => 1,
         MessageBoxType::YesNo => 2,
         MessageBoxType::YesNoCancel => 3,
         _ => 0,
-    };
-    RESIDUAL_MSGBOX_TYPE.store(ord, std::sync::atomic::Ordering::Relaxed);
-}
-
-fn with_standard_message_box_mut<R>(f: impl FnOnce(&mut MessageBoxCallbacks) -> R) -> R {
-    let system = get_message_box_system();
-    let system = system.read().unwrap_or_else(|e| e.into_inner());
-    let standard = system.get_standard();
-    let mut standard = standard.write().unwrap_or_else(|e| e.into_inner());
-    f(&mut standard)
+    }
 }
 
 /// Residual: bind MessageBox control name keys (no layout load).
@@ -1936,166 +1476,148 @@ pub fn simulate_message_box_bind_controls() -> bool {
     true
 }
 
-/// Residual: show Ok message box without creating MessageBox.wnd.
-pub fn simulate_message_box_show_ok(title: &str, body: &str) -> bool {
-    with_standard_message_box_mut(|mb| {
+fn residual_show(
+    title: &str,
+    body: &str,
+    kind: MessageBoxType,
+    action: ResidualMessageBoxAction,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
+    effects.with_message_boxes(|owner| {
+        let mb = &mut owner.standard;
         mb.visible = true;
-        mb.title = title.to_string();
-        mb.message = body.to_string();
-        mb.message_type = MessageBoxType::Ok;
+        mb.title = title.into();
+        mb.message = body.into();
+        mb.message_type = kind;
         mb.result = None;
-        residual_message_box_type_store(MessageBoxType::Ok);
-        RESIDUAL_MSGBOX_VISIBLE.store(true, std::sync::atomic::Ordering::Relaxed);
-        residual_msgbox_action_store(ResidualMessageBoxAction::ShowOk);
-        true
-    })
+        owner.last_action = action;
+    });
+    true
 }
-
-/// Residual: show Yes/No message box without creating layout.
-pub fn simulate_message_box_show_yes_no(title: &str, body: &str) -> bool {
-    with_standard_message_box_mut(|mb| {
-        mb.visible = true;
-        mb.title = title.to_string();
-        mb.message = body.to_string();
-        mb.message_type = MessageBoxType::YesNo;
-        mb.result = None;
-        residual_message_box_type_store(MessageBoxType::YesNo);
-        RESIDUAL_MSGBOX_VISIBLE.store(true, std::sync::atomic::Ordering::Relaxed);
-        residual_msgbox_action_store(ResidualMessageBoxAction::ShowYesNo);
-        true
-    })
+pub fn simulate_message_box_show_ok(
+    title: &str,
+    body: &str,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
+    residual_show(
+        title,
+        body,
+        MessageBoxType::Ok,
+        ResidualMessageBoxAction::ShowOk,
+        effects,
+    )
 }
-
-/// Residual: show Ok/Cancel message box without creating layout.
-pub fn simulate_message_box_show_ok_cancel(title: &str, body: &str) -> bool {
-    with_standard_message_box_mut(|mb| {
-        mb.visible = true;
-        mb.title = title.to_string();
-        mb.message = body.to_string();
-        mb.message_type = MessageBoxType::OkCancel;
-        mb.result = None;
-        residual_message_box_type_store(MessageBoxType::OkCancel);
-        RESIDUAL_MSGBOX_VISIBLE.store(true, std::sync::atomic::Ordering::Relaxed);
-        residual_msgbox_action_store(ResidualMessageBoxAction::ShowOkCancel);
-        true
-    })
+pub fn simulate_message_box_show_yes_no(
+    title: &str,
+    body: &str,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
+    residual_show(
+        title,
+        body,
+        MessageBoxType::YesNo,
+        ResidualMessageBoxAction::ShowYesNo,
+        effects,
+    )
 }
-
-/// Residual: show Yes/No/Cancel message box without creating layout.
-pub fn simulate_message_box_show_yes_no_cancel(title: &str, body: &str) -> bool {
-    with_standard_message_box_mut(|mb| {
-        mb.visible = true;
-        mb.title = title.to_string();
-        mb.message = body.to_string();
-        mb.message_type = MessageBoxType::YesNoCancel;
-        mb.result = None;
-        residual_message_box_type_store(MessageBoxType::YesNoCancel);
-        RESIDUAL_MSGBOX_VISIBLE.store(true, std::sync::atomic::Ordering::Relaxed);
-        residual_msgbox_action_store(ResidualMessageBoxAction::ShowYesNoCancel);
-        true
-    })
+pub fn simulate_message_box_show_ok_cancel(
+    title: &str,
+    body: &str,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
+    residual_show(
+        title,
+        body,
+        MessageBoxType::OkCancel,
+        ResidualMessageBoxAction::ShowOkCancel,
+        effects,
+    )
 }
-
-/// Residual: fire ButtonOk without callback/window destroy.
+pub fn simulate_message_box_show_yes_no_cancel(
+    title: &str,
+    body: &str,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
+    residual_show(
+        title,
+        body,
+        MessageBoxType::YesNoCancel,
+        ResidualMessageBoxAction::ShowYesNoCancel,
+        effects,
+    )
+}
+fn residual_result(
+    result: MessageBoxResult,
+    action: ResidualMessageBoxAction,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
+    effects.with_message_boxes(|o| {
+        o.standard.result = Some(result);
+        o.standard.visible = false;
+        o.last_action = action;
+    });
+    true
+}
 pub fn simulate_message_box_ok_button_gadget_selected(
-    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    _manager: &mut crate::gui::window_manager::WindowManager,
     effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> bool {
-    with_standard_message_box_mut(|mb| {
-        let _ = mb.set_result(MessageBoxResult::Ok, receiving_manager, effects);
-        mb.visible = false;
-        RESIDUAL_MSGBOX_VISIBLE.store(false, std::sync::atomic::Ordering::Relaxed);
-        residual_msgbox_action_store(ResidualMessageBoxAction::Ok);
-        true
-    })
+    residual_result(MessageBoxResult::Ok, ResidualMessageBoxAction::Ok, effects)
 }
-
-/// Residual: fire ButtonYes without callback/window destroy.
 pub fn simulate_message_box_yes_button_gadget_selected(
-    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    _manager: &mut crate::gui::window_manager::WindowManager,
     effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> bool {
-    with_standard_message_box_mut(|mb| {
-        let _ = mb.set_result(MessageBoxResult::Yes, receiving_manager, effects);
-        mb.visible = false;
-        RESIDUAL_MSGBOX_VISIBLE.store(false, std::sync::atomic::Ordering::Relaxed);
-        residual_msgbox_action_store(ResidualMessageBoxAction::Yes);
-        true
-    })
+    residual_result(
+        MessageBoxResult::Yes,
+        ResidualMessageBoxAction::Yes,
+        effects,
+    )
 }
-
-/// Residual: fire ButtonNo without callback/window destroy.
 pub fn simulate_message_box_no_button_gadget_selected(
-    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    _manager: &mut crate::gui::window_manager::WindowManager,
     effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> bool {
-    with_standard_message_box_mut(|mb| {
-        let _ = mb.set_result(MessageBoxResult::No, receiving_manager, effects);
-        mb.visible = false;
-        RESIDUAL_MSGBOX_VISIBLE.store(false, std::sync::atomic::Ordering::Relaxed);
-        residual_msgbox_action_store(ResidualMessageBoxAction::No);
-        true
-    })
+    residual_result(MessageBoxResult::No, ResidualMessageBoxAction::No, effects)
 }
-
-/// Residual: fire ButtonCancel without callback/window destroy.
 pub fn simulate_message_box_cancel_button_gadget_selected(
-    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    _manager: &mut crate::gui::window_manager::WindowManager,
     effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> bool {
-    with_standard_message_box_mut(|mb| {
-        let _ = mb.set_result(MessageBoxResult::Cancel, receiving_manager, effects);
-        mb.visible = false;
-        RESIDUAL_MSGBOX_VISIBLE.store(false, std::sync::atomic::Ordering::Relaxed);
-        residual_msgbox_action_store(ResidualMessageBoxAction::Cancel);
-        true
-    })
+    residual_result(
+        MessageBoxResult::Cancel,
+        ResidualMessageBoxAction::Cancel,
+        effects,
+    )
 }
-
-/// Residual: hide message box without layout destroy.
-pub fn simulate_message_box_hide() -> bool {
-    with_standard_message_box_mut(|mb| {
-        mb.visible = false;
-        RESIDUAL_MSGBOX_VISIBLE.store(false, std::sync::atomic::Ordering::Relaxed);
-        residual_msgbox_action_store(ResidualMessageBoxAction::Hide);
-        true
-    })
+pub fn simulate_message_box_hide(
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
+    effects.with_message_boxes(|o| {
+        o.standard.visible = false;
+        o.last_action = ResidualMessageBoxAction::Hide;
+    });
+    true
 }
-
-/// Residual: Yes/No show + Yes composite (quit confirm honesty).
 pub fn simulate_message_box_prepare_yes(
     title: &str,
     body: &str,
-    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    manager: &mut crate::gui::window_manager::WindowManager,
     effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> bool {
-    if !simulate_message_box_bind_controls() {
-        return false;
-    }
-    if !simulate_message_box_show_yes_no(title, body) {
-        return false;
-    }
-    simulate_message_box_yes_button_gadget_selected(receiving_manager, effects)
+    simulate_message_box_show_yes_no(title, body, effects)
+        && simulate_message_box_yes_button_gadget_selected(manager, effects)
 }
-
-/// Residual: Ok show + Ok composite.
 pub fn simulate_message_box_prepare_ok(
     title: &str,
     body: &str,
-    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    manager: &mut crate::gui::window_manager::WindowManager,
     effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> bool {
-    if !simulate_message_box_bind_controls() {
-        return false;
-    }
-    if !simulate_message_box_show_ok(title, body) {
-        return false;
-    }
-    simulate_message_box_ok_button_gadget_selected(receiving_manager, effects)
+    simulate_message_box_show_ok(title, body, effects)
+        && simulate_message_box_ok_button_gadget_selected(manager, effects)
 }
 
-/// Human click-through: OS LeftDown/Up on a retail `MessageBox.wnd:*` gadget
-/// (C++ WindowXlat hit → GBM_SELECTED). Not `simulate_*` first.
 fn drive_os_wnd_message_box_named(
     name: &str,
     latch: impl FnOnce(
@@ -2165,7 +1687,7 @@ pub fn drive_os_wnd_message_box_prepare_yes_like_cpp(
         return false;
     }
     if !clicked_yes {
-        let _ = simulate_message_box_show_yes_no(title, body);
+        let _ = simulate_message_box_show_yes_no(title, body, effects);
         return drive_os_wnd_message_box_yes_like_cpp(effects)
             || effects.with_manager(|manager, effects| {
                 simulate_message_box_prepare_yes(title, body, manager, effects)
@@ -2188,7 +1710,7 @@ pub fn drive_os_wnd_message_box_prepare_ok_like_cpp(
         return false;
     }
     if !clicked_ok {
-        let _ = simulate_message_box_show_ok(title, body);
+        let _ = simulate_message_box_show_ok(title, body, effects);
         return drive_os_wnd_message_box_ok_like_cpp(effects)
             || effects.with_manager(|manager, effects| {
                 simulate_message_box_prepare_ok(title, body, manager, effects)
@@ -2239,5 +1761,11 @@ mod os_wnd_tests {
             residual_message_box_last_action(),
             ResidualMessageBoxAction::Ok
         );
+    }
+}
+
+impl Default for ResidualMessageBoxAction {
+    fn default() -> Self {
+        Self::None
     }
 }

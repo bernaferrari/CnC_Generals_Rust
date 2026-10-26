@@ -30439,13 +30439,19 @@
         {
           "blockers": [
             "unreviewed_mapping",
-            "unreviewed_symbol_ownership"
+            "unreviewed_symbol_ownership",
+            "unreviewed_source_range_ownership"
           ],
           "candidate_destinations": [
             {
               "cargo_reachable": true,
               "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/callbacks/message_box.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/callbacks/message_box/owner.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameClient/GUI/GUICallbacks/MessageBox.cpp",
@@ -190172,7 +190178,7 @@
       ]
     }
   ],
-  "provenance_input_digest": "6efde7f45b739fda5135663f499320d4efc8fdb94b801a051c1d46e1e8d70ced",
+  "provenance_input_digest": "d31d6742da224d9632aa82c1b5ed530a3880882e3e27ea68788df564d54aaca1",
   "schema_version": 1,
   "summary": {
     "maximum_packet_size": 15,

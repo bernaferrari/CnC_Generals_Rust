@@ -276,7 +276,6 @@ pub use callbacks::{
     ex_message_box_yes_no,
     ex_message_box_yes_no_cancel,
 
-    get_message_box_system,
     hide_control_bar,
     hide_diplomacy,
     hide_in_game_chat,

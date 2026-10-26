@@ -2387,6 +2387,7 @@ mod tests {
                     crate::gui::control_bar::HostControlBarInputProvenance::InjectedOrUnknown,
                 standalone_view: None,
                 payloads: Default::default(),
+                pending_window_callbacks: Default::default(),
                 diplomacy_world: None,
                 menus: None,
                 ime: None,

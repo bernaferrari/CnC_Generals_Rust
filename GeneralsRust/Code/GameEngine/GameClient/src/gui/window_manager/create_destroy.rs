@@ -277,7 +277,13 @@ impl WindowManager {
         }
 
         // Remove from lookup table
-        self.window_by_id.remove(&window_id);
+        if self
+            .window_by_id
+            .get(&window_id)
+            .is_some_and(|stored| std::ptr::eq(stored.as_ptr(), Rc::as_ptr(&window)))
+        {
+            self.window_by_id.remove(&window_id);
+        }
 
         // Remove from owning layout
         let layout = window.borrow().get_layout();

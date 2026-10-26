@@ -190,7 +190,9 @@ impl WindowManagerOwner {
         effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) {
         loop {
+            effects.complete_window_callbacks();
             self.complete_window_callbacks(effects);
+            effects.complete_window_callbacks();
             self.with_shell_effects_mut(effects, |_, _| ())
                 .expect("WND event must release receiving Shell before callback replay");
             // Core replay admission is a specific owned continuation. Release
@@ -202,6 +204,7 @@ impl WindowManagerOwner {
             }
             if self.state.operations.borrow().is_empty()
                 && self.state.shell_operations.borrow().is_empty()
+                && !effects.has_pending_window_callbacks()
             {
                 return;
             }
@@ -519,6 +522,7 @@ pub fn dispatch_translated_window_input_for_owner(
             logic_frame: context.logic_frame,
             client_frame: context.client_frame,
             payloads: Default::default(),
+            pending_window_callbacks: Default::default(),
             diplomacy_world: None,
             menus: context.menus.as_mut().map(|menus| menus.reborrow()),
             ime: context.ime.as_deref_mut(),

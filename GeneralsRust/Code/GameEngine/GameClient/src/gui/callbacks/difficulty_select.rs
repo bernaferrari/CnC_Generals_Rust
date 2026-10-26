@@ -10,9 +10,10 @@ use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::user_preferences::UserPreferences;
 use std::cell::RefCell;
 use std::rc::Rc;
-use std::sync::{Arc, Mutex};
 
-struct DifficultySelectMenuState {
+pub struct DifficultySelectMenuState {
+    residual_action: u8,
+    residual_level: u8,
     parent_id: i32,
     button_ok_id: i32,
     button_cancel_id: i32,
@@ -26,6 +27,8 @@ struct DifficultySelectMenuState {
 impl Default for DifficultySelectMenuState {
     fn default() -> Self {
         Self {
+            residual_action: 0,
+            residual_level: 1,
             parent_id: 0,
             button_ok_id: 0,
             button_cancel_id: 0,
@@ -36,13 +39,6 @@ impl Default for DifficultySelectMenuState {
             selected_difficulty: GameDifficulty::Normal,
         }
     }
-}
-
-// THREAD: main thread only — the state owns `Rc` window handles (already
-// `!Send`); the cell replaces the lock-wrapped `Arc` around it.
-thread_local! {
-    static DIFFICULTY_SELECT_STATE: RefCell<DifficultySelectMenuState> =
-        RefCell::new(DifficultySelectMenuState::default());
 }
 
 fn name_to_id(name: &str) -> i32 {
@@ -80,8 +76,8 @@ fn script_engine_available() -> bool {
         .unwrap_or(false)
 }
 
-fn load_campaign_difficulty() -> GameDifficulty {
-    if !script_engine_available() {
+fn load_campaign_difficulty(script_engine_present: bool) -> GameDifficulty {
+    if !script_engine_present {
         return GameDifficulty::Normal;
     }
 
@@ -128,109 +124,142 @@ fn sync_radio_buttons(
     })(receiving_manager);
 }
 
-fn destroy_current_layout(
-    window: &GameWindow,
-    receiving_manager: &mut crate::gui::window_manager::WindowManager,
-    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
-) {
-    if let Some(layout) = window.get_layout() {
-        (|manager: &mut crate::gui::window_manager::WindowManager| {
-            manager.destroy_layout(&layout, effects)
-        })(receiving_manager);
+/// Owned source-specific continuation, run synchronously after the source
+/// GameWindow loan ends, before the next routed input operation.
+pub(crate) struct PendingDifficultySelect {
+    parent: Option<std::rc::Weak<RefCell<GameWindow>>>,
+    layout: Option<std::rc::Weak<RefCell<WindowLayout>>>,
+    parent_id: i32,
+    start: bool,
+}
+impl PendingDifficultySelect {
+    pub(crate) fn complete(self, effects: &mut crate::gui::game_window::WindowEventEffects<'_>) {
+        let parent = match self.parent {
+            Some(receipt) => match receipt.upgrade() {
+                Some(parent) => Some(parent),
+                None => return,
+            },
+            None => None,
+        };
+        let valid = effects.with_manager(|manager, _effects| {
+            if let Some(parent) = parent.as_ref() {
+                if !manager
+                    .get_window_by_id(self.parent_id)
+                    .is_some_and(|current| Rc::ptr_eq(&current, parent))
+                {
+                    return false;
+                }
+                let _ = manager.unset_modal(parent);
+            }
+            true
+        });
+        if !valid {
+            return;
+        }
+        if let Some(receipt) = self.layout {
+            let Some(layout) = receipt.upgrade() else {
+                return;
+            };
+            effects.with_manager(|manager, effects| manager.destroy_layout(&layout, effects));
+        }
+        if self.start {
+            // C++ reads both values after layout Destroy callbacks complete.
+            let difficulty = effects.difficulty_select().selected_difficulty;
+            let Some(campaign) = effects.campaign_manager.as_deref_mut() else {
+                return;
+            };
+            let map = campaign.get_current_map().unwrap_or_default();
+            effects.with_main_menu(|menu, effects| {
+                menu.setup_game_start_from_callback(
+                    &map,
+                    difficulty_to_main_menu(difficulty),
+                    effects,
+                )
+            });
+        }
     }
 }
-
+fn close_difficulty_select(
+    window: &GameWindow,
+    start: bool,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) {
+    let step = PendingDifficultySelect {
+        layout: window.get_layout().as_ref().map(Rc::downgrade),
+        parent: effects
+            .difficulty_select()
+            .parent
+            .as_ref()
+            .map(Rc::downgrade),
+        parent_id: effects.difficulty_select().parent_id,
+        start,
+    };
+    effects.queue_window_callback(crate::gui::game_window::PendingWindowCallback::Difficulty(
+        step,
+    ));
+}
 fn cancel_difficulty_select(
     window: &GameWindow,
-    receiving_manager: &mut crate::gui::window_manager::WindowManager,
     effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) {
-    let Some(campaign_manager) = effects.campaign_manager.as_deref_mut() else {
+    let Some(campaign) = effects.campaign_manager.as_deref_mut() else {
         return;
     };
-    campaign_manager.set_campaign("");
-
-    if let Some(parent) = DIFFICULTY_SELECT_STATE.with_borrow(|state| state.parent.clone()) {
-        (|manager: &mut crate::gui::window_manager::WindowManager| {
-            let _ = manager.unset_modal(&parent);
-        })(receiving_manager);
-    }
-
-    destroy_current_layout(window, receiving_manager, effects);
+    campaign.set_campaign("");
+    close_difficulty_select(window, false, effects);
 }
-
 fn start_campaign_game(
     window: &GameWindow,
     difficulty: GameDifficulty,
     effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) {
-    let current_map = {
-        let Some(campaign_manager) = effects.campaign_manager.as_deref_mut() else {
-            return;
-        };
-        campaign_manager.get_current_map().unwrap_or_default()
+    let Some(campaign) = effects.campaign_manager.as_deref_mut() else {
+        return;
     };
-
-    if current_map.is_empty() {
-        effects.with_manager(|receiving_manager, effects| {
-            cancel_difficulty_select(window, receiving_manager, effects);
-        });
+    let map = campaign.get_current_map().unwrap_or_default();
+    if map.is_empty() {
+        cancel_difficulty_select(window, effects);
         return;
     }
-
     save_campaign_difficulty(difficulty);
-
-    if let Some(parent) = DIFFICULTY_SELECT_STATE.with_borrow(|state| state.parent.clone()) {
-        effects.with_manager(|manager, effects| {
-            let _ = manager.unset_modal(&parent);
-        });
-    }
-
-    effects.with_manager(|receiving_manager, effects| {
-        destroy_current_layout(window, receiving_manager, effects)
-    });
-
-    // C++ DifficultySelect calls MainMenu::setupGameStart() instead of
-    // preparing gameplay directly, so route through the same startup pipeline.
-    effects.with_main_menu(|menu, effects| {
-        menu.setup_game_start_from_callback(
-            &current_map,
-            difficulty_to_main_menu(difficulty),
-            effects,
-        )
-    });
+    close_difficulty_select(window, true, effects);
 }
-
+pub(crate) fn reset_difficulty_select(
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) {
+    *effects.difficulty_select_mut() = DifficultySelectMenuState::default();
+}
 pub fn difficulty_select_init(
     layout: &WindowLayout,
     _user_data: Option<&dyn std::any::Any>,
     effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) {
-    DIFFICULTY_SELECT_STATE.with_borrow_mut(|state| {
-        state.parent_id = name_to_id("DifficultySelect.wnd:DifficultySelectParent");
-        state.button_ok_id = name_to_id("DifficultySelect.wnd:ButtonOk");
-        state.button_cancel_id = name_to_id("DifficultySelect.wnd:ButtonCancel");
-        state.radio_easy_id = name_to_id("DifficultySelect.wnd:RadioButtonEasy");
-        state.radio_medium_id = name_to_id("DifficultySelect.wnd:RadioButtonMedium");
-        state.radio_hard_id = name_to_id("DifficultySelect.wnd:RadioButtonHard");
-        state.selected_difficulty = load_campaign_difficulty();
-
-        effects.with_manager(|manager, effects| {
-            state.parent = manager.get_window_by_id(state.parent_id);
-            if let Some(parent) = state.parent.as_ref() {
-                let _ = parent.borrow_mut().bring_to_front();
-                let _ = manager.set_focus(Some(parent), effects);
-                let _ = manager.set_modal(parent.clone());
-            }
+    let script_available = match effects.input_authority() {
+        crate::core::game_client::ClientInputAuthority::NativeHosted => {
+            effects.menu_world().script_engine_available
+        }
+        crate::core::game_client::ClientInputAuthority::StandaloneCore => script_engine_available(),
+    };
+    let difficulty = load_campaign_difficulty(script_available);
+    let parent_id = {
+        let state = effects.difficulty_select_mut();
+        ensure_difficulty_select_control_ids(state);
+        state.selected_difficulty = difficulty;
+        state.parent_id
+    };
+    let parent = effects.with_manager(|manager, _effects| manager.get_window_by_id(parent_id));
+    effects.difficulty_select_mut().parent = parent.clone();
+    if let Some(parent) = parent {
+        let _ = parent.borrow_mut().bring_to_front();
+        // DifficultySelect.cpp leaves winSetFocus commented out.
+        effects.with_manager(|manager, _effects| {
+            let _ = manager.set_modal(parent);
         });
-
-        effects.with_manager(|receiving_manager, effects| {
-            sync_radio_buttons(state, receiving_manager)
-        });
-        layout.hide_receiving(false, effects);
-    });
+    }
+    effects
+        .with_manager(|manager, effects| sync_radio_buttons(effects.difficulty_select(), manager));
+    layout.hide_receiving(false, effects);
 }
-
 pub fn difficulty_select_system(
     window: &mut GameWindow,
     msg: WindowMessage,
@@ -238,70 +267,37 @@ pub fn difficulty_select_system(
     data2: WindowMsgData,
     effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> WindowMsgHandled {
-    // Decide inside the cell borrow, then act outside it — the Ok/Cancel paths
-    // re-enter this state through start/cancel_difficulty_select.
-    enum DifficultyChoice {
-        Ignored,
-        Handled,
-        Start(GameDifficulty),
-        Cancel,
+    match msg {
+        WindowMessage::Create | WindowMessage::Destroy => return WindowMsgHandled::Handled,
+        WindowMessage::InputFocus => return write_input_focus_response(data1, data2, true),
+        WindowMessage::GadgetSelected => {}
+        _ => return WindowMsgHandled::Ignored,
     }
-    let choice = DIFFICULTY_SELECT_STATE.with_borrow_mut(|state| match msg {
-        WindowMessage::Create | WindowMessage::Destroy => DifficultyChoice::Handled,
-        WindowMessage::InputFocus => {
-            if data1 != 0 {
-                let _ = crate::gui::replace_payload(
-                    effects,
-                    data2,
-                    crate::gui::WindowMsgPayload::Bool(true),
-                );
-            }
-            DifficultyChoice::Handled
-        }
-        WindowMessage::GadgetSelected => {
-            let control_id = data1 as i32;
-            if control_id == state.button_ok_id {
-                DifficultyChoice::Start(state.selected_difficulty)
-            } else if control_id == state.button_cancel_id {
-                DifficultyChoice::Cancel
-            } else if control_id == state.radio_easy_id {
+    let control = data1 as i32;
+    let choice = {
+        let state = effects.difficulty_select_mut();
+        if control == state.button_ok_id {
+            Some(Ok(state.selected_difficulty))
+        } else if control == state.button_cancel_id {
+            Some(Err(()))
+        } else {
+            if control == state.radio_easy_id {
                 state.selected_difficulty = GameDifficulty::Easy;
-                effects.with_manager(|receiving_manager, effects| {
-                    sync_radio_buttons(state, receiving_manager)
-                });
-                DifficultyChoice::Handled
-            } else if control_id == state.radio_medium_id {
+            } else if control == state.radio_medium_id {
                 state.selected_difficulty = GameDifficulty::Normal;
-                effects.with_manager(|receiving_manager, effects| {
-                    sync_radio_buttons(state, receiving_manager)
-                });
-                DifficultyChoice::Handled
-            } else if control_id == state.radio_hard_id {
+            } else if control == state.radio_hard_id {
                 state.selected_difficulty = GameDifficulty::Hard;
-                effects.with_manager(|receiving_manager, effects| {
-                    sync_radio_buttons(state, receiving_manager)
-                });
-                DifficultyChoice::Handled
-            } else {
-                DifficultyChoice::Handled
             }
+            // RadioButton itself already applies its group selection before GBM_SELECTED.
+            None
         }
-        _ => DifficultyChoice::Ignored,
-    });
+    };
     match choice {
-        DifficultyChoice::Ignored => WindowMsgHandled::Ignored,
-        DifficultyChoice::Handled => WindowMsgHandled::Handled,
-        DifficultyChoice::Start(difficulty) => {
-            start_campaign_game(window, difficulty, effects);
-            WindowMsgHandled::Handled
-        }
-        DifficultyChoice::Cancel => {
-            effects.with_manager(|receiving_manager, effects| {
-                cancel_difficulty_select(window, receiving_manager, effects);
-            });
-            WindowMsgHandled::Handled
-        }
+        Some(Ok(difficulty)) => start_campaign_game(window, difficulty, effects),
+        Some(Err(())) => cancel_difficulty_select(window, effects),
+        None => {}
     }
+    WindowMsgHandled::Handled
 }
 
 pub fn difficulty_select_input(
@@ -326,16 +322,16 @@ pub enum ResidualDifficultySelectAction {
     Cancel = 5,
 }
 
-static RESIDUAL_DIFF_ACTION: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
-static RESIDUAL_DIFF_LEVEL: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(1); // Normal default
-
-fn residual_diff_action_store(action: ResidualDifficultySelectAction) {
-    RESIDUAL_DIFF_ACTION.store(action as u8, std::sync::atomic::Ordering::Relaxed);
+fn residual_diff_action_store(
+    action: ResidualDifficultySelectAction,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) {
+    effects.difficulty_select_mut().residual_action = action as u8;
 }
-
-/// Residual: last DifficultySelect residual action.
-pub fn residual_difficulty_select_last_action() -> ResidualDifficultySelectAction {
-    match RESIDUAL_DIFF_ACTION.load(std::sync::atomic::Ordering::Relaxed) {
+pub fn residual_difficulty_select_last_action(
+    effects: &crate::gui::game_window::WindowEventEffects<'_>,
+) -> ResidualDifficultySelectAction {
+    match effects.difficulty_select().residual_action {
         1 => ResidualDifficultySelectAction::Easy,
         2 => ResidualDifficultySelectAction::Medium,
         3 => ResidualDifficultySelectAction::Hard,
@@ -344,10 +340,10 @@ pub fn residual_difficulty_select_last_action() -> ResidualDifficultySelectActio
         _ => ResidualDifficultySelectAction::None,
     }
 }
-
-/// Residual: last selected difficulty (0 Easy / 1 Normal / 2 Hard).
-pub fn residual_difficulty_select_level() -> u8 {
-    RESIDUAL_DIFF_LEVEL.load(std::sync::atomic::Ordering::Relaxed)
+pub fn residual_difficulty_select_level(
+    effects: &crate::gui::game_window::WindowEventEffects<'_>,
+) -> u8 {
+    effects.difficulty_select().residual_level
 }
 
 fn difficulty_to_level(diff: GameDifficulty) -> u8 {
@@ -388,8 +384,11 @@ fn ensure_difficulty_select_control_ids(state: &mut DifficultySelectMenuState) {
 }
 
 /// Residual: bind DifficultySelect control IDs (no layout load).
-pub fn simulate_difficulty_select_bind_controls() -> bool {
-    DIFFICULTY_SELECT_STATE.with_borrow_mut(|state| {
+pub fn simulate_difficulty_select_bind_controls(
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
+    {
+        let state = effects.difficulty_select_mut();
         ensure_difficulty_select_control_ids(state);
         let _ = (
             state.parent_id,
@@ -400,82 +399,98 @@ pub fn simulate_difficulty_select_bind_controls() -> bool {
             state.radio_hard_id,
         );
         true
-    })
+    }
 }
 
 /// Residual: select Easy radio without widget sync.
-pub fn simulate_difficulty_select_radio_easy() -> bool {
-    DIFFICULTY_SELECT_STATE.with_borrow_mut(|state| {
+pub fn simulate_difficulty_select_radio_easy(
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
+    {
+        let state = effects.difficulty_select_mut();
         ensure_difficulty_select_control_ids(state);
         state.selected_difficulty = GameDifficulty::Easy;
-        RESIDUAL_DIFF_LEVEL.store(0, std::sync::atomic::Ordering::Relaxed);
-        residual_diff_action_store(ResidualDifficultySelectAction::Easy);
-        residual_difficulty_select_level() == 0
-    })
+        state.residual_level = 0;
+        state.residual_action = ResidualDifficultySelectAction::Easy as u8;
+        effects.difficulty_select().residual_level == 0
+    }
 }
 
 /// Residual: select Medium/Normal radio without widget sync.
-pub fn simulate_difficulty_select_radio_medium() -> bool {
-    DIFFICULTY_SELECT_STATE.with_borrow_mut(|state| {
+pub fn simulate_difficulty_select_radio_medium(
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
+    {
+        let state = effects.difficulty_select_mut();
         ensure_difficulty_select_control_ids(state);
         state.selected_difficulty = GameDifficulty::Normal;
-        RESIDUAL_DIFF_LEVEL.store(1, std::sync::atomic::Ordering::Relaxed);
-        residual_diff_action_store(ResidualDifficultySelectAction::Medium);
-        residual_difficulty_select_level() == 1
-    })
+        state.residual_level = 1;
+        state.residual_action = ResidualDifficultySelectAction::Medium as u8;
+        effects.difficulty_select().residual_level == 1
+    }
 }
 
 /// Residual: select Hard radio without widget sync.
-pub fn simulate_difficulty_select_radio_hard() -> bool {
-    DIFFICULTY_SELECT_STATE.with_borrow_mut(|state| {
+pub fn simulate_difficulty_select_radio_hard(
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
+    {
+        let state = effects.difficulty_select_mut();
         ensure_difficulty_select_control_ids(state);
         state.selected_difficulty = GameDifficulty::Hard;
-        RESIDUAL_DIFF_LEVEL.store(2, std::sync::atomic::Ordering::Relaxed);
-        residual_diff_action_store(ResidualDifficultySelectAction::Hard);
-        residual_difficulty_select_level() == 2
-    })
+        state.residual_level = 2;
+        state.residual_action = ResidualDifficultySelectAction::Hard as u8;
+        effects.difficulty_select().residual_level == 2
+    }
 }
 
 /// Residual: fire ButtonOk without start_campaign_game.
-pub fn simulate_difficulty_select_ok_button_gadget_selected() -> bool {
-    DIFFICULTY_SELECT_STATE.with_borrow_mut(|state| {
+pub fn simulate_difficulty_select_ok_button_gadget_selected(
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
+    {
+        let state = effects.difficulty_select_mut();
         ensure_difficulty_select_control_ids(state);
-        RESIDUAL_DIFF_LEVEL.store(
-            difficulty_to_level(state.selected_difficulty),
-            std::sync::atomic::Ordering::Relaxed,
-        );
-        residual_diff_action_store(ResidualDifficultySelectAction::Ok);
+        state.residual_level = difficulty_to_level(state.selected_difficulty);
+        state.residual_action = ResidualDifficultySelectAction::Ok as u8;
         true
-    })
+    }
 }
 
 /// Residual: fire ButtonCancel without shell pop.
-pub fn simulate_difficulty_select_cancel_button_gadget_selected() -> bool {
-    DIFFICULTY_SELECT_STATE.with_borrow_mut(|state| {
+pub fn simulate_difficulty_select_cancel_button_gadget_selected(
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
+    {
+        let state = effects.difficulty_select_mut();
         ensure_difficulty_select_control_ids(state);
-        residual_diff_action_store(ResidualDifficultySelectAction::Cancel);
+        state.residual_action = ResidualDifficultySelectAction::Cancel as u8;
         true
-    })
+    }
 }
 
 /// Residual: set difficulty by ordinal then OK composite.
-pub fn simulate_difficulty_select_prepare_ok(level: u8) -> bool {
-    if !simulate_difficulty_select_bind_controls() {
+pub fn simulate_difficulty_select_prepare_ok(
+    level: u8,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
+    if !simulate_difficulty_select_bind_controls(effects) {
         return false;
     }
     let ok = match level {
-        0 => simulate_difficulty_select_radio_easy(),
-        2 => simulate_difficulty_select_radio_hard(),
-        _ => simulate_difficulty_select_radio_medium(),
+        0 => simulate_difficulty_select_radio_easy(effects),
+        2 => simulate_difficulty_select_radio_hard(effects),
+        _ => simulate_difficulty_select_radio_medium(effects),
     };
     if !ok {
         return false;
     }
     // Keep selected_difficulty consistent.
-    DIFFICULTY_SELECT_STATE.with_borrow_mut(|state| {
+    {
+        let state = effects.difficulty_select_mut();
         state.selected_difficulty = level_to_difficulty(level.min(2));
-    });
-    simulate_difficulty_select_ok_button_gadget_selected()
+    };
+    simulate_difficulty_select_ok_button_gadget_selected(effects)
 }
 
 /// Human click-through: OS LeftDown/Up on a DifficultySelect radio
@@ -494,9 +509,9 @@ pub fn drive_os_wnd_difficulty_select_radio_like_cpp(
         return false;
     }
     match level {
-        0 => simulate_difficulty_select_radio_easy(),
-        2 => simulate_difficulty_select_radio_hard(),
-        _ => simulate_difficulty_select_radio_medium(),
+        0 => simulate_difficulty_select_radio_easy(effects),
+        2 => simulate_difficulty_select_radio_hard(effects),
+        _ => simulate_difficulty_select_radio_medium(effects),
     }
 }
 
@@ -510,7 +525,7 @@ pub fn drive_os_wnd_difficulty_select_ok_like_cpp(
     if !clicked {
         return false;
     }
-    simulate_difficulty_select_ok_button_gadget_selected()
+    simulate_difficulty_select_ok_button_gadget_selected(effects)
 }
 
 /// Human click-through: OS LeftDown/Up on `DifficultySelect.wnd:ButtonCancel`.
@@ -522,7 +537,7 @@ pub fn drive_os_wnd_difficulty_select_cancel_like_cpp(
     if !clicked {
         return false;
     }
-    simulate_difficulty_select_cancel_button_gadget_selected()
+    simulate_difficulty_select_cancel_button_gadget_selected(effects)
 }
 
 /// Human click-through: radio then OK (C++ DifficultySelect Easy/Med/Hard + ButtonOk).
@@ -536,47 +551,62 @@ pub fn drive_os_wnd_difficulty_select_like_cpp(
         return false;
     }
     if clicked_ok {
-        return residual_difficulty_select_last_action() == ResidualDifficultySelectAction::Ok;
+        return residual_difficulty_select_last_action(effects)
+            == ResidualDifficultySelectAction::Ok;
     }
-    simulate_difficulty_select_ok_button_gadget_selected()
+    simulate_difficulty_select_ok_button_gadget_selected(effects)
 }
 
 #[cfg(test)]
 mod os_wnd_tests {
     use super::*;
-    use crate::gui::with_window_manager;
+    fn with_test_effects(f: impl FnOnce(&mut crate::gui::game_window::WindowEventEffects<'_>)) {
+        let mut client = crate::core::GameClient::new().unwrap();
+        client.with_window_event_effects(None, f);
+    }
 
-    fn install_named_button(name: &str, x: i32, y: i32) {
-        with_window_manager(|manager| {
-            let button = manager.create_window(None, x, y, 80, 24).expect(name);
+    fn install_named_button(
+        name: &str,
+        x: i32,
+        y: i32,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    ) {
+        effects.with_manager(|manager, effects| {
+            let button = manager
+                .create_window(None, x, y, 80, 24, effects)
+                .expect(name);
             button.borrow_mut().set_name(name);
-            let _ = button.borrow_mut().hide(false);
+            let _ = button.borrow_mut().hide(false, manager);
         });
     }
 
     #[test]
     fn os_wnd_difficulty_select_hits_radio_and_ok_then_latches() {
-        install_named_button("DifficultySelect.wnd:RadioButtonHard", 10, 10);
-        install_named_button("DifficultySelect.wnd:ButtonOk", 10, 40);
-        assert!(
-            drive_os_wnd_difficulty_select_like_cpp(2),
-            "OS WND clicks on Hard + Ok must latch difficulty residual"
-        );
-        assert_eq!(residual_difficulty_select_level(), 2);
-        assert_eq!(
-            residual_difficulty_select_last_action(),
-            ResidualDifficultySelectAction::Ok
-        );
-        assert!(!drive_os_wnd_difficulty_select_cancel_like_cpp());
+        with_test_effects(|effects| {
+            install_named_button("DifficultySelect.wnd:RadioButtonHard", 10, 10, effects);
+            install_named_button("DifficultySelect.wnd:ButtonOk", 10, 40, effects);
+            assert!(
+                drive_os_wnd_difficulty_select_like_cpp(2, effects),
+                "OS WND clicks on Hard + Ok must latch difficulty residual"
+            );
+            assert_eq!(residual_difficulty_select_level(effects), 2);
+            assert_eq!(
+                residual_difficulty_select_last_action(effects),
+                ResidualDifficultySelectAction::Ok
+            );
+            assert!(!drive_os_wnd_difficulty_select_cancel_like_cpp(effects));
+        });
     }
 
     #[test]
     fn os_wnd_difficulty_select_cancel_hits_named_gadget() {
-        install_named_button("DifficultySelect.wnd:ButtonCancel", 10, 70);
-        assert!(drive_os_wnd_difficulty_select_cancel_like_cpp());
-        assert_eq!(
-            residual_difficulty_select_last_action(),
-            ResidualDifficultySelectAction::Cancel
-        );
+        with_test_effects(|effects| {
+            install_named_button("DifficultySelect.wnd:ButtonCancel", 10, 70, effects);
+            assert!(drive_os_wnd_difficulty_select_cancel_like_cpp(effects));
+            assert_eq!(
+                residual_difficulty_select_last_action(effects),
+                ResidualDifficultySelectAction::Cancel
+            );
+        });
     }
 }

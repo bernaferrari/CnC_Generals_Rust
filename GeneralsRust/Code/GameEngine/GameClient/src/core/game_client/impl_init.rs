@@ -407,6 +407,7 @@ impl GameClient {
         self.with_window_event_effects(None, |effects| {
             crate::gui::callbacks::quit_menu::reset_quit_menu(effects);
             crate::gui::callbacks::popup_save_load::reset_save_load_menu(effects);
+            crate::gui::callbacks::difficulty_select::reset_difficulty_select(effects);
         });
         match world {
             Some(world) => self.clear_core_popup_message(world),
@@ -1179,6 +1180,7 @@ impl GameClient {
             logic_frame: menu_world.map(|facts| facts.logic_frame),
             ui: self.subsystem_manager.in_game_ui.as_mut(),
             payloads: Default::default(),
+            pending_window_callbacks: Default::default(),
             diplomacy_world: None,
             menus: Some(self.menu_manager.receiving_menus(self.input_authority)),
             manager: None,
@@ -1223,6 +1225,7 @@ impl GameClient {
             logic_frame: menu_world.map(|facts| facts.logic_frame),
             ui: self.subsystem_manager.in_game_ui.as_mut(),
             payloads: Default::default(),
+            pending_window_callbacks: Default::default(),
             diplomacy_world: None,
             menus: Some(self.menu_manager.receiving_menus(self.input_authority)),
             manager: None,
@@ -1264,6 +1267,7 @@ impl GameClient {
             logic_frame: menu_world.map(|facts| facts.logic_frame),
             ui: self.subsystem_manager.in_game_ui.as_mut(),
             payloads: Default::default(),
+            pending_window_callbacks: Default::default(),
             diplomacy_world: None,
             menus: Some(self.menu_manager.receiving_menus(self.input_authority)),
             manager: None,
@@ -1326,6 +1330,7 @@ impl GameClient {
                     logic_frame: Some(logic_frame),
                     ui: Some(ui),
                     payloads: Default::default(),
+                    pending_window_callbacks: Default::default(),
                     diplomacy_world: None,
                     menus: Some(menus.reborrow()),
                     manager: None,
@@ -1687,5 +1692,11 @@ impl GameClient {
 impl GameClient {
     pub fn diplomacy(&self) -> &crate::gui::callbacks::diplomacy::DiplomacyCallbacks {
         self.menu_manager.diplomacy()
+    }
+}
+
+impl GameClient {
+    pub fn message_boxes(&self) -> &crate::gui::callbacks::message_box::MessageBoxSystem {
+        self.menu_manager.message_boxes()
     }
 }

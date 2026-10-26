@@ -189,7 +189,7 @@ impl ReplayMenuOperation {
 
     pub(crate) fn capture_confirmation(&mut self, owner: &GameWindow) {
         self.pending = owner
-            .get_user_data::<super::super::message_box::WindowMessageBoxData>()
+            .get_user_data::<std::rc::Rc<super::super::message_box::WindowMessageBoxData>>()
             .and_then(|data| data.take_owned_replay());
     }
 }

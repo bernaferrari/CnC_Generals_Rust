@@ -834,7 +834,9 @@ impl CnCGameEngine {
 
         #[cfg(feature = "game_client")]
         {
-            let _ = game_client::gui::callbacks::simulate_difficulty_select_bind_controls();
+            let _ = self.with_receiving_menu_effects(|effects| {
+                game_client::gui::callbacks::simulate_difficulty_select_bind_controls(effects)
+            })?;
         }
         self.runtime_host_last_gameplay_cmd = if wnd_ok {
             "open_difficulty_menu_ok_wnd".into()
@@ -875,27 +877,37 @@ impl CnCGameEngine {
                 "easy" => {
                     self.with_receiving_menu_effects(|effects| {
                         drive_os_wnd_difficulty_select_radio_like_cpp(0, effects)
-                    })? || simulate_difficulty_select_radio_easy()
+                    })? || self.with_receiving_menu_effects(|effects| {
+                        simulate_difficulty_select_radio_easy(effects)
+                    })?
                 }
                 "medium" | "normal" => {
                     self.with_receiving_menu_effects(|effects| {
                         drive_os_wnd_difficulty_select_radio_like_cpp(1, effects)
-                    })? || simulate_difficulty_select_radio_medium()
+                    })? || self.with_receiving_menu_effects(|effects| {
+                        simulate_difficulty_select_radio_medium(effects)
+                    })?
                 }
                 "hard" => {
                     self.with_receiving_menu_effects(|effects| {
                         drive_os_wnd_difficulty_select_radio_like_cpp(2, effects)
-                    })? || simulate_difficulty_select_radio_hard()
+                    })? || self.with_receiving_menu_effects(|effects| {
+                        simulate_difficulty_select_radio_hard(effects)
+                    })?
                 }
                 "cancel" => {
                     self.with_receiving_menu_effects(|effects| {
                         drive_os_wnd_difficulty_select_cancel_like_cpp(effects)
-                    })? || simulate_difficulty_select_cancel_button_gadget_selected()
+                    })? || self.with_receiving_menu_effects(|effects| {
+                        simulate_difficulty_select_cancel_button_gadget_selected(effects)
+                    })?
                 }
                 "prepare_ok" => {
                     self.with_receiving_menu_effects(|effects| {
                         drive_os_wnd_difficulty_select_like_cpp(level, effects)
-                    })? || simulate_difficulty_select_prepare_ok(level)
+                    })? || self.with_receiving_menu_effects(|effects| {
+                        simulate_difficulty_select_prepare_ok(level, effects)
+                    })?
                 }
                 _ => {
                     self.with_receiving_menu_effects(|effects| {
@@ -904,11 +916,19 @@ impl CnCGameEngine {
                         drive_os_wnd_difficulty_select_ok_like_cpp(effects)
                     })? || {
                         let _ = match level {
-                            0 => simulate_difficulty_select_radio_easy(),
-                            2 => simulate_difficulty_select_radio_hard(),
-                            _ => simulate_difficulty_select_radio_medium(),
+                            0 => self.with_receiving_menu_effects(|effects| {
+                                simulate_difficulty_select_radio_easy(effects)
+                            })?,
+                            2 => self.with_receiving_menu_effects(|effects| {
+                                simulate_difficulty_select_radio_hard(effects)
+                            })?,
+                            _ => self.with_receiving_menu_effects(|effects| {
+                                simulate_difficulty_select_radio_medium(effects)
+                            })?,
                         };
-                        simulate_difficulty_select_ok_button_gadget_selected()
+                        self.with_receiving_menu_effects(|effects| {
+                            simulate_difficulty_select_ok_button_gadget_selected(effects)
+                        })?
                     }
                 }
             };

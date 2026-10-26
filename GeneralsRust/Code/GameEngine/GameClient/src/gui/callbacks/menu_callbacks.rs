@@ -3083,8 +3083,10 @@ impl MenuCallbacks for LanLobbyMenu {
 /// Menu state belongs to one receiving GameClient; construction is inert.
 pub struct MenuManager {
     control_bar_callbacks: crate::gui::callbacks::control_bar_callbacks::ControlBarCallbacks,
+    message_boxes: crate::gui::callbacks::message_box::MessageBoxSystem,
     diplomacy: crate::gui::callbacks::diplomacy::DiplomacyCallbacks,
     ingame_ui: crate::gui::callbacks::ingame_callbacks::InGameUISystem,
+    difficulty_select: crate::gui::callbacks::difficulty_select::DifficultySelectMenuState,
     save_load: crate::gui::callbacks::popup_save_load::SaveLoadMenuState,
     save_load_host: crate::gui::callbacks::popup_save_load::HostPopupSaveLoadBridge,
     popup_replay: crate::gui::callbacks::popup_replay::PopupReplayState,
@@ -3142,11 +3144,13 @@ impl MenuManager {
             score: Default::default(),
             popup_replay: Default::default(),
             save_load: Default::default(),
+            difficulty_select: Default::default(),
             save_load_host: Default::default(),
             flags: Default::default(),
             quit: Default::default(),
             ingame_ui: Default::default(),
             diplomacy: Default::default(),
+            message_boxes: Default::default(),
         }
     }
 
@@ -4693,9 +4697,12 @@ mod menu_callbacks_shell_borrow_residual_tests {}
 pub struct MenuCallbackRecipients<'a> {
     pub(crate) control_bar_callbacks:
         Option<&'a mut crate::gui::callbacks::control_bar_callbacks::ControlBarCallbacks>,
+    pub(crate) message_boxes: &'a mut crate::gui::callbacks::message_box::MessageBoxSystem,
     pub(crate) diplomacy: &'a mut crate::gui::callbacks::diplomacy::DiplomacyCallbacks,
     pub(crate) input_authority: crate::core::game_client::ClientInputAuthority,
     pub(crate) ingame_ui: &'a mut crate::gui::callbacks::ingame_callbacks::InGameUISystem,
+    pub(crate) difficulty_select:
+        &'a mut crate::gui::callbacks::difficulty_select::DifficultySelectMenuState,
     pub(crate) save_load: &'a mut crate::gui::callbacks::popup_save_load::SaveLoadMenuState,
     pub(crate) save_load_host:
         &'a mut crate::gui::callbacks::popup_save_load::HostPopupSaveLoadBridge,
@@ -4725,8 +4732,10 @@ impl MenuManager {
             input_authority,
             ingame_ui: &mut self.ingame_ui,
             diplomacy: &mut self.diplomacy,
+            difficulty_select: &mut self.difficulty_select,
             save_load: &mut self.save_load,
             save_load_host: &mut self.save_load_host,
+            message_boxes: &mut self.message_boxes,
             quit: Some(&mut self.quit),
             flags: Some(&mut self.flags),
             popup_replay: Some(&mut self.popup_replay),
@@ -4750,8 +4759,10 @@ impl MenuCallbackRecipients<'_> {
             input_authority: self.input_authority,
             ingame_ui: &mut *self.ingame_ui,
             diplomacy: &mut *self.diplomacy,
+            difficulty_select: &mut *self.difficulty_select,
             save_load: &mut *self.save_load,
             save_load_host: &mut *self.save_load_host,
+            message_boxes: &mut *self.message_boxes,
             quit: self.quit.as_deref_mut(),
             flags: self.flags.as_deref_mut(),
             popup_replay: self.popup_replay.as_deref_mut(),
@@ -4775,5 +4786,11 @@ impl MenuManager {
     }
     pub fn diplomacy_mut(&mut self) -> &mut crate::gui::callbacks::diplomacy::DiplomacyCallbacks {
         &mut self.diplomacy
+    }
+}
+
+impl MenuManager {
+    pub fn message_boxes(&self) -> &crate::gui::callbacks::message_box::MessageBoxSystem {
+        &self.message_boxes
     }
 }
