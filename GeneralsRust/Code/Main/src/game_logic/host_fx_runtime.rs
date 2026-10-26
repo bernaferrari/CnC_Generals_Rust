@@ -202,6 +202,7 @@ impl GameClientFxRuntime for HostFxRuntime<'_, '_> {
             player,
             &locality,
             &mut selection,
+            self.world.queued_audio_events.policy(),
         )
     }
     fn particles(
@@ -298,21 +299,4 @@ impl GameClientFxRuntime for HostFxRuntime<'_, '_> {
             .current_client_bone_transforms(&source, name, start, limit)
     }
 }
-pub(super) struct FxAudioSelection<'a> {
-    pub(super) logic: &'a game_engine::common::random_value::SessionRandom,
-    pub(super) audio: &'a mut RandomState,
-}
-impl game_engine::common::audio::audio_event_rts::AudioEventSelection for FxAudioSelection<'_> {
-    fn index(&mut self, logical: bool, count: usize) -> usize {
-        if count == 0 {
-            0
-        } else if logical {
-            self.logic.next_u32() as usize % count
-        } else {
-            self.audio.next_u32() as usize % count
-        }
-    }
-    fn real(&mut self, low: f32, high: f32) -> f32 {
-        self.audio.next_real(low, high)
-    }
-}
+pub(super) use crate::game_logic::SessionAudioSelection as FxAudioSelection;

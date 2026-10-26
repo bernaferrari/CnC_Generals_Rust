@@ -179,7 +179,7 @@ fn bomb_truck_disguise_residual_reveals_near_attack_target() {
         truck.target = Some(usa_tank_id);
         truck.set_ai_state(
             AIState::SpecialAbility,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
     game_logic.queue_pending_special_ability(
@@ -206,7 +206,7 @@ fn bomb_truck_disguise_residual_reveals_near_attack_target() {
         truck.target = Some(victim_id);
         truck.set_ai_state(
             AIState::Attacking,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         truck.set_status_attacking(true);
     }
@@ -257,7 +257,7 @@ fn bomb_truck_disguise_holds_without_victim() {
         truck.target = Some(usa_tank_id);
         truck.set_ai_state(
             AIState::SpecialAbility,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
     game_logic.queue_pending_special_ability(
@@ -283,7 +283,7 @@ fn bomb_truck_disguise_holds_without_victim() {
         truck.target = None;
         truck.set_ai_state(
             AIState::AttackMoving,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         truck.set_status_attacking(true);
     }
@@ -301,7 +301,7 @@ fn bomb_truck_disguise_holds_without_victim() {
         truck.target = None;
         truck.set_ai_state(
             AIState::AttackingGround,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         truck.set_status_attacking(true);
         truck.set_status_firing_weapon(true);
@@ -901,7 +901,9 @@ fn camouflage_upgrade_queue_complete_stealths_rebel() {
 /// C++ GLAInfantryRebel StealthUpdate StealthDelay=2500 / Forbidden=ATTACKING USING_ABILITY.
 #[test]
 fn camouflage_residual_attack_breaks_and_idle_recloaks() {
-    use crate::game_logic::host_upgrades::{CAMOUFLAGE_STEALTH_DELAY_FRAMES, UPGRADE_GLA_CAMOUFLAGE};
+    use crate::game_logic::host_upgrades::{
+        CAMOUFLAGE_STEALTH_DELAY_FRAMES, UPGRADE_GLA_CAMOUFLAGE,
+    };
 
     let mut game_logic = GameLogic::new();
     let mut player = Player::new(0, Team::GLA, "GLA", true);
@@ -935,7 +937,7 @@ fn camouflage_residual_attack_breaks_and_idle_recloaks() {
         let rebel = game_logic.objects.get_mut(&rebel_id).expect("rebel");
         rebel.set_ai_state(
             AIState::Idle,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         rebel.set_status_attacking(false);
         rebel.target = None;
@@ -991,7 +993,7 @@ fn camouflage_residual_attack_breaks_and_idle_recloaks() {
         let rebel = game_logic.objects.get_mut(&rebel_id).expect("rebel");
         rebel.set_ai_state(
             AIState::Idle,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         rebel.set_status_attacking(false);
         rebel.target = None;
@@ -1103,7 +1105,7 @@ fn marauder_residual_salvage_fire_rate_tiers() {
         m.attack_target(
             enemy,
             attack_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         if let Some(w) = m.weapon.as_mut() {
             w.last_fire_time = -10.0;
@@ -1321,7 +1323,7 @@ fn scorpion_residual_gun_salvage_and_rocket() {
         s.attack_target(
             enemy,
             attack_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         if let Some(w) = s.weapon.as_mut() {
             w.last_fire_time = -10.0;
@@ -1408,7 +1410,7 @@ fn scorpion_residual_gun_salvage_and_rocket() {
         s.attack_target(
             enemy,
             attack_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         if let Some(w) = s.secondary_weapon.as_mut() {
             w.last_fire_time = -100.0;
@@ -1527,7 +1529,7 @@ fn tomahawk_residual_dual_radius_missile() {
         t.attack_target(
             enemy,
             attack_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         if let Some(w) = t.weapon.as_mut() {
             w.last_fire_time = -20.0;
@@ -1682,7 +1684,7 @@ fn mig_residual_napalm_and_black_napalm() {
         m.attack_target(
             enemy,
             attack_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         if let Some(w) = m.weapon.as_mut() {
             w.last_fire_time = -20.0;
@@ -1786,7 +1788,7 @@ fn mig_residual_napalm_and_black_napalm() {
         m.attack_target(
             enemy,
             attack_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         if let Some(w) = m.weapon.as_mut() {
             w.last_fire_time = -20.0;
@@ -1879,7 +1881,7 @@ fn mig_nuke_residual_tactical_nuke() {
         m.attack_target(
             enemy,
             attack_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         if let Some(w) = m.weapon.as_mut() {
             w.last_fire_time = -20.0;
@@ -1933,7 +1935,7 @@ fn mig_nuke_residual_tactical_nuke() {
         m.attack_target(
             enemy,
             attack_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         if let Some(w) = m.weapon.as_mut() {
             w.last_fire_time = -20.0;
@@ -2185,7 +2187,7 @@ fn raptor_residual_missiles_and_laser_missiles() {
         r.attack_target(
             enemy,
             attack_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         if let Some(w) = r.weapon.as_mut() {
             w.last_fire_time = -20.0;
@@ -2363,7 +2365,7 @@ fn stealth_fighter_residual_missiles_and_splash() {
         f.attack_target(
             enemy,
             attack_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         if let Some(w) = f.weapon.as_mut() {
             w.last_fire_time = -20.0;
@@ -2502,7 +2504,7 @@ fn comanche_residual_cannon_and_antitank() {
         c.attack_target(
             enemy,
             attack_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         c.active_weapon_slot = 0;
         if let Some(w) = c.weapon.as_mut() {
@@ -2547,7 +2549,7 @@ fn comanche_residual_cannon_and_antitank() {
         c.attack_target(
             enemy,
             attack_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         c.active_weapon_slot = 1;
         if let Some(w) = c.secondary_weapon.as_mut() {
@@ -2664,7 +2666,7 @@ fn helix_minigun_residual_intended_only() {
         h.attack_target(
             enemy_id,
             attack_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         if let Some(w) = h.weapon.as_mut() {
             w.last_fire_time = -100.0;
@@ -2709,7 +2711,9 @@ fn inferno_black_napalm_upgraded_fire_field_residual() {
     use crate::game_logic::host_inferno_cannon::{
         INFERNO_FIRE_DAMAGE_PER_TICK, INFERNO_FIRE_DAMAGE_PER_TICK_UPGRADED,
     };
-    use crate::game_logic::weapon_bootstrap::{INFERNO_CANNON_PRIMARY_WEAPON, ensure_host_weapon_store};
+    use crate::game_logic::weapon_bootstrap::{
+        INFERNO_CANNON_PRIMARY_WEAPON, ensure_host_weapon_store,
+    };
 
     ensure_host_weapon_store();
 
@@ -2761,7 +2765,7 @@ fn inferno_black_napalm_upgraded_fire_field_residual() {
         c.attack_target(
             enemy_id,
             attack_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         if let Some(w) = c.weapon.as_mut() {
             w.last_fire_time = -100.0;
@@ -2966,7 +2970,7 @@ fn battle_drone_residual_attach_fire_and_repair() {
         d.attack_target(
             enemy,
             attack_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         if let Some(w) = d.weapon.as_mut() {
             w.last_fire_time = -20.0;
@@ -3060,7 +3064,7 @@ fn overlord_gun_residual_dual_radius_and_uranium() {
         o.attack_target(
             enemy,
             attack_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         if let Some(w) = o.weapon.as_mut() {
             w.last_fire_time = -20.0;
@@ -3221,7 +3225,7 @@ fn jarmen_kell_residual_sniper_and_ap_bullets() {
         k.attack_target(
             enemy,
             attack_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         if let Some(w) = k.weapon.as_mut() {
             w.last_fire_time = -10.0;
@@ -3396,7 +3400,7 @@ fn battlemaster_residual_gun_uranium_and_horde_nationalism() {
         bm.attack_target(
             enemy,
             attack_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         if let Some(w) = bm.weapon.as_mut() {
             w.last_fire_time = -10.0;
@@ -3587,7 +3591,7 @@ fn red_guard_residual_gun_horde_nationalism_and_bayonet() {
         rg.attack_target(
             enemy,
             attack_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         if let Some(w) = rg.weapon.as_mut() {
             w.last_fire_time = -10.0;
@@ -3633,7 +3637,7 @@ fn red_guard_residual_gun_horde_nationalism_and_bayonet() {
         rg.attack_target(
             melee,
             attack_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         if let Some(w) = rg.weapon.as_mut() {
             w.last_fire_time = -10.0;
@@ -3747,7 +3751,7 @@ fn tank_hunter_residual_rpg_horde_and_tnt() {
         th.attack_target(
             enemy,
             attack_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         if let Some(w) = th.weapon.as_mut() {
             w.last_fire_time = -10.0;
@@ -3842,7 +3846,7 @@ fn tank_hunter_residual_rpg_horde_and_tnt() {
         th.set_orientation_with_partition_owner(std::f32::consts::FRAC_PI_2, fixture_partition_th);
         th.set_ai_state(
             AIState::SpecialAbility,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         th.target = Some(bldg);
     }
@@ -3967,7 +3971,7 @@ fn rebel_residual_gun_and_ap_bullets() {
         rebel.attack_target(
             enemy,
             attack_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         if let Some(w) = rebel.weapon.as_mut() {
             w.last_fire_time = -10.0;

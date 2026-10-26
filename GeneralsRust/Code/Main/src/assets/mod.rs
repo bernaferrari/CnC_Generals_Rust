@@ -28,7 +28,7 @@ pub use audio::*;
 pub use big_file::*;
 pub(crate) use draw_playback::{
     LiveDrawAnimationCompletionTarget, LiveDrawPlayback, LiveDrawPlaybackIdentity,
-    LiveDrawPlaybackKey,
+    LiveDrawPlaybackKey, NativeDrawOwnerId,
 };
 pub use ini_parser::*;
 pub use local_file_system::LocalFileSystem;

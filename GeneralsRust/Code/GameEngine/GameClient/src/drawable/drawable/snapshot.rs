@@ -57,7 +57,7 @@ impl Snapshotable for BasicDrawable {
         let mut flags = self.model_condition_flags.clone();
         xfer_model_condition_flags(xfer, &mut flags)?;
 
-        let mut transform = Matrix4::translation(self.position).mul(&self.instance_transform);
+        let mut transform = Matrix4::translation(self.position).mul(&self.base_transform);
         xfer_matrix3d(xfer, &mut transform)?;
 
         let mut has_selection_flash = self.selection_flash_envelope.is_some();
@@ -250,7 +250,7 @@ impl Snapshotable for BasicDrawable {
         }
 
         // --- transform (C++ version >= 5: xferMatrix3D, line 4935) ---
-        let mut transform = Matrix4::translation(self.position).mul(&self.instance_transform);
+        let mut transform = Matrix4::translation(self.position).mul(&self.base_transform);
         xfer_matrix3d(xfer, &mut transform)?;
         if xfer.get_xfer_mode() == XferMode::Load {
             self.position = Vector3::new(
@@ -261,7 +261,7 @@ impl Snapshotable for BasicDrawable {
             transform.elements[0][3] = 0.0;
             transform.elements[1][3] = 0.0;
             transform.elements[2][3] = 0.0;
-            self.instance_transform = transform;
+            self.base_transform = transform;
         }
 
         // --- selection flash envelope (C++ line 4956) ---
@@ -693,7 +693,7 @@ impl Snapshotable for BasicDrawable {
                     rotation.elements[0][3] = 0.0;
                     rotation.elements[1][3] = 0.0;
                     rotation.elements[2][3] = 0.0;
-                    self.instance_transform = rotation;
+                    self.base_transform = rotation;
                 }
             }
         }

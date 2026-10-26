@@ -88,7 +88,7 @@ fn deletion_phase_scene(recrew: bool) {
         let v = world.objects.get_mut(&vehicle).unwrap();
         v.apply_kill_pilot_unmanned(
             &mut world.health_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         v.name.clear();
         let i = world.objects.get_mut(&infantry).unwrap();

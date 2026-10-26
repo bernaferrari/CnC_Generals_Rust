@@ -1560,8 +1560,8 @@ mod tests {
         // C++ Drawable::draw begins from the attached Object/Thing world
         // transform, then post-multiplies the local instance matrix exactly
         // once.  The host presentation sync must therefore put its frozen
-        // position in BasicDrawable::position and only its yaw in the local
-        // instance matrix.
+        // position in BasicDrawable::position and yaw in its separate base
+        // orientation; authored local instance matrices remain untouched.
         let mut client = GameClient::new().unwrap();
         let object_id = 91_337;
         let first_position = [37.0, -11.5, 8.25];

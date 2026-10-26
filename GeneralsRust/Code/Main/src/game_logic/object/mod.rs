@@ -167,6 +167,7 @@ pub(crate) fn default_turret_turn_rate() -> f32 {
     0.01
 }
 
+pub(crate) mod parachute_contain;
 pub(crate) mod turret_runtime;
 pub(crate) mod turret_runtime_persist;
 mod turret_spawn;
@@ -936,11 +937,10 @@ pub struct Object {
     /// C++ Locomotor `m_donutTimer` residual (logic frame).
     #[serde(default = "default_donut_timer")]
     pub donut_timer: u32,
-    /// C++ m_lift residual (world-Y up accel capacity).
     #[serde(default)]
+    /// C++ Locomotor::m_maxLift mutable cap; immutable healthy/damaged
+    /// lifting acceleration lives in selected_locomotor_definition.
     pub max_lift: f32,
-    /// C++ LocomotorTemplate::m_liftDamaged residual.
-    pub max_lift_damaged: f32,
     /// C++ m_speedLimitZ residual (vertical speed limit).
     #[serde(default)]
     pub speed_limit_z: f32,
@@ -1766,6 +1766,9 @@ pub struct Object {
     /// C++ AmericaParachute container residual (fall then infantry land).
     #[serde(default)]
     pub paradrop_parachute: bool,
+    /// Source ParachuteContain attachment fields; mutable state belongs to this Object.
+    #[serde(default)]
+    pub(crate) parachute_attachments:Option<parachute_contain::ParachuteAttachments>,
     /// C++ DaisyCutter AmericaJetB52 transport residual.
     #[serde(default)]
     pub daisy_cutter_transport:
@@ -2482,9 +2485,15 @@ pub struct Object {
     /// Pending disguise team while transition residual runs.
     #[serde(default)]
     pub disguise_pending_team: Option<Team>,
+    /// C++ pending StealthUpdate disguised-player index; None is explicit ownerless.
+    #[serde(default)]
+    pub disguise_pending_player_id: Option<u32>,
     /// Team residual the unit appears as to non-allied viewers while disguised.
     #[serde(default)]
     pub disguise_as_team: Option<Team>,
+    /// Exact copied player identity, independent of faction and original target lifetime.
+    #[serde(default)]
+    pub disguise_as_player_id: Option<u32>,
 
     /// Host residual: bitmask of player indices currently vision-spying this unit
     /// (C++ Object::m_visionSpiedBy / setVisionSpied for CIA Intelligence SpyVision).
@@ -3237,6 +3246,7 @@ mod fx;
 pub(in crate::game_logic) use fx::{BodyStateFx, BodyStateFxReceiver};
 mod install;
 mod jets;
+pub(crate) use jets::NativeJetLockon;
 mod orders;
 mod panic_runtime;
 mod physics;

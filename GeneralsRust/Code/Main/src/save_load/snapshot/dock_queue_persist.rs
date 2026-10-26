@@ -286,7 +286,7 @@ mod tests {
                 object.target = Some(dock);
                 object.set_ai_state(
                     AIState::Gathering,
-                    &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+                    &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
                 );
             }
             (world, dock, active, waiting)

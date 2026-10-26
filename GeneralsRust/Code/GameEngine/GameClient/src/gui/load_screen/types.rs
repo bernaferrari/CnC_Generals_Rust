@@ -216,7 +216,8 @@ thread_local! {
         const { RefCell::new(None) };
 }
 
-type MapTransferLiteupdateHook = Arc<dyn Fn() + Send + Sync + 'static>;
+type MapTransferLiteupdateHook =
+    Arc<dyn Fn(Option<&mut crate::input::Mouse>) + Send + Sync + 'static>;
 type MultiplayerLoadProgressHook = Arc<dyn Fn(i32, i32) + Send + Sync + 'static>;
 /// Explicit bridge from one load-screen operation to its receiving display.
 /// The weak handle keeps the GameClient as the display owner while retaining
@@ -224,13 +225,13 @@ type MultiplayerLoadProgressHook = Arc<dyn Fn(i32, i32) + Send + Sync + 'static>
 /// Device/presentation capability only. All mutable UI lives in the operation.
 pub struct LoadScreenPresentationPump<'a> {
     recipient: LoadScreenPresentationRecipient<'a>,
-    mouse: Option<crate::core::subsystems::MouseHandle>,
 }
 enum LoadScreenPresentationRecipient<'a> {
     Display(Option<std::sync::Weak<std::sync::Mutex<crate::display::display::Display>>>),
     Native(&'a mut dyn for<'draw> FnMut(LoadScreenDrawServices<'draw>) -> Result<(), String>),
 }
 pub struct LoadScreenDrawServices<'a> {
+    pub mouse: Option<&'a mut crate::input::Mouse>,
     pub ui: Option<&'a crate::core::subsystems::InGameUISubsystem>,
     pub client_frame: u32,
     pub display: &'a mut crate::core::script_action_handler::ScriptDisplayReceiver,
@@ -246,7 +247,6 @@ impl<'a> LoadScreenPresentationPump<'a> {
             recipient: LoadScreenPresentationRecipient::Display(
                 display.map(std::sync::Arc::downgrade),
             ),
-            mouse: None,
         }
     }
     pub fn for_native(
@@ -254,21 +254,7 @@ impl<'a> LoadScreenPresentationPump<'a> {
     ) -> Self {
         Self {
             recipient: LoadScreenPresentationRecipient::Native(present),
-            mouse: None,
         }
-    }
-    pub fn with_mouse(mut self, mouse: Option<crate::core::subsystems::MouseHandle>) -> Self {
-        self.mouse = mouse;
-        self
-    }
-    pub fn clear_cursor_tooltip(&mut self) -> Result<(), String> {
-        if let Some(mouse) = self.mouse.as_ref() {
-            mouse
-                .lock()
-                .map_err(|_| "load-screen receiving mouse poisoned".to_owned())?
-                .set_cursor_tooltip(String::new(), None, None, None);
-        }
-        Ok(())
     }
     pub fn pump(&mut self, operation: &mut LoadScreenOperation<'_>) -> Result<(), String> {
         operation.complete_callbacks();
@@ -313,7 +299,8 @@ pub type LoadScreenOwner<'a> = LoadScreenOperation<'a>;
 #[cfg(test)]
 pub type LoadScreenPresentationPumpTestHook = Rc<dyn Fn() + 'static>;
 #[cfg(test)]
-type LoadScreenFinishUpdateHook = Arc<dyn Fn() + Send + Sync + 'static>;
+type LoadScreenFinishUpdateHook =
+    Arc<dyn Fn(Option<&mut crate::input::Mouse>) + Send + Sync + 'static>;
 #[cfg(test)]
 type SinglePlayerMoviePlayHook = Arc<dyn Fn(&str) -> bool + Send + Sync + 'static>;
 #[cfg(test)]
@@ -477,6 +464,7 @@ impl LoadScreenOperation<'_> {
         operation: impl FnOnce(LoadScreenDrawServices<'_>) -> R,
     ) -> R {
         operation(LoadScreenDrawServices {
+            mouse: self.effects.cursor_mouse.as_deref_mut(),
             ui: self.effects.ui.as_deref(),
             client_frame: self
                 .effects

@@ -34,7 +34,7 @@ fn same_id_peer_reset_and_replacement_cannot_query_or_consume_installed_owner() 
     let peer = identity(&Arc::new(()), &Arc::new(()), 9);
     let replacement = identity(&world, &Arc::new(()), 10);
     let reset = identity(&Arc::new(()), &object, 9);
-    let mut states = HashMap::from([((42, 2), admitted(actual.clone()))]);
+    let mut states = HashMap::from([((NativeDrawOwnerId::Actor(42), 2), admitted(actual.clone()))]);
     let before = states.clone();
     let mut failed = pipeline_collect::FailedModelResolutions::default();
     let mut pending = None;
@@ -47,6 +47,7 @@ fn same_id_peer_reset_and_replacement_cannot_query_or_consume_installed_owner() 
                 (
                     *object,
                     native_draw_world::NativeDrawableLifetime {
+                        auxiliary: None,
                         identity: identity.clone(),
                         binding: state.native_client_binding,
                     },
@@ -91,8 +92,8 @@ fn residual_same_id_sibling_from_prior_generation_rejects_whole_source_query() {
     let actual = identity(&world, &object, 9);
     let stale = identity(&world, &Arc::new(()), 8);
     let mut states = HashMap::from([
-        ((42, 2), admitted(actual.clone())),
-        ((42, 5), admitted(stale)),
+        ((NativeDrawOwnerId::Actor(42), 2), admitted(actual.clone())),
+        ((NativeDrawOwnerId::Actor(42), 5), admitted(stale)),
     ]);
     let before = states.clone();
     let mut failed = pipeline_collect::FailedModelResolutions::default();
@@ -106,6 +107,7 @@ fn residual_same_id_sibling_from_prior_generation_rejects_whole_source_query() {
                 (
                     *object,
                     native_draw_world::NativeDrawableLifetime {
+                        auxiliary: None,
                         identity: identity.clone(),
                         binding: state.native_client_binding,
                     },
@@ -158,7 +160,7 @@ fn same_object_same_template_client_replacement_requires_actual_constructor_befo
     let world = Arc::new(());
     let object = Arc::new(());
     let actual = identity(&world, &object, 9);
-    let mut states = HashMap::from([((42, 2), admitted(actual.clone()))]);
+    let mut states = HashMap::from([((NativeDrawOwnerId::Actor(42), 2), admitted(actual.clone()))]);
     let before = states.clone();
     let mut failed = pipeline_collect::FailedModelResolutions::default();
     let mut pending = None;
@@ -171,6 +173,7 @@ fn same_object_same_template_client_replacement_requires_actual_constructor_befo
                 (
                     *object,
                     native_draw_world::NativeDrawableLifetime {
+                        auxiliary: None,
                         identity: identity.clone(),
                         binding: state.native_client_binding,
                     },
@@ -197,9 +200,15 @@ fn same_object_same_template_client_replacement_requires_actual_constructor_befo
     );
     assert_eq!(*loan.drawable_visual_states, before);
     // This is the real metadata reset performed by the constructor producer.
-    let state = loan.drawable_visual_states.get_mut(&(42, 2)).unwrap();
+    let state = loan
+        .drawable_visual_states
+        .get_mut(&(NativeDrawOwnerId::Actor(42), 2))
+        .unwrap();
     state.native_client_binding = None;
-    loan.native_drawable_lifetimes.get_mut(&42).unwrap().binding = None;
+    loan.native_drawable_lifetimes
+        .get_mut(&NativeDrawOwnerId::Actor(42))
+        .unwrap()
+        .binding = None;
     assert_eq!(
         loan.validate_binding(&actual, key(4), 2),
         Err(NativeCameraPoseUnavailable::UnadmittedDrawableLifecycle),
@@ -221,8 +230,8 @@ fn native_destroy_loan_retires_only_its_actual_render_and_playback_owner() {
     let sibling = LiveDrawPlaybackIdentity::new(Arc::new(()), Arc::new(()), 7, 43, 1);
     let mut world = NativeDrawWorld::default();
     world.drawable_visual_states = HashMap::from([
-        ((42, 2), admitted(actual.clone())),
-        ((43, 2), admitted(sibling.clone())),
+        ((NativeDrawOwnerId::Actor(42), 2), admitted(actual.clone())),
+        ((NativeDrawOwnerId::Actor(43), 2), admitted(sibling.clone())),
     ]);
     world.live_draw_playback = HashMap::from([
         (
@@ -235,8 +244,10 @@ fn native_destroy_loan_retires_only_its_actual_render_and_playback_owner() {
         ),
     ]);
     let mut peer = NativeDrawWorld::default();
-    peer.drawable_visual_states
-        .insert((42, 2), admitted(peer_identity.clone()));
+    peer.drawable_visual_states.insert(
+        (NativeDrawOwnerId::Actor(42), 2),
+        admitted(peer_identity.clone()),
+    );
     peer.live_draw_playback
         .insert(peer_identity.playback_key(2), Default::default());
     let peer_before = peer.drawable_visual_states.clone();

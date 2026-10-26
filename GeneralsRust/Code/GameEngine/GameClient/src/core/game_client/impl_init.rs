@@ -584,9 +584,8 @@ impl GameClient {
         self.subsystem_manager.input_keyboard = Some(keyboard);
 
         // Create mouse
-        let mouse = create_mouse();
-        mouse.lock().unwrap_or_else(|e| e.into_inner()).init()?;
-        register_mouse_backend(mouse.clone());
+        let mut mouse = create_mouse();
+        mouse.init()?;
         self.subsystem_manager.input_mouse = Some(mouse);
 
         Ok(())
@@ -1064,6 +1063,7 @@ impl GameClient {
         &mut crate::gui::ime_manager::ImeManager,
         crate::gui::callbacks::menu_callbacks::MenuCallbackRecipients<'_>,
         Option<&mut crate::core::subsystems::InGameUISubsystem>,
+        Option<&mut crate::input::Mouse>,
     ) {
         self.script_display
             .bind(self.subsystem_manager.display.as_ref());
@@ -1077,6 +1077,7 @@ impl GameClient {
             &mut self.ime,
             self.menu_manager.receiving_menus(self.input_authority),
             self.subsystem_manager.in_game_ui.as_mut(),
+            self.subsystem_manager.input_mouse.as_mut(),
         )
     }
     pub fn main_menu(&self) -> &crate::gui::shell::main_menu::MainMenu {
@@ -1127,11 +1128,8 @@ impl GameClient {
         self.main_menu.complete_source_campaign_shutdown();
     }
     pub fn set_receiving_menu_cursor_visibility(&mut self, visible: bool) {
-        if let Some(mouse) = self.subsystem_manager.input_mouse.as_ref() {
-            mouse
-                .lock()
-                .expect("receiving Mouse owner poisoned")
-                .set_cursor_visible(visible);
+        if let Some(mouse) = self.subsystem_manager.input_mouse.as_mut() {
+            mouse.set_cursor_visible(visible);
         }
     }
     pub fn reset_receiving_menu_placement(&mut self) {
@@ -1210,6 +1208,7 @@ impl GameClient {
         let owner = &self.window_manager_owner;
         let mut messages = Vec::new();
         let mut effects = crate::gui::game_window::WindowEventEffects {
+            cursor_mouse: self.subsystem_manager.input_mouse.as_mut(),
             control_bar_observation: None,
             menu_audio: audio
                 .as_mut()
@@ -1281,6 +1280,7 @@ impl GameClient {
         let owner = &self.window_manager_owner;
         let mut messages = Vec::new();
         let mut effects = crate::gui::game_window::WindowEventEffects {
+            cursor_mouse: self.subsystem_manager.input_mouse.as_mut(),
             control_bar_observation: None,
             menu_audio: audio
                 .as_mut()
@@ -1327,6 +1327,7 @@ impl GameClient {
             .bind(self.subsystem_manager.display.as_ref());
         let owner = &self.window_manager_owner;
         let mut effects = crate::gui::game_window::WindowEventEffects {
+            cursor_mouse: self.subsystem_manager.input_mouse.as_mut(),
             control_bar_observation: None,
             menu_audio: None,
             input_provenance:
@@ -1377,6 +1378,7 @@ impl GameClient {
              videos: &mut crate::gui::window_video_manager::ClientWindowVideos,
              ime: &mut crate::gui::ime_manager::ImeManager,
              ui: &mut crate::core::subsystems::InGameUISubsystem,
+             cursor_mouse: Option<&mut crate::input::Mouse>,
              request,
              _emitted_messages: &mut Vec<GameMessage>| {
                 if let game_engine::common::message_stream::WindowInputDispatch::Camera(action) =
@@ -1392,6 +1394,7 @@ impl GameClient {
                 }
                 let mut pending_clicks = Vec::new();
                 let mut effects = crate::gui::game_window::WindowEventEffects {
+                    cursor_mouse,
                     control_bar_observation: None,
                     menu_audio: None,
                     input_provenance:
@@ -1530,6 +1533,7 @@ impl GameClient {
                 "message translation requires receiving InGameUI".into(),
             )
         })?;
+        let mut mouse = self.subsystem_manager.input_mouse.as_mut();
         let mut dispatch = |request,
                             emitted: &mut Vec<GameMessage>,
                             client_ui: &mut dyn std::any::Any| {
@@ -1552,7 +1556,18 @@ impl GameClient {
                 .map(game_engine::common::message_stream::WindowInputDispatchResult::Display);
             }
             let result = driver(
-                owner, campaign, menu, host, &mut menus, display, videos, ime, ui, request, emitted,
+                owner,
+                campaign,
+                menu,
+                host,
+                &mut menus,
+                display,
+                videos,
+                ime,
+                ui,
+                mouse.as_deref_mut(),
+                request,
+                emitted,
             );
             yielded.set(host.has_requests());
             result

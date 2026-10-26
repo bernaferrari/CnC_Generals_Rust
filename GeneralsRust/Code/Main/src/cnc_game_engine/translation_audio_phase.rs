@@ -11,6 +11,7 @@ pub(super) type NativeInputWithMenuAudio<'a> = dyn FnMut(
         &mut game_client::gui::window_video_manager::ClientWindowVideos,
         &mut game_client::gui::ime_manager::ImeManager,
         &mut game_client::core::subsystems::InGameUISubsystem,
+        Option<&mut game_client::input::Mouse>,
         game_engine::common::message_stream::WindowInputDispatch,
         &mut Vec<game_client::message_stream::game_message::GameMessage>,
     ) -> Option<game_engine::common::message_stream::WindowInputDispatchResult>
@@ -42,11 +43,12 @@ impl crate::subsystem_manager::ReceivingClientPhaseDriver for NativeTranslationP
              videos: &mut game_client::gui::window_video_manager::ClientWindowVideos,
              ime: &mut game_client::gui::ime_manager::ImeManager,
              ui: &mut game_client::core::subsystems::InGameUISubsystem,
+             mouse: Option<&mut game_client::input::Mouse>,
              request,
              messages: &mut Vec<game_engine::common::message_stream::GameMessage>| {
                 dispatch(
                     audio, owner, campaign, main_menu, menu_host, menus, display, videos, ime, ui,
-                    request, messages,
+                    mouse, request, messages,
                 )
             };
         client
@@ -64,6 +66,6 @@ impl crate::subsystem_manager::ReceivingClientPhaseDriver for NativeTranslationP
         audio: &mut crate::subsystem_manager::AudioManagerSubsystem,
         timing: Option<&ww3d_engine::FrameTiming>,
     ) -> anyhow::Result<()> {
-        audio.update_receiving_audio(timing, self.audio.random)
+        audio.update_receiving_audio(timing, self.audio.random_mut())
     }
 }

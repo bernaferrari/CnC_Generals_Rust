@@ -44,7 +44,7 @@ fn fire_at_records_fire_intent_residual() {
             logic.frame,
             &mut logic.combat_system,
             &mut logic.attack_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         assert!(fired, "close-range fire_at should discharge");
         // The shot commits its durable fields before any observer refresh.
@@ -87,7 +87,7 @@ fn fire_at_records_fire_intent_residual() {
             logic.frame,
             &mut logic.combat_system,
             &mut logic.attack_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         assert!(fired);
         assert_eq!(o.last_fire_victim_host, vid.0);
@@ -179,7 +179,7 @@ fn private_idle_decision_authority() {
         o.status.attacking = true;
         o.set_ai_state(
             AIState::Attacking,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
     assert!(logic.private_idle_for_test(oid));
@@ -430,7 +430,7 @@ fn special_power_tick_updates_receiving_owner_timer() {
         o.set_special_power_ready(false);
         let became = o.tick_timers(
             1.0,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         let _ = became;
     }

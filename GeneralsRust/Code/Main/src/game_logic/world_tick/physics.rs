@@ -798,6 +798,7 @@ impl GameLogic {
             #[cfg(feature = "game_client")]
             let kill_now = Self::with_object_fx_services(
                 &mut self.session_view,
+                self.queued_audio_events.policy().clone(),
                 fx_player,
                 self.world_services.shroud(),
                 presentation_effects,
@@ -1487,96 +1488,138 @@ impl GameLogic {
     /// C++ `Locomotor::handleBehaviorZ` live pose (Locomotor.cpp:2196-2323).
     ///
     /// `Z_SURFACE_RELATIVE_HEIGHT` / `Z_SMOOTH_RELATIVE_TO_HIGHEST_LAYER` apply
-    /// lift via `calcLiftToUseAtPt` + `applyMotiveForce` — never `setPosition`
-    /// on Z (hq-ygdfb). Host march skips full Physics `pos+=v` while pathing,
-    /// so integrate the leftover Y Euler step here (maxLift / speedLimitZ / vel.y).
-    pub(in super::super) fn apply_live_handle_behavior_z(
-        obj: &mut Object,
-        ground_y: f32,
+    /// Locomotor::handleBehaviorZ observes this receiving world now. Motive
+    /// branches only accumulate force; source kinematic branches finish their
+    /// immediate callback before the caller resumes its registered actor.
+    pub(in super::super) fn apply_owned_locomotor_z_with_effects(
+        &mut self,
+        id: ObjectId,
         goal_y: Option<f32>,
-        terrain: Option<&super::flight_terrain::FlightTerrainView<'_>>,
-    ) {
-        Self::apply_live_handle_behavior_z_with_effects(
-            obj,
-            ground_y,
-            goal_y,
-            terrain,
-            0,
-            &mut Default::default(),
-        );
-    }
-    pub(in super::super) fn apply_live_handle_behavior_z_with_effects(
-        obj: &mut Object,
-        ground_y: f32,
-        goal_y: Option<f32>,
-        terrain: Option<&super::flight_terrain::FlightTerrainView<'_>>,
         frame: u32,
-        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
-        // C++ handleBehaviorZ always receives locomotor goalPos; PRECISE_Z_POS
-        // selects goal.z over preferredHeight + surface (Locomotor.cpp:2296-2300).
-        let goal_y = goal_y.or_else(|| obj.movement.target_position.map(|p| p.y));
-        let hover = matches!(
-            obj.loco_appearance,
-            LocomotorAppearance::Hover | LocomotorAppearance::Wings
-        );
-        let z_motive = matches!(
-            obj.loco_behavior_z,
-            LocomotorBehaviorZ::SurfaceRelativeHeight
-                | LocomotorBehaviorZ::SmoothRelativeToHighestLayer
-                | LocomotorBehaviorZ::AbsoluteHeight
-                | LocomotorBehaviorZ::SeaLevel
-                | LocomotorBehaviorZ::FixedSurfaceRelativeHeight
-                | LocomotorBehaviorZ::FixedAbsoluteHeight
-                | LocomotorBehaviorZ::RelativeToGroundAndBuildings
-        );
-        if !z_motive && !hover {
-            return;
+        effects: &mut ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<bool> {
+        let Some(object) = self.objects.get(&id) else {
+            return Ok(false);
+        };
+        if object.selected_locomotor_definition.is_none() {
+            if object.cur_locomotor_name.is_some() {
+                return Err(gamelogic::GameLogicError::Configuration(
+                    "Z controller has a named locomotor without its admitted definition".into(),
+                ));
+            }
+            return Ok(true); // source has no current locomotor: no motive controller
         }
-        // Hover with no authored Z still uses Z_SURFACE_RELATIVE_HEIGHT
-        // (Locomotor.cpp:2288).
-        if hover && matches!(obj.loco_behavior_z, LocomotorBehaviorZ::NoZMotiveForce) {
-            obj.loco_behavior_z = LocomotorBehaviorZ::SurfaceRelativeHeight;
-        }
-        if let Some(terrain) = terrain {
-            let highest = terrain.highest_surface(obj);
-            let _ = obj.handle_behavior_z_with_highest_surface_and_effects(
-                ground_y, goal_y, highest, frame, effects,
-            );
-        } else {
-            let highest = obj.highest_layer_surface_ht(ground_y);
-            let _ = obj.handle_behavior_z_with_highest_surface_and_effects(
-                ground_y, goal_y, highest, frame, effects,
-            );
-        }
-        // Thrust joins its admitted forces at the actual Physics phase;
-        // do not run the older locomotor-local gravity/Euler shortcut.
-        if obj.loco_appearance == LocomotorAppearance::Thrust {
-            return;
-        }
-        match obj.loco_behavior_z {
-            LocomotorBehaviorZ::SurfaceRelativeHeight
-            | LocomotorBehaviorZ::SmoothRelativeToHighestLayer
-            | LocomotorBehaviorZ::AbsoluteHeight => {
-                // Leftover PhysicsBehavior Euler Z: vel += a; pos += vel.
-                // C++ PhysicsUpdate.cpp:626-636 applyGravitationalForces unless
-                // DISABLED_HELD, then integrate. calc_lift_to_use_at_pt returns
-                // desiredAccel - gravity so lift + gravity nets climb/hold (hq-g8oig).
-                if !obj.is_physics_held() {
-                    obj.apply_gravitational_forces();
-                    let y_a = obj.physics_accel.y;
-                    if y_a.abs() > 1.0e-8 {
-                        obj.movement.velocity.y += y_a;
-                        obj.physics_accel.y = 0.0;
-                        obj.invalidate_velocity_magnitude();
-                        let mut p = obj.get_position();
-                        p.y += obj.movement.velocity.y;
-                        obj.set_position_with_effects(p, frame, effects);
-                    }
+        let position = object.get_position();
+        let goal_y = goal_y.or_else(|| object.movement.target_position.map(|position| position.y));
+        let terrain = super::flight_terrain::FlightTerrainView {
+            logical: Some(self.world_services.terrain().as_ref()),
+            grid: &self.pathfinding_system.grid,
+            terrain: self.terrain.as_ref(),
+            samples: self.pathfinding_height_samples.as_ref(),
+        };
+        let raw = terrain.raw_ground(position, object.ground_height);
+        let highest = terrain.highest_surface(object);
+        let surface = match object.loco_behavior_z {
+            LocomotorBehaviorZ::RelativeToGroundAndBuildings => {
+                self.ground_or_structure_height_at(position, raw)
+            }
+            LocomotorBehaviorZ::SeaLevel => {
+                if self.is_underwater_at(position) {
+                    self.water_surface_at(position).unwrap_or(raw)
+                } else {
+                    self.pathfinding_system.grid.layer_height_clipped(
+                        position,
+                        object.pathfind_layer,
+                        raw,
+                    )
                 }
             }
-            _ => {}
+            _ => self.surface_ht_at(position).unwrap_or(raw),
+        };
+        let object = self
+            .objects
+            .get_mut(&id)
+            .expect("observations do not run callbacks");
+        let step = object.prepare_behavior_z(surface, goal_y, highest);
+        let reaction = step.position.map(|position| {
+            object.prepare_position_tree_reaction(
+                position,
+                frame,
+                &mut effects.reborrow_for_object(&mut self.partition_manager),
+            )
+        });
+        // The registered object is never taken out. Release its bounded loan
+        // before the source-immediate kinematic callback and resolve its birth.
+        Ok(reaction
+            .is_none_or(|reaction| self.complete_owned_position_reaction(id, reaction, effects)))
+    }
+
+    pub(in crate::game_logic) fn move_owned_thrust_with_effects(
+        &mut self,
+        id: ObjectId,
+        goal: glam::Vec3,
+        on_path_dist: f32,
+        desired_speed: f32,
+        frame: u32,
+        braking: bool,
+        surface_y: f32,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> bool {
+        let Some(object) = self.objects.get_mut(&id) else {
+            return false;
+        };
+        let birth = std::sync::Arc::downgrade(&object.visual_draw_identity_token);
+        let mut step = object.prepare_thrust_step(
+            goal,
+            on_path_dist,
+            desired_speed,
+            frame,
+            braking,
+            surface_y,
+            &mut effects.reborrow_for_object(&mut self.partition_manager),
+        );
+        if let Some(reaction) = step.reaction.take() {
+            if !self.complete_owned_position_reaction(id, reaction, effects) {
+                return false;
+            }
         }
+        let Some(object) = self.objects.get_mut(&id).filter(|object| {
+            birth.ptr_eq(&std::sync::Arc::downgrade(
+                &object.visual_draw_identity_token,
+            ))
+        }) else {
+            return false;
+        };
+        object.finish_owned_thrust_step(step);
+        true
+    }
+    pub(in crate::game_logic) fn maintain_owned_locomotor_appearance_with_effects(
+        &mut self,
+        id: ObjectId,
+        dt: f32,
+        frame: u32,
+        surface_y: f32,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> bool {
+        let Some(object) = self.objects.get_mut(&id) else {
+            return false;
+        };
+        if object.loco_appearance != LocomotorAppearance::Thrust {
+            object.loco_maintain_appearance_with_effects(
+                dt,
+                frame,
+                surface_y,
+                &mut effects.reborrow_for_object(&mut self.partition_manager),
+            );
+            return true;
+        }
+        object.begin_loco_maintain_appearance();
+        let Some(goal) = object.maintain_pos else {
+            return true;
+        };
+        let speed = object.min_speed;
+        let braking = object.is_braking;
+        self.move_owned_thrust_with_effects(id, goal, 0., speed, frame, braking, surface_y, effects)
     }
 
     /// C++ Object::getCarrierDeckHeight — producer's ParkingPlace landing offset.
@@ -1605,16 +1648,33 @@ impl GameLogic {
             id,
             &mut crate::game_logic::ScriptPresentationEffects::default(),
         )
+        .expect("receiving Physics ground collide callback failed")
     }
 
     pub(crate) fn dispatch_physics_ground_collide_with_effects(
         &mut self,
         id: ObjectId,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
+        if let Some(object) = self.objects.get_mut(&id) {
+            object.pending_ground_collide = false;
+            object.last_collidee = None;
+            if object.thing().template.contain_module.kind == ContainModuleKind::Parachute {
+                return self.parachute_on_ground_collide_owned(id, presentation_effects);
+            }
+            if object
+                .contained_by
+                .and_then(|container| self.objects.get(&container))
+                .is_some_and(|container| {
+                    container.thing().template.contain_module.kind == ContainModuleKind::Parachute
+                })
+            {
+                return Ok(()); // rider collision never proxies a parent's module callback
+            }
+        }
         let (container, is_chute) = {
             let Some(o) = self.objects.get_mut(&id) else {
-                return;
+                return Ok(());
             };
             o.pending_ground_collide = false;
             o.last_collidee = None;
@@ -1635,15 +1695,18 @@ impl GameLogic {
             // C++ ParachuteContain::onCollide(NULL) land residual.
             self.tick_eject_parachute_residual_with_effects(cid, presentation_effects);
         }
+        Ok(())
     }
 
     #[cfg(test)]
     pub fn apply_live_handle_behavior_z_for_test(
         obj: &mut Object,
-        ground_y: f32,
+        surface_y: f32,
         goal_y: Option<f32>,
     ) {
-        Self::apply_live_handle_behavior_z(obj, ground_y, goal_y, None);
+        // Explicit component surface input. Lift remains a force until the
+        // actual Physics method is called, exactly as on the World route.
+        obj.handle_behavior_z_with_highest_surface(surface_y, goal_y, surface_y);
     }
     #[cfg(test)]
     pub fn transfer_attack_for_test(&mut self, from_id: ObjectId, to_id: ObjectId) -> usize {
@@ -1666,3 +1729,7 @@ mod physics_death_phase_tests;
 #[cfg(all(test, feature = "game_client"))]
 #[path = "physics_landing_phase_tests.rs"]
 mod physics_landing_phase_tests;
+
+#[cfg(test)]
+#[path = "physics/source_z_owner_tests.rs"]
+mod source_z_owner_tests;

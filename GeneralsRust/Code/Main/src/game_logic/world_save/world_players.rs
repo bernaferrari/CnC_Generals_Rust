@@ -79,7 +79,7 @@ impl GameLogic {
             None,
             None,
             None,
-            |_, value, phase| {
+            |_, _audio_policy, value, phase| {
                 report_progress(value, phase);
                 Ok(())
             },
@@ -103,6 +103,7 @@ impl GameLogic {
     where
         F: FnMut(
             &mut game_engine::common::random_value::RandomState,
+            &game_engine::common::audio::script_policy::ScriptAudioPolicy,
             f32,
             &str,
         ) -> Result<(), String>,
@@ -110,6 +111,7 @@ impl GameLogic {
         let sync_started = Instant::now();
         report_progress(
             &mut self.session_view.audio_random,
+            self.queued_audio_events.policy(),
             0.41,
             "Fast sync heightmap",
         )?;
@@ -135,6 +137,7 @@ impl GameLogic {
         );
         report_progress(
             &mut self.session_view.audio_random,
+            self.queued_audio_events.policy(),
             0.415,
             "Fast sync waypoints",
         )?;
@@ -160,6 +163,7 @@ impl GameLogic {
         );
         report_progress(
             &mut self.session_view.audio_random,
+            self.queued_audio_events.policy(),
             0.42,
             "Fast sync bridges",
         )?;
@@ -176,6 +180,7 @@ impl GameLogic {
         };
         report_progress(
             &mut self.session_view.audio_random,
+            self.queued_audio_events.policy(),
             0.425,
             "Fast sync water",
         )?;
@@ -206,6 +211,7 @@ impl GameLogic {
 
         report_progress(
             &mut self.session_view.audio_random,
+            self.queued_audio_events.policy(),
             0.43,
             "Fast sync polygons",
         )?;
@@ -245,6 +251,7 @@ impl GameLogic {
 
         report_progress(
             &mut self.session_view.audio_random,
+            self.queued_audio_events.policy(),
             0.435,
             "Fast sync roads",
         )?;
@@ -261,7 +268,12 @@ impl GameLogic {
                 }
             };
         self.runtime_terrain_texture_classes.clear();
-        report_progress(&mut self.session_view.audio_random, 0.44, "Fast sync sides")?;
+        report_progress(
+            &mut self.session_view.audio_random,
+            self.queued_audio_events.policy(),
+            0.44,
+            "Fast sync sides",
+        )?;
         let sides_data = match super::script_loader::parse_runtime_sides_from_chunky(chunky) {
             Ok(value) => value,
             Err(err) => {
@@ -282,6 +294,7 @@ impl GameLogic {
         );
         report_progress(
             &mut self.session_view.audio_random,
+            self.queued_audio_events.policy(),
             0.445,
             "Fast sync terrain write",
         )?;
@@ -364,6 +377,7 @@ impl GameLogic {
         }
         report_progress(
             &mut self.session_view.audio_random,
+            self.queued_audio_events.policy(),
             0.45,
             "Fast sync sides write",
         )?;

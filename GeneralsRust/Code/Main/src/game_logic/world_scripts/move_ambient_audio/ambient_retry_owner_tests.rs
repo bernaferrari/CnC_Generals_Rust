@@ -180,7 +180,7 @@ fn create(world: &mut GameLogic, object_rules: &str, position: Vec3) -> ObjectId
 fn assert_requests(world: &mut GameLogic, id: ObjectId, position: Vec3, count: usize, why: &str) {
     // Observe and consume the actual world-owned presentation request queue.
     // No private pacing state, candidate map, or fake playing state is touched.
-    let requests = std::mem::take(&mut world.queued_audio_events);
+    let requests = world.queued_audio_events.drain_requests();
     let ambient: Vec<_> = requests
         .into_iter()
         .filter(|event| {

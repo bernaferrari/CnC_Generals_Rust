@@ -77,14 +77,15 @@ impl<'a> NativeDrawServices<'a> {
 #[derive(Debug, Clone)]
 pub(super) struct NativeDrawableLifetime {
     pub(super) identity: crate::assets::LiveDrawPlaybackIdentity,
+    pub(super) auxiliary: Option<Arc<crate::game_logic::thing::ReceivingDrawModels>>,
     #[cfg(feature = "game_client")]
     pub(super) binding: Option<game_client::core::PresentationDirectDrawableBindingKey>,
 }
 #[derive(Default)]
 pub(crate) struct NativeDrawWorld {
-    pub(super) native_drawable_lifetimes: HashMap<u32, NativeDrawableLifetime>,
+    pub(super) native_drawable_lifetimes: HashMap<NativeDrawOwnerId, NativeDrawableLifetime>,
     /// Runtime identity and current state for each original Draw module.
-    pub(super) drawable_visual_states: HashMap<(u32, u32), ObjectVisualState>,
+    pub(super) drawable_visual_states: HashMap<(NativeDrawOwnerId, u32), ObjectVisualState>,
     pub(super) live_draw_playback:
         HashMap<crate::assets::LiveDrawPlaybackKey, crate::assets::LiveDrawPlayback>,
     /// Validated payload awaiting actual receiving topology, consumed once.

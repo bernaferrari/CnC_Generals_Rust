@@ -51,7 +51,26 @@ impl FlightTerrainView<'_> {
         fallback
     }
 
-    pub(super) fn highest_surface(&self, obj: &Object) -> f32 {
+    pub(super) fn surface_at(&self, pos: Vec3, fallback: f32) -> f32 {
+        let ground = self.raw_ground(pos, fallback);
+        if let Some(owner) = self.logical {
+            let terrain = owner.read().unwrap_or_else(|error| error.into_inner());
+            if terrain.has_height_map() || terrain.get_water_handle(pos.x, pos.z).is_some() {
+                let mut water = 0.;
+                return if terrain.is_underwater(pos.x, pos.z, Some(&mut water), None) {
+                    water
+                } else {
+                    ground
+                };
+            }
+        }
+        self.terrain
+            .filter(|terrain| terrain.is_underwater_at_world(pos))
+            .and_then(|terrain| terrain.water_surface_at_world(pos))
+            .unwrap_or(ground)
+    }
+
+    pub(crate) fn highest_surface(&self, obj: &Object) -> f32 {
         let pos = obj.get_position();
         let ground = self.raw_ground(pos, obj.ground_height);
         let layer = if obj.pathfind_layer == 1 {

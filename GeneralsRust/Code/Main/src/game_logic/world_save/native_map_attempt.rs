@@ -20,7 +20,7 @@ impl GameLogic {
             map_script_difficulty,
             water_delivery,
             native,
-            |_, value, phase| {
+            |_, _audio_policy, value, phase| {
                 report_progress(value, phase);
                 Ok(())
             },
@@ -43,6 +43,7 @@ impl GameLogic {
     where
         F: FnMut(
             &mut game_engine::common::random_value::RandomState,
+            &game_engine::common::audio::script_policy::ScriptAudioPolicy,
             f32,
             &str,
         ) -> Result<(), String>,
@@ -76,6 +77,7 @@ impl GameLogic {
                 // must retire its Objects before discarding native resources.
                 report_progress(
                     &mut self.session_view.audio_random,
+                    self.queued_audio_events.policy(),
                     1.0,
                     "Map load complete",
                 )?;
@@ -197,7 +199,7 @@ mod loading_gate_failure_tests {
                 None,
                 None,
                 Some(&mut native),
-                |_, _, _| Ok(()),
+                |_, _, _, _| Ok(()),
             );
             assert!(
                 result
@@ -243,7 +245,7 @@ mod loading_gate_failure_tests {
                 None,
                 None,
                 Some(&mut native),
-                |_, _, _| Ok(()),
+                |_, _, _, _| Ok(()),
             )
             .unwrap_err();
         assert!(error.contains("receiving retirement rejected"));
@@ -291,7 +293,7 @@ mod loading_gate_failure_tests {
                 None,
                 None,
                 Some(&mut native),
-                |_, _, _| Ok(()),
+                |_, _, _, _| Ok(()),
             )
             .unwrap_err();
         assert!(error.contains("ScriptEngine"));

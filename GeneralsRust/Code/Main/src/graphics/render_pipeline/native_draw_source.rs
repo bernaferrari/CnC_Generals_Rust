@@ -16,6 +16,25 @@ pub(super) struct NativeDrawSource<'a> {
 }
 
 impl<'a> NativeDrawSource<'a> {
+    pub(super) fn auxiliary(
+        identity: &'a crate::assets::LiveDrawPlaybackIdentity,
+        receiving: &'a crate::game_logic::thing::ReceivingDrawModels,
+        template: &'a str,
+        mesh_scale: f32,
+    ) -> Self {
+        Self {
+            identity: Some(identity),
+            receiving: Some(receiving),
+            template,
+            mesh_scale,
+            float_yaw: 0.0,
+            float_pitch: 0.0,
+            under_construction: false,
+            construction_percent: 0.0,
+            max_height_above_position: 0.0,
+        }
+    }
+
     pub(super) fn display(source: &'a crate::presentation_frame::UnitRenderInput) -> Self {
         Self {
             identity: source.draw_playback_identity.as_ref(),

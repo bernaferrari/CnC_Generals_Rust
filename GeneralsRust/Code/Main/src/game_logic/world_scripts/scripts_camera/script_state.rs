@@ -123,7 +123,7 @@ impl GameLogic {
         self.retry_dropped_ambient_sounds();
         let mut outgoing = Vec::new();
 
-        let pending = std::mem::take(&mut self.queued_audio_events);
+        let pending = self.queued_audio_events.drain_requests();
         for event in pending {
             let names = crate::game_logic::resolve_audio_event_names(&event.event_type);
             for name in names {

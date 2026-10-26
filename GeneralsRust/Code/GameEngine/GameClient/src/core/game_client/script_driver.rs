@@ -222,6 +222,7 @@ impl GameClient {
         let mut driver = ReceivingClientScriptDriver {
             world,
             effects: WindowEventEffects {
+                cursor_mouse: self.subsystem_manager.input_mouse.as_mut(),
                 control_bar_observation: None,
                 menu_audio: None,
                 input_provenance:

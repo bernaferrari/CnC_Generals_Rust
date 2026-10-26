@@ -15,6 +15,7 @@ pub trait NativeAmbientAudio {
         state: BodyDamageType,
         time_of_day: TimeOfDay,
         locality: &AudioSubmissionLocality,
+        policy: &game_engine::common::audio::script_policy::ScriptAudioPolicy,
     ) -> Result<(), String>;
 }
 impl NativeAmbientAudio for AudioManager {
@@ -24,12 +25,27 @@ impl NativeAmbientAudio for AudioManager {
         state: BodyDamageType,
         time_of_day: TimeOfDay,
         locality: &AudioSubmissionLocality,
+        policy: &game_engine::common::audio::script_policy::ScriptAudioPolicy,
     ) -> Result<(), String> {
-        drawable.start_ambient_sound_for_state_with_audio(state, time_of_day, false, self, locality)
+        drawable.start_ambient_sound_for_state_with_audio_policy(
+            state,
+            time_of_day,
+            false,
+            self,
+            locality,
+            Some(policy),
+        )
     }
 }
 
 impl BasicDrawable {
+    pub fn owned_ambient_audio_handle(&self) -> Option<u32> {
+        self.ambient_sound_event
+            .as_ref()
+            .map(|event| event.get_playing_handle())
+            .filter(|handle| (1000..0xFFFF_FFF0).contains(handle))
+    }
+
     pub(crate) fn preflight_native_ambient(&self) -> Result<(), String> {
         if self.receiving_template.is_some() {
             Ok(())
@@ -54,6 +70,24 @@ impl BasicDrawable {
         only_if_permanent: bool,
         audio: &mut AudioManager,
         locality: &AudioSubmissionLocality,
+    ) -> Result<(), String> {
+        self.start_ambient_sound_for_state_with_audio_policy(
+            state,
+            time_of_day,
+            only_if_permanent,
+            audio,
+            locality,
+            None,
+        )
+    }
+    pub fn start_ambient_sound_for_state_with_audio_policy(
+        &mut self,
+        state: BodyDamageType,
+        time_of_day: TimeOfDay,
+        only_if_permanent: bool,
+        audio: &mut AudioManager,
+        locality: &AudioSubmissionLocality,
+        policy: Option<&game_engine::common::audio::script_policy::ScriptAudioPolicy>,
     ) -> Result<(), String> {
         let template = self
             .receiving_template
@@ -124,6 +158,9 @@ impl BasicDrawable {
                 }
                 TimeOfDay::Night => game_engine::common::audio::audio_event_rts::TimeOfDay::Night,
             });
+            if let Some(policy) = policy {
+                event.admit_script_policy(policy);
+            }
             event.set_playing_handle(audio.add_audio_event_with_locality(&event, locality));
         }
         // C++ retains a valid event even if range/permanent gating skips play.

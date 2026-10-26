@@ -735,6 +735,7 @@ impl GameClient {
             self.drawables.borrow_native(),
             &mut self.command_hints,
             crate::gui::game_window::WindowEventEffects {
+                cursor_mouse: self.subsystem_manager.input_mouse.as_mut(),
                 control_bar_observation: None,
                 menu_audio: None,
                 input_provenance:

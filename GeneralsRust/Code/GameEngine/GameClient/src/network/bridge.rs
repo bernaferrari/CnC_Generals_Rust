@@ -55,7 +55,7 @@ impl NetworkBridgeHandle {
         debug!("Registered network frame listener with id {}", listener_id);
 
         let liteupdate_network = Arc::clone(&network);
-        register_map_transfer_liteupdate_hook(move || {
+        register_map_transfer_liteupdate_hook(move |_mouse| {
             if let Err(err) = pollster::block_on(liteupdate_network.update()) {
                 warn!("Map transfer liteupdate failed: {err}");
             }

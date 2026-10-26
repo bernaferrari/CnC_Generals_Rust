@@ -113,7 +113,6 @@ impl CnCGameEngine {
             .in_game_ui_subsystem()
             .map(|ui| ui.tooltips_disabled_at(self.game_logic.frame))
             .unwrap_or(true);
-        let cursor_mouse = self.game_client.input_mouse_handle();
         let (x, y) = self.mouse_position;
         let observer_roster = self.receiving_observer_roster();
         let upgrade_tooltip = self.game_logic.receiving_upgrade_tooltip_observer();
@@ -126,6 +125,7 @@ impl CnCGameEngine {
         let menu_audio_view = super::audio_view::CompletedAudioView::capture(&self.game_logic);
         let mut menu_audio = self.menu_audio.lend(
             &mut self.game_logic.session_view.audio_random,
+            self.game_logic.queued_audio_events.policy(),
             menu_audio_locality,
             menu_audio_view,
         );
@@ -139,6 +139,7 @@ impl CnCGameEngine {
             ime,
             mut menus,
             ui,
+            cursor_mouse,
         ) = self.game_client.window_owner_campaign_menu_and_host_mut();
         let mut context = game_client::gui::window_manager::ControlBarInputContext {
             control_bar_observation:Some(control_bar_observation),
@@ -158,7 +159,7 @@ impl CnCGameEngine {
             replay,
             game_ending,
             tooltips_disabled,
-            cursor_mouse: cursor_mouse.as_ref(),
+            cursor_mouse,
             emitted_messages: None,
             campaign_manager: Some(campaign_manager),
             main_menu: Some(main_menu),
@@ -328,6 +329,7 @@ impl CnCGameEngine {
 /// GameLogic retains only its camera; no UI service is published into a world.
 #[cfg(feature = "game_client")]
 pub(super) struct NativeScriptUi<'a> {
+    menu_audio_receipts: Option<&'a super::menu_audio::NativeMenuAudioService>,
     pub(super) input: Option<super::mouse::CinematicInputLoan<'a>>,
     window_manager_owner: game_client::gui::window_manager::WindowManagerOwner,
     snow: &'a mut game_client::snow::SnowManager,
@@ -341,6 +343,14 @@ pub(super) struct NativeScriptUi<'a> {
 
 #[cfg(feature = "game_client")]
 impl<'a> NativeScriptUi<'a> {
+    pub(super) fn with_menu_audio_receipts(
+        mut self,
+        audio: &'a super::menu_audio::NativeMenuAudioService,
+    ) -> Self {
+        self.menu_audio_receipts = Some(audio);
+        self
+    }
+
     pub(super) fn new(
         snow: &'a mut game_client::snow::SnowManager,
         bar: &'a mut game_client::gui::control_bar::ControlBar,
@@ -348,6 +358,7 @@ impl<'a> NativeScriptUi<'a> {
     ) -> Self {
         Self {
             input: None,
+            menu_audio_receipts: None,
             window_manager_owner,
             snow,
             bar,
@@ -397,6 +408,18 @@ impl<'a> NativeScriptUi<'a> {
 
 #[cfg(feature = "game_client")]
 impl crate::game_logic::ScriptUiEffects for NativeScriptUi<'_> {
+    fn visit_owned_menu_audio_receipts(
+        &self,
+        visit: &mut dyn FnMut(
+            &std::sync::Arc<std::sync::Mutex<game_engine::common::audio::AudioManager>>,
+            &[u32],
+        ),
+    ) {
+        if let Some(audio) = self.menu_audio_receipts {
+            audio.visit_owned_receipts(visit);
+        }
+    }
+
     fn observe_named_timer_counters(&mut self, counters: std::collections::HashMap<String, i32>) {
         self.window_effects
             .as_mut()

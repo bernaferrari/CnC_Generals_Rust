@@ -1,11 +1,31 @@
 //! Receiving native owners lent only at their original render phases.
 use super::*;
+pub(super) enum NativeCollectSource<'a> {
+    Native(&'a mut dyn NativeFrameRenderReceiver),
+    /// Explicit frozen-only preview; it cannot manufacture native Aux lifetimes.
+    FrozenPreview,
+}
+
 pub(crate) trait NativeFrameRenderReceiver {
+    fn actor_draw_candidate_is_current(
+        &self,
+        key: game_client::core::PresentationDirectDrawableBindingKey,
+        input: &crate::presentation_frame::UnitRenderInput,
+    ) -> Result<bool, String>;
+
+    fn native_draw_candidates(
+        &mut self,
+    ) -> Result<Vec<game_client::core::game_client::NativeDrawCandidate>, String>;
+    fn observe_auxiliary_drawable(
+        &mut self,
+        receipt: &game_client::core::game_client::NativeAuxiliaryReceipt,
+    ) -> Result<Option<game_client::core::game_client::NativeAuxiliaryDrawObservation>, String>;
+
     fn complete_physics_visual(
         &mut self,
         input: &mut crate::presentation_frame::UnitRenderInput,
         frame: &crate::presentation_frame::PresentationFrame,
-    );
+    ) -> std::result::Result<Option<Mat4>, String>;
     fn direct_scene_decisions(
         &mut self,
         candidates: &[FrozenDirectDrawableSceneCandidate],

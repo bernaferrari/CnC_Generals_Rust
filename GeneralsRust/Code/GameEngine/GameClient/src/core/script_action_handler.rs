@@ -89,14 +89,18 @@ pub fn apply_script_display_mode(
     yres: u32,
     bit_depth: u32,
     windowed: bool,
+    mut mouse: Option<&mut crate::input::Mouse>,
 ) -> bool {
-    if let Some(ok) = receiver
-        .with_display(|display, fx| display.set_display_mode(fx, xres, yres, bit_depth, windowed))
-    {
+    if let Some(ok) = receiver.with_display(|display, fx| {
+        display.set_display_mode(fx, xres, yres, bit_depth, windowed, mouse.as_deref_mut())
+    }) {
         return ok;
     }
     if !crate::display::display_fx::is_valid_device_mode(xres, yres, bit_depth) {
         return false;
+    }
+    if let Some(mouse) = mouse {
+        mouse.set_mouse_limits(xres, yres);
     }
     receiver
         .fx
@@ -363,7 +367,10 @@ pub fn reset_script_action_runtime_state() {
     TheGameLogic::set_intro_movie_playing(false);
 }
 
-pub fn apply_pending_script_display_state(ui: &mut crate::core::subsystems::InGameUISubsystem) {
+pub fn apply_pending_script_display_state(
+    ui: &mut crate::core::subsystems::InGameUISubsystem,
+    mouse: Option<&mut crate::input::Mouse>,
+) {
     let wireframe = game_engine::common::global_data::read().writable.wireframe;
     with_tactical_view(|view| {
         if view.pending_3d_wireframe_mode() != wireframe {
@@ -372,16 +379,20 @@ pub fn apply_pending_script_display_state(ui: &mut crate::core::subsystems::InGa
     });
 
     if let Some(disable) = gamelogic::helpers::TheInGameUI::take_cinematic_input_lock() {
-        apply_cinematic_input_lock(ui, disable);
+        apply_cinematic_input_lock(ui, disable, mouse);
     }
 }
 
 /// C++ ScriptActions::doDisableInput / doEnableInput cinematic teardown.
-fn apply_cinematic_input_lock(ui: &mut crate::core::subsystems::InGameUISubsystem, disable: bool) {
+fn apply_cinematic_input_lock(
+    ui: &mut crate::core::subsystems::InGameUISubsystem,
+    disable: bool,
+    mouse: Option<&mut crate::input::Mouse>,
+) {
     ui.set_input_enabled(!disable);
-    crate::input::mouse::with_mouse(|mouse| {
+    if let Some(mouse) = mouse {
         mouse.set_visibility(!disable);
-    });
+    }
     if !disable {
         return;
     }

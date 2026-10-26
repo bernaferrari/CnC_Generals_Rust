@@ -221,7 +221,7 @@ fn native_translator_pipeline_does_not_repeat_main_camera_input() {
     let mut camera_requests = 0;
     {
         let driver: &mut NativeWindowInputDriver<'_> =
-            &mut |_, _, _, _, _, _, _, _, _, request, _| {
+            &mut |_, _, _, _, _, _, _, _, _, _, request, _| {
                 if matches!(request, WindowInputDispatch::Camera(_)) {
                     camera_requests += 1;
                 }

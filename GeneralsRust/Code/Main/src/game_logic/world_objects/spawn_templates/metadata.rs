@@ -216,6 +216,18 @@ impl GameLogic {
             RiderChangeRiderMetadata,
         };
 
+        template.hijacker_parachute_name = definition
+            .behavior_modules
+            .iter()
+            .find(|module| module.class_name.eq_ignore_ascii_case("HijackerUpdate"))
+            .map(|module| {
+                module
+                    .attribute("ParachuteName")
+                    .unwrap_or("")
+                    .trim()
+                    .to_owned()
+            });
+
         fn parse_bool(value: &str) -> Option<bool> {
             match value.trim().to_ascii_lowercase().as_str() {
                 "yes" | "true" | "1" => Some(true),
@@ -587,6 +599,12 @@ impl GameLogic {
                 || module.class_name.eq_ignore_ascii_case("HelixContain")
             {
                 Some((ContainModuleKind::Transport, parse_slots(module, "Slots")))
+            } else if module.class_name.eq_ignore_ascii_case("ParachuteContain") {
+                // OpenContain retains ContainMax; one-rider admission is a separate override.
+                Some((
+                    ContainModuleKind::Parachute,
+                    parse_slots(module, "ContainMax"),
+                ))
             } else if module.class_name.eq_ignore_ascii_case("RiderChangeContain") {
                 Some((ContainModuleKind::RiderChange, parse_slots(module, "Slots")))
             } else if module
@@ -645,7 +663,9 @@ impl GameLogic {
                 } else {
                     false
                 };
-                let is_enclosing_container = if kind == ContainModuleKind::Garrison {
+                let is_enclosing_container = if kind == ContainModuleKind::Parachute {
+                    false
+                } else if kind == ContainModuleKind::Garrison {
                     module
                         .attribute("IsEnclosingContainer")
                         .and_then(parse_bool)
@@ -680,9 +700,35 @@ impl GameLogic {
                 } else {
                     (false, String::new(), 0)
                 };
+                let parachute = if kind == ContainModuleKind::Parachute {
+                    let number = |key: &str, default: f32| {
+                        module
+                            .attribute(key)
+                            .and_then(|value| value.trim().parse::<f32>().ok())
+                            .unwrap_or(default)
+                    };
+                    Some(crate::game_logic::ParachuteContainMetadata {
+                        pitch_rate_max: number("PitchRateMax", 0.).to_radians() / 30.,
+                        roll_rate_max: number("RollRateMax", 0.).to_radians() / 30.,
+                        low_altitude_damping: number("LowAltitudeDamping", 0.2),
+                        open_distance: number("ParachuteOpenDist", 0.),
+                        free_fall_damage_percent: module
+                            .attribute("FreeFallDamagePercent")
+                            .and_then(|value| {
+                                value.trim().trim_end_matches('%').parse::<f32>().ok()
+                            })
+                            .map(|value| value / 100.)
+                            .unwrap_or(0.5),
+                        kill_when_landing_in_water_slop: number("KillWhenLandingInWaterSlop", 10.),
+                        open_sound: parse_contain_audio_event(module, "ParachuteOpenSound"),
+                    })
+                } else {
+                    None
+                };
                 let candidate = ContainModuleMetadata {
                     kind,
                     slots,
+                    parachute,
                     damage_percent_to_units: Some(
                         module
                             .attribute("DamagePercentToUnits")
@@ -3051,3 +3097,7 @@ impl GameLogic {
         })();
     }
 }
+
+#[cfg(test)]
+#[path = "parachute_metadata_tests.rs"]
+mod parachute_metadata_tests;

@@ -42,7 +42,7 @@ impl AudioLocalityResolver for ContainAudioPlayers {
 }
 
 impl GameLogic {
-    fn admit_containment_audio(
+    pub(in crate::game_logic) fn admit_containment_audio(
         &self,
         object_id: ObjectId,
         mut event: AudioEventRts,
@@ -57,6 +57,7 @@ impl GameLogic {
         event.set_object_id(object_id.0);
         let source = object.owner_player_id.map(|id| id as i32).unwrap_or(-1);
         let locality = self.receiving_audio_locality_for_player(source);
+        event.admit_script_policy(self.queued_audio_events.policy());
         audio.add_audio_event(&event, &locality);
     }
 
@@ -116,11 +117,27 @@ impl GameLogic {
         container_id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
+        self.play_container_on_containing_sound(container_id, effects);
+        self.play_container_load_sound(container_id, effects);
+    }
+
+    pub(crate) fn play_container_on_containing_sound(
+        &self,
+        container_id: ObjectId,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         if let Some(event) =
             self.contain_template_audio(container_id, ThingTemplateAudioType::SoundEnter)
         {
             self.admit_containment_audio(container_id, event, effects);
         }
+    }
+
+    pub(crate) fn play_container_load_sound(
+        &mut self,
+        container_id: ObjectId,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         let event = self
             .objects
             .get(&container_id)

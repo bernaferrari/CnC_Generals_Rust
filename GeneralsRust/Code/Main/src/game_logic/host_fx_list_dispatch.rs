@@ -922,6 +922,7 @@ mod emission_player_owner_tests {
 impl crate::game_logic::GameLogic {
     pub(crate) fn with_object_fx_services<R>(
         session: &mut crate::presentation_frame::SessionView,
+        audio_policy: game_engine::common::audio::script_policy::ScriptAudioPolicy,
         player: Option<u32>,
         shroud: &std::sync::Arc<std::sync::Mutex<gamelogic::system::shroud_manager::ShroudManager>>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
@@ -932,6 +933,7 @@ impl crate::game_logic::GameLogic {
     ) -> R {
         run(&mut ObjectFxServices {
             session,
+            audio_policy,
             player,
             shroud,
             effects,

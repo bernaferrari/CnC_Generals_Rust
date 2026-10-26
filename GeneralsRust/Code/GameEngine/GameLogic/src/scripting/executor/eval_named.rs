@@ -1389,6 +1389,7 @@ impl ScriptConditionEvaluator<'_> {
     pub(crate) fn eval_music_track_has_completed(
         &self,
         _condition: &Condition,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptConditionResult, ScriptError> {
         let track = self.get_condition_string_param(_condition, 0)?;
         let param = self.get_condition_int_param(_condition, 1).unwrap_or(0);
@@ -1397,6 +1398,17 @@ impl ScriptConditionEvaluator<'_> {
             track,
             param
         );
+        // Native execution supplies the actual receiving audio owner. The classic
+        // handler below remains only for an explicit Core driver without that capability.
+        if let Some(result) = driver.music_track_completed(&track, param) {
+            let finished =
+                result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
+            return Ok(if finished {
+                ScriptConditionResult::True
+            } else {
+                ScriptConditionResult::False
+            });
+        }
         // C++ evaluateMusicHasCompleted → TheAudio->hasMusicTrackCompleted(track, N).
         if let Some(Some(finished)) = self.context.with_engine_ref(|script_engine| {
             script_engine

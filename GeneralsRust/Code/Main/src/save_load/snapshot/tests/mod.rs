@@ -219,3 +219,7 @@ mod legacy_and_timer_snapshots;
 /// Avenger FAERIE_FIRE paint must keep the 150% ROF timer after load.
 // Behavior-named suites keep each test file below the 4k LOC ceiling.
 mod world_and_weapon_snapshots;
+
+mod apparent_player_identity;
+
+mod audio_policy;

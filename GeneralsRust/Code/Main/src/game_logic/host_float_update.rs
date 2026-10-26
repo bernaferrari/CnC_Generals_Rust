@@ -24,9 +24,11 @@ pub const FLOAT_SWAY_AMP: f32 = 0.05;
 ///
 /// C++ writes waterZ only when a water handle exists (polygon / grid).
 /// None means no water table — do not snap to lakebed.
-pub fn leftover_water_surface_y(map_x: f32, map_y: f32) -> Option<f32> {
-    let terrain_owner_handle = gamelogic::terrain::get_terrain_logic();
-    let tl = terrain_owner_handle.try_read().ok()?;
+pub fn receiving_water_surface_y(
+    tl: &gamelogic::terrain::TerrainLogic,
+    map_x: f32,
+    map_y: f32,
+) -> Option<f32> {
     if tl.get_water_handle(map_x, map_y).is_none() {
         return None;
     }
@@ -35,14 +37,16 @@ pub fn leftover_water_surface_y(map_x: f32, map_y: f32) -> Option<f32> {
     Some(water_z)
 }
 
-/// C++ `FloatUpdate::update` instance matrix in host Y-up.
-///
-/// C++ Z-up: Identity; Rotate_Z(heading); Rotate_Y(yaw); Rotate_X(pitch).
-/// Host Y-up: heading is Ry, C++ Ry (map Y) is host Rz, Rx stays Rx.
-pub fn instance_matrix_yup(heading: f32, yaw: f32, pitch: f32) -> glam::Mat4 {
-    glam::Mat4::from_rotation_y(heading)
-        * glam::Mat4::from_rotation_z(yaw)
-        * glam::Mat4::from_rotation_x(pitch)
+/// FloatUpdate.cpp106 reads current instance Get_Z_Rotation, not Object heading.
+pub(crate) fn rebuild_receiving_instance(previous: glam::Mat4, yaw: f32, pitch: f32) -> glam::Mat4 {
+    let basis = glam::Mat4::from_cols(glam::Vec4::X, glam::Vec4::Z, glam::Vec4::Y, glam::Vec4::W);
+    let cpp = basis * previous * basis;
+    let z = cpp.x_axis.y.atan2(cpp.x_axis.x);
+    basis
+        * (glam::Mat4::from_rotation_z(z)
+            * glam::Mat4::from_rotation_y(yaw)
+            * glam::Mat4::from_rotation_x(pitch))
+        * basis
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -158,7 +162,27 @@ mod tests {
         assert!(d.snap_height_y(Some(12.0)).is_none());
         d.set_enabled(true);
         assert_eq!(d.snap_height_y(Some(12.0)), Some(12.0));
-        let mx = instance_matrix_yup(0.3, d.yaw, d.pitch);
+        let mx = rebuild_receiving_instance(glam::Mat4::IDENTITY, d.yaw, d.pitch);
         assert!(mx.is_finite());
+    }
+
+    #[test]
+    fn source_float_retains_prior_instance_z_rotation_not_object_heading() {
+        let basis =
+            glam::Mat4::from_cols(glam::Vec4::X, glam::Vec4::Z, glam::Vec4::Y, glam::Vec4::W);
+        let cpp = glam::Mat4::from_rotation_z(0.37) * glam::Mat4::from_rotation_y(0.2);
+        let result = rebuild_receiving_instance(basis * cpp * basis, 0.12, -0.08);
+        let expected = basis
+            * (glam::Mat4::from_rotation_z(0.37)
+                * glam::Mat4::from_rotation_y(0.12)
+                * glam::Mat4::from_rotation_x(-0.08))
+            * basis;
+        assert!(
+            result
+                .to_cols_array()
+                .iter()
+                .zip(expected.to_cols_array())
+                .all(|(a, b)| (a - b).abs() < 1e-6)
+        );
     }
 }

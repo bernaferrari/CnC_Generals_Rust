@@ -182,6 +182,8 @@ pub const HOST_LOCOMOTOR_SEED_RESIDUAL_TABLE: &[(&str, f32, f32, f32)] = &[
 /// Logic FPS used by C++ Locomotor.ini unit conversion (Speed / 30 → dist/frame).
 const LOGIC_FPS: f32 = 30.0;
 const LOCO_BIGNUM: f32 = 99999.0;
+/// Source Locomotor ctor m_maxLift cap (independent of immutable template lift).
+pub(crate) const DEFAULT_HOST_LIFT_CAP: f32 = LOCO_BIGNUM;
 /// Original omitted braking / initial cap in host distance/sec² units.
 pub(crate) const DEFAULT_HOST_BRAKING: f32 = LOCO_BIGNUM * LOGIC_FPS * LOGIC_FPS;
 
@@ -641,7 +643,7 @@ pub fn resolve_host_locomotor_binding(locomotor_name: &str) -> Option<HostLocomo
     }
     let store = get_locomotor_store();
     let template = store.find_template(locomotor_name)?;
-    if template.max_speed <= 0.0 {
+    if !template.max_speed.is_finite() || template.max_speed < 0.0 {
         return None;
     }
     host_locomotor_binding_from_template(template)
@@ -783,7 +785,7 @@ pub fn resolve_host_locomotor_set_names(locomotor_names: &[String]) -> Vec<Strin
 pub fn movement_from_store(name: &str) -> Option<HostMovementStats> {
     let store = get_locomotor_store();
     let t = store.find_template(name)?;
-    if t.max_speed <= 0.0 {
+    if !t.max_speed.is_finite() || t.max_speed < 0.0 {
         return None;
     }
     Some(host_stats_from_template(t))
@@ -792,17 +794,10 @@ pub fn movement_from_store(name: &str) -> Option<HostMovementStats> {
 fn host_stats_from_template(t: &LocomotorTemplate) -> HostMovementStats {
     // Store: dist/frame, dist/frame², rads/frame → host: dist/sec, dist/sec², rads/sec.
     let max_speed = t.max_speed * LOGIC_FPS;
-    let acceleration = if t.acceleration > 0.0 {
-        t.acceleration * LOGIC_FPS * LOGIC_FPS
-    } else {
-        // Fallback: snappy enough not to crawl; retail infantry uses 100.
-        100.0
-    };
-    let turn_rate = if t.max_turn_rate > 0.0 {
-        t.max_turn_rate * LOGIC_FPS
-    } else {
-        std::f32::consts::PI
-    };
+    // Source ctor zeros are valid (notably FreeFallLocomotor). Omitted
+    // damaged fields use a negative sentinel, not authored zero.
+    let acceleration = t.acceleration * LOGIC_FPS * LOGIC_FPS;
+    let turn_rate = t.max_turn_rate * LOGIC_FPS;
     HostMovementStats {
         max_speed,
         acceleration,
@@ -810,18 +805,20 @@ fn host_stats_from_template(t: &LocomotorTemplate) -> HostMovementStats {
     }
 }
 
-fn host_locomotor_binding_from_template(t: &LocomotorTemplate) -> Option<HostLocomotorBinding> {
+pub(crate) fn host_locomotor_binding_from_template(
+    t: &LocomotorTemplate,
+) -> Option<HostLocomotorBinding> {
     const FPS: f32 = LOGIC_FPS;
     let movement = host_stats_from_template(t);
     let acceleration = |value: f32| {
-        if value > 0.0 {
+        if value >= 0.0 {
             value * FPS * FPS
         } else {
             movement.acceleration
         }
     };
     let turn_rate = |value: f32| {
-        if value > 0.0 {
+        if value >= 0.0 {
             value * FPS
         } else {
             movement.turn_rate
@@ -889,7 +886,7 @@ fn host_locomotor_binding_from_template(t: &LocomotorTemplate) -> Option<HostLoc
             elevator_correction_degree: t.elevator_correction_degree,
             elevator_correction_rate: t.elevator_correction_rate,
         },
-        max_speed_damaged: if t.max_speed_damaged > 0.0 {
+        max_speed_damaged: if t.max_speed_damaged >= 0.0 {
             t.max_speed_damaged * FPS
         } else {
             movement.max_speed
@@ -989,7 +986,7 @@ pub fn apply_host_locomotor_binding(
     object.movement.turn_rate = binding.movement.turn_rate;
     object.movement.turn_rate_damaged = binding.turn_rate_damaged;
     object.braking = binding.braking;
-    object.max_lift = binding.max_lift;
+    object.max_lift = DEFAULT_HOST_LIFT_CAP;
     object.loco_preferred_height = binding.preferred_height;
     object.loco_preferred_height_damping = binding.preferred_height_damping;
     if object.close_enough_dist.is_none() {
@@ -1972,7 +1969,7 @@ mod tests {
         );
         ground.update_movement(
             1.0 / 30.0,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         assert!(
             ground.movement.target_position.is_none(),
@@ -1991,7 +1988,7 @@ mod tests {
         assert!(d3 > 9.0, "flag uses 3D hypotenuse, got {d3}");
         dive.update_movement(
             1.0 / 30.0,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         assert!(
             dive.movement.target_position.is_some(),
@@ -2252,5 +2249,71 @@ mod mixed_source_rate_admission_tests {
         let core = gamelogic::locomotor::ini_bridge::from_common_ini_template(&common);
         assert!((core.min_speed - 0.5).abs() < 0.0001);
         assert!((core.min_turn_speed - 0.4).abs() < 0.0001);
+    }
+}
+
+#[cfg(test)]
+mod source_zero_speed_admission_tests {
+    use super::*;
+    #[test]
+    fn source_zero_speed_hover_freefall_has_no_invented_motion_rates() {
+        let mut source = LocomotorTemplate::new("SourceFreeFall".into());
+        source.surfaces.0 = crate::game_logic::object::LOCO_SURFACE_AIR;
+        source.appearance = SourceLocomotorAppearance::Hover;
+        source.behavior_z = SourceLocomotorBehaviorZ::SurfaceRelativeHeight;
+        source.max_speed = 0.;
+        source.max_speed_damaged = 0.;
+        source.acceleration = 0.;
+        source.acceleration_damaged = 0.;
+        source.max_turn_rate = 0.;
+        source.max_turn_rate_damaged = 0.;
+        source.lift = 0.;
+        source.lift_damaged = 0.;
+        source.speed_limit_z = 999999.;
+        source.preferred_height = -1.;
+        let binding = host_locomotor_binding_from_template(&source).unwrap();
+        assert_eq!(binding.movement.max_speed, 0.);
+        assert_eq!(binding.movement.acceleration, 0.);
+        assert_eq!(binding.movement.turn_rate, 0.);
+        assert_eq!(binding.max_speed_damaged, 0.);
+        assert_eq!(binding.acceleration_damaged, 0.);
+        assert_eq!(binding.turn_rate_damaged, 0.);
+        let mut object = crate::game_logic::Object::new(
+            crate::game_logic::ThingTemplate::new("SourceFreeFallActor"),
+            crate::game_logic::ObjectId(92),
+            crate::game_logic::Team::USA,
+        );
+        apply_host_locomotor_binding(&mut object, &binding);
+        assert_eq!(object.movement.max_speed, 0.);
+        assert_eq!(object.movement.acceleration, 0.);
+        assert_eq!(object.movement.turn_rate, 0.);
+        assert_eq!(object.max_lift, 0.);
+    }
+    #[test]
+    fn source_damaged_zero_is_not_omitted_negative_sentinel() {
+        let mut source = LocomotorTemplate::new("SourceDamageZero".into());
+        source.surfaces.0 = crate::game_logic::object::LOCO_SURFACE_AIR;
+        source.max_speed = 2.;
+        source.acceleration = 0.1;
+        source.max_turn_rate = 0.2;
+        source.max_speed_damaged = 0.;
+        source.acceleration_damaged = 0.;
+        source.max_turn_rate_damaged = 0.;
+        let zero = host_locomotor_binding_from_template(&source).unwrap();
+        assert_eq!(
+            (
+                zero.max_speed_damaged,
+                zero.acceleration_damaged,
+                zero.turn_rate_damaged
+            ),
+            (0., 0., 0.)
+        );
+        source.max_speed_damaged = -1.;
+        source.acceleration_damaged = -1.;
+        source.max_turn_rate_damaged = -1.;
+        let omitted = host_locomotor_binding_from_template(&source).unwrap();
+        assert_eq!(omitted.max_speed_damaged, omitted.movement.max_speed);
+        assert_eq!(omitted.acceleration_damaged, omitted.movement.acceleration);
+        assert_eq!(omitted.turn_rate_damaged, omitted.movement.turn_rate);
     }
 }

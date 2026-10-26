@@ -244,9 +244,14 @@ impl<'a> CommandExecutor<'a> {
         let mut any_attacker = false;
         for p in extra_passengers {
             let ok = if forced {
-                self.game_logic.unit_command_force_attack(p, target_id)
+                self.game_logic.unit_command_force_attack_with_effects(
+                    p,
+                    target_id,
+                    &mut self.ui,
+                )?
             } else {
-                self.game_logic.unit_command_attack(p, target_id)?
+                self.game_logic
+                    .unit_command_attack_with_effects(p, target_id, &mut self.ui)?
             };
             if ok {
                 any_attacker = true;
@@ -259,10 +264,17 @@ impl<'a> CommandExecutor<'a> {
             // C++/leftover issue aiAttackObject to every member with AI.
             // No isAbleToAttack / can_attack gate (AIGroup.cpp:2164-2171).
             let ok = if forced {
-                self.game_logic
-                    .unit_command_force_attack(unit_id, target_id)
+                self.game_logic.unit_command_force_attack_with_effects(
+                    unit_id,
+                    target_id,
+                    &mut self.ui,
+                )?
             } else {
-                self.game_logic.unit_command_attack(unit_id, target_id)?
+                self.game_logic.unit_command_attack_with_effects(
+                    unit_id,
+                    target_id,
+                    &mut self.ui,
+                )?
             };
             if ok {
                 any_attacker = true;

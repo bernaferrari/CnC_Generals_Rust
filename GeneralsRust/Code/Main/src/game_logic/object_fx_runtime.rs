@@ -187,6 +187,7 @@ impl ObjectFxEnvironment {
 }
 pub(crate) struct ObjectFxServices<'a, 's> {
     pub session: &'a mut crate::presentation_frame::SessionView,
+    pub audio_policy: game_engine::common::audio::script_policy::ScriptAudioPolicy,
     pub player: Option<u32>,
     pub shroud:
         &'a std::sync::Arc<std::sync::Mutex<gamelogic::system::shroud_manager::ShroudManager>>,
@@ -443,6 +444,7 @@ impl GameClientFxRuntime for ObjectFxRuntime<'_, '_, '_, '_> {
                 player,
                 locality,
                 &mut selection,
+                &self.services.audio_policy,
             )
         } else {
             Ok(())

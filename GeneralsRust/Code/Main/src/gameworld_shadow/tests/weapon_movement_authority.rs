@@ -138,7 +138,7 @@ fn movement_authority_path_follow_matches_host_only_golden() {
             o.move_to(
                 dest,
                 &mut movement_events,
-                &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+                &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
             );
         }
         let mut shadow = GameWorldShadow::new(64);
@@ -168,7 +168,7 @@ fn movement_authority_path_follow_matches_host_only_golden() {
         o.move_to(
             dest,
             &mut movement_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
     let mut shadow = GameWorldShadow::new(64);

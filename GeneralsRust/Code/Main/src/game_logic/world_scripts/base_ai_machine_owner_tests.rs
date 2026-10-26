@@ -478,7 +478,7 @@ fn containment_exit_drop_uses_owned_idle_entry_for_the_receiving_actor() {
         .expect("ranger");
     world.host_object_mut(id).unwrap().set_ai_state(
         AIState::Attacking,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     assert!(
         world
@@ -500,7 +500,7 @@ fn subdual_passenger_idle_uses_receiving_world_entry() {
         .unwrap();
     world.host_object_mut(passenger_id).unwrap().set_ai_state(
         AIState::Moving,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     {
         let container = world.host_object_mut(container_id).unwrap();
@@ -540,7 +540,7 @@ fn real_attack_move_child_attack_returns_to_idle_without_losing_parent_goal() {
     attacker.last_command_source = crate::game_logic::HUNT_CMD_FROM_AI;
     attacker.set_ai_state(
         AIState::AttackMoving,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     let mut victim = Object::new(ThingTemplate::new("AttackMoveVictim"), victim_id, Team::GLA);
     victim.set_position(Vec3::new(30., 0., 0.));

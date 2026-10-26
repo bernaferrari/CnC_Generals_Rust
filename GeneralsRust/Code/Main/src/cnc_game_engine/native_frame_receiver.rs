@@ -5,6 +5,7 @@ use crate::graphics::render_pipeline::{
     NativeFrameRenderReceiver, native_pose_loan::NativeInstalledPoseLoan,
 };
 pub(super) struct NativeFrameReceiver<'a> {
+    pub audio: Option<super::native_audio_effects::NativeAudioService<'a>>,
     pub world: &'a mut crate::game_logic::GameLogic,
     pub drawables: game_client::core::game_client::NativeDrawableOwner<'a>,
     pub look_at_modes: &'a mut super::mouse::LookAtHostModes,
@@ -17,15 +18,82 @@ pub(super) struct NativeFrameReceiver<'a> {
     pub logic_frame: u32,
 }
 impl NativeFrameRenderReceiver for NativeFrameReceiver<'_> {
+    fn actor_draw_candidate_is_current(
+        &self,
+        key: game_client::core::PresentationDirectDrawableBindingKey,
+        input: &crate::presentation_frame::UnitRenderInput,
+    ) -> std::result::Result<bool, String> {
+        if self.drawables.binding_key(key.host_epoch, key.object_id) != Some(key) {
+            return Ok(false);
+        }
+        let Some(object) = self.world.host_object(input.id) else {
+            return Ok(false);
+        };
+        let identity = input
+            .draw_playback_identity
+            .as_ref()
+            .ok_or("native actor candidate has no frozen birth")?;
+        Ok(self.world.live_draw_playback_identity(object) == *identity)
+    }
+
+    fn native_draw_candidates(
+        &mut self,
+    ) -> std::result::Result<Vec<game_client::core::game_client::NativeDrawCandidate>, String> {
+        self.drawables
+            .native_draw_candidates()
+            .map_err(|error| error.to_string())
+    }
+    fn observe_auxiliary_drawable(
+        &mut self,
+        receipt: &game_client::core::game_client::NativeAuxiliaryReceipt,
+    ) -> std::result::Result<
+        Option<game_client::core::game_client::NativeAuxiliaryDrawObservation>,
+        String,
+    > {
+        self.drawables
+            .observe_auxiliary_drawable(receipt)
+            .map_err(|error| error.to_string())
+    }
+
     fn complete_physics_visual(
         &mut self,
         input: &mut crate::presentation_frame::UnitRenderInput,
         frame: &crate::presentation_frame::PresentationFrame,
-    ) {
+    ) -> std::result::Result<Option<Mat4>, String> {
+        let instance = if input.drawable_shroud.lifetime.is_direct_host_object() {
+            let identity = input
+                .draw_playback_identity
+                .as_ref()
+                .ok_or_else(|| "native draw instance has no frozen source birth".to_owned())?;
+            let object = self
+                .world
+                .host_object(input.id)
+                .ok_or_else(|| "native draw instance source is absent".to_owned())?;
+            if &self.world.live_draw_playback_identity(object) != identity {
+                return Err(
+                    "native draw instance source belongs to another Object birth/world".into(),
+                );
+            }
+            let key = self
+                .drawables
+                .binding_key(self.host_epoch, input.id.0)
+                .ok_or_else(|| {
+                    "native draw instance has no receiving Drawable binding".to_owned()
+                })?;
+            Some(
+                self.drawables
+                    .instance_transform(key)
+                    .map_err(|error| error.to_string())?
+                    .into(),
+            )
+        } else {
+            None
+        };
         self.world
             .host_physics_visuals
             .borrow_mut()
             .complete_input(input, frame);
+        Ok(instance)
     }
     fn direct_scene_decisions(
         &mut self,
@@ -189,7 +257,7 @@ impl NativeFrameRenderReceiver for NativeFrameReceiver<'_> {
                 policy,
                 &mut retirement,
             );
-            let mut audio = super::native_audio_effects::NativeAudioService::live();
+            let audio = &mut self.audio;
             self.world
                 .dispatch_fx_list_at_host_position_oriented_with_effects(
                     &event.fx_name,

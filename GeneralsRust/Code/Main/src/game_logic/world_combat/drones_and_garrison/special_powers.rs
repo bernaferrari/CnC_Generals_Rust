@@ -86,6 +86,7 @@ impl GameLogic {
             let receiver = &mut self.special_power_strikes;
             Self::with_object_fx_services(
                 &mut self.session_view,
+                self.queued_audio_events.policy().clone(),
                 player,
                 self.world_services.shroud(),
                 presentation_effects,

@@ -529,7 +529,9 @@ impl ScriptConditionEvaluator<'_> {
             ConditionType::HasFinishedVideo => self.eval_has_finished_video(condition),
             ConditionType::HasFinishedSpeech => self.eval_has_finished_speech(condition, driver),
             ConditionType::HasFinishedAudio => self.eval_has_finished_audio(condition, driver),
-            ConditionType::MusicTrackHasCompleted => self.eval_music_track_has_completed(condition),
+            ConditionType::MusicTrackHasCompleted => {
+                self.eval_music_track_has_completed(condition, driver)
+            }
 
             // ============================================================================
             // MISCELLANEOUS CONDITIONS

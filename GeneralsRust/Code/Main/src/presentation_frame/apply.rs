@@ -910,7 +910,8 @@ impl PresentationFrame {
         let locality = self.receiving_audio_locality(observer_look_at);
         let events = self.collect_audio_events();
         let n = events.len();
-        for event in events {
+        for mut event in events {
+            event.script_audio_policy = Some(receiving_world.queued_audio_events.policy().clone());
             let Some(event) = crate::game_logic::audio_dispatch_impl::admit_audio_request(
                 event,
                 Some(&locality),

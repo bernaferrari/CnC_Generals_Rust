@@ -57,3 +57,16 @@ impl CompletedAudioView {
 #[cfg(test)]
 #[path = "audio_view_tests.rs"]
 mod tests;
+
+#[cfg(feature = "game_client")]
+impl game_client::gui::menu_audio::MenuAudioView for CompletedAudioView {
+    fn observation(&self) -> game_engine::common::audio::game_audio::AudioViewObservation {
+        self.listener
+    }
+    fn is_on_screen(
+        &self,
+        position: &game_engine::common::audio::audio_event_rts::Coord3D,
+    ) -> bool {
+        CompletedAudioView::is_on_screen(self, position)
+    }
+}

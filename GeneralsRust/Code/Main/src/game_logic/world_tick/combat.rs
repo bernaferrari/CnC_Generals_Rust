@@ -28,13 +28,18 @@ struct CombatAttackInput {
 /// The marker is set at the original acceptance point, before hit effects.
 enum CombatShotResult {
     NoShot,
+    Failed(gamelogic::GameLogicError),
     Fired(
         u8,
         Option<super::super::world_combat::AcceptedWeaponDischarge>,
     ),
 }
 impl GameLogic {
-    pub(crate) fn update_combat(&mut self, object_ids: &[ObjectId], _dt: f32) {
+    pub(crate) fn update_combat(
+        &mut self,
+        object_ids: &[ObjectId],
+        _dt: f32,
+    ) -> gamelogic::GameLogicResult<()> {
         self.update_combat_with_effects(object_ids, _dt, &mut Default::default())
     }
 
@@ -43,9 +48,9 @@ impl GameLogic {
         object_ids: &[ObjectId],
         _dt: f32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         for &attacker_id in object_ids {
-            let Some(input) = self.prepare_combat_attack_with_effects(attacker_id, effects) else {
+            let Some(input) = self.prepare_combat_attack_with_effects(attacker_id, effects)? else {
                 continue;
             };
             let shot = if let Some(target_id) = input.target_id {
@@ -55,8 +60,12 @@ impl GameLogic {
             } else {
                 CombatShotResult::NoShot
             };
-            if let CombatShotResult::Fired(slot, visual) = shot {
-                self.commit_combat_shot_with_effects(input, slot, visual, effects);
+            match shot {
+                CombatShotResult::Failed(error) => return Err(error),
+                CombatShotResult::Fired(slot, visual) => {
+                    self.commit_combat_shot_with_effects(input, slot, visual, effects);
+                }
+                CombatShotResult::NoShot => {}
             }
         }
 
@@ -76,6 +85,7 @@ impl GameLogic {
             &mut self.weapon_lasers,
             self.frame,
         );
+        Ok(())
     }
 }
 

@@ -1359,7 +1359,7 @@ fn entering_state_docks_unit_into_transport_when_close() {
         unit.target = Some(transport_id);
         unit.set_ai_state(
             AIState::Entering,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         unit.set_status_moving(true);
     }
@@ -1405,7 +1405,7 @@ fn docking_state_moves_unit_toward_transport_when_far() {
         unit.target = Some(transport_id);
         unit.set_ai_state(
             AIState::Docking,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
 
@@ -1454,7 +1454,7 @@ fn enter_command_rejects_enemy_occupied_transport() {
         enemy_occupant.target = Some(enemy_transport_id);
         enemy_occupant.set_ai_state(
             AIState::Docked,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
 
@@ -1538,7 +1538,7 @@ fn entering_state_clears_enemy_structure_target() {
         unit.target = Some(enemy_barracks_id);
         unit.set_ai_state(
             AIState::Entering,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         unit.set_status_moving(true);
     }
@@ -1579,7 +1579,7 @@ fn entering_state_allows_empty_enemy_non_faction_structure() {
         unit.target = Some(enemy_garrison_id);
         unit.set_ai_state(
             AIState::Entering,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         unit.set_status_moving(true);
     }
@@ -1617,7 +1617,7 @@ fn guard_state_engages_nearby_enemy() {
             .expect("guard should exist");
         guard.set_ai_state(
             AIState::GuardingArea,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         guard.set_guard_position_data(Some(Vec3::new(0.0, 0.0, 0.0)));
         guard.guard_radius = 100.0;
@@ -1810,7 +1810,7 @@ fn repairing_state_heals_target_in_range() {
         repairer.target = Some(damaged_id);
         repairer.set_ai_state(
             AIState::Repairing,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
     let before = game_logic
@@ -1860,7 +1860,7 @@ fn seeking_repair_state_heals_self_in_range() {
         unit.target = Some(repair_bay_id);
         unit.set_ai_state(
             AIState::SeekingRepair,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
     let before = game_logic
@@ -1911,7 +1911,7 @@ fn seeking_repair_state_clears_under_construction_destination() {
         unit.target = Some(repair_bay_id);
         unit.set_ai_state(
             AIState::SeekingRepair,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         unit.set_status_moving(true);
     }
@@ -1954,7 +1954,7 @@ fn evacuate_command_unloads_selected_transport_occupants() {
         unit.target = Some(transport_id);
         unit.set_ai_state(
             AIState::Docked,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         unit.set_position_with_partition_owner(
             Vec3::new(0.0, 0.0, 0.0),
@@ -2126,7 +2126,7 @@ fn capture_channel_uses_authored_ranger_unpack_prepare_and_pack_timing() {
         captor.target = Some(building_id);
         captor.set_ai_state(
             AIState::Capturing,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
 
@@ -2239,7 +2239,7 @@ fn capture_trigger_awards_ranger_award_xp_for_triggering() {
         captor.target = Some(building_id);
         captor.set_ai_state(
             AIState::Capturing,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         assert_eq!(captor.experience.current, 0.0);
     }
@@ -2300,7 +2300,7 @@ fn capture_does_not_heal_building_to_full() {
         captor.target = Some(building_id);
         captor.set_ai_state(
             AIState::Capturing,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
 
@@ -2369,7 +2369,7 @@ fn black_lotus_capture_uses_its_zero_reload_at_preparation_not_ranger_timer() {
         lotus.target = Some(building_id);
         lotus.set_ai_state(
             AIState::Capturing,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
 
@@ -2500,7 +2500,7 @@ fn infantry_capture_prep_stamps_raising_flag() {
         captor.target = Some(building_id);
         captor.set_ai_state(
             AIState::Capturing,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
     // Tick 1 creates the Unpacking channel (UNPACKING pose, no dt consumed);
@@ -2541,7 +2541,7 @@ fn infantry_capture_start_range_requires_approach_los() {
         captor.target = Some(building_id);
         captor.set_ai_state(
             AIState::Capturing,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
     if let Some(building) = blocked.host_object_mut(building_id) {
@@ -2573,7 +2573,7 @@ fn infantry_capture_start_range_requires_approach_los() {
         captor.target = Some(building_id);
         captor.set_ai_state(
             AIState::Capturing,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
     if let Some(building) = clear.host_object_mut(building_id) {
@@ -2611,7 +2611,7 @@ fn capture_approach_keeps_capturing_and_requests_a_path() {
         unit.target = Some(building);
         unit.set_ai_state(
             AIState::Capturing,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
     if let Some(unit) = logic.host_object_mut(building) {
@@ -2691,7 +2691,7 @@ fn lotus_capture_prep_stamps_firing_a() {
         lotus.target = Some(building_id);
         lotus.set_ai_state(
             AIState::Capturing,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
     game_logic
@@ -3100,7 +3100,7 @@ fn capturing_structure_refunds_old_owner_queued_production() {
         captor.target = Some(barracks_id);
         captor.set_ai_state(
             AIState::Capturing,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
 

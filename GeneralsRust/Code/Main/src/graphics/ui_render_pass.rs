@@ -1,5 +1,4 @@
 //! One borrowed native UI overlay, submitted after the scene on the same frame.
-use game_client::core::subsystems::MouseHandle;
 use game_client::display::display_fx::DisplayDrawFacts;
 use game_client::gui::{
     ui_renderer::UIRenderer, window_draw_context::WindowDrawContext,
@@ -18,7 +17,7 @@ pub(crate) struct NativeUiDraw<'a> {
     renderer: &'a mut UIRenderer,
     windows: &'a WindowManagerOwner,
     display: DisplayDrawFacts,
-    mouse: Option<MouseHandle>,
+    mouse: Option<&'a mut game_client::input::Mouse>,
     ime: &'a game_client::gui::ime_manager::ImeManager,
     hints: Vec<game_client::gui::command_hints::CommandHint>,
     client_frame: u32,
@@ -30,7 +29,7 @@ impl<'a> NativeUiDraw<'a> {
         renderer: &'a mut UIRenderer,
         windows: &'a WindowManagerOwner,
         display: DisplayDrawFacts,
-        mouse: Option<MouseHandle>,
+        mouse: Option<&'a mut game_client::input::Mouse>,
         ime: &'a game_client::gui::ime_manager::ImeManager,
     ) -> Self {
         Self {
@@ -154,17 +153,14 @@ impl<'a> NativeUiDraw<'a> {
                 )
             })?;
         // W3DMouse.cpp:565-567: draw the receiving mouse tooltip after windows.
-        if let Some(mouse) = self.mouse.as_ref() {
-            let mut mouse = mouse.lock().map_err(|_| {
-                ww3d_renderer_3d::Error::InvalidOperation("native UI mouse poisoned".into())
-            })?;
+        if let Some(mouse) = self.mouse.as_deref_mut() {
             if self.loading {
                 mouse.set_cursor_tooltip(String::new(), None, None, None);
             }
-            if !game_client::gui::ui_globals::cursor_tooltip_already_submitted_from_mouse(&mouse) {
-                game_client::gui::ui_globals::tick_cursor_tooltip_from_mouse(&mut mouse);
+            if !game_client::gui::ui_globals::cursor_tooltip_already_submitted_from_mouse(mouse) {
+                game_client::gui::ui_globals::tick_cursor_tooltip_from_mouse(mouse);
             }
-            game_client::gui::ui_globals::submit_cursor_tooltip_from_mouse(renderer, &mut mouse);
+            game_client::gui::ui_globals::submit_cursor_tooltip_from_mouse(renderer, mouse);
         }
         if renderer.queued_draw_command_count() > 0 {
             let color = frame.color_view_arc();

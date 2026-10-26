@@ -57,7 +57,14 @@ impl GameLogic {
                 || object.status.deck_height_offset);
             // Jet's ground override does not enter SlowDeath's applicability
             // or AI guard; its own ground effects precede destruction.
-            if !jet_ground && !declaration.gate.allows(object, input.death_type) {
+            // ParachuteContain overrides onDie outside inherited DieMux:
+            // airborne removal/falling damage precedes OpenContain's gate.
+            let parachute_override = matches!(&declaration.kind, NativeDieKind::Contain { .. })
+                && object.thing().template.contain_module.kind == ContainModuleKind::Parachute;
+            if !jet_ground
+                && !parachute_override
+                && !declaration.gate.allows(object, input.death_type)
+            {
                 continue;
             }
             if object
@@ -387,8 +394,9 @@ impl GameLogic {
                     self.complete_installed_containment_death_with_effects(
                         id,
                         killer,
+                        Some(input),
                         presentation_effects,
-                    );
+                    )?;
                 }
                 NativeDieKind::Parking => {
                     let _ = self.kill_all_parked_units_with_effects(id, presentation_effects);
@@ -485,6 +493,7 @@ impl GameLogic {
                 });
             Self::with_object_fx_services(
                 &mut self.session_view,
+                self.queued_audio_events.policy().clone(),
                 player,
                 self.world_services.shroud(),
                 presentation_effects,

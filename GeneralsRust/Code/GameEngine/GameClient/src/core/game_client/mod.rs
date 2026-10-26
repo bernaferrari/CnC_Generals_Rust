@@ -55,8 +55,8 @@ use crate::core::script_action_handler::{
 };
 use crate::core::subsystems::{
     AudioSubsystem, DisplayStringManagerSubsystem, FontLibrarySubsystem,
-    HeaderTemplateManagerSubsystem, InGameUISubsystem, MouseHandle, TerrainVisualStub,
-    VideoPlayerSubsystem, create_keyboard, create_mouse, register_game_client_snapshot_block,
+    HeaderTemplateManagerSubsystem, InGameUISubsystem, TerrainVisualStub, VideoPlayerSubsystem,
+    create_keyboard, create_mouse, register_game_client_snapshot_block,
     register_particle_system_snapshot_block, register_radar_snapshot_block,
     register_terrain_visual_snapshot_block,
 };
@@ -72,7 +72,6 @@ use crate::game_text::GameText;
 use crate::gui::gadgets::register_button_audio_hook;
 use crate::gui::window_manager::WindowManagerOwner;
 use crate::gui::{UIRenderer, WindowStatus, get_skirmish_setup};
-use crate::helpers::register_mouse_backend;
 use crate::input::*;
 use crate::message_stream::command_list::get_command_list;
 use crate::message_stream::command_router::route_commands_to_gamelogic;
@@ -151,7 +150,12 @@ mod drawable_world;
 mod native_projected_resources;
 pub use drawable_world::DrawableWorld as NativeDrawableWorld;
 include!("semantic_admission.rs");
+mod native_auxiliary;
 mod template_modules;
+pub use native_auxiliary::{
+    NativeAuxiliaryDrawObservation, NativeAuxiliaryMutation, NativeAuxiliaryReceipt,
+    NativeDrawCandidate,
+};
 pub use template_modules::ReceivingDrawablePolicy;
 include!("presentation_specialized_draw.rs");
 

@@ -687,6 +687,7 @@ impl GameLogic {
             if let Some(bd) = container.building_data.as_mut() {
                 if bd.original_team.is_none() {
                     bd.original_team = Some(container.team);
+                    bd.original_garrison_player_id = container.owner_player_id;
                 }
                 bd.hide_garrisoned_state = hide;
             }

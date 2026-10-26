@@ -353,10 +353,6 @@ fn affect_has(mask: AudioAffect, flag: AudioAffect) -> bool {
 }
 
 fn event_matches_audio_affect(event: &AudioEventRts, which: AudioAffect) -> bool {
-    if affect_has(which, AudioAffect::All) {
-        return true;
-    }
-
     let event_affect = match event.get_audio_event_info().map(|info| info.sound_type) {
         Some(AudioType::Music) => AudioAffect::Music,
         Some(AudioType::Streaming) => AudioAffect::Speech,
@@ -864,6 +860,24 @@ impl AudioManager {
             AudioSubmission::Explicit(locality),
             selection,
             false,
+            None,
+        )
+    }
+
+    pub fn add_audio_event_with_policy(
+        &mut self,
+        event: &AudioEventRts,
+        locality: &AudioSubmissionLocality,
+        selection: &mut dyn super::audio_event_rts::AudioEventSelection,
+        policy: &super::script_policy::ScriptAudioPolicy,
+        prepared: bool,
+    ) -> AudioHandle {
+        self.add_audio_event_with_submission_and_selection(
+            event,
+            AudioSubmission::Explicit(locality),
+            selection,
+            prepared,
+            Some(policy),
         )
     }
 
@@ -877,6 +891,7 @@ impl AudioManager {
             submission,
             &mut super::audio_event_rts::AmbientAudioSelection,
             false,
+            None,
         )
     }
 
@@ -924,6 +939,7 @@ impl AudioManager {
             AudioSubmission::Explicit(locality),
             &mut super::audio_event_rts::AmbientAudioSelection,
             true,
+            None,
         )
     }
 
@@ -933,6 +949,7 @@ impl AudioManager {
         submission: AudioSubmission<'_>,
         selection: &mut dyn super::audio_event_rts::AudioEventSelection,
         prepared: bool,
+        policy: Option<&super::script_policy::ScriptAudioPolicy>,
     ) -> AudioHandle {
         if event_to_add.get_event_name().is_empty() || event_to_add.get_event_name() == "NoSound" {
             return AHSV_NO_SOUND;
@@ -991,11 +1008,17 @@ impl AudioManager {
             audio_event.generate_play_info_with_selection(&paths, selection);
         }
 
-        // Check volume adjustments
-        for (name, volume) in &self.adjusted_volumes {
-            if *name == audio_event.get_event_name() {
-                audio_event.set_volume(*volume);
-                break;
+        if let Some(policy) = policy {
+            audio_event.owned_script_volumes = Some(policy.volumes);
+            if let Some(volume) = policy.override_for(audio_event.get_event_name()) {
+                audio_event.set_volume(volume);
+            }
+        } else if audio_event.owned_script_volumes.is_none() {
+            for (name, volume) in &self.adjusted_volumes {
+                if *name == audio_event.get_event_name() {
+                    audio_event.set_volume(*volume);
+                    break;
+                }
             }
         }
 
@@ -1549,9 +1572,27 @@ impl AudioManager {
         }
     }
 
+    fn event_volume_sliders(&self, event: &AudioEventRts) -> MilesVolumeSliders {
+        let Some(owner) = event.owned_script_volumes else {
+            return self.miles_volume_sliders();
+        };
+        MilesVolumeSliders {
+            music_volume: self.system_music_volume * owner.music,
+            speech_volume: self.system_speech_volume * owner.speech,
+            sound_volume: self.system_sound_volume * owner.sound,
+            sound_3d_volume: self.system_sound_3d_volume * owner.sound_3d,
+            global_min_range: self.audio_settings.global_min_range as f32,
+            global_max_range: self.audio_settings.global_max_range as f32,
+        }
+    }
+
     /// C++ `MilesAudioManager::getEffectiveVolume`.
     pub fn get_effective_volume(&self, event: &AudioEventRts) -> Real {
-        miles_get_effective_volume(event, &self.listener_position, &self.miles_volume_sliders())
+        miles_get_effective_volume(
+            event,
+            &self.listener_position,
+            &self.event_volume_sliders(event),
+        )
     }
 
     pub fn set_3d_volume_adjustment(&mut self, volume_adjustment: Real) {
@@ -1864,7 +1905,7 @@ impl AudioManager {
 
     fn play_audio_event(
         &mut self,
-        event: AudioEventRts,
+        mut event: AudioEventRts,
         visible: &mut dyn FnMut(&Coord3D) -> bool,
     ) {
         let Some(info) = event.get_audio_event_info() else {
@@ -1895,6 +1936,7 @@ impl AudioManager {
             }
         }
 
+        event.playback_sliders = Some(self.event_volume_sliders(&event));
         let hook_result = self.playback_recipient.with_hook(|hook| {
             hook.play_with_visibility(&event, playback_visibility(&event, visible))
         });
@@ -1970,6 +2012,7 @@ impl AudioManager {
         let handle = self.allocate_new_handle();
         event.set_playing_handle(handle);
 
+        event.playback_sliders = Some(self.event_volume_sliders(&event));
         let hook_result = self.playback_recipient.with_hook(|hook| hook.play(&event));
         let play_ok = match hook_result {
             Some(Ok(())) | None => true,
@@ -2133,8 +2176,28 @@ impl AudioManager {
 
     /// C++ `MilesAudioManager::hasMusicTrackCompleted` (MilesAudioManager.cpp:1370-1385).
     pub fn has_music_track_completed(&self, track_name: &str, number_of_times: Int) -> Bool {
+        self.music_track_completed_selected(track_name, number_of_times, None)
+    }
+
+    /// The same source music-loop observation, restricted to the receiving session's receipts.
+    pub fn has_owned_music_track_completed(
+        &self,
+        track_name: &str,
+        number_of_times: Int,
+        receipts: &[AudioHandle],
+    ) -> Bool {
+        self.music_track_completed_selected(track_name, number_of_times, Some(receipts))
+    }
+
+    fn music_track_completed_selected(
+        &self,
+        track_name: &str,
+        number_of_times: Int,
+        receipts: Option<&[AudioHandle]>,
+    ) -> Bool {
         self.active_audio_events.values().any(|event| {
-            event.get_event_name() == track_name
+            receipts.is_none_or(|owned| owned.contains(&event.get_playing_handle()))
+                && event.get_event_name() == track_name
                 && event
                     .get_audio_event_info()
                     .is_some_and(|info| info.sound_type == AudioType::Music)
@@ -2475,6 +2538,127 @@ impl AudioManager {
         }
     }
 
+    /// Bus changes become visible at the next original audio service phase.
+    /// Only admitted receipts of this session receive the new script factors.
+    pub fn refresh_owned_script_volumes(
+        &mut self,
+        receipts: &[AudioHandle],
+        volumes: super::script_policy::ScriptAudioVolumes,
+    ) {
+        let refresh = |event: &mut AudioEventRts| {
+            if receipts.contains(&event.get_playing_handle())
+                && event.owned_script_volumes.is_some()
+                && event.owned_script_volumes != Some(volumes)
+            {
+                event.owned_script_volumes = Some(volumes);
+                event.owned_mix_dirty = true;
+            }
+        };
+        for event in self.active_audio_events.values_mut() {
+            refresh(event);
+        }
+        for fade in &mut self.fading_audio {
+            refresh(&mut fade.event);
+        }
+        for event in &mut self.audio_force_played {
+            refresh(event);
+        }
+        for request in &mut self.audio_requests {
+            if let Some(event) = request.get_pending_event_mut() {
+                refresh(event);
+            }
+        }
+    }
+    /// C++ adjustVolumeOfPlayingAudio changes live raw sample volume immediately.
+    /// Restore(-1)/clear-table callers intentionally do not invoke this operation.
+    pub fn adjust_owned_playing_volume(
+        &mut self,
+        receipts: &[AudioHandle],
+        name: &str,
+        volume: Real,
+    ) {
+        for event in self.active_audio_events.values_mut() {
+            if receipts.contains(&event.get_playing_handle()) && event.get_event_name() == name {
+                event.set_volume(volume);
+                let handle = event.get_playing_handle();
+                let desired = event.get_volume() * event.get_volume_shift();
+                let _ = self
+                    .playback_recipient
+                    .with_hook(|hook| hook.set_sink_volume(handle, desired));
+            }
+        }
+    }
+    pub fn pause_owned_audio(&mut self, receipts: &[AudioHandle], which: AudioAffect) {
+        let handles: Vec<_> = self
+            .active_audio_events
+            .values()
+            .filter(|event| {
+                receipts.contains(&event.get_playing_handle())
+                    && event_matches_audio_affect(event, which)
+            })
+            .map(AudioEventRts::get_playing_handle)
+            .collect();
+        let _ = self.playback_recipient.with_hook(|hook| {
+            for handle in handles {
+                hook.pause(handle);
+            }
+        });
+        self.audio_requests.retain(|request| {
+            request.request != RequestType::Play
+                || !request
+                    .get_pending_event()
+                    .is_some_and(|event| receipts.contains(&event.get_playing_handle()))
+        });
+    }
+    pub fn resume_owned_audio(&mut self, receipts: &[AudioHandle], which: AudioAffect) {
+        let handles: Vec<_> = self
+            .active_audio_events
+            .values()
+            .filter(|event| {
+                receipts.contains(&event.get_playing_handle())
+                    && event_matches_audio_affect(event, which)
+            })
+            .map(AudioEventRts::get_playing_handle)
+            .collect();
+        let _ = self.playback_recipient.with_hook(|hook| {
+            for handle in handles {
+                hook.resume(handle);
+            }
+        });
+    }
+    pub fn remove_owned_disabled_audio(&mut self, receipts: &[AudioHandle]) {
+        let handles: Vec<_> = self
+            .active_audio_events
+            .values()
+            .filter(|event| {
+                receipts.contains(&event.get_playing_handle()) && event.get_volume() == 0.
+            })
+            .map(AudioEventRts::get_playing_handle)
+            .collect();
+        for handle in handles {
+            self.release_playing_handle(handle);
+        }
+    }
+
+    /// Same C++ removePlayingAudio name operation, limited to receipts admitted
+    /// by the explicitly receiving owner. Source MilesAudioManager releases
+    /// currently playing samples synchronously; queued/fading/force records are
+    /// outside this named operation, unlike handle-based AR_Stop admission.
+    pub fn remove_owned_playing_audio(&mut self, event_name: &str, receipts: &[AudioHandle]) {
+        let handles: Vec<_> = self
+            .active_audio_events
+            .values()
+            .filter(|event| {
+                event.get_event_name() == event_name
+                    && receipts.contains(&event.get_playing_handle())
+            })
+            .map(AudioEventRts::get_playing_handle)
+            .collect();
+        for handle in handles {
+            self.release_playing_handle(handle);
+        }
+    }
+
     /// Remove all playing audio events matching the given name
     pub fn remove_playing_audio(&mut self, event_name: &str) {
         let handles_to_stop: Vec<AudioHandle> = self
@@ -2535,6 +2719,36 @@ impl AudioManager {
             .unwrap_or_else(|| self.active_audio_events.values().any(is_sensitive))
     }
 
+    pub fn stop_music_for_handles(&mut self, handles: &[AudioHandle], fade: bool) {
+        if fade {
+            self.fade_music_for_handles(handles);
+            return;
+        }
+        let active: Vec<_> = self
+            .active_audio_events
+            .values()
+            .filter(|event| {
+                handles.contains(&event.get_playing_handle())
+                    && event
+                        .get_audio_event_info()
+                        .is_some_and(|info| info.sound_type == AudioType::Music)
+            })
+            .map(AudioEventRts::get_playing_handle)
+            .collect();
+        for handle in active {
+            self.release_playing_handle(handle);
+        }
+        let mut retained = Vec::with_capacity(self.fading_audio.len());
+        for fade in std::mem::take(&mut self.fading_audio) {
+            let handle = fade.event.get_playing_handle();
+            if handles.contains(&handle) {
+                let _ = self.playback_recipient.with_hook(|hook| hook.stop(handle));
+            } else {
+                retained.push(fade);
+            }
+        }
+        self.fading_audio = retained;
+    }
     pub fn fade_music_for_handles(&mut self, handles: &[AudioHandle]) {
         self.begin_music_fade_selected(Some(handles));
     }
@@ -2597,8 +2811,10 @@ impl AudioManager {
                 continue;
             };
 
-            if volume_changed {
+            if volume_changed || event.owned_mix_dirty {
+                event.playback_sliders = Some(self.event_volume_sliders(&event));
                 self.adjust_playing_volume(&event);
+                event.owned_mix_dirty = false;
             }
 
             if event.is_positional_audio() {
@@ -2614,10 +2830,11 @@ impl AudioManager {
                 } else {
                     let vol_for_consideration = {
                         let effective = self.get_effective_volume(&event);
-                        if self.sound_3d_volume > 0.0 {
+                        let sliders = self.event_volume_sliders(&event);
+                        if sliders.sound_3d_volume > 0.0 {
                             // C++ keeps the raw divisor: 0/0 is NaN and skips the
                             // threshold comparison; tiny values must not be clamped.
-                            effective / self.sound_volume
+                            effective / sliders.sound_volume
                         } else {
                             effective
                         }
@@ -2631,6 +2848,7 @@ impl AudioManager {
                         to_stop.push(handle);
                         continue;
                     }
+                    event.playback_sliders = Some(self.event_volume_sliders(&event));
                     let _ = self
                         .playback_recipient
                         .with_hook(|hook| hook.set_event_volume(&event));
@@ -2753,10 +2971,11 @@ impl AudioManager {
         event: &AudioEventRts,
         visible: &mut dyn FnMut(&Coord3D) -> bool,
     ) -> bool {
-        match self
-            .playback_recipient
-            .with_hook(|hook| hook.play_with_visibility(event, playback_visibility(event, visible)))
-        {
+        let mut submitted = event.clone();
+        submitted.playback_sliders = Some(self.event_volume_sliders(event));
+        match self.playback_recipient.with_hook(|hook| {
+            hook.play_with_visibility(&submitted, playback_visibility(&submitted, visible))
+        }) {
             Some(Ok(())) => true,
             Some(Err(_)) => false,
             None => true,
@@ -3204,9 +3423,11 @@ impl RodioPlaybackHook {
         let (listener, orientation) = self.listener_pose();
         // C++ Miles getEffectiveVolume reads sliders already held by
         // AudioManager::update. Never re-lock THE_AUDIO from this hook.
-        let sliders = get_global_audio_manager()
-            .and_then(|manager| manager.try_lock().ok().map(|m| m.miles_volume_sliders()))
-            .unwrap_or_default();
+        let sliders = event.playback_slider_observation().unwrap_or_else(|| {
+            get_global_audio_manager()
+                .and_then(|manager| manager.try_lock().ok().map(|m| m.miles_volume_sliders()))
+                .unwrap_or_default()
+        });
         let mut volume = miles_slider_volume(event, &sliders);
         let position = event
             .is_positional_audio()
@@ -3365,9 +3586,11 @@ impl SoundPlaybackHook for RodioPlaybackHook {
             return;
         };
 
-        let sliders = get_global_audio_manager()
-            .and_then(|manager| manager.try_lock().ok().map(|m| m.miles_volume_sliders()))
-            .unwrap_or_default();
+        let sliders = event.playback_slider_observation().unwrap_or_else(|| {
+            get_global_audio_manager()
+                .and_then(|manager| manager.try_lock().ok().map(|m| m.miles_volume_sliders()))
+                .unwrap_or_default()
+        });
         state.base_volume = miles_slider_volume(event, &sliders);
         if event.is_positional_audio() {
             state.position = Some(miles_event_world_position(event));
@@ -3807,3 +4030,7 @@ mod owned_audio_view_tests;
 #[cfg(test)]
 #[path = "scoped_receipt_reset_tests.rs"]
 mod scoped_receipt_reset_tests;
+
+#[cfg(test)]
+#[path = "script_audio_owner_tests.rs"]
+mod script_audio_owner_tests;

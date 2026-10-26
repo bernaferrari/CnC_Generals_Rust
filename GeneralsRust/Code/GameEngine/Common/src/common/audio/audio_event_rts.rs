@@ -394,6 +394,11 @@ pub struct AudioEventRts {
     pub decay_name: AsciiString,
     pub priority: AudioPriority,
     pub volume: Real,
+    /// Immutable script slider receipt for this admitted playback instance.
+    pub(crate) owned_script_volumes: Option<super::script_policy::ScriptAudioVolumes>,
+    pub(crate) owned_mix_dirty: bool,
+    /// Exact current device observation for backend delivery; never a global relookup.
+    pub(crate) playback_sliders: Option<MilesVolumeSliders>,
     pub time_of_day: TimeOfDay,
     pub position_of_audio: Coord3D,
     pub object_id: ObjectId,     // Union in C++
@@ -482,6 +487,9 @@ impl Clone for AudioEventRts {
             decay_name: self.decay_name.clone(),
             priority: self.priority,
             volume: self.volume,
+            owned_script_volumes: self.owned_script_volumes,
+            owned_mix_dirty: self.owned_mix_dirty,
+            playback_sliders: self.playback_sliders,
             time_of_day: self.time_of_day,
             position_of_audio: Coord3D {
                 x: self.position_of_audio.x,
@@ -513,6 +521,16 @@ impl Clone for AudioEventRts {
 }
 
 impl AudioEventRts {
+    pub fn admit_script_policy(&mut self, policy: &super::script_policy::ScriptAudioPolicy) {
+        self.owned_script_volumes = Some(policy.volumes);
+        if let Some(volume) = policy.override_for(self.get_event_name()) {
+            self.set_volume(volume);
+        }
+    }
+    pub fn playback_slider_observation(&self) -> Option<MilesVolumeSliders> {
+        self.playback_sliders
+    }
+
     pub fn new() -> Self {
         AudioEventRts {
             filename_to_load: String::new(),
@@ -524,6 +542,9 @@ impl AudioEventRts {
             decay_name: String::new(),
             priority: AP_NORMAL,
             volume: -1.0,
+            owned_script_volumes: None,
+            owned_mix_dirty: false,
+            playback_sliders: None,
             time_of_day: TIME_OF_DAY_AFTERNOON,
             position_of_audio: Coord3D::ZERO,
             object_id: INVALID_ID,

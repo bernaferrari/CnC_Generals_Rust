@@ -111,7 +111,9 @@ impl NativeMapCandidate {
     }
     #[cfg(test)]
     pub(super) fn admit_audio_to(&mut self, audio: &mut dyn crate::game_logic::NativeAudioEffects) {
-        self.audio.deliver_to(audio);
+        self.audio
+            .deliver_to(audio)
+            .expect("test audio service accepts candidate output");
     }
     #[cfg(not(feature = "game_client"))]
     pub(super) fn install_visuals(
@@ -362,11 +364,14 @@ impl NativeMapCandidate {
         local_player_id: u32,
         policy: game_client::core::game_client::ReceivingDrawablePolicy,
         retirement: &'a mut dyn game_client::core::game_client::NativeDrawableRetirement,
+        audio_device: Option<
+            std::sync::Arc<std::sync::Mutex<game_engine::common::audio::AudioManager>>,
+        >,
     ) -> Result<NativeMapAttempt<'a>, String> {
         let epoch = self
             .epoch
             .ok_or("map birth requires a reserved candidate epoch")?;
-        self.audio.capture_sound_service();
+        self.audio.capture_sound_service(audio_device);
         let poses = services.bind_world(&mut self.draw);
         let view = super::native_view_effects::NativeRendererViewEffects::new(
             poses,
@@ -716,6 +721,7 @@ End
                 0,
                 super::super::native_view_effects::receiving_native_drawable_policy(),
                 &mut retirement,
+                None,
             )
             .unwrap();
         let id = world

@@ -247,14 +247,14 @@ fn generic_tracker_arms_base_and_preserves_two_stage_strict_cooldown() {
                 deadline,
                 &mut sound,
                 health,
-                &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+                &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
             );
             assert_eq!(actor.continuous_fire_level, shot_level);
             actor.tick_continuous_fire_coast(
                 deadline + 1,
                 &mut sound,
                 health,
-                &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+                &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
             );
             assert_eq!(actor.continuous_fire_level, 0);
             assert_eq!(actor.consecutive_shots_at_target, 0);
@@ -265,14 +265,14 @@ fn generic_tracker_arms_base_and_preserves_two_stage_strict_cooldown() {
                     deadline + 31,
                     &mut sound,
                     health,
-                    &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+                    &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
                 );
                 assert_eq!(actor.continuous_fire_coast_until_frame, deadline + 31);
                 actor.tick_continuous_fire_coast(
                     deadline + 32,
                     &mut sound,
                     health,
-                    &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+                    &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
                 );
             }
             assert_eq!(actor.continuous_fire_coast_until_frame, 0);

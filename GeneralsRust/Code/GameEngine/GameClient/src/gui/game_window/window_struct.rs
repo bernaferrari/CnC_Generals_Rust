@@ -47,7 +47,8 @@ pub type DrawCallback = Box<
         &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
     ),
 >;
-pub type TooltipCallback = Box<dyn Fn(&GameWindow, &WindowInstanceData, u32)>;
+pub type TooltipCallback =
+    Box<dyn Fn(&GameWindow, &WindowInstanceData, u32, &mut crate::input::Mouse)>;
 pub type InputCallback =
     Rc<dyn Fn(&mut GameWindow, WindowMessage, WindowMsgData, WindowMsgData) -> WindowMsgHandled>;
 pub type SystemCallback =
@@ -55,6 +56,7 @@ pub type SystemCallback =
 /// Effects borrowed from the receiving GameClient for one synchronous window event.
 /// The effects never outlive callback delivery or enter a queued continuation.
 pub struct WindowEventEffects<'a> {
+    pub(crate) cursor_mouse: Option<&'a mut crate::input::Mouse>,
     pub(crate) control_bar_observation:
         Option<crate::gui::callbacks::control_bar_observation::ControlBarCallbackObservation>,
     pub(crate) menu_audio: Option<&'a mut dyn crate::gui::menu_audio::MenuAudioEffects>,
@@ -87,6 +89,26 @@ pub struct WindowEventEffects<'a> {
     )>,
 }
 impl<'effects> WindowEventEffects<'effects> {
+    pub fn script_display_and_mouse(
+        &mut self,
+    ) -> (
+        &mut crate::core::script_action_handler::ScriptDisplayReceiver,
+        Option<&mut crate::input::Mouse>,
+    ) {
+        (
+            self.script_display
+                .as_deref_mut()
+                .expect("receiving display"),
+            self.cursor_mouse.as_deref_mut(),
+        )
+    }
+    pub fn cursor_mouse(&self) -> Option<&crate::input::Mouse> {
+        self.cursor_mouse.as_deref()
+    }
+    pub fn cursor_mouse_mut(&mut self) -> Option<&mut crate::input::Mouse> {
+        self.cursor_mouse.as_deref_mut()
+    }
+
     pub fn admit_control_bar_callback_observation(
         &mut self,
         facts: crate::gui::callbacks::control_bar_observation::ControlBarCallbackObservation,
@@ -177,6 +199,7 @@ impl<'effects> WindowEventEffects<'effects> {
     /// Capabilities are supplied by the receiving client when needed.
     pub fn new(emitted_messages: &'effects mut Vec<GameMessage>) -> Self {
         Self {
+            cursor_mouse: None,
             control_bar_observation: None,
             menu_audio: None,
             input_provenance:
@@ -699,6 +722,7 @@ impl<'effects> WindowEventEffects<'effects> {
         operation: impl FnOnce(&mut WindowEventEffects<'_>) -> R,
     ) -> R {
         let mut local = WindowEventEffects {
+            cursor_mouse: self.cursor_mouse.as_deref_mut(),
             control_bar_observation: self.control_bar_observation,
             menu_audio: Some(audio),
             payloads: std::mem::take(&mut self.payloads),
@@ -741,6 +765,7 @@ impl<'effects> WindowEventEffects<'effects> {
         operation: impl FnOnce(&mut WindowEventEffects<'_>) -> R,
     ) -> R {
         let mut local = WindowEventEffects {
+            cursor_mouse: self.cursor_mouse.as_deref_mut(),
             control_bar_observation: self.control_bar_observation,
             menu_audio: self
                 .menu_audio
@@ -788,6 +813,7 @@ impl<'effects> WindowEventEffects<'effects> {
         operation: impl FnOnce(&mut WindowEventEffects<'_>) -> R,
     ) -> R {
         let mut local = WindowEventEffects {
+            cursor_mouse: self.cursor_mouse.as_deref_mut(),
             control_bar_observation: self.control_bar_observation,
             menu_audio: self
                 .menu_audio

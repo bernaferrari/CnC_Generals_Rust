@@ -145,11 +145,11 @@ fn sequential_start_keeps_same_name_chains_distinct_and_stops_only_selected_cont
     let second_id = admit(&world, "SiblingRoster", second, 2);
     world.host_object_mut(first).unwrap().set_ai_state(
         AIState::Moving,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     world.host_object_mut(second).unwrap().set_ai_state(
         AIState::Moving,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     let engine = sequence_engine();
     start(&engine, &mut world, first_id);
@@ -321,11 +321,11 @@ fn sequence_idle_contains_cycle_is_bounded_and_still_visits_each_live_member() {
     world.host_object_mut(second).unwrap().occupants = vec![first, ObjectId(u32::MAX)];
     world.host_object_mut(first).unwrap().set_ai_state(
         AIState::Moving,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     world.host_object_mut(second).unwrap().set_ai_state(
         AIState::Moving,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     let engine = sequence_engine();
     start(&engine, &mut world, id);
@@ -441,7 +441,7 @@ fn sequence_script_idle_admits_immobile_ai_without_locomotor_preparation() {
     unit.template_mut().add_kind_of(KindOf::Immobile);
     unit.set_ai_state(
         AIState::Moving,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     let engine = sequence_engine();
     start(&engine, &mut world, id);
@@ -490,7 +490,7 @@ fn sequence_script_idle_rejects_dead_sleep_surrender_and_projectile_members() {
         for id in [rejected, accepted] {
             world.host_object_mut(id).unwrap().set_ai_state(
                 AIState::Moving,
-                &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+                &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
             );
         }
         reject(&mut world, rejected);

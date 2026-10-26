@@ -3,7 +3,9 @@
 use crate::game_logic::combat::DamageType;
 use crate::game_logic::host_usa_pilot::HostDeathType;
 use crate::game_logic::object::DamageHitContext;
-use crate::game_logic::{AIState, AudioEventRequest, GameLogic, ObjectAudio, ObjectId, Player, Team};
+use crate::game_logic::{
+    AIState, AudioEventRequest, GameLogic, ObjectAudio, ObjectId, Player, Team,
+};
 use glam::Vec3;
 
 fn isolated(name: &str, run: impl FnOnce()) {
@@ -196,7 +198,7 @@ fn nested_stop_and_overlay_exit_take_the_loop_handle_exactly_once() {
             assert!(owner.unit_command_stop(id));
             // stop -> stop_moving -> overlay exit all share one receiving loan.
             let (object, output) = owner.host_object_and_audio_events_mut(id).unwrap();
-            let mut audio = ObjectAudio::queue(output);
+            let mut audio = ObjectAudio::record(output);
             object.stop_moving(&mut audio);
             object.end_temporary_move_overlay(&mut audio);
             object.set_ai_state(AIState::Idle, &mut audio);
@@ -257,7 +259,7 @@ fn detached_clone_uses_only_its_explicit_local_collector() {
             detached.move_loop_audio = Some("DetachedFixtureLoop".into());
             detached.set_position(Vec3::new(80., 0., 8.));
             let mut local = Vec::new();
-            detached.stop_moving(&mut ObjectAudio::queue(&mut local));
+            detached.stop_moving(&mut ObjectAudio::record(&mut local));
             assert_eq!(local.len(), 1);
             stop(&local[0], id, "DetachedFixtureLoop", Vec3::new(80., 0., 8.));
             assert!(owner.queued_audio_events.is_empty());

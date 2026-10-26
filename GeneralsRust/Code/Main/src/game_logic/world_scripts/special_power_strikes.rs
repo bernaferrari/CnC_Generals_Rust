@@ -753,6 +753,7 @@ impl GameLogic {
                     let receiver = &mut self.special_power_strikes;
                     Self::with_object_fx_services(
                         &mut self.session_view,
+                        self.queued_audio_events.policy().clone(),
                         player,
                         self.world_services.shroud(),
                         effects,
@@ -1033,6 +1034,7 @@ impl GameLogic {
                         #[cfg(feature = "game_client")]
                         Self::with_object_fx_services(
                             &mut self.session_view,
+                            self.queued_audio_events.policy().clone(),
                             fx_player,
                             self.world_services.shroud(),
                             effects,
@@ -1765,27 +1767,9 @@ impl GameLogic {
         target_team != source_team && target_team != Team::Neutral && source_team != Team::Neutral
     }
 
-    /// C++ `StealthUpdate::getDisguisedPlayerIndex` → `getNthPlayer`.
-    /// Live stores `disguise_as_team`; pick that team's controlling player,
-    /// not the truck's own owner (same-faction FFA).
+    /// Source copied player identity, independent of faction and HashMap iteration.
     fn spectre_orbit_disguised_player_id(&self, target_id: ObjectId) -> Option<u32> {
-        let obj = self.objects.get(&target_id)?;
-        let team = obj.disguise_as_team?;
-        let owner = obj.owner_player_id;
-        let mut first = None;
-        let mut copied = None;
-        for player in self.players.values() {
-            if player.team != team {
-                continue;
-            }
-            if first.is_none() {
-                first = Some(player.id);
-            }
-            if owner.is_none_or(|id| player.id != id) {
-                copied = Some(player.id);
-            }
-        }
-        copied.or(first)
+        self.objects.get(&target_id)?.disguise_as_player_id
     }
 
     /// Leftover `SpectreGunshipUpdate::is_disguised_as_enemy`.
@@ -2260,6 +2244,7 @@ impl GameLogic {
                 let receiver = &mut self.special_power_strikes;
                 Self::with_object_fx_services(
                     &mut self.session_view,
+                    self.queued_audio_events.policy().clone(),
                     player,
                     self.world_services.shroud(),
                     effects,
@@ -2290,6 +2275,7 @@ impl GameLogic {
                 let receiver = &mut self.special_power_strikes;
                 Self::with_object_fx_services(
                     &mut self.session_view,
+                    self.queued_audio_events.policy().clone(),
                     player,
                     self.world_services.shroud(),
                     effects,
@@ -2331,6 +2317,7 @@ impl GameLogic {
             #[cfg(feature = "game_client")]
             Self::with_object_fx_services(
                 &mut self.session_view,
+                self.queued_audio_events.policy().clone(),
                 fx_operation_environment.player,
                 self.world_services.shroud(),
                 effects,

@@ -56,6 +56,8 @@ pub enum ContainModuleKind {
     Cave = 7,
     /// C++ `TunnelContain` (Player::TunnelTracker shared pool).
     Tunnel = 8,
+    /// C++ ParachuteContain; separate admission from TransportContain.
+    Parachute = 9,
 }
 
 impl Default for ContainModuleKind {
@@ -328,6 +330,34 @@ pub struct ContainModuleMetadata {
     /// `0` is DeliverPayloadAIUpdate's opt-out so this module never diddles doors.
     #[serde(default = "default_door_open_time")]
     pub door_open_time: u32,
+    #[serde(default)]
+    pub parachute: Option<ParachuteContainMetadata>,
+}
+
+/// Immutable source ParachuteContainModuleData. Runtime lives on the receiving object.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ParachuteContainMetadata {
+    /// Source angular velocity, radians per logic frame.
+    pub pitch_rate_max: f32,
+    pub roll_rate_max: f32,
+    pub low_altitude_damping: f32,
+    pub open_distance: f32,
+    pub free_fall_damage_percent: f32,
+    pub kill_when_landing_in_water_slop: f32,
+    pub open_sound: String,
+}
+impl Default for ParachuteContainMetadata {
+    fn default() -> Self {
+        Self {
+            pitch_rate_max: 0.,
+            roll_rate_max: 0.,
+            low_altitude_damping: 0.2,
+            open_distance: 0.,
+            free_fall_damage_percent: 0.5,
+            kill_when_landing_in_water_slop: 10.,
+            open_sound: String::new(),
+        }
+    }
 }
 
 /// Exact `OverchargeBehaviorModuleData` retained from one Object INI behavior
@@ -414,6 +444,7 @@ impl Default for ContainModuleMetadata {
             keep_container_velocity_on_exit: false,
             reset_mood_check_time_on_exit: true,
             door_open_time: 1,
+            parachute: None,
         }
     }
 }

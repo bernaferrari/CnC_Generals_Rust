@@ -63,7 +63,9 @@ impl GameLogic {
                     crate::game_logic::host_cave_system::MAX_CAVE_CAPACITY,
                 )
             }
-            ContainModuleKind::Garrison | ContainModuleKind::Heal => {
+            ContainModuleKind::Garrison
+            | ContainModuleKind::Heal
+            | ContainModuleKind::Parachute => {
                 (object.contained_units().len(), metadata.slots.unwrap_or(0))
             }
             ContainModuleKind::Transport

@@ -208,6 +208,7 @@ impl crate::game_logic::GameLogic {
                 });
             Self::with_object_fx_services(
                 &mut self.session_view,
+                self.queued_audio_events.policy().clone(),
                 player,
                 self.world_services.shroud(),
                 presentation_effects,
@@ -253,7 +254,7 @@ impl crate::game_logic::GameLogic {
         object: &mut Object,
         effect: BodyStateFx,
         source: Option<&crate::game_logic::host_transition_damage_fx::HostDamageFxVictim>,
-        audio: &mut Vec<crate::game_logic::AudioEventRequest>,
+        audio: &mut crate::game_logic::SessionAudio,
         random: &game_engine::common::random_value::SessionRandom,
     ) {
         match effect {
@@ -282,7 +283,7 @@ impl crate::game_logic::GameLogic {
         player: Option<u32>,
         shroud: &std::sync::Arc<std::sync::Mutex<gamelogic::system::shroud_manager::ShroudManager>>,
         particles: &mut crate::game_logic::combat_particles::CombatParticleRegistry,
-        audio: &mut Vec<crate::game_logic::AudioEventRequest>,
+        audio: &mut crate::game_logic::SessionAudio,
         frame: u32,
         view: &mut crate::game_logic::host_fx_list_dispatch::ObjectFxServices<'_, '_>,
     ) {

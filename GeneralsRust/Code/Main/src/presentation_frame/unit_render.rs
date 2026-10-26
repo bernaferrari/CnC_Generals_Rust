@@ -671,6 +671,27 @@ impl UnitRenderInput {
     /// Same pose kernel with an explicit geometry factor; native ghost capture
     /// bakes absolute scale into its prototype, including a legitimate zero.
     pub(crate) fn world_matrix_with_mesh_scale(&self, mesh_scale: f32) -> glam::Mat4 {
+        self.world_matrix_with_mesh_scale_and_instance(mesh_scale, None)
+    }
+    pub(crate) fn world_matrix_with_drawable_instance(
+        &self,
+        instance: Option<glam::Mat4>,
+    ) -> glam::Mat4 {
+        self.world_matrix_with_mesh_scale_and_instance(self.mesh_scale, instance)
+    }
+    pub(crate) fn world_matrix_without_geometry_scale_and_instance(
+        &self,
+        instance: Option<glam::Mat4>,
+    ) -> glam::Mat4 {
+        let mut parent = self.world_matrix_with_mesh_scale_and_instance(1., instance);
+        parent.w_axis = self.world_matrix_with_drawable_instance(instance).w_axis;
+        parent
+    }
+    fn world_matrix_with_mesh_scale_and_instance(
+        &self,
+        mesh_scale: f32,
+        instance: Option<glam::Mat4>,
+    ) -> glam::Mat4 {
         let scale = if mesh_scale.is_finite() {
             mesh_scale
         } else {
@@ -710,25 +731,26 @@ impl UnitRenderInput {
         } else {
             glam::Mat4::IDENTITY
         };
-        let (fy, fp) = (self.float_yaw, self.float_pitch);
-        // C++ FloatUpdate: Rotate_Z(heading); Rotate_Y(yaw); Rotate_X(pitch).
-        // Host Y-up: heading is already Ry; C++ Ry → host Rz; Rx stays Rx.
-        let sway = if fy.abs() > 1e-8 || fp.abs() > 1e-8 {
-            glam::Mat4::from_rotation_z(fy) * glam::Mat4::from_rotation_x(fp)
-        } else {
-            glam::Mat4::IDENTITY
-        };
+        // Source local Float/Parachute matrices come from the receiving Drawable;
+        // frozen diagnostic sine fields never reconstruct another writable instance.
         let mut base = glam::Mat4::from_translation(self.position)
             * glam::Mat4::from_rotation_y(self.orientation)
-            * sway
-            * fall
-            * glam::Mat4::from_scale(glam::Vec3::splat(scale));
+            * fall;
         if let Some(matrix) = self.structure_topple_matrix {
             // The authoritative original incremental transform already carries
             // the fall. Do not rotate the aggregate lean a second time.
-            base = matrix * glam::Mat4::from_scale(glam::Vec3::splat(scale));
+            base = matrix;
             base.w_axis = self.position.extend(1.0);
         }
+        // Drawable.cpp2639-2647 and1380: Object * instance * Physics.
+        // W3DModelDraw.cpp2022 scales afterward; asset drawScale is already baked.
+        if let Some(instance) = instance {
+            base *= instance;
+        }
+        if let Some(physics) = self.physics_visual_local {
+            base *= physics;
+        }
+        base *= glam::Mat4::from_scale(glam::Vec3::splat(scale));
         // C++ W3DModelDraw.cpp:2000-2012 Translate_Z after instance scale.
         // Host Y-up: local Y is object up after heading.
         if crate::assets::authored_draw_adjusts_height_by_construction(&self.draw_models) {
@@ -744,7 +766,7 @@ impl UnitRenderInput {
                 base *= glam::Mat4::from_translation(glam::Vec3::new(0.0, dz, 0.0));
             }
         }
-        self.physics_visual_local.map_or(base, |local| base * local)
+        base
     }
 
     /// Wave 495: ensure combat motion flags are present in model-condition bits.
@@ -1590,5 +1612,49 @@ mod tests {
         assert!(timed_o.bomb_timer_seconds > 0);
         assert_eq!(remote_o.bomb_type, 2);
         assert_eq!(remote_o.bomb_timer_seconds, 0);
+    }
+}
+
+#[cfg(test)]
+mod drawable_instance_order_tests {
+    use super::*;
+    #[test]
+    fn source_object_instance_physics_scale_order_preserves_noncommuting_translation() {
+        let mut world = crate::game_logic::GameLogic::new();
+        let id = ObjectId(42);
+        world.add_object(crate::game_logic::Object::new(
+            crate::game_logic::ThingTemplate::new("InstanceOrder"),
+            id,
+            crate::game_logic::Team::USA,
+        ));
+        let frame = crate::presentation_frame::PresentationFrame::build_from_logic(&mut world, 0);
+        let mut input = UnitRenderInput::from_renderable(
+            frame.objects.iter().find(|object| object.id == id).unwrap(),
+        );
+        input.position = Vec3::new(13., 14., 15.);
+        input.orientation = 0.3;
+        input.float_yaw = 0.4;
+        input.float_pitch = 0.2;
+        let instance =
+            glam::Mat4::from_translation(Vec3::new(3., 4., 5.)) * glam::Mat4::from_rotation_z(0.6);
+        let physics = glam::Mat4::from_translation(Vec3::Y * 2.) * glam::Mat4::from_rotation_x(0.2);
+        input.physics_visual_local = Some(physics);
+        let base = glam::Mat4::from_translation(input.position)
+            * glam::Mat4::from_rotation_y(input.orientation);
+        for scale in [0., 2.] {
+            input.mesh_scale = scale;
+            let expected = base * instance * physics * glam::Mat4::from_scale(Vec3::splat(scale));
+            let actual = input.world_matrix_with_drawable_instance(Some(instance));
+            assert!(
+                actual
+                    .to_cols_array()
+                    .iter()
+                    .zip(expected.to_cols_array())
+                    .all(|(a, b)| (a - b).abs() < 1e-5)
+            );
+            let baked = input.world_matrix_without_geometry_scale_and_instance(Some(instance));
+            assert_eq!(baked.w_axis, actual.w_axis);
+            assert!(baked.x_axis.truncate().length() > 0.9);
+        }
     }
 }

@@ -2859,12 +2859,14 @@ impl MainMenu {
 
         // C++ DeclineResolution: TheDisplay->setDisplayMode(old settings).
         let old = state.old_disp_settings;
+        let (display, mouse) = effects.script_display_and_mouse();
         let _ = crate::core::script_action_handler::apply_script_display_mode(
-            effects.script_display(),
+            display,
             old.x_res.max(0) as u32,
             old.y_res.max(0) as u32,
             old.bit_depth.max(0) as u32,
             old.windowed,
+            mouse,
         );
         state.disp_changed = false;
         state.new_disp_settings = old;

@@ -267,11 +267,11 @@ fn dozer_construction_rate_applies_handicap_buildtime() {
         obj.set_target(
             Some(pad_id),
             attack_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         obj.set_ai_state(
             AIState::Constructing,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         obj.status.moving = false;
         obj.dozer_dock_action = Some(obj.get_position());
@@ -332,11 +332,11 @@ fn arrived_moving_dozer_builds_at_the_dock() {
         obj.set_target(
             Some(pad_id),
             attack_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         obj.set_ai_state(
             AIState::Moving,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         obj.movement.path.clear();
         obj.waiting_for_path = false;
@@ -395,11 +395,11 @@ fn simulation_step_builds_when_dozer_is_at_the_pad() {
         obj.set_target(
             Some(pad_id),
             attack_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         obj.set_ai_state(
             AIState::Constructing,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         obj.movement.path.clear();
         obj.waiting_for_path = false;
@@ -462,11 +462,11 @@ fn simulation_step_finishes_a_short_build() {
         obj.set_target(
             Some(pad_id),
             attack_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         obj.set_ai_state(
             AIState::Constructing,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         obj.movement.path.clear();
         obj.waiting_for_path = false;
@@ -557,11 +557,11 @@ fn owned_construction_completion_walks_the_dozer_off_the_pad() {
         obj.set_target(
             Some(pad_id),
             attack_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         obj.set_ai_state(
             AIState::Constructing,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         obj.movement.path.clear();
         obj.waiting_for_path = false;

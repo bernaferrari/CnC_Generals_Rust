@@ -7,7 +7,7 @@ pub struct SubsystemManager {
     display: Option<Arc<Mutex<GraphicsDisplay>>>,
     audio: Option<Arc<Mutex<AudioSubsystem>>>,
     input_keyboard: Option<crate::input::Keyboard>,
-    input_mouse: Option<MouseHandle>,
+    input_mouse: Option<crate::input::Mouse>,
     terrain_visual: Option<Arc<Mutex<TerrainVisualStub>>>,
     window_manager_initialized: bool,
     font_library: Option<Arc<Mutex<FontLibrarySubsystem>>>,
@@ -68,8 +68,8 @@ impl SubsystemManager {
             keyboard.reset()?;
         }
 
-        if let Some(ref mouse) = self.input_mouse {
-            mouse.lock().unwrap_or_else(|e| e.into_inner()).reset()?;
+        if let Some(ref mut mouse) = self.input_mouse {
+            mouse.reset()?;
         }
 
         if let Some(ref terrain) = self.terrain_visual {

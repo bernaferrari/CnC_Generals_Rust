@@ -233,7 +233,7 @@ fn authored_evacuation_retains_passenger_through_takeoff_and_landing() {
             );
             rider.set_ai_state(
                 AIState::Docked,
-                &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+                &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
             );
             // The initial condition is a landed, loaded transport. Every
             // subsequent pose comes from the actual full-frame locomotor.

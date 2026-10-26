@@ -438,6 +438,15 @@ pub(crate) struct AdmittedAudioRequest {
     locality: game_engine::common::audio::AudioSubmissionLocality,
 }
 impl AdmittedAudioRequest {
+    pub(crate) fn refresh_script_bus(
+        &mut self,
+        volumes: game_engine::common::audio::script_policy::ScriptAudioVolumes,
+    ) {
+        if let Some(policy) = &mut self.request.script_audio_policy {
+            policy.volumes = volumes;
+        }
+    }
+
     pub(crate) fn into_request(self) -> crate::game_logic::AudioEventRequest {
         self.request
     }

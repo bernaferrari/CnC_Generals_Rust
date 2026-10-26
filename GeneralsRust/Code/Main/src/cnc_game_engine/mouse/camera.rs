@@ -500,7 +500,10 @@ impl CnCGameEngine {
         }
         // C++ SelectionXlat.cpp:425-446 + HintSpy.cpp:26-35 — hover always
         // posts MSG_MOUSEOVER_* even when the cursor icon is unchanged.
-        self.sync_ingame_mouseover_hint();
+        if let Err(error) = self.sync_ingame_mouseover_hint() {
+            log::error!("receiving hover unavailable: {error}");
+            return;
+        }
         // C++ InGameUI.cpp:2462 — replayed SELECTING/ARROW stays put until
         // the viewer moves the mouse (LookAtXlat hasMouseMovedRecently).
         if self
@@ -524,7 +527,7 @@ impl CnCGameEngine {
     }
 
     /// C++ HintSpy::translate MSG_MOUSEOVER_DRAWABLE_HINT / LOCATION_HINT.
-    fn sync_ingame_mouseover_hint(&mut self) {
+    fn sync_ingame_mouseover_hint(&mut self) -> Result<(), String> {
         // C++ InGameUI.cpp:2462 — playback keeps SELECTING/ARROW until the
         // viewer moves the mouse (LookAtXlat hasMouseMovedRecently, 1s).
         #[cfg(feature = "game_client")]
@@ -538,16 +541,22 @@ impl CnCGameEngine {
         );
         // C++ SelectionXlat.cpp:429 hardcodes getPickTypesForContext(true).
         let hover = self.host_pick_hover_object_at_cursor();
+        let facts = self.receiving_mouseover_facts(hover)?;
         match hover {
             Some(id) => self.game_client.create_mouseover_hint(
                 Some(id.0),
                 false,
                 self.game_logic.get_frame(),
+                &facts,
             ),
-            None => self
-                .game_client
-                .create_mouseover_hint(None, true, self.game_logic.get_frame()),
+            None => self.game_client.create_mouseover_hint(
+                None,
+                true,
+                self.game_logic.get_frame(),
+                &facts,
+            ),
         }
+        Ok(())
     }
 
     /// Wave 612: via `host_resolve_context_cursor_icon`.

@@ -2035,6 +2035,7 @@ impl GameLogic {
                             let receiver = &mut self.special_power_strikes;
                             Self::with_object_fx_services(
                                 &mut self.session_view,
+                                self.queued_audio_events.policy().clone(),
                                 player,
                                 self.world_services.shroud(),
                                 presentation_effects,
@@ -3217,9 +3218,7 @@ impl GameLogic {
                 continue;
             };
             let template = o.template_name.clone();
-            let first_fx = self
-                .host_leaflet_drops
-                .try_attach_leaflet_fx(id.0, &template);
+            let first_fx = self.host_leaflet_drops.try_mark_leaflet_fx_started(id.0);
             if first_fx {
                 let fx_name =
                     crate::game_logic::host_leaflet_drop::leaflet_fx_particle_name(&template);

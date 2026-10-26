@@ -340,6 +340,11 @@ pub(crate) fn collect_module_states(
         ProjectileFlightResiduals::present(object),
         &ProjectileFlightResiduals::from_object(object),
     )?;
+    push_opt(
+        &mut out,
+        TAG_PARACHUTE_ATTACHMENTS,
+        &object.parachute_attachments,
+    )?;
     push_present(
         &mut out,
         TAG_ACTIVE_BODY,

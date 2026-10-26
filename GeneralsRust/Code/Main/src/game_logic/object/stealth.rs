@@ -60,8 +60,10 @@ impl Object {
         &mut self,
         as_template: Option<String>,
         as_team: Option<Team>,
+        as_player_id: Option<u32>,
         pending_template: Option<String>,
         pending_team: Option<Team>,
+        pending_player_id: Option<u32>,
         disguised: bool,
         transition_frames: u32,
         transitioning_to: bool,
@@ -69,8 +71,10 @@ impl Object {
     ) {
         self.disguise_as_template = as_template.filter(|name| !name.is_empty());
         self.disguise_as_team = as_team;
+        self.disguise_as_player_id = as_player_id;
         self.disguise_pending_template = pending_template.filter(|name| !name.is_empty());
         self.disguise_pending_team = pending_team;
+        self.disguise_pending_player_id = pending_player_id;
         self.set_status_disguised(disguised);
         self.status.disguise_transition_frames = transition_frames;
         self.set_status_disguise_transitioning_to(transitioning_to);
@@ -85,7 +89,18 @@ impl Object {
     /// C++ residual: start DisguiseTransitionTime frames; at halfpoint
     /// `changeVisualDisguise` sets DISGUISED + model. Host residual: arm
     /// pending template/team, tick opacity, commit at halfpoint.
-    pub fn apply_disguise(&mut self, template_name: &str, as_team: Team) {
+    pub fn apply_disguise(
+        &mut self,
+        template_name: &str,
+        as_team: Team,
+        as_player_id: Option<u32>,
+    ) {
+        // C++ disguiseAsObject requires a real controlling player. A missing
+        // recipient follows the original reveal/no-op branch, never a neutral guess.
+        let Some(as_player_id) = as_player_id else {
+            self.clear_disguise();
+            return;
+        };
         use crate::game_logic::host_bomb_truck_disguise::BOMB_TRUCK_DISGUISE_TRANSITION_FRAMES;
         if self.status.destroyed {
             return;
@@ -93,6 +108,7 @@ impl Object {
         self.disguise_pending_template = Some(template_name.to_string());
 
         self.disguise_pending_team = Some(as_team);
+        self.disguise_pending_player_id = Some(as_player_id);
         // Not fully disguised until halfpoint residual.
         self.set_status_disguised(false);
         self.set_status_stealthed(true);
@@ -131,9 +147,11 @@ impl Object {
         self.set_status_disguised(false);
         self.disguise_as_template = None;
         self.disguise_as_team = None;
+        self.disguise_as_player_id = None;
         self.disguise_pending_template = None;
 
         self.disguise_pending_team = None;
+        self.disguise_pending_player_id = None;
         self.set_status_stealthed(false);
         self.set_status_detected(false);
         self.detection_expires_frame = 0;
@@ -182,6 +200,7 @@ impl Object {
                 if let Some(team) = self.disguise_pending_team.take() {
                     self.disguise_as_team = Some(team);
                 }
+                self.disguise_as_player_id = self.disguise_pending_player_id.take();
                 self.set_status_disguised(true);
 
                 self.set_status_stealthed(true);
@@ -191,9 +210,11 @@ impl Object {
                 self.set_status_disguised(false);
                 self.disguise_as_template = None;
                 self.disguise_as_team = None;
+                self.disguise_as_player_id = None;
                 self.disguise_pending_template = None;
 
                 self.disguise_pending_team = None;
+                self.disguise_pending_player_id = None;
                 // C++ changeVisualDisguise (StealthUpdate.cpp:1052-1057): after
                 // swapping back to the true bomb-truck drawable, rebuild W3D
                 // payload subobjects (BioBomb / HighExplosiveBomb barrels).
@@ -1435,7 +1456,7 @@ mod stealth_grant_tests {
         unit.status.attacking = true;
         unit.set_ai_state(
             super::AIState::AttackMoving,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         assert!(!unit.stealth_is_firing_weapon());
         unit.set_status_firing_weapon(true);

@@ -18,7 +18,7 @@ fn world(position: glam::Vec3) -> GameLogic {
     rider.owner_player_id = Some(1);
     rider.selection_radius = 4.0;
     rider.crusher_level = 2;
-    rider.begin_hijacker_in_vehicle(ObjectId(52), &mut ObjectAudio::queue(&mut Vec::new()));
+    rider.begin_hijacker_in_vehicle(ObjectId(52), &mut ObjectAudio::record(&mut Vec::new()));
     world.objects.insert(ObjectId(51), rider);
     world.objects.insert(
         ObjectId(52),

@@ -76,7 +76,7 @@ impl PathfindingGrid {
 
     /// W3DTerrainLogic::getLayerHeight defaults to clip=true for path goals.
     /// Only still-linked spans participate; buried decks fall back to raw ground.
-    pub(super) fn layer_height_clipped(&self, pos: Vec3, layer: u8, raw_ground: f32) -> f32 {
+    pub(crate) fn layer_height_clipped(&self, pos: Vec3, layer: u8, raw_ground: f32) -> f32 {
         if layer == 15 && self.is_point_on_wall(pos) {
             return self.wall_height;
         }

@@ -22,7 +22,6 @@ use crate::game_text::GameText;
 use crate::gui::display_string::{DisplayStringHandle, get_display_string_manager};
 use crate::gui::font::{FontDesc, get_font_library};
 use crate::gui::ui_renderer::UIRect;
-use crate::input::with_mouse;
 use crate::platform::GraphicsContext;
 use crate::radius_decal::get_projected_shadow_manager;
 use crate::system::SubsystemInterface;
@@ -360,18 +359,20 @@ impl Display {
         }
     }
 
-    pub fn set_width(&mut self, width: u32) {
+    pub fn set_width(&mut self, width: u32, mouse: Option<&mut crate::input::Mouse>) {
         self.width = width;
-        self.update_mouse_limits();
+        self.update_mouse_limits(mouse);
     }
 
-    pub fn set_height(&mut self, height: u32) {
+    pub fn set_height(&mut self, height: u32, mouse: Option<&mut crate::input::Mouse>) {
         self.height = height;
-        self.update_mouse_limits();
+        self.update_mouse_limits(mouse);
     }
 
-    fn update_mouse_limits(&self) {
-        with_mouse(|mouse| mouse.set_mouse_limits(self.width, self.height));
+    fn update_mouse_limits(&self, mouse: Option<&mut crate::input::Mouse>) {
+        if let Some(mouse) = mouse {
+            mouse.set_mouse_limits(self.width, self.height);
+        }
     }
 
     pub fn set_bit_depth(&mut self, bit_depth: u32) {
@@ -405,6 +406,7 @@ impl Display {
         yres: u32,
         bit_depth: u32,
         windowed: bool,
+        mut mouse: Option<&mut crate::input::Mouse>,
     ) -> bool {
         // C++ W3DDisplay::setDisplayMode — Set_Device_Resolution then rescale view.
         // Failure restores the previous device mode and returns FALSE.
@@ -438,8 +440,8 @@ impl Display {
             windowed,
         });
 
-        self.set_width(xres);
-        self.set_height(yres);
+        self.set_width(xres, mouse.as_deref_mut());
+        self.set_height(yres, mouse.as_deref_mut());
         self.set_bit_depth(bit_depth);
         self.set_windowed(windowed);
 

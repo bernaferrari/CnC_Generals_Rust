@@ -36,6 +36,7 @@ impl crate::game_logic::NativeAudioEffects for ObserveAudio {
         player: Option<i32>,
         _: &game_engine::common::audio::AudioSubmissionLocality,
         _: &mut dyn game_engine::common::audio::audio_event_rts::AudioEventSelection,
+        _policy: &game_engine::common::audio::script_policy::ScriptAudioPolicy,
     ) -> Result<(), String> {
         let primary = self
             .source

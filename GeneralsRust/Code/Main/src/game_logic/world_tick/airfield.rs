@@ -160,23 +160,22 @@ impl GameLogic {
             .filter(|(_, o)| {
                 (o.is_alive()
                     && (o.is_kind_of(KindOf::Aircraft) || o.object_type == ObjectType::Aircraft))
-                    || o.jet_ai.lockon_drawable_id.is_some()
+                    || o.jet_ai.lockon_drawable_template.is_some()
             })
             .map(|(id, _)| *id)
             .collect();
         let mut transfers: Vec<ObjectId> = Vec::new();
         for id in ids {
-            let (action, lockon_tick, lockon_pos) = {
+            let (action, lockon_tick) = {
                 let Some(jet) = self.objects.get_mut(&id) else {
                     continue;
                 };
                 let action = jet.tick_jet_ai_update(now);
                 let lockon_tick = jet.take_jet_lockon_tick();
-                let lockon_pos = jet.jet_ai.lockon_pos;
                 if jet.jet_should_transfer_runway(now) {
                     transfers.push(id);
                 }
-                (action, lockon_tick, lockon_pos)
+                (action, lockon_tick)
             };
             self.prune_jet_targeters(id);
             if self
@@ -187,23 +186,8 @@ impl GameLogic {
                 self.begin_pause_after_taxi_to_runway(id);
             }
             self.sync_jet_afterburner_sound(id);
-            self.sync_jet_lockon_drawable(id);
+            self.sync_jet_lockon_drawable_with_effects(id, effects, lockon_tick, false)?;
 
-            if lockon_tick {
-                let pos = lockon_pos
-                    .map(|p| glam::Vec3::new(p[0], p[1], p[2]))
-                    .or_else(|| self.objects.get(&id).map(|j| j.get_position()))
-                    .unwrap_or(glam::Vec3::ZERO);
-                // C++ `TheAudio->getMiscAudio()->m_lockonTickSound` (JetAIUpdate.cpp:2143-2145).
-                let event = crate::game_logic::host_economy_log::resolve_misc_audio_event(
-                    crate::game_logic::object::JET_LOCKON_TICK_SOUND,
-                );
-                self.queue_audio_event(
-                    crate::game_logic::AudioEventRequest::new(&event)
-                        .with_object(id)
-                        .with_position(pos),
-                );
-            }
             self.maybe_play_jet_wheel_screech(id);
 
             match action {
@@ -299,70 +283,6 @@ impl GameLogic {
             jet.jet_ai.afterburner_sound_playing = on;
         }
         self.queue_afterburner_per_unit_sound(jet_id, &template_name, pos, on);
-    }
-
-    /// C++ `buildLockonDrawableIfNecessary` + `positionLockon` (JetAIUpdate.cpp:2098-2171).
-    fn sync_jet_lockon_drawable(&mut self, jet_id: ObjectId) {
-        #[cfg(not(feature = "game_client"))]
-        {
-            let _ = jet_id;
-        }
-        #[cfg(feature = "game_client")]
-        {
-            use crate::game_logic::object::STEALTH_FIGHTER_LOCKON_CURSOR;
-            let Some(jet) = self.objects.get(&jet_id) else {
-                return;
-            };
-            let lockon_pos = jet.jet_ai.lockon_pos;
-            let lockon_hidden = jet.jet_ai.lockon_hidden;
-            let existing = jet.jet_ai.lockon_drawable_id.filter(|&id| id != 0);
-            let owner = jet.get_position();
-            let alive = jet.is_alive();
-
-            if !alive || lockon_pos.is_none() {
-                if let Some(draw_id) = existing {
-                    gamelogic::helpers::TheGameClient.destroy_drawable(draw_id);
-                    if let Some(jet) = self.objects.get_mut(&jet_id) {
-                        jet.jet_ai.lockon_drawable_id = None;
-                    }
-                }
-                return;
-            }
-            let pos = lockon_pos.unwrap();
-
-            let draw_id = if let Some(id) = existing {
-                id
-            } else {
-                let Some(template) = gamelogic::helpers::TheThingFactory::find_template(
-                    STEALTH_FIGHTER_LOCKON_CURSOR,
-                ) else {
-                    return;
-                };
-                let id = gamelogic::helpers::TheGameClient.create_drawable(template.as_ref());
-                if id == 0 {
-                    return;
-                }
-                if let Some(jet) = self.objects.get_mut(&jet_id) {
-                    jet.jet_ai.lockon_drawable_id = Some(id);
-                }
-                id
-            };
-
-            let cpp_pos = gamelogic::common::Coord3D {
-                x: pos[0],
-                y: pos[1],
-                z: pos[2],
-            };
-            gamelogic::helpers::TheGameClient.set_drawable_position(draw_id, &cpp_pos);
-            let dx = owner.x - pos[0];
-            let dz = owner.z - pos[2];
-            if dx != 0.0 || dz != 0.0 {
-                gamelogic::helpers::TheGameClient.set_drawable_orientation(draw_id, dz.atan2(dx));
-            }
-            gamelogic::helpers::TheGameClient.set_drawable_hidden(draw_id, lockon_hidden);
-            gamelogic::helpers::TheGameClient
-                .set_drawable_shroud_status_object_id(draw_id, jet_id.0);
-        }
     }
 
     /// C++ `getPerUnitSound("Afterburner")` then `TheAudio->addAudioEvent` /

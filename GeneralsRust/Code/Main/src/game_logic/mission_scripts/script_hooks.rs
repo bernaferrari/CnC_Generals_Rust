@@ -109,6 +109,12 @@ pub struct MissionScriptHooks {
 }
 
 impl MissionScriptHooks {
+    pub(crate) fn admit_speech_caption(&self, name: &str) {
+        if let Some(label) = speech_subtitle_label_if_displayable(name, localization::translate) {
+            self.push_military_caption(label, SPEECH_SUBTITLE_DURATION_MS);
+        }
+    }
+
     #[cfg(test)]
     pub(crate) fn view_drain_acquisitions_for_test(&self) -> usize {
         self.view_drain_acquisitions.load(Ordering::Relaxed)

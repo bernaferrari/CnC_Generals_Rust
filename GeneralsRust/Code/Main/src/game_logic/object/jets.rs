@@ -62,12 +62,23 @@ pub struct HostJetAi {
     pub lockon_pos: Option<[f32; 3]>,
     pub lockon_hidden: bool,
     pub lockon_tick_pending: bool,
-    /// C++ `JetAIUpdate::m_lockonDrawable` objectless DrawableID.
+    /// C++ Xfer stores the authored template name and recreates the Drawable.
     #[serde(default)]
-    pub lockon_drawable_id: Option<u32>,
+    pub lockon_drawable_template: Option<String>,
+    #[cfg(feature = "game_client")]
+    #[serde(skip)]
+    pub(crate) lockon_runtime: Option<NativeJetLockon>,
     /// C++ `JetTakeoffOrLandingState::m_landingSoundPlayed`.
     #[serde(default)]
     pub landing_sound_played: bool,
+}
+
+#[cfg(feature = "game_client")]
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct NativeJetLockon {
+    pub(crate) actor: crate::assets::LiveDrawPlaybackIdentity,
+    pub(crate) receipt: game_client::core::game_client::NativeAuxiliaryReceipt,
+    pub(crate) source: crate::game_logic::NativeAuxiliarySource,
 }
 
 /// Pending command reconstituted after airfield reload.
@@ -85,7 +96,7 @@ pub enum HostJetPendingResume {
 /// Retail AmericaJetStealthFighter `LockonTime` 1500ms → 45 frames.
 pub const STEALTH_FIGHTER_LOCKON_TIME_MS: u32 = 1500;
 pub const STEALTH_FIGHTER_LOCKON_TIME_FRAMES: u32 = 45;
-pub const STEALTH_FIGHTER_LOCKON_CURSOR: &str = "GenericLockon";
+pub const STEALTH_FIGHTER_LOCKON_CURSOR: &str = "LockonCursor";
 pub const STEALTH_FIGHTER_LOCKON_INITIAL_DIST: f32 = 300.0;
 pub const STEALTH_FIGHTER_LOCKON_FREQ: f32 = 0.5;
 pub const STEALTH_FIGHTER_LOCKON_ANGLE_SPIN: f32 = 1440.0_f32.to_radians();
@@ -623,7 +634,30 @@ impl Object {
         }
     }
 
+    fn jet_lockon_data(
+        &self,
+    ) -> Option<&gamelogic::object::update::ai_update::jet_ai_update::JetAIUpdateModuleData> {
+        self.thing()
+            .template
+            .receiving_client_template
+            .as_ref()?
+            .receiving_jet_lockon_data()
+    }
+    pub(crate) fn jet_lockon_cursor_name(&self) -> Option<&str> {
+        if let Some(data) = self.jet_lockon_data() {
+            return (!data.lockon_cursor.is_empty()).then(|| data.lockon_cursor.as_str());
+        }
+        // Explicit assetless prototype templates retain their existing rules.
+        (self.jet_lockon_time_frames() != 0).then_some(STEALTH_FIGHTER_LOCKON_CURSOR)
+    }
+    pub(crate) fn refresh_jet_lockon_position(&mut self, now: u32) {
+        self.position_jet_lockon(now);
+    }
+
     pub fn jet_lockon_time_frames(&self) -> u32 {
+        if let Some(data) = self.jet_lockon_data() {
+            return data.lockon_time;
+        }
         if crate::game_logic::host_stealth_fighter::is_stealth_fighter_template(&self.template_name)
         {
             STEALTH_FIGHTER_LOCKON_TIME_FRAMES
@@ -704,7 +738,7 @@ impl Object {
                 self.jet_ai.targeted_by.push(id);
                 if self.jet_ai.untargetable_expire_frame == 0 && self.jet_ai.targeted_by.len() == 1
                 {
-                    self.jet_ai.untargetable_expire_frame = now.saturating_add(lockon_time);
+                    self.jet_ai.untargetable_expire_frame = now.wrapping_add(lockon_time);
                 }
             }
         } else if let Some(pos) = self
@@ -835,6 +869,7 @@ impl Object {
             // C++ onEnter selects the flight locomotor, clears its lift cap,
             // then captures damage-conditioned lift (JetAIUpdate.cpp:708-724).
             // Applying the complete binding above restores its authored lift.
+            self.max_lift = crate::game_logic::locomotor_bootstrap::DEFAULT_HOST_LIFT_CAP;
             self.jet_ai.takeoff_max_lift = self.get_max_lift();
             // C++ chooseLocomotorSet then setUsePreciseZPos (JetAIUpdate.cpp:709,725-726).
             self.set_precise_z_and_ultra_accurate(true);
@@ -864,10 +899,12 @@ impl Object {
         self.jet_ai.takeoff_pause_until = 0;
         self.jet_ai.takeoff_pause_transfer = 0;
         self.jet_ai.takeoff_runway_end = None;
-        if self.jet_ai.takeoff_max_lift > 0.0 {
-            self.max_lift = self.jet_ai.takeoff_max_lift;
+        // JetAIUpdate.cpp886-890: lift cap returns to BIGNUM only when
+        // alive; never restore over JetSlowDeath's cap. The already selected
+        // flight locomotor remains selected (onExit does not choose a set).
+        if self.is_alive() {
+            self.max_lift = crate::game_logic::locomotor_bootstrap::DEFAULT_HOST_LIFT_CAP;
         }
-        self.apply_airborne_locomotor_set();
         // C++ JetTakeoffOrLandingState::onExit (JetAIUpdate.cpp:886-887, :662-663).
         self.set_precise_z_and_ultra_accurate(false);
         self.set_allow_invalid_position(false);
@@ -900,6 +937,11 @@ impl Object {
         }
         let _ = self.tick_jet_takeoff_lift(now);
         self.stamp_jet_exhaust();
+        if self.jet_ai.untargetable_expire_frame != 0
+            && now >= self.jet_ai.untargetable_expire_frame
+        {
+            self.jet_ai.untargetable_expire_frame = 0;
+        }
         self.position_jet_lockon(now);
 
         if self.status.attacking {
@@ -1002,40 +1044,54 @@ impl Object {
     }
 
     fn position_jet_lockon(&mut self, now: u32) {
+        self.jet_ai.lockon_tick_pending = false;
         let lockon_time = self.jet_lockon_time_frames();
         if self.jet_ai.untargetable_expire_frame == 0 || lockon_time == 0 {
             self.jet_ai.lockon_pos = None;
             self.jet_ai.lockon_tick_pending = false;
             return;
         }
-        if now >= self.jet_ai.untargetable_expire_frame {
-            self.jet_ai.untargetable_expire_frame = 0;
-            self.jet_ai.lockon_pos = None;
-            return;
-        }
-        let remaining = self.jet_ai.untargetable_expire_frame.saturating_sub(now);
-        let elapsed = lockon_time.saturating_sub(remaining);
+        let remaining = self.jet_ai.untargetable_expire_frame.wrapping_sub(now);
+        let elapsed = lockon_time.wrapping_sub(remaining);
+        let (initial_dist, angle_spin, frequency, blinky) = self
+            .jet_lockon_data()
+            .map(|data| {
+                (
+                    data.lockon_initial_dist,
+                    data.lockon_angle_spin,
+                    data.lockon_freq,
+                    data.lockon_blinky,
+                )
+            })
+            .unwrap_or((
+                STEALTH_FIGHTER_LOCKON_INITIAL_DIST,
+                STEALTH_FIGHTER_LOCKON_ANGLE_SPIN,
+                STEALTH_FIGHTER_LOCKON_FREQ,
+                true,
+            ));
         let owner = self.get_position();
-        let final_dist = self.selection_radius.max(1.0);
+        let final_dist = (*self.geometry_info()).bounding_circle_radius();
         let frac = remaining as f32 / lockon_time.max(1) as f32;
-        let dist = final_dist + (STEALTH_FIGHTER_LOCKON_INITIAL_DIST - final_dist) * frac;
-        let angle = STEALTH_FIGHTER_LOCKON_ANGLE_SPIN * frac;
+        let dist = final_dist + (initial_dist - final_dist) * frac;
+        let angle = angle_spin * frac;
         let mut pos = owner;
         pos.x += angle.cos() * dist;
         pos.z += angle.sin() * dist;
         self.jet_ai.lockon_pos = Some([pos.x, pos.y, pos.z]);
 
-        let elapsed_prev = elapsed.saturating_sub(1);
+        let elapsed_prev = elapsed.wrapping_sub(1);
         let elapsed_time_sum_prev = 0.5 * (elapsed_prev as f32) * (elapsed as f32);
         let elapsed_time_sum_curr = elapsed_time_sum_prev + elapsed as f32;
-        let factor = STEALTH_FIGHTER_LOCKON_FREQ / lockon_time.max(1) as f32;
+        let factor = frequency / lockon_time.max(1) as f32;
         let last_phase = ((factor * elapsed_time_sum_prev) as i32 & 1) != 0;
         let this_phase = ((factor * elapsed_time_sum_curr) as i32 & 1) != 0;
         if last_phase && !this_phase {
             self.jet_ai.lockon_tick_pending = true;
-            self.jet_ai.lockon_hidden = false;
-        } else {
-            self.jet_ai.lockon_hidden = STEALTH_FIGHTER_LOCKON_BLINKY;
+            if blinky {
+                self.jet_ai.lockon_hidden = false;
+            }
+        } else if blinky {
+            self.jet_ai.lockon_hidden = true;
         }
     }
 

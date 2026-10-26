@@ -405,7 +405,7 @@ pub type WinInputFn = Arc<
         + Send
         + Sync,
 >;
-pub type WinTooltipFn = Arc<dyn Fn(&GameWindow, u32) + Send + Sync>;
+pub type WinTooltipFn = Arc<dyn Fn(&GameWindow, u32, &mut crate::input::Mouse) + Send + Sync>;
 pub type WinDrawFn = Arc<
     dyn Fn(
             &GameWindow,
@@ -597,7 +597,9 @@ impl ScriptCallbackRegistry {
 
     /// Register a window tooltip callback by name.
     /// PARITY_NOTE: mirrors C++ `TheFunctionLexicon->gameWinTooltipFunc()`.
-    pub fn register_win_tooltip<F: Fn(&GameWindow, u32) + Send + Sync + 'static>(
+    pub fn register_win_tooltip<
+        F: Fn(&GameWindow, u32, &mut crate::input::Mouse) + Send + Sync + 'static,
+    >(
         &mut self,
         name: &str,
         callback: F,
@@ -1277,7 +1279,7 @@ impl ScriptCallbackRegistry {
     }
 
     fn populate_win_tooltip_table(&mut self) {
-        self.register_win_tooltip("GameWinDefaultTooltip", |_win, _time| {});
+        self.register_win_tooltip("GameWinDefaultTooltip", |_win, _time, _mouse| {});
     }
 
     fn populate_layout_init_table(&mut self) {
@@ -2611,13 +2613,16 @@ impl ScriptCallbackRegistry {
         }))
     }
 
-    pub fn create_tooltip_callback(&self, name: &str) -> Option<Box<dyn Fn(&GameWindow, u32)>> {
+    pub fn create_tooltip_callback(
+        &self,
+        name: &str,
+    ) -> Option<Box<dyn Fn(&GameWindow, u32, &mut crate::input::Mouse)>> {
         let normalized = normalize_callback_name(name);
         if normalized.is_empty() {
             return None;
         }
         let cb = Arc::clone(self.win_tooltip.get(&normalized)?);
-        Some(Box::new(move |win, time| cb(win, time)))
+        Some(Box::new(move |win, time, mouse| cb(win, time, mouse)))
     }
 
     pub fn create_draw_callback(
@@ -2672,10 +2677,13 @@ impl ScriptCallbackRegistry {
             callbacks.input_with_message_sink = Some(cb);
         }
         if let Some(cb) = self.create_tooltip_callback(tooltip_name) {
-            // Adapt from Fn(&GameWindow, u32) to Fn(&GameWindow, &WindowInstanceData, u32)
+            // Adapt from Fn(&GameWindow, u32, &mut crate::input::Mouse) to Fn(&GameWindow, &WindowInstanceData, u32)
             callbacks.tooltip = Some(Box::new(
-                move |win: &GameWindow, _inst: &WindowInstanceData, time: u32| {
-                    cb(win, time);
+                move |win: &GameWindow,
+                      _inst: &WindowInstanceData,
+                      time: u32,
+                      mouse: &mut crate::input::Mouse| {
+                    cb(win, time, mouse);
                 },
             ));
         }
@@ -3285,7 +3293,7 @@ mod tests {
         let tooltip_for_cb = tooltip_hits.clone();
         let draw_for_cb = draw_hits.clone();
 
-        registry.register_win_tooltip("OwnedTooltip", move |_win, time| {
+        registry.register_win_tooltip("OwnedTooltip", move |_win, time, _mouse| {
             tooltip_for_cb.fetch_add(time as usize, Ordering::Relaxed);
         });
         registry.register_win_draw("OwnedDraw", move |_win, _inst, _draw_context| {
@@ -3295,12 +3303,12 @@ mod tests {
         let tooltip = registry.create_tooltip_callback("OwnedTooltip").unwrap();
         let draw = registry.create_draw_callback("OwnedDraw").unwrap();
 
-        registry.register_win_tooltip("OwnedTooltip", |_win, _time| {});
+        registry.register_win_tooltip("OwnedTooltip", |_win, _time, _mouse| {});
         registry.register_win_draw("OwnedDraw", |_win, _inst, _draw_context| {});
 
         let win = GameWindow::new();
         let inst = WindowInstanceData::default();
-        tooltip(&win, 7);
+        tooltip(&win, 7, &mut crate::input::Mouse::new());
         draw(&win, &inst);
         assert_eq!(tooltip_hits.load(Ordering::Relaxed), 7);
         assert_eq!(draw_hits.load(Ordering::Relaxed), 1);

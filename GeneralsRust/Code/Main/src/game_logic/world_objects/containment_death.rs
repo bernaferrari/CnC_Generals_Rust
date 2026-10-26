@@ -159,19 +159,26 @@ impl GameLogic {
         self.complete_installed_containment_death_with_effects(
             id,
             killer,
+            None,
             &mut crate::game_logic::ScriptPresentationEffects::default(),
         )
+        .expect("receiving containment death callback failed")
     }
 
     pub(in crate::game_logic) fn complete_installed_containment_death_with_effects(
         &mut self,
         id: ObjectId,
         killer: Option<Team>,
+        input: Option<crate::game_logic::object::OnDieInput>,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         let Some(container) = self.objects.get(&id) else {
-            return;
+            return Ok(());
         };
+        if container.thing().template.contain_module.kind == ContainModuleKind::Parachute {
+            self.parachute_on_die_owned(id, input, presentation_effects)?;
+            return self.complete_open_contain_death_with_effects(id, killer, presentation_effects);
+        }
         let applicable = container
             .thing()
             .template
@@ -187,21 +194,21 @@ impl GameLogic {
             });
         if container.is_tunnel_network_style_container() {
             if !applicable {
-                return;
+                return Ok(());
             }
-            self.unregister_tunnel_containment_with_effects(id, presentation_effects);
-            return;
+            self.unregister_tunnel_containment_with_effects(id, presentation_effects)?;
+            return Ok(());
         }
         if container.is_cave_style_container() {
             if !applicable {
-                return;
+                return Ok(());
             }
             if container.status.under_construction {
-                return;
+                return Ok(());
             }
             let index = container.cave_index;
             if self.cave_system.index_of(id).is_none() {
-                return;
+                return Ok(());
             }
             let remaining: Vec<_> = self
                 .objects
@@ -233,7 +240,7 @@ impl GameLogic {
                             .expect("containment operation preserves this birth");
                     }
                     // TunnelTracker cave-in is direct destruction, not body death.
-                    self.destroy_object_with_effects(child, presentation_effects);
+                    self.destroy_object_with_effects(child, presentation_effects)?;
                 }
             } else if let Some(entrance) = outcome.remapped_to {
                 for child in self.cave_system.contained_for_index(index) {
@@ -255,7 +262,7 @@ impl GameLogic {
                     }
                 }
             }
-            return;
+            return Ok(());
         }
         let parachute_airborne = container.paradrop_parachute
             || container
@@ -271,7 +278,7 @@ impl GameLogic {
             // ParachuteContain618 removes the literal roster before damaging
             // its first rider; the subsequent OpenContain sees an empty list.
             for &rider in &riders {
-                self.remove_direct_contained_child_with_effects(id, rider, presentation_effects);
+                self.remove_direct_contained_child_with_effects(id, rider, presentation_effects)?;
             }
             if let Some(rider) = riders.first() {
                 self.apply_rider_free_fall_damage_with_effects(
@@ -282,7 +289,7 @@ impl GameLogic {
             }
             self.car_bomb.record_airborne_parachute_free_fall();
         }
-        self.complete_open_contain_death_with_effects(id, killer, presentation_effects);
+        self.complete_open_contain_death_with_effects(id, killer, presentation_effects)
     }
 
     /// TransportContain389 scatters during onRemoving, before mood reset.
@@ -397,6 +404,7 @@ impl GameLogic {
             _killer,
             &mut crate::game_logic::ScriptPresentationEffects::default(),
         )
+        .expect("receiving OpenContain death callback failed")
     }
 
     pub(in crate::game_logic) fn complete_open_contain_death_with_effects(
@@ -404,9 +412,9 @@ impl GameLogic {
         container_id: ObjectId,
         _killer: Option<Team>,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         let Some(container) = self.objects.get(&container_id) else {
-            return;
+            return Ok(());
         };
         if !container
             .thing()
@@ -422,7 +430,7 @@ impl GameLogic {
                 )
             })
         {
-            return;
+            return Ok(());
         }
         let riders = container.contained_units();
         let damage_percentage = damage_percent_to_units_from_ini(container);
@@ -479,7 +487,7 @@ impl GameLogic {
                     *id,
                     Some(container_team),
                     presentation_effects,
-                );
+                )?;
             }
         }
         for &id in &riders {
@@ -498,7 +506,7 @@ impl GameLogic {
                     });
             if !free && self.objects.get(&id).is_some_and(Object::is_alive) {
                 if destroy_unfree {
-                    self.destroy_object_with_effects(id, presentation_effects);
+                    self.destroy_object_with_effects(id, presentation_effects)?;
                     continue;
                 }
                 self.apply_owned_kill_with_effects(
@@ -510,8 +518,13 @@ impl GameLogic {
             }
         }
         for id in riders {
-            self.remove_direct_contained_child_with_effects(container_id, id, presentation_effects);
+            self.remove_direct_contained_child_with_effects(
+                container_id,
+                id,
+                presentation_effects,
+            )?;
         }
+        Ok(())
     }
 }
 

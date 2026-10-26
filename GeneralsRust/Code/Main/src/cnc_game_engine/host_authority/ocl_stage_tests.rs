@@ -49,6 +49,7 @@ impl OclNativeStageHarness {
                     0,
                     super::super::native_view_effects::receiving_native_drawable_policy(),
                     &mut retirement,
+                    None,
                 )
                 .unwrap();
             let result = run(Some(&mut attempt));

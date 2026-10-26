@@ -105,7 +105,7 @@ impl GameLogic {
     {
         self.load_map_with_progress_and_native_checked(
             map_name,
-            |_, value, phase| {
+            |_, _audio_policy, value, phase| {
                 progress(value, phase);
                 Ok(())
             },
@@ -126,6 +126,7 @@ impl GameLogic {
     where
         F: FnMut(
             &mut game_engine::common::random_value::RandomState,
+            &game_engine::common::audio::script_policy::ScriptAudioPolicy,
             f32,
             &str,
         ) -> Result<(), String>,
@@ -152,7 +153,7 @@ impl GameLogic {
         self.load_map_with_script_difficulty_and_native_checked(
             map_name,
             difficulty,
-            |_, value, phase| {
+            |_, _audio_policy, value, phase| {
                 progress(value, phase);
                 Ok(())
             },
@@ -174,6 +175,7 @@ impl GameLogic {
     where
         F: FnMut(
             &mut game_engine::common::random_value::RandomState,
+            &game_engine::common::audio::script_policy::ScriptAudioPolicy,
             f32,
             &str,
         ) -> Result<(), String>,
@@ -244,7 +246,7 @@ impl GameLogic {
                 difficulty,
                 water_delivery,
                 native,
-                |_, _, _| Ok(()),
+                |_, _, _, _| Ok(()),
             )
         })
     }
@@ -261,6 +263,7 @@ impl GameLogic {
     where
         F: FnMut(
             &mut game_engine::common::random_value::RandomState,
+            &game_engine::common::audio::script_policy::ScriptAudioPolicy,
             f32,
             &str,
         ) -> Result<(), String>,
@@ -289,6 +292,7 @@ impl GameLogic {
         engine.set_time_frozen_debug(retained_debug);
         report_progress(
             &mut self.session_view.audio_random,
+            self.queued_audio_events.policy(),
             0.26,
             "Preparing map data",
         )?;
@@ -379,6 +383,7 @@ impl GameLogic {
         // Try to locate the real map file so scripts and future terrain loaders have a source.
         report_progress(
             &mut self.session_view.audio_random,
+            self.queued_audio_events.policy(),
             0.30,
             "Resolving map resources",
         )?;
@@ -453,6 +458,7 @@ impl GameLogic {
                 }
                 report_progress(
                     &mut self.session_view.audio_random,
+                    self.queued_audio_events.policy(),
                     0.34,
                     "Parsing map chunks",
                 )?;
@@ -466,6 +472,7 @@ impl GameLogic {
                 let settings_started = Instant::now();
                 report_progress(
                     &mut self.session_view.audio_random,
+                    self.queued_audio_events.policy(),
                     0.36,
                     "Reading map settings",
                 )?;
@@ -550,12 +557,14 @@ impl GameLogic {
                 if self.game_mode != GameMode::Shell {
                     report_progress(
                         &mut self.session_view.audio_random,
+                        self.queued_audio_events.policy(),
                         0.40,
                         "Syncing runtime objects",
                     )?;
                 } else {
                     report_progress(
                         &mut self.session_view.audio_random,
+                        self.queued_audio_events.policy(),
                         0.40,
                         "Syncing shell runtime",
                     )?;
@@ -583,6 +592,7 @@ impl GameLogic {
                 let heightmap_started = Instant::now();
                 report_progress(
                     &mut self.session_view.audio_random,
+                    self.queued_audio_events.policy(),
                     0.46,
                     "Parsing terrain heightmap",
                 )?;
@@ -655,6 +665,7 @@ impl GameLogic {
                         let object_spawn_started = Instant::now();
                         report_progress(
                             &mut self.session_view.audio_random,
+                            self.queued_audio_events.policy(),
                             0.58,
                             "Spawning world objects",
                         )?;
@@ -725,6 +736,7 @@ impl GameLogic {
                                 let t = (index as f32 / total_objects).clamp(0.0, 1.0);
                                 report_progress(
                                     &mut self.session_view.audio_random,
+                                    self.queued_audio_events.policy(),
                                     0.58 + t * 0.20,
                                     "Spawning world objects",
                                 )?;
@@ -853,6 +865,7 @@ impl GameLogic {
                         }
                         report_progress(
                             &mut self.session_view.audio_random,
+                            self.queued_audio_events.policy(),
                             0.80,
                             "World objects spawned",
                         )?;
@@ -893,6 +906,7 @@ impl GameLogic {
                         }
                         report_progress(
                             &mut self.session_view.audio_random,
+                            self.queued_audio_events.policy(),
                             0.82,
                             "Finalizing world objects",
                         )?;
@@ -914,6 +928,7 @@ impl GameLogic {
                 let bounds_started = Instant::now();
                 report_progress(
                     &mut self.session_view.audio_random,
+                    self.queued_audio_events.policy(),
                     0.84,
                     "Building world bounds",
                 )?;
@@ -1084,6 +1099,7 @@ impl GameLogic {
 
                 report_progress(
                     &mut self.session_view.audio_random,
+                    self.queued_audio_events.policy(),
                     0.88,
                     "Initializing shroud and pathfinding",
                 )?;
@@ -1202,6 +1218,7 @@ impl GameLogic {
         let scripts_started = Instant::now();
         report_progress(
             &mut self.session_view.audio_random,
+            self.queued_audio_events.policy(),
             0.92,
             "Initializing mission scripts",
         )?;
@@ -1272,6 +1289,7 @@ impl GameLogic {
         }
         report_progress(
             &mut self.session_view.audio_random,
+            self.queued_audio_events.policy(),
             0.96,
             "Map load complete",
         )?;
@@ -1329,7 +1347,7 @@ impl GameLogic {
         self.load_map_or_fallback_with_progress_and_native_checked(
             map_name,
             fallback,
-            |_, value, phase| {
+            |_, _audio_policy, value, phase| {
                 report_progress(value, phase);
                 Ok(())
             },
@@ -1351,6 +1369,7 @@ impl GameLogic {
     where
         F: FnMut(
             &mut game_engine::common::random_value::RandomState,
+            &game_engine::common::audio::script_policy::ScriptAudioPolicy,
             f32,
             &str,
         ) -> Result<(), String>,
@@ -1364,7 +1383,9 @@ impl GameLogic {
         if self.load_map_with_script_difficulty_and_native_checked(
             map_name,
             difficulty,
-            |random, progress, phase| report_progress(random, progress, phase),
+            |random, audio_policy, progress, phase| {
+                report_progress(random, audio_policy, progress, phase)
+            },
             native
                 .as_mut()
                 .map(|native| &mut **native as &mut dyn crate::game_logic::NativeMapAdmission),
@@ -1380,7 +1401,9 @@ impl GameLogic {
             && self.load_map_with_script_difficulty_and_native_checked(
                 fallback,
                 difficulty,
-                |random, progress, phase| report_progress(random, progress, phase),
+                |random, audio_policy, progress, phase| {
+                    report_progress(random, audio_policy, progress, phase)
+                },
                 native
                     .as_mut()
                     .map(|native| &mut **native as &mut dyn crate::game_logic::NativeMapAdmission),

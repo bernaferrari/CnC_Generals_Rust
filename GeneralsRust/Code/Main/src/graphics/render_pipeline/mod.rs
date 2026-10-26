@@ -9,6 +9,7 @@
     clippy::all
 )]
 
+use crate::assets::NativeDrawOwnerId;
 use crate::assets::get_asset_manager;
 use crate::fow_rendering::ObjectVisibility;
 use crate::game_logic::ObjectId as ObjectID;
@@ -860,7 +861,7 @@ use installed_draw_pose::ObjectVisualState;
 /// `T` keeps the pure state transition independently testable without making
 /// a WGPU-backed [`RenderPipeline`] fixture just to exercise this lifecycle.
 fn clear_visual_world_state_components<T>(
-    drawable_visual_states: &mut HashMap<(u32, u32), ObjectVisualState>,
+    drawable_visual_states: &mut HashMap<(NativeDrawOwnerId, u32), ObjectVisualState>,
     render_items: &mut Vec<T>,
     current_pass: &mut Option<RenderPass>,
     last_frame_time: &mut f32,
@@ -912,6 +913,8 @@ pub(super) enum RenderModelLoadResult {
 }
 
 mod installed_draw_pose;
+#[cfg(feature = "game_client")]
+mod native_auxiliary_draw;
 #[cfg(feature = "game_client")]
 mod native_draw_admission;
 #[cfg(feature = "game_client")]

@@ -1292,7 +1292,6 @@ impl CnCGameEngine {
         );
         let game_ending = self.game_logic.owned_script_game_ending();
         let tooltips_disabled = self.receiving_tooltips_disabled();
-        let cursor_mouse = self.game_client.input_mouse_handle();
         let observer_roster = self.receiving_observer_roster();
         let camera_rules = self.game_logic.camera_input_rules();
         self.control_bar.set_receiving_upgrade_definitions(
@@ -1334,6 +1333,7 @@ impl CnCGameEngine {
                               videos: &mut game_client::gui::window_video_manager::ClientWindowVideos,
                               ime: &mut game_client::gui::ime_manager::ImeManager,
                               ui: &mut game_client::core::subsystems::InGameUISubsystem,
+                              cursor_mouse: Option<&mut game_client::input::Mouse>,
                               request,
                               messages: &mut Vec<game_engine::common::message_stream::GameMessage>| {
                 let mut context = game_client::gui::window_manager::ControlBarInputContext {
@@ -1349,7 +1349,7 @@ impl CnCGameEngine {
                     observer_roster: observer_roster.as_ref(),
                     camera_options: Some(game_client::gui::window_manager::CameraOptionsInputContext::new(&mut *preferences, camera_rules).with_terrain_lod(&mut terrain_lod)),
                     control_bar: &mut *control_bar, viewport: &mut *viewport,
-                    replay, game_ending, tooltips_disabled, cursor_mouse: cursor_mouse.as_ref(),
+                    replay, game_ending, tooltips_disabled, cursor_mouse,
                     window_manager_owner: Some(owner), campaign_manager: Some(campaign), main_menu: Some(main_menu),
                     menu_world: Some(menu_world), menu_host: Some(menu_host), script_display: Some(display), window_videos: Some(&mut videos.challenge),
             in_game_movies: Some(&mut videos.in_game),
@@ -1362,6 +1362,7 @@ impl CnCGameEngine {
             };
             let audio = self.menu_audio.lend(
                 &mut self.game_logic.session_view.audio_random,
+                self.game_logic.queued_audio_events.policy(),
                 menu_audio_locality,
                 menu_audio_view,
             );

@@ -124,11 +124,11 @@ fn same_faction_players_keep_upgrade_and_construction_power_separate() {
         object.set_target(
             Some(target_id),
             attack_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         object.set_ai_state(
             AIState::Constructing,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
 
@@ -1315,7 +1315,7 @@ fn infantry_collision_reclaims_unmanned_vehicle() {
         let ownership_events = &mut logic.ownership_events;
         v.apply_kill_pilot_unmanned(
             &mut logic.health_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         v.set_team_with_partition_owner(
             Team::Neutral,
@@ -1392,7 +1392,7 @@ fn unmanned_recrew_transfers_script_name_and_captured_bit() {
         let ownership_events = &mut logic.ownership_events;
         v.apply_kill_pilot_unmanned(
             &mut logic.health_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         v.set_team_with_partition_owner(
             Team::Neutral,
@@ -1662,7 +1662,7 @@ fn capture_object_residual_idle_deselect_ai_sell() {
         obj.set_team_with_partition_owner(Team::GLA, ownership_events, fixture_partition_obj);
         obj.set_ai_state(
             AIState::Attacking,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         obj.set_status_attacking(true);
     }
@@ -1806,7 +1806,7 @@ fn capture_kicks_transport_passengers_but_not_tunnel_pool() {
         r.set_contained_by_with_partition_owner(Some(tid), true, fixture_partition_r);
         r.set_ai_state(
             AIState::Docked,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
     logic.on_capture_kick_passengers(tid, Team::USA, Team::GLA);
@@ -2043,7 +2043,7 @@ fn sell_ejects_garrison_and_kills_parked_aircraft() {
         r.set_contained_by_with_partition_owner(Some(bid), true, fixture_partition_r);
         r.set_ai_state(
             AIState::Garrisoned,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
     assert!(logic.start_sell_object(bid));
@@ -2076,7 +2076,7 @@ fn sell_ejects_garrison_and_kills_parked_aircraft() {
         j.set_contained_by_with_partition_owner(Some(afid), true, fixture_partition_j);
         j.set_ai_state(
             AIState::Docked,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         j.status.airborne_target = false;
     }
@@ -2309,7 +2309,7 @@ fn actively_constructing_bit_on_dozer_and_factory() {
     if let Some(o) = logic.host_object_mut(did) {
         o.set_ai_state(
             AIState::Constructing,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
     let bid = logic
@@ -2358,12 +2358,12 @@ fn actively_constructing_bit_on_dozer_and_factory() {
         object.set_target(
             Some(bid),
             attack_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     };
     logic.host_object_mut(did).unwrap().set_ai_state(
         AIState::Constructing,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     logic.update_actively_constructing_model_conditions();
     assert!(logic.honesty_actively_constructing_ok());
@@ -2381,7 +2381,7 @@ fn actively_constructing_bit_on_dozer_and_factory() {
     if let Some(o) = logic.host_object_mut(did) {
         o.set_ai_state(
             AIState::Idle,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
     if let Some(o) = logic.host_object_mut(bid) {

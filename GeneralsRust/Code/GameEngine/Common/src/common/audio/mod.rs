@@ -543,3 +543,5 @@ mod audio_cache_owner_tests;
 
 #[cfg(test)]
 mod audio_cache_capacity_tests;
+
+pub mod script_policy;

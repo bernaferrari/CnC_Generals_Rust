@@ -372,6 +372,7 @@ impl GameLogic {
         &mut self,
         request: ScriptNamedCommand<'_>,
         this_object: Option<ObjectId>,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<()> {
         match request {
             ScriptNamedCommand::Stop { unit } => {
@@ -513,7 +514,7 @@ impl GameLogic {
                     .expect("resolved script unit")
                     .last_command_source =
                     crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_SCRIPT;
-                if self.unit_command_force_attack(id, target_id) {
+                if self.unit_command_force_attack_with_effects(id, target_id, effects)? {
                     // CPP privateForceAttackObject applies the limit after
                     // entering the state because onEnter resets the weapon.
                     let unit = self.host_object_mut(id).expect("resolved script unit");

@@ -18,7 +18,6 @@ use crate::gui::{
     HintData, HintType, MouseCursor, MouseMode, WindowLayout, WindowStatus, hide_control_bar,
     queue_shell_hide, queue_shell_operation, show_shell_map_if_available,
 };
-use crate::input::Mouse;
 use crate::message_stream::game_message::{Coord3D, ICoord2D};
 use game_engine::common::recorder::with_recorder;
 use gamelogic::helpers::{TheGameLogic, TheScriptEngine};
@@ -26,49 +25,15 @@ use gamelogic::helpers::{TheGameLogic, TheScriptEngine};
 use log::info;
 use std::cell::RefCell;
 use std::rc::Rc;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
-// THREAD: main thread only. The inner `Arc<Mutex<Mouse>>` is the shared
-// `the_mouse()` handle owned by `input::mouse`; this slot only remembers
-// whether the backend was registered.
-thread_local! {
-    static MOUSE_BACKEND: RefCell<Option<Arc<Mutex<Mouse>>>> = const { RefCell::new(None) };
+/// Change only the explicitly receiving client's cursor visibility.
+pub fn set_mouse_cursor_visibility(mouse: &mut crate::input::Mouse, visible: bool) {
+    mouse.set_cursor_visible(visible);
 }
 
-static MOUSE_CURSOR_VISIBLE: AtomicBool = AtomicBool::new(true);
-
-pub fn register_mouse_backend(mouse: Arc<Mutex<Mouse>>) {
-    let visible = MOUSE_CURSOR_VISIBLE.load(Ordering::Relaxed);
-    MOUSE_BACKEND.with(|slot| {
-        *slot.borrow_mut() = Some(Arc::clone(&mouse));
-        if let Ok(mut mouse) = mouse.lock() {
-            mouse.set_cursor_visible(visible);
-        }
-    });
-}
-
-pub fn set_mouse_cursor_visibility(visible: bool) {
-    MOUSE_CURSOR_VISIBLE.store(visible, Ordering::Relaxed);
-    let backend = MOUSE_BACKEND.with(|slot| slot.borrow().clone());
-
-    if let Some(mouse) = backend {
-        if let Ok(mut mouse) = mouse.lock() {
-            mouse.set_cursor_visible(visible);
-        }
-    }
-}
-
-pub fn is_mouse_cursor_visible() -> bool {
-    let backend = MOUSE_BACKEND.with(|slot| slot.borrow().clone());
-
-    if let Some(mouse) = backend {
-        if let Ok(mouse) = mouse.lock() {
-            return mouse.state().is_cursor_visible();
-        }
-    }
-
-    MOUSE_CURSOR_VISIBLE.load(Ordering::Relaxed)
+pub fn is_mouse_cursor_visible(mouse: &crate::input::Mouse) -> bool {
+    mouse.state().is_cursor_visible()
 }
 
 /// A WND click awaiting the live Control Bar tick.
@@ -439,7 +404,9 @@ impl gamelogic::helpers::LoadScreenHooks for GameClientLoadScreenHooks<'_> {
             .map(|item| item.game_mode)
             .or(self.pending_game_mode.take());
         if let Some(active) = active {
-            set_mouse_cursor_visibility(true);
+            if let Some(mouse) = self.client.input_mouse_mut() {
+                set_mouse_cursor_visibility(mouse, true);
+            }
             let owner = self.client.window_manager_owner();
             reset_load_screen(
                 active.kind,
@@ -461,37 +428,29 @@ mod load_screen_hook_tests {
     use gamelogic::helpers::LoadScreenHooks;
     use std::cell::Cell;
     use std::rc::Rc;
-    use std::sync::OnceLock;
-
-    static TEST_MOUSE_VISIBILITY_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-    fn lock_test_mouse_visibility() -> std::sync::MutexGuard<'static, ()> {
-        TEST_MOUSE_VISIBILITY_LOCK
-            .get_or_init(|| Mutex::new(()))
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-    }
-
     #[test]
     fn active_load_screen_hides_cursor_like_cpp_start_new_game() {
-        let _guard = lock_test_mouse_visibility();
-        set_mouse_cursor_visibility(true);
         let mut client = crate::core::game_client::GameClient::new().unwrap();
+        client.init_input_subsystems().unwrap();
+        set_mouse_cursor_visibility(client.input_mouse_mut().unwrap(), false);
         let mut audio = crate::gui::menu_audio::SilentMenuAudio::new();
         let mut hooks = GameClientLoadScreenHooks::new(&mut client, &mut audio).unwrap();
         hooks.active_load_screen = Some(ActiveLoadScreen {
             kind: LoadScreenKind::ShellGame,
             game_mode: gamelogic::system::game_logic::GAME_SHELL,
         });
-        set_mouse_cursor_visibility(false);
-        assert!(!is_mouse_cursor_visible());
-        set_mouse_cursor_visibility(true);
+        set_mouse_cursor_visibility(hooks.client.input_mouse_mut().unwrap(), false);
+        assert!(!is_mouse_cursor_visible(
+            hooks.client.input_mouse().unwrap()
+        ));
+        set_mouse_cursor_visibility(hooks.client.input_mouse_mut().unwrap(), true);
     }
 
     #[test]
     fn ending_active_load_screen_shows_cursor_like_cpp_start_new_game() {
-        let _guard = lock_test_mouse_visibility();
-        set_mouse_cursor_visibility(false);
         let mut client = crate::core::game_client::GameClient::new().unwrap();
+        client.init_input_subsystems().unwrap();
+        set_mouse_cursor_visibility(client.input_mouse_mut().unwrap(), false);
         let mut audio = crate::gui::menu_audio::SilentMenuAudio::new();
         let mut hooks = GameClientLoadScreenHooks::new(&mut client, &mut audio).unwrap();
         hooks.active_load_screen = Some(ActiveLoadScreen {
@@ -499,7 +458,7 @@ mod load_screen_hook_tests {
             game_mode: gamelogic::system::game_logic::GAME_NONE,
         });
         hooks.end_load_screen();
-        assert!(is_mouse_cursor_visible());
+        assert!(is_mouse_cursor_visible(hooks.client.input_mouse().unwrap()));
     }
 
     #[test]

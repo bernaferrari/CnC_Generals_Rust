@@ -11,11 +11,12 @@ pub use template_metadata::{
     EjectPilotRequiredStatus, EjectPilotVeterancyLevels, FlightDeckMetadata,
     GrantUpgradeCreateMetadata, HackInternetAIUpdateMetadata, HackerDisableBuildingMetadata,
     HostArmorSet, HostGeometryInfo, HostGeometryType, OverchargeBehaviorMetadata,
-    ParkingPlaceMetadata, PowerPlantUpdateMetadata, ProductionExitMetadata, ProductionExitStyle,
-    RebuildHoleExposeDieMetadata, RiderChangeRiderMetadata, SpecialPowerModuleKind,
-    SpecialPowerModuleMetadata, SupplyTruckMetadata, SupplyTruckState,
-    VeterancyCrateCollideMetadata, VeterancyGainCreateMetadata, apply_pack_unpack_variation_ms,
-    pack_unpack_variation_multiplier, vary_pack_unpack_duration_ms,
+    ParachuteContainMetadata, ParkingPlaceMetadata, PowerPlantUpdateMetadata,
+    ProductionExitMetadata, ProductionExitStyle, RebuildHoleExposeDieMetadata,
+    RiderChangeRiderMetadata, SpecialPowerModuleKind, SpecialPowerModuleMetadata,
+    SupplyTruckMetadata, SupplyTruckState, VeterancyCrateCollideMetadata,
+    VeterancyGainCreateMetadata, apply_pack_unpack_variation_ms, pack_unpack_variation_multiplier,
+    vary_pack_unpack_duration_ms,
 };
 
 mod template;

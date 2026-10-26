@@ -133,15 +133,6 @@ pub fn leaflet_fx_particle_name(template_name: &str) -> String {
         .unwrap_or_else(|| LEAFLET_FX_PARTICLE.to_string())
 }
 
-/// C++ `LeafletDropBehavior::update` first tick: create + `attachToObject`.
-pub fn attach_leaflet_fx_particle(object_id: u32, template_name: &str) -> bool {
-    let name = leaflet_fx_particle_name(template_name);
-    if name.is_empty() || name.eq_ignore_ascii_case("None") {
-        return false;
-    }
-    gamelogic::helpers::attach_particle_system_to_object(&name, object_id).is_some()
-}
-
 /// Activate audio residual (SoundEffects.ini LeafletDrop).
 pub const LEAFLET_ACTIVATE_AUDIO: &str = "LeafletDrop";
 /// Impact / disable audio residual (SoundEffects.ini LeafletDropEffect).
@@ -326,12 +317,10 @@ impl HostLeafletDropRegistry {
 
     /// C++ `LeafletDropBehavior::update` first tick (`m_fxFired`).
     /// Returns true the first time this container is seen (even if create fails).
-    pub fn try_attach_leaflet_fx(&mut self, object_id: u32, template_name: &str) -> bool {
-        if !self.fx_attached.insert(object_id) {
-            return false;
-        }
-        let _ = attach_leaflet_fx_particle(object_id, template_name);
-        true
+    pub fn try_mark_leaflet_fx_started(&mut self, object_id: u32) -> bool {
+        // C++ m_fxFired belongs to this container. The receiving caller owns
+        // actual particle creation; marking must not publish a second Core FX.
+        self.fx_attached.insert(object_id)
     }
 
     pub fn clear_frame_events(&mut self) {
@@ -741,8 +730,8 @@ mod tests {
     #[test]
     fn leaflet_fx_attaches_once_like_cpp_fx_fired() {
         let mut reg = HostLeafletDropRegistry::new();
-        assert!(reg.try_attach_leaflet_fx(7, "LeafletContainer"));
-        assert!(!reg.try_attach_leaflet_fx(7, "LeafletContainer"));
-        assert!(reg.try_attach_leaflet_fx(8, "LeafletContainer"));
+        assert!(reg.try_mark_leaflet_fx_started(7));
+        assert!(!reg.try_mark_leaflet_fx_started(7));
+        assert!(reg.try_mark_leaflet_fx_started(8));
     }
 }

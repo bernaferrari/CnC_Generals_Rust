@@ -1029,6 +1029,8 @@ fn presentation_object_can_force_attack(
 }
 
 mod camera;
+#[cfg(feature = "game_client")]
+mod hover_tooltip;
 mod selection_input;
 mod ui_dispatch;
 mod world_pick;

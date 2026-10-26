@@ -12,11 +12,11 @@ fn attacking(owner: &mut GameLogic, unit: ObjectId, target: ObjectId) {
     object.set_target(
         Some(target),
         attack_events,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     object.set_ai_state(
         AIState::Attacking,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     object.requested_destination = Some(Vec3::new(90.0, 0.0, 90.0));
 }

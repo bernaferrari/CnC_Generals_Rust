@@ -407,12 +407,14 @@ fn invalid_physics_motion_uses_receiving_direct_delete_without_body_death() {
                     // Feed infinity directly to the production contact driver:
                     // friction can turn infinity*0 into NaN before this branch.
                     assert_eq!(
-                        world.drive_owned_contact_with_effects(
-                            id,
-                            crate::game_logic::object::MotionContact::Start(0.0),
-                            Object::step_motion_contact_with_effects,
-                            &mut Default::default(),
-                        ),
+                        world
+                            .drive_owned_contact_with_effects(
+                                id,
+                                crate::game_logic::object::MotionContact::Start(0.0),
+                                Object::step_motion_contact_with_effects,
+                                &mut Default::default(),
+                            )
+                            .unwrap(),
                         Some(false)
                     );
                 }

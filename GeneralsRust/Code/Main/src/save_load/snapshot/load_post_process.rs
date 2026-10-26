@@ -256,6 +256,7 @@ impl Snapshot for WorldSnapshot {
                 sole_healing_benefactor_expiration_frame: 0,
                 contained_by_frame: None,
                 original_team: None,
+                original_garrison_player_id: None,
                 formation_id: 0,
                 formation_offset: [0.0, 0.0],
                 stealth_opacity: 1.0,
@@ -346,6 +347,10 @@ impl Snapshot for WorldSnapshot {
 
         xfer.xfer_marker_label("PendingCombat")?;
         super::world_codec::xfer_pending_combat(xfer, &mut self.pending_combat)?;
+        xfer.xfer_marker_label("AudioPolicy")?;
+        xfer.xfer_u8(&mut self.audio_policy.version)?;
+        xfer_serde_blob(xfer, &mut self.audio_policy.policy)?;
+        self.audio_policy.validate()?;
 
         Ok(())
     }

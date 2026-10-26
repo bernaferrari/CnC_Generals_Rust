@@ -4,26 +4,27 @@ use super::super::*;
 impl GameLogic {
     pub(crate) fn tick_physics_collisions_all(&mut self) -> u32 {
         self.tick_physics_collisions_all_with_effects(&mut Default::default())
+            .expect("receiving Physics tick failed")
     }
 
     pub(crate) fn tick_physics_collisions_all_with_effects(
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> u32 {
-        self.integrate_owned_physics_motion_with_effects(effects);
-        self.update_owned_partition_with_effects(effects)
+    ) -> gamelogic::GameLogicResult<u32> {
+        self.integrate_owned_physics_motion_with_effects(effects)?;
+        Ok(self.update_owned_partition_with_effects(effects))
     }
 
     pub(crate) fn integrate_owned_physics_motion_with_effects(
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         self.sync_all_contained_items_mass();
         // Per-frame blocked bookkeeping residual (before new collide pairs).
         // Snapshot ground heights before mut pass (terrain borrow).
         // Only mobile / physics-active bodies need terrain samples + motion step —
         // sampling every structure on Lone Eagle (~900 objs) dominated host frames.
-        let ground_heights: Vec<(ObjectId, f32)> = {
+        let ground_heights: Vec<(ObjectId, std::sync::Weak<()>, f32)> = {
             let mut out = Vec::new();
             for (id, o) in self.objects.registered() {
                 let wreck = o.status.destroyed || !o.is_alive();
@@ -36,6 +37,10 @@ impl GameLogic {
                     || o.physics_accel.length_squared() > 1e-6
                     || o.allow_to_fall
                     || o.is_physics_held()
+                    || o.motive_frames_remaining > 0
+                    || (o.selected_locomotor_definition.is_some()
+                        && o.has_ai_update_interface()
+                        && !matches!(o.loco_behavior_z, LocomotorBehaviorZ::NoZMotiveForce))
                     || wreck_airborne;
                 if !physics_active {
                     continue;
@@ -47,10 +52,23 @@ impl GameLogic {
                 let terrain_y = self
                     .terrain_height_at(glam::Vec3::new(p.x, 0.0, p.z))
                     .unwrap_or(0.0);
-                out.push((*id, self.physics_ground_y_with_deck(o, terrain_y)));
+                let layer_height = self.pathfinding_system.grid.layer_height_clipped(
+                    p,
+                    o.pathfind_layer,
+                    terrain_y,
+                );
+                out.push((
+                    *id,
+                    std::sync::Arc::downgrade(&o.visual_draw_identity_token),
+                    self.physics_ground_y_with_deck(o, layer_height),
+                ));
             }
             out
         };
+        let physics_ids: std::collections::HashMap<_, _> = ground_heights
+            .iter()
+            .map(|(id, birth, _)| (*id, birth.clone()))
+            .collect();
         let mut expired_paths: Vec<ObjectId> = Vec::new();
         for (id, o) in self.objects.registered_mut() {
             o.clear_blocked_frame_state();
@@ -61,21 +79,11 @@ impl GameLogic {
             ) {
                 expired_paths.push(*id);
             }
-            // C++ DISABLED_HELD skips gravity/friction/Euler; accel still zeros.
-            if o.is_physics_held() {
-                o.physics_accel = glam::Vec3::ZERO;
-                continue;
+            if physics_ids.get(id).is_some_and(|birth| {
+                birth.ptr_eq(&std::sync::Arc::downgrade(&o.visual_draw_identity_token))
+            }) {
+                o.integrate_physics_force_phase();
             }
-            // C++ PhysicsBehavior update residual order: friction → integrate accel → motion.
-            // applyFrictionalForces every non-HELD update (debris, disabled, wrecks).
-            // Thrust stores velocity in host seconds, but gravity is admitted
-            // from source frame². All its locomotor forces remain pending until
-            // this actual Physics phase; no position is integrated by locomotor.
-            if o.loco_appearance == LocomotorAppearance::Thrust && o.shock_stun_frames == 0 {
-                o.physics_accel.y += o.physics_gravity() * 30.0;
-            }
-            o.apply_frictional_forces();
-            o.integrate_physics_accel();
         }
         let snap_ids: Vec<ObjectId> = self
             .objects
@@ -89,25 +97,29 @@ impl GameLogic {
             self.apply_arrival_goal_snap(id, None);
         }
         self.requeue_expired_path_requests(&expired_paths);
-        let mut landed: Vec<ObjectId> = Vec::new();
-        for (id, ground_y) in ground_heights {
+        for (id, birth, ground_y) in ground_heights {
+            if !self.objects.get(&id).is_some_and(|object| {
+                birth.ptr_eq(&std::sync::Arc::downgrade(
+                    &object.visual_draw_identity_token,
+                ))
+            }) {
+                continue;
+            }
             self.drive_owned_contact_with_effects(
                 id,
                 crate::game_logic::object::MotionContact::Start(ground_y),
                 Object::step_motion_contact_with_effects,
                 effects,
-            );
+            )?;
             if self
                 .objects
                 .lookup(&id)
                 .is_some_and(|o| o.pending_ground_collide)
             {
-                landed.push(id);
+                self.dispatch_physics_ground_collide_with_effects(id, effects)?;
             }
         }
-        for id in landed {
-            self.dispatch_physics_ground_collide_with_effects(id, effects);
-        }
+        Ok(())
     }
 
     /// Original PartitionManager::update: consume first-dirty order, gather
@@ -280,12 +292,13 @@ impl GameLogic {
 
     pub(crate) fn tick_shock_stun_all(&mut self) {
         self.tick_shock_stun_all_with_effects(&mut Default::default())
+            .expect("receiving stun callback failed")
     }
 
     pub(crate) fn tick_shock_stun_all_with_effects(
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         // Include bounce_audio_pending so land audio drains even after stun ends.
         let ids: Vec<ObjectId> = self
             .objects
@@ -324,7 +337,7 @@ impl GameLogic {
                     crate::game_logic::object::StunContact::Start,
                     Object::step_stun_contact_with_effects,
                     effects,
-                );
+                )?;
             }
             if let Some(o) = self.objects.get_mut(&id) {
                 while let Some((name, vol)) = o.take_bounce_audio_pending() {
@@ -342,6 +355,7 @@ impl GameLogic {
                     .with_priority(pri),
             );
         }
+        Ok(())
     }
 
     pub(crate) fn apply_shock_wave_at_impact(

@@ -19,6 +19,17 @@ pub fn capture_game_client_xfer_bytes(
         .map_err(SaveLoadError::Serialization)
 }
 
+/// Rust owner-managed auxiliaries are persisted by their module's template continuation.
+#[cfg(feature = "game_client")]
+pub(crate) fn capture_game_client_xfer_bytes_excluding_owned(
+    client: &mut game_client::core::game_client::GameClient,
+    owned: &[game_client::core::game_client::NativeAuxiliaryReceipt],
+) -> SaveLoadResult<Vec<u8>> {
+    client
+        .capture_xfer_bytes_with_owned_auxiliaries(owned)
+        .map_err(SaveLoadError::Serialization)
+}
+
 /// Check the C++ v3 GameClient envelope before a staged world can commit.
 /// Drawable payloads are length-delimited and remain decoded by GameClient
 /// after commit; this rejects malformed versions, counts, and truncation

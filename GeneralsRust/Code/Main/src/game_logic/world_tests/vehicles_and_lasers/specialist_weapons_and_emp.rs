@@ -61,7 +61,7 @@ fn colonel_burton_residual_sniper_and_knife() {
         b.attack_target(
             enemy,
             attack_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         if let Some(w) = b.weapon.as_mut() {
             w.last_fire_time = -10.0;
@@ -113,7 +113,7 @@ fn colonel_burton_residual_sniper_and_knife() {
         b.attack_target(
             melee,
             attack_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         if let Some(w) = b.weapon.as_mut() {
             w.last_fire_time = -10.0;
@@ -154,7 +154,7 @@ fn colonel_burton_residual_sniper_and_knife() {
         b.attack_target(
             tank,
             attack_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         if let Some(w) = b.weapon.as_mut() {
             w.last_fire_time = -10.0;
@@ -431,7 +431,7 @@ fn rebel_booby_trap_plant_and_capture_detonate_residual() {
         );
         rebel.set_ai_state(
             AIState::SpecialAbility,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         rebel.target = Some(building_id);
     }
@@ -573,7 +573,7 @@ fn booby_trap_detonates_enemy_and_refuses_replace() {
         );
         ally.set_ai_state(
             AIState::SpecialAbility,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         ally.target = Some(building_id);
     }
@@ -630,7 +630,7 @@ fn booby_trap_detonates_enemy_and_refuses_replace() {
         );
         ally.set_ai_state(
             AIState::SpecialAbility,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         ally.target = Some(building_id);
     }
@@ -673,7 +673,7 @@ fn booby_trap_detonates_enemy_and_refuses_replace() {
         );
         enemy.set_ai_state(
             AIState::SpecialAbility,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         enemy.target = Some(building_id);
     }
@@ -873,7 +873,9 @@ fn supw_patriot_emp_residual_dual_slot_and_disable() {
 
 #[test]
 fn supw_emp_scatter_misses_infantry_residual() {
-    use crate::game_logic::host_base_defense::{SUPW_EMP_SCATTER_VS_INFANTRY, SUPW_PATRIOT_EMP_RADIUS};
+    use crate::game_logic::host_base_defense::{
+        SUPW_EMP_SCATTER_VS_INFANTRY, SUPW_PATRIOT_EMP_RADIUS,
+    };
 
     let mut logic = GameLogic::new();
     ensure_test_infantry_template(&mut logic);

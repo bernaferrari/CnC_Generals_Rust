@@ -4,6 +4,20 @@ use super::native_draw_source::NativeDrawSource;
 use super::*;
 use game_client::core::game_client::PresentationDrawableMutation;
 
+enum NativeDrawMutation {
+    Creating {
+        initial_transform: game_client::drawable::Matrix4,
+        sync_ms: u32,
+    },
+    TransformInstalled {
+        transform: game_client::drawable::Matrix4,
+    },
+    ConditionsMarked {
+        bits: u128,
+    },
+    Destroyed,
+}
+
 impl RenderPipeline {
     pub(crate) fn current_animation_sync_ms(&self) -> u32 {
         self.animation_sync_ms
@@ -45,11 +59,14 @@ impl super::native_pose_loan::NativeInstalledPoseLoan<'_> {
     /// Retire this receiver's render state and playback at one destroy boundary.
     /// Numeric ObjectIds in other pipeline owners are independent.
     pub(super) fn retire_native_drawable(&mut self, id: crate::game_logic::ObjectId) {
-        self.native_drawable_lifetimes.remove(&id.0);
+        self.retire_native_owner(NativeDrawOwnerId::Actor(id.0));
+    }
+    fn retire_native_owner(&mut self, owner: NativeDrawOwnerId) {
+        self.native_drawable_lifetimes.remove(&owner);
         self.drawable_visual_states
-            .retain(|(object, _), _| *object != id.0);
+            .retain(|(object, _), _| *object != owner);
         self.live_draw_playback
-            .retain(|key, _| key.object_id() != id.0);
+            .retain(|key, _| key.owner_id() != owner);
     }
 
     pub(crate) fn receive_native_drawable_mutation(
@@ -102,7 +119,7 @@ impl super::native_pose_loan::NativeInstalledPoseLoan<'_> {
             let actual = self
                 .drawable_visual_states
                 .iter()
-                .filter(|((object, _), _)| *object == id)
+                .filter(|((object, _), _)| *object == NativeDrawOwnerId::Actor(id))
                 .collect::<Vec<_>>();
             if actual.len() != expected.len()
                 || expected.iter().any(|module| {
@@ -120,6 +137,91 @@ impl super::native_pose_loan::NativeInstalledPoseLoan<'_> {
         Ok(())
     }
 
+    pub(crate) fn receive_native_auxiliary_mutation(
+        &mut self,
+        mutation: game_client::core::game_client::NativeAuxiliaryMutation<'_>,
+        identity: &crate::assets::LiveDrawPlaybackIdentity,
+        receiving: &Arc<crate::game_logic::thing::ReceivingDrawModels>,
+        template: &str,
+        mesh_scale: f32,
+        graphics: &mut GraphicsSystem,
+    ) -> Result<(), String> {
+        use game_client::core::game_client::NativeAuxiliaryMutation as Mutation;
+        let receipt = match &mutation {
+            Mutation::Creating { receipt, .. }
+            | Mutation::TransformInstalled { receipt, .. }
+            | Mutation::ConditionsMarked { receipt, .. }
+            | Mutation::Destroyed { receipt } => *receipt,
+        };
+        let owner = NativeDrawOwnerId::Aux(receipt.drawable_id());
+        if !identity.matches_auxiliary_receipt(receipt) {
+            return Err("auxiliary RenderObj source belongs to another Drawable lifetime".into());
+        }
+        if !matches!(mutation, Mutation::Creating { .. })
+            && self
+                .native_drawable_lifetimes
+                .get(&owner)
+                .is_none_or(|lifetime| lifetime.identity != *identity)
+        {
+            return Err("auxiliary RenderObj continuation has no matching constructor".into());
+        }
+        let normalized = match mutation {
+            Mutation::Creating {
+                initial_transform,
+                sync_ms,
+                ..
+            } => {
+                receiving
+                    .native_render_draws(0)
+                    .map_err(|_| "invalid receiving auxiliary Draw roster")?;
+                NativeDrawMutation::Creating {
+                    initial_transform,
+                    sync_ms,
+                }
+            }
+            Mutation::TransformInstalled { transform, .. } => {
+                NativeDrawMutation::TransformInstalled { transform }
+            }
+            Mutation::ConditionsMarked { bits, .. } => {
+                receiving
+                    .native_render_draws(bits)
+                    .map_err(|_| "invalid receiving auxiliary Draw condition")?;
+                NativeDrawMutation::ConditionsMarked { bits }
+            }
+            Mutation::Destroyed { .. } => NativeDrawMutation::Destroyed,
+        };
+        self.receive_native_mutation_for_owner(
+            owner,
+            normalized,
+            Some(NativeDrawSource::auxiliary(
+                identity, receiving, template, mesh_scale,
+            )),
+            graphics,
+        );
+        if let Some(lifetime) = self.native_drawable_lifetimes.get_mut(&owner) {
+            lifetime.auxiliary = Some(Arc::clone(receiving));
+        }
+        Ok(())
+    }
+
+    pub(crate) fn retire_native_auxiliary(
+        &mut self,
+        receipt: &game_client::core::game_client::NativeAuxiliaryReceipt,
+        identity: &crate::assets::LiveDrawPlaybackIdentity,
+    ) -> Result<(), String> {
+        let owner = NativeDrawOwnerId::Aux(receipt.drawable_id());
+        if !identity.matches_auxiliary_receipt(receipt)
+            || self
+                .native_drawable_lifetimes
+                .get(&owner)
+                .is_none_or(|lifetime| lifetime.identity != *identity)
+        {
+            return Err("auxiliary retirement has no matching RenderObj birth".into());
+        }
+        self.retire_native_owner(owner);
+        Ok(())
+    }
+
     pub(crate) fn clear_world(&mut self) {
         self.native_drawable_lifetimes.clear();
         self.drawable_visual_states.clear();
@@ -134,25 +236,53 @@ impl super::native_pose_loan::NativeInstalledPoseLoan<'_> {
         source: Option<NativeDrawSource<'_>>,
         graphics: &mut GraphicsSystem,
     ) {
-        let id = crate::game_logic::ObjectId(mutation.object_id());
+        let owner = NativeDrawOwnerId::Actor(mutation.object_id());
+        let mutation = match mutation {
+            PresentationDrawableMutation::Creating {
+                initial_transform,
+                sync_ms,
+                ..
+            } => NativeDrawMutation::Creating {
+                initial_transform,
+                sync_ms,
+            },
+            PresentationDrawableMutation::TransformInstalled { transform, .. } => {
+                NativeDrawMutation::TransformInstalled { transform }
+            }
+            PresentationDrawableMutation::ConditionsMarked { bits, .. } => {
+                NativeDrawMutation::ConditionsMarked { bits }
+            }
+            PresentationDrawableMutation::Destroyed { .. } => NativeDrawMutation::Destroyed,
+        };
+        self.receive_native_mutation_for_owner(owner, mutation, source, graphics);
+    }
+
+    fn receive_native_mutation_for_owner(
+        &mut self,
+        owner: NativeDrawOwnerId,
+        mutation: NativeDrawMutation,
+        source: Option<NativeDrawSource<'_>>,
+        graphics: &mut GraphicsSystem,
+    ) {
         // Frozen admission leases distinguish restore/reset/id reuse even when
         // the receiving Client mirror can retain its numeric drawable binding.
-        if let PresentationDrawableMutation::TransformInstalled { source: event, .. } = &mutation {
+        if let NativeDrawMutation::TransformInstalled { .. } = &mutation {
             if let Some(identity) = source.and_then(|s| s.identity) {
                 let replacement = self
                     .native_drawable_lifetimes
-                    .get(&id.0)
+                    .get(&owner)
                     .is_some_and(|lifetime| lifetime.identity != *identity)
                     || self
                         .drawable_visual_states
                         .iter()
                         .any(|((object, _), state)| {
-                            *object == id.0 && state.native_host_identity.as_ref() != Some(identity)
+                            *object == owner
+                                && state.native_host_identity.as_ref() != Some(identity)
                         });
                 if replacement {
-                    self.receive_native_mutation_from_source(
-                        PresentationDrawableMutation::Creating {
-                            source: event,
+                    self.receive_native_mutation_for_owner(
+                        owner,
+                        NativeDrawMutation::Creating {
                             initial_transform: game_client::drawable::Matrix4::identity(),
                             sync_ms: self.animation_sync_ms,
                         },
@@ -163,19 +293,20 @@ impl super::native_pose_loan::NativeInstalledPoseLoan<'_> {
             }
         }
         match mutation {
-            PresentationDrawableMutation::Destroyed { .. } => {
-                self.retire_native_drawable(id);
+            NativeDrawMutation::Destroyed => {
+                self.retire_native_owner(owner);
             }
-            PresentationDrawableMutation::Creating {
+            NativeDrawMutation::Creating {
                 initial_transform,
                 sync_ms,
                 ..
             } => {
-                self.native_drawable_lifetimes.remove(&id.0);
+                self.native_drawable_lifetimes.remove(&owner);
                 if let Some(identity) = source.and_then(|source| source.identity) {
                     self.native_drawable_lifetimes.insert(
-                        id.0,
+                        owner,
                         native_draw_world::NativeDrawableLifetime {
+                            auxiliary: None,
                             identity: identity.clone(),
                             #[cfg(feature = "game_client")]
                             binding: None,
@@ -183,7 +314,7 @@ impl super::native_pose_loan::NativeInstalledPoseLoan<'_> {
                     );
                 }
                 self.drawable_visual_states
-                    .retain(|(object, _), _| *object != id.0);
+                    .retain(|(object, _), _| *object != owner);
                 let Some(source) = source else { return };
                 let Some(receiving) = source.receiving else {
                     return;
@@ -196,31 +327,33 @@ impl super::native_pose_loan::NativeInstalledPoseLoan<'_> {
                     let index = model.module_index;
                     let state = self
                         .drawable_visual_states
-                        .entry((id.0, index))
+                        .entry((owner, index))
                         .or_default();
                     state.native_host_identity = source.identity.cloned();
                     state.native_source_template = source.template.to_owned();
                     // Native cached W3D is unscaled. C++ applies asset scale to
                     // HTree data, not camera basis. Until baked scale admission
                     // exists, do not accept a scaled object's bone camera.
-                    state.native_source_supported = source.mesh_scale == 1.
-                        && source.float_yaw == 0.
-                        && source.float_pitch == 0.;
+                    state.native_source_supported = match owner {
+                        NativeDrawOwnerId::Actor(_) => source.mesh_scale == 1.,
+                        #[cfg(feature = "game_client")]
+                        NativeDrawOwnerId::Aux(_) => source.mesh_scale.is_finite(),
+                    };
                     state.native_condition_bits = Some(0);
                     state.native_drawable_transform = world;
                     state.native_pending_condition = Some(model);
-                    self.install_native_condition(id, index, world, sync_ms, graphics);
+                    self.install_native_condition_for_owner(owner, index, world, sync_ms, graphics);
                 }
             }
-            PresentationDrawableMutation::TransformInstalled { transform, .. } => {
+            NativeDrawMutation::TransformInstalled { transform, .. } => {
                 let Some(source) = source else { return };
                 for ((object, _), state) in &mut *self.drawable_visual_states {
-                    if *object == id.0 {
+                    if *object == owner {
                         source.install_observed_transform(state, transform);
                     }
                 }
             }
-            PresentationDrawableMutation::ConditionsMarked { bits, .. } => {
+            NativeDrawMutation::ConditionsMarked { bits, .. } => {
                 let Some(source) = source else { return };
                 let Some(receiving) = source.receiving else {
                     return;
@@ -229,7 +362,7 @@ impl super::native_pose_loan::NativeInstalledPoseLoan<'_> {
                     // A malformed sibling cannot leave an earlier module's
                     // previous condition looking like a successful admission.
                     for ((object, _), state) in &mut *self.drawable_visual_states {
-                        if *object == id.0 {
+                        if *object == owner {
                             state.native_condition_supported = false;
                             state.native_pending_condition = None;
                             state.installed_draw_pose = InstalledDrawObject::AwaitingAdmission;
@@ -240,7 +373,7 @@ impl super::native_pose_loan::NativeInstalledPoseLoan<'_> {
                 for model in models {
                     let state = self
                         .drawable_visual_states
-                        .entry((id.0, model.module_index))
+                        .entry((owner, model.module_index))
                         .or_default();
                     state.mark_native_condition(bits, model);
                 }
@@ -259,7 +392,9 @@ impl super::native_pose_loan::NativeInstalledPoseLoan<'_> {
             .drawable_visual_states
             .iter()
             .filter_map(|((object, index), state)| {
-                (*object == id.0 && state.native_pending_condition.is_some()).then_some(*index)
+                (*object == NativeDrawOwnerId::Actor(id.0)
+                    && state.native_pending_condition.is_some())
+                .then_some(*index)
             })
             .collect();
         let mut modules = modules;
@@ -267,7 +402,7 @@ impl super::native_pose_loan::NativeInstalledPoseLoan<'_> {
         for index in modules {
             let world = match self
                 .drawable_visual_states
-                .get(&(id.0, index))
+                .get(&(NativeDrawOwnerId::Actor(id.0), index))
                 .map(|s| &s.installed_draw_pose)
             {
                 Some(InstalledDrawObject::Ready(pose)) => pose.world,
@@ -275,7 +410,7 @@ impl super::native_pose_loan::NativeInstalledPoseLoan<'_> {
                 // Drawable transform must remain available for recreation.
                 _ => self
                     .drawable_visual_states
-                    .get(&(id.0, index))
+                    .get(&(NativeDrawOwnerId::Actor(id.0), index))
                     .map(|s| s.native_drawable_transform)
                     .unwrap_or(Mat4::IDENTITY),
             };
@@ -292,7 +427,23 @@ impl super::native_pose_loan::NativeInstalledPoseLoan<'_> {
         sync_ms: u32,
         graphics: &mut GraphicsSystem,
     ) {
-        let Some(state) = self.drawable_visual_states.get_mut(&(id.0, index)) else {
+        self.install_native_condition_for_owner(
+            NativeDrawOwnerId::Actor(id.0),
+            index,
+            world,
+            sync_ms,
+            graphics,
+        );
+    }
+    pub(super) fn install_native_condition_for_owner(
+        &mut self,
+        owner: NativeDrawOwnerId,
+        index: u32,
+        world: Mat4,
+        sync_ms: u32,
+        graphics: &mut GraphicsSystem,
+    ) {
+        let Some(state) = self.drawable_visual_states.get_mut(&(owner, index)) else {
             return;
         };
         let Some(selected) = state.take_native_condition_to_install() else {
@@ -343,7 +494,7 @@ impl super::native_pose_loan::NativeInstalledPoseLoan<'_> {
             RenderModelLoadResult::Ready(model) => model,
             _ => {
                 self.drawable_visual_states
-                    .get_mut(&(id.0, index))
+                    .get_mut(&(owner, index))
                     .unwrap()
                     .installed_draw_pose = InstalledDrawObject::AwaitingAdmission;
                 return;
@@ -353,7 +504,7 @@ impl super::native_pose_loan::NativeInstalledPoseLoan<'_> {
             &template, &selected,
         ) else {
             self.drawable_visual_states
-                .get_mut(&(id.0, index))
+                .get_mut(&(owner, index))
                 .unwrap()
                 .installed_draw_pose = InstalledDrawObject::AwaitingAdmission;
             return;
@@ -361,7 +512,10 @@ impl super::native_pose_loan::NativeInstalledPoseLoan<'_> {
         let binding = identity.animation.as_ref().and_then(|animation| {
             RenderPipeline::cached_draw_animation_binding(&model, &animation.hierarchy_animation)
         });
-        let state = self.drawable_visual_states.get_mut(&(id.0, index)).unwrap();
+        let state = self
+            .drawable_visual_states
+            .get_mut(&(owner, index))
+            .unwrap();
         let retain = match &state.installed_draw_pose {
             InstalledDrawObject::Ready(pose) => {
                 Arc::ptr_eq(&pose.model, &model)
@@ -470,7 +624,11 @@ impl ObjectVisualState {
         let Some((revision, world)) = identity.native_pose() else {
             return;
         };
-        self.native_source_supported = mesh_scale == 1. && float_yaw == 0. && float_pitch == 0.;
+        self.native_source_supported = match identity.owner_id() {
+            NativeDrawOwnerId::Actor(_) => mesh_scale == 1.,
+            #[cfg(feature = "game_client")]
+            NativeDrawOwnerId::Aux(_) => mesh_scale.is_finite(),
+        };
         if self.native_transform_revision == Some(revision) {
             return;
         }
@@ -500,7 +658,11 @@ impl ObjectVisualState {
             return;
         }
         let revision = identity.native_pose().map(|(revision, _)| revision);
-        self.native_source_supported = mesh_scale == 1. && float_yaw == 0. && float_pitch == 0.;
+        self.native_source_supported = match identity.owner_id() {
+            NativeDrawOwnerId::Actor(_) => mesh_scale == 1.,
+            #[cfg(feature = "game_client")]
+            NativeDrawOwnerId::Aux(_) => mesh_scale.is_finite(),
+        };
         self.install_native_transform(
             world,
             revision,

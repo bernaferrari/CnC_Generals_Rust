@@ -1149,7 +1149,7 @@ fn presentation_frame_observes_combat_kill_particle_systems() {
         a.attack_target(
             victim,
             attack_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
     {
@@ -2353,7 +2353,7 @@ fn leftover_wnd_stamps_single_use_subdued_and_unsellable() {
         o.set_disabled_subdued(
             true,
             health_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         o.set_script_unsellable(true);
     }
@@ -2435,7 +2435,7 @@ fn leftover_strip_subdued_restricts_sell_and_evacuate() {
         o.set_disabled_subdued(
             true,
             health_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
     if let Some(p) = logic.get_player_mut(0) {
@@ -2475,7 +2475,7 @@ fn leftover_strip_subdued_restricts_sell_and_evacuate() {
         o.set_disabled_subdued(
             true,
             health_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         o.occupants = vec![ObjectId(9001), ObjectId(9002)];
     }

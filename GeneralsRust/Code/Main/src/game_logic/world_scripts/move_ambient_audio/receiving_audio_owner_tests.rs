@@ -29,7 +29,7 @@ fn spawn(world: &mut GameLogic) -> ObjectId {
     id
 }
 fn assert_cues(world: &mut GameLogic, id: ObjectId, expected: &[(&str, bool)]) {
-    let events = std::mem::take(&mut world.queued_audio_events);
+    let events = world.queued_audio_events.drain_requests();
     let cues: Vec<_> = events
         .iter()
         .filter(|event| !event.stop)

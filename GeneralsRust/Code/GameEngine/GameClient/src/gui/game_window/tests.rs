@@ -2659,7 +2659,7 @@ fn callback_resets_restore_default_handlers_like_cpp_null_setters() {
     }
     window.set_input_callback(|_, _, _, _| WindowMsgHandled::Handled);
     window.set_system_callback(|_, _, _, _| WindowMsgHandled::Handled);
-    window.set_tooltip_callback(|_, _, _| {});
+    window.set_tooltip_callback(|_, _, _, _| {});
 
     window.draw();
     assert_eq!(*drawn.borrow(), 1);
@@ -2705,7 +2705,7 @@ fn set_callbacks_updates_input_draw_and_tooltip_like_cpp() {
     };
     let tooltip: TooltipCallback = {
         let tooltip_seen = tooltip_seen.clone();
-        Box::new(move |_, _, mouse| {
+        Box::new(move |_, _, mouse, _receiving_mouse| {
             *tooltip_seen.borrow_mut() = mouse;
         })
     };
@@ -2722,7 +2722,12 @@ fn set_callbacks_updates_input_draw_and_tooltip_like_cpp() {
     );
     window.draw();
     assert_eq!(*drawn.borrow(), 1);
-    window.get_tooltip_callback().unwrap()(&window, window.instance_data(), 42);
+    window.get_tooltip_callback().unwrap()(
+        &window,
+        window.instance_data(),
+        42,
+        &mut crate::input::Mouse::new(),
+    );
     assert_eq!(*tooltip_seen.borrow(), 42);
 
     window.set_callbacks(None, None, None);

@@ -196,6 +196,9 @@ impl CnCGameEngine {
                 self.current_player_id,
                 policy,
                 &mut retirement,
+                self.subsystem_manager
+                    .get::<crate::subsystem_manager::AudioManagerSubsystem>()
+                    .and_then(|audio| audio.receiving_audio_device()),
             )?
             .with_pristine_bones(self.application_assets.as_ref());
         world
@@ -1536,7 +1539,10 @@ impl CnCGameEngine {
         ) {
             self.set_owned_control_bar_scheme("Observer");
         }
-        pending_map_audio.admit_to_live();
+        pending_map_audio.admit_to_live(
+            super::native_audio_effects::NativeAudioService::receiving(&mut self.subsystem_manager)
+                .as_mut(),
+        )?;
         Ok(())
     }
 
@@ -1915,7 +1921,10 @@ impl CnCGameEngine {
         // No Common AR_Play output from this candidate can escape a rejected
         // client/camera/presentation admission. Emit once at the successful tail.
         self.game_logic.finish_saved_snapshot_admission()?;
-        pending_map_audio.admit_to_live();
+        pending_map_audio.admit_to_live(
+            super::native_audio_effects::NativeAudioService::receiving(&mut self.subsystem_manager)
+                .as_mut(),
+        )?;
         #[cfg(feature = "game_client")]
         if let Some(state) = campaign_state.as_ref() {
             self.game_client
@@ -2928,6 +2937,9 @@ impl CnCGameEngine {
                     self.current_player_id,
                     policy,
                     &mut retirement,
+                    self.subsystem_manager
+                        .get::<crate::subsystem_manager::AudioManagerSubsystem>()
+                        .and_then(|audio| audio.receiving_audio_device()),
                 )?
                 .with_pristine_bones(self.application_assets.as_ref());
             let result = Self::stage_saved_world_for_restore_with_native(

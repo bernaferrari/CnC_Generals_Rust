@@ -56,7 +56,7 @@ fn passive_exact_slot_returns_only_its_shot_and_preserves_contained_ai_and_peer(
             &mut combat.fire_sound_loop_events,
             &mut attacks,
             None,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         )
         .unwrap();
     assert_eq!(slot, 1);

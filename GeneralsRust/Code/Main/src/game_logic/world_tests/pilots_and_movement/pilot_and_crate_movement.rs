@@ -167,7 +167,7 @@ fn worker_shoes_upgrade_speed_and_supply_boost_residual() {
         w.target = Some(supply_id);
         w.set_ai_state(
             AIState::ReturningResources,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
     let cash_before = game_logic
@@ -489,7 +489,9 @@ fn stealth_jet_missile_projectile_flies_and_impacts() {
 
 #[test]
 fn mig_missile_projectile_flies_and_impacts() {
-    use crate::game_logic::host_mig::{MIG_MISSILE_FUEL_FRAMES, MIG_PRIMARY_DAMAGE, MIG_PROJECTILE};
+    use crate::game_logic::host_mig::{
+        MIG_MISSILE_FUEL_FRAMES, MIG_PRIMARY_DAMAGE, MIG_PROJECTILE,
+    };
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     use glam::Vec3;
 
@@ -661,7 +663,9 @@ fn flashbang_grenade_bezier_flight_and_blast() {
 
 #[test]
 fn helix_napalm_bomb_projectile_falls_and_height_dies() {
-    use crate::game_logic::host_helix_napalm::{NAPALM_BOMB_HEIGHT_DIE_TARGET, NAPALM_BOMB_PROJECTILE};
+    use crate::game_logic::host_helix_napalm::{
+        NAPALM_BOMB_HEIGHT_DIE_TARGET, NAPALM_BOMB_PROJECTILE,
+    };
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     use glam::Vec3;
 
@@ -994,7 +998,9 @@ fn countermeasures_divert_spawns_flare_objects() {
 
 #[test]
 fn aurora_fuel_air_impact_spawns_gas_object() {
-    use crate::game_logic::host_aurora_bomb::{AURORA_FUEL_AIR_DIVE_IMPACT_FRAMES, HostAuroraBombKind};
+    use crate::game_logic::host_aurora_bomb::{
+        AURORA_FUEL_AIR_DIVE_IMPACT_FRAMES, HostAuroraBombKind,
+    };
     use crate::game_logic::host_fuel_air_gas_slow_death::{
         AIRF_AURORA_BOMB_GAS_OBJECT, FUEL_AIR_GAS_DESTRUCTION_DELAY_FRAMES,
     };
@@ -1338,7 +1344,7 @@ fn plant_timed_demo_charge_command_plants_after_reach() {
         );
         burton.set_ai_state(
             AIState::SpecialAbility,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         burton.target = Some(target_id);
     }
@@ -1430,7 +1436,7 @@ fn plant_and_detonate_remote_demo_charge_residual() {
         );
         burton.set_ai_state(
             AIState::SpecialAbility,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         burton.target = Some(target_id);
     }
@@ -2439,7 +2445,9 @@ fn money_crate_collide_unit_pickup_residual() {
 
 #[test]
 fn money_crate_above_terrain_and_forbidden_kindof_residual() {
-    use crate::game_logic::host_deliver_payload::{SUPPLY_DROP_DROP_OFFSET_Y, cargo_crate_drop_height};
+    use crate::game_logic::host_deliver_payload::{
+        SUPPLY_DROP_DROP_OFFSET_Y, cargo_crate_drop_height,
+    };
     use crate::game_logic::{KindOf, ThingTemplate};
 
     let mut game_logic = GameLogic::new();
@@ -2796,7 +2804,9 @@ fn oil_derrick_residual_skips_under_construction() {
 
 #[test]
 fn hacker_internet_center_residual_deposits_cash() {
-    use crate::game_logic::host_hacker_income::{HACKER_CASH_INTERVAL_FAST_FRAMES, HACKER_CASH_REGULAR};
+    use crate::game_logic::host_hacker_income::{
+        HACKER_CASH_INTERVAL_FAST_FRAMES, HACKER_CASH_REGULAR,
+    };
     use crate::game_logic::{
         ContainAdmission, ContainModuleKind, ContainModuleMetadata, HackInternetAIUpdateMetadata,
         KindOf, ThingTemplate,
@@ -2868,7 +2878,7 @@ fn hacker_internet_center_residual_deposits_cash() {
         obj.set_contained_by_with_partition_owner(Some(ic_id), true, fixture_partition_obj);
         obj.set_ai_state(
             AIState::Docked,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
 

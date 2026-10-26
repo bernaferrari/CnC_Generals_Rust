@@ -206,6 +206,7 @@ pub(crate) fn play_admitted_sound_at(
     object_id: Option<u32>,
     player_index: Option<i32>,
     locality: &game_engine::common::audio::AudioSubmissionLocality,
+    policy: &game_engine::common::audio::script_policy::ScriptAudioPolicy,
     selection: &mut dyn game_engine::common::audio::audio_event_rts::AudioEventSelection,
 ) -> Option<u32> {
     let mut event = game_engine::common::audio::AudioEventRts::new();
@@ -219,7 +220,7 @@ pub(crate) fn play_admitted_sound_at(
         let position = game_engine::common::system::geometry::host_yup_to_cpp_zup(x, y, z);
         event.set_position(&position);
     }
-    let handle = manager.add_audio_event_with_locality_and_selection(&event, locality, selection);
+    let handle = manager.add_audio_event_with_policy(&event, locality, selection, policy, false);
     (1000..0xFFFF_FFF0).contains(&handle).then_some(handle)
 }
 

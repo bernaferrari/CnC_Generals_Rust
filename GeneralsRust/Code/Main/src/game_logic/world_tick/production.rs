@@ -1134,7 +1134,7 @@ impl GameLogic {
     }
 
     /// C++ `Pathfinder::adjustDestination` spiral, then `adjustCoordToCell`.
-    fn adjust_factory_exit_destination(
+    pub(in crate::game_logic) fn adjust_factory_exit_destination(
         &self,
         dest: Vec3,
         surfaces: u32,
@@ -1201,7 +1201,7 @@ impl GameLogic {
 
     /// C++ `AIUpdateInterface::aiFollowExitProductionPath`.
     /// Ignore the producer, walk the authored points, and path through units.
-    fn follow_exit_production_path(
+    pub(in crate::game_logic) fn follow_exit_production_path(
         &mut self,
         unit_id: ObjectId,
         path: &[Vec3],

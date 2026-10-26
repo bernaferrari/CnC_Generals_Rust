@@ -134,7 +134,12 @@ impl<'a> NativeRenderReceiver<'a> {
                     .downcast_ref::<BasicDrawable>()
                     .map(BasicDrawable::native_particle_parent_transform)
                     .unwrap_or_else(|| drawable.get_transform().to_glam());
-                if bindings.contains_key(&id) {
+                if bindings.contains_key(&id)
+                    || drawable
+                        .as_any()
+                        .downcast_ref::<BasicDrawable>()
+                        .is_some_and(|basic| basic.native_auxiliary_generation().is_some())
+                {
                     let swizzle = glam::Mat4::from_cols(
                         glam::Vec4::X,
                         glam::Vec4::Z,
@@ -291,7 +296,13 @@ impl<'a> NativeRenderReceiver<'a> {
             let host_projection = self
                 .drawables
                 .presentation_direct_drawable_bindings
-                .contains_key(&id);
+                .contains_key(&id)
+                || self
+                    .drawables
+                    .drawable_map
+                    .get(&id)
+                    .and_then(|draw| draw.as_any().downcast_ref::<BasicDrawable>())
+                    .is_some_and(|basic| basic.native_auxiliary_generation().is_some());
             let drawable = self
                 .drawables
                 .drawable_map
@@ -514,6 +525,12 @@ impl drawable_world::DrawableState {
                 // Main stores raw host positions Y-up. Instance matrices,
                 // float pose, scale and recoil are not getPosition().
                 [position.x, position.z, position.y]
+            } else if drawable
+                .as_any()
+                .downcast_ref::<BasicDrawable>()
+                .is_some_and(|basic| basic.native_auxiliary_generation().is_some())
+            {
+                [position.x, position.z, position.y]
             } else {
                 [position.x, position.y, position.z]
             };
@@ -630,10 +647,12 @@ impl GameClient {
         &crate::gui::window_manager::WindowManagerOwner,
         &crate::gui::ime_manager::ImeManager,
         Option<&mut crate::core::subsystems::InGameUISubsystem>,
+        Option<&mut crate::input::Mouse>,
     ) {
         (
             &mut self.render_bridge,
             NativeDrawableOwner {
+                auxiliary_identity: &self.drawables.auxiliary_identity,
                 drawables: &mut self.drawables.state,
                 particles: &mut self.drawables.particles,
             },
@@ -641,6 +660,7 @@ impl GameClient {
             &self.window_manager_owner,
             &self.ime,
             self.subsystem_manager.in_game_ui.as_mut(),
+            self.subsystem_manager.input_mouse.as_mut(),
         )
     }
     pub fn draw_receiving_ui(&mut self, facts: crate::display::display_fx::DisplayDrawFacts) {

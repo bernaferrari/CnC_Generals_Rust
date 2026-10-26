@@ -124,7 +124,11 @@ fn host_wander_horiz_dist_sq(a: glam::Vec3, b: glam::Vec3) -> f32 {
 
 impl GameLogic {
     /// Drive mood auto-acquire for idle units (AI + player AutoAcquireEnemiesWhenIdle).
-    pub(crate) fn tick_mood_auto_acquire(&mut self, object_ids: &[ObjectId]) {
+    pub(crate) fn tick_mood_auto_acquire_with_effects(
+        &mut self,
+        object_ids: &[ObjectId],
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<()> {
         for &id in object_ids {
             let (is_player_local, do_check) = {
                 let Some(o) = self.objects.get(&id) else {
@@ -148,14 +152,20 @@ impl GameLogic {
             };
             if do_check {
                 // C++ AutoAcquireEnemiesWhenIdle applies to player and AI units.
-                let _ = self.try_mood_auto_acquire(id, is_player_local);
+                let _ = self.try_mood_auto_acquire_with_effects(
+                    id,
+                    is_player_local,
+                    presentation_effects,
+                )?;
             }
         }
+        Ok(())
     }
 
     #[cfg(test)]
     pub fn tick_mood_auto_acquire_for_test(&mut self, object_ids: &[ObjectId]) {
-        self.tick_mood_auto_acquire(object_ids);
+        self.tick_mood_auto_acquire_with_effects(object_ids, &mut Default::default())
+            .expect("valid explicit standalone mood fixture");
     }
 
     /// C++ AIUpdateInterface::getMoodMatrixActionAdjustment residual.
@@ -2139,7 +2149,7 @@ mod tests {
             obj.status.moving = false;
             obj.set_ai_state(
                 AIState::Idle,
-                &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+                &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
             );
         }
         logic.test_tick_host_wander_in_place();
@@ -2298,7 +2308,7 @@ mod tests {
         if let Some(obj) = logic.host_object_mut(id) {
             obj.set_ai_state(
                 AIState::Moving,
-                &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+                &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
             );
             obj.status.moving = true;
             obj.movement.target_position = Some(hop);
@@ -2342,7 +2352,7 @@ mod tests {
         if let Some(obj) = logic.host_object_mut(id) {
             obj.set_ai_state(
                 AIState::Moving,
-                &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+                &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
             );
             obj.status.moving = true;
         }
@@ -2745,7 +2755,7 @@ mod tests {
                 Some(glam::Vec3::ZERO),
                 None,
                 &mut logic.attack_events,
-                &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+                &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
             );
         }
         w25_spawn_fighter(

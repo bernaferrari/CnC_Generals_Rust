@@ -980,7 +980,7 @@ impl GameLogic {
                     .grid
                     .snap_position(pos, center, &ground_source)
             });
-            let Some(obj) = self.objects.get_mut(&id) else {
+            let Some(mut obj) = self.objects.get_mut(&id) else {
                 continue;
             };
             obj.movement.path.clear();
@@ -1012,7 +1012,7 @@ impl GameLogic {
                     continue;
                 }
                 let pos = obj.get_position();
-                let flight_terrain = super::flight_terrain::FlightTerrainView {
+                let mut flight_terrain = super::flight_terrain::FlightTerrainView {
                     logical: Some(self.world_services.terrain().as_ref()),
                     grid: &self.pathfinding_system.grid,
                     terrain: self.terrain.as_ref(),
@@ -1113,14 +1113,14 @@ impl GameLogic {
                                 crate::game_logic::object::StampContact::Start(ground_y),
                                 Object::step_stamp_contact_with_effects,
                                 effects,
-                            );
-                            let flight_terrain = super::flight_terrain::FlightTerrainView {
+                            )?;
+                            let mut flight_terrain = super::flight_terrain::FlightTerrainView {
                                 logical: Some(self.world_services.terrain().as_ref()),
                                 grid: &self.pathfinding_system.grid,
                                 terrain: self.terrain.as_ref(),
                                 samples: self.pathfinding_height_samples.as_ref(),
                             };
-                            let Some(obj) = self.objects.get_mut(&id) else {
+                            let Some(mut obj) = self.objects.get_mut(&id) else {
                                 break 'unit;
                             };
                         } else {
@@ -1139,14 +1139,14 @@ impl GameLogic {
                             crate::game_logic::object::StampContact::Start(ground_y),
                             Object::step_stamp_contact_with_effects,
                             effects,
-                        );
-                        let flight_terrain = super::flight_terrain::FlightTerrainView {
+                        )?;
+                        let mut flight_terrain = super::flight_terrain::FlightTerrainView {
                             logical: Some(self.world_services.terrain().as_ref()),
                             grid: &self.pathfinding_system.grid,
                             terrain: self.terrain.as_ref(),
                             samples: self.pathfinding_height_samples.as_ref(),
                         };
-                        let Some(obj) = self.objects.get_mut(&id) else {
+                        let Some(mut obj) = self.objects.get_mut(&id) else {
                             break 'unit;
                         };
                         break 'unit;
@@ -1209,17 +1209,27 @@ impl GameLogic {
                             ) {
                                 flight_terrain.highest_surface(obj)
                             } else {
-                                obj.leftover_surface_ht(surface_y)
+                                surface_y
                             };
                             let face_goal_y = obj.get_position().y;
-                            Self::apply_live_handle_behavior_z_with_effects(
-                                obj,
-                                sy,
-                                Some(face_goal_y),
-                                Some(&flight_terrain),
-                                pose_frame,
-                                &mut effects.reborrow_for_object(&mut self.partition_manager),
-                            );
+                            let z_goal = Some(face_goal_y);
+                            let _ = obj;
+                            let _ = flight_terrain;
+                            if !self.apply_owned_locomotor_z_with_effects(
+                                id, z_goal, pose_frame, effects,
+                            )? {
+                                break 'unit;
+                            }
+                            flight_terrain = super::flight_terrain::FlightTerrainView {
+                                logical: Some(self.world_services.terrain().as_ref()),
+                                grid: &self.pathfinding_system.grid,
+                                terrain: self.terrain.as_ref(),
+                                samples: self.pathfinding_height_samples.as_ref(),
+                            };
+                            obj = match self.objects.get_mut(&id) {
+                                Some(object) => object,
+                                None => break 'unit,
+                            };
                             obj.stamp_airborne_target_from_locomotor();
                             if obj.num_frames_blocked > 1 {
                                 obj.num_frames_blocked = 1;
@@ -1258,14 +1268,14 @@ impl GameLogic {
                             crate::game_logic::object::StampContact::Start(ground_y),
                             Object::step_stamp_contact_with_effects,
                             effects,
-                        );
-                        let flight_terrain = super::flight_terrain::FlightTerrainView {
+                        )?;
+                        let mut flight_terrain = super::flight_terrain::FlightTerrainView {
                             logical: Some(self.world_services.terrain().as_ref()),
                             grid: &self.pathfinding_system.grid,
                             terrain: self.terrain.as_ref(),
                             samples: self.pathfinding_height_samples.as_ref(),
                         };
-                        let Some(obj) = self.objects.get_mut(&id) else {
+                        let Some(mut obj) = self.objects.get_mut(&id) else {
                             break 'unit;
                         };
                         break 'unit;
@@ -1342,14 +1352,24 @@ impl GameLogic {
                                 &self.pathfinding_system.grid,
                                 surfaces,
                             ) {
-                                Self::apply_live_handle_behavior_z_with_effects(
-                                    obj,
-                                    surface_y,
-                                    None,
-                                    Some(&flight_terrain),
-                                    pose_frame,
-                                    &mut effects.reborrow_for_object(&mut self.partition_manager),
-                                );
+                                let z_goal = None;
+                                let _ = obj;
+                                let _ = flight_terrain;
+                                if !self.apply_owned_locomotor_z_with_effects(
+                                    id, z_goal, pose_frame, effects,
+                                )? {
+                                    break 'unit;
+                                }
+                                flight_terrain = super::flight_terrain::FlightTerrainView {
+                                    logical: Some(self.world_services.terrain().as_ref()),
+                                    grid: &self.pathfinding_system.grid,
+                                    terrain: self.terrain.as_ref(),
+                                    samples: self.pathfinding_height_samples.as_ref(),
+                                };
+                                obj = match self.objects.get_mut(&id) {
+                                    Some(object) => object,
+                                    None => break 'unit,
+                                };
                                 // Release both the object and borrowed terrain view before original Body callbacks.
                                 let _ = obj;
                                 let _ = flight_terrain;
@@ -1358,14 +1378,14 @@ impl GameLogic {
                                     crate::game_logic::object::StampContact::Start(ground_y),
                                     Object::step_stamp_contact_with_effects,
                                     effects,
-                                );
-                                let flight_terrain = super::flight_terrain::FlightTerrainView {
+                                )?;
+                                let mut flight_terrain = super::flight_terrain::FlightTerrainView {
                                     logical: Some(self.world_services.terrain().as_ref()),
                                     grid: &self.pathfinding_system.grid,
                                     terrain: self.terrain.as_ref(),
                                     samples: self.pathfinding_height_samples.as_ref(),
                                 };
-                                let Some(obj) = self.objects.get_mut(&id) else {
+                                let Some(mut obj) = self.objects.get_mut(&id) else {
                                     break 'unit;
                                 };
                                 if !blocked_out && obj.num_frames_blocked > 1 {
@@ -1381,14 +1401,24 @@ impl GameLogic {
                             obj.num_frames_blocked = 1;
                         }
                         obj.cur_max_blocked_speed = 999_999.0;
-                        Self::apply_live_handle_behavior_z_with_effects(
-                            obj,
-                            surface_y,
-                            None,
-                            Some(&flight_terrain),
-                            pose_frame,
-                            &mut effects.reborrow_for_object(&mut self.partition_manager),
-                        );
+                        let z_goal = None;
+                        let _ = obj;
+                        let _ = flight_terrain;
+                        if !self
+                            .apply_owned_locomotor_z_with_effects(id, z_goal, pose_frame, effects)?
+                        {
+                            break 'unit;
+                        }
+                        flight_terrain = super::flight_terrain::FlightTerrainView {
+                            logical: Some(self.world_services.terrain().as_ref()),
+                            grid: &self.pathfinding_system.grid,
+                            terrain: self.terrain.as_ref(),
+                            samples: self.pathfinding_height_samples.as_ref(),
+                        };
+                        obj = match self.objects.get_mut(&id) {
+                            Some(object) => object,
+                            None => break 'unit,
+                        };
                         // Release both the object and borrowed terrain view before original Body callbacks.
                         let _ = obj;
                         let _ = flight_terrain;
@@ -1397,14 +1427,14 @@ impl GameLogic {
                             crate::game_logic::object::StampContact::Start(ground_y),
                             Object::step_stamp_contact_with_effects,
                             effects,
-                        );
-                        let flight_terrain = super::flight_terrain::FlightTerrainView {
+                        )?;
+                        let mut flight_terrain = super::flight_terrain::FlightTerrainView {
                             logical: Some(self.world_services.terrain().as_ref()),
                             grid: &self.pathfinding_system.grid,
                             terrain: self.terrain.as_ref(),
                             samples: self.pathfinding_height_samples.as_ref(),
                         };
-                        let Some(obj) = self.objects.get_mut(&id) else {
+                        let Some(mut obj) = self.objects.get_mut(&id) else {
                             break 'unit;
                         };
                         break 'unit;
@@ -1493,12 +1523,25 @@ impl GameLogic {
                                         ),
                                     );
                                     if obj.holds_air_position_when_idle() {
-                                        let _ = obj.loco_maintain_appearance_with_effects(
-                                            dt,
-                                            pose_frame,
-                                            &mut effects
-                                                .reborrow_for_object(&mut self.partition_manager),
-                                        );
+                                        let surface_y = flight_terrain
+                                            .surface_at(obj.get_position(), obj.ground_height);
+                                        let _ = obj;
+                                        let _ = flight_terrain;
+                                        if !self.maintain_owned_locomotor_appearance_with_effects(
+                                            id, dt, pose_frame, surface_y, effects,
+                                        ) {
+                                            break 'unit;
+                                        }
+                                        flight_terrain = super::flight_terrain::FlightTerrainView {
+                                            logical: Some(self.world_services.terrain().as_ref()),
+                                            terrain: self.terrain.as_ref(),
+                                            grid: &self.pathfinding_system.grid,
+                                            samples: self.pathfinding_height_samples.as_ref(),
+                                        };
+                                        obj = match self.objects.get_mut(&id) {
+                                            Some(object) => object,
+                                            None => break 'unit,
+                                        };
                                     }
                                 } else if obj.holds_air_position_when_idle() {
                                     obj.movement.path.clear();
@@ -1513,12 +1556,25 @@ impl GameLogic {
                                     if adjusts_destination_now(obj) {
                                         obj.set_locomotor_goal_none();
                                     }
-                                    let _ = obj.loco_maintain_appearance_with_effects(
-                                        dt,
-                                        pose_frame,
-                                        &mut effects
-                                            .reborrow_for_object(&mut self.partition_manager),
-                                    );
+                                    let surface_y = flight_terrain
+                                        .surface_at(obj.get_position(), obj.ground_height);
+                                    let _ = obj;
+                                    let _ = flight_terrain;
+                                    if !self.maintain_owned_locomotor_appearance_with_effects(
+                                        id, dt, pose_frame, surface_y, effects,
+                                    ) {
+                                        break 'unit;
+                                    }
+                                    flight_terrain = super::flight_terrain::FlightTerrainView {
+                                        logical: Some(self.world_services.terrain().as_ref()),
+                                        terrain: self.terrain.as_ref(),
+                                        grid: &self.pathfinding_system.grid,
+                                        samples: self.pathfinding_height_samples.as_ref(),
+                                    };
+                                    obj = match self.objects.get_mut(&id) {
+                                        Some(object) => object,
+                                        None => break 'unit,
+                                    };
                                 } else {
                                     plant_goal = obj.movement.path.last().copied();
                                     if matches!(obj.ai_state(), AIState::AttackMoving) {
@@ -1573,14 +1629,24 @@ impl GameLogic {
                                     obj.pending_evacuate_on_stop = true;
                                     obj.pending_exit_after_evacuate = and_exit;
                                 }
-                                Self::apply_live_handle_behavior_z_with_effects(
-                                    obj,
-                                    surface_y,
-                                    None,
-                                    Some(&flight_terrain),
-                                    pose_frame,
-                                    &mut effects.reborrow_for_object(&mut self.partition_manager),
-                                );
+                                let z_goal = None;
+                                let _ = obj;
+                                let _ = flight_terrain;
+                                if !self.apply_owned_locomotor_z_with_effects(
+                                    id, z_goal, pose_frame, effects,
+                                )? {
+                                    break 'unit;
+                                }
+                                flight_terrain = super::flight_terrain::FlightTerrainView {
+                                    logical: Some(self.world_services.terrain().as_ref()),
+                                    grid: &self.pathfinding_system.grid,
+                                    terrain: self.terrain.as_ref(),
+                                    samples: self.pathfinding_height_samples.as_ref(),
+                                };
+                                obj = match self.objects.get_mut(&id) {
+                                    Some(object) => object,
+                                    None => break 'unit,
+                                };
                                 // Release both the object and borrowed terrain view before original Body callbacks.
                                 let _ = obj;
                                 let _ = flight_terrain;
@@ -1589,14 +1655,14 @@ impl GameLogic {
                                     crate::game_logic::object::StampContact::Start(ground_y),
                                     Object::step_stamp_contact_with_effects,
                                     effects,
-                                );
-                                let flight_terrain = super::flight_terrain::FlightTerrainView {
+                                )?;
+                                let mut flight_terrain = super::flight_terrain::FlightTerrainView {
                                     logical: Some(self.world_services.terrain().as_ref()),
                                     grid: &self.pathfinding_system.grid,
                                     terrain: self.terrain.as_ref(),
                                     samples: self.pathfinding_height_samples.as_ref(),
                                 };
-                                let Some(obj) = self.objects.get_mut(&id) else {
+                                let Some(mut obj) = self.objects.get_mut(&id) else {
                                     break 'unit;
                                 };
                                 break 'unit;
@@ -1749,14 +1815,24 @@ impl GameLogic {
                                     }
                                 }
 
-                                Self::apply_live_handle_behavior_z_with_effects(
-                                    obj,
-                                    surface_y,
-                                    angle_position_goal.map(|goal| goal.position.y),
-                                    Some(&flight_terrain),
-                                    pose_frame,
-                                    &mut effects.reborrow_for_object(&mut self.partition_manager),
-                                );
+                                let z_goal = angle_position_goal.map(|goal| goal.position.y);
+                                let _ = obj;
+                                let _ = flight_terrain;
+                                if !self.apply_owned_locomotor_z_with_effects(
+                                    id, z_goal, pose_frame, effects,
+                                )? {
+                                    break 'unit;
+                                }
+                                flight_terrain = super::flight_terrain::FlightTerrainView {
+                                    logical: Some(self.world_services.terrain().as_ref()),
+                                    grid: &self.pathfinding_system.grid,
+                                    terrain: self.terrain.as_ref(),
+                                    samples: self.pathfinding_height_samples.as_ref(),
+                                };
+                                obj = match self.objects.get_mut(&id) {
+                                    Some(object) => object,
+                                    None => break 'unit,
+                                };
                                 // Release both the object and borrowed terrain view before original Body callbacks.
                                 let _ = obj;
                                 let _ = flight_terrain;
@@ -1765,14 +1841,14 @@ impl GameLogic {
                                     crate::game_logic::object::StampContact::Start(ground_y),
                                     Object::step_stamp_contact_with_effects,
                                     effects,
-                                );
-                                let flight_terrain = super::flight_terrain::FlightTerrainView {
+                                )?;
+                                let mut flight_terrain = super::flight_terrain::FlightTerrainView {
                                     logical: Some(self.world_services.terrain().as_ref()),
                                     grid: &self.pathfinding_system.grid,
                                     terrain: self.terrain.as_ref(),
                                     samples: self.pathfinding_height_samples.as_ref(),
                                 };
-                                let Some(obj) = self.objects.get_mut(&id) else {
+                                let Some(mut obj) = self.objects.get_mut(&id) else {
                                     break 'unit;
                                 };
                                 obj.cur_max_blocked_speed = 999_999.0;
@@ -1882,14 +1958,24 @@ impl GameLogic {
                             if matches!(obj.loco_appearance, LocomotorAppearance::LegsTwo)
                                 && obj.downhill_only_blocks_goal(current_pos.y, goal_y)
                             {
-                                Self::apply_live_handle_behavior_z_with_effects(
-                                    obj,
-                                    surface_y,
-                                    angle_position_goal.map(|goal| goal.position.y),
-                                    Some(&flight_terrain),
-                                    pose_frame,
-                                    &mut effects.reborrow_for_object(&mut self.partition_manager),
-                                );
+                                let z_goal = angle_position_goal.map(|goal| goal.position.y);
+                                let _ = obj;
+                                let _ = flight_terrain;
+                                if !self.apply_owned_locomotor_z_with_effects(
+                                    id, z_goal, pose_frame, effects,
+                                )? {
+                                    break 'unit;
+                                }
+                                flight_terrain = super::flight_terrain::FlightTerrainView {
+                                    logical: Some(self.world_services.terrain().as_ref()),
+                                    grid: &self.pathfinding_system.grid,
+                                    terrain: self.terrain.as_ref(),
+                                    samples: self.pathfinding_height_samples.as_ref(),
+                                };
+                                obj = match self.objects.get_mut(&id) {
+                                    Some(object) => object,
+                                    None => break 'unit,
+                                };
                                 // Release both the object and borrowed terrain view before original Body callbacks.
                                 let _ = obj;
                                 let _ = flight_terrain;
@@ -1898,14 +1984,14 @@ impl GameLogic {
                                     crate::game_logic::object::StampContact::Start(ground_y),
                                     Object::step_stamp_contact_with_effects,
                                     effects,
-                                );
-                                let flight_terrain = super::flight_terrain::FlightTerrainView {
+                                )?;
+                                let mut flight_terrain = super::flight_terrain::FlightTerrainView {
                                     logical: Some(self.world_services.terrain().as_ref()),
                                     grid: &self.pathfinding_system.grid,
                                     terrain: self.terrain.as_ref(),
                                     samples: self.pathfinding_height_samples.as_ref(),
                                 };
-                                let Some(obj) = self.objects.get_mut(&id) else {
+                                let Some(mut obj) = self.objects.get_mut(&id) else {
                                     break 'unit;
                                 };
                                 break 'unit;
@@ -1915,23 +2001,50 @@ impl GameLogic {
                             // Live `move_towards_thrust` already ports the 3D mover
                             // (hq-sw06m); production march must dispatch it (hq-zx7lx).
                             if matches!(obj.loco_appearance, LocomotorAppearance::Thrust) {
-                                obj.move_towards_thrust_with_status_and_effects(
+                                let surface_y = flight_terrain
+                                    .surface_at(obj.get_position(), obj.ground_height);
+                                let _ = obj;
+                                let _ = flight_terrain;
+                                if !self.move_owned_thrust_with_effects(
+                                    id,
                                     target_pos,
                                     on_path_dist,
                                     speed,
-                                    dt,
                                     pose_frame,
                                     was_braking,
-                                    &mut effects.reborrow_for_object(&mut self.partition_manager),
-                                );
-                                Self::apply_live_handle_behavior_z_with_effects(
-                                    obj,
                                     surface_y,
-                                    angle_position_goal.map(|goal| goal.position.y),
-                                    Some(&flight_terrain),
-                                    pose_frame,
-                                    &mut effects.reborrow_for_object(&mut self.partition_manager),
-                                );
+                                    effects,
+                                ) {
+                                    break 'unit;
+                                }
+                                flight_terrain = super::flight_terrain::FlightTerrainView {
+                                    logical: Some(self.world_services.terrain().as_ref()),
+                                    terrain: self.terrain.as_ref(),
+                                    grid: &self.pathfinding_system.grid,
+                                    samples: self.pathfinding_height_samples.as_ref(),
+                                };
+                                obj = match self.objects.get_mut(&id) {
+                                    Some(object) => object,
+                                    None => break 'unit,
+                                };
+                                let z_goal = angle_position_goal.map(|goal| goal.position.y);
+                                let _ = obj;
+                                let _ = flight_terrain;
+                                if !self.apply_owned_locomotor_z_with_effects(
+                                    id, z_goal, pose_frame, effects,
+                                )? {
+                                    break 'unit;
+                                }
+                                flight_terrain = super::flight_terrain::FlightTerrainView {
+                                    logical: Some(self.world_services.terrain().as_ref()),
+                                    grid: &self.pathfinding_system.grid,
+                                    terrain: self.terrain.as_ref(),
+                                    samples: self.pathfinding_height_samples.as_ref(),
+                                };
+                                obj = match self.objects.get_mut(&id) {
+                                    Some(object) => object,
+                                    None => break 'unit,
+                                };
                                 // Source AIUpdate stamps targeting here; landing/body
                                 // callbacks occur later in actual PhysicsBehavior.
                                 obj.stamp_airborne_target_from_locomotor();
@@ -1965,13 +2078,28 @@ impl GameLogic {
                                                 ),
                                             );
                                             if obj.holds_air_position_when_idle() {
-                                                let _ = obj.loco_maintain_appearance_with_effects(
-                                                    dt,
-                                                    pose_frame,
-                                                    &mut effects.reborrow_for_object(
-                                                        &mut self.partition_manager,
-                                                    ),
+                                                let surface_y = flight_terrain.surface_at(
+                                                    obj.get_position(),
+                                                    obj.ground_height,
                                                 );
+                                                let _ = obj;
+                                                let _ = flight_terrain;
+                                                if !self.maintain_owned_locomotor_appearance_with_effects(id,dt,pose_frame,surface_y,effects) { break 'unit; }
+                                                flight_terrain =
+                                                    super::flight_terrain::FlightTerrainView {
+                                                        logical: Some(
+                                                            self.world_services.terrain().as_ref(),
+                                                        ),
+                                                        terrain: self.terrain.as_ref(),
+                                                        grid: &self.pathfinding_system.grid,
+                                                        samples: self
+                                                            .pathfinding_height_samples
+                                                            .as_ref(),
+                                                    };
+                                                obj = match self.objects.get_mut(&id) {
+                                                    Some(object) => object,
+                                                    None => break 'unit,
+                                                };
                                             }
                                         } else if obj.holds_air_position_when_idle() {
                                             obj.movement.path.clear();
@@ -1986,13 +2114,32 @@ impl GameLogic {
                                             if adjusts_destination_now(obj) {
                                                 obj.set_locomotor_goal_none();
                                             }
-                                            let _ = obj.loco_maintain_appearance_with_effects(
-                                                dt,
-                                                pose_frame,
-                                                &mut effects.reborrow_for_object(
-                                                    &mut self.partition_manager,
-                                                ),
-                                            );
+                                            let surface_y = flight_terrain
+                                                .surface_at(obj.get_position(), obj.ground_height);
+                                            let _ = obj;
+                                            let _ = flight_terrain;
+                                            if !self
+                                                .maintain_owned_locomotor_appearance_with_effects(
+                                                    id, dt, pose_frame, surface_y, effects,
+                                                )
+                                            {
+                                                break 'unit;
+                                            }
+                                            flight_terrain =
+                                                super::flight_terrain::FlightTerrainView {
+                                                    logical: Some(
+                                                        self.world_services.terrain().as_ref(),
+                                                    ),
+                                                    terrain: self.terrain.as_ref(),
+                                                    grid: &self.pathfinding_system.grid,
+                                                    samples: self
+                                                        .pathfinding_height_samples
+                                                        .as_ref(),
+                                                };
+                                            obj = match self.objects.get_mut(&id) {
+                                                Some(object) => object,
+                                                None => break 'unit,
+                                            };
                                         } else {
                                             plant_goal = obj.movement.path.last().copied();
                                             if matches!(obj.ai_state(), AIState::AttackMoving) {
@@ -2239,15 +2386,24 @@ impl GameLogic {
                                         None => break 'unit,
                                     };
 
-                                    Self::apply_live_handle_behavior_z_with_effects(
-                                        obj,
-                                        surface_y,
-                                        angle_position_goal.map(|goal| goal.position.y),
-                                        Some(&flight_terrain),
-                                        pose_frame,
-                                        &mut effects
-                                            .reborrow_for_object(&mut self.partition_manager),
-                                    );
+                                    let z_goal = angle_position_goal.map(|goal| goal.position.y);
+                                    let _ = obj;
+                                    let _ = flight_terrain;
+                                    if !self.apply_owned_locomotor_z_with_effects(
+                                        id, z_goal, pose_frame, effects,
+                                    )? {
+                                        break 'unit;
+                                    }
+                                    flight_terrain = super::flight_terrain::FlightTerrainView {
+                                        logical: Some(self.world_services.terrain().as_ref()),
+                                        grid: &self.pathfinding_system.grid,
+                                        terrain: self.terrain.as_ref(),
+                                        samples: self.pathfinding_height_samples.as_ref(),
+                                    };
+                                    obj = match self.objects.get_mut(&id) {
+                                        Some(object) => object,
+                                        None => break 'unit,
+                                    };
                                     // Release both the object and borrowed terrain view before original Body callbacks.
                                     let _ = obj;
                                     let _ = flight_terrain;
@@ -2256,14 +2412,15 @@ impl GameLogic {
                                         crate::game_logic::object::StampContact::Start(ground_y),
                                         Object::step_stamp_contact_with_effects,
                                         effects,
-                                    );
-                                    let flight_terrain = super::flight_terrain::FlightTerrainView {
-                                        logical: Some(self.world_services.terrain().as_ref()),
-                                        grid: &self.pathfinding_system.grid,
-                                        terrain: self.terrain.as_ref(),
-                                        samples: self.pathfinding_height_samples.as_ref(),
-                                    };
-                                    let Some(obj) = self.objects.get_mut(&id) else {
+                                    )?;
+                                    let mut flight_terrain =
+                                        super::flight_terrain::FlightTerrainView {
+                                            logical: Some(self.world_services.terrain().as_ref()),
+                                            grid: &self.pathfinding_system.grid,
+                                            terrain: self.terrain.as_ref(),
+                                            samples: self.pathfinding_height_samples.as_ref(),
+                                        };
+                                    let Some(mut obj) = self.objects.get_mut(&id) else {
                                         break 'unit;
                                     };
                                     break 'unit;
@@ -2468,14 +2625,24 @@ impl GameLogic {
                                 Some(object) => object,
                                 None => break 'unit,
                             };
-                            Self::apply_live_handle_behavior_z_with_effects(
-                                obj,
-                                surface_y,
-                                angle_position_goal.map(|goal| goal.position.y),
-                                Some(&flight_terrain),
-                                pose_frame,
-                                &mut effects.reborrow_for_object(&mut self.partition_manager),
-                            );
+                            let z_goal = angle_position_goal.map(|goal| goal.position.y);
+                            let _ = obj;
+                            let _ = flight_terrain;
+                            if !self.apply_owned_locomotor_z_with_effects(
+                                id, z_goal, pose_frame, effects,
+                            )? {
+                                break 'unit;
+                            }
+                            flight_terrain = super::flight_terrain::FlightTerrainView {
+                                logical: Some(self.world_services.terrain().as_ref()),
+                                grid: &self.pathfinding_system.grid,
+                                terrain: self.terrain.as_ref(),
+                                samples: self.pathfinding_height_samples.as_ref(),
+                            };
+                            obj = match self.objects.get_mut(&id) {
+                                Some(object) => object,
+                                None => break 'unit,
+                            };
                             if was_braking {
                                 // C++ :981 dx/dy/dz are not recomputed. :1096 reads
                                 // the post-handleBehaviorZ position and adds that
@@ -2512,14 +2679,18 @@ impl GameLogic {
                             if allow_2d_motive {
                                 // C++ PhysicsUpdate.cpp:649 after setStatus. One step.
                                 let posed = obj.get_position();
-                                let projectile = obj.is_kind_of(KindOf::Projectile)
-                                    || obj.object_type == crate::game_logic::ObjectType::Projectile;
-                                let stepped = if obj.is_braking && projectile {
+                                // Existing horizontal marching remains here;
+                                // vertical velocity is integrated only by the
+                                // actual Physics contact owner below.
+                                let stepped = if obj.is_braking {
                                     posed
-                                } else if obj.is_braking {
-                                    posed + Vec3::new(0.0, obj.movement.velocity.y * dt, 0.0)
                                 } else {
-                                    posed + obj.movement.velocity * dt
+                                    posed
+                                        + Vec3::new(
+                                            obj.movement.velocity.x * dt,
+                                            0.,
+                                            obj.movement.velocity.z * dt,
+                                        )
                                 };
                                 let reaction = obj.prepare_position_tree_reaction(
                                     stepped,
@@ -2578,13 +2749,32 @@ impl GameLogic {
                                             ),
                                         );
                                         if obj.holds_air_position_when_idle() {
-                                            let _ = obj.loco_maintain_appearance_with_effects(
-                                                dt,
-                                                pose_frame,
-                                                &mut effects.reborrow_for_object(
-                                                    &mut self.partition_manager,
-                                                ),
-                                            );
+                                            let surface_y = flight_terrain
+                                                .surface_at(obj.get_position(), obj.ground_height);
+                                            let _ = obj;
+                                            let _ = flight_terrain;
+                                            if !self
+                                                .maintain_owned_locomotor_appearance_with_effects(
+                                                    id, dt, pose_frame, surface_y, effects,
+                                                )
+                                            {
+                                                break 'unit;
+                                            }
+                                            flight_terrain =
+                                                super::flight_terrain::FlightTerrainView {
+                                                    logical: Some(
+                                                        self.world_services.terrain().as_ref(),
+                                                    ),
+                                                    terrain: self.terrain.as_ref(),
+                                                    grid: &self.pathfinding_system.grid,
+                                                    samples: self
+                                                        .pathfinding_height_samples
+                                                        .as_ref(),
+                                                };
+                                            obj = match self.objects.get_mut(&id) {
+                                                Some(object) => object,
+                                                None => break 'unit,
+                                            };
                                         }
                                     } else if obj.holds_air_position_when_idle() {
                                         obj.end_temporary_move_overlay(
@@ -2597,12 +2787,25 @@ impl GameLogic {
                                         obj.ignored_obstacle_id = None;
                                         obj.set_precise_z_pos(false);
                                         obj.set_locomotor_goal_none();
-                                        let _ = obj.loco_maintain_appearance_with_effects(
-                                            dt,
-                                            pose_frame,
-                                            &mut effects
-                                                .reborrow_for_object(&mut self.partition_manager),
-                                        );
+                                        let surface_y = flight_terrain
+                                            .surface_at(obj.get_position(), obj.ground_height);
+                                        let _ = obj;
+                                        let _ = flight_terrain;
+                                        if !self.maintain_owned_locomotor_appearance_with_effects(
+                                            id, dt, pose_frame, surface_y, effects,
+                                        ) {
+                                            break 'unit;
+                                        }
+                                        flight_terrain = super::flight_terrain::FlightTerrainView {
+                                            logical: Some(self.world_services.terrain().as_ref()),
+                                            terrain: self.terrain.as_ref(),
+                                            grid: &self.pathfinding_system.grid,
+                                            samples: self.pathfinding_height_samples.as_ref(),
+                                        };
+                                        obj = match self.objects.get_mut(&id) {
+                                            Some(object) => object,
+                                            None => break 'unit,
+                                        };
                                     } else if obj.has_temporary_ai_move()
                                         && !matches!(obj.ai_state(), AIState::Moving)
                                     {
@@ -2699,11 +2902,25 @@ impl GameLogic {
                             if position_goal {
                                 obj.maintain_pos_valid = false;
                             }
-                            let _ = obj.loco_maintain_appearance_with_effects(
-                                dt,
-                                pose_frame,
-                                &mut effects.reborrow_for_object(&mut self.partition_manager),
-                            );
+                            let surface_y =
+                                flight_terrain.surface_at(obj.get_position(), obj.ground_height);
+                            let _ = obj;
+                            let _ = flight_terrain;
+                            if !self.maintain_owned_locomotor_appearance_with_effects(
+                                id, dt, pose_frame, surface_y, effects,
+                            ) {
+                                break 'unit;
+                            }
+                            flight_terrain = super::flight_terrain::FlightTerrainView {
+                                logical: Some(self.world_services.terrain().as_ref()),
+                                terrain: self.terrain.as_ref(),
+                                grid: &self.pathfinding_system.grid,
+                                samples: self.pathfinding_height_samples.as_ref(),
+                            };
+                            obj = match self.objects.get_mut(&id) {
+                                Some(object) => object,
+                                None => break 'unit,
+                            };
                             let sy = if matches!(obj.loco_appearance, LocomotorAppearance::Wings) {
                                 if matches!(
                                     obj.loco_behavior_z,
@@ -2711,7 +2928,7 @@ impl GameLogic {
                                 ) {
                                     flight_terrain.highest_surface(obj)
                                 } else {
-                                    obj.leftover_surface_ht(surface_y)
+                                    surface_y
                                 }
                             } else {
                                 surface_y
@@ -2721,14 +2938,24 @@ impl GameLogic {
                             } else {
                                 obj.maintain_pos.map(|p| p.y)
                             };
-                            Self::apply_live_handle_behavior_z_with_effects(
-                                obj,
-                                sy,
-                                goal_y,
-                                Some(&flight_terrain),
-                                pose_frame,
-                                &mut effects.reborrow_for_object(&mut self.partition_manager),
-                            );
+                            let z_goal = goal_y;
+                            let _ = obj;
+                            let _ = flight_terrain;
+                            if !self.apply_owned_locomotor_z_with_effects(
+                                id, z_goal, pose_frame, effects,
+                            )? {
+                                break 'unit;
+                            }
+                            flight_terrain = super::flight_terrain::FlightTerrainView {
+                                logical: Some(self.world_services.terrain().as_ref()),
+                                grid: &self.pathfinding_system.grid,
+                                terrain: self.terrain.as_ref(),
+                                samples: self.pathfinding_height_samples.as_ref(),
+                            };
+                            obj = match self.objects.get_mut(&id) {
+                                Some(object) => object,
+                                None => break 'unit,
+                            };
                             // C++ friend_endingMove only runs from the move state.
                             // Idle maintain (goal still coincident) must not clear
                             // the queue or the ignored obstacle.
@@ -2840,11 +3067,25 @@ impl GameLogic {
                             };
                         }
                         // C++ maintainCurrentPosition: appearance, then one Z update.
-                        let _ = obj.loco_maintain_appearance_with_effects(
-                            dt,
-                            pose_frame,
-                            &mut effects.reborrow_for_object(&mut self.partition_manager),
-                        );
+                        let surface_y =
+                            flight_terrain.surface_at(obj.get_position(), obj.ground_height);
+                        let _ = obj;
+                        let _ = flight_terrain;
+                        if !self.maintain_owned_locomotor_appearance_with_effects(
+                            id, dt, pose_frame, surface_y, effects,
+                        ) {
+                            break 'unit;
+                        }
+                        flight_terrain = super::flight_terrain::FlightTerrainView {
+                            logical: Some(self.world_services.terrain().as_ref()),
+                            terrain: self.terrain.as_ref(),
+                            grid: &self.pathfinding_system.grid,
+                            samples: self.pathfinding_height_samples.as_ref(),
+                        };
+                        obj = match self.objects.get_mut(&id) {
+                            Some(object) => object,
+                            None => break 'unit,
+                        };
                         let sy = if matches!(obj.loco_appearance, LocomotorAppearance::Wings) {
                             if matches!(
                                 obj.loco_behavior_z,
@@ -2852,19 +3093,29 @@ impl GameLogic {
                             ) {
                                 flight_terrain.highest_surface(obj)
                             } else {
-                                obj.leftover_surface_ht(surface_y)
+                                surface_y
                             }
                         } else {
                             surface_y
                         };
-                        Self::apply_live_handle_behavior_z_with_effects(
-                            obj,
-                            sy,
-                            obj.maintain_pos.map(|p| p.y),
-                            Some(&flight_terrain),
-                            pose_frame,
-                            &mut effects.reborrow_for_object(&mut self.partition_manager),
-                        );
+                        let z_goal = obj.maintain_pos.map(|p| p.y);
+                        let _ = obj;
+                        let _ = flight_terrain;
+                        if !self
+                            .apply_owned_locomotor_z_with_effects(id, z_goal, pose_frame, effects)?
+                        {
+                            break 'unit;
+                        }
+                        flight_terrain = super::flight_terrain::FlightTerrainView {
+                            logical: Some(self.world_services.terrain().as_ref()),
+                            grid: &self.pathfinding_system.grid,
+                            terrain: self.terrain.as_ref(),
+                            samples: self.pathfinding_height_samples.as_ref(),
+                        };
+                        obj = match self.objects.get_mut(&id) {
+                            Some(object) => object,
+                            None => break 'unit,
+                        };
                     }
                     // C++ AIUpdate.cpp:2270. Clamp from this frame's locomotor
                     // `blocked` local, not the collision flag cleared at :2125.
@@ -2909,7 +3160,7 @@ impl GameLogic {
                         crate::game_logic::object::StampContact::Start(gy),
                         Object::step_stamp_contact_with_effects,
                         effects,
-                    );
+                    )?;
                 }
             }
             self.admit_host_radar_disabled_edges(id);
@@ -3131,7 +3382,7 @@ impl GameLogic {
     /// Host collide/friction need the motive window even when GW owns pose.
     pub(in super::super) fn arm_march_motive_flags(&mut self, object_ids: &[ObjectId]) {
         for &id in object_ids {
-            let Some(obj) = self.objects.get_mut(&id) else {
+            let Some(mut obj) = self.objects.get_mut(&id) else {
                 continue;
             };
             if obj.is_disabled() || obj.host_skip_dead_locomotor() || obj.is_shock_stunned() {
@@ -3154,13 +3405,14 @@ impl GameLogic {
         object_ids: &[ObjectId],
     ) {
         self.stamp_airborne_targets_from_locomotor_with_effects(object_ids, &mut Default::default())
+            .expect("receiving airborne stamp callback failed")
     }
 
     pub(in super::super) fn stamp_airborne_targets_from_locomotor_with_effects(
         &mut self,
         object_ids: &[ObjectId],
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         for &id in object_ids {
             let Some((pos, fallback)) = self.objects.get(&id).and_then(|obj| {
                 (!(obj.is_disabled() && !obj.status.disabled_freefall))
@@ -3174,9 +3426,10 @@ impl GameLogic {
                 crate::game_logic::object::StampContact::Start(ground_y),
                 Object::step_stamp_contact_with_effects,
                 effects,
-            );
+            )?;
             self.admit_host_radar_disabled_edges(id);
         }
+        Ok(())
     }
 
     /// C++ AIExitState::update polls isExitBusy / getAiFreeToExit every frame

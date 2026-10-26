@@ -67,7 +67,7 @@ impl BasicDrawable {
     /// transform, separate from instance scale and render-only recoil.
     pub(crate) fn native_particle_parent_transform(&self) -> glam::Mat4 {
         Matrix4::translation(self.position)
-            .mul(&self.instance_transform)
+            .mul(&self.base_transform)
             .to_glam()
     }
 

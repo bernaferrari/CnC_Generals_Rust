@@ -18,7 +18,7 @@ use crate::gui::{
 };
 use crate::helpers::TheControlBar;
 
-use crate::input::{MouseButton, with_mouse};
+use crate::input::MouseButton;
 use crate::language_filter::get_language_filter;
 use crate::message_stream::{GameMessage, GameMessageType};
 use game_engine::common::ini::get_global_data;
@@ -62,7 +62,9 @@ fn receiving_callback_observation(
         multiplayer: TheGameLogic::is_in_multiplayer_game(),
         local_player,
         mouse: Some(ControlBarMouseObservation {
-            middle_held: middle_mouse_is_held(),
+            middle_held: effects
+                .cursor_mouse()
+                .is_some_and(|mouse| mouse.get_mouse_status().is_button_down(MouseButton::Middle)),
             alternate_mouse: is_alternate_mouse_enabled(),
         }),
     })
@@ -194,12 +196,6 @@ fn decode_mouse_pos(data: WindowMsgData) -> (i32, i32) {
 fn radar_allows_input(ui: &mut crate::core::subsystems::InGameUISubsystem) -> bool {
     ui.radar_presentation()
         .is_some_and(|radar| radar.is_radar_shown())
-}
-
-/// After C++ `LeftHUDInput` validates radar availability, a held middle button
-/// falls through to ordinary camera handling.
-fn middle_mouse_is_held() -> bool {
-    with_mouse(|mouse| mouse.get_mouse_status().is_button_down(MouseButton::Middle))
 }
 
 fn local_pixel_to_radar(

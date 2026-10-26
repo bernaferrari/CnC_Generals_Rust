@@ -39,12 +39,12 @@ fn author_timers(logic: &mut GameLogic, id: ObjectId) -> u32 {
     object.apply_disabled_emp(
         1,
         health_events,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     object.apply_disabled_hacked(
         2,
         health_events,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     object.begin_undetected_defection(0, 1, false);
     object.selection_flash_remaining
@@ -314,11 +314,11 @@ fn ordinary_boundary_keeps_actual_construction_completion_pending_for_presentati
     builder.set_target(
         Some(id),
         attack_events,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     builder.set_ai_state(
         AIState::Constructing,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     builder.dozer_task_build_target = Some(id);
     builder.status.moving = false;
@@ -373,16 +373,16 @@ fn ordinary_disabled_producer_resumes_only_after_the_expiry_frame_case() {
     object.apply_disabled_emp(
         1,
         health_events,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     object.apply_disabled_hacked(
         1,
         health_events,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     object.apply_disabled_paralyzed(
         1,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     shadow.sync_from_host(&logic);
 
@@ -488,7 +488,7 @@ fn ordinary_expiry_restores_radar_and_generation_in_the_same_completed_frame_cas
             object.apply_disabled_emp(
                 1,
                 health_events,
-                &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+                &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
             );
         };
         advance_owned_with_test_audio(&mut logic, Some(&mut shadow), &mut audio_manager);
@@ -612,7 +612,7 @@ fn ordinary_same_id_worlds_keep_pending_disabled_radar_callbacks_owned_case() {
         object.apply_disabled_emp(
             1,
             health_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     };
     {
@@ -620,7 +620,7 @@ fn ordinary_same_id_worlds_keep_pending_disabled_radar_callbacks_owned_case() {
         object.apply_disabled_emp(
             10,
             health_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     };
     assert_eq!(

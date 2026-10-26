@@ -132,11 +132,13 @@ impl PendingSpecialAbility {
 /// These events are queued each frame and processed by the audio system
 #[derive(Debug, Clone)]
 pub struct AudioEventRequest {
-    pub event_type: String,          // e.g., "WeaponFire", "UnitDie", "Explosion"
+    pub(crate) script_audio_policy:
+        Option<game_engine::common::audio::script_policy::ScriptAudioPolicy>,
+    pub event_type: String, // e.g., "WeaponFire", "UnitDie", "Explosion"
     pub object_id: Option<ObjectId>, // Source object
-    pub position: Option<Vec3>,      // 3D world position
-    pub priority: u8,                // 0-255 (higher = more important)
-    pub is_looping: bool,            // false = fire-and-forget, true = continuous
+    pub position: Option<Vec3>, // 3D world position
+    pub priority: u8,       // 0-255 (higher = more important)
+    pub is_looping: bool,   // false = fire-and-forget, true = continuous
     /// C++ `TheAudio->removeAudioEvent` — stop a previously queued looping event.
     pub stop: bool,
     /// C++ `AudioEventRTS::setPlayerIndex` — VoiceEject and other owner-local voices.
@@ -147,6 +149,7 @@ impl AudioEventRequest {
     pub fn new(event_type: &str) -> Self {
         Self {
             event_type: event_type.to_string(),
+            script_audio_policy: None,
             object_id: None,
             position: None,
             priority: 128,

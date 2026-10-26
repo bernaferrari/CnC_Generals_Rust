@@ -1338,12 +1338,16 @@ impl InGameUI {
             return;
         }
 
-        self.moused_over_drawable_id = Self::apply_catalog_mouseover_tooltip(
-            &self.presentation_unit_catalog,
-            drawable_id,
-            is_location_hint,
-            ui,
-        );
+        self.moused_over_drawable_id = with_mouse(|mouse| {
+            Self::apply_catalog_mouseover_tooltip(
+                &self.presentation_unit_catalog,
+                drawable_id,
+                is_location_hint,
+                ui,
+                mouse,
+                None,
+            )
+        });
 
         if self.mouse_mode == MouseMode::Default
             && !self.is_scrolling
@@ -1386,28 +1390,34 @@ impl InGameUI {
         drawable_id: Option<u32>,
         is_location_hint: bool,
         ui: &mut crate::message_stream::ReceivingUi<'_>,
+        mouse: &mut crate::input::Mouse,
+        receiving: Option<&crate::gui::ingame_ui::ReceivingMouseoverFacts>,
     ) -> u32 {
         let old_id = ui.get_moused_over_drawable_id();
         let mut moused_over = Self::INVALID_DRAWABLE_ID;
         if is_location_hint {
-            with_mouse(|m| m.set_cursor_tooltip(String::new(), None, None, None));
+            mouse.set_cursor_tooltip(String::new(), None, None, None);
         } else if let Some(draw_id) = drawable_id {
-            with_mouse(|m| m.set_cursor_tooltip(String::new(), None, None, None));
+            mouse.set_cursor_tooltip(String::new(), None, None, None);
             if draw_id != Self::INVALID_DRAWABLE_ID {
                 if let Some(entry) = catalog.iter().find(|u| u.object_id == draw_id).cloned() {
                     if !(entry.destroyed || entry.sold || entry.unselectable || entry.masked) {
-                        let local =
-                            crate::presentation_translator_residual::translator_local_team_name();
-                        let stealthed_hidden = entry.effectively_stealthed
-                            && (local.is_empty() || entry.team_name != local);
+                        let local = if receiving.is_none() {
+                            crate::presentation_translator_residual::translator_local_team_name()
+                        } else {
+                            String::new()
+                        };
+                        let entry_friendly = receiving
+                            .map(|facts| facts.object(draw_id).visible_friendly)
+                            .unwrap_or_else(|| !local.is_empty() && entry.team_name == local);
+                        let stealthed_hidden = entry.effectively_stealthed && !entry_friendly;
                         let fogged = matches!(
                             entry.shroud_status,
                             ObjectShroudStatus::PartialClear
                                 | ObjectShroudStatus::Fogged
                                 | ObjectShroudStatus::Shrouded
                         );
-                        let fogged_hidden =
-                            fogged && (local.is_empty() || entry.team_name != local);
+                        let fogged_hidden = fogged && !entry_friendly;
                         if !stealthed_hidden && !fogged_hidden {
                             let ignored = entry.kind_names.iter().any(|k| {
                                 k == "IgnoredInGui" || k.eq_ignore_ascii_case("ignoredingui")
@@ -1426,7 +1436,11 @@ impl InGameUI {
                             } else {
                                 entry.clone()
                             };
-                            let tip_local = !local.is_empty() && tip_entry.team_name == local;
+                            let tip_local = receiving
+                                .map(|facts| facts.object(tip_entry.object_id).visible_friendly)
+                                .unwrap_or_else(|| {
+                                    !local.is_empty() && tip_entry.team_name == local
+                                });
                             let tip_fogged = matches!(
                                 tip_entry.shroud_status,
                                 ObjectShroudStatus::PartialClear
@@ -1452,44 +1466,68 @@ impl InGameUI {
                                 } else {
                                     tip_entry.template_name.clone()
                                 };
-                                if let Some(mut tooltip) = Self::mouseover_tooltip_for_templates(
-                                    &tip_name,
-                                    &tip_entry.template_name,
-                                ) {
+                                if let Some(mut tooltip) = if let Some(facts) = receiving {
+                                    let observation = facts.object(tip_entry.object_id);
+                                    let display_name =
+                                        observation.display_names.get(&tip_name).expect(
+                                            "native hover admission validates apparent template",
+                                        );
+                                    Self::mouseover_tooltip_text(
+                                        &tip_entry.template_name,
+                                        display_name,
+                                    )
+                                } else {
+                                    Self::mouseover_tooltip_for_templates(
+                                        &tip_name,
+                                        &tip_entry.template_name,
+                                    )
+                                } {
                                     Self::append_presentation_warehouse_tooltip(
                                         &mut tooltip,
                                         tip_entry.supply_boxes,
                                     );
-                                    if let Some(player) =
-                                        player_list().read().ok().and_then(|list| {
-                                            list.find_player_by_name(&tip_entry.team_name)
-                                        })
-                                    {
-                                        if let Ok(player_guard) = player.read() {
-                                            tooltip = Self::mouseover_tooltip_with_player_suffix(
-                                                &tooltip,
-                                                &player_guard,
-                                                Self::mouseover_tooltip_is_multiplayer(),
-                                            );
-                                            let color = [
-                                                player_guard.get_player_color().r,
-                                                player_guard.get_player_color().g,
-                                                player_guard.get_player_color().b,
-                                                player_guard.get_player_color().a,
-                                            ];
-                                            with_mouse(|m| {
-                                                m.set_cursor_tooltip(
+                                    if let Some(facts) = receiving {
+                                        let observation = facts.object(tip_entry.object_id);
+                                        let color =
+                                            observation.player.as_ref().map(|player| player.color);
+                                        if let Some(player) =
+                                            observation.player.as_ref().filter(|player| {
+                                                facts.multiplayer && player.playable_side
+                                            })
+                                        {
+                                            tooltip =
+                                                format!("{}\n{}", tooltip, player.display_name);
+                                        }
+                                        mouse.set_cursor_tooltip(tooltip, Some(-1), color, None);
+                                    } else {
+                                        if let Some(player) =
+                                            player_list().read().ok().and_then(|list| {
+                                                list.find_player_by_name(&tip_entry.team_name)
+                                            })
+                                        {
+                                            if let Ok(player_guard) = player.read() {
+                                                tooltip =
+                                                    Self::mouseover_tooltip_with_player_suffix(
+                                                        &tooltip,
+                                                        &player_guard,
+                                                        Self::mouseover_tooltip_is_multiplayer(),
+                                                    );
+                                                let color = [
+                                                    player_guard.get_player_color().r,
+                                                    player_guard.get_player_color().g,
+                                                    player_guard.get_player_color().b,
+                                                    player_guard.get_player_color().a,
+                                                ];
+                                                mouse.set_cursor_tooltip(
                                                     tooltip,
                                                     Some(-1),
                                                     Some(color),
                                                     None,
                                                 );
-                                            });
+                                            }
+                                        } else {
+                                            mouse.set_cursor_tooltip(tooltip, Some(-1), None, None);
                                         }
-                                    } else {
-                                        with_mouse(|m| {
-                                            m.set_cursor_tooltip(tooltip, Some(-1), None, None);
-                                        });
                                     }
                                 }
                             }
@@ -1499,7 +1537,7 @@ impl InGameUI {
             }
         }
         if old_id != moused_over {
-            with_mouse(|m| m.reset_tooltip_delay());
+            mouse.reset_tooltip_delay();
         }
         ui.set_moused_over_drawable_id(moused_over);
         moused_over

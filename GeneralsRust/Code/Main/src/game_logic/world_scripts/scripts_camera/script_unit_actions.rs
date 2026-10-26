@@ -61,7 +61,7 @@ impl GameLogic {
                 HostScriptMoveAttackRequest::TeamAttackTeam { attacker, victim } => {
                     let members = self.host_script_team_member_ids(&attacker);
                     for id in members {
-                        self.host_script_attack_team(id, &victim)?;
+                        self.host_script_attack_team(id, &victim, effects)?;
                     }
                 }
                 HostScriptMoveAttackRequest::NamedAttackNamed { attacker, victim } => {
@@ -71,6 +71,7 @@ impl GameLogic {
                             target: &victim,
                         },
                         None,
+                        effects,
                     )?;
                 }
                 HostScriptMoveAttackRequest::NamedAttackArea { unit, area } => {
@@ -85,7 +86,7 @@ impl GameLogic {
                         continue;
                     };
                     let _ = self.apply_unit_locomotor_set(id, "normal");
-                    self.host_script_attack_team(id, &team)?;
+                    self.host_script_attack_team(id, &team, effects)?;
                 }
                 HostScriptMoveAttackRequest::TeamAttackArea { team, area } => {
                     let members = self.host_script_team_member_ids(&team);
@@ -98,7 +99,7 @@ impl GameLogic {
                         continue;
                     };
                     for id in self.host_script_team_member_ids(&team) {
-                        self.unit_command_attack(id, vid)?;
+                        self.unit_command_attack_with_effects(id, vid, effects)?;
                     }
                 }
                 HostScriptMoveAttackRequest::NamedMoveTowardsNearest {
@@ -1274,6 +1275,7 @@ impl GameLogic {
                             target: &target,
                         },
                         None,
+                        effects,
                     )?;
                 }
                 HostScriptFaceRequest::NamedFaceWaypoint { unit, waypoint } => {

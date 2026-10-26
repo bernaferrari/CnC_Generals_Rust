@@ -47,7 +47,7 @@ fn movement_goal_v12_round_trip_retains_missing_target_and_future_goal() {
         let object = source.host_object_mut(id).unwrap();
         object.set_ai_state(
             AIState::Moving,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         object.set_movement_goal_object(Some(target));
         object.requested_destination = Some(goal);
@@ -151,7 +151,7 @@ fn ordinary_positional_movement_runtime_round_trips_exact_prior_path_goal() {
         let mover = world.host_object_mut(id).unwrap();
         mover.set_ai_state(
             AIState::Moving,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         mover.requested_destination = Some(Vec3::new(90.0, 0.0, 50.0));
         mover.path_goal_position = Some(Vec3::new(70.0, 0.0, 40.0));

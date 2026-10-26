@@ -754,12 +754,28 @@ impl GameLogic {
     }
 
     /// Idle mood auto-acquire: if idle and mood allows, set attack target.
+    #[cfg(test)]
     pub fn try_mood_auto_acquire(
         &mut self,
         unit_id: ObjectId,
         is_player_controlled: bool,
     ) -> Option<ObjectId> {
-        let eligible = self.objects.get(&unit_id).map(|o| {
+        self.try_mood_auto_acquire_with_effects(
+            unit_id,
+            is_player_controlled,
+            &mut Default::default(),
+        )
+        .expect("valid explicit standalone mood fixture")
+    }
+
+    pub fn try_mood_auto_acquire_with_effects(
+        &mut self,
+        unit_id: ObjectId,
+        is_player_controlled: bool,
+
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<Option<ObjectId>> {
+        let Some(eligible) = self.objects.get(&unit_id).map(|o| {
             let idle = matches!(o.ai_state(), AIState::Idle) && !o.status.attacking;
             let attack_moving = matches!(o.ai_state(), AIState::AttackMoving) || o.is_attack_path;
             let disabled_skip = o.status.disabled_paralyzed
@@ -768,9 +784,11 @@ impl GameLogic {
                 || o.status.disabled_subdued
                 || o.status.disabled_hacked;
             (idle || attack_moving) && o.target.is_none() && o.is_alive() && !disabled_skip
-        })?;
+        }) else {
+            return Ok(None);
+        };
         if !eligible {
-            return None;
+            return Ok(None);
         }
         // C++ AIIdleState::update: MAA_Affect_Range_IgnoreAll (Sleep) does not acquire.
         {
@@ -781,18 +799,23 @@ impl GameLogic {
                 is_player_controlled,
             );
             if (adj & AFFECT_RANGE_IGNORE_ALL) != 0 {
-                return None;
+                return Ok(None);
             }
         }
         if !self.mood_allows_attack(unit_id, is_player_controlled) {
-            return None;
+            return Ok(None);
         }
-        let victim = self.get_next_mood_target(unit_id, true, true, is_player_controlled)?;
+        let Some(victim) = self.get_next_mood_target(unit_id, true, true, is_player_controlled)
+        else {
+            return Ok(None);
+        };
         // Host-immediate attack enter + decision log inside attack_state_enter.
-        if self.attack_state_enter(unit_id, victim) == AttackMachineResult::Continue {
-            Some(victim)
+        if self.attack_state_enter_with_effects(unit_id, victim, presentation_effects)?
+            == AttackMachineResult::Continue
+        {
+            Ok(Some(victim))
         } else {
-            None
+            Ok(None)
         }
     }
 
@@ -1418,7 +1441,9 @@ impl GameLogic {
 #[cfg(test)]
 mod common_target_parity {
     use super::*;
-    use crate::game_logic::{GameLogic, KindOf, Object, ObjectId, Player, Team, ThingTemplate, Weapon};
+    use crate::game_logic::{
+        GameLogic, KindOf, Object, ObjectId, Player, Team, ThingTemplate, Weapon,
+    };
 
     #[test]
     fn set_common_target_skips_easy_and_human() {

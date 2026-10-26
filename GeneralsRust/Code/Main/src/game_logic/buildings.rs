@@ -48,6 +48,8 @@ pub struct BuildingData {
     /// C++ GarrisonContain::m_originalTeam — restored when the last occupant leaves.
     #[serde(default)]
     pub original_team: Option<Team>,
+    #[serde(default)]
+    pub original_garrison_player_id: Option<u32>,
     /// C++ GarrisonContain::m_hideGarrisonedStateFromNonallies.
     #[serde(default)]
     pub hide_garrisoned_state: bool,
@@ -302,6 +304,7 @@ impl BuildingData {
             max_garrison,
             damage_percent_to_units: 0.0,
             original_team: None,
+            original_garrison_player_id: None,
             hide_garrisoned_state: false,
             garrison_guns: Vec::new(),
             evac_disposition: 3,

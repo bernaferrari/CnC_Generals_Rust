@@ -8,7 +8,7 @@ impl GameClient {
     fn apply_core_script_display_state(&mut self) {
         if self.input_authority == ClientInputAuthority::StandaloneCore {
             if let Some(ui) = self.subsystem_manager.in_game_ui.as_mut() {
-                apply_pending_script_display_state(ui);
+                apply_pending_script_display_state(ui, self.subsystem_manager.input_mouse.as_mut());
             }
         }
     }
@@ -208,8 +208,8 @@ impl GameClient {
             keyboard.update();
         }
 
-        if let Some(ref mouse) = self.subsystem_manager.input_mouse {
-            mouse.lock().unwrap_or_else(|e| e.into_inner()).update();
+        if let Some(ref mut mouse) = self.subsystem_manager.input_mouse {
+            mouse.update();
         }
 
         Ok(())
@@ -537,10 +537,8 @@ impl GameClient {
             }
             let position = Vector3::new(entry.position[0], entry.position[1], entry.position[2]);
             drawable.set_position(position);
-            let transform = Matrix4::rotation_y(entry.orientation)
-                .mul(&Matrix4::rotation_z(entry.float_yaw))
-                .mul(&Matrix4::rotation_x(entry.float_pitch));
-            drawable.set_instance_transform(transform);
+            let transform = Matrix4::rotation_y(entry.orientation);
+            drawable.set_base_transform(transform);
             updated = updated.saturating_add(1);
         }
         updated
@@ -571,7 +569,7 @@ impl GameClient {
             // translation from `set_position`, so carrying it in the instance
             // matrix as well would translate every host-synced drawable twice.
             let transform = Matrix4::rotation_y(orientation);
-            drawable.set_instance_transform(transform);
+            drawable.set_base_transform(transform);
             updated += 1;
         }
         updated
@@ -815,10 +813,8 @@ impl GameClient {
                             transform: basic.native_base_transform(),
                         });
                     }
-                    let transform = Matrix4::rotation_y(e.orientation)
-                        .mul(&Matrix4::rotation_z(e.float_yaw))
-                        .mul(&Matrix4::rotation_x(e.float_pitch));
-                    drawable.set_instance_transform(transform);
+                    let transform = Matrix4::rotation_y(e.orientation);
+                    drawable.set_base_transform(transform);
                     if let Some(basic) = drawable.downcast_ref::<BasicDrawable>() {
                         observe(PresentationDrawableMutation::TransformInstalled {
                             source: &e,
@@ -1233,8 +1229,11 @@ impl GameClient {
     }
 
     /// Borrow the already installed receiving mouse service; never selects the singleton.
-    pub fn input_mouse_handle(&self) -> Option<crate::core::subsystems::MouseHandle> {
-        self.subsystem_manager.input_mouse.clone()
+    pub fn input_mouse(&self) -> Option<&crate::input::Mouse> {
+        self.subsystem_manager.input_mouse.as_ref()
+    }
+    pub fn input_mouse_mut(&mut self) -> Option<&mut crate::input::Mouse> {
+        self.subsystem_manager.input_mouse.as_mut()
     }
 
     /// Borrow this client's installed UI; no published or cloned mutable owner.
@@ -1658,12 +1657,20 @@ impl GameClient {
         drawable_id: Option<u32>,
         is_location_hint: bool,
         logic_frame: u32,
+        facts: &crate::gui::ingame_ui::ReceivingMouseoverFacts,
     ) {
-        if let Some(ui) = self.subsystem_manager.in_game_ui.as_mut() {
-            {
-                let guard = ui;
-                guard.create_mouseover_hint(drawable_id, is_location_hint, logic_frame, self.frame);
-            }
+        if let (Some(ui), Some(mouse)) = (
+            self.subsystem_manager.in_game_ui.as_mut(),
+            self.subsystem_manager.input_mouse.as_mut(),
+        ) {
+            ui.create_mouseover_hint(
+                drawable_id,
+                is_location_hint,
+                logic_frame,
+                self.frame,
+                mouse,
+                facts,
+            );
         }
     }
 
@@ -2597,6 +2604,7 @@ impl GameClient {
             let mut shell = self.window_manager_owner.shell_handle();
             let mut messages = Vec::new();
             let mut effects = crate::gui::game_window::WindowEventEffects {
+                cursor_mouse: self.subsystem_manager.input_mouse.as_mut(),
                 control_bar_observation: None,
                 menu_audio: None,
                 input_provenance:

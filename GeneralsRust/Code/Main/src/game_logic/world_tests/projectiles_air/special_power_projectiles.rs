@@ -1149,7 +1149,7 @@ fn particle_cannon_emp_mid_beam_starts_decay_and_stops_killing() {
         puc_obj.apply_disabled_emp(
             abort_frame.saturating_add(300),
             &mut logic.health_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
 
@@ -1463,7 +1463,7 @@ fn emp_pulse_residual_disables_vehicles_in_radius() {
         vehicle.target = Some(far_vehicle_id);
         vehicle.set_ai_state(
             AIState::Attacking,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         vehicle.set_status_attacking(true);
     }
@@ -1728,7 +1728,7 @@ fn frenzy_residual_buffs_allies_and_boosts_damage() {
         ally.target = Some(enemy_id);
         ally.set_ai_state(
             AIState::Attacking,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         ally.set_status_attacking(true);
         // Place in range without path chase residual.
@@ -2149,7 +2149,7 @@ fn strategy_center_battle_plan_residual_applies_unit_bonuses() {
         ally.target = Some(enemy_id);
         ally.set_ai_state(
             AIState::Attacking,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         ally.set_status_attacking(true);
         ally.set_position_with_partition_owner(
@@ -2247,7 +2247,7 @@ fn strategy_center_battle_plan_residual_applies_unit_bonuses() {
         enemy.target = Some(ally_id);
         enemy.set_ai_state(
             AIState::Attacking,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         enemy.set_status_attacking(true);
         enemy.set_position_with_partition_owner(
@@ -2332,7 +2332,7 @@ fn strategy_center_battle_plan_residual_applies_unit_bonuses() {
         ally.target = Some(enemy_id);
         ally.set_ai_state(
             AIState::Attacking,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         ally.set_status_attacking(true);
         ally.set_attack_substate(crate::game_logic::AttackSubState::AimAtTarget);
@@ -2476,7 +2476,7 @@ fn strategy_center_battle_plan_paralyze_residual_on_plan_change() {
         ally.target = Some(enemy_id);
         ally.set_ai_state(
             AIState::Attacking,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         ally.set_status_attacking(true);
         ally.set_position_with_partition_owner(
@@ -2532,7 +2532,7 @@ fn strategy_center_battle_plan_paralyze_residual_on_plan_change() {
         ally.target = Some(enemy_id);
         ally.set_ai_state(
             AIState::Attacking,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         ally.set_status_attacking(true);
         ally.weapon = Some(Weapon {
@@ -3048,7 +3048,7 @@ fn eject_pilot_die_mux_death_types_and_hijacked_residual() {
         h.experience.level = VeterancyLevel::Veteran;
         h.apply_hijacked_from_with_partition_owner(
             None,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
             partition,
         );
         let _ = h.take_damage(h.max_health * 2.0, 0, health_events);
@@ -3152,7 +3152,7 @@ fn pilot_find_vehicle_collide_module_would_like_residual() {
         p.experience.level = VeterancyLevel::Veteran; // levels_to_gain = 1
         p.set_ai_state(
             AIState::Idle,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
 
@@ -3179,7 +3179,7 @@ fn pilot_find_vehicle_collide_module_would_like_residual() {
         };
         t.apply_kill_pilot_unmanned(
             health_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         t.set_team_with_partition_owner(Team::Neutral, ownership_events, partition_manager);
         t.experience.level = VeterancyLevel::Heroic;
@@ -3214,7 +3214,7 @@ fn pilot_find_vehicle_collide_module_would_like_residual() {
         };
         t.apply_kill_pilot_unmanned(
             health_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         t.set_team_with_partition_owner(Team::Neutral, ownership_events, partition_manager);
         t.experience.level = VeterancyLevel::Rookie;
@@ -3243,7 +3243,7 @@ fn pilot_find_vehicle_collide_module_would_like_residual() {
         };
         t.apply_kill_pilot_unmanned(
             health_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         t.set_team_with_partition_owner(Team::Neutral, ownership_events, partition_manager);
         t.experience.level = VeterancyLevel::Rookie;

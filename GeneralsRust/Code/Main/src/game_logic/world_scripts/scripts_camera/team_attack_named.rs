@@ -8,6 +8,7 @@ impl GameLogic {
         this_object: Option<ObjectId>,
         calling: Option<u32>,
         condition: Option<u32>,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<()> {
         let Some((_, members)) = self.resolve_owned_script_team(team, calling, condition)? else {
             return Ok(());
@@ -59,7 +60,7 @@ impl GameLogic {
                         CanAttackResult::Possible | CanAttackResult::PossibleAfterMoving
                     )
                 {
-                    self.unit_command_script_attack(passenger, target)?;
+                    self.unit_command_script_attack_with_effects(passenger, target, effects)?;
                 }
             }
             // Main's physical Stinger roster is the locked SpawnBehavior
@@ -77,7 +78,7 @@ impl GameLogic {
                     .host_object(id)
                     .is_some_and(|object| object.has_ai_update_interface())
             {
-                self.unit_command_script_attack(id, target)?;
+                self.unit_command_script_attack_with_effects(id, target, effects)?;
             }
         }
         Ok(())

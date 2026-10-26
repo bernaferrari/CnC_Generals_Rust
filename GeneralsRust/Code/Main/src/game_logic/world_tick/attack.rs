@@ -57,99 +57,112 @@ impl GameLogic {
         )
     }
 
+    #[cfg(test)]
     pub fn attack_state_enter(
         &mut self,
         unit_id: ObjectId,
         victim_id: ObjectId,
     ) -> AttackMachineResult {
-        {
-            let Some(u) = self.objects.get(&unit_id) else {
-                return AttackMachineResult::Failure;
-            };
-            if !u.is_alive() || u.status.under_construction {
-                return AttackMachineResult::Failure;
-            }
-            if u.weapon.is_none() && u.secondary_weapon.is_none() && u.tertiary_weapon.is_none() {
-                return AttackMachineResult::Failure;
-            }
-            if u.is_kind_of(crate::game_logic::KindOf::Projectile) {
-                return AttackMachineResult::Failure;
-            }
-        }
-        {
-            let Some(v) = self.objects.get(&victim_id) else {
-                return AttackMachineResult::Failure;
-            };
-            if !v.is_alive() || v.status.destroyed {
-                return AttackMachineResult::Failure;
-            }
-        }
-        // C++ getMoodMatrixActionAdjustment(MM_Action_Attack) residual.
-        // AI-controlled sleep mood refuses attack (→ idle).
-        if !self.mood_allows_attack(unit_id, false) {
-            return AttackMachineResult::Failure;
-        }
-        // C++ cannotPossiblyAttackObject residual on enter.
-        if self.cannot_possibly_attack_object(unit_id, victim_id, false) {
-            return AttackMachineResult::Failure;
-        }
-        // C++ AIAttackState::chooseWeapon residual (PreferMostDamage).
-        let t = self.frame as f32 * LOGIC_FRAME_TIMESTEP;
-        if !self.choose_best_weapon_for_target(unit_id, Some(victim_id), t) {
-            return AttackMachineResult::Failure;
-        }
+        self.attack_state_enter_with_effects(unit_id, victim_id, &mut Default::default())
+            .expect("valid explicit standalone attack fixture")
+    }
 
-        let Some(goal_position) = self
-            .objects
-            .get(&victim_id)
-            .map(|target| target.get_position())
-        else {
-            return AttackMachineResult::Failure;
-        };
-        let mut entered_attack = false;
-        {
-            let Some(u) = self.objects.get_mut(&unit_id) else {
-                return AttackMachineResult::Failure;
-            };
-            if u.unit_ai_runtime.machine_locked() {
-                return AttackMachineResult::Failure;
-            }
-            // Host-immediate: aim enter on the next line reads `target` this frame.
-            // The decision log below is in addition to these writes, not instead of them.
-            // A real body attack takes ownership from independent turret mood,
-            // even when the command keeps the same goal (TurretAI.cpp:565-566).
-            u.turret_mood_target = false;
-            u.set_attack_substate(crate::game_logic::AttackSubState::AimAtTarget);
-            if u.max_shots_to_fire == 0 {
-                u.max_shots_to_fire = -1;
-            }
-            u.note_attack_target_with_operation(
-                victim_id,
-                &mut self.attack_events,
-                &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
-                self.frame,
-                &mut crate::game_logic::ScriptPresentationEffects::default()
-                    .reborrow_for_object(&mut self.partition_manager),
-            );
-            entered_attack = u.unit_ai_runtime.current_leaf_state() != AIState::Attacking;
-            if entered_attack {
-                let mut audio =
-                    crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events);
-                if u.unit_ai_runtime.can_enter_child() {
-                    if !u.set_ai_child_state(AIState::Attacking, &mut audio) {
-                        return AttackMachineResult::Failure;
-                    }
-                } else {
-                    u.set_ai_state(AIState::Attacking, &mut audio);
+    pub fn attack_state_enter_with_effects(
+        &mut self,
+        unit_id: ObjectId,
+        victim_id: ObjectId,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<AttackMachineResult> {
+        Ok({
+            {
+                let Some(u) = self.objects.get(&unit_id) else {
+                    return Ok(AttackMachineResult::Failure);
+                };
+                if !u.is_alive() || u.status.under_construction {
+                    return Ok(AttackMachineResult::Failure);
+                }
+                if u.weapon.is_none() && u.secondary_weapon.is_none() && u.tertiary_weapon.is_none()
+                {
+                    return Ok(AttackMachineResult::Failure);
+                }
+                if u.is_kind_of(crate::game_logic::KindOf::Projectile) {
+                    return Ok(AttackMachineResult::Failure);
                 }
             }
-            // Parent goals were captured by child admission before this target.
-            u.unit_ai_runtime
-                .set_machine_goal_object(Some((victim_id, goal_position)));
-        }
-        {}
-        let _ = self.attack_aim_at_target_enter(unit_id);
-        AttackMachineResult::Continue
+            {
+                let Some(v) = self.objects.get(&victim_id) else {
+                    return Ok(AttackMachineResult::Failure);
+                };
+                if !v.is_alive() || v.status.destroyed {
+                    return Ok(AttackMachineResult::Failure);
+                }
+            }
+            // C++ getMoodMatrixActionAdjustment(MM_Action_Attack) residual.
+            // AI-controlled sleep mood refuses attack (→ idle).
+            if !self.mood_allows_attack(unit_id, false) {
+                return Ok(AttackMachineResult::Failure);
+            }
+            // C++ cannotPossiblyAttackObject residual on enter.
+            if self.cannot_possibly_attack_object(unit_id, victim_id, false) {
+                return Ok(AttackMachineResult::Failure);
+            }
+            // C++ AIAttackState::chooseWeapon residual (PreferMostDamage).
+            let t = self.frame as f32 * LOGIC_FRAME_TIMESTEP;
+            if !self.choose_best_weapon_for_target(unit_id, Some(victim_id), t) {
+                return Ok(AttackMachineResult::Failure);
+            }
+
+            let Some(goal_position) = self
+                .objects
+                .get(&victim_id)
+                .map(|target| target.get_position())
+            else {
+                return Ok(AttackMachineResult::Failure);
+            };
+            let mut entered_attack = false;
+            {
+                let Some(u) = self.objects.get_mut(&unit_id) else {
+                    return Ok(AttackMachineResult::Failure);
+                };
+                if u.unit_ai_runtime.machine_locked() {
+                    return Ok(AttackMachineResult::Failure);
+                }
+                // Host-immediate: aim enter on the next line reads `target` this frame.
+                // The decision log below is in addition to these writes, not instead of them.
+                // A real body attack takes ownership from independent turret mood,
+                // even when the command keeps the same goal (TurretAI.cpp:565-566).
+                u.turret_mood_target = false;
+                u.set_attack_substate(crate::game_logic::AttackSubState::AimAtTarget);
+                if u.max_shots_to_fire == 0 {
+                    u.max_shots_to_fire = -1;
+                }
+                u.note_attack_target_with_operation(
+                    victim_id,
+                    &mut self.attack_events,
+                    &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
+                    self.frame,
+                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                );
+                entered_attack = u.unit_ai_runtime.current_leaf_state() != AIState::Attacking;
+                if entered_attack {
+                    let mut audio =
+                        crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events);
+                    if u.unit_ai_runtime.can_enter_child() {
+                        if !u.set_ai_child_state(AIState::Attacking, &mut audio) {
+                            return Ok(AttackMachineResult::Failure);
+                        }
+                    } else {
+                        u.set_ai_state(AIState::Attacking, &mut audio);
+                    }
+                }
+                // Parent goals were captured by child admission before this target.
+                u.unit_ai_runtime
+                    .set_machine_goal_object(Some((victim_id, goal_position)));
+            }
+            {}
+            let _ = self.attack_aim_at_target_enter_with_effects(unit_id, presentation_effects)?;
+            AttackMachineResult::Continue
+        })
     }
 
     /// C++ AIAttackState::onExit residual.
@@ -538,7 +551,12 @@ impl GameLogic {
                     self.attack_approach_compute_path(unit_id, Some(victim_id), None)?;
                     return Ok(AttackMachineResult::Continue);
                 }
-                match self.attack_aim_at_target_update(unit_id, victim_id, max_turn_rad) {
+                match self.attack_aim_at_target_update_with_effects(
+                    unit_id,
+                    victim_id,
+                    max_turn_rad,
+                    presentation_effects,
+                )? {
                     AttackAimResult::Success => {
                         if let Some(u) = self.objects.get_mut(&unit_id) {
                             u.set_attack_substate(AttackSubState::FireWeapon);
@@ -582,7 +600,10 @@ impl GameLogic {
                         if let Some(u) = self.objects.get_mut(&unit_id) {
                             u.set_attack_substate(AttackSubState::AimAtTarget);
                         }
-                        let _ = self.attack_aim_at_target_enter(unit_id);
+                        let _ = self.attack_aim_at_target_enter_with_effects(
+                            unit_id,
+                            presentation_effects,
+                        )?;
                     }
                 }
                 AttackMachineResult::Continue
@@ -593,7 +614,8 @@ impl GameLogic {
                         u.set_attack_substate(AttackSubState::AimAtTarget);
                         u.set_status_moving(false);
                     }
-                    let _ = self.attack_aim_at_target_enter(unit_id);
+                    let _ = self
+                        .attack_aim_at_target_enter_with_effects(unit_id, presentation_effects)?;
                     return Ok(AttackMachineResult::Continue);
                 }
                 // Fleeing victim may upgrade Approach → Chase mid-path.
@@ -657,7 +679,8 @@ impl GameLogic {
                         attacker.set_attack_substate(AttackSubState::AimAtTarget);
                         attacker.set_status_moving(false);
                     }
-                    let _ = self.attack_aim_at_target_enter(unit_id);
+                    let _ = self
+                        .attack_aim_at_target_enter_with_effects(unit_id, presentation_effects)?;
                     return Ok(AttackMachineResult::Continue);
                 }
                 // C++ AIStates.cpp:3058-3060: canCrushOrSquish → FAST_AS_POSSIBLE
@@ -1057,6 +1080,7 @@ impl GameLogic {
     }
 
     /// C++ TurretAI state machine residual (AIM/FIRE/HOLD/RECENTER/IDLE/IDLESCAN).
+    #[cfg(test)]
     pub fn tick_turret_state_machine(
         &mut self,
         unit_id: ObjectId,
@@ -1069,6 +1093,7 @@ impl GameLogic {
             logic_frame,
             &mut crate::game_logic::ScriptPresentationEffects::default(),
         )
+        .expect("valid explicit standalone turret fixture")
     }
 
     pub(crate) fn tick_turret_state_machine_with_effects(
@@ -1077,459 +1102,468 @@ impl GameLogic {
         current_time: f32,
         logic_frame: u32,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> AttackAimResult {
-        use crate::game_logic::object::TurretSubState;
+    ) -> gamelogic::GameLogicResult<AttackAimResult> {
+        Ok({
+            use crate::game_logic::object::TurretSubState;
 
-        let (enabled, alive, sub, tid, under_construction, tmpl, turn_rate) = {
-            let Some(u) = self.objects.get(&unit_id) else {
-                return AttackAimResult::Failure;
-            };
-            if !u.is_alive() {
-                return AttackAimResult::Failure;
-            }
-            (
-                u.turret_enabled,
-                true,
-                u.turret_substate,
-                u.turret_target_id,
-                u.status.under_construction,
-                u.template_name.clone(),
-                u.turret_turn_rate_rad,
-            )
-        };
-        let _ = alive;
-        if let Some(owner) = self.objects.get_mut(&unit_id) {
-            seed_host_turret_extra(&mut owner.turret_runtime, turn_rate);
-        }
-        // C++ updateTurretAI: run when enabled OR current state is RECENTER.
-        if !enabled && sub != TurretSubState::Recenter {
-            return AttackAimResult::Failure;
-        }
-        {
-            let Some(owner) = self.objects.get_mut(&unit_id) else {
-                return AttackAimResult::Failure;
-            };
-            (|e: &mut HostTurretExtra| {
-                e.did_fire = false;
-                if e.enable_sweep_until != 0 && logic_frame >= e.enable_sweep_until {
-                    // window expired; keep stored until next notifyFired
+            let (enabled, alive, sub, tid, under_construction, tmpl, turn_rate) = {
+                let Some(u) = self.objects.get(&unit_id) else {
+                    return Ok(AttackAimResult::Failure);
+                };
+                if !u.is_alive() {
+                    return Ok(AttackAimResult::Failure);
                 }
-            })(&mut owner.turret_runtime)
-        };
-        let pos_kind = {
-            let Some(owner) = self.objects.get_mut(&unit_id) else {
-                return AttackAimResult::Failure;
+                (
+                    u.turret_enabled,
+                    true,
+                    u.turret_substate,
+                    u.turret_target_id,
+                    u.status.under_construction,
+                    u.template_name.clone(),
+                    u.turret_turn_rate_rad,
+                )
             };
-            owner.turret_target_kind()
-        };
-        let prev_angle = self
-            .objects
-            .get(&unit_id)
-            .map(|u| u.turret_angle_deg)
-            .unwrap_or(0.0);
+            let _ = alive;
+            if let Some(owner) = self.objects.get_mut(&unit_id) {
+                seed_host_turret_extra(&mut owner.turret_runtime, turn_rate);
+            }
+            // C++ updateTurretAI: run when enabled OR current state is RECENTER.
+            if !enabled && sub != TurretSubState::Recenter {
+                return Ok(AttackAimResult::Failure);
+            }
+            {
+                let Some(owner) = self.objects.get_mut(&unit_id) else {
+                    return Ok(AttackAimResult::Failure);
+                };
+                (|e: &mut HostTurretExtra| {
+                    e.did_fire = false;
+                    if e.enable_sweep_until != 0 && logic_frame >= e.enable_sweep_until {
+                        // window expired; keep stored until next notifyFired
+                    }
+                })(&mut owner.turret_runtime)
+            };
+            let pos_kind = {
+                let Some(owner) = self.objects.get_mut(&unit_id) else {
+                    return Ok(AttackAimResult::Failure);
+                };
+                owner.turret_target_kind()
+            };
+            let prev_angle = self
+                .objects
+                .get(&unit_id)
+                .map(|u| u.turret_angle_deg)
+                .unwrap_or(0.0);
 
-        let result = match sub {
-            TurretSubState::Idle => {
-                let strategy_center =
-                    crate::game_logic::host_strategy_center::is_strategy_center_template(&tmpl);
-                // Strategy Center idle-scan is owned by
-                // `tick_strategy_center_turret_idle_scan` (Bombardment ACTIVE).
-                // Do not double-step the generic SM.
-                if !strategy_center {
-                    let (min_iv, max_iv, scan_authored) = {
+            let result = match sub {
+                TurretSubState::Idle => {
+                    let strategy_center =
+                        crate::game_logic::host_strategy_center::is_strategy_center_template(&tmpl);
+                    // Strategy Center idle-scan is owned by
+                    // `tick_strategy_center_turret_idle_scan` (Bombardment ACTIVE).
+                    // Do not double-step the generic SM.
+                    if !strategy_center {
+                        let (min_iv, max_iv, scan_authored) = {
+                            let Some(owner) = self.objects.get_mut(&unit_id) else {
+                                return Ok(AttackAimResult::Failure);
+                            };
+                            (|e: &mut HostTurretExtra| {
+                                (
+                                    e.min_idle_scan_interval,
+                                    e.max_idle_scan_interval,
+                                    e.min_idle_scan_angle != 0.0 || e.max_idle_scan_angle != 0.0,
+                                )
+                            })(&mut owner.turret_runtime)
+                        };
+                        if scan_authored {
+                            {
+                                let Some(u) = self.objects.get_mut(&unit_id) else {
+                                    return Ok(AttackAimResult::Failure);
+                                };
+                                if u.turret_idle_scan_next_frame == 0 {
+                                    // Leftover TurretAIIdleState::reset_idle_scan:
+                                    // GameLogicRandomValue(min, max), not index mix.
+                                    let max_iv = if max_iv < min_iv { min_iv } else { max_iv };
+                                    let interval = gamelogic::helpers::get_game_logic_random_value(
+                                        min_iv as i32,
+                                        max_iv as i32,
+                                    ) as u32;
+                                    u.turret_idle_scan_next_frame =
+                                        logic_frame.saturating_add(interval);
+                                }
+                            }
+                        }
+                    }
+                    self.turret_check_for_idle_mood_target(unit_id, current_time);
+                    if self
+                        .objects
+                        .get(&unit_id)
+                        .map(|u| u.turret_substate == TurretSubState::Aim)
+                        .unwrap_or(false)
+                    {
+                        return Ok(AttackAimResult::Continue);
+                    }
+                    let due = !strategy_center
+                        && self
+                            .objects
+                            .get(&unit_id)
+                            .map(|u| {
+                                u.turret_idle_scan_next_frame != 0
+                                    && logic_frame >= u.turret_idle_scan_next_frame
+                            })
+                            .unwrap_or(false);
+                    if due {
+                        if let Some(u) = self.objects.get_mut(&unit_id) {
+                            u.turret_substate = TurretSubState::IdleScan;
+                            u.turret_idle_scanning = true;
+                            u.turret_idle_scan_next_frame = 0;
+                        }
+                        {
+                            let Some(owner) = self.objects.get_mut(&unit_id) else {
+                                return Ok(AttackAimResult::Failure);
+                            };
+                            (|e: &mut HostTurretExtra| {
+                                e.idle_scan_entered = false;
+                            })(&mut owner.turret_runtime)
+                        };
+                    }
+                    AttackAimResult::Continue
+                }
+                TurretSubState::IdleScan => {
+                    if under_construction {
+                        return Ok(AttackAimResult::Continue);
+                    }
+                    let (min_a, max_a, desired) = {
                         let Some(owner) = self.objects.get_mut(&unit_id) else {
-                            return AttackAimResult::Failure;
+                            return Ok(AttackAimResult::Failure);
                         };
                         (|e: &mut HostTurretExtra| {
+                            if !e.idle_scan_entered {
+                                e.idle_scan_entered = true;
+                                if e.min_idle_scan_angle == 0.0 && e.max_idle_scan_angle == 0.0 {
+                                    e.idle_scan_desired_rad = 0.0;
+                                    return (0.0, 0.0, None);
+                                }
+                                // Leftover TurretAIIdleScanState::classic_on_enter:
+                                // GameLogicRandomValueReal(0, max-min) + GameLogicRandomValue(0,1) sign.
+                                let span = (e.max_idle_scan_angle - e.min_idle_scan_angle).max(0.0);
+                                let mut off = e.min_idle_scan_angle
+                                    + gamelogic::helpers::get_game_logic_random_value_real(
+                                        0.0, span,
+                                    );
+                                if gamelogic::helpers::get_game_logic_random_value(0, 1) == 0 {
+                                    off = -off;
+                                }
+                                e.idle_scan_desired_rad = off;
+                            }
                             (
-                                e.min_idle_scan_interval,
-                                e.max_idle_scan_interval,
-                                e.min_idle_scan_angle != 0.0 || e.max_idle_scan_angle != 0.0,
+                                e.min_idle_scan_angle,
+                                e.max_idle_scan_angle,
+                                Some(e.idle_scan_desired_rad),
                             )
                         })(&mut owner.turret_runtime)
                     };
-                    if scan_authored {
-                        {
-                            let Some(u) = self.objects.get_mut(&unit_id) else {
-                                return AttackAimResult::Failure;
-                            };
-                            if u.turret_idle_scan_next_frame == 0 {
-                                // Leftover TurretAIIdleState::reset_idle_scan:
-                                // GameLogicRandomValue(min, max), not index mix.
-                                let max_iv = if max_iv < min_iv { min_iv } else { max_iv };
-                                let interval = gamelogic::helpers::get_game_logic_random_value(
-                                    min_iv as i32,
-                                    max_iv as i32,
-                                ) as u32;
-                                u.turret_idle_scan_next_frame =
-                                    logic_frame.saturating_add(interval);
-                            }
+                    if min_a == 0.0 && max_a == 0.0 {
+                        if let Some(u) = self.objects.get_mut(&unit_id) {
+                            u.turret_substate = TurretSubState::Hold;
+                            u.turret_idle_scanning = false;
+                            u.turret_holding = true;
+                            u.turret_hold_until_frame =
+                                logic_frame.saturating_add(u.turret_recenter_frames.max(1));
+                            u.turret_idle_scan_index = u.turret_idle_scan_index.saturating_add(1);
                         }
+                        return Ok(AttackAimResult::Continue);
                     }
-                }
-                self.turret_check_for_idle_mood_target(unit_id, current_time);
-                if self
-                    .objects
-                    .get(&unit_id)
-                    .map(|u| u.turret_substate == TurretSubState::Aim)
-                    .unwrap_or(false)
-                {
-                    return AttackAimResult::Continue;
-                }
-                let due = !strategy_center
-                    && self
-                        .objects
-                        .get(&unit_id)
-                        .map(|u| {
-                            u.turret_idle_scan_next_frame != 0
-                                && logic_frame >= u.turret_idle_scan_next_frame
-                        })
-                        .unwrap_or(false);
-                if due {
-                    if let Some(u) = self.objects.get_mut(&unit_id) {
-                        u.turret_substate = TurretSubState::IdleScan;
-                        u.turret_idle_scanning = true;
-                        u.turret_idle_scan_next_frame = 0;
-                    }
-                    {
-                        let Some(owner) = self.objects.get_mut(&unit_id) else {
-                            return AttackAimResult::Failure;
+                    let Some(off) = desired else {
+                        return Ok(AttackAimResult::Continue);
+                    };
+                    let (ang_ok, pitch_ok) = {
+                        let Some(u) = self.objects.get_mut(&unit_id) else {
+                            return Ok(AttackAimResult::Failure);
                         };
-                        (|e: &mut HostTurretExtra| {
-                            e.idle_scan_entered = false;
-                        })(&mut owner.turret_runtime)
+                        u.turret_idle_scan_desired_angle_deg =
+                            (u.turret_natural_angle_deg.to_radians() + off).to_degrees();
+                        let nat_a = u.turret_natural_angle_deg.to_radians() + off;
+                        let nat_p = u.turret_natural_pitch_deg.to_radians();
+                        let a = u.turn_turret_towards_angle_rad(nat_a, 0.5, 0.0);
+                        let p = u.turn_turret_towards_pitch_rad(nat_p, 0.5);
+                        (a, p)
                     };
-                }
-                AttackAimResult::Continue
-            }
-            TurretSubState::IdleScan => {
-                if under_construction {
-                    return AttackAimResult::Continue;
-                }
-                let (min_a, max_a, desired) = {
-                    let Some(owner) = self.objects.get_mut(&unit_id) else {
-                        return AttackAimResult::Failure;
-                    };
-                    (|e: &mut HostTurretExtra| {
-                        if !e.idle_scan_entered {
-                            e.idle_scan_entered = true;
-                            if e.min_idle_scan_angle == 0.0 && e.max_idle_scan_angle == 0.0 {
-                                e.idle_scan_desired_rad = 0.0;
-                                return (0.0, 0.0, None);
-                            }
-                            // Leftover TurretAIIdleScanState::classic_on_enter:
-                            // GameLogicRandomValueReal(0, max-min) + GameLogicRandomValue(0,1) sign.
-                            let span = (e.max_idle_scan_angle - e.min_idle_scan_angle).max(0.0);
-                            let mut off = e.min_idle_scan_angle
-                                + gamelogic::helpers::get_game_logic_random_value_real(0.0, span);
-                            if gamelogic::helpers::get_game_logic_random_value(0, 1) == 0 {
-                                off = -off;
-                            }
-                            e.idle_scan_desired_rad = off;
+                    if ang_ok && pitch_ok {
+                        if let Some(u) = self.objects.get_mut(&unit_id) {
+                            u.turret_substate = TurretSubState::Hold;
+                            u.turret_idle_scanning = false;
+                            u.turret_holding = true;
+                            u.turret_hold_until_frame =
+                                logic_frame.saturating_add(u.turret_recenter_frames.max(1));
+                            u.turret_idle_scan_index = u.turret_idle_scan_index.saturating_add(1);
                         }
-                        (
-                            e.min_idle_scan_angle,
-                            e.max_idle_scan_angle,
-                            Some(e.idle_scan_desired_rad),
+                    }
+                    AttackAimResult::Continue
+                }
+                TurretSubState::Aim => {
+                    let has_pos = pos_kind == HostTurretTargetKind::Position && {
+                        let Some(owner) = self.objects.get_mut(&unit_id) else {
+                            return Ok(AttackAimResult::Failure);
+                        };
+                        (|e: &mut HostTurretExtra| e.target_pos.is_some())(
+                            &mut owner.turret_runtime,
                         )
-                    })(&mut owner.turret_runtime)
-                };
-                if min_a == 0.0 && max_a == 0.0 {
-                    if let Some(u) = self.objects.get_mut(&unit_id) {
-                        u.turret_substate = TurretSubState::Hold;
-                        u.turret_idle_scanning = false;
-                        u.turret_holding = true;
-                        u.turret_hold_until_frame =
-                            logic_frame.saturating_add(u.turret_recenter_frames.max(1));
-                        u.turret_idle_scan_index = u.turret_idle_scan_index.saturating_add(1);
-                    }
-                    return AttackAimResult::Continue;
-                }
-                let Some(off) = desired else {
-                    return AttackAimResult::Continue;
-                };
-                let (ang_ok, pitch_ok) = {
-                    let Some(u) = self.objects.get_mut(&unit_id) else {
-                        return AttackAimResult::Failure;
                     };
-                    u.turret_idle_scan_desired_angle_deg =
-                        (u.turret_natural_angle_deg.to_radians() + off).to_degrees();
-                    let nat_a = u.turret_natural_angle_deg.to_radians() + off;
-                    let nat_p = u.turret_natural_pitch_deg.to_radians();
-                    let a = u.turn_turret_towards_angle_rad(nat_a, 0.5, 0.0);
-                    let p = u.turn_turret_towards_pitch_rad(nat_p, 0.5);
-                    (a, p)
-                };
-                if ang_ok && pitch_ok {
-                    if let Some(u) = self.objects.get_mut(&unit_id) {
-                        u.turret_substate = TurretSubState::Hold;
-                        u.turret_idle_scanning = false;
-                        u.turret_holding = true;
-                        u.turret_hold_until_frame =
-                            logic_frame.saturating_add(u.turret_recenter_frames.max(1));
-                        u.turret_idle_scan_index = u.turret_idle_scan_index.saturating_add(1);
-                    }
-                }
-                AttackAimResult::Continue
-            }
-            TurretSubState::Aim => {
-                let has_pos = pos_kind == HostTurretTargetKind::Position && {
-                    let Some(owner) = self.objects.get_mut(&unit_id) else {
-                        return AttackAimResult::Failure;
-                    };
-                    (|e: &mut HostTurretExtra| e.target_pos.is_some())(&mut owner.turret_runtime)
-                };
-                if tid.is_none() && !has_pos {
-                    if let Some(u) = self.objects.get_mut(&unit_id) {
-                        u.turret_substate = TurretSubState::Hold;
-                        u.turret_hold_until_frame =
-                            logic_frame.saturating_add(u.turret_recenter_frames.max(1));
-                        u.turret_holding = true;
-                    }
-                    return AttackAimResult::Continue;
-                }
-                if let Some(vid) = tid {
-                    let alive = self
-                        .objects
-                        .get(&vid)
-                        .map(|v| v.is_alive() && !v.status.destroyed)
-                        .unwrap_or(false);
-                    if !alive {
-                        self.set_turret_target_object(unit_id, None, false);
-                        return AttackAimResult::Continue;
-                    }
-                    let team_now = self.objects.get(&vid).map(|v| v.team);
-                    let team0 = {
-                        let Some(owner) = self.objects.get_mut(&unit_id) else {
-                            return AttackAimResult::Failure;
-                        };
-                        (|e: &mut HostTurretExtra| e.victim_team)(&mut owner.turret_runtime)
-                    };
-                    if team0.is_some() && team_now != team0 {
-                        if self
-                            .objects
-                            .get(&unit_id)
-                            .map(|u| u.turret_mood_target)
-                            .unwrap_or(false)
-                        {
-                            self.set_turret_target_object(unit_id, None, false);
-                        }
+                    if tid.is_none() && !has_pos {
                         if let Some(u) = self.objects.get_mut(&unit_id) {
                             u.turret_substate = TurretSubState::Hold;
                             u.turret_hold_until_frame =
                                 logic_frame.saturating_add(u.turret_recenter_frames.max(1));
                             u.turret_holding = true;
                         }
-                        return AttackAimResult::Continue;
+                        return Ok(AttackAimResult::Continue);
                     }
-                    if self.cannot_possibly_attack_object(
-                        unit_id,
-                        vid,
-                        self.objects
-                            .get(&unit_id)
-                            .map(|u| u.turret_force_attacking)
-                            .unwrap_or(false),
-                    ) {
-                        if self
+                    if let Some(vid) = tid {
+                        let alive = self
                             .objects
-                            .get(&unit_id)
-                            .map(|u| u.turret_mood_target)
-                            .unwrap_or(false)
-                        {
+                            .get(&vid)
+                            .map(|v| v.is_alive() && !v.status.destroyed)
+                            .unwrap_or(false);
+                        if !alive {
                             self.set_turret_target_object(unit_id, None, false);
+                            return Ok(AttackAimResult::Continue);
                         }
-                        if let Some(u) = self.objects.get_mut(&unit_id) {
-                            u.turret_substate = TurretSubState::Hold;
-                            u.turret_hold_until_frame =
-                                logic_frame.saturating_add(u.turret_recenter_frames.max(1));
-                            u.turret_holding = true;
-                        }
-                        return AttackAimResult::Continue;
-                    }
-                    {
-                        let Some(owner) = self.objects.get_mut(&unit_id) else {
-                            return AttackAimResult::Failure;
+                        let team_now = self.objects.get(&vid).map(|v| v.team);
+                        let team0 = {
+                            let Some(owner) = self.objects.get_mut(&unit_id) else {
+                                return Ok(AttackAimResult::Failure);
+                            };
+                            (|e: &mut HostTurretExtra| e.victim_team)(&mut owner.turret_runtime)
                         };
-                        (|e: &mut HostTurretExtra| {
-                            e.targeter_adds = e.targeter_adds.saturating_add(1);
-                        })(&mut owner.turret_runtime)
-                    };
-                }
-                match self.tick_turret_aim(unit_id, 1.0) {
-                    AttackAimResult::Success => {
-                        if let Some(u) = self.objects.get_mut(&unit_id) {
-                            u.turret_substate = TurretSubState::Fire;
+                        if team0.is_some() && team_now != team0 {
+                            if self
+                                .objects
+                                .get(&unit_id)
+                                .map(|u| u.turret_mood_target)
+                                .unwrap_or(false)
+                            {
+                                self.set_turret_target_object(unit_id, None, false);
+                            }
+                            if let Some(u) = self.objects.get_mut(&unit_id) {
+                                u.turret_substate = TurretSubState::Hold;
+                                u.turret_hold_until_frame =
+                                    logic_frame.saturating_add(u.turret_recenter_frames.max(1));
+                                u.turret_holding = true;
+                            }
+                            return Ok(AttackAimResult::Continue);
                         }
-                        let _ = self.attack_fire_weapon_enter(unit_id);
-                        AttackAimResult::Success
+                        if self.cannot_possibly_attack_object(
+                            unit_id,
+                            vid,
+                            self.objects
+                                .get(&unit_id)
+                                .map(|u| u.turret_force_attacking)
+                                .unwrap_or(false),
+                        ) {
+                            if self
+                                .objects
+                                .get(&unit_id)
+                                .map(|u| u.turret_mood_target)
+                                .unwrap_or(false)
+                            {
+                                self.set_turret_target_object(unit_id, None, false);
+                            }
+                            if let Some(u) = self.objects.get_mut(&unit_id) {
+                                u.turret_substate = TurretSubState::Hold;
+                                u.turret_hold_until_frame =
+                                    logic_frame.saturating_add(u.turret_recenter_frames.max(1));
+                                u.turret_holding = true;
+                            }
+                            return Ok(AttackAimResult::Continue);
+                        }
+                        {
+                            let Some(owner) = self.objects.get_mut(&unit_id) else {
+                                return Ok(AttackAimResult::Failure);
+                            };
+                            (|e: &mut HostTurretExtra| {
+                                e.targeter_adds = e.targeter_adds.saturating_add(1);
+                            })(&mut owner.turret_runtime)
+                        };
                     }
-                    other => other,
+                    match self.tick_turret_aim_with_effects(unit_id, 1.0, presentation_effects)? {
+                        AttackAimResult::Success => {
+                            if let Some(u) = self.objects.get_mut(&unit_id) {
+                                u.turret_substate = TurretSubState::Fire;
+                            }
+                            let _ = self.attack_fire_weapon_enter(unit_id);
+                            AttackAimResult::Success
+                        }
+                        other => other,
+                    }
                 }
-            }
-            TurretSubState::Fire => {
-                let has_pos = pos_kind == HostTurretTargetKind::Position && {
-                    let Some(owner) = self.objects.get_mut(&unit_id) else {
-                        return AttackAimResult::Failure;
+                TurretSubState::Fire => {
+                    let has_pos = pos_kind == HostTurretTargetKind::Position && {
+                        let Some(owner) = self.objects.get_mut(&unit_id) else {
+                            return Ok(AttackAimResult::Failure);
+                        };
+                        (|e: &mut HostTurretExtra| e.target_pos.is_some())(
+                            &mut owner.turret_runtime,
+                        )
                     };
-                    (|e: &mut HostTurretExtra| e.target_pos.is_some())(&mut owner.turret_runtime)
-                };
-                if tid.is_none() && !has_pos {
-                    if let Some(u) = self.objects.get_mut(&unit_id) {
-                        u.turret_substate = TurretSubState::Aim;
-                    }
-                    return AttackAimResult::Continue;
-                }
-                if let Some(vid) = tid {
-                    if self.out_of_weapon_range_object(unit_id, vid) {
-                        self.attack_fire_weapon_exit(unit_id);
+                    if tid.is_none() && !has_pos {
                         if let Some(u) = self.objects.get_mut(&unit_id) {
                             u.turret_substate = TurretSubState::Aim;
                         }
-                        return AttackAimResult::Continue;
+                        return Ok(AttackAimResult::Continue);
                     }
-                    // Preserve the existing discharge authority: Strategy mood
-                    // owns its residual effects/HP; explicit attacks keep the
-                    // generic weapon/projectile route. Both consume this AIM goal.
-                    let strategy_mood = self.objects.get(&unit_id).is_some_and(|u| {
+                    if let Some(vid) = tid {
+                        if self.out_of_weapon_range_object(unit_id, vid) {
+                            self.attack_fire_weapon_exit(unit_id);
+                            if let Some(u) = self.objects.get_mut(&unit_id) {
+                                u.turret_substate = TurretSubState::Aim;
+                            }
+                            return Ok(AttackAimResult::Continue);
+                        }
+                        // Preserve the existing discharge authority: Strategy mood
+                        // owns its residual effects/HP; explicit attacks keep the
+                        // generic weapon/projectile route. Both consume this AIM goal.
+                        let strategy_mood = self.objects.get(&unit_id).is_some_and(|u| {
                         u.turret_mood_target
                             && (crate::game_logic::host_strategy_center::is_strategy_center_template(
                                 &u.template_name,
                             ) || u.is_kind_of(KindOf::FSStrategyCenter))
                     });
-                    let fire = if strategy_mood {
-                        self.try_strategy_center_bombardment_turret_fire_with_effects(
-                            unit_id,
-                            presentation_effects,
-                        )
-                    } else {
-                        self.attack_fire_weapon_update_with_effects(
-                            unit_id,
-                            vid,
-                            current_time,
-                            presentation_effects,
-                        )
-                    };
-                    match fire {
-                        AttackFireResult::Continue => AttackAimResult::Continue,
-                        AttackFireResult::Success | AttackFireResult::Failure => {
-                            if matches!(fire, AttackFireResult::Success) && !strategy_mood {
-                                // Strategy residual already notifies exactly once.
-                                self.notify_turret_fired(unit_id);
+                        let fire = if strategy_mood {
+                            self.try_strategy_center_bombardment_turret_fire_with_effects(
+                                unit_id,
+                                presentation_effects,
+                            )
+                        } else {
+                            self.attack_fire_weapon_update_with_effects(
+                                unit_id,
+                                vid,
+                                current_time,
+                                presentation_effects,
+                            )
+                        };
+                        match fire {
+                            AttackFireResult::Continue => AttackAimResult::Continue,
+                            AttackFireResult::Success | AttackFireResult::Failure => {
+                                if matches!(fire, AttackFireResult::Success) && !strategy_mood {
+                                    // Strategy residual already notifies exactly once.
+                                    self.notify_turret_fired(unit_id);
+                                }
+                                self.attack_fire_weapon_exit(unit_id);
+                                if let Some(u) = self.objects.get_mut(&unit_id) {
+                                    u.turret_substate = TurretSubState::Aim;
+                                }
+                                AttackAimResult::Continue
                             }
+                        }
+                    } else {
+                        let pos = {
+                            let Some(owner) = self.objects.get_mut(&unit_id) else {
+                                return Ok(AttackAimResult::Failure);
+                            };
+                            (|e: &mut HostTurretExtra| e.target_pos)(&mut owner.turret_runtime)
+                        };
+                        let Some(pos) = pos else {
+                            if let Some(u) = self.objects.get_mut(&unit_id) {
+                                u.turret_substate = TurretSubState::Aim;
+                            }
+                            return Ok(AttackAimResult::Continue);
+                        };
+                        let (can, in_range) = {
+                            let Some(u) = self.objects.get(&unit_id) else {
+                                return Ok(AttackAimResult::Failure);
+                            };
+                            let Some(slot) = u.selected_weapon_slot() else {
+                                return Ok(AttackAimResult::Failure);
+                            };
+                            (
+                                u.can_fire(current_time),
+                                u.is_within_attack_range_pos_for_slot(slot, pos),
+                            )
+                        };
+                        if !in_range {
                             self.attack_fire_weapon_exit(unit_id);
                             if let Some(u) = self.objects.get_mut(&unit_id) {
                                 u.turret_substate = TurretSubState::Aim;
                             }
-                            AttackAimResult::Continue
+                            return Ok(AttackAimResult::Continue);
                         }
-                    }
-                } else {
-                    let pos = {
-                        let Some(owner) = self.objects.get_mut(&unit_id) else {
-                            return AttackAimResult::Failure;
-                        };
-                        (|e: &mut HostTurretExtra| e.target_pos)(&mut owner.turret_runtime)
-                    };
-                    let Some(pos) = pos else {
-                        if let Some(u) = self.objects.get_mut(&unit_id) {
-                            u.turret_substate = TurretSubState::Aim;
+                        if can {
+                            if let Some(u) = self.objects.get_mut(&unit_id) {
+                                if let Some(slot) = u.selected_weapon_slot() {
+                                    if let Some(w) = u.weapon_slot_mut(slot) {
+                                        w.last_fire_time = current_time;
+                                    }
+                                }
+                            }
+                            self.notify_turret_fired(unit_id);
                         }
-                        return AttackAimResult::Continue;
-                    };
-                    let (can, in_range) = {
-                        let Some(u) = self.objects.get(&unit_id) else {
-                            return AttackAimResult::Failure;
-                        };
-                        let Some(slot) = u.selected_weapon_slot() else {
-                            return AttackAimResult::Failure;
-                        };
-                        (
-                            u.can_fire(current_time),
-                            u.is_within_attack_range_pos_for_slot(slot, pos),
-                        )
-                    };
-                    if !in_range {
                         self.attack_fire_weapon_exit(unit_id);
                         if let Some(u) = self.objects.get_mut(&unit_id) {
                             u.turret_substate = TurretSubState::Aim;
                         }
-                        return AttackAimResult::Continue;
+                        AttackAimResult::Continue
                     }
-                    if can {
+                }
+                TurretSubState::Hold => {
+                    self.turret_check_for_idle_mood_target(unit_id, current_time);
+                    if self
+                        .objects
+                        .get(&unit_id)
+                        .map(|u| u.turret_substate == TurretSubState::Aim)
+                        .unwrap_or(false)
+                    {
+                        return Ok(AttackAimResult::Continue);
+                    }
+                    let done = {
+                        let Some(u) = self.objects.get(&unit_id) else {
+                            return Ok(AttackAimResult::Failure);
+                        };
+                        logic_frame >= u.turret_hold_until_frame && u.turret_hold_until_frame > 0
+                    };
+                    if done {
                         if let Some(u) = self.objects.get_mut(&unit_id) {
-                            if let Some(slot) = u.selected_weapon_slot() {
-                                if let Some(w) = u.weapon_slot_mut(slot) {
-                                    w.last_fire_time = current_time;
-                                }
-                            }
+                            u.turret_holding = false;
+                            u.turret_hold_until_frame = 0;
+                            u.turret_substate = TurretSubState::Recenter;
+                            u.turret_idle_recentering = true;
                         }
-                        self.notify_turret_fired(unit_id);
-                    }
-                    self.attack_fire_weapon_exit(unit_id);
-                    if let Some(u) = self.objects.get_mut(&unit_id) {
-                        u.turret_substate = TurretSubState::Aim;
                     }
                     AttackAimResult::Continue
                 }
-            }
-            TurretSubState::Hold => {
-                self.turret_check_for_idle_mood_target(unit_id, current_time);
-                if self
-                    .objects
-                    .get(&unit_id)
-                    .map(|u| u.turret_substate == TurretSubState::Aim)
-                    .unwrap_or(false)
-                {
-                    return AttackAimResult::Continue;
-                }
-                let done = {
-                    let Some(u) = self.objects.get(&unit_id) else {
-                        return AttackAimResult::Failure;
+                TurretSubState::Recenter => {
+                    if under_construction {
+                        return Ok(AttackAimResult::Continue);
+                    }
+                    let (ang_ok, pitch_ok) = {
+                        let Some(u) = self.objects.get_mut(&unit_id) else {
+                            return Ok(AttackAimResult::Failure);
+                        };
+                        let nat_a = u.turret_natural_angle_deg.to_radians();
+                        let nat_p = u.turret_natural_pitch_deg.to_radians();
+                        let a = u.turn_turret_towards_angle_rad(nat_a, 0.5, 0.0);
+                        let p = u.turn_turret_towards_pitch_rad(nat_p, 0.5);
+                        (a, p)
                     };
-                    logic_frame >= u.turret_hold_until_frame && u.turret_hold_until_frame > 0
-                };
-                if done {
-                    if let Some(u) = self.objects.get_mut(&unit_id) {
-                        u.turret_holding = false;
-                        u.turret_hold_until_frame = 0;
-                        u.turret_substate = TurretSubState::Recenter;
-                        u.turret_idle_recentering = true;
+                    if ang_ok && pitch_ok {
+                        if let Some(u) = self.objects.get_mut(&unit_id) {
+                            u.turret_substate = TurretSubState::Idle;
+                            u.turret_idle_recentering = false;
+                            u.turret_rotating = false;
+                            u.turret_idle_scan_next_frame = 0;
+                        }
+                        AttackAimResult::Success
+                    } else {
+                        AttackAimResult::Continue
                     }
                 }
-                AttackAimResult::Continue
-            }
-            TurretSubState::Recenter => {
-                if under_construction {
-                    return AttackAimResult::Continue;
-                }
-                let (ang_ok, pitch_ok) = {
-                    let Some(u) = self.objects.get_mut(&unit_id) else {
-                        return AttackAimResult::Failure;
-                    };
-                    let nat_a = u.turret_natural_angle_deg.to_radians();
-                    let nat_p = u.turret_natural_pitch_deg.to_radians();
-                    let a = u.turn_turret_towards_angle_rad(nat_a, 0.5, 0.0);
-                    let p = u.turn_turret_towards_pitch_rad(nat_p, 0.5);
-                    (a, p)
-                };
-                if ang_ok && pitch_ok {
-                    if let Some(u) = self.objects.get_mut(&unit_id) {
-                        u.turret_substate = TurretSubState::Idle;
-                        u.turret_idle_recentering = false;
-                        u.turret_rotating = false;
-                        u.turret_idle_scan_next_frame = 0;
-                    }
-                    AttackAimResult::Success
-                } else {
-                    AttackAimResult::Continue
-                }
-            }
-        };
-        self.apply_turret_rotate_fx(unit_id, prev_angle, presentation_effects);
-        result
+            };
+            self.apply_turret_rotate_fx(unit_id, prev_angle, presentation_effects);
+            result
+        })
     }
 
     /// Drive TurretAI SM for all turret-enabled objects (and disabled Recenter).
+    #[cfg(test)]
     pub(crate) fn tick_all_turret_state_machines(
         &mut self,
         object_ids: &[ObjectId],
@@ -1542,6 +1576,7 @@ impl GameLogic {
             logic_frame,
             &mut crate::game_logic::ScriptPresentationEffects::default(),
         )
+        .expect("valid explicit standalone turret fixture")
     }
 
     pub(crate) fn tick_all_turret_state_machines_with_effects(
@@ -1550,7 +1585,7 @@ impl GameLogic {
         current_time: f32,
         logic_frame: u32,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         use crate::game_logic::object::TurretSubState;
         for &id in object_ids {
             let should = self
@@ -1573,240 +1608,290 @@ impl GameLogic {
                     current_time,
                     logic_frame,
                     presentation_effects,
-                );
+                )?;
             }
         }
+        Ok(())
     }
 
+    #[cfg(test)]
     pub fn tick_turret_aim(
         &mut self,
         unit_id: ObjectId,
         max_rate_modifier: f32,
     ) -> AttackAimResult {
-        let Some(owner) = self.objects.get_mut(&unit_id) else {
-            return AttackAimResult::Failure;
-        };
-        seed_host_turret_extra(&mut owner.turret_runtime, owner.turret_turn_rate_rad);
-        let (
-            victim_pos,
-            has_object,
-            victim_immobile,
-            victim_ground,
-            under_construction,
-            tmpl,
-            turn_rate,
-            geom_h,
-            unit_pos,
-        ) = {
-            let Some(u) = self.objects.get(&unit_id) else {
-                return AttackAimResult::Failure;
-            };
-            if !u.turret_enabled {
-                return AttackAimResult::Failure;
-            }
-            let kind = u.turret_target_kind();
-            let pos_tgt = u.turret_runtime.target_pos;
-            match (u.turret_target_id, kind, pos_tgt) {
-                (Some(tid), _, _) => {
-                    let Some(v) = self.objects.get(&tid) else {
-                        return AttackAimResult::Failure;
-                    };
-                    if !v.is_alive() || v.status.destroyed {
-                        return AttackAimResult::Failure;
-                    }
-                    let raw = if host_template_is_bridge(&v.template_name)
-                        || v.template_name.eq_ignore_ascii_case("Bridge")
-                    {
-                        nearer_bridge_attack_point(
-                            u.get_position(),
-                            v.get_position(),
-                            v.selection_radius,
-                        )
-                    } else {
-                        v.get_position()
-                    };
-                    if v.is_temporarily_preventing_aim_success(self.frame) {
-                        return AttackAimResult::Continue;
-                    }
-                    let aim = v.apply_sneaky_targeting_offset(raw, self.frame);
+        self.tick_turret_aim_with_effects(unit_id, max_rate_modifier, &mut Default::default())
+            .expect("valid explicit standalone aim fixture")
+    }
 
-                    (
-                        aim,
+    pub fn tick_turret_aim_with_effects(
+        &mut self,
+        unit_id: ObjectId,
+        max_rate_modifier: f32,
+
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<AttackAimResult> {
+        Ok({
+            let Some(owner) = self.objects.get_mut(&unit_id) else {
+                return Ok(AttackAimResult::Failure);
+            };
+            seed_host_turret_extra(&mut owner.turret_runtime, owner.turret_turn_rate_rad);
+            let (
+                victim_pos,
+                has_object,
+                victim_immobile,
+                victim_ground,
+                under_construction,
+                tmpl,
+                turn_rate,
+                geom_h,
+                unit_pos,
+            ) = {
+                let Some(u) = self.objects.get(&unit_id) else {
+                    return Ok(AttackAimResult::Failure);
+                };
+                if !u.turret_enabled {
+                    return Ok(AttackAimResult::Failure);
+                }
+                let kind = u.turret_target_kind();
+                let pos_tgt = u.turret_runtime.target_pos;
+                match (u.turret_target_id, kind, pos_tgt) {
+                    (Some(tid), _, _) => {
+                        let Some(v) = self.objects.get(&tid) else {
+                            return Ok(AttackAimResult::Failure);
+                        };
+                        if !v.is_alive() || v.status.destroyed {
+                            return Ok(AttackAimResult::Failure);
+                        }
+                        let raw = if host_template_is_bridge(&v.template_name)
+                            || v.template_name.eq_ignore_ascii_case("Bridge")
+                        {
+                            nearer_bridge_attack_point(
+                                u.get_position(),
+                                v.get_position(),
+                                v.selection_radius,
+                            )
+                        } else {
+                            v.get_position()
+                        };
+                        let aim = v.apply_sneaky_targeting_offset(raw, self.frame);
+
+                        (
+                            aim,
+                            true,
+                            v.is_kind_of(KindOf::Immobile) || v.is_kind_of(KindOf::Structure),
+                            !v.is_kind_of(KindOf::Aircraft),
+                            u.status.under_construction,
+                            u.template_name.clone(),
+                            u.turret_turn_rate_rad,
+                            u.selection_radius.max(10.0),
+                            u.get_position(),
+                        )
+                    }
+                    (None, HostTurretTargetKind::Position, Some(p)) => (
+                        p,
+                        false,
                         true,
-                        v.is_kind_of(KindOf::Immobile) || v.is_kind_of(KindOf::Structure),
-                        !v.is_kind_of(KindOf::Aircraft),
+                        true,
                         u.status.under_construction,
                         u.template_name.clone(),
                         u.turret_turn_rate_rad,
                         u.selection_radius.max(10.0),
                         u.get_position(),
-                    )
+                    ),
+                    _ => return Ok(AttackAimResult::Failure),
                 }
-                (None, HostTurretTargetKind::Position, Some(p)) => (
-                    p,
-                    false,
-                    true,
-                    true,
-                    u.status.under_construction,
-                    u.template_name.clone(),
-                    u.turret_turn_rate_rad,
-                    u.selection_radius.max(10.0),
-                    u.get_position(),
-                ),
-                _ => return AttackAimResult::Failure,
-            }
-        };
-        let _ = (under_construction, tmpl, turn_rate);
-        let now = self.frame;
-        let (
-            sweep,
-            sweep_mod,
-            sweep_on,
-            allows_pitch,
-            fire_pitch,
-            min_pitch,
-            ground_pitch,
-            pitch_rate,
-            preventing,
-        ) = {
-            let Some(owner) = self.objects.get_mut(&unit_id) else {
-                return AttackAimResult::Failure;
             };
-            let selected_slot = owner.selected_weapon_slot().unwrap_or(0) as usize;
-            (|e: &mut HostTurretExtra| {
-                let slot = selected_slot;
-                let i = slot.min(2);
-                let sweep = e.fire_angle_sweep[i];
-                let sweep_on =
-                    sweep > 0.0 && e.enable_sweep_until != 0 && now < e.enable_sweep_until;
-                (
-                    sweep,
-                    e.sweep_speed_mod[i],
-                    sweep_on,
-                    e.allows_pitch,
-                    e.fire_pitch,
-                    e.min_pitch,
-                    e.ground_unit_pitch,
-                    e.pitch_rate,
-                    e.preventing_aim,
-                )
-            })(&mut owner.turret_runtime)
-        };
-
-        let Some(u) = self.objects.get_mut(&unit_id) else {
-            return AttackAimResult::Failure;
-        };
-        u.turret_substate = crate::game_logic::object::TurretSubState::Aim;
-        let rel_world = u.relative_angle_2d_to(victim_pos);
-        let mut aim_angle = rel_world;
-        let mut rate_mod = max_rate_modifier.max(0.01);
-        if sweep > 0.0 && sweep_on {
-            let pos_sweep = (|e: &mut HostTurretExtra| e.positive_sweep)(&mut u.turret_runtime);
-            if pos_sweep {
-                aim_angle += sweep;
+            // TurretAI.cpp1028: targeter registration precedes prevention, with
+            // canonical receiver loans released across authored Drawable construction.
+            let target_id = self.objects.get(&unit_id).and_then(|u| u.turret_target_id);
+            let target_preventing = if let Some(target_id) = target_id {
+                if !self.admit_current_jet_targeter_with_effects(
+                    target_id,
+                    unit_id,
+                    presentation_effects,
+                )? {
+                    return Ok(AttackAimResult::Failure);
+                }
+                self.objects
+                    .get(&target_id)
+                    .is_some_and(|target| target.is_temporarily_preventing_aim_success(self.frame))
             } else {
-                aim_angle -= sweep;
-            }
-            rate_mod *= sweep_mod.max(0.01);
-        }
-        let mut turn_aligned =
-            u.turn_turret_towards_angle_rad(aim_angle, rate_mod, TURRET_REL_THRESH_RAD);
-        if sweep > 0.0 {
-            if turn_aligned {
+                false
+            };
+            let _ = (under_construction, tmpl, turn_rate);
+            let now = self.frame;
+            let (
+                sweep,
+                sweep_mod,
+                sweep_on,
+                allows_pitch,
+                fire_pitch,
+                min_pitch,
+                ground_pitch,
+                pitch_rate,
+                preventing,
+            ) = {
+                let Some(owner) = self.objects.get_mut(&unit_id) else {
+                    return Ok(AttackAimResult::Failure);
+                };
+                let selected_slot = owner.selected_weapon_slot().unwrap_or(0) as usize;
                 (|e: &mut HostTurretExtra| {
-                    e.positive_sweep = !e.positive_sweep;
+                    let slot = selected_slot;
+                    let i = slot.min(2);
+                    let sweep = e.fire_angle_sweep[i];
+                    let sweep_on =
+                        sweep > 0.0 && e.enable_sweep_until != 0 && now < e.enable_sweep_until;
+                    (
+                        sweep,
+                        e.sweep_speed_mod[i],
+                        sweep_on,
+                        e.allows_pitch,
+                        e.fire_pitch,
+                        e.min_pitch,
+                        e.ground_unit_pitch,
+                        e.pitch_rate,
+                        e.preventing_aim,
+                    )
+                })(&mut owner.turret_runtime)
+            };
+
+            let Some(u) = self.objects.get_mut(&unit_id) else {
+                return Ok(AttackAimResult::Failure);
+            };
+            u.turret_substate = crate::game_logic::object::TurretSubState::Aim;
+            let rel_world = u.relative_angle_2d_to(victim_pos);
+            let mut aim_angle = rel_world;
+            let mut rate_mod = max_rate_modifier.max(0.01);
+            if sweep > 0.0 && sweep_on {
+                let pos_sweep = (|e: &mut HostTurretExtra| e.positive_sweep)(&mut u.turret_runtime);
+                if pos_sweep {
+                    aim_angle += sweep;
+                } else {
+                    aim_angle -= sweep;
+                }
+                rate_mod *= sweep_mod.max(0.01);
+            }
+            let mut turn_aligned =
+                u.turn_turret_towards_angle_rad(aim_angle, rate_mod, TURRET_REL_THRESH_RAD);
+            if sweep > 0.0 {
+                if turn_aligned {
+                    (|e: &mut HostTurretExtra| {
+                        e.positive_sweep = !e.positive_sweep;
+                    })(&mut u.turret_runtime);
+                }
+                let turret_rad = u.turret_angle_deg.to_radians();
+                let angle_diff = Object::normalize_angle_rad(rel_world - turret_rad);
+                turn_aligned = angle_diff.abs() < sweep;
+            }
+
+            let mut pitch_aligned = true;
+            if allows_pitch {
+                let desired = if fire_pitch > 0.0 {
+                    fire_pitch
+                } else {
+                    let mut v = victim_pos - unit_pos;
+                    v.y -= geom_h * 0.5;
+                    let len = v.length();
+                    let actual = if len > 0.0 { (v.y / len).asin() } else { 0.0 };
+                    let mut desired = actual.max(min_pitch);
+                    if ground_pitch > 0.0 && (!has_object || victim_immobile || victim_ground) {
+                        let under = crate::game_logic::weapon_bootstrap::PATHFIND_CELL_SIZE * 0.25;
+                        let range = u
+                            .selected_weapon_slot()
+                            .and_then(|s| {
+                                u.weapon_slot(s)
+                                    .map(|w| (u.effective_weapon_range(w.range) - under).max(0.0))
+                            })
+                            .unwrap_or(1.0)
+                            .max(1.0);
+                        let dist = v.length();
+                        desired = (actual + ground_pitch * (dist / range)).max(min_pitch);
+                    }
+                    desired
+                };
+                let pitch_mod = if u.turret_turn_rate_rad > 1e-6 {
+                    (pitch_rate / u.turret_turn_rate_rad).max(0.01)
+                } else {
+                    1.0
+                };
+                pitch_aligned = u.turn_turret_towards_pitch_rad(desired, pitch_mod);
+                (|e: &mut HostTurretExtra| {
+                    e.play_pitch_sound = !pitch_aligned;
                 })(&mut u.turret_runtime);
             }
-            let turret_rad = u.turret_angle_deg.to_radians();
-            let angle_diff = Object::normalize_angle_rad(rel_world - turret_rad);
-            turn_aligned = angle_diff.abs() < sweep;
-        }
 
-        let mut pitch_aligned = true;
-        if allows_pitch {
-            let desired = if fire_pitch > 0.0 {
-                fire_pitch
+            let range_ok = {
+                let Some(slot) = u.selected_weapon_slot() else {
+                    return Ok(AttackAimResult::Failure);
+                };
+                u.is_within_attack_range_pos_for_slot(slot, victim_pos)
+            };
+
+            if turn_aligned && pitch_aligned && range_ok && !preventing && !target_preventing {
+                AttackAimResult::Success
             } else {
-                let mut v = victim_pos - unit_pos;
-                v.y -= geom_h * 0.5;
-                let len = v.length();
-                let actual = if len > 0.0 { (v.y / len).asin() } else { 0.0 };
-                let mut desired = actual.max(min_pitch);
-                if ground_pitch > 0.0 && (!has_object || victim_immobile || victim_ground) {
-                    let under = crate::game_logic::weapon_bootstrap::PATHFIND_CELL_SIZE * 0.25;
-                    let range = u
-                        .selected_weapon_slot()
-                        .and_then(|s| {
-                            u.weapon_slot(s)
-                                .map(|w| (u.effective_weapon_range(w.range) - under).max(0.0))
-                        })
-                        .unwrap_or(1.0)
-                        .max(1.0);
-                    let dist = v.length();
-                    desired = (actual + ground_pitch * (dist / range)).max(min_pitch);
-                }
-                desired
-            };
-            let pitch_mod = if u.turret_turn_rate_rad > 1e-6 {
-                (pitch_rate / u.turret_turn_rate_rad).max(0.01)
-            } else {
-                1.0
-            };
-            pitch_aligned = u.turn_turret_towards_pitch_rad(desired, pitch_mod);
-            (|e: &mut HostTurretExtra| {
-                e.play_pitch_sound = !pitch_aligned;
-            })(&mut u.turret_runtime);
-        }
-
-        let range_ok = {
-            let Some(slot) = u.selected_weapon_slot() else {
-                return AttackAimResult::Failure;
-            };
-            u.is_within_attack_range_pos_for_slot(slot, victim_pos)
-        };
-
-        if turn_aligned && pitch_aligned && range_ok && !preventing {
-            AttackAimResult::Success
-        } else {
-            AttackAimResult::Continue
-        }
+                AttackAimResult::Continue
+            }
+        })
     }
 
+    #[cfg(test)]
     pub fn attack_aim_at_target_enter(&mut self, unit_id: ObjectId) -> bool {
-        let (alive, has_wpn, tid) = {
-            let Some(u) = self.objects.get(&unit_id) else {
-                return false;
+        self.attack_aim_at_target_enter_with_effects(unit_id, &mut Default::default())
+            .expect("valid explicit standalone attack fixture")
+    }
+
+    pub fn attack_aim_at_target_enter_with_effects(
+        &mut self,
+        unit_id: ObjectId,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<bool> {
+        Ok({
+            let (alive, has_wpn, tid) = {
+                let Some(u) = self.objects.get(&unit_id) else {
+                    return Ok(false);
+                };
+                (
+                    u.is_alive(),
+                    u.weapon.is_some()
+                        || u.secondary_weapon.is_some()
+                        || u.tertiary_weapon.is_some(),
+                    u.target,
+                )
             };
-            (
-                u.is_alive(),
-                u.weapon.is_some() || u.secondary_weapon.is_some() || u.tertiary_weapon.is_some(),
-                u.target,
-            )
-        };
-        if !alive || !has_wpn {
-            return false;
-        }
-        let mut entered_attack = false;
-        if let Some(u) = self.objects.get_mut(&unit_id) {
-            u.set_status_aiming_weapon(true);
-            u.set_status_attacking(true);
-            entered_attack = !matches!(
-                u.ai_state(),
-                AIState::Patrolling | AIState::AttackMoving | AIState::Attacking
-            );
-            if entered_attack {
-                u.set_ai_state(
-                    AIState::Attacking,
-                    &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
-                );
+            if !alive || !has_wpn {
+                return Ok(false);
             }
-        }
-        {}
-        // C++ AIAttackAimAtTargetState sets turret target when tur != INVALID.
-        if let Some(vid) = tid {
-            self.set_turret_target_object(unit_id, Some(vid), false);
-        }
-        true
+            let mut entered_attack = false;
+            if let Some(u) = self.objects.get_mut(&unit_id) {
+                u.set_status_aiming_weapon(true);
+                u.set_status_attacking(true);
+                entered_attack = !matches!(
+                    u.ai_state(),
+                    AIState::Patrolling | AIState::AttackMoving | AIState::Attacking
+                );
+                if entered_attack {
+                    u.set_ai_state(
+                        AIState::Attacking,
+                        &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
+                    );
+                }
+            }
+            {}
+            // C++ AIAttackAimAtTargetState sets turret target when tur != INVALID.
+            if let Some(vid) = tid {
+                if !self.admit_current_jet_targeter_with_effects(
+                    vid,
+                    unit_id,
+                    presentation_effects,
+                )? {
+                    return Ok(false);
+                }
+                self.set_turret_target_object(unit_id, Some(vid), false);
+            }
+            true
+        })
     }
 
     /// C++ AIAttackAimAtTargetState::onExit residual.
@@ -1820,94 +1905,129 @@ impl GameLogic {
     ///
     /// Turns in place toward victim using AcceptableAimDelta; returns Success
     /// when |relAngle| < aimDelta.
+    #[cfg(test)]
     pub fn attack_aim_at_target_update(
         &mut self,
         unit_id: ObjectId,
         victim_id: ObjectId,
         max_turn_rad: f32,
     ) -> AttackAimResult {
-        // Snapshot victim position + liveness.
-        let victim_pos = {
-            let Some(v) = self.objects.get(&victim_id) else {
-                return AttackAimResult::Failure;
+        self.attack_aim_at_target_update_with_effects(
+            unit_id,
+            victim_id,
+            max_turn_rad,
+            &mut Default::default(),
+        )
+        .expect("valid explicit standalone aim fixture")
+    }
+
+    pub fn attack_aim_at_target_update_with_effects(
+        &mut self,
+        unit_id: ObjectId,
+        victim_id: ObjectId,
+        max_turn_rad: f32,
+
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<AttackAimResult> {
+        Ok({
+            // Snapshot victim position + liveness.
+            let victim_pos = {
+                let Some(v) = self.objects.get(&victim_id) else {
+                    return Ok(AttackAimResult::Failure);
+                };
+                if !v.is_alive() || v.status.destroyed {
+                    return Ok(AttackAimResult::Failure);
+                }
+                v.get_position()
             };
-            if !v.is_alive() || v.status.destroyed {
-                return AttackAimResult::Failure;
+
+            // Ensure turret tracks the same victim (C++ setTurretTargetObject).
+            self.set_turret_target_object(unit_id, Some(victim_id), false);
+
+            // AIStates.cpp:4998-5020: a weapon on a turning turret never succeeds
+            // through body AIM. Its ordinary turret update owns rotation and FIRE.
+            // Zero-turn/fake turrets and slots outside that turret still fall through.
+            let turning_turret = self.objects.get(&unit_id).is_some_and(|u| {
+                u.is_alive()
+                    && u.selected_weapon_slot()
+                        .is_some_and(|slot| u.is_weapon_slot_on_turret(slot))
+                    && u.turret_turn_rate_rad != 0.0
+            });
+            if turning_turret {
+                return Ok(AttackAimResult::Continue);
             }
-            v.get_position()
-        };
 
-        // Ensure turret tracks the same victim (C++ setTurretTargetObject).
-        self.set_turret_target_object(unit_id, Some(victim_id), false);
-
-        // AIStates.cpp:4998-5020: a weapon on a turning turret never succeeds
-        // through body AIM. Its ordinary turret update owns rotation and FIRE.
-        // Zero-turn/fake turrets and slots outside that turret still fall through.
-        let turning_turret = self.objects.get(&unit_id).is_some_and(|u| {
-            u.is_alive()
-                && u.selected_weapon_slot()
-                    .is_some_and(|slot| u.is_weapon_slot_on_turret(slot))
-                && u.turret_turn_rate_rad != 0.0
-        });
-        if turning_turret {
-            return AttackAimResult::Continue;
-        }
-
-        let (body_aimed, range_ok, turret_enabled) = {
-            let Some(u) = self.objects.get_mut(&unit_id) else {
-                return AttackAimResult::Failure;
+            let (body_aimed, range_ok, turret_enabled) = {
+                let Some(u) = self.objects.get_mut(&unit_id) else {
+                    return Ok(AttackAimResult::Failure);
+                };
+                if !u.is_alive() {
+                    return Ok(AttackAimResult::Failure);
+                }
+                if u.weapon.is_none() && u.secondary_weapon.is_none() && u.tertiary_weapon.is_none()
+                {
+                    return Ok(AttackAimResult::Failure);
+                }
+                u.set_status_aiming_weapon(true);
+                u.note_attack_target_with_operation(
+                    victim_id,
+                    &mut self.attack_events,
+                    &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
+                    self.frame,
+                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                );
+                {}
+                let Some(slot) = u.selected_weapon_slot() else {
+                    return Ok(AttackAimResult::Failure);
+                };
+                let body_aimed = u.turn_toward_position_with_operation(
+                    victim_pos,
+                    slot,
+                    max_turn_rad.max(0.05),
+                    self.frame,
+                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                );
+                let range_ok = u.is_within_attack_range_pos_for_slot(slot, victim_pos);
+                (body_aimed, range_ok, u.turret_enabled)
             };
-            if !u.is_alive() {
-                return AttackAimResult::Failure;
-            }
-            if u.weapon.is_none() && u.secondary_weapon.is_none() && u.tertiary_weapon.is_none() {
-                return AttackAimResult::Failure;
-            }
-            u.set_status_aiming_weapon(true);
-            u.note_attack_target_with_operation(
-                victim_id,
-                &mut self.attack_events,
-                &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
-                self.frame,
-                &mut crate::game_logic::ScriptPresentationEffects::default()
-                    .reborrow_for_object(&mut self.partition_manager),
-            );
-            {}
-            let Some(slot) = u.selected_weapon_slot() else {
-                return AttackAimResult::Failure;
+
+            // C++ body-aim path: if no turret turn rate, body alignment is enough.
+            // When turret enabled, both body (or immobile) and turret must align.
+            let turret_res = if turret_enabled {
+                self.tick_turret_aim_with_effects(unit_id, 1.0, presentation_effects)?
+            } else {
+                AttackAimResult::Success
             };
-            let body_aimed = u.turn_toward_position_with_operation(
-                victim_pos,
-                slot,
-                max_turn_rad.max(0.05),
-                self.frame,
-                &mut crate::game_logic::ScriptPresentationEffects::default()
-                    .reborrow_for_object(&mut self.partition_manager),
-            );
-            let range_ok = u.is_within_attack_range_pos_for_slot(slot, victim_pos);
-            (body_aimed, range_ok, u.turret_enabled)
-        };
 
-        // C++ body-aim path: if no turret turn rate, body alignment is enough.
-        // When turret enabled, both body (or immobile) and turret must align.
-        let turret_res = if turret_enabled {
-            self.tick_turret_aim(unit_id, 1.0)
-        } else {
-            AttackAimResult::Success
-        };
-
-        let turret_ok = matches!(turret_res, AttackAimResult::Success);
-        if body_aimed && turret_ok {
-            return AttackAimResult::Success;
-        }
-        if !range_ok && !body_aimed {
-            return AttackAimResult::Failure;
-        }
-        // Still turning body or turret.
-        if matches!(turret_res, AttackAimResult::Failure) && !body_aimed {
-            return AttackAimResult::Failure;
-        }
-        AttackAimResult::Continue
+            let turret_ok = matches!(turret_res, AttackAimResult::Success);
+            if body_aimed && turret_ok {
+                // AIStates.cpp5064 repeats admission after body alignment before
+                // observing Jet's temporary aim prevention.
+                if !self.admit_current_jet_targeter_with_effects(
+                    victim_id,
+                    unit_id,
+                    presentation_effects,
+                )? {
+                    return Ok(AttackAimResult::Failure);
+                }
+                if self
+                    .objects
+                    .get(&victim_id)
+                    .is_some_and(|target| target.is_temporarily_preventing_aim_success(self.frame))
+                {
+                    return Ok(AttackAimResult::Continue);
+                }
+                return Ok(AttackAimResult::Success);
+            }
+            if !range_ok && !body_aimed {
+                return Ok(AttackAimResult::Failure);
+            }
+            // Still turning body or turret.
+            if matches!(turret_res, AttackAimResult::Failure) && !body_aimed {
+                return Ok(AttackAimResult::Failure);
+            }
+            AttackAimResult::Continue
+        })
     }
 
     pub fn attack_fire_weapon_enter(&mut self, unit_id: ObjectId) -> bool {
@@ -2720,11 +2840,28 @@ impl GameLogic {
     }
 
     /// C++ AIUpdateInterface::privateAttackObject residual.
+    #[cfg(test)]
     pub fn private_attack_object(
         &mut self,
         unit_id: ObjectId,
         victim_id: ObjectId,
         max_shots: i32,
+    ) -> gamelogic::GameLogicResult<bool> {
+        self.private_attack_object_with_effects(
+            unit_id,
+            victim_id,
+            max_shots,
+            &mut Default::default(),
+        )
+    }
+
+    pub fn private_attack_object_with_effects(
+        &mut self,
+        unit_id: ObjectId,
+        victim_id: ObjectId,
+        max_shots: i32,
+
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<bool> {
         let victim_pos = match self.objects.get(&victim_id) {
             Some(v) if v.is_alive() => v.get_position(),
@@ -2736,7 +2873,9 @@ impl GameLogic {
             return Ok(false);
         }
         // C++ AIAttackState::onEnter residual via nested AttackStateMachine.
-        if self.attack_state_enter(unit_id, victim_id) == AttackMachineResult::Failure {
+        if self.attack_state_enter_with_effects(unit_id, victim_id, presentation_effects)?
+            == AttackMachineResult::Failure
+        {
             return Ok(false);
         }
         // AIUpdate.cpp:3395-3417 only installs the attack state/goal. An

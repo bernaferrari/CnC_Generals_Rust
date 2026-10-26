@@ -47,6 +47,26 @@ pub fn submit_sound_fx_owned(
     event.set_audio_event_info(info);
     Ok(manager.add_audio_event_with_locality_and_selection(&event, locality, selection))
 }
+pub fn submit_sound_fx_with_policy(
+    name: &str,
+    position: Option<&Coord3D>,
+    player: Option<i32>,
+    manager: &mut AudioManager,
+    locality: &AudioSubmissionLocality,
+    selection: &mut dyn AudioEventSelection,
+    policy: &game_engine::common::audio::script_policy::ScriptAudioPolicy,
+) -> Result<u32, String> {
+    if name.is_empty() || name == "NoSound" {
+        return Ok(AHSV_NO_SOUND);
+    }
+    let info = manager.find_audio_event_info(name).ok_or_else(|| {
+        format!("SoundFXNugget definition '{name}' is unavailable in receiving audio manager")
+    })?;
+    let mut event = sound_fx_event(name, position, player);
+    event.set_volume(info.volume);
+    event.set_audio_event_info(info);
+    Ok(manager.add_audio_event_with_policy(&event, locality, selection, policy, false))
+}
 
 #[cfg(test)]
 mod tests {

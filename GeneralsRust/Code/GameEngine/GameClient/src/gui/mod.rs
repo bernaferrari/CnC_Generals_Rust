@@ -327,10 +327,6 @@ pub use integrated_ui_system::{
     IntegratedUIError, IntegratedUISystem, IntegratedUISystemBuilder, UICommand,
 };
 
-pub use ui_globals::{
-    cursor_tooltip_already_submitted, submit_cursor_tooltip, tick_cursor_tooltip,
-};
-
 /// Maximum number of windows that can be created
 pub const MAX_WINDOWS: usize = 576;
 

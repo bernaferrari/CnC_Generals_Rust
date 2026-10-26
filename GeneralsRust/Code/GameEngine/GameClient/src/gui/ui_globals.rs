@@ -12,20 +12,6 @@ fn color_u8_to_f32(c: [u8; 4]) -> [f32; 4] {
     ]
 }
 
-/// Advance Mouse tooltip still-time / delay (C++ `Mouse::update`).
-pub fn tick_cursor_tooltip() {
-    crate::input::mouse::with_mouse(|mouse| mouse.update());
-}
-
-pub fn cursor_tooltip_already_submitted() -> bool {
-    crate::input::mouse::with_mouse(|mouse| mouse.tooltip_draw_submitted())
-}
-
-/// C++ `Mouse::drawTooltip` (Mouse.cpp:963-1023): fill, border, wrap, highlight.
-pub fn submit_cursor_tooltip(renderer: &mut UIRenderer) -> bool {
-    crate::input::mouse::with_mouse(|mouse| submit_cursor_tooltip_from_mouse(renderer, mouse))
-}
-
 pub fn submit_cursor_tooltip_from_mouse(
     renderer: &mut UIRenderer,
     mouse: &mut crate::input::mouse::Mouse,

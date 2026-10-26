@@ -26,12 +26,12 @@ fn actual_owned_command_tooltip_hover_and_delete_use_receiving_bar_and_window_tr
     peer_button.borrow_mut().set_id(42);
     button
         .borrow_mut()
-        .set_control_bar_tooltip_callback(|_, _, _| {
+        .set_control_bar_tooltip_callback(|_, _, _, _| {
             panic!("owned role must not invoke standalone tooltip adapter")
         });
     peer_button
         .borrow_mut()
-        .set_control_bar_tooltip_callback(|_, _, _| {
+        .set_control_bar_tooltip_callback(|_, _, _, _| {
             panic!("foreign tooltip callback must remain untouched")
         });
     let layout = Rc::new(RefCell::new(WindowLayout::new("ReceivingTooltip".into())));
@@ -237,14 +237,14 @@ fn actual_owned_command_tooltip_hover_and_delete_use_receiving_bar_and_window_tr
 #[test]
 fn generic_tooltip_callback_replacement_and_clear_remove_owned_role() {
     let mut window = GameWindow::new();
-    window.set_control_bar_tooltip_callback(|_, _, _| {});
+    window.set_control_bar_tooltip_callback(|_, _, _, _| {});
     assert!(window.has_owned_control_bar_tooltip());
-    window.set_tooltip_callback(|_, _, _| {});
+    window.set_tooltip_callback(|_, _, _, _| {});
     assert!(!window.has_owned_control_bar_tooltip());
-    window.set_control_bar_tooltip_callback(|_, _, _| {});
+    window.set_control_bar_tooltip_callback(|_, _, _, _| {});
     window.clear_tooltip_callback();
     assert!(!window.has_owned_control_bar_tooltip());
-    window.set_control_bar_tooltip_callback(|_, _, _| {});
+    window.set_control_bar_tooltip_callback(|_, _, _, _| {});
     window.set_callbacks(None, None, None);
     assert!(!window.has_owned_control_bar_tooltip());
 }

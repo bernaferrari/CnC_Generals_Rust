@@ -65,7 +65,7 @@ impl RenderPipeline {
             &mut dyn FnMut(
                 &mut crate::presentation_frame::UnitRenderInput,
                 &crate::presentation_frame::PresentationFrame,
-            ),
+            ) -> std::result::Result<Option<Mat4>, String>,
         >,
     ) -> Result<()> {
         #[cfg(feature = "game_client")]
@@ -213,12 +213,6 @@ impl RenderPipeline {
                     self.render_items.len()
                 );
             }
-            #[cfg(feature = "game_client")]
-            let mut physics_receiver =
-                |input: &mut crate::presentation_frame::UnitRenderInput,
-                 frame: &crate::presentation_frame::PresentationFrame| {
-                    native_receiver.complete_physics_visual(input, frame)
-                };
             self.collect_render_items(
                 graphics_system,
                 view_matrix,
@@ -229,7 +223,7 @@ impl RenderPipeline {
                 delta_time,
                 &mut direct_scene_candidates,
                 #[cfg(feature = "game_client")]
-                Some(&mut physics_receiver),
+                super::native_frame_receiver::NativeCollectSource::Native(&mut *native_receiver),
                 #[cfg(not(feature = "game_client"))]
                 complete_physics_visual,
             )?;

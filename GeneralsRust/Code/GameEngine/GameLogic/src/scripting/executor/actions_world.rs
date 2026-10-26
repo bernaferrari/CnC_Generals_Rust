@@ -4,7 +4,20 @@
 //! Observable script behavior is unchanged.
 
 use super::*;
-use crate::scripting::engine::{ScriptCameraRequest, ScriptExecutionDriver, ScriptWaterRequest};
+use crate::scripting::engine::{
+    ScriptAudioRequest, ScriptCameraRequest, ScriptExecutionDriver, ScriptWaterRequest,
+};
+
+fn receiving_script_audio(
+    driver: &mut dyn ScriptExecutionDriver,
+    request: ScriptAudioRequest<'_>,
+) -> Option<Result<ScriptActionResult, ScriptError>> {
+    driver.audio(request).map(|result| {
+        result
+            .map(|_| ScriptActionResult::Success)
+            .map_err(|error| ScriptError::ExecutionFailed(error.to_string()))
+    })
+}
 
 fn resolve_script_named_object_id(unit_name: &str) -> Option<u32> {
     get_named_object_tracker()
@@ -85,8 +98,14 @@ impl ScriptActionDispatcher<'_> {
 
     pub(crate) fn do_suspend_background_sounds(
         &mut self,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         log::debug!("Suspending background sounds");
+        if let Some(result) =
+            receiving_script_audio(driver, ScriptAudioRequest::Pause(EngineAudioAffect::Sound))
+        {
+            return result;
+        }
         if let Some(audio) = TheAudio::get() {
             audio.pause_audio(EngineAudioAffect::Sound);
         }
@@ -95,24 +114,48 @@ impl ScriptActionDispatcher<'_> {
 
     pub(crate) fn do_resume_background_sounds(
         &mut self,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         log::debug!("Resuming background sounds");
+        if let Some(result) =
+            receiving_script_audio(driver, ScriptAudioRequest::Resume(EngineAudioAffect::Sound))
+        {
+            return result;
+        }
         if let Some(audio) = TheAudio::get() {
             audio.resume_audio(EngineAudioAffect::Sound);
         }
         Ok(ScriptActionResult::Success)
     }
 
-    pub(crate) fn do_sound_ambient_pause(&mut self) -> Result<ScriptActionResult, ScriptError> {
+    pub(crate) fn do_sound_ambient_pause(
+        &mut self,
+        driver: &mut dyn ScriptExecutionDriver,
+    ) -> Result<ScriptActionResult, ScriptError> {
         log::debug!("Pausing ambient sound");
+        if let Some(result) = receiving_script_audio(
+            driver,
+            ScriptAudioRequest::Pause(EngineAudioAffect::Sound3D),
+        ) {
+            return result;
+        }
         if let Some(audio) = TheAudio::get() {
             audio.pause_audio(EngineAudioAffect::Sound3D);
         }
         Ok(ScriptActionResult::Success)
     }
 
-    pub(crate) fn do_sound_ambient_resume(&mut self) -> Result<ScriptActionResult, ScriptError> {
+    pub(crate) fn do_sound_ambient_resume(
+        &mut self,
+        driver: &mut dyn ScriptExecutionDriver,
+    ) -> Result<ScriptActionResult, ScriptError> {
         log::debug!("Resuming ambient sound");
+        if let Some(result) = receiving_script_audio(
+            driver,
+            ScriptAudioRequest::Resume(EngineAudioAffect::Sound3D),
+        ) {
+            return result;
+        }
         if let Some(audio) = TheAudio::get() {
             audio.resume_audio(EngineAudioAffect::Sound3D);
         }
@@ -121,10 +164,20 @@ impl ScriptActionDispatcher<'_> {
 
     pub(crate) fn do_music_set_volume(
         &mut self,
+        driver: &mut dyn ScriptExecutionDriver,
         action: &ScriptAction,
     ) -> Result<ScriptActionResult, ScriptError> {
         let volume = self.get_real_param(action, 0)?;
         log::debug!("Setting music volume to {}", volume);
+        if let Some(result) = receiving_script_audio(
+            driver,
+            ScriptAudioRequest::SetVolume {
+                volume: (volume / 100.).clamp(0., 1.),
+                affect: EngineAudioAffect::Music,
+            },
+        ) {
+            return result;
+        }
         if let Some(audio) = TheAudio::get() {
             audio.set_volume((volume / 100.0).clamp(0.0, 1.0), EngineAudioAffect::Music);
         }
@@ -133,10 +186,20 @@ impl ScriptActionDispatcher<'_> {
 
     pub(crate) fn do_sound_disable_type(
         &mut self,
+        driver: &mut dyn ScriptExecutionDriver,
         action: &ScriptAction,
     ) -> Result<ScriptActionResult, ScriptError> {
         let sound_type = self.get_string_param(action, 0)?;
         log::debug!("Disabling sound type '{}'", sound_type);
+        if let Some(result) = receiving_script_audio(
+            driver,
+            ScriptAudioRequest::NamedVolume {
+                name: &sound_type,
+                volume: 0.,
+            },
+        ) {
+            return result;
+        }
         if let Some(audio) = TheAudio::get() {
             audio.set_audio_event_enabled(&sound_type, false);
         }
@@ -145,18 +208,40 @@ impl ScriptActionDispatcher<'_> {
 
     pub(crate) fn do_sound_enable_type(
         &mut self,
+        driver: &mut dyn ScriptExecutionDriver,
         action: &ScriptAction,
     ) -> Result<ScriptActionResult, ScriptError> {
         let sound_type = self.get_string_param(action, 0)?;
         log::debug!("Enabling sound type '{}'", sound_type);
+        if let Some(result) = receiving_script_audio(
+            driver,
+            ScriptAudioRequest::NamedVolume {
+                name: &sound_type,
+                volume: -1.,
+            },
+        ) {
+            return result;
+        }
         if let Some(audio) = TheAudio::get() {
             audio.set_audio_event_enabled(&sound_type, true);
         }
         Ok(ScriptActionResult::Success)
     }
 
-    pub(crate) fn do_sound_enable_all(&mut self) -> Result<ScriptActionResult, ScriptError> {
+    pub(crate) fn do_sound_enable_all(
+        &mut self,
+        driver: &mut dyn ScriptExecutionDriver,
+    ) -> Result<ScriptActionResult, ScriptError> {
         log::debug!("Enabling all sounds");
+        if let Some(result) = receiving_script_audio(
+            driver,
+            ScriptAudioRequest::NamedVolume {
+                name: "",
+                volume: -1.,
+            },
+        ) {
+            return result;
+        }
         if let Some(audio) = TheAudio::get() {
             audio.set_audio_event_enabled("", true);
         }
@@ -165,11 +250,21 @@ impl ScriptActionDispatcher<'_> {
 
     pub(crate) fn do_audio_override_volume_type(
         &mut self,
+        driver: &mut dyn ScriptExecutionDriver,
         action: &ScriptAction,
     ) -> Result<ScriptActionResult, ScriptError> {
         let audio_type = self.get_string_param(action, 0)?;
         let volume = self.get_real_param(action, 1)?;
         log::debug!("Overriding volume for '{}' to {}", audio_type, volume);
+        if let Some(result) = receiving_script_audio(
+            driver,
+            ScriptAudioRequest::NamedVolume {
+                name: &audio_type,
+                volume: volume / 100.,
+            },
+        ) {
+            return result;
+        }
         if let Some(audio) = TheAudio::get() {
             audio.set_audio_event_volume_override(&audio_type, volume / 100.0);
         }
@@ -178,10 +273,20 @@ impl ScriptActionDispatcher<'_> {
 
     pub(crate) fn do_audio_restore_volume_type(
         &mut self,
+        driver: &mut dyn ScriptExecutionDriver,
         action: &ScriptAction,
     ) -> Result<ScriptActionResult, ScriptError> {
         let audio_type = self.get_string_param(action, 0)?;
         log::debug!("Restoring volume for '{}'", audio_type);
+        if let Some(result) = receiving_script_audio(
+            driver,
+            ScriptAudioRequest::NamedVolume {
+                name: &audio_type,
+                volume: -1.,
+            },
+        ) {
+            return result;
+        }
         if let Some(audio) = TheAudio::get() {
             audio.set_audio_event_volume_override(&audio_type, -1.0);
         }
@@ -190,8 +295,18 @@ impl ScriptActionDispatcher<'_> {
 
     pub(crate) fn do_audio_restore_volume_all_type(
         &mut self,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         log::debug!("Restoring all audio volumes");
+        if let Some(result) = receiving_script_audio(
+            driver,
+            ScriptAudioRequest::NamedVolume {
+                name: "",
+                volume: -1.,
+            },
+        ) {
+            return result;
+        }
         if let Some(audio) = TheAudio::get() {
             audio.set_audio_event_volume_override("", -1.0);
         }
@@ -200,11 +315,21 @@ impl ScriptActionDispatcher<'_> {
 
     pub(crate) fn do_sound_set_volume(
         &mut self,
+        driver: &mut dyn ScriptExecutionDriver,
         action: &ScriptAction,
     ) -> Result<ScriptActionResult, ScriptError> {
         let volume = self.get_real_param(action, 0)?;
         log::debug!("Setting sound volume to {}", volume);
         let normalized = (volume / 100.0).clamp(0.0, 1.0);
+        if let Some(result) = receiving_script_audio(
+            driver,
+            ScriptAudioRequest::SetVolume {
+                volume: normalized,
+                affect: EngineAudioAffect::SoundEffects,
+            },
+        ) {
+            return result;
+        }
         if let Some(audio) = TheAudio::get() {
             audio.set_volume(normalized, EngineAudioAffect::Sound);
             audio.set_volume(normalized, EngineAudioAffect::Sound3D);
@@ -214,10 +339,20 @@ impl ScriptActionDispatcher<'_> {
 
     pub(crate) fn do_speech_set_volume(
         &mut self,
+        driver: &mut dyn ScriptExecutionDriver,
         action: &ScriptAction,
     ) -> Result<ScriptActionResult, ScriptError> {
         let volume = self.get_real_param(action, 0)?;
         log::debug!("Setting speech volume to {}", volume);
+        if let Some(result) = receiving_script_audio(
+            driver,
+            ScriptAudioRequest::SetVolume {
+                volume: (volume / 100.).clamp(0., 1.),
+                affect: EngineAudioAffect::Speech,
+            },
+        ) {
+            return result;
+        }
         if let Some(audio) = TheAudio::get() {
             audio.set_volume((volume / 100.0).clamp(0.0, 1.0), EngineAudioAffect::Speech);
         }
@@ -226,8 +361,12 @@ impl ScriptActionDispatcher<'_> {
 
     pub(crate) fn do_sound_remove_all_disabled(
         &mut self,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         log::debug!("Removing all disabled sounds");
+        if let Some(result) = receiving_script_audio(driver, ScriptAudioRequest::RemoveDisabled) {
+            return result;
+        }
         if let Some(audio) = TheAudio::get() {
             audio.remove_disabled_events();
         }
@@ -236,10 +375,16 @@ impl ScriptActionDispatcher<'_> {
 
     pub(crate) fn do_sound_remove_type(
         &mut self,
+        driver: &mut dyn ScriptExecutionDriver,
         action: &ScriptAction,
     ) -> Result<ScriptActionResult, ScriptError> {
         let sound_type = self.get_string_param(action, 0)?;
         log::debug!("Removing sound type '{}'", sound_type);
+        if let Some(result) =
+            receiving_script_audio(driver, ScriptAudioRequest::RemoveNamed(&sound_type))
+        {
+            return result;
+        }
         if let Some(audio) = TheAudio::get() {
             audio.remove_audio_event_by_name(&sound_type);
         }

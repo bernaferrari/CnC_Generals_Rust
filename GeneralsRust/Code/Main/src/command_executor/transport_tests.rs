@@ -33,7 +33,7 @@ fn contain_pair(logic: &mut GameLogic, transport: ObjectId, pax: ObjectId) {
         p.set_contained_by_with_partition_owner(Some(transport), true, partition);
         p.set_ai_state(
             AIState::Docked,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
 }
@@ -112,7 +112,7 @@ fn execute_combat_drop_uses_hover_not_land_evac() {
         p.set_contained_by_with_partition_owner(Some(transport), true, fixture_partition_p);
         p.set_ai_state(
             AIState::Docked,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
     {
@@ -177,7 +177,7 @@ fn execute_combat_drop_plays_voice_combat_drop() {
         p.set_contained_by_with_partition_owner(Some(transport), true, fixture_partition_p);
         p.set_ai_state(
             AIState::Docked,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
     logic.queued_audio_events.clear();
@@ -307,7 +307,7 @@ fn combat_drop_rappel_uses_roof_dest_not_y0() {
         t.set_order_target(
             Some(bunker),
             attack_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         if let Some(ai) = t.chinook_ai.as_mut() {
             ai.command_combat_drop([10.0, 10.0, 0.0], Some(24.0));
@@ -365,7 +365,7 @@ fn combat_drop_rappel_add_to_contain_on_roof() {
         t.set_order_target(
             Some(bunker),
             attack_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         if let Some(ai) = t.chinook_ai.as_mut() {
             ai.command_combat_drop([10.0, 10.0, 0.0], Some(20.0));
@@ -488,7 +488,7 @@ End
         t.set_order_target(
             Some(bunker),
             attack_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         if let Some(ai) = t.chinook_ai.as_mut() {
             ai.command_combat_drop([10.0, 10.0, 0.0], Some(16.0));
@@ -741,7 +741,7 @@ fn execute_exit_and_evacuate_ignored_while_subdued() {
         h.set_disabled_subdued(
             true,
             health_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
     {
@@ -973,7 +973,7 @@ fn execute_exit_tunnel_walks_exit_start_not_idle_drop() {
         p.set_contained_by_with_partition_owner(Some(tunnel), true, partition);
         p.set_ai_state(
             AIState::Garrisoned,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
     let key = logic.host_object(tunnel).unwrap().tunnel_system_key();
@@ -1231,7 +1231,7 @@ fn garrison_bunker(
         p.set_contained_by_with_partition_owner(Some(bunker), true, fixture_partition_p);
         p.set_ai_state(
             AIState::Garrisoned,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
     (bunker, ranger)
@@ -1333,7 +1333,7 @@ fn execute_evacuate_marks_stealth_garrison_detected() {
         n.set_contained_by_with_partition_owner(Some(bunker), true, fixture_partition_n);
         n.set_ai_state(
             AIState::Garrisoned,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         n.set_status_stealthed(true);
         n.set_status_detected(false);
@@ -1424,7 +1424,7 @@ fn execute_exit_garrison_walks_without_garrisoned_ai_state() {
     let (bunker, ranger) = garrison_bunker(&mut logic, "EXIT_GI", "EXIT_GIR", origin, None);
     logic.host_object_mut(ranger).unwrap().set_ai_state(
         AIState::Idle,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);

@@ -642,6 +642,7 @@ fn detached_no_client_chunk_snapshot_rebuild_removes_absent_actor_and_rejects_ol
             0,
             receiving_native_drawable_policy(),
             &mut retirement,
+            None,
         )
         .unwrap();
     let mut birth = |position| {
@@ -740,6 +741,7 @@ fn detached_no_client_chunk_snapshot_rebuild_removes_absent_actor_and_rejects_ol
             0,
             receiving_native_drawable_policy(),
             &mut retirement,
+            None,
         )
         .unwrap();
     world

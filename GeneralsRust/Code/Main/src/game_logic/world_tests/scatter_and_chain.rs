@@ -41,7 +41,7 @@ fn continue_attack_range_chains_to_nearby_same_team_target() {
         o.target = Some(mine1);
         o.set_ai_state(
             AIState::Attacking,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         o.set_status_attacking(true);
     }
@@ -71,7 +71,7 @@ fn continue_attack_range_chains_to_nearby_same_team_target() {
 
     if let Some(o) = logic.objects.get_mut(&atk) {
         o.target = None;
-        o.stop_attack(&mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()));
+        o.stop_attack(&mut crate::game_logic::ObjectAudio::record(&mut Vec::new()));
     }
     let far_pos = logic.objects.get(&mine_far).unwrap().get_position();
     // Only far mine left as candidate if we pretend mine2 also dead.

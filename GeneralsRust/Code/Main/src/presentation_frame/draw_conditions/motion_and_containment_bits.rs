@@ -227,7 +227,7 @@ impl DrawConditionFacts {
                 jetexhaust_model_bit, parachuting_model_bit, using_weapon_a_model_bit,
             };
             let para_b = parachuting_model_bit();
-            if self.parachuting {
+            if self.parachuting && self.parachute_open {
                 bits |= 1u128 << para_b;
             } else {
                 bits &= !(1u128 << para_b);

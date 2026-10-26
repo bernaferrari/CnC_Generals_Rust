@@ -102,6 +102,7 @@ fn saved_stun_landing_position_delivers_tree_fx_before_resuming_ground_tail() {
                     ..Default::default()
                 }
             )
+            .unwrap()
             .is_some()
     );
     assert_eq!(audio.0, ["StunLandingTreeSound"]);

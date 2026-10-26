@@ -1461,7 +1461,7 @@ fn special_power_authority_sole_ticks_cooldown() {
     shadow.sync_from_host(&logic);
     logic.host_object_mut(oid).unwrap().tick_timers(
         1.5,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     shadow.sync_from_host(&logic);
     let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
@@ -1477,7 +1477,7 @@ fn special_power_authority_sole_ticks_cooldown() {
     logic.host_object_mut(oid).unwrap().status.disabled_emp = true;
     logic.host_object_mut(oid).unwrap().tick_timers(
         1.0,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     assert_eq!(
         logic

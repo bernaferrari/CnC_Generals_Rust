@@ -8,9 +8,9 @@
 //! `Object.jet_ai` was constructed as `HostJetAi::default()` on restore —
 //! mid-takeoff jets snapped, RTB was forgotten, stealth lock-on vanished.
 //!
-//! Append a tagged JTAI v2 suffix after the historical lifecycle payload.
+//! Append a tagged JTAI v3 suffix after the historical lifecycle payload.
 //! The outer Rust capability 32 gates the changed idle continuation schema;
-//! active v1 suffixes are rejected rather than inferred or converted.
+//! active v1/v2 suffixes are rejected rather than inferred or converted.
 
 use crate::game_logic::object::HostJetAi;
 use crate::game_logic::{GameLogic, ObjectId};
@@ -18,7 +18,7 @@ use crate::save_load::{SaveLoadError, SaveLoadResult};
 use serde::{Deserialize, Serialize};
 
 const JTAI_MAGIC: &[u8; 4] = b"JTAI";
-const JTAI_VERSION: u32 = 2;
+const JTAI_VERSION: u32 = 3;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 struct JetAiPersistPayload {
@@ -101,10 +101,26 @@ fn apply_payload(game_logic: &mut GameLogic, payload: JetAiPersistPayload) {
 }
 
 fn find_jtai_suffix(bytes: &[u8]) -> Option<&[u8]> {
-    bytes
+    let markers: Vec<_> = bytes
         .windows(4)
-        .rposition(|window| window == JTAI_MAGIC)
-        .map(|idx| &bytes[idx + 4..])
+        .enumerate()
+        .filter_map(|(index, window)| (window == JTAI_MAGIC).then_some(index + 4))
+        .collect();
+    // An authored cursor name may itself contain "JTAI". Select a complete
+    // header before treating a data string as a suffix; malformed real tails
+    // still reach the decoder and retain its checked truncation/version error.
+    markers
+        .iter()
+        .rev()
+        .copied()
+        .find(|index| {
+            let rest = &bytes[*index..];
+            rest.get(4..8).is_some_and(|length| {
+                u32::from_le_bytes(length.try_into().unwrap()) as usize <= rest.len() - 8
+            })
+        })
+        .or_else(|| markers.last().copied())
+        .map(|index| &bytes[index..])
 }
 
 fn append_u32(out: &mut Vec<u8>, value: u32) {
@@ -163,7 +179,7 @@ mod tests {
         {
             let jet = source.host_object_mut(stealth).expect("stealth");
             jet.jet_ai.lockon_pos = Some([12.0, 4.0, 8.0]);
-            jet.jet_ai.lockon_drawable_id = Some(77);
+            jet.jet_ai.lockon_drawable_template = Some("LockonCursor_JTAI".into());
             jet.jet_ai.lockon_tick_pending = true;
             jet.jet_ai.untargetable_expire_frame = 310;
         }
@@ -197,7 +213,11 @@ mod tests {
 
         let loaded_sf = restored.host_object(stealth).expect("restored stealth");
         assert_eq!(loaded_sf.jet_ai.lockon_pos, Some([12.0, 4.0, 8.0]));
-        assert_eq!(loaded_sf.jet_ai.lockon_drawable_id, Some(77));
+        assert_eq!(
+            loaded_sf.jet_ai.lockon_drawable_template.as_deref(),
+            Some("LockonCursor_JTAI")
+        );
+        assert!(loaded_sf.jet_ai.lockon_runtime.is_none());
         assert!(loaded_sf.jet_ai.lockon_tick_pending);
         assert_eq!(loaded_sf.jet_ai.untargetable_expire_frame, 310);
     }

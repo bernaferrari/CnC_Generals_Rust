@@ -85,6 +85,7 @@ pub(crate) fn dual_world_registry_unavailable() -> bool {
 #[derive(Debug)]
 pub struct BasicDrawable {
     id: DrawableId,
+    native_auxiliary_generation: Option<u64>,
     object_id: Option<u32>,
     /// Runtime-only specialized visuals, owned by this Drawable lifetime.
     pub(crate) presentation_specialized_draw:
@@ -98,6 +99,9 @@ pub struct BasicDrawable {
         std::sync::Arc<game_engine::common::thing::thing_template::AdmittedReceivingTemplate>,
     >,
     position: Vector3,
+    /// Receiving Object/Thing orientation (translation lives in position).
+    base_transform: Matrix4,
+    /// C++ Drawable::m_instance: render-only local transform.
     instance_transform: Matrix4,
     instance_scale: f32,
     status: DrawableStatus,
@@ -240,9 +244,17 @@ impl DrawableDowncast for BasicDrawable {
 }
 
 impl BasicDrawable {
+    pub(crate) fn mark_native_auxiliary(&mut self, generation: u64) {
+        assert!(self.native_auxiliary_generation.is_none());
+        self.native_auxiliary_generation = Some(generation);
+    }
+    pub(crate) fn native_auxiliary_generation(&self) -> Option<u64> {
+        self.native_auxiliary_generation
+    }
     pub fn new(id: DrawableId) -> Self {
         Self {
             id,
+            native_auxiliary_generation: None,
             object_id: None,
             presentation_specialized_draw: None,
             // C++ Drawable.cpp: m_drawableInfo.m_drawable = this; m_ghostObject = NULL;
@@ -250,6 +262,7 @@ impl BasicDrawable {
             template_name: None,
             receiving_template: None,
             position: Vector3::zero(),
+            base_transform: Matrix4::identity(),
             instance_transform: Matrix4::identity(),
             instance_scale: 1.0,
             // C++ creates with DRAWABLE_STATUS_NONE; first Drawable::draw() then

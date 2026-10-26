@@ -84,6 +84,14 @@ impl<'a> NativeRendererViewEffects<'a> {
                 )
                 .map_err(|error| error.to_string())?;
         }
+        world
+            .restore_jet_lockon_drawables_with_effects(
+                &mut crate::game_logic::ScriptPresentationEffects {
+                    view: Some(self),
+                    ..Default::default()
+                },
+            )
+            .map_err(|error| error.to_string())?;
         Ok(())
     }
     fn retire_object_drawable(
@@ -141,6 +149,7 @@ impl<'a> NativeRendererViewEffects<'a> {
         time_of_day: Option<game_client::system::TimeOfDay>,
         audio: Option<&mut dyn game_client::drawable::drawable::NativeAmbientAudio>,
         locality: &game_engine::common::audio::AudioSubmissionLocality,
+        policy: &game_engine::common::audio::script_policy::ScriptAudioPolicy,
     ) -> Result<bool, String> {
         let Some(key) = self
             .drawables
@@ -162,7 +171,15 @@ impl<'a> NativeRendererViewEffects<'a> {
             "native Body visual receiver requires receiving time of day".to_owned()
         })?;
         self.drawables
-            .body_state_changed_with_audio(key, state, loading_map, time_of_day, audio, locality)
+            .body_state_changed_with_audio(
+                key,
+                state,
+                loading_map,
+                time_of_day,
+                audio,
+                locality,
+                policy,
+            )
             .map_err(|error| error.to_string())?;
         Ok(true)
     }
@@ -184,6 +201,83 @@ impl<'a> NativeRendererViewEffects<'a> {
 }
 #[cfg(feature = "game_client")]
 impl NativeViewEffects for NativeRendererViewEffects<'_> {
+    fn visit_owned_ambient_audio_handles(&self, visit: &mut dyn FnMut(u32)) {
+        self.drawables.visit_owned_ambient_audio_handles(visit);
+    }
+
+    fn create_jet_lockon(
+        &mut self,
+        source: &crate::game_logic::NativeAuxiliarySource,
+        content: &mut game_engine::common::thing::module_factory::ModuleFactory,
+    ) -> Result<game_client::core::game_client::NativeAuxiliaryReceipt, String> {
+        if source.epoch != self.host_epoch {
+            return Err("lock-on source epoch mismatch".into());
+        }
+        let poses = &mut self.poses;
+        let graphics = &mut *self.graphics;
+        let sync = poses.current_animation_sync_ms();
+        self.drawables
+            .create_auxiliary_drawable(
+                std::sync::Arc::clone(&source.template),
+                content,
+                source.scale,
+                self.policy,
+                source.birth,
+                source.frame,
+                sync,
+                |mutation| admit_auxiliary_mutation(poses, graphics, source, mutation),
+            )
+            .map_err(|error| error.to_string())
+    }
+    fn position_jet_lockon(
+        &mut self,
+        source: &crate::game_logic::NativeAuxiliarySource,
+        receipt: &game_client::core::game_client::NativeAuxiliaryReceipt,
+        position: [f32; 3],
+        orientation: Option<f32>,
+    ) -> Result<(), String> {
+        if source.epoch != self.host_epoch {
+            return Err("lock-on source epoch mismatch".into());
+        }
+        let poses = &mut self.poses;
+        let graphics = &mut *self.graphics;
+        self.drawables
+            .position_auxiliary_drawable(receipt, position, orientation, |mutation| {
+                admit_auxiliary_mutation(poses, graphics, source, mutation)
+            })
+            .map_err(|error| error.to_string())
+    }
+    fn set_jet_lockon_scene_flags(
+        &mut self,
+        source: &crate::game_logic::NativeAuxiliarySource,
+        receipt: &game_client::core::game_client::NativeAuxiliaryReceipt,
+        hidden: bool,
+        shroud_object: Option<u32>,
+    ) -> Result<(), String> {
+        if source.epoch != self.host_epoch {
+            return Err("lock-on visibility source epoch mismatch".into());
+        }
+        self.drawables
+            .set_auxiliary_scene_flags(receipt, hidden, shroud_object)
+            .map_err(|error| error.to_string())
+    }
+    fn retire_jet_lockon(
+        &mut self,
+        source: &crate::game_logic::NativeAuxiliarySource,
+        receipt: &game_client::core::game_client::NativeAuxiliaryReceipt,
+    ) -> Result<(), String> {
+        if source.epoch != self.host_epoch {
+            return Err("lock-on source epoch mismatch".into());
+        }
+        let poses = &mut self.poses;
+        let graphics = &mut *self.graphics;
+        self.drawables
+            .retire_auxiliary_drawable(receipt, |mutation| {
+                admit_auxiliary_mutation(poses, graphics, source, mutation)
+            })
+            .map_err(|error| error.to_string())
+    }
+
     fn spawn_tracer(
         &mut self,
         template: &game_engine::common::thing::ThingTemplate,
@@ -243,6 +337,56 @@ impl NativeViewEffects for NativeRendererViewEffects<'_> {
             .map_err(|error| format!("native FX bone query unavailable: {error:?}"))
     }
 
+    fn drawable_model_condition_bits(
+        &mut self,
+        source: &NativeSlaveSource,
+    ) -> Result<Option<u128>, String> {
+        let key = self
+            .drawables
+            .binding_key(self.host_epoch, source.identity.object_id())
+            .ok_or_else(|| "native condition query has no receiving Drawable binding".to_owned())?;
+        self.poses
+            .validate_object_retirement(&source.identity, key)
+            .map_err(str::to_owned)?;
+        self.drawables
+            .model_condition_bits(key)
+            .map(Some)
+            .map_err(|error| error.to_string())
+    }
+    fn drawable_instance_transform(
+        &mut self,
+        source: &NativeSlaveSource,
+    ) -> Result<Option<glam::Mat4>, String> {
+        let key = self
+            .drawables
+            .binding_key(self.host_epoch, source.identity.object_id())
+            .ok_or_else(|| "native instance query has no receiving Drawable".to_owned())?;
+        self.poses
+            .validate_object_retirement(&source.identity, key)
+            .map_err(str::to_owned)?;
+        self.drawables
+            .instance_transform(key)
+            .map(|matrix| Some(matrix.into()))
+            .map_err(|error| error.to_string())
+    }
+    fn set_drawable_instance_transform(
+        &mut self,
+        source: &NativeSlaveSource,
+        matrix: Option<glam::Mat4>,
+    ) -> Result<bool, String> {
+        let key = self
+            .drawables
+            .binding_key(self.host_epoch, source.identity.object_id())
+            .ok_or_else(|| "native instance mutation has no receiving Drawable".to_owned())?;
+        self.poses
+            .validate_object_retirement(&source.identity, key)
+            .map_err(str::to_owned)?;
+        self.drawables
+            .set_instance_transform(key, matrix.map(game_client::drawable::Matrix4::from))
+            .map_err(|error| error.to_string())?;
+        Ok(true)
+    }
+
     fn pristine_client_bone_transforms(
         &mut self,
         source: &NativeSlaveSource,
@@ -286,6 +430,7 @@ impl NativeViewEffects for NativeRendererViewEffects<'_> {
             change.time_of_day,
             audio,
             &change.locality,
+            &change.audio_policy,
         )
     }
     fn local_player_id(&self) -> u32 {
@@ -436,7 +581,8 @@ impl CnCGameEngine {
             super::mouse::CameraInputLoan<'_>,
         ) -> R,
     ) -> R {
-        let mut audio = super::native_audio_effects::NativeAudioService::live();
+        let mut audio =
+            super::native_audio_effects::NativeAudioService::receiving(&mut self.subsystem_manager);
         #[cfg(feature = "game_client")]
         {
             let policy = receiving_native_drawable_policy_for(&self.game_logic);
@@ -564,4 +710,41 @@ impl crate::game_logic::NativeProjectedRadiusAllocator
     ) -> Option<game_client::radius_decal::ShadowHandle> {
         self.allocate_projected_radius(texture, radius, position, color, opacity)
     }
+}
+
+#[cfg(feature = "game_client")]
+fn admit_auxiliary_mutation(
+    poses: &mut NativeInstalledPoseLoan<'_>,
+    graphics: &mut GraphicsSystem,
+    source: &crate::game_logic::NativeAuxiliarySource,
+    mutation: game_client::core::game_client::NativeAuxiliaryMutation<'_>,
+) -> game_client::core::GameClientResult<()> {
+    use game_client::core::game_client::NativeAuxiliaryMutation as Mutation;
+    let receipt = match &mutation {
+        Mutation::Creating { receipt, .. }
+        | Mutation::TransformInstalled { receipt, .. }
+        | Mutation::ConditionsMarked { receipt, .. }
+        | Mutation::Destroyed { receipt } => *receipt,
+    };
+    let identity = crate::assets::LiveDrawPlaybackIdentity::new_auxiliary(
+        std::sync::Arc::clone(&source.world),
+        source.epoch,
+        receipt,
+    )
+    .map_err(game_client::core::GameClientError::SubsystemError)?;
+    if matches!(mutation, Mutation::Destroyed { .. }) {
+        return poses
+            .retire_native_auxiliary(receipt, &identity)
+            .map_err(game_client::core::GameClientError::SubsystemError);
+    }
+    poses
+        .receive_native_auxiliary_mutation(
+            mutation,
+            &identity,
+            &source.draws,
+            source.template.name(),
+            source.scale,
+            graphics,
+        )
+        .map_err(game_client::core::GameClientError::SubsystemError)
 }

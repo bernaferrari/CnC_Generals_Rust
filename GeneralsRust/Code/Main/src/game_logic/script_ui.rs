@@ -4,6 +4,15 @@
 //! driving application lends this interface during execution instead of storing
 //! window resources or selecting another session's UI inside GameLogic.
 pub(crate) trait ScriptUiEffects {
+    fn visit_owned_menu_audio_receipts(
+        &self,
+        _visit: &mut dyn FnMut(
+            &std::sync::Arc<std::sync::Mutex<game_engine::common::audio::AudioManager>>,
+            &[u32],
+        ),
+    ) {
+    }
+
     fn add_named_timer(&mut self, _name: &str, _text: &str, _countdown: bool) {}
     fn remove_named_timer(&mut self, _name: &str) {}
     fn show_named_timer_display(&mut self, _show: bool) {}

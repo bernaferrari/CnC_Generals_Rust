@@ -142,7 +142,7 @@ pub struct ControlBarInputContext<'a> {
     pub replay: bool,
     pub game_ending: bool,
     pub tooltips_disabled: bool,
-    pub cursor_mouse: Option<&'a crate::core::subsystems::MouseHandle>,
+    pub cursor_mouse: Option<&'a mut crate::input::Mouse>,
     pub window_manager_owner: Option<&'a crate::gui::window_manager::WindowManagerOwner>,
     pub campaign_manager: Option<&'a mut crate::gui::campaign_manager::CampaignManager>,
     pub menu_world: Option<crate::gui::campaign_launch_host_bridge::MenuWorldFacts>,
@@ -165,6 +165,7 @@ impl ControlBarInputContext<'_> {
         ) -> R,
     ) -> R {
         let mut effects = crate::gui::game_window::WindowEventEffects {
+            cursor_mouse: self.cursor_mouse.as_deref_mut(),
             control_bar_observation: self.control_bar_observation,
             menu_audio: self
                 .menu_audio

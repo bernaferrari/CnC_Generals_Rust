@@ -971,7 +971,7 @@ pub fn wol_lobby_menu_init(
     if let Some(listbox) = state.listbox_lobby_players.as_ref() {
         listbox
             .borrow_mut()
-            .set_tooltip_callback(|win, _inst, mouse| {
+            .set_tooltip_callback(|win, _inst, mouse, _receiving_mouse| {
                 player_tooltip(win, mouse);
             });
     }
@@ -981,7 +981,7 @@ pub fn wol_lobby_menu_init(
         if let Some(listbox) = with_window_manager(|manager| manager.get_window_by_id(id)) {
             listbox
                 .borrow_mut()
-                .set_tooltip_callback(|win, _inst, mouse| {
+                .set_tooltip_callback(|win, _inst, mouse, _receiving_mouse| {
                     game_list_tooltip(win, mouse);
                 });
         }

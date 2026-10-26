@@ -376,7 +376,7 @@ impl GameLogic {
         target_id: ObjectId,
     ) -> gamelogic::GameLogicResult<bool> {
         self.stamp_player_command_source(id);
-        self.unit_command_attack_with_source(id, target_id, true)
+        self.unit_command_attack_with_source(id, target_id, true, &mut Default::default())
     }
 
     /// SCRIPT uses the same owned attack algorithm without player shroud gates.
@@ -389,7 +389,29 @@ impl GameLogic {
             unit.last_command_source =
                 crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_SCRIPT;
         }
-        self.unit_command_attack_with_source(id, target_id, false)
+        self.unit_command_attack_with_source(id, target_id, false, &mut Default::default())
+    }
+
+    pub(crate) fn unit_command_attack_with_effects(
+        &mut self,
+        id: ObjectId,
+        target_id: ObjectId,
+        effects: &mut ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<bool> {
+        self.stamp_player_command_source(id);
+        self.unit_command_attack_with_source(id, target_id, true, effects)
+    }
+    pub(crate) fn unit_command_script_attack_with_effects(
+        &mut self,
+        id: ObjectId,
+        target_id: ObjectId,
+        effects: &mut ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<bool> {
+        if let Some(unit) = self.host_object_mut(id) {
+            unit.last_command_source =
+                crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_SCRIPT;
+        }
+        self.unit_command_attack_with_source(id, target_id, false, effects)
     }
 
     fn unit_command_attack_with_source(
@@ -397,6 +419,7 @@ impl GameLogic {
         id: ObjectId,
         target_id: ObjectId,
         from_player: bool,
+        effects: &mut ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<bool> {
         if self.note_hacker_ai_command(
             id,
@@ -445,7 +468,27 @@ impl GameLogic {
         // C++ privateAttackObject enters the attack machine and requests a
         // chase path. A weaponless order that already passed the command
         // legality check still stamps Attacking so existing callers keep it.
-        let engaged = self.private_attack_object(id, target_id, -1)?;
+        let Some((source_birth, target_birth)) = self
+            .objects
+            .get(&id)
+            .zip(self.objects.get(&target_id))
+            .map(|(source, target)| {
+                (
+                    std::sync::Arc::clone(&source.visual_draw_identity_token),
+                    std::sync::Arc::clone(&target.visual_draw_identity_token),
+                )
+            })
+        else {
+            return Ok(false);
+        };
+        let engaged = self.private_attack_object_with_effects(id, target_id, -1, effects)?;
+        if !self.objects.get(&id).is_some_and(|source| {
+            std::sync::Arc::ptr_eq(&source.visual_draw_identity_token, &source_birth)
+        }) || !self.objects.get(&target_id).is_some_and(|target| {
+            std::sync::Arc::ptr_eq(&target.visual_draw_identity_token, &target_birth)
+        }) {
+            return Ok(false);
+        }
         if !engaged {
             if let Some(unit) = self.objects.get_mut(&id) {
                 unit.set_target_with_operation(
@@ -453,8 +496,7 @@ impl GameLogic {
                     &mut self.attack_events,
                     &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                     self.frame,
-                    &mut crate::game_logic::ScriptPresentationEffects::default()
-                        .reborrow_for_object(&mut self.partition_manager),
+                    &mut effects.reborrow_for_object(&mut self.partition_manager),
                 );
             } else {
                 return Ok(false);
@@ -466,20 +508,32 @@ impl GameLogic {
             }
         }
         self.clear_unit_hunt_scan(id);
-        if let Some(tgt) = self.objects.get_mut(&target_id) {
-            tgt.add_jet_targeter(id, true, self.frame);
+        if !engaged {
+            self.admit_jet_targeter_with_effects(target_id, id, true, effects)?;
         }
         self.assault_transport_on_player_attack(id);
         Ok(true)
     }
 
     /// Wave 230/232: force-attack target (records host attack log).
-    pub fn unit_command_force_attack(&mut self, id: ObjectId, target_id: ObjectId) -> bool {
+    pub fn unit_command_force_attack(
+        &mut self,
+        id: ObjectId,
+        target_id: ObjectId,
+    ) -> gamelogic::GameLogicResult<bool> {
+        self.unit_command_force_attack_with_effects(id, target_id, &mut Default::default())
+    }
+    pub(crate) fn unit_command_force_attack_with_effects(
+        &mut self,
+        id: ObjectId,
+        target_id: ObjectId,
+        effects: &mut ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<bool> {
         if self.note_hacker_ai_command(
             id,
             crate::game_logic::host_hacker_income::PendingHackerCommand::Attack(target_id),
         ) {
-            return true;
+            return Ok(true);
         }
         // C++ force attack still uses WeaponSet target legality: it changes
         // relationship/force handling, not UNATTACKABLE, MASKED, contained,
@@ -493,11 +547,11 @@ impl GameLogic {
             ),
             CanAttackResult::Possible | CanAttackResult::PossibleAfterMoving
         ) {
-            return false;
+            return Ok(false);
         }
         let (can_attack, switch_away) = {
             let Some(unit) = self.objects.get(&id) else {
-                return false;
+                return Ok(false);
             };
             (
                 unit.can_attack(),
@@ -505,13 +559,13 @@ impl GameLogic {
             )
         };
         if !can_attack {
-            return false;
+            return Ok(false);
         }
         if switch_away {
             self.drop_jet_targeters_on_attack_exit(id);
         }
         let Some(unit) = self.objects.get_mut(&id) else {
-            return false;
+            return Ok(false);
         };
         unit.mark_jet_command_for_reload_interrupt(false);
         unit.clear_guard_chase();
@@ -522,8 +576,7 @@ impl GameLogic {
             &mut self.attack_events,
             &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             self.frame,
-            &mut crate::game_logic::ScriptPresentationEffects::default()
-                .reborrow_for_object(&mut self.partition_manager),
+            &mut effects.reborrow_for_object(&mut self.partition_manager),
         );
         unit.set_force_attack(true);
         drop(unit);
@@ -533,10 +586,8 @@ impl GameLogic {
             }
         }
         self.clear_unit_hunt_scan(id);
-        if let Some(tgt) = self.objects.get_mut(&target_id) {
-            tgt.add_jet_targeter(id, true, self.frame);
-        }
-        true
+        self.admit_jet_targeter_with_effects(target_id, id, true, effects)?;
+        Ok(true)
     }
 
     /// Wave 230/232: full player stop (idle + clear guard/target/force + logs).
@@ -1647,6 +1698,24 @@ impl GameLogic {
     /// Wave 232: hunt/patrol residual.
     pub fn unit_command_patrol(&mut self, id: ObjectId) -> bool {
         self.stamp_player_command_source(id);
+        self.unit_command_hunt_transition(id)
+    }
+
+    pub(in crate::game_logic) fn unit_command_ai_hunt(&mut self, id: ObjectId) -> bool {
+        // AIUpdate.cpp3611: reject disabled/IMMOBILE and PROJECTILE before
+        // touching the receiving machine or its command source.
+        let Some(object) = self.objects.get_mut(&id).filter(|object| {
+            object.has_ai_update_interface()
+                && object.is_mobile_for_ai_command()
+                && !object.is_kind_of(KindOf::Projectile)
+        }) else {
+            return false;
+        };
+        object.last_command_source = crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_AI;
+        self.unit_command_hunt_transition(id)
+    }
+
+    fn unit_command_hunt_transition(&mut self, id: ObjectId) -> bool {
         // C++ AIGroup::groupHunt: AI present → aiHunt. No can_move / Immobile /
         // Structure gate (attack-move is the path that branches on isAbleToAttack).
         let can = self.objects.get(&id).map(|u| u.is_alive()).unwrap_or(false);
@@ -3598,7 +3667,7 @@ mod tests {
             hunter.set_hunting(true);
             hunter.set_ai_state(
                 AIState::Patrolling,
-                &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+                &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
             );
             let _ = hunter.set_weapon_lock(1, WeaponLockType::LockedTemporarily);
             hunter
@@ -3632,10 +3701,10 @@ mod tests {
             "AIHuntState::onExit releases LOCKED_TEMPORARILY"
         );
         if let Some(unit) = logic.objects.get_mut(&hunter_id) {
-            unit.clear_target(&mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()));
+            unit.clear_target(&mut crate::game_logic::ObjectAudio::record(&mut Vec::new()));
             unit.set_ai_state(
                 AIState::Idle,
-                &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+                &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
             );
         }
         logic
@@ -3665,9 +3734,9 @@ mod tests {
         if let Some(unit) = logic.objects.get_mut(&hunter_id) {
             unit.set_ai_state(
                 AIState::Idle,
-                &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+                &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
             );
-            unit.clear_target(&mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()));
+            unit.clear_target(&mut crate::game_logic::ObjectAudio::record(&mut Vec::new()));
         }
         logic
             .update_ai(&[hunter_id, enemy_id], 1.0 / 30.0)

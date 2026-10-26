@@ -262,7 +262,7 @@ fn ordinary_hit(world: &mut GameLogic, source: ObjectId, victim: ObjectId) {
     world.objects.get_mut(&source).unwrap().set_target(
         Some(victim),
         &mut world.attack_events,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     assert_eq!(world.objects[&source].target, Some(victim));
     assert_eq!(world.objects[&source].ai_state(), AIState::Attacking);
@@ -523,7 +523,7 @@ fn normal_ground_kill_promotion_is_visible_to_damage_fx() {
                 let shooter = world.objects.get_mut(&source).unwrap();
                 shooter.set_target_location(
                     Some(impact),
-                    &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+                    &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
                 );
                 shooter.set_force_attack(true);
                 assert_eq!(shooter.target, None);
@@ -646,7 +646,7 @@ fn normal_ground_without_victim_commits_exactly_one_discharge() {
                 let shooter = world.objects.get_mut(&source).unwrap();
                 shooter.set_target_location(
                     Some(impact),
-                    &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+                    &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
                 );
                 shooter.set_force_attack(true);
                 assert!(shooter.is_within_attack_range_pos_for_slot(0, impact));

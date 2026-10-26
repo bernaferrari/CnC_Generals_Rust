@@ -594,7 +594,7 @@ fn bomb_truck_prehalfpoint_disguise_stays_visible_opaque_through_gameworld_rebui
         // this source capability; C++ reads the immutable ThingTemplate's
         // StealthUpdate data instead.
         object.template_name = "PoisonedRuntimeName".into();
-        object.apply_disguise("TestTank", Team::USA);
+        object.apply_disguise("TestTank", Team::USA, Some(1));
     }
 
     let mut shadow = GameWorldShadow::new(64);
@@ -665,7 +665,7 @@ fn completed_allied_disguise_uses_the_direct_visual_template_after_gameworld_reb
     {
         let object = logic.host_object_mut(id).expect("host Bomb Truck");
         object.owner_player_id = Some(1);
-        object.apply_disguise("FriendlyDisguiseAppearance", Team::USA);
+        object.apply_disguise("FriendlyDisguiseAppearance", Team::USA, Some(1));
     }
     for _ in 0..30 {
         logic.update_with_dt(1.0 / 30.0);

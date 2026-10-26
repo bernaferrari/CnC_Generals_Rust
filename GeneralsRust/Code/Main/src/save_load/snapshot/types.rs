@@ -25,9 +25,11 @@ use std::time::SystemTime;
 /// Version30 keeps the same positional body and admits absolute Drawable scale.
 /// Version31 requires the receiving Body rules continuation frame.
 /// Version32 requires the sole retained BaseAI continuation capsule (native14).
-/// Prior positional bodies cannot reconstruct that owner and are rejected.
-pub const WORLD_SNAPSHOT_BINCODE_VERSION: u32 = 32;
-pub const WORLD_SNAPSHOT_DIRECT_XFER_VERSION: u32 = 32;
+/// Version33 extends the positional disguise/ObjectPersist records with exact
+/// current/pending disguise and original-garrison player identities.
+/// Prior positional bodies cannot reconstruct those owners and are rejected.
+pub const WORLD_SNAPSHOT_BINCODE_VERSION: u32 = 33;
+pub const WORLD_SNAPSHOT_DIRECT_XFER_VERSION: u32 = 33;
 
 /// Validate the Rust outer envelope before consuming or restoring its body.
 pub(crate) fn validate_direct_world_snapshot_version(version: u32) -> SaveLoadResult<()> {
@@ -54,6 +56,32 @@ pub trait Snapshot {
 }
 
 /// Game world snapshot containing all persistent game state
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AudioPolicySnapshot {
+    pub version: u8,
+    pub policy: game_engine::common::audio::script_policy::ScriptAudioPolicy,
+}
+impl Default for AudioPolicySnapshot {
+    fn default() -> Self {
+        Self {
+            version: 1,
+            policy: Default::default(),
+        }
+    }
+}
+impl AudioPolicySnapshot {
+    pub fn validate(&self) -> SaveLoadResult<()> {
+        if self.version != 1 {
+            return Err(crate::save_load::SaveLoadError::Corrupted(format!(
+                "unsupported AudioPolicy subsection {}",
+                self.version
+            )));
+        }
+        self.policy
+            .validate()
+            .map_err(crate::save_load::SaveLoadError::Corrupted)
+    }
+}
 #[derive(Debug, Serialize, Deserialize)]
 pub struct WorldSnapshot {
     pub version: u32,
@@ -235,6 +263,8 @@ pub struct WorldSnapshot {
     /// Exact accepted shots and absolute delayed-damage deadlines of this world.
     /// Required by schema 23; a missing payload must never default to an empty queue.
     pub pending_combat: crate::game_logic::combat::PendingCombatSnapshot,
+    /// Required versioned match audio policy; physical device preferences are not a save field.
+    pub audio_policy: AudioPolicySnapshot,
 
     /// Named GhostObject block travels with this decoded save. It is outside
     /// the unchanged v23-29 GameLogic positional body and direct Xfer stream.
@@ -282,8 +312,10 @@ pub struct ObjectDisguiseSnapshot {
     pub object_id: ObjectId,
     pub disguise_as_template: String,
     pub disguise_as_team: u8,
+    pub disguise_as_player_id: Option<u32>,
     pub disguise_pending_template: String,
     pub disguise_pending_team: u8,
+    pub disguise_pending_player_id: Option<u32>,
     pub disguised: bool,
     pub disguise_transition_frames: u32,
     pub disguise_transitioning_to: bool,
@@ -326,6 +358,7 @@ pub struct ObjectPersistTailSnapshot {
     pub sole_healing_benefactor_expiration_frame: u32,
     pub contained_by_frame: Option<u32>,
     pub original_team: Option<Team>,
+    pub original_garrison_player_id: Option<u32>,
     pub formation_id: u32,
     pub formation_offset: [f32; 2],
     pub stealth_opacity: f32,
@@ -521,6 +554,7 @@ impl Default for WorldSnapshot {
             logic_rng_seed_words: [0; 6],
             next_object_id: 0,
             pending_combat: Default::default(),
+            audio_policy: Default::default(),
             w3d_ghost_companion: None,
             particle_system_companion: None,
         };

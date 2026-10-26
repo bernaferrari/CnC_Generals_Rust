@@ -2383,6 +2383,7 @@ mod tests {
             });
             let mut emitted = Vec::new();
             let mut effects = WindowEventEffects {
+                cursor_mouse: None,
                 control_bar_observation: None,
                 menu_audio: None,
                 input_provenance:

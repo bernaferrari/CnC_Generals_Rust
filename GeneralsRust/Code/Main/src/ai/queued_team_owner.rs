@@ -1041,7 +1041,7 @@ mod tests {
         let unit = parent.work_orders[0].observed_unit_ids[0];
         world.host_object_mut(unit).unwrap().set_ai_state(
             AIState::Moving,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         prototype(&mut world, "Leaf", "CurrentOwner", "LeafReceipt");
         let mut display = ScriptAction::new(ScriptActionType::DisplayText);

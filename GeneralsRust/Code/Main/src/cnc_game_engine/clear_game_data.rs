@@ -55,11 +55,8 @@ impl CnCGameEngine {
             engine.close_game_windows();
         }
         #[cfg(feature = "game_client")]
-        if let Some(mouse) = self.game_client.input_mouse_handle() {
-            mouse
-                .lock()
-                .unwrap_or_else(|error| error.into_inner())
-                .set_visibility(true);
+        if let Some(mouse) = self.game_client.input_mouse_mut() {
+            mouse.set_visibility(true);
         }
         self.destroy_source_new_game_background();
         Ok(true)

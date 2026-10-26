@@ -997,7 +997,17 @@ impl SaveFileManager {
             ));
         }
         let client_xfer_bytes = if let Some(client) = client.as_deref_mut() {
-            capture_game_client_xfer_bytes(client)?
+            #[cfg(feature = "game_client")]
+            {
+                crate::save_load::snapshot::capture_game_client_xfer_bytes_excluding_owned(
+                    client,
+                    &game_logic.owned_jet_lockon_receipts(),
+                )?
+            }
+            #[cfg(not(feature = "game_client"))]
+            {
+                capture_game_client_xfer_bytes(client)?
+            }
         } else {
             Vec::new()
         };

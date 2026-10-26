@@ -60,12 +60,12 @@ fn empty_resolved_team_clears_previous_attack_without_faction_fallback() {
         object.set_target(
             Some(target),
             attack_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     };
     owner.host_object_mut(unit).unwrap().set_ai_state(
         AIState::Attacking,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     assert_eq!(
         execute(
@@ -186,11 +186,11 @@ fn team_stop_disband_stops_then_recruits_and_merges_actual_owned_rosters() {
     object.set_target(
         Some(target),
         attack_events,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     object.set_ai_state(
         AIState::Attacking,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     let peer_name = foreign
         .host_object(peer)

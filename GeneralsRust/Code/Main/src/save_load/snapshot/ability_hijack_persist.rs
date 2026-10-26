@@ -276,7 +276,9 @@ fn take_u32(rest: &mut &[u8]) -> SaveLoadResult<u32> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::game_logic::host_hero_abilities::{LeftoverSaChannel, LeftoverSaKind, LeftoverSaPhase};
+    use crate::game_logic::host_hero_abilities::{
+        LeftoverSaChannel, LeftoverSaKind, LeftoverSaPhase,
+    };
     use crate::game_logic::{
         AIState, CaptureChannelPhase, CaptureChannelState, Player, Team, ThingTemplate,
     };
@@ -329,7 +331,7 @@ mod tests {
             });
             ranger.set_ai_state(
                 AIState::Capturing,
-                &mut crate::game_logic::ObjectAudio::queue(audio),
+                &mut crate::game_logic::ObjectAudio::record(audio),
             );
             ranger.set_status_using_ability(true);
             ranger.target = Some(barracks_id);
@@ -341,7 +343,7 @@ mod tests {
             burton.charge_plant_unpack_remaining_seconds = Some(2.2);
             burton.set_ai_state(
                 AIState::SpecialAbility,
-                &mut crate::game_logic::ObjectAudio::queue(audio),
+                &mut crate::game_logic::ObjectAudio::record(audio),
             );
             burton.set_status_using_ability(true);
             burton.target = Some(barracks_id);
@@ -443,7 +445,7 @@ mod tests {
                 .expect("tank");
             tank.apply_hijacked_from_with_partition_owner(
                 None,
-                &mut crate::game_logic::ObjectAudio::queue(audio),
+                &mut crate::game_logic::ObjectAudio::record(audio),
                 partition,
             );
         }
@@ -453,7 +455,7 @@ mod tests {
                 .expect("hijacker");
             hijacker.begin_hijacker_in_vehicle_with_partition_owner(
                 vid,
-                &mut crate::game_logic::ObjectAudio::queue(audio),
+                &mut crate::game_logic::ObjectAudio::record(audio),
                 partition,
             );
         }

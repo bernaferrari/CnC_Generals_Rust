@@ -108,8 +108,20 @@ End
         transport_object.loco_behavior_z,
         crate::game_logic::LocomotorBehaviorZ::SurfaceRelativeHeight
     );
-    assert!((transport_object.max_lift - 300.0 / 900.0).abs() < 0.0001);
-    assert!((transport_object.max_lift_damaged - 300.0 / 900.0).abs() < 0.0001);
+    assert!((transport_object.get_max_lift() - 300.0 / 900.0).abs() < 0.0001);
+    assert_eq!(
+        transport_object.max_lift,
+        crate::game_logic::locomotor_bootstrap::DEFAULT_HOST_LIFT_CAP
+    );
+    assert!(
+        (transport_object
+            .selected_locomotor_definition
+            .unwrap()
+            .max_lift_damaged
+            - 300.0 / 900.0)
+            .abs()
+            < 0.0001
+    );
     assert!((transport_object.speed_limit_z - 30.0 / 30.0).abs() < 0.0001);
     assert!(transport_object.allow_motive_force_while_airborne);
     assert_ne!(
@@ -123,7 +135,7 @@ End
     passenger_object.set_contained_by(Some(transport));
     passenger_object.set_ai_state(
         AIState::Docked,
-        &mut crate::game_logic::ObjectAudio::queue(audio_events),
+        &mut crate::game_logic::ObjectAudio::record(audio_events),
     );
     (logic, transport, passenger)
 }

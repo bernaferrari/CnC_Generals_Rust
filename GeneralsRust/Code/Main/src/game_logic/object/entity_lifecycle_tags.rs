@@ -3,6 +3,8 @@
 //! Order matches `Object` field-group declaration order (not C++ helper-first
 //! xfer order). That declaration order is the inventory contract for this slice.
 
+/// Source ParachuteContain attachment cache and bone invalidation flags.
+pub const TAG_PARACHUTE_ATTACHMENTS: &str = "ParachuteContainAttachments";
 /// C++ OverlordContain portable child identity and redirection phase.
 pub const TAG_OVERLORD_ADDON: &str = "OverlordAddon";
 /// C++ UpgradeDie residual.
@@ -202,6 +204,7 @@ pub const INVENTORY_TAGS: &[&str] = &[
     TAG_WEAPON_LOCK,
     TAG_EMOTICON_SURRENDER,
     TAG_PROJECTILE_FLIGHT,
+    TAG_PARACHUTE_ATTACHMENTS,
     TAG_ACTIVE_BODY,
     TAG_PHYSICS_BEHAVIOR,
     TAG_RAILROAD,

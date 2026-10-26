@@ -14,11 +14,74 @@ pub(crate) struct NativeSlaveSource {
     pub(crate) max_height_above_position: f32,
 }
 
+#[cfg(feature = "game_client")]
+#[derive(Clone, Debug)]
+pub(crate) struct NativeAuxiliarySource {
+    pub(crate) world: std::sync::Arc<()>,
+    pub(crate) epoch: u64,
+    pub(crate) template:
+        std::sync::Arc<game_engine::common::thing::thing_template::AdmittedReceivingTemplate>,
+    pub(crate) draws: std::sync::Arc<crate::game_logic::thing::ReceivingDrawModels>,
+    pub(crate) scale: f32,
+    pub(crate) frame: u32,
+    pub(crate) birth: game_client::core::game_client::NativeDrawableBirthContext,
+}
+
+#[cfg(feature = "game_client")]
+impl PartialEq for NativeAuxiliarySource {
+    fn eq(&self, other: &Self) -> bool {
+        std::sync::Arc::ptr_eq(&self.world, &other.world)
+            && self.epoch == other.epoch
+            && std::sync::Arc::ptr_eq(&self.template, &other.template)
+            && std::sync::Arc::ptr_eq(&self.draws, &other.draws)
+            && self.scale == other.scale
+            && self.frame == other.frame
+            && self.birth == other.birth
+    }
+}
+
 use crate::presentation_frame::camera::build::SlaveCameraSample;
 
 /// One immediate receiving audio admission, borrowed for a synchronous operation.
 /// The service owns its actual pending AR_Play requests; gameplay keeps no receipt log.
 pub(crate) trait NativeAudioEffects {
+    fn music_track_completed(
+        &mut self,
+        _track: &str,
+        _number_of_times: i32,
+        _additional_handles: &[u32],
+    ) -> Result<bool, String> {
+        Err("receiving audio service does not own music completion receipts".into())
+    }
+
+    fn accepts_audio_device(
+        &self,
+        _device: &std::sync::Arc<std::sync::Mutex<game_engine::common::audio::AudioManager>>,
+    ) -> bool {
+        false
+    }
+
+    fn script_audio(
+        &mut self,
+        _request: gamelogic::scripting::engine::ScriptAudioRequest<'_>,
+        _policy: &game_engine::common::audio::script_policy::ScriptAudioPolicy,
+        _additional_handles: &[u32],
+    ) -> Result<(), String> {
+        Err("receiving audio service does not own script policy receipts".into())
+    }
+
+    fn submit_selected_audio(
+        &mut self,
+        event: &game_engine::common::audio::AudioEventRts,
+        locality: &game_engine::common::audio::AudioSubmissionLocality,
+        _selection: &mut dyn game_engine::common::audio::audio_event_rts::AudioEventSelection,
+        policy: &game_engine::common::audio::script_policy::ScriptAudioPolicy,
+    ) -> Result<(), String> {
+        let mut event = event.clone();
+        event.admit_script_policy(policy);
+        self.add_audio_event(&event, locality);
+        Ok(())
+    }
     fn add_prepared_audio_event(
         &mut self,
         event: &game_engine::common::audio::AudioEventRts,
@@ -35,6 +98,7 @@ pub(crate) trait NativeAudioEffects {
         player: Option<i32>,
         locality: &game_engine::common::audio::AudioSubmissionLocality,
         _selection: &mut dyn game_engine::common::audio::audio_event_rts::AudioEventSelection,
+        policy: &game_engine::common::audio::script_policy::ScriptAudioPolicy,
     ) -> Result<(), String> {
         let mut event = game_engine::common::audio::AudioEventRts::with_event_name(name);
         if let Some(position) = position {
@@ -47,6 +111,7 @@ pub(crate) trait NativeAudioEffects {
         if let Some(player) = player {
             event.set_player_index(player);
         }
+        event.admit_script_policy(policy);
         self.add_audio_event(&event, locality);
         Ok(())
     }
@@ -82,9 +147,10 @@ impl NativeAudioEffects for game_engine::common::audio::AudioManager {
         player: Option<i32>,
         locality: &game_engine::common::audio::AudioSubmissionLocality,
         selection: &mut dyn game_engine::common::audio::audio_event_rts::AudioEventSelection,
+        policy: &game_engine::common::audio::script_policy::ScriptAudioPolicy,
     ) -> Result<(), String> {
-        game_client::fx_list::submit_sound_fx_owned(
-            name, position, player, self, locality, selection,
+        game_client::fx_list::submit_sound_fx_with_policy(
+            name, position, player, self, locality, selection, policy,
         )
         .map(|_| ())
     }
@@ -106,6 +172,7 @@ impl NativeAudioEffects for game_engine::common::audio::AudioManager {
 
 #[cfg(feature = "game_client")]
 pub(crate) struct NativeBodyVisualChange {
+    pub(crate) audio_policy: game_engine::common::audio::script_policy::ScriptAudioPolicy,
     pub(crate) identity: LiveDrawPlaybackIdentity,
     pub(crate) state: gamelogic::common::types::BodyDamageType,
     pub(crate) loading_map: bool,
@@ -151,6 +218,49 @@ pub(crate) trait NativeProjectedRadiusAllocator {
 }
 
 pub(crate) trait NativeViewEffects {
+    fn visit_owned_ambient_audio_handles(&self, _visit: &mut dyn FnMut(u32)) {}
+
+    #[cfg(feature = "game_client")]
+    fn create_jet_lockon(
+        &mut self,
+        source: &NativeAuxiliarySource,
+        content: &mut game_engine::common::thing::module_factory::ModuleFactory,
+    ) -> Result<game_client::core::game_client::NativeAuxiliaryReceipt, String> {
+        let _ = (source, content);
+        Err("receiving native lock-on constructor unavailable".into())
+    }
+    #[cfg(feature = "game_client")]
+    fn position_jet_lockon(
+        &mut self,
+        source: &NativeAuxiliarySource,
+        receipt: &game_client::core::game_client::NativeAuxiliaryReceipt,
+        position: [f32; 3],
+        orientation: Option<f32>,
+    ) -> Result<(), String> {
+        let _ = (source, receipt, position, orientation);
+        Err("receiving native lock-on pose unavailable".into())
+    }
+    #[cfg(feature = "game_client")]
+    fn set_jet_lockon_scene_flags(
+        &mut self,
+        source: &NativeAuxiliarySource,
+        receipt: &game_client::core::game_client::NativeAuxiliaryReceipt,
+        hidden: bool,
+        shroud_object: Option<u32>,
+    ) -> Result<(), String> {
+        let _ = (source, receipt, hidden, shroud_object);
+        Err("receiving native lock-on visibility unavailable".into())
+    }
+    #[cfg(feature = "game_client")]
+    fn retire_jet_lockon(
+        &mut self,
+        source: &NativeAuxiliarySource,
+        receipt: &game_client::core::game_client::NativeAuxiliaryReceipt,
+    ) -> Result<(), String> {
+        let _ = (source, receipt);
+        Err("receiving native lock-on retirement unavailable".into())
+    }
+
     #[cfg(feature = "game_client")]
     fn spawn_tracer(
         &mut self,
@@ -199,6 +309,31 @@ pub(crate) trait NativeViewEffects {
     ) -> Result<Vec<glam::Mat4>, String> {
         let _ = (source, bone_name, start, max_bones);
         Err("native FX bone query has no receiving installed-render capability".into())
+    }
+
+    /// Actual receiving Drawable instance state, separate from Object pose.
+    /// None is an explicit no-Drawable recipient; native adapters must validate birth.
+    /// None is a genuine no-Drawable receiver, never a stale/missing binding.
+    fn drawable_model_condition_bits(
+        &mut self,
+        _source: &NativeSlaveSource,
+    ) -> Result<Option<u128>, String> {
+        Err("receiving native Drawable condition query unavailable".into())
+    }
+    fn drawable_instance_transform(
+        &mut self,
+        source: &NativeSlaveSource,
+    ) -> Result<Option<glam::Mat4>, String> {
+        let _ = source;
+        Err("receiving Drawable instance query unavailable".into())
+    }
+    fn set_drawable_instance_transform(
+        &mut self,
+        source: &NativeSlaveSource,
+        matrix: Option<glam::Mat4>,
+    ) -> Result<bool, String> {
+        let _ = (source, matrix);
+        Err("receiving Drawable instance mutation unavailable".into())
     }
 
     /// Logical-condition pristine bones, independent of the current HAnim.

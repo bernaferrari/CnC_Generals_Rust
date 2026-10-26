@@ -166,8 +166,10 @@ impl CnCGameEngine {
             },
             script_window_stream,
         )
-        .with_command_hints(command_hints, client_frame.frame());
-        let mut audio = super::native_audio_effects::NativeAudioService::live();
+        .with_command_hints(command_hints, client_frame.frame())
+        .with_menu_audio_receipts(&self.menu_audio);
+        let mut audio =
+            super::native_audio_effects::NativeAudioService::receiving(&mut self.subsystem_manager);
         #[cfg(feature = "game_client")]
         let (poses, terrain) = self
             .render_pipeline

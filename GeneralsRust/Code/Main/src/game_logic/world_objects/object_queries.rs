@@ -3247,7 +3247,7 @@ mod dock_approach_owner_tests {
         worker.target = Some(dock);
         worker.set_ai_state(
             AIState::Gathering,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
 
@@ -3366,11 +3366,11 @@ mod dock_approach_owner_tests {
             let owner = world.host_object_mut(docker_ids[0]).expect("first owner");
             owner.set_ai_state(
                 AIState::Moving,
-                &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+                &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
             );
             owner.set_ai_state(
                 AIState::Gathering,
-                &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+                &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
             );
         }
         assert_eq!(
@@ -3400,11 +3400,11 @@ mod dock_approach_owner_tests {
         let mut query_clone = world.host_object(owner_id).expect("owner").clone();
         query_clone.set_ai_state(
             AIState::Moving,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         query_clone.set_ai_state(
             AIState::Gathering,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         assert_eq!(
             world.find_nearest_harvestable_supply_within(
@@ -3536,7 +3536,7 @@ mod dock_approach_owner_tests {
             .expect("active docker")
             .set_ai_state(
                 AIState::Moving,
-                &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+                &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
             );
         let waiter_a = workers_a[1];
         make_gathering(&mut world_a, dock_a, waiter_a);
@@ -3604,11 +3604,11 @@ mod dock_approach_owner_tests {
             object.set_target(
                 Some(dock),
                 attack_events,
-                &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+                &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
             );
             object.set_ai_state(
                 AIState::SeekingRepair,
-                &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+                &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
             );
         }
 

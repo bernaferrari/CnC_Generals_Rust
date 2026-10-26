@@ -540,7 +540,9 @@ impl GameLogic {
         // Wave 783: host-sole unless movement authority live: FloatUpdate is owned by
         // GW tick_status_timer_expirations + transform writeback.
         {
-            self.update_float_update_with_effects(&mut ui);
+            if let Err(error) = self.update_float_update_with_effects(&mut ui) {
+                return SimulationStepOutcome::Failed(error);
+            }
         }
         // Wave 782: host-sole unless movement authority live: ProneUpdate is owned by
         // GW tick_status_timer_expirations + writeback.
@@ -693,7 +695,9 @@ impl GameLogic {
         // Phase 7: Combat Resolution (within object updates)
         // -----------------------------------------------------------------------
         // Weapon fire and damage application as part of the object update pass.
-        self.update_combat_with_effects(&object_ids, dt, &mut ui);
+        if let Err(error) = self.update_combat_with_effects(&object_ids, dt, &mut ui) {
+            return SimulationStepOutcome::Failed(error);
+        }
         self.mirror_overlord_addon_damage_after_combat_with_effects(&mut ui);
         self.flush_pending_garrison_really_damaged_ejects_with_effects(&mut ui);
         if let Err(error) = self.flush_subdual_passenger_orders_with_effects(&mut ui) {
@@ -707,9 +711,15 @@ impl GameLogic {
         {
             return SimulationStepOutcome::Failed(error);
         }
-        self.tick_all_turret_state_machines_with_effects(&object_ids, t, frame, &mut ui);
+        if let Err(error) =
+            self.tick_all_turret_state_machines_with_effects(&object_ids, t, frame, &mut ui)
+        {
+            return SimulationStepOutcome::Failed(error);
+        }
         self.sync_attack_priority_from_script_engine();
-        self.tick_mood_auto_acquire(&object_ids);
+        if let Err(error) = self.tick_mood_auto_acquire_with_effects(&object_ids, &mut ui) {
+            return SimulationStepOutcome::Failed(error);
+        }
         self.tick_attack_team_persist(&object_ids);
         self.tick_attack_area_persist(&object_ids);
         if let Err(error) = self.tick_out_of_ammo_jet_damage_with_effects(&mut ui) {
@@ -719,9 +729,13 @@ impl GameLogic {
             return SimulationStepOutcome::Failed(error);
         }
         self.tick_airfield_runway_clear();
-        self.tick_shock_stun_all_with_effects(&mut ui);
+        if let Err(error) = self.tick_shock_stun_all_with_effects(&mut ui) {
+            return SimulationStepOutcome::Failed(error);
+        }
         // C++ PartitionManager collide residual (broadphase fail-closed O(n²)).
-        self.integrate_owned_physics_motion_with_effects(&mut ui);
+        if let Err(error) = self.integrate_owned_physics_motion_with_effects(&mut ui) {
+            return SimulationStepOutcome::Failed(error);
+        }
 
         // Admit accepted shots from this session's CombatSystem before flight.
         // The same owner applies ordered impact damage and body callbacks.

@@ -298,7 +298,7 @@ fn restored_recoil_slots_for_topology(
 /// an asset/topology becomes available later; Main must similarly advance the
 /// per-module observation watermark while deliberately retaining bind/idle.
 fn retain_fire_starts_from_plans(
-    drawable_visual_states: &mut HashMap<(u32, u32), ObjectVisualState>,
+    drawable_visual_states: &mut HashMap<(NativeDrawOwnerId, u32), ObjectVisualState>,
     plans: &[crate::presentation_frame::FrozenWeaponVisualDispatchPlan],
 ) {
     for plan in plans {
@@ -309,7 +309,10 @@ fn retain_fire_starts_from_plans(
             if !target.starts_recoil_or_muzzle {
                 continue;
             }
-            let key = (plan.discharge.source.0, target.state.draw_module_index);
+            let key = (
+                NativeDrawOwnerId::Actor(plan.discharge.source.0),
+                target.state.draw_module_index,
+            );
             let state = drawable_visual_states.entry(key).or_default();
             if plan.discharge.sequence == 0
                 || plan.discharge.sequence <= state.last_seen_weapon_discharge_sequence
@@ -594,7 +597,7 @@ impl RenderPipeline {
             .drawable_visual_states
             .iter()
             .filter_map(|(&(object_id, draw_module_index), state)| {
-                snapshot_from_visual_state(object_id, draw_module_index, state)
+                snapshot_from_visual_state(object_id.actor_id()?, draw_module_index, state)
             })
             .collect::<Vec<_>>();
         for (id, state) in visual_world.snapshot_objectless_drawables() {
@@ -709,7 +712,7 @@ impl RenderPipeline {
             &mut self.native_draw_world.drawable_visual_states,
             visual_plans,
         );
-        let key = (object_id.0, draw_module_index);
+        let key = (NativeDrawOwnerId::Actor(object_id.0), draw_module_index);
         let state = self
             .native_draw_world
             .drawable_visual_states

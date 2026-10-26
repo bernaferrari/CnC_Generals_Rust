@@ -28,11 +28,10 @@ impl GameLogic {
             (
                 target.is_alive(),
                 target.apply_sneaky_targeting_offset(target.get_position(), self.frame),
-                target.is_temporarily_preventing_aim_success(self.frame),
             )
         });
 
-        let Some((target_alive, target_position, lockon_block)) = target_status else {
+        let Some((target_alive, target_position)) = target_status else {
             self.stop_attack_decision_aware(attacker_id);
             return CombatShotResult::NoShot;
         };
@@ -44,11 +43,17 @@ impl GameLogic {
             self.stop_attack_decision_aware(attacker_id);
             return CombatShotResult::NoShot;
         }
-        if lockon_block {
-            return CombatShotResult::NoShot;
+        if let Err(error) =
+            self.admit_jet_targeter_with_effects(target_id, attacker_id, true, effects)
+        {
+            return CombatShotResult::Failed(error);
         }
-        if let Some(tgt) = self.objects.get_mut(&target_id) {
-            tgt.add_jet_targeter(attacker_id, true, self.frame);
+        if self
+            .objects
+            .get(&target_id)
+            .is_none_or(|target| target.is_temporarily_preventing_aim_success(self.frame))
+        {
+            return CombatShotResult::NoShot;
         }
 
         // Choose a legal explicit/automatic combat slot, then fire.

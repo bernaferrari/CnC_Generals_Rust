@@ -7,7 +7,7 @@ mod owned_light_scene;
 pub use owned_light_scene::DisplayLightScene;
 #[path = "fx_owned_sound.rs"]
 mod owned_sound;
-pub use owned_sound::submit_sound_fx_owned;
+pub use owned_sound::{submit_sound_fx_owned, submit_sound_fx_with_policy};
 #[path = "fx_owned_execution.rs"]
 mod owned_execution;
 #[path = "fx_runtime.rs"]

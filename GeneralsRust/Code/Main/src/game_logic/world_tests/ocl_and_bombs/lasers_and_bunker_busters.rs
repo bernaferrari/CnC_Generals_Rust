@@ -997,9 +997,13 @@ fn point_defense_laser_residual_skips_non_carrier() {
 #[test]
 fn neutron_shell_residual_upgrade_and_blast() {
     use crate::command_system::{CommandType, GameCommand};
-    use crate::game_logic::host_neutron_shell::{UPGRADE_CHINA_NEUTRON_SHELLS, is_nuke_cannon_template};
+    use crate::game_logic::host_neutron_shell::{
+        UPGRADE_CHINA_NEUTRON_SHELLS, is_nuke_cannon_template,
+    };
     use crate::game_logic::host_upgrades::HostUpgradeKind;
-    use crate::game_logic::weapon_bootstrap::{NUKE_CANNON_PRIMARY_WEAPON, ensure_host_weapon_store};
+    use crate::game_logic::weapon_bootstrap::{
+        NUKE_CANNON_PRIMARY_WEAPON, ensure_host_weapon_store,
+    };
 
     ensure_host_weapon_store();
 
@@ -1119,7 +1123,7 @@ fn neutron_shell_residual_upgrade_and_blast() {
         c.attack_target(
             infantry_id,
             attack_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         if let Some(w) = c.secondary_weapon.as_mut() {
             w.last_fire_time = -100.0;
@@ -1262,7 +1266,7 @@ fn neutron_shell_residual_primary_does_not_blast() {
         c.attack_target(
             infantry_id,
             attack_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
 
@@ -1288,7 +1292,9 @@ fn bunker_buster_residual_kills_garrison_and_damages_bunker() {
         UPGRADE_AMERICA_BUNKER_BUSTERS, is_bunker_buster_carrier,
     };
     use crate::game_logic::host_upgrades::HostUpgradeKind;
-    use crate::game_logic::weapon_bootstrap::{STEALTH_JET_MISSILE_WEAPON, ensure_host_weapon_store};
+    use crate::game_logic::weapon_bootstrap::{
+        STEALTH_JET_MISSILE_WEAPON, ensure_host_weapon_store,
+    };
 
     ensure_host_weapon_store();
 
@@ -1353,7 +1359,7 @@ fn bunker_buster_residual_kills_garrison_and_damages_bunker() {
         u.set_contained_by_with_partition_owner(Some(bunker_id), true, fixture_partition_u);
         u.set_ai_state(
             AIState::Garrisoned,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         u.set_position_with_partition_owner(
             Vec3::new(150.0, 0.0, 0.0),
@@ -1425,7 +1431,7 @@ fn bunker_buster_residual_kills_garrison_and_damages_bunker() {
         f.attack_target(
             bunker_id,
             attack_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         if let Some(w) = f.weapon.as_mut() {
             w.last_fire_time = -20.0;
@@ -1519,7 +1525,9 @@ fn bunker_buster_residual_kills_garrison_and_damages_bunker() {
 
 #[test]
 fn bunker_buster_residual_without_upgrade_does_not_bust() {
-    use crate::game_logic::weapon_bootstrap::{STEALTH_JET_MISSILE_WEAPON, ensure_host_weapon_store};
+    use crate::game_logic::weapon_bootstrap::{
+        STEALTH_JET_MISSILE_WEAPON, ensure_host_weapon_store,
+    };
 
     ensure_host_weapon_store();
 
@@ -1556,7 +1564,7 @@ fn bunker_buster_residual_without_upgrade_does_not_bust() {
         u.set_contained_by_with_partition_owner(Some(bunker_id), true, fixture_partition_u);
         u.set_ai_state(
             AIState::Garrisoned,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
     {
@@ -1566,7 +1574,7 @@ fn bunker_buster_residual_without_upgrade_does_not_bust() {
         f.attack_target(
             bunker_id,
             attack_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         if let Some(w) = f.weapon.as_mut() {
             w.last_fire_time = -10.0;
@@ -1644,7 +1652,7 @@ fn kill_garrisoned_residual_microwave_clears_occupants() {
         u.set_contained_by_with_partition_owner(Some(bunker_id), true, fixture_partition_u);
         u.set_ai_state(
             AIState::Garrisoned,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
 
@@ -1660,7 +1668,7 @@ fn kill_garrisoned_residual_microwave_clears_occupants() {
         m.attack_target(
             bunker_id,
             attack_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         if let Some(w) = m.weapon.as_mut() {
             w.last_fire_time = -10.0;
@@ -1738,7 +1746,7 @@ fn ordinary_weapon_leftover_damages_garrisoned_structure() {
         u.set_contained_by_with_partition_owner(Some(bunker_id), true, fixture_partition_u);
         u.set_ai_state(
             AIState::Garrisoned,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
 
@@ -1754,7 +1762,7 @@ fn ordinary_weapon_leftover_damages_garrisoned_structure() {
         r.attack_target(
             bunker_id,
             attack_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         if let Some(w) = r.weapon.as_mut() {
             w.last_fire_time = -10.0;

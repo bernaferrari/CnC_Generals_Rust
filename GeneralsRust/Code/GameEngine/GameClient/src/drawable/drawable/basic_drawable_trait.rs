@@ -65,9 +65,17 @@ impl Drawable for BasicDrawable {
         let translation = Matrix4::translation(self.position);
         let scale = Matrix4::scale(self.instance_scale);
         translation
+            .mul(&self.base_transform)
             .mul(&self.instance_transform)
             .mul(&self.recoil_visual)
             .mul(&scale)
+    }
+
+    fn set_base_transform(&mut self, transform: Matrix4) {
+        self.base_transform = transform;
+    }
+    fn get_instance_transform(&self) -> Matrix4 {
+        self.instance_transform
     }
 
     fn set_instance_transform(&mut self, transform: Matrix4) {
@@ -630,6 +638,6 @@ impl BasicDrawable {
     /// already stores Y-up coordinates here; only storage layout changes at
     /// the renderer boundary.
     pub(crate) fn native_base_transform(&self) -> Matrix4 {
-        Matrix4::translation(self.position).mul(&self.instance_transform)
+        Matrix4::translation(self.position).mul(&self.base_transform)
     }
 }

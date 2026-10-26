@@ -707,6 +707,10 @@ impl SnapshotBuilder {
                     .sole_healing_benefactor_expiration_frame,
                 contained_by_frame,
                 original_team,
+                original_garrison_player_id: object
+                    .building_data
+                    .as_ref()
+                    .and_then(|building| building.original_garrison_player_id),
                 formation_id: object.formation_id,
                 formation_offset: [object.formation_offset.x, object.formation_offset.y],
                 stealth_opacity: object.camo_friendly_opacity,
@@ -846,6 +850,7 @@ impl SnapshotBuilder {
                 }
                 if let Some(building) = object.building_data.as_mut() {
                     building.original_team = Some(team);
+                    building.original_garrison_player_id = entry.original_garrison_player_id;
                 }
             }
         }
@@ -1000,11 +1005,13 @@ impl SnapshotBuilder {
                 object_id: id,
                 disguise_as_template: object.disguise_as_template.clone().unwrap_or_default(),
                 disguise_as_team: disguise_team_to_u8(object.disguise_as_team),
+                disguise_as_player_id: object.disguise_as_player_id,
                 disguise_pending_template: object
                     .disguise_pending_template
                     .clone()
                     .unwrap_or_default(),
                 disguise_pending_team: disguise_team_to_u8(object.disguise_pending_team),
+                disguise_pending_player_id: object.disguise_pending_player_id,
                 disguised: object.status.disguised,
                 disguise_transition_frames: object.status.disguise_transition_frames,
                 disguise_transitioning_to: object.status.disguise_transitioning_to,
@@ -1053,12 +1060,14 @@ impl SnapshotBuilder {
                     Some(entry.disguise_as_template.clone())
                 },
                 disguise_team_from_u8(entry.disguise_as_team),
+                entry.disguise_as_player_id,
                 if entry.disguise_pending_template.is_empty() {
                     None
                 } else {
                     Some(entry.disguise_pending_template.clone())
                 },
                 disguise_team_from_u8(entry.disguise_pending_team),
+                entry.disguise_pending_player_id,
                 entry.disguised,
                 entry.disguise_transition_frames,
                 entry.disguise_transitioning_to,

@@ -344,7 +344,38 @@ pub struct ScriptSelectionStatus {
     pub selected: bool,
 }
 
+/// Synchronous script match-audio effects, independent of application sliders.
+#[derive(Debug, Clone, Copy)]
+pub enum ScriptAudioRequest<'a> {
+    StopMusic {
+        fade: bool,
+    },
+    SetVolume {
+        volume: f32,
+        affect: game_engine::common::audio::AudioAffect,
+    },
+    NamedVolume {
+        name: &'a str,
+        volume: f32,
+    },
+    RemoveNamed(&'a str),
+    RemoveDisabled,
+    Pause(game_engine::common::audio::AudioAffect),
+    Resume(game_engine::common::audio::AudioAffect),
+}
 pub trait ScriptExecutionDriver {
+    fn music_track_completed(
+        &mut self,
+        _track: &str,
+        _number_of_times: i32,
+    ) -> Option<GameLogicResult<bool>> {
+        None
+    }
+
+    fn audio(&mut self, _request: ScriptAudioRequest<'_>) -> Option<GameLogicResult<()>> {
+        None
+    }
+
     fn speech_play(&mut self, _name: &str, _allow_overlap: bool) -> Option<GameLogicResult<()>> {
         None
     }

@@ -61,7 +61,7 @@ fn fixture() -> (GameLogic, ObjectId) {
     dozer.target = Some(id);
     dozer.set_ai_state(
         AIState::Constructing,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     world
         .ai_manager

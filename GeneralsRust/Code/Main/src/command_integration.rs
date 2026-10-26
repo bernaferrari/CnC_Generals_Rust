@@ -1392,7 +1392,7 @@ End
         old_rider.set_contained_by(Some(bike_id));
         old_rider.set_ai_state(
             AIState::Docked,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
 
         let mut incoming_rider = Object::new(

@@ -14,6 +14,7 @@ impl SnapshotBuilder {
         candidate: &mut GameLogic,
     ) -> SaveLoadResult<()> {
         validate_direct_world_snapshot_version(snapshot.version)?;
+        snapshot.audio_policy.validate()?;
         // Native input owns squads; validate its detached wire before world mutation.
         let _ = super::super::hotkey_squad_persist::read_control_groups(&snapshot.lifecycle_tail)?;
         if candidate.object_lifecycle_callback_depth != 0
@@ -295,6 +296,10 @@ impl SnapshotBuilder {
             // C++ GameStateMap::xfer moves the exact counter early in load.
             next_object_id: game_logic.next_object_id_for_snapshot().0,
             pending_combat: game_logic.combat_system.pending_combat_snapshot(),
+            audio_policy: AudioPolicySnapshot {
+                version: 1,
+                policy: game_logic.queued_audio_events.policy().clone(),
+            },
         };
 
         let chunks = super::super::player_team_chunks::stamp_from_live(game_logic)?;
@@ -340,6 +345,7 @@ impl SnapshotBuilder {
         game_logic: &mut GameLogic,
     ) -> SaveLoadResult<()> {
         validate_direct_world_snapshot_version(snapshot.version)?;
+        snapshot.audio_policy.validate()?;
         // Native input owns squads; validate its detached wire before world mutation.
         let _ = super::super::hotkey_squad_persist::read_control_groups(&snapshot.lifecycle_tail)?;
         // Validate the original ScriptEngine continuation before mutating the
@@ -393,6 +399,46 @@ impl SnapshotBuilder {
                 return Err(SaveLoadError::Corrupted(
                     "invalid receiving named script cache history".into(),
                 ));
+            }
+        }
+        for entry in &snapshot.object_disguises {
+            if (!entry.disguise_as_template.is_empty() && entry.disguise_as_player_id.is_none())
+                || (!entry.disguise_pending_template.is_empty()
+                    && entry.disguise_pending_player_id.is_none())
+                || (entry.disguise_as_player_id.is_some() && entry.disguise_as_template.is_empty())
+                || (entry.disguise_pending_player_id.is_some()
+                    && entry.disguise_pending_template.is_empty())
+                || (!entry.disguise_as_template.is_empty() && entry.disguise_as_team > 3)
+                || (!entry.disguise_pending_template.is_empty() && entry.disguise_pending_team > 3)
+            {
+                return Err(SaveLoadError::Corrupted(
+                    "inconsistent disguise identity/template continuation".into(),
+                ));
+            }
+
+            for id in [
+                entry.disguise_as_player_id,
+                entry.disguise_pending_player_id,
+            ]
+            .into_iter()
+            .flatten()
+            {
+                if !snapshot.players.iter().any(|player| player.id == id) {
+                    return Err(SaveLoadError::Corrupted(format!(
+                        "disguise references absent player {id}"
+                    )));
+                }
+            }
+        }
+        for entry in &snapshot.object_persist {
+            if let Some(id) = entry.original_garrison_player_id {
+                if entry.original_team.is_none()
+                    || !snapshot.players.iter().any(|player| player.id == id)
+                {
+                    return Err(SaveLoadError::Corrupted(format!(
+                        "original garrison references invalid player {id}"
+                    )));
+                }
             }
         }
         self.validate_object_restore_admission(&snapshot.objects, game_logic)?;
@@ -544,18 +590,20 @@ impl SnapshotBuilder {
         // Pending old-world starts are not incoming snapshot output. Isolate
         // them BEFORE destruction: retirement itself emits required stops and
         // other immediate callback output against the outgoing identities/poses.
-        let pending_audio_before_retirement = std::mem::take(&mut game_logic.queued_audio_events);
+        let pending_audio_before_retirement = game_logic.queued_audio_events.drain_requests();
         if let Err(error) =
             game_logic.destroy_all_objects_immediate_with_effects_checked(&mut Default::default())
         {
             // A failed retirement retains its exact owner. Preserve both the
             // previous pending output and the partial retirement output, without
             // replaying callbacks or pretending the receiver was replaced.
-            let retirement_audio = std::mem::replace(
-                &mut game_logic.queued_audio_events,
-                pending_audio_before_retirement,
-            );
-            game_logic.queued_audio_events.extend(retirement_audio);
+            let retirement_audio = game_logic.queued_audio_events.drain_requests();
+            game_logic
+                .queued_audio_events
+                .restore_requests(pending_audio_before_retirement);
+            game_logic
+                .queued_audio_events
+                .extend_admitted(retirement_audio);
             return Err(SaveLoadError::Corrupted(format!(
                 "outgoing Object retirement: {error}"
             )));
@@ -879,6 +927,9 @@ impl SnapshotBuilder {
         game_logic
             .combat_system
             .restore_pending_combat(&snapshot.pending_combat);
+        game_logic
+            .queued_audio_events
+            .restore_policy(snapshot.audio_policy.policy.clone());
         game_logic
             .combat_system
             .restore_live_projectile_arena(projectile_continuation.arena);

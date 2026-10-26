@@ -67,7 +67,7 @@ fn listening_outpost_residual_transport_load_unload() {
             unit.target = Some(outpost_id);
             unit.set_ai_state(
                 AIState::Entering,
-                &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+                &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
             );
         }
         game_logic
@@ -108,7 +108,7 @@ fn listening_outpost_residual_transport_load_unload() {
         unit.target = Some(outpost_id);
         unit.set_ai_state(
             AIState::Entering,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
     game_logic
@@ -219,7 +219,7 @@ fn listening_outpost_residual_rejects_vehicle_enter() {
         unit.target = Some(outpost_id);
         unit.set_ai_state(
             AIState::Entering,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
     game_logic
@@ -857,7 +857,7 @@ fn dozer_mine_clear_residual_approaches_then_clears() {
         );
         dozer.set_ai_state(
             AIState::Idle,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
     game_logic.frame = 10;
@@ -1310,7 +1310,7 @@ fn bored_dozer_arms_mine_clearing_weaponset() {
     if let Some(o) = logic.host_object_mut(did) {
         o.set_ai_state(
             AIState::Idle,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         o.idle_since_frame = 1;
         assert!(!o.weapon_set_mine_clearing_detail);
@@ -1773,7 +1773,7 @@ fn stinger_site_residual_dual_fire_and_ap_rockets() {
         s.target = None;
         s.set_ai_state(
             AIState::Idle,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
     // Remove ground tank from consideration by destroying it.
@@ -2335,7 +2335,7 @@ fn camo_netting_structure_attack_and_damage_reveal_residual() {
         s.set_status_firing_weapon(false);
         s.set_ai_state(
             AIState::Idle,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         s.set_status_using_ability(true);
     }
@@ -2363,7 +2363,7 @@ fn camo_netting_structure_attack_and_damage_reveal_residual() {
         let e = game_logic.host_object_mut(enemy_id).unwrap();
         e.set_ai_state(
             AIState::Idle,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         e.target = None;
         e.weapon = Some(Weapon {
@@ -2384,7 +2384,7 @@ fn camo_netting_structure_attack_and_damage_reveal_residual() {
         t.set_status_using_ability(false);
         t.set_ai_state(
             AIState::Idle,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         t.stealth_allowed_frame = 0;
         t.stealth_delay_pending = false;
@@ -2428,7 +2428,7 @@ fn camo_netting_structure_attack_and_damage_reveal_residual() {
         t.set_status_using_ability(false);
         t.set_ai_state(
             AIState::Idle,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         t.target = None;
         t.set_status_stealthed(false);

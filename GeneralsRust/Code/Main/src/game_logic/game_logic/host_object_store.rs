@@ -104,6 +104,11 @@ impl HostObjectStore {
 
     /// Admit a new object lifetime after its ID becomes unoccupied.
     pub fn admit(&mut self, id: ObjectId, object: Object) -> Option<Object> {
+        #[cfg(feature = "game_client")]
+        assert!(
+            object.jet_ai.lockon_runtime.is_none(),
+            "new Object admission cannot inherit a live auxiliary Drawable receipt"
+        );
         assert!(
             !self.map.contains_key(&id),
             "new Object admission cannot replace a live lifetime"

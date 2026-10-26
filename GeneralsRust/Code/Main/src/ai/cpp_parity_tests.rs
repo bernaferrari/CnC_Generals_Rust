@@ -782,7 +782,7 @@ fn collector_returns_to_assigned_supply_center_over_nearer_center() {
         collector.set_stored_supplies(100);
         collector.set_ai_state(
             crate::game_logic::AIState::ReturningResources,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
 
@@ -916,11 +916,11 @@ fn active_loose_collector_rejoins_one_supply_center_before_paid_replacement() {
         collector.set_order_target(
             Some(source_id),
             attack_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         collector.set_ai_state(
             crate::game_logic::AIState::Gathering,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
 
@@ -1449,7 +1449,7 @@ fn queue_units_recruits_existing_idle_units() {
         obj.owner_player_id = Some(1);
         obj.set_ai_state(
             crate::game_logic::AIState::Idle,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
 
@@ -1515,7 +1515,7 @@ fn queue_units_skips_disabled_held_units() {
         obj.status.disabled_held = true;
         obj.set_ai_state(
             crate::game_logic::AIState::Idle,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
 
@@ -1559,7 +1559,7 @@ fn try_to_recruit_takes_structures_and_contained() {
         obj.owner_player_id = Some(1);
         obj.set_ai_state(
             crate::game_logic::AIState::Idle,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
     let mut ai = AIPlayer::new(1, Team::USA, AIDifficulty::Medium);
@@ -1590,7 +1590,7 @@ fn try_to_recruit_takes_structures_and_contained() {
         obj.contained_by = Some(crate::game_logic::ObjectId(99));
         obj.set_ai_state(
             crate::game_logic::AIState::Idle,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
     let mut ai = AIPlayer::new(1, Team::USA, AIDifficulty::Medium);
@@ -1631,7 +1631,7 @@ fn w21_ranger_logic() -> (crate::game_logic::GameLogic, crate::game_logic::Objec
         obj.owner_player_id = Some(1);
         obj.set_ai_state(
             crate::game_logic::AIState::Idle,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
     (logic, existing)
@@ -1774,7 +1774,7 @@ fn try_to_recruit_ranks_leftover_xy_not_host_3d() {
         obj.owner_player_id = Some(1);
         obj.set_ai_state(
             crate::game_logic::AIState::Idle,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
     let farther_xy = logic
@@ -1788,7 +1788,7 @@ fn try_to_recruit_ranks_leftover_xy_not_host_3d() {
         obj.owner_player_id = Some(1);
         obj.set_ai_state(
             crate::game_logic::AIState::Idle,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
 
@@ -1881,7 +1881,7 @@ fn check_ready_teams_execute_actions_requires_production_condition_action() {
     if let Some(o) = logic.host_object_mut(busy) {
         o.set_ai_state(
             crate::game_logic::AIState::Moving,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
     let mut order = AIWorkOrder::new("AmericaInfantryRanger".into(), 2, 100);
@@ -1928,7 +1928,7 @@ fn check_ready_teams_reinforcement_idles_only_reinforcement_unit() {
     if let Some(o) = logic.host_object_mut(fielded) {
         o.set_ai_state(
             crate::game_logic::AIState::Moving,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
     let mut order = AIWorkOrder::new("AmericaInfantryRanger".into(), 2, 100);

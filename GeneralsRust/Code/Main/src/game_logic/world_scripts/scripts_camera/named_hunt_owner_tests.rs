@@ -63,7 +63,7 @@ fn hunt_reentry_clears_previous_route_target_and_scan() {
         object.set_target(
             Some(target),
             attack_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     };
     world.host_object_mut(id).unwrap().pending_move = Some(Vec3::splat(200.0));
@@ -114,10 +114,10 @@ fn hunt_snapshot_continues_on_restored_owner() {
     // nested attack finishing: the real AI phase must resume its Hunt scan.
     for world in [&mut source, &mut restored] {
         let unit = world.host_object_mut(id).unwrap();
-        unit.clear_target(&mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()));
+        unit.clear_target(&mut crate::game_logic::ObjectAudio::record(&mut Vec::new()));
         unit.set_ai_state(
             AIState::Idle,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         world.frame = 1;
         world
@@ -248,12 +248,12 @@ fn hunt_exits_attack_submachine_before_reentering_parent() {
     let (unit, attack_events) = world.host_object_and_attack_events_mut(id).unwrap();
     unit.set_ai_state(
         AIState::Attacking,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     unit.set_target(
         Some(target),
         attack_events,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     unit.status.is_firing_weapon = true;
     unit.status.is_aiming_weapon = true;

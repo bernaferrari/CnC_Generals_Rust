@@ -50,7 +50,7 @@ fn dozer_repair_sets_actively_constructing_and_completes() {
     if let Some(o) = logic.host_object_mut(did) {
         o.set_ai_state(
             AIState::Repairing,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         o.target = Some(sid);
         assert!(o.can_construct(), "dozer must can_construct");
@@ -81,10 +81,10 @@ fn dozer_repair_sets_actively_constructing_and_completes() {
                 logic.queue_radar_message_at(msg, pos, radar_notifications::RadarKind::Generic);
                 logic.repair_complete_events = logic.repair_complete_events.saturating_add(1);
                 if let Some(d) = logic.host_object_mut(did) {
-                    d.clear_target(&mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()));
+                    d.clear_target(&mut crate::game_logic::ObjectAudio::record(&mut Vec::new()));
                     d.set_ai_state(
                         AIState::Idle,
-                        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+                        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
                     );
                     d.set_actively_constructing(false);
                 }
@@ -394,7 +394,7 @@ fn resume_construction_allows_dead_or_retasked_builder() {
     if let Some(d) = logic.host_object_mut(did) {
         d.set_ai_state(
             AIState::Idle,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         d.target = None;
         // C++ DozerAIUpdate.cpp:2012-2022 cancelTask / internalCancelTask
@@ -514,7 +514,7 @@ fn mine_clear_drops_worker_supply_boxes() {
     if let Some(w) = logic.host_object_mut(wid) {
         w.set_ai_state(
             AIState::Attacking,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         w.status.attacking = true;
     }
@@ -569,7 +569,7 @@ fn cancel_construction_clears_dozer_actively_constructing() {
     if let Some(o) = logic.host_object_mut(did) {
         o.set_ai_state(
             AIState::Constructing,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         o.target = Some(sid);
         o.set_actively_constructing(true);
@@ -690,7 +690,9 @@ fn illegal_placement_lbc_message_residual_nonempty() {
 
 #[test]
 fn structure_placement_rejects_no_clear_path_residual() {
-    use crate::game_logic::host_production_buildable_command_residual::{LBC_NO_CLEAR_PATH, LBC_OK};
+    use crate::game_logic::host_production_buildable_command_residual::{
+        LBC_NO_CLEAR_PATH, LBC_OK,
+    };
     use crate::game_logic::pathfinding::GridPos;
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     use gamelogic::ai::pathfind_astar::PathfindCellType;
@@ -1295,7 +1297,9 @@ fn usa_puc_tech_tree_prereq_chain_residual() {
 
 #[test]
 fn superweapon_structure_requires_tech_building_prereq() {
-    use crate::game_logic::host_superweapon_kindof::{AMERICA_PARTICLE_CANNON_UPLINK, GLA_SCUD_STORM};
+    use crate::game_logic::host_superweapon_kindof::{
+        AMERICA_PARTICLE_CANNON_UPLINK, GLA_SCUD_STORM,
+    };
     use crate::game_logic::{KindOf, Team, ThingTemplate};
 
     let mut logic = GameLogic::new();
@@ -1424,7 +1428,7 @@ fn disabled_freezes_structure_superweapon_countdown() {
     if let Some(o) = logic.host_object_mut(puc) {
         let _ = o.tick_timers(
             10.0,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         let rem = o
             .special_power_cooldowns
@@ -1438,7 +1442,7 @@ fn disabled_freezes_structure_superweapon_countdown() {
         o.set_status_disabled_underpowered(true);
         let _ = o.tick_timers(
             50.0,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         let rem = o
             .special_power_cooldowns
@@ -1455,7 +1459,7 @@ fn disabled_freezes_structure_superweapon_countdown() {
         o.set_status_disabled_underpowered(false);
         let _ = o.tick_timers(
             5.0,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         let rem = o
             .special_power_cooldowns
@@ -1994,7 +1998,7 @@ fn shared_timer_ready_fires_eva_superweapon_ready_residual() {
     if let Some(o) = logic.host_object_mut(id) {
         let became = o.tick_timers(
             0.1,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         assert!(became, "PUC must become ready");
     }
@@ -2360,7 +2364,7 @@ fn airfield_dock_reloads_countermeasures_residual() {
         o.apply_upgrade_tag(UPGRADE_AMERICA_COUNTERMEASURES);
         o.set_ai_state(
             AIState::Docked,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         o.set_contained_by_with_partition_owner(Some(af_id), true, fixture_partition_o);
         assert!(aircraft_has_countermeasures_upgrade(&o.applied_upgrades));
@@ -2745,13 +2749,13 @@ fn shared_synced_special_power_timer_is_player_wide() {
     if let Some(o) = logic.host_object_mut(cc1) {
         let _ = o.tick_timers(
             240.0,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
     if let Some(o) = logic.host_object_mut(cc2) {
         let _ = o.tick_timers(
             240.0,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
     assert!(logic.is_special_power_ready_for(cc2, &SpecialPowerType::Airstrike));
@@ -3011,20 +3015,20 @@ fn special_power_cooldowns_are_independent_per_power() {
     assert!(o.is_special_power_ready(&SpecialPowerType::SpySatellite));
     o.consume_special_power_charge(
         &SpecialPowerType::Airstrike,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     // A10 reloading must not block SpySatellite residual.
     assert!(!o.is_special_power_ready(&SpecialPowerType::Airstrike));
     assert!(o.is_special_power_ready(&SpecialPowerType::SpySatellite));
     o.consume_special_power_charge(
         &SpecialPowerType::SpySatellite,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     assert!(!o.is_special_power_ready(&SpecialPowerType::SpySatellite));
     // Tick 60s: spy sat (60s) clears, A10 (240s) remains.
     let _ = o.tick_timers(
         60.0,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     assert!(
         o.is_special_power_ready(&SpecialPowerType::SpySatellite),
@@ -3085,7 +3089,7 @@ fn special_power_reload_seconds_uses_retail_residual_table() {
         assert!(o.is_special_power_ready(&SpecialPowerType::Airstrike));
         o.consume_special_power_charge(
             &SpecialPowerType::Airstrike,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         assert!(!o.special_power_ready);
         assert!(

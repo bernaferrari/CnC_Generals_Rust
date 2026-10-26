@@ -198,6 +198,7 @@ impl GameLogic {
                 #[cfg(feature = "game_client")]
                 let (play, stop) = Self::with_object_fx_services(
                     &mut self.session_view,
+                    self.queued_audio_events.policy().clone(),
                     fx_player,
                     self.world_services.shroud(),
                     presentation_effects,
@@ -279,6 +280,7 @@ impl GameLogic {
                     {
                         topple_kill = Self::with_object_fx_services(
                             &mut self.session_view,
+                            self.queued_audio_events.policy().clone(),
                             fx_player,
                             self.world_services.shroud(),
                             presentation_effects,
@@ -378,6 +380,7 @@ impl GameLogic {
                         #[cfg(feature = "game_client")]
                         let _completed = Self::with_object_fx_services(
                             &mut self.session_view,
+                            self.queued_audio_events.policy().clone(),
                             fx_player,
                             self.world_services.shroud(),
                             presentation_effects,
@@ -412,6 +415,7 @@ impl GameLogic {
                 #[cfg(feature = "game_client")]
                 let _ = Self::with_object_fx_services(
                     &mut self.session_view,
+                    self.queued_audio_events.policy().clone(),
                     fx_player,
                     self.world_services.shroud(),
                     presentation_effects,
@@ -724,9 +728,12 @@ impl GameLogic {
                 continue;
             }
             // OCL_EjectPilotViaParachute residual sink (elevated pilot → ground).
-            self.tick_eject_parachute_residual_with_effects(object_id, presentation_effects);
-            // AmericaCrateParachute residual sink (cargo crate freefall → OpenDist → land).
-            self.tick_crate_parachute_residual_with_effects(object_id, presentation_effects);
+            if !self.tick_parachute_contain_owned(object_id, presentation_effects)? {
+                self.tick_eject_parachute_residual_with_effects(object_id, presentation_effects);
+                // Separately tracked synthetic cargo residual; genuine authored
+                // ParachuteContain advances only through its selected locomotor/Physics.
+                self.tick_crate_parachute_residual_with_effects(object_id, presentation_effects);
+            }
             // C++ AIRappelState: combat-drop rappel dest Z / kill-2 / addToContain.
             self.tick_rappel_into_with_effects(object_id, presentation_effects);
             // PilotFindVehicleUpdate residual: AI idle pilot auto-scan for

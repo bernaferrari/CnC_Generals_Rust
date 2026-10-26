@@ -289,27 +289,9 @@ impl GameLogic {
         self.player_relationship(oid, local.id) == Relationship::Allies
     }
 
-    /// C++ `StealthUpdate::getDisguisedPlayerIndex` → `getNthPlayer`.
-    /// Live stores `disguise_as_team`; pick that team's controlling player,
-    /// not the first HashMap hit of the faction (same-faction FFA must not
-    /// paint the truck its own house color).
+    /// C++ StealthUpdate retains the copied player index independently of faction.
     fn host_disguised_player_id(&self, obj: &Object) -> Option<u32> {
-        let team = obj.disguise_as_team?;
-        let owner = obj.owner_player_id;
-        let mut first = None;
-        let mut copied = None;
-        for player in self.players.values() {
-            if player.team != team {
-                continue;
-            }
-            if first.is_none() {
-                first = Some(player.id);
-            }
-            if owner.is_none_or(|id| player.id != id) {
-                copied = Some(player.id);
-            }
-        }
-        copied.or(first)
+        obj.disguise_as_player_id
     }
 
     /// C++ `ContainModuleInterface::getApparentControllingPlayer(local)`.
@@ -324,13 +306,24 @@ impl GameLogic {
             return (None, None);
         }
 
-        let original_team = obj.building_data.as_ref().and_then(|bd| bd.original_team);
         let current_owner = obj.owner_player_id;
         if hide && !self.host_owner_is_ally_of_local(current_owner) {
-            if let Some(team) = original_team {
-                let idx = self.host_player_index(None, team);
-                let color = self.host_player_color(None, team);
-                return (Some(idx), Some(color));
+            if let Some(original) = obj
+                .building_data
+                .as_ref()
+                .filter(|data| data.original_team.is_some())
+            {
+                return match original.original_garrison_player_id {
+                    Some(id) => (
+                        Some(id as i32),
+                        self.players.get(&id).map(|player| {
+                            pack_player_color_argb(
+                                player.house_color_rgb_at(self.lighting_rules().time_of_day),
+                            )
+                        }),
+                    ),
+                    None => (Some(-1), None), // explicitly ownerless original, never guess a faction player
+                };
             }
         }
 
@@ -390,11 +383,6 @@ impl GameLogic {
         let (disguised_index, disguised_color) = if disguised {
             if let Some(pid) = self.host_disguised_player_id(obj) {
                 (pid as i32, self.host_player_color(Some(pid), obj.team))
-            } else if let Some(team) = obj.disguise_as_team {
-                (
-                    self.host_player_index(None, team),
-                    self.host_player_color(None, team),
-                )
             } else {
                 (-1, owner_color)
             }
@@ -978,6 +966,7 @@ mod tests {
         if let Some(obj) = logic.host_object_mut(id) {
             obj.status.disguised = true;
             obj.disguise_as_team = Some(Team::China);
+            obj.disguise_as_player_id = Some(2);
         }
         let spec = insert_spec_for(&logic, id);
         assert!(!spec.owner_is_ally_of_local);
@@ -1014,6 +1003,7 @@ mod tests {
         if let Some(obj) = logic.host_object_mut(id) {
             obj.status.disguised = true;
             obj.disguise_as_team = Some(Team::USA);
+            obj.disguise_as_player_id = Some(0);
         }
         let spec = insert_spec_for(&logic, id);
         assert!(
@@ -1085,6 +1075,7 @@ mod tests {
                 .expect("bunker mut");
             if let Some(bd) = obj.building_data.as_mut() {
                 bd.original_team = Some(Team::Neutral);
+                bd.original_garrison_player_id = Some(9);
                 bd.hide_garrisoned_state = true;
                 bd.garrisoned_units.push(ninja);
                 bd.max_garrison = 5;
@@ -1164,6 +1155,7 @@ mod tests {
                 .expect("bunker mut");
             if let Some(bd) = obj.building_data.as_mut() {
                 bd.original_team = Some(Team::Neutral);
+                bd.original_garrison_player_id = Some(9);
                 bd.hide_garrisoned_state = true;
                 bd.garrisoned_units.push(ninja);
                 bd.max_garrison = 5;

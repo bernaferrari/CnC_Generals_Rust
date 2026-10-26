@@ -221,7 +221,7 @@ fn host_emp_status_log_drives_set_combat_status_channel() {
         o.apply_disabled_emp(
             until,
             health_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
 
@@ -231,7 +231,7 @@ fn host_emp_status_log_drives_set_combat_status_channel() {
         o.apply_disabled_emp(
             until2,
             health_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
     let mut shadow = GameWorldShadow::new(64);
@@ -568,7 +568,7 @@ fn host_ai_state_is_canonical_and_shadow_only_observes() {
         .expect("id");
     logic.host_object_mut(id).expect("o").set_ai_state(
         AIState::GuardingObject,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     assert_eq!(
         logic.host_object(id).expect("o").ai_state(),
@@ -590,7 +590,7 @@ fn host_ai_state_is_canonical_and_shadow_only_observes() {
     );
     logic.host_object_mut(id).expect("o").set_ai_state(
         AIState::Idle,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     assert_eq!(logic.host_object(id).expect("o").ai_state(), AIState::Idle);
     shadow.sync_from_host(&logic);

@@ -214,13 +214,13 @@ fn out_of_ammo_damage_ticks_empty_rtb_jet() {
     jet.health.current = 100.0;
     jet.set_ai_state(
         AIState::Docked,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     assert_eq!(jet.apply_out_of_ammo_damage_frame(&mut health_events), 0.0);
     // Rearmed: no damage.
     jet.set_ai_state(
         AIState::Idle,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     jet.rearm_return_to_base_weapons();
     assert_eq!(jet.apply_out_of_ammo_damage_frame(&mut health_events), 0.0);
@@ -342,7 +342,7 @@ fn parked_jet_takeoff_on_attack_and_move() {
     jet.contained_by = Some(ObjectId(99));
     jet.set_ai_state(
         AIState::Docked,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     jet.status.airborne_target = false;
     assert!(jet.is_parked_at_airfield());
@@ -350,7 +350,7 @@ fn parked_jet_takeoff_on_attack_and_move() {
     jet.attack_target(
         ObjectId(7),
         &mut _attack_output,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     assert!(jet.contained_by.is_none());
     assert_ne!(jet.ai_state(), AIState::Docked);
@@ -363,7 +363,7 @@ fn parked_jet_takeoff_on_attack_and_move() {
     jet.contained_by = Some(ObjectId(99));
     jet.set_ai_state(
         AIState::Docked,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     jet.status.airborne_target = false;
     jet.set_position(Vec3::new(10.0, 0.0, 0.0));
@@ -372,7 +372,7 @@ fn parked_jet_takeoff_on_attack_and_move() {
     jet.set_destination(
         Vec3::new(100.0, 0.0, 0.0),
         &mut movement_writer,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     assert!(jet.contained_by.is_none());
     assert!(jet.status.airborne_target || jet.ai_state() != AIState::Docked);
@@ -1495,7 +1495,7 @@ fn shock_bounce_keep_flip_before_stun_test() {
         -0.1,
         0.0,
         &mut health_events,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     assert!(
         o.status.destroyed,
@@ -1550,7 +1550,7 @@ fn stunned_upside_down_bounce_kills_and_freefall_disables() {
         -0.1,
         0.0,
         &mut health_events,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     assert!(o.status.destroyed, "upside-down stunned must die on bounce");
     assert_eq!(bounced, 0.0);
@@ -1797,7 +1797,7 @@ fn handle_shock_ground_bounce_restores_original_allow_bounce() {
         -0.1,
         0.0,
         &mut health_events,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     assert_eq!(bounced, 0.0);
     assert!(
@@ -1823,7 +1823,7 @@ fn handle_shock_ground_bounce_restores_original_allow_bounce() {
         -0.1,
         0.0,
         &mut health_events,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     assert_eq!(bounced_off, 0.0);
     assert!(
@@ -1918,7 +1918,7 @@ fn shock_stun_blocks_attack_fire_and_flail_move() {
     o.attack_target(
         ObjectId(99),
         &mut _attack_output,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     assert!(o.target.is_none() || o.ai_state() != AIState::Attacking || !o.can_attack());
     // After stun clears, combat again.
@@ -1946,7 +1946,7 @@ fn jet_stop_idle_timer_sneaky_and_lockon() {
     aurora.status.airborne_target = true;
     aurora.set_ai_state(
         AIState::Idle,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     aurora.status.attacking = true;
     let persist = aurora.tick_jet_ai_update(10);
@@ -1954,7 +1954,7 @@ fn jet_stop_idle_timer_sneaky_and_lockon() {
     aurora.status.attacking = false;
     aurora.set_ai_state(
         AIState::Idle,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     let _ = aurora.tick_jet_ai_update(11);
     assert_eq!(
@@ -2013,7 +2013,7 @@ fn jet_stop_idle_timer_sneaky_and_lockon() {
     raptor.status.airborne_target = true;
     raptor.set_ai_state(
         AIState::GuardingArea,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     raptor.mark_jet_command_for_reload_interrupt(true);
     raptor.weapon = Some(crate::game_logic::Weapon {
@@ -2033,7 +2033,7 @@ fn jet_stop_idle_timer_sneaky_and_lockon() {
 
     raptor.set_ai_state(
         AIState::Attacking,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     raptor.target = Some(ObjectId(9));
     raptor.jet_ai.allow_interrupt_for_reload = false;
@@ -2044,7 +2044,7 @@ fn jet_stop_idle_timer_sneaky_and_lockon() {
         Some(Vec3::ZERO),
         None,
         &mut _attack_output,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     assert!(
         raptor.jet_ai.allow_interrupt_for_reload,
@@ -2173,7 +2173,15 @@ fn jet_takeoff_recaptures_damage_conditioned_flight_lift_each_episode() {
         assert_eq!(jet.jet_ai.takeoff_max_lift, expected_lift);
         assert_eq!(jet.max_lift, expected_lift * 0.25);
         jet.finish_jet_takeoff();
-        assert_eq!(jet.max_lift, expected_lift);
+        assert_eq!(
+            jet.get_max_lift(),
+            expected_lift,
+            "source damage-conditioned template remains effective after cap release"
+        );
+        assert_eq!(
+            jet.max_lift,
+            crate::game_logic::locomotor_bootstrap::DEFAULT_HOST_LIFT_CAP
+        );
     }
 }
 
@@ -2200,7 +2208,9 @@ fn jet_lockon_rearms_after_targeter_removed() {
 
 #[test]
 fn jet_taxi_to_takeoff_does_not_enable_afterburners() {
-    use crate::game_logic::host_enum_table_residual::{jetafterburner_model_bit, jetexhaust_model_bit};
+    use crate::game_logic::host_enum_table_residual::{
+        jetafterburner_model_bit, jetexhaust_model_bit,
+    };
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     use glam::Vec3;
     let mut t = ThingTemplate::new("AmericaJetRaptor");
@@ -2324,7 +2334,7 @@ fn jet_stop_and_enter_airfield_land() {
         j.producer_id = Some(af);
         j.set_ai_state(
             AIState::Attacking,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         j.target = Some(ObjectId(99));
     }

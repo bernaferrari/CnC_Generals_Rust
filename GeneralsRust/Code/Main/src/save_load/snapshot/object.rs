@@ -798,10 +798,12 @@ impl XferData for ObjectDisguiseSnapshot {
         self.disguise_as_template.xfer(xfer)?;
         xfer.xfer_marker_label("DisguiseAsTeam")?;
         xfer.xfer_u8(&mut self.disguise_as_team)?;
+        xfer_option(xfer, &mut self.disguise_as_player_id, 0)?;
         xfer.xfer_marker_label("DisguisePendingTemplate")?;
         self.disguise_pending_template.xfer(xfer)?;
         xfer.xfer_marker_label("DisguisePendingTeam")?;
         xfer.xfer_u8(&mut self.disguise_pending_team)?;
+        xfer_option(xfer, &mut self.disguise_pending_player_id, 0)?;
         xfer.xfer_marker_label("Disguised")?;
         xfer.xfer_bool(&mut self.disguised)?;
         xfer.xfer_marker_label("DisguiseTransitionFrames")?;
@@ -874,6 +876,7 @@ impl XferData for ObjectPersistTailSnapshot {
         } else {
             self.original_team = None;
         }
+        xfer_option(xfer, &mut self.original_garrison_player_id, 0)?;
         xfer.xfer_u32(&mut self.formation_id)?;
         xfer.xfer_f32(&mut self.formation_offset[0])?;
         xfer.xfer_f32(&mut self.formation_offset[1])?;

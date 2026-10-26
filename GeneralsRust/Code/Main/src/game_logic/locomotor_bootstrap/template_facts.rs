@@ -19,7 +19,6 @@ pub(crate) fn apply_host_locomotor_template_facts(
     object.airborne_targeting_height = binding.airborne_targeting_height;
     object.can_move_backward = binding.can_move_backward;
     object.downhill_only = binding.downhill_only;
-    object.max_lift_damaged = binding.max_lift_damaged;
     object.speed_limit_z = binding.speed_limit_z;
     object.circling_radius = binding.circling_radius;
     object.max_thrust_angle = binding.max_thrust_angle;
@@ -79,7 +78,13 @@ mod tests {
         fact!(airborne_targeting_height, airborne_targeting_height);
         fact!(can_move_backward, can_move_backward);
         fact!(downhill_only, downhill_only);
-        fact!(max_lift_damaged, max_lift_damaged);
+        assert_eq!(
+            object
+                .selected_locomotor_definition
+                .unwrap()
+                .max_lift_damaged,
+            binding.max_lift_damaged
+        );
         fact!(speed_limit_z, speed_limit_z);
         fact!(circling_radius, circling_radius);
         fact!(max_thrust_angle, max_thrust_angle);

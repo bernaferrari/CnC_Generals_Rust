@@ -1140,7 +1140,7 @@ fn disabled_paralyzed_freeze_survives_snapshot_until_saved_frame() {
         let obj = source.host_object_mut(id).expect("obj");
         obj.apply_disabled_paralyzed(
             140,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
 

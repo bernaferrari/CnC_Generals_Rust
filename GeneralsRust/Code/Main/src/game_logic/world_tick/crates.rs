@@ -53,139 +53,6 @@ impl GameLogic {
             .is_some_and(|metadata| metadata.has_eject_pilot_die_interface())
     }
 
-    /// C++ HijackerUpdate airborne exit residual: ThingFactory newObject
-    /// (ParachuteName) + ContainModule::addToContain(hijacker).
-    ///
-    /// Host residual: spawn AmericaParachute, dock rider inside, apply
-    /// AmericaParachute freefall/open residual on both container and rider.
-    pub(in super::super) fn put_hijacker_in_airborne_parachute(
-        &mut self,
-        rider_id: ObjectId,
-        eject_pos: glam::Vec3,
-    ) {
-        self.put_hijacker_in_airborne_parachute_with_effects(
-            rider_id,
-            eject_pos,
-            &mut crate::game_logic::ScriptPresentationEffects::default(),
-        )
-    }
-
-    pub(in super::super) fn put_hijacker_in_airborne_parachute_with_effects(
-        &mut self,
-        rider_id: ObjectId,
-        eject_pos: glam::Vec3,
-        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
-        let tree_move_frame = self.frame;
-        use crate::game_logic::host_car_bomb::HIJACKER_PARACHUTE_NAME;
-        use crate::game_logic::{KindOf, ThingTemplate};
-
-        // Ensure AmericaParachute template exists for residual spawn.
-        // C++ KINDOF_PARACHUTE — host has no Parachute kind; Vehicle + max_transport=1
-        // residual so ContainModule::addToContain bookkeeping can hold the rider.
-        if !self.templates.contains_key(HIJACKER_PARACHUTE_NAME) {
-            let mut chute_tpl = ThingTemplate::new(HIJACKER_PARACHUTE_NAME);
-            chute_tpl.add_kind_of(KindOf::Vehicle).set_health(1.0);
-            self.templates
-                .insert(HIJACKER_PARACHUTE_NAME.to_string(), chute_tpl);
-        }
-
-        let (rider_team, rider_producer) = self
-            .objects
-            .get(&rider_id)
-            .map(|o| (o.team, o.producer_id))
-            .unwrap_or((crate::game_logic::Team::Neutral, None));
-
-        let mut pos = eject_pos;
-        // Keep elevated for freefall residual (C++ m_ejectPos may already be high).
-        if pos.y < 50.0 {
-            pos.y = 50.0;
-        }
-
-        let Some(chute_id) = self.create_object_with_script_effects(
-            HIJACKER_PARACHUTE_NAME,
-            rider_team,
-            pos,
-            None,
-            presentation_effects,
-        ) else {
-            // Fail-closed: still parachute the rider without a container object.
-            if let Some(r) = self.objects.get_mut(&rider_id) {
-                r.set_position_with_effects(
-                    pos,
-                    tree_move_frame,
-                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
-                );
-                {}
-                r.apply_eject_parachuting();
-            }
-            return;
-        };
-
-        // Container residual bookkeeping + parachute physics on chute.
-        {
-            if let Some(chute) = self.objects.get_mut(&chute_id) {
-                // Force 1-slot AmericaParachute residual capacity.
-                chute.max_transport = 1;
-
-                if !chute.enter_transport(rider_id) {
-                    // Fail-closed: force occupant list even if kind gate rejects.
-                    if !chute.occupants.contains(&rider_id) {
-                        chute.occupants.push(rider_id);
-                    }
-                }
-                chute.apply_eject_parachuting();
-                // C++ ParachuteContain::onRemoving: rider.producer = chute,
-                // chute.producer = producing building (or prior rider producer).
-                if chute.producer_id.is_none() {
-                    chute.producer_id = rider_producer;
-                }
-                // Parachute is not selectable residual (C++ drawable on container).
-                chute.set_status_unselectable(true);
-                chute.set_status_no_collisions(true);
-            }
-        }
-
-        // Rider: contained + parachuting residual (hidden inside chute).
-        if let Some(r) = self.objects.get_mut(&rider_id) {
-            let containment_actor_id = r.id;
-            Self::set_owned_containment_in_parts(
-                &mut self.objects,
-                &mut self.partition_manager,
-                containment_actor_id,
-                Some(chute_id),
-                false,
-            );
-            let r = self
-                .objects
-                .get_mut(&containment_actor_id)
-                .expect("containment operation preserves this birth");
-            r.producer_id = Some(chute_id);
-            r.set_ai_state(
-                crate::game_logic::AIState::Docked,
-                &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
-            );
-            {}
-            r.set_position_with_effects(
-                pos,
-                tree_move_frame,
-                &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
-            );
-            {}
-            r.apply_eject_parachuting();
-            // Still not selectable while in chute (partition restore already cleared
-            // MASKED from vehicle ride; chute contain keeps soft-hide).
-            r.set_status_unselectable(true);
-            r.set_status_no_collisions(true);
-            r.set_status_masked(true);
-        }
-
-        self.admit_object_drawable_deselection(rider_id);
-        self.car_bomb.record_airborne_parachute_put();
-        // Tag air path honesty shared with EjectPilotDie air OCL residual.
-        self.usa_pilot.record_air_ejection();
-    }
-
     /// C++ CommandButtonHuntUpdate::setCommandButton: store the selected
     /// button, then synchronously enter the installed AI provider's aiIdle.
     pub fn start_command_button_hunt(
@@ -1697,6 +1564,7 @@ impl GameLogic {
             #[cfg(feature = "game_client")]
             let (_landed, empty_kill) = Self::with_object_fx_services(
                 &mut self.session_view,
+                self.queued_audio_events.policy().clone(),
                 fx_player,
                 self.world_services.shroud(),
                 presentation_effects,
@@ -1834,7 +1702,7 @@ impl GameLogic {
                 if was_airborne {
                     self.put_hijacker_in_airborne_parachute_with_effects(
                         rider_id, eject_pos, effects,
-                    );
+                    )?;
                 }
                 if let Some(rider) = self
                     .objects
@@ -2599,3 +2467,6 @@ fn hijacker_veterancy_rank(level: crate::game_logic::VeterancyLevel) -> u8 {
 #[cfg(test)]
 #[path = "crates/hijacker_owner_tests.rs"]
 mod hijacker_owner_tests;
+
+#[path = "crates/parachute_owner.rs"]
+mod parachute_owner;

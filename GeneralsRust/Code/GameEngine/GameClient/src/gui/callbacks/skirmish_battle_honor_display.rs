@@ -6,7 +6,6 @@
 use crate::game_text::GameText;
 use crate::gui::gadgets::{ListBox, ListBoxItemData};
 use crate::gui::{Color, GameWindow, WindowInstanceData, WindowWidget};
-use crate::input::mouse::with_mouse;
 use crate::map_util::get_map_cache_manager;
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::skirmish_battle_honors::{
@@ -205,16 +204,21 @@ fn set_static_text(
         let _ = window.borrow_mut().set_text(&format!("{}", value));
     }
 }
-pub fn battle_honor_tooltip(window: &GameWindow, _inst: &WindowInstanceData, mouse: u32) {
+pub fn battle_honor_tooltip(
+    window: &GameWindow,
+    _inst: &WindowInstanceData,
+    mouse: u32,
+    receiving_mouse: &mut crate::input::Mouse,
+) {
     let x = (mouse & 0xFFFF) as i16 as i32;
     let y = (mouse >> 16) as i16 as i32;
     let Some(WindowWidget::ListBox(listbox)) = window.widget() else {
-        set_cursor_tooltip("TOOLTIP:BattleHonors");
+        set_cursor_tooltip("TOOLTIP:BattleHonors", receiving_mouse);
         return;
     };
     let (row, col) = listbox.entry_from_xy(x, y);
     if row < 0 || col < 0 {
-        set_cursor_tooltip("TOOLTIP:BattleHonors");
+        set_cursor_tooltip("TOOLTIP:BattleHonors", receiving_mouse);
         return;
     }
     let honor = match listbox.get_item_data_at(row, col) {
@@ -222,7 +226,7 @@ pub fn battle_honor_tooltip(window: &GameWindow, _inst: &WindowInstanceData, mou
         _ => 0,
     };
     if honor == 0 {
-        set_cursor_tooltip("TOOLTIP:BattleHonors");
+        set_cursor_tooltip("TOOLTIP:BattleHonors", receiving_mouse);
         return;
     }
     let extra = match listbox.get_item_data_at(row - 1, col) {
@@ -230,12 +234,12 @@ pub fn battle_honor_tooltip(window: &GameWindow, _inst: &WindowInstanceData, mou
         _ => 0,
     };
     let key = honor_tooltip_key(honor, extra);
-    set_cursor_tooltip(key);
+    set_cursor_tooltip(key, receiving_mouse);
 }
 
-fn set_cursor_tooltip(key: &str) {
+fn set_cursor_tooltip(key: &str, receiving_mouse: &mut crate::input::Mouse) {
     let text = GameText::fetch(key);
-    with_mouse(|mouse| mouse.set_cursor_tooltip(text, Some(-1), None, None));
+    receiving_mouse.set_cursor_tooltip(text, Some(-1), None, None);
 }
 
 fn honor_tooltip_key(honor: u32, extra: i32) -> &'static str {

@@ -1691,7 +1691,9 @@ pub fn wol_game_setup_menu_init(layout: &WindowLayout, _user_data: Option<&dyn s
     if let Some(window) = state.map_window.as_ref() {
         window
             .borrow_mut()
-            .set_tooltip_callback(|window, inst, mouse| map_selector_tooltip(window, inst, mouse));
+            .set_tooltip_callback(|window, inst, mouse, _receiving_mouse| {
+                map_selector_tooltip(window, inst, mouse)
+            });
     }
 
     state.ping_images = [
@@ -1757,7 +1759,9 @@ pub fn wol_game_setup_menu_init(layout: &WindowLayout, _user_data: Option<&dyn s
                     }
                 }
             }
-            guard.set_tooltip_callback(|window, inst, mouse| player_tooltip(window, inst, mouse));
+            guard.set_tooltip_callback(|window, inst, mouse, _receiving_mouse| {
+                player_tooltip(window, inst, mouse)
+            });
         }
 
         if let Some(window) =
@@ -1765,7 +1769,9 @@ pub fn wol_game_setup_menu_init(layout: &WindowLayout, _user_data: Option<&dyn s
         {
             window
                 .borrow_mut()
-                .set_tooltip_callback(|window, inst, mouse| player_tooltip(window, inst, mouse));
+                .set_tooltip_callback(|window, inst, mouse, _receiving_mouse| {
+                    player_tooltip(window, inst, mouse)
+                });
         }
 
         if let Some(window) =
@@ -1773,7 +1779,7 @@ pub fn wol_game_setup_menu_init(layout: &WindowLayout, _user_data: Option<&dyn s
         {
             window
                 .borrow_mut()
-                .set_tooltip_callback(|window, inst, mouse| {
+                .set_tooltip_callback(|window, inst, mouse, _receiving_mouse| {
                     game_accept_tooltip(window, inst, mouse)
                 });
         }
@@ -1783,7 +1789,9 @@ pub fn wol_game_setup_menu_init(layout: &WindowLayout, _user_data: Option<&dyn s
         {
             window
                 .borrow_mut()
-                .set_tooltip_callback(|window, inst, mouse| ping_tooltip(window, inst, mouse));
+                .set_tooltip_callback(|window, inst, mouse, _receiving_mouse| {
+                    ping_tooltip(window, inst, mouse)
+                });
         }
     }
 

@@ -2295,6 +2295,7 @@ impl GameLogic {
         calling: Option<u32>,
         condition: Option<u32>,
         force_normal: bool,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<()> {
         let Some(id) = self.owned_named_script_object(unit, this_object) else {
             return Ok(());
@@ -2313,7 +2314,7 @@ impl GameLogic {
             .unwrap()
             .set_formation(0, glam::Vec2::ZERO);
         self.apply_unit_locomotor_set(id, "normal");
-        self.apply_owned_attack_team_member(id, team_id, force_normal)?;
+        self.apply_owned_attack_team_member(id, team_id, force_normal, effects)?;
         Ok(())
     }
 
@@ -2322,6 +2323,7 @@ impl GameLogic {
         id: ObjectId,
         team_id: u32,
         force_normal: bool,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<()> {
         self.drop_jet_targeters_on_attack_exit(id);
         self.clear_unit_movement_path(id);
@@ -2338,7 +2340,7 @@ impl GameLogic {
         let identity = format!("owned:{team_id}");
         let target = self.choose_attack_team_victim_with_policy(id, &identity, false, force_normal);
         if let Some(target) = target {
-            self.unit_command_script_attack(id, target)?;
+            self.unit_command_script_attack_with_effects(id, target, effects)?;
         }
         if let Some(object) = self.host_object_mut(id) {
             object.set_max_shots_to_fire(-1);
@@ -2354,6 +2356,7 @@ impl GameLogic {
         &mut self,
         unit_id: ObjectId,
         victim_team: &str,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<()> {
         if let Some(team) = Self::resolve_host_team_name(victim_team) {
             if team != crate::game_logic::Team::Neutral {
@@ -2366,7 +2369,7 @@ impl GameLogic {
             }
         }
         if let Some(vid) = self.host_script_nearest_team_victim(unit_id, victim_team) {
-            self.unit_command_attack(unit_id, vid)?;
+            self.unit_command_attack_with_effects(unit_id, vid, effects)?;
             if let Some(team) = Self::resolve_host_team_name(victim_team) {
                 if team != crate::game_logic::Team::Neutral {
                     if let Some(unit) = self.objects.get_mut(&unit_id) {
@@ -2450,7 +2453,7 @@ impl GameLogic {
             Some(area_name),
         );
         if let Some(vid) = victim {
-            self.unit_command_script_attack(unit_id, vid)?;
+            self.unit_command_script_attack_with_effects(unit_id, vid, effects)?;
             if let Some(unit) = self.objects.get_mut(&unit_id) {
                 unit.set_auto_acquire_when_idle(true);
                 unit.attack_priority_set = Some(tag);

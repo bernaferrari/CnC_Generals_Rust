@@ -347,18 +347,20 @@ impl GameLogic {
     /// - Chain Guns PLAYER_UPGRADE damage × 1.25
     ///
     /// Fail-closed: not full AutoAcquire LOS / turret pitch / CONTINUOUS_FIRE anim.
+    #[cfg(test)]
     pub(in super::super) fn try_base_defense_residual_fire(&mut self, defense_id: ObjectId) {
         self.try_base_defense_residual_fire_with_effects(
             defense_id,
             &mut crate::game_logic::ScriptPresentationEffects::default(),
         )
+        .expect("valid explicit standalone defense fixture")
     }
 
     pub(in super::super) fn try_base_defense_residual_fire_with_effects(
         &mut self,
         defense_id: ObjectId,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         use crate::game_logic::host_base_defense::{
             GATTLING_BUILDING_FIRE_AUDIO, PATRIOT_FIRE_AUDIO, STINGER_FIRE_AUDIO,
             is_dual_slot_base_defense, is_gattling_cannon_structure, is_patriot_battery_structure,
@@ -368,14 +370,14 @@ impl GameLogic {
         let current_time = self.frame as f32 * LOGIC_FRAME_TIMESTEP;
 
         let Some(attacker) = self.objects.get(&defense_id) else {
-            return;
+            return Ok(());
         };
         if !attacker.is_alive()
             || !attacker.is_constructed()
             || attacker.weapon.is_none()
             || !attacker.can_attack()
         {
-            return;
+            return Ok(());
         }
         let template_name = attacker.template_name.clone();
         let is_gattling = is_gattling_cannon_structure(&template_name);
@@ -388,7 +390,7 @@ impl GameLogic {
                 attacker.hive_slave_count,
             )
         {
-            return;
+            return Ok(());
         }
         let team = attacker.team;
         let fire_pos = attacker.get_position();
@@ -411,7 +413,7 @@ impl GameLogic {
             ground_range
         };
         if scan_range <= 0.0 {
-            return;
+            return Ok(());
         }
 
         // Pure residual acquire query (fire decision choice phase).
@@ -468,7 +470,7 @@ impl GameLogic {
         );
 
         let Some((target_id, _, target_is_air)) = best else {
-            return;
+            return Ok(());
         };
         let slot = if dual_slot {
             preferred_dual_defense_slot(target_is_air)
@@ -489,7 +491,7 @@ impl GameLogic {
         // Readiness residual: use the slot that will fire.
         let ready = {
             let Some(attacker) = self.objects.get(&defense_id) else {
-                return;
+                return Ok(());
             };
             if slot == 1 {
                 attacker
@@ -512,14 +514,15 @@ impl GameLogic {
             .unwrap_or(false);
         if turret_enabled {
             self.set_turret_target_object(defense_id, Some(target_id), false);
-            let aim_result = self.tick_turret_aim(defense_id, 1.0);
+            let aim_result =
+                self.tick_turret_aim_with_effects(defense_id, 1.0, presentation_effects)?;
             if !matches!(aim_result, AttackAimResult::Success) {
-                return;
+                return Ok(());
             }
         }
         let damage = {
             let Some(attacker) = self.objects.get(&defense_id) else {
-                return;
+                return Ok(());
             };
             if slot == 1 {
                 attacker
@@ -532,7 +535,7 @@ impl GameLogic {
             }
         };
         if damage <= 0.0 {
-            return;
+            return Ok(());
         }
 
         // America Fire Base residual: dual-radius howitzer splash owns damage.
@@ -815,6 +818,7 @@ impl GameLogic {
             // TunnelNetworkGun residual honesty (base-defense auto-fire path).
             self.tunnel_network.record_gun_fire(true);
         }
+        Ok(())
     }
 
     /// C++ Weapon::processRequestAssistance residual for leftover RequestAssistRange.

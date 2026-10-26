@@ -3054,7 +3054,7 @@ End
             o.install_overlord_gattling_addon();
             o.set_ai_state(
                 AIState::Idle,
-                &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+                &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
             );
             o.target = None;
             if let Some(w) = o.weapon_slot_mut(1) {

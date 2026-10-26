@@ -65,7 +65,7 @@ fn gameworld_step_movement_advances_move_target() {
         o.move_to(
             glam::Vec3::new(100.0, 0.0, 0.0),
             &mut movement_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
     let mut shadow = GameWorldShadow::new(64);
@@ -292,7 +292,7 @@ fn host_update_movement_skips_when_gameworld_movement_authority() {
         o.move_to(
             glam::Vec3::new(50.0, 0.0, 0.0),
             &mut movement_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
     // A real logic step (not the trailing observational probe) evaluates
@@ -364,16 +364,16 @@ fn host_disable_timers_log_drives_set_disable_timers_channel() {
         o.apply_disabled_emp(
             500,
             health_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         o.apply_disabled_hacked(
             600,
             health_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         o.apply_disabled_paralyzed(
             700,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
     let o = logic.host_object(oid).expect("canonical owner");
@@ -717,7 +717,7 @@ fn attack_target_logs_host_attack_event() {
         o.attack_target(
             b,
             attack_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
     logic.attack_events.complete_boundary();
@@ -728,7 +728,7 @@ fn attack_target_logs_host_attack_event() {
     );
     {
         let o = logic.host_object_mut(a).unwrap();
-        o.stop_attack(&mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()));
+        o.stop_attack(&mut crate::game_logic::ObjectAudio::record(&mut Vec::new()));
     }
     logic.attack_events.complete_boundary();
     let clears = logic.attack_events.take_completed();
@@ -757,7 +757,7 @@ fn attack_log_feeds_set_attack_target_mutation() {
         obj.set_target(
             Some(b),
             attack_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
     logic.attack_events.complete_boundary();
@@ -815,7 +815,7 @@ fn attack_target_syncs_to_shadow_entity() {
         obj.set_target(
             Some(b),
             attack_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
     let mut shadow = GameWorldShadow::new(64);
@@ -826,7 +826,7 @@ fn attack_target_syncs_to_shadow_entity() {
     logic
         .host_object_mut(a)
         .unwrap()
-        .clear_target(&mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()));
+        .clear_target(&mut crate::game_logic::ObjectAudio::record(&mut Vec::new()));
     shadow.sync_from_host(&logic);
     assert_eq!(shadow.world().entity(ea).unwrap().attack_target, None);
 }
@@ -856,7 +856,7 @@ fn attack_target_writeback_updates_host() {
         object.set_target(
             Some(b),
             attack_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     };
     shadow.sync_from_host(&logic);
@@ -869,7 +869,7 @@ fn attack_target_writeback_updates_host() {
     logic
         .host_object_mut(a)
         .unwrap()
-        .clear_target(&mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()));
+        .clear_target(&mut crate::game_logic::ObjectAudio::record(&mut Vec::new()));
     shadow.sync_from_host(&logic);
     shadow.sync_from_host(&logic);
 
@@ -948,7 +948,7 @@ fn move_to_logs_destination_for_mobile_unit() {
     object.set_destination(
         glam::Vec3::new(10.0, 0.0, 0.0),
         &mut events,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     let ev = logic.movement_events.drain_for_host_boundary();
     assert_eq!(ev.len(), 1);
@@ -975,7 +975,7 @@ fn move_target_writeback_updates_host() {
         object.set_destination(
             glam::Vec3::new(50.0, 0.0, 25.0),
             &mut writer,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
     let events = logic.movement_events.drain_for_host_boundary();
@@ -992,7 +992,7 @@ fn move_target_writeback_updates_host() {
     logic
         .host_object_mut(a)
         .unwrap()
-        .stop_moving(&mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()));
+        .stop_moving(&mut crate::game_logic::ObjectAudio::record(&mut Vec::new()));
     shadow.sync_from_host(&logic);
     assert!(
         logic
@@ -1348,7 +1348,7 @@ fn owned_damage_and_move_do_not_implicitly_publish_to_comparison_world() {
         o.move_to(
             glam::Vec3::new(40.0, 0.0, 0.0),
             &mut movement_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     };
 
@@ -2051,7 +2051,7 @@ fn host_logic_step_active_keeps_repeated_object_mutations_and_getters_on_owner()
                     object.set_order_target(
                         Some(target),
                         attack_events,
-                        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+                        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
                     );
                 }
 
@@ -2164,7 +2164,7 @@ fn canonical_attack_receipts_keep_owner_fifo_across_same_id_peer_lifecycle() {
         object.attack_target(
             target,
             output,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         assert_eq!(object.target, Some(target));
         assert_eq!(object.ai_state(), crate::game_logic::AIState::Attacking);
@@ -2192,7 +2192,7 @@ fn canonical_attack_receipts_keep_owner_fifo_across_same_id_peer_lifecycle() {
     owner
         .host_object_mut(attacker)
         .unwrap()
-        .stop_attack(&mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()));
+        .stop_attack(&mut crate::game_logic::ObjectAudio::record(&mut Vec::new()));
     assert!(owner.host_object(attacker).unwrap().target.is_none());
     assert!(!owner.host_object(attacker).unwrap().status.attacking);
     owner.attack_events.complete_boundary();

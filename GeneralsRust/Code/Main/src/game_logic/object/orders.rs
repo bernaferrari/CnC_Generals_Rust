@@ -1204,6 +1204,7 @@ impl Object {
         if let Some(bd) = self.building_data.as_mut() {
             if bd.original_team.is_none() {
                 bd.original_team = Some(self.team);
+                bd.original_garrison_player_id = self.owner_player_id;
             }
             bd.hide_garrisoned_state = occupant_stealth_garrison && !occupant_detected;
         }
@@ -1247,18 +1248,25 @@ impl Object {
             return;
         }
         let orig = self.building_data.as_ref().and_then(|b| b.original_team);
+        let original_owner = self
+            .building_data
+            .as_ref()
+            .and_then(|b| b.original_garrison_player_id);
         if let Some(bd) = self.building_data.as_mut() {
             bd.original_team = None;
+            bd.original_garrison_player_id = None;
             bd.hide_garrisoned_state = false;
             bd.garrison_guns.clear();
             bd.garrison_point_occupant.clear();
         }
         self.set_garrison_can_attack(false);
         if let Some(orig) = orig {
-            self.set_team_state_with_partition_context(orig, partition.as_deref_mut())
-                .map(|event| {
-                    ownership_events.record(event.object, event.team, event.owner_player_id)
-                });
+            self.set_team_and_owner_with_partition_context(
+                orig,
+                original_owner,
+                ownership_events,
+                partition.as_deref_mut(),
+            );
         }
     }
 
@@ -1267,6 +1275,12 @@ impl Object {
     /// source unit enter a capacity-checked normal transport.
     #[inline]
     pub fn transport_slot_count(&self) -> usize {
+        // Object.cpp704: ParachuteContain isSpecialZeroSlotContainer.
+        if self.thing.template.contain_module.kind
+            == crate::game_logic::ContainModuleKind::Parachute
+        {
+            return 0;
+        }
         self.thing.template.transport_slot_count.unwrap_or(0)
     }
 
@@ -1358,7 +1372,8 @@ impl Object {
             ContainModuleKind::Garrison
             | ContainModuleKind::Heal
             | ContainModuleKind::Cave
-            | ContainModuleKind::Tunnel => false,
+            | ContainModuleKind::Tunnel
+            | ContainModuleKind::Parachute => false,
             ContainModuleKind::None => {
                 self.is_helix_transport
                     || self.is_battle_bus_transport

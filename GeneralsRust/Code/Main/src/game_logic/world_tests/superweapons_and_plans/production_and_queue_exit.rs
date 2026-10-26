@@ -166,7 +166,7 @@ fn script_named_set_topple_direction_used_by_live_topple() {
         .begin_structure_topple(
             0,
             Some((100.0, 0.0)),
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     assert!(started, "named structure must begin topple");
     let st = logic
@@ -322,11 +322,11 @@ fn host_construction_completes_without_coupled_shadow() {
         dozer.set_target(
             Some(id),
             attack_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         dozer.set_ai_state(
             AIState::Constructing,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         dozer.status.moving = false;
         dozer.dozer_dock_action = Some(dozer.get_position());
@@ -400,11 +400,11 @@ fn host_construction_completes_when_sole_tick_unmapped() {
             dozer.set_target(
                 Some(id),
                 attack_events,
-                &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+                &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
             );
             dozer.set_ai_state(
                 AIState::Constructing,
-                &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+                &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
             );
             dozer.status.moving = false;
             dozer.dozer_dock_action = Some(dozer.get_position());

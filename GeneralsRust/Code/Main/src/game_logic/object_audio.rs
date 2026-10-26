@@ -4,7 +4,9 @@
 use super::{AudioEventRequest, Object};
 
 enum Sink<'a> {
-    Queue(&'a mut Vec<AudioEventRequest>),
+    #[cfg(test)]
+    Recording(&'a mut Vec<AudioEventRequest>),
+    Queue(&'a mut super::SessionAudio),
     Callback(&'a mut dyn FnMut(&mut Object, AudioEventRequest)),
 }
 
@@ -13,7 +15,14 @@ pub struct ObjectAudio<'a> {
 }
 
 impl<'a> ObjectAudio<'a> {
-    pub fn queue(output: &'a mut Vec<AudioEventRequest>) -> Self {
+    /// Pure component recorder; no playback policy or native admission is fabricated.
+    #[cfg(test)]
+    pub fn record(output: &'a mut Vec<AudioEventRequest>) -> Self {
+        Self {
+            sink: Sink::Recording(output),
+        }
+    }
+    pub fn queue(output: &'a mut super::SessionAudio) -> Self {
         Self {
             sink: Sink::Queue(output),
         }
@@ -43,6 +52,8 @@ impl<'a> ObjectAudio<'a> {
     pub fn submit(&mut self, object: &mut Object, request: AudioEventRequest) {
         match &mut self.sink {
             Sink::Queue(output) => output.push(request),
+            #[cfg(test)]
+            Sink::Recording(output) => output.push(request),
             Sink::Callback(emit) => emit(object, request),
         }
     }

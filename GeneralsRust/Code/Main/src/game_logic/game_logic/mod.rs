@@ -287,3 +287,6 @@ mod radar_owner;
 #[cfg(test)]
 #[path = "../containment_audio_owner_tests.rs"]
 pub(crate) mod containment_audio_owner_tests;
+
+#[path = "../partition_find_position.rs"]
+mod partition_find_position;

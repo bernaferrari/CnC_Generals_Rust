@@ -32,7 +32,7 @@ fn load(world: &mut GameLogic, passenger: ObjectId, container: ObjectId) {
     rider.set_contained_by_with_partition_owner(Some(container), true, fixture_partition_rider);
     rider.set_ai_state(
         AIState::Garrisoned,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     rider.set_status_stealthed(true);
     rider.set_status_detected(false);
@@ -58,11 +58,11 @@ fn enter_rejected_noncontainer_preserves_ai_after_script_preparation() {
     unit.set_target(
         Some(target),
         attack_events,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     unit.set_ai_state(
         AIState::AttackMoving,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     unit.pending_move = Some(old);
     unit.last_command_source = 99;
@@ -228,7 +228,7 @@ fn malformed_exit_goal_cannot_remove_a_different_containers_passenger() {
         object.set_target(
             Some(id),
             attack_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     };
     a.update_support_states(&[id], 1.0 / 30.0);

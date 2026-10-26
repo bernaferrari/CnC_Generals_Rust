@@ -5,10 +5,10 @@ use installed_draw_pose::{NativeCameraPoseUnavailable, ObjectVisualState};
 
 pub(crate) struct NativeInstalledPoseLoan<'a> {
     pub(super) native_drawable_lifetimes:
-        &'a mut HashMap<u32, native_draw_world::NativeDrawableLifetime>,
+        &'a mut HashMap<NativeDrawOwnerId, native_draw_world::NativeDrawableLifetime>,
     pub(super) live_draw_playback:
         &'a mut HashMap<crate::assets::LiveDrawPlaybackKey, crate::assets::LiveDrawPlayback>,
-    pub(super) drawable_visual_states: &'a mut HashMap<(u32, u32), ObjectVisualState>,
+    pub(super) drawable_visual_states: &'a mut HashMap<(NativeDrawOwnerId, u32), ObjectVisualState>,
     pub(super) failed_model_resolutions: &'a mut pipeline_collect::FailedModelResolutions,
     pub(super) pending_client_drawable_restore:
         &'a mut Option<crate::save_load::snapshot::ClientDrawableWorldSnapshot>,
@@ -45,7 +45,8 @@ impl NativeInstalledPoseLoan<'_> {
         }
     }
     pub(crate) fn has_drawable_lifetime(&self, object: u32) -> bool {
-        self.native_drawable_lifetimes.contains_key(&object)
+        self.native_drawable_lifetimes
+            .contains_key(&NativeDrawOwnerId::Actor(object))
     }
 
     pub(crate) fn current_animation_sync_ms(&self) -> u32 {
@@ -64,7 +65,7 @@ impl NativeInstalledPoseLoan<'_> {
         }
         let lifetime = self
             .native_drawable_lifetimes
-            .get(&identity.object_id())
+            .get(&NativeDrawOwnerId::Actor(identity.object_id()))
             .ok_or("Client binding has no actual native Drawable constructor")?;
         if lifetime.identity != *identity
             || lifetime.binding.is_some_and(|installed| installed != key)
@@ -72,7 +73,7 @@ impl NativeInstalledPoseLoan<'_> {
             return Err("Client binding belongs to another native Drawable constructor");
         }
         if self.drawable_visual_states.iter().any(|((id, _), state)| {
-            *id == identity.object_id()
+            *id == NativeDrawOwnerId::Actor(identity.object_id())
                 && (state.native_host_identity.as_ref() != Some(identity)
                     || state
                         .native_client_binding
@@ -81,11 +82,11 @@ impl NativeInstalledPoseLoan<'_> {
             return Err("Client binding did not reach actual native constructor owner");
         }
         self.native_drawable_lifetimes
-            .get_mut(&identity.object_id())
+            .get_mut(&NativeDrawOwnerId::Actor(identity.object_id()))
             .unwrap()
             .binding = Some(key);
         for ((id, _), state) in &mut *self.drawable_visual_states {
-            if *id == identity.object_id() {
+            if *id == NativeDrawOwnerId::Actor(identity.object_id()) {
                 state.native_client_binding = Some(key);
             }
         }
@@ -100,7 +101,7 @@ impl NativeInstalledPoseLoan<'_> {
     ) -> Result<(), &'static str> {
         let lifetime = self
             .native_drawable_lifetimes
-            .get(&identity.object_id())
+            .get(&NativeDrawOwnerId::Actor(identity.object_id()))
             .ok_or("native physical retirement has no actual constructor")?;
         if key.object_id != identity.object_id()
             || lifetime.identity != *identity
@@ -112,7 +113,7 @@ impl NativeInstalledPoseLoan<'_> {
             .drawable_visual_states
             .iter()
             .any(|((object, _), state)| {
-                *object == identity.object_id()
+                *object == NativeDrawOwnerId::Actor(identity.object_id())
                     && (state.native_host_identity.as_ref() != Some(identity)
                         || state.native_client_binding != Some(key))
             })
@@ -122,7 +123,7 @@ impl NativeInstalledPoseLoan<'_> {
                 .drawable_visual_states
                 .iter()
                 .filter(|((object, _), state)| {
-                    *object == identity.object_id()
+                    *object == NativeDrawOwnerId::Actor(identity.object_id())
                         && (state.native_host_identity.as_ref() != Some(identity)
                             || state.native_client_binding != Some(key))
                 })
@@ -130,7 +131,7 @@ impl NativeInstalledPoseLoan<'_> {
             invalid.sort_by_key(|((_, module), _)| *module);
             for ((object, module), state) in invalid.into_iter().take(8) {
                 log::error!(
-                    "native retirement module mismatch object={} module={} template={} host_identity_present={} host_identity_matches={} binding={:?} expected_binding={:?} pending_model={} selected_model={}",
+                    "native retirement module mismatch object={:?} module={} template={} host_identity_present={} host_identity_matches={} binding={:?} expected_binding={:?} pending_model={} selected_model={}",
                     object,
                     module,
                     state.native_source_template,
@@ -168,7 +169,8 @@ impl NativeInstalledPoseLoan<'_> {
         self.validate_identity(identity, module_index)?;
         if key.object_id != identity.object_id()
             || self.drawable_visual_states.iter().any(|((id, _), state)| {
-                *id == identity.object_id() && state.native_client_binding != Some(key)
+                *id == NativeDrawOwnerId::Actor(identity.object_id())
+                    && state.native_client_binding != Some(key)
             })
         {
             return Err(NativeCameraPoseUnavailable::UnadmittedDrawableLifecycle);
@@ -183,21 +185,22 @@ impl NativeInstalledPoseLoan<'_> {
         let id = identity.object_id();
         if self
             .native_drawable_lifetimes
-            .get(&id)
+            .get(&NativeDrawOwnerId::Actor(id))
             .is_none_or(|lifetime| lifetime.identity != *identity)
         {
             return Err(NativeCameraPoseUnavailable::UnadmittedDrawableLifecycle);
         }
         let state = self
             .drawable_visual_states
-            .get(&(id, module_index))
+            .get(&(NativeDrawOwnerId::Actor(id), module_index))
             .ok_or(NativeCameraPoseUnavailable::UnadmittedDrawableLifecycle)?;
         if state.native_host_identity.as_ref() != Some(identity)
             || self
                 .drawable_visual_states
                 .iter()
                 .any(|((object, _), state)| {
-                    *object == id && state.native_host_identity.as_ref() != Some(identity)
+                    *object == NativeDrawOwnerId::Actor(id)
+                        && state.native_host_identity.as_ref() != Some(identity)
                 })
         {
             return Err(NativeCameraPoseUnavailable::UnadmittedDrawableLifecycle);
@@ -246,21 +249,22 @@ impl NativeInstalledPoseLoan<'_> {
         // Querying can consume current dirty state, but cannot invent the
         // constructor/receiving association that C++ already created.
         if models.iter().any(|model| {
-            !self
-                .drawable_visual_states
-                .contains_key(&(identity.object_id(), model.module_index))
+            !self.drawable_visual_states.contains_key(&(
+                NativeDrawOwnerId::Actor(identity.object_id()),
+                model.module_index,
+            ))
         }) || self
             .drawable_visual_states
             .iter()
             .any(|((object, _), state)| {
-                *object == identity.object_id()
+                *object == NativeDrawOwnerId::Actor(identity.object_id())
                     && state.native_source_template != source.template_name
             })
         {
             return Err(NativeCameraPoseUnavailable::UnadmittedDrawableLifecycle);
         }
         for ((object, _), state) in &mut *self.drawable_visual_states {
-            if *object == identity.object_id() {
+            if *object == NativeDrawOwnerId::Actor(identity.object_id()) {
                 state.receive_native_transform_observations(
                     identity,
                     source.mesh_scale,
@@ -275,7 +279,10 @@ impl NativeInstalledPoseLoan<'_> {
         for model in models {
             let state = self
                 .drawable_visual_states
-                .get_mut(&(identity.object_id(), model.module_index))
+                .get_mut(&(
+                    NativeDrawOwnerId::Actor(identity.object_id()),
+                    model.module_index,
+                ))
                 .ok_or(NativeCameraPoseUnavailable::UnadmittedDrawableLifecycle)?;
             state.mark_native_condition(source.condition_bits, model);
         }
@@ -317,7 +324,7 @@ impl NativeInstalledPoseLoan<'_> {
             self.validate_binding(identity, key, module)?;
             let state = self
                 .drawable_visual_states
-                .get_mut(&(identity.object_id(), module))
+                .get_mut(&(NativeDrawOwnerId::Actor(identity.object_id()), module))
                 .ok_or(NativeCameraPoseUnavailable::UnadmittedDrawableLifecycle)?;
             if !state.native_source_supported || !state.native_condition_supported {
                 return Err(NativeCameraPoseUnavailable::UnsupportedSourceControls);
@@ -464,7 +471,7 @@ impl NativeInstalledPoseLoan<'_> {
     ) -> Result<Mat4, NativeCameraPoseUnavailable> {
         let state = self
             .drawable_visual_states
-            .get_mut(&(id.0, module_index))
+            .get_mut(&(NativeDrawOwnerId::Actor(id.0), module_index))
             .ok_or(NativeCameraPoseUnavailable::UnadmittedDrawableLifecycle)?;
         if !state.native_source_supported || !state.native_condition_supported {
             return Err(NativeCameraPoseUnavailable::UnadmittedDrawableLifecycle);

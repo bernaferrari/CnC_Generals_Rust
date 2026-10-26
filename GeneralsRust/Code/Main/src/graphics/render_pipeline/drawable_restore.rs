@@ -169,7 +169,10 @@ impl super::super::native_pose_loan::NativeInstalledPoseLoan<'_> {
             {
                 continue;
             }
-            let Some(state) = self.drawable_visual_states.get_mut(&key) else {
+            let Some(state) = self
+                .drawable_visual_states
+                .get_mut(&(NativeDrawOwnerId::Actor(key.0), key.1))
+            else {
                 continue;
             };
             if !state.native_source_supported || !state.native_condition_supported {

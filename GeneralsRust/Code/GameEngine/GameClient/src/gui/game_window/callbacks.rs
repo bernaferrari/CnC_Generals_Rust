@@ -384,6 +384,7 @@ pub fn default_tooltip_callback(
     _window: &GameWindow,
     _inst_data: &WindowInstanceData,
     _mouse: u32,
+    _receiving_mouse: &mut crate::input::Mouse,
 ) {
     // Default implementation does nothing
 }

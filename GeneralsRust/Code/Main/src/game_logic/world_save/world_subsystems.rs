@@ -783,13 +783,9 @@ impl GameLogic {
 
     /// C++ `PartitionManager::getGroundOrStructureHeight` (`PartitionManager.cpp:4674`).
     /// Tallest live `KINDOF_STRUCTURE` whose 2D bounding sphere is within 1wu,
-    /// plus leftover partition when that world is populated.
+    /// resolved only from this receiving partition and canonical roster.
     pub fn ground_or_structure_height_at(&self, world_pos: Vec3, terrain_y: f32) -> f32 {
         const RANGE: f32 = 1.0;
-        let leftover = gamelogic::object::collide::partition_manager::PARTITION_MANAGER
-            .read()
-            .ok()
-            .map(|pm| pm.get_ground_or_structure_height(world_pos.x, world_pos.z));
         let structure_height = |other: &Object| -> Option<f32> {
             if !other.is_kind_of(KindOf::Structure) {
                 return None;
@@ -835,11 +831,7 @@ impl GameLogic {
                 }
             }
         }
-        let live = terrain_y + tallest;
-        match leftover {
-            Some(h) if h > live + 1.0e-3 => h,
-            _ => live,
-        }
+        terrain_y + tallest
     }
 
     /// Terrain argument for `tick_height_die` so HAT matches C++ HeightDieUpdate

@@ -81,3 +81,46 @@ fn scoped_reset_retires_only_owned_active_pending_fading_and_force_records() {
     assert!(device.audio_force_played.is_empty());
     assert_eq!(device.script_music_volume, 1.0);
 }
+
+#[test]
+fn scoped_name_stop_preserves_peer_and_original_immediate_release_phase() {
+    let mut device = AudioManager::new();
+    device
+        .active_audio_events
+        .insert(1001, event(1001, "SharedLoop"));
+    device
+        .active_audio_events
+        .insert(1002, event(1002, "SharedLoop"));
+    device
+        .active_audio_events
+        .insert(1003, event(1003, "DifferentLoop"));
+    device.audio_requests.push(AudioRequest::new_with_event(
+        RequestType::Play,
+        event(1004, "SharedLoop"),
+    ));
+    device.remove_owned_playing_audio("SharedLoop", &[1001, 1003, 1004]);
+    assert!(!device.active_audio_events.contains_key(&1001));
+    assert!(device.active_audio_events.contains_key(&1002));
+    assert!(device.active_audio_events.contains_key(&1003));
+    assert_eq!(
+        device
+            .pending_play_events()
+            .map(AudioEventRts::get_playing_handle)
+            .collect::<Vec<_>>(),
+        vec![1004]
+    );
+    assert!(
+        !device
+            .audio_requests
+            .iter()
+            .any(|request| request.request == RequestType::Stop
+                && request.get_handle() == Some(1001))
+    );
+    assert!(
+        !device
+            .audio_requests
+            .iter()
+            .any(|request| request.request == RequestType::Stop
+                && request.get_handle() == Some(1002))
+    );
+}

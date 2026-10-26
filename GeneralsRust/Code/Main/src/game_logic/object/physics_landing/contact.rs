@@ -27,6 +27,9 @@ pub(in crate::game_logic) enum ContactStep<S, T> {
         request: ContactDamage,
         next: S,
     },
+    GroundCollide {
+        next: S,
+    },
     PositionFx {
         reaction: super::super::PositionReaction,
         next: S,
@@ -34,6 +37,7 @@ pub(in crate::game_logic) enum ContactStep<S, T> {
 }
 pub(in crate::game_logic) enum StampContact {
     Start(f32),
+    AfterGroundCollide(f32),
     AfterFall,
     Grounded,
     AfterRest,
@@ -54,6 +58,7 @@ pub(in crate::game_logic) enum MotionContact {
         impact_vy: f32,
         bounce_force: Option<glam::Vec3>,
     },
+    AfterGroundCollide(LandingTail),
     AfterFall(LandingTail),
     AfterRest(bool),
 }
@@ -74,6 +79,7 @@ pub(in crate::game_logic) enum StunContact {
     Start,
     AfterBounce(StunLanding),
     AfterLandingPosition(StunLanding),
+    AfterGroundCollide(StunLanding),
     AfterFall(StunLanding),
     AfterRest(StunTail),
     SettledRest,
@@ -119,6 +125,17 @@ impl Object {
                     // actors always use drive_owned_contact_with_effects below.
                     debug_assert!(!reaction.has_tree_fx());
                     self.finish_position_reaction(reaction);
+                    state = next;
+                }
+                ContactStep::GroundCollide { next } => {
+                    // This component driver has no receiving World callbacks.
+                    // A real Parachute must use the registered World driver.
+                    assert!(
+                        self.thing().template.contain_module.kind
+                            != crate::game_logic::ContainModuleKind::Parachute,
+                        "Parachute ground collision requires its receiving World"
+                    );
+                    self.pending_ground_collide = true;
                     state = next;
                 }
                 ContactStep::Damage { request, next } => {
@@ -268,13 +285,9 @@ impl Object {
                     self.allow_to_fall = false;
                     if was_airborne && !self.immune_to_falling_damage {
                         self.record_bounce_land(old_y);
-                        self.pending_ground_collide = true;
-                        if let Some(request) = self.prepare_fall_damage(impact_vy) {
-                            return ContactStep::Damage {
-                                request,
-                                next: StampContact::AfterFall,
-                            };
-                        }
+                        return ContactStep::GroundCollide {
+                            next: StampContact::AfterGroundCollide(impact_vy),
+                        };
                     }
                     if was_airborne && !self.immune_to_falling_damage {
                         self.landing_splat_done = true;
@@ -294,6 +307,22 @@ impl Object {
                     pos.y = ground_y;
                     self.set_position_with_effects(pos, frame, effects);
                 }
+            }
+            StampContact::AfterGroundCollide(impact_vy) => {
+                if let Some(request) = self.prepare_fall_damage(impact_vy) {
+                    return ContactStep::Damage {
+                        request,
+                        next: StampContact::AfterFall,
+                    };
+                }
+                self.landing_splat_done = true;
+                return self.step_stamp_contact_with_effects(
+                    StampContact::Grounded,
+                    false,
+                    frame,
+                    effects,
+                    audio,
+                );
             }
             StampContact::AfterFall => {
                 self.finish_fall_contact();
@@ -373,30 +402,8 @@ impl Object {
 
                 self.ground_height = ground_y;
 
-                // C++ PhysicsUpdate.cpp:626-636 applyGravitationalForces every update
-                // unless DISABLED_HELD (gated above). No aircraft exception.
-                // Stun tick already applies leftover gravity while IS_STUNNED.
-                // Living Z-motive units already Euler'd lift+gravity in
-                // apply_live_handle_behavior_z when host march ran (hq-g8oig).
-                // Dead / disabled skip doLocomotor, so they still need gravity here.
-                if self.shock_stun_frames == 0
-                    && self.loco_appearance != LocomotorAppearance::Thrust
-                {
-                    let host_live_y_euler_already = !self.is_disabled()
-                        && !self.host_skip_dead_locomotor()
-                        && matches!(
-                            self.loco_behavior_z,
-                            LocomotorBehaviorZ::SurfaceRelativeHeight
-                                | LocomotorBehaviorZ::SmoothRelativeToHighestLayer
-                                | LocomotorBehaviorZ::AbsoluteHeight
-                        );
-                    if !host_live_y_euler_already {
-                        self.apply_gravitational_forces();
-                        self.movement.velocity.y += self.physics_accel.y;
-                        self.physics_accel.y = 0.0;
-                        self.invalidate_velocity_magnitude();
-                    }
-                }
+                // Gravity/friction/acceleration were admitted once by the
+                // receiving Physics force phase before this contact continuation.
 
                 let old_pos = self.get_position();
                 let old_y = old_pos.y;
@@ -410,19 +417,19 @@ impl Object {
                 let marching = self.movement.target_position.is_some()
                     || !self.movement.path.is_empty()
                     || (self.locomotor_goal_type == LocoGoalType::Angle && self.min_speed > 0.0);
-                let mut new_pos = if self.loco_appearance == LocomotorAppearance::Thrust {
-                    // C++ PhysicsBehavior::update649-660, in host-second units.
-                    if self.is_braking {
-                        if self.is_kind_of(KindOf::Projectile) {
-                            old_pos
-                        } else {
-                            old_pos + glam::Vec3::new(0.0, v.y / 30.0, 0.0)
-                        }
-                    } else {
-                        old_pos + v / 30.0
-                    }
-                } else if marching {
+                let vertical = if self.loco_appearance == LocomotorAppearance::Thrust {
+                    v.y / 30.
+                } else {
+                    v.y
+                };
+                let mut new_pos = if self.is_braking && self.is_kind_of(KindOf::Projectile) {
                     old_pos
+                } else if self.is_braking {
+                    old_pos + glam::Vec3::new(0., vertical, 0.)
+                } else if self.loco_appearance == LocomotorAppearance::Thrust {
+                    old_pos + v / 30.
+                } else if marching {
+                    old_pos + glam::Vec3::new(0., vertical, 0.)
                 } else {
                     old_pos + v
                 };
@@ -511,6 +518,10 @@ impl Object {
                 impact_vy,
                 bounce_force,
             } => {
+                // PhysicsUpdate.cpp804: reset AFTER setTransform callbacks,
+                // before bounce admission. Callback-added force is cleared at
+                // this original boundary; bounce accumulates for next frame.
+                self.physics_accel = glam::Vec3::ZERO;
                 self.sync_shock_up_from_transform();
                 let tail = LandingTail {
                     airborne: new_pos.y > ground_y + 0.05,
@@ -520,8 +531,9 @@ impl Object {
                 };
                 if let Some(force) = bounce_force {
                     if self.shock_allow_bounce {
+                        // PhysicsUpdate.cpp813: bounce force is admitted after
+                        // this frame's Euler and remains pending for next update.
                         self.apply_physics_force(force);
-                        self.integrate_physics_accel();
                         if let Some(request) = self.prepare_stun_kill() {
                             return ContactStep::Damage {
                                 request,
@@ -542,6 +554,16 @@ impl Object {
                 }
                 self.begin_motion_landing(tail)
             }
+            MotionContact::AfterGroundCollide(tail) => {
+                if let Some(request) = self.prepare_fall_damage(tail.impact_vy) {
+                    ContactStep::Damage {
+                        request,
+                        next: MotionContact::AfterFall(tail),
+                    }
+                } else {
+                    self.finish_motion_landing(tail)
+                }
+            }
             MotionContact::AfterFall(tail) => {
                 self.finish_fall_contact();
                 self.finish_motion_landing(tail)
@@ -556,13 +578,9 @@ impl Object {
             && !self.landing_splat_done
         {
             self.record_bounce_land(tail.old_y);
-            self.pending_ground_collide = true;
-            if let Some(request) = self.prepare_fall_damage(tail.impact_vy) {
-                return ContactStep::Damage {
-                    request,
-                    next: MotionContact::AfterFall(tail),
-                };
-            }
+            return ContactStep::GroundCollide {
+                next: MotionContact::AfterGroundCollide(tail),
+            };
         }
         self.finish_motion_landing(tail)
     }
@@ -706,6 +724,16 @@ impl Object {
                 self.continue_stun_landing(data, frame, effects)
             }
             StunContact::AfterLandingPosition(data) => self.finish_stun_landing_position(data),
+            StunContact::AfterGroundCollide(data) => {
+                if let Some(request) = self.prepare_fall_damage(data.impact_vy) {
+                    ContactStep::Damage {
+                        request,
+                        next: StunContact::AfterFall(data),
+                    }
+                } else {
+                    self.finish_stun_landing(data)
+                }
+            }
             StunContact::AfterFall(data) => {
                 self.finish_fall_contact();
                 self.finish_stun_landing(data)
@@ -789,13 +817,9 @@ impl Object {
         }
         if data.was_air && !self.landing_splat_done {
             self.record_bounce_land(data.old_y);
-            self.pending_ground_collide = true;
-            if let Some(request) = self.prepare_fall_damage(data.impact_vy) {
-                return ContactStep::Damage {
-                    request,
-                    next: StunContact::AfterFall(data),
-                };
-            }
+            return ContactStep::GroundCollide {
+                next: StunContact::AfterGroundCollide(data),
+            };
         }
         self.finish_stun_landing(data)
     }
@@ -857,6 +881,7 @@ impl crate::game_logic::GameLogic {
             step,
             &mut crate::game_logic::ScriptPresentationEffects::default(),
         )
+        .expect("receiving Physics contact callback failed")
     }
 
     pub(in crate::game_logic) fn drive_owned_contact_with_effects<S, T>(
@@ -872,12 +897,28 @@ impl crate::game_logic::GameLogic {
             &mut crate::game_logic::ObjectAudio<'_>,
         ) -> ContactStep<S, T>,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> Option<T> {
+    ) -> gamelogic::GameLogicResult<Option<T>> {
+        let Some(birth) = self
+            .objects
+            .get(&id)
+            .map(|object| std::sync::Arc::downgrade(&object.visual_draw_identity_token))
+        else {
+            return Ok(None);
+        };
         let mut killed = false;
         loop {
+            if !self.objects.get(&id).is_some_and(|object| {
+                birth.ptr_eq(&std::sync::Arc::downgrade(
+                    &object.visual_draw_identity_token,
+                ))
+            }) {
+                return Ok(None);
+            }
             let frame = self.frame;
             let next = step(
-                self.objects.get_mut(&id)?,
+                self.objects
+                    .get_mut(&id)
+                    .expect("receiving birth checked above"),
                 state,
                 killed,
                 frame,
@@ -885,16 +926,22 @@ impl crate::game_logic::GameLogic {
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             );
             match next {
-                ContactStep::Complete(value) => return Some(value),
+                ContactStep::Complete(value) => return Ok(Some(value)),
                 ContactStep::DirectDelete(value) => {
                     // The Object loan has ended; direct deletion is terminal,
                     // so no actor state is resumed after its callbacks.
                     self.destroy_object_with_effects(id, presentation_effects);
-                    return Some(value);
+                    return Ok(Some(value));
+                }
+                ContactStep::GroundCollide { next } => {
+                    // PhysicsUpdate.cpp:827-858: onCollide(NULL) observes the
+                    // installed pose before this same actor's falling damage.
+                    self.dispatch_physics_ground_collide_with_effects(id, presentation_effects)?;
+                    state = next;
                 }
                 ContactStep::PositionFx { reaction, next } => {
                     if !self.complete_owned_position_reaction(id, reaction, presentation_effects) {
-                        return None;
+                        return Ok(None);
                     }
                     state = next;
                 }

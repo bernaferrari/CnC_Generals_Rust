@@ -2779,6 +2779,25 @@ impl GameLogic {
                 // so detectors do not IR-ping / scan in lockstep on the spawn frame.
                 object.apply_stealth_detector_ctor_stagger(self.frame);
             }
+            if let Some(data) = object.thing().template.contain_module.parachute.as_ref() {
+                // ParachuteContain ctor consumes both source random draws,
+                // including zero-rate authored values, before onCreate.
+                let pitch_max = data.pitch_rate_max;
+                let roll_max = data.roll_rate_max;
+                let pitch = -pitch_max
+                    + 2. * pitch_max * (self.logic_random.next_u32() as f32 / u32::MAX as f32);
+                let roll = -roll_max
+                    + 2. * roll_max * (self.logic_random.next_u32() as f32 / u32::MAX as f32);
+                object.parachute_attachments = Some(Default::default());
+                object.set_status_parachuting(true);
+                object.set_status_parachute_open(false);
+                object.status.parachute_start_height = 1e10;
+                object.status.parachute_pitch = 0.;
+                object.status.parachute_roll = 0.;
+                object.status.parachute_pitch_rate = pitch;
+                object.status.parachute_roll_rate = roll;
+                object.set_drawable_hidden(true);
+            }
             self.try_admit_host_object(object)?;
             // C++ Object.cpp onCreate residual: inherit team prototype attitude + attack priority.
             self.inherit_team_ai_defaults(id);

@@ -77,6 +77,7 @@ impl GameLogic {
         calling: Option<u32>,
         condition: Option<u32>,
         force_normal: bool,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<()> {
         let Some((target_id, _)) = self.resolve_owned_script_team(target, calling, condition)?
         else {
@@ -92,7 +93,7 @@ impl GameLogic {
                 .is_some_and(|object| object.has_ai_update_interface() && !object.is_contained())
             {
                 // CPP groupAttackTeam does not choose Normal or leaveGroup.
-                self.apply_owned_attack_team_member(id, target_id, force_normal)?;
+                self.apply_owned_attack_team_member(id, target_id, force_normal, effects)?;
             }
         }
         Ok(())

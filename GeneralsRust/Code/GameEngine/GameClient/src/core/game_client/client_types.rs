@@ -146,6 +146,7 @@ pub type NativeWindowInputDriver<'a> = dyn FnMut(
         &mut crate::gui::window_video_manager::ClientWindowVideos,
         &mut crate::gui::ime_manager::ImeManager,
         &mut crate::core::subsystems::InGameUISubsystem,
+        Option<&mut crate::input::Mouse>,
         game_engine::common::message_stream::WindowInputDispatch,
         &mut Vec<crate::message_stream::game_message::GameMessage>,
     ) -> Option<game_engine::common::message_stream::WindowInputDispatchResult>

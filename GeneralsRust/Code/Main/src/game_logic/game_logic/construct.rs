@@ -607,7 +607,7 @@ impl GameLogic {
             ai_manager: AIManager::with_team_factory(team_factory),
             scripts_loaded: false,
             mission_script_counter: 0,
-            queued_audio_events: Vec::new(),
+            queued_audio_events: Default::default(),
             construction_audio_loops: HashMap::new(),
             ambient_sound_retries: AmbientSoundRetries::default(),
             command_queue: VecDeque::new(),
@@ -826,7 +826,7 @@ impl GameLogic {
             self.combat_particles.can_clear(),
             "GameLogic reset requires its live receiving particle manager"
         );
-        self.queued_audio_events.clear();
+        self.queued_audio_events.reset();
         self.session_view.world_animations.clear();
         self.session_view.border_shroud_level = None;
         self.native_hulk_max_lifetime_override = -1;

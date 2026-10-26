@@ -1890,12 +1890,14 @@ impl OptionsMenu {
                 windowed,
             };
             // C++ OptionsMenu.cpp:1062 `if (TheDisplay->setDisplayMode(...))`.
+            let (display, mouse) = effects.script_display_and_mouse();
             if !crate::core::script_action_handler::apply_script_display_mode(
-                effects.script_display(),
+                display,
                 resolution.0.max(0) as u32,
                 resolution.1.max(0) as u32,
                 32,
                 windowed,
+                mouse,
             ) {
                 return false;
             }

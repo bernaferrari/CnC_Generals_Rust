@@ -160,13 +160,27 @@ impl RenderPipeline {
         deferred_model_load_budget: &mut usize,
         delta_time: f32,
         direct_scene_candidates: &mut Vec<FrozenDirectDrawableSceneCandidate>,
-        mut complete_physics_visual: Option<
+        #[cfg(feature = "game_client")] source: super::native_frame_receiver::NativeCollectSource<
+            '_,
+        >,
+        #[cfg(not(feature = "game_client"))] mut complete_physics_visual: Option<
             &mut dyn FnMut(
                 &mut crate::presentation_frame::UnitRenderInput,
                 &crate::presentation_frame::PresentationFrame,
-            ),
+            ) -> std::result::Result<Option<Mat4>, String>,
         >,
     ) -> Result<()> {
+        #[cfg(feature = "game_client")]
+        let mut native_receiver = match source {
+            super::native_frame_receiver::NativeCollectSource::Native(receiver) => Some(receiver),
+            super::native_frame_receiver::NativeCollectSource::FrozenPreview => None,
+        };
+        #[cfg(feature = "game_client")]
+        let native_roster = native_receiver
+            .as_deref_mut()
+            .map(|receiver| receiver.native_draw_candidates())
+            .transpose()
+            .map_err(anyhow::Error::msg)?;
         self.committed_host_ghost_draws.clear();
         let collect_started = Instant::now();
         let object_ids_started = Instant::now();
@@ -277,8 +291,92 @@ impl RenderPipeline {
         // binding key per collection rather than one record per mesh.
         let mut direct_scene_candidate_bindings = HashSet::new();
 
-        // --- Main unit mesh pass: presentation-owned inputs only ---
-        for mut u in unit_inputs {
+        enum Candidate {
+            Actor(crate::presentation_frame::UnitRenderInput),
+            #[cfg(feature = "game_client")]
+            NativeActor(
+                crate::presentation_frame::UnitRenderInput,
+                game_client::core::PresentationDirectDrawableBindingKey,
+            ),
+            #[cfg(feature = "game_client")]
+            Aux(game_client::core::game_client::NativeAuxiliaryReceipt),
+        }
+        #[cfg(feature = "game_client")]
+        let candidates = if let Some(roster) = native_roster {
+            let mut actors: HashMap<_, _> = unit_inputs
+                .into_iter()
+                .filter(|input| !input.engine_bridged)
+                .map(|input| (input.id.0, input))
+                .collect();
+            let mut ordered = Vec::new();
+            for candidate in roster {
+                match candidate {
+                    game_client::core::game_client::NativeDrawCandidate::Actor(key) => {
+                        if let Some(input) = actors.remove(&key.object_id) {
+                            ordered.push(Candidate::NativeActor(input, key));
+                        }
+                    }
+                    game_client::core::game_client::NativeDrawCandidate::Aux(receipt) => {
+                        ordered.push(Candidate::Aux(receipt))
+                    }
+                }
+            }
+            if !actors.is_empty() {
+                return Err(anyhow::anyhow!(
+                    "native frozen actor has no canonical Drawable roster entry"
+                ));
+            }
+            ordered
+        } else {
+            unit_inputs
+                .into_iter()
+                .map(Candidate::Actor)
+                .collect::<Vec<_>>()
+        };
+        #[cfg(not(feature = "game_client"))]
+        let candidates = unit_inputs
+            .into_iter()
+            .map(Candidate::Actor)
+            .collect::<Vec<_>>();
+
+        // C++ constructor-prepended Drawable visitation; render depth sorting
+        // remains a later stage and never chooses callback execution priority.
+        for candidate in candidates {
+            let mut u = match candidate {
+                Candidate::Actor(input) => input,
+                #[cfg(feature = "game_client")]
+                Candidate::NativeActor(input, key) => {
+                    if !native_receiver
+                        .as_deref()
+                        .expect("native candidate requires native source")
+                        .actor_draw_candidate_is_current(key, &input)
+                        .map_err(anyhow::Error::msg)?
+                    {
+                        continue;
+                    }
+                    input
+                }
+                #[cfg(feature = "game_client")]
+                Candidate::Aux(receipt) => {
+                    let observed = native_receiver
+                        .as_deref_mut()
+                        .expect("Aux candidate requires native source")
+                        .observe_auxiliary_drawable(&receipt)
+                        .map_err(anyhow::Error::msg)?;
+                    if let Some(observed) = observed {
+                        self.collect_native_auxiliary_items(
+                            graphics_system,
+                            &receipt,
+                            &observed,
+                            view_matrix,
+                            projection_matrix,
+                            camera_position,
+                            delta_time,
+                        )?;
+                    }
+                    continue;
+                }
+            };
             // engine_bridged already filtered in unit_render_inputs; keep guard.
             if u.engine_bridged {
                 continue;
@@ -288,20 +386,34 @@ impl RenderPipeline {
                 .as_ref()
                 .and_then(|frame| frame.native_ghost_scale_sources.get(&object_id))
                 .filter(|scales| u.draw_playback_identity.as_ref() == Some(&scales.identity));
-            // `UnitRenderInput::world_matrix` already applies the frozen
-            // Object INI asset scale.  Applying it again here made every
-            // non-1.0 object scale quadratically in the live WGPU pass.
-            if let (Some(complete), Some(frame)) = (
+            // The receiving completion copies only the actual Drawable instance
+            // for this draw. Its canonical mutable owner remains in GameClient;
+            // asset drawScale is baked separately from frozen instance scale.
+            #[cfg(feature = "game_client")]
+            let instance = if let (Some(receiver), Some(frame)) =
+                (native_receiver.as_deref_mut(), presentation.as_deref())
+            {
+                receiver
+                    .complete_physics_visual(&mut u, frame)
+                    .map_err(anyhow::Error::msg)?
+            } else {
+                None
+            };
+            #[cfg(not(feature = "game_client"))]
+            let instance = if let (Some(complete), Some(frame)) = (
                 complete_physics_visual.as_deref_mut(),
                 presentation.as_deref(),
             ) {
-                complete(&mut u, frame);
-            }
+                complete(&mut u, frame).map_err(anyhow::Error::msg)?
+            } else {
+                None
+            };
             // Presentation froze the exact destination models; apply the
             // drawable runtime at collection before borrowing any per-input
             // specialized draw payloads.
             u.apply_live_draw_transition_playback(&mut self.native_draw_world.live_draw_playback);
-            let world_matrix = gameplay_to_render_transform(u.world_matrix());
+            let world_matrix =
+                gameplay_to_render_transform(u.world_matrix_with_drawable_instance(instance));
             #[cfg(feature = "game_client")]
             let specialized_draw = u.specialized_draw.as_deref();
             // Presentation froze the exact destination model for each
@@ -509,7 +621,7 @@ impl RenderPipeline {
                                 // Geometry owns the absolute scale. Reuse the
                                 // pose kernel without it; never invert zero.
                                 let parent = gameplay_to_render_transform(
-                                    u.world_matrix_without_geometry_scale(),
+                                    u.world_matrix_without_geometry_scale_and_instance(instance),
                                 );
                                 if let Some(render_object) = w3d_model
                                     .capture_native_ghost_render_object(
@@ -546,7 +658,10 @@ impl RenderPipeline {
                             let anim_frame = match self
                                 .native_draw_world
                                 .drawable_visual_states
-                                .get_mut(&(object_id.0, draw_module_index))
+                                .get_mut(&(
+                                    NativeDrawOwnerId::Actor(object_id.0),
+                                    draw_module_index,
+                                ))
                                 .expect("Draw installed its exact owner")
                                 .admit_parent_render_hierarchy(self.animation_sync_ms)
                             {
@@ -1998,8 +2113,20 @@ impl RenderPipeline {
             return None;
         }
 
-        let controller_object_id = submission
-            .shroud_status_object_id
+        Self::frozen_objectless_shroud_for_owner(
+            presentation,
+            submission.drawable_id.0,
+            submission.shroud_status_object_id,
+        )
+    }
+
+    #[cfg(feature = "game_client")]
+    pub(super) fn frozen_objectless_shroud_for_owner(
+        presentation: Option<&crate::presentation_frame::PresentationFrame>,
+        drawable_id: u32,
+        shroud_status_object_id: Option<u32>,
+    ) -> Option<FrozenObjectlessDrawableShroudRenderState> {
+        let controller_object_id = shroud_status_object_id
             .filter(|object_id| *object_id != 0)
             .map(crate::game_logic::ObjectId);
 
@@ -2022,7 +2149,7 @@ impl RenderPipeline {
         let final_status = objectless_drawable_scene_status(controller_status);
 
         Some(FrozenObjectlessDrawableShroudRenderState {
-            drawable_id: submission.drawable_id.0,
+            drawable_id,
             controller_object_id,
             controller_found: controller_status.is_some(),
             final_status,
@@ -2144,7 +2271,10 @@ fn mesh_declares_skin(mesh: &crate::assets::W3DMesh) -> bool {
     crate::assets::W3DModel::mesh_declares_skin(mesh)
 }
 
-fn stamp_skinned_hierarchy_bind_pose(item: &mut RenderItem, mesh: &crate::assets::W3DMesh) {
+pub(super) fn stamp_skinned_hierarchy_bind_pose(
+    item: &mut RenderItem,
+    mesh: &crate::assets::W3DMesh,
+) {
     if mesh_declares_skin(mesh) {
         item.bone_palette_source = RenderItemBonePaletteSource::HierarchyBindPose;
     }
@@ -2435,13 +2565,18 @@ impl RenderPipeline {
             &mut budget,
             1. / 30.,
             &mut candidates,
+            #[cfg(feature = "game_client")]
+            super::native_frame_receiver::NativeCollectSource::FrozenPreview,
+            #[cfg(not(feature = "game_client"))]
             None,
         )
         .unwrap();
         self.native_draw_world
             .drawable_visual_states
             .iter()
-            .filter(|((id, _), state)| *id == object && state.identity.is_some())
+            .filter(|((id, _), state)| {
+                *id == NativeDrawOwnerId::Actor(object) && state.identity.is_some()
+            })
             .count()
     }
 }

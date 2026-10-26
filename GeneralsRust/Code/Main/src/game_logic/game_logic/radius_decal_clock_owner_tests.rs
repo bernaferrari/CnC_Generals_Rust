@@ -221,7 +221,7 @@ End
         object.attack_target(
             target,
             attack_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     };
     assert!(world.host_object(source).unwrap().status.attacking);
@@ -311,7 +311,7 @@ fn radius_decal_same_owner_clock_control_and_real_stop_kill() {
             world
                 .host_object_mut(id)
                 .unwrap()
-                .stop(&mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()));
+                .stop(&mut crate::game_logic::ObjectAudio::record(&mut Vec::new()));
             ordinary(&mut world, 3);
             let rd = world
                 .host_object(id)

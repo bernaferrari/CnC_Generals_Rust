@@ -528,3 +528,15 @@ pub(crate) fn xfer_vector3(
         .map_err(|e| format!("{:?}", e))?;
     Ok(())
 }
+
+// Preserve the C++ row-major/Xfer convention across the renderer boundary.
+impl From<Matrix4> for glam::Mat4 {
+    fn from(matrix: Matrix4) -> Self {
+        matrix.to_glam()
+    }
+}
+impl From<glam::Mat4> for Matrix4 {
+    fn from(matrix: glam::Mat4) -> Self {
+        Self::from_glam(matrix)
+    }
+}

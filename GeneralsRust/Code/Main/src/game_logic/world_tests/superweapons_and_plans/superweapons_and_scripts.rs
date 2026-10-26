@@ -684,7 +684,7 @@ End
         );
         bomber.set_ai_state(
             AIState::SpecialAbility,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         bomber.target = Some(target_id);
     }
@@ -841,7 +841,7 @@ End
         );
         bomber.set_ai_state(
             AIState::SpecialAbility,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         bomber.target = Some(target_id);
     }
@@ -907,7 +907,7 @@ fn carbomb_attack_structure_detonates_with_observable_damage() {
         car.attack_target(
             structure_id,
             attack_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
     game_logic.car_bomb.record_conversion();
@@ -995,7 +995,7 @@ fn attack_order_chases_target_when_out_of_range() {
         attacker.attack_target(
             target_id,
             attack_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         let weapon = attacker.weapon.as_mut().expect("authored current weapon");
         weapon.range = 50.0;
@@ -1050,7 +1050,7 @@ fn attack_order_clears_dead_target() {
         attacker.attack_target(
             target_id,
             attack_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
     {
@@ -2244,7 +2244,7 @@ fn can_make_aircraft_blocked_when_airfield_parking_full() {
             jet.set_contained_by_with_partition_owner(Some(af), true, fixture_partition_jet);
             jet.set_ai_state(
                 AIState::Docked,
-                &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+                &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
             );
             jet.producer_id = Some(af);
             jet.airfield_parking_space_index = Some(i);
@@ -2763,7 +2763,7 @@ fn script_idle_all_units_and_resume_supply_write_live() {
     if let Some(obj) = logic.host_object_mut(truck) {
         obj.set_ai_state(
             AIState::Idle,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         obj.supply_truck_force_pending = false;
     }

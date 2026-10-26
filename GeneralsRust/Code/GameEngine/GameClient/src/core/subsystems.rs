@@ -1574,6 +1574,8 @@ impl InGameUISubsystem {
         is_location_hint: bool,
         logic_frame: u32,
         client_frame: u32,
+        mouse: &mut crate::input::Mouse,
+        facts: &crate::gui::ingame_ui::ReceivingMouseoverFacts,
     ) {
         if self.tooltips_disabled_until > logic_frame {
             return;
@@ -1590,6 +1592,8 @@ impl InGameUISubsystem {
             drawable_id,
             is_location_hint,
             &mut receiving,
+            mouse,
+            Some(facts),
         );
     }
 
@@ -2394,15 +2398,13 @@ impl SubsystemInterface for VideoPlayerSubsystem {
 
 impl VideoPlayerInterface for VideoPlayerSubsystem {}
 
-pub type MouseHandle = Arc<Mutex<crate::input::Mouse>>;
-
 pub fn create_keyboard() -> crate::input::Keyboard {
     crate::input::Keyboard::new()
 }
 
-pub fn create_mouse() -> MouseHandle {
-    // Share THE_MOUSE so Main OS inject and GameClient::update_input tick the same device.
-    crate::input::mouse::the_mouse().clone()
+pub fn create_mouse() -> crate::input::Mouse {
+    // OS delivery and client updates borrow this receiving client's virtual device.
+    crate::input::Mouse::new()
 }
 
 #[cfg(test)]

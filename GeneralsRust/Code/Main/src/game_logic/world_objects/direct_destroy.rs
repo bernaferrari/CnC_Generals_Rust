@@ -184,6 +184,9 @@ impl GameLogic {
         {
             return Ok(());
         }
+        if container.thing().template.contain_module.kind == ContainModuleKind::Parachute {
+            return self.remove_parachute_rider_owned(container_id, child_id, effects);
+        }
         if container.thing().template.contain_module.kind == ContainModuleKind::RiderChange
             && !container.is_alive()
         {
@@ -408,14 +411,6 @@ impl GameLogic {
         self.pending_special_abilities.remove(&id);
         self.pending_special_abilities
             .retain(|_, ability| ability.target_id() != id);
-        #[cfg(feature = "game_client")]
-        if let Some(draw) = self
-            .objects
-            .get(&id)
-            .and_then(|o| o.jet_ai.lockon_drawable_id)
-        {
-            gamelogic::helpers::TheGameClient.destroy_drawable(draw);
-        }
         self.finish_building_sound(id);
         self.detach_host_fog_ghost(id);
         let Some(object) = self.take_object_for_physical_retirement(id, effects)? else {

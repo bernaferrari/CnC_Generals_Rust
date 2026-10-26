@@ -40,6 +40,12 @@ pub trait Drawable: std::fmt::Debug + Send + Sync + DrawableDowncast {
     /// Get current world transformation matrix
     fn get_transform(&self) -> Matrix4;
 
+    /// Receiving Object/Thing orientation, independent of render-only instance transform.
+    fn set_base_transform(&mut self, transform: Matrix4);
+
+    /// Source Drawable::getInstanceMatrix.
+    fn get_instance_transform(&self) -> Matrix4;
+
     /// Set instance transformation matrix
     fn set_instance_transform(&mut self, transform: Matrix4);
 

@@ -86,3 +86,8 @@ pub use superweapon_ready_flash::*;
 mod live_hud;
 pub use live_hud::*;
 include!("tests.rs");
+
+mod tooltip_observation;
+pub use tooltip_observation::{
+    MouseoverObjectObservation, MouseoverPlayerObservation, ReceivingMouseoverFacts,
+};

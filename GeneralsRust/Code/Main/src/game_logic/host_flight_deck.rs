@@ -1595,7 +1595,7 @@ mod tests {
             jet.status.airborne_target = true;
             jet.set_ai_state(
                 AIState::Attacking,
-                &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+                &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
             );
         }
         logic.frame = 2;

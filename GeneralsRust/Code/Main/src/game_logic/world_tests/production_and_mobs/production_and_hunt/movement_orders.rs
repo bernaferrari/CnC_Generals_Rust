@@ -37,11 +37,11 @@ fn repair_action_after_filling_the_vehicle_leaves_for_the_rally() {
         unit.set_order_target(
             Some(pad),
             attack_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         unit.set_ai_state(
             AIState::SeekingRepair,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         unit.health.current = unit.health.maximum - 1.0;
     }
@@ -130,11 +130,11 @@ fn repair_action_after_filling_without_a_rally_goes_idle() {
         unit.set_order_target(
             Some(pad),
             attack_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         unit.set_ai_state(
             AIState::SeekingRepair,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         unit.health.current = unit.health.maximum - 1.0;
         unit.ignored_obstacle_id = Some(pad);
@@ -182,7 +182,7 @@ fn aborted_capture_clears_the_building_ignore() {
         let unit = logic.host_object_mut(infantry).expect("infantry");
         unit.set_ai_state(
             AIState::Capturing,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         unit.ignored_obstacle_id = Some(building);
         unit.movement.path = vec![Vec3::new(20.0, 0.0, 0.0)];
@@ -217,7 +217,7 @@ fn dropped_special_ability_clears_the_building_ignore() {
         let unit = logic.host_object_mut(hacker).expect("hacker");
         unit.set_ai_state(
             AIState::SpecialAbility,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         unit.ignored_obstacle_id = Some(building);
         unit.movement.path = vec![Vec3::new(15.0, 0.0, 0.0)];
@@ -257,7 +257,7 @@ fn finished_hacker_channel_clears_the_building_ignore() {
         let unit = logic.host_object_mut(hacker).expect("hacker");
         unit.set_ai_state(
             AIState::SpecialAbility,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         unit.ignored_obstacle_id = Some(building);
         unit.movement.path = vec![Vec3::new(12.0, 0.0, 0.0)];
@@ -292,7 +292,7 @@ fn queued_hacker_path_stays_special_ability() {
         let unit = logic.host_object_mut(hacker).expect("hacker");
         unit.set_ai_state(
             AIState::SpecialAbility,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         unit.ignored_obstacle_id = Some(building);
     }
@@ -343,12 +343,12 @@ fn reissued_hacker_move_keeps_special_ability_and_the_building() {
             .expect("hacker");
         unit.set_ai_state(
             AIState::SpecialAbility,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         unit.set_order_target(
             Some(building),
             attack_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         unit.pending_move = Some(Vec3::new(90.0, 0.0, 0.0));
     }
@@ -418,12 +418,12 @@ fn reissued_attack_crosses_the_target_building() {
             .expect("attacker");
         unit.set_ai_state(
             AIState::Attacking,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         unit.set_order_target(
             Some(building),
             attack_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         unit.pending_move = Some(Vec3::new(90.0, 0.0, 0.0));
     }
@@ -497,7 +497,7 @@ fn reissued_gather_paths_to_the_approach() {
         let unit = logic.host_object_mut(truck).expect("truck");
         unit.set_ai_state(
             AIState::Gathering,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         unit.preferred_dock_id = Some(warehouse);
         unit.pending_move = Some(approach);
@@ -820,12 +820,12 @@ fn attack_exit_clears_the_victim_building_ignore() {
             .expect("attacker");
         unit.set_ai_state(
             AIState::Attacking,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         unit.set_order_target(
             Some(building),
             attack_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         unit.ignored_obstacle_id = Some(building);
     }
@@ -864,12 +864,12 @@ fn live_attack_move_keeps_the_building_ignore() {
             .expect("attacker");
         unit.set_ai_state(
             AIState::AttackMoving,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         unit.set_order_target(
             Some(building),
             attack_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         unit.ignored_obstacle_id = Some(building);
         unit.requested_destination = Some(Vec3::new(80.0, 0.0, 0.0));
@@ -902,7 +902,7 @@ fn player_stop_clears_a_building_ignore() {
         let unit = logic.host_object_mut(unit_id).expect("unit");
         unit.set_ai_state(
             AIState::Attacking,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         unit.ignored_obstacle_id = Some(building);
         unit.movement.path = vec![Vec3::new(40.0, 0.0, 0.0)];
@@ -969,7 +969,7 @@ fn player_move_clears_a_building_ignore() {
         let unit = logic.host_object_mut(unit_id).expect("unit");
         unit.set_ai_state(
             AIState::Attacking,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         unit.ignored_obstacle_id = Some(building);
     }
@@ -1031,7 +1031,7 @@ fn carrier_idle_replaces_the_jet_building_ignore_with_the_carrier() {
         unit.ignored_obstacle_id = Some(building);
         unit.set_ai_state(
             AIState::Attacking,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
     let mut state = HostFlightDeckState::default();
@@ -1070,12 +1070,12 @@ fn leaving_enter_clears_the_carrier_ignore() {
         let unit = logic.host_object_mut(jet).expect("jet");
         unit.set_ai_state(
             AIState::Entering,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         unit.ignored_obstacle_id = Some(deck);
         unit.set_ai_state(
             AIState::Docked,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
     let unit = logic.host_object(jet).expect("jet");
@@ -1104,13 +1104,13 @@ fn queued_enter_path_keeps_the_carrier_ignore() {
         let (unit, attack_events) = logic.host_object_and_attack_events_mut(jet).expect("jet");
         unit.set_ai_state(
             AIState::Entering,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         unit.ignored_obstacle_id = Some(deck);
         unit.set_order_target(
             Some(deck),
             attack_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
     logic.force_map_loaded_for_path_test(true);
@@ -1144,13 +1144,13 @@ fn reissued_enter_crosses_the_carrier() {
         let (unit, attack_events) = logic.host_object_and_attack_events_mut(jet).expect("jet");
         unit.set_ai_state(
             AIState::Entering,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         unit.ignored_obstacle_id = Some(deck);
         unit.set_order_target(
             Some(deck),
             attack_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         unit.pending_move = Some(Vec3::new(90.0, 0.0, 0.0));
     }
@@ -1196,7 +1196,9 @@ fn reissued_enter_crosses_the_carrier() {
 
 #[test]
 fn cliff_cell_picks_the_cliff_member_when_the_set_changes() {
-    use crate::game_logic::host_upgrade_module_residuals::{AuthoredLocomotorSet, HostLocomotorSetKind};
+    use crate::game_logic::host_upgrade_module_residuals::{
+        AuthoredLocomotorSet, HostLocomotorSetKind,
+    };
     use crate::game_logic::{KindOf, Player, ThingTemplate};
     use gamelogic::ai::pathfind_astar::PathfindCellType;
 
@@ -1415,12 +1417,12 @@ fn non_hijacker_at_the_vehicle_is_released() {
             .expect("infantry");
         unit.set_ai_state(
             AIState::SpecialAbility,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         unit.set_order_target(
             Some(vehicle),
             attack_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         unit.ignored_obstacle_id = Some(vehicle);
         unit.movement.path = vec![Vec3::ZERO];
@@ -1466,12 +1468,12 @@ fn rejected_car_bomb_releases_the_infantry() {
             .expect("infantry");
         unit.set_ai_state(
             AIState::SpecialAbility,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         unit.set_order_target(
             Some(boat),
             attack_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         unit.ignored_obstacle_id = Some(boat);
         unit.movement.path = vec![Vec3::ZERO];
@@ -1517,12 +1519,12 @@ fn rejected_disguise_releases_the_infantry() {
             .expect("infantry");
         unit.set_ai_state(
             AIState::SpecialAbility,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         unit.set_order_target(
             Some(jet),
             attack_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         unit.ignored_obstacle_id = Some(jet);
         unit.movement.path = vec![Vec3::ZERO];
@@ -1567,12 +1569,12 @@ fn sabotage_of_a_vehicle_releases_the_infantry() {
             .expect("infantry");
         unit.set_ai_state(
             AIState::SpecialAbility,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         unit.set_order_target(
             Some(vehicle),
             attack_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         unit.ignored_obstacle_id = Some(vehicle);
         unit.movement.path = vec![Vec3::ZERO];
@@ -1618,12 +1620,12 @@ fn hijack_followup_tick_still_crosses_the_vehicle() {
             .expect("infantry");
         unit.set_ai_state(
             AIState::SpecialAbility,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         unit.set_order_target(
             Some(vehicle),
             attack_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
     let wall_x = {

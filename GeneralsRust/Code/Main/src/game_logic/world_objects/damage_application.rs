@@ -43,6 +43,7 @@ impl GameLogic {
             let object = self.objects.get(&id)?;
             let player = object.owner_player_id.map(|id| id as i32).unwrap_or(-1);
             crate::game_logic::NativeBodyVisualChange {
+                audio_policy: self.queued_audio_events.policy().clone(),
                 identity: self.live_draw_playback_identity(object),
                 state: gamelogic::common::types::BodyDamageType::Pristine,
                 loading_map: self.is_loading_map(),
@@ -499,6 +500,7 @@ impl GameLogic {
         #[cfg(feature = "game_client")]
         let mut application = Self::with_object_fx_services(
             &mut self.session_view,
+            self.queued_audio_events.policy().clone(),
             begin_player,
             self.world_services.shroud(),
             effects,
@@ -530,6 +532,7 @@ impl GameLogic {
                         {
                             if let Some(native_view) = view.effects.view.as_mut() {
                                 let mut change = crate::game_logic::NativeBodyVisualChange {
+                                    audio_policy: view.audio_policy.clone(),
                                     identity: native_body.0.clone(),
                                     state: gamelogic::common::types::BodyDamageType::Pristine,
                                     loading_map: native_body.1,
@@ -732,6 +735,7 @@ impl GameLogic {
         #[cfg(feature = "game_client")]
         Self::with_object_fx_services(
             &mut self.session_view,
+            self.queued_audio_events.policy().clone(),
             callback_player,
             self.world_services.shroud(),
             effects,
@@ -842,6 +846,7 @@ impl GameLogic {
         #[cfg(feature = "game_client")]
         let after_fx = Self::with_object_fx_services(
             &mut self.session_view,
+            self.queued_audio_events.policy().clone(),
             armor_player,
             self.world_services.shroud(),
             effects,
@@ -910,6 +915,7 @@ impl GameLogic {
         #[cfg(feature = "game_client")]
         let destroyed = Self::with_object_fx_services(
             &mut self.session_view,
+            self.queued_audio_events.policy().clone(),
             finish_player,
             self.world_services.shroud(),
             effects,
@@ -1132,6 +1138,7 @@ impl GameLogic {
             let fx_operation_environment = self.observe_object_fx_environment();
             Self::with_object_fx_services(
                 &mut self.session_view,
+                self.queued_audio_events.policy().clone(),
                 player,
                 shroud,
                 effects,

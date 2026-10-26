@@ -104,6 +104,20 @@ impl PartialEq for ReceivingClientTemplate {
 }
 
 impl ReceivingClientTemplate {
+    pub(crate) fn has_behavior_module(&self, name: &str) -> bool {
+        self.0
+            .behavior_modules()
+            .iter()
+            .any(|entry| entry.name.as_str().eq_ignore_ascii_case(name))
+    }
+
+    pub(crate) fn receiving_jet_lockon_data(
+        &self,
+    ) -> Option<&gamelogic::object::update::ai_update::jet_ai_update::JetAIUpdateModuleData> {
+        self.0.behavior_modules().iter().nth(self.receiving_ai_source_index()?)?
+            .data.as_any().downcast_ref::<gamelogic::object::update::ai_update::jet_ai_update::JetAIUpdateModuleData>()
+    }
+
     // Object.cpp caches the first non-null getAIUpdateInterface in authored order.
     // Do not allow a later specialized module to replace that interface.
     fn receiving_ai_source_index(&self) -> Option<usize> {
@@ -447,6 +461,9 @@ pub struct ThingTemplate {
     /// rejects unrepresentable filters or OCLs.
     #[serde(default)]
     pub eject_pilot_die: Option<EjectPilotDieMetadata>,
+    /// Exact HijackerUpdate::ParachuteName; absence never selects a template fallback.
+    #[serde(default)]
+    pub hijacker_parachute_name: Option<String>,
     /// Exact `RebuildHoleExposeDie` module data. Presence, not a GLA/name
     /// heuristic, is the C++ hole-expose authority.
     #[serde(default)]
@@ -927,6 +944,7 @@ impl ThingTemplate {
             authored_structure_collapse: false,
             veterancy_crate_collide: None,
             eject_pilot_die: None,
+            hijacker_parachute_name: None,
             rebuild_hole_expose: None,
             hack_internet_ai_update: None,
             hacker_disable_building: None,

@@ -336,7 +336,7 @@ fn repair_complete_removes_scaffolding() {
         d.set_target(
             Some(tower),
             attack_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
     logic.dozer_internal_task_complete(dozer, true);

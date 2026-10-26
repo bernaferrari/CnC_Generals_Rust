@@ -1870,7 +1870,7 @@ impl GameWindow {
     /// Set tooltip callback
     pub fn set_tooltip_callback<F>(&mut self, callback: F)
     where
-        F: Fn(&GameWindow, &WindowInstanceData, u32) + 'static,
+        F: Fn(&GameWindow, &WindowInstanceData, u32, &mut crate::input::Mouse) + 'static,
     {
         self.callbacks.owned_control_bar_tooltip = false;
         self.callbacks.tooltip = Some(Box::new(callback));
@@ -1879,7 +1879,7 @@ impl GameWindow {
     /// Typed role for the receiving ControlBar's command tooltip.
     pub fn set_control_bar_tooltip_callback<F>(&mut self, callback: F)
     where
-        F: Fn(&GameWindow, &WindowInstanceData, u32) + 'static,
+        F: Fn(&GameWindow, &WindowInstanceData, u32, &mut crate::input::Mouse) + 'static,
     {
         self.set_tooltip_callback(callback);
         self.callbacks.owned_control_bar_tooltip = true;
@@ -1895,7 +1895,9 @@ impl GameWindow {
     }
 
     /// Get tooltip callback.
-    pub fn get_tooltip_callback(&self) -> Option<&dyn Fn(&GameWindow, &WindowInstanceData, u32)> {
+    pub fn get_tooltip_callback(
+        &self,
+    ) -> Option<&dyn Fn(&GameWindow, &WindowInstanceData, u32, &mut crate::input::Mouse)> {
         self.callbacks.tooltip.as_deref()
     }
 

@@ -585,6 +585,7 @@ impl Object {
             leaflet_container: false,
             paradrop_transport_target: None,
             paradrop_parachute: false,
+            parachute_attachments: None,
             daisy_cutter_transport: None,
             daisy_cutter_bomb: false,
             anthrax_bomb_transport: None,
@@ -929,7 +930,6 @@ impl Object {
             is_climbing: false,
             donut_timer: u32::MAX,
             max_lift: 0.0,
-            max_lift_damaged: 0.0,
             speed_limit_z: 999999.0,
             group_speed_factor: 1.0,
             desired_speed: 999_999.0,
@@ -1164,7 +1164,9 @@ impl Object {
             disguise_as_template: None,
             disguise_pending_template: None,
             disguise_pending_team: None,
+            disguise_pending_player_id: None,
             disguise_as_team: None,
+            disguise_as_player_id: None,
             vision_spied_mask: 0,
             weapon_bonus_enthusiastic: false,
             weapon_bonus_subliminal: false,
@@ -1539,6 +1541,7 @@ impl Object {
             leaflet_container: false,
             paradrop_transport_target: None,
             paradrop_parachute: false,
+            parachute_attachments: None,
             daisy_cutter_transport: None,
             daisy_cutter_bomb: false,
             anthrax_bomb_transport: None,
@@ -1883,7 +1886,6 @@ impl Object {
             is_climbing: false,
             donut_timer: u32::MAX,
             max_lift: 0.0,
-            max_lift_damaged: 0.0,
             speed_limit_z: 999999.0,
             group_speed_factor: 1.0,
             desired_speed: 999_999.0,
@@ -2114,7 +2116,9 @@ impl Object {
             disguise_as_template: None,
             disguise_pending_template: None,
             disguise_pending_team: None,
+            disguise_pending_player_id: None,
             disguise_as_team: None,
+            disguise_as_player_id: None,
             vision_spied_mask: 0,
             weapon_bonus_enthusiastic: false,
             weapon_bonus_subliminal: false,
@@ -2747,7 +2751,7 @@ mod tests {
         obj.contained_by = Some(ObjectId(99));
         obj.set_ai_state(
             AIState::Garrisoned,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         obj.status.masked = true;
         obj.hijacker_in_vehicle = true;
@@ -2762,7 +2766,7 @@ mod tests {
         );
         obj.set_ai_state(
             AIState::Docked,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         obj.status.unselectable = false;
         assert!(obj.is_selectable());
@@ -2861,7 +2865,9 @@ mod tests {
 
     #[test]
     fn humvee_authors_recenter_time_not_idle_scan() {
-        use crate::game_logic::host_humvee::{HUMVEE_TURRET_RECENTER_FRAMES, HUMVEE_TURRET_TURN_RATE};
+        use crate::game_logic::host_humvee::{
+            HUMVEE_TURRET_RECENTER_FRAMES, HUMVEE_TURRET_TURN_RATE,
+        };
         let spec = turret_spawn_for_template("AmericaVehicleHumvee");
         assert!(spec.has_turret);
         assert!(spec.enabled);

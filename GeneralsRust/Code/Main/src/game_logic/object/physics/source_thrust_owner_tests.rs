@@ -4,16 +4,29 @@ fn thrust_actor(id: ObjectId) -> Object {
     template.add_kind_of(KindOf::Vehicle).set_health(100.0);
     let mut object = Object::new(template, id, Team::USA);
     object.set_position(glam::Vec3::new(0.0, 3.0, 0.0));
-    object.loco_appearance = LocomotorAppearance::Thrust;
-    object.loco_behavior_z = LocomotorBehaviorZ::NoZMotiveForce;
-    object.allow_motive_force_while_airborne = true;
-    object.stick_to_ground = false;
-    object.movement.max_speed = 30.0;
-    object.movement.acceleration = 900.0;
-    object.movement.turn_rate = std::f32::consts::PI * 30.0;
-    object.min_speed = 0.0;
-    object.braking = 0.0;
-    object.max_thrust_angle = std::f32::consts::PI;
+    use game_engine::common::ini::ini_locomotor::{
+        LocomotorAppearance as A, LocomotorBehaviorZ as Z, LocomotorSurfaceTypeMask,
+        LocomotorTemplate,
+    };
+    let mut source = LocomotorTemplate::new("ActualThrustSource".into());
+    source.surfaces.add_surface(LocomotorSurfaceTypeMask::AIR);
+    source.appearance = A::Thrust;
+    source.behavior_z = Z::NoZMotiveForce;
+    source.allow_motive_force_while_airborne = true;
+    source.stick_to_ground = false;
+    source.max_speed = 1.;
+    source.max_speed_damaged = 1.;
+    source.acceleration = 1.;
+    source.acceleration_damaged = 1.;
+    source.max_turn_rate = std::f32::consts::PI;
+    source.max_turn_rate_damaged = std::f32::consts::PI;
+    source.min_speed = 0.;
+    source.braking = 0.;
+    source.max_thrust_angle = std::f32::consts::PI;
+    let binding =
+        crate::game_logic::locomotor_bootstrap::host_locomotor_binding_from_template(&source)
+            .unwrap();
+    crate::game_logic::locomotor_bootstrap::apply_host_locomotor_binding(&mut object, &binding);
     object.movement.velocity = glam::Vec3::ZERO;
     object.aerodynamic_friction = 0.0;
     object.extra_friction = 0.0;
@@ -145,22 +158,20 @@ fn thrust_tree_sound_is_at_receiving_physics_euler_not_locomotor_force() {
         )
         .unwrap();
     let mut audio = Audio(Vec::new());
-    world
-        .objects
-        .get_mut(&id)
-        .unwrap()
-        .move_towards_thrust_with_effects(
-            goal,
-            99999.0,
-            30.0,
-            1.0 / 30.0,
-            0,
-            &mut crate::game_logic::ScriptPresentationEffects {
-                terrain: Some(&mut terrain),
-                audio: Some(&mut audio),
-                ..Default::default()
-            },
-        );
+    assert!(world.move_owned_thrust_with_effects(
+        id,
+        goal,
+        99999.,
+        30.,
+        0,
+        false,
+        0.,
+        &mut crate::game_logic::ScriptPresentationEffects {
+            terrain: Some(&mut terrain),
+            audio: Some(&mut audio),
+            ..Default::default()
+        }
+    ));
     assert!(audio.0.is_empty());
     assert_eq!(world.objects.get(&id).unwrap().get_position(), start);
     world.integrate_owned_physics_motion_with_effects(
@@ -176,4 +187,65 @@ fn thrust_tree_sound_is_at_receiving_physics_euler_not_locomotor_force() {
         game_client::terrain::W3DToppleState::Falling
     );
     assert!(terrain.tree_buffer_mut().pending_fx_events().is_empty());
+}
+
+#[test]
+fn source_thrust_continuation_rereads_current_physics_velocity_after_orientation() {
+    let mut actor = thrust_actor(ObjectId(734));
+    actor.movement.velocity = glam::Vec3::new(0., 30., 30.);
+    let goal = actor.get_position() + glam::Vec3::X * 1000.;
+    let mut step =
+        actor.prepare_thrust_step(goal, 99999., 30., 0, false, 0., &mut Default::default());
+    let (direction, acceleration, max_speed) = step.force.expect("source thrust force condition");
+    if let Some(reaction) = step.reaction.take() {
+        assert!(!reaction.has_tree_fx());
+        actor.finish_position_reaction(reaction);
+    }
+    // Explicit continuation witness; this is not a claim that native Sound
+    // currently permits hostile safe mutation of the registered actor.
+    actor.movement.velocity = glam::Vec3::new(9., 12., 15.);
+    let damping = (acceleration / max_speed).clamp(0., 1.);
+    let expected = (direction * acceleration - actor.movement.velocity / 30. * damping) * 30.;
+    actor.finish_owned_thrust_step(step);
+    assert!((actor.physics_accel - expected).length() < 0.0001);
+}
+#[test]
+fn actual_owned_thrust_orientation_and_force_ignore_same_id_peer_lifecycle() {
+    let id = ObjectId(735);
+    let mut world = crate::game_logic::GameLogic::new();
+    let mut alone = crate::game_logic::GameLogic::new();
+    let mut actor = thrust_actor(id);
+    actor.movement.velocity = glam::Vec3::new(0., 30., 30.);
+    let start = actor.get_position();
+    let goal = start + glam::Vec3::X * 1000.;
+    let mut alone_actor = thrust_actor(id);
+    alone_actor.movement.velocity = actor.movement.velocity;
+    alone.objects.insert(id, alone_actor);
+    world.objects.insert(id, actor);
+    let mut peer = crate::game_logic::GameLogic::new();
+    peer.objects.insert(id, thrust_actor(id));
+    peer.reset();
+    drop(peer);
+    for receiving in [&mut world, &mut alone] {
+        assert!(receiving.move_owned_thrust_with_effects(
+            id,
+            goal,
+            99999.,
+            30.,
+            0,
+            false,
+            0.,
+            &mut Default::default()
+        ));
+    }
+    assert_eq!(world.objects[&id].get_position(), start);
+    assert_eq!(
+        world.objects[&id].get_transform_matrix(),
+        alone.objects[&id].get_transform_matrix()
+    );
+    assert_eq!(
+        world.objects[&id].physics_accel,
+        alone.objects[&id].physics_accel
+    );
+    assert_ne!(world.objects[&id].physics_accel, glam::Vec3::ZERO);
 }

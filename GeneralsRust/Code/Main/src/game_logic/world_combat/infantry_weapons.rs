@@ -286,52 +286,106 @@ impl GameLogic {
 
     /// C++ FloatUpdate residual (boat sway / optional water snap).
     pub(in super::super) fn update_float_update(&mut self) {
-        self.update_float_update_with_effects(&mut Default::default());
+        self.update_float_update_with_effects(&mut Default::default())
+            .expect("receiving FloatUpdate failed");
     }
 
     pub(in super::super) fn update_float_update_with_effects(
         &mut self,
-        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
-        let frame = self.frame as u32;
-        let ids: Vec<ObjectId> = self
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<()> {
+        let frame = self.frame;
+        let ids: Vec<_> = self
             .objects
             .registered()
-            .filter(|(_, o)| o.is_alive() && o.float_update.is_some())
-            .map(|(id, _)| *id)
+            .filter(|(_, object)| object.is_alive() && object.float_update.is_some())
+            .map(|(id, object)| {
+                (
+                    *id,
+                    std::sync::Arc::downgrade(&object.visual_draw_identity_token),
+                )
+            })
             .collect();
-        for id in ids {
-            let water_y = {
-                let Some(obj) = self.objects.get(&id) else {
-                    continue;
-                };
-                let pos = obj.get_position();
-                self.terrain
+        for (id, birth) in ids {
+            let original = |world: &Self| {
+                world.objects.get(&id).is_some_and(|object| {
+                    birth.ptr_eq(&std::sync::Arc::downgrade(
+                        &object.visual_draw_identity_token,
+                    ))
+                })
+            };
+            let Some(object) = self.objects.get(&id).filter(|_| original(self)) else {
+                continue;
+            };
+            let position = object.get_position();
+            let enabled = object.float_update.as_ref().unwrap().enabled;
+            if enabled {
+                let water_y = self
+                    .terrain
                     .as_ref()
-                    .and_then(|t| t.water_surface_at_world(pos))
+                    .and_then(|terrain| terrain.water_surface_at_world(position))
                     .or_else(|| {
-                        crate::game_logic::host_float_update::leftover_water_surface_y(pos.x, pos.z)
-                    })
-            };
-            let Some(obj) = self.objects.get_mut(&id) else {
+                        let terrain = self
+                            .world_services
+                            .terrain()
+                            .read()
+                            .unwrap_or_else(|error| error.into_inner());
+                        crate::game_logic::host_float_update::receiving_water_surface_y(
+                            &terrain, position.x, position.z,
+                        )
+                    });
+                if let Some(water_y) = water_y {
+                    let mut target = position;
+                    target.y = water_y;
+                    if !self.set_owned_object_position_with_effects(id, target, frame, effects)
+                        || !original(self)
+                    {
+                        continue;
+                    }
+                    self.float_update_reg.record_snap();
+                }
+            }
+            let Some(object) = self.objects.get_mut(&id) else {
                 continue;
             };
-            let Some(fu) = obj.float_update.as_mut() else {
+            let Some(data) = object.float_update.as_mut() else {
                 continue;
             };
-            fu.tick_sway(frame);
+            data.tick_sway(frame);
+            let (yaw, pitch) = (data.yaw, data.pitch);
             self.float_update_reg.record_sway();
-            if let Some(wy) = fu.snap_height_y(water_y) {
-                let mut p = obj.get_position();
-                p.y = wy;
-                obj.set_position_with_effects(
-                    p,
-                    self.frame,
-                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+            if effects.view.is_none() {
+                continue;
+            } // Explicit headless: there is no Drawable to mutate.
+            let source = self
+                .current_native_slave_source(id, effects.view.as_ref().unwrap().local_player_id())
+                .map_err(|error| {
+                    gamelogic::GameLogicError::Configuration(format!(
+                        "FloatUpdate receiving source: {error}"
+                    ))
+                })?;
+            let previous = effects
+                .view
+                .as_deref_mut()
+                .unwrap()
+                .drawable_instance_transform(&source)
+                .map_err(gamelogic::GameLogicError::Configuration)?;
+            if let Some(previous) = previous {
+                if !original(self) {
+                    continue;
+                }
+                let matrix = crate::game_logic::host_float_update::rebuild_receiving_instance(
+                    previous, yaw, pitch,
                 );
-                self.float_update_reg.record_snap();
+                effects
+                    .view
+                    .as_deref_mut()
+                    .unwrap()
+                    .set_drawable_instance_transform(&source, Some(matrix))
+                    .map_err(gamelogic::GameLogicError::Configuration)?;
             }
         }
+        Ok(())
     }
 
     /// C++ ProneUpdate residual countdown + NO_ATTACK / PRONE condition.
@@ -2909,3 +2963,7 @@ impl GameLogic {
 #[cfg(test)]
 #[path = "base_regenerate_owner_tests.rs"]
 mod base_regenerate_owner_tests;
+
+#[cfg(test)]
+#[path = "float_instance_owner_tests.rs"]
+mod float_instance_owner_tests;

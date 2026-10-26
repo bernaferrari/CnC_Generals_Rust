@@ -58,6 +58,36 @@ impl GameClient {
         Ok(entries)
     }
 
+    fn collect_saveable_drawables_excluding_owned(
+        &self,
+        owned: &[NativeAuxiliaryReceipt],
+    ) -> Result<Vec<(DrawableId, String)>, String> {
+        for receipt in owned {
+            let draw = self
+                .drawables
+                .drawable_map
+                .get(&receipt.drawable_id())
+                .ok_or("owned auxiliary missing at save admission")?;
+            let basic = draw
+                .as_any()
+                .downcast_ref::<BasicDrawable>()
+                .ok_or("owned auxiliary receiver type mismatch")?;
+            if draw.get_object_id().is_some()
+                || basic.native_auxiliary_generation() != Some(receipt.generation())
+                || receipt.owner_token().is_none_or(|token| {
+                    !std::sync::Arc::ptr_eq(&token, &self.drawables.auxiliary_identity)
+                })
+            {
+                return Err("owned auxiliary save receipt belongs to another lifetime".into());
+            }
+        }
+        Ok(self
+            .collect_saveable_drawables_sorted()?
+            .into_iter()
+            .filter(|(id, _)| !owned.iter().any(|receipt| receipt.drawable_id() == *id))
+            .collect())
+    }
+
     fn add_toc_entry(&mut self, name: String, id: u16) {
         self.drawable_toc.push(DrawableTOCEntry { name, id });
     }
@@ -70,7 +100,17 @@ impl GameClient {
         self.drawable_toc.iter().find(|entry| entry.id == id)
     }
 
+    /// Generic runtime Client archives own no module-companion exclusion list.
+    /// Main's Rust save path supplies exact claimed receipts separately.
     fn xfer_drawable_toc(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        self.xfer_drawable_toc_with_owned_auxiliaries(xfer, &[])
+    }
+
+    fn xfer_drawable_toc_with_owned_auxiliaries(
+        &mut self,
+        xfer: &mut dyn Xfer,
+        owned: &[NativeAuxiliaryReceipt],
+    ) -> Result<(), String> {
         let current_version: XferVersion = 1;
         let mut version = current_version;
         xfer.xfer_version(&mut version, current_version)
@@ -80,7 +120,7 @@ impl GameClient {
 
         let mut toc_count: u32 = 0;
         if xfer.is_writing() {
-            let save_entries = self.collect_saveable_drawables_sorted()?;
+            let save_entries = self.collect_saveable_drawables_excluding_owned(owned)?;
             let mut toc_names: Vec<String> = Vec::new();
             for (_, template_name) in save_entries {
                 if toc_names.iter().any(|name| name == &template_name) {
@@ -1011,9 +1051,8 @@ impl GameClient {
                     Vector3::new(entry.position[0], entry.position[1], entry.position[2]);
                 drawable.set_position(position);
                 // C++ Matrix3D translation * Rotate_Y residual.
-                let transform =
-                    Matrix4::translation(position).mul(&Matrix4::rotation_y(entry.orientation));
-                drawable.set_instance_transform(transform);
+                let transform = Matrix4::rotation_y(entry.orientation);
+                drawable.set_base_transform(transform);
                 // Wave 1050: status/FOW visibility residual (parity with update_drawable_visibility).
                 let fully_obscured = entry.shroud_status >= 2;
                 let local =
@@ -1388,6 +1427,197 @@ impl Snapshotable for GameClient {
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        self.xfer_with_owned_auxiliaries(xfer, &[])
+    }
+
+    fn load_post_process(&mut self) -> Result<(), String> {
+        // Binding keys describe pre-load runtime Drawable instances and are
+        // intentionally not serialized.  Recreated presentation drawables
+        // receive fresh keys on the next host sync.
+        self.drawables.presentation_direct_drawable_bindings.clear();
+        self.drawables.drawable_object_map.clear();
+        let mut next_drawable_id = self.drawables.next_drawable_id.0.max(1);
+
+        let state = &mut self.drawables.state;
+        for drawable in state.drawable_map.values() {
+            let id = drawable.get_id();
+            if id.0 >= next_drawable_id {
+                next_drawable_id = id.0.saturating_add(1).max(1);
+            }
+            if let Some(object_id) = drawable.get_object_id() {
+                state.drawable_object_map.insert(object_id, id);
+            }
+        }
+
+        // C++ scans the global drawable list; include GameLogic-owned drawables as well
+        // so the next ID counter cannot regress after load.
+        // Host path: registry empty — drawable_map already drove next_drawable_id.
+        if OBJECT_REGISTRY.is_empty() {
+            self.drawables.next_drawable_id = DrawableId(next_drawable_id.max(1));
+            self.set_drawable_id_counter(self.drawables.next_drawable_id.0);
+            return Ok(());
+        }
+        for obj_ref in OBJECT_REGISTRY.get_all_objects() {
+            let Ok(obj_guard) = obj_ref.read() else {
+                continue;
+            };
+            let Some(drawable_ref) = obj_guard.get_drawable() else {
+                continue;
+            };
+            let Ok(drawable_guard) = drawable_ref.read() else {
+                continue;
+            };
+
+            let drawable_id = drawable_guard.get_drawable_id();
+            if drawable_id >= next_drawable_id {
+                next_drawable_id = drawable_id.saturating_add(1).max(1);
+            }
+
+            let object_id = drawable_guard.get_object_id();
+            if object_id != INVALID_ID {
+                self.drawables
+                    .drawable_object_map
+                    .insert(object_id, DrawableId(drawable_id));
+            }
+        }
+
+        self.drawables.next_drawable_id = DrawableId(next_drawable_id.max(1));
+        self.set_drawable_id_counter(self.drawables.next_drawable_id.0);
+        Ok(())
+    }
+}
+
+impl Drop for GameClient {
+    fn drop(&mut self) {
+        log::info!("GameClient shutting down");
+        let owned_live_slot = clear_live_game_client(self);
+
+        // Clear all drawables (they'll be dropped automatically)
+        self.drawables.drawable_map.clear();
+        self.drawables.native_drawable_order.clear();
+        self.drawables.ray_effects.reset();
+        self.drawables.owned_laser_order.clear();
+
+        if owned_live_slot {
+            crate::effects::clear_live_effects_after_drawables();
+        }
+
+        // C++ GameClient::~GameClient destroys all Drawables before deleting
+        // TheTerrainVisual (GameClient.cpp:132-181). A temporary/test client
+        // must not clear the live presentation's visual.
+        if owned_live_slot {
+            crate::terrain::terrain_visual::shutdown_terrain_visual();
+        }
+
+        // Only this client's stream is stopped. The native decoder pool belongs
+        // to application services and may still serve a peer GameClient.
+        if let Some(display) = self.subsystem_manager.display.as_ref() {
+            if let Ok(mut display) = display.lock() {
+                display.stop_movie(self.script_display.fx_mut());
+            }
+        }
+
+        // Subsystems will be dropped automatically through Arc
+
+        log::info!("GameClient shutdown complete");
+    }
+}
+
+/// C++ `GameClient::xfer` v2+ (`GameClient.cpp:1531-1560`): persist
+/// `GetBriefingTextList` and restore via `UpdateDiplomacyBriefingText`.
+fn xfer_diplomacy_briefing_history(
+    xfer: &mut dyn Xfer,
+    version: XferVersion,
+    owner: &crate::gui::window_manager::WindowManagerOwner,
+    diplomacy: &mut crate::gui::callbacks::diplomacy::DiplomacyCallbacks,
+) -> Result<(), String> {
+    if version < 2 {
+        return Ok(());
+    }
+
+    if xfer.is_writing() {
+        let list = crate::gui::callbacks::diplomacy::get_briefing_text_list(diplomacy);
+        let mut num_entries = i32::try_from(list.len()).unwrap_or(i32::MAX);
+        xfer.xfer_int(&mut num_entries).map_err(|e| e.to_string())?;
+        for mut temp_str in list {
+            xfer.xfer_ascii_string(&mut temp_str)
+                .map_err(|e| e.to_string())?;
+        }
+    } else {
+        let mut num_entries = 0i32;
+        xfer.xfer_int(&mut num_entries).map_err(|e| e.to_string())?;
+        owner.with_manager(|manager| {
+            crate::gui::callbacks::diplomacy::update_diplomacy_briefing_text(
+                "", true, manager, diplomacy,
+            )
+        });
+        for _ in 0..num_entries.max(0) {
+            let mut temp_str = String::new();
+            xfer.xfer_ascii_string(&mut temp_str)
+                .map_err(|e| e.to_string())?;
+            owner.with_manager(|manager| {
+                crate::gui::callbacks::diplomacy::update_diplomacy_briefing_text(
+                    &temp_str, false, manager, diplomacy,
+                )
+            });
+        }
+    }
+    Ok(())
+}
+
+fn write_game_client_xfer_bytes(client: &mut GameClient) -> Result<Vec<u8>, String> {
+    client.import_objectless_from_logic_client();
+    let mut bytes = Vec::new();
+    {
+        let cursor = Cursor::new(&mut bytes);
+        let mut xfer = game_engine::common::system::xfer_save::XferSave::new(cursor, 3);
+        client.xfer(&mut xfer)?;
+    }
+    Ok(bytes)
+}
+
+fn read_game_client_xfer_bytes(client: &mut GameClient, bytes: &[u8]) -> Result<(), String> {
+    let cursor = Cursor::new(bytes.to_vec());
+    let mut xfer = game_engine::common::system::xfer_load::XferLoad::new(cursor, 3);
+    client.xfer(&mut xfer)?;
+    client.export_objectless_to_logic_client();
+    Ok(())
+}
+
+impl GameClient {
+    /// Serialize this client's C++ `CHUNK_GameClient` payload.
+    pub fn capture_xfer_bytes_with_owned_auxiliaries(
+        &mut self,
+        owned: &[NativeAuxiliaryReceipt],
+    ) -> Result<Vec<u8>, String> {
+        self.import_objectless_from_logic_client();
+        let mut bytes = Vec::new();
+        let mut xfer =
+            game_engine::common::system::xfer_save::XferSave::new(Cursor::new(&mut bytes), 3);
+        self.xfer_with_owned_auxiliaries(&mut xfer, owned)?;
+        drop(xfer);
+        Ok(bytes)
+    }
+
+    pub fn capture_xfer_bytes(&mut self) -> Result<Vec<u8>, String> {
+        write_game_client_xfer_bytes(self)
+    }
+
+    /// Restore a C++ `CHUNK_GameClient` payload onto this client.
+    pub fn restore_from_xfer_bytes(&mut self, bytes: &[u8]) -> Result<(), String> {
+        if bytes.is_empty() {
+            return Ok(());
+        }
+        read_game_client_xfer_bytes(self, bytes)
+    }
+}
+
+impl GameClient {
+    fn xfer_with_owned_auxiliaries(
+        &mut self,
+        xfer: &mut dyn Xfer,
+        owned: &[NativeAuxiliaryReceipt],
+    ) -> Result<(), String> {
         if xfer.get_xfer_mode() == CommonXferMode::Load {
             self.invalidate_presentation_shell();
             xfer.set_client_frame_context(game_engine::ClientFrameContext::Frame(self.frame))
@@ -1409,10 +1639,10 @@ impl Snapshotable for GameClient {
         }
         publish_live_game_client_frame(self);
 
-        self.xfer_drawable_toc(xfer)?;
+        self.xfer_drawable_toc_with_owned_auxiliaries(xfer, owned)?;
 
         let save_entries = if xfer.is_writing() {
-            self.collect_saveable_drawables_sorted()?
+            self.collect_saveable_drawables_excluding_owned(owned)?
         } else {
             // Actual prior native module/particle/ambient lifetimes must finish
             // before decoding a replacement roster. Header validation alone is
@@ -1609,173 +1839,5 @@ impl Snapshotable for GameClient {
         }
 
         Ok(())
-    }
-
-    fn load_post_process(&mut self) -> Result<(), String> {
-        // Binding keys describe pre-load runtime Drawable instances and are
-        // intentionally not serialized.  Recreated presentation drawables
-        // receive fresh keys on the next host sync.
-        self.drawables.presentation_direct_drawable_bindings.clear();
-        self.drawables.drawable_object_map.clear();
-        let mut next_drawable_id = self.drawables.next_drawable_id.0.max(1);
-
-        let state = &mut self.drawables.state;
-        for drawable in state.drawable_map.values() {
-            let id = drawable.get_id();
-            if id.0 >= next_drawable_id {
-                next_drawable_id = id.0.saturating_add(1).max(1);
-            }
-            if let Some(object_id) = drawable.get_object_id() {
-                state.drawable_object_map.insert(object_id, id);
-            }
-        }
-
-        // C++ scans the global drawable list; include GameLogic-owned drawables as well
-        // so the next ID counter cannot regress after load.
-        // Host path: registry empty — drawable_map already drove next_drawable_id.
-        if OBJECT_REGISTRY.is_empty() {
-            self.drawables.next_drawable_id = DrawableId(next_drawable_id.max(1));
-            self.set_drawable_id_counter(self.drawables.next_drawable_id.0);
-            return Ok(());
-        }
-        for obj_ref in OBJECT_REGISTRY.get_all_objects() {
-            let Ok(obj_guard) = obj_ref.read() else {
-                continue;
-            };
-            let Some(drawable_ref) = obj_guard.get_drawable() else {
-                continue;
-            };
-            let Ok(drawable_guard) = drawable_ref.read() else {
-                continue;
-            };
-
-            let drawable_id = drawable_guard.get_drawable_id();
-            if drawable_id >= next_drawable_id {
-                next_drawable_id = drawable_id.saturating_add(1).max(1);
-            }
-
-            let object_id = drawable_guard.get_object_id();
-            if object_id != INVALID_ID {
-                self.drawables
-                    .drawable_object_map
-                    .insert(object_id, DrawableId(drawable_id));
-            }
-        }
-
-        self.drawables.next_drawable_id = DrawableId(next_drawable_id.max(1));
-        self.set_drawable_id_counter(self.drawables.next_drawable_id.0);
-        Ok(())
-    }
-}
-
-impl Drop for GameClient {
-    fn drop(&mut self) {
-        log::info!("GameClient shutting down");
-        let owned_live_slot = clear_live_game_client(self);
-
-        // Clear all drawables (they'll be dropped automatically)
-        self.drawables.drawable_map.clear();
-        self.drawables.native_drawable_order.clear();
-        self.drawables.ray_effects.reset();
-        self.drawables.owned_laser_order.clear();
-
-        if owned_live_slot {
-            crate::effects::clear_live_effects_after_drawables();
-        }
-
-        // C++ GameClient::~GameClient destroys all Drawables before deleting
-        // TheTerrainVisual (GameClient.cpp:132-181). A temporary/test client
-        // must not clear the live presentation's visual.
-        if owned_live_slot {
-            crate::terrain::terrain_visual::shutdown_terrain_visual();
-        }
-
-        // Only this client's stream is stopped. The native decoder pool belongs
-        // to application services and may still serve a peer GameClient.
-        if let Some(display) = self.subsystem_manager.display.as_ref() {
-            if let Ok(mut display) = display.lock() {
-                display.stop_movie(self.script_display.fx_mut());
-            }
-        }
-
-        // Subsystems will be dropped automatically through Arc
-
-        log::info!("GameClient shutdown complete");
-    }
-}
-
-/// C++ `GameClient::xfer` v2+ (`GameClient.cpp:1531-1560`): persist
-/// `GetBriefingTextList` and restore via `UpdateDiplomacyBriefingText`.
-fn xfer_diplomacy_briefing_history(
-    xfer: &mut dyn Xfer,
-    version: XferVersion,
-    owner: &crate::gui::window_manager::WindowManagerOwner,
-    diplomacy: &mut crate::gui::callbacks::diplomacy::DiplomacyCallbacks,
-) -> Result<(), String> {
-    if version < 2 {
-        return Ok(());
-    }
-
-    if xfer.is_writing() {
-        let list = crate::gui::callbacks::diplomacy::get_briefing_text_list(diplomacy);
-        let mut num_entries = i32::try_from(list.len()).unwrap_or(i32::MAX);
-        xfer.xfer_int(&mut num_entries).map_err(|e| e.to_string())?;
-        for mut temp_str in list {
-            xfer.xfer_ascii_string(&mut temp_str)
-                .map_err(|e| e.to_string())?;
-        }
-    } else {
-        let mut num_entries = 0i32;
-        xfer.xfer_int(&mut num_entries).map_err(|e| e.to_string())?;
-        owner.with_manager(|manager| {
-            crate::gui::callbacks::diplomacy::update_diplomacy_briefing_text(
-                "", true, manager, diplomacy,
-            )
-        });
-        for _ in 0..num_entries.max(0) {
-            let mut temp_str = String::new();
-            xfer.xfer_ascii_string(&mut temp_str)
-                .map_err(|e| e.to_string())?;
-            owner.with_manager(|manager| {
-                crate::gui::callbacks::diplomacy::update_diplomacy_briefing_text(
-                    &temp_str, false, manager, diplomacy,
-                )
-            });
-        }
-    }
-    Ok(())
-}
-
-fn write_game_client_xfer_bytes(client: &mut GameClient) -> Result<Vec<u8>, String> {
-    client.import_objectless_from_logic_client();
-    let mut bytes = Vec::new();
-    {
-        let cursor = Cursor::new(&mut bytes);
-        let mut xfer = game_engine::common::system::xfer_save::XferSave::new(cursor, 3);
-        client.xfer(&mut xfer)?;
-    }
-    Ok(bytes)
-}
-
-fn read_game_client_xfer_bytes(client: &mut GameClient, bytes: &[u8]) -> Result<(), String> {
-    let cursor = Cursor::new(bytes.to_vec());
-    let mut xfer = game_engine::common::system::xfer_load::XferLoad::new(cursor, 3);
-    client.xfer(&mut xfer)?;
-    client.export_objectless_to_logic_client();
-    Ok(())
-}
-
-impl GameClient {
-    /// Serialize this client's C++ `CHUNK_GameClient` payload.
-    pub fn capture_xfer_bytes(&mut self) -> Result<Vec<u8>, String> {
-        write_game_client_xfer_bytes(self)
-    }
-
-    /// Restore a C++ `CHUNK_GameClient` payload onto this client.
-    pub fn restore_from_xfer_bytes(&mut self, bytes: &[u8]) -> Result<(), String> {
-        if bytes.is_empty() {
-            return Ok(());
-        }
-        read_game_client_xfer_bytes(self, bytes)
     }
 }

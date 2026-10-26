@@ -1,6 +1,6 @@
 //! Actual Main locomotor boundary controls; no additional process/test locks.
 use super::*;
-use crate::game_logic::{GameLogic, LocomotorAppearance, LocomotorBehaviorZ, ObjectId, Team};
+use crate::game_logic::{GameLogic, LocomotorBehaviorZ, ObjectId, Team};
 use game_engine::common::ini::{INI, ini_ai_data::AIDataStore};
 use std::sync::{Arc, RwLock};
 
@@ -52,6 +52,10 @@ Object AmericaVehicleComanche
   Body = ActiveBody ModuleTag_Body
     MaxHealth = 220
     InitialHealth = 220
+  End
+  Behavior = PhysicsBehavior ModuleTag_Physics
+    Mass = 1
+    AllowBouncing = No
   End
   Behavior = AIUpdateInterface ModuleTag_AI
   End
@@ -111,7 +115,12 @@ End
 }
 
 fn step(world: &mut GameLogic, id: ObjectId) {
-    world.update_movement_locomotor_pass(&[id], 1.0 / 30.0);
+    world
+        .update_movement_locomotor_pass(&[id], 1.0 / 30.0)
+        .unwrap();
+    world
+        .integrate_owned_physics_motion_with_effects(&mut Default::default())
+        .unwrap();
 }
 
 #[test]
@@ -218,6 +227,62 @@ fn live_z_resolves_post_motion_position_and_retains_current_layer_unclipped() {
                     &ground_source,
                 )
             });
+            let before = {
+                let object = world.objects.get(&id).unwrap();
+                let view = FlightTerrainView {
+                    logical: None,
+                    grid: &world.pathfinding_system.grid,
+                    terrain: world.terrain.as_ref(),
+                    samples: world.pathfinding_height_samples.as_ref(),
+                };
+                view.highest_surface(object)
+            };
+            assert_eq!(before, 21.);
+            // A preceding source-immediate pose callback changes the receiving
+            // actor and its current layer before this exact controller call.
+            assert!(world.set_owned_object_position_with_effects(
+                id,
+                Vec3::new(50., 60., 5.),
+                0,
+                &mut Default::default()
+            ));
+            {
+                let object = world.objects.get_mut(&id).unwrap();
+                object.pathfind_layer = 2;
+                object.movement.velocity = Vec3::ZERO;
+                object.physics_accel = Vec3::ZERO;
+            }
+            assert!(
+                world
+                    .apply_owned_locomotor_z_with_effects(id, None, 0, &mut Default::default())
+                    .unwrap()
+            );
+            let object = world.objects.get(&id).unwrap();
+            assert_eq!(
+                object.get_position(),
+                Vec3::new(50., 60., 5.),
+                "source handleBehaviorZ admits force, never Euler"
+            );
+            assert_eq!(object.movement.velocity, Vec3::ZERO);
+            let pending = object.physics_accel.y;
+            assert!(
+                pending > 5.,
+                "source current bridge plane52.5 + preferred10 requires upward lift"
+            );
+            world
+                .integrate_owned_physics_motion_with_effects(&mut Default::default())
+                .unwrap();
+            let object = world.objects.get(&id).unwrap();
+            assert!(
+                (object.get_position().y - 65.).abs() < 0.0001,
+                "source delta2.5 => acceleration5 => one frame Euler"
+            );
+            assert!((object.movement.velocity.y - 5.).abs() < 0.0001);
+            assert_eq!(
+                object.physics_previous_accel.y, pending,
+                "source prevAccel precedes gravity/friction"
+            );
+            assert_eq!(object.physics_accel, Vec3::ZERO);
             let grid = &world.pathfinding_system.grid;
             let view = FlightTerrainView {
                 logical: None,
@@ -229,59 +294,6 @@ fn live_z_resolves_post_motion_position_and_retains_current_layer_unclipped() {
                 world.objects.get_mut(&id).unwrap(),
                 &mut world.partition_manager,
             );
-            object.set_position_with_partition_owner(
-                Vec3::new(5.0, 80.0, 5.0),
-                0,
-                &mut Default::default(),
-                fixture_partition_object,
-            );
-            let before = view.highest_surface(object);
-            assert_eq!(before, 21.0);
-            // Actual Wings appearance movement precedes the exact live Z routine.
-            object.loco_appearance = LocomotorAppearance::Wings;
-            object.min_speed = 45.0;
-            object.movement.velocity = Vec3::new(45.0, 0.0, 0.0);
-            object.movement.turn_rate = 0.0;
-            object.status.airborne_target = true;
-            object.apply_motive_force(Vec3::ZERO);
-            object.loco_maintain_appearance_with_effects(
-                1.0,
-                0,
-                &mut crate::game_logic::ScriptPresentationEffects {
-                    partition: Some(&mut *fixture_partition_object),
-                    ..Default::default()
-                },
-            );
-            let moved = object.get_position();
-            assert!(
-                moved.x >= 30.0 && moved.x <= 70.0,
-                "Wings crossed the deck edge: {moved:?}"
-            );
-            let after = view.highest_surface(object);
-            assert!(after > before);
-            let mut expected = object.clone();
-            // Independent resolved observation: call Object's force algorithm
-            // and Physics Euler explicitly, without the live query adapter.
-            expected.handle_behavior_z_with_highest_surface(before, None, after);
-            expected.apply_gravitational_forces();
-            expected.movement.velocity.y += expected.physics_accel.y;
-            expected.physics_accel.y = 0.0;
-            let mut expected_pos = expected.get_position();
-            expected_pos.y += expected.movement.velocity.y;
-            expected.set_position(expected_pos);
-            GameLogic::apply_live_handle_behavior_z_with_effects(
-                object,
-                before,
-                None,
-                Some(&view),
-                0,
-                &mut crate::game_logic::ScriptPresentationEffects {
-                    partition: Some(&mut *fixture_partition_object),
-                    ..Default::default()
-                },
-            );
-            assert_eq!(object.get_position(), expected.get_position());
-            assert_eq!(object.movement.velocity, expected.movement.velocity);
             object.pathfind_layer = 2;
             object.set_position_with_partition_owner(
                 Vec3::new(90.0, 100.0, 40.0),

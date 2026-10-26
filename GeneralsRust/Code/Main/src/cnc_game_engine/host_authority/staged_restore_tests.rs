@@ -861,7 +861,7 @@ fn embedded_saved_map_restores_original_ai_companions_without_replacing_geometry
                 object.set_destination(
                     saved_destination,
                     &mut writer,
-                    &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+                    &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
                 );
                 let _ = source.movement_events.drain_for_host_boundary();
                 let source_movement_session = source.movement_events.session().clone();
@@ -1006,7 +1006,7 @@ fn embedded_saved_map_restores_original_ai_companions_without_replacing_geometry
                     object.set_destination(
                         glam::Vec3::new(43.0, 0.0, 44.0),
                         &mut writer,
-                        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+                        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
                     );
                     let _ = staged.logic.movement_events.drain_for_host_boundary();
                     assert_eq!(staged.logic.movement_events.snapshot_completed().len(), 1);
@@ -1587,6 +1587,7 @@ End
                             0,
                             super::super::native_view_effects::receiving_native_drawable_policy(),
                             &mut terminal_retirement,
+                            None,
                         )
                         .unwrap();
                     let restore_called = std::cell::Cell::new(false);
@@ -1713,6 +1714,7 @@ End
                         0,
                         super::super::native_view_effects::receiving_native_drawable_policy(),
                         &mut failed_retirement,
+                        None,
                     )
                     .unwrap();
                 #[cfg(feature = "game_client")]
@@ -1836,6 +1838,7 @@ End
                         0,
                         super::super::native_view_effects::receiving_native_drawable_policy(),
                         &mut accepted_retirement,
+                        None,
                     )
                     .unwrap();
                 #[cfg(feature = "game_client")]
@@ -2126,6 +2129,7 @@ End
                         0,
                         super::super::native_view_effects::receiving_native_drawable_policy(),
                         &mut retirement,
+                        None,
                     )
                     .unwrap();
                 let staged = CnCGameEngine::stage_decoded_saved_world_for_restore_with_native(
@@ -2272,6 +2276,7 @@ fn discard_staged_native_fixture(
             0,
             super::super::native_view_effects::receiving_native_drawable_policy(),
             &mut retirement,
+            None,
         )
         .unwrap();
     attempt.discard_attempt().unwrap();

@@ -87,14 +87,6 @@ impl GameLogic {
                 }
                 continue;
             }
-            #[cfg(feature = "game_client")]
-            if let Some(draw_id) = self
-                .objects
-                .get(&event.id)
-                .and_then(|o| o.jet_ai.lockon_drawable_id)
-            {
-                gamelogic::helpers::TheGameClient.destroy_drawable(draw_id);
-            }
             self.pending_special_abilities.remove(&event.id);
             self.pending_special_abilities
                 .retain(|_, ability| ability.target_id() != event.id);

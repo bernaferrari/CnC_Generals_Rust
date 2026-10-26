@@ -287,7 +287,9 @@ impl GameLogic {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::game_logic::{ContainModuleKind, ContainModuleMetadata, KindOf, Team, ThingTemplate};
+    use crate::game_logic::{
+        ContainModuleKind, ContainModuleMetadata, KindOf, Team, ThingTemplate,
+    };
 
     fn ferry_template(name: &str, prefix: &str) -> ThingTemplate {
         let mut t = ThingTemplate::new(name);
@@ -379,7 +381,7 @@ mod tests {
             ferry.movement.path.clear();
             ferry.set_ai_state(
                 AIState::Idle,
-                &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+                &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
             );
         }
         logic.update_railed_transports();

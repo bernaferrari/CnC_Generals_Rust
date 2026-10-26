@@ -51,7 +51,7 @@ fn pilot_find_vehicle_ai_auto_scan_min_health_residual() {
         p.experience.level = VeterancyLevel::Veteran;
         p.set_ai_state(
             AIState::Idle,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
 
@@ -78,7 +78,7 @@ fn pilot_find_vehicle_ai_auto_scan_min_health_residual() {
         };
         t.apply_kill_pilot_unmanned(
             health_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         t.set_team_with_partition_owner(Team::Neutral, ownership_events, partition_manager);
         t.health.current = t.max_health;
@@ -106,7 +106,7 @@ fn pilot_find_vehicle_ai_auto_scan_min_health_residual() {
         };
         t.apply_kill_pilot_unmanned(
             health_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         t.set_team_with_partition_owner(Team::Neutral, ownership_events, partition_manager);
         t.health.current = t.max_health * (PILOT_FIND_VEHICLE_MIN_HEALTH - 0.1);
@@ -186,7 +186,7 @@ fn pilot_find_vehicle_ai_auto_scan_min_health_residual() {
         let p = human_logic.host_object_mut(hp).expect("hp");
         p.set_ai_state(
             AIState::Idle,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
     let ht = human_logic
@@ -198,7 +198,7 @@ fn pilot_find_vehicle_ai_auto_scan_min_health_residual() {
             .expect("ht");
         t.apply_kill_pilot_unmanned(
             health_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
     human_logic.frame = PILOT_FIND_VEHICLE_SCAN_FRAMES;
@@ -273,7 +273,7 @@ fn pilot_find_vehicle_base_center_fallback_residual() {
         let p = game_logic.host_object_mut(pilot_id).expect("pilot");
         p.set_ai_state(
             AIState::Idle,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         assert!(!p.status.pilot_did_move_to_base);
     }
@@ -318,9 +318,9 @@ fn pilot_find_vehicle_base_center_fallback_residual() {
         let p = game_logic.host_object_mut(pilot_id).expect("pilot");
         p.set_ai_state(
             AIState::Idle,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
-        p.stop_moving(&mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()));
+        p.stop_moving(&mut crate::game_logic::ObjectAudio::record(&mut Vec::new()));
     }
     game_logic.frame = PILOT_FIND_VEHICLE_SCAN_FRAMES * 2;
     game_logic
@@ -370,7 +370,7 @@ fn pilot_find_vehicle_base_center_fallback_residual() {
         let p = human_logic.host_object_mut(hp).expect("hp");
         p.set_ai_state(
             AIState::Idle,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
     human_logic.frame = PILOT_FIND_VEHICLE_SCAN_FRAMES;
@@ -426,7 +426,7 @@ fn pilot_auto_find_healing_hospital_path_residual() {
         p.health.current = 50.0;
         p.set_ai_state(
             AIState::Idle,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
 
@@ -499,7 +499,7 @@ fn pilot_auto_find_healing_hospital_path_residual() {
         p.health.current = 100.0 * AUTO_FIND_HEALING_NEVER_HEAL + 1.0;
         p.set_ai_state(
             AIState::Idle,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
     healthy_logic.frame = AUTO_FIND_HEALING_SCAN_FRAMES;
@@ -543,7 +543,7 @@ fn pilot_auto_find_healing_hospital_path_residual() {
         p.health.current = 40.0;
         p.set_ai_state(
             AIState::Idle,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
     human_logic.frame = AUTO_FIND_HEALING_SCAN_FRAMES;
@@ -602,7 +602,7 @@ fn usa_infantry_auto_find_healing_hospital_path_residual() {
         r.health.current = 40.0;
         r.set_ai_state(
             AIState::Idle,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
 
@@ -680,7 +680,7 @@ fn usa_infantry_auto_find_healing_hospital_path_residual() {
         r.health.current = 30.0;
         r.set_ai_state(
             AIState::Idle,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
     china_logic.frame = AUTO_FIND_HEALING_SCAN_FRAMES;
@@ -918,7 +918,7 @@ fn pilot_find_vehicle_same_player_partition_filter_residual() {
         p.experience.level = VeterancyLevel::Veteran;
         p.set_ai_state(
             AIState::Idle,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
 
@@ -944,7 +944,7 @@ fn pilot_find_vehicle_same_player_partition_filter_residual() {
         };
         t.apply_kill_pilot_unmanned(
             health_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         t.set_team_with_partition_owner(Team::Neutral, ownership_events, partition_manager);
         t.experience.level = VeterancyLevel::Rookie;
@@ -974,7 +974,7 @@ fn pilot_find_vehicle_same_player_partition_filter_residual() {
         };
         t.apply_kill_pilot_unmanned(
             health_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         t.set_team_with_partition_owner(Team::Neutral, ownership_events, partition_manager);
         t.experience.level = VeterancyLevel::Rookie;
@@ -1237,7 +1237,7 @@ fn strategy_center_turret_idle_scan_residual() {
         sc.target = None;
         sc.set_ai_state(
             AIState::Idle,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         sc.set_status_attacking(false);
         sc.turret_angle_deg = STRATEGY_CENTER_NATURAL_TURRET_ANGLE_DEG;
@@ -1365,7 +1365,7 @@ fn strategy_center_turret_idle_scan_residual() {
         sc.set_status_attacking(true);
         sc.set_ai_state(
             AIState::Attacking,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
     game_logic.frame = game_logic.frame.saturating_add(1);
@@ -1425,7 +1425,7 @@ fn strategy_center_turret_hold_and_idle_recenter_residual() {
         sc.target = None;
         sc.set_ai_state(
             AIState::Idle,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         sc.set_status_attacking(false);
         sc.turret_angle_deg = desired;
@@ -1591,7 +1591,7 @@ fn strategy_center_turret_mood_target_residual() {
         sc.target = None;
         sc.set_ai_state(
             AIState::Idle,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         sc.set_status_attacking(false);
         sc.turret_mood_target = false;

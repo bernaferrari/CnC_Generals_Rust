@@ -75,14 +75,6 @@ impl<'a> ReceivingUi<'a> {
     pub fn are_tooltips_disabled(&self) -> bool {
         self.state.tooltips_disabled_at(self.logic_frame)
     }
-    pub fn create_mouseover_hint(&mut self, drawable_id: Option<u32>, is_location_hint: bool) {
-        self.state.create_mouseover_hint(
-            drawable_id,
-            is_location_hint,
-            self.logic_frame,
-            self.client_frame,
-        );
-    }
     pub fn military_subtitle(
         &mut self,
         label: &str,

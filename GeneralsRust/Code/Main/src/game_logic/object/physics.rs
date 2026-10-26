@@ -1,5 +1,16 @@
 use super::*;
 
+pub(in crate::game_logic) struct ZBehaviorStep {
+    pub requires_constant_calling: bool,
+    pub position: Option<glam::Vec3>,
+}
+
+/// Source locals preserved across the synchronous orientation callback.
+/// Velocity and mass deliberately are not captured: C++ rereads both afterward.
+pub(in crate::game_logic) struct ThrustStep {
+    pub reaction: Option<super::PositionReaction>,
+    force: Option<(glam::Vec3, f32, f32)>,
+}
 impl Object {
     pub fn take_damage(
         &mut self,
@@ -767,91 +778,94 @@ impl Object {
     ///
     /// `ground_y` is surface height at object XZ (water when underwater).
     /// Returns true if needs constant calling.
-    pub fn handle_behavior_z(&mut self, ground_y: f32, goal_y: Option<f32>) -> bool {
-        let highest_surface = if matches!(
-            self.loco_behavior_z,
-            LocomotorBehaviorZ::SmoothRelativeToHighestLayer
-        ) {
-            leftover_highest_layer_height(self.get_position(), ground_y)
-        } else {
-            ground_y
-        };
-        self.handle_behavior_z_with_highest_surface(ground_y, goal_y, highest_surface)
+    /// Explicit component surface input. Live controllers use the receiving
+    /// World observation/continuation below; this method never selects terrain.
+    pub fn handle_behavior_z(&mut self, surface_y: f32, goal_y: Option<f32>) -> bool {
+        self.handle_behavior_z_with_highest_surface(surface_y, goal_y, surface_y)
     }
-
-    /// The live world supplies its own layer observation at the current pose.
-    /// Standalone reference callers retain the legacy terrain adapter above.
     pub(crate) fn handle_behavior_z_with_highest_surface(
         &mut self,
-        ground_y: f32,
+        surface_y: f32,
         goal_y: Option<f32>,
         highest_surface: f32,
     ) -> bool {
         self.handle_behavior_z_with_highest_surface_and_effects(
-            ground_y,
+            surface_y,
             goal_y,
             highest_surface,
             0,
             &mut Default::default(),
         )
     }
-
     pub(crate) fn handle_behavior_z_with_highest_surface_and_effects(
         &mut self,
-        ground_y: f32,
+        surface_y: f32,
         goal_y: Option<f32>,
         highest_surface: f32,
         frame: u32,
-        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+        effects: &mut ScriptPresentationEffects<'_>,
     ) -> bool {
-        match self.loco_behavior_z {
+        let step = self.prepare_behavior_z(surface_y, goal_y, highest_surface);
+        if let Some(position) = step.position {
+            self.set_position_with_effects(position, frame, effects)
+        }
+        step.requires_constant_calling
+    }
+    /// Original Locomotor::handleBehaviorZ. Kinematic branches return one
+    /// owned position continuation; motive branches only admit source force.
+    pub(in crate::game_logic) fn prepare_behavior_z(
+        &mut self,
+        surface_y: f32,
+        goal_y: Option<f32>,
+        highest_surface: f32,
+    ) -> ZBehaviorStep {
+        let mut position = None;
+        let requires_constant_calling = match self.loco_behavior_z {
             LocomotorBehaviorZ::NoZMotiveForce => false,
             LocomotorBehaviorZ::SeaLevel => {
-                // Fail-closed: no water table — snap to ground layer.
-                let mut p = self.get_position();
-                p.y = ground_y;
-                self.set_position_with_effects(p, frame, effects);
+                if !self.is_held_disabled() {
+                    let mut p = self.get_position();
+                    p.y = surface_y;
+                    position = Some(p)
+                }
                 true
             }
             LocomotorBehaviorZ::FixedSurfaceRelativeHeight
             | LocomotorBehaviorZ::RelativeToGroundAndBuildings => {
-                // C++ Locomotor.cpp:2223-2246 — hard-snap, ignore physics.
-                let surface = if matches!(
-                    self.loco_behavior_z,
-                    LocomotorBehaviorZ::RelativeToGroundAndBuildings
-                ) {
-                    leftover_ground_or_structure_height(self.get_position(), ground_y)
-                } else {
-                    ground_y
-                };
                 let mut p = self.get_position();
-                p.y = self.loco_preferred_height + surface;
-                self.set_position_with_effects(p, frame, effects);
+                p.y = self.loco_preferred_height + surface_y;
+                position = Some(p);
                 true
             }
             LocomotorBehaviorZ::FixedAbsoluteHeight => {
                 let mut p = self.get_position();
                 p.y = self.loco_preferred_height;
-                self.set_position_with_effects(p, frame, effects);
+                position = Some(p);
                 true
             }
             LocomotorBehaviorZ::SurfaceRelativeHeight => {
-                self.apply_surface_relative_lift(ground_y, goal_y)
+                self.apply_surface_relative_lift(surface_y, goal_y)
             }
             LocomotorBehaviorZ::SmoothRelativeToHighestLayer => {
                 self.apply_surface_relative_lift(highest_surface, goal_y)
             }
-            LocomotorBehaviorZ::AbsoluteHeight => {
-                // C++ Locomotor.cpp:2288-2317 — same lift as SurfaceRelative
-                // with surfaceHt = 0 (not kinematic snap).
-                self.apply_surface_relative_lift(0.0, goal_y)
-            }
+            LocomotorBehaviorZ::AbsoluteHeight => self.apply_surface_relative_lift(0., goal_y),
+        };
+        ZBehaviorStep {
+            requires_constant_calling,
+            position,
         }
     }
 
     /// C++ `Z_SURFACE_RELATIVE_HEIGHT` / `Z_SMOOTH_RELATIVE_TO_HIGHEST_LAYER`
     /// lift residual (`Locomotor.cpp:2288-2317` / `:2248-2285`).
     fn apply_surface_relative_lift(&mut self, surface_y: f32, goal_y: Option<f32>) -> bool {
+        // A source AI with no current locomotor has no motive controller.
+        // Physics still admits gravity through its ordinary receiving owner.
+        if self.selected_locomotor_definition.is_none() {
+            return false;
+        }
+
         if self.loco_preferred_height == 0.0 && !self.precise_z_pos {
             return true;
         }
@@ -864,10 +878,10 @@ impl Object {
             }
         }
         let mut delta = preferred_raw - p.y;
-        delta *= self.loco_preferred_height_damping.clamp(0.0, 1.0);
+        delta *= self.loco_preferred_height_damping;
         let preferred = p.y + delta;
         let lift = self.calc_lift_to_use_at_pt(p.y, preferred);
-        if lift.abs() > 1.0e-4 {
+        if lift != 0.0 {
             let force_y = lift
                 * self.physics_get_mass()
                 * if self.loco_appearance == LocomotorAppearance::Thrust {
@@ -880,28 +894,17 @@ impl Object {
         true
     }
 
-    /// C++ `TheTerrainLogic->getHighestLayerForDestination` + `getLayerHeight`
-    /// (`clip=false`) so flyers ride bridge decks.
-    pub fn highest_layer_surface_ht(&self, ground_y: f32) -> f32 {
-        leftover_highest_layer_height(self.get_position(), ground_y)
-    }
-
-    /// C++ `Locomotor::getSurfaceHtAtPt` at the object's current XZ.
-    pub(crate) fn leftover_surface_ht(&self, ground_y: f32) -> f32 {
-        leftover_surface_ht_at_pt(self.get_position(), ground_y)
-    }
-
     /// Appearance half of C++ maintainCurrentPosition. The driving locomotor
     /// applies altitude once, after this operation, using its current goal.
     pub(crate) fn loco_maintain_appearance(&mut self, dt: f32) -> bool {
-        self.loco_maintain_appearance_with_effects(dt, 0, &mut Default::default())
+        self.loco_maintain_appearance_with_effects(
+            dt,
+            0,
+            self.ground_height,
+            &mut Default::default(),
+        )
     }
-    pub(crate) fn loco_maintain_appearance_with_effects(
-        &mut self,
-        dt: f32,
-        frame: u32,
-        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> bool {
+    pub(in crate::game_logic) fn begin_loco_maintain_appearance(&mut self) {
         if !self.maintain_pos_valid {
             self.maintain_pos = Some(self.get_position());
 
@@ -911,6 +914,15 @@ impl Object {
         self.start_move();
         self.is_braking = false;
         self.physics_turning = PhysicsTurningType::TurnNone;
+    }
+    pub(crate) fn loco_maintain_appearance_with_effects(
+        &mut self,
+        dt: f32,
+        frame: u32,
+        surface_y: f32,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> bool {
+        self.begin_loco_maintain_appearance();
 
         // Appearance-specific maintain residual.
         match self.loco_appearance {
@@ -923,13 +935,15 @@ impl Object {
             }
             LocomotorAppearance::Thrust => {
                 if let Some(m) = self.maintain_pos {
-                    let spd = self.min_speed.max(1.0);
-                    self.move_towards_thrust_with_effects(
+                    let spd = self.min_speed;
+                    self.move_towards_thrust_with_status_and_effects(
                         m,
                         0.0,
                         spd,
-                        dt.max(1.0 / 30.0),
+                        dt,
                         frame,
+                        self.is_braking,
+                        surface_y,
                         effects,
                     );
                 }
@@ -1250,20 +1264,19 @@ impl Object {
     /// C++ Locomotor::getMaxLift(BodyDamageType) residual.
     pub fn effective_max_lift(&self) -> f32 {
         use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
-        let pristine = self.max_lift.max(0.0);
-        let damaged = self.max_lift_damaged.clamp(0.0, pristine.max(0.0));
-        match self.body_damage_state {
-            HostBodyDamageType::Pristine | HostBodyDamageType::Damaged => pristine,
+        let definition = self
+            .selected_locomotor_definition
+            .as_ref()
+            .expect("lift controller requires its admitted immutable locomotor definition");
+        // Source Locomotor.cpp831: select the damage-conditioned template
+        // value, including explicit zero, then apply the mutable runtime cap.
+        let lift = match self.body_damage_state {
+            HostBodyDamageType::Pristine | HostBodyDamageType::Damaged => definition.max_lift,
             HostBodyDamageType::ReallyDamaged | HostBodyDamageType::Rubble => {
-                if damaged > 0.0 {
-                    damaged.min(pristine)
-                } else if pristine > 0.0 {
-                    pristine * 0.5
-                } else {
-                    0.0
-                }
+                definition.max_lift_damaged
             }
-        }
+        };
+        lift.min(self.max_lift)
     }
 
     /// C++ Locomotor::calcLiftToUseAtPt residual (simplified).
@@ -1692,14 +1705,14 @@ impl Object {
             }
             let force = glam::Vec3::new(nx * mass / 5.0, 0.0, nz * mass / 5.0);
             self.apply_motive_force(force);
-            self.integrate_physics_accel();
+            self.integrate_locomotor_horizontal_accel();
             return true;
         }
         // Stationary on invalid: nudge along facing.
         let d = self.unit_direction_vector_2d();
         let force = glam::Vec3::new(d.x * mass / 5.0, 0.0, d.y * mass / 5.0);
         self.apply_motive_force(force);
-        self.integrate_physics_accel();
+        self.integrate_locomotor_horizontal_accel();
         true
     }
 
@@ -1796,6 +1809,7 @@ impl Object {
             _dt,
             frame,
             self.is_braking,
+            self.ground_height,
             effects,
         );
     }
@@ -1807,8 +1821,38 @@ impl Object {
         _dt: f32,
         frame: u32,
         braking_status: bool,
+        surface_y: f32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
+        let step = self.prepare_thrust_step(
+            goal,
+            on_path_dist,
+            desired_speed,
+            frame,
+            braking_status,
+            surface_y,
+            effects,
+        );
+        if let Some(reaction) = step.reaction {
+            assert!(
+                !reaction.has_tree_fx(),
+                "registered Thrust orientation requires its receiving World"
+            );
+            self.finish_position_reaction(reaction);
+        }
+        self.finish_thrust_force(step.force);
+    }
+    pub(in crate::game_logic) fn prepare_thrust_step(
+        &mut self,
+        goal: glam::Vec3,
+        on_path_dist: f32,
+        desired_speed: f32,
+        frame: u32,
+        braking_status: bool,
+        surface_y: f32,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> ThrustStep {
+        let mut reaction = None;
         // Main admits movement rates in seconds; source locomotor/Physics
         // arithmetic operates in 30Hz frames. Common MinSpeed is already raw
         // seconds (unlike Common Speed/Acceleration), so divide every actual
@@ -1832,8 +1876,7 @@ impl Object {
         let us = self.get_position();
         let mut local_goal = goal;
         if self.loco_preferred_height != 0.0 && !self.precise_z_pos {
-            let surface = leftover_surface_ht_at_pt(us, self.ground_height);
-            let preferred = self.loco_preferred_height + surface;
+            let preferred = self.loco_preferred_height + surface_y;
             local_goal.y = us.y + (preferred - us.y) * self.loco_preferred_height_damping;
         }
         let forward = self.get_transform_matrix().x_axis.truncate();
@@ -1885,23 +1928,36 @@ impl Object {
                         basis.transform_point3(us),
                         basis.transform_vector3(actual),
                     );
-                    self.set_transform_matrix_with_effects(basis * source * basis, frame, effects);
+                    reaction = Some(self.prepare_transform_tree_reaction(
+                        basis * source * basis,
+                        frame,
+                        effects,
+                    ));
+                    self.sync_shock_up_from_transform();
                 }
             }
         }
-        if speed_delta_frame != 0.0 || thrust_angle != 0.0 {
+        let force = if speed_delta_frame != 0.0 || thrust_angle != 0.0 {
             if max_speed_frame <= 0.0 {
                 max_speed_frame = 0.01;
             }
-            let damping = (max_accel_frame / max_speed_frame).clamp(0.0, 1.0);
-            let accel_frame = thrust_dir * max_accel_frame - velocity_frame * damping;
-            // Physics accumulator stores one host delta-v. Convert source
-            // acceleration once, then leave integration to PhysicsBehavior.
+            Some((thrust_dir, max_accel_frame, max_speed_frame))
+        } else {
+            None
+        };
+        ThrustStep { reaction, force }
+    }
+    pub(in crate::game_logic) fn finish_owned_thrust_step(&mut self, step: ThrustStep) {
+        self.finish_thrust_force(step.force);
+    }
+    fn finish_thrust_force(&mut self, force: Option<(glam::Vec3, f32, f32)>) {
+        if let Some((thrust_dir, max_accel_frame, max_speed_frame)) = force {
+            let damping = (max_accel_frame / max_speed_frame).clamp(0., 1.);
+            // Locomotor.cpp1989 rereads current velocity AFTER orientation.
+            let accel_frame = thrust_dir * max_accel_frame - self.movement.velocity / 30. * damping;
             let mass = self.physics_get_mass();
-            self.apply_motive_force(accel_frame * (FPS * mass));
+            self.apply_motive_force(accel_frame * (30. * mass));
         }
-        // Original moveTowardsPositionThrust only orients and applies force.
-        // The receiving Physics phase integrates acceleration and pose once.
     }
 
     /// C++ `Locomotor::maintainCurrentPositionHover` (Locomotor.cpp:2527-2576).
@@ -1930,7 +1986,7 @@ impl Object {
             0.0,
             accel_force * dir.y,
         ));
-        self.integrate_physics_accel();
+        self.integrate_locomotor_horizontal_accel();
     }
 
     /// Apply forward motive force to close speedDelta (C++ legs/other residual).
@@ -1967,7 +2023,7 @@ impl Object {
             accel_force * dir.y * sign,
         ));
         // Integrate immediately so this frame's movement sees it (host dt path).
-        self.integrate_physics_accel();
+        self.integrate_locomotor_horizontal_accel();
         // Also blend velocity toward goal for host-second dt residual.
         let dir = self.unit_direction_vector_2d();
         let target = glam::Vec3::new(
@@ -2018,16 +2074,60 @@ impl Object {
     ///
     /// C++ `getAcceleration()` returns `m_prevAccel` (previous frame). Store
     /// the current accel before zeroing so the visual calc can read it.
-    pub fn integrate_physics_accel(&mut self) {
+    pub(in crate::game_logic) fn integrate_physics_force_phase(&mut self) {
+        // PhysicsUpdate.cpp622: previous acceleration excludes this phase's
+        // gravity/friction. HELD still clears accumulated acceleration.
         self.physics_previous_accel = self.physics_accel;
-        if self.physics_accel != glam::Vec3::ZERO {
-            self.movement.velocity += self.physics_accel;
+        if self.is_physics_held() {
             self.physics_accel = glam::Vec3::ZERO;
-            self.invalidate_velocity_magnitude();
+            return;
         }
+        if self.shock_stun_frames == 0 {
+            self.physics_accel.y += self.physics_gravity()
+                * if self.loco_appearance == LocomotorAppearance::Thrust {
+                    30.
+                } else {
+                    1.
+                };
+        }
+        self.apply_frictional_forces();
+        self.integrate_physics_velocity();
+    }
+
+    pub fn integrate_physics_accel(&mut self) {
+        self.integrate_physics_velocity();
+        self.physics_accel = glam::Vec3::ZERO;
+    }
+    fn integrate_physics_velocity(&mut self) {
+        self.integrate_physics_delta_velocity(self.physics_accel, true);
         if self.motive_frames_remaining > 0 {
-            self.motive_frames_remaining -= 1;
+            self.motive_frames_remaining -= 1
         }
+    }
+    fn integrate_physics_delta_velocity(&mut self, delta: glam::Vec3, vertical: bool) {
+        self.movement.velocity += delta;
+        if vertical {
+            let tiny_y = if self.loco_appearance == LocomotorAppearance::Thrust {
+                0.001 * 30.
+            } else {
+                0.001
+            };
+            if self.movement.velocity.y.abs() < tiny_y {
+                self.movement.velocity.y = 0.
+            }
+        }
+        self.invalidate_velocity_magnitude();
+    }
+    /// Existing native horizontal marching remains in its current phase.
+    /// It must not consume an unrelated pending vertical/bounce force or age
+    /// the Physics motive window before the actual Physics operation.
+    fn integrate_locomotor_horizontal_accel(&mut self) {
+        self.integrate_physics_delta_velocity(
+            glam::Vec3::new(self.physics_accel.x, 0., self.physics_accel.z),
+            false,
+        );
+        self.physics_accel.x = 0.;
+        self.physics_accel.z = 0.;
     }
 
     /// Invalidate cached velocity magnitude residual.
@@ -2155,73 +2255,8 @@ impl Object {
     }
 }
 
-/// C++ `PartitionManager::getGroundOrStructureHeight` via leftover cells
-/// (`PartitionManager.cpp:4674`). Host XZ maps to leftover XY. If leftover
-/// partition is empty or shorter than the live surface, keep `ground_y`.
-fn leftover_ground_or_structure_height(pos: glam::Vec3, ground_y: f32) -> f32 {
-    let leftover = gamelogic::object::collide::partition_manager::PARTITION_MANAGER
-        .read()
-        .ok()
-        .map(|pm| pm.get_ground_or_structure_height(pos.x, pos.z));
-    match leftover {
-        Some(h) if h > ground_y + 1.0e-3 => h,
-        _ => ground_y,
-    }
-}
-
 fn thrust_vel_nearly_zero(v: f32) -> bool {
     v.abs() < 0.001
-}
-
-fn leftover_surface_ht_at_pt(pos: glam::Vec3, ground_y: f32) -> f32 {
-    let Some(terrain) = gamelogic::helpers::TheTerrainLogic::get() else {
-        return ground_y;
-    };
-    let mut water_z = 0.0;
-    let mut terrain_z = 0.0;
-    if terrain.is_underwater(pos.x, pos.z, Some(&mut water_z), Some(&mut terrain_z)) {
-        return water_z;
-    }
-    if terrain_z.abs() > 1.0e-3 {
-        terrain_z
-    } else {
-        ground_y
-    }
-}
-
-/// C++ `handleBehaviorZ` `Z_SMOOTH_RELATIVE_TO_HIGHEST_LAYER`
-/// (`Locomotor.cpp:2248-2285`): if leftover terrain has a bridge/wall
-/// above ground, lift off that layer (clip=false). Empty leftover keeps
-/// `ground_y` (same fail-closed as `leftover_surface_ht_at_pt`).
-fn leftover_highest_layer_height(pos: glam::Vec3, ground_y: f32) -> f32 {
-    let Some(terrain) = gamelogic::helpers::TheTerrainLogic::get() else {
-        return ground_y;
-    };
-    let cpp = gamelogic::common::Coord3D::new(pos.x, pos.z, pos.y);
-    let layer = terrain.get_highest_layer_for_destination(&cpp);
-    let h = leftover_layer_height_unclipped(pos, layer)
-        .unwrap_or_else(|| terrain.get_layer_height(pos.x, pos.z, layer));
-    if h > ground_y + 1.0e-3 {
-        h
-    } else {
-        leftover_surface_ht_at_pt(pos, ground_y)
-    }
-}
-
-fn leftover_layer_height_unclipped(
-    pos: glam::Vec3,
-    layer: gamelogic::common::PathfindLayerEnum,
-) -> Option<f32> {
-    let terrain = gamelogic::terrain::get_terrain_logic();
-    let guard = terrain.try_read().ok()?;
-    let path_layer = match layer {
-        gamelogic::common::PathfindLayerEnum::Air => gamelogic::path::PathfindLayerEnum::Top,
-        gamelogic::common::PathfindLayerEnum::Tunnel
-        | gamelogic::common::PathfindLayerEnum::Water
-        | gamelogic::common::PathfindLayerEnum::Last => gamelogic::path::PathfindLayerEnum::Ground,
-        other => gamelogic::path::PathfindLayerEnum::from_u32(other as u32),
-    };
-    Some(guard.get_layer_height(pos.x, pos.z, path_layer, None, false))
 }
 
 /// Leftover `calc_direction_to_apply_thrust` / C++ `Locomotor.cpp:175-250`.
@@ -2389,3 +2424,58 @@ mod pivot_source_owner_tests;
 #[cfg(test)]
 #[path = "physics/source_thrust_owner_tests.rs"]
 mod source_thrust_owner_tests;
+
+#[cfg(test)]
+mod source_lift_cap_tests {
+    use super::*;
+    fn admitted(healthy: f32, damaged: f32) -> Object {
+        let mut template = game_engine::common::ini::ini_locomotor::LocomotorTemplate::new(
+            "TypedLiftFixture".into(),
+        );
+        template
+            .surfaces
+            .add_surface(game_engine::common::ini::ini_locomotor::LocomotorSurfaceTypeMask::AIR);
+        template.lift = healthy;
+        template.lift_damaged = damaged;
+        let binding =
+            crate::game_logic::locomotor_bootstrap::host_locomotor_binding_from_template(&template)
+                .unwrap();
+        let mut object = Object::new(
+            ThingTemplate::new("TypedLiftActor"),
+            ObjectId(91),
+            Team::USA,
+        );
+        crate::game_logic::locomotor_bootstrap::apply_host_locomotor_binding(&mut object, &binding);
+        object
+    }
+    #[test]
+    fn actual_admitted_lift_definition_zero_damage_and_runtime_cap_are_distinct() {
+        let mut object = admitted(0.2, 0.);
+        assert_eq!(
+            object.max_lift,
+            crate::game_logic::locomotor_bootstrap::DEFAULT_HOST_LIFT_CAP
+        );
+        assert_eq!(object.get_max_lift(), 0.2);
+        object.body_damage_state =
+            crate::game_logic::host_enum_table_residual::HostBodyDamageType::ReallyDamaged;
+        assert_eq!(
+            object.get_max_lift(),
+            0.,
+            "explicit damaged zero is not invented half healthy lift"
+        );
+        object.body_damage_state =
+            crate::game_logic::host_enum_table_residual::HostBodyDamageType::Pristine;
+        object.max_lift = 0.05;
+        assert_eq!(object.get_max_lift(), 0.05);
+        assert_eq!(object.selected_locomotor_definition.unwrap().max_lift, 0.2);
+    }
+    #[test]
+    fn actual_admitted_damaged_lift_can_exceed_healthy_until_source_cap() {
+        let mut object = admitted(0.1, 0.3);
+        object.body_damage_state =
+            crate::game_logic::host_enum_table_residual::HostBodyDamageType::ReallyDamaged;
+        assert_eq!(object.get_max_lift(), 0.3);
+        object.max_lift = 0.25;
+        assert_eq!(object.get_max_lift(), 0.25);
+    }
+}

@@ -62,21 +62,42 @@ enum NativeConstructorAmbientPolicy {
 }
 
 pub struct NativeDrawableOwner<'a> {
+    auxiliary_identity: &'a std::sync::Arc<()>,
     drawables: &'a mut drawable_world::DrawableState,
     particles: &'a mut crate::effects::particle_manager::ParticleSystemManager,
 }
 impl NativeDrawableWorld {
     pub fn borrow_native(&mut self) -> NativeDrawableOwner<'_> {
         NativeDrawableOwner {
+            auxiliary_identity: &self.auxiliary_identity,
             drawables: &mut self.state,
             particles: &mut self.particles,
         }
     }
 }
 impl NativeDrawableOwner<'_> {
+    /// Original receiving Drawable visitation includes objectless auxiliary nodes.
+    pub fn visit_owned_ambient_audio_handles(&self, visit: &mut dyn FnMut(u32)) {
+        for id in &self.drawables.native_drawable_order {
+            if let Some(handle) = self
+                .drawables
+                .drawable_map
+                .get(id)
+                .and_then(|draw| {
+                    draw.as_any()
+                        .downcast_ref::<crate::drawable::drawable::BasicDrawable>()
+                })
+                .and_then(|draw| draw.owned_ambient_audio_handle())
+            {
+                visit(handle);
+            }
+        }
+    }
+
     /// Short loan of this same canonical owner for one synchronous render phase.
     pub fn reborrow(&mut self) -> NativeDrawableOwner<'_> {
         NativeDrawableOwner {
+            auxiliary_identity: self.auxiliary_identity,
             drawables: &mut *self.drawables,
             particles: &mut *self.particles,
         }
@@ -149,6 +170,76 @@ impl NativeDrawableOwner<'_> {
             .presentation_direct_drawable_state(epoch, object)
             .map(|state| state.binding_key)
     }
+    /// Source OpenContain observes the actual receiving Drawable flags before
+    /// redeployment, not the latest projected host condition snapshot.
+    pub fn model_condition_bits(
+        &self,
+        key: PresentationDirectDrawableBindingKey,
+    ) -> GameClientResult<u128> {
+        if self.binding_key(key.host_epoch, key.object_id) != Some(key) {
+            return Err(GameClientError::InvalidOperation(
+                "native condition query has a stale binding".into(),
+            ));
+        }
+        let drawable = self
+            .drawables
+            .drawable_map
+            .get(&key.drawable_id)
+            .and_then(|drawable| {
+                drawable
+                    .as_any()
+                    .downcast_ref::<crate::drawable::drawable::BasicDrawable>()
+            })
+            .ok_or_else(|| {
+                GameClientError::InvalidOperation(
+                    "native condition query has no receiving BasicDrawable".into(),
+                )
+            })?;
+        let flags = drawable.get_model_condition_flags();
+        Ok((0..128.min(flags.get_bit_names().len()))
+            .fold(0u128, |bits, i| bits | ((flags.test(i) as u128) << i)))
+    }
+
+    /// Actual receiving Drawable::setInstanceMatrix; no Object pose restamping.
+    pub fn set_instance_transform(
+        &mut self,
+        key: PresentationDirectDrawableBindingKey,
+        transform: Option<Matrix4>,
+    ) -> GameClientResult<()> {
+        if self.binding_key(key.host_epoch, key.object_id) != Some(key) {
+            return Err(GameClientError::InvalidOperation(
+                "native instance receiver has a stale binding".into(),
+            ));
+        }
+        let receiver = self
+            .drawables
+            .drawable_map
+            .get_mut(&key.drawable_id)
+            .ok_or_else(|| {
+                GameClientError::InvalidOperation("native instance receiver missing".into())
+            })?;
+        receiver.set_instance_transform(transform.unwrap_or_else(Matrix4::identity));
+        Ok(())
+    }
+    /// Immutable immediate draw-phase observation from the same actual owner.
+    pub fn instance_transform(
+        &self,
+        key: PresentationDirectDrawableBindingKey,
+    ) -> GameClientResult<Matrix4> {
+        if self.binding_key(key.host_epoch, key.object_id) != Some(key) {
+            return Err(GameClientError::InvalidOperation(
+                "native instance query has a stale binding".into(),
+            ));
+        }
+        self.drawables
+            .drawable_map
+            .get(&key.drawable_id)
+            .map(|receiver| receiver.get_instance_transform())
+            .ok_or_else(|| {
+                GameClientError::InvalidOperation("native instance receiver missing".into())
+            })
+    }
+
     /// Immediate original Body observation on the exact receiving native lifetime.
     /// Snapshot restamping does not call this operation.
     pub fn body_state_changed_with_audio(
@@ -159,6 +250,7 @@ impl NativeDrawableOwner<'_> {
         time_of_day: crate::system::TimeOfDay,
         audio: Option<&mut dyn crate::drawable::drawable::NativeAmbientAudio>,
         locality: &game_engine::common::audio::AudioSubmissionLocality,
+        policy: &game_engine::common::audio::script_policy::ScriptAudioPolicy,
     ) -> GameClientResult<()> {
         if self.binding_key(key.host_epoch, key.object_id) != Some(key) {
             return Err(GameClientError::InvalidOperation(
@@ -191,7 +283,7 @@ impl NativeDrawableOwner<'_> {
         receiver.react_to_body_damage_state_change(state);
         if let Some(audio) = audio {
             audio
-                .restart_ambient(receiver, state, time_of_day, locality)
+                .restart_ambient(receiver, state, time_of_day, locality, policy)
                 .map_err(GameClientError::InvalidOperation)?;
         }
         Ok(())
@@ -318,25 +410,13 @@ impl NativeDrawableOwner<'_> {
                         "authored Drawable requires receiving LOD policy".into(),
                     )
                 })?;
-                let modules = GameClient::create_receiving_modules_from_plan(
+                GameClient::initialize_receiving_drawable_modules_unbound(
+                    drawable,
                     admitted,
                     keys,
                     policy,
-                    (INVALID_ID, e.draw_logic_frame),
+                    e.draw_logic_frame,
                 )?;
-                // Inter-module resolution sees every installed module, as CPP.
-                for module in modules {
-                    drawable.add_draw_module(module);
-                }
-                for slot in drawable.get_draw_modules_mut() {
-                    if let Some(module) = slot.logic_module_mut() {
-                        gamelogic::object::drawable::create_native_draw_module_unbound(
-                            module,
-                            admitted.per_unit_sound_event("TruckLandingSound"),
-                            admitted.per_unit_sound_event("TruckPowerslideSound"),
-                        );
-                    }
-                }
             } else {
                 GameClient::attach_presentation_specialized_draw_modules(drawable, e);
             }
@@ -406,11 +486,7 @@ impl NativeDrawableOwner<'_> {
                 source: e,
                 transform: drawable.native_base_transform(),
             })?;
-            drawable.set_instance_transform(
-                Matrix4::rotation_y(e.orientation)
-                    .mul(&Matrix4::rotation_z(e.float_yaw))
-                    .mul(&Matrix4::rotation_x(e.float_pitch)),
-            );
+            drawable.set_base_transform(Matrix4::rotation_y(e.orientation));
             observe(PresentationDrawableMutation::TransformInstalled {
                 source: e,
                 transform: drawable.native_base_transform(),
@@ -815,6 +891,7 @@ mod semantic_admission_tests {
                 state: BodyDamageType,
                 tod: TimeOfDay,
                 _: &AudioSubmissionLocality,
+                _policy: &game_engine::common::audio::script_policy::ScriptAudioPolicy,
             ) -> Result<(), String> {
                 let bit = if state == BodyDamageType::Damaged {
                     game_engine::common::bit_flags::ModelConditionFlags::DAMAGED
@@ -882,6 +959,7 @@ mod semantic_admission_tests {
                 TimeOfDay::Night,
                 None,
                 &locality,
+                &Default::default(),
             )
             .unwrap();
         let mut audio = Audio(Vec::new());
@@ -895,6 +973,7 @@ mod semantic_admission_tests {
                 TimeOfDay::Morning,
                 Some(&mut audio),
                 &locality,
+                &Default::default(),
             )
             .unwrap();
         assert_eq!(
@@ -914,6 +993,91 @@ mod semantic_admission_tests {
                     &locality
                 )
                 .is_err()
+        );
+    }
+    #[test]
+    fn actual_native_instance_owner_keeps_base_and_same_id_peer_independent() {
+        let (mut catalog, plan) = content(2.);
+        let (mut other_catalog, other_plan) = content(4.);
+        let mut world = NativeDrawableWorld::new();
+        let mut peer = NativeDrawableWorld::new();
+        let mut incoming = entry(42, plan);
+        incoming.orientation = 0.7;
+        incoming.position = [10., 20., 30.];
+        let key = world
+            .borrow_native()
+            .admit_semantic_drawable_with_content(
+                incoming,
+                NativeDrawableBirthContext {
+                    loading_map: false,
+                    in_load_game: false,
+                },
+                0,
+                &mut catalog,
+                policy(),
+                &mut NativeParticleRetirementService,
+                |_| Ok(()),
+            )
+            .unwrap();
+        let other = peer
+            .borrow_native()
+            .admit_semantic_drawable_with_content(
+                entry(42, other_plan),
+                NativeDrawableBirthContext {
+                    loading_map: false,
+                    in_load_game: false,
+                },
+                0,
+                &mut other_catalog,
+                policy(),
+                &mut NativeParticleRetirementService,
+                |_| Ok(()),
+            )
+            .unwrap();
+        let base = world
+            .drawable_map
+            .get(&key.drawable_id)
+            .unwrap()
+            .as_any()
+            .downcast_ref::<BasicDrawable>()
+            .unwrap()
+            .native_base_transform();
+        let sway = Matrix4::rotation_z(0.2);
+        world
+            .borrow_native()
+            .set_instance_transform(key, Some(sway))
+            .unwrap();
+        assert_eq!(world.borrow_native().instance_transform(key).unwrap(), sway);
+        assert_eq!(
+            peer.borrow_native().instance_transform(other).unwrap(),
+            Matrix4::identity()
+        );
+        let actual = world
+            .drawable_map
+            .get(&key.drawable_id)
+            .unwrap()
+            .as_any()
+            .downcast_ref::<BasicDrawable>()
+            .unwrap();
+        assert_eq!(actual.native_base_transform(), base);
+        assert_eq!(actual.get_transform(), base.mul(&sway));
+        drop(peer);
+        let mut stale = key;
+        stale.binding_generation += 1;
+        assert!(
+            world
+                .borrow_native()
+                .set_instance_transform(stale, None)
+                .is_err()
+        );
+        assert_eq!(world.borrow_native().instance_transform(key).unwrap(), sway);
+        world
+            .borrow_native()
+            .set_instance_transform(key, None)
+            .unwrap();
+        assert_eq!(
+            world.borrow_native().instance_transform(key).unwrap(),
+            Matrix4::identity()
         );
     }
 }

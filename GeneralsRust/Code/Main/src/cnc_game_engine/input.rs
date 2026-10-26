@@ -180,6 +180,10 @@ impl CnCGameEngine {
             self.render_pipeline
                 .set_tactical_3d_viewport(self.game_logic.session_view.camera.viewport);
             self.ui_manager.resize(logical_w, logical_h);
+            #[cfg(feature = "game_client")]
+            if let Some(mouse) = self.game_client.input_mouse_mut() {
+                mouse.set_mouse_limits(logical_w, logical_h);
+            }
         }
     }
 
@@ -2229,11 +2233,17 @@ impl CnCGameEngine {
                 &mut self.game_client,
             );
             let display_facts = game_client.script_display_receiver().fx().draw_facts();
-            let mouse = game_client.input_mouse_handle();
             let command_hints = game_client.command_hint_snapshot();
             let client_frame = game_client.get_frame();
-            let (render_bridge, mut scene_drawables, ui_renderer, window_owner, ime, receiving_ui) =
-                game_client.split_render_bridge_drawables_and_ui_renderer();
+            let (
+                render_bridge,
+                mut scene_drawables,
+                ui_renderer,
+                window_owner,
+                ime,
+                receiving_ui,
+                mouse,
+            ) = game_client.split_render_bridge_drawables_and_ui_renderer();
             let mut ui_draw = ui_renderer.map(|renderer| {
                 crate::graphics::ui_render_pass::NativeUiDraw::new(
                     renderer,
@@ -2255,6 +2265,9 @@ impl CnCGameEngine {
                     }
                 };
             let mut receiver = super::native_frame_receiver::NativeFrameReceiver {
+                audio: super::native_audio_effects::NativeAudioService::receiving(
+                    &mut self.subsystem_manager,
+                ),
                 world: &mut self.game_logic,
                 drawables: scene_drawables,
                 look_at_modes: &mut self.look_at_modes,
@@ -3012,15 +3025,15 @@ impl CnCGameEngine {
                     selection_count: self.ui_selected_ids(id).len(),
                 })
         });
-        let mouse = self.game_client.input_mouse_handle().and_then(|mouse| {
-            let mouse = mouse.lock().ok()?;
-            Some(ControlBarMouseObservation {
+        let mouse = self
+            .game_client
+            .input_mouse()
+            .map(|mouse| ControlBarMouseObservation {
                 middle_held: mouse
                     .get_mouse_status()
                     .is_button_down(game_client::input::MouseButton::Middle),
                 alternate_mouse: self.use_alternate_mouse,
-            })
-        });
+            });
         ControlBarCallbackObservation {
             game_ending: self.game_logic.owned_script_game_ending(),
             multiplayer: matches!(
@@ -3066,6 +3079,7 @@ impl CnCGameEngine {
         let audio_view = super::audio_view::CompletedAudioView::capture(&self.game_logic);
         let mut menu_audio = self.menu_audio.lend(
             &mut self.game_logic.session_view.audio_random,
+            self.game_logic.queued_audio_events.policy(),
             locality,
             audio_view,
         );
@@ -3099,6 +3113,7 @@ impl CnCGameEngine {
         let audio_view = super::audio_view::CompletedAudioView::capture(&self.game_logic);
         let mut menu_audio = self.menu_audio.lend(
             &mut self.game_logic.session_view.audio_random,
+            self.game_logic.queued_audio_events.policy(),
             locality,
             audio_view,
         );
@@ -3131,6 +3146,7 @@ impl CnCGameEngine {
         let audio_view = super::audio_view::CompletedAudioView::capture(&self.game_logic);
         let mut menu_audio = self.menu_audio.lend(
             &mut self.game_logic.session_view.audio_random,
+            self.game_logic.queued_audio_events.policy(),
             locality,
             audio_view,
         );

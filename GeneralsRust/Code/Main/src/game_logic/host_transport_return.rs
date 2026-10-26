@@ -295,7 +295,7 @@ mod tests {
         assert!(logic.host_object(id).unwrap().allow_invalid_position);
         {
             let (object, output) = logic.host_object_and_audio_events_mut(id).unwrap();
-            object.stop_moving(&mut crate::game_logic::ObjectAudio::queue(output));
+            object.stop_moving(&mut crate::game_logic::ObjectAudio::record(output));
         }
         logic.finish_transport_return_phase(id);
         let owner = logic.host_object(id).unwrap();
@@ -372,7 +372,7 @@ mod tests {
             let (owner, output) = logic.host_object_and_audio_events_mut(id).unwrap();
             owner.set_ai_state(
                 AIState::Moving,
-                &mut crate::game_logic::ObjectAudio::queue(output),
+                &mut crate::game_logic::ObjectAudio::record(output),
             );
             owner.last_command_source =
                 crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_AI;
@@ -446,7 +446,7 @@ mod tests {
                 let (object, output) = source.host_object_and_audio_events_mut(id).unwrap();
                 object.set_ai_state(
                     AIState::Moving,
-                    &mut crate::game_logic::ObjectAudio::queue(output),
+                    &mut crate::game_logic::ObjectAudio::record(output),
                 );
             }
             if temporary {
@@ -511,7 +511,7 @@ mod tests {
                 ));
                 {
                     let (object, output) = receiving.host_object_and_audio_events_mut(id).unwrap();
-                    object.stop_moving(&mut crate::game_logic::ObjectAudio::queue(output));
+                    object.stop_moving(&mut crate::game_logic::ObjectAudio::record(output));
                 }
                 receiving.finish_transport_return_phase(id);
                 assert!(receiving.host_object(id).unwrap().status.destroyed);

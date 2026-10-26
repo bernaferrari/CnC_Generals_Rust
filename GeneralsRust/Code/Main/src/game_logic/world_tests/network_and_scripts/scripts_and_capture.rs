@@ -26,7 +26,7 @@ fn capturing_state_does_not_transfer_under_construction_building() {
         captor.target = Some(building_id);
         captor.set_ai_state(
             AIState::Capturing,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
 
@@ -1748,7 +1748,7 @@ fn special_ability_state_without_pending_order_resets_to_idle() {
         actor.target = Some(target_id);
         actor.set_ai_state(
             AIState::SpecialAbility,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
 
@@ -1985,7 +1985,7 @@ fn hijack_rejects_already_hijacked_vehicle() {
             .expect("target should exist");
         target.apply_hijacked_from_with_partition_owner(
             None,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
             fixture_partition_target,
         );
     }
@@ -2087,7 +2087,7 @@ fn hijack_command_applies_only_after_unit_reaches_target() {
         );
         hijacker.set_ai_state(
             AIState::SpecialAbility,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         hijacker.target = Some(target_id);
     }
@@ -2158,7 +2158,7 @@ fn sabotage_command_applies_only_after_unit_reaches_target() {
         );
         saboteur.set_ai_state(
             AIState::SpecialAbility,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         saboteur.target = Some(target_id);
     }
@@ -2251,7 +2251,7 @@ fn saboteur_military_factory_residual_disables_production() {
         );
         s.set_ai_state(
             AIState::SpecialAbility,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         s.target = Some(target_id);
     }
@@ -2368,7 +2368,7 @@ fn snipe_vehicle_command_applies_only_after_unit_reaches_target() {
         );
         sniper.set_ai_state(
             AIState::SpecialAbility,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         sniper.target = Some(target_id);
     }
@@ -2535,7 +2535,7 @@ fn retail_pilot_metadata_drives_starting_veteran_and_same_owner_recrew() {
         };
         t.apply_kill_pilot_unmanned(
             health_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         t.set_team_with_partition_owner(Team::Neutral, ownership_events, partition_manager);
         t.experience.level = VeterancyLevel::Rookie;
@@ -2585,7 +2585,7 @@ fn retail_pilot_metadata_drives_starting_veteran_and_same_owner_recrew() {
         };
         t.apply_kill_pilot_unmanned(
             health_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         t.set_team_with_partition_owner(Team::Neutral, ownership_events, partition_manager);
         t.experience.level = VeterancyLevel::Rookie;
@@ -3120,7 +3120,7 @@ fn live_named_enter_and_exit_all_drain_ai_enter_evacuate() {
         );
         infantry.set_ai_state(
             AIState::Idle,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         infantry.target = None;
     }

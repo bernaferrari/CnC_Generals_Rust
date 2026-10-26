@@ -261,7 +261,7 @@ fn repair_cache_save_load_continues_real_docked_action_without_recomputing_rate(
         object.target = Some(dock);
         object.set_ai_state(
             AIState::SeekingRepair,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
     source.objects.get_mut(&dock).unwrap().dock_active_docker = Some(master);

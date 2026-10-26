@@ -20,10 +20,10 @@ fn finished_move_clears_the_ignored_obstacle() {
         unit.ignored_obstacle_id = Some(building);
         unit.set_ai_state(
             AIState::Repairing,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         unit.movement.path.push(Vec3::new(10.0, 0.0, 0.0));
-        unit.stop_moving(&mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()));
+        unit.stop_moving(&mut crate::game_logic::ObjectAudio::record(&mut Vec::new()));
         assert_eq!(
             unit.ignored_obstacle_id,
             Some(building),
@@ -35,7 +35,7 @@ fn finished_move_clears_the_ignored_obstacle() {
         let (unit, fixture_partition_unit) = logic.host_object_and_partition_mut(id).expect("unit");
         unit.set_ai_state(
             AIState::Moving,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         unit.set_position_with_partition_owner(
             Vec3::ZERO,
@@ -61,7 +61,7 @@ fn finished_move_clears_the_ignored_obstacle() {
         let near = Vec3::new(1.0, 0.0, 0.0);
         unit.set_ai_state(
             AIState::Moving,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         unit.set_position_with_partition_owner(
             Vec3::ZERO,
@@ -106,11 +106,11 @@ fn repair_abort_clears_the_ignored_obstacle() {
         unit.set_order_target(
             Some(building),
             attack_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         unit.set_ai_state(
             AIState::Repairing,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         unit.ignored_obstacle_id = Some(building);
     }
@@ -185,11 +185,11 @@ fn full_truck_returns_to_the_supply_center_approach() {
         unit.set_order_target(
             Some(warehouse),
             attack_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         unit.set_ai_state(
             AIState::Gathering,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         unit.set_stored_supplies(VALUE_PER_SUPPLY_BOX as u32);
         unit.supply_truck_state = SupplyTruckState::DockingWarehouse;
@@ -313,7 +313,7 @@ fn empty_truck_regroups_outside_the_supply_center() {
         let unit = logic.host_object_mut(truck).expect("truck");
         unit.set_ai_state(
             AIState::Idle,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         unit.supply_truck_force_pending = true;
         unit.set_stored_supplies(VALUE_PER_SUPPLY_BOX as u32);
@@ -330,7 +330,7 @@ fn empty_truck_regroups_outside_the_supply_center() {
         let unit = logic.host_object_mut(truck).expect("truck");
         unit.set_ai_state(
             AIState::Idle,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         unit.set_stored_supplies(0);
         unit.supply_truck_force_pending = true;
@@ -381,7 +381,7 @@ fn empty_truck_regroups_outside_the_supply_center() {
         );
         unit.set_ai_state(
             AIState::Idle,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         unit.set_status_moving(false);
         unit.set_stored_supplies(0);
@@ -458,11 +458,11 @@ fn repair_approach_crosses_the_buildings_obstacle() {
         obj.set_target(
             Some(pad_id),
             attack_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         obj.set_ai_state(
             AIState::Repairing,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         obj.movement.path.clear();
         obj.waiting_for_path = false;
@@ -523,11 +523,11 @@ fn finished_repair_releases_the_dozer() {
         unit.set_order_target(
             Some(pad_id),
             attack_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         unit.set_ai_state(
             AIState::Repairing,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         unit.dozer_task_repair_target = Some(pad_id);
         unit.ignored_obstacle_id = Some(pad_id);
@@ -586,11 +586,11 @@ fn dead_repair_target_releases_the_dozer() {
         unit.set_order_target(
             Some(pad_id),
             attack_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         unit.set_ai_state(
             AIState::Repairing,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         unit.dozer_task_repair_target = Some(pad_id);
         unit.ignored_obstacle_id = Some(pad_id);
@@ -635,7 +635,7 @@ fn repair_without_a_target_does_not_keep_the_task() {
         let unit = logic.host_object_mut(dozer).expect("dozer");
         unit.set_ai_state(
             AIState::Repairing,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         unit.dozer_task_repair_target = Some(pad_id);
         unit.ignored_obstacle_id = Some(pad_id);
@@ -666,7 +666,7 @@ fn seeker_without_a_pad_goes_idle() {
         let unit = logic.host_object_mut(id).expect("tank");
         unit.set_ai_state(
             AIState::SeekingRepair,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         unit.ignored_obstacle_id = Some(id);
         unit.movement.path = vec![Vec3::new(40.0, 0.0, 0.0)];
@@ -720,11 +720,11 @@ fn full_vehicle_leaves_the_repair_pad_for_its_rally() {
         unit.set_order_target(
             Some(pad),
             attack_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         unit.set_ai_state(
             AIState::SeekingRepair,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         unit.health.current = unit.health.maximum;
     }
@@ -818,11 +818,11 @@ fn passthrough_rally_snapshots_the_pad() {
         unit.set_order_target(
             Some(pad),
             attack_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         unit.set_ai_state(
             AIState::SeekingRepair,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         unit.health.current = unit.health.maximum;
     }
@@ -1210,7 +1210,7 @@ fn live_corner_refreshes_the_extra_distance() {
         unit.set_status_moving(true);
         unit.set_ai_state(
             crate::game_logic::AIState::Moving,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
     logic.update_movement_for_test(&[id], 1.0 / 30.0);
@@ -1424,7 +1424,7 @@ fn projectile_precise_z_starts_on_the_last_segment() {
         shell.movement.current_path_index = 2;
         shell.refresh_follow_path_extra_distance();
         assert!(shell.precise_z_pos);
-        shell.stop_moving(&mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()));
+        shell.stop_moving(&mut crate::game_logic::ObjectAudio::record(&mut Vec::new()));
         assert!(!shell.precise_z_pos);
     }
 }
@@ -1541,7 +1541,7 @@ fn live_arrival_clears_the_ignored_obstacle() {
         unit.set_status_moving(true);
         unit.set_ai_state(
             crate::game_logic::AIState::Moving,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
     logic.update_movement_for_test(&[id], 1.0 / 30.0);
@@ -1578,7 +1578,7 @@ fn live_air_hold_clears_the_ignore_and_the_queue() {
         unit.set_status_moving(true);
         unit.set_ai_state(
             crate::game_logic::AIState::Moving,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
     logic.update_movement_for_test(&[id], 1.0 / 30.0);
@@ -1639,7 +1639,7 @@ fn far_arrival_snaps_the_current_cell_not_the_goal() {
         unit.set_status_moving(true);
         unit.set_ai_state(
             crate::game_logic::AIState::Moving,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
     logic.register_ground_path_goal(id, goal);
@@ -1684,7 +1684,7 @@ fn close_arrival_plants_the_goal_cell_not_the_raw_point() {
         unit.set_status_moving(true);
         unit.set_ai_state(
             crate::game_logic::AIState::Moving,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
     logic.register_ground_path_goal(id, raw);

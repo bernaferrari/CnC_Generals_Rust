@@ -68,6 +68,7 @@ impl GameClient {
             renderer: self.ui_renderer.as_mut(),
             message_stream: &mut self.message_stream,
             effects: crate::gui::game_window::WindowEventEffects {
+                cursor_mouse: self.subsystem_manager.input_mouse.as_mut(),
                 control_bar_observation: None,
                 menu_audio: Some(menu_audio),
                 input_provenance:
@@ -132,8 +133,7 @@ impl GameClient {
     ) {
         let pump = crate::gui::load_screen::LoadScreenPresentationPump::for_display(
             self.subsystem_manager.display.as_ref(),
-        )
-        .with_mouse(self.subsystem_manager.input_mouse.clone());
+        );
         (self.load_screen_runtime_mut(menu_audio), pump)
     }
     fn draw_drawable_icon_ui(&mut self) {
@@ -451,8 +451,11 @@ impl GameClient {
             }
 
             // C++ W3DMouse.cpp:565-567 / Mouse.cpp:963-1023 — tooltip after delay.
-            crate::gui::ui_globals::tick_cursor_tooltip();
-            let _ = crate::gui::ui_globals::submit_cursor_tooltip(renderer);
+            if let Some(mouse) = self.subsystem_manager.input_mouse.as_mut() {
+                let mouse = mouse;
+                crate::gui::ui_globals::tick_cursor_tooltip_from_mouse(mouse);
+                let _ = crate::gui::ui_globals::submit_cursor_tooltip_from_mouse(renderer, mouse);
+            }
         };
     }
 

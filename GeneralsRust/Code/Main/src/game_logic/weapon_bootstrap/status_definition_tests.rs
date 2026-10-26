@@ -152,7 +152,7 @@ fn accepted_status_hit(name: &str, status: &str, expected: bool) {
     source_obj.attack_target(
         target,
         &mut world.attack_events,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     assert_eq!(
         source_obj.target,
@@ -244,7 +244,7 @@ fn accepted_actual_avenger_status_hit(name: &str, damage: f32, expected_paint: b
     source_obj.attack_target(
         target,
         &mut world.attack_events,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     assert_eq!(source_obj.target, Some(target));
     assert!(!world.honesty_avenger_paint_ok());

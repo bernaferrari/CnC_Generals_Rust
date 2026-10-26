@@ -70,7 +70,7 @@ fn phase0_probe_pose_target_weapon_contain_fields() {
         o.attack_target(
             b,
             attack_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         o.movement.target_position = Some(Vec3::new(12.0, 0.0, 11.0));
         if let Some(w) = o.weapon.as_mut() {

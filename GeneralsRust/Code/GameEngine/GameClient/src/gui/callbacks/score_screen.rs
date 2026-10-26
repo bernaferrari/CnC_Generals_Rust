@@ -2321,6 +2321,7 @@ mod tests {
 
         let mut emitted_messages = Vec::new();
         let mut effects = WindowEventEffects {
+            cursor_mouse: None,
             control_bar_observation: None,
             menu_audio: None,
             input_provenance:
@@ -2359,6 +2360,7 @@ mod tests {
         campaign_manager.set_campaign("testcampaign");
         let mut emitted_messages = Vec::new();
         let mut effects = WindowEventEffects {
+            cursor_mouse: None,
             control_bar_observation: None,
             menu_audio: None,
             input_provenance:
@@ -2811,6 +2813,7 @@ mod os_wnd_tests {
         let _ = simulate_score_screen_set_finish_campaign(false);
         let mut emitted_messages = Vec::new();
         let mut effects = WindowEventEffects {
+            cursor_mouse: None,
             control_bar_observation: None,
             menu_audio: None,
             input_provenance:

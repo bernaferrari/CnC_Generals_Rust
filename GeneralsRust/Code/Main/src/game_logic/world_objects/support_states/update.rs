@@ -2888,29 +2888,32 @@ impl GameLogic {
                                 "Helix NapalmBomb is intercepted by its typed approach channel"
                             )
                         }
-                        PendingSpecialAbility::DisguiseAsVehicle { .. } => {
+                        PendingSpecialAbility::DisguiseAsVehicle { .. } => 'disguise: {
                             // C++ StealthUpdate::disguiseAsObject residual:
                             // if target already disguised, copy *its* disguise
                             // template + player; else copy target template + team.
                             // set OBJECT_STATUS_DISGUISED + STEALTHED.
-                            let (tpl, as_team, copied_disguise) = self
-                                .objects
-                                .get(&special_target_id)
-                                .map(|t| {
+                            let Some((tpl, as_team, as_player, copied_disguise)) =
+                                self.objects.get(&special_target_id).map(|t| {
                                     if t.status.disguised {
                                         if let (Some(dt), Some(dteam)) =
                                             (t.disguise_as_template.as_ref(), t.disguise_as_team)
                                         {
-                                            return (dt.clone(), dteam, true);
+                                            return (
+                                                dt.clone(),
+                                                dteam,
+                                                t.disguise_as_player_id,
+                                                true,
+                                            );
                                         }
                                     }
-                                    (t.template_name.clone(), t.team, false)
+                                    (t.template_name.clone(), t.team, t.owner_player_id, false)
                                 })
-                                .unwrap_or_else(|| {
-                                    ("UnknownVehicle".to_string(), target_team, false)
-                                });
+                            else {
+                                break 'disguise;
+                            };
                             if let Some(obj) = self.objects.get_mut(&object_id) {
-                                obj.apply_disguise(&tpl, as_team);
+                                obj.apply_disguise(&tpl, as_team, as_player);
                                 obj.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
                                     &mut self.queued_audio_events,
                                 ));

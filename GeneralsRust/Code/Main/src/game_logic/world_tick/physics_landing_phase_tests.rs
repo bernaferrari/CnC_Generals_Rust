@@ -256,7 +256,7 @@ fn stamp_clears_freefall_before_resting_request_and_rereads_effective_death_for_
         false,
         0,
         &mut crate::game_logic::ScriptPresentationEffects::default().reborrow_for_object(partition),
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     ) else {
         panic!("resting kill must yield at actual Body boundary");
     };

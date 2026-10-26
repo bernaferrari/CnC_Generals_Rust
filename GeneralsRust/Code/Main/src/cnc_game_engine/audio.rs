@@ -30,8 +30,9 @@ impl CnCGameEngine {
 
     pub(super) fn queue_receiving_audio_event(
         &mut self,
-        event: crate::game_logic::AudioEventRequest,
+        mut event: crate::game_logic::AudioEventRequest,
     ) {
+        event.script_audio_policy = Some(self.game_logic.queued_audio_events.policy().clone());
         let locality = self
             .game_logic
             .receiving_audio_locality(self.receiving_audio_observer_target());

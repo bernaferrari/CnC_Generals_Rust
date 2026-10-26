@@ -1246,6 +1246,9 @@ impl CnCGameEngine {
             self.current_player_id,
             policy,
             &mut retirement,
+            self.subsystem_manager
+                .get::<crate::subsystem_manager::AudioManagerSubsystem>()
+                .and_then(|audio| audio.receiving_audio_device()),
         ) {
             Ok(attempt) => attempt.with_pristine_bones(self.application_assets.as_ref()),
             Err(error) => {
@@ -1259,8 +1262,6 @@ impl CnCGameEngine {
         let native = Some(&mut attempt as &mut dyn crate::game_logic::NativeMapAdmission);
         #[cfg(not(feature = "game_client"))]
         let native = None;
-        #[cfg(feature = "game_client")]
-        let mouse = self.game_client.input_mouse_handle();
         #[cfg(feature = "game_client")]
         let audio_locality = self.game_logic.receiving_audio_locality_for_player(-1);
         #[cfg(feature = "game_client")]
@@ -1289,7 +1290,7 @@ impl CnCGameEngine {
                     renderer,
                     services.windows,
                     services.display.fx().draw_facts(),
-                    mouse.clone(),
+                    services.mouse,
                     services.ime,
                 )
                 .for_load_screen();
@@ -1299,22 +1300,25 @@ impl CnCGameEngine {
         let mut load_screen_presentation_pump =
             game_client::gui::load_screen::LoadScreenPresentationPump::for_native(
                 &mut present_load,
-            )
-            .with_mouse(mouse.clone());
+            );
         let loaded = if self.game_logic.game_mode() == GameMode::Shell {
             self.game_logic
-                .load_map_with_progress_and_native_checked(map_name, |_, _, _| Ok(()), native)
+                .load_map_with_progress_and_native_checked(map_name, |_, _, _, _| Ok(()), native)
                 .map(|accepted| accepted.then(|| map_name.to_owned()))
         } else if self.game_logic.game_mode() == GameMode::Replay {
             self.game_logic
                 .load_map_with_progress_and_native_checked(
                     map_name,
-                    |audio_random, progress, phase| {
+                    |audio_random, audio_policy, progress, phase| {
                         #[cfg(feature = "game_client")]
                         if let Some(kind) = active_load_screen {
                             let progress = progress.clamp(0.0, 1.0);
-                            let mut audio =
-                                menu_audio.lend(audio_random, audio_locality, audio_view);
+                            let mut audio = menu_audio.lend(
+                                audio_random,
+                                audio_policy,
+                                audio_locality,
+                                audio_view,
+                            );
                             let (mut load_owner, _default_pump) =
                                 game_client.split_load_screen_services(&mut audio);
                             Self::pump_cpp_load_screen_progress(
@@ -1340,10 +1344,14 @@ impl CnCGameEngine {
                         .load_map_or_fallback_with_progress_and_native_checked(
                             map_name,
                             DEFAULT_SKIRMISH_MAP,
-                            |audio_random, progress, phase| {
+                            |audio_random, audio_policy, progress, phase| {
                                 let progress = progress.clamp(0.0, 1.0);
-                                let mut audio =
-                                    menu_audio.lend(audio_random, audio_locality, audio_view);
+                                let mut audio = menu_audio.lend(
+                                    audio_random,
+                                    audio_policy,
+                                    audio_locality,
+                                    audio_view,
+                                );
                                 let (mut load_owner, _default_pump) =
                                     game_client.split_load_screen_services(&mut audio);
                                 Self::pump_cpp_load_screen_progress(
@@ -1362,7 +1370,7 @@ impl CnCGameEngine {
                         .load_map_or_fallback_with_progress_and_native_checked(
                             map_name,
                             DEFAULT_SKIRMISH_MAP,
-                            |_, _, _| Ok(()),
+                            |_, _, _, _| Ok(()),
                             native,
                         )
                 }
@@ -1373,7 +1381,7 @@ impl CnCGameEngine {
                     .load_map_or_fallback_with_progress_and_native_checked(
                         map_name,
                         DEFAULT_SKIRMISH_MAP,
-                        |_, _, _| Ok(()),
+                        |_, _, _, _| Ok(()),
                         native,
                     )
             }
@@ -1456,6 +1464,9 @@ impl CnCGameEngine {
                             self.current_player_id,
                             policy,
                             &mut retirement,
+                            self.subsystem_manager
+                                .get::<crate::subsystem_manager::AudioManagerSubsystem>()
+                                .and_then(|audio| audio.receiving_audio_device()),
                         )?
                         .with_pristine_bones(self.application_assets.as_ref());
                     self.game_logic
@@ -1474,7 +1485,16 @@ impl CnCGameEngine {
         #[cfg(not(feature = "game_client"))]
         let pending_audio = native_candidate.install_visuals(&mut self.render_pipeline);
         self.commit_native_world_epoch(epoch);
-        pending_audio.admit_to_live();
+        if let Err(error) = pending_audio.admit_to_live(
+            super::native_audio_effects::NativeAudioService::receiving(&mut self.subsystem_manager)
+                .as_mut(),
+        ) {
+            // This existing direct loader is non-atomic: the world is already
+            // installed. Surface a terminal admission failure; do not claim a
+            // successful map result or discard its concrete diagnostic.
+            error!("Cannot complete direct native map audio admission: {error}");
+            return None;
+        }
         self.invalidate_presentation_terrain_cache();
         if loaded != map_name {
             warn!(
@@ -1651,8 +1671,10 @@ impl CnCGameEngine {
             },
             script_window_stream,
         )
-        .with_command_hints(command_hints, frame.frame());
-        let mut audio = super::native_audio_effects::NativeAudioService::live();
+        .with_command_hints(command_hints, frame.frame())
+        .with_menu_audio_receipts(&self.menu_audio);
+        let mut audio =
+            super::native_audio_effects::NativeAudioService::receiving(&mut self.subsystem_manager);
         #[cfg(feature = "game_client")]
         let (poses, terrain) = self
             .render_pipeline

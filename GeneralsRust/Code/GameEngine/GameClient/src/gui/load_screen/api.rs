@@ -194,7 +194,7 @@ pub fn advance_load_screen_prelude_with_pump(
                 });
             }
         };
-        clear_load_screen_cursor_tooltip(presentation_pump.as_deref_mut())?;
+        clear_load_screen_cursor_tooltip(runtime);
         if state != LoadScreenPreludeState::Movie {
             let step = windows.with_manager(|wm| match kind {
                 LoadScreenKind::SinglePlayer => {
@@ -393,7 +393,7 @@ pub fn run_load_screen_prelude_with_pump(
 
         let max_pumps = max_pumps.max(1);
         for pump_index in 0..max_pumps {
-            clear_load_screen_cursor_tooltip(presentation_pump.as_deref_mut())?;
+            clear_load_screen_cursor_tooltip(runtime);
             let mut step = windows.with_manager(|wm| match kind {
                 LoadScreenKind::SinglePlayer => {
                     advance_single_player_load_screen_prelude(wm, runtime)
@@ -592,9 +592,9 @@ pub fn update_load_screen_with_pump(
     let descriptor = descriptor_for_kind(kind);
     let percent = transformed_progress_percent(descriptor, raw_percent);
     if kind == LoadScreenKind::MapTransfer {
-        map_transfer_liteupdate();
+        map_transfer_liteupdate(runtime.effects.cursor_mouse_mut());
     }
-    clear_load_screen_cursor_tooltip(presentation_pump.as_deref_mut())?;
+    clear_load_screen_cursor_tooltip(runtime);
     if kind == LoadScreenKind::MapTransfer {
         finish_load_screen_update(presentation_pump.as_deref_mut(), runtime)?;
         return Ok(());
@@ -635,13 +635,10 @@ pub fn update_load_screen_with_pump(
     Ok(())
 }
 
-fn clear_load_screen_cursor_tooltip(
-    pump: Option<&mut LoadScreenPresentationPump<'_>>,
-) -> Result<(), String> {
-    if let Some(pump) = pump {
-        pump.clear_cursor_tooltip()?;
+fn clear_load_screen_cursor_tooltip(runtime: &mut LoadScreenOperation<'_>) {
+    if let Some(mouse) = runtime.effects.cursor_mouse_mut() {
+        mouse.set_cursor_tooltip(String::new(), None, None, None);
     }
-    Ok(())
 }
 
 fn finish_load_screen_update(
@@ -651,6 +648,10 @@ fn finish_load_screen_update(
     let windows = runtime.windows;
     windows.with_manager(|wm| wm.update(&mut runtime.effects));
     runtime.complete_callbacks();
+    #[cfg(test)]
+    if let Some(hook) = load_screen_finish_update_hook() {
+        hook(runtime.effects.cursor_mouse_mut());
+    }
     let result = pump_load_screen_presentation(presentation_pump.as_deref_mut(), runtime);
     gamelogic::system::game_logic::set_fp_mode();
     result
@@ -690,7 +691,7 @@ fn pump_load_screen_presentation_test_hook() {
 }
 
 pub fn register_map_transfer_liteupdate_hook(
-    hook: impl Fn() + Send + Sync + 'static,
+    hook: impl Fn(Option<&mut crate::input::Mouse>) + Send + Sync + 'static,
 ) -> Option<MapTransferLiteupdateHook> {
     let hook = Arc::new(hook);
     MAP_TRANSFER_LITEUPDATE_HOOK.with_borrow_mut(|slot| slot.replace(hook))
@@ -713,7 +714,7 @@ pub fn clear_multiplayer_load_progress_hook() -> Option<MultiplayerLoadProgressH
 
 #[cfg(test)]
 fn register_load_screen_finish_update_hook(
-    hook: impl Fn() + Send + Sync + 'static,
+    hook: impl Fn(Option<&mut crate::input::Mouse>) + Send + Sync + 'static,
 ) -> Option<LoadScreenFinishUpdateHook> {
     LOAD_SCREEN_FINISH_UPDATE_HOOK.with_borrow_mut(|slot| slot.replace(Arc::new(hook)))
 }
@@ -728,10 +729,10 @@ fn load_screen_finish_update_hook() -> Option<LoadScreenFinishUpdateHook> {
     LOAD_SCREEN_FINISH_UPDATE_HOOK.with_borrow(Clone::clone)
 }
 
-fn map_transfer_liteupdate() {
+fn map_transfer_liteupdate(mouse: Option<&mut crate::input::Mouse>) {
     let hook = MAP_TRANSFER_LITEUPDATE_HOOK.with_borrow(Clone::clone);
     if let Some(hook) = hook {
-        hook();
+        hook(mouse);
     }
 }
 

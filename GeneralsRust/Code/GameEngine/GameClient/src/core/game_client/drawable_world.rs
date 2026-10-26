@@ -10,12 +10,14 @@ use super::*;
 /// Presentation lifetime: candidate construction owns both Drawable identity and
 /// its particle namespace. Committing a map moves them together.
 pub struct DrawableWorld {
+    pub(super) auxiliary_identity: std::sync::Arc<()>,
     pub(super) state: DrawableState,
     pub(super) particles: crate::effects::particle_manager::ParticleSystemManager,
 }
 impl DrawableWorld {
     pub fn new() -> Self {
         Self {
+            auxiliary_identity: std::sync::Arc::new(()),
             state: DrawableState::new(),
             particles: crate::effects::particle_manager::ParticleSystemManager::new(),
         }
@@ -122,7 +124,9 @@ impl DrawableState {
 
     pub(super) fn alloc_binding_generation(&mut self) -> u64 {
         let generation = self.next_presentation_direct_binding_generation.max(1);
-        self.next_presentation_direct_binding_generation = generation.wrapping_add(1).max(1);
+        self.next_presentation_direct_binding_generation = generation
+            .checked_add(1)
+            .expect("native Drawable lifetime generation exhausted");
         generation
     }
 

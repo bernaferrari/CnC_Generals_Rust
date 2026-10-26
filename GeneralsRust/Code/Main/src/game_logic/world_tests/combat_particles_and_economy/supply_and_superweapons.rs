@@ -308,11 +308,11 @@ fn supply_truck_gather_credits_retail_value_per_box() {
         collector.set_target(
             Some(source),
             attack_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         collector.set_ai_state(
             AIState::Gathering,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         collector.supply_truck_state = SupplyTruckState::DockingWarehouse;
         collector.supply_truck_next_dock_action_frame = 0;
@@ -705,11 +705,11 @@ fn warehouse_action_does_not_debit_when_collector_already_at_max_boxes() {
         collector.set_target(
             Some(source),
             attack_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         collector.set_ai_state(
             AIState::Gathering,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         collector.supply_truck_state = SupplyTruckState::DockingWarehouse;
         collector.supply_truck_next_dock_action_frame = 0;
@@ -796,7 +796,7 @@ fn supply_center_deposits_credit_center_owner_and_reject_allies() {
         collector.set_stored_supplies(75);
         collector.set_ai_state(
             AIState::ReturningResources,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         collector.supply_truck_state = SupplyTruckState::DockingCenter;
         collector.supply_truck_next_dock_action_frame = 0;
@@ -844,7 +844,7 @@ fn supply_center_deposits_credit_center_owner_and_reject_allies() {
         collector.set_stored_supplies(75);
         collector.set_ai_state(
             AIState::ReturningResources,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         collector.supply_truck_state = SupplyTruckState::DockingCenter;
         collector.supply_truck_next_dock_action_frame = 0;
@@ -945,7 +945,7 @@ fn supply_wanting_skips_enemy_warehouse_even_when_players_share_faction() {
         object.supply_truck_state = crate::game_logic::SupplyTruckState::Wanting;
         object.set_ai_state(
             AIState::Idle,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
 
@@ -1016,7 +1016,7 @@ fn supply_wanting_prefers_valid_dock_past_scan_limit_and_falls_back_when_empty()
         object.supply_truck_state = SupplyTruckState::Wanting;
         object.set_ai_state(
             AIState::Idle,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
 
@@ -1035,13 +1035,13 @@ fn supply_wanting_prefers_valid_dock_past_scan_limit_and_falls_back_when_empty()
         .set_stored_supplies(0);
     {
         let object = logic.host_object_mut(collector).unwrap();
-        object.clear_target(&mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()));
+        object.clear_target(&mut crate::game_logic::ObjectAudio::record(&mut Vec::new()));
         object.preferred_dock_id = Some(preferred);
         object.supply_truck_force_pending = true;
         object.supply_truck_state = SupplyTruckState::Wanting;
         object.set_ai_state(
             AIState::Idle,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
     logic.update_support_states(&[collector], 1.0 / 30.0);
@@ -1109,11 +1109,11 @@ fn supply_wanting_falls_back_when_preferred_warehouse_approach_is_full() {
             object.set_target(
                 Some(preferred),
                 attack_events,
-                &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+                &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
             );
             object.set_ai_state(
                 AIState::Gathering,
-                &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+                &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
             );
         }
         assert!(!logic.try_claim_dock_for_test(preferred, blocker));
@@ -1129,7 +1129,7 @@ fn supply_wanting_falls_back_when_preferred_warehouse_approach_is_full() {
         object.supply_truck_state = SupplyTruckState::Wanting;
         object.set_ai_state(
             AIState::Idle,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
 
@@ -1182,11 +1182,11 @@ fn admitted_supply_dock_still_transfers_if_relationship_changes_in_transit() {
         object.set_target(
             Some(dock),
             attack_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         object.set_ai_state(
             AIState::Gathering,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         object.supply_truck_state = SupplyTruckState::DockingWarehouse;
         object.supply_truck_next_dock_action_frame = 0;
@@ -1268,7 +1268,7 @@ fn supply_warehouse_scan_uses_cpp_strict_radius_and_zero_semantics() {
             object.supply_truck_state = SupplyTruckState::Wanting;
             object.set_ai_state(
                 AIState::Idle,
-                &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+                &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
             );
         }
         logic.update_support_states(&[collector], 1.0 / 30.0);
@@ -1361,13 +1361,13 @@ fn supply_center_deposit_reselects_preference_instead_of_reusing_enemy_source() 
         object.set_target(
             Some(former_source),
             attack_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         object.preferred_dock_id = Some(former_source);
         object.set_stored_supplies(75);
         object.set_ai_state(
             AIState::ReturningResources,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         object.supply_truck_state = SupplyTruckState::DockingCenter;
         object.supply_truck_next_dock_action_frame = 0;
@@ -1994,7 +1994,9 @@ fn spy_satellite_does_not_queue_superweapon_strike() {
 #[test]
 fn spy_satellite_special_power_reveals_fow() {
     use crate::command_system::{CommandType, GameCommand, PowerTarget, SpecialPowerType};
-    use crate::game_logic::host_spy_satellite::{SPY_SATELLITE_DURATION_FRAMES, SPY_SATELLITE_RADIUS};
+    use crate::game_logic::host_spy_satellite::{
+        SPY_SATELLITE_DURATION_FRAMES, SPY_SATELLITE_RADIUS,
+    };
     use gamelogic::common::Coord3D;
 
     let mut game_logic = GameLogic::new();
@@ -2874,7 +2876,9 @@ fn inferno_cannon_attack_spawns_fire_zone_damaging_enemies() {
         INFERNO_FIRE_DAMAGE_PER_TICK, INFERNO_FIRE_DURATION_FRAMES,
         INFERNO_FIRE_TICK_INTERVAL_FRAMES, is_inferno_cannon_template,
     };
-    use crate::game_logic::weapon_bootstrap::{INFERNO_CANNON_PRIMARY_WEAPON, ensure_host_weapon_store};
+    use crate::game_logic::weapon_bootstrap::{
+        INFERNO_CANNON_PRIMARY_WEAPON, ensure_host_weapon_store,
+    };
 
     ensure_host_weapon_store();
 
@@ -2956,7 +2960,7 @@ fn inferno_cannon_attack_spawns_fire_zone_damaging_enemies() {
         c.attack_target(
             enemy_id,
             attack_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         if let Some(w) = c.weapon.as_mut() {
             w.last_fire_time = -100.0;
@@ -3507,7 +3511,7 @@ fn aurora_bomb_host_path_queues_and_applies_delayed_area_damage() {
         a.attack_target(
             enemy_id,
             attack_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         if let Some(w) = a.weapon.as_mut() {
             w.last_fire_time = -100.0;
@@ -3658,7 +3662,7 @@ fn aurora_bomb_host_path_queues_and_applies_delayed_area_damage() {
         a.attack_target(
             fuel_enemy,
             attack_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         if let Some(w) = a.weapon.as_mut() {
             w.last_fire_time = -100.0;

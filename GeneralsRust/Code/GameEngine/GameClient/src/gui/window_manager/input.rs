@@ -2,7 +2,6 @@
 #![allow(unused_imports)]
 
 use crate::gui::game_window::*;
-use crate::input::with_mouse;
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, VecDeque};
 use std::fs;
@@ -183,7 +182,14 @@ impl WindowManager {
         const GGM_LEFT_DRAG: u32 = 16384;
         const GGM_CLOSE: u32 = GGM_LEFT_DRAG + 5;
         let old_lone = self.lone_window.as_ref().and_then(|w| w.upgrade());
-        self.update_cursor_tooltip_for_mouse_event_owned(x, y, context.as_deref_mut());
+        if let Some(context) = context.as_deref_mut() {
+            self.update_cursor_tooltip_for_mouse_event_owned(x, y, Some(context), None);
+        } else {
+            let mouse = emitted_messages
+                .as_deref_mut()
+                .and_then(|effects| effects.cursor_mouse.as_deref_mut());
+            self.update_cursor_tooltip_for_mouse_event(x, y, mouse);
+        }
         // Find window under cursor or use capture
         let capture_window = self.get_capture();
         let target_window = if let Some(capture) = capture_window.as_ref() {
@@ -571,7 +577,7 @@ impl WindowManager {
         y: i32,
         context: &mut super::ControlBarInputContext<'_>,
     ) {
-        self.update_cursor_tooltip_for_mouse_event_owned(x, y, Some(context));
+        self.update_cursor_tooltip_for_mouse_event_owned(x, y, Some(context), None);
     }
 
     fn update_cursor_tooltip_for_mouse_event_owned(
@@ -579,17 +585,15 @@ impl WindowManager {
         x: i32,
         y: i32,
         context: Option<&mut super::ControlBarInputContext<'_>>,
+        receiving_mouse: Option<&mut crate::input::Mouse>,
     ) {
         let Some(context) = context else {
-            return self.update_cursor_tooltip_for_mouse_event(x, y);
+            return self.update_cursor_tooltip_for_mouse_event(x, y, receiving_mouse);
         };
         // The source clears the previous generic tooltip before hit-testing,
         // including capture, disabled tooltips and an owned command callback.
-        if let Some(mouse) = context.cursor_mouse {
-            mouse
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .set_cursor_tooltip(String::new(), None, None, None);
+        if let Some(mouse) = context.cursor_mouse.as_deref_mut() {
+            mouse.set_cursor_tooltip(String::new(), None, None, None);
         }
         if self.get_capture().is_some() || self.get_grab_window().is_some() {
             return;
@@ -612,24 +616,31 @@ impl WindowManager {
         let packed = ((y as u32) << 16) | ((x as u32) & 0xffff);
         let window = window.borrow();
         if let Some(callback) = window.get_tooltip_callback() {
-            callback(&window, window.instance_data(), packed);
+            if let Some(mouse) = context.cursor_mouse.as_deref_mut() {
+                callback(&window, window.instance_data(), packed, mouse);
+            }
         } else if !window.get_tooltip().is_empty() {
-            if let Some(mouse) = context.cursor_mouse {
-                mouse
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .set_cursor_tooltip(
-                        window.get_tooltip().to_string(),
-                        Some(window.get_tooltip_delay()),
-                        None,
-                        None,
-                    );
+            if let Some(mouse) = context.cursor_mouse.as_deref_mut() {
+                mouse.set_cursor_tooltip(
+                    window.get_tooltip().to_string(),
+                    Some(window.get_tooltip_delay()),
+                    None,
+                    None,
+                );
             }
         }
     }
 
-    pub(crate) fn update_cursor_tooltip_for_mouse_event(&self, x: i32, y: i32) {
-        with_mouse(|mouse| mouse.set_cursor_tooltip(String::new(), None, None, None));
+    pub(crate) fn update_cursor_tooltip_for_mouse_event(
+        &self,
+        x: i32,
+        y: i32,
+        receiving_mouse: Option<&mut crate::input::Mouse>,
+    ) {
+        let Some(mouse) = receiving_mouse else {
+            return;
+        };
+        mouse.set_cursor_tooltip(String::new(), None, None, None);
 
         if self.get_capture().is_some() || self.get_grab_window().is_some() {
             return;
@@ -642,7 +653,7 @@ impl WindowManager {
         let window = window_rc.borrow();
         if let Some(callback) = window.get_tooltip_callback() {
             // C++ toolTipWindow->m_tooltip(window, &instData, packedMouseCoords)
-            callback(&window, window.instance_data(), packed);
+            callback(&window, window.instance_data(), packed, mouse);
             return;
         }
         let tooltip = window.get_tooltip();
@@ -650,7 +661,7 @@ impl WindowManager {
             let delay = window.get_tooltip_delay();
             let tooltip = tooltip.to_string();
             drop(window);
-            with_mouse(|mouse| mouse.set_cursor_tooltip(tooltip, Some(delay), None, None));
+            mouse.set_cursor_tooltip(tooltip, Some(delay), None, None);
         }
     }
 

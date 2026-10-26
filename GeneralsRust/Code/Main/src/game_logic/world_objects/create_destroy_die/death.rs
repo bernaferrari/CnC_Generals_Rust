@@ -841,7 +841,12 @@ impl GameLogic {
 
         // All contained effects complete on the installed owner before later
         // InstantDeath, SlowDeath or retained-body callbacks can observe it.
-        self.complete_installed_containment_death_with_effects(id, killer, presentation_effects);
+        self.complete_installed_containment_death_with_effects(
+            id,
+            killer,
+            input,
+            presentation_effects,
+        )?;
 
         // C++ ProductionUpdate cancelAndRefund on death start (before topple/slow-death deferral).
         self.cancel_all_production(id);
@@ -1875,6 +1880,7 @@ impl GameLogic {
         #[cfg(feature = "game_client")]
         let collapse_started = Self::with_object_fx_services(
             &mut self.session_view,
+            self.queued_audio_events.policy().clone(),
             fx_player,
             self.world_services.shroud(),
             presentation_effects,

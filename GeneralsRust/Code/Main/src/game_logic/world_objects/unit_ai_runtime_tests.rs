@@ -90,7 +90,7 @@ fn quick_exit_completion_restores_guard_before_same_tick_dispatch() {
         unit.close_enough_dist = Some(1.0);
         unit.set_ai_state(
             crate::game_logic::AIState::Moving,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         unit.movement.path = vec![endpoint; points];
         unit.movement.target_position = Some(endpoint);
@@ -171,7 +171,7 @@ fn quick_exit_deadline_preserves_path_at_end_frame_and_expires_next_frame() {
     unit.set_guard_target_data(Some(guard_id));
     unit.set_ai_state(
         crate::game_logic::AIState::Moving,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     unit.movement.path = vec![endpoint, endpoint];
     unit.movement.target_position = Some(endpoint);
@@ -289,7 +289,7 @@ fn suspended_quick_exit_does_not_bypass_invalid_sally_cleanup() {
         let mut unit = object(id);
         unit.set_ai_state(
             crate::game_logic::AIState::Moving,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         unit.can_path_through_units = true;
         unit.set_adjust_destinations(false);

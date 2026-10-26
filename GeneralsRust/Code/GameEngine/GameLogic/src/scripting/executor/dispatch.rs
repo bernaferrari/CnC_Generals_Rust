@@ -1893,21 +1893,27 @@ impl ScriptActionDispatcher<'_> {
             // ADDITIONAL AUDIO/VIDEO ACTIONS
             // ============================================================================
             ScriptActionType::SoundPlayNamed => self.do_sound_play_named(action),
-            ScriptActionType::SuspendBackgroundSounds => self.do_suspend_background_sounds(),
-            ScriptActionType::ResumeBackgroundSounds => self.do_resume_background_sounds(),
-            ScriptActionType::SoundAmbientPause => self.do_sound_ambient_pause(),
-            ScriptActionType::SoundAmbientResume => self.do_sound_ambient_resume(),
-            ScriptActionType::MusicSetVolume => self.do_music_set_volume(action),
-            ScriptActionType::SoundDisableType => self.do_sound_disable_type(action),
-            ScriptActionType::SoundEnableType => self.do_sound_enable_type(action),
-            ScriptActionType::SoundEnableAll => self.do_sound_enable_all(),
-            ScriptActionType::AudioOverrideVolumeType => self.do_audio_override_volume_type(action),
-            ScriptActionType::AudioRestoreVolumeType => self.do_audio_restore_volume_type(action),
-            ScriptActionType::AudioRestoreVolumeAllType => self.do_audio_restore_volume_all_type(),
-            ScriptActionType::SoundSetVolume => self.do_sound_set_volume(action),
-            ScriptActionType::SpeechSetVolume => self.do_speech_set_volume(action),
-            ScriptActionType::SoundRemoveAllDisabled => self.do_sound_remove_all_disabled(),
-            ScriptActionType::SoundRemoveType => self.do_sound_remove_type(action),
+            ScriptActionType::SuspendBackgroundSounds => self.do_suspend_background_sounds(driver),
+            ScriptActionType::ResumeBackgroundSounds => self.do_resume_background_sounds(driver),
+            ScriptActionType::SoundAmbientPause => self.do_sound_ambient_pause(driver),
+            ScriptActionType::SoundAmbientResume => self.do_sound_ambient_resume(driver),
+            ScriptActionType::MusicSetVolume => self.do_music_set_volume(driver, action),
+            ScriptActionType::SoundDisableType => self.do_sound_disable_type(driver, action),
+            ScriptActionType::SoundEnableType => self.do_sound_enable_type(driver, action),
+            ScriptActionType::SoundEnableAll => self.do_sound_enable_all(driver),
+            ScriptActionType::AudioOverrideVolumeType => {
+                self.do_audio_override_volume_type(driver, action)
+            }
+            ScriptActionType::AudioRestoreVolumeType => {
+                self.do_audio_restore_volume_type(driver, action)
+            }
+            ScriptActionType::AudioRestoreVolumeAllType => {
+                self.do_audio_restore_volume_all_type(driver)
+            }
+            ScriptActionType::SoundSetVolume => self.do_sound_set_volume(driver, action),
+            ScriptActionType::SpeechSetVolume => self.do_speech_set_volume(driver, action),
+            ScriptActionType::SoundRemoveAllDisabled => self.do_sound_remove_all_disabled(driver),
+            ScriptActionType::SoundRemoveType => self.do_sound_remove_type(driver, action),
             ScriptActionType::EnableObjectSound => self.do_enable_object_sound(action),
             ScriptActionType::DisableObjectSound => self.do_disable_object_sound(action),
             ScriptActionType::MoviePlayFullscreen => self.do_movie_play_fullscreen(action, driver),

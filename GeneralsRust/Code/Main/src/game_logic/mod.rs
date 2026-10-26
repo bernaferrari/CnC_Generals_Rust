@@ -21,10 +21,15 @@ pub(crate) mod physics_rules;
 pub(crate) use game_logic::kill_credit;
 pub(crate) mod production_energy;
 mod script_ui;
+mod session_audio;
+pub use session_audio::SessionAudio;
+pub(crate) use session_audio::SessionAudioSelection;
 pub(crate) mod terrain_definitions;
 pub(crate) use game_logic::PathfindingHeightSamples;
 pub(crate) use script_ui::ScriptUiEffects;
 mod script_presentation;
+#[cfg(feature = "game_client")]
+pub(crate) use script_presentation::NativeAuxiliarySource;
 pub(crate) use script_presentation::{
     NativeAudioEffects, NativeMapAdmission, NativeSlaveSource, NativeTerrainEffects,
     NativeViewEffects, ScriptPresentationEffects,
@@ -125,6 +130,7 @@ pub use object_audio::ObjectAudio;
 pub(crate) mod ai_definitions;
 pub mod host_radar;
 pub mod partition_coi;
+mod partition_geometry;
 pub mod partition_manager;
 pub mod pathfinding;
 pub(crate) mod projectile_definitions;

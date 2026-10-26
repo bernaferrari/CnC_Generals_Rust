@@ -344,6 +344,7 @@ impl CnCGameEngine {
         let view = super::audio_view::CompletedAudioView::capture(&self.game_logic);
         let mut audio = self.menu_audio.lend(
             &mut self.game_logic.session_view.audio_random,
+            self.game_logic.queued_audio_events.policy(),
             locality,
             view,
         );
@@ -364,10 +365,10 @@ impl CnCGameEngine {
         let view = super::audio_view::CompletedAudioView::capture(&self.game_logic);
         let mut audio = self.menu_audio.lend(
             &mut self.game_logic.session_view.audio_random,
+            self.game_logic.queued_audio_events.policy(),
             locality,
             view,
         );
-        let mouse = self.game_client.input_mouse_handle();
         let (mut load, _default_pump) = self.game_client.split_load_screen_services(&mut audio);
         if !load.has_renderer() {
             return Err("native load screen has no receiving UI renderer".into());
@@ -381,15 +382,14 @@ impl CnCGameEngine {
                 renderer,
                 services.windows,
                 services.display.fx().draw_facts(),
-                mouse.clone(),
+                services.mouse,
                 services.ime,
             )
             .for_load_screen();
             surface.present(&mut |frame, radar| draw.flush(frame, radar))
         };
         let mut pump =
-            game_client::gui::load_screen::LoadScreenPresentationPump::for_native(&mut present)
-                .with_mouse(mouse.clone());
+            game_client::gui::load_screen::LoadScreenPresentationPump::for_native(&mut present);
         operation(&mut load, &mut pump)
     }
 
@@ -1955,7 +1955,6 @@ impl CnCGameEngine {
                 game_logic.require_native_drawable_owner();
                 let window = &self.window;
                 let load_kind = self.active_load_screen;
-                let mouse = self.game_client.input_mouse_handle();
                 self.menu_audio
                     .require_bound()
                     .map_err(anyhow::Error::msg)?;
@@ -1978,7 +1977,7 @@ impl CnCGameEngine {
                             renderer,
                             services.windows,
                             services.display.fx().draw_facts(),
-                            mouse.clone(),
+                            services.mouse,
                             services.ime,
                         )
                         .for_load_screen();
@@ -1987,8 +1986,7 @@ impl CnCGameEngine {
                 let mut pump =
                     game_client::gui::load_screen::LoadScreenPresentationPump::for_native(
                         &mut present,
-                    )
-                    .with_mouse(mouse.clone());
+                    );
                 let mut retirement =
                     game_client::core::game_client::NativeParticleRetirementService;
                 let mut attempt = native_map
@@ -1998,21 +1996,28 @@ impl CnCGameEngine {
                         self.current_player_id,
                         policy,
                         &mut retirement,
+                        self.subsystem_manager
+                            .get::<crate::subsystem_manager::AudioManagerSubsystem>()
+                            .and_then(|audio| audio.receiving_audio_device()),
                     )
                     .map_err(anyhow::Error::msg)?
                     .with_pristine_bones(self.application_assets.as_ref());
                 let loaded = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                     game_logic.load_map_with_progress_and_native_checked(
                         &map_to_load,
-                        |audio_random, progress, phase| {
+                        |audio_random, audio_policy, progress, phase| {
                             let progress = progress.clamp(0.0, 0.995);
                             window.set_title(&format!(
                                 "Command & Conquer Generals Zero Hour - Loading {phase} ({:.0}%)",
                                 progress * 100.0
                             ));
                             if let Some(kind) = load_kind {
-                                let mut audio =
-                                    menu_audio.lend(audio_random, audio_locality, audio_view);
+                                let mut audio = menu_audio.lend(
+                                    audio_random,
+                                    audio_policy,
+                                    audio_locality,
+                                    audio_view,
+                                );
                                 let (mut load_owner, _default_pump) =
                                     game_client.split_load_screen_services(&mut audio);
                                 Self::pump_cpp_load_screen_progress(

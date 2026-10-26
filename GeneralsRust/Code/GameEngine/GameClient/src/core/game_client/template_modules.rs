@@ -213,6 +213,38 @@ impl GameClient {
         )
     }
 
+    /// Drawable.cpp constructor phase before any simulation Object is bound.
+    /// Both actor-associated and genuine objectless lifetimes use this same
+    /// receiving module factory and original inter-module initialization order.
+    pub(super) fn initialize_receiving_drawable_modules_unbound(
+        drawable: &mut BasicDrawable,
+        admitted: &game_engine::common::thing::thing_template::AdmittedReceivingTemplate,
+        keys: &mut NameKeyNamespace,
+        policy: ReceivingDrawablePolicy,
+        logic_frame: u32,
+    ) -> GameClientResult<()> {
+        let modules = Self::create_receiving_modules_from_plan(
+            admitted,
+            keys,
+            policy,
+            (INVALID_ID, logic_frame),
+        )?;
+        // Inter-module resolution sees every installed module, as CPP.
+        for module in modules {
+            drawable.add_draw_module(module);
+        }
+        for slot in drawable.get_draw_modules_mut() {
+            if let Some(module) = slot.logic_module_mut() {
+                gamelogic::object::drawable::create_native_draw_module_unbound(
+                    module,
+                    admitted.per_unit_sound_event("TruckLandingSound"),
+                    admitted.per_unit_sound_event("TruckPowerslideSound"),
+                );
+            }
+        }
+        Ok(())
+    }
+
     fn create_modules_from_entries(
         draws_info: &game_engine::common::thing::thing_template::ModuleInfo,
         clients_info: &game_engine::common::thing::thing_template::ModuleInfo,

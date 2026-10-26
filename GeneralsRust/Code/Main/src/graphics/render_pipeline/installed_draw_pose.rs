@@ -150,7 +150,7 @@ impl RenderPipeline {
         let state = self
             .native_draw_world
             .drawable_visual_states
-            .entry((id.0, module_index))
+            .entry((NativeDrawOwnerId::Actor(id.0), module_index))
             .or_default();
         state.installed_draw_pose = InstalledDrawObject::Ready(InstalledDrawPose::created(
             model, world, draw_model, binding,
@@ -165,7 +165,7 @@ impl RenderPipeline {
     ) {
         self.native_draw_world
             .drawable_visual_states
-            .entry((id.0, module_index))
+            .entry((NativeDrawOwnerId::Actor(id.0), module_index))
             .or_default()
             .installed_draw_pose = InstalledDrawObject::NoRenderObject;
     }
@@ -181,7 +181,7 @@ impl RenderPipeline {
         if let Some(state) = self
             .native_draw_world
             .drawable_visual_states
-            .get_mut(&(id.0, module_index))
+            .get_mut(&(NativeDrawOwnerId::Actor(id.0), module_index))
         {
             if let InstalledDrawObject::Ready(pose) = &mut state.installed_draw_pose {
                 pose.install_transform(world);
@@ -204,7 +204,7 @@ impl RenderPipeline {
         let state = self
             .native_draw_world
             .drawable_visual_states
-            .entry((id.0, module_index))
+            .entry((NativeDrawOwnerId::Actor(id.0), module_index))
             .or_default();
         let needs_recreation = match &state.installed_draw_pose {
             InstalledDrawObject::Ready(pose) => {

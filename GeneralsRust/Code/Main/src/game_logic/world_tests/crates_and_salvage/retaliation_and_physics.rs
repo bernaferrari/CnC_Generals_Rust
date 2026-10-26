@@ -147,7 +147,7 @@ fn try_idle_repulse_flees_flagged_repulsor() {
     civ.vision_range = 200.0;
     civ.set_ai_state(
         AIState::Idle,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     // Ensure can_move
     civ.movement.max_speed = 5.0;
@@ -1031,7 +1031,7 @@ fn try_mood_auto_acquire_enters_attack() {
         o.set_orientation(0.0);
         o.set_ai_state(
             AIState::Idle,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         o.ai_attitude = 2; // Aggressive
         o.vision_range = 200.0;
@@ -1092,7 +1092,7 @@ fn transfer_attack_retargets_attackers() {
         o.target = Some(from);
         o.set_ai_state(
             AIState::Attacking,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         o.turret_enabled = true;
         o.turret_target_id = Some(from);
@@ -1330,7 +1330,11 @@ fn player_attack_command_uses_weaponset_target_legality_before_stamping_target()
             .unit_command_attack(attacker_id, target_id)
             .expect("valid attack command fixture")
     );
-    assert!(!logic.unit_command_force_attack(attacker_id, target_id));
+    assert!(
+        !logic
+            .unit_command_force_attack(attacker_id, target_id)
+            .unwrap()
+    );
     assert_eq!(logic.objects[&attacker_id].target, None);
 
     let target = logic.objects.get_mut(&target_id).unwrap();
@@ -1359,7 +1363,7 @@ fn player_attack_command_uses_weaponset_target_legality_before_stamping_target()
     // SECONDARY's ground capability just to obtain a targeting cursor; once
     // unlocked the same object may use SECONDARY normally.
     let attacker = logic.objects.get_mut(&attacker_id).unwrap();
-    attacker.clear_target(&mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()));
+    attacker.clear_target(&mut crate::game_logic::ObjectAudio::record(&mut Vec::new()));
     attacker.weapon.as_mut().unwrap().can_target_ground = false;
     attacker.weapon.as_mut().unwrap().can_target_air = true;
     attacker.secondary_weapon = Some(Weapon {
@@ -2123,7 +2127,7 @@ fn private_idle_clears_state() {
         let mut o = Object::new(t, id, Team::USA);
         o.set_ai_state(
             AIState::Attacking,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         o.set_status_attacking(true);
         o.target = Some(ObjectId(1));
@@ -2332,7 +2336,7 @@ fn private_stop_clears_attack() {
         let mut o = Object::new(t, id, Team::USA);
         o.set_ai_state(
             crate::game_logic::AIState::Attacking,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         o.set_status_attacking(true);
         o.target = Some(ObjectId(9));
@@ -2525,7 +2529,7 @@ fn downhill_only_blocks_uphill() {
     let p0 = o.get_position();
     o.update_movement(
         1.0 / 30.0,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     // Should not advance toward uphill goal.
     assert!((o.get_position() - p0).length() < 1e-3);
@@ -2574,7 +2578,7 @@ fn group_speed_factor_scales_desired() {
     o.movement.target_position = Some(Vec3::new(100.0, 0.0, 0.0));
     o.update_movement(
         1.0 / 30.0,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     // With half group speed, shouldn't hit full 40 quickly.
     assert!(o.movement.velocity.length() < 35.0);
@@ -2586,7 +2590,17 @@ fn calc_lift_positive_when_below_preferred() {
     let mut t = ThingTemplate::new("Lift");
     t.add_kind_of(KindOf::Aircraft);
     let mut o = Object::new(t, ObjectId(1004), Team::USA);
-    o.max_lift = 5.0;
+    let mut definition =
+        game_engine::common::ini::ini_locomotor::LocomotorTemplate::new("TypedPositiveLift".into());
+    definition
+        .surfaces
+        .add_surface(game_engine::common::ini::ini_locomotor::LocomotorSurfaceTypeMask::AIR);
+    definition.lift = 5.;
+    definition.lift_damaged = 5.;
+    let binding =
+        crate::game_logic::locomotor_bootstrap::host_locomotor_binding_from_template(&definition)
+            .unwrap();
+    crate::game_logic::locomotor_bootstrap::apply_host_locomotor_binding(&mut o, &binding);
     o.movement.velocity.y = 0.0;
     let lift = o.calc_lift_to_use_at_pt(10.0, 20.0);
     assert!(lift > 0.0, "lift={lift}");
@@ -2736,7 +2750,7 @@ fn wheels_cap_speed_while_turning() {
     o.movement.target_position = Some(Vec3::new(0.0, 0.0, 100.0));
     o.update_movement(
         1.0 / 30.0,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     // Hard turn: wheels should not instantly reach 60.
     assert!(o.movement.velocity.length() < 40.0);
@@ -2792,7 +2806,7 @@ fn maintain_position_scrubs_ground_velocity() {
     o.movement.target_position = None;
     o.update_movement(
         1.0 / 30.0,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     assert!(o.maintain_pos_valid);
     assert!(
@@ -2858,18 +2872,51 @@ fn physics_get_mass_adds_contained_riders() {
 fn highest_layer_surface_falls_back_to_ground() {
     use crate::game_logic::{KindOf, LocomotorBehaviorZ, Object, ObjectId, Team, ThingTemplate};
     use glam::Vec3;
-    let mut t = ThingTemplate::new("FlyerLayer");
-    t.add_kind_of(KindOf::Aircraft);
-    let mut o = Object::new(t, ObjectId(7703), Team::USA);
-    o.loco_behavior_z = LocomotorBehaviorZ::SmoothRelativeToHighestLayer;
-    o.loco_preferred_height = 10.0;
-    o.set_position(Vec3::new(0.0, 4.0, 0.0));
-    let surface = o.highest_layer_surface_ht(3.0);
+    let mut template =
+        game_engine::common::ini::ini_locomotor::LocomotorTemplate::new("TypedEmptyLayer".into());
+    template
+        .surfaces
+        .add_surface(game_engine::common::ini::ini_locomotor::LocomotorSurfaceTypeMask::AIR);
+    template.appearance = game_engine::common::ini::ini_locomotor::LocomotorAppearance::Hover;
+    template.behavior_z =
+        game_engine::common::ini::ini_locomotor::LocomotorBehaviorZ::SmoothRelativeToHighestLayer;
+    template.preferred_height = 10.;
+    template.lift = 1.;
+    template.lift_damaged = 1.;
+    let binding =
+        crate::game_logic::locomotor_bootstrap::host_locomotor_binding_from_template(&template)
+            .unwrap();
+    let mut world = GameLogic::new();
+    let mut actor = ThingTemplate::new("FlyerLayer");
+    actor.add_kind_of(KindOf::Aircraft);
+    let id = ObjectId(7703);
+    let mut object = Object::new(actor, id, Team::USA);
+    crate::game_logic::locomotor_bootstrap::apply_host_locomotor_binding(&mut object, &binding);
+    object.ground_height = 3.;
+    object.set_position(Vec3::new(0., 4., 0.));
+    world.objects.insert(id, object);
+    let view = crate::game_logic::game_logic::FlightTerrainView {
+        logical: None,
+        grid: &world.pathfinding_system.grid,
+        terrain: None,
+        samples: None,
+    };
+    let surface = view.highest_surface(world.objects.get(&id).unwrap());
     assert!(
-        (surface - 3.0).abs() < 1e-3,
-        "empty leftover terrain keeps ground_y, got {surface}"
+        (surface - 3.).abs() < 0.001,
+        "empty receiving layer view keeps explicit owned ground observation, got {surface}"
     );
-    assert!(o.handle_behavior_z(3.0, None));
+    let object = world.objects.get_mut(&id).unwrap();
+    assert!(object.handle_behavior_z_with_highest_surface(3., None, surface));
+    assert_eq!(
+        object.get_position().y,
+        4.,
+        "force admission cannot advance pose"
+    );
+    assert_eq!(
+        object.loco_behavior_z,
+        LocomotorBehaviorZ::SmoothRelativeToHighestLayer
+    );
 }
 
 #[test]
@@ -2904,7 +2951,7 @@ fn loco_turn_modulates_speed() {
     let yaw0 = o.get_orientation();
     o.update_movement(
         1.0 / 30.0,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     // 90° goal: treads residual clamps goal_speed via angleCoeff → near-zero thrust
     // while turning; orientation should advance toward +Z.

@@ -1138,7 +1138,7 @@ impl GameLogic {
     ) -> Option<(
         &mut Object,
         &mut crate::game_logic::host_attack_log::AttackEvents,
-        &mut Vec<crate::game_logic::AudioEventRequest>,
+        &mut crate::game_logic::SessionAudio,
         &mut crate::game_logic::partition_manager::PartitionManager,
     )> {
         let _ = self.host_object_mut(id)?;
@@ -1156,7 +1156,7 @@ impl GameLogic {
     ) -> Option<(
         &mut Object,
         crate::game_logic::movement_events::MovementEventWriter<'_>,
-        &mut Vec<crate::game_logic::AudioEventRequest>,
+        &mut crate::game_logic::SessionAudio,
         &mut crate::game_logic::partition_manager::PartitionManager,
     )> {
         let _ = self.host_object_mut(id)?;
@@ -1199,7 +1199,7 @@ impl GameLogic {
         id: ObjectId,
     ) -> Option<(
         &mut crate::game_logic::object::Object,
-        &mut Vec<crate::game_logic::AudioEventRequest>,
+        &mut crate::game_logic::SessionAudio,
     )> {
         self.objects
             .get_mut(&id)
@@ -1214,7 +1214,7 @@ impl GameLogic {
     ) -> Option<(
         &mut crate::game_logic::Object,
         &mut crate::game_logic::host_attack_log::AttackEvents,
-        &mut Vec<crate::game_logic::AudioEventRequest>,
+        &mut crate::game_logic::SessionAudio,
     )> {
         let _ = self.host_object_mut(id)?;
         Some((
@@ -1230,7 +1230,7 @@ impl GameLogic {
     ) -> Option<(
         &mut crate::game_logic::Object,
         crate::game_logic::movement_events::MovementEventWriter<'_>,
-        &mut Vec<crate::game_logic::AudioEventRequest>,
+        &mut crate::game_logic::SessionAudio,
     )> {
         let _ = self.host_object_mut(id)?;
         Some((
@@ -1938,7 +1938,7 @@ mod select_object_cpp_parity_tests {
             o.set_status_unselectable(false);
             o.set_ai_state(
                 crate::game_logic::AIState::Garrisoned,
-                &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+                &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
             );
             o.status.masked = true;
         }

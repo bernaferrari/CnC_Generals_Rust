@@ -178,38 +178,36 @@ impl CnCGameEngine {
     /// for presentation-shell UI without dual OS event ownership.
     /// Wave 606: via `host_inject_game_client_mouse_move`.
     #[cfg(feature = "game_client")]
-    pub(in crate::cnc_game_engine) fn inject_game_client_mouse_move(&self, x: f32, y: f32) {
+    pub(in crate::cnc_game_engine) fn inject_game_client_mouse_move(&mut self, x: f32, y: f32) {
         // Wave 606: thin wrapper — OS mouse move inject via host helper.
         self.host_inject_game_client_mouse_move(x, y);
     }
 
     /// Wave 606: host OS→GameClient mouse-move inject residual.
     #[cfg(feature = "game_client")]
-    pub(in crate::cnc_game_engine) fn host_inject_game_client_mouse_move(&self, x: f32, y: f32) {
+    pub(in crate::cnc_game_engine) fn host_inject_game_client_mouse_move(
+        &mut self,
+        x: f32,
+        y: f32,
+    ) {
         // Wave 606: host OS mouse move inject residual.
-        if let Some(mouse) = self.game_client.input_mouse_handle() {
-            let _ = mouse
-                .lock()
-                .expect("receiving Mouse owner poisoned")
-                .handle_mouse_move(x, y);
+        if let Some(mouse) = self.game_client.input_mouse_mut() {
+            let _ = mouse.handle_mouse_move(x, y);
         }
     }
 
     /// Feed wheel state into this client's input device.
     #[cfg(feature = "game_client")]
-    pub(in crate::cnc_game_engine) fn inject_game_client_mouse_scroll(&self, delta_y: f32) {
-        if let Some(mouse) = self.game_client.input_mouse_handle() {
-            let _ = mouse
-                .lock()
-                .expect("receiving Mouse owner poisoned")
-                .handle_scroll_lines(delta_y);
+    pub(in crate::cnc_game_engine) fn inject_game_client_mouse_scroll(&mut self, delta_y: f32) {
+        if let Some(mouse) = self.game_client.input_mouse_mut() {
+            let _ = mouse.handle_scroll_lines(delta_y);
         }
     }
 
     /// Wave 606: via `host_inject_game_client_mouse_button`.
     #[cfg(feature = "game_client")]
     pub(in crate::cnc_game_engine) fn inject_game_client_mouse_button(
-        &self,
+        &mut self,
         button: MouseButton,
         pressed: bool,
     ) {
@@ -239,7 +237,6 @@ impl CnCGameEngine {
             );
             let game_ending = self.game_logic.owned_script_game_ending();
             let tooltips_disabled = self.receiving_tooltips_disabled();
-            let cursor_mouse = self.game_client.input_mouse_handle();
             let observer_roster = self.receiving_observer_roster();
             let mut replay_operation =
                 game_client::gui::callbacks::replay_menu::ingress::ReplayMenuOperation::new(
@@ -258,6 +255,7 @@ impl CnCGameEngine {
                 super::super::audio_view::CompletedAudioView::capture(&self.game_logic);
             let mut menu_audio = self.menu_audio.lend(
                 &mut self.game_logic.session_view.audio_random,
+                self.game_logic.queued_audio_events.policy(),
                 menu_audio_locality,
                 menu_audio_view,
             );
@@ -284,6 +282,7 @@ impl CnCGameEngine {
                 ime,
                 mut menus,
                 ui,
+                cursor_mouse,
             ) = self.game_client.window_owner_campaign_menu_and_host_mut();
             let mut context = game_client::gui::window_manager::ControlBarInputContext {
             control_bar_observation:Some(control_bar_observation),
@@ -309,7 +308,7 @@ impl CnCGameEngine {
                 replay,
                 game_ending,
                 tooltips_disabled,
-                cursor_mouse: cursor_mouse.as_ref(),
+                cursor_mouse,
                 emitted_messages: Some(&mut emitted_messages),
                 campaign_manager: Some(campaign_manager),
                 main_menu: Some(main_menu),
@@ -499,7 +498,6 @@ impl CnCGameEngine {
         );
         let game_ending = self.game_logic.owned_script_game_ending();
         let tooltips_disabled = self.receiving_tooltips_disabled();
-        let cursor_mouse = self.game_client.input_mouse_handle();
         let observer_roster = self.receiving_observer_roster();
         let mut replay_operation =
             game_client::gui::callbacks::replay_menu::ingress::ReplayMenuOperation::new(
@@ -518,6 +516,7 @@ impl CnCGameEngine {
             super::super::audio_view::CompletedAudioView::capture(&self.game_logic);
         let mut menu_audio = self.menu_audio.lend(
             &mut self.game_logic.session_view.audio_random,
+            self.game_logic.queued_audio_events.policy(),
             menu_audio_locality,
             menu_audio_view,
         );
@@ -544,6 +543,7 @@ impl CnCGameEngine {
             ime,
             mut menus,
             ui,
+            cursor_mouse,
         ) = self.game_client.window_owner_campaign_menu_and_host_mut();
         let mut context = game_client::gui::window_manager::ControlBarInputContext {
             control_bar_observation:Some(control_bar_observation),
@@ -569,7 +569,7 @@ impl CnCGameEngine {
             replay,
             game_ending,
             tooltips_disabled,
-            cursor_mouse: cursor_mouse.as_ref(),
+            cursor_mouse,
             emitted_messages: Some(&mut emitted_messages),
             campaign_manager: Some(campaign_manager),
             main_menu: Some(main_menu),
@@ -692,7 +692,7 @@ impl CnCGameEngine {
     /// Wave 606: host OS→GameClient mouse-button inject residual.
     #[cfg(feature = "game_client")]
     pub(in crate::cnc_game_engine) fn host_inject_game_client_mouse_button(
-        &self,
+        &mut self,
         button: MouseButton,
         pressed: bool,
     ) {
@@ -707,11 +707,8 @@ impl CnCGameEngine {
             MouseButton::Forward => GcMouseButton::Other(4),
             MouseButton::Other(n) => GcMouseButton::Other(n as u16),
         };
-        if let Some(mouse) = self.game_client.input_mouse_handle() {
-            let _ = mouse
-                .lock()
-                .expect("receiving Mouse owner poisoned")
-                .handle_mouse_button(gc_btn, pressed, Instant::now());
+        if let Some(mouse) = self.game_client.input_mouse_mut() {
+            let _ = mouse.handle_mouse_button(gc_btn, pressed, Instant::now());
         }
     }
 }

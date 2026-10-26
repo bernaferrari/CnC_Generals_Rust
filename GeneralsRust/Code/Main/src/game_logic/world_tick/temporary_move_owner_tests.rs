@@ -34,7 +34,7 @@ fn world() -> (GameLogic, ObjectId, ObjectId) {
 }
 fn observe(world: &mut GameLogic, id: ObjectId, frame: u32) {
     let (actor, audio) = world.host_object_and_audio_events_mut(id).unwrap();
-    actor.tick_path_queue(frame, &mut crate::game_logic::ObjectAudio::queue(audio));
+    actor.tick_path_queue(frame, &mut crate::game_logic::ObjectAudio::record(audio));
 }
 fn bytes(world: &GameLogic, id: ObjectId) -> Vec<u8> {
     serde_json::to_vec(
@@ -207,7 +207,7 @@ fn actual_nested_attack_completion_resumes_existing_guard_body_and_goals() {
     assert_eq!(child.parent_state(), Some(before.ai_state));
     assert_eq!(child.goals.object, Some(enemy));
     let (actor, audio) = world.host_object_and_audio_events_mut(id).unwrap();
-    actor.stop_attack(&mut crate::game_logic::ObjectAudio::queue(audio));
+    actor.stop_attack(&mut crate::game_logic::ObjectAudio::record(audio));
     let after = world
         .host_object(id)
         .unwrap()

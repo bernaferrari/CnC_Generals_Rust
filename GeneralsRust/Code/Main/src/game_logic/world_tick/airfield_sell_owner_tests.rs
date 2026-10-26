@@ -83,7 +83,7 @@ End
     assert!(airfield.has_ai_update_interface());
     airfield.set_ai_state(
         AIState::GuardingArea,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     airfield.last_command_source =
         crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_SCRIPT;

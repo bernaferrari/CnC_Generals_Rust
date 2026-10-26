@@ -2500,3 +2500,60 @@ fn status_icons_are_submitted_on_overlay_data() {
     assert!(drawable.overlay_data.show_enthusiastic);
     assert!(drawable.overlay_data.show_bombed);
 }
+
+#[test]
+fn source_instance_does_not_replace_object_pose_or_particle_parent() {
+    let mut drawable = BasicDrawable::new(DrawableId(91));
+    let position = Vector3::new(10., 20., 30.);
+    let base = Matrix4::rotation_y(0.4);
+    let instance = Matrix4::translation(Vector3::new(1., 2., 3.)).mul(&Matrix4::rotation_z(0.2));
+    drawable.set_position(position);
+    drawable.set_base_transform(base);
+    drawable.set_instance_transform(instance);
+    let expected = Matrix4::translation(position).mul(&base);
+    assert_eq!(drawable.native_base_transform(), expected);
+    assert_eq!(
+        drawable.native_particle_parent_transform(),
+        expected.to_glam()
+    );
+    assert_eq!(drawable.get_transform(), expected.mul(&instance));
+    let newbase = Matrix4::rotation_y(0.8);
+    drawable.set_base_transform(newbase);
+    assert_eq!(drawable.get_instance_transform(), instance);
+    assert_eq!(
+        drawable.get_transform(),
+        Matrix4::translation(position).mul(&newbase).mul(&instance)
+    );
+}
+#[test]
+fn source_base_and_instance_xfer_independently() {
+    use game_engine::common::system::{xfer_load::XferLoad, xfer_save::XferSave};
+    use std::io::Cursor;
+    let mut source = BasicDrawable::new(DrawableId(78));
+    source.set_position(Vector3::new(12., 23., 34.));
+    source.set_base_transform(Matrix4::rotation_y(0.7));
+    source.set_instance_transform(
+        Matrix4::translation(Vector3::new(1., 2., 3.)).mul(&Matrix4::rotation_z(0.2)),
+    );
+    let mut bytes = Vec::new();
+    {
+        let mut save = XferSave::new(Cursor::new(&mut bytes), 1);
+        save.open("source-base-instance").unwrap();
+        source.xfer_snapshot(&mut save).unwrap();
+        save.close().unwrap();
+    }
+    let mut loaded = BasicDrawable::new(DrawableId(0));
+    let mut load = XferLoad::new(Cursor::new(bytes), 1);
+    load.open("source-base-instance").unwrap();
+    loaded.xfer_snapshot(&mut load).unwrap();
+    load.close().unwrap();
+    assert_eq!(
+        loaded.native_base_transform(),
+        source.native_base_transform()
+    );
+    assert_eq!(
+        loaded.get_instance_transform(),
+        source.get_instance_transform()
+    );
+    assert_eq!(loaded.get_transform(), source.get_transform());
+}

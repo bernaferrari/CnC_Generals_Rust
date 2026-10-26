@@ -6,7 +6,6 @@
 use crate::display::image::get_mapped_image_collection;
 use crate::game_text::GameText;
 use crate::gui::{GameWindow, WindowInstanceData};
-use crate::input::mouse::with_mouse;
 use crate::map_util::{find_draw_positions, get_supply_and_tech_image_locations};
 use crate::message_stream::game_message::ICoord2D;
 use game_engine::common::ini::ini_map_cache::MapMetaData;
@@ -95,7 +94,12 @@ pub fn position_additional_images(
 }
 
 /// C++ `MapSelectorTooltip` — hit-tests supply/tech icon rects on the map preview.
-pub fn map_selector_tooltip(window: &GameWindow, _inst: &WindowInstanceData, mouse: u32) {
+pub fn map_selector_tooltip(
+    window: &GameWindow,
+    _inst: &WindowInstanceData,
+    mouse: u32,
+    receiving_mouse: &mut crate::input::Mouse,
+) {
     let x = (mouse & 0xFFFF) as i16 as i32;
     let y = (mouse >> 16) as i16 as i32;
     let (pixel_x, pixel_y) = window.get_screen_position();
@@ -111,7 +115,7 @@ pub fn map_selector_tooltip(window: &GameWindow, _inst: &WindowInstanceData, mou
                 && y < pixel_y + pos.y + SUPPLY_TECH_SIZE
             {
                 let text = GameText::fetch("TOOLTIP:TechBuilding");
-                with_mouse(|mouse| mouse.set_cursor_tooltip(text, Some(-1), None, None));
+                receiving_mouse.set_cursor_tooltip(text, Some(-1), None, None);
                 return;
             }
         }
@@ -125,7 +129,7 @@ pub fn map_selector_tooltip(window: &GameWindow, _inst: &WindowInstanceData, mou
                 && y < pixel_y + pos.y + SUPPLY_TECH_SIZE
             {
                 let text = GameText::fetch("TOOLTIP:SupplyDock");
-                with_mouse(|mouse| mouse.set_cursor_tooltip(text, Some(-1), None, None));
+                receiving_mouse.set_cursor_tooltip(text, Some(-1), None, None);
                 return;
             }
         }

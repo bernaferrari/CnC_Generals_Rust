@@ -712,6 +712,7 @@ impl Object {
         ground_y: f32,
         services: &mut super::PhysicsDamageServices<'_>,
     ) -> bool {
+        self.integrate_physics_force_phase();
         self.drive_standalone_contact(
             super::MotionContact::Start(ground_y),
             services,

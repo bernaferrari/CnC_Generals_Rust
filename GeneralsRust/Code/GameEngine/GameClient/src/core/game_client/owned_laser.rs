@@ -550,7 +550,7 @@ impl NativeDrawableOwner<'_> {
             start.to_array(),
             direction.to_array(),
         );
-        basic.set_instance_transform(crate::drawable::Matrix4::from_glam(glam::Mat4::from_mat3(
+        basic.set_base_transform(crate::drawable::Matrix4::from_glam(glam::Mat4::from_mat3(
             glam::Mat3::from_mat4(transform),
         )));
         basic.set_position(crate::drawable::Vector3::new(start.x, start.y, start.z));

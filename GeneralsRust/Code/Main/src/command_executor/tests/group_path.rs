@@ -523,7 +523,7 @@ fn combat_drop_sets_pending_evacuate() {
         p.set_contained_by_with_partition_owner(Some(transport), true, fixture_partition_p);
         p.set_ai_state(
             crate::game_logic::AIState::Docked,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
     {
@@ -806,7 +806,7 @@ fn object_attack_orders_passenger_fire() {
         r.set_contained_by_with_partition_owner(Some(humvee), true, fixture_partition_r);
         r.set_ai_state(
             crate::game_logic::AIState::Garrisoned,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         r.weapon = Some(Weapon {
             damage: 10.0,
@@ -876,7 +876,7 @@ fn object_attack_skips_vehicle_transport_riders() {
         r.set_contained_by_with_partition_owner(Some(chinook), true, fixture_partition_r);
         r.set_ai_state(
             crate::game_logic::AIState::Garrisoned,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         r.weapon = Some(Weapon {
             damage: 10.0,
@@ -938,7 +938,7 @@ fn stop_idles_garrison_occupants_and_hive_slaves() {
         o.set_contained_by_with_partition_owner(Some(site), true, fixture_partition_o);
         o.set_ai_state(
             crate::game_logic::AIState::Attacking,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
     {
@@ -996,12 +996,12 @@ fn stop_idles_ai_transport_occupants() {
         r.set_contained_by_with_partition_owner(Some(truck), true, partition);
         r.set_ai_state(
             crate::game_logic::AIState::Attacking,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         r.set_target(
             Some(ObjectId(99)),
             attack_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
     {

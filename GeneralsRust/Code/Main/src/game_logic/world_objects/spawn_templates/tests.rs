@@ -1699,14 +1699,14 @@ End
             burton.movement.turn_rate = std::f32::consts::PI;
             burton.set_ai_state(
                 AIState::SpecialAbility,
-                &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+                &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
             );
             // set_target admits an ordinary attack and replaces the ability
             // state. The ability order owns its state and target separately.
             burton.set_order_target(
                 Some(target_id),
                 attack_events,
-                &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+                &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
             );
             assert_eq!(burton.ai_state(), AIState::SpecialAbility);
         }
@@ -2487,7 +2487,7 @@ End
             obj.internal_change_health(20.0 - obj.health.current);
             obj.set_ai_state(
                 AIState::Entering,
-                &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+                &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
             );
             obj.target = Some(pad);
         }

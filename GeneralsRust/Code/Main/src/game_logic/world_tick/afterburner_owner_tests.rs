@@ -38,7 +38,7 @@ fn world(cue: Option<&str>) -> (GameLogic, ObjectId) {
     (world, id)
 }
 fn assert_event(world: &mut GameLogic, id: ObjectId, cue: &str, stop: bool) {
-    let events = std::mem::take(&mut world.queued_audio_events);
+    let events = world.queued_audio_events.drain_requests();
     assert_eq!(events.len(), 1);
     assert_eq!(events[0].event_type, cue);
     assert_eq!(events[0].object_id, Some(id));

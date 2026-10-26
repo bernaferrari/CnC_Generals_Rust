@@ -166,7 +166,7 @@ fn driving_main_team_status_uses_exact_owner_identity_and_existing_empty_team() 
                 .clear();
             world.host_object_mut(beta).unwrap().set_ai_state(
                 AIState::Moving,
-                &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+                &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
             );
             let idle = ScriptOwnerQuery::Present(ScriptTeamStatus {
                 has_group: true,

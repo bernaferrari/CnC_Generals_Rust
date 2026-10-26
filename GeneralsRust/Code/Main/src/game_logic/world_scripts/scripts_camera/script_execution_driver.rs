@@ -207,6 +207,46 @@ impl<'a> HostScriptExecutionDriver<'a> {
 }
 
 impl HostScriptExecutionDriver<'_> {
+    fn owned_audio_extra_receipts(&self) -> Vec<u32> {
+        let mut extra_handles = Vec::new();
+        if let Some(view) = self.ui.view.as_deref() {
+            view.visit_owned_ambient_audio_handles(&mut |handle| extra_handles.push(handle));
+        }
+        if let (Some(ui), Some(audio)) = (self.ui.ui.as_deref(), self.ui.audio.as_deref()) {
+            ui.visit_owned_menu_audio_receipts(&mut |device, handles| {
+                if audio.accepts_audio_device(device) {
+                    extra_handles.extend_from_slice(handles);
+                }
+            });
+        }
+        extra_handles
+    }
+
+    fn admit_owned_script_audio(
+        &mut self,
+        event: &game_engine::common::audio::AudioEventRts,
+        source_player: i32,
+    ) -> gamelogic::GameLogicResult<()> {
+        let locality = self
+            .world
+            .receiving_audio_locality_for_player(source_player);
+        let Some(audio) = self.ui.audio.as_deref_mut() else {
+            return Ok(());
+        };
+        let mut selection = crate::game_logic::SessionAudioSelection {
+            logic: &self.world.logic_random,
+            audio: &mut self.world.session_view.audio_random,
+        };
+        audio
+            .submit_selected_audio(
+                event,
+                &locality,
+                &mut selection,
+                self.world.queued_audio_events.policy(),
+            )
+            .map_err(gamelogic::GameLogicError::Configuration)
+    }
+
     /// CPP OpenContain::addOrRemoveObjFromWorld removes enclosed riders and
     /// their descendants from the partition. Non-enclosing riders stay visible.
     fn sighting_candidate_is_in_partition(&self, candidate: &Object) -> bool {
@@ -230,6 +270,83 @@ impl HostScriptExecutionDriver<'_> {
 }
 
 impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
+    fn music_track_completed(
+        &mut self,
+        track: &str,
+        number_of_times: i32,
+    ) -> Option<gamelogic::GameLogicResult<bool>> {
+        let extra_handles = self.owned_audio_extra_receipts();
+        Some(match self.ui.audio.as_deref_mut() {
+            Some(audio) => audio
+                .music_track_completed(track, number_of_times, &extra_handles)
+                .map_err(gamelogic::GameLogicError::Configuration),
+            None => Ok(false),
+        })
+    }
+
+    fn speech_play(
+        &mut self,
+        name: &str,
+        allow_overlap: bool,
+    ) -> Option<gamelogic::GameLogicResult<()>> {
+        let mut event = game_engine::common::audio::AudioEventRts::with_event_name(name);
+        event.set_is_logical_audio(true);
+        event.set_uninterruptable(!allow_overlap);
+        let player = self
+            .world
+            .local_player_id()
+            .map(|id| id as i32)
+            .unwrap_or(-1);
+        event.set_player_index(player);
+        let result = self.admit_owned_script_audio(&event, player);
+        if result.is_ok() {
+            self.world.mission_scripts.admit_speech_caption(name);
+        }
+        Some(result)
+    }
+
+    fn audio(
+        &mut self,
+        request: gamelogic::scripting::engine::ScriptAudioRequest<'_>,
+    ) -> Option<gamelogic::GameLogicResult<()>> {
+        use gamelogic::scripting::engine::ScriptAudioRequest as Request;
+        let valid = match request {
+            Request::SetVolume { volume, .. } | Request::NamedVolume { volume, .. } => {
+                volume.is_finite()
+            }
+            _ => true,
+        };
+        if !valid {
+            return Some(Err(gamelogic::GameLogicError::Configuration(
+                "nonfinite script audio policy".into(),
+            )));
+        }
+        match request {
+            Request::SetVolume { volume, affect } => {
+                self.world.queued_audio_events.set_volume(volume, affect)
+            }
+            Request::NamedVolume { name, volume } => self
+                .world
+                .queued_audio_events
+                .set_named_volume(name, volume),
+            Request::Pause(_) => self.world.queued_audio_events.pause_pending(),
+            _ => {}
+        }
+        let extra_handles = self.owned_audio_extra_receipts();
+        Some(if let Some(audio) = self.ui.audio.as_deref_mut() {
+            audio
+                .script_audio(
+                    request,
+                    self.world.queued_audio_events.policy(),
+                    &extra_handles,
+                )
+                .map_err(gamelogic::GameLogicError::Configuration)
+        } else {
+            // Explicit non-presentation/headless execution owns policy but no playing receipts.
+            Ok(())
+        })
+    }
+
     fn set_campaign_victorious(
         &mut self,
         victorious: bool,
@@ -430,12 +547,17 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
                     if let Some(id) = named(self.world, unit) {
                         // The native audio service is a real external boundary;
                         // identity is selected only from the driving simulation.
-                        if let Some(audio) = gamelogic::helpers::TheAudio::get() {
-                            let mut event = gamelogic::common::audio::AudioEventRts::new(sound);
-                            event.set_object_id(id.0);
-                            event.set_is_logical_audio(true);
-                            audio.add_audio_event(&event);
-                        }
+                        let mut event =
+                            game_engine::common::audio::AudioEventRts::with_object_id(sound, id.0);
+                        event.set_is_logical_audio(true);
+                        let player = self
+                            .world
+                            .objects
+                            .get(&id)
+                            .and_then(|o| o.owner_player_id)
+                            .map(|p| p as i32)
+                            .unwrap_or(-1);
+                        self.admit_owned_script_audio(&event, player)?;
                     }
                 }
                 ScriptObjectEffect::Sound(Sound::Enable { unit, enable }) => {
@@ -668,6 +790,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
             this_object.map(ObjectId),
             calling,
             condition,
+            &mut self.ui,
         ))
     }
 
@@ -760,6 +883,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
             calling,
             condition,
             force_normal,
+            &mut self.ui,
         ))
     }
     fn named_waypoint(
@@ -862,6 +986,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
             calling,
             condition,
             force_normal,
+            &mut self.ui,
         ))
     }
 
@@ -1709,10 +1834,11 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         request: ScriptNamedCommand<'_>,
         this_object: Option<gamelogic::common::ObjectID>,
     ) -> Option<gamelogic::GameLogicResult<()>> {
-        Some(
-            self.world
-                .apply_owned_named_script_command(request, this_object.map(ObjectId)),
-        )
+        Some(self.world.apply_owned_named_script_command(
+            request,
+            this_object.map(ObjectId),
+            &mut self.ui,
+        ))
     }
 
     fn skirmish_player_exists(
@@ -1994,6 +2120,31 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         // interpreter/service adapter invoked it. The existing after_action
         // drain makes them observable before the next authored statement.
         match request {
+            ScriptWorldRequest::Music {
+                track,
+                fade_out,
+                fade_in,
+            } => {
+                let stopped = self
+                    .audio(
+                        gamelogic::scripting::engine::ScriptAudioRequest::StopMusic {
+                            fade: fade_out,
+                        },
+                    )
+                    .unwrap_or(Ok(()));
+                if let Err(error) = stopped {
+                    return Some(Err(error));
+                }
+                let mut event = game_engine::common::audio::AudioEventRts::with_event_name(track);
+                event.set_should_fade(fade_in);
+                let player = self
+                    .world
+                    .local_player_id()
+                    .map(|id| id as i32)
+                    .unwrap_or(-1);
+                event.set_player_index(player);
+                return Some(self.admit_owned_script_audio(&event, player));
+            }
             ScriptWorldRequest::Freeze(frozen) => {
                 self.world.mission_scripts.push_script_freeze_time(frozen);
                 return Some(Ok(()));
@@ -2055,11 +2206,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
                 ScriptWorldRequest::Freeze(_)
                 | ScriptWorldRequest::VisualSpeed(_)
                 | ScriptWorldRequest::Weather(_) => Ok(()),
-                ScriptWorldRequest::Music {
-                    track,
-                    fade_out,
-                    fade_in,
-                } => handler.music_set_track(track, fade_out, fade_in),
+                ScriptWorldRequest::Music { .. } => unreachable!("native music admitted above"),
             }
         } else {
             Ok(())

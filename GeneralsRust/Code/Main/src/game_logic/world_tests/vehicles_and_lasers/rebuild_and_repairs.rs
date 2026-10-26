@@ -89,7 +89,7 @@ fn dozer_bored_mine_clear_assigns_enemy_mine() {
     if let Some(o) = logic.host_object_mut(did) {
         o.set_ai_state(
             AIState::Idle,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         o.idle_since_frame = 1;
     }
@@ -149,7 +149,7 @@ fn dozer_bored_auto_repair_assigns_damaged_structure() {
     if let Some(o) = logic.host_object_mut(did) {
         o.set_ai_state(
             AIState::Idle,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         o.idle_since_frame = 1;
     }

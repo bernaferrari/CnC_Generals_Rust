@@ -561,6 +561,26 @@ impl AudioManagerSubsystem {
         );
         self.common_audio_device = Some(device);
     }
+    pub(crate) fn receiving_audio_parts(
+        &mut self,
+    ) -> Option<(
+        &std::sync::Arc<std::sync::Mutex<game_engine::common::audio::AudioManager>>,
+        &mut Vec<u32>,
+        &mut Vec<crate::game_logic::audio_dispatch_impl::AdmittedAudioRequest>,
+    )> {
+        self.common_audio_device.as_ref().map(|device| {
+            (
+                device,
+                &mut self.common_audio_handles,
+                &mut self.queued_events,
+            )
+        })
+    }
+    pub(crate) fn receiving_audio_device(
+        &self,
+    ) -> Option<std::sync::Arc<std::sync::Mutex<game_engine::common::audio::AudioManager>>> {
+        self.common_audio_device.as_ref().map(std::sync::Arc::clone)
+    }
     fn retire_common_audio_receipts(&mut self) {
         if let Some(device) = &self.common_audio_device {
             device
@@ -614,7 +634,8 @@ impl AudioManagerSubsystem {
             .collect()
     }
 
-    /// C++ `TheAudio->removeAudioEvent(handle)` / `removePlayingAudio(name)`.
+    /// C++ removeAudioEvent(handle)/removePlayingAudio(name), bound to this
+    /// receiver's actual device and original accepted receipts only.
     fn stop_leftover_looping_audio(&mut self, object_id: Option<u32>, event_name: &str) {
         let lookup = if event_name == "WeaponFireLoopStop" {
             "WeaponFireLoop"
@@ -622,39 +643,40 @@ impl AudioManagerSubsystem {
             event_name
         };
         let token = matches!(event_name, "WeaponFireLoopStop" | "AfterburnerStop");
-
-        if let Some(id) = object_id {
+        let mut handles = Vec::new();
+        let fallback_by_name = if let Some(id) = object_id {
             if let Some(entries) = self.looping_object_audio.get_mut(&id) {
-                if let Some(audio) = gamelogic::helpers::TheAudio::get() {
-                    entries.retain(|(name, handle)| {
-                        if name == lookup {
-                            if *handle != 0 {
-                                audio.remove_audio_event(*handle);
-                            } else if !matches!(
-                                name.as_str(),
-                                "WeaponFireLoopStop" | "AfterburnerStop"
-                            ) {
-                                audio.remove_audio_event_by_name(name);
-                            }
-                            false
-                        } else {
-                            true
+                entries.retain(|(name, handle)| {
+                    if name == lookup {
+                        if (1000..0xFFFF_FFF0).contains(handle) {
+                            handles.push(*handle);
                         }
-                    });
-                } else {
-                    entries.retain(|(name, _)| name != lookup);
-                }
+                        false
+                    } else {
+                        true
+                    }
+                });
                 if entries.is_empty() {
                     self.looping_object_audio.remove(&id);
                 }
-            } else if !token {
-                if let Some(audio) = gamelogic::helpers::TheAudio::get() {
-                    audio.remove_audio_event_by_name(lookup);
+                false
+            } else {
+                !token
+            }
+        } else {
+            !token
+        };
+        if let Some(device) = self.common_audio_device.as_ref() {
+            let mut device = device
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            for handle in handles {
+                if self.common_audio_handles.contains(&handle) {
+                    device.remove_audio_event(handle);
                 }
             }
-        } else if !token {
-            if let Some(audio) = gamelogic::helpers::TheAudio::get() {
-                audio.remove_audio_event_by_name(lookup);
+            if fallback_by_name {
+                device.remove_owned_playing_audio(lookup, &self.common_audio_handles);
             }
         }
     }
@@ -732,13 +754,9 @@ impl AudioManagerSubsystem {
                         continue;
                     }
                     let position = event.position.map(|p| (p.x, p.y, p.z));
-                    let volume_scale = crate::assets::audio::live_gameplay_sfx_volume(
-                        event.event_type.as_str(),
-                        position,
-                    );
-                    if volume_scale <= 0.0 {
-                        continue;
-                    }
+                    // Native Common admission owns category gain and falloff. The
+                    // separate asset fallback below retains its own observation.
+                    let volume_scale = 1.0;
                     // C++ MilesAudioManager::playSample3D — keep pose + object_id
                     // on TheAudio so Common SpatialSink follows the unit.
                     // Leftover addAudioEvent already applied mute / not-for-local.
@@ -755,6 +773,10 @@ impl AudioManagerSubsystem {
                                 event.object_id.map(|id| id.0),
                                 event.player_index,
                                 &locality,
+                                event
+                                    .script_audio_policy
+                                    .as_ref()
+                                    .expect("native semantic audio captured its receiving policy"),
                                 &mut ReceivingAudioSelection { audio: random },
                             )
                         });

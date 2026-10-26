@@ -35,6 +35,12 @@ impl Drawable for DeltaDrawable {
     fn get_transform(&self) -> Matrix4 {
         self.inner.get_transform()
     }
+    fn set_base_transform(&mut self, transform: Matrix4) {
+        self.inner.set_base_transform(transform)
+    }
+    fn get_instance_transform(&self) -> Matrix4 {
+        self.inner.get_instance_transform()
+    }
     fn set_instance_transform(&mut self, transform: Matrix4) {
         self.inner.set_instance_transform(transform)
     }

@@ -727,7 +727,6 @@ pub struct Mouse {
 
     // Cursor state
     current_cursor: MouseCursor,
-    visible: bool,
 }
 
 impl Mouse {
@@ -763,7 +762,6 @@ impl Mouse {
             tooltip_state: CursorTooltipState::default(),
 
             current_cursor: MouseCursor::Normal,
-            visible: true,
         }
     }
 
@@ -917,7 +915,7 @@ impl Mouse {
 
     /// Set cursor visibility
     pub fn set_cursor_visible(&mut self, visible: bool) {
-        self.visible = visible;
+        self.state.set_cursor_visible(visible);
     }
 
     pub fn set_cursor(&mut self, cursor: MouseCursor) {
@@ -932,11 +930,11 @@ impl Mouse {
     }
 
     pub fn set_visibility(&mut self, visible: bool) {
-        self.visible = visible;
+        self.state.set_cursor_visible(visible);
     }
 
     pub fn get_visibility(&self) -> bool {
-        self.visible
+        self.state.is_cursor_visible()
     }
 
     pub fn set_cursor_tooltip(
@@ -1063,7 +1061,7 @@ impl Mouse {
         screen_height: f32,
     ) -> Option<TooltipDrawInfo> {
         let ts = &self.tooltip_state;
-        if !self.visible || !ts.display_tooltip || ts.tooltip_text.is_empty() {
+        if !self.state.is_cursor_visible() || !ts.display_tooltip || ts.tooltip_text.is_empty() {
             return None;
         }
 
@@ -1257,7 +1255,7 @@ mod tests {
     fn retail_mouse_ini_settings_widen_and_shrink_tooltip_text() {
         let text = "The Battle Honors a player has received by achieving certain goals";
         let mut constructor = Mouse::new();
-        constructor.visible = true;
+        constructor.set_visibility(true);
         constructor.tooltip_state.display_tooltip = true;
         constructor.tooltip_state.tooltip_text = text.to_string();
         let default_lines = constructor

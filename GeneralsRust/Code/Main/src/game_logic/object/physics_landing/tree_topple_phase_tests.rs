@@ -115,6 +115,7 @@ fn installed_motion_topple_fx_precedes_trigger_update_and_is_consumed_once() {
                 Object::step_motion_contact_with_effects,
                 &mut effects
             )
+            .unwrap()
             .is_some()
     );
     drop(effects);
@@ -142,6 +143,7 @@ fn installed_motion_topple_fx_precedes_trigger_update_and_is_consumed_once() {
                 Object::step_motion_contact_with_effects,
                 &mut effects
             )
+            .unwrap()
             .is_some()
     );
     drop(effects);

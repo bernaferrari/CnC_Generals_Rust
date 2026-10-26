@@ -6,6 +6,7 @@
 mod ai;
 mod ai_phase;
 mod airfield;
+mod jet_lockon;
 #[cfg(test)]
 pub(in crate::game_logic) use airfield::heli_motion_tests;
 mod attack;
@@ -43,3 +44,6 @@ mod teams;
 
 #[cfg(test)]
 mod temporary_move_owner_tests;
+
+#[cfg(test)]
+mod jet_aim_owner_tests;

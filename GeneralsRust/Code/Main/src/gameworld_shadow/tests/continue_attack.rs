@@ -70,7 +70,7 @@ fn ai_decision_authority_applies_attack_via_gameworld() {
         object.set_target(
             Some(vid),
             attack_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     };
     assert_eq!(logic.host_object(oid).unwrap().target, Some(vid));
@@ -618,7 +618,7 @@ fn mood_auto_acquire_logs_decision_under_authority() {
         // the try_mood_auto_acquire_enters_attack precedent sets Idle explicitly.
         o.set_ai_state(
             crate::game_logic::AIState::Idle,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         o.set_auto_acquire_when_idle(true);
         // C++ AutoAcquireEnemiesWhenIdle is a BITFIELD parsed from INI

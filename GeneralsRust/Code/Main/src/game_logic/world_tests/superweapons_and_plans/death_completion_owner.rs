@@ -76,10 +76,10 @@ End
             DeathKind::Jet => {
                 object.set_ai_state(
                     AIState::Moving,
-                    &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+                    &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
                 );
                 let start = object.begin_jet_slow_death(
-                    &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+                    &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
                 );
                 assert!(start.defer_destruction);
                 owner_idle_entry = start.enter_idle;
@@ -87,10 +87,10 @@ End
             DeathKind::Helicopter => {
                 object.set_ai_state(
                     AIState::Moving,
-                    &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+                    &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
                 );
                 let start = object.begin_helicopter_slow_death(
-                    &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+                    &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
                 );
                 assert!(start.defer_destruction);
                 owner_idle_entry = start.enter_idle;

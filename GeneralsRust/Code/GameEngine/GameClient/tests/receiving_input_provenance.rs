@@ -88,7 +88,7 @@ fn dispatch(c: &mut GameClient, bar: &mut ControlBar, origin: Origin) {
     let frame = c.get_frame();
     let mut viewport = Viewport;
     let mut emitted = Vec::new();
-    let (owner, campaign, main_menu, mailbox, display, videos, ime, mut menus, ui) =
+    let (owner, campaign, main_menu, mailbox, display, videos, ime, mut menus, ui, _mouse) =
         c.window_owner_campaign_menu_and_host_mut();
     let mut context = ControlBarInputContext {
 control_bar_observation:Some(game_client_rust::gui::callbacks::control_bar_observation::ControlBarCallbackObservation{game_ending:false,multiplayer:false,local_player:None,mouse:None}),
@@ -142,7 +142,7 @@ fn replay(
     bar: &mut ControlBar,
 ) -> Vec<game_client_rust::gui::control_bar::HostControlBarPublishedRequest> {
     let mut messages = Vec::new();
-    let (owner, _, _, _, _, _, _, _, ui) = c.window_owner_campaign_menu_and_host_mut();
+    let (owner, _, _, _, _, _, _, _, ui, _mouse) = c.window_owner_campaign_menu_and_host_mut();
     let ui = ui.unwrap();
     owner.with_manager(|manager| {
         bar.replay_pending_command_clicks_receiving(owner, &mut messages, manager, ui)
