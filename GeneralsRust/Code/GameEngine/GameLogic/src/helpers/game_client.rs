@@ -180,6 +180,85 @@ pub struct ScenePointLight {
     pub fade_remaining: u32,
 }
 
+#[derive(Clone, Copy, Debug)]
+struct ScenePointLightFade {
+    total: u32,
+    ambient: [f32; 3],
+    diffuse: [f32; 3],
+    far_end: f32,
+}
+
+impl ScenePointLightFade {
+    fn start(light: &mut ScenePointLight, frames: u32) -> Self {
+        let total = frames.max(1);
+        light.fade_remaining = total;
+        Self {
+            total,
+            ambient: light.ambient,
+            diffuse: light.diffuse,
+            far_end: light.far_end,
+        }
+    }
+
+    fn advance(&self, light: &mut ScenePointLight) -> bool {
+        light.fade_remaining = light.fade_remaining.saturating_sub(1);
+        if light.fade_remaining == 0 {
+            // C++ disables and returns at zero before writing a zero-valued frame.
+            light.enabled = false;
+            return true;
+        }
+
+        let factor = light.fade_remaining as f32 / self.total as f32;
+        light.ambient = self.ambient.map(|value| value * factor);
+        light.diffuse = self.diffuse.map(|value| value * factor);
+        light.far_end = (self.far_end * factor).max(light.far_start);
+        false
+    }
+}
+
+/// Light value and its transient fade state share the point-light map's lock.
+#[derive(Clone, Debug)]
+pub(crate) struct ScenePointLightState {
+    light: ScenePointLight,
+    fade: Option<ScenePointLightFade>,
+}
+
+impl ScenePointLightState {
+    fn begin_fade(&mut self, frames: u32) {
+        self.fade = Some(ScenePointLightFade::start(&mut self.light, frames));
+    }
+
+    fn update(
+        &mut self,
+        pos: [f32; 3],
+        ambient: [f32; 3],
+        diffuse: [f32; 3],
+        far_start: f32,
+        far_end: f32,
+    ) {
+        self.light.pos = pos;
+        self.light.ambient = ambient;
+        self.light.diffuse = diffuse;
+        self.light.far_start = far_start;
+        self.light.far_end = far_end;
+        self.light.enabled = true;
+        self.light.fade_remaining = 0;
+        self.fade = None;
+    }
+
+    fn advance_fade(&mut self) -> bool {
+        let Some(fade) = self.fade else {
+            return false;
+        };
+        if fade.advance(&mut self.light) {
+            self.fade = None;
+            true
+        } else {
+            false
+        }
+    }
+}
+
 /// Presentation data associated with one GameLogic world. C++ stores its
 /// Drawable list on GameClient and W3D lights in draw modules. These bridge
 /// maps belong to the world bundle so a staged restore cannot mutate the
@@ -188,7 +267,7 @@ pub(crate) struct ClientVisualState {
     pub(crate) drawables: Mutex<HashMap<u32, DrawableState>>,
     pub(crate) model_draw_frames: Mutex<HashMap<ObjectID, ObjectModelDrawFrameState>>,
     pub(crate) wheel_info: Mutex<HashMap<ObjectID, DrawWheelInfo>>,
-    pub(crate) point_lights: Mutex<HashMap<u64, ScenePointLight>>,
+    pub(crate) point_lights: Mutex<HashMap<u64, ScenePointLightState>>,
     pub(crate) next_point_light: std::sync::atomic::AtomicU64,
     pub(crate) terrain_trees: Mutex<HashMap<u32, TerrainTreeRegistration>>,
     pub(crate) weapon_recoils: Mutex<Vec<(ObjectID, f32, f32)>>,
@@ -368,15 +447,18 @@ pub fn create_scene_point_light() -> u64 {
     if let Ok(mut lights) = visuals.point_lights.lock() {
         lights.insert(
             id,
-            ScenePointLight {
-                id,
-                pos: [0.0; 3],
-                ambient: [0.0; 3],
-                diffuse: [0.0; 3],
-                far_start: 5.0,
-                far_end: 15.0,
-                enabled: true,
-                fade_remaining: 0,
+            ScenePointLightState {
+                light: ScenePointLight {
+                    id,
+                    pos: [0.0; 3],
+                    ambient: [0.0; 3],
+                    diffuse: [0.0; 3],
+                    far_start: 5.0,
+                    far_end: 15.0,
+                    enabled: true,
+                    fade_remaining: 0,
+                },
+                fade: None,
             },
         );
     }
@@ -395,12 +477,7 @@ pub fn update_scene_point_light(
     let visuals = stores.client_visuals();
     if let Ok(mut lights) = visuals.point_lights.lock() {
         if let Some(light) = lights.get_mut(&id) {
-            light.pos = pos;
-            light.ambient = ambient;
-            light.diffuse = diffuse;
-            light.far_start = far_start;
-            light.far_end = far_end;
-            light.enabled = true;
+            light.update(pos, ambient, diffuse, far_start, far_end);
         }
     }
 }
@@ -410,7 +487,7 @@ pub fn fade_scene_point_light(id: u64, frames: u32) {
     let visuals = stores.client_visuals();
     if let Ok(mut lights) = visuals.point_lights.lock() {
         if let Some(light) = lights.get_mut(&id) {
-            light.fade_remaining = frames.max(1);
+            light.begin_fade(frames);
         }
     }
 }
@@ -420,26 +497,9 @@ pub fn tick_scene_point_lights() {
     let visuals = stores.client_visuals();
     if let Ok(mut lights) = visuals.point_lights.lock() {
         let mut dead = Vec::new();
-        for light in lights.values_mut() {
-            if light.fade_remaining == 0 {
-                continue;
-            }
-            light.fade_remaining -= 1;
-            let factor = light.fade_remaining as f32 / 5.0;
-            light.ambient = [
-                light.ambient[0] * factor,
-                light.ambient[1] * factor,
-                light.ambient[2] * factor,
-            ];
-            light.diffuse = [
-                light.diffuse[0] * factor,
-                light.diffuse[1] * factor,
-                light.diffuse[2] * factor,
-            ];
-            light.far_end = (light.far_end * factor).max(light.far_start);
-            if light.fade_remaining == 0 {
-                light.enabled = false;
-                dead.push(light.id);
+        for (&id, light) in lights.iter_mut() {
+            if light.advance_fade() {
+                dead.push(id);
             }
         }
         for id in dead {
@@ -454,7 +514,13 @@ pub fn scene_point_lights() -> Vec<ScenePointLight> {
     visuals
         .point_lights
         .lock()
-        .map(|lights| lights.values().filter(|l| l.enabled).cloned().collect())
+        .map(|lights| {
+            lights
+                .values()
+                .filter(|state| state.light.enabled)
+                .map(|state| state.light.clone())
+                .collect()
+        })
         .unwrap_or_default()
 }
 
@@ -1674,5 +1740,66 @@ mod model_draw_bridge_tests {
         assert_eq!(pose.1, 1.25);
         assert_eq!(pose.2, 1.0);
         assert!(client.drawable_pose_for_tree(INVALID_ID).is_none());
+    }
+}
+
+#[cfg(test)]
+mod scene_point_light_fade_tests {
+    use super::{ScenePointLight, ScenePointLightState};
+
+    fn state() -> ScenePointLightState {
+        ScenePointLightState {
+            light: ScenePointLight {
+                id: 7,
+                pos: [1.0, 2.0, 3.0],
+                ambient: [0.5, 0.25, 0.0],
+                diffuse: [1.0, 0.5, 0.25],
+                far_start: 3.0,
+                far_end: 20.0,
+                enabled: true,
+                fade_remaining: 0,
+            },
+            fade: None,
+        }
+    }
+
+    #[test]
+    fn five_frame_fade_scales_from_original_targets_like_cpp() {
+        let mut state = state();
+        state.begin_fade(5);
+
+        for (remaining, factor) in [(4, 0.8), (3, 0.6), (2, 0.4), (1, 0.2)] {
+            assert!(!state.advance_fade());
+            assert_eq!(state.light.fade_remaining, remaining);
+            assert_eq!(state.light.ambient, [0.5 * factor, 0.25 * factor, 0.0]);
+            assert_eq!(
+                state.light.diffuse,
+                [1.0 * factor, 0.5 * factor, 0.25 * factor]
+            );
+            assert_eq!(state.light.far_end, (20.0 * factor).max(3.0));
+            assert!(state.light.enabled);
+        }
+
+        assert!(state.advance_fade());
+        assert_eq!(state.light.fade_remaining, 0);
+        assert!(!state.light.enabled);
+        assert!(state.fade.is_none());
+    }
+
+    #[test]
+    fn update_cancels_fade_and_restores_full_light_under_same_record() {
+        let mut state = state();
+        state.begin_fade(5);
+        assert!(!state.advance_fade());
+
+        state.update([4.0, 5.0, 6.0], [0.2; 3], [0.4; 3], 2.0, 12.0);
+
+        assert!(state.fade.is_none());
+        assert_eq!(state.light.fade_remaining, 0);
+        assert_eq!(state.light.pos, [4.0, 5.0, 6.0]);
+        assert_eq!(state.light.ambient, [0.2; 3]);
+        assert_eq!(state.light.diffuse, [0.4; 3]);
+        assert_eq!(state.light.far_end, 12.0);
+        assert!(state.light.enabled);
     }
 }
