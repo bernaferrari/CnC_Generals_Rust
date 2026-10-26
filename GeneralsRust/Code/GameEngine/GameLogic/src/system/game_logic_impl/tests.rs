@@ -1355,18 +1355,28 @@ mod tests {
         }
 
         impl crate::helpers::LoadScreenHooks for RecordingLoadScreenHooks {
-            fn begin_load_screen(&mut self, game_mode: i32, loading_save_game: bool) {
+            fn begin_load_screen(
+                &mut self,
+                game_mode: i32,
+                loading_save_game: bool,
+            ) -> Result<(), String> {
                 self.events
                     .push(format!("begin:{game_mode}:{loading_save_game}"));
+                Ok(())
             }
 
-            fn update_load_screen(&mut self, progress: i32) {
+            fn update_load_screen(&mut self, progress: i32) -> Result<(), String> {
                 self.events.push(format!("update:{progress}"));
+                Ok(())
             }
 
-            fn run_load_screen_completion_transition(&mut self, loading_save_game: bool) {
+            fn run_load_screen_completion_transition(
+                &mut self,
+                loading_save_game: bool,
+            ) -> Result<(), String> {
                 self.events
                     .push(format!("finish-transition:{loading_save_game}"));
+                Ok(())
             }
 
             fn end_load_screen(&mut self) {
