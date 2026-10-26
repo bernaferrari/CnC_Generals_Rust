@@ -988,6 +988,8 @@ mod tests {
         let layout = WindowLayout::new("Menus/ChallengeMenu.wnd".to_string());
         let mut messages = Vec::new();
         let mut effects = crate::gui::game_window::WindowEventEffects {
+            input_provenance:
+                crate::gui::control_bar::HostControlBarInputProvenance::InjectedOrUnknown,
             standalone_view: None,
             payloads: Default::default(),
             diplomacy_world: None,
@@ -1060,6 +1062,8 @@ mod tests {
         let layout = WindowLayout::new("Menus/ChallengeMenu.wnd".to_string());
         let mut messages = Vec::new();
         let mut effects = crate::gui::game_window::WindowEventEffects {
+            input_provenance:
+                crate::gui::control_bar::HostControlBarInputProvenance::InjectedOrUnknown,
             standalone_view: None,
             payloads: Default::default(),
             diplomacy_world: None,
@@ -1244,6 +1248,8 @@ mod tests {
 
             let mut messages = Vec::new();
             let mut effects = crate::gui::game_window::WindowEventEffects {
+                input_provenance:
+                    crate::gui::control_bar::HostControlBarInputProvenance::InjectedOrUnknown,
                 standalone_view: None,
                 payloads: Default::default(),
                 diplomacy_world: None,

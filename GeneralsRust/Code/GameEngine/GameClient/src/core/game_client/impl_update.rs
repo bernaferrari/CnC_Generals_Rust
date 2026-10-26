@@ -2597,6 +2597,8 @@ impl GameClient {
             let mut shell = self.window_manager_owner.shell_handle();
             let mut messages = Vec::new();
             let mut effects = crate::gui::game_window::WindowEventEffects {
+                input_provenance:
+                    crate::gui::control_bar::HostControlBarInputProvenance::InjectedOrUnknown,
                 standalone_view: None,
                 client_frame: Some(self.frame),
                 logic_frame: menu_world.map(|facts| facts.logic_frame),

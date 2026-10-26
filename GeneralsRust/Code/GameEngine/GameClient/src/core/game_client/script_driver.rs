@@ -222,6 +222,8 @@ impl GameClient {
         let mut driver = ReceivingClientScriptDriver {
             world,
             effects: WindowEventEffects {
+                input_provenance:
+                    crate::gui::control_bar::HostControlBarInputProvenance::InjectedOrUnknown,
                 standalone_view: None,
                 client_frame: Some(self.frame),
                 logic_frame: Some(logic_frame),

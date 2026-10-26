@@ -41,6 +41,7 @@ pub type SystemCallback =
 /// Effects borrowed from the receiving GameClient for one synchronous window event.
 /// The effects never outlive callback delivery or enter a queued continuation.
 pub struct WindowEventEffects<'a> {
+    pub(crate) input_provenance: crate::gui::control_bar::HostControlBarInputProvenance,
     pub(crate) standalone_view: Option<&'a mut crate::display::view::View>,
     pub(crate) client_frame: Option<u32>,
     pub(crate) logic_frame: Option<u32>,
@@ -68,10 +69,49 @@ pub struct WindowEventEffects<'a> {
     )>,
 }
 impl<'effects> WindowEventEffects<'effects> {
+    /// Origin of this exact synchronous input operation; preserved through
+    /// bounded receiving-manager loans and discarded when it finishes.
+    pub fn input_provenance(&self) -> crate::gui::control_bar::HostControlBarInputProvenance {
+        self.input_provenance
+    }
+
+    pub(crate) fn save_load(&self) -> &crate::gui::callbacks::popup_save_load::SaveLoadMenuState {
+        self.menus
+            .as_ref()
+            .expect("save/load operation requires receiving menus")
+            .save_load
+    }
+    pub(crate) fn save_load_mut(
+        &mut self,
+    ) -> &mut crate::gui::callbacks::popup_save_load::SaveLoadMenuState {
+        self.menus
+            .as_mut()
+            .expect("save/load operation requires receiving menus")
+            .save_load
+    }
+    pub(crate) fn save_load_host(
+        &self,
+    ) -> &crate::gui::callbacks::popup_save_load::HostPopupSaveLoadBridge {
+        self.menus
+            .as_ref()
+            .expect("save/load operation requires receiving menus")
+            .save_load_host
+    }
+    pub(crate) fn save_load_host_mut(
+        &mut self,
+    ) -> &mut crate::gui::callbacks::popup_save_load::HostPopupSaveLoadBridge {
+        self.menus
+            .as_mut()
+            .expect("save/load operation requires receiving menus")
+            .save_load_host
+    }
+
     /// Begin a synchronous operation with its own typed message storage.
     /// Capabilities are supplied by the receiving client when needed.
     pub fn new(emitted_messages: &'effects mut Vec<GameMessage>) -> Self {
         Self {
+            input_provenance:
+                crate::gui::control_bar::HostControlBarInputProvenance::InjectedOrUnknown,
             payloads: Default::default(),
             diplomacy_world: None,
             ui: None,
@@ -519,6 +559,7 @@ impl<'effects> WindowEventEffects<'effects> {
         let mut local = WindowEventEffects {
             payloads: std::mem::take(&mut self.payloads),
             diplomacy_world: facts,
+            input_provenance: self.input_provenance,
             ui: self.ui.as_deref_mut(),
             logic_frame: self.logic_frame,
             client_frame: self.client_frame,
@@ -556,6 +597,7 @@ impl<'effects> WindowEventEffects<'effects> {
         operation: impl FnOnce(&mut WindowEventEffects<'_>) -> R,
     ) -> R {
         let mut local = WindowEventEffects {
+            input_provenance: self.input_provenance,
             payloads: std::mem::take(&mut self.payloads),
             diplomacy_world: self.diplomacy_world,
             ui: self.ui.as_deref_mut(),

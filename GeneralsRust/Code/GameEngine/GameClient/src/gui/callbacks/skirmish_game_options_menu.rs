@@ -2383,6 +2383,8 @@ mod tests {
             });
             let mut emitted = Vec::new();
             let mut effects = WindowEventEffects {
+                input_provenance:
+                    crate::gui::control_bar::HostControlBarInputProvenance::InjectedOrUnknown,
                 standalone_view: None,
                 payloads: Default::default(),
                 diplomacy_world: None,

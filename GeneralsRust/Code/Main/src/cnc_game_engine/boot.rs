@@ -919,7 +919,7 @@ impl CnCGameEngine {
             runtime_host_ui_screen_override: None,
             runtime_host_saw_skirmish_menu: false,
             runtime_host_last_gameplay_cmd: String::new(),
-            popup_save_load_bridge_initialized: false,
+
             pending_popup_save_slot: None,
             pending_popup_save_display_name: None,
             interactive_playability: InteractivePlayabilityEvidence::default(),

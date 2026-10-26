@@ -12,9 +12,7 @@ impl CnCGameEngine {
     /// reason to fall back to Common's separate `TheGameState` persistence.
     #[cfg(feature = "game_client")]
     fn host_publish_popup_save_load_inventory(&mut self) {
-        use game_client::gui::callbacks::{
-            PopupSaveLoadEntry, publish_host_popup_save_load_entries,
-        };
+        use game_client::gui::callbacks::PopupSaveLoadEntry;
 
         let entries = match self.save_file_manager.list_saves() {
             Ok(saves) => saves
@@ -43,7 +41,7 @@ impl CnCGameEngine {
                 Vec::new()
             }
         };
-        publish_host_popup_save_load_entries(entries);
+        self.game_client.publish_popup_save_load_entries(entries);
     }
 
     /// C++ `GameState::findNextSaveFilename` LOWEST_NUMBER `%08d.sav`.
@@ -64,16 +62,13 @@ impl CnCGameEngine {
     /// world teardown.
     #[cfg(feature = "game_client")]
     pub(crate) fn host_tick_popup_save_load_bridge(&mut self) {
-        use game_client::gui::callbacks::{
-            PopupSaveLoadRequest, take_host_popup_save_load_published_requests,
-        };
+        use game_client::gui::callbacks::PopupSaveLoadRequest;
 
-        if !self.popup_save_load_bridge_initialized {
+        if !self.game_client.popup_save_load_bridge_installed() {
             self.host_publish_popup_save_load_inventory();
-            self.popup_save_load_bridge_initialized = true;
         }
 
-        for published in take_host_popup_save_load_published_requests() {
+        for published in self.game_client.take_popup_save_load_requests() {
             let physical_os_input = published.input_provenance.is_physical_window_mouse_input();
             match published.request {
                 PopupSaveLoadRequest::Save {
@@ -307,7 +302,7 @@ impl CnCGameEngine {
             // an installed but empty inventory intentionally contains only its
             // retail New Save pseudo-row.
             self.host_publish_popup_save_load_inventory();
-            self.popup_save_load_bridge_initialized = true;
+
             self.pending_popup_save_slot = Some(slot.clone());
             self.pending_popup_save_display_name = Some(display.clone());
 
@@ -381,7 +376,7 @@ impl CnCGameEngine {
                 ensure_live_quit_menu_layout,
             };
             self.host_publish_popup_save_load_inventory();
-            self.popup_save_load_bridge_initialized = true;
+
             // C++ pause parity (same as pause_save): show QuitMenu.wnd so
             // the SaveLoad button dispatch hits a visible gadget.
             let game_ending = self.game_logic.owned_script_game_ending();

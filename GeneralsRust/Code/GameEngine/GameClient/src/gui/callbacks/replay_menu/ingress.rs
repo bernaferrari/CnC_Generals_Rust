@@ -454,6 +454,7 @@ mod tests {
             };
             let mut context = ControlBarInputContext {
             diplomacy_world: None,
+            input_provenance: crate::gui::control_bar::HostControlBarInputProvenance::InjectedOrUnknown,
             menus: None,
             ime:None,
             in_game_movies: None,

@@ -1336,7 +1336,7 @@ pub struct CnCGameEngine {
     /// WND interaction.  This latches installation of the small typed bridge
     /// between the two so a normal mouse-driven popup never writes Common's
     /// separate GameState snapshot by accident.
-    pub(crate) popup_save_load_bridge_initialized: bool,
+
     /// A runtime acceptance command chooses a deterministic slot/display name
     /// before it drives the real "New Save Game" confirmation.  The WND only
     /// supplies the description for that pseudo-row, so consume these once the

@@ -3085,6 +3085,8 @@ pub struct MenuManager {
     control_bar_callbacks: crate::gui::callbacks::control_bar_callbacks::ControlBarCallbacks,
     diplomacy: crate::gui::callbacks::diplomacy::DiplomacyCallbacks,
     ingame_ui: crate::gui::callbacks::ingame_callbacks::InGameUISystem,
+    save_load: crate::gui::callbacks::popup_save_load::SaveLoadMenuState,
+    save_load_host: crate::gui::callbacks::popup_save_load::HostPopupSaveLoadBridge,
     popup_replay: crate::gui::callbacks::popup_replay::PopupReplayState,
     flags: crate::gui::menu_flags::MenuFlags,
     score: crate::gui::callbacks::score_screen::ScoreScreenState,
@@ -3109,6 +3111,21 @@ impl MenuManager {
     ) -> &mut crate::gui::callbacks::ingame_callbacks::InGameUISystem {
         &mut self.ingame_ui
     }
+    pub(crate) fn save_load_host_installed(&self) -> bool {
+        self.save_load_host.is_installed()
+    }
+    pub(crate) fn publish_save_load_entries(
+        &mut self,
+        entries: Vec<crate::gui::callbacks::popup_save_load::PopupSaveLoadEntry>,
+    ) {
+        self.save_load_host.publish_entries(entries);
+    }
+    pub(crate) fn take_save_load_requests(
+        &mut self,
+    ) -> Vec<crate::gui::callbacks::popup_save_load::HostPopupSaveLoadPublishedRequest> {
+        self.save_load_host.take_requests()
+    }
+
     pub fn new() -> Self {
         Self {
             control_bar_callbacks: Default::default(),
@@ -3124,6 +3141,8 @@ impl MenuManager {
             popup: Default::default(),
             score: Default::default(),
             popup_replay: Default::default(),
+            save_load: Default::default(),
+            save_load_host: Default::default(),
             flags: Default::default(),
             quit: Default::default(),
             ingame_ui: Default::default(),
@@ -4677,6 +4696,9 @@ pub struct MenuCallbackRecipients<'a> {
     pub(crate) diplomacy: &'a mut crate::gui::callbacks::diplomacy::DiplomacyCallbacks,
     pub(crate) input_authority: crate::core::game_client::ClientInputAuthority,
     pub(crate) ingame_ui: &'a mut crate::gui::callbacks::ingame_callbacks::InGameUISystem,
+    pub(crate) save_load: &'a mut crate::gui::callbacks::popup_save_load::SaveLoadMenuState,
+    pub(crate) save_load_host:
+        &'a mut crate::gui::callbacks::popup_save_load::HostPopupSaveLoadBridge,
     pub(crate) popup_replay: Option<&'a mut crate::gui::callbacks::popup_replay::PopupReplayState>,
     pub(crate) flags: Option<&'a mut crate::gui::menu_flags::MenuFlags>,
     pub(crate) score: Option<&'a mut crate::gui::callbacks::score_screen::ScoreScreenState>,
@@ -4703,6 +4725,8 @@ impl MenuManager {
             input_authority,
             ingame_ui: &mut self.ingame_ui,
             diplomacy: &mut self.diplomacy,
+            save_load: &mut self.save_load,
+            save_load_host: &mut self.save_load_host,
             quit: Some(&mut self.quit),
             flags: Some(&mut self.flags),
             popup_replay: Some(&mut self.popup_replay),
@@ -4726,6 +4750,8 @@ impl MenuCallbackRecipients<'_> {
             input_authority: self.input_authority,
             ingame_ui: &mut *self.ingame_ui,
             diplomacy: &mut *self.diplomacy,
+            save_load: &mut *self.save_load,
+            save_load_host: &mut *self.save_load_host,
             quit: self.quit.as_deref_mut(),
             flags: self.flags.as_deref_mut(),
             popup_replay: self.popup_replay.as_deref_mut(),

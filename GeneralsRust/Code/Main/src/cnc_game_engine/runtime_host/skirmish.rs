@@ -418,10 +418,13 @@ impl CnCGameEngine {
                 game_client::gui::simulate_main_menu_load_game_button_gadget_selected(effects)
             })?;
             // Also bind SaveLoad LoadOnly residual controls.
-            let _ = game_client::gui::callbacks::simulate_save_load_menu_bind_layout(
-                false,
-                game_engine::SaveLoadLayoutType::LoadOnly,
-            );
+            self.with_receiving_menu_effects(|effects| {
+                game_client::gui::callbacks::simulate_save_load_menu_bind_layout(
+                    false,
+                    game_engine::SaveLoadLayoutType::LoadOnly,
+                    effects,
+                )
+            })?;
         }
         self.enter_shell_menu_from_runtime_host(Some("LoadGame"))?;
         self.runtime_host_last_gameplay_cmd = if wnd_ok {
@@ -453,17 +456,24 @@ impl CnCGameEngine {
                 simulate_save_load_menu_save_button_gadget_selected,
                 simulate_save_load_menu_select_slot,
             };
-            wnd_ok = match action.as_str() {
+            let outcome = self.with_receiving_menu_effects(|effects| match action.as_str() {
                 "save" => {
-                    let _ = simulate_save_load_menu_select_slot(slot);
-                    simulate_save_load_menu_save_button_gadget_selected()
+                    let _ = simulate_save_load_menu_select_slot(slot, effects);
+                    simulate_save_load_menu_save_button_gadget_selected(effects)
                 }
                 "delete" => {
-                    let _ = simulate_save_load_menu_select_slot(slot);
-                    simulate_save_load_menu_delete_button_gadget_selected()
+                    let _ = simulate_save_load_menu_select_slot(slot, effects);
+                    simulate_save_load_menu_delete_button_gadget_selected(effects)
                 }
-                "back" => simulate_save_load_menu_back_button_gadget_selected(),
-                _ => simulate_save_load_menu_prepare_load(slot),
+                "back" => simulate_save_load_menu_back_button_gadget_selected(effects),
+                _ => simulate_save_load_menu_prepare_load(slot, effects),
+            });
+            wnd_ok = match outcome {
+                Ok(found) => found,
+                Err(error) => {
+                    self.runtime_host_last_gameplay_cmd = format!("click_save_load_error:{error}");
+                    return;
+                }
             };
         }
         self.runtime_host_last_gameplay_cmd = if wnd_ok {

@@ -1332,6 +1332,7 @@ impl CnCGameEngine {
                               messages: &mut Vec<game_engine::common::message_stream::GameMessage>| {
                 let mut context = game_client::gui::window_manager::ControlBarInputContext {
             diplomacy_world: diplomacy_world.as_ref(),
+            input_provenance: game_client::gui::control_bar::HostControlBarInputProvenance::InjectedOrUnknown,
             ui: Some(ui), logic_frame: Some(menu_world.logic_frame), client_frame: Some(menu_world.client_frame),
             menus: Some(menus.reborrow()),
             ime:Some(ime),

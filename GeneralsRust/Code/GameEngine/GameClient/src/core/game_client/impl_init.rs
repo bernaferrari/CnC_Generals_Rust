@@ -3,6 +3,21 @@
 // so this stays one logical `game_client` module (public API identical).
 
 impl GameClient {
+    pub fn popup_save_load_bridge_installed(&self) -> bool {
+        self.menu_manager.save_load_host_installed()
+    }
+    pub fn publish_popup_save_load_entries(
+        &mut self,
+        entries: Vec<crate::gui::callbacks::popup_save_load::PopupSaveLoadEntry>,
+    ) {
+        self.menu_manager.publish_save_load_entries(entries);
+    }
+    pub fn take_popup_save_load_requests(
+        &mut self,
+    ) -> Vec<crate::gui::callbacks::popup_save_load::HostPopupSaveLoadPublishedRequest> {
+        self.menu_manager.take_save_load_requests()
+    }
+
     pub fn in_game_callbacks(&self) -> &crate::gui::callbacks::ingame_callbacks::InGameUISystem {
         self.menu_manager.ingame_ui()
     }
@@ -391,6 +406,7 @@ impl GameClient {
         self.subsystem_manager.reset_in_game_ui()?;
         self.with_window_event_effects(None, |effects| {
             crate::gui::callbacks::quit_menu::reset_quit_menu(effects);
+            crate::gui::callbacks::popup_save_load::reset_save_load_menu(effects);
         });
         match world {
             Some(world) => self.clear_core_popup_message(world),
@@ -1156,6 +1172,8 @@ impl GameClient {
         let owner = &self.window_manager_owner;
         let mut messages = Vec::new();
         let mut effects = crate::gui::game_window::WindowEventEffects {
+            input_provenance:
+                crate::gui::control_bar::HostControlBarInputProvenance::InjectedOrUnknown,
             standalone_view: None,
             client_frame: Some(self.frame),
             logic_frame: menu_world.map(|facts| facts.logic_frame),
@@ -1198,6 +1216,8 @@ impl GameClient {
         let owner = &self.window_manager_owner;
         let mut messages = Vec::new();
         let mut effects = crate::gui::game_window::WindowEventEffects {
+            input_provenance:
+                crate::gui::control_bar::HostControlBarInputProvenance::InjectedOrUnknown,
             standalone_view: None,
             client_frame: Some(self.frame),
             logic_frame: menu_world.map(|facts| facts.logic_frame),
@@ -1237,6 +1257,8 @@ impl GameClient {
             .bind(self.subsystem_manager.display.as_ref());
         let owner = &self.window_manager_owner;
         let mut effects = crate::gui::game_window::WindowEventEffects {
+            input_provenance:
+                crate::gui::control_bar::HostControlBarInputProvenance::InjectedOrUnknown,
             standalone_view: None,
             client_frame: Some(self.frame),
             logic_frame: menu_world.map(|facts| facts.logic_frame),
@@ -1297,6 +1319,8 @@ impl GameClient {
                 }
                 let mut pending_clicks = Vec::new();
                 let mut effects = crate::gui::game_window::WindowEventEffects {
+                    input_provenance:
+                        crate::gui::control_bar::HostControlBarInputProvenance::InjectedOrUnknown,
                     standalone_view: view.as_deref_mut(),
                     client_frame: Some(client_frame),
                     logic_frame: Some(logic_frame),

@@ -261,6 +261,7 @@ impl CnCGameEngine {
             ) = self.game_client.window_owner_campaign_menu_and_host_mut();
             let mut context = game_client::gui::window_manager::ControlBarInputContext {
             diplomacy_world: None,
+            input_provenance: game_client::gui::control_bar::HostControlBarInputProvenance::InjectedOrUnknown,
             ui, logic_frame: Some(menu_world.logic_frame), client_frame: Some(menu_world.client_frame),
             menus: Some(menus.reborrow()),
             ime:Some(ime),
@@ -442,6 +443,7 @@ impl CnCGameEngine {
         x: i32,
         y: i32,
         facts: game_client::gui::WindowMouseFacts,
+        input_provenance: game_client::gui::control_bar::HostControlBarInputProvenance,
     ) -> Result<game_client::gui::game_window::WindowInputReturnCode, String> {
         let replay = matches!(
             self.game_logic.game_mode(),
@@ -485,6 +487,7 @@ impl CnCGameEngine {
         ) = self.game_client.window_owner_campaign_menu_and_host_mut();
         let mut context = game_client::gui::window_manager::ControlBarInputContext {
             diplomacy_world: None,
+            input_provenance,
             ui, logic_frame: Some(menu_world.logic_frame), client_frame: Some(menu_world.client_frame),
             menus: Some(menus.reborrow()),
             ime:Some(ime),
@@ -567,7 +570,7 @@ impl CnCGameEngine {
             };
             let facts = self.native_window_mouse_facts();
             with_host_control_bar_input_provenance(provenance, || {
-                self.dispatch_native_window_mouse_with_bar(msg, x, y, facts)
+                self.dispatch_native_window_mouse_with_bar(msg, x, y, facts, provenance)
                     .map(|result| result == WindowInputReturnCode::Used)
             })
         }
@@ -591,6 +594,7 @@ impl CnCGameEngine {
                 x,
                 y,
                 self.native_window_mouse_facts(),
+                game_client::gui::control_bar::HostControlBarInputProvenance::InjectedOrUnknown,
             )? == WindowInputReturnCode::Used)
         }
         #[cfg(not(feature = "game_client"))]
@@ -617,6 +621,7 @@ impl CnCGameEngine {
                 x,
                 y,
                 self.native_window_mouse_facts(),
+                game_client::gui::control_bar::HostControlBarInputProvenance::InjectedOrUnknown,
             )? == WindowInputReturnCode::Used)
         }
         #[cfg(not(feature = "game_client"))]
