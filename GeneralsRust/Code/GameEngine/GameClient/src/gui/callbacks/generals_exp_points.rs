@@ -20,7 +20,10 @@ pub fn generals_exp_points_input(
 ) -> WindowMsgHandled {
     match msg {
         WindowMessage::MouseEntering => {
-            if !publish_host_cancel_structure_placement(effects.ui_mut()) {
+            if !publish_host_cancel_structure_placement(
+                effects.input_provenance(),
+                effects.ui_mut(),
+            ) {
                 effects.ui_mut().place_build_available(None, None);
             }
         }

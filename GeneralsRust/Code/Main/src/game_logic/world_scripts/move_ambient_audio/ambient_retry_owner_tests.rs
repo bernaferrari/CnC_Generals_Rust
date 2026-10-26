@@ -212,7 +212,7 @@ fn authored_same_id_ambient_retries_are_owned_and_constructor_is_inactive() {
             let mut first = GameLogic::new();
             let first_pos = Vec3::new(10.0, 0.0, 20.0);
             let first_id = create(&mut first, &template, first_pos);
-            crate::game_logic::host_historic_bonus::set_logic_frame(100);
+
             drain(
                 &mut first,
                 first_id,
@@ -288,9 +288,9 @@ fn authored_ambient_retry_uses_driving_frame_not_foreign_historic_clock() {
             let mut world = GameLogic::new();
             let pos = Vec3::new(20.0, 0.0, 30.0);
             let id = create(&mut world, &template, pos);
-            crate::game_logic::host_historic_bonus::set_logic_frame(9000);
+
             drain(&mut world, id, pos, 100, 1, "first attempt");
-            crate::game_logic::host_historic_bonus::set_logic_frame(9100);
+
             drain(
                 &mut world,
                 id,
@@ -299,7 +299,7 @@ fn authored_ambient_retry_uses_driving_frame_not_foreign_historic_clock() {
                 0,
                 "foreign advance cannot bypass owner backoff",
             );
-            crate::game_logic::host_historic_bonus::set_logic_frame(0);
+
             drain(
                 &mut world,
                 id,
@@ -325,11 +325,11 @@ fn authored_ambient_reset_clears_only_driving_owner_with_reused_ids() {
             let aid = create(&mut first, &template, a);
             let bid = create(&mut second, &template, b);
             assert_eq!(aid, bid);
-            // Matching old ambient clocks makes setup succeed before exposing
-            // reset inheritance, independently of the explicit-frame regression.
-            crate::game_logic::host_historic_bonus::set_logic_frame(100);
+            // Explicit drain frames establish the receiving retry deadline;
+            // reset inheritance is checked independently of frame admission.
+
             drain(&mut first, aid, a, 100, 1, "first initial retry");
-            crate::game_logic::host_historic_bonus::set_logic_frame(200);
+
             drain(&mut second, bid, b, 200, 1, "second initial retry");
             first.reset();
             first.set_current_frame(201);
@@ -338,7 +338,7 @@ fn authored_ambient_reset_clears_only_driving_owner_with_reused_ids() {
                 recreated, aid,
                 "actual driving reset reuses its own ID counter"
             );
-            crate::game_logic::host_historic_bonus::set_logic_frame(201);
+
             drain(
                 &mut first,
                 recreated,
@@ -347,7 +347,7 @@ fn authored_ambient_reset_clears_only_driving_owner_with_reused_ids() {
                 1,
                 "new roster gets a fresh initial retry",
             );
-            crate::game_logic::host_historic_bonus::set_logic_frame(229);
+
             drain(
                 &mut second,
                 bid,
@@ -356,7 +356,7 @@ fn authored_ambient_reset_clears_only_driving_owner_with_reused_ids() {
                 0,
                 "other owner deadline stays 200+30",
             );
-            crate::game_logic::host_historic_bonus::set_logic_frame(230);
+
             drain(
                 &mut second,
                 bid,
@@ -378,7 +378,7 @@ fn authored_ambient_in_place_snapshot_restore_discards_only_transient_retry_dead
             let mut world = GameLogic::new();
             let pos = Vec3::new(20.0, 0.0, 30.0);
             let id = create(&mut world, &template, pos);
-            crate::game_logic::host_historic_bonus::set_logic_frame(100);
+
             drain(&mut world, id, pos, 100, 1, "pre-save initial retry");
             world.set_current_frame(101);
             let builder = crate::save_load::snapshot::SnapshotBuilder::new();
@@ -403,7 +403,7 @@ fn authored_ambient_in_place_snapshot_restore_discards_only_transient_retry_dead
                 1,
                 "real post-restore explicit ambient start",
             );
-            crate::game_logic::host_historic_bonus::set_logic_frame(101);
+
             drain(
                 &mut world,
                 id,

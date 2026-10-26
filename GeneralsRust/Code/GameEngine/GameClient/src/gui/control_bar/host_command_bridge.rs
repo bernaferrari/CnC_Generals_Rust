@@ -8,7 +8,6 @@
 //! typed requests and applies them to its own world.
 
 use std::collections::VecDeque;
-use std::sync::{Mutex, OnceLock};
 
 use gamelogic::commands::CommandType;
 
@@ -43,13 +42,13 @@ pub enum HostControlBarTarget {
 /// `CommandSourceType::FromUser` describes the C++ gameplay source, but it
 /// does not prove that a real OS event produced the click: runtime-host input
 /// injection legitimately uses the same source type.  This separate value is
-/// set only by the synchronous WND-dispatch scope owned by Main.
+/// copied from the receiving native input operation owned by Main.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HostControlBarInputProvenance {
-    /// The request was published while handling a real
-    /// `winit::WindowEvent::MouseInput`.
+    /// The request originated in a real `winit::WindowEvent::MouseInput`,
+    /// including a receiving bar continuation that retained that origin.
     PhysicalWindowMouseInput,
-    /// There was no physical WND-dispatch scope, or the current scope was an
+    /// There was no physical native input origin, or the operation was an
     /// injected/test input path.  This intentionally fails closed.
     InjectedOrUnknown,
 }
@@ -241,104 +240,6 @@ pub struct HostControlBarPublishedRequest {
 pub struct HostControlBarTransport {
     requests: VecDeque<HostControlBarPublishedRequest>,
     minimap_interactions: VecDeque<HostMinimapInteraction>,
-}
-
-/// A safe, stack-scoped input context for synchronous WND dispatch.
-///
-/// This deliberately is not a thread-local pointer or a lifetime-erased
-/// callback.  The context is process-global only so GameClient's existing
-/// singleton callback path can read it, while each entry is bound to the
-/// dispatching thread and removed by RAII before it can leak to later input.
-#[derive(Debug, Clone, Copy)]
-struct HostControlBarInputScopeEntry {
-    id: u64,
-    thread_id: std::thread::ThreadId,
-    provenance: HostControlBarInputProvenance,
-}
-
-#[derive(Default)]
-struct HostControlBarInputContextState {
-    next_id: u64,
-    scopes: Vec<HostControlBarInputScopeEntry>,
-}
-
-fn host_control_bar_input_context_state() -> &'static Mutex<HostControlBarInputContextState> {
-    static STATE: OnceLock<Mutex<HostControlBarInputContextState>> = OnceLock::new();
-    STATE.get_or_init(|| Mutex::new(HostControlBarInputContextState::default()))
-}
-
-struct HostControlBarInputScope {
-    id: u64,
-    thread_id: std::thread::ThreadId,
-}
-
-impl HostControlBarInputScope {
-    fn enter(provenance: HostControlBarInputProvenance) -> Self {
-        let thread_id = std::thread::current().id();
-        let mut state = host_control_bar_input_context_state()
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let id = state.next_id;
-        state.next_id = state.next_id.wrapping_add(1);
-        state.scopes.push(HostControlBarInputScopeEntry {
-            id,
-            thread_id: thread_id.clone(),
-            provenance,
-        });
-        Self { id, thread_id }
-    }
-}
-
-impl Drop for HostControlBarInputScope {
-    fn drop(&mut self) {
-        let mut state = host_control_bar_input_context_state()
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        if let Some(index) = state
-            .scopes
-            .iter()
-            .rposition(|entry| entry.id == self.id && entry.thread_id == self.thread_id)
-        {
-            state.scopes.remove(index);
-        }
-    }
-}
-
-/// Capture the current synchronous WND-dispatch provenance for an event that
-/// will be processed later by the live Control Bar tick.
-///
-/// The WND callback captures this value in the receiving ControlBar's owned
-/// click event; the host request is published when that event is replayed.
-/// Carrying the value preserves the physical/injected distinction without
-/// extending the scope beyond its original OS dispatch.
-pub(crate) fn host_control_bar_input_provenance_for_current_dispatch()
--> HostControlBarInputProvenance {
-    let thread_id = std::thread::current().id();
-    host_control_bar_input_context_state()
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
-        .scopes
-        .iter()
-        .rev()
-        .find(|entry| entry.thread_id == thread_id)
-        .map(|entry| entry.provenance)
-        .unwrap_or(HostControlBarInputProvenance::InjectedOrUnknown)
-}
-
-/// Publish WND-driven work with explicit input provenance for this synchronous
-/// dispatch only.
-///
-/// Main calls this around the exact WindowManager dispatch that originated
-/// from `WindowEvent::MouseInput`; its injected path enters
-/// `InjectedOrUnknown`.  The scope is thread-bound, nest-safe, and dropped
-/// even when the callback unwinds, so a provenance mark cannot be reused by a
-/// later request.
-pub fn with_host_control_bar_input_provenance<R>(
-    provenance: HostControlBarInputProvenance,
-    callback: impl FnOnce() -> R,
-) -> R {
-    let _scope = HostControlBarInputScope::enter(provenance);
-    callback()
 }
 
 /// Enable or disable authoritative-host delivery for Control Bar interactions.
@@ -551,6 +452,7 @@ fn direct_host_request(
 /// Returning `false` lets normal GameClient callers fall through to the
 /// original GameLogic/message-stream behavior unchanged.
 pub(crate) fn publish_host_control_bar_request(
+    input_provenance: HostControlBarInputProvenance,
     request: HostControlBarRequest,
     ui: &mut crate::core::subsystems::InGameUISubsystem,
 ) -> bool {
@@ -560,7 +462,7 @@ pub(crate) fn publish_host_control_bar_request(
 
     state.requests.push_back(HostControlBarPublishedRequest {
         request,
-        input_provenance: host_control_bar_input_provenance_for_current_dispatch(),
+        input_provenance,
     });
     true
 }
@@ -569,9 +471,14 @@ pub(crate) fn publish_host_control_bar_request(
 /// Control Bar.  Returning `false` deliberately lets standalone GameClient
 /// callers keep their legacy selection/message-stream behavior.
 pub(crate) fn publish_host_select_next_idle_worker(
+    input_provenance: HostControlBarInputProvenance,
     ui: &mut crate::core::subsystems::InGameUISubsystem,
 ) -> bool {
-    publish_host_control_bar_request(HostControlBarRequest::SelectNextIdleWorker, ui)
+    publish_host_control_bar_request(
+        input_provenance,
+        HostControlBarRequest::SelectNextIdleWorker,
+        ui,
+    )
 }
 
 /// Publish the retail Generals Experience placement-cancel action while Main
@@ -579,15 +486,21 @@ pub(crate) fn publish_host_select_next_idle_worker(
 /// `TheInGameUI::place_build_available(None, None)` fallback for standalone
 /// GameClient callers.
 pub(crate) fn publish_host_cancel_structure_placement(
+    input_provenance: HostControlBarInputProvenance,
     ui: &mut crate::core::subsystems::InGameUISubsystem,
 ) -> bool {
-    publish_host_control_bar_request(HostControlBarRequest::CancelStructurePlacement, ui)
+    publish_host_control_bar_request(
+        input_provenance,
+        HostControlBarRequest::CancelStructurePlacement,
+        ui,
+    )
 }
 
 /// Publish acknowledgement of the active script popup while Main owns the
 /// offline UI authority. Returning `false` deliberately preserves the C++
 /// GameClient direct/message-stream fallback for standalone callers.
 pub(crate) fn publish_host_dismiss_in_game_popup_message(
+    input_provenance: HostControlBarInputProvenance,
     popup_generation: usize,
     ui: &mut crate::core::subsystems::InGameUISubsystem,
 ) -> bool {
@@ -595,6 +508,7 @@ pub(crate) fn publish_host_dismiss_in_game_popup_message(
         return false;
     }
     publish_host_control_bar_request(
+        input_provenance,
         HostControlBarRequest::DismissInGamePopupMessage { popup_generation },
         ui,
     )
@@ -603,10 +517,11 @@ pub(crate) fn publish_host_dismiss_in_game_popup_message(
 /// Publish a LeftHUD minimap click only while Main owns Control Bar authority.
 ///
 /// The callback supplies geometry and button semantics, but this function
-/// captures the scoped WND provenance itself.  That keeps both physical OS
+/// receives the exact borrowed operation provenance.  That keeps both physical OS
 /// events and injected/runtime-host events on the same gameplay route without
 /// allowing the latter to impersonate a physical click.
 pub(crate) fn publish_host_minimap_interaction(
+    input_provenance: HostControlBarInputProvenance,
     request: HostMinimapInteractionRequest,
     ui: &mut crate::core::subsystems::InGameUISubsystem,
 ) -> bool {
@@ -622,13 +537,14 @@ pub(crate) fn publish_host_minimap_interaction(
             screen_size: request.screen_size,
             button: request.button,
             alternate_mouse: request.alternate_mouse,
-            input_provenance: host_control_bar_input_provenance_for_current_dispatch(),
+            input_provenance,
         });
     true
 }
 
 /// Publish a host-only queue cancellation before any legacy side effects run.
 pub(crate) fn publish_host_queue_cancel(
+    input_provenance: HostControlBarInputProvenance,
     context: &ControlBarContext,
     producer_id: u32,
     production_id: u32,
@@ -638,6 +554,7 @@ pub(crate) fn publish_host_queue_cancel(
     ui: &mut crate::core::subsystems::InGameUISubsystem,
 ) -> bool {
     publish_host_control_bar_request(
+        input_provenance,
         HostControlBarRequest::QueueCancel {
             player_id: context.player_id,
             selected_object_ids: context.selected_objects.clone(),
@@ -653,12 +570,14 @@ pub(crate) fn publish_host_queue_cancel(
 
 /// Publish a host-only production-pause change before legacy module updates.
 pub(crate) fn publish_host_production_pause(
+    input_provenance: HostControlBarInputProvenance,
     context: &ControlBarContext,
     producer_id: u32,
     paused: bool,
     ui: &mut crate::core::subsystems::InGameUISubsystem,
 ) -> bool {
     publish_host_control_bar_request(
+        input_provenance,
         HostControlBarRequest::ProductionPause {
             player_id: context.player_id,
             selected_object_ids: context.selected_objects.clone(),
@@ -678,6 +597,13 @@ pub(crate) fn acquire_host_control_bar_bridge_test_guard() -> HostControlBarBrid
 
 #[cfg(test)]
 mod tests {
+    fn with_test_origin<R>(
+        origin: super::HostControlBarInputProvenance,
+        f: impl FnOnce(super::HostControlBarInputProvenance) -> R,
+    ) -> R {
+        f(origin)
+    }
+
     use super::*;
 
     fn acquire() -> HostControlBarBridgeTestGuard {
@@ -686,9 +612,13 @@ mod tests {
 
     #[test]
     fn actual_ui_transport_isolates_same_id_requests_reset_and_drop() {
+        let input_provenance = HostControlBarInputProvenance::InjectedOrUnknown;
         let mut a = crate::core::subsystems::InGameUISubsystem::default();
         let mut b = crate::core::subsystems::InGameUISubsystem::default();
-        assert!(!publish_host_select_next_idle_worker(&mut a));
+        assert!(!publish_host_select_next_idle_worker(
+            input_provenance,
+            &mut a
+        ));
         a.admit_native_control_bar_transport();
         b.admit_native_control_bar_transport();
         let request = HostControlBarRequest::Production {
@@ -698,8 +628,16 @@ mod tests {
             player_id: 7,
             source: CommandSourceType::FromUser,
         };
-        assert!(publish_host_control_bar_request(request.clone(), &mut a));
-        assert!(publish_host_control_bar_request(request.clone(), &mut b));
+        assert!(publish_host_control_bar_request(
+            input_provenance,
+            request.clone(),
+            &mut a
+        ));
+        assert!(publish_host_control_bar_request(
+            input_provenance,
+            request.clone(),
+            &mut b
+        ));
         let minimap = HostMinimapInteractionRequest {
             screen_position: [42, 491],
             screen_top_left: [7, 443],
@@ -707,8 +645,16 @@ mod tests {
             button: HostMinimapMouseButton::Right,
             alternate_mouse: false,
         };
-        assert!(publish_host_minimap_interaction(minimap, &mut a));
-        assert!(publish_host_minimap_interaction(minimap, &mut b));
+        assert!(publish_host_minimap_interaction(
+            input_provenance,
+            minimap,
+            &mut a
+        ));
+        assert!(publish_host_minimap_interaction(
+            input_provenance,
+            minimap,
+            &mut b
+        ));
         b.clear_runtime_state();
         assert!(host_control_bar_bridge_enabled(&b));
         assert!(take_host_control_bar_requests(&mut b).is_empty());
@@ -729,6 +675,7 @@ mod tests {
 
     #[test]
     fn bridge_is_opt_in_and_drains_typed_production_requests() {
+        let input_provenance = HostControlBarInputProvenance::InjectedOrUnknown;
         let mut transport_ui = crate::core::subsystems::InGameUISubsystem::default();
         let _guard = acquire();
         let mut button = CommandButton::default();
@@ -744,13 +691,17 @@ mod tests {
             false,
         );
         assert!(
-            !publish_host_control_bar_request(request.clone(), &mut transport_ui),
+            !publish_host_control_bar_request(input_provenance, request.clone(), &mut transport_ui),
             "disabled bridge must leave standalone GameClient on its legacy path"
         );
         assert!(take_host_control_bar_requests(&mut transport_ui).is_empty());
 
         transport_ui.admit_native_control_bar_transport();
-        assert!(publish_host_control_bar_request(request, &mut transport_ui));
+        assert!(publish_host_control_bar_request(
+            input_provenance,
+            request,
+            &mut transport_ui
+        ));
         assert_eq!(
             take_host_control_bar_requests(&mut transport_ui),
             vec![HostControlBarRequest::Production {
@@ -765,15 +716,19 @@ mod tests {
 
     #[test]
     fn bridge_routes_idle_worker_selection_only_when_enabled() {
+        let input_provenance = HostControlBarInputProvenance::InjectedOrUnknown;
         let mut transport_ui = crate::core::subsystems::InGameUISubsystem::default();
         let _guard = acquire();
         assert!(
-            !publish_host_select_next_idle_worker(&mut transport_ui),
+            !publish_host_select_next_idle_worker(input_provenance, &mut transport_ui),
             "standalone GameClient must retain its legacy idle-worker route"
         );
 
         transport_ui.admit_native_control_bar_transport();
-        assert!(publish_host_select_next_idle_worker(&mut transport_ui));
+        assert!(publish_host_select_next_idle_worker(
+            input_provenance,
+            &mut transport_ui
+        ));
         assert!(matches!(
             take_host_control_bar_requests(&mut transport_ui).as_slice(),
             [HostControlBarRequest::SelectNextIdleWorker]
@@ -782,15 +737,19 @@ mod tests {
 
     #[test]
     fn bridge_routes_structure_placement_cancel_only_when_enabled() {
+        let input_provenance = HostControlBarInputProvenance::InjectedOrUnknown;
         let mut transport_ui = crate::core::subsystems::InGameUISubsystem::default();
         let _guard = acquire();
         assert!(
-            !publish_host_cancel_structure_placement(&mut transport_ui),
+            !publish_host_cancel_structure_placement(input_provenance, &mut transport_ui),
             "standalone GameClient must retain its legacy placement-cancel route"
         );
 
         transport_ui.admit_native_control_bar_transport();
-        assert!(publish_host_cancel_structure_placement(&mut transport_ui));
+        assert!(publish_host_cancel_structure_placement(
+            input_provenance,
+            &mut transport_ui
+        ));
         assert!(matches!(
             take_host_control_bar_requests(&mut transport_ui).as_slice(),
             [HostControlBarRequest::CancelStructurePlacement]
@@ -799,15 +758,17 @@ mod tests {
 
     #[test]
     fn bridge_routes_popup_acknowledgement_only_when_enabled() {
+        let input_provenance = HostControlBarInputProvenance::InjectedOrUnknown;
         let mut transport_ui = crate::core::subsystems::InGameUISubsystem::default();
         let _guard = acquire();
         assert!(
-            !publish_host_dismiss_in_game_popup_message(17, &mut transport_ui),
+            !publish_host_dismiss_in_game_popup_message(input_provenance, 17, &mut transport_ui),
             "standalone GameClient must retain its legacy popup-dismiss route"
         );
 
         transport_ui.admit_native_control_bar_transport();
         assert!(publish_host_dismiss_in_game_popup_message(
+            input_provenance,
             17,
             &mut transport_ui
         ));
@@ -819,7 +780,7 @@ mod tests {
         ));
 
         assert!(
-            !publish_host_dismiss_in_game_popup_message(0, &mut transport_ui),
+            !publish_host_dismiss_in_game_popup_message(input_provenance, 0, &mut transport_ui),
             "zero means no Main-owned popup identity and must keep legacy fallback"
         );
         assert!(take_host_control_bar_requests(&mut transport_ui).is_empty());
@@ -827,14 +788,19 @@ mod tests {
 
     #[test]
     fn popup_boundary_clear_discards_only_popup_acknowledgements() {
+        let input_provenance = HostControlBarInputProvenance::InjectedOrUnknown;
         let mut transport_ui = crate::core::subsystems::InGameUISubsystem::default();
         let _guard = acquire();
         transport_ui.admit_native_control_bar_transport();
         assert!(publish_host_dismiss_in_game_popup_message(
+            input_provenance,
             23,
             &mut transport_ui
         ));
-        assert!(publish_host_select_next_idle_worker(&mut transport_ui));
+        assert!(publish_host_select_next_idle_worker(
+            input_provenance,
+            &mut transport_ui
+        ));
 
         clear_host_dismiss_in_game_popup_message_requests(&mut transport_ui);
         assert!(matches!(
@@ -844,7 +810,8 @@ mod tests {
     }
 
     #[test]
-    fn publication_captures_scoped_physical_provenance_and_fails_closed_otherwise() {
+    fn publication_captures_explicit_physical_provenance_and_fails_closed_otherwise() {
+        let input_provenance = HostControlBarInputProvenance::InjectedOrUnknown;
         let mut transport_ui = crate::core::subsystems::InGameUISubsystem::default();
         let _guard = acquire();
         transport_ui.admit_native_control_bar_transport();
@@ -857,24 +824,32 @@ mod tests {
             source: CommandSourceType::FromUser,
         };
 
-        // `FromUser` without Main's physical WND scope must never imply a
+        // `FromUser` without Main's physical input capability must never imply a
         // physical mouse click. This covers direct/test/runtime-host paths.
         assert!(publish_host_control_bar_request(
+            input_provenance,
             request.clone(),
             &mut transport_ui
         ));
-        with_host_control_bar_input_provenance(
+        with_test_origin(
             HostControlBarInputProvenance::InjectedOrUnknown,
-            || {
+            |input_provenance| {
                 assert!(publish_host_control_bar_request(
+                    input_provenance,
                     request.clone(),
                     &mut transport_ui
                 ))
             },
         );
-        with_host_control_bar_input_provenance(
+        with_test_origin(
             HostControlBarInputProvenance::PhysicalWindowMouseInput,
-            || assert!(publish_host_control_bar_request(request, &mut transport_ui)),
+            |input_provenance| {
+                assert!(publish_host_control_bar_request(
+                    input_provenance,
+                    request,
+                    &mut transport_ui
+                ))
+            },
         );
 
         let published = take_host_control_bar_published_requests(&mut transport_ui);
@@ -882,22 +857,23 @@ mod tests {
         assert_eq!(
             published[0].input_provenance,
             HostControlBarInputProvenance::InjectedOrUnknown,
-            "unscoped FromUser request must fail closed"
+            "unknown-origin FromUser request must fail closed"
         );
         assert_eq!(
             published[1].input_provenance,
             HostControlBarInputProvenance::InjectedOrUnknown,
-            "injected scope must remain non-physical"
+            "injected origin must remain non-physical"
         );
         assert_eq!(
             published[2].input_provenance,
             HostControlBarInputProvenance::PhysicalWindowMouseInput,
-            "only Main's real WND mouse scope may mark a request physical"
+            "only Main's real WND mouse origin may mark a request physical"
         );
 
-        // Scope cleanup is RAII: the next request must not inherit physical
+        // Copied inputs are operation-local: the next request must not inherit physical
         // provenance after the synchronous callback returns.
         assert!(publish_host_control_bar_request(
+            input_provenance,
             HostControlBarRequest::Production {
                 command_name: "Command_ConstructAmericaTank".to_string(),
                 template_name: "AmericaTankCrusader".to_string(),
@@ -910,12 +886,13 @@ mod tests {
         assert_eq!(
             take_host_control_bar_published_requests(&mut transport_ui)[0].input_provenance,
             HostControlBarInputProvenance::InjectedOrUnknown,
-            "a finished physical scope must not leak to a later request"
+            "a finished physical operation must not leak to a later request"
         );
     }
 
     #[test]
     fn minimap_publication_captures_wnd_provenance_without_forging_it() {
+        let input_provenance = HostControlBarInputProvenance::InjectedOrUnknown;
         let mut transport_ui = crate::core::subsystems::InGameUISubsystem::default();
         let _guard = acquire();
         let request = HostMinimapInteractionRequest {
@@ -927,22 +904,38 @@ mod tests {
         };
 
         assert!(
-            !publish_host_minimap_interaction(request, &mut transport_ui),
+            !publish_host_minimap_interaction(input_provenance, request, &mut transport_ui),
             "a disabled bridge must leave the standalone radar callback alone"
         );
         assert!(take_host_minimap_interactions(&mut transport_ui).is_empty());
 
         transport_ui.admit_native_control_bar_transport();
-        // Neither a direct callback/test invocation nor an injected WND scope
+        // Neither a direct callback/test invocation nor an injected WND operation
         // may claim to be a physical OS mouse event.
-        assert!(publish_host_minimap_interaction(request, &mut transport_ui));
-        with_host_control_bar_input_provenance(
+        assert!(publish_host_minimap_interaction(
+            input_provenance,
+            request,
+            &mut transport_ui
+        ));
+        with_test_origin(
             HostControlBarInputProvenance::InjectedOrUnknown,
-            || assert!(publish_host_minimap_interaction(request, &mut transport_ui)),
+            |input_provenance| {
+                assert!(publish_host_minimap_interaction(
+                    input_provenance,
+                    request,
+                    &mut transport_ui
+                ))
+            },
         );
-        with_host_control_bar_input_provenance(
+        with_test_origin(
             HostControlBarInputProvenance::PhysicalWindowMouseInput,
-            || assert!(publish_host_minimap_interaction(request, &mut transport_ui)),
+            |input_provenance| {
+                assert!(publish_host_minimap_interaction(
+                    input_provenance,
+                    request,
+                    &mut transport_ui
+                ))
+            },
         );
 
         let published = take_host_minimap_interactions(&mut transport_ui);
@@ -966,6 +959,7 @@ mod tests {
 
     #[test]
     fn native_admission_never_consumes_a_standalone_peers_pause_requests() {
+        let input_provenance = HostControlBarInputProvenance::InjectedOrUnknown;
         let mut standalone = crate::core::subsystems::InGameUISubsystem::default();
         let mut native = crate::core::subsystems::InGameUISubsystem::default();
         super::super::control_bar::queue_host_production_pause(41, true, &mut standalone);
@@ -981,6 +975,7 @@ mod tests {
 
     #[test]
     fn target_upgrade_direct_cancel_and_pause_keep_host_meaning() {
+        let input_provenance = HostControlBarInputProvenance::InjectedOrUnknown;
         let mut transport_ui = crate::core::subsystems::InGameUISubsystem::default();
         let _guard = acquire();
         transport_ui.admit_native_control_bar_transport();
@@ -992,13 +987,18 @@ mod tests {
         dozer.options = 0x20;
         let arm =
             host_request_from_button(&dozer, &context(), CommandSourceType::FromUser, None, true);
-        assert!(publish_host_control_bar_request(arm, &mut transport_ui));
+        assert!(publish_host_control_bar_request(
+            input_provenance,
+            arm,
+            &mut transport_ui
+        ));
 
         let mut upgrade = CommandButton::default();
         upgrade.command_name = "Command_UpgradeCompositeArmor".to_string();
         upgrade.command_type = CommandType::QueueUpgrade;
         upgrade.upgrade = "Upgrade_AmericaCompositeArmor".to_string();
         assert!(publish_host_control_bar_request(
+            input_provenance,
             host_request_from_button(
                 &upgrade,
                 &context(),
@@ -1013,6 +1013,7 @@ mod tests {
         direct.command_name = "Command_Sell".to_string();
         direct.command_type = CommandType::Sell;
         assert!(publish_host_control_bar_request(
+            input_provenance,
             host_request_from_button(
                 &direct,
                 &context(),
@@ -1023,6 +1024,7 @@ mod tests {
             &mut transport_ui
         ));
         assert!(publish_host_queue_cancel(
+            input_provenance,
             &context(),
             41,
             99,
@@ -1032,6 +1034,7 @@ mod tests {
             &mut transport_ui
         ));
         assert!(publish_host_production_pause(
+            input_provenance,
             &context(),
             41,
             true,
@@ -1083,6 +1086,7 @@ mod tests {
 
     #[test]
     fn purchase_science_with_object_display_field_is_never_production() {
+        let input_provenance = HostControlBarInputProvenance::InjectedOrUnknown;
         let _guard = acquire();
         let mut button = CommandButton::default();
         button.command_name = "Command_PurchaseSciencePaladin".to_string();
@@ -1115,6 +1119,7 @@ mod tests {
 
     #[test]
     fn object_bearing_non_production_commands_keep_their_real_semantics() {
+        let input_provenance = HostControlBarInputProvenance::InjectedOrUnknown;
         let _guard = acquire();
 
         let mut select_all = CommandButton::default();
@@ -1165,6 +1170,7 @@ mod tests {
 
     #[test]
     fn required_upgrade_metadata_does_not_turn_an_action_into_queue_upgrade() {
+        let input_provenance = HostControlBarInputProvenance::InjectedOrUnknown;
         let _guard = acquire();
 
         let mut fire_weapon = CommandButton::default();
@@ -1211,6 +1217,7 @@ mod tests {
 
     #[test]
     fn fire_weapon_slot_is_preserved_for_target_and_direct_requests() {
+        let input_provenance = HostControlBarInputProvenance::InjectedOrUnknown;
         let _guard = acquire();
         let mut fire_weapon = CommandButton::default();
         fire_weapon.command_name = "Command_ComancheFireTertiaryWeapon".to_string();
@@ -1257,6 +1264,7 @@ mod tests {
 
     #[test]
     fn special_and_generic_target_arms_preserve_identity_and_options() {
+        let input_provenance = HostControlBarInputProvenance::InjectedOrUnknown;
         let _guard = acquire();
 
         let mut special = CommandButton::default();

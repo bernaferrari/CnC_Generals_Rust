@@ -1997,6 +1997,7 @@ fn left_hud_input(
     data2: WindowMsgData,
     effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> WindowMsgHandled {
+    let input_provenance = effects.input_provenance();
     cb::left_hud_input(
         window,
         msg,
@@ -2005,6 +2006,7 @@ fn left_hud_input(
         effects.emitted_messages,
         effects.pending_control_bar_clicks.as_deref_mut(),
         effects.ui.as_deref_mut().expect("receiving UI"),
+        input_provenance,
     )
 }
 

@@ -1169,7 +1169,10 @@ pub fn idle_worker_system_receiving(
                 == NameKeyGenerator::name_to_key("IdleWorker.wnd:ButtonSelectNextIdleWorker")
             {
                 if effects.input_authority() == ClientInputAuthority::NativeHosted {
-                    if !publish_host_select_next_idle_worker(effects.ui_mut()) {
+                    if !publish_host_select_next_idle_worker(
+                        effects.input_provenance(),
+                        effects.ui_mut(),
+                    ) {
                         log::error!(
                             "native idle worker callback has no receiving host request route"
                         );

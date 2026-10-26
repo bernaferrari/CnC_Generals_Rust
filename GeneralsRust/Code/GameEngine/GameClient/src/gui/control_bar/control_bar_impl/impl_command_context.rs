@@ -1022,9 +1022,17 @@ impl ControlBar {
                         .get_user_data::<IniCommandButton>()
                         .map(|button| button.name.clone())
                 });
-            Some((window.get_name().to_owned(), command_name))
+            let bound_button = window
+                .get_user_data::<CommandButton>()
+                .cloned()
+                .or_else(|| {
+                    window
+                        .get_user_data::<IniCommandButton>()
+                        .map(Self::command_from_definition)
+                });
+            Some((window.get_name().to_owned(), command_name, bound_button))
         })(receiving_manager);
-        let Some((target_name, command_name)) = resolved else {
+        let Some((target_name, command_name, bound_button)) = resolved else {
             return true;
         };
         let queue_slot = target_name
@@ -1035,7 +1043,13 @@ impl ControlBar {
             if i < self.build_queue_data.len() {
                 {
                     let ctx = &self.context;
-                    let _ = self.cancel_build_queue_item(i, &ctx, emitted_messages, ui);
+                    let _ = self.cancel_build_queue_item(
+                        i,
+                        &ctx,
+                        emitted_messages,
+                        ui,
+                        click.input_provenance,
+                    );
                 }
             }
             return true;
@@ -1069,18 +1083,47 @@ impl ControlBar {
                             &ctx,
                             emitted_messages,
                             ui,
+                            click.input_provenance,
                         );
                     }
                     return true;
                 }
             }
         }
-        let _ = self.process_command(
-            &command_name,
-            CommandSourceType::FromUser,
-            emitted_messages,
-            ui,
-        );
+        // C++ GadgetButtonGetData is the actual immutable definition attached
+        // to this validated source. A current context entry/availability still wins.
+        if self
+            .context
+            .available_commands
+            .iter()
+            .any(|button| button.command_name == command_name)
+        {
+            let _ = self.process_command(
+                &command_name,
+                CommandSourceType::FromUser,
+                emitted_messages,
+                ui,
+                click.input_provenance,
+            );
+        } else if let Some(button) = bound_button {
+            let _ = self.execute_command(
+                &button,
+                CommandSourceType::FromUser,
+                &self.context,
+                emitted_messages,
+                ui,
+                click.input_provenance,
+            );
+        } else if !super::host_control_bar_bridge_enabled(ui) {
+            // Standalone Core retains its separate authored-catalog route.
+            let _ = self.process_command(
+                &command_name,
+                CommandSourceType::FromUser,
+                emitted_messages,
+                ui,
+                click.input_provenance,
+            );
+        }
         true
     }
 
@@ -1090,6 +1133,7 @@ impl ControlBar {
         source: CommandSourceType,
         emitted_messages: &mut Vec<crate::message_stream::game_message::GameMessage>,
         ui: &mut crate::core::subsystems::InGameUISubsystem,
+        input_provenance: super::HostControlBarInputProvenance,
     ) -> Result<bool, Box<dyn std::error::Error>> {
         let context = &self.context;
 
@@ -1108,12 +1152,30 @@ impl ControlBar {
                 return Ok(false);
             }
 
-            self.execute_command(button, source, &context, emitted_messages, ui)?;
+            self.execute_command(
+                button,
+                source,
+                &context,
+                emitted_messages,
+                ui,
+                input_provenance,
+            )?;
             Ok(true)
-        } else if let Some(button) = Self::leftover_lookup_command_button(command_name) {
+        } else if let Some(button) = if super::host_control_bar_bridge_enabled(ui) {
+            None
+        } else {
+            Self::leftover_lookup_command_button(command_name)
+        } {
             // C++ processCommandUI uses GadgetButtonGetData (setControlCommand).
             // Purchase-science cameos are not in the 14-slot available_commands.
-            self.execute_command(&button, source, &context, emitted_messages, ui)?;
+            self.execute_command(
+                &button,
+                source,
+                &context,
+                emitted_messages,
+                ui,
+                input_provenance,
+            )?;
             Ok(true)
         } else {
             Ok(false)
@@ -1127,6 +1189,7 @@ impl ControlBar {
         context: &ControlBarContext,
         emitted_messages: &mut Vec<crate::message_stream::game_message::GameMessage>,
         ui: &mut crate::core::subsystems::InGameUISubsystem,
+        input_provenance: super::HostControlBarInputProvenance,
     ) -> Result<(), Box<dyn std::error::Error>> {
         // C++ processCommandUI plays UnitSpecificSound before dispatch.
         crate::gui::control_bar::commands::play_command_button_unit_specific_sound(button);
@@ -1134,7 +1197,7 @@ impl ControlBar {
         // Main owns the authoritative Rust simulation.  When it has explicitly
         // enabled the bridge, do not also route this click through the legacy
         // GameLogic globals: that would make one HUD action mutate two worlds.
-        if self.publish_host_command_if_enabled(button, source, context, ui) {
+        if self.publish_host_command_if_enabled(button, source, context, ui, input_provenance) {
             return Ok(());
         }
 

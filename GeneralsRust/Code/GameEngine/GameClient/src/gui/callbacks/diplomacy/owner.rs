@@ -93,7 +93,7 @@ fn with_window<R>(
 fn canonical(window: &GameWindow, effects: &mut WindowEventEffects<'_>) -> bool {
     let pointer = std::ptr::from_ref(window);
     effects.with_manager_ref(|m| {
-        m.get_window_by_id(window.get_id())
+        m.get_window_by_id_with_selected(window.get_id(), Some(window))
             .is_some_and(|w| std::ptr::eq(w.as_ptr(), pointer))
     })
 }

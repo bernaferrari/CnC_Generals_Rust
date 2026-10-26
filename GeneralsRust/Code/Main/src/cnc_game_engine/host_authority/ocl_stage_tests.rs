@@ -441,6 +441,7 @@ fn actual_saved_map_ocl_candidate_uses_own_base_and_solo_without_mutating_active
                     20.0,
                     None,
                     crate::game_logic::combat::DamageType::Explosive,
+                    0,
                     &mut events,
                 );
             assert_eq!(
@@ -455,6 +456,7 @@ fn actual_saved_map_ocl_candidate_uses_own_base_and_solo_without_mutating_active
                     20.0,
                     None,
                     crate::game_logic::combat::DamageType::Explosive,
+                    0,
                     &mut events,
                 );
             assert_eq!(peer.host_object(actor_id).unwrap().health.current, 60.0);

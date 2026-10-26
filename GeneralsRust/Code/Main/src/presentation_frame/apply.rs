@@ -904,14 +904,22 @@ impl PresentationFrame {
     pub fn dispatch_audio_events_direct(
         &self,
         audio: &mut crate::subsystem_manager::AudioManagerSubsystem,
+        receiving_world: &GameLogic,
+        observer_look_at: Option<i32>,
     ) -> usize {
-        self.refresh_live_audio_locality();
+        let locality = self.receiving_audio_locality(observer_look_at);
         let events = self.collect_audio_events();
         let n = events.len();
         for event in events {
-            if !crate::game_logic::audio_dispatch_impl::should_dispatch_audio_request(&event) {
+            let Some(event) = crate::game_logic::audio_dispatch_impl::admit_audio_request(
+                event,
+                Some(&locality),
+                &mut |player, position| {
+                    receiving_world.receiving_audio_cell_shroud_clear(player, position)
+                },
+            ) else {
                 continue;
-            }
+            };
             if let Some(obj_id) = event.object_id {
                 if let Some(pos) = event.position {
                     log::trace!(
@@ -932,15 +940,16 @@ impl PresentationFrame {
             } else {
                 log::trace!("🔊 Presentation audio: {}", event.event_type);
             }
-            audio.queue_event(event.clone());
+            audio.queue_admitted_event(event);
         }
         n
     }
 
-    fn refresh_live_audio_locality(&self) {
-        use crate::game_logic::audio_dispatch_impl::{
-            LiveAudioLocality, LiveAudioPlayer, set_live_audio_locality,
-        };
+    fn receiving_audio_locality(
+        &self,
+        observer_look_at: Option<i32>,
+    ) -> crate::game_logic::audio_dispatch_impl::LiveAudioLocality {
+        use crate::game_logic::audio_dispatch_impl::{LiveAudioLocality, LiveAudioPlayer};
         use game_engine::common::audio::AudioLocalityRelationship;
         let mut snap = LiveAudioLocality {
             local_player_index: self.local_player_id as i32,
@@ -948,14 +957,21 @@ impl PresentationFrame {
                 .player_info(self.local_player_id)
                 .map(|p| p.is_alive)
                 .unwrap_or(true),
-            observer_look_at: None,
+            observer_look_at,
             players: std::collections::HashMap::new(),
             object_owners: std::collections::HashMap::new(),
         };
+        let relationship_local = if snap.local_player_active {
+            self.local_player_id
+        } else {
+            observer_look_at
+                .and_then(|id| u32::try_from(id).ok())
+                .unwrap_or(self.local_player_id)
+        };
         for p in &self.players {
-            let relationship_to_local = if p.id == self.local_player_id {
+            let relationship_to_local = if p.id == relationship_local {
                 AudioLocalityRelationship::Allies
-            } else if let Some(local) = self.player_info(self.local_player_id) {
+            } else if let Some(local) = self.player_info(relationship_local) {
                 if local.alliance_team >= 0 && local.alliance_team == p.alliance_team {
                     AudioLocalityRelationship::Allies
                 } else if local.is_alive && p.is_alive {
@@ -981,19 +997,23 @@ impl PresentationFrame {
                 snap.object_owners.insert(o.id.0, pid as i32);
             }
         }
-        set_live_audio_locality(snap);
+        snap
     }
 
     /// Legacy dual-write residual (tests may still call). Prefer `dispatch_audio_events_direct`.
     pub fn apply_events_to_audio(&self, logic: &mut GameLogic) -> usize {
-        self.refresh_live_audio_locality();
+        let locality = self.receiving_audio_locality(None);
         let events = self.collect_audio_events();
         let n = events.len();
         for req in events {
-            if !crate::game_logic::audio_dispatch_impl::should_dispatch_audio_request(&req) {
+            let Some(req) = crate::game_logic::audio_dispatch_impl::admit_audio_request(
+                req,
+                Some(&locality),
+                &mut |player, position| logic.receiving_audio_cell_shroud_clear(player, position),
+            ) else {
                 continue;
-            }
-            logic.queue_audio_event(req);
+            };
+            logic.queue_audio_event(req.into_request());
         }
         n
     }

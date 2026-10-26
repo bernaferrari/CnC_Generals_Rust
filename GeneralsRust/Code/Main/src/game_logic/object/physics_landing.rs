@@ -63,7 +63,11 @@ impl Object {
     }
 
     /// C++ Object::kill — lethal UNRESISTABLE so Body/Die modules (FX, OCL) run.
-    pub fn kill(&mut self, health_events: &mut crate::game_logic::HostHealthEvents) -> bool {
+    pub fn kill(
+        &mut self,
+        frame: u32,
+        health_events: &mut crate::game_logic::HostHealthEvents,
+    ) -> bool {
         if self.status.destroyed {
             return false;
         }
@@ -77,6 +81,7 @@ impl Object {
             None,
             crate::game_logic::combat::DamageType::Unresistable,
             crate::game_logic::host_usa_pilot::HostDeathType::Normal,
+            frame,
             health_events,
         )
     }

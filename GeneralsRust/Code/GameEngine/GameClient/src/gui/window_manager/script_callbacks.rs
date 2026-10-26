@@ -1123,6 +1123,7 @@ impl WindowManager {
                     window.set_system_callback_with_message_sink(
                         |window, msg, data1, data2, effects| {
                             if msg == WindowMessage::GadgetSelected {
+                                let input_provenance = effects.input_provenance();
                                 let control_id = data1 as u32;
                                 let button_exit_id = NameKeyGenerator::name_to_key(
                                     "GeneralsExpPoints.wnd:ButtonExit",
@@ -1133,12 +1134,11 @@ impl WindowManager {
                                     effects.pending_control_bar_clicks.as_deref_mut()
                                 {
                                     const GBM_SELECTED: u32 = 16384 + 8;
-                                    clicks.push(
-                                        crate::helpers::LiveControlBarClick::from_current_dispatch(
-                                            control_id,
-                                            GBM_SELECTED,
-                                        ),
-                                    );
+                                    clicks.push(crate::helpers::LiveControlBarClick::from_input(
+                                        control_id,
+                                        GBM_SELECTED,
+                                        input_provenance,
+                                    ));
                                 }
                                 return WindowMsgHandled::Handled;
                             }
@@ -1528,6 +1528,7 @@ impl WindowManager {
                 "LeftHUDInput" => {
                     window.set_input_callback_with_message_sink(
                         |window, msg, data1, data2, effects| {
+                            let input_provenance = effects.input_provenance();
                             crate::gui::callbacks::control_bar_callbacks::left_hud_input(
                                 window,
                                 msg,
@@ -1536,6 +1537,7 @@ impl WindowManager {
                                 effects.emitted_messages,
                                 effects.pending_control_bar_clicks.as_deref_mut(),
                                 effects.ui.as_deref_mut().expect("receiving UI"),
+                                input_provenance,
                             )
                         },
                     );

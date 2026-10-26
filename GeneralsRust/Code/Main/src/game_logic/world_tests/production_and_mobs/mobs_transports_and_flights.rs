@@ -300,7 +300,9 @@ fn special_power_create_starts_unit_recharge() {
 #[test]
 fn veterancy_gain_create_uses_controlling_player_sciences_only() {
     // C++ VeterancyGainCreate.cpp:61-73 controlling player only.
-    use crate::game_logic::{Player, Team, ThingTemplate, VeterancyGainCreateMetadata, VeterancyLevel};
+    use crate::game_logic::{
+        Player, Team, ThingTemplate, VeterancyGainCreateMetadata, VeterancyLevel,
+    };
 
     let mut logic = GameLogic::new();
     let mut owner = Player::new(0, Team::USA, "Owner", true);
@@ -2110,7 +2112,9 @@ fn base_regenerate_structure_heals_after_delay() {
 #[test]
 fn default_auto_heal_trainable_heals_after_start_delay() {
     // C++ AutoHealBehavior.cpp:205-219 self-heal; :136-157 onDamage StartHealingDelay.
-    use crate::game_logic::host_heal::{DEFAULT_AUTO_HEAL_AMOUNT, DEFAULT_AUTO_HEAL_START_DELAY_FRAMES};
+    use crate::game_logic::host_heal::{
+        DEFAULT_AUTO_HEAL_AMOUNT, DEFAULT_AUTO_HEAL_START_DELAY_FRAMES,
+    };
 
     let mut logic = GameLogic::new();
     let mut tpl = ThingTemplate::new("USA_Ranger");
@@ -2199,7 +2203,9 @@ fn default_auto_heal_trainable_heals_after_start_delay() {
 
 #[test]
 fn fire_spread_tree_ignites_neighbor() {
-    use crate::game_logic::host_fire_spread::{TREE_SPREAD_TRY_RANGE, honesty_fire_spread_residual_ok};
+    use crate::game_logic::host_fire_spread::{
+        TREE_SPREAD_TRY_RANGE, honesty_fire_spread_residual_ok,
+    };
     assert!(honesty_fire_spread_residual_ok());
 
     let mut logic = GameLogic::new();
@@ -2271,10 +2277,9 @@ fn flammable_buildings_ignite_and_play_burning_loop() {
             .spread_enabled
     );
 
-    crate::game_logic::host_historic_bonus::set_logic_frame(10);
     {
         let (o, health_events) = logic.host_object_and_health_events_mut(id).unwrap();
-        let _ = o.take_damage_from_typed(50.0, None, DamageType::Flame, health_events);
+        let _ = o.take_damage_from_typed(50.0, None, DamageType::Flame, 10, health_events);
     }
     {
         let o = logic.host_object(id).unwrap();

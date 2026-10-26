@@ -804,6 +804,7 @@ fn fake_building_sabotage_uses_unresistable_detonated() {
             Some(saboteur),
             crate::game_logic::combat::DamageType::Unresistable,
             HostDeathType::Detonated,
+            0,
             health_events,
         )
     };
@@ -1877,12 +1878,12 @@ fn car_bomb_booby_trap_cancels_when_vehicle_dies() {
     {
         let (objects, health_events) = (&mut logic.objects, &mut logic.health_events);
         let t = objects.get_mut(&vid).unwrap();
-        let _ = t.take_damage(t.health.maximum, health_events);
+        let _ = t.take_damage(t.health.maximum, 0, health_events);
     }
     {
         let (objects, health_events) = (&mut logic.objects, &mut logic.health_events);
         let b = objects.get_mut(&tid).unwrap();
-        let _ = b.take_damage(10.0, health_events); // survivor terrorist
+        let _ = b.take_damage(10.0, 0, health_events); // survivor terrorist
     }
     let t_dead = !logic.objects[&vid].is_alive();
     assert!(t_dead);

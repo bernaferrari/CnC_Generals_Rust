@@ -31,15 +31,8 @@ fn readiness(frame: &PresentationFrame) -> u32 {
 
 #[test]
 fn frozen_weapon_readiness_uses_owning_world_frame() {
-    struct RestoreFrame(u32);
-    impl Drop for RestoreFrame {
-        fn drop(&mut self) {
-            crate::game_logic::host_historic_bonus::set_logic_frame(self.0);
-        }
-    }
-    let _restore = RestoreFrame(crate::game_logic::host_historic_bonus::logic_frame());
     let mut first = reloading_world(45);
-    crate::game_logic::host_historic_bonus::set_logic_frame(first.frame);
+
     let first_frame = PresentationFrame::build_from_logic(&mut first, 0);
     assert_eq!(
         readiness(&first_frame),
@@ -48,7 +41,7 @@ fn frozen_weapon_readiness_uses_owning_world_frame() {
     );
 
     let mut second = reloading_world(90);
-    crate::game_logic::host_historic_bonus::set_logic_frame(second.frame);
+
     let second_frame = PresentationFrame::build_from_logic(&mut second, 0);
     assert_eq!(readiness(&second_frame), 100);
     assert_eq!(
@@ -60,11 +53,11 @@ fn frozen_weapon_readiness_uses_owning_world_frame() {
     assert_eq!(
         readiness(&rebuilt_first),
         50,
-        "publishing another world's combat frame must not advance this world's clip"
+        "another world's combat frame must not advance this world's clip"
     );
 
     first.frame = 60;
-    crate::game_logic::host_historic_bonus::set_logic_frame(0);
+
     let advanced = PresentationFrame::build_from_logic(&mut first, 0);
     assert_eq!(
         readiness(&advanced),

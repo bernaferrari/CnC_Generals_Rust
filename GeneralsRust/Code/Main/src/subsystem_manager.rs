@@ -484,12 +484,11 @@ pub struct AudioManagerSubsystem {
     _music_on: bool,
     _sounds_on: bool,
     _speech_on: bool,
-    queued_events: Vec<crate::game_logic::AudioEventRequest>,
+    queued_events: Vec<crate::game_logic::audio_dispatch_impl::AdmittedAudioRequest>,
     /// Wave 528: object ids with active presentation FireSound loops (stop residual).
     /// Wave 23: leftover TheAudio handles so C++ `removeAudioEvent` can stop the sink.
     looping_object_audio: HashMap<u32, Vec<(String, u32)>>,
     sound_effects_table: Option<crate::assets::SoundEffectsTable>,
-    gameplay_dispatch: Arc<crate::game_logic::audio_dispatch_impl::MainAudioDispatch>,
 }
 
 impl Default for AudioManagerSubsystem {
@@ -500,7 +499,6 @@ impl Default for AudioManagerSubsystem {
 
 impl AudioManagerSubsystem {
     pub fn new() -> Self {
-        let dispatch = Arc::new(crate::game_logic::audio_dispatch_impl::MainAudioDispatch::new());
         Self {
             audio_manager: None,
             _music_on: true,
@@ -509,7 +507,6 @@ impl AudioManagerSubsystem {
             queued_events: Vec::new(),
             looping_object_audio: HashMap::new(),
             sound_effects_table: None,
-            gameplay_dispatch: dispatch,
         }
     }
 
@@ -530,12 +527,30 @@ impl AudioManagerSubsystem {
             .drain_events()
     }
 
-    pub fn queue_event(&mut self, event: crate::game_logic::AudioEventRequest) {
+    pub(crate) fn queue_admitted_event(
+        &mut self,
+        event: crate::game_logic::audio_dispatch_impl::AdmittedAudioRequest,
+    ) {
         self.queued_events.push(event);
     }
 
+    #[cfg(test)]
+    pub fn queue_event(&mut self, event: crate::game_logic::AudioEventRequest) {
+        if let Some(event) =
+            crate::game_logic::audio_dispatch_impl::admit_audio_request(event, None, &mut |_, _| {
+                false
+            })
+        {
+            self.queue_admitted_event(event);
+        }
+    }
+
+    #[cfg(test)]
     fn drain_events(&mut self) -> Vec<crate::game_logic::AudioEventRequest> {
-        self.queued_events.drain(..).collect()
+        self.queued_events
+            .drain(..)
+            .map(|event| event.into_request())
+            .collect()
     }
 
     /// C++ `TheAudio->removeAudioEvent(handle)` / `removePlayingAudio(name)`.
@@ -598,20 +613,13 @@ impl AudioManagerSubsystem {
     /// build/train/gather/combat/UI events accumulate without ever reaching
     /// the SoundEffectsTable/backend.
     fn drain_and_dispatch_queued_audio(&mut self) {
-        // Drain gameplay audio events (weapon fire, unit death) before the
-        // full requests queued by presentation and GameLogic at the app boundary.
-        for event in self.gameplay_dispatch.drain_events() {
-            let mut req = crate::game_logic::AudioEventRequest::new(&event.event_name);
-            if let Some((x, y, z)) = event.position {
-                // Leftover GameLogic is C++ Z-up (x, y_ground, z_height).
-                // Host AudioEventRequest is Y-up (x, height, z_ground).
-                req = req.with_position(glam::Vec3::new(x, z, y));
-            }
-            self.queue_event(req);
-        }
+        // World/player/shroud decisions were made on the receiving operation.
+        // Delivery must not re-query another live world's runtime state.
         // Apply high-level toggles/events that don't require archive lookups yet.
         // Wave 528: presentation FireSound loop stop is stop-only (no replay).
-        for event in self.drain_events() {
+        let admitted = std::mem::take(&mut self.queued_events);
+        for admitted in admitted {
+            let (event, locality) = admitted.into_parts();
             if event.stop {
                 self.stop_leftover_looping_audio(
                     event.object_id.map(|id| id.0),
@@ -643,12 +651,6 @@ impl AudioManagerSubsystem {
                     if !self._sounds_on {
                         continue;
                     }
-                    if !crate::game_logic::audio_dispatch_impl::should_dispatch_audio_request(
-                        &event,
-                    ) {
-                        continue;
-                    }
-
                     let position = event.position.map(|p| (p.x, p.y, p.z));
                     let volume_scale = crate::assets::audio::live_gameplay_sfx_volume(
                         event.event_type.as_str(),
@@ -662,11 +664,22 @@ impl AudioManagerSubsystem {
                     // Leftover addAudioEvent already applied mute / not-for-local.
                     // C++ has no second backend — do not replay on rodio.
                     if crate::assets::audio::leftover_the_audio_is_live() {
-                        if let Some(handle) = crate::assets::audio::play_sound_through_the_audio_at(
-                            event.event_type.as_str(),
-                            position,
-                            event.object_id.map(|id| id.0),
-                        ) {
+                        let handle =
+                            game_engine::common::audio::game_audio::get_global_audio_manager()
+                                .and_then(|manager| {
+                                    let mut manager = manager
+                                        .lock()
+                                        .unwrap_or_else(|poisoned| poisoned.into_inner());
+                                    crate::assets::audio::play_admitted_sound_at(
+                                        &mut manager,
+                                        event.event_type.as_str(),
+                                        position,
+                                        event.object_id.map(|id| id.0),
+                                        event.player_index,
+                                        &locality,
+                                    )
+                                });
+                        if let Some(handle) = handle {
                             if event.is_looping {
                                 if let Some(id) = event.object_id {
                                     self.track_looping_object_audio(
@@ -774,12 +787,8 @@ impl SubsystemInterface for AudioManagerSubsystem {
             }
         }
 
-        // Register the gameplay audio dispatch so weapon fire, unit death,
-        // and EVA events from the engine crate reach the audio subsystem.
-        game_engine::common::audio::register_gameplay_audio_dispatch(
-            self.gameplay_dispatch.clone(),
-        );
-
+        // Runtime producers lend/queue this receiving audio owner explicitly.
+        // Common's standalone custom dispatcher never targets a native app.
         match crate::assets::audio::AudioManager::new() {
             Ok(audio_manager) => {
                 self.audio_manager = Some(audio_manager);
@@ -2343,7 +2352,6 @@ fn admit_global_data_user_data_root(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use game_engine::common::audio::GameplayAudioDispatch;
     use game_engine::common::ini::ini_control_bar_scheme::get_control_bar_scheme_manager;
     use std::time::{Duration, Instant};
 
@@ -2472,17 +2480,13 @@ mod tests {
     }
 
     #[test]
-    fn audio_timing_update_drains_gameplay_and_presentation_event_queues() {
+    fn audio_timing_update_drains_receiving_request_queue() {
         let mut audio = AudioManagerSubsystem::new();
         audio.queue_event(crate::game_logic::AudioEventRequest::new("UnitCommand"));
-        GameplayAudioDispatch::play_positional_sound(
-            audio.gameplay_dispatch.as_ref(),
-            "AmericaTankFire",
-            10.0,
-            0.0,
-            20.0,
+        audio.queue_event(
+            crate::game_logic::AudioEventRequest::new("AmericaTankFire")
+                .with_position(glam::Vec3::new(10.0, 20.0, 0.0)),
         );
-
         let timing = FrameTiming {
             frame_number: 1,
             delta_time: Duration::from_millis(16),
@@ -2493,15 +2497,31 @@ mod tests {
             previous_sync_time: 0,
         };
         audio.update_with_timing(&timing).unwrap();
-
         assert!(
             audio.queued_events.is_empty(),
-            "timing-driven updates must drain presentation/UI audio requests"
+            "timing-driven updates drain this receiver's accepted audio requests"
         );
-        assert!(
-            audio.gameplay_dispatch.drain_events().is_empty(),
-            "timing-driven updates must drain gameplay weapon/death/EVA audio requests"
+    }
+
+    #[test]
+    fn same_id_receiving_audio_queues_survive_peer_reset_and_drop() {
+        let mut a = AudioManagerSubsystem::new();
+        let mut b = AudioManagerSubsystem::new();
+        a.queue_event(
+            crate::game_logic::AudioEventRequest::new("AuthoredWorldA")
+                .with_object(crate::game_logic::ObjectId(41)),
         );
+        b.queue_event(
+            crate::game_logic::AudioEventRequest::new("AuthoredWorldB")
+                .with_object(crate::game_logic::ObjectId(41)),
+        );
+        b.reset().unwrap();
+        assert!(b.queued_events.is_empty());
+        drop(b);
+        let requests = a.drain_events();
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0].object_id, Some(crate::game_logic::ObjectId(41)));
+        assert_eq!(requests[0].event_type, "AuthoredWorldA");
     }
 
     #[test]

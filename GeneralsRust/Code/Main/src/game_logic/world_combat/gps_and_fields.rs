@@ -1717,7 +1717,7 @@ mod tests {
             .expect("unit");
         {
             let unit = logic.host_object_mut(unit_id).expect("unit");
-            let _ = unit.take_damage(40.0, &mut health_events);
+            let _ = unit.take_damage(40.0, 0, &mut health_events);
         }
 
         logic.update_propaganda_tower_pulse(1.0 / 30.0);
@@ -1782,7 +1782,7 @@ mod tests {
             .expect("unit");
         {
             let unit = logic.host_object_mut(unit_id).expect("unit");
-            let _ = unit.take_damage(40.0, &mut health_events);
+            let _ = unit.take_damage(40.0, 0, &mut health_events);
         }
 
         logic.update_propaganda_tower_pulse(1.0 / 30.0);
@@ -1840,7 +1840,7 @@ mod tests {
             .expect("unit");
         {
             let unit = logic.host_object_mut(unit_id).expect("unit");
-            let _ = unit.take_damage(40.0, &mut health_events);
+            let _ = unit.take_damage(40.0, 0, &mut health_events);
         }
         let before = logic.host_object(unit_id).expect("unit").health.current;
         logic.update_propaganda_tower_pulse(1.0 / 30.0);
@@ -1937,7 +1937,7 @@ mod tests {
             .expect("unit");
         {
             let unit = logic.host_object_mut(unit_id).unwrap();
-            let _ = unit.take_damage(30.0, &mut health_events);
+            let _ = unit.take_damage(30.0, 0, &mut health_events);
         }
         let before = logic.host_object(unit_id).unwrap().health.current;
         logic.update_propaganda_tower_pulse(1.0 / 30.0);
@@ -2005,7 +2005,7 @@ mod tests {
             .expect("dozer");
         {
             let d = logic.host_object_mut(dozer_id).unwrap();
-            let _ = d.take_damage(80.0, &mut health_events);
+            let _ = d.take_damage(80.0, 0, &mut health_events);
         }
         let dozer_before = logic.host_object(dozer_id).unwrap().health.current;
         logic.update_propaganda_tower_pulse(1.0 / 30.0);

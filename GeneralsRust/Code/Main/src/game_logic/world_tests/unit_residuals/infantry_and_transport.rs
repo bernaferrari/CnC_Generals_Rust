@@ -1429,6 +1429,7 @@ fn fire_weapon_when_damaged_reaction_splash() {
             50.0,
             None,
             crate::game_logic::combat::DamageType::Explosive,
+            0,
             health_events,
         );
         assert!(
@@ -2553,6 +2554,7 @@ fn water_edge_damage_on_dry_to_wet_transition() {
             25.0,
             None,
             crate::game_logic::combat::DamageType::Water,
+            0,
             health_events,
         );
     }

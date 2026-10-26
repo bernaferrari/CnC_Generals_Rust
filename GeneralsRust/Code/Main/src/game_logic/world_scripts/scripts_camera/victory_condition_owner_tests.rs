@@ -82,7 +82,7 @@ fn receiving_defeat_keeps_script_and_native_presentation_events() {
     // Remove only the local army. The enemy remains alive: local allied
     // defeat wins over the separate pre-final-alliance player-defeat condition.
     let (object, health_events) = owner.host_object_and_health_events_mut(unit).unwrap();
-    object.take_damage_from_immediate(1_000_000.0, None, health_events);
+    object.take_damage_from_immediate(1_000_000.0, None, 0, health_events);
     assert!(owner.evaluate_victory_condition().is_some());
     assert!(query(&mut owner, ConditionType::MultiplayerAlliedDefeat));
     assert!(!query(&mut owner, ConditionType::MultiplayerPlayerDefeat));

@@ -8,16 +8,12 @@ use crate::game_logic::combat::{
 // damage belong only to the receiving CombatSystem. Restore fixture inputs.
 struct RestoreInputs {
     store: Option<gamelogic::weapon::WeaponStore>,
-
-    frame: u32,
 }
 
 impl RestoreInputs {
     fn install() -> Self {
         let restore = Self {
             store: gamelogic::weapon::with_weapon_store_mut(std::mem::take).ok(),
-
-            frame: crate::game_logic::host_historic_bonus::logic_frame(),
         };
         // The independent bootstrap seed flag may survive a previous fixture
         // restoring an absent store. Initialize the real store idempotently.
@@ -35,8 +31,6 @@ impl Drop for RestoreInputs {
         } else {
             gamelogic::weapon::shutdown_weapon_store().expect("restore absent store");
         }
-
-        crate::game_logic::host_historic_bonus::set_logic_frame(self.frame);
     }
 }
 

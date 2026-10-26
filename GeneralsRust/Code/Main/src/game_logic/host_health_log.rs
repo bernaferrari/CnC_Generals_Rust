@@ -297,13 +297,13 @@ mod completed_receipt_tests {
         let mut peer = body();
         let mut events = HostHealthEvents::default();
         let mut peer_events = HostHealthEvents::default();
-        owner.take_damage(10.0, &mut events);
+        owner.take_damage(10.0, 0, &mut events);
         owner.heal(5.0, &mut events, 0);
         events.drain_for_host_boundary();
-        peer.take_damage(30.0, &mut peer_events);
+        peer.take_damage(30.0, 0, &mut peer_events);
         peer_events.drain_for_host_boundary();
         peer_events.clear();
-        owner.take_damage(20.0, &mut events);
+        owner.take_damage(20.0, 0, &mut events);
         owner.heal(5.0, &mut events, 0);
         events.drain_for_host_boundary();
         assert!(events.drain_for_host_boundary().is_empty());
@@ -334,8 +334,8 @@ mod completed_receipt_tests {
         let mut second = body();
         let mut a = HostHealthEvents::default();
         let mut b = HostHealthEvents::default();
-        first.take_damage(20.0, &mut a);
-        second.take_damage(5.0, &mut b);
+        first.take_damage(20.0, 0, &mut a);
+        second.take_damage(5.0, 0, &mut b);
         let frozen = a.snapshot_ordered();
         b.drain_for_host_boundary();
         b.clear();

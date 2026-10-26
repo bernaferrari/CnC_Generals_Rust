@@ -725,7 +725,9 @@ fn demo_trap_manual_detonate_residual() {
 
 #[test]
 fn dozer_mine_clear_residual_disarms_enemy_mine_safely() {
-    use crate::game_logic::host_mines::{DOZER_MINE_CLEAR_PRE_ATTACK_FRAMES, DOZER_MINE_CLEAR_RANGE};
+    use crate::game_logic::host_mines::{
+        DOZER_MINE_CLEAR_PRE_ATTACK_FRAMES, DOZER_MINE_CLEAR_RANGE,
+    };
 
     let mut game_logic = GameLogic::new();
     ensure_test_dozer_template(&mut game_logic);
@@ -1141,7 +1143,7 @@ fn lethal_weapon_hit_chain_detonates_virtual_mines() {
         if let Some(md) = m.mine_data.as_mut() {
             md.last_synced_health = Some(100.0);
         }
-        let killed = m.take_damage_from(100.0, None, health_events);
+        let killed = m.take_damage_from(100.0, None, 0, health_events);
         assert!(!killed, "lethal hit must not silently destroy the pad");
         assert!(!m.status.destroyed);
         assert!(m.health.current <= 0.0);

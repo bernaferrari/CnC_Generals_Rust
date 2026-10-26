@@ -115,19 +115,29 @@ impl GameLogic {
 
     /// Resolve queued audio events after a native logic step and return the
     /// complete requests to the owning application audio subsystem.
-    pub(crate) fn process_audio_events(&mut self) -> Vec<crate::game_logic::AudioEventRequest> {
-        self.refresh_live_audio_locality();
+    pub(crate) fn process_audio_events(
+        &mut self,
+        observer_look_at: Option<i32>,
+    ) -> Vec<crate::game_logic::audio_dispatch_impl::AdmittedAudioRequest> {
+        let locality = self.receiving_audio_locality(observer_look_at);
         self.retry_dropped_ambient_sounds();
         let mut outgoing = Vec::new();
 
-        for event in self.queued_audio_events.drain(..) {
+        let pending = std::mem::take(&mut self.queued_audio_events);
+        for event in pending {
             let names = crate::game_logic::resolve_audio_event_names(&event.event_type);
             for name in names {
                 let mut event = event.clone();
                 event.event_type = name;
-                if !crate::game_logic::audio_dispatch_impl::should_dispatch_audio_request(&event) {
+                let Some(event) = crate::game_logic::audio_dispatch_impl::admit_audio_request(
+                    event,
+                    locality.as_ref(),
+                    &mut |player, position| {
+                        self.receiving_audio_cell_shroud_clear(player, position)
+                    },
+                ) else {
                     continue;
-                }
+                };
                 if let Some(obj_id) = event.object_id {
                     if let Some(pos) = event.position {
                         log::trace!(
@@ -151,14 +161,13 @@ impl GameLogic {
         outgoing
     }
 
-    pub(super) fn refresh_live_audio_locality(&self) {
-        use crate::game_logic::audio_dispatch_impl::{
-            LiveAudioLocality, LiveAudioPlayer, set_live_audio_locality,
-        };
+    pub(crate) fn receiving_audio_locality(
+        &self,
+        observer_look_at: Option<i32>,
+    ) -> Option<crate::game_logic::audio_dispatch_impl::LiveAudioLocality> {
+        use crate::game_logic::audio_dispatch_impl::{LiveAudioLocality, LiveAudioPlayer};
         use game_engine::common::audio::AudioLocalityRelationship;
-        let Some(local_id) = self.local_player_id() else {
-            return;
-        };
+        let local_id = self.local_player_id()?;
         let local_active = self
             .players
             .get(&local_id)
@@ -167,15 +176,22 @@ impl GameLogic {
         let mut snap = LiveAudioLocality {
             local_player_index: local_id as i32,
             local_player_active: local_active,
-            observer_look_at: None,
+            observer_look_at,
             players: std::collections::HashMap::new(),
             object_owners: std::collections::HashMap::new(),
         };
+        let relationship_local = if local_active {
+            local_id
+        } else {
+            observer_look_at
+                .and_then(|id| u32::try_from(id).ok())
+                .unwrap_or(local_id)
+        };
         for p in self.players.values() {
-            let rel = if p.id == local_id {
+            let rel = if p.id == relationship_local {
                 AudioLocalityRelationship::Allies
             } else {
-                match self.player_relationship(p.id, local_id) {
+                match self.player_relationship(p.id, relationship_local) {
                     gamelogic::common::Relationship::Allies => AudioLocalityRelationship::Allies,
                     gamelogic::common::Relationship::Enemies => AudioLocalityRelationship::Enemies,
                     _ => AudioLocalityRelationship::Neutral,
@@ -196,7 +212,28 @@ impl GameLogic {
                 snap.object_owners.insert(id.0, pid as i32);
             }
         }
-        set_live_audio_locality(snap);
+        Some(snap)
+    }
+
+    /// C++ GameSounds.cpp203-205 queries the receiving partition cell shroud.
+    /// Host coordinates are Y-up; the actual shroud owner consumes C++ Z-up.
+    pub(crate) fn receiving_audio_cell_shroud_clear(
+        &self,
+        player: i32,
+        position: glam::Vec3,
+    ) -> bool {
+        let Ok(player) = u32::try_from(player) else {
+            return false;
+        };
+        let owner = self.world_services.shroud();
+        let shroud = owner
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let position = gamelogic::common::Coord3D::new(position.x, position.z, position.y);
+        matches!(
+            shroud.get_shroud_state(player, &position),
+            gamelogic::system::shroud_manager::ShroudState::Visible
+        )
     }
 
     /// Evaluate and execute scripts each frame

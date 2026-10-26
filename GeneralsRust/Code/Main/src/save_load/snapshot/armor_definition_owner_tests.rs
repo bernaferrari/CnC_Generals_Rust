@@ -45,14 +45,14 @@ fn encoded_save_armor_continuation_uses_receiving_catalog_and_preserves_peer() {
     source
         .host_object_mut(id)
         .unwrap()
-        .take_damage_from_typed(20.0, None, damage, &mut events);
+        .take_damage_from_typed(20.0, None, damage, 0, &mut events);
     restored
         .host_object_mut(id)
         .unwrap()
-        .take_damage_from_typed(20.0, None, damage, &mut events);
+        .take_damage_from_typed(20.0, None, damage, 0, &mut events);
     peer.host_object_mut(peer_id)
         .unwrap()
-        .take_damage_from_typed(20.0, None, damage, &mut events);
+        .take_damage_from_typed(20.0, None, damage, 0, &mut events);
     assert_eq!(source.host_object(id).unwrap().health.current, 95.0);
     assert_eq!(restored.host_object(id).unwrap().health.current, 95.0);
     assert_eq!(peer.host_object(peer_id).unwrap().health.current, 90.0);

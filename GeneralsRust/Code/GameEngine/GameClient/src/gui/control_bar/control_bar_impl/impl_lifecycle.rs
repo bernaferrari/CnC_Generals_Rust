@@ -594,15 +594,13 @@ impl ControlBar {
         ui: &mut crate::core::subsystems::InGameUISubsystem,
     ) {
         for click in std::mem::take(&mut self.pending_command_clicks) {
-            super::with_host_control_bar_input_provenance(click.input_provenance, || {
-                self.process_context_sensitive_button_click(
-                    click,
-                    owner,
-                    messages,
-                    receiving_manager,
-                    ui,
-                )
-            });
+            self.process_context_sensitive_button_click(
+                click,
+                owner,
+                messages,
+                receiving_manager,
+                ui,
+            );
         }
     }
 
@@ -660,15 +658,13 @@ impl ControlBar {
         if let Some(window_manager_owner) = window_manager_owner {
             for click in clicks {
                 // Replay the receiving bar's owned click at the original update phase.
-                super::with_host_control_bar_input_provenance(click.input_provenance, || {
-                    self.process_context_sensitive_button_click(
-                        click,
-                        window_manager_owner,
-                        effects.emitted_messages,
-                        receiving_manager,
-                        effects.ui.as_deref_mut().expect("receiving UI"),
-                    )
-                });
+                self.process_context_sensitive_button_click(
+                    click,
+                    window_manager_owner,
+                    effects.emitted_messages,
+                    receiving_manager,
+                    effects.ui.as_deref_mut().expect("receiving UI"),
+                );
             }
         }
         let _ = events.transitions;

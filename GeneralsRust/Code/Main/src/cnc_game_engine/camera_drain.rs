@@ -2563,10 +2563,13 @@ impl CnCGameEngine {
             .backfill_client_systems(self.game_client.particle_systems_mut());
         let mut pres = self.host_sync_shadow_and_build_presentation(true)?;
         // Presentation → audio subsystem directly (no GameLogic dual-write mid-frame).
+        let audio_observer = self.receiving_audio_observer_target();
         let audio_n = pres.dispatch_audio_events_direct(
             self.subsystem_manager
                 .get_mut::<crate::subsystem_manager::AudioManagerSubsystem>()
                 .expect("initialized engine audio subsystem"),
+            &self.game_logic,
+            audio_observer,
         );
         if audio_n > 0 {
             log::trace!("presentation audio events dispatched: {audio_n}");

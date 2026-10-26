@@ -1258,7 +1258,7 @@ fn combat_damage_does_not_spawn_floating_text() {
     logic.health_events.clear_damage();
     let target = super::admit_health_fixture_objects(&mut logic, 11);
     let (object, events) = logic.host_object_and_health_events_mut(target).unwrap();
-    object.take_damage_from(25.0, Some(crate::game_logic::ObjectId(1)), events);
+    object.take_damage_from(25.0, Some(crate::game_logic::ObjectId(1)), 0, events);
     assert_eq!(object.health.current, 75.0);
     let _ = logic.health_events.drain_damage();
     let frame = PresentationFrame::build_from_logic(&mut logic, 0);
@@ -1282,7 +1282,7 @@ fn damage_applied_freezes_from_last_drain() {
     logic.health_events.clear_damage();
     let target = super::admit_health_fixture_objects(&mut logic, 8);
     let (object, events) = logic.host_object_and_health_events_mut(target).unwrap();
-    object.take_damage_from(12.5, Some(crate::game_logic::ObjectId(1)), events);
+    object.take_damage_from(12.5, Some(crate::game_logic::ObjectId(1)), 0, events);
     assert_eq!(object.health.current, 87.5);
     let _ = logic.health_events.drain_damage();
     let frame = PresentationFrame::build_from_logic(&mut logic, 0);

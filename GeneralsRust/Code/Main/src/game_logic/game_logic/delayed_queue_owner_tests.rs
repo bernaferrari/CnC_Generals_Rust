@@ -220,7 +220,7 @@ fn delayed_deadline_wraps_cpp_u32_and_is_due_in_current_high_frame() {
     let hp = world.objects[&target].health.current;
     // Materialization receives the driving frame; the compatibility clock
     // differs deliberately. Thirty units / ten units per frame = three frames.
-    crate::game_logic::host_historic_bonus::set_logic_frame(37);
+
     queue_authored_shot(&mut world, source, target, 40.0, 10.0);
     let mirrored =
         gamelogic::weapon::with_weapon_store(|store| store.delayed_damage_snapshot_residual())
@@ -272,7 +272,7 @@ fn delayed_deadline_before_rollover_waits_until_normal_due_and_applies_once() {
     let frame = u32::MAX - 4;
     let (mut world, source, target) = projectileless_world(frame);
     let hp = world.objects[&target].health.current;
-    crate::game_logic::host_historic_bonus::set_logic_frame(37);
+
     queue_authored_shot(&mut world, source, target, 40.0, 10.0);
     let mirrored =
         gamelogic::weapon::with_weapon_store(|store| store.delayed_damage_snapshot_residual())

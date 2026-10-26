@@ -10,6 +10,7 @@ impl ControlBar {
         source: CommandSourceType,
         context: &ControlBarContext,
         ui: &mut crate::core::subsystems::InGameUISubsystem,
+        input_provenance: super::HostControlBarInputProvenance,
     ) -> bool {
         if !super::host_control_bar_bridge_enabled(ui) {
             return false;
@@ -44,7 +45,7 @@ impl ControlBar {
             weapon_slot,
             Self::command_needs_target(button.options),
         );
-        super::publish_host_control_bar_request(request, ui)
+        super::publish_host_control_bar_request(input_provenance, request, ui)
     }
 
     fn command_needs_target(options: u32) -> bool {
@@ -405,6 +406,7 @@ impl ControlBar {
         context: &ControlBarContext,
         emitted_messages: &mut Vec<crate::message_stream::game_message::GameMessage>,
         ui: &mut crate::core::subsystems::InGameUISubsystem,
+        input_provenance: super::HostControlBarInputProvenance,
     ) -> Result<bool, Box<dyn std::error::Error>> {
         if queue_index >= self.build_queue_data.len() {
             return Ok(false);
@@ -417,6 +419,7 @@ impl ControlBar {
 
         // The host must cancel its own queue, not a legacy producer module.
         if super::publish_host_queue_cancel(
+            input_provenance,
             context,
             producer_id,
             entry.production_id,
@@ -453,6 +456,7 @@ impl ControlBar {
         paused: bool,
         context: &ControlBarContext,
         ui: &mut crate::core::subsystems::InGameUISubsystem,
+        input_provenance: super::HostControlBarInputProvenance,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let Some(&producer_id) = context.selected_objects.first() else {
             return Ok(());
@@ -460,7 +464,8 @@ impl ControlBar {
 
         // A host bridge is a single-authority boundary.  Do not update the
         // legacy module or its compatibility pause queue after publishing.
-        if super::publish_host_production_pause(context, producer_id, paused, ui) {
+        if super::publish_host_production_pause(input_provenance, context, producer_id, paused, ui)
+        {
             self.portrait_state.production_paused = paused;
             return Ok(());
         }

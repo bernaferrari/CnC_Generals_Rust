@@ -4,9 +4,10 @@ impl Object {
     pub fn take_damage(
         &mut self,
         damage: f32,
+        frame: u32,
         health_events: &mut crate::game_logic::HostHealthEvents,
     ) -> bool {
-        self.take_damage_from(damage, None, health_events)
+        self.take_damage_from(damage, None, frame, health_events)
     }
 
     /// Apply damage with optional C++ BodyModule last-damage-source residual.

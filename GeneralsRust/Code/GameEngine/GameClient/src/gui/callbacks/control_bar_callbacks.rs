@@ -665,6 +665,7 @@ impl ControlBarCallbacks {
         effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
         mut selected_window: Option<&mut crate::gui::GameWindow>,
     ) {
+        let input_provenance = effects.input_provenance();
         let beacon_place_id = NameKeyGenerator::name_to_key("ControlBar.wnd:ButtonPlaceBeacon");
         let beacon_delete_id = NameKeyGenerator::name_to_key("ControlBar.wnd:ButtonDeleteBeacon");
         let beacon_clear_text_id =
@@ -752,7 +753,7 @@ impl ControlBarCallbacks {
             // C++ calls InGameUI::selectNextIdleWorker directly here.  While
             // Main owns the match, send the same UI intent to its typed
             // selection boundary rather than its dormant legacy message path.
-            if publish_host_select_next_idle_worker(effects.ui_mut()) {
+            if publish_host_select_next_idle_worker(effects.input_provenance(), effects.ui_mut()) {
                 return;
             }
             // Standalone GameClient retains its existing legacy route.
@@ -771,8 +772,10 @@ impl ControlBarCallbacks {
             GBM_SELECTED
         };
         if let Some(clicks) = effects.pending_control_bar_clicks.as_deref_mut() {
-            clicks.push(crate::helpers::LiveControlBarClick::from_current_dispatch(
-                control_id, msg,
+            clicks.push(crate::helpers::LiveControlBarClick::from_input(
+                control_id,
+                msg,
+                input_provenance,
             ));
         }
     }
@@ -992,6 +995,7 @@ pub fn left_hud_input(
     emitted_messages: &mut Vec<GameMessage>,
     _pending_clicks: Option<&mut Vec<crate::helpers::LiveControlBarClick>>,
     ui: &mut crate::core::subsystems::InGameUISubsystem,
+    input_provenance: crate::gui::control_bar::HostControlBarInputProvenance,
 ) -> WindowMsgHandled {
     let host_bridge = host_control_bar_bridge_enabled(ui);
 
@@ -1016,7 +1020,7 @@ pub fn left_hud_input(
     // Main before consulting those globals, while leaving the standalone
     // path below exactly intact when the bridge is disabled.
     if host_bridge && matches!(msg, WindowMessage::LeftDown | WindowMessage::RightDown) {
-        left_hud_publish_host_minimap_mouse_down(window, msg, data1, ui);
+        left_hud_publish_host_minimap_mouse_down(window, msg, data1, ui, input_provenance);
         return WindowMsgHandled::Handled;
     }
 
@@ -1062,14 +1066,14 @@ fn left_hud_handle_mouse_pos(
 ///
 /// We only establish that the pointer belongs to this WND rectangle here.
 /// World conversion and FOW remain at Main's authoritative presentation
-/// boundary. `publish_host_minimap_interaction` captures the WND dispatch
-/// provenance itself, so `FromUser`-style legacy state cannot forge an OS
-/// physical click.
+/// boundary. The receiving callback supplies its copied native input origin;
+/// `FromUser` alone never implies a physical click.
 fn left_hud_publish_host_minimap_mouse_down(
     window: &GameWindow,
     msg: WindowMessage,
     data1: WindowMsgData,
     ui: &mut crate::core::subsystems::InGameUISubsystem,
+    input_provenance: crate::gui::control_bar::HostControlBarInputProvenance,
 ) {
     let (mouse_x, mouse_y) = decode_mouse_pos(data1);
     let (screen_x, screen_y) = window.get_screen_position();
@@ -1086,6 +1090,7 @@ fn left_hud_publish_host_minimap_mouse_down(
         _ => return,
     };
     let _ = publish_host_minimap_interaction(
+        input_provenance,
         HostMinimapInteractionRequest {
             screen_position: [mouse_x, mouse_y],
             screen_top_left: [screen_x, screen_y],
@@ -1694,7 +1699,8 @@ mod tests {
                     0,
                     &mut Vec::new(),
                     None,
-                    ui
+                    ui,
+                    crate::gui::control_bar::HostControlBarInputProvenance::InjectedOrUnknown
                 ),
                 WindowMsgHandled::Handled
             );
@@ -1738,7 +1744,16 @@ mod tests {
             let click = 42usize | (491usize << 16);
             for message in [WindowMessage::LeftDown, WindowMessage::RightDown] {
                 assert_eq!(
-                    left_hud_input(&window, message, click, 0, &mut Vec::new(), None, ui),
+                    left_hud_input(
+                        &window,
+                        message,
+                        click,
+                        0,
+                        &mut Vec::new(),
+                        None,
+                        ui,
+                        crate::gui::control_bar::HostControlBarInputProvenance::InjectedOrUnknown
+                    ),
                     WindowMsgHandled::Ignored,
                     "C++ LeftHUDInput yields to the held-middle route before {message:?}"
                 );

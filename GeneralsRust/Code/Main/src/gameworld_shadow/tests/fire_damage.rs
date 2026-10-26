@@ -4,7 +4,7 @@ use super::*;
 
 fn owner_damage(logic: &mut GameLogic, id: ObjectId, amount: f32) -> bool {
     let (object, health_events) = logic.host_object_and_health_events_mut(id).unwrap();
-    object.take_damage(amount, health_events)
+    object.take_damage(amount, 0, health_events)
 }
 
 #[test]
@@ -510,7 +510,7 @@ fn damage_is_immediate_and_projection_cannot_reapply_it() {
 
     {
         if let Some((obj, health_events)) = logic.host_object_and_health_events_mut(id) {
-            let _ = obj.take_damage(25.0, health_events);
+            let _ = obj.take_damage(25.0, 0, health_events);
         }
     };
 
@@ -556,7 +556,7 @@ fn damage_authority_applies_host_hp_when_shadow_disabled() {
         .expect("unit");
     let pre = logic.host_objects().lookup(&id).unwrap().health.current;
     if let Some((obj, health_events)) = logic.host_object_and_health_events_mut(id) {
-        let _ = obj.take_damage(25.0, health_events);
+        let _ = obj.take_damage(25.0, 0, health_events);
     }
     let mid = logic.host_objects().lookup(&id).unwrap().health.current;
     assert!(
@@ -578,7 +578,7 @@ fn lethal_damage_marks_destroyed_and_zero_health_immediately() {
         .expect("unit");
 
     if let Some((obj, health_events)) = logic.host_object_and_health_events_mut(id) {
-        let dead = obj.take_damage(999.0, health_events);
+        let dead = obj.take_damage(999.0, 0, health_events);
         assert!(dead, "projected lethal");
         assert!(obj.status.destroyed, "destroyed flag must flip mid-frame");
         assert!(!obj.is_alive(), "is_alive must fail after lethal");

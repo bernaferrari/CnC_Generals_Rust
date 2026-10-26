@@ -2811,12 +2811,7 @@ impl CnCGameEngine {
             .add_radar_message(message, None, crate::ui::RadarPingKind::Generic);
         let req =
             crate::game_logic::AudioEventRequest::new("GUIMessageReceived").with_priority(150);
-        if let Some(audio) = self
-            .subsystem_manager
-            .get_mut::<crate::subsystem_manager::AudioManagerSubsystem>()
-        {
-            audio.queue_event(req);
-        }
+        self.queue_receiving_audio_event(req);
     }
 
     /// Wave 566/603: boot residual radar + GUIMessageReceived via host GameLogic.

@@ -80,7 +80,6 @@ End
 struct RestoreInputs {
     native_frame: u64,
     draw_icon_ui: bool,
-    host_frame: u32,
 }
 impl RestoreInputs {
     fn install(native_frame: u64) -> Self {
@@ -92,7 +91,6 @@ impl RestoreInputs {
         let saved = Self {
             native_frame: previous_frame,
             draw_icon_ui: previous_draw_icon_ui,
-            host_frame: crate::game_logic::host_historic_bonus::logic_frame(),
         };
 
         {
@@ -111,8 +109,6 @@ impl Drop for RestoreInputs {
         logic.set_current_frame(self.native_frame);
         logic.set_draw_icon_ui(self.draw_icon_ui);
         drop(logic);
-
-        crate::game_logic::host_historic_bonus::set_logic_frame(self.host_frame);
     }
 }
 

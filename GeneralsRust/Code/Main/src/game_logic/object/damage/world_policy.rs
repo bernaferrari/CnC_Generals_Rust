@@ -8,6 +8,7 @@ impl Object {
         &mut self,
         damage: f32,
         source: Option<ObjectId>,
+        frame: u32,
         health_events: &mut crate::game_logic::HostHealthEvents,
         repulsor_policy: &bool,
     ) -> bool {
@@ -15,6 +16,7 @@ impl Object {
             damage,
             source,
             crate::game_logic::combat::DamageType::Unresistable,
+            frame,
             health_events,
             repulsor_policy,
         )
@@ -24,6 +26,7 @@ impl Object {
         &mut self,
         damage: f32,
         source: Option<ObjectId>,
+        frame: u32,
         health_events: &mut crate::game_logic::HostHealthEvents,
         repulsor_policy: &bool,
     ) -> bool {
@@ -36,6 +39,7 @@ impl Object {
             ),
             true, // force host HP apply
             None,
+            frame,
             health_events,
             repulsor_policy,
         )
@@ -46,6 +50,7 @@ impl Object {
         damage: f32,
         source: Option<ObjectId>,
         damage_type: crate::game_logic::combat::DamageType,
+        frame: u32,
         health_events: &mut crate::game_logic::HostHealthEvents,
         repulsor_policy: &bool,
     ) -> bool {
@@ -54,6 +59,7 @@ impl Object {
             source,
             damage_type,
             crate::game_logic::host_usa_pilot::HostDeathType::from_host_damage_type(damage_type),
+            frame,
             health_events,
             repulsor_policy,
         )
@@ -65,6 +71,7 @@ impl Object {
         source: Option<ObjectId>,
         damage_type: crate::game_logic::combat::DamageType,
         death_type: crate::game_logic::host_usa_pilot::HostDeathType,
+        frame: u32,
         health_events: &mut crate::game_logic::HostHealthEvents,
         repulsor_policy: &bool,
     ) -> bool {
@@ -75,6 +82,7 @@ impl Object {
             death_type,
             true,
             None,
+            frame,
             health_events,
             repulsor_policy,
         )
@@ -86,6 +94,7 @@ impl Object {
         source: Option<ObjectId>,
         damage_type_name: &str,
         death_type_name: &str,
+        frame: u32,
         health_events: &mut crate::game_logic::HostHealthEvents,
         repulsor_policy: &bool,
     ) -> bool {
@@ -101,6 +110,7 @@ impl Object {
             source,
             damage_type,
             death_type,
+            frame,
             health_events,
             repulsor_policy,
         )
@@ -111,6 +121,7 @@ impl Object {
         damage: f32,
         source: Option<ObjectId>,
         damage_type: crate::game_logic::combat::DamageType,
+        frame: u32,
         health_events: &mut crate::game_logic::HostHealthEvents,
         repulsor_policy: &bool,
     ) -> bool {
@@ -119,6 +130,7 @@ impl Object {
             source,
             damage_type,
             crate::game_logic::host_usa_pilot::HostDeathType::from_host_damage_type(damage_type),
+            frame,
             health_events,
             repulsor_policy,
         )
@@ -130,6 +142,7 @@ impl Object {
         source: Option<ObjectId>,
         damage_type: crate::game_logic::combat::DamageType,
         death_type: crate::game_logic::host_usa_pilot::HostDeathType,
+        frame: u32,
         health_events: &mut crate::game_logic::HostHealthEvents,
         repulsor_policy: &bool,
     ) -> bool {
@@ -139,6 +152,7 @@ impl Object {
             damage_type,
             death_type,
             None,
+            frame,
             health_events,
             repulsor_policy,
         )
@@ -151,6 +165,7 @@ impl Object {
         damage_type: crate::game_logic::combat::DamageType,
         death_type: crate::game_logic::host_usa_pilot::HostDeathType,
         fx_override: Option<crate::game_logic::combat::DamageType>,
+        frame: u32,
         health_events: &mut crate::game_logic::HostHealthEvents,
         repulsor_policy: &bool,
     ) -> bool {
@@ -160,7 +175,7 @@ impl Object {
             damage_type,
             death_type,
             fx_override,
-            crate::game_logic::host_historic_bonus::logic_frame(),
+            frame,
             health_events,
             repulsor_policy,
         )
@@ -248,6 +263,7 @@ impl Object {
         death_type: crate::game_logic::host_usa_pilot::HostDeathType,
         force_host_hp: bool,
         fx_override: Option<crate::game_logic::combat::DamageType>,
+        frame: u32,
         health_events: &mut crate::game_logic::HostHealthEvents,
         repulsor_policy: &bool,
     ) -> bool {
@@ -258,7 +274,7 @@ impl Object {
             death_type,
             force_host_hp,
             fx_override,
-            crate::game_logic::host_historic_bonus::logic_frame(),
+            frame,
             &DamageHitContext::default(),
             health_events,
             repulsor_policy,
@@ -297,6 +313,7 @@ impl Object {
         &mut self,
         damage: f32,
         source: Option<ObjectId>,
+        frame: u32,
         health_events: &mut crate::game_logic::HostHealthEvents,
         repulsor_policy: &bool,
     ) -> bool {
@@ -308,6 +325,7 @@ impl Object {
             source,
             crate::game_logic::combat::DamageType::Radiation,
             crate::game_logic::host_usa_pilot::HostDeathType::Normal,
+            frame,
             health_events,
             repulsor_policy,
         )

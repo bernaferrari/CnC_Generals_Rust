@@ -9,16 +9,12 @@ use crate::game_logic::combat::*;
 use crate::game_logic::{AIState, KindOf, Team, ThingTemplate};
 
 struct RestoreCombatInputs {
-    frame: u32,
-
     weapon_store: Option<gamelogic::weapon::WeaponStore>,
 }
 
 impl RestoreCombatInputs {
     fn install() -> Self {
         let saved = Self {
-            frame: crate::game_logic::host_historic_bonus::logic_frame(),
-
             // Finite projectileless fire also appends a canonical delayed
             // entry. Preserve the real store rather than leaking that entry
             // into another test, including when the RED assertion panics.
@@ -36,8 +32,6 @@ impl Drop for RestoreCombatInputs {
         } else {
             gamelogic::weapon::shutdown_weapon_store().expect("restore absent weapon store");
         }
-
-        crate::game_logic::host_historic_bonus::set_logic_frame(self.frame);
     }
 }
 
@@ -125,7 +119,7 @@ fn active_aurora_materializes_using_driving_frame_not_other_world_clock() {
         .expect("active Aurora");
     assert!((offset.length() - 20.0).abs() < 0.001);
     let expected = aurora.get_position() + offset;
-    crate::game_logic::host_historic_bonus::set_logic_frame(second.frame);
+
     queue_shot(&mut first, source, target, "PatriotMissile", 10.0);
     let frame = first.frame;
     materialize(&mut first, frame);
@@ -164,7 +158,7 @@ fn expired_aurora_materializes_using_driving_frame_not_other_world_clock() {
             .is_some()
     );
     let expected = first.objects[&target].get_position();
-    crate::game_logic::host_historic_bonus::set_logic_frame(second.frame);
+
     queue_shot(&mut first, source, target, "PatriotMissile", 10.0);
     let frame = first.frame;
     materialize(&mut first, frame);
@@ -219,7 +213,7 @@ fn delayed_projectileless_due_frame_belongs_to_materializing_world() {
     assert_eq!(target, other_target);
     let hp = first.objects[&target].health.current;
     let other_hp = second.objects[&other_target].health.current;
-    crate::game_logic::host_historic_bonus::set_logic_frame(second.frame);
+
     queue_shot(&mut first, source, target, "", 10.0);
     let frame = first.frame;
     materialize(&mut first, frame);
@@ -255,7 +249,7 @@ fn immediate_projectileless_damage_belongs_to_materializing_world_frame() {
     assert_eq!(target, other_target);
     let hp = first.objects[&target].health.current;
     let other_hp = second.objects[&other_target].health.current;
-    crate::game_logic::host_historic_bonus::set_logic_frame(second.frame);
+
     // Thirty units / one hundred units per frame is sub-frame travel.
     queue_shot(&mut first, source, target, "", 100.0);
     let frame = first.frame;

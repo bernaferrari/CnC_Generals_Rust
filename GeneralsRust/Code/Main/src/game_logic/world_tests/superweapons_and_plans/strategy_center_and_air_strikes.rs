@@ -193,7 +193,7 @@ fn eject_pilot_parachute_open_dist_residual() {
             .expect("humvee");
         h.experience.level = VeterancyLevel::Veteran;
         h.status.airborne_target = true;
-        let _ = h.take_damage(h.max_health * 2.0, health_events);
+        let _ = h.take_damage(h.max_health * 2.0, 0, health_events);
         h.status.destroyed = true;
     }
     game_logic.mark_object_for_destruction(humvee_id, Some(Team::GLA));
@@ -311,7 +311,7 @@ fn eject_pilot_parachute_pitch_roll_sway_residual() {
             .expect("humvee");
         h.experience.level = VeterancyLevel::Veteran;
         h.status.airborne_target = true;
-        let _ = h.take_damage(h.max_health * 2.0, health_events);
+        let _ = h.take_damage(h.max_health * 2.0, 0, health_events);
         h.status.destroyed = true;
     }
     game_logic.mark_object_for_destruction(humvee_id, Some(Team::GLA));

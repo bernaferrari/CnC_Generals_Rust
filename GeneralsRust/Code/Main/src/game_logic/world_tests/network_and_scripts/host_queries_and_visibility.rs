@@ -1801,7 +1801,7 @@ fn repairing_state_heals_target_in_range() {
         let (damaged, health_events) = game_logic
             .host_object_and_health_events_mut(damaged_id)
             .expect("damaged unit should exist");
-        let _ = damaged.take_damage(80.0, health_events);
+        let _ = damaged.take_damage(80.0, 0, health_events);
     }
     {
         let repairer = game_logic
@@ -1856,7 +1856,7 @@ fn seeking_repair_state_heals_self_in_range() {
         let (unit, health_events) = game_logic
             .host_object_and_health_events_mut(unit_id)
             .expect("unit should exist");
-        let _ = unit.take_damage(90.0, health_events);
+        let _ = unit.take_damage(90.0, 0, health_events);
         unit.target = Some(repair_bay_id);
         unit.set_ai_state(
             AIState::SeekingRepair,
@@ -1907,7 +1907,7 @@ fn seeking_repair_state_clears_under_construction_destination() {
         let (unit, health_events) = game_logic
             .host_object_and_health_events_mut(unit_id)
             .expect("unit should exist");
-        let _ = unit.take_damage(90.0, health_events);
+        let _ = unit.take_damage(90.0, 0, health_events);
         unit.target = Some(repair_bay_id);
         unit.set_ai_state(
             AIState::SeekingRepair,

@@ -4,7 +4,7 @@ use super::*;
 
 fn owner_damage(logic: &mut GameLogic, id: ObjectId, amount: f32) -> bool {
     let (object, health_events) = logic.host_object_and_health_events_mut(id).unwrap();
-    object.take_damage(amount, health_events)
+    object.take_damage(amount, 0, health_events)
 }
 
 fn owner_heal(logic: &mut GameLogic, id: ObjectId, health: f32) {
@@ -122,7 +122,7 @@ fn damage_authority_defers_host_hp_until_writeback() {
 
     {
         let (o, health_events) = logic.host_object_and_health_events_mut(oid).expect("o");
-        let _ = o.take_damage(25.0, health_events);
+        let _ = o.take_damage(25.0, 0, health_events);
     };
 
     // C++ ActiveBody::internalChangeHealth writes HP the same frame.
@@ -144,7 +144,7 @@ fn damage_authority_defers_host_hp_until_writeback() {
     logic.health_events.clear_damage();
     {
         let (o, health_events) = logic.host_object_and_health_events_mut(oid).expect("o");
-        let _ = o.take_damage(25.0, health_events);
+        let _ = o.take_damage(25.0, 0, health_events);
     }
     let _ = observe_completed_owner(&mut shadow, &mut logic);
     let after = logic.host_objects().lookup(&oid).expect("o").health.current;

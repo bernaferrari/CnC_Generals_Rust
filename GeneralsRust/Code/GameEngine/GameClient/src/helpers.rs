@@ -7,10 +7,7 @@ use crate::display::view::{IPoint2, Point3, with_tactical_view, with_tactical_vi
 
 use crate::game_text::GameText;
 use crate::gui::callbacks::diplomacy::update_diplomacy_briefing_text;
-use crate::gui::control_bar::{
-    CommandOption, HostControlBarInputProvenance,
-    host_control_bar_input_provenance_for_current_dispatch,
-};
+use crate::gui::control_bar::{CommandOption, HostControlBarInputProvenance};
 
 use crate::gui::load_screen::{
     LoadScreenGameMode, LoadScreenInitContext, LoadScreenKind, LoadScreenRequest,
@@ -76,7 +73,7 @@ pub fn is_mouse_cursor_visible() -> bool {
 
 /// A WND click awaiting the live Control Bar tick.
 ///
-/// The actual command request is published during the later tick, not inside
+/// The actual command request is published during the bar replay phase, not inside
 /// the WND callback.  Capture the callback's input provenance here so that a
 /// runtime-host injected click cannot be mistaken for an OS mouse event.
 #[derive(Clone)]
@@ -88,15 +85,19 @@ pub struct LiveControlBarClick {
 }
 
 impl LiveControlBarClick {
-    /// Snapshot the currently scoped WND input origin for deferred replay.
+    /// Copy this receiving WND operation's explicit input origin for deferred replay.
     ///
     /// This must happen while the WindowManager callback is still executing;
-    /// `ControlBar::update` publishes the eventual host request later.
-    pub(crate) fn from_current_dispatch(control_id: u32, msg: u32) -> Self {
+    /// the receiving ControlBar publishes the eventual host request at its original phase.
+    pub fn from_input(
+        control_id: u32,
+        msg: u32,
+        input_provenance: HostControlBarInputProvenance,
+    ) -> Self {
         Self {
             control_id,
             msg,
-            input_provenance: host_control_bar_input_provenance_for_current_dispatch(),
+            input_provenance,
             target: None,
         }
     }
@@ -184,20 +185,24 @@ pub fn register_legacy_core_control_bar_ui_ingress() {
 #[cfg(test)]
 mod live_control_bar_click_provenance_tests {
     use super::LiveControlBarClick;
-    use crate::gui::control_bar::{
-        HostControlBarInputProvenance, with_host_control_bar_input_provenance,
-    };
+    use crate::gui::control_bar::HostControlBarInputProvenance;
 
     #[test]
     fn deferred_click_snapshots_physical_origin_and_fails_closed_otherwise() {
-        let unscoped = LiveControlBarClick::from_current_dispatch(10, 20);
-        let injected = with_host_control_bar_input_provenance(
+        let unscoped = LiveControlBarClick::from_input(
+            10,
+            20,
             HostControlBarInputProvenance::InjectedOrUnknown,
-            || LiveControlBarClick::from_current_dispatch(11, 21),
         );
-        let physical = with_host_control_bar_input_provenance(
+        let injected = LiveControlBarClick::from_input(
+            11,
+            21,
+            HostControlBarInputProvenance::InjectedOrUnknown,
+        );
+        let physical = LiveControlBarClick::from_input(
+            12,
+            22,
             HostControlBarInputProvenance::PhysicalWindowMouseInput,
-            || LiveControlBarClick::from_current_dispatch(12, 22),
         );
 
         assert_eq!(

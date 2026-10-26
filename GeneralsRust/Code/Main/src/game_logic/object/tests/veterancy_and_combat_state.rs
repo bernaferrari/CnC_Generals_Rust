@@ -874,7 +874,7 @@ fn small_arms_reduced_on_tank_armor_residual() {
     let mut tank = Object::new(tmpl, ObjectId(70), Team::USA);
     let hp0 = tank.health.current;
     // TankArmor SmallArms residual is 0.25 → 100 * 0.25 = 25
-    tank.take_damage_from_typed(100.0, None, DamageType::Bullet, &mut health_events);
+    tank.take_damage_from_typed(100.0, None, DamageType::Bullet, 0, &mut health_events);
     let dealt = hp0 - tank.health.current;
     assert!(
         (dealt - 25.0).abs() < 1.0,
@@ -895,7 +895,7 @@ fn laser_half_on_human_armor_residual() {
     let mut inf = Object::new(tmpl, ObjectId(71), Team::GLA);
     let hp0 = inf.health.current;
     // HumanArmor Laser residual 0.5 → 100 * 0.5 = 50
-    inf.take_damage_from_typed(100.0, None, DamageType::Laser, &mut health_events);
+    inf.take_damage_from_typed(100.0, None, DamageType::Laser, 0, &mut health_events);
     let dealt = hp0 - inf.health.current;
     assert!(
         (dealt - 50.0).abs() < 1.0,
@@ -919,6 +919,7 @@ fn flame_kill_sets_burned_death_type() {
         None,
         DamageType::Flame,
         HostDeathType::Burned,
+        0,
         &mut health_events,
     );
     assert!(dead);
@@ -1563,15 +1564,14 @@ fn poisoned_behavior_dots_after_toxin() {
     let mut health_events = crate::game_logic::HostHealthEvents::default();
 
     use crate::game_logic::combat::DamageType;
-    use crate::game_logic::host_historic_bonus;
     let mut t = ThingTemplate::new("TestInfantry");
     t.set_health(100.0);
     t.add_kind_of(KindOf::Infantry);
     let mut o = Object::new(t, ObjectId(201), Team::USA);
     o.health.current = 100.0;
     o.health.maximum = 100.0;
-    host_historic_bonus::set_logic_frame(10);
-    let _ = o.take_damage_from_typed(20.0, None, DamageType::Toxin, &mut health_events);
+
+    let _ = o.take_damage_from_typed(20.0, None, DamageType::Toxin, 10, &mut health_events);
     // HP reduced by initial hit
     let after_hit = o.health.current;
     assert!(after_hit < 100.0);
@@ -1583,7 +1583,7 @@ fn poisoned_behavior_dots_after_toxin() {
     );
     assert!(o.is_poison_tinted());
     // Advance DoT ticks
-    host_historic_bonus::set_logic_frame(20);
+
     let mut total_dot = 0.0;
     for f in 11..100 {
         if let Some((d, _)) = o.tick_poisoned_behavior(f) {
@@ -1593,6 +1593,7 @@ fn poisoned_behavior_dots_after_toxin() {
                 None,
                 DamageType::Unresistable,
                 crate::game_logic::host_usa_pilot::HostDeathType::Poisoned,
+                f,
                 &mut health_events,
             );
         }
@@ -1606,14 +1607,13 @@ fn healing_clears_poison() {
     let mut health_events = crate::game_logic::HostHealthEvents::default();
 
     use crate::game_logic::combat::DamageType;
-    use crate::game_logic::host_historic_bonus;
     let mut t = ThingTemplate::new("TestInfantry");
     t.set_health(100.0);
     let mut o = Object::new(t, ObjectId(202), Team::USA);
     o.health.current = 80.0;
     o.health.maximum = 100.0;
-    host_historic_bonus::set_logic_frame(5);
-    let _ = o.take_damage_from_typed(10.0, None, DamageType::Toxin, &mut health_events);
+
+    let _ = o.take_damage_from_typed(10.0, None, DamageType::Toxin, 5, &mut health_events);
     assert!(o.is_poison_tinted());
     o.heal(5.0, &mut health_events, 5);
     assert!(!o.is_poison_tinted());
@@ -2332,7 +2332,8 @@ fn healing_and_water_damage_residuals() {
 
     // Water deals normal HP damage.
     unit.health.current = 100.0;
-    let destroyed = unit.take_damage_from_typed(30.0, None, DamageType::Water, &mut health_events);
+    let destroyed =
+        unit.take_damage_from_typed(30.0, None, DamageType::Water, 0, &mut health_events);
     assert!(!destroyed);
     assert!((unit.health.current - 70.0).abs() < 1e-3);
 
@@ -2399,7 +2400,8 @@ fn deploy_hack_surrender_kill_garrisoned_damage_residuals() {
     pt.set_health(100.0);
     let mut penalized = Object::new(pt, ObjectId(5), Team::USA);
     penalized.health.current = 100.0;
-    let _ = penalized.take_damage_from_typed(25.0, None, DamageType::Penalty, &mut health_events);
+    let _ =
+        penalized.take_damage_from_typed(25.0, None, DamageType::Penalty, 0, &mut health_events);
     assert!((penalized.health.current - 75.0).abs() < 1e-3);
 }
 
@@ -2568,7 +2570,7 @@ fn status_damage_none_does_not_paint_faerie_fire() {
     o.health.current = 100.0;
     o.health.maximum = 100.0;
     // C++ default OBJECT_STATUS_NONE: no paint.
-    let dead = o.take_damage_from_typed(200.0, None, DamageType::Status, &mut health_events);
+    let dead = o.take_damage_from_typed(200.0, None, DamageType::Status, 0, &mut health_events);
     assert!(!dead);
     assert!((o.health.current - 100.0).abs() < 1e-3);
     assert!(!o.is_faerie_fire());
@@ -3314,7 +3316,7 @@ fn body_damage_sets_model_condition_bits() {
         MC_BIT_REALLYDAMAGED
     ));
 
-    o.take_damage(9999.0, &mut health_events);
+    o.take_damage(9999.0, 0, &mut health_events);
     assert!(o.status.destroyed);
     assert_eq!(o.body_damage_state, HostBodyDamageType::Rubble);
     assert!(host_model_condition_has(

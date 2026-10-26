@@ -2862,7 +2862,7 @@ fn eject_pilot_veterancy_levels_all_minus_regular_residual() {
             .host_object_and_health_events_mut(rookie_id)
             .expect("rookie");
         h.experience.level = VeterancyLevel::Rookie;
-        let _ = h.take_damage(h.max_health * 2.0, health_events);
+        let _ = h.take_damage(h.max_health * 2.0, 0, health_events);
         h.status.destroyed = true;
     }
     game_logic.mark_object_for_destruction(rookie_id, Some(Team::GLA));
@@ -2900,7 +2900,7 @@ fn eject_pilot_veterancy_levels_all_minus_regular_residual() {
             .host_object_and_health_events_mut(vet_id)
             .expect("vet");
         h.experience.level = VeterancyLevel::Veteran;
-        let _ = h.take_damage(h.max_health * 2.0, health_events);
+        let _ = h.take_damage(h.max_health * 2.0, 0, health_events);
         h.status.destroyed = true;
     }
     game_logic.mark_object_for_destruction(vet_id, Some(Team::GLA));
@@ -2925,7 +2925,7 @@ fn eject_pilot_veterancy_levels_all_minus_regular_residual() {
             .host_object_and_health_events_mut(elite_id)
             .expect("elite");
         h.experience.level = VeterancyLevel::Elite;
-        let _ = h.take_damage(h.max_health * 2.0, health_events);
+        let _ = h.take_damage(h.max_health * 2.0, 0, health_events);
         h.status.destroyed = true;
     }
     game_logic.mark_object_for_destruction(elite_id, Some(Team::GLA));
@@ -2976,7 +2976,7 @@ fn eject_pilot_die_mux_death_types_and_hijacked_residual() {
             .host_object_and_health_events_mut(crushed_id)
             .expect("crushed");
         h.experience.level = VeterancyLevel::Veteran;
-        let _ = h.take_damage(h.max_health * 2.0, health_events);
+        let _ = h.take_damage(h.max_health * 2.0, 0, health_events);
         // take_damage sets death_type from damage class — restore DieMux residual.
         h.status.death_type = HostDeathType::Crushed;
         h.status.destroyed = true;
@@ -3016,7 +3016,7 @@ fn eject_pilot_die_mux_death_types_and_hijacked_residual() {
             .host_object_and_health_events_mut(splat_id)
             .expect("splat");
         h.experience.level = VeterancyLevel::Veteran;
-        let _ = h.take_damage(h.max_health * 2.0, health_events);
+        let _ = h.take_damage(h.max_health * 2.0, 0, health_events);
         h.status.death_type = HostDeathType::Splatted;
         h.status.destroyed = true;
     }
@@ -3051,7 +3051,7 @@ fn eject_pilot_die_mux_death_types_and_hijacked_residual() {
             &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
             partition,
         );
-        let _ = h.take_damage(h.max_health * 2.0, health_events);
+        let _ = h.take_damage(h.max_health * 2.0, 0, health_events);
         // Preserve HIJACKED after damage residual.
         h.set_status_hijacked(true);
         h.status.destroyed = true;
@@ -3086,7 +3086,7 @@ fn eject_pilot_die_mux_death_types_and_hijacked_residual() {
             .expect("normal");
         h.experience.level = VeterancyLevel::Veteran;
         h.status.death_type = HostDeathType::Normal;
-        let _ = h.take_damage(h.max_health * 2.0, health_events);
+        let _ = h.take_damage(h.max_health * 2.0, 0, health_events);
         h.status.destroyed = true;
     }
     game_logic.mark_object_for_destruction(normal_id, Some(Team::GLA));
@@ -3349,7 +3349,7 @@ fn eject_pilot_invulnerable_time_residual() {
             .expect("humvee");
         // VeterancyLevels = ALL -REGULAR residual required for eject path.
         h.experience.level = VeterancyLevel::Veteran;
-        let _ = h.take_damage(h.max_health * 2.0, health_events);
+        let _ = h.take_damage(h.max_health * 2.0, 0, health_events);
         h.status.destroyed = true;
     }
     game_logic.mark_object_for_destruction(humvee_id, Some(Team::GLA));

@@ -1,80 +1,11 @@
-//! Concrete implementation of `GameplayAudioDispatch` for the Main crate.
-//!
-//! Routes gameplay audio events (weapon fire, unit death, EVA) through the
-//! existing `AudioManagerSubsystem` which uses the `SoundEffectsTable` to
-//! resolve INI event names to concrete sound file paths and plays them
-//! through the rodio audio backend.
+//! Receiving audio request admission and original-authored voice resolution.
+//! The application queues explicit accepted requests; it never registers as
+//! a process-global Core GameplayAudioDispatch sink.
 
 use game_engine::common::ascii_string::AsciiString;
-use game_engine::common::audio::GameplayAudioDispatch;
 #[cfg(test)]
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
-
-/// Concrete dispatch that queues audio events for the `AudioManagerSubsystem`
-/// to process on the next frame.
-///
-/// This avoids calling async audio directly from gameplay code (which runs on
-/// the logic thread) and instead feeds events into the same queue that
-/// `GameLogic::process_audio_events()` uses.
-pub struct MainAudioDispatch {
-    events: Mutex<Vec<GameplayAudioEvent>>,
-}
-
-/// An audio event queued for playback.
-#[derive(Debug, Clone)]
-pub struct GameplayAudioEvent {
-    pub event_name: String,
-    pub position: Option<(f32, f32, f32)>,
-}
-
-impl Default for MainAudioDispatch {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl MainAudioDispatch {
-    pub fn new() -> Self {
-        Self {
-            events: Mutex::new(Vec::new()),
-        }
-    }
-
-    /// Drain all queued events (called from the subsystem update).
-    pub fn drain_events(&self) -> Vec<GameplayAudioEvent> {
-        self.events
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .drain(..)
-            .collect()
-    }
-}
-
-impl GameplayAudioDispatch for MainAudioDispatch {
-    fn play_positional_sound(&self, event_name: &str, x: f32, y: f32, z: f32) {
-        let event = GameplayAudioEvent {
-            event_name: event_name.to_string(),
-            position: Some((x, y, z)),
-        };
-        self.events
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .push(event);
-    }
-
-    fn play_2d_sound(&self, event_name: &str) {
-        let event = GameplayAudioEvent {
-            event_name: event_name.to_string(),
-            position: None,
-        };
-        self.events
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .push(event);
-    }
-}
 
 /// C++ `pickAndPlayUnitVoiceResponse` slot (`CommandXlat.cpp:311-635`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -499,19 +430,68 @@ pub struct LiveAudioPlayer {
     pub relationship_to_local: AudioLocalityRelationship,
 }
 
-static LIVE_AUDIO_LOCALITY: Mutex<Option<LiveAudioLocality>> = Mutex::new(None);
-
-pub fn set_live_audio_locality(snap: LiveAudioLocality) {
-    *LIVE_AUDIO_LOCALITY
-        .lock()
-        .unwrap_or_else(|e| e.into_inner()) = Some(snap);
+/// A request whose runtime player/shroud admission was completed on its receiver.
+/// Device delivery does not resolve world identities a second time.
+#[derive(Debug, Clone)]
+pub(crate) struct AdmittedAudioRequest {
+    request: crate::game_logic::AudioEventRequest,
+    locality: game_engine::common::audio::AudioSubmissionLocality,
 }
-
-pub fn live_audio_locality() -> Option<LiveAudioLocality> {
-    LIVE_AUDIO_LOCALITY
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .clone()
+impl AdmittedAudioRequest {
+    pub(crate) fn into_request(self) -> crate::game_logic::AudioEventRequest {
+        self.request
+    }
+    pub(crate) fn into_parts(
+        self,
+    ) -> (
+        crate::game_logic::AudioEventRequest,
+        game_engine::common::audio::AudioSubmissionLocality,
+    ) {
+        (self.request, self.locality)
+    }
+}
+impl std::ops::Deref for AdmittedAudioRequest {
+    type Target = crate::game_logic::AudioEventRequest;
+    fn deref(&self) -> &Self::Target {
+        &self.request
+    }
+}
+/// This adapter borrows only an immutable operation snapshot, never a World
+/// hidden behind the native resolver's Send + Sync trait.
+struct ReceivingLocalityFacts<'a>(Option<&'a LiveAudioLocality>);
+impl game_engine::common::audio::AudioLocalityResolver for ReceivingLocalityFacts<'_> {
+    fn get_local_player_index(&self) -> Option<i32> {
+        self.0.map(|facts| facts.local_player_index)
+    }
+    fn get_observer_look_at_player_index(&self) -> Option<i32> {
+        self.0.and_then(|facts| facts.observer_look_at)
+    }
+    fn is_player_active(&self, id: i32) -> bool {
+        self.0
+            .and_then(|facts| facts.players.get(&id))
+            .is_some_and(|player| player.active)
+    }
+    fn player_exists(&self, id: i32) -> bool {
+        self.0
+            .and_then(|facts| facts.players.get(&id))
+            .is_some_and(|player| player.exists)
+    }
+    fn has_default_team(&self, id: i32) -> bool {
+        self.0
+            .and_then(|facts| facts.players.get(&id))
+            .is_some_and(|player| player.exists && player.has_default_team)
+    }
+    fn get_relationship_to_local_team(
+        &self,
+        source: i32,
+        _local: i32,
+    ) -> AudioLocalityRelationship {
+        self.0
+            .and_then(|facts| facts.players.get(&source))
+            .map_or(AudioLocalityRelationship::Neutral, |player| {
+                player.relationship_to_local
+            })
+    }
 }
 
 fn lookup_audio_event_info(event_name: &str) -> Option<AudioEventInfo> {
@@ -520,23 +500,6 @@ fn lookup_audio_event_info(event_name: &str) -> Option<AudioEventInfo> {
     guard
         .find_audio_event_info(event_name)
         .map(|info| (*info).clone())
-}
-
-fn live_position_is_cellshroud_clear(local_player: i32, host_pos: glam::Vec3) -> bool {
-    // C++ SoundManager::canPlayNow: ThePartitionManager->getShroudStatusForPlayer
-    // (GameSounds.cpp:203-205). Leftover ThePartitionManager maps that onto
-    // ShroudManager::get_shroud_state — DiscreteCircle looker cells, not the
-    // PARTITION_MANAGER square r² disk (partition_shroud.rs:137-163).
-    // Host AudioEventRequest is Y-up (x, height, z_ground); leftover Coord3D
-    // is Z-up (x, y_ground, z_height).
-    let Some(pm) = gamelogic::helpers::ThePartitionManager::get() else {
-        return false;
-    };
-    let world = gamelogic::common::Coord3D::new(host_pos.x, host_pos.z, host_pos.y);
-    matches!(
-        pm.get_shroud_status_for_player(local_player, &world),
-        game_engine::common::system::radar::CellShroudStatus::Clear
-    )
 }
 
 /// C++ `shouldPlayLocally` + `canPlayNow` ST_SHROUDED for the live SFX drain.
@@ -548,12 +511,35 @@ pub fn should_dispatch_live_audio(
     event_name: &str,
     owning_player_index: Option<i32>,
     position: Option<glam::Vec3>,
+    snap: Option<&LiveAudioLocality>,
+    cell_shroud_clear: &mut dyn FnMut(i32, glam::Vec3) -> bool,
 ) -> bool {
     if is_invented_unit_voice_name(event_name) || is_generic_eva_sfx_name(event_name) {
         return false;
     }
 
     let info = lookup_audio_event_info(event_name);
+    should_dispatch_live_audio_with_info(
+        event_name,
+        owning_player_index,
+        position,
+        info.as_ref(),
+        snap,
+        cell_shroud_clear,
+    )
+}
+
+fn should_dispatch_live_audio_with_info(
+    event_name: &str,
+    owning_player_index: Option<i32>,
+    position: Option<glam::Vec3>,
+    info: Option<&AudioEventInfo>,
+    snap: Option<&LiveAudioLocality>,
+    cell_shroud_clear: &mut dyn FnMut(i32, glam::Vec3) -> bool,
+) -> bool {
+    if is_invented_unit_voice_name(event_name) || is_generic_eva_sfx_name(event_name) {
+        return false;
+    }
     let type_field = info.as_ref().map(|i| i.type_field).unwrap_or(0);
     let is_music = info
         .as_ref()
@@ -567,14 +553,15 @@ pub fn should_dispatch_live_audio(
             .map(|i| (i.type_field & ST_WORLD) != 0)
             .unwrap_or(position.is_some());
 
-    let snap = live_audio_locality();
     let owning = owning_player_index.or_else(|| None);
-    let owning_exists = owning
-        .and_then(|idx| {
-            snap.as_ref()
-                .and_then(|s| s.players.get(&idx).map(|p| p.exists))
+    let owning_exists = owning.is_some_and(|index| {
+        snap.is_some_and(|facts| {
+            facts
+                .players
+                .get(&index)
+                .is_some_and(|player| player.exists)
         })
-        .unwrap_or(owning.is_some());
+    });
 
     let (local_idx, local_active, observer, local_has_team, relationship) =
         if let Some(s) = snap.as_ref() {
@@ -599,7 +586,7 @@ pub fn should_dispatch_live_audio(
                 s.observer_look_at,
                 local_rec
                     .map(|p| p.exists && p.has_default_team)
-                    .unwrap_or(true),
+                    .unwrap_or(false),
                 rel,
             )
         } else {
@@ -620,8 +607,10 @@ pub fn should_dispatch_live_audio(
         return false;
     }
 
-    if let (Some(pos), Some(local)) = (position, local_idx) {
-        let clear = live_position_is_cellshroud_clear(local, pos);
+    // GameSounds.cpp203 uses the actual local-player index for cell shroud;
+    // observer look-at substitution applies only to GameAudio.cpp988 relations.
+    if let (Some(pos), Some(local)) = (position, snap.map(|facts| facts.local_player_index)) {
+        let clear = cell_shroud_clear(local, pos);
         if shrouded_positional_event_is_blocked(type_field, is_positional, is_critical, clear) {
             return false;
         }
@@ -675,17 +664,50 @@ pub fn resolve_terrorist_in_car_voice(slot: UnitVoiceSlot) -> Option<String> {
 
 pub fn owning_player_for_audio_object(
     object_id: Option<crate::game_logic::ObjectId>,
+    locality: Option<&LiveAudioLocality>,
 ) -> Option<i32> {
     let id = object_id?.0;
-    live_audio_locality()?.object_owners.get(&id).copied()
+    locality?.object_owners.get(&id).copied()
 }
 
 /// True when this request may enter the live SFX drain.
-pub fn should_dispatch_audio_request(event: &crate::game_logic::AudioEventRequest) -> bool {
+pub(crate) fn admit_audio_request(
+    mut event: crate::game_logic::AudioEventRequest,
+    locality: Option<&LiveAudioLocality>,
+    cell_shroud_clear: &mut dyn FnMut(i32, glam::Vec3) -> bool,
+) -> Option<AdmittedAudioRequest> {
     let owner = event
         .player_index
-        .or_else(|| owning_player_for_audio_object(event.object_id));
-    should_dispatch_live_audio(event.event_type.as_str(), owner, event.position)
+        .or_else(|| owning_player_for_audio_object(event.object_id, locality));
+    // Preserve the resolved source player so backend admission never rediscovers
+    // it through an ambient Core object registry with coincident IDs.
+    if event.player_index.is_none() {
+        event.player_index = owner;
+    }
+    let removal = event.stop
+        || matches!(
+            event.event_type.as_str(),
+            "MusicEnable" | "MusicDisable" | "WeaponFireLoopStop" | "AfterburnerStop"
+        );
+    if !removal
+        && !should_dispatch_live_audio(
+            event.event_type.as_str(),
+            owner,
+            event.position,
+            locality,
+            cell_shroud_clear,
+        )
+    {
+        return None;
+    }
+    let captured = game_engine::common::audio::AudioSubmissionLocality::from_resolver(
+        owner.unwrap_or(-1),
+        &ReceivingLocalityFacts(locality),
+    );
+    Some(AdmittedAudioRequest {
+        request: event,
+        locality: captured,
+    })
 }
 
 #[cfg(test)]
@@ -901,8 +923,20 @@ mod tests {
         assert!(is_generic_eva_sfx_name("EVA_LowPower"));
         assert!(is_generic_eva_sfx_name("EVA_UpgradeComplete"));
         assert!(!is_generic_eva_sfx_name("EvaUSA_BuildingLost"));
-        assert!(!should_dispatch_live_audio("UnitMove", Some(0), None));
-        assert!(!should_dispatch_live_audio("EVA_LowPower", Some(0), None));
+        assert!(!should_dispatch_live_audio(
+            "UnitMove",
+            Some(0),
+            None,
+            None,
+            &mut |_, _| false
+        ));
+        assert!(!should_dispatch_live_audio(
+            "EVA_LowPower",
+            Some(0),
+            None,
+            None,
+            &mut |_, _| false
+        ));
     }
 
     #[test]
@@ -933,10 +967,15 @@ mod tests {
                 relationship_to_local: AudioLocalityRelationship::Enemies,
             },
         );
-        set_live_audio_locality(snap);
 
         // No AudioEventInfo → missing bits default Everyone.
-        assert!(should_dispatch_live_audio("SomeWorldBoom", Some(1), None));
+        assert!(should_dispatch_live_audio(
+            "SomeWorldBoom",
+            Some(1),
+            None,
+            Some(&snap),
+            &mut |_, _| false
+        ));
 
         assert!(should_play_locally_for_players(
             ST_PLAYER,
@@ -982,7 +1021,6 @@ mod tests {
             true,
             AudioLocalityRelationship::Enemies,
         ));
-        set_live_audio_locality(LiveAudioLocality::default());
     }
 
     #[test]
@@ -1021,5 +1059,99 @@ mod tests {
         assert!(terrorist_in_car_voice_token(UnitVoiceSlot::Guard).is_none());
         let name = resolve_terrorist_in_car_voice(UnitVoiceSlot::Select).unwrap();
         assert!(!is_invented_unit_voice_name(&name));
+    }
+}
+
+#[cfg(test)]
+mod receiving_audio_admission_tests {
+    use super::*;
+    use game_engine::common::audio::{ST_EVERYONE, ST_PLAYER};
+    fn facts(local: i32, owner: i32) -> LiveAudioLocality {
+        let mut result = LiveAudioLocality {
+            local_player_index: local,
+            local_player_active: true,
+            ..Default::default()
+        };
+        for id in [local, owner] {
+            result.players.insert(
+                id,
+                LiveAudioPlayer {
+                    exists: true,
+                    active: true,
+                    has_default_team: true,
+                    relationship_to_local: AudioLocalityRelationship::Allies,
+                },
+            );
+        }
+        result.object_owners.insert(41, owner);
+        result
+    }
+    #[test]
+    fn same_id_player_and_object_facts_are_receiving_not_last_published() {
+        let mut info = AudioEventInfo::default();
+        info.type_field = ST_PLAYER;
+        let a = facts(0, 0);
+        let mut b = facts(0, 1);
+        let owner_a =
+            owning_player_for_audio_object(Some(crate::game_logic::ObjectId(41)), Some(&a));
+        let owner_b =
+            owning_player_for_audio_object(Some(crate::game_logic::ObjectId(41)), Some(&b));
+        assert!(should_dispatch_live_audio_with_info(
+            "AuthoredVoice",
+            owner_a,
+            None,
+            Some(&info),
+            Some(&a),
+            &mut |_, _| false
+        ));
+        assert!(!should_dispatch_live_audio_with_info(
+            "AuthoredVoice",
+            owner_b,
+            None,
+            Some(&info),
+            Some(&b),
+            &mut |_, _| false
+        ));
+        b.players.clear();
+        drop(b);
+        assert!(should_dispatch_live_audio_with_info(
+            "AuthoredVoice",
+            owner_a,
+            None,
+            Some(&info),
+            Some(&a),
+            &mut |_, _| false
+        ));
+    }
+    #[test]
+    fn shroud_query_uses_actual_receiver_and_original_local_not_observer() {
+        let mut info = AudioEventInfo::default();
+        info.type_field = ST_EVERYONE | ST_WORLD | ST_SHROUDED;
+        let mut a = facts(0, 2);
+        a.local_player_active = false;
+        a.players.get_mut(&0).unwrap().active = false;
+        a.observer_look_at = Some(2);
+        let position = Some(glam::Vec3::new(3.0, 4.0, 5.0));
+        let mut queried = Vec::new();
+        assert!(should_dispatch_live_audio_with_info(
+            "AuthoredWorld",
+            Some(2),
+            position,
+            Some(&info),
+            Some(&a),
+            &mut |player, pos| {
+                queried.push((player, pos));
+                true
+            }
+        ));
+        assert_eq!(queried, vec![(0, position.unwrap())]);
+        assert!(!should_dispatch_live_audio_with_info(
+            "AuthoredWorld",
+            Some(2),
+            position,
+            Some(&info),
+            Some(&a),
+            &mut |_, _| false
+        ));
     }
 }

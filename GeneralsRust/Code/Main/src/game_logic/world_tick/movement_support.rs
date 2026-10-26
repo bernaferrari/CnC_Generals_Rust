@@ -3094,7 +3094,6 @@ impl GameLogic {
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
-        crate::game_logic::host_historic_bonus::set_logic_frame(self.frame);
         let projectile_terrain = crate::game_logic::game_logic::FlightTerrainView {
             grid: &self.pathfinding_system.grid,
             logical: Some(self.world_services.terrain()),

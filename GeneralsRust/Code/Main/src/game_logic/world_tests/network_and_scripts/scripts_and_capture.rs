@@ -102,7 +102,7 @@ fn repair_command_sets_all_selected_repairers_to_repairing() {
         let (target, health_events) = game_logic
             .host_object_and_health_events_mut(target_id)
             .expect("target should exist");
-        let _ = target.take_damage(50.0, health_events);
+        let _ = target.take_damage(50.0, 0, health_events);
     }
 
     game_logic.queue_command(crate::command_system::GameCommand {
@@ -145,7 +145,7 @@ fn repair_command_ignores_non_worker_units() {
         let (target, health_events) = game_logic
             .host_object_and_health_events_mut(target_id)
             .expect("target should exist");
-        let _ = target.take_damage(75.0, health_events);
+        let _ = target.take_damage(75.0, 0, health_events);
     }
 
     game_logic.queue_command(crate::command_system::GameCommand {
@@ -183,7 +183,7 @@ fn repair_command_allows_repairing_neutral_structures() {
         let (target, health_events) = game_logic
             .host_object_and_health_events_mut(target_id)
             .expect("target should exist");
-        let _ = target.take_damage(60.0, health_events);
+        let _ = target.take_damage(60.0, 0, health_events);
     }
 
     let before = game_logic
@@ -256,7 +256,7 @@ fn dozer_structure_repair_residual_recovers_hp_over_time() {
         let (structure, health_events) = game_logic
             .host_object_and_health_events_mut(structure_id)
             .expect("structure");
-        let _ = structure.take_damage(400.0, health_events);
+        let _ = structure.take_damage(400.0, 0, health_events);
         assert!(
             structure.health.current + 0.01 < structure.health.maximum,
             "structure must be damaged before repair"
@@ -350,7 +350,7 @@ fn dozer_structure_repair_residual_walk_into_range_recovers_hp() {
         // the independent BaseRegenerateUpdate fixture module so autonomous
         // structure regeneration cannot masquerade as an in-range repair tick.
         structure.base_regenerate = None;
-        let _ = structure.take_damage(300.0, health_events);
+        let _ = structure.take_damage(300.0, 0, health_events);
     }
     let before = game_logic
         .host_object(structure_id)
@@ -471,7 +471,7 @@ fn war_factory_vehicle_repair_residual_recovers_hp() {
         let (vehicle, health_events) = game_logic
             .host_object_and_health_events_mut(vehicle_id)
             .expect("vehicle");
-        let _ = vehicle.take_damage(120.0, health_events);
+        let _ = vehicle.take_damage(120.0, 0, health_events);
     }
     let before = game_logic
         .host_object(vehicle_id)
@@ -557,7 +557,7 @@ fn ambulance_auto_heal_residual_recovers_infantry_hp() {
         let (infantry, health_events) = game_logic
             .host_object_and_health_events_mut(infantry_id)
             .expect("infantry");
-        let _ = infantry.take_damage(40.0, health_events);
+        let _ = infantry.take_damage(40.0, 0, health_events);
         assert!(
             infantry.health.current + 0.01 < infantry.health.maximum,
             "infantry must be damaged before ambulance heal"
@@ -636,7 +636,7 @@ fn ambulance_auto_heal_residual_out_of_range_then_in_range() {
         let (infantry, health_events) = game_logic
             .host_object_and_health_events_mut(infantry_id)
             .expect("infantry");
-        let _ = infantry.take_damage(30.0, health_events);
+        let _ = infantry.take_damage(30.0, 0, health_events);
     }
     let before = game_logic
         .host_object(infantry_id)
@@ -713,7 +713,7 @@ fn ambulance_auto_heal_residual_skips_enemy_infantry() {
         let (enemy, health_events) = game_logic
             .host_object_and_health_events_mut(enemy_id)
             .expect("enemy");
-        let _ = enemy.take_damage(40.0, health_events);
+        let _ = enemy.take_damage(40.0, 0, health_events);
     }
     let before = game_logic
         .host_object(enemy_id)
@@ -762,7 +762,7 @@ fn propaganda_tower_residual_recovers_hp_and_sets_enthusiastic() {
         let (unit, health_events) = game_logic
             .host_object_and_health_events_mut(unit_id)
             .expect("unit");
-        let _ = unit.take_damage(40.0, health_events);
+        let _ = unit.take_damage(40.0, 0, health_events);
         assert!(
             unit.health.current + 0.01 < unit.health.maximum,
             "unit must be damaged before propaganda heal"
@@ -845,7 +845,7 @@ fn propaganda_tower_residual_out_of_range_then_in_range() {
         let (unit, health_events) = game_logic
             .host_object_and_health_events_mut(unit_id)
             .expect("unit");
-        let _ = unit.take_damage(30.0, health_events);
+        let _ = unit.take_damage(30.0, 0, health_events);
     }
     let before = game_logic
         .host_object(unit_id)
@@ -962,7 +962,7 @@ fn propaganda_tower_residual_skips_enemy_units() {
         let (enemy, health_events) = game_logic
             .host_object_and_health_events_mut(enemy_id)
             .expect("enemy");
-        let _ = enemy.take_damage(40.0, health_events);
+        let _ = enemy.take_damage(40.0, 0, health_events);
     }
     let before = game_logic
         .host_object(enemy_id)
@@ -1020,7 +1020,7 @@ fn propaganda_tower_residual_subliminal_upgrade_buff_and_faster_heal() {
         let (unit, health_events) = game_logic
             .host_object_and_health_events_mut(unit_id)
             .expect("unit");
-        let _ = unit.take_damage(40.0, health_events);
+        let _ = unit.take_damage(40.0, 0, health_events);
     }
     let before = game_logic
         .host_object(unit_id)
@@ -1082,7 +1082,7 @@ fn propaganda_tower_name_residual_helix_propaganda_heals() {
         let (unit, health_events) = game_logic
             .host_object_and_health_events_mut(unit_id)
             .expect("unit");
-        let _ = unit.take_damage(30.0, health_events);
+        let _ = unit.take_damage(30.0, 0, health_events);
     }
     let before = game_logic
         .host_object(unit_id)
@@ -1122,7 +1122,7 @@ fn heal_pad_seeking_healing_residual_recovers_infantry_hp() {
         let (infantry, health_events) = game_logic
             .host_object_and_health_events_mut(infantry_id)
             .expect("infantry");
-        let _ = infantry.take_damage(40.0, health_events);
+        let _ = infantry.take_damage(40.0, 0, health_events);
     }
     let before = game_logic
         .host_object(infantry_id)
@@ -1412,13 +1412,13 @@ fn get_repaired_command_targets_only_damaged_vehicles() {
         let (vehicle, health_events) = game_logic
             .host_object_and_health_events_mut(vehicle_id)
             .expect("vehicle should exist");
-        let _ = vehicle.take_damage(80.0, health_events);
+        let _ = vehicle.take_damage(80.0, 0, health_events);
     }
     {
         let (infantry, health_events) = game_logic
             .host_object_and_health_events_mut(infantry_id)
             .expect("infantry should exist");
-        let _ = infantry.take_damage(20.0, health_events);
+        let _ = infantry.take_damage(20.0, 0, health_events);
     }
 
     game_logic.queue_command(crate::command_system::GameCommand {
@@ -1459,7 +1459,7 @@ fn get_repaired_command_requires_repair_destination_type() {
         let (vehicle, health_events) = game_logic
             .host_object_and_health_events_mut(vehicle_id)
             .expect("vehicle should exist");
-        let _ = vehicle.take_damage(80.0, health_events);
+        let _ = vehicle.take_damage(80.0, 0, health_events);
     }
 
     game_logic.queue_command(crate::command_system::GameCommand {
@@ -1497,7 +1497,7 @@ fn get_repaired_command_rejects_under_construction_destination() {
         let (vehicle, health_events) = game_logic
             .host_object_and_health_events_mut(vehicle_id)
             .expect("vehicle should exist");
-        let _ = vehicle.take_damage(80.0, health_events);
+        let _ = vehicle.take_damage(80.0, 0, health_events);
     }
     {
         let repair_pad = game_logic
@@ -1545,7 +1545,7 @@ fn get_repaired_command_aircraft_requires_airfield() {
         let (aircraft, health_events) = game_logic
             .host_object_and_health_events_mut(aircraft_id)
             .expect("aircraft should exist");
-        let _ = aircraft.take_damage(100.0, health_events);
+        let _ = aircraft.take_damage(100.0, 0, health_events);
         // C++ canGetRepairedAt (ActionManager.cpp:164-171) requires the
         // aircraft to be above terrain (`isAboveTerrain`) before the airfield
         // branch; the host proof-of-altitude channel is the airborne status.
@@ -1616,13 +1616,13 @@ fn get_healed_command_targets_only_injured_infantry() {
         let (infantry, health_events) = game_logic
             .host_object_and_health_events_mut(infantry_id)
             .expect("infantry should exist");
-        let _ = infantry.take_damage(20.0, health_events);
+        let _ = infantry.take_damage(20.0, 0, health_events);
     }
     {
         let (vehicle, health_events) = game_logic
             .host_object_and_health_events_mut(vehicle_id)
             .expect("vehicle should exist");
-        let _ = vehicle.take_damage(80.0, health_events);
+        let _ = vehicle.take_damage(80.0, 0, health_events);
     }
 
     game_logic.queue_command(crate::command_system::GameCommand {
@@ -1663,7 +1663,7 @@ fn get_healed_command_requires_heal_destination_type() {
         let (infantry, health_events) = game_logic
             .host_object_and_health_events_mut(infantry_id)
             .expect("infantry should exist");
-        let _ = infantry.take_damage(20.0, health_events);
+        let _ = infantry.take_damage(20.0, 0, health_events);
     }
 
     game_logic.queue_command(crate::command_system::GameCommand {
@@ -1701,7 +1701,7 @@ fn get_healed_command_rejects_under_construction_destination() {
         let (infantry, health_events) = game_logic
             .host_object_and_health_events_mut(infantry_id)
             .expect("infantry should exist");
-        let _ = infantry.take_damage(20.0, health_events);
+        let _ = infantry.take_damage(20.0, 0, health_events);
     }
     {
         let heal_pad = game_logic
@@ -2888,7 +2888,9 @@ fn live_named_and_skirmish_conditions_use_receiving_driver() {
 fn live_named_set_attitude_drains_to_host_ai() {
     use crate::game_logic::host_strategy_center::HostAiAttitude;
     use gamelogic::object::registry::OBJECT_REGISTRY;
-    use gamelogic::scripting::{HostScriptNamedAttitudeRequest, request_host_script_named_attitude};
+    use gamelogic::scripting::{
+        HostScriptNamedAttitudeRequest, request_host_script_named_attitude,
+    };
 
     OBJECT_REGISTRY.clear();
     drain_script_act_b_queues();

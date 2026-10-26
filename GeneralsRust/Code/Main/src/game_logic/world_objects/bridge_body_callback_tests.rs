@@ -620,6 +620,7 @@ fn detached_tower_damage_cannot_be_consumed_by_same_id_peer_bridge() {
                 25.0,
                 None,
                 DamageType::Unresistable,
+                0,
                 &mut local_health,
             );
             assert_eq!(detached.health.current, 75.0);

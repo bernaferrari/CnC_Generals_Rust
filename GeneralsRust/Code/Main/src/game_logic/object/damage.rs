@@ -10,9 +10,10 @@ impl Object {
         &mut self,
         damage: f32,
         source: Option<ObjectId>,
+        frame: u32,
         health_events: &mut crate::game_logic::HostHealthEvents,
     ) -> bool {
-        self.take_damage_from_with_repulsor_policy(damage, source, health_events, &false)
+        self.take_damage_from_with_repulsor_policy(damage, source, frame, health_events, &false)
     }
 
     /// Superweapon / strike residual: always mutate host HP (and still log for shadow).
@@ -22,9 +23,16 @@ impl Object {
         &mut self,
         damage: f32,
         source: Option<ObjectId>,
+        frame: u32,
         health_events: &mut crate::game_logic::HostHealthEvents,
     ) -> bool {
-        self.take_damage_from_immediate_with_repulsor_policy(damage, source, health_events, &false)
+        self.take_damage_from_immediate_with_repulsor_policy(
+            damage,
+            source,
+            frame,
+            health_events,
+            &false,
+        )
     }
 
     /// Host-only field / strike tick with Armor.ini type (force host HP).
@@ -33,12 +41,14 @@ impl Object {
         damage: f32,
         source: Option<ObjectId>,
         damage_type: crate::game_logic::combat::DamageType,
+        frame: u32,
         health_events: &mut crate::game_logic::HostHealthEvents,
     ) -> bool {
         self.take_damage_from_immediate_typed_with_repulsor_policy(
             damage,
             source,
             damage_type,
+            frame,
             health_events,
             &false,
         )
@@ -51,9 +61,16 @@ impl Object {
         &mut self,
         damage: f32,
         source: Option<ObjectId>,
+        frame: u32,
         health_events: &mut crate::game_logic::HostHealthEvents,
     ) -> bool {
-        self.take_radiation_field_tick_with_repulsor_policy(damage, source, health_events, &false)
+        self.take_radiation_field_tick_with_repulsor_policy(
+            damage,
+            source,
+            frame,
+            health_events,
+            &false,
+        )
     }
 
     /// Host-only field tick: armor-typed HP + Weapon.ini DeathType.
@@ -64,6 +81,7 @@ impl Object {
         source: Option<ObjectId>,
         damage_type: crate::game_logic::combat::DamageType,
         death_type: crate::game_logic::host_usa_pilot::HostDeathType,
+        frame: u32,
         health_events: &mut crate::game_logic::HostHealthEvents,
     ) -> bool {
         self.take_damage_from_immediate_typed_death_with_repulsor_policy(
@@ -71,6 +89,7 @@ impl Object {
             source,
             damage_type,
             death_type,
+            frame,
             health_events,
             &false,
         )
@@ -84,6 +103,7 @@ impl Object {
         source: Option<ObjectId>,
         damage_type_name: &str,
         death_type_name: &str,
+        frame: u32,
         health_events: &mut crate::game_logic::HostHealthEvents,
     ) -> bool {
         self.take_damage_from_immediate_residual_with_repulsor_policy(
@@ -91,6 +111,7 @@ impl Object {
             source,
             damage_type_name,
             death_type_name,
+            frame,
             health_events,
             &false,
         )
@@ -102,12 +123,14 @@ impl Object {
         damage: f32,
         source: Option<ObjectId>,
         damage_type: crate::game_logic::combat::DamageType,
+        frame: u32,
         health_events: &mut crate::game_logic::HostHealthEvents,
     ) -> bool {
         self.take_damage_from_typed_with_repulsor_policy(
             damage,
             source,
             damage_type,
+            frame,
             health_events,
             &false,
         )
@@ -120,6 +143,7 @@ impl Object {
         source: Option<ObjectId>,
         damage_type: crate::game_logic::combat::DamageType,
         death_type: crate::game_logic::host_usa_pilot::HostDeathType,
+        frame: u32,
         health_events: &mut crate::game_logic::HostHealthEvents,
     ) -> bool {
         self.take_damage_from_typed_death_with_repulsor_policy(
@@ -127,6 +151,7 @@ impl Object {
             source,
             damage_type,
             death_type,
+            frame,
             health_events,
             &false,
         )
@@ -141,6 +166,7 @@ impl Object {
         damage_type: crate::game_logic::combat::DamageType,
         death_type: crate::game_logic::host_usa_pilot::HostDeathType,
         fx_override: Option<crate::game_logic::combat::DamageType>,
+        frame: u32,
         health_events: &mut crate::game_logic::HostHealthEvents,
     ) -> bool {
         self.take_damage_from_typed_death_fx_with_repulsor_policy(
@@ -149,6 +175,7 @@ impl Object {
             damage_type,
             death_type,
             fx_override,
+            frame,
             health_events,
             &false,
         )
@@ -1406,7 +1433,7 @@ mod tests {
         let mut tank = vehicle("GattlingTank", 13, 1000.0);
         tank.thing.template.armor = 100.0;
         let hp0 = tank.health.current;
-        tank.take_damage_from_typed(100.0, None, DamageType::Gattling, &mut health_events);
+        tank.take_damage_from_typed(100.0, None, DamageType::Gattling, 0, &mut health_events);
         let dealt = hp0 - tank.health.current;
         assert!(
             (dealt - 10.0).abs() < 0.05,
@@ -1423,7 +1450,7 @@ mod tests {
         let mut tank = vehicle("ScalarArmorTank", 14, 1000.0);
         tank.thing.template.armor = 100.0;
         let hp0 = tank.health.current;
-        tank.take_damage_from_typed(100.0, None, DamageType::Explosive, &mut health_events);
+        tank.take_damage_from_typed(100.0, None, DamageType::Explosive, 0, &mut health_events);
         let dealt = hp0 - tank.health.current;
         assert!(
             (dealt - 100.0).abs() < 0.05,
@@ -1686,7 +1713,7 @@ mod tests {
         let mut o = Object::new(tmpl, ObjectId(45), Team::GLA);
         o.health.current = 100.0;
         o.health.maximum = 100.0;
-        let frame = crate::game_logic::host_historic_bonus::logic_frame();
+        let frame = 37; // Explicit standalone STATUS impact frame.
         // 2000 msec * 0.5 armor = 1000 msec → 30 frames @ 30 FPS.
         // Avenger-shaped STATUS weapon authors FAERIE_FIRE.
         let context =
@@ -2080,7 +2107,7 @@ mod tests {
         let mut bare = Object::new(ThingTemplate::new("NoPoison"), ObjectId(32), Team::USA);
         bare.health.current = 100.0;
         bare.health.maximum = 100.0;
-        bare.take_damage_from_immediate(10.0, None, &mut health_events);
+        bare.take_damage_from_immediate(10.0, None, 0, &mut health_events);
         assert!(bare.poisoned_behavior.is_none());
     }
 
@@ -2097,6 +2124,7 @@ mod tests {
             None,
             DamageType::Toxin,
             crate::game_logic::host_usa_pilot::HostDeathType::Poisoned,
+            0,
             &mut health_events,
         );
         let amount = unit
@@ -2110,6 +2138,7 @@ mod tests {
             DamageType::Unresistable,
             crate::game_logic::host_usa_pilot::HostDeathType::Poisoned,
             Some(DamageType::Toxin),
+            0,
             &mut health_events,
         );
         let p = unit.poisoned_behavior.as_ref().unwrap();
@@ -2407,7 +2436,7 @@ mod tests {
                 damage_fx: None,
             });
         let killed =
-            bus.take_damage_from_typed(40.0, None, DamageType::Explosive, &mut health_events);
+            bus.take_damage_from_typed(40.0, None, DamageType::Explosive, 0, &mut health_events);
         assert!(
             killed,
             "raw 40 < health must not intercept; 2.0 armor should kill"

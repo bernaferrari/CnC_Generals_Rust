@@ -325,7 +325,7 @@ fn completed_observation_tracks_each_evaluation_and_game_mode() {
     let ids: Vec<_> = world.host_objects().registered_keys().copied().collect();
     for id in ids {
         let (object, health_events) = world.host_object_and_health_events_mut(id).unwrap();
-        object.take_damage_from_immediate(1_000_000.0, None, health_events);
+        object.take_damage_from_immediate(1_000_000.0, None, 0, health_events);
     }
     assert_eq!(
         world.evaluate_victory_condition(),

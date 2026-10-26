@@ -69,8 +69,7 @@ fn impact_frame_drives_damage_fx_throttle() {
             armor: None,
             damage_fx: Some("ExplicitImpactFrame".into()),
         });
-    let ambient = crate::game_logic::host_historic_bonus::logic_frame();
-    let impact = ambient.checked_add(123).expect("bounded test clock");
+    let impact = 123;
     victim.last_damage_fx_done = Some(DamageType::Unresistable);
     victim.next_damage_fx_time = impact - 1;
     let _ = take_dispatched_armor_damage_fx();
@@ -88,10 +87,7 @@ fn impact_frame_drives_damage_fx_throttle() {
             .any(|name| name == "FX_ExplicitImpactFrame")
     );
     assert_eq!(victim.next_damage_fx_time, impact);
-    assert_eq!(
-        crate::game_logic::host_historic_bonus::logic_frame(),
-        ambient
-    );
+    assert_eq!(victim.last_damage_timestamp, Some(impact));
 }
 
 // These are GREEN explicit-input controls, not executable OLD witnesses: the
@@ -646,4 +642,118 @@ fn kill_pilot_notifies_actual_post_effect_neutral_owner_before_fx() {
     assert!(world.get_player(0).unwrap().get_attacked_by(2));
     assert_eq!(world.get_player(0).unwrap().get_attacked_frame(), 31);
     assert!(!world.get_player(1).unwrap().get_attacked_by(2));
+}
+
+/// ActiveBody.cpp uses this match's frame for every hit. Constructors, peer
+/// impacts/reset/drop and same object IDs cannot retime another receiver.
+#[test]
+fn damage_convenience_calls_use_each_driving_world_frame_after_peer_reset() {
+    fn world(frame: u32) -> (crate::game_logic::GameLogic, ObjectId) {
+        let mut world = crate::game_logic::GameLogic::new();
+        world.frame = frame;
+        let mut template = ThingTemplate::new("OwnedDamageFrameVictim");
+        template.set_health(100.0).add_kind_of(KindOf::Vehicle);
+        world.templates.insert(template.name.clone(), template);
+        let id = world
+            .create_object("OwnedDamageFrameVictim", Team::USA, glam::Vec3::ZERO)
+            .unwrap();
+        (world, id)
+    }
+    fn impact(world: &mut crate::game_logic::GameLogic, id: ObjectId) {
+        let frame = world.frame;
+        let (object, events) = world.host_object_and_health_events_mut(id).unwrap();
+        assert!(!object.take_damage_from_typed(
+            10.0,
+            None,
+            DamageType::Unresistable,
+            frame,
+            events
+        ));
+    }
+    let (mut baseline, id) = world(37);
+    let (mut owner, owner_id) = world(37);
+    let (mut peer, peer_id) = world(901);
+    assert_eq!(id, owner_id);
+    assert_eq!(owner_id, peer_id);
+    impact(&mut baseline, id);
+    impact(&mut peer, peer_id);
+    assert_eq!(
+        peer.get_object(peer_id).unwrap().last_damage_timestamp,
+        Some(901)
+    );
+    impact(&mut owner, owner_id);
+    assert_eq!(
+        owner.get_object(owner_id).unwrap().last_damage_timestamp,
+        Some(37)
+    );
+    assert_eq!(
+        owner.get_object(owner_id).unwrap().health.current,
+        baseline.get_object(id).unwrap().health.current
+    );
+    peer.reset();
+    drop(peer);
+    let (mut replacement, replacement_id) = world(u32::MAX);
+    impact(&mut replacement, replacement_id);
+    assert_eq!(
+        replacement
+            .get_object(replacement_id)
+            .unwrap()
+            .last_damage_timestamp,
+        None
+    );
+    assert_eq!(
+        replacement
+            .get_object(replacement_id)
+            .unwrap()
+            .health
+            .current,
+        90.0
+    );
+    replacement.frame = 1;
+    impact(&mut replacement, replacement_id);
+    assert_eq!(
+        replacement
+            .get_object(replacement_id)
+            .unwrap()
+            .last_damage_timestamp,
+        Some(1)
+    );
+    assert_eq!(
+        replacement
+            .get_object(replacement_id)
+            .unwrap()
+            .health
+            .current,
+        80.0
+    );
+    owner.frame = 38;
+    baseline.frame = 38;
+    impact(&mut owner, owner_id);
+    impact(&mut baseline, id);
+    assert_eq!(
+        owner.get_object(owner_id).unwrap().last_damage_timestamp,
+        Some(37)
+    );
+    assert_eq!(
+        owner.get_object(owner_id).unwrap().health.current,
+        baseline.get_object(id).unwrap().health.current
+    );
+    // C++ retains a sourceless hit's timestamp on the same or next frame.
+    owner.frame = 39;
+    baseline.frame = 39;
+    impact(&mut owner, owner_id);
+    impact(&mut baseline, id);
+    assert_eq!(
+        owner.get_object(owner_id).unwrap().last_damage_timestamp,
+        Some(39)
+    );
+    assert_eq!(
+        baseline.get_object(id).unwrap().last_damage_timestamp,
+        Some(39)
+    );
+    assert_eq!(owner.get_object(owner_id).unwrap().health.current, 70.0);
+    assert_eq!(
+        owner.get_object(owner_id).unwrap().health.current,
+        baseline.get_object(id).unwrap().health.current
+    );
 }

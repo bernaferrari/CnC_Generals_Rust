@@ -5,14 +5,50 @@ impl CnCGameEngine {
     /// after a completed logic step. The audio subsystem drains them next frame,
     /// preserving C++ GameEngine::update ordering and request metadata.
     pub(super) fn dispatch_game_logic_audio_events(&mut self) {
-        let events = self.game_logic.process_audio_events();
+        let observer = self.receiving_audio_observer_target();
+        let events = self.game_logic.process_audio_events(observer);
         if let Some(audio) = self
             .subsystem_manager
             .get_mut::<crate::subsystem_manager::AudioManagerSubsystem>()
         {
             for event in events {
-                audio.queue_event(event);
+                audio.queue_admitted_event(event);
             }
+        }
+    }
+
+    pub(super) fn receiving_audio_observer_target(&self) -> Option<i32> {
+        #[cfg(feature = "game_client")]
+        {
+            self.receiving_observer_look_at_player()
+        }
+        #[cfg(not(feature = "game_client"))]
+        {
+            None
+        }
+    }
+
+    pub(super) fn queue_receiving_audio_event(
+        &mut self,
+        event: crate::game_logic::AudioEventRequest,
+    ) {
+        let locality = self
+            .game_logic
+            .receiving_audio_locality(self.receiving_audio_observer_target());
+        let admitted = crate::game_logic::audio_dispatch_impl::admit_audio_request(
+            event,
+            locality.as_ref(),
+            &mut |player, position| {
+                self.game_logic
+                    .receiving_audio_cell_shroud_clear(player, position)
+            },
+        );
+        if let (Some(event), Some(audio)) = (
+            admitted,
+            self.subsystem_manager
+                .get_mut::<crate::subsystem_manager::AudioManagerSubsystem>(),
+        ) {
+            audio.queue_admitted_event(event);
         }
     }
 
@@ -151,12 +187,7 @@ impl CnCGameEngine {
             // TheAudio produced no live handle. No GameLogic dual-write.
             let event = crate::game_logic::AudioEventRequest::new(kind);
             log::trace!("🔊 UI presentation audio: {}", event.event_type);
-            if let Some(audio) = self
-                .subsystem_manager
-                .get_mut::<crate::subsystem_manager::AudioManagerSubsystem>()
-            {
-                audio.queue_event(event);
-            }
+            self.queue_receiving_audio_event(event);
             return;
         }
 

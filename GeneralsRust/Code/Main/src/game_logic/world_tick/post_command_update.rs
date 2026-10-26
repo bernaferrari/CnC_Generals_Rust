@@ -725,7 +725,7 @@ impl GameLogic {
 
         // Admit accepted shots from this session's CombatSystem before flight.
         // The same owner applies ordered impact damage and body callbacks.
-        crate::game_logic::host_historic_bonus::set_logic_frame(self.frame);
+
         {
             let objects = &self.objects;
             let projectile_terrain = crate::game_logic::game_logic::FlightTerrainView {

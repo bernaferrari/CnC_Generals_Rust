@@ -294,7 +294,9 @@ impl Object {
     }
 
     pub fn needs_return_to_base_rearm(&self) -> bool {
-        use crate::game_logic::weapon_bootstrap::{HostReloadType, host_reload_type_for_weapon_name};
+        use crate::game_logic::weapon_bootstrap::{
+            HostReloadType, host_reload_type_for_weapon_name,
+        };
         let empty_rtb = |w: &Weapon, name: Option<&str>| {
             let rt = name
                 .map(host_reload_type_for_weapon_name)
@@ -365,7 +367,9 @@ impl Object {
     }
 
     pub fn rearm_return_to_base_weapons(&mut self) -> bool {
-        use crate::game_logic::weapon_bootstrap::{HostReloadType, host_reload_type_for_weapon_name};
+        use crate::game_logic::weapon_bootstrap::{
+            HostReloadType, host_reload_type_for_weapon_name,
+        };
         let mut any = false;
         let pri = self.primary_weapon_name().map(|s| s.to_string());
         let sec = self.secondary_weapon_name().map(|s| s.to_string());
@@ -449,7 +453,7 @@ impl Object {
     ) -> f32 {
         let amount = self.out_of_ammo_damage_amount();
         if amount > 0.0 {
-            self.take_damage(amount, health_events);
+            self.take_damage(amount, 0, health_events);
         }
         amount
     }

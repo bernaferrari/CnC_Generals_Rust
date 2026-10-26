@@ -84,7 +84,7 @@ fn damaged_repulsor_disabled_when_enable_off() {
     o.health.current = 50.0;
     o.health.maximum = 50.0;
     let mut health_events = crate::game_logic::HostHealthEvents::default();
-    let _ = o.take_damage(5.0, &mut health_events);
+    let _ = o.take_damage(5.0, 0, &mut health_events);
     assert!(!o.status.repulsor);
 }
 

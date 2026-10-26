@@ -5,7 +5,7 @@ use crate::game_logic::{ObjectId, Player};
 
 fn owner_damage(logic: &mut GameLogic, id: ObjectId, amount: f32) -> bool {
     let (object, health_events) = logic.host_object_and_health_events_mut(id).unwrap();
-    object.take_damage(amount, health_events)
+    object.take_damage(amount, 0, health_events)
 }
 
 fn owner_heal(logic: &mut GameLogic, id: ObjectId, health: f32) {
@@ -352,9 +352,9 @@ fn completed_damage_after_coupled_healing_is_not_replayed_without_session() {
                         owner.host_object_and_health_events_mut(id).unwrap();
                     if heal_first {
                         object.heal(30.0, health_events, body_frame);
-                        object.take_damage(20.0, health_events);
+                        object.take_damage(20.0, 0, health_events);
                     } else {
-                        object.take_damage(20.0, health_events);
+                        object.take_damage(20.0, 0, health_events);
                         object.heal(30.0, health_events, body_frame);
                     }
                     assert_eq!(object.health.current, 50.0);

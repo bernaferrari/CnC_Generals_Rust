@@ -196,6 +196,32 @@ pub fn play_sound_through_the_audio_at(
     }
 }
 
+/// Delivery through the already selected native service with immutable
+/// receiving admission facts; no Core player/object lookup for locality.
+/// Attached spatial tracking remains the independent hq-4gta5s boundary.
+pub(crate) fn play_admitted_sound_at(
+    manager: &mut game_engine::common::audio::AudioManager,
+    event_name: &str,
+    position_host_yup: Option<(f32, f32, f32)>,
+    object_id: Option<u32>,
+    player_index: Option<i32>,
+    locality: &game_engine::common::audio::AudioSubmissionLocality,
+) -> Option<u32> {
+    let mut event = game_engine::common::audio::AudioEventRts::new();
+    event.set_event_name(event_name.to_owned());
+    if let Some(player) = player_index {
+        event.set_player_index(player);
+    }
+    if let Some(id) = object_id.filter(|&id| id != 0) {
+        event.set_object_id(id);
+    } else if let Some((x, y, z)) = position_host_yup {
+        let position = game_engine::common::system::geometry::host_yup_to_cpp_zup(x, y, z);
+        event.set_position(&position);
+    }
+    let handle = manager.add_audio_event_with_locality(&event, locality);
+    (1000..0xFFFF_FFF0).contains(&handle).then_some(handle)
+}
+
 /// C++ `MilesAudioManager::getEffectiveVolume` for the live host drain.
 ///
 /// `position_host_yup` is Main Y-up `(x, height, z)`. Leftover listener /

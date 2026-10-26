@@ -11,7 +11,6 @@ use super::ObjectId;
 use glam::Vec3;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
-use std::sync::Mutex;
 
 /// One historic damage sample (C++ HistoricWeaponDamageInfo).
 #[derive(Debug, Clone, Copy)]
@@ -39,19 +38,6 @@ pub(crate) struct HostHistoricBonus {
     pending: Vec<PendingHistoricFirestorm>,
     impacts_recorded: u32,
     bonuses_triggered: u32,
-}
-
-// Temporary compatibility clock for callers outside the owned impact path.
-// hq-vrkh8 tracks migration of those consumers to their driving game/frame.
-// This clock owns no history, pending firestorms, or counters.
-static LOGIC_FRAME: Mutex<u32> = Mutex::new(0);
-
-pub fn set_logic_frame(frame: u32) {
-    *LOGIC_FRAME.lock().expect("logic frame lock") = frame;
-}
-
-pub fn logic_frame() -> u32 {
-    *LOGIC_FRAME.lock().expect("logic frame lock")
 }
 
 impl HostHistoricBonus {

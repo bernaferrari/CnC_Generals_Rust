@@ -521,7 +521,7 @@ fn toxin_tractor_residual_stream_spray_and_death_field() {
     // Also exercise destroy-list path when object dies mid-update.
     if let Some((t, health_events)) = game_logic.host_object_and_health_events_mut(toxin_id) {
         let max_hp = t.health.maximum;
-        let _ = t.take_damage(max_hp + 1.0, health_events);
+        let _ = t.take_damage(max_hp + 1.0, 0, health_events);
         t.status.destroyed = true;
     }
     game_logic

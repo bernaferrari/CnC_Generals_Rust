@@ -155,7 +155,7 @@ fn live_callback(window: &GameWindow, effects: &mut WindowEventEffects<'_>) -> b
     let pointer = std::ptr::from_ref(window);
     let registered = effects.with_manager_ref(|manager| {
         manager
-            .get_window_by_id(window.get_id())
+            .get_window_by_id_with_selected(window.get_id(), Some(window))
             .is_some_and(|stored| std::ptr::eq(stored.as_ptr(), pointer))
     });
     registered

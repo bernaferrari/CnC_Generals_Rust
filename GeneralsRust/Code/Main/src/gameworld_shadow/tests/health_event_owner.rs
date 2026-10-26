@@ -121,11 +121,11 @@ fn interleaved_worlds_keep_mixed_health_events_totals_and_presentation_receipts(
     let (mut other, other_id) = admitted_world();
     let body_frame = owner.frame;
     let (object, events) = owner.host_object_and_health_events_mut(id).unwrap();
-    object.take_damage(20.0, events);
+    object.take_damage(20.0, 0, events);
     object.heal(10.0, events, body_frame);
     let pending = owner.health_events.snapshot_ordered();
     let (object, events) = other.host_object_and_health_events_mut(other_id).unwrap();
-    object.take_damage(30.0, events);
+    object.take_damage(30.0, 0, events);
     crate::gameworld_shadow::run_owned_host_boundary(None, &mut other);
     assert_eq!(other.host_object(other_id).unwrap().health.current, 70.0);
     assert_eq!(owner.health_events.snapshot_ordered(), pending);
@@ -147,7 +147,7 @@ fn interleaved_worlds_keep_mixed_health_events_totals_and_presentation_receipts(
 fn constructing_resetting_and_dropping_other_world_preserve_owner_health_transport() {
     let (mut owner, id) = admitted_world();
     let (object, events) = owner.host_object_and_health_events_mut(id).unwrap();
-    object.take_damage(20.0, events);
+    object.take_damage(20.0, 0, events);
     let pending = owner.health_events.snapshot_ordered();
     {
         let (mut other, other_id) = admitted_world();
@@ -175,7 +175,7 @@ fn interleaved_eager_and_session_boundaries_keep_the_owners_health_batch() {
     assert_eq!(id, other_id);
     let mut shadow = GameWorldShadow::new(64);
     let (object, events) = owner.host_object_and_health_events_mut(id).unwrap();
-    object.take_damage(20.0, events);
+    object.take_damage(20.0, 0, events);
     shadow.sync_from_host(&owner);
     let entity = shadow.entity_for_host(id).unwrap();
     assert_eq!(shadow.world().entity(entity).unwrap().health, 80.0);
@@ -195,7 +195,7 @@ fn snapshot_restore_invalidates_only_the_receivers_transient_health_transport() 
     let (mut owner, id) = admitted_world();
     let (mut receiver, receiver_id) = admitted_world();
     let (object, events) = owner.host_object_and_health_events_mut(id).unwrap();
-    object.take_damage(20.0, events);
+    object.take_damage(20.0, 0, events);
     let pending = owner.health_events.snapshot_ordered();
     let builder = crate::save_load::snapshot::SnapshotBuilder::new();
     let mut snapshot = builder.create_world_snapshot(&owner).unwrap();
@@ -249,7 +249,7 @@ fn health_handoff_session_admits_events_recorded_after_eager_damage() {
     let (mut owner, id) = admitted_world();
     let mut shadow = GameWorldShadow::new(64);
     let (object, events) = owner.host_object_and_health_events_mut(id).unwrap();
-    object.take_damage(20.0, events);
+    object.take_damage(20.0, 0, events);
     assert_eq!(object.health.current, 80.0);
     shadow.sync_from_host(&owner);
     let entity = shadow.entity_for_host(id).unwrap();
@@ -258,7 +258,7 @@ fn health_handoff_session_admits_events_recorded_after_eager_damage() {
     let (object, events) = owner.host_object_and_health_events_mut(id).unwrap();
     object.heal(10.0, events, body_frame);
     assert_eq!(object.health.current, 90.0);
-    object.take_damage(20.0, events);
+    object.take_damage(20.0, 0, events);
     assert_eq!(object.health.current, 70.0);
     assert_eq!(object.previous_health, 90.0);
     observe_completed_owner(&mut shadow, &mut owner);
@@ -296,14 +296,14 @@ fn health_handoff_repeated_eager_preserves_the_applied_prefix() {
     let (mut owner, id) = admitted_world();
     let mut shadow = GameWorldShadow::new(64);
     let (object, events) = owner.host_object_and_health_events_mut(id).unwrap();
-    object.take_damage(20.0, events);
+    object.take_damage(20.0, 0, events);
     shadow.sync_from_host(&owner);
     let entity = shadow.entity_for_host(id).unwrap();
     assert_eq!(shadow.world().entity(entity).unwrap().health, 80.0);
     shadow.sync_from_host(&owner);
     assert_eq!(owner.host_object(id).unwrap().health.current, 80.0);
     let (object, events) = owner.host_object_and_health_events_mut(id).unwrap();
-    object.take_damage(10.0, events);
+    object.take_damage(10.0, 0, events);
     shadow.sync_from_host(&owner);
     assert_eq!(shadow.world().entity(entity).unwrap().health, 70.0);
     observe_completed_owner(&mut shadow, &mut owner);
@@ -318,7 +318,7 @@ fn health_handoff_preserves_completed_body_writes_after_eager_admission() {
     let (mut owner, id) = admitted_world();
     let mut shadow = GameWorldShadow::new(64);
     let (object, events) = owner.host_object_and_health_events_mut(id).unwrap();
-    object.take_damage(20.0, events);
+    object.take_damage(20.0, 0, events);
     assert_eq!(object.health.current, 80.0);
     shadow.sync_from_host(&owner);
     let entity = shadow.entity_for_host(id).unwrap();
@@ -327,7 +327,7 @@ fn health_handoff_preserves_completed_body_writes_after_eager_admission() {
     let (object, events) = owner.host_object_and_health_events_mut(id).unwrap();
     object.heal(10.0, events, body_frame);
     assert_eq!(object.health.current, 90.0);
-    object.take_damage(20.0, events);
+    object.take_damage(20.0, 0, events);
     assert_eq!(object.health.current, 70.0);
     assert_eq!(object.previous_health, 90.0);
     observe_completed_owner(&mut shadow, &mut owner);

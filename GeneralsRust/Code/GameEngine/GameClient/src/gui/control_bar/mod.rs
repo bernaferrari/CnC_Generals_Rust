@@ -108,14 +108,13 @@ pub use host_command_bridge::{
     clear_host_control_bar_requests, clear_host_dismiss_in_game_popup_message_requests,
     host_control_bar_bridge_enabled, take_host_control_bar_published_requests,
     take_host_control_bar_requests, take_host_minimap_interactions,
-    with_host_control_bar_input_provenance,
 };
 pub(crate) use host_command_bridge::{
-    HostMinimapInteractionRequest, host_control_bar_input_provenance_for_current_dispatch,
-    host_request_from_button, host_request_from_button_with_weapon_slot,
-    publish_host_cancel_structure_placement, publish_host_control_bar_request,
-    publish_host_dismiss_in_game_popup_message, publish_host_minimap_interaction,
-    publish_host_production_pause, publish_host_queue_cancel, publish_host_select_next_idle_worker,
+    HostMinimapInteractionRequest, host_request_from_button,
+    host_request_from_button_with_weapon_slot, publish_host_cancel_structure_placement,
+    publish_host_control_bar_request, publish_host_dismiss_in_game_popup_message,
+    publish_host_minimap_interaction, publish_host_production_pause, publish_host_queue_cancel,
+    publish_host_select_next_idle_worker,
 };
 pub use multi_select::*;
 pub use observer::*;

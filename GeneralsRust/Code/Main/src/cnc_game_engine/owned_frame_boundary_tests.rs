@@ -25,10 +25,10 @@ fn advance_owned_with_test_audio(
     manager: &mut crate::subsystem_manager::SubsystemManager,
 ) {
     advance_owned(logic, shadow);
-    let requests = logic.process_audio_events();
+    let requests = logic.process_audio_events(None);
     if let Some(audio) = manager.get_mut::<crate::subsystem_manager::AudioManagerSubsystem>() {
         for request in requests {
-            audio.queue_event(request);
+            audio.queue_admitted_event(request);
         }
     }
 }

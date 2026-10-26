@@ -511,3 +511,36 @@ fn control_bar_events_survive_peer_reset_without_consuming_peer_events() {
             .is_empty()
     );
 }
+
+#[test]
+fn selected_chat_and_diplomacy_dispatch_uses_receiving_lookup_without_reborrowing() {
+    use game_client_rust::gui::callbacks::diplomacy::diplomacy_input_receiving;
+    use game_client_rust::gui::callbacks::ingame_callbacks::in_game_chat_input_receiving;
+    use game_client_rust::gui::{WindowMessage, WindowMsgHandled};
+    let mut c = client("A", "A");
+    c.with_window_event_effects(None, |effects| {
+        effects.with_manager(|manager, effects| {
+            let window = manager
+                .create_window(None, 0, 0, 100, 100, effects)
+                .unwrap();
+            window
+                .borrow_mut()
+                .set_input_callback_with_message_sink(in_game_chat_input_receiving);
+            assert_eq!(
+                manager.send_input_message(&window, WindowMessage::Char, 27, 0, effects),
+                WindowMsgHandled::Ignored
+            );
+            window
+                .borrow_mut()
+                .set_input_callback_with_message_sink(diplomacy_input_receiving);
+            assert_eq!(
+                manager.send_input_message(&window, WindowMessage::Char, 27, 0, effects),
+                WindowMsgHandled::Handled
+            );
+            // Diplomacy.cpp343/349 consumes Char even when Hide has no bound layout.
+            effects.with_diplomacy(|owner| {
+                assert!(!game_client_rust::gui::callbacks::diplomacy::is_diplomacy_active(owner))
+            });
+        })
+    });
+}

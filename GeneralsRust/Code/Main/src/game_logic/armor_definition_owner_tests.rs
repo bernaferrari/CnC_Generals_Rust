@@ -100,6 +100,7 @@ fn actual_armor_map_solo_reset_and_factory_damage_use_receiving_catalog() {
                 100.0,
                 None,
                 crate::game_logic::combat::DamageType::Explosive,
+                0,
                 &mut events,
             );
             assert_eq!(a.objects[&aid].health.current, 975.0);
@@ -108,6 +109,7 @@ fn actual_armor_map_solo_reset_and_factory_damage_use_receiving_catalog() {
                 100.0,
                 None,
                 crate::game_logic::combat::DamageType::Explosive,
+                0,
                 &mut events,
             );
             assert_eq!(b.objects[&bid].health.current, 800.0);

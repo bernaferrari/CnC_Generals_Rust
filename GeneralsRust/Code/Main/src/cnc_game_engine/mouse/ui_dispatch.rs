@@ -545,9 +545,7 @@ impl CnCGameEngine {
     ) -> Result<bool, String> {
         #[cfg(feature = "game_client")]
         {
-            use game_client::gui::control_bar::{
-                HostControlBarInputProvenance, with_host_control_bar_input_provenance,
-            };
+            use game_client::gui::control_bar::HostControlBarInputProvenance;
             use game_client::gui::game_window::{WindowInputReturnCode, WindowMessage};
             let msg = match (button, pressed) {
                 (MouseButton::Left, true) => WindowMessage::LeftDown,
@@ -560,8 +558,8 @@ impl CnCGameEngine {
             };
             // `CommandSourceType::FromUser` alone cannot distinguish a real
             // winit event from `inject_winit_equivalent_*`: both deliberately
-            // follow the same WND callback path. Scope the actual origin over
-            // this synchronous dispatch so publication captures it exactly.
+            // follow the same WND callback path. Pass the actual origin into
+            // this receiving synchronous dispatch so publication retains it exactly.
             let provenance = match origin {
                 MouseInputOrigin::Physical => {
                     HostControlBarInputProvenance::PhysicalWindowMouseInput
@@ -569,10 +567,8 @@ impl CnCGameEngine {
                 MouseInputOrigin::Injected => HostControlBarInputProvenance::InjectedOrUnknown,
             };
             let facts = self.native_window_mouse_facts();
-            with_host_control_bar_input_provenance(provenance, || {
-                self.dispatch_native_window_mouse_with_bar(msg, x, y, facts, provenance)
-                    .map(|result| result == WindowInputReturnCode::Used)
-            })
+            self.dispatch_native_window_mouse_with_bar(msg, x, y, facts, provenance)
+                .map(|result| result == WindowInputReturnCode::Used)
         }
         #[cfg(not(feature = "game_client"))]
         {

@@ -367,6 +367,7 @@ fn native_die_capsule_actual_standalone_local_receipt_survives_without_world_lat
             100.,
             None,
             crate::game_logic::combat::DamageType::Unresistable,
+            0,
             &mut source.health_events,
         );
     let object = source.host_object(id).unwrap();

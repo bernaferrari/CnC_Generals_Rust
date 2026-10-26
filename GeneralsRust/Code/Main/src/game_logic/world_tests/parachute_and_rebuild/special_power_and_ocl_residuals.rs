@@ -1195,7 +1195,7 @@ fn early_frenzy_and_emergency_repair_powers_activate() {
         .expect("tank");
     // Damage vehicle so repair has a target.
     if let Some((o, health_events)) = logic.host_object_and_health_events_mut(veh) {
-        let _ = o.take_damage(100.0, health_events);
+        let _ = o.take_damage(100.0, 0, health_events);
     }
     assert!(logic.activate_frenzy(
         0,
@@ -1959,7 +1959,9 @@ fn host_upgrade_complete_slave_drone_attaches_to_humvee() {
 #[test]
 fn host_upgrade_complete_chemical_suits_reduces_poison() {
     use crate::game_logic::combat::DamageType;
-    use crate::game_logic::host_armor_residual::{CHEM_SUIT_HUMAN_ARMOR_POISON, apply_residual_armor};
+    use crate::game_logic::host_armor_residual::{
+        CHEM_SUIT_HUMAN_ARMOR_POISON, apply_residual_armor,
+    };
     use crate::game_logic::host_upgrades::UPGRADE_AMERICA_CHEMICAL_SUITS;
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
@@ -1999,7 +2001,9 @@ fn host_upgrade_complete_chemical_suits_reduces_poison() {
 #[test]
 fn host_upgrade_complete_moab_and_satellite_hack_unlock() {
     use crate::game_logic::Team;
-    use crate::game_logic::host_upgrades::{UPGRADE_AMERICA_MOAB, UPGRADE_CHINA_SATELLITE_HACK_TWO};
+    use crate::game_logic::host_upgrades::{
+        UPGRADE_AMERICA_MOAB, UPGRADE_CHINA_SATELLITE_HACK_TWO,
+    };
     let mut logic = GameLogic::new();
     logic
         .players
@@ -2114,7 +2118,9 @@ fn host_upgrade_complete_mines_radar_fortified() {
 
 #[test]
 fn host_upgrade_complete_drone_and_aircraft_armor() {
-    use crate::game_logic::host_mig::{MIG_AIRCRAFT_ARMOR_ADD_MAX_HEALTH, UPGRADE_CHINA_AIRCRAFT_ARMOR};
+    use crate::game_logic::host_mig::{
+        MIG_AIRCRAFT_ARMOR_ADD_MAX_HEALTH, UPGRADE_CHINA_AIRCRAFT_ARMOR,
+    };
     use crate::game_logic::host_slave_drones::{
         SlaveDroneKind, UPGRADE_AMERICA_DRONE_ARMOR, drone_armor_add_max_health,
     };

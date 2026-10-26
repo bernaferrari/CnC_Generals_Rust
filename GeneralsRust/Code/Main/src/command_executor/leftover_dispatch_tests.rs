@@ -35,7 +35,7 @@ fn command(player_id: u32, command_type: CommandType, selected: Vec<ObjectId>) -
 
 fn damage_for_fixture(logic: &mut GameLogic, id: ObjectId, amount: f32) {
     let (object, health_events) = logic.host_object_and_health_events_mut(id).unwrap();
-    let _ = object.take_damage(amount, health_events);
+    let _ = object.take_damage(amount, 0, health_events);
 }
 
 #[test]

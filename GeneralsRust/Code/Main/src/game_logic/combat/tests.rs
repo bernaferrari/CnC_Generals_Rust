@@ -2686,7 +2686,6 @@ pub(in crate::game_logic) mod tests {
         let mut combat = CombatSystem::new();
         let _combat_serial = combat_test_guard();
 
-        crate::game_logic::host_historic_bonus::set_logic_frame(20);
         let _ = crate::game_logic::weapon_bootstrap::ensure_host_weapon_store();
         let parsed = parse_test_weapon_speed();
         const NAME: &str = "Hq0c9b4CombatRifleDelayed";
@@ -2767,7 +2766,6 @@ pub(in crate::game_logic) mod tests {
         let mut combat = CombatSystem::new();
         let _combat_serial = combat_test_guard();
 
-        crate::game_logic::host_historic_bonus::set_logic_frame(7);
         let leftover_before = leftover_delayed_damage_count_for_test();
 
         let mut objects = crate::game_logic::HostObjectStore::new();
@@ -2813,7 +2811,6 @@ pub(in crate::game_logic) mod tests {
         let mut combat = CombatSystem::new();
         let _combat_serial = combat_test_guard();
 
-        crate::game_logic::host_historic_bonus::set_logic_frame(3);
         let _ = crate::game_logic::weapon_bootstrap::ensure_host_weapon_store();
         const NAME: &str = "Hq0c9b4CombatRifleFireAt";
         let leftover_before = leftover_delayed_damage_count_for_test();
