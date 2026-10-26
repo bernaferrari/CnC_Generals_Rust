@@ -74,35 +74,6 @@ pub fn is_mouse_cursor_visible() -> bool {
     MOUSE_CURSOR_VISIBLE.load(Ordering::Relaxed)
 }
 
-/// Trait implemented by the control bar layer so legacy control bar calls can
-/// forward into the Rust UI stack.
-pub trait ControlBarHooks: Send + Sync {
-    fn hide_purchase_science(&self);
-    fn process_context_sensitive_button_transition(&self, control_id: u32, entering: bool);
-    fn toggle_purchase_science(&self);
-    fn show_special_power_shortcut(&self);
-    fn hide_special_power_shortcut(&self);
-    fn animate_special_power_shortcut(&self, enabled: bool);
-    fn init_special_power_shortcut_bar_for_player(&self, _player_side: &str) {}
-    fn set_control_bar_scheme_by_player(&self, _player_side: &str) {}
-    fn toggle_control_bar_stage(&self);
-    fn get_observer_look_at_player_index(&self) -> Option<i32>;
-}
-
-// THREAD: main thread only (same lifecycle as the in-game UI backend).
-thread_local! {
-    static CONTROL_BAR_BACKEND: RefCell<Option<Arc<dyn ControlBarHooks>>> =
-        const { RefCell::new(None) };
-}
-
-fn control_bar_backend() -> Option<Arc<dyn ControlBarHooks>> {
-    CONTROL_BAR_BACKEND.with(|slot| slot.borrow().clone())
-}
-
-pub fn register_control_bar_backend(hooks: Arc<dyn ControlBarHooks>) {
-    CONTROL_BAR_BACKEND.with(|slot| *slot.borrow_mut() = Some(hooks));
-}
-
 /// A WND click awaiting the live Control Bar tick.
 ///
 /// The actual command request is published during the later tick, not inside
@@ -147,112 +118,53 @@ pub struct LiveControlBarEvents {
 }
 
 #[derive(Debug)]
-struct LiveControlBarPending {
+struct LegacyCoreControlBarIngress {
     ui_dirty: bool,
     observer_look_at: i32,
-    events: LiveControlBarEvents,
 }
-
-impl Default for LiveControlBarPending {
+impl Default for LegacyCoreControlBarIngress {
     fn default() -> Self {
         Self {
             ui_dirty: false,
             observer_look_at: -1,
-            events: LiveControlBarEvents::default(),
         }
     }
 }
-
-// THREAD: main thread only. Producers are WND callbacks and the GameLogic
-// `mark_ui_dirty` hook; the consumer is the live `ControlBar` tick — all on
-// the main thread, so the pending state is plain main-thread data.
+// Transitional standalone Core ingress only. Native UIs never register or
+// consume this old simulation hook; their events are owned by the actual UI.
 thread_local! {
-    static LIVE_CONTROL_BAR_PENDING: RefCell<LiveControlBarPending> =
-        RefCell::new(LiveControlBarPending::default());
+    static LEGACY_CORE_CONTROL_BAR_INGRESS: RefCell<LegacyCoreControlBarIngress> = RefCell::new(Default::default());
 }
-
-fn with_live_control_bar_events<R>(f: impl FnOnce(&mut LiveControlBarEvents) -> R) -> R {
-    LIVE_CONTROL_BAR_PENDING.with(|pending| f(&mut pending.borrow_mut().events))
-}
-
-/// Drain queued ControlBar hook events for the live UI tick.
-pub fn drain_live_control_bar_events() -> LiveControlBarEvents {
-    LIVE_CONTROL_BAR_PENDING.with(|pending| {
-        let mut pending = pending.borrow_mut();
-        let mut events = std::mem::take(&mut pending.events);
-        events.ui_dirty |= pending.ui_dirty;
-        pending.ui_dirty = false;
-        events
-    })
-}
-
-/// Stamp observer look-at residual for audio locality hooks.
-pub fn set_live_control_bar_observer_look_at(index: Option<i32>) {
-    LIVE_CONTROL_BAR_PENDING.with(|pending| {
-        pending.borrow_mut().observer_look_at = index.unwrap_or(-1);
-    });
-}
-
-struct LiveControlBarBackend;
-
-impl ControlBarHooks for LiveControlBarBackend {
-    fn hide_purchase_science(&self) {
-        with_live_control_bar_events(|events| events.hide_purchase_science = true);
-    }
-
-    fn process_context_sensitive_button_transition(&self, control_id: u32, entering: bool) {
-        with_live_control_bar_events(|events| events.transitions.push((control_id, entering)));
-    }
-
-    fn toggle_purchase_science(&self) {
-        with_live_control_bar_events(|events| events.toggle_purchase_science = true);
-    }
-
-    fn show_special_power_shortcut(&self) {
-        with_live_control_bar_events(|events| events.show_special_power_shortcut = true);
-    }
-
-    fn hide_special_power_shortcut(&self) {
-        with_live_control_bar_events(|events| events.hide_special_power_shortcut = true);
-    }
-
-    fn animate_special_power_shortcut(&self, enabled: bool) {
-        with_live_control_bar_events(|events| {
-            events.animate_special_power_shortcut = Some(enabled)
+pub fn drain_live_control_bar_events(
+    ui: &mut crate::core::subsystems::InGameUISubsystem,
+) -> LiveControlBarEvents {
+    let mut events = std::mem::take(&mut ui.control_bar_events);
+    if !crate::gui::control_bar::host_control_bar_bridge_enabled(ui) {
+        LEGACY_CORE_CONTROL_BAR_INGRESS.with(|pending| {
+            events.ui_dirty |= std::mem::take(&mut pending.borrow_mut().ui_dirty);
         });
     }
-
-    fn init_special_power_shortcut_bar_for_player(&self, player_side: &str) {
-        with_live_control_bar_events(|events| {
-            events.init_special_power_shortcut_for_player = Some(player_side.to_string());
-        });
+    events
+}
+pub fn set_live_control_bar_observer_look_at(
+    index: Option<i32>,
+    ui: &mut crate::core::subsystems::InGameUISubsystem,
+) {
+    ui.control_bar_observer_look_at = index;
+    if !crate::gui::control_bar::host_control_bar_bridge_enabled(ui) {
+        set_legacy_core_control_bar_observer_look_at(index);
     }
-
-    fn set_control_bar_scheme_by_player(&self, player_side: &str) {
-        with_live_control_bar_events(|events| {
-            events.set_scheme_by_player = Some(player_side.to_string());
-        });
-    }
-
-    fn toggle_control_bar_stage(&self) {
-        with_live_control_bar_events(|events| events.toggle_control_bar_stage = true);
-    }
-
-    fn get_observer_look_at_player_index(&self) -> Option<i32> {
-        let index = LIVE_CONTROL_BAR_PENDING.with(|pending| pending.borrow().observer_look_at);
-        (index >= 0).then_some(index)
-    }
+}
+pub(crate) fn set_legacy_core_control_bar_observer_look_at(index: Option<i32>) {
+    LEGACY_CORE_CONTROL_BAR_INGRESS
+        .with(|pending| pending.borrow_mut().observer_look_at = index.unwrap_or(-1));
 }
 
 struct LiveControlBarUiHooks;
 
 impl gamelogic::control_bar::ControlBarUiHooks for LiveControlBarUiHooks {
     fn mark_ui_dirty(&self) {
-        LIVE_CONTROL_BAR_PENDING.with(|pending| {
-            let mut pending = pending.borrow_mut();
-            pending.ui_dirty = true;
-            pending.events.ui_dirty = true;
-        });
+        LEGACY_CORE_CONTROL_BAR_INGRESS.with(|pending| pending.borrow_mut().ui_dirty = true);
     }
 
     fn on_player_science_purchase_points_changed(&self, _player_id: i32, _points: i32) {
@@ -264,9 +176,8 @@ impl gamelogic::control_bar::ControlBarUiHooks for LiveControlBarUiHooks {
     }
 }
 
-/// Register WND click + GameLogic `mark_ui_dirty` forwarding for the live ControlBar.
-pub fn register_live_control_bar_hooks() {
-    register_control_bar_backend(Arc::new(LiveControlBarBackend));
+/// Transitional standalone Core dirty ingress; actual WND events borrow their UI.
+pub fn register_legacy_core_control_bar_ui_ingress() {
     let _ = gamelogic::control_bar::register_control_bar_ui_hooks(Arc::new(LiveControlBarUiHooks));
 }
 
@@ -302,26 +213,6 @@ mod live_control_bar_click_provenance_tests {
             HostControlBarInputProvenance::PhysicalWindowMouseInput
         );
     }
-}
-
-fn with_control_bar_backend<F>(f: F) -> bool
-where
-    F: FnOnce(&dyn ControlBarHooks),
-{
-    match control_bar_backend() {
-        Some(handler) => {
-            f(handler.as_ref());
-            true
-        }
-        None => false,
-    }
-}
-
-fn with_control_bar_backend_result<R, F>(f: F) -> Option<R>
-where
-    F: FnOnce(&dyn ControlBarHooks) -> R,
-{
-    control_bar_backend().map(|handler| f(handler.as_ref()))
 }
 
 struct GameClientObserverAudioLocalityHooks;
@@ -1142,7 +1033,11 @@ impl crate::core::subsystems::InGameUISubsystem {
         duration_ms: i32,
         frame: u32,
         manager: &mut crate::gui::window_manager::WindowManager,
+        diplomacy: &mut crate::gui::callbacks::diplomacy::DiplomacyCallbacks,
     ) {
+        crate::gui::callbacks::diplomacy::update_diplomacy_briefing_text(
+            label, false, manager, diplomacy,
+        );
         self.push_military_subtitle(label, duration_ms, frame, manager);
     }
     pub fn toggle_attack_move_to_mode(&mut self) -> bool {
@@ -1381,73 +1276,54 @@ pub fn clear_popup_message_data(
 pub struct TheControlBar;
 
 impl TheControlBar {
-    pub fn hide_purchase_science() {
-        if !with_control_bar_backend(|backend| backend.hide_purchase_science()) {
-            info!("Request to hide purchase science UI");
-        }
+    pub fn hide_purchase_science(ui: &mut crate::core::subsystems::InGameUISubsystem) {
+        ui.control_bar_events.hide_purchase_science = true;
     }
-
-    pub fn process_context_sensitive_button_transition(control_id: u32, entering: bool) {
-        if !with_control_bar_backend(|backend| {
-            backend.process_context_sensitive_button_transition(control_id, entering)
-        }) {
-            if entering {
-                info!("Control bar button {control_id} mouse enter");
-            } else {
-                info!("Control bar button {control_id} mouse leave");
-            }
-        }
+    pub fn toggle_purchase_science(ui: &mut crate::core::subsystems::InGameUISubsystem) {
+        ui.control_bar_events.toggle_purchase_science = true;
     }
-
-    pub fn toggle_purchase_science() {
-        if !with_control_bar_backend(|backend| backend.toggle_purchase_science()) {
-            info!("Request to toggle purchase science UI");
-        }
+    pub fn show_special_power_shortcut(ui: &mut crate::core::subsystems::InGameUISubsystem) {
+        ui.control_bar_events.show_special_power_shortcut = true;
     }
-
-    pub fn show_special_power_shortcut() {
-        if !with_control_bar_backend(|backend| backend.show_special_power_shortcut()) {
-            info!("Request to show special power shortcut UI");
-        }
+    pub fn hide_special_power_shortcut(ui: &mut crate::core::subsystems::InGameUISubsystem) {
+        ui.control_bar_events.hide_special_power_shortcut = true;
     }
-
-    pub fn hide_special_power_shortcut() {
-        if !with_control_bar_backend(|backend| backend.hide_special_power_shortcut()) {
-            info!("Request to hide special power shortcut UI");
-        }
+    pub fn animate_special_power_shortcut(
+        enabled: bool,
+        ui: &mut crate::core::subsystems::InGameUISubsystem,
+    ) {
+        ui.control_bar_events.animate_special_power_shortcut = Some(enabled);
     }
-
-    pub fn animate_special_power_shortcut(enabled: bool) {
-        if !with_control_bar_backend(|backend| backend.animate_special_power_shortcut(enabled)) {
-            info!("Request to animate special power shortcut UI: {enabled}");
-        }
+    pub fn init_special_power_shortcut_bar_for_player(
+        player_side: &str,
+        ui: &mut crate::core::subsystems::InGameUISubsystem,
+    ) {
+        ui.control_bar_events.init_special_power_shortcut_for_player = Some(player_side.to_owned());
     }
-
-    pub fn init_special_power_shortcut_bar_for_player(player_side: &str) {
-        if !with_control_bar_backend(|backend| {
-            backend.init_special_power_shortcut_bar_for_player(player_side)
-        }) {
-            info!("Request to initialize special power shortcut bar for side {player_side}");
-        }
+    pub fn set_control_bar_scheme_by_player(
+        player_side: &str,
+        ui: &mut crate::core::subsystems::InGameUISubsystem,
+    ) {
+        ui.control_bar_events.set_scheme_by_player = Some(player_side.to_owned());
     }
-
-    pub fn set_control_bar_scheme_by_player(player_side: &str) {
-        if !with_control_bar_backend(|backend| {
-            backend.set_control_bar_scheme_by_player(player_side)
-        }) {
-            info!("Request to set control bar scheme by side {player_side}");
-        }
+    pub fn toggle_control_bar_stage(ui: &mut crate::core::subsystems::InGameUISubsystem) {
+        ui.control_bar_events.toggle_control_bar_stage = true;
     }
-
-    pub fn toggle_control_bar_stage() {
-        if !with_control_bar_backend(|backend| backend.toggle_control_bar_stage()) {
-            info!("Request to toggle control bar stage");
-        }
+    pub fn process_context_sensitive_button_transition(
+        control_id: u32,
+        entering: bool,
+        ui: &mut crate::core::subsystems::InGameUISubsystem,
+    ) {
+        ui.control_bar_events
+            .transitions
+            .push((control_id, entering));
     }
-
+    /// Standalone Core audio compatibility only; actual receiving UI users
+    /// read their control_bar_observer_look_at field instead.
     pub fn get_observer_look_at_player_index() -> Option<i32> {
-        with_control_bar_backend_result(|backend| backend.get_observer_look_at_player_index())
-            .flatten()
+        let index =
+            LEGACY_CORE_CONTROL_BAR_INGRESS.with(|pending| pending.borrow().observer_look_at);
+        (index >= 0).then_some(index)
     }
 
     /// C++ `TheControlBar->getArrowImage()` (`m_genArrow`).
@@ -1514,5 +1390,44 @@ mod in_game_ui_input_and_guard_hint_tests {
         while ui.double_click_attack_move_guard_timer() > 0 {
             let _ = ui.consume_double_click_attack_move_guard_hint();
         }
+    }
+}
+
+#[cfg(test)]
+mod receiving_control_bar_events_tests {
+    use super::*;
+    #[test]
+    fn actual_ui_events_do_not_cross_peer_reset_or_drop() {
+        let mut a = crate::core::subsystems::InGameUISubsystem::default();
+        let mut b = crate::core::subsystems::InGameUISubsystem::default();
+        a.admit_native_control_bar_transport();
+        b.admit_native_control_bar_transport();
+        TheControlBar::process_context_sensitive_button_transition(41, true, &mut a);
+        TheControlBar::toggle_purchase_science(&mut a);
+        TheControlBar::set_control_bar_scheme_by_player("America", &mut a);
+        TheControlBar::process_context_sensitive_button_transition(41, false, &mut b);
+        TheControlBar::set_control_bar_scheme_by_player("China", &mut b);
+        b.clear_runtime_state();
+        assert!(drain_live_control_bar_events(&mut b).transitions.is_empty());
+        drop(b);
+        let events = drain_live_control_bar_events(&mut a);
+        assert_eq!(events.transitions, vec![(41, true)]);
+        assert!(events.toggle_purchase_science);
+        assert_eq!(events.set_scheme_by_player.as_deref(), Some("America"));
+        assert!(drain_live_control_bar_events(&mut a).transitions.is_empty());
+    }
+    #[test]
+    fn native_ui_never_consumes_standalone_dirty_or_observer_ingress() {
+        let mut a = crate::core::subsystems::InGameUISubsystem::default();
+        a.admit_native_control_bar_transport();
+        LEGACY_CORE_CONTROL_BAR_INGRESS.with(|state| {
+            state.borrow_mut().ui_dirty = true;
+            state.borrow_mut().observer_look_at = 7;
+        });
+        assert!(!drain_live_control_bar_events(&mut a).ui_dirty);
+        set_live_control_bar_observer_look_at(Some(2), &mut a);
+        assert_eq!(a.control_bar_observer_look_at, Some(2));
+        assert_eq!(TheControlBar::get_observer_look_at_player_index(), Some(7));
+        LEGACY_CORE_CONTROL_BAR_INGRESS.with(|state| *state.borrow_mut() = Default::default());
     }
 }

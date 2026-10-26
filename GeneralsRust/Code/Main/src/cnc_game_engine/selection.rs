@@ -910,7 +910,11 @@ impl CnCGameEngine {
     pub(super) fn try_purchase_next_generals_science(&mut self) {
         #[cfg(feature = "game_client")]
         {
-            game_client::helpers::TheControlBar::toggle_purchase_science();
+            game_client::helpers::TheControlBar::toggle_purchase_science(
+                self.game_client
+                    .in_game_ui_subsystem_mut()
+                    .expect("receiving native UI"),
+            );
         }
     }
 

@@ -10,7 +10,7 @@ impl CnCGameEngine {
     }
 }
 #[cfg(feature = "game_client")]
-fn chat_world_facts_from_world(
+pub(super) fn chat_world_facts_from_world(
     world: &crate::game_logic::GameLogic,
     multiplayer: bool,
 ) -> Option<game_client::gui::callbacks::ingame_callbacks::ChatWorldFacts> {

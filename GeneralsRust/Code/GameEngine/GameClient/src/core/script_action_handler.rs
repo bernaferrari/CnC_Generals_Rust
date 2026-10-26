@@ -651,6 +651,7 @@ impl GameClientScriptActionHandler {
         ui: &mut crate::core::subsystems::InGameUISubsystem,
         logic_frame: u32,
         manager: &mut crate::gui::window_manager::WindowManager,
+        diplomacy: &mut crate::gui::callbacks::diplomacy::DiplomacyCallbacks,
     ) {
         let subtitle_label = format!("DIALOGEVENT:{name}Subtitle");
         let subtitle = GameText::fetch(&subtitle_label);
@@ -658,6 +659,12 @@ impl GameClientScriptActionHandler {
         if subtitle.is_empty() || subtitle.starts_with('*') || subtitle == fallback {
             return;
         }
+        crate::gui::callbacks::diplomacy::update_diplomacy_briefing_text(
+            &subtitle_label,
+            false,
+            manager,
+            diplomacy,
+        );
         ui.push_military_subtitle(&subtitle_label, SUBTITLE_DURATION_MS, logic_frame, manager);
     }
     pub(crate) fn speech_play_receiving(
@@ -666,6 +673,7 @@ impl GameClientScriptActionHandler {
         ui: &mut crate::core::subsystems::InGameUISubsystem,
         logic_frame: u32,
         manager: &mut crate::gui::window_manager::WindowManager,
+        diplomacy: &mut crate::gui::callbacks::diplomacy::DiplomacyCallbacks,
     ) -> GameLogicResult<()> {
         if let Some(audio) = TheAudio::get() {
             let mut event = AudioEventRts::new(name);
@@ -677,7 +685,7 @@ impl GameClientScriptActionHandler {
             let handle = audio.add_audio_event(&event);
             with_script_runtime(|state| track_audio_handle(&mut state.speech_waits, name, handle));
         }
-        Self::maybe_show_speech_subtitle(name, ui, logic_frame, manager);
+        Self::maybe_show_speech_subtitle(name, ui, logic_frame, manager, diplomacy);
         Ok(())
     }
 }

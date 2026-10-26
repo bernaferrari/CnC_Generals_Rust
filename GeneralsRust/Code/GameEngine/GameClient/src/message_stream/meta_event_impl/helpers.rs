@@ -517,9 +517,7 @@ pub(crate) fn execute_ui_input_action(
     match action {
         Action::DemoMilitarySubtitle => {
             let frame = effects.logic_frame();
-            effects
-                .ui_mut()
-                .military_subtitle("MSG:Testing", 10_000, frame, manager);
+            effects.military_subtitle("MSG:Testing", 10_000, manager);
             true
         }
         Action::ToggleDiplomacy { immediate } => {

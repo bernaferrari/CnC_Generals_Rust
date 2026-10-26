@@ -56,6 +56,7 @@ pub struct WindowEventEffects<'a> {
     pub(crate) pending_control_bar_clicks: Option<&'a mut Vec<LiveControlBarClick>>,
     pub(crate) campaign_manager: Option<&'a mut CampaignManager>,
     pub(crate) menu_world: Option<crate::gui::campaign_launch_host_bridge::MenuWorldFacts>,
+    pub diplomacy_world: Option<&'a crate::gui::callbacks::diplomacy::DiplomacyWorldFacts>,
     pub(crate) menu_host: Option<&'a mut crate::gui::campaign_launch_host_bridge::MenuHostMailbox>,
     pub(crate) window_videos: Option<&'a mut crate::gui::window_video_manager::WindowVideoManager>,
     pub(crate) script_display:
@@ -72,6 +73,7 @@ impl<'effects> WindowEventEffects<'effects> {
     pub fn new(emitted_messages: &'effects mut Vec<GameMessage>) -> Self {
         Self {
             payloads: Default::default(),
+            diplomacy_world: None,
             ui: None,
             logic_frame: None,
             client_frame: None,
@@ -93,6 +95,17 @@ impl<'effects> WindowEventEffects<'effects> {
         }
     }
 
+    pub fn with_diplomacy<R>(
+        &mut self,
+        operation: impl FnOnce(&mut crate::gui::callbacks::diplomacy::DiplomacyCallbacks) -> R,
+    ) -> R {
+        operation(
+            self.menus
+                .as_mut()
+                .expect("Diplomacy requires receiving menu owner")
+                .diplomacy,
+        )
+    }
     pub fn input_authority(&self) -> crate::core::game_client::ClientInputAuthority {
         self.menus
             .as_ref()
@@ -441,6 +454,21 @@ impl<'effects> WindowEventEffects<'effects> {
         )
         .with_emitter(self.emitted_messages)
     }
+    pub fn military_subtitle(
+        &mut self,
+        label: &str,
+        duration_ms: i32,
+        manager: &mut crate::gui::window_manager::WindowManager,
+    ) {
+        self.with_diplomacy(|owner| {
+            crate::gui::callbacks::diplomacy::update_diplomacy_briefing_text(
+                label, false, manager, owner,
+            )
+        });
+        let frame = self.logic_frame();
+        self.ui_mut()
+            .push_military_subtitle(label, duration_ms, frame, manager);
+    }
     pub fn message(&mut self, text: &str) {
         let frame = self.logic_frame();
         self.ui_mut().message(text, frame);
@@ -483,6 +511,45 @@ impl<'effects> WindowEventEffects<'effects> {
 
     /// A leaf callback borrows the actual driving manager for exactly its call.
     /// The outer dispatcher cannot inspect it until the callback returns.
+    pub fn with_diplomacy_facts<R>(
+        &mut self,
+        facts: Option<&crate::gui::callbacks::diplomacy::DiplomacyWorldFacts>,
+        operation: impl FnOnce(&mut WindowEventEffects<'_>) -> R,
+    ) -> R {
+        let mut local = WindowEventEffects {
+            payloads: std::mem::take(&mut self.payloads),
+            diplomacy_world: facts,
+            ui: self.ui.as_deref_mut(),
+            logic_frame: self.logic_frame,
+            client_frame: self.client_frame,
+            standalone_view: self.standalone_view.as_deref_mut(),
+            manager: self.manager.as_deref_mut(),
+            menus: self.menus.as_mut().map(|menus| menus.reborrow()),
+            ime: self.ime.as_deref_mut(),
+            window_manager_owner: self.window_manager_owner,
+            selected_window: self.selected_window.clone(),
+            emitted_messages: &mut *self.emitted_messages,
+            pending_control_bar_clicks: self.pending_control_bar_clicks.as_deref_mut(),
+            campaign_manager: self.campaign_manager.as_deref_mut(),
+            menu_world: self.menu_world,
+            menu_host: self.menu_host.as_deref_mut(),
+            window_videos: self.window_videos.as_deref_mut(),
+            script_display: self.script_display.as_deref_mut(),
+            main_menu: self.main_menu.as_deref_mut(),
+            pending_main_menu_actions: Vec::new(),
+        };
+        let result =
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| operation(&mut local)));
+        self.payloads = std::mem::take(&mut local.payloads);
+        self.pending_main_menu_actions
+            .append(&mut local.pending_main_menu_actions);
+        match result {
+            Ok(value) => value,
+            Err(panic) => std::panic::resume_unwind(panic),
+        }
+    }
+    /// Borrow the supplied manager or this operation's explicit owner. Never
+    /// discover an active tree or manufacture a replacement on reentry.
     pub(crate) fn with_receiving_manager<R>(
         &mut self,
         manager: &mut crate::gui::window_manager::WindowManager,
@@ -490,6 +557,7 @@ impl<'effects> WindowEventEffects<'effects> {
     ) -> R {
         let mut local = WindowEventEffects {
             payloads: std::mem::take(&mut self.payloads),
+            diplomacy_world: self.diplomacy_world,
             ui: self.ui.as_deref_mut(),
             logic_frame: self.logic_frame,
             client_frame: self.client_frame,
@@ -955,6 +1023,22 @@ impl WindowEventEffects<'_> {
             .control_bar_callbacks
             .as_deref()
             .expect("receiving control bar callbacks")
+    }
+    pub fn control_bar_callbacks_and_ui_mut(
+        &mut self,
+    ) -> (
+        &mut crate::gui::callbacks::control_bar_callbacks::ControlBarCallbacks,
+        &mut crate::core::subsystems::InGameUISubsystem,
+    ) {
+        let callbacks = self
+            .menus
+            .as_mut()
+            .expect("receiving menus")
+            .control_bar_callbacks
+            .as_deref_mut()
+            .expect("receiving control bar callbacks");
+        let ui = self.ui.as_deref_mut().expect("receiving UI");
+        (callbacks, ui)
     }
     pub fn control_bar_callbacks_mut(
         &mut self,

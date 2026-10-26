@@ -118,7 +118,7 @@ pub fn start_military_subtitle(
 ) {
     (|hud: &mut LiveHud| {
         hud.subtitle = None;
-        update_diplomacy_briefing_text(label, false, manager);
+
         let title = military_caption_text(label);
         if title.is_empty() || duration_ms <= 0 {
             return;

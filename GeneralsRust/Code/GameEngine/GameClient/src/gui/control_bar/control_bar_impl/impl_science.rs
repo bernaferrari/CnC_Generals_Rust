@@ -1,36 +1,5 @@
 // Split from `gui/control_bar/control_bar.rs` dump. Included by `control_bar_impl/mod.rs`.
 
-/// ShowControlBar can request DEFAULT before the host `ControlBar` tick
-/// (C++ ControlBarCallback.cpp:489). Applied on the live instance.
-static PENDING_CONTROL_BAR_STAGE: std::sync::atomic::AtomicU8 =
-    std::sync::atomic::AtomicU8::new(0xFF);
-
-fn control_bar_stage_to_u8(stage: ControlBarStage) -> u8 {
-    match stage {
-        // ControlBar.h:615-623 — DEFAULT=0, SQUISHED=1, LOW=2, HIDDEN=3.
-        ControlBarStage::Default => 0,
-        ControlBarStage::Squished => 1,
-        ControlBarStage::Low => 2,
-        ControlBarStage::Hidden => 3,
-    }
-}
-
-fn control_bar_stage_from_u8(value: u8) -> Option<ControlBarStage> {
-    match value {
-        0 => Some(ControlBarStage::Default),
-        1 => Some(ControlBarStage::Squished),
-        2 => Some(ControlBarStage::Low),
-        3 => Some(ControlBarStage::Hidden),
-        _ => None,
-    }
-}
-
-fn take_pending_control_bar_stage() -> Option<ControlBarStage> {
-    control_bar_stage_from_u8(
-        PENDING_CONTROL_BAR_STAGE.swap(0xFF, std::sync::atomic::Ordering::SeqCst),
-    )
-}
-
 /// C++ `COMMAND_BAR_SIZE_OFFSET` (ControlBarScheme.cpp:50-52): Zero Hour
 /// authors it as 0 and adds it on EVERY scheme `winSetSize`
 /// (ControlBarScheme.cpp:447, 473, 503, 528, 550, 572, 600, 626, 650).
@@ -1040,9 +1009,13 @@ impl ControlBar {
         &mut self,
         stage: ControlBarStage,
         receiving_manager: &mut crate::gui::window_manager::WindowManager,
-        view: &mut crate::display::view::View,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) {
-        PENDING_CONTROL_BAR_STAGE.store(0xFF, std::sync::atomic::Ordering::SeqCst);
+        effects.ui_mut().pending_control_bar_stage = None;
+        let view = effects
+            .standalone_view
+            .as_deref_mut()
+            .expect("standalone control bar requires receiving View");
         let parent = leftover_find_window(CONTROL_BAR_PARENT, receiving_manager);
         let mut viewport =
             crate::gui::callbacks::control_bar_callbacks::StandaloneControlBarViewport::new(
@@ -1208,32 +1181,32 @@ impl ControlBar {
     }
 
     /// C++ `ShowControlBar` (ControlBarCallback.cpp:489) when ControlBarParent is live.
-    pub fn request_switch_control_bar_stage(stage: ControlBarStage) {
-        PENDING_CONTROL_BAR_STAGE.store(
-            control_bar_stage_to_u8(stage),
-            std::sync::atomic::Ordering::SeqCst,
-        );
+    pub fn request_switch_control_bar_stage(
+        stage: ControlBarStage,
+        ui: &mut crate::core::subsystems::InGameUISubsystem,
+    ) {
+        ui.pending_control_bar_stage = Some(stage);
     }
 
     pub fn apply_pending_control_bar_stage(
         &mut self,
         receiving_manager: &mut crate::gui::window_manager::WindowManager,
-        view: &mut crate::display::view::View,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) {
-        if let Some(stage) = take_pending_control_bar_stage() {
-            self.switch_control_bar_stage(stage, receiving_manager, view);
+        if let Some(stage) = effects.ui_mut().pending_control_bar_stage.take() {
+            self.switch_control_bar_stage(stage, receiving_manager, effects);
         }
     }
 
     pub fn toggle_control_bar_stage(
         &mut self,
         receiving_manager: &mut crate::gui::window_manager::WindowManager,
-        view: &mut crate::display::view::View,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) {
         if self.control_bar_stage == ControlBarStage::Default {
-            self.switch_control_bar_stage(ControlBarStage::Low, receiving_manager, view);
+            self.switch_control_bar_stage(ControlBarStage::Low, receiving_manager, effects);
         } else {
-            self.switch_control_bar_stage(ControlBarStage::Default, receiving_manager, view);
+            self.switch_control_bar_stage(ControlBarStage::Default, receiving_manager, effects);
         }
     }
 
@@ -1578,14 +1551,7 @@ impl ControlBar {
         effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) {
         self.apply_scheme_context(receiving_manager, effects);
-        self.switch_control_bar_stage(
-            ControlBarStage::Default,
-            receiving_manager,
-            effects
-                .standalone_view
-                .as_deref_mut()
-                .expect("standalone control bar requires receiving View"),
-        );
+        self.switch_control_bar_stage(ControlBarStage::Default, receiving_manager, effects);
         self.mark_ui_dirty();
     }
 
@@ -2512,13 +2478,7 @@ impl ControlBar {
         }
         self.mark_ui_dirty();
         self.update(Duration::from_millis(33), receiving_manager, effects)?;
-        self.apply_pending_control_bar_stage(
-            receiving_manager,
-            effects
-                .standalone_view
-                .as_deref_mut()
-                .expect("standalone control bar requires receiving View"),
-        );
+        self.apply_pending_control_bar_stage(receiving_manager, effects);
         Ok(())
     }
 

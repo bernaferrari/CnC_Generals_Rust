@@ -57,6 +57,7 @@ fn actual_owned_command_tooltip_hover_and_delete_use_receiving_bar_and_window_tr
     let mut viewport = Viewport;
     {
         let mut context = ControlBarInputContext {
+            diplomacy_world: None,
             menus: None,
             ime:None,
             in_game_movies: None,
@@ -123,6 +124,7 @@ fn actual_owned_command_tooltip_hover_and_delete_use_receiving_bar_and_window_tr
     bar.tooltip.wait_start = Some(Instant::now() - Duration::from_millis(101));
     for _ in 0..4 {
         let mut context = ControlBarInputContext {
+            diplomacy_world: None,
             menus: None,
             ime:None,
             in_game_movies: None,
@@ -159,6 +161,7 @@ fn actual_owned_command_tooltip_hover_and_delete_use_receiving_bar_and_window_tr
     }
     {
         let mut context = ControlBarInputContext {
+            diplomacy_world: None,
             menus: None,
             ime:None,
             in_game_movies: None,

@@ -282,7 +282,7 @@ mod tests {
 
     #[test]
     fn update_for_selection_runs_real_update_and_clears_dirty() {
-        crate::helpers::register_live_control_bar_hooks();
+        crate::helpers::register_legacy_core_control_bar_ui_ingress();
         let mut control_bar = ControlBar::new();
         control_bar
             .update_for_selection(Vec::new())
@@ -295,7 +295,7 @@ mod tests {
 
     #[test]
     fn live_ui_hooks_mark_control_bar_dirty_until_update() {
-        crate::helpers::register_live_control_bar_hooks();
+        crate::helpers::register_legacy_core_control_bar_ui_ingress();
         gamelogic::control_bar::mark_ui_dirty();
         let mut control_bar = ControlBar::new();
         assert!(!control_bar.is_ui_dirty());

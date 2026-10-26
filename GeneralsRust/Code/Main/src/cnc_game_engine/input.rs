@@ -3109,9 +3109,12 @@ impl CnCGameEngine {
         operation: impl FnOnce(&mut game_client::gui::game_window::WindowEventEffects<'_>) -> R,
     ) -> Result<R, String> {
         let facts = self.receiving_menu_world_facts();
+        let diplomacy = self.receiving_diplomacy_world_facts().ok();
         let result = self
             .game_client
-            .with_window_event_effects(Some(facts), operation);
+            .with_window_event_effects(Some(facts), |effects| {
+                effects.with_diplomacy_facts(diplomacy.as_ref(), operation)
+            });
         self.complete_receiving_menu_host_requests()?;
         Ok(result)
     }
@@ -3124,11 +3127,16 @@ impl CnCGameEngine {
         ) -> R,
     ) -> Result<R, String> {
         let facts = self.receiving_menu_world_facts();
+        let diplomacy = self.receiving_diplomacy_world_facts().ok();
         let ui = &mut self.ui_manager;
         let render = &mut self.render_pipeline;
         let result = self
             .game_client
-            .with_window_event_effects(Some(facts), |effects| operation(ui, render, effects));
+            .with_window_event_effects(Some(facts), |effects| {
+                effects.with_diplomacy_facts(diplomacy.as_ref(), |effects| {
+                    operation(ui, render, effects)
+                })
+            });
         self.complete_receiving_menu_host_requests()?;
         Ok(result)
     }
@@ -3140,9 +3148,13 @@ impl CnCGameEngine {
         ) -> R,
     ) -> Result<Option<R>, String> {
         let facts = self.receiving_menu_world_facts();
+        let diplomacy = self.receiving_diplomacy_world_facts().ok();
         let result = self
             .game_client
-            .with_receiving_shell(Some(facts), operation)
+            .with_receiving_shell(Some(facts), |shell, effects| {
+                effects
+                    .with_diplomacy_facts(diplomacy.as_ref(), |effects| operation(shell, effects))
+            })
             .ok_or_else(|| "menu operation requires released receiving Shell".to_string())?;
         self.complete_receiving_menu_host_requests()?;
         Ok(Some(result))

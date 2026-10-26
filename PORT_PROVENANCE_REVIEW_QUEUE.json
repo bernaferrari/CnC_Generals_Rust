@@ -26547,13 +26547,24 @@
         {
           "blockers": [
             "unreviewed_mapping",
-            "unreviewed_symbol_ownership"
+            "unreviewed_symbol_ownership",
+            "unreviewed_source_range_ownership"
           ],
           "candidate_destinations": [
             {
               "cargo_reachable": true,
               "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/callbacks/diplomacy.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/callbacks/diplomacy/owner.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/callbacks/diplomacy/owner/tests.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameClient/GUI/GUICallbacks/Diplomacy.cpp",
@@ -190161,7 +190172,7 @@
       ]
     }
   ],
-  "provenance_input_digest": "442bb057775ccf6a07baf7238b8ccc04563679e65018e994e85ab1fdb55cf9fa",
+  "provenance_input_digest": "8baf4619669b60aa3d3d0f861011785ef8d8b97b41f0705431d9e5d233e835d7",
   "schema_version": 1,
   "summary": {
     "maximum_packet_size": 15,

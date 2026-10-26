@@ -260,6 +260,7 @@ impl CnCGameEngine {
                 ui,
             ) = self.game_client.window_owner_campaign_menu_and_host_mut();
             let mut context = game_client::gui::window_manager::ControlBarInputContext {
+            diplomacy_world: None,
             ui, logic_frame: Some(menu_world.logic_frame), client_frame: Some(menu_world.client_frame),
             menus: Some(menus.reborrow()),
             ime:Some(ime),
@@ -483,6 +484,7 @@ impl CnCGameEngine {
             ui,
         ) = self.game_client.window_owner_campaign_menu_and_host_mut();
         let mut context = game_client::gui::window_manager::ControlBarInputContext {
+            diplomacy_world: None,
             ui, logic_frame: Some(menu_world.logic_frame), client_frame: Some(menu_world.client_frame),
             menus: Some(menus.reborrow()),
             ime:Some(ime),

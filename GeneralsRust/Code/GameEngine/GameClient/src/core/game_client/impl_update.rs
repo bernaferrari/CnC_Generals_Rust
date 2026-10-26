@@ -1163,8 +1163,15 @@ impl GameClient {
         };
         let ui = ui;
         let ms = remaining_ms.unwrap_or(10_000).max(0);
-        self.window_manager_owner
-            .with_manager(|manager| ui.push_military_subtitle(text, ms, frame, manager));
+        self.window_manager_owner.with_manager(|manager| {
+            crate::gui::callbacks::diplomacy::update_diplomacy_briefing_text(
+                text,
+                false,
+                manager,
+                self.menu_manager.diplomacy_mut(),
+            );
+            ui.push_military_subtitle(text, ms, frame, manager);
+        });
     }
 
     /// Wave 1060: presentation floating cash/text residual → InGameUI subsystem residual.
@@ -2595,6 +2602,7 @@ impl GameClient {
                 logic_frame: menu_world.map(|facts| facts.logic_frame),
                 ui: self.subsystem_manager.in_game_ui.as_mut(),
                 payloads: Default::default(),
+                diplomacy_world: None,
                 menus: Some(self.menu_manager.receiving_menus(self.input_authority)),
                 ime: Some(&mut self.ime),
                 manager: None,
@@ -2620,8 +2628,9 @@ impl GameClient {
 
         if let Some(ui) = self.subsystem_manager.in_game_ui.as_mut() {
             self.window_videos.in_game.update_in_game_movies();
-            self.window_manager_owner
-                .with_manager(|manager| ui.update_receiving(manager))?;
+            self.window_manager_owner.with_manager(|manager| {
+                ui.update_receiving(manager, self.menu_manager.diplomacy_mut())
+            })?;
         }
 
         crate::eva::update_eva_system();

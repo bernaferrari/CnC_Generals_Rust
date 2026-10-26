@@ -7,31 +7,30 @@ use crate::gui::callbacks::{
     challenge_menu_system, challenge_menu_update, difficulty_select_init, difficulty_select_input,
     difficulty_select_system, download_menu_init, download_menu_input, download_menu_shutdown,
     download_menu_system, download_menu_update, game_info_window_init, game_info_window_system,
-    generals_exp_points_input, generals_exp_points_system, get_diplomacy_system,
-    get_message_box_system, ime_candidate_main_draw, ime_candidate_text_area_draw,
-    ime_candidate_window_input, ime_candidate_window_system, in_game_popup_message_init,
-    in_game_popup_message_input, in_game_popup_message_system_with_sink,
-    keyboard_options_menu_init, keyboard_options_menu_input, keyboard_options_menu_shutdown,
-    keyboard_options_menu_system, keyboard_options_menu_update, lan_game_options_menu_init,
-    lan_game_options_menu_input, lan_game_options_menu_shutdown, lan_game_options_menu_system,
-    lan_game_options_menu_update, lan_map_select_menu_init, lan_map_select_menu_input,
-    lan_map_select_menu_shutdown, lan_map_select_menu_system, lan_map_select_menu_update,
-    network_direct_connect_init, network_direct_connect_input, network_direct_connect_shutdown,
-    network_direct_connect_system, network_direct_connect_update, popup_buddy_notification_system,
-    popup_communicator_init, popup_communicator_input, popup_communicator_shutdown,
-    popup_communicator_system, popup_communicator_update, popup_host_game_init,
-    popup_host_game_input, popup_host_game_system, popup_host_game_update, popup_join_game_init,
-    popup_join_game_input, popup_join_game_system, popup_ladder_select_init,
-    popup_ladder_select_input, popup_ladder_select_shutdown, popup_ladder_select_system,
-    popup_ladder_select_update, popup_player_info_init, popup_player_info_input,
-    popup_player_info_shutdown, popup_player_info_system, popup_player_info_update,
-    popup_replay_init, popup_replay_input, popup_replay_shutdown, popup_replay_system,
-    popup_replay_update, quit_menu_system, rc_game_details_menu_init, rc_game_details_menu_system,
-    replay_menu_init, replay_menu_input, replay_menu_shutdown, replay_menu_system,
-    replay_menu_update, save_load_menu_full_screen_init, save_load_menu_init, save_load_menu_input,
-    save_load_menu_shutdown, save_load_menu_system, save_load_menu_update, score_screen_init,
-    score_screen_input, score_screen_shutdown, score_screen_system, score_screen_update,
-    skirmish_game_options_menu_init, skirmish_game_options_menu_input,
+    generals_exp_points_input, generals_exp_points_system, get_message_box_system,
+    ime_candidate_main_draw, ime_candidate_text_area_draw, ime_candidate_window_input,
+    ime_candidate_window_system, in_game_popup_message_init, in_game_popup_message_input,
+    in_game_popup_message_system_with_sink, keyboard_options_menu_init,
+    keyboard_options_menu_input, keyboard_options_menu_shutdown, keyboard_options_menu_system,
+    keyboard_options_menu_update, lan_game_options_menu_init, lan_game_options_menu_input,
+    lan_game_options_menu_shutdown, lan_game_options_menu_system, lan_game_options_menu_update,
+    lan_map_select_menu_init, lan_map_select_menu_input, lan_map_select_menu_shutdown,
+    lan_map_select_menu_system, lan_map_select_menu_update, network_direct_connect_init,
+    network_direct_connect_input, network_direct_connect_shutdown, network_direct_connect_system,
+    network_direct_connect_update, popup_buddy_notification_system, popup_communicator_init,
+    popup_communicator_input, popup_communicator_shutdown, popup_communicator_system,
+    popup_communicator_update, popup_host_game_init, popup_host_game_input, popup_host_game_system,
+    popup_host_game_update, popup_join_game_init, popup_join_game_input, popup_join_game_system,
+    popup_ladder_select_init, popup_ladder_select_input, popup_ladder_select_shutdown,
+    popup_ladder_select_system, popup_ladder_select_update, popup_player_info_init,
+    popup_player_info_input, popup_player_info_shutdown, popup_player_info_system,
+    popup_player_info_update, popup_replay_init, popup_replay_input, popup_replay_shutdown,
+    popup_replay_system, popup_replay_update, quit_menu_system, rc_game_details_menu_init,
+    rc_game_details_menu_system, replay_menu_init, replay_menu_input, replay_menu_shutdown,
+    replay_menu_system, replay_menu_update, save_load_menu_full_screen_init, save_load_menu_init,
+    save_load_menu_input, save_load_menu_shutdown, save_load_menu_system, save_load_menu_update,
+    score_screen_init, score_screen_input, score_screen_shutdown, score_screen_system,
+    score_screen_update, skirmish_game_options_menu_init, skirmish_game_options_menu_input,
     skirmish_game_options_menu_shutdown, skirmish_game_options_menu_system,
     skirmish_game_options_menu_update, skirmish_map_select_menu_init,
     skirmish_map_select_menu_input, skirmish_map_select_menu_shutdown,
@@ -997,27 +996,7 @@ impl WindowManager {
                 }
                 "DiplomacySystem" => {
                     window.set_system_callback_with_message_sink(
-                        |window, msg, data1, data2, effects| {
-                            // GWM_CREATE is dispatched synchronously by
-                            // create_window_from_definition (layout_load.rs:266)
-                            // while DiplomacySystem::toggle_diplomacy still holds
-                            // the DiplomacyCallbacks write guard; re-acquiring it
-                            // here self-deadlocks the whole client thread. The
-                            // Create side effect (slot-table populate) runs in
-                            // show_layout on every show — C++ populates in
-                            // ShowDiplomacy via PopulateInGameDiplomacyPopup
-                            // (Diplomacy.cpp:247-248) — so Create only needs to
-                            // report handled.
-                            if msg == WindowMessage::Create {
-                                return WindowMsgHandled::Handled;
-                            }
-                            let system = get_diplomacy_system();
-                            let system = system.read().unwrap_or_else(|e| e.into_inner());
-                            let callbacks = system.get_callbacks();
-                            with_arc_write(&callbacks, |callbacks| {
-                                callbacks.system(window, msg, data1, data2)
-                            })
-                        },
+                        crate::gui::callbacks::diplomacy::diplomacy_system_receiving,
                     );
                 }
                 "InGameChatSystem" => {
@@ -1170,7 +1149,7 @@ impl WindowManager {
                                     "GeneralsExpPoints.wnd:ButtonExit",
                                 );
                                 if control_id == button_exit_id {
-                                    TheControlBar::hide_purchase_science();
+                                    TheControlBar::hide_purchase_science(effects.ui_mut());
                                 } else if let Some(clicks) =
                                     effects.pending_control_bar_clicks.as_deref_mut()
                                 {
@@ -1184,7 +1163,7 @@ impl WindowManager {
                                 }
                                 return WindowMsgHandled::Handled;
                             }
-                            generals_exp_points_system(window, msg, data1, data2)
+                            generals_exp_points_system(window, msg, data1, data2, effects)
                         },
                     );
                 }
@@ -1584,27 +1563,7 @@ impl WindowManager {
                 }
                 "DiplomacyInput" => {
                     window.set_input_callback_with_message_sink(
-                        |window, msg, data1, data2, effects| {
-                            // ScriptCreate is routed synchronously to the root's
-                            // input callback while each child is created
-                            // (layout_load.rs:269-275) — i.e. while
-                            // DiplomacySystem::toggle_diplomacy still holds the
-                            // DiplomacyCallbacks write guard; re-acquiring it here
-                            // self-deadlocks. C++ DiplomacyInput ignores everything
-                            // except GWM_CHAR (Diplomacy.cpp:323-357), so creation
-                            // traffic falls straight through to widget handling.
-                            if msg == WindowMessage::ScriptCreate {
-                                return WindowMsgHandled::Ignored;
-                            }
-                            let system = get_diplomacy_system();
-                            let system = system.read().unwrap_or_else(|e| e.into_inner());
-                            let callbacks = system.get_callbacks();
-                            with_arc_write(&callbacks, |callbacks| {
-                                effects.with_manager(|manager, effects| {
-                                    callbacks.input(window, msg, data1, data2, manager, effects)
-                                })
-                            })
-                        },
+                        crate::gui::callbacks::diplomacy::diplomacy_input_receiving,
                     );
                 }
                 "InGameChatInput" => {

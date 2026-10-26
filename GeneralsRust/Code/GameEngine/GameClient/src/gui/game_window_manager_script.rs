@@ -1007,7 +1007,9 @@ impl ScriptCallbackRegistry {
         });
         self.register_win_system_with_effects(
             "GeneralsExpPointsSystem",
-            |window, msg, d1, d2, effects| cb::generals_exp_points_system(window, msg, d1, d2),
+            |window, msg, d1, d2, effects| {
+                cb::generals_exp_points_system(window, msg, d1, d2, effects)
+            },
         );
         self.register_win_system_with_effects(
             "DifficultySelectSystem",
@@ -2013,12 +2015,7 @@ fn diplomacy_system(
     data2: WindowMsgData,
     effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> WindowMsgHandled {
-    let system = cb::get_diplomacy_system();
-    let system = system.read().unwrap_or_else(|e| e.into_inner());
-    let callbacks = system.get_callbacks();
-    with_arc_write(&callbacks, |callbacks| {
-        callbacks.system(window, msg, data1, data2)
-    })
+    cb::diplomacy_system_receiving(window, msg, data1, data2, effects)
 }
 
 fn diplomacy_input(
@@ -2028,14 +2025,7 @@ fn diplomacy_input(
     data2: WindowMsgData,
     effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> WindowMsgHandled {
-    let system = cb::get_diplomacy_system();
-    let system = system.read().unwrap_or_else(|e| e.into_inner());
-    let callbacks = system.get_callbacks();
-    with_arc_write(&callbacks, |callbacks| {
-        effects.with_manager(|manager, effects| {
-            callbacks.input(window, msg, data1, data2, manager, effects)
-        })
-    })
+    cb::diplomacy_input_receiving(window, msg, data1, data2, effects)
 }
 
 fn in_game_chat_system(

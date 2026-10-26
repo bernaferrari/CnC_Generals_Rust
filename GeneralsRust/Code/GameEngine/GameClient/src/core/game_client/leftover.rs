@@ -1597,7 +1597,12 @@ impl Snapshotable for GameClient {
         }
 
         // C++ GameClient::xfer v2+ briefing history (GameClient.cpp:1531-1560).
-        xfer_diplomacy_briefing_history(xfer, version, &self.window_manager_owner)?;
+        xfer_diplomacy_briefing_history(
+            xfer,
+            version,
+            &self.window_manager_owner,
+            self.menu_manager.diplomacy_mut(),
+        )?;
 
         if xfer.is_reading() {
             self.load_post_process()?;
@@ -1705,13 +1710,14 @@ fn xfer_diplomacy_briefing_history(
     xfer: &mut dyn Xfer,
     version: XferVersion,
     owner: &crate::gui::window_manager::WindowManagerOwner,
+    diplomacy: &mut crate::gui::callbacks::diplomacy::DiplomacyCallbacks,
 ) -> Result<(), String> {
     if version < 2 {
         return Ok(());
     }
 
     if xfer.is_writing() {
-        let list = crate::gui::callbacks::diplomacy::get_briefing_text_list();
+        let list = crate::gui::callbacks::diplomacy::get_briefing_text_list(diplomacy);
         let mut num_entries = i32::try_from(list.len()).unwrap_or(i32::MAX);
         xfer.xfer_int(&mut num_entries).map_err(|e| e.to_string())?;
         for mut temp_str in list {
@@ -1722,7 +1728,9 @@ fn xfer_diplomacy_briefing_history(
         let mut num_entries = 0i32;
         xfer.xfer_int(&mut num_entries).map_err(|e| e.to_string())?;
         owner.with_manager(|manager| {
-            crate::gui::callbacks::diplomacy::update_diplomacy_briefing_text("", true, manager)
+            crate::gui::callbacks::diplomacy::update_diplomacy_briefing_text(
+                "", true, manager, diplomacy,
+            )
         });
         for _ in 0..num_entries.max(0) {
             let mut temp_str = String::new();
@@ -1730,7 +1738,7 @@ fn xfer_diplomacy_briefing_history(
                 .map_err(|e| e.to_string())?;
             owner.with_manager(|manager| {
                 crate::gui::callbacks::diplomacy::update_diplomacy_briefing_text(
-                    &temp_str, false, manager,
+                    &temp_str, false, manager, diplomacy,
                 )
             });
         }

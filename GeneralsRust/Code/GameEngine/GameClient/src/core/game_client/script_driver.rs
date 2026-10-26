@@ -12,7 +12,7 @@ pub fn close_receiving_game_windows(
     effects: &mut WindowEventEffects<'_>,
 ) {
     let _ = crate::gui::callbacks::diplomacy::hide_diplomacy(false, manager, effects);
-    let _ = crate::gui::callbacks::diplomacy::reset_diplomacy(manager);
+    let _ = crate::gui::callbacks::diplomacy::reset_diplomacy(manager, effects);
     let _ = crate::gui::callbacks::ingame_callbacks::hide_in_game_chat(false, manager, effects);
     let _ = crate::gui::callbacks::ingame_callbacks::reset_in_game_chat(manager, effects);
     bar.hide_purchase_science(manager);
@@ -54,9 +54,7 @@ impl ScriptExecutionDriver for ReceivingClientScriptDriver<'_, '_> {
                     )));
                 };
                 self.effects.with_manager(|manager, effects| {
-                    effects
-                        .ui_mut()
-                        .push_military_subtitle(text, duration_ms, frame, manager)
+                    effects.military_subtitle(text, duration_ms, manager)
                 });
                 Some(Ok(()))
             }
@@ -74,7 +72,7 @@ impl ScriptExecutionDriver for ReceivingClientScriptDriver<'_, '_> {
         };
         let frame = self.world.get_frame();
         Some(self.effects.with_manager(|manager, effects| {
-            crate::core::script_action_handler::GameClientScriptActionHandler::speech_play_receiving(name, allow_overlap, effects.ui_mut(), frame, manager)
+            crate::core::script_action_handler::GameClientScriptActionHandler::speech_play_receiving(name, allow_overlap, effects.ui.as_deref_mut().expect("receiving UI"), frame, manager, effects.menus.as_mut().expect("receiving menus").diplomacy)
         }))
     }
 
@@ -229,6 +227,7 @@ impl GameClient {
                 logic_frame: Some(logic_frame),
                 ui: self.subsystem_manager.in_game_ui.as_mut(),
                 payloads: Default::default(),
+                diplomacy_world: None,
                 menus: Some(self.menu_manager.receiving_menus(self.input_authority)),
                 manager: None,
                 ime: Some(&mut self.ime),

@@ -88,7 +88,11 @@ impl<'a> ReceivingUi<'a> {
         label: &str,
         duration_ms: i32,
         manager: &mut crate::gui::window_manager::WindowManager,
+        diplomacy: &mut crate::gui::callbacks::diplomacy::DiplomacyCallbacks,
     ) {
+        crate::gui::callbacks::diplomacy::update_diplomacy_briefing_text(
+            label, false, manager, diplomacy,
+        );
         self.state
             .push_military_subtitle(label, duration_ms, self.logic_frame, manager);
     }

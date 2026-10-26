@@ -243,7 +243,6 @@ pub use callbacks::{
     CreditsMenu,
     // Diplomacy callbacks
     DiplomacyCallbacks,
-    DiplomacySystem,
     DiplomaticRelationship,
     ExtendedMessageBoxCallbacks,
 
@@ -276,7 +275,7 @@ pub use callbacks::{
     ex_message_box_ok_cancel,
     ex_message_box_yes_no,
     ex_message_box_yes_no_cancel,
-    get_diplomacy_system,
+
     get_message_box_system,
     hide_control_bar,
     hide_diplomacy,

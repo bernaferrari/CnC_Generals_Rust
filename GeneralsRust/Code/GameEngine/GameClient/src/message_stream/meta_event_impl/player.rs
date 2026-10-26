@@ -159,17 +159,24 @@ fn shroud_local_player_map() {
     }
 }
 
-fn apply_local_player_switch_side_effects(initialize_shortcut_bar: bool) {
+fn apply_local_player_switch_side_effects(
+    initialize_shortcut_bar: bool,
+    ui: &mut crate::core::subsystems::InGameUISubsystem,
+) {
     clear_local_player_selection();
     if let Some(side) = local_player_side_name() {
         if initialize_shortcut_bar {
-            TheControlBar::init_special_power_shortcut_bar_for_player(&side);
+            TheControlBar::init_special_power_shortcut_bar_for_player(&side, ui);
         }
-        TheControlBar::set_control_bar_scheme_by_player(&side);
+        TheControlBar::set_control_bar_scheme_by_player(&side, ui);
     }
 }
 
-fn set_local_player_index_with_refresh(index: i32, initialize_shortcut_bar: bool) {
+fn set_local_player_index_with_refresh(
+    index: i32,
+    initialize_shortcut_bar: bool,
+    ui: &mut crate::core::subsystems::InGameUISubsystem,
+) {
     {
         let Ok(mut list) = ThePlayerList().write() else {
             return;
@@ -180,10 +187,10 @@ fn set_local_player_index_with_refresh(index: i32, initialize_shortcut_bar: bool
     if let Ok(mut shroud) = gamelogic::system::shroud_manager::get_shroud_manager().lock() {
         shroud.refresh_shroud_for_local_player();
     }
-    apply_local_player_switch_side_effects(initialize_shortcut_bar);
+    apply_local_player_switch_side_effects(initialize_shortcut_bar, ui);
 }
 
-fn switch_to_next_non_neutral_player() -> bool {
+fn switch_to_next_non_neutral_player(ui: &mut crate::core::subsystems::InGameUISubsystem) -> bool {
     let Ok(mut list) = ThePlayerList().write() else {
         return false;
     };
@@ -229,11 +236,15 @@ fn switch_to_next_non_neutral_player() -> bool {
     }
 
     drop(list);
-    set_local_player_index_with_refresh(target, true);
+    set_local_player_index_with_refresh(target, true, ui);
     target != current
 }
 
-fn switch_local_player_between_sides(side_a: &str, side_b: &str) -> bool {
+fn switch_local_player_between_sides(
+    side_a: &str,
+    side_b: &str,
+    ui: &mut crate::core::subsystems::InGameUISubsystem,
+) -> bool {
     let Ok(list) = ThePlayerList().read() else {
         return false;
     };
@@ -269,7 +280,7 @@ fn switch_local_player_between_sides(side_a: &str, side_b: &str) -> bool {
     drop(list);
 
     if let Some(index) = target_index {
-        set_local_player_index_with_refresh(index, false);
+        set_local_player_index_with_refresh(index, false, ui);
         true
     } else {
         false

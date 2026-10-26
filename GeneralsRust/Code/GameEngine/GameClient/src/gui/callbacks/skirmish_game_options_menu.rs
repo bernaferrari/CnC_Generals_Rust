@@ -2385,6 +2385,7 @@ mod tests {
             let mut effects = WindowEventEffects {
                 standalone_view: None,
                 payloads: Default::default(),
+                diplomacy_world: None,
                 menus: None,
                 ime: None,
                 manager: None,

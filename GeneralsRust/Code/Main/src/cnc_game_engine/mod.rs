@@ -204,3 +204,5 @@ mod native_audio_effects;
 pub fn run_terminal_load_owner_probe() -> anyhow::Result<()> {
     host_authority::terminal_load_owner_probe::run()
 }
+
+mod diplomacy_owner;

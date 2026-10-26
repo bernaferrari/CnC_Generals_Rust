@@ -144,10 +144,8 @@ impl CnCGameEngine {
         {
             wnd_ok = self.with_receiving_menu_effects(|effects| {
                 game_client::gui::callbacks::drive_os_wnd_diplomacy_prepare_ingame_like_cpp(effects)
+                    || game_client::gui::callbacks::simulate_diplomacy_toggle_show(effects)
             })?;
-            if !wnd_ok {
-                wnd_ok = game_client::gui::callbacks::simulate_diplomacy_toggle_show();
-            }
         }
         self.runtime_host_last_gameplay_cmd = if wnd_ok {
             "toggle_diplomacy_ok_wnd".into()
@@ -185,46 +183,38 @@ impl CnCGameEngine {
                 simulate_diplomacy_reset, simulate_diplomacy_toggle_hide,
                 simulate_diplomacy_unmute_slot,
             };
-            wnd_ok = match action.as_str() {
+            wnd_ok = self.with_receiving_menu_effects(|effects| match action.as_str() {
                 "hide" => {
-                    self.with_receiving_menu_effects(|effects| {
-                        drive_os_wnd_diplomacy_hide_like_cpp(effects)
-                    })? || simulate_diplomacy_hide()
+                    drive_os_wnd_diplomacy_hide_like_cpp(effects)
+                        || simulate_diplomacy_hide(effects)
                 }
-                "toggle_hide" => simulate_diplomacy_toggle_hide(),
-                "reset" => simulate_diplomacy_reset(),
+                "toggle_hide" => simulate_diplomacy_toggle_hide(effects),
+                "reset" => simulate_diplomacy_reset(effects),
                 "buddies" => {
-                    self.with_receiving_menu_effects(|effects| {
-                        drive_os_wnd_diplomacy_radio_buddies_like_cpp(effects)
-                    })? || simulate_diplomacy_radio_buddies()
+                    drive_os_wnd_diplomacy_radio_buddies_like_cpp(effects)
+                        || simulate_diplomacy_radio_buddies(effects)
                 }
                 "mute" => {
-                    self.with_receiving_menu_effects(|effects| {
-                        drive_os_wnd_diplomacy_mute_like_cpp(slot, effects)
-                    })? || self
-                        .game_client
-                        .window_manager_owner()
-                        .with_manager(|manager| simulate_diplomacy_mute_slot(slot, manager))
+                    drive_os_wnd_diplomacy_mute_like_cpp(slot, effects)
+                        || effects.with_manager(|manager, effects| {
+                            simulate_diplomacy_mute_slot(slot, manager, effects)
+                        })
                 }
                 "unmute" => {
-                    self.with_receiving_menu_effects(|effects| {
-                        drive_os_wnd_diplomacy_unmute_like_cpp(slot, effects)
-                    })? || self
-                        .game_client
-                        .window_manager_owner()
-                        .with_manager(|manager| simulate_diplomacy_unmute_slot(slot, manager))
+                    drive_os_wnd_diplomacy_unmute_like_cpp(slot, effects)
+                        || effects.with_manager(|manager, effects| {
+                            simulate_diplomacy_unmute_slot(slot, manager, effects)
+                        })
                 }
                 "prepare_ingame" => {
-                    self.with_receiving_menu_effects(|effects| {
-                        drive_os_wnd_diplomacy_prepare_ingame_like_cpp(effects)
-                    })? || simulate_diplomacy_prepare_ingame()
+                    drive_os_wnd_diplomacy_prepare_ingame_like_cpp(effects)
+                        || simulate_diplomacy_prepare_ingame(effects)
                 }
                 _ => {
-                    self.with_receiving_menu_effects(|effects| {
-                        drive_os_wnd_diplomacy_radio_ingame_like_cpp(effects)
-                    })? || simulate_diplomacy_radio_ingame()
+                    drive_os_wnd_diplomacy_radio_ingame_like_cpp(effects)
+                        || simulate_diplomacy_radio_ingame(effects)
                 }
-            };
+            })?;
         }
         self.runtime_host_last_gameplay_cmd = if wnd_ok {
             format!("click_diplomacy_ok_wnd_{action}")

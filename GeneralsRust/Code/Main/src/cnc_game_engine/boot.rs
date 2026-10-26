@@ -767,7 +767,6 @@ impl CnCGameEngine {
 
             #[cfg(feature = "game_client")]
             game_client: {
-                game_client::helpers::register_live_control_bar_hooks();
                 // Main owns the offline Rust simulation.  Route Control Bar
                 // interactions into its typed host bridge rather than the
                 // separate legacy GameLogic global queue.

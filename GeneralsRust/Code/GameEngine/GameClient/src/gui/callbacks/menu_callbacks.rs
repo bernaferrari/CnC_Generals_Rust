@@ -3083,6 +3083,7 @@ impl MenuCallbacks for LanLobbyMenu {
 /// Menu state belongs to one receiving GameClient; construction is inert.
 pub struct MenuManager {
     control_bar_callbacks: crate::gui::callbacks::control_bar_callbacks::ControlBarCallbacks,
+    diplomacy: crate::gui::callbacks::diplomacy::DiplomacyCallbacks,
     ingame_ui: crate::gui::callbacks::ingame_callbacks::InGameUISystem,
     popup_replay: crate::gui::callbacks::popup_replay::PopupReplayState,
     flags: crate::gui::menu_flags::MenuFlags,
@@ -3126,6 +3127,7 @@ impl MenuManager {
             flags: Default::default(),
             quit: Default::default(),
             ingame_ui: Default::default(),
+            diplomacy: Default::default(),
         }
     }
 
@@ -4672,6 +4674,7 @@ mod menu_callbacks_shell_borrow_residual_tests {}
 pub struct MenuCallbackRecipients<'a> {
     pub(crate) control_bar_callbacks:
         Option<&'a mut crate::gui::callbacks::control_bar_callbacks::ControlBarCallbacks>,
+    pub(crate) diplomacy: &'a mut crate::gui::callbacks::diplomacy::DiplomacyCallbacks,
     pub(crate) input_authority: crate::core::game_client::ClientInputAuthority,
     pub(crate) ingame_ui: &'a mut crate::gui::callbacks::ingame_callbacks::InGameUISystem,
     pub(crate) popup_replay: Option<&'a mut crate::gui::callbacks::popup_replay::PopupReplayState>,
@@ -4699,6 +4702,7 @@ impl MenuManager {
             control_bar_callbacks: Some(&mut self.control_bar_callbacks),
             input_authority,
             ingame_ui: &mut self.ingame_ui,
+            diplomacy: &mut self.diplomacy,
             quit: Some(&mut self.quit),
             flags: Some(&mut self.flags),
             popup_replay: Some(&mut self.popup_replay),
@@ -4721,6 +4725,7 @@ impl MenuCallbackRecipients<'_> {
             control_bar_callbacks: self.control_bar_callbacks.as_deref_mut(),
             input_authority: self.input_authority,
             ingame_ui: &mut *self.ingame_ui,
+            diplomacy: &mut *self.diplomacy,
             quit: self.quit.as_deref_mut(),
             flags: self.flags.as_deref_mut(),
             popup_replay: self.popup_replay.as_deref_mut(),
@@ -4735,5 +4740,14 @@ impl MenuCallbackRecipients<'_> {
             credits: self.credits.as_deref_mut(),
             lan_lobby: self.lan_lobby.as_deref_mut(),
         }
+    }
+}
+
+impl MenuManager {
+    pub fn diplomacy(&self) -> &crate::gui::callbacks::diplomacy::DiplomacyCallbacks {
+        &self.diplomacy
+    }
+    pub fn diplomacy_mut(&mut self) -> &mut crate::gui::callbacks::diplomacy::DiplomacyCallbacks {
+        &mut self.diplomacy
     }
 }

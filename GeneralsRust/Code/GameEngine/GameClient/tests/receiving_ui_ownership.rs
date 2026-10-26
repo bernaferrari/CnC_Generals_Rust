@@ -429,3 +429,85 @@ fn native_callback_transport_survives_peer_reset_and_drop() {
     );
     assert!(take_host_control_bar_requests(first.in_game_ui_subsystem_mut().unwrap()).is_empty());
 }
+
+#[test]
+fn briefing_history_reset_and_peer_drop_use_only_the_receiving_owner() {
+    use game_client_rust::gui::callbacks::diplomacy::{
+        get_briefing_text_list, reset_diplomacy, update_diplomacy_briefing_text,
+    };
+    let mut first = client("A", "A");
+    let mut peer = client("B", "B");
+    for (client, text) in [(&mut first, "SCRIPT:First"), (&mut peer, "SCRIPT:Peer")] {
+        client.with_window_event_effects(None, |effects| {
+            effects.with_manager(|manager, effects| {
+                effects.with_diplomacy(|owner| {
+                    update_diplomacy_briefing_text(text, false, manager, owner)
+                });
+            })
+        });
+    }
+    peer.with_window_event_effects(None, |effects| {
+        effects.with_manager(|manager, effects| reset_diplomacy(manager, effects))
+    })
+    .unwrap();
+    assert_eq!(
+        get_briefing_text_list(peer.diplomacy()),
+        vec!["SCRIPT:Peer"]
+    );
+    drop(peer);
+    assert_eq!(
+        get_briefing_text_list(first.diplomacy()),
+        vec!["SCRIPT:First"]
+    );
+    first.with_window_event_effects(None, |effects| {
+        effects.with_manager(|manager, effects| {
+            effects.with_diplomacy(|owner| {
+                update_diplomacy_briefing_text("SCRIPT:Next", false, manager, owner)
+            });
+        })
+    });
+    assert_eq!(
+        get_briefing_text_list(first.diplomacy()),
+        vec!["SCRIPT:First", "SCRIPT:Next"]
+    );
+}
+#[test]
+fn control_bar_events_survive_peer_reset_without_consuming_peer_events() {
+    use game_client_rust::core::game_client::ClientInputAuthority;
+    use game_client_rust::helpers::{TheControlBar, drain_live_control_bar_events};
+    let make = || {
+        let mut c =
+            GameClient::new_with_input_authority(ClientInputAuthority::NativeHosted).unwrap();
+        c.set_in_game_ui_subsystem(InGameUISubsystem::default());
+        c
+    };
+    let mut first = make();
+    let mut peer = make();
+    {
+        let ui = first.in_game_ui_subsystem_mut().unwrap();
+        TheControlBar::process_context_sensitive_button_transition(41, true, ui);
+        TheControlBar::toggle_purchase_science(ui);
+        TheControlBar::set_control_bar_scheme_by_player("America", ui);
+    }
+    {
+        let ui = peer.in_game_ui_subsystem_mut().unwrap();
+        TheControlBar::process_context_sensitive_button_transition(41, false, ui);
+        TheControlBar::set_control_bar_scheme_by_player("China", ui);
+    }
+    peer.reset().unwrap();
+    assert!(
+        drain_live_control_bar_events(peer.in_game_ui_subsystem_mut().unwrap())
+            .transitions
+            .is_empty()
+    );
+    drop(peer);
+    let events = drain_live_control_bar_events(first.in_game_ui_subsystem_mut().unwrap());
+    assert_eq!(events.transitions, vec![(41, true)]);
+    assert!(events.toggle_purchase_science);
+    assert_eq!(events.set_scheme_by_player.as_deref(), Some("America"));
+    assert!(
+        drain_live_control_bar_events(first.in_game_ui_subsystem_mut().unwrap())
+            .transitions
+            .is_empty()
+    );
+}

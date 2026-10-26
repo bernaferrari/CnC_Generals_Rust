@@ -990,6 +990,7 @@ mod tests {
         let mut effects = crate::gui::game_window::WindowEventEffects {
             standalone_view: None,
             payloads: Default::default(),
+            diplomacy_world: None,
             menus: None,
             ime: None,
             manager: None,
@@ -1061,6 +1062,7 @@ mod tests {
         let mut effects = crate::gui::game_window::WindowEventEffects {
             standalone_view: None,
             payloads: Default::default(),
+            diplomacy_world: None,
             menus: None,
             ime: None,
             manager: None,
@@ -1244,6 +1246,7 @@ mod tests {
             let mut effects = crate::gui::game_window::WindowEventEffects {
                 standalone_view: None,
                 payloads: Default::default(),
+                diplomacy_world: None,
                 menus: None,
                 ime: None,
                 manager: None,

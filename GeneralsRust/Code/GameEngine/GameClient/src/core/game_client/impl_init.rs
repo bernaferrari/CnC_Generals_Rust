@@ -893,7 +893,9 @@ impl GameClient {
 
         crate::helpers::register_observer_audio_locality_hooks();
         crate::helpers::register_observer_audio_view_hooks();
-        crate::helpers::register_live_control_bar_hooks();
+        if self.input_authority == ClientInputAuthority::StandaloneCore {
+            crate::helpers::register_legacy_core_control_bar_ui_ingress();
+        }
         self.install_core_nonwindow_script_services();
 
         self.snow_base_definition =
@@ -1159,6 +1161,7 @@ impl GameClient {
             logic_frame: menu_world.map(|facts| facts.logic_frame),
             ui: self.subsystem_manager.in_game_ui.as_mut(),
             payloads: Default::default(),
+            diplomacy_world: None,
             menus: Some(self.menu_manager.receiving_menus(self.input_authority)),
             manager: None,
             ime: Some(&mut self.ime),
@@ -1200,6 +1203,7 @@ impl GameClient {
             logic_frame: menu_world.map(|facts| facts.logic_frame),
             ui: self.subsystem_manager.in_game_ui.as_mut(),
             payloads: Default::default(),
+            diplomacy_world: None,
             menus: Some(self.menu_manager.receiving_menus(self.input_authority)),
             manager: None,
             ime: Some(&mut self.ime),
@@ -1238,6 +1242,7 @@ impl GameClient {
             logic_frame: menu_world.map(|facts| facts.logic_frame),
             ui: self.subsystem_manager.in_game_ui.as_mut(),
             payloads: Default::default(),
+            diplomacy_world: None,
             menus: Some(self.menu_manager.receiving_menus(self.input_authority)),
             manager: None,
             ime: Some(&mut self.ime),
@@ -1297,6 +1302,7 @@ impl GameClient {
                     logic_frame: Some(logic_frame),
                     ui: Some(ui),
                     payloads: Default::default(),
+                    diplomacy_world: None,
                     menus: Some(menus.reborrow()),
                     manager: None,
                     ime: Some(ime),
@@ -1651,5 +1657,11 @@ impl GameClient {
         Option<&mut crate::gui::UIRenderer>,
     ) {
         (&mut self.script_display, self.ui_renderer.as_mut())
+    }
+}
+
+impl GameClient {
+    pub fn diplomacy(&self) -> &crate::gui::callbacks::diplomacy::DiplomacyCallbacks {
+        self.menu_manager.diplomacy()
     }
 }

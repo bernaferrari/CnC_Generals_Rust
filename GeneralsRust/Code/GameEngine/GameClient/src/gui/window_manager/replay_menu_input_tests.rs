@@ -79,6 +79,7 @@ fn select(
     let mut bar = ControlBar::new();
     let mut view = View;
     let mut context = ControlBarInputContext {
+            diplomacy_world: None,
             menus: None,
             ime:None,
             in_game_movies: None,

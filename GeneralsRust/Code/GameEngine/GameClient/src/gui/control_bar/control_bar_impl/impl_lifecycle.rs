@@ -139,13 +139,7 @@ impl ControlBar {
     ) -> Result<(), Box<dyn std::error::Error>> {
         // ShowControlBar queues DEFAULT (ControlBarCallback.cpp:489) before this
         // live instance ticks. Apply it so CommandWindow HIDDEN is cleared InGame.
-        self.apply_pending_control_bar_stage(
-            receiving_manager,
-            effects
-                .standalone_view
-                .as_deref_mut()
-                .expect("standalone control bar requires receiving View"),
-        );
+        self.apply_pending_control_bar_stage(receiving_manager, effects);
         self.apply_live_hook_events(true, crate::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource::Standalone, receiving_manager, effects);
         self.update_body(delta_time, true, None, crate::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource::Standalone, None, receiving_manager, effects)
     }
@@ -418,9 +412,12 @@ impl ControlBar {
 
         self.update_special_power_shortcut_availability(receiving_manager);
 
-        if publish_standalone {
-            set_live_control_bar_observer_look_at(self.get_observer_look_at_player_index());
-        }
+        let observer_target = if publish_standalone {
+            self.get_observer_look_at_player_index()
+        } else {
+            self.observer_target_index_owned()
+        };
+        set_live_control_bar_observer_look_at(observer_target, effects.ui_mut());
 
         Ok(())
     }
@@ -622,7 +619,7 @@ impl ControlBar {
         receiving_manager: &mut crate::gui::window_manager::WindowManager,
         effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) {
-        let events = drain_live_control_bar_events();
+        let events = drain_live_control_bar_events(effects.ui_mut());
         let clicks = if window_manager_owner.is_some() {
             std::mem::take(&mut self.pending_command_clicks)
         } else {
@@ -652,13 +649,7 @@ impl ControlBar {
             self.animate_special_power_shortcut(enabled);
         }
         if standalone_viewport && events.toggle_control_bar_stage {
-            self.toggle_control_bar_stage(
-                receiving_manager,
-                effects
-                    .standalone_view
-                    .as_deref_mut()
-                    .expect("standalone control bar requires receiving View"),
-            );
+            self.toggle_control_bar_stage(receiving_manager, effects);
         }
         if events.init_special_power_shortcut_for_player.is_some() {
             self.init_special_power_shortcut_bar(receiving_manager, effects);

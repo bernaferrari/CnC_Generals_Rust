@@ -569,10 +569,8 @@ impl GameLogic {
         if let Ok(mut shroud) = self.world_services.shroud().lock() {
             shroud.refresh_radar_shroud_for_player_into(observer_id, self.frame, &mut self.radar);
         }
-        #[cfg(feature = "game_client")]
-        {
-            game_client::helpers::TheControlBar::set_control_bar_scheme_by_player("Observer");
-        }
+        // Native admission selects the receiving observer scheme after this
+        // world candidate commits; constructing/loading a candidate never emits UI.
     }
 
     /// C++ GameLogic.cpp:1479-1532 — MultiplayerScripts.scb when numTeams > 1.

@@ -518,6 +518,7 @@ pub fn dispatch_translated_window_input_for_owner(
             logic_frame: context.logic_frame,
             client_frame: context.client_frame,
             payloads: Default::default(),
+            diplomacy_world: None,
             menus: context.menus.as_mut().map(|menus| menus.reborrow()),
             ime: context.ime.as_deref_mut(),
             manager: None,

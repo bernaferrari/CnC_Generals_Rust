@@ -626,7 +626,11 @@ impl ControlBarCallbacks {
             WindowMessage::GadgetMouseEntering | WindowMessage::GadgetMouseLeaving => {
                 let control_id = data1 as u32;
                 let entering = msg == WindowMessage::GadgetMouseEntering;
-                TheControlBar::process_context_sensitive_button_transition(control_id, entering);
+                TheControlBar::process_context_sensitive_button_transition(
+                    control_id,
+                    entering,
+                    effects.ui_mut(),
+                );
                 WindowMsgHandled::Handled
             }
             WindowMessage::GadgetSelected | WindowMessage::GadgetRightClick => {
@@ -727,12 +731,12 @@ impl ControlBarCallbacks {
             effects.with_manager(|receiving_manager, effects| {
                 hide_quit_menu(receiving_manager, selected_window.as_deref_mut(), effects)
             });
-            TheControlBar::toggle_purchase_science();
+            TheControlBar::toggle_purchase_science(effects.ui_mut());
             return;
         }
 
         if control_id == button_large_id {
-            TheControlBar::toggle_control_bar_stage();
+            TheControlBar::toggle_control_bar_stage(effects.ui_mut());
             return;
         }
 
@@ -803,13 +807,14 @@ impl ControlBarCallbacks {
         &mut self,
         immediate: bool,
         receiving_manager: &mut crate::gui::window_manager::WindowManager,
+        ui: &mut crate::core::subsystems::InGameUISubsystem,
     ) -> Result<(), Box<dyn std::error::Error>> {
         // C++ ToggleControlBar: toggleReplayControls() then flip the bar.
         toggle_replay_controls(receiving_manager);
         if self.state.visible {
-            self.hide_control_bar_window(immediate, receiving_manager)?;
+            self.hide_control_bar_window(immediate, receiving_manager, ui)?;
         } else {
-            self.show_control_bar_window(immediate, receiving_manager)?;
+            self.show_control_bar_window(immediate, receiving_manager, ui)?;
         }
         Ok(())
     }
@@ -819,33 +824,36 @@ impl ControlBarCallbacks {
         &mut self,
         immediate: bool,
         receiving_manager: &mut crate::gui::window_manager::WindowManager,
+        ui: &mut crate::core::subsystems::InGameUISubsystem,
     ) -> Result<(), Box<dyn std::error::Error>> {
         // C++ HideControlBar: hideReplayControls() even if already hidden.
         hide_replay_controls(receiving_manager);
-        self.hide_control_bar_window(immediate, receiving_manager)
+        self.hide_control_bar_window(immediate, receiving_manager, ui)
     }
 
     pub fn show_control_bar(
         &mut self,
         immediate: bool,
         receiving_manager: &mut crate::gui::window_manager::WindowManager,
+        ui: &mut crate::core::subsystems::InGameUISubsystem,
     ) -> Result<(), Box<dyn std::error::Error>> {
         // C++ ShowControlBar: showReplayControls() then switch DEFAULT + winHide(FALSE).
         show_replay_controls(receiving_manager);
-        self.show_control_bar_window(immediate, receiving_manager)
+        self.show_control_bar_window(immediate, receiving_manager, ui)
     }
 
     fn hide_control_bar_window(
         &mut self,
         immediate: bool,
         receiving_manager: &mut crate::gui::window_manager::WindowManager,
+        ui: &mut crate::core::subsystems::InGameUISubsystem,
     ) -> Result<(), Box<dyn std::error::Error>> {
         if !self.state.visible {
             return Ok(());
         }
         self.state.visible = false;
-        TheControlBar::hide_special_power_shortcut();
-        self.apply_visibility_change(immediate, false, receiving_manager)?;
+        TheControlBar::hide_special_power_shortcut(ui);
+        self.apply_visibility_change(immediate, false, receiving_manager, ui)?;
         Ok(())
     }
 
@@ -853,14 +861,15 @@ impl ControlBarCallbacks {
         &mut self,
         immediate: bool,
         receiving_manager: &mut crate::gui::window_manager::WindowManager,
+        ui: &mut crate::core::subsystems::InGameUISubsystem,
     ) -> Result<(), Box<dyn std::error::Error>> {
         // C++ ShowControlBar always switchControlBarStage(DEFAULT) + winHide(FALSE)
         // even when already shown. Do not early-return on state.visible.
         if !self.state.visible {
             self.state.visible = true;
-            TheControlBar::show_special_power_shortcut();
+            TheControlBar::show_special_power_shortcut(ui);
         }
-        self.apply_visibility_change(immediate, true, receiving_manager)?;
+        self.apply_visibility_change(immediate, true, receiving_manager, ui)?;
         Ok(())
     }
 
@@ -868,6 +877,7 @@ impl ControlBarCallbacks {
     fn apply_show_control_bar_scheme_and_default_stage(
         &self,
         receiving_manager: &mut crate::gui::window_manager::WindowManager,
+        ui: &mut crate::core::subsystems::InGameUISubsystem,
     ) {
         let parent_id = NameKeyGenerator::name_to_key("ControlBar.wnd:ControlBarParent") as i32;
         let parent_live = (|manager: &mut crate::gui::window_manager::WindowManager| {
@@ -877,8 +887,8 @@ impl ControlBarCallbacks {
             return;
         }
         let side = local_control_bar_player_side();
-        TheControlBar::set_control_bar_scheme_by_player(&side);
-        ControlBar::request_switch_control_bar_stage(ControlBarStage::Default);
+        TheControlBar::set_control_bar_scheme_by_player(&side, ui);
+        ControlBar::request_switch_control_bar_stage(ControlBarStage::Default, ui);
     }
 
     /// Check if control bar is visible
@@ -891,6 +901,7 @@ impl ControlBarCallbacks {
         immediate: bool,
         show: bool,
         receiving_manager: &mut crate::gui::window_manager::WindowManager,
+        ui: &mut crate::core::subsystems::InGameUISubsystem,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let control_bar_id =
             NameKeyGenerator::name_to_key("ControlBar.wnd:ControlBarParent") as i32;
@@ -939,12 +950,12 @@ impl ControlBarCallbacks {
             if parent_live {
                 // C++ ShowControlBar: scheme is applied at InGame start; stage DEFAULT
                 // when ControlBarParent exists (ControlBarCallback.cpp:489).
-                self.apply_show_control_bar_scheme_and_default_stage(receiving_manager);
+                self.apply_show_control_bar_scheme_and_default_stage(receiving_manager, ui);
             }
-            TheControlBar::animate_special_power_shortcut(true);
+            TheControlBar::animate_special_power_shortcut(true, ui);
         } else {
-            TheControlBar::animate_special_power_shortcut(false);
-            TheControlBar::hide_purchase_science();
+            TheControlBar::animate_special_power_shortcut(false, ui);
+            TheControlBar::hide_purchase_science(ui);
         }
         Ok(())
     }
@@ -1273,7 +1284,11 @@ pub fn receiving_control_bar_system(
         WindowMessage::GadgetMouseEntering | WindowMessage::GadgetMouseLeaving => {
             let control_id = data1 as u32;
             let entering = msg == WindowMessage::GadgetMouseEntering;
-            TheControlBar::process_context_sensitive_button_transition(control_id, entering);
+            TheControlBar::process_context_sensitive_button_transition(
+                control_id,
+                entering,
+                effects.ui_mut(),
+            );
             WindowMsgHandled::Handled
         }
         WindowMessage::GadgetSelected | WindowMessage::GadgetRightClick => {
@@ -1329,27 +1344,24 @@ pub fn toggle_control_bar(
     receiving_manager: &mut crate::gui::window_manager::WindowManager,
     effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    effects
-        .control_bar_callbacks_mut()
-        .toggle_control_bar(immediate, receiving_manager)
+    let (callbacks, ui) = effects.control_bar_callbacks_and_ui_mut();
+    callbacks.toggle_control_bar(immediate, receiving_manager, ui)
 }
 pub fn hide_control_bar(
     immediate: bool,
     receiving_manager: &mut crate::gui::window_manager::WindowManager,
     effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    effects
-        .control_bar_callbacks_mut()
-        .hide_control_bar(immediate, receiving_manager)
+    let (callbacks, ui) = effects.control_bar_callbacks_and_ui_mut();
+    callbacks.hide_control_bar(immediate, receiving_manager, ui)
 }
 pub fn show_control_bar(
     immediate: bool,
     receiving_manager: &mut crate::gui::window_manager::WindowManager,
     effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    effects
-        .control_bar_callbacks_mut()
-        .show_control_bar(immediate, receiving_manager)
+    let (callbacks, ui) = effects.control_bar_callbacks_and_ui_mut();
+    callbacks.show_control_bar(immediate, receiving_manager, ui)
 }
 pub fn is_control_bar_visible(effects: &crate::gui::game_window::WindowEventEffects<'_>) -> bool {
     effects.control_bar_callbacks().is_visible()

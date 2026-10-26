@@ -507,7 +507,7 @@ fn toggle_quit_menu_with_selected(
         }
     } else {
         effects.ui_mut().set_cursor_arrow();
-        TheControlBar::hide_purchase_science();
+        TheControlBar::hide_purchase_science(effects.ui_mut());
 
         let in_multiplayer = TheGameLogic::is_in_multiplayer_game();
         let in_replay = TheGameLogic::is_in_replay_game();
@@ -651,7 +651,7 @@ fn toggle_quit_menu_with_selected(
         let _ = effects.with_manager(|receiving_manager, effects| {
             hide_in_game_chat(false, receiving_manager, effects)
         });
-        TheControlBar::hide_purchase_science();
+        TheControlBar::hide_purchase_science(effects.ui_mut());
         effects.with_quit_menu(|state| state.is_visible = true);
     }
 

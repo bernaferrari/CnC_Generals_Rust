@@ -95,6 +95,7 @@ fn click_options(
         writes: Vec::new(),
     };
     let mut context = ControlBarInputContext {
+            diplomacy_world: None,
             menus: None,
             ime:None,
             in_game_movies: None,

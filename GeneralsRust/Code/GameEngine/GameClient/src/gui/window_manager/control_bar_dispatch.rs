@@ -115,6 +115,7 @@ impl<'a> CameraOptionsInputContext<'a> {
     }
 }
 pub struct ControlBarInputContext<'a> {
+    pub diplomacy_world: Option<&'a crate::gui::callbacks::diplomacy::DiplomacyWorldFacts>,
     pub client_frame: Option<u32>,
     pub logic_frame: Option<u32>,
     pub ui: Option<&'a mut crate::core::subsystems::InGameUISubsystem>,
@@ -165,6 +166,7 @@ impl ControlBarInputContext<'_> {
             logic_frame: self.logic_frame,
             client_frame: self.client_frame,
             payloads: Default::default(),
+            diplomacy_world: self.diplomacy_world,
             menus: self.menus.as_mut().map(|menus| menus.reborrow()),
             ime: self.ime.as_deref_mut(),
             manager: None,

@@ -1412,6 +1412,7 @@ pub struct GameLogic {
     /// Script input admission belongs to this session; presentation teardown
     /// is delivered separately to the driving interpreter's native service.
     pub(crate) script_input_enabled: bool,
+    pub(crate) intro_movie_playing: bool,
     pub(crate) named_script_cache: super::named_script_cache::NamedScriptCache,
     pub(super) script_event_pump_in_flight: Arc<AtomicBool>,
     pub(super) script_event_pump_busy_frames: u32,

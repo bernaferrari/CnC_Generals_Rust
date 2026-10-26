@@ -324,7 +324,7 @@ fn dispatch_map_entry(
     if record.name.eq_ignore_ascii_case("CHEAT_SWITCH_TEAMS") {
         if !TheGameLogic::is_in_multiplayer_game() {
             if TheGameLogic::is_in_game() {
-                let _ = switch_to_next_non_neutral_player();
+                let _ = switch_to_next_non_neutral_player(ui.state);
             }
             return Some(GameMessageDisposition::DestroyMessage);
         }
@@ -363,7 +363,7 @@ fn dispatch_map_entry(
 
     if record.name.eq_ignore_ascii_case("DEMO_SWITCH_TEAMS") {
         if TheGameLogic::is_in_game() {
-            let _ = switch_to_next_non_neutral_player();
+            let _ = switch_to_next_non_neutral_player(ui.state);
         }
         return Some(GameMessageDisposition::DestroyMessage);
     }
@@ -375,7 +375,7 @@ fn dispatch_map_entry(
             .name
             .eq_ignore_ascii_case("DEMO_SWITCH_TEAMS_BETWEEN_CHINA_USA")
     {
-        let _ = switch_local_player_between_sides("America", "China");
+        let _ = switch_local_player_between_sides("America", "China", ui.state);
         return Some(GameMessageDisposition::DestroyMessage);
     }
 

@@ -25,7 +25,7 @@ pub fn generals_exp_points_input(
             }
         }
         WindowMessage::Char if data1 == KEY_ESC => {
-            TheControlBar::hide_purchase_science();
+            TheControlBar::hide_purchase_science(effects.ui_mut());
         }
         _ => {}
     }
@@ -38,6 +38,7 @@ pub fn generals_exp_points_system(
     msg: WindowMessage,
     data1: WindowMsgData,
     data2: WindowMsgData,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> WindowMsgHandled {
     match msg {
         WindowMessage::InputFocus => write_input_focus_response(data1, data2, false),
@@ -46,7 +47,7 @@ pub fn generals_exp_points_system(
             let button_exit_id = NameKeyGenerator::name_to_key("GeneralsExpPoints.wnd:ButtonExit");
 
             if control_id == button_exit_id {
-                TheControlBar::hide_purchase_science();
+                TheControlBar::hide_purchase_science(effects.ui_mut());
             } else {
                 // The registered owner-aware callback queues this click on its receiving ControlBar.
             }

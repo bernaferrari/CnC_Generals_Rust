@@ -92,11 +92,14 @@ pub fn show_receiving_popup_message(
                 manager.destroy_layout(&layout, effects);
             }
         }
-        crate::gui::callbacks::diplomacy::update_diplomacy_briefing_text(
-            &identifier,
-            false,
-            manager,
-        );
+        effects.with_diplomacy(|owner| {
+            crate::gui::callbacks::diplomacy::update_diplomacy_briefing_text(
+                &identifier,
+                false,
+                manager,
+                owner,
+            )
+        });
         let (screen_w, screen_h) = manager.screen_size();
         let data = PopupMessageData {
             message: crate::game_text::GameText::fetch(&identifier),

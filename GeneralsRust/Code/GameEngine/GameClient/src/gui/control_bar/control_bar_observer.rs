@@ -105,7 +105,7 @@ pub fn observer_controls_ready() -> bool {
 
 pub fn set_observer_look_at_player(index: Option<i32>) {
     OBSERVER_LOOK_AT.store(index.unwrap_or(-1), Ordering::Relaxed);
-    crate::helpers::set_live_control_bar_observer_look_at(index);
+    crate::helpers::set_legacy_core_control_bar_observer_look_at(index);
 }
 
 pub fn observer_look_at_player_index() -> Option<i32> {

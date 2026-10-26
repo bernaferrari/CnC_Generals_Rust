@@ -1201,6 +1201,9 @@ pub struct PresentationSuperweaponTimerResidual {
 pub struct InGameUISubsystem {
     pub(crate) legacy_production_pause_requests: Vec<(u32, bool)>,
     pub(crate) host_control_bar_transport: Option<crate::gui::control_bar::HostControlBarTransport>,
+    pub(crate) pending_control_bar_stage: Option<crate::gui::control_bar::ControlBarStage>,
+    pub(crate) control_bar_events: crate::helpers::LiveControlBarEvents,
+    pub(crate) control_bar_observer_look_at: Option<i32>,
     pub(crate) live_hud: crate::gui::ingame_ui::LiveHud,
     pub(crate) superweapon_strip: crate::gui::ingame_ui::LiveSuperweaponStrip,
     pub(crate) status: crate::helpers::InGameUIStatusState,
@@ -1842,6 +1845,9 @@ impl InGameUISubsystem {
         crate::gui::control_bar::clear_host_control_bar_requests(self);
         self.legacy_production_pause_requests.clear();
 
+        self.pending_control_bar_stage = None;
+        self.control_bar_events = Default::default();
+        self.control_bar_observer_look_at = None;
         crate::gui::ingame_ui::reset_live_hud(&mut self.live_hud);
         self.superweapon_strip = Default::default();
         self.status = Default::default();
@@ -1891,9 +1897,10 @@ impl InGameUISubsystem {
     pub fn update_receiving(
         &mut self,
         manager: &mut crate::gui::window_manager::WindowManager,
+        diplomacy: &mut crate::gui::callbacks::diplomacy::DiplomacyCallbacks,
     ) -> Result<(), Box<dyn std::error::Error>> {
         self.update_money_and_power_windows(manager);
-        crate::gui::callbacks::diplomacy::tick_diplomacy_animation(manager);
+        crate::gui::callbacks::diplomacy::tick_diplomacy_animation(manager, diplomacy);
         Ok(())
     }
 }

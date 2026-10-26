@@ -453,6 +453,7 @@ mod tests {
                 reader.test_version_playback(selected.into()).unwrap()
             };
             let mut context = ControlBarInputContext {
+            diplomacy_world: None,
             menus: None,
             ime:None,
             in_game_movies: None,

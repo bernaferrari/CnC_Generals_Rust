@@ -1274,6 +1274,7 @@ impl CnCGameEngine {
         Vec<game_client::gui::callbacks::replay_menu::ingress::ReplayMenuStep>,
     ) {
         let menu_world = self.receiving_menu_world_facts();
+        let diplomacy_world = self.receiving_diplomacy_world_facts().ok();
         let playback = self
             .game_logic
             .replay_pending
@@ -1330,6 +1331,7 @@ impl CnCGameEngine {
                               request,
                               messages: &mut Vec<game_engine::common::message_stream::GameMessage>| {
                 let mut context = game_client::gui::window_manager::ControlBarInputContext {
+            diplomacy_world: diplomacy_world.as_ref(),
             ui: Some(ui), logic_frame: Some(menu_world.logic_frame), client_frame: Some(menu_world.client_frame),
             menus: Some(menus.reborrow()),
             ime:Some(ime),

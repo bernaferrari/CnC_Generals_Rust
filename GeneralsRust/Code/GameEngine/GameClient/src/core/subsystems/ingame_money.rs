@@ -40,9 +40,7 @@ impl InGameUISubsystem {
         &mut self,
         manager: &mut crate::gui::window_manager::WindowManager,
     ) {
-        let money_player = if let Some(index) =
-            crate::helpers::TheControlBar::get_observer_look_at_player_index()
-        {
+        let money_player = if let Some(index) = self.control_bar_observer_look_at {
             gamelogic::player::player_list()
                 .read()
                 .ok()

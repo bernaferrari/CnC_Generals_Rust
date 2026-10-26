@@ -728,6 +728,7 @@ impl GameLogic {
             session_difficulty: None,
             owned_script_engine: Some(gamelogic::scripting::engine::ScriptEngine::new().expect("built-in script templates")),
             script_input_enabled: true,
+            intro_movie_playing: false,
             named_script_cache: Default::default(),
             script_event_pump_in_flight: Arc::new(AtomicBool::new(false)),
             script_event_pump_busy_frames: 0,
@@ -803,6 +804,7 @@ impl GameLogic {
 
     /// Reset method - matching C++ GameLogic interface
     pub fn reset(&mut self) {
+        self.intro_movie_playing = false;
         self.campaign_session_kind = super::host::CampaignSessionKind::None;
         self.host_trigger_world
             .lock()

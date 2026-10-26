@@ -19,7 +19,7 @@ use log::{debug, info};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
-use std::sync::{Arc, Mutex, RwLock};
+
 /// Maximum number of player slots
 const MAX_SLOTS: usize = 8;
 const KEY_ESC: usize = 0x1B;
@@ -70,17 +70,7 @@ struct DiplomacyUiState {
     layout: Option<Rc<RefCell<WindowLayout>>>,
     window: Option<Rc<RefCell<GameWindow>>>,
     animate_manager: AnimateWindowManager,
-}
-
-// THREAD: main thread only. The state owns `Rc` window/layout handles (already
-// `!Send`), so the cell replaces the lock-wrapped `Arc` around it.
-thread_local! {
-    static DIPLOMACY_UI_STATE: RefCell<DiplomacyUiState> =
-        RefCell::new(DiplomacyUiState::default());
-}
-
-fn with_diplomacy_ui_state<R>(f: impl FnOnce(&mut DiplomacyUiState) -> R) -> R {
-    DIPLOMACY_UI_STATE.with_borrow_mut(f)
+    slots_in_rows: [Option<i32>; MAX_SLOTS],
 }
 
 /// Diplomacy screen state and callbacks
@@ -89,6 +79,11 @@ pub struct DiplomacyCallbacks {
     players: HashMap<i32, PlayerInfo>,
     local_player_id: i32,
     briefing_list: Vec<String>,
+    ui: DiplomacyUiState,
+    generation: u64,
+    retiring: bool,
+    last_action: ResidualDiplomacyAction,
+    mute_slot: Option<i32>,
 }
 
 impl DiplomacyCallbacks {
@@ -98,125 +93,25 @@ impl DiplomacyCallbacks {
             players: HashMap::new(),
             local_player_id: 0,
             briefing_list: Vec::new(),
+            ui: Default::default(),
+            generation: 0,
+            retiring: false,
+            last_action: ResidualDiplomacyAction::None,
+            mute_slot: None,
         }
     }
 
     /// Handle diplomacy system messages
-    pub fn system(
-        &mut self,
-        _window: &mut GameWindow,
-        msg: WindowMessage,
-        _data1: WindowMsgData,
-        _data2: WindowMsgData,
-    ) -> WindowMsgHandled {
-        match msg {
-            WindowMessage::Create => {
-                self.refresh_from_player_list();
-                WindowMsgHandled::Handled
-            }
-            WindowMessage::None => {
-                with_diplomacy_ui_state(|state| state.animate_manager.update());
-                WindowMsgHandled::Handled
-            }
-            WindowMessage::Destroy => WindowMsgHandled::Handled,
-            _ => WindowMsgHandled::Ignored,
-        }
-    }
 
     /// Handle diplomacy input messages
-    pub fn input(
-        &mut self,
-        _window: &mut GameWindow,
-        msg: WindowMessage,
-        data1: WindowMsgData,
-        _data2: WindowMsgData,
-        receiving_manager: &mut crate::gui::window_manager::WindowManager,
-        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
-    ) -> WindowMsgHandled {
-        match msg {
-            WindowMessage::Char => {
-                if data1 == KEY_ESC {
-                    let _ = self.hide_diplomacy(false, receiving_manager, effects);
-                }
-                WindowMsgHandled::Handled
-            }
-            WindowMessage::GadgetSelected => {
-                let control_id = data1 as u32;
-                if self.handle_radio_buttons(control_id, receiving_manager) {
-                    return WindowMsgHandled::Handled;
-                }
-                if self.handle_mute_buttons(control_id, receiving_manager) {
-                    return WindowMsgHandled::Handled;
-                }
-                WindowMsgHandled::Handled
-            }
-            _ => WindowMsgHandled::Ignored,
-        }
-    }
 
     /// Toggle diplomacy screen visibility. C++ ToggleDiplomacy begins with
     /// HideQuitMenu() — bringing diplomacy up retires the quit menu first
     /// (Diplomacy.cpp:301-304).
-    pub fn toggle_diplomacy(
-        &mut self,
-        immediate: bool,
-        receiving_manager: &mut crate::gui::window_manager::WindowManager,
-        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
-        mut selected_window: Option<&mut crate::gui::GameWindow>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        info!("Toggling diplomacy screen (immediate: {})", immediate);
-        super::quit_menu::hide_quit_menu(
-            receiving_manager,
-            selected_window.as_deref_mut(),
-            effects,
-        );
-        self.active = !self.active;
-
-        if immediate {
-            self.apply_visibility_change(true, receiving_manager, effects)?;
-        } else {
-            self.animate_visibility_change(receiving_manager, effects)?;
-        }
-
-        Ok(())
-    }
 
     /// Hide diplomacy screen
-    pub fn hide_diplomacy(
-        &mut self,
-        immediate: bool,
-        receiving_manager: &mut crate::gui::window_manager::WindowManager,
-        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        info!("Hiding diplomacy screen (immediate: {})", immediate);
-
-        if self.active {
-            self.active = false;
-
-            if immediate {
-                self.apply_visibility_change(true, receiving_manager, effects)?;
-            } else {
-                self.animate_visibility_change(receiving_manager, effects)?;
-            }
-        }
-
-        Ok(())
-    }
 
     /// Reset diplomacy screen state
-    pub fn reset_diplomacy(
-        &mut self,
-        receiving_manager: &mut crate::gui::window_manager::WindowManager,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        info!("Resetting diplomacy screen");
-
-        self.active = false;
-        self.players.clear();
-        self.briefing_list.clear();
-
-        self.hide_layout(receiving_manager);
-        Ok(())
-    }
 
     /// Check if diplomacy screen is active
     pub fn is_active(&self) -> bool {
@@ -445,196 +340,8 @@ impl DiplomacyCallbacks {
         Ok(())
     }
 
-    fn apply_visibility_change(
-        &mut self,
-        immediate: bool,
-        receiving_manager: &mut crate::gui::window_manager::WindowManager,
-        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        if self.active {
-            self.show_layout(immediate, receiving_manager, effects);
-        } else {
-            self.hide_layout(receiving_manager);
-        }
-        Ok(())
-    }
-
     /// Non-immediate show/hide. C++ ShowDiplomacy registers WIN_ANIMATION_SLIDE_TOP;
     /// HideDiplomacy reverses that animation once the last show has finished.
-    fn animate_visibility_change(
-        &mut self,
-        receiving_manager: &mut crate::gui::window_manager::WindowManager,
-        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        if self.active {
-            self.show_layout(false, receiving_manager, effects);
-        } else {
-            // C++ HideDiplomacy takes its immediate branch when
-            // `immediate || !TheGlobalData->m_animateWindows`
-            // (Diplomacy.cpp:286-290): winHide(TRUE) + winEnable(FALSE) now.
-            // The port's in-game AnimateWindowManager has no per-frame driver
-            // outside this tick, so a reverse slide cannot be guaranteed to
-            // complete — the retail NET end state (window hidden + disabled)
-            // is applied immediately on every hide.
-            self.hide_layout(receiving_manager);
-        }
-        Ok(())
-    }
-    fn show_layout(
-        &mut self,
-        immediate: bool,
-        receiving_manager: &mut crate::gui::window_manager::WindowManager,
-        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
-    ) {
-        if !TheGameLogic::is_input_enabled()
-            || TheGameLogic::is_intro_movie_playing()
-            || TheGameLogic::is_loading_map()
-        {
-            return;
-        }
-        if effects.ui().is_quit_menu_visible() {
-            return;
-        }
-        if effects.receiving_disconnect_menu_visible() {
-            return;
-        }
-
-        let window = with_diplomacy_ui_state(|state| {
-            if state.layout.is_none() {
-                // C++ ShowDiplomacy: TheWindowManager->winCreateLayout(
-                // "Diplomacy.wnd") parses Window/Diplomacy.wnd and creates every
-                // window in the live WM (Diplomacy.cpp:195-196, GameWindowManager-
-                // Script.cpp:2700-2703 prefixes a bare filename with "Window\\").
-                // winCreateLayout returns NULL on parse failure; fail closed the
-                // same way instead of caching an empty layout.
-                let Some(layout) = (|manager: &mut crate::gui::window_manager::WindowManager| {
-                    manager
-                        .create_layout_with_windows("Diplomacy.wnd", effects)
-                        .ok()
-                        .map(|(layout, _)| layout)
-                })(receiving_manager) else {
-                    return None;
-                };
-                state.window = layout.borrow().get_first_window();
-                state.layout = Some(layout);
-            }
-            Some(state.window.clone())
-        });
-        let Some(window) = window else {
-            return;
-        };
-        if let Some(window) = window.as_ref() {
-            let _ = window.borrow_mut().hide(false, receiving_manager);
-            let _ = window.borrow_mut().enable(true);
-        }
-
-        let radio_ingame = NameKeyGenerator::name_to_key("Diplomacy.wnd:RadioButtonInGame");
-        let radio_buddies = NameKeyGenerator::name_to_key("Diplomacy.wnd:RadioButtonBuddies");
-        let win_ingame = NameKeyGenerator::name_to_key("Diplomacy.wnd:InGameParent") as i32;
-        let win_buddies = NameKeyGenerator::name_to_key("Diplomacy.wnd:BuddiesParent") as i32;
-        let win_solo = NameKeyGenerator::name_to_key("Diplomacy.wnd:SoloParent") as i32;
-        let is_multiplayer = with_recorder(|recorder| recorder.is_multiplayer()).unwrap_or(false);
-
-        (|manager: &mut crate::gui::window_manager::WindowManager| {
-            if let Some(win) = manager.get_window_by_id(radio_ingame as i32) {
-                let _ = win.borrow_mut().hide(true, manager);
-            }
-            if let Some(win) = manager.get_window_by_id(radio_buddies as i32) {
-                let _ = win.borrow_mut().hide(true, manager);
-            }
-            if is_multiplayer {
-                if let Some(win) = manager.get_window_by_id(win_ingame) {
-                    let _ = win.borrow_mut().hide(false, manager);
-                }
-                if let Some(win) = manager.get_window_by_id(win_buddies) {
-                    let _ = win.borrow_mut().hide(true, manager);
-                }
-                if let Some(win) = manager.get_window_by_id(win_solo) {
-                    let _ = win.borrow_mut().hide(true, manager);
-                }
-            } else {
-                if let Some(win) = manager.get_window_by_id(win_ingame) {
-                    let _ = win.borrow_mut().hide(true, manager);
-                }
-                if let Some(win) = manager.get_window_by_id(win_buddies) {
-                    let _ = win.borrow_mut().hide(true, manager);
-                }
-                if let Some(win) = manager.get_window_by_id(win_solo) {
-                    let _ = win.borrow_mut().hide(false, manager);
-                }
-            }
-        })(receiving_manager);
-
-        if !is_multiplayer {
-            self.replay_briefing_into_listbox(receiving_manager);
-        }
-
-        // C++ ShowDiplomacy registers the WIN_ANIMATION_SLIDE_TOP only when
-        // TheGlobalData->m_animateWindows (Diplomacy.cpp:243-244); the tick
-        // comes from the layout update func (see tick_diplomacy_animation).
-        let animate_windows = get_global_data()
-            .map(|data| data.read().animate_windows)
-            .unwrap_or(true);
-        if !immediate && animate_windows {
-            if let Some(window) = window {
-                with_diplomacy_ui_state(|state| {
-                    state.animate_manager.reset();
-                    state.animate_manager.register_window(
-                        window,
-                        AnimationType::SlideTop,
-                        true,
-                        200,
-                        0,
-                    );
-                });
-            }
-        }
-
-        // C++ ShowDiplomacy repopulates the slot table on every show
-        // (PopulateInGameDiplomacyPopup, Diplomacy.cpp:247-248).
-        self.refresh_from_player_list();
-        for player_id in self.players.keys() {
-            self.update_player_row(*player_id, receiving_manager);
-        }
-    }
-
-    fn hide_layout(&self, receiving_manager: &mut crate::gui::window_manager::WindowManager) {
-        with_diplomacy_ui_state(|state| {
-            if let Some(window) = &state.window {
-                // C++ HideDiplomacy immediate: winHide(TRUE) + winEnable(FALSE)
-                // (Diplomacy.cpp:286-290).
-                let _ = window.borrow_mut().hide(true, receiving_manager);
-                let _ = window.borrow_mut().enable(false);
-            }
-        });
-    }
-
-    fn refresh_from_player_list(&mut self) {
-        let Ok(list) = ThePlayerList().read() else {
-            return;
-        };
-        for slot in 0..MAX_SLOTS {
-            if let Some(player) = list.get_player(slot as i32) {
-                if let Ok(player) = player.read() {
-                    let mut info = PlayerInfo::default();
-                    info.team = player
-                        .get_default_team_id()
-                        .map(|id| id as i32)
-                        .unwrap_or(-1);
-                    info.status = if player.is_player_active() {
-                        PlayerStatus::Active
-                    } else {
-                        PlayerStatus::Observer
-                    };
-                    info.side = player.get_side().to_string();
-                    let name_key = player.get_player_name_key();
-                    info.name = NameKeyGenerator::key_to_name(name_key)
-                        .unwrap_or_else(|| format!("Player {}", slot + 1));
-                    self.players.insert(slot as i32, info);
-                }
-            }
-        }
-    }
 
     fn update_player_row(
         &self,
@@ -676,277 +383,15 @@ impl DiplomacyCallbacks {
             }
         })(receiving_manager);
     }
-
-    fn handle_radio_buttons(
-        &self,
-        control_id: u32,
-        receiving_manager: &mut crate::gui::window_manager::WindowManager,
-    ) -> bool {
-        let radio_ingame = NameKeyGenerator::name_to_key("Diplomacy.wnd:RadioButtonInGame");
-        let radio_buddies = NameKeyGenerator::name_to_key("Diplomacy.wnd:RadioButtonBuddies");
-        if control_id != radio_ingame && control_id != radio_buddies {
-            return false;
-        }
-
-        let win_ingame = NameKeyGenerator::name_to_key("Diplomacy.wnd:InGameParent") as i32;
-        let win_buddies = NameKeyGenerator::name_to_key("Diplomacy.wnd:BuddiesParent") as i32;
-        let win_solo = NameKeyGenerator::name_to_key("Diplomacy.wnd:SoloParent") as i32;
-        (|manager: &mut crate::gui::window_manager::WindowManager| {
-            if let Some(win) = manager.get_window_by_id(win_ingame) {
-                let _ = win.borrow_mut().hide(control_id != radio_ingame, manager);
-            }
-            if let Some(win) = manager.get_window_by_id(win_buddies) {
-                let _ = win.borrow_mut().hide(control_id != radio_buddies, manager);
-            }
-            if let Some(win) = manager.get_window_by_id(win_solo) {
-                let _ = win.borrow_mut().hide(control_id == radio_buddies, manager);
-            }
-        })(receiving_manager);
-        true
-    }
-
-    fn handle_mute_buttons(
-        &mut self,
-        control_id: u32,
-        receiving_manager: &mut crate::gui::window_manager::WindowManager,
-    ) -> bool {
-        for slot in 0..MAX_SLOTS {
-            let mute_key =
-                NameKeyGenerator::name_to_key(&format!("Diplomacy.wnd:ButtonMute{}", slot)) as u32;
-            let unmute_key =
-                NameKeyGenerator::name_to_key(&format!("Diplomacy.wnd:ButtonUnMute{}", slot))
-                    as u32;
-
-            if control_id == mute_key {
-                let _ = self.set_player_muted(slot as i32, true, receiving_manager);
-                return true;
-            }
-            if control_id == unmute_key {
-                let _ = self.set_player_muted(slot as i32, false, receiving_manager);
-                return true;
-            }
-        }
-        false
-    }
 }
-/// Per-frame tick of the live Diplomacy layout animation. C++ registers
-/// this as the layout update func (`theLayout->setUpdate(updateFunc)`,
-/// Diplomacy.cpp:197) and InGameUI::update runs it for every registered
-/// window layout (InGameUI.cpp:1825-1829): advance the slide animation,
-/// and once a reverse (hide) animation finishes, hide the window for real.
-pub fn tick_diplomacy_animation(receiving_manager: &mut crate::gui::window_manager::WindowManager) {
-    let animate_windows = get_global_data()
-        .map(|data| data.read().animate_windows)
-        .unwrap_or(true);
-    if !animate_windows {
-        return;
-    }
-    with_diplomacy_ui_state(|state| {
-        if state.window.is_none() {
-            return;
-        }
-        let was_finished = state.animate_manager.is_finished();
-        state.animate_manager.update();
-        if state.animate_manager.is_finished()
-            && !was_finished
-            && state.animate_manager.is_reversed()
-        {
-            if let Some(window) = &state.window {
-                let _ = window.borrow_mut().hide(true, receiving_manager);
-            }
-        }
-    });
-}
-
 impl Default for DiplomacyCallbacks {
     fn default() -> Self {
         Self::new()
     }
 }
 
-/// Diplomacy system manager
-pub struct DiplomacySystem {
-    callbacks: Arc<RwLock<DiplomacyCallbacks>>,
-}
-
-impl DiplomacySystem {
-    pub fn new() -> Self {
-        Self {
-            callbacks: Arc::new(RwLock::new(DiplomacyCallbacks::new())),
-        }
-    }
-
-    pub fn get_callbacks(&self) -> Arc<RwLock<DiplomacyCallbacks>> {
-        self.callbacks.clone()
-    }
-
-    /// Toggle diplomacy through the system
-    pub fn toggle_diplomacy(
-        &self,
-        immediate: bool,
-        receiving_manager: &mut crate::gui::window_manager::WindowManager,
-        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
-        mut selected_window: Option<&mut crate::gui::GameWindow>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        let mut callbacks = self.callbacks.write().unwrap_or_else(|e| e.into_inner());
-        callbacks.toggle_diplomacy(
-            immediate,
-            receiving_manager,
-            effects,
-            selected_window.as_deref_mut(),
-        )
-    }
-
-    /// Hide diplomacy through the system
-    pub fn hide_diplomacy(
-        &self,
-        immediate: bool,
-        receiving_manager: &mut crate::gui::window_manager::WindowManager,
-        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        let mut callbacks = self.callbacks.write().unwrap_or_else(|e| e.into_inner());
-        callbacks.hide_diplomacy(immediate, receiving_manager, effects)
-    }
-
-    /// Reset diplomacy through the system
-    pub fn reset_diplomacy(
-        &self,
-        receiving_manager: &mut crate::gui::window_manager::WindowManager,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        let mut callbacks = self.callbacks.write().unwrap_or_else(|e| e.into_inner());
-        callbacks.reset_diplomacy(receiving_manager)
-    }
-
-    /// Check if diplomacy is active
-    pub fn is_active(&self) -> bool {
-        let callbacks = self.callbacks.read().unwrap_or_else(|e| e.into_inner());
-        callbacks.is_active()
-    }
-
-    /// Update player information through the system
-    pub fn update_player_info(
-        &self,
-        player_id: i32,
-        info: PlayerInfo,
-        receiving_manager: &mut crate::gui::window_manager::WindowManager,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        let mut callbacks = self.callbacks.write().unwrap_or_else(|e| e.into_inner());
-        callbacks.update_player_info(player_id, info, receiving_manager)
-    }
-
-    /// Set relationship through the system
-    pub fn set_relationship(
-        &self,
-        player_id: i32,
-        relationship: DiplomaticRelationship,
-        receiving_manager: &mut crate::gui::window_manager::WindowManager,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        let mut callbacks = self.callbacks.write().unwrap_or_else(|e| e.into_inner());
-        callbacks.set_relationship(player_id, relationship, receiving_manager)
-    }
-
-    /// Mute/unmute player through the system
-    pub fn set_player_muted(
-        &self,
-        player_id: i32,
-        muted: bool,
-        receiving_manager: &mut crate::gui::window_manager::WindowManager,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        let mut callbacks = self.callbacks.write().unwrap_or_else(|e| e.into_inner());
-        callbacks.set_player_muted(player_id, muted, receiving_manager)
-    }
-
-    /// Update military briefing history through the system.
-    pub fn update_briefing_text(
-        &self,
-        new_text: &str,
-        clear: bool,
-        receiving_manager: &mut crate::gui::window_manager::WindowManager,
-    ) {
-        let mut callbacks = self.callbacks.write().unwrap_or_else(|e| e.into_inner());
-        callbacks.update_briefing_text(new_text, clear, receiving_manager);
-    }
-
-    /// Get military briefing history through the system.
-    pub fn briefing_text_list(&self) -> Vec<String> {
-        let callbacks = self.callbacks.read().unwrap_or_else(|e| e.into_inner());
-        callbacks.briefing_text_list().to_vec()
-    }
-}
-
-impl Default for DiplomacySystem {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-/// Global diplomacy system instance
-lazy_static::lazy_static! {
-    pub static ref THE_DIPLOMACY_SYSTEM: Arc<RwLock<DiplomacySystem>> =
-        Arc::new(RwLock::new(DiplomacySystem::new()));
-}
-
-/// Helper function to get the global diplomacy system
-pub fn get_diplomacy_system() -> Arc<RwLock<DiplomacySystem>> {
-    THE_DIPLOMACY_SYSTEM.clone()
-}
-
-/// Convenience functions for global diplomacy operations
-pub fn toggle_diplomacy(
-    immediate: bool,
-    receiving_manager: &mut crate::gui::window_manager::WindowManager,
-    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
-    mut selected_window: Option<&mut crate::gui::GameWindow>,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let system = get_diplomacy_system();
-    let system = system.read().unwrap_or_else(|e| e.into_inner());
-    system.toggle_diplomacy(
-        immediate,
-        receiving_manager,
-        effects,
-        selected_window.as_deref_mut(),
-    )
-}
-
-pub fn hide_diplomacy(
-    immediate: bool,
-    receiving_manager: &mut crate::gui::window_manager::WindowManager,
-    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let system = get_diplomacy_system();
-    let system = system.read().unwrap_or_else(|e| e.into_inner());
-    system.hide_diplomacy(immediate, receiving_manager, effects)
-}
-
-pub fn reset_diplomacy(
-    receiving_manager: &mut crate::gui::window_manager::WindowManager,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let system = get_diplomacy_system();
-    let system = system.read().unwrap_or_else(|e| e.into_inner());
-    system.reset_diplomacy(receiving_manager)
-}
-
-pub fn is_diplomacy_active() -> bool {
-    let system = get_diplomacy_system();
-    let system = system.read().unwrap_or_else(|e| e.into_inner());
-    system.is_active()
-}
-
-pub fn update_diplomacy_briefing_text(
-    new_text: &str,
-    clear: bool,
-    receiving_manager: &mut crate::gui::window_manager::WindowManager,
-) {
-    let system = get_diplomacy_system();
-    let system = system.read().unwrap_or_else(|e| e.into_inner());
-    system.update_briefing_text(new_text, clear, receiving_manager);
-}
-
-pub fn get_briefing_text_list() -> Vec<String> {
-    let system = get_diplomacy_system();
-    let system = system.read().unwrap_or_else(|e| e.into_inner());
-    system.briefing_text_list()
-}
+mod owner;
+pub use owner::*;
 
 #[cfg(test)]
 mod tests {
@@ -955,6 +400,7 @@ mod tests {
     #[test]
     fn test_diplomacy_callbacks() {
         let mut diplomacy = DiplomacyCallbacks::new();
+        let mut manager = crate::gui::window_manager::WindowManager::new();
 
         // Test initial state
         assert!(!diplomacy.is_active());
@@ -973,30 +419,32 @@ mod tests {
     #[test]
     fn briefing_history_tracks_unique_labels_and_reset_clears() {
         let mut diplomacy = DiplomacyCallbacks::new();
+        let mut manager = crate::gui::window_manager::WindowManager::new();
 
-        diplomacy.update_briefing_text("SCRIPT:Intro", false);
-        diplomacy.update_briefing_text("SCRIPT:Intro", false);
-        diplomacy.update_briefing_text("", false);
-        diplomacy.update_briefing_text("SCRIPT:Second", false);
+        diplomacy.update_briefing_text("SCRIPT:Intro", false, &mut manager);
+        diplomacy.update_briefing_text("SCRIPT:Intro", false, &mut manager);
+        diplomacy.update_briefing_text("", false, &mut manager);
+        diplomacy.update_briefing_text("SCRIPT:Second", false, &mut manager);
 
         assert_eq!(
             diplomacy.briefing_text_list(),
             &["SCRIPT:Intro".to_string(), "SCRIPT:Second".to_string()]
         );
 
-        diplomacy.update_briefing_text("SCRIPT:Replacement", true);
+        diplomacy.update_briefing_text("SCRIPT:Replacement", true, &mut manager);
         assert_eq!(
             diplomacy.briefing_text_list(),
             &["SCRIPT:Replacement".to_string()]
         );
 
-        diplomacy.reset_diplomacy().unwrap();
+        diplomacy.update_briefing_text("", true, &mut manager);
         assert!(diplomacy.briefing_text_list().is_empty());
     }
 
     #[test]
     fn test_player_info_management() {
         let mut diplomacy = DiplomacyCallbacks::new();
+        let mut manager = crate::gui::window_manager::WindowManager::new();
 
         let player_info = PlayerInfo {
             name: "TestPlayer".to_string(),
@@ -1008,7 +456,11 @@ mod tests {
         };
 
         // Test adding player info
-        assert!(diplomacy.update_player_info(0, player_info.clone()).is_ok());
+        assert!(
+            diplomacy
+                .update_player_info(0, player_info.clone(), &mut manager)
+                .is_ok()
+        );
         assert_eq!(diplomacy.get_all_players().len(), 1);
 
         let retrieved_info = diplomacy.get_player_info(0).unwrap();
@@ -1022,15 +474,18 @@ mod tests {
     #[test]
     fn test_diplomatic_relationships() {
         let mut diplomacy = DiplomacyCallbacks::new();
+        let mut manager = crate::gui::window_manager::WindowManager::new();
 
         // Add a player first
         let player_info = PlayerInfo::default();
-        diplomacy.update_player_info(0, player_info).unwrap();
+        diplomacy
+            .update_player_info(0, player_info, &mut manager)
+            .unwrap();
 
         // Test setting relationship
         assert!(
             diplomacy
-                .set_relationship(0, DiplomaticRelationship::Ally)
+                .set_relationship(0, DiplomaticRelationship::Ally, &mut manager)
                 .is_ok()
         );
         assert_eq!(diplomacy.get_relationship(0), DiplomaticRelationship::Ally);
@@ -1038,7 +493,7 @@ mod tests {
         // Test setting relationship for non-existent player
         assert!(
             diplomacy
-                .set_relationship(99, DiplomaticRelationship::Enemy)
+                .set_relationship(99, DiplomaticRelationship::Enemy, &mut manager)
                 .is_err()
         );
 
@@ -1052,50 +507,66 @@ mod tests {
     #[test]
     fn test_mute_functionality() {
         let mut diplomacy = DiplomacyCallbacks::new();
+        let mut manager = crate::gui::window_manager::WindowManager::new();
 
         // Add a player first
         let player_info = PlayerInfo::default();
-        diplomacy.update_player_info(0, player_info).unwrap();
+        diplomacy
+            .update_player_info(0, player_info, &mut manager)
+            .unwrap();
 
         // Test muting
         assert!(!diplomacy.is_player_muted(0));
-        assert!(diplomacy.set_player_muted(0, true).is_ok());
+        assert!(diplomacy.set_player_muted(0, true, &mut manager).is_ok());
         assert!(diplomacy.is_player_muted(0));
 
         // Test unmuting
-        assert!(diplomacy.set_player_muted(0, false).is_ok());
+        assert!(diplomacy.set_player_muted(0, false, &mut manager).is_ok());
         assert!(!diplomacy.is_player_muted(0));
 
         // Test muting non-existent player
-        assert!(diplomacy.set_player_muted(99, true).is_err());
+        assert!(diplomacy.set_player_muted(99, true, &mut manager).is_err());
         assert!(!diplomacy.is_player_muted(99)); // Default false
     }
 
     #[test]
     fn test_alliance_requests() {
         let mut diplomacy = DiplomacyCallbacks::new();
+        let mut manager = crate::gui::window_manager::WindowManager::new();
 
         // Add two players
         let player1 = PlayerInfo::default();
         let player2 = PlayerInfo::default();
-        diplomacy.update_player_info(0, player1).unwrap();
-        diplomacy.update_player_info(1, player2).unwrap();
+        diplomacy
+            .update_player_info(0, player1, &mut manager)
+            .unwrap();
+        diplomacy
+            .update_player_info(1, player2, &mut manager)
+            .unwrap();
 
         // Test accepting alliance
-        assert!(diplomacy.process_alliance_request(0, 1, true).is_ok());
+        assert!(
+            diplomacy
+                .process_alliance_request(0, 1, true, &mut manager)
+                .is_ok()
+        );
         assert_eq!(diplomacy.get_relationship(0), DiplomaticRelationship::Ally);
         assert_eq!(diplomacy.get_relationship(1), DiplomaticRelationship::Ally);
 
         // Reset relationships
         diplomacy
-            .set_relationship(0, DiplomaticRelationship::Neutral)
+            .set_relationship(0, DiplomaticRelationship::Neutral, &mut manager)
             .unwrap();
         diplomacy
-            .set_relationship(1, DiplomaticRelationship::Neutral)
+            .set_relationship(1, DiplomaticRelationship::Neutral, &mut manager)
             .unwrap();
 
         // Test rejecting alliance
-        assert!(diplomacy.process_alliance_request(0, 1, false).is_ok());
+        assert!(
+            diplomacy
+                .process_alliance_request(0, 1, false, &mut manager)
+                .is_ok()
+        );
         assert_eq!(
             diplomacy.get_relationship(0),
             DiplomaticRelationship::Neutral
@@ -1104,89 +575,6 @@ mod tests {
             diplomacy.get_relationship(1),
             DiplomaticRelationship::Neutral
         );
-    }
-
-    #[test]
-    fn test_diplomacy_visibility() {
-        let mut diplomacy = DiplomacyCallbacks::new();
-
-        // Test initial state
-        assert!(!diplomacy.is_active());
-
-        // Test toggling
-        assert!(diplomacy.toggle_diplomacy(true).is_ok());
-        assert!(diplomacy.is_active());
-
-        assert!(diplomacy.toggle_diplomacy(true).is_ok());
-        assert!(!diplomacy.is_active());
-
-        // Test hiding
-        diplomacy.toggle_diplomacy(true).unwrap(); // Show first
-        assert!(diplomacy.hide_diplomacy(true).is_ok());
-        assert!(!diplomacy.is_active());
-
-        // Test reset
-        diplomacy.toggle_diplomacy(true).unwrap(); // Show first
-        diplomacy
-            .update_player_info(0, PlayerInfo::default())
-            .unwrap();
-        assert!(diplomacy.reset_diplomacy().is_ok());
-        assert!(!diplomacy.is_active());
-        assert_eq!(diplomacy.get_all_players().len(), 0);
-    }
-
-    #[test]
-    fn diplomacy_char_input_matches_cpp_escape_handling() {
-        let mut diplomacy = DiplomacyCallbacks::new();
-        let window = GameWindow::new();
-
-        diplomacy.toggle_diplomacy(true).unwrap();
-        assert_eq!(
-            diplomacy.input(&window, WindowMessage::Char, b'A' as WindowMsgData, 0),
-            WindowMsgHandled::Handled
-        );
-        assert!(diplomacy.is_active());
-
-        assert_eq!(
-            diplomacy.input(&window, WindowMessage::Char, KEY_ESC as WindowMsgData, 0),
-            WindowMsgHandled::Handled
-        );
-        assert!(!diplomacy.is_active());
-    }
-
-    #[test]
-    fn test_diplomacy_system() {
-        let system = DiplomacySystem::new();
-
-        // Test that callbacks are accessible
-        assert!(system.get_callbacks().read().is_ok());
-
-        // Test system-level operations
-        assert!(!system.is_active());
-        assert!(system.toggle_diplomacy(true).is_ok());
-        assert!(system.is_active());
-
-        // Test player management through system
-        let player_info = PlayerInfo {
-            name: "SystemTest".to_string(),
-            ..PlayerInfo::default()
-        };
-        assert!(system.update_player_info(0, player_info).is_ok());
-        assert!(
-            system
-                .set_relationship(0, DiplomaticRelationship::Ally)
-                .is_ok()
-        );
-        assert!(system.set_player_muted(0, true).is_ok());
-    }
-
-    #[test]
-    fn test_global_functions() {
-        assert!(toggle_diplomacy(true).is_ok());
-        assert!(is_diplomacy_active());
-        assert!(hide_diplomacy(true).is_ok());
-        assert!(!is_diplomacy_active());
-        assert!(reset_diplomacy().is_ok());
     }
 
     #[test]
@@ -1202,7 +590,12 @@ mod tests {
             };
 
             let mut diplomacy = DiplomacyCallbacks::new();
-            assert!(diplomacy.update_player_info(0, player_info).is_ok());
+            let mut manager = crate::gui::window_manager::WindowManager::new();
+            assert!(
+                diplomacy
+                    .update_player_info(0, player_info, &mut manager)
+                    .is_ok()
+            );
 
             let retrieved_info = diplomacy.get_player_info(0).unwrap();
             assert_eq!(retrieved_info.status, status);
@@ -1225,40 +618,14 @@ pub enum ResidualDiplomacyAction {
     Unmute = 8,
 }
 
-static RESIDUAL_DIPLOMACY_ACTION: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
-static RESIDUAL_DIPLOMACY_ACTIVE: std::sync::atomic::AtomicBool =
-    std::sync::atomic::AtomicBool::new(false);
-static RESIDUAL_DIPLOMACY_MUTE_SLOT: std::sync::atomic::AtomicI32 =
-    std::sync::atomic::AtomicI32::new(-1);
-
-fn residual_diplomacy_action_store(action: ResidualDiplomacyAction) {
-    RESIDUAL_DIPLOMACY_ACTION.store(action as u8, std::sync::atomic::Ordering::Relaxed);
+pub fn residual_diplomacy_last_action(owner: &DiplomacyCallbacks) -> ResidualDiplomacyAction {
+    owner.last_action
 }
-
-/// Residual: last Diplomacy residual action.
-pub fn residual_diplomacy_last_action() -> ResidualDiplomacyAction {
-    match RESIDUAL_DIPLOMACY_ACTION.load(std::sync::atomic::Ordering::Relaxed) {
-        1 => ResidualDiplomacyAction::ToggleShow,
-        2 => ResidualDiplomacyAction::ToggleHide,
-        3 => ResidualDiplomacyAction::Hide,
-        4 => ResidualDiplomacyAction::Reset,
-        5 => ResidualDiplomacyAction::RadioInGame,
-        6 => ResidualDiplomacyAction::RadioBuddies,
-        7 => ResidualDiplomacyAction::Mute,
-        8 => ResidualDiplomacyAction::Unmute,
-        _ => ResidualDiplomacyAction::None,
-    }
+pub fn residual_diplomacy_is_active(owner: &DiplomacyCallbacks) -> bool {
+    owner.active
 }
-
-/// Residual: diplomacy active latch (independent of live layout).
-pub fn residual_diplomacy_is_active() -> bool {
-    RESIDUAL_DIPLOMACY_ACTIVE.load(std::sync::atomic::Ordering::Relaxed)
-}
-
-/// Residual: last mute/unmute slot (-1 if none).
-pub fn residual_diplomacy_mute_slot() -> Option<i32> {
-    let slot = RESIDUAL_DIPLOMACY_MUTE_SLOT.load(std::sync::atomic::Ordering::Relaxed);
-    if slot < 0 { None } else { Some(slot) }
+pub fn residual_diplomacy_mute_slot(owner: &DiplomacyCallbacks) -> Option<i32> {
+    owner.mute_slot
 }
 
 /// Residual: bind Diplomacy control name keys (no layout load).
@@ -1274,116 +641,92 @@ pub fn simulate_diplomacy_bind_controls() -> bool {
     true
 }
 
-/// Residual: toggle show without layout/animate.
-pub fn simulate_diplomacy_toggle_show() -> bool {
-    let system = get_diplomacy_system();
-    let system = system.read().unwrap_or_else(|e| e.into_inner());
-    let callbacks = system.get_callbacks();
-    let mut callbacks = callbacks.write().unwrap_or_else(|e| e.into_inner());
-    callbacks.active = true;
-    RESIDUAL_DIPLOMACY_ACTIVE.store(true, std::sync::atomic::Ordering::Relaxed);
-    residual_diplomacy_action_store(ResidualDiplomacyAction::ToggleShow);
-    residual_diplomacy_is_active()
-}
-
-/// Residual: toggle hide without layout/animate.
-pub fn simulate_diplomacy_toggle_hide() -> bool {
-    let system = get_diplomacy_system();
-    let system = system.read().unwrap_or_else(|e| e.into_inner());
-    let callbacks = system.get_callbacks();
-    let mut callbacks = callbacks.write().unwrap_or_else(|e| e.into_inner());
-    callbacks.active = false;
-    RESIDUAL_DIPLOMACY_ACTIVE.store(false, std::sync::atomic::Ordering::Relaxed);
-    residual_diplomacy_action_store(ResidualDiplomacyAction::ToggleHide);
-    !residual_diplomacy_is_active()
-}
-
-/// Residual: hide without layout teardown.
-pub fn simulate_diplomacy_hide() -> bool {
-    let system = get_diplomacy_system();
-    let system = system.read().unwrap_or_else(|e| e.into_inner());
-    let callbacks = system.get_callbacks();
-    let mut callbacks = callbacks.write().unwrap_or_else(|e| e.into_inner());
-    callbacks.active = false;
-    RESIDUAL_DIPLOMACY_ACTIVE.store(false, std::sync::atomic::Ordering::Relaxed);
-    residual_diplomacy_action_store(ResidualDiplomacyAction::Hide);
+fn record_residual(
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    action: ResidualDiplomacyAction,
+    active: Option<bool>,
+) -> bool {
+    effects.with_diplomacy(|owner| {
+        owner.last_action = action;
+        if let Some(active) = active {
+            owner.active = active;
+        }
+    });
     true
 }
-
-/// Residual: reset without clearing live widgets.
-pub fn simulate_diplomacy_reset() -> bool {
-    let system = get_diplomacy_system();
-    let system = system.read().unwrap_or_else(|e| e.into_inner());
-    let callbacks = system.get_callbacks();
-    let mut callbacks = callbacks.write().unwrap_or_else(|e| e.into_inner());
-    callbacks.active = false;
-    callbacks.players.clear();
-    callbacks.briefing_list.clear();
-    RESIDUAL_DIPLOMACY_ACTIVE.store(false, std::sync::atomic::Ordering::Relaxed);
-    RESIDUAL_DIPLOMACY_MUTE_SLOT.store(-1, std::sync::atomic::Ordering::Relaxed);
-    residual_diplomacy_action_store(ResidualDiplomacyAction::Reset);
+pub fn simulate_diplomacy_toggle_show(
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
+    record_residual(effects, ResidualDiplomacyAction::ToggleShow, Some(true))
+}
+pub fn simulate_diplomacy_toggle_hide(
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
+    record_residual(effects, ResidualDiplomacyAction::ToggleHide, Some(false))
+}
+pub fn simulate_diplomacy_hide(
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
+    record_residual(effects, ResidualDiplomacyAction::Hide, Some(false))
+}
+pub fn simulate_diplomacy_reset(
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
+    effects.with_diplomacy(|owner| {
+        owner.active = false;
+        owner.players.clear();
+        owner.briefing_list.clear();
+        owner.mute_slot = None;
+        owner.last_action = ResidualDiplomacyAction::Reset;
+    });
     true
 }
-
-/// Residual: select InGame radio without parent show/hide.
-pub fn simulate_diplomacy_radio_ingame() -> bool {
-    let _ = simulate_diplomacy_bind_controls();
-    residual_diplomacy_action_store(ResidualDiplomacyAction::RadioInGame);
-    true
+pub fn simulate_diplomacy_radio_ingame(
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
+    record_residual(effects, ResidualDiplomacyAction::RadioInGame, None)
 }
-
-/// Residual: select Buddies radio without parent show/hide.
-pub fn simulate_diplomacy_radio_buddies() -> bool {
-    let _ = simulate_diplomacy_bind_controls();
-    residual_diplomacy_action_store(ResidualDiplomacyAction::RadioBuddies);
-    true
+pub fn simulate_diplomacy_radio_buddies(
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
+    record_residual(effects, ResidualDiplomacyAction::RadioBuddies, None)
 }
-
-/// Residual: mute slot without live mute side effects beyond callbacks map.
 pub fn simulate_diplomacy_mute_slot(
     slot: i32,
-    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    manager: &mut crate::gui::window_manager::WindowManager,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> bool {
     if slot < 0 {
         return false;
     }
-    let system = get_diplomacy_system();
-    let system = system.read().unwrap_or_else(|e| e.into_inner());
-    let callbacks = system.get_callbacks();
-    let mut callbacks = callbacks.write().unwrap_or_else(|e| e.into_inner());
-    let _ = callbacks.set_player_muted(slot, true, receiving_manager);
-    RESIDUAL_DIPLOMACY_MUTE_SLOT.store(slot, std::sync::atomic::Ordering::Relaxed);
-    residual_diplomacy_action_store(ResidualDiplomacyAction::Mute);
-    residual_diplomacy_mute_slot() == Some(slot)
-}
-
-/// Residual: unmute slot residual.
-pub fn simulate_diplomacy_unmute_slot(
-    slot: i32,
-    receiving_manager: &mut crate::gui::window_manager::WindowManager,
-) -> bool {
-    if slot < 0 {
-        return false;
-    }
-    let system = get_diplomacy_system();
-    let system = system.read().unwrap_or_else(|e| e.into_inner());
-    let callbacks = system.get_callbacks();
-    let mut callbacks = callbacks.write().unwrap_or_else(|e| e.into_inner());
-    let _ = callbacks.set_player_muted(slot, false, receiving_manager);
-    RESIDUAL_DIPLOMACY_MUTE_SLOT.store(slot, std::sync::atomic::Ordering::Relaxed);
-    residual_diplomacy_action_store(ResidualDiplomacyAction::Unmute);
+    effects.with_diplomacy(|owner| {
+        let _ = owner.set_player_muted(slot, true, manager);
+        owner.mute_slot = Some(slot);
+        owner.last_action = ResidualDiplomacyAction::Mute;
+    });
     true
 }
-
-/// Residual: show + InGame radio composite.
-pub fn simulate_diplomacy_prepare_ingame() -> bool {
-    if !simulate_diplomacy_bind_controls() {
+pub fn simulate_diplomacy_unmute_slot(
+    slot: i32,
+    manager: &mut crate::gui::window_manager::WindowManager,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
+    if slot < 0 {
         return false;
     }
-    if !simulate_diplomacy_toggle_show() {
-        return false;
-    }
-    simulate_diplomacy_radio_ingame()
+    effects.with_diplomacy(|owner| {
+        let _ = owner.set_player_muted(slot, false, manager);
+        owner.mute_slot = Some(slot);
+        owner.last_action = ResidualDiplomacyAction::Unmute;
+    });
+    true
+}
+pub fn simulate_diplomacy_prepare_ingame(
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
+    simulate_diplomacy_bind_controls()
+        && simulate_diplomacy_toggle_show(effects)
+        && simulate_diplomacy_radio_ingame(effects)
 }
 
 /// Human click-through: OS LeftDown/Up on `Diplomacy.wnd:RadioButtonInGame`.
@@ -1395,7 +738,7 @@ pub fn drive_os_wnd_diplomacy_radio_ingame_like_cpp(
     if !clicked {
         return false;
     }
-    simulate_diplomacy_radio_ingame()
+    simulate_diplomacy_radio_ingame(effects)
 }
 
 pub fn drive_os_wnd_diplomacy_radio_buddies_like_cpp(
@@ -1406,7 +749,7 @@ pub fn drive_os_wnd_diplomacy_radio_buddies_like_cpp(
     if !clicked {
         return false;
     }
-    simulate_diplomacy_radio_buddies()
+    simulate_diplomacy_radio_buddies(effects)
 }
 
 pub fn drive_os_wnd_diplomacy_hide_like_cpp(
@@ -1416,7 +759,7 @@ pub fn drive_os_wnd_diplomacy_hide_like_cpp(
     if !clicked {
         return false;
     }
-    simulate_diplomacy_hide()
+    simulate_diplomacy_hide(effects)
 }
 
 pub fn drive_os_wnd_diplomacy_mute_like_cpp(
@@ -1431,7 +774,7 @@ pub fn drive_os_wnd_diplomacy_mute_like_cpp(
     if !clicked {
         return false;
     }
-    effects.with_manager(|manager, _effects| simulate_diplomacy_mute_slot(slot, manager))
+    effects.with_manager(|manager, effects| simulate_diplomacy_mute_slot(slot, manager, effects))
 }
 
 pub fn drive_os_wnd_diplomacy_unmute_like_cpp(
@@ -1446,7 +789,7 @@ pub fn drive_os_wnd_diplomacy_unmute_like_cpp(
     if !clicked {
         return false;
     }
-    effects.with_manager(|manager, _effects| simulate_diplomacy_unmute_slot(slot, manager))
+    effects.with_manager(|manager, effects| simulate_diplomacy_unmute_slot(slot, manager, effects))
 }
 
 pub fn drive_os_wnd_diplomacy_prepare_ingame_like_cpp(
@@ -1455,63 +798,77 @@ pub fn drive_os_wnd_diplomacy_prepare_ingame_like_cpp(
     let clicked_parent =
         crate::gui::dispatch_os_click_named_window("Diplomacy.wnd:InGameParent", effects);
     if clicked_parent {
-        let _ = simulate_diplomacy_toggle_show();
+        let _ = simulate_diplomacy_toggle_show(effects);
     }
     let clicked_radio = drive_os_wnd_diplomacy_radio_ingame_like_cpp(effects);
     if !clicked_parent && !clicked_radio {
         return false;
     }
     if clicked_radio {
-        return residual_diplomacy_last_action() == ResidualDiplomacyAction::RadioInGame;
+        return effects.with_diplomacy(|owner| residual_diplomacy_last_action(owner))
+            == ResidualDiplomacyAction::RadioInGame;
     }
-    simulate_diplomacy_radio_ingame()
+    simulate_diplomacy_radio_ingame(effects)
 }
 
 #[cfg(test)]
 mod os_wnd_tests {
     use super::*;
-    use crate::gui::with_window_manager;
-
-    fn install_named_button(name: &str, x: i32, y: i32) {
-        with_window_manager(|manager| {
-            let button = manager.create_window(None, x, y, 80, 24).expect(name);
-            button.borrow_mut().set_name(name);
-            let _ = button.borrow_mut().hide(false);
+    fn install_named_button(
+        client: &mut crate::core::game_client::GameClient,
+        name: &str,
+        x: i32,
+        y: i32,
+    ) {
+        client.with_window_event_effects(None, |effects| {
+            effects.with_manager(|manager, effects| {
+                let button = manager
+                    .create_window(None, x, y, 80, 24, effects)
+                    .expect(name);
+                button.borrow_mut().set_name(name);
+                let _ = button.borrow_mut().hide(false);
+            })
         });
     }
-
     #[test]
     fn os_wnd_diplomacy_ingame_and_hide_hit_named_gadgets() {
-        install_named_button("Diplomacy.wnd:InGameParent", 10, 10);
-        install_named_button("Diplomacy.wnd:RadioButtonInGame", 10, 40);
-        install_named_button("Diplomacy.wnd:ButtonHide", 10, 70);
+        let mut client = crate::core::game_client::GameClient::new().unwrap();
+        install_named_button(&mut client, "Diplomacy.wnd:InGameParent", 10, 10);
+        install_named_button(&mut client, "Diplomacy.wnd:RadioButtonInGame", 10, 40);
+        install_named_button(&mut client, "Diplomacy.wnd:ButtonHide", 10, 70);
         assert!(
-            drive_os_wnd_diplomacy_prepare_ingame_like_cpp(),
+            client.with_window_event_effects(None, |effects| {
+                drive_os_wnd_diplomacy_prepare_ingame_like_cpp(effects)
+            }),
             "OS WND clicks must latch InGame radio residual"
         );
         assert_eq!(
-            residual_diplomacy_last_action(),
+            residual_diplomacy_last_action(client.diplomacy()),
             ResidualDiplomacyAction::RadioInGame
         );
-        assert!(drive_os_wnd_diplomacy_hide_like_cpp());
+        assert!(client.with_window_event_effects(None, |effects| {
+            drive_os_wnd_diplomacy_hide_like_cpp(effects)
+        }));
         assert_eq!(
-            residual_diplomacy_last_action(),
+            residual_diplomacy_last_action(client.diplomacy()),
             ResidualDiplomacyAction::Hide
         );
     }
 
     #[test]
     fn os_wnd_diplomacy_mute_hits_button_mute_slot() {
-        install_named_button("Diplomacy.wnd:ButtonMute0", 10, 100);
-        assert!(drive_os_wnd_diplomacy_mute_like_cpp(0, receiving_manager));
+        let mut client = crate::core::game_client::GameClient::new().unwrap();
+        install_named_button(&mut client, "Diplomacy.wnd:ButtonMute0", 10, 100);
+        assert!(client.with_window_event_effects(None, |effects| {
+            drive_os_wnd_diplomacy_mute_like_cpp(0, effects)
+        }));
         assert_eq!(
-            residual_diplomacy_last_action(),
+            residual_diplomacy_last_action(client.diplomacy()),
             ResidualDiplomacyAction::Mute
         );
-        assert_eq!(residual_diplomacy_mute_slot(), Some(0));
-        assert!(!drive_os_wnd_diplomacy_unmute_like_cpp(
-            0,
-            receiving_manager
-        ));
+        assert_eq!(residual_diplomacy_mute_slot(client.diplomacy()), Some(0));
+        assert!(!client.with_window_event_effects(None, |effects| {
+            drive_os_wnd_diplomacy_unmute_like_cpp(0, effects)
+        }));
     }
 }
