@@ -1643,7 +1643,7 @@ impl INI {
         &mut self,
         store: &mut PlayerTemplateStore,
     ) -> INIResult<()> {
-        self.parse_file_with_owned_definitions(Some(store), None, None)
+        self.parse_file_with_owned_definitions(Some(store), None, None, None)
     }
 
     /// Parse Weather blocks into this load's detached definition chain.
@@ -1652,7 +1652,29 @@ impl INI {
         store: &mut Option<super::ini_weather::WeatherSetting>,
         updates: &mut Vec<super::ini_weather::WeatherSetting>,
     ) -> INIResult<()> {
-        self.parse_file_with_owned_definitions(None, Some(store), Some(updates))
+        self.parse_file_with_owned_definitions(None, Some(store), Some(updates), None)
+    }
+
+    /// Parse a file and deliver each MapCache block to a borrowed insertion sink.
+    /// The sink is called once per completed block; it must not retain INI state.
+    pub fn load_with_map_cache_sink<P: AsRef<Path>>(
+        &mut self,
+        filename: P,
+        load_type: INILoadType,
+        sink: &mut dyn FnMut(String, super::ini_map_cache::MapMetaData),
+    ) -> INIResult<()> {
+        self.prep_file(&filename, load_type)?;
+        let result = self.parse_file_with_owned_definitions(None, None, None, Some(sink));
+        self.un_prep_file();
+        result
+    }
+
+    /// Parse the prepared source and deliver each MapCache block to a borrowed sink.
+    pub fn parse_current_file_with_map_cache_sink(
+        &mut self,
+        sink: &mut dyn FnMut(String, super::ini_map_cache::MapMetaData),
+    ) -> INIResult<()> {
+        self.parse_file_with_owned_definitions(None, None, None, Some(sink))
     }
 
     /// Prepare file for reading
@@ -1726,7 +1748,7 @@ impl INI {
 
     /// Parse the entire file
     fn parse_file(&mut self) -> INIResult<()> {
-        self.parse_file_with_owned_definitions(None, None, None)
+        self.parse_file_with_owned_definitions(None, None, None, None)
     }
 
     fn parse_file_with_owned_definitions(
@@ -1734,6 +1756,7 @@ impl INI {
         mut player_templates: Option<&mut PlayerTemplateStore>,
         mut weather: Option<&mut Option<super::ini_weather::WeatherSetting>>,
         mut weather_updates: Option<&mut Vec<super::ini_weather::WeatherSetting>>,
+        mut map_cache_sink: Option<&mut dyn FnMut(String, super::ini_map_cache::MapMetaData)>,
     ) -> INIResult<()> {
         let mut skipping_corrupt_block = false;
         while !self.end_of_file {
@@ -1785,6 +1808,11 @@ impl INI {
                         updates.push(definition.final_override().clone_without_chain());
                     }
                     result
+                } else if first_token.eq_ignore_ascii_case("MapCache")
+                    && let Some(sink) = map_cache_sink.as_deref_mut()
+                {
+                    super::ini_map_cache::parse_map_cache_definition_with_sink(self, sink)
+                        .map_err(|_| INIError::InvalidData)
                 } else {
                     parser(self)
                 };

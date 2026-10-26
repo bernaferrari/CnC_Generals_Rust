@@ -685,10 +685,7 @@ pub fn get_map_cache_mut() -> Option<RwLockWriteGuard<'static, MapCache>> {
         .map(|cache| cache.write().expect("MapCache poisoned"))
 }
 
-/// INI parsing function for MapCache definition (matches C++ interface)
-///
-/// This is the main entry point for parsing MapCache definitions from INI files
-pub fn parse_map_cache_definition(ini: &mut INI) -> Result<(), String> {
+fn parse_map_cache_metadata(ini: &mut INI) -> Result<(String, MapMetaData), String> {
     let tokens = ini.get_line_tokens();
     let name = tokens
         .iter()
@@ -769,18 +766,30 @@ pub fn parse_map_cache_definition(ini: &mut INI) -> Result<(), String> {
         metadata.tech_positions.push(*tech_pos);
     }
 
-    // Add to global cache if available and display name is not empty
+    let lower_name = decoded_name.to_lowercase().replace('\\', "/");
+    Ok((lower_name, metadata))
+}
+
+/// INI parsing function for MapCache definition (matches C++ compatibility path).
+pub fn parse_map_cache_definition(ini: &mut INI) -> Result<(), String> {
+    let (lower_name, mut metadata) = parse_map_cache_metadata(ini)?;
     if let Some(mut map_cache) = get_map_cache_mut() {
         if !metadata.display_name.is_empty() {
-            // Store keys lowercase with forward slashes — the same normalized
-            // form the map-scan path (MapCache::add_map) inserts, so both
-            // sources share one key space and separator-agnostic queries hit.
-            let lower_name = decoded_name.to_lowercase().replace('\\', "/");
             metadata.file_name = lower_name.clone();
             map_cache.insert(lower_name, metadata);
         }
     }
+    Ok(())
+}
 
+/// Parse one MapCache block and hand its completed metadata to a borrowed sink.
+/// The caller controls synchronization for this insertion only.
+pub fn parse_map_cache_definition_with_sink(
+    ini: &mut INI,
+    sink: &mut dyn FnMut(String, MapMetaData),
+) -> Result<(), String> {
+    let (lower_name, metadata) = parse_map_cache_metadata(ini)?;
+    sink(lower_name, metadata);
     Ok(())
 }
 
@@ -993,6 +1002,53 @@ mod tests {
             assert_eq!(cache.len(), 1);
             assert!(cache.get("global_test.map").is_some());
         }
+    }
+
+    const SINK_CALLBACK_FIXTURE: &str = "sinkcallbackvisible.map";
+    static SINK_CALLBACK_CACHE: OnceCell<RwLock<MapCache>> = OnceCell::new();
+
+    #[test]
+    fn borrowed_sink_commits_each_map_before_next_block_callback() {
+        fn inspect_cache_before_unrelated_block(ini: &mut INI) -> INIResult<()> {
+            let visible = SINK_CALLBACK_CACHE
+                .get()
+                .and_then(|cache| cache.try_read().ok())
+                .is_some_and(|cache| cache.get(SINK_CALLBACK_FIXTURE).is_some());
+            if !visible {
+                return Err(INIError::InvalidData);
+            }
+            loop {
+                ini.read_line()?;
+                if ini.is_eof() {
+                    return Err(INIError::MissingEndToken);
+                }
+                if ini
+                    .get_first_token()
+                    .is_some_and(|token| token.eq_ignore_ascii_case("END"))
+                {
+                    return Ok(());
+                }
+            }
+        }
+
+        let _ = crate::common::ini::register_block_parser(
+            "MapCacheSinkLockProbe",
+            inspect_cache_before_unrelated_block,
+        );
+        let target = SINK_CALLBACK_CACHE.get_or_init(|| RwLock::new(MapCache::new()));
+        target.write().expect("test cache").clear();
+        let mut sink = |filename, metadata| {
+            target
+                .write()
+                .expect("test cache")
+                .insert(filename, metadata);
+        };
+        let mut ini = INI::new();
+        ini.with_inline_source(
+            "MapCache sinkcallbackvisible.map\nEND\nMapCacheSinkLockProbe\nEND\n",
+            |ini| ini.parse_current_file_with_map_cache_sink(&mut sink),
+        )
+        .unwrap();
     }
 
     #[test]

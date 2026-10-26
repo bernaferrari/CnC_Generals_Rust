@@ -134,6 +134,20 @@ impl MapCache {
             .unwrap_or_default()
     }
 
+    fn load_cache_ini(&self, path: &str) {
+        let mut ini = INI::new();
+        let mut insert_map_metadata = |filename: String, mut metadata: MapMetaData| {
+            if let Some(mut map_cache) = get_map_cache_mut() {
+                if !metadata.display_name.is_empty() {
+                    metadata.file_name = filename.clone();
+                    map_cache.insert(filename, metadata);
+                }
+            }
+        };
+        let _ =
+            ini.load_with_map_cache_sink(path, INILoadType::Overwrite, &mut insert_map_metadata);
+    }
+
     fn load_standard_maps(&self) {
         let map_cache_path = PathBuf::from(&self.map_dir).join(MAP_CACHE_NAME);
         let map_cache_path = map_cache_path.to_string_lossy().into_owned();
@@ -145,8 +159,7 @@ impl MapCache {
         if !map_cache_exists {
             return;
         }
-        let mut ini = INI::new();
-        let _ = ini.load(&map_cache_path, INILoadType::Overwrite);
+        self.load_cache_ini(&map_cache_path);
     }
 
     fn load_user_maps(&mut self, build_map_cache: bool) -> bool {
@@ -167,8 +180,7 @@ impl MapCache {
                 file_system.does_file_exist(&map_cache_path)
             };
             if map_cache_exists {
-                let mut ini = INI::new();
-                let _ = ini.load(&map_cache_path, INILoadType::Overwrite);
+                self.load_cache_ini(&map_cache_path);
             }
         }
 
