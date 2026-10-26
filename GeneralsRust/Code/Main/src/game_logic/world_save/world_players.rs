@@ -79,7 +79,7 @@ impl GameLogic {
             None,
             None,
             None,
-            |value, phase| {
+            |_, value, phase| {
                 report_progress(value, phase);
                 Ok(())
             },
@@ -101,10 +101,18 @@ impl GameLogic {
         mut report_progress: F,
     ) -> Result<bool, String>
     where
-        F: FnMut(f32, &str) -> Result<(), String>,
+        F: FnMut(
+            &mut game_engine::common::random_value::RandomState,
+            f32,
+            &str,
+        ) -> Result<(), String>,
     {
         let sync_started = Instant::now();
-        report_progress(0.41, "Fast sync heightmap")?;
+        report_progress(
+            &mut self.session_view.audio_random,
+            0.41,
+            "Fast sync heightmap",
+        )?;
         log::info!(
             "Fast legacy runtime sync started for '{}'",
             map_path.display()
@@ -125,7 +133,11 @@ impl GameLogic {
             map_path.display(),
             sync_started.elapsed().as_secs_f32()
         );
-        report_progress(0.415, "Fast sync waypoints")?;
+        report_progress(
+            &mut self.session_view.audio_random,
+            0.415,
+            "Fast sync waypoints",
+        )?;
 
         let (waypoints, waypoint_links) =
             match super::script_loader::parse_runtime_waypoints_from_chunky(chunky) {
@@ -146,7 +158,11 @@ impl GameLogic {
             waypoint_links.len(),
             sync_started.elapsed().as_secs_f32()
         );
-        report_progress(0.42, "Fast sync bridges")?;
+        report_progress(
+            &mut self.session_view.audio_random,
+            0.42,
+            "Fast sync bridges",
+        )?;
         let bridges = match super::script_loader::parse_runtime_bridges_from_chunky(chunky) {
             Ok(value) => value,
             Err(err) => {
@@ -158,7 +174,11 @@ impl GameLogic {
                 Vec::new()
             }
         };
-        report_progress(0.425, "Fast sync water")?;
+        report_progress(
+            &mut self.session_view.audio_random,
+            0.425,
+            "Fast sync water",
+        )?;
         let water_height =
             match super::script_loader::parse_runtime_water_height_from_chunky(chunky) {
                 Ok(value) => value,
@@ -184,7 +204,11 @@ impl GameLogic {
         };
         self.apply_world_info_weather(map_weather);
 
-        report_progress(0.43, "Fast sync polygons")?;
+        report_progress(
+            &mut self.session_view.audio_random,
+            0.43,
+            "Fast sync polygons",
+        )?;
         let polygon_triggers =
             match super::script_loader::parse_runtime_polygon_triggers_from_chunky(chunky) {
                 Ok(value) => value,
@@ -219,7 +243,11 @@ impl GameLogic {
             super::script_loader::install_runtime_polygon_triggers(&mut terrain, &polygon_triggers);
         } // Release before progress can dispatch authored load-screen callbacks.
 
-        report_progress(0.435, "Fast sync roads")?;
+        report_progress(
+            &mut self.session_view.audio_random,
+            0.435,
+            "Fast sync roads",
+        )?;
         self.runtime_road_segments =
             match super::script_loader::parse_runtime_roads_from_chunky(chunky) {
                 Ok(value) => value,
@@ -233,7 +261,7 @@ impl GameLogic {
                 }
             };
         self.runtime_terrain_texture_classes.clear();
-        report_progress(0.44, "Fast sync sides")?;
+        report_progress(&mut self.session_view.audio_random, 0.44, "Fast sync sides")?;
         let sides_data = match super::script_loader::parse_runtime_sides_from_chunky(chunky) {
             Ok(value) => value,
             Err(err) => {
@@ -252,7 +280,11 @@ impl GameLogic {
             sides_data.team_dicts.len(),
             sync_started.elapsed().as_secs_f32()
         );
-        report_progress(0.445, "Fast sync terrain write")?;
+        report_progress(
+            &mut self.session_view.audio_random,
+            0.445,
+            "Fast sync terrain write",
+        )?;
 
         let has_terrain_payload = heightmap.is_some()
             || water_height.is_some()
@@ -330,7 +362,11 @@ impl GameLogic {
                 return Ok(false);
             }
         }
-        report_progress(0.45, "Fast sync sides write")?;
+        report_progress(
+            &mut self.session_view.audio_random,
+            0.45,
+            "Fast sync sides write",
+        )?;
 
         // The fast parser owns its decoded side/team dictionaries instead of
         // going through LogicMapLoader's global SidesList callback. Retain the

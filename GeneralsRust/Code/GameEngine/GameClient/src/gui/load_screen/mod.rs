@@ -9,10 +9,7 @@ use crate::input::with_mouse;
 use crate::map_util::{find_draw_positions, get_map_cache_manager, get_map_preview_image};
 
 use super::campaign_manager::{MAX_DISPLAYED_UNITS, MAX_OBJECTIVE_LINES, Mission};
-use super::challenge_generals::{
-    ChallengeGenerals, GeneralPersona, get_challenge_generals, get_challenge_generals_mut,
-    init_challenge_generals,
-};
+use super::challenge_generals::{ChallengeGenerals, GeneralPersona};
 use super::game_window::{
     GPM_SET_PROGRESS, GameWindow, Image as WindowImage, WindowMessage, WindowMsgData,
 };
@@ -22,8 +19,6 @@ use crate::gui::window_manager::WindowManagerOwner;
 use game_engine::common::ini::ini_map_cache::MapMetaData;
 use game_engine::common::ini::ini_multiplayer::with_multiplayer_settings;
 use game_engine::common::rts::player_template::{PlayerTemplate, get_player_template_store};
-use gamelogic::common::audio::AudioEventRts;
-use gamelogic::helpers::TheAudio;
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use std::sync::Arc;

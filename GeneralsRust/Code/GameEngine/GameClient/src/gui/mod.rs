@@ -67,11 +67,11 @@ pub use campaign_playthrough::{
 };
 pub use challenge_generals::{
     NUM_GENERALS, ResidualChallengeGeneralsAction, residual_challenge_generals_bio_name_len,
-    residual_challenge_generals_difficulty, residual_challenge_generals_last_action,
-    residual_challenge_generals_starts_enabled, residual_challenge_generals_template_num,
-    simulate_challenge_generals_init, simulate_challenge_generals_prepare_default,
-    simulate_challenge_generals_set_bio_name, simulate_challenge_generals_set_difficulty,
-    simulate_challenge_generals_set_starts_enabled, simulate_challenge_generals_set_template_num,
+    residual_challenge_generals_difficulty, residual_challenge_generals_starts_enabled,
+    residual_challenge_generals_template_num, simulate_challenge_generals_init,
+    simulate_challenge_generals_prepare_default, simulate_challenge_generals_set_bio_name,
+    simulate_challenge_generals_set_difficulty, simulate_challenge_generals_set_starts_enabled,
+    simulate_challenge_generals_set_template_num,
 };
 pub mod command_panel;
 pub mod control_bar;
@@ -92,6 +92,7 @@ pub mod game_window_transitions_styles;
 pub mod gui_callbacks;
 pub mod header_template;
 pub mod ime_manager;
+pub mod menu_audio;
 pub use ime_manager::{
     ResidualImeAction, drive_os_wnd_ime_clear_candidates_like_cpp,
     drive_os_wnd_ime_prepare_composition_cycle_like_cpp, drive_os_wnd_ime_result_like_cpp,

@@ -55,7 +55,10 @@ impl GameClient {
     }
 
     /// All callbacks and presentation reborrow this operation sequentially.
-    pub fn load_screen_runtime_mut(&mut self) -> crate::gui::load_screen::LoadScreenOperation<'_> {
+    pub fn load_screen_runtime_mut<'a>(
+        &'a mut self,
+        menu_audio: &'a mut dyn crate::gui::menu_audio::MenuAudioEffects,
+    ) -> crate::gui::load_screen::LoadScreenOperation<'a> {
         self.script_display
             .bind(self.subsystem_manager.display.as_ref());
         crate::gui::load_screen::LoadScreenOperation {
@@ -66,6 +69,7 @@ impl GameClient {
             message_stream: &mut self.message_stream,
             effects: crate::gui::game_window::WindowEventEffects {
                 control_bar_observation: None,
+                menu_audio: Some(menu_audio),
                 input_provenance:
                     crate::gui::control_bar::HostControlBarInputProvenance::InjectedOrUnknown,
                 standalone_view: None,
@@ -110,16 +114,18 @@ impl GameClient {
         )
     }
 
-    pub fn split_load_screen_runtime_and_pump(
-        &mut self,
+    pub fn split_load_screen_runtime_and_pump<'a>(
+        &'a mut self,
+        menu_audio: &'a mut dyn crate::gui::menu_audio::MenuAudioEffects,
     ) -> (
         crate::gui::load_screen::LoadScreenOperation<'_>,
         crate::gui::load_screen::LoadScreenPresentationPump<'_>,
     ) {
-        self.split_load_screen_services()
+        self.split_load_screen_services(menu_audio)
     }
-    pub fn split_load_screen_services(
-        &mut self,
+    pub fn split_load_screen_services<'a>(
+        &'a mut self,
+        menu_audio: &'a mut dyn crate::gui::menu_audio::MenuAudioEffects,
     ) -> (
         crate::gui::load_screen::LoadScreenOperation<'_>,
         crate::gui::load_screen::LoadScreenPresentationPump<'_>,
@@ -128,7 +134,7 @@ impl GameClient {
             self.subsystem_manager.display.as_ref(),
         )
         .with_mouse(self.subsystem_manager.input_mouse.clone());
-        (self.load_screen_runtime_mut(), pump)
+        (self.load_screen_runtime_mut(menu_audio), pump)
     }
     fn draw_drawable_icon_ui(&mut self) {
         // This traversal does not dispatch UI input; all nested icon/text

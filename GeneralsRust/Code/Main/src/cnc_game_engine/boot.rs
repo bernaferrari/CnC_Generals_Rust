@@ -241,7 +241,17 @@ impl CnCGameEngine {
         // (GameEngine.cpp:535 setFramesPerSecondLimit).
         game_engine::common::game_lod::load_game_lod_ini_presets_and_options();
         // C++ GameEngine::init createAudioManager / TheAudio (GameEngine.cpp:410).
-        let _ = game_engine::common::audio::game_audio::initialize_global_audio_manager();
+        let native_audio_device =
+            game_engine::common::audio::game_audio::initialize_global_audio_manager();
+        if let Some(audio) = subsystem_manager.get_mut::<AudioManagerSubsystem>() {
+            audio.bind_common_audio_device(std::sync::Arc::clone(&native_audio_device));
+        }
+        #[cfg(feature = "game_client")]
+        let menu_audio = {
+            let mut owner = super::menu_audio::NativeMenuAudioService::default();
+            owner.bind(native_audio_device);
+            owner
+        };
         // C++ GameClient::init loads Data/INI/Eva.ini into TheEva (Eva.cpp:43-57).
         // Live ticks update_eva_system without leftover GameClient::init, so
         // playMessage would drop on an empty check-info table without this.
@@ -722,6 +732,8 @@ impl CnCGameEngine {
         let mut engine = Self {
             application_assets,
             subsystem_manager,
+            #[cfg(feature = "game_client")]
+            menu_audio,
             window: window.clone(),
             command_line,
 

@@ -1022,6 +1022,8 @@ mod evidence_tests;
 
 /// Main C&C game engine with full RTS functionality - restructured to match C++ SAGE architecture
 pub struct CnCGameEngine {
+    #[cfg(feature = "game_client")]
+    pub(super) menu_audio: super::menu_audio::NativeMenuAudioService,
     // Cancel the receiving worker before later engine fields are dropped.
     pub(crate) startup_load_state: StartupLoadState,
     /// Application archive service shared with actual loading workers. Mutable

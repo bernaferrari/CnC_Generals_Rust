@@ -1567,31 +1567,17 @@ impl CnCGameEngine {
             let mut resume = None;
             loop {
                 let facts = self.receiving_menu_world_facts();
-                let (progress, steps) = self.with_receiving_client_translation(
-                    |client, playback, driver, manager, audio_random| {
-                        let mut propagate =
-                            |client: &mut game_client::core::GameClient, stream_cursor| {
-                                client
-                                    .take_message_stream_until_menu_host(
-                                        playback,
-                                        facts.logic_frame,
-                                        facts.game_mode,
-                                        driver,
-                                        stream_cursor,
-                                    )
-                                    .map_err(|error| anyhow::Error::msg(error.to_string()))
-                            };
+                let (progress, steps) =
+                    self.with_receiving_client_translation(|client, phases, manager| {
                         manager.update_all_receiving_client(
                             dt,
                             timing.as_ref(),
                             client,
                             facts,
                             resume.take(),
-                            audio_random,
-                            &mut propagate,
+                            phases,
                         )
-                    },
-                );
+                    })?;
                 match progress {
                     Ok(crate::subsystem_manager::ReceivingClientUpdateProgress::HostBoundary(
                         cursor,
@@ -3075,12 +3061,23 @@ impl CnCGameEngine {
         let facts = self.receiving_menu_world_facts();
         let control_bar_observation = self.receiving_control_bar_callback_observation();
         let diplomacy = self.receiving_diplomacy_world_facts().ok();
-        let result = self
-            .game_client
-            .with_window_event_effects(Some(facts), |effects| {
+        self.menu_audio.require_bound()?;
+        let locality = self.game_logic.receiving_audio_locality_for_player(-1);
+        let audio_view = super::audio_view::CompletedAudioView::capture(&self.game_logic);
+        let mut menu_audio = self.menu_audio.lend(
+            &mut self.game_logic.session_view.audio_random,
+            locality,
+            audio_view,
+        );
+        let result = self.game_client.with_window_event_effects_and_menu_audio(
+            Some(facts),
+            &mut menu_audio,
+            |effects| {
                 effects.admit_control_bar_callback_observation(control_bar_observation);
                 effects.with_diplomacy_facts(diplomacy.as_ref(), operation)
-            });
+            },
+        );
+        drop(menu_audio);
         self.complete_receiving_menu_host_requests()?;
         Ok(result)
     }
@@ -3097,14 +3094,25 @@ impl CnCGameEngine {
         let diplomacy = self.receiving_diplomacy_world_facts().ok();
         let ui = &mut self.ui_manager;
         let render = &mut self.render_pipeline;
-        let result = self
-            .game_client
-            .with_window_event_effects(Some(facts), |effects| {
+        self.menu_audio.require_bound()?;
+        let locality = self.game_logic.receiving_audio_locality_for_player(-1);
+        let audio_view = super::audio_view::CompletedAudioView::capture(&self.game_logic);
+        let mut menu_audio = self.menu_audio.lend(
+            &mut self.game_logic.session_view.audio_random,
+            locality,
+            audio_view,
+        );
+        let result = self.game_client.with_window_event_effects_and_menu_audio(
+            Some(facts),
+            &mut menu_audio,
+            |effects| {
                 effects.admit_control_bar_callback_observation(control_bar_observation);
                 effects.with_diplomacy_facts(diplomacy.as_ref(), |effects| {
                     operation(ui, render, effects)
                 })
-            });
+            },
+        );
+        drop(menu_audio);
         self.complete_receiving_menu_host_requests()?;
         Ok(result)
     }
@@ -3118,14 +3126,23 @@ impl CnCGameEngine {
         let facts = self.receiving_menu_world_facts();
         let control_bar_observation = self.receiving_control_bar_callback_observation();
         let diplomacy = self.receiving_diplomacy_world_facts().ok();
+        self.menu_audio.require_bound()?;
+        let locality = self.game_logic.receiving_audio_locality_for_player(-1);
+        let audio_view = super::audio_view::CompletedAudioView::capture(&self.game_logic);
+        let mut menu_audio = self.menu_audio.lend(
+            &mut self.game_logic.session_view.audio_random,
+            locality,
+            audio_view,
+        );
         let result = self
             .game_client
-            .with_receiving_shell(Some(facts), |shell, effects| {
+            .with_receiving_shell_and_menu_audio(Some(facts), &mut menu_audio, |shell, effects| {
                 effects.admit_control_bar_callback_observation(control_bar_observation);
                 effects
                     .with_diplomacy_facts(diplomacy.as_ref(), |effects| operation(shell, effects))
             })
             .ok_or_else(|| "menu operation requires released receiving Shell".to_string())?;
+        drop(menu_audio);
         self.complete_receiving_menu_host_requests()?;
         Ok(Some(result))
     }

@@ -12,6 +12,7 @@ struct MultiplayerLocalGeneralPresentation {
 fn multiplayer_local_general_presentation(
     template: Option<&PlayerTemplate>,
     fallback_side_name: &str,
+    generals: &ChallengeGenerals,
 ) -> MultiplayerLocalGeneralPresentation {
     let Some(template) = template else {
         return MultiplayerLocalGeneralPresentation {
@@ -35,13 +36,9 @@ fn multiplayer_local_general_presentation(
         load_screen_music: template.load_screen_music.clone(),
     };
 
-    if let Some(generals) = get_challenge_generals() {
-        if let Ok(generals) = generals.lock() {
-            if let Some(general) = generals.general_by_template_name(&template.name) {
-                presentation.name = GameText::fetch(general.bio_name());
-                presentation.portrait = general.bio_portrait_large().map(str::to_string);
-            }
-        }
+    if let Some(general) = generals.general_by_template_name(&template.name) {
+        presentation.name = GameText::fetch(general.bio_name());
+        presentation.portrait = general.bio_portrait_large().map(str::to_string);
     }
 
     presentation
@@ -51,25 +48,14 @@ fn multiplayer_local_general_text_fallback<'a>(text: &'a str, fallback: &'a str)
     if text.is_empty() { fallback } else { text }
 }
 
-fn play_multiplayer_load_screen_music(music_name: &str) {
+fn play_multiplayer_load_screen_music(music_name: &str, runtime: &mut LoadScreenOperation<'_>) {
     if music_name.is_empty() {
         return;
     }
-    #[cfg(not(test))]
-    {
-        if let Some(audio) = TheAudio::get() {
-            // C++ LoadScreen.cpp:1351 AHSV_StopTheMusicFade first.
-            audio.remove_audio_event(game_engine::common::audio::AHSV_STOP_THE_MUSIC_FADE);
-            let mut event = AudioEventRts::new(music_name);
-            event.set_should_fade(true);
-            let _ = audio.add_audio_event(&event);
-            audio.update();
-        }
-    }
-    #[cfg(test)]
-    {
-        let _ = music_name;
-    }
+    // C++ LoadScreen.cpp:1351: StopTheMusicFade, fading play, update.
+    runtime.effects.fade_out_menu_music();
+    runtime.effects.play_fading_menu_audio(music_name);
+    runtime.effects.pump_menu_audio();
 }
 
 fn set_progress_window(
@@ -218,15 +204,11 @@ fn challenge_persona_text_for_current_mission(
 
 fn current_challenge_persona_text(
     campaign_manager: &crate::gui::campaign_manager::CampaignManager,
+    generals: &ChallengeGenerals,
 ) -> Option<(ChallengePersonaText, ChallengePersonaText)> {
     let campaign = campaign_manager.get_current_campaign()?;
     let mission = campaign_manager.get_current_mission()?;
-    if get_challenge_generals().is_none() {
-        init_challenge_generals();
-    }
-    let generals = get_challenge_generals()?;
-    let generals = generals.lock().ok()?;
-    challenge_persona_text_for_current_mission(&campaign.name, &mission.general_name, &generals)
+    challenge_persona_text_for_current_mission(&campaign.name, &mission.general_name, generals)
 }
 
 fn current_challenge_movie_label(

@@ -1697,6 +1697,13 @@ fn hijack_hides_in_eject_capable_vehicle() {
         v.status.destroyed = true;
     }
     logic.tick_hijacker_updates();
+    assert!(
+        logic.objects[&hid].hijacker_in_vehicle,
+        "source follows a retained effectively-dead target"
+    );
+    logic.objects.remove(&vid);
+    logic.partition_manager.unregister_object(vid.0);
+    logic.tick_hijacker_updates();
     let h = &logic.objects[&hid];
     assert!(!h.hijacker_in_vehicle);
     assert!(!h.status.masked);
@@ -1761,6 +1768,13 @@ fn hijack_airborne_eject_puts_in_america_parachute() {
         }
         v.status.destroyed = true;
     }
+    logic.tick_hijacker_updates();
+    assert!(
+        logic.objects[&hid].hijacker_in_vehicle,
+        "source follows a retained effectively-dead target"
+    );
+    logic.objects.remove(&vid);
+    logic.partition_manager.unregister_object(vid.0);
     logic.tick_hijacker_updates();
 
     let h = &logic.objects[&hid];

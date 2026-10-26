@@ -617,14 +617,17 @@ impl CnCGameEngine {
                 simulate_challenge_generals_set_starts_enabled,
                 simulate_challenge_generals_set_template_num,
             };
+            let mut catalog = self.game_client.challenge_generals().clone();
+            let campaign = self.game_client.campaign_manager_mut();
             wnd_ok = match action.as_str() {
-                "init" => simulate_challenge_generals_init(),
-                "starts" => simulate_challenge_generals_set_starts_enabled(0, true),
-                "bio" => simulate_challenge_generals_set_bio_name(0, &name),
-                "difficulty" => simulate_challenge_generals_set_difficulty(difficulty),
-                "template" => simulate_challenge_generals_set_template_num(0),
-                _ => simulate_challenge_generals_prepare_default(),
+                "init" => simulate_challenge_generals_init(&mut catalog),
+                "starts" => simulate_challenge_generals_set_starts_enabled(&mut catalog, 0, true),
+                "bio" => simulate_challenge_generals_set_bio_name(&mut catalog, 0, &name),
+                "difficulty" => simulate_challenge_generals_set_difficulty(campaign, difficulty),
+                "template" => simulate_challenge_generals_set_template_num(campaign, 0),
+                _ => simulate_challenge_generals_prepare_default(&mut catalog, campaign),
             };
+            self.game_client.admit_challenge_generals(catalog);
         }
         self.runtime_host_last_gameplay_cmd = if wnd_ok {
             format!("click_challenge_generals_ok_wnd_{action}")

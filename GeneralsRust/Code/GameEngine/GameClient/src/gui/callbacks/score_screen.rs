@@ -12,7 +12,7 @@ use crate::gui::campaign_launch_host_bridge::{
 use crate::gui::campaign_manager::{
     Campaign, CampaignManager, GameDifficulty as CampaignDifficulty,
 };
-use crate::gui::challenge_generals::get_challenge_generals;
+
 use crate::gui::game_window::WindowEventEffects;
 use crate::gui::get_skirmish_setup;
 use crate::gui::menu_flags::{set_dont_show_main_menu, set_replay_was_pressed};
@@ -743,8 +743,7 @@ fn finish_single_player_init(effects: &mut WindowEventEffects<'_>) {
             return None;
         }
         let mission = manager.get_current_mission()?;
-        let generals = get_challenge_generals()?;
-        let generals = generals.lock().unwrap_or_else(|error| error.into_inner());
+        let generals = effects.challenge_generals();
         let general = generals.general_by_general_name(&mission.general_name)?;
         let (header_key, image, remarks, sound) = if victorious {
             (
@@ -773,10 +772,7 @@ fn finish_single_player_init(effects: &mut WindowEventEffects<'_>) {
             let state = effects.score_screen_mut();
             display_challenge_win_loss(state, &image, &header, &remarks, manager)
         });
-        if let Some(audio) = TheAudio::get() {
-            let event = gamelogic::common::audio::AudioEventRts::new(&sound);
-            audio.add_audio_event(&event);
-        }
+        effects.play_menu_audio(&sound);
     }
 
     if victorious {
@@ -2326,6 +2322,7 @@ mod tests {
         let mut emitted_messages = Vec::new();
         let mut effects = WindowEventEffects {
             control_bar_observation: None,
+            menu_audio: None,
             input_provenance:
                 crate::gui::control_bar::HostControlBarInputProvenance::InjectedOrUnknown,
             standalone_view: None,
@@ -2363,6 +2360,7 @@ mod tests {
         let mut emitted_messages = Vec::new();
         let mut effects = WindowEventEffects {
             control_bar_observation: None,
+            menu_audio: None,
             input_provenance:
                 crate::gui::control_bar::HostControlBarInputProvenance::InjectedOrUnknown,
             standalone_view: None,
@@ -2814,6 +2812,7 @@ mod os_wnd_tests {
         let mut emitted_messages = Vec::new();
         let mut effects = WindowEventEffects {
             control_bar_observation: None,
+            menu_audio: None,
             input_provenance:
                 crate::gui::control_bar::HostControlBarInputProvenance::InjectedOrUnknown,
             standalone_view: None,

@@ -736,6 +736,7 @@ impl GameClient {
             &mut self.command_hints,
             crate::gui::game_window::WindowEventEffects {
                 control_bar_observation: None,
+                menu_audio: None,
                 input_provenance:
                     crate::gui::control_bar::HostControlBarInputProvenance::InjectedOrUnknown,
                 standalone_view: None,

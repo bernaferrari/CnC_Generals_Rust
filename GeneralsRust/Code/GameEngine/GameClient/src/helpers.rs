@@ -235,35 +235,51 @@ const LOAD_SCREEN_COMPLETION_TRANSITION_MAX_FRAMES: usize = 180;
 /// It owns no client state; the actual WND tree and first-load latch live on GameClient.
 pub struct GameClientLoadScreenHooks<'a> {
     client: &'a mut crate::core::game_client::GameClient,
+    menu_audio: &'a mut dyn crate::gui::menu_audio::MenuAudioEffects,
     active_load_screen: Option<ActiveLoadScreen>,
     pending_game_mode: Option<i32>,
 }
 
 impl<'a> GameClientLoadScreenHooks<'a> {
-    pub fn new(client: &'a mut crate::core::game_client::GameClient) -> Self {
-        Self {
+    pub fn new(
+        client: &'a mut crate::core::game_client::GameClient,
+        menu_audio: &'a mut dyn crate::gui::menu_audio::MenuAudioEffects,
+    ) -> Result<Self, String> {
+        if !menu_audio.is_bound() {
+            return Err("Core loading requires explicit bound menu audio".into());
+        }
+        Ok(Self {
             client,
+            menu_audio,
             active_load_screen: None,
             pending_game_mode: None,
-        }
+        })
     }
 
     fn reveal_shell_main_menu_after_start(&mut self, game_mode: i32) {
         if game_mode != gamelogic::system::game_logic::GAME_SHELL {
             return;
         }
-        self.client.with_receiving_shell(None, |shell, effects| {
-            if let Err(err) = shell.show_main_menu_after_shell_game_start(effects) {
-                log::warn!("Failed to activate shell main menu after shell-map load: {err}");
-            }
-        });
-        self.client.with_window_event_effects(None, |effects| {
-            effects.with_manager(|manager, effects| {
-                if let Err(err) = hide_control_bar(true, manager, effects) {
-                    log::warn!("Failed to hide control bar after shell-map load: {err}");
+        self.client.with_receiving_shell_and_menu_audio(
+            None,
+            &mut *self.menu_audio,
+            |shell, effects| {
+                if let Err(err) = shell.show_main_menu_after_shell_game_start(effects) {
+                    log::warn!("Failed to activate shell main menu after shell-map load: {err}");
                 }
-            });
-        });
+            },
+        );
+        self.client.with_window_event_effects_and_menu_audio(
+            None,
+            &mut *self.menu_audio,
+            |effects| {
+                effects.with_manager(|manager, effects| {
+                    if let Err(err) = hide_control_bar(true, manager, effects) {
+                        log::warn!("Failed to hide control bar after shell-map load: {err}");
+                    }
+                });
+            },
+        );
     }
 }
 
@@ -275,38 +291,44 @@ impl gamelogic::helpers::LoadScreenHooks for GameClientLoadScreenHooks<'_> {
 
     fn ensure_background_window(&mut self) -> Result<(), String> {
         let existing = self.client.prepare_background_layout.clone();
-        let layout = self.client.with_window_event_effects(None, |effects| {
-            effects.with_manager(|manager, effects| {
-                let current = existing.filter(|layout| {
-                    layout.borrow().get_first_window().is_some_and(|window| {
-                        manager
-                            .get_window_by_id(window.borrow().get_id())
-                            .is_some_and(|registered| Rc::ptr_eq(&registered, &window))
-                    })
-                });
-                let layout = match current {
-                    Some(layout) => layout,
-                    None => {
-                        manager
-                            .create_layout_with_windows("Menus/BlankWindow.wnd", effects)
-                            .map_err(|error| error.to_string())?
-                            .0
+        let layout = self.client.with_window_event_effects_and_menu_audio(
+            None,
+            &mut *self.menu_audio,
+            |effects| {
+                effects.with_manager(|manager, effects| {
+                    let current = existing.filter(|layout| {
+                        layout.borrow().get_first_window().is_some_and(|window| {
+                            manager
+                                .get_window_by_id(window.borrow().get_id())
+                                .is_some_and(|registered| Rc::ptr_eq(&registered, &window))
+                        })
+                    });
+                    let layout = match current {
+                        Some(layout) => layout,
+                        None => {
+                            manager
+                                .create_layout_with_windows("Menus/BlankWindow.wnd", effects)
+                                .map_err(|error| error.to_string())?
+                                .0
+                        }
+                    };
+                    layout.borrow().hide(manager, false);
+                    layout.borrow_mut().bring_forward(manager);
+                    if let Some(window) = layout.borrow().get_first_window() {
+                        window.borrow_mut().clear_status(WindowStatus::IMAGE);
                     }
-                };
-                layout.borrow().hide(manager, false);
-                layout.borrow_mut().bring_forward(manager);
-                if let Some(window) = layout.borrow().get_first_window() {
-                    window.borrow_mut().clear_status(WindowStatus::IMAGE);
-                }
-                Ok::<_, String>(layout)
-            })
-        })?;
+                    Ok::<_, String>(layout)
+                })
+            },
+        )?;
         self.client.prepare_background_layout = Some(layout);
         Ok(())
     }
     fn hide_shell(&mut self) -> Result<(), String> {
         self.client
-            .with_receiving_shell(None, |shell, effects| shell.hide(true, effects))
+            .with_receiving_shell_and_menu_audio(None, &mut *self.menu_audio, |shell, effects| {
+                shell.hide(true, effects)
+            })
             .ok_or_else(|| "receiving Shell already borrowed during preparation".to_owned())?;
         Ok(())
     }
@@ -328,7 +350,10 @@ impl gamelogic::helpers::LoadScreenHooks for GameClientLoadScreenHooks<'_> {
         };
         let owner = self.client.window_manager_owner();
         if let Some(active) = self.active_load_screen.take() {
-            reset_load_screen(active.kind, &mut self.client.load_screen_runtime_mut());
+            reset_load_screen(
+                active.kind,
+                &mut self.client.load_screen_runtime_mut(&mut *self.menu_audio),
+            );
         }
         self.pending_game_mode = Some(game_mode);
         let Some(kind) = select_load_screen(request) else {
@@ -338,9 +363,13 @@ impl gamelogic::helpers::LoadScreenHooks for GameClientLoadScreenHooks<'_> {
         // A legal-hold presentation can fail after WND creation. Retain its
         // exact owner receipt before initialization so end_load_screen cleans it.
         self.active_load_screen = Some(ActiveLoadScreen { kind, game_mode });
-        if self.client.init_owned_load_screen(kind, &context)? {
-            let (mut runtime, mut presentation_pump) =
-                self.client.split_load_screen_runtime_and_pump();
+        if self
+            .client
+            .init_owned_load_screen(kind, &context, &mut *self.menu_audio)?
+        {
+            let (mut runtime, mut presentation_pump) = self
+                .client
+                .split_load_screen_runtime_and_pump(&mut *self.menu_audio);
             let _ = run_load_screen_prelude_with_pump(
                 kind,
                 crate::gui::load_screen::LOAD_SCREEN_PRELUDE_MAX_PUMPS,
@@ -348,7 +377,10 @@ impl gamelogic::helpers::LoadScreenHooks for GameClientLoadScreenHooks<'_> {
                 &mut runtime,
             )?;
         } else {
-            reset_load_screen(kind, &mut self.client.load_screen_runtime_mut());
+            reset_load_screen(
+                kind,
+                &mut self.client.load_screen_runtime_mut(&mut *self.menu_audio),
+            );
             self.active_load_screen = None;
         }
 
@@ -358,8 +390,9 @@ impl gamelogic::helpers::LoadScreenHooks for GameClientLoadScreenHooks<'_> {
     fn update_load_screen(&mut self, progress: i32) -> Result<(), String> {
         if let Some(active) = self.active_load_screen {
             let owner = self.client.window_manager_owner();
-            let (mut runtime, mut presentation_pump) =
-                self.client.split_load_screen_runtime_and_pump();
+            let (mut runtime, mut presentation_pump) = self
+                .client
+                .split_load_screen_runtime_and_pump(&mut *self.menu_audio);
             update_load_screen_with_pump(
                 active.kind,
                 progress as f32,
@@ -379,7 +412,9 @@ impl gamelogic::helpers::LoadScreenHooks for GameClientLoadScreenHooks<'_> {
             return Ok(());
         }
         let owner = self.client.window_manager_owner();
-        let (mut runtime, mut presentation_pump) = self.client.split_load_screen_runtime_and_pump();
+        let (mut runtime, mut presentation_pump) = self
+            .client
+            .split_load_screen_runtime_and_pump(&mut *self.menu_audio);
         {
             owner.with_manager(|wm| {
                 wm.transition_set_group(LOAD_SCREEN_COMPLETION_TRANSITION_GROUP, false, None)
@@ -406,7 +441,10 @@ impl gamelogic::helpers::LoadScreenHooks for GameClientLoadScreenHooks<'_> {
         if let Some(active) = active {
             set_mouse_cursor_visibility(true);
             let owner = self.client.window_manager_owner();
-            reset_load_screen(active.kind, &mut self.client.load_screen_runtime_mut());
+            reset_load_screen(
+                active.kind,
+                &mut self.client.load_screen_runtime_mut(&mut *self.menu_audio),
+            );
         }
         if let Some(game_mode) = game_mode {
             self.reveal_shell_main_menu_after_start(game_mode);
@@ -438,7 +476,8 @@ mod load_screen_hook_tests {
         let _guard = lock_test_mouse_visibility();
         set_mouse_cursor_visibility(true);
         let mut client = crate::core::game_client::GameClient::new().unwrap();
-        let mut hooks = GameClientLoadScreenHooks::new(&mut client);
+        let mut audio = crate::gui::menu_audio::SilentMenuAudio::new();
+        let mut hooks = GameClientLoadScreenHooks::new(&mut client, &mut audio).unwrap();
         hooks.active_load_screen = Some(ActiveLoadScreen {
             kind: LoadScreenKind::ShellGame,
             game_mode: gamelogic::system::game_logic::GAME_SHELL,
@@ -453,7 +492,8 @@ mod load_screen_hook_tests {
         let _guard = lock_test_mouse_visibility();
         set_mouse_cursor_visibility(false);
         let mut client = crate::core::game_client::GameClient::new().unwrap();
-        let mut hooks = GameClientLoadScreenHooks::new(&mut client);
+        let mut audio = crate::gui::menu_audio::SilentMenuAudio::new();
+        let mut hooks = GameClientLoadScreenHooks::new(&mut client, &mut audio).unwrap();
         hooks.active_load_screen = Some(ActiveLoadScreen {
             kind: LoadScreenKind::ShellGame,
             game_mode: gamelogic::system::game_logic::GAME_NONE,
@@ -469,7 +509,8 @@ mod load_screen_hook_tests {
         let captured = Rc::clone(&pump_count);
         register_load_screen_presentation_pump(move || captured.set(captured.get() + 1));
         let mut client = crate::core::game_client::GameClient::new().unwrap();
-        let mut hooks = GameClientLoadScreenHooks::new(&mut client);
+        let mut audio = crate::gui::menu_audio::SilentMenuAudio::new();
+        let mut hooks = GameClientLoadScreenHooks::new(&mut client, &mut audio).unwrap();
         hooks.run_load_screen_completion_transition(true);
         clear_load_screen_presentation_pump();
         assert_eq!(pump_count.get(), 0);

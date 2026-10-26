@@ -588,10 +588,9 @@ impl CnCGameEngine {
         // winit to deliver focus/close events before the next decoder step.
         #[cfg(feature = "game_client")]
         if let Some(kind) = self.active_load_screen {
-            game_client::gui::load_screen::begin_nonblocking_load_screen_prelude(
-                kind,
-                &mut self.game_client.load_screen_runtime_mut(),
-            );
+            self.with_receiving_load_screen_audio(|runtime| {
+                game_client::gui::load_screen::begin_nonblocking_load_screen_prelude(kind, runtime);
+            });
         }
         // Park the blocking map load for the next Loading tick. Runtime-host
         // publishes status after each command (run_loop.rs); returning here
@@ -2231,6 +2230,8 @@ impl CnCGameEngine {
         if let Err(err) = reset_result {
             warn!("GameEngine::reset TheSubsystemList->resetAll failed: {err}");
         }
+        #[cfg(feature = "game_client")]
+        self.menu_audio.reset();
 
         #[cfg(feature = "game_client")]
         self.reset_native_filter_selection();

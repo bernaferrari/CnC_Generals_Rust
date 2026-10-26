@@ -1262,9 +1262,20 @@ impl CnCGameEngine {
         #[cfg(feature = "game_client")]
         let mouse = self.game_client.input_mouse_handle();
         #[cfg(feature = "game_client")]
-        let (mut load_owner, _default_load_pump) = self.game_client.split_load_screen_services();
+        let audio_locality = self.game_logic.receiving_audio_locality_for_player(-1);
         #[cfg(feature = "game_client")]
-        if !load_owner.has_renderer() {
+        let audio_view = super::audio_view::CompletedAudioView::capture(&self.game_logic);
+        #[cfg(feature = "game_client")]
+        if let Err(error) = self.menu_audio.require_bound() {
+            warn!("Native map load audio unavailable: {error}");
+            return None;
+        }
+        #[cfg(feature = "game_client")]
+        let menu_audio = &mut self.menu_audio;
+        #[cfg(feature = "game_client")]
+        let game_client = &mut self.game_client;
+        #[cfg(feature = "game_client")]
+        if game_client.ui_renderer().is_none() {
             warn!("Native map load has no receiving UI renderer");
             return None;
         }
@@ -1292,16 +1303,20 @@ impl CnCGameEngine {
             .with_mouse(mouse.clone());
         let loaded = if self.game_logic.game_mode() == GameMode::Shell {
             self.game_logic
-                .load_map_with_progress_and_native_checked(map_name, |_, _| Ok(()), native)
+                .load_map_with_progress_and_native_checked(map_name, |_, _, _| Ok(()), native)
                 .map(|accepted| accepted.then(|| map_name.to_owned()))
         } else if self.game_logic.game_mode() == GameMode::Replay {
             self.game_logic
                 .load_map_with_progress_and_native_checked(
                     map_name,
-                    |progress, phase| {
+                    |audio_random, progress, phase| {
                         #[cfg(feature = "game_client")]
                         if let Some(kind) = active_load_screen {
                             let progress = progress.clamp(0.0, 1.0);
+                            let mut audio =
+                                menu_audio.lend(audio_random, audio_locality, audio_view);
+                            let (mut load_owner, _default_pump) =
+                                game_client.split_load_screen_services(&mut audio);
                             Self::pump_cpp_load_screen_progress(
                                 &mut load_screen_presentation_pump,
                                 kind,
@@ -1325,8 +1340,12 @@ impl CnCGameEngine {
                         .load_map_or_fallback_with_progress_and_native_checked(
                             map_name,
                             DEFAULT_SKIRMISH_MAP,
-                            |progress, phase| {
+                            |audio_random, progress, phase| {
                                 let progress = progress.clamp(0.0, 1.0);
+                                let mut audio =
+                                    menu_audio.lend(audio_random, audio_locality, audio_view);
+                                let (mut load_owner, _default_pump) =
+                                    game_client.split_load_screen_services(&mut audio);
                                 Self::pump_cpp_load_screen_progress(
                                     &mut load_screen_presentation_pump,
                                     kind,
@@ -1343,7 +1362,7 @@ impl CnCGameEngine {
                         .load_map_or_fallback_with_progress_and_native_checked(
                             map_name,
                             DEFAULT_SKIRMISH_MAP,
-                            |_, _| Ok(()),
+                            |_, _, _| Ok(()),
                             native,
                         )
                 }
@@ -1354,7 +1373,7 @@ impl CnCGameEngine {
                     .load_map_or_fallback_with_progress_and_native_checked(
                         map_name,
                         DEFAULT_SKIRMISH_MAP,
-                        |_, _| Ok(()),
+                        |_, _, _| Ok(()),
                         native,
                     )
             }
@@ -1382,8 +1401,6 @@ impl CnCGameEngine {
         drop(load_screen_presentation_pump);
         #[cfg(feature = "game_client")]
         drop(present_load);
-        #[cfg(feature = "game_client")]
-        drop(load_owner);
         #[cfg(feature = "game_client")]
         drop(load_surface);
 

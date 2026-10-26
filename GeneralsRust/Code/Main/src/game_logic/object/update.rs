@@ -1203,6 +1203,31 @@ impl Object {
         }
     }
 
+    /// C++ ExperienceTracker::setVeterancyLevel, including its default feedback.
+    /// Equal levels preserve earned XP; a changed level resets to this actor's
+    /// authored threshold, never another actor's current experience.
+    pub(crate) fn set_exact_veterancy_level(
+        &mut self,
+        level: VeterancyLevel,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
+        feedback: &mut crate::game_logic::VeterancyFeedback<'_>,
+    ) -> bool {
+        let previous = self.experience.level;
+        if previous == level {
+            return false;
+        }
+        self.experience.level = level;
+        let thresholds = self.thing.template.veterancy_xp_thresholds;
+        self.experience.current = match level {
+            VeterancyLevel::Rookie => 0.0,
+            VeterancyLevel::Veteran => thresholds[0],
+            VeterancyLevel::Elite => thresholds[1],
+            VeterancyLevel::Heroic => thresholds[2],
+        };
+        self.apply_veterancy_bonuses(previous, level, audio, feedback);
+        true
+    }
+
     /// C++ ExperienceTracker::setMinVeterancyLevel residual (VeterancyGainCreate).
     ///
     /// Never lowers rank. Seeds residual XP so gain_experience does not demote.

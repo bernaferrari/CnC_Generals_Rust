@@ -199,7 +199,10 @@ impl CnCGameEngine {
     #[cfg(feature = "game_client")]
     pub(in crate::cnc_game_engine) fn inject_game_client_mouse_scroll(&self, delta_y: f32) {
         if let Some(mouse) = self.game_client.input_mouse_handle() {
-            let _ = mouse.lock().expect("receiving Mouse owner poisoned").handle_scroll_lines(delta_y);
+            let _ = mouse
+                .lock()
+                .expect("receiving Mouse owner poisoned")
+                .handle_scroll_lines(delta_y);
         }
     }
 
@@ -247,6 +250,17 @@ impl CnCGameEngine {
             let upgrade_tooltip = self.game_logic.receiving_upgrade_tooltip_observer();
             let menu_world = self.receiving_menu_world_facts();
             let control_bar_observation = self.receiving_control_bar_callback_observation();
+            self.menu_audio
+                .require_bound()
+                .expect("native input admission requires initialized menu audio");
+            let menu_audio_locality = self.game_logic.receiving_audio_locality_for_player(-1);
+            let menu_audio_view =
+                super::super::audio_view::CompletedAudioView::capture(&self.game_logic);
+            let mut menu_audio = self.menu_audio.lend(
+                &mut self.game_logic.session_view.audio_random,
+                menu_audio_locality,
+                menu_audio_view,
+            );
             let pending = &mut self.game_logic.replay_pending;
             let mut replay_version = |filename: &str| {
                 pending
@@ -274,6 +288,7 @@ impl CnCGameEngine {
             let mut context = game_client::gui::window_manager::ControlBarInputContext {
             control_bar_observation:Some(control_bar_observation),
             diplomacy_world: None,
+            menu_audio: Some(&mut menu_audio),
             input_provenance: game_client::gui::control_bar::HostControlBarInputProvenance::InjectedOrUnknown,
             ui, logic_frame: Some(menu_world.logic_frame), client_frame: Some(menu_world.client_frame),
             menus: Some(menus.reborrow()),
@@ -495,6 +510,17 @@ impl CnCGameEngine {
         let upgrade_tooltip = self.game_logic.receiving_upgrade_tooltip_observer();
         let menu_world = self.receiving_menu_world_facts();
         let control_bar_observation = self.receiving_control_bar_callback_observation();
+        self.menu_audio
+            .require_bound()
+            .expect("native input admission requires initialized menu audio");
+        let menu_audio_locality = self.game_logic.receiving_audio_locality_for_player(-1);
+        let menu_audio_view =
+            super::super::audio_view::CompletedAudioView::capture(&self.game_logic);
+        let mut menu_audio = self.menu_audio.lend(
+            &mut self.game_logic.session_view.audio_random,
+            menu_audio_locality,
+            menu_audio_view,
+        );
         let pending = &mut self.game_logic.replay_pending;
         let mut replay_version = |filename: &str| {
             pending
@@ -522,6 +548,7 @@ impl CnCGameEngine {
         let mut context = game_client::gui::window_manager::ControlBarInputContext {
             control_bar_observation:Some(control_bar_observation),
             diplomacy_world: None,
+            menu_audio: Some(&mut menu_audio),
             input_provenance,
             ui, logic_frame: Some(menu_world.logic_frame), client_frame: Some(menu_world.client_frame),
             menus: Some(menus.reborrow()),

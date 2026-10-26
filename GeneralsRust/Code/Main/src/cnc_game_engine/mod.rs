@@ -105,11 +105,15 @@ mod hotkeys;
 pub(crate) mod ini_crc_boot;
 mod input;
 #[cfg(feature = "game_client")]
+mod menu_audio;
+#[cfg(feature = "game_client")]
 mod minimap_bridge;
 mod mouse;
 mod startup_definition_source;
 mod startup_ini_content;
 mod startup_worker_owner;
+#[cfg(feature = "game_client")]
+mod translation_audio_phase;
 #[cfg(test)]
 pub(crate) use mouse::live_view_height_clamp;
 mod native_display;

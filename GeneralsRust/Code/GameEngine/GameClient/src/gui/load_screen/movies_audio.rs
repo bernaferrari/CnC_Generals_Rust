@@ -184,33 +184,15 @@ fn challenge_movie_advance_hook() -> Option<ChallengeMovieAdvanceHook> {
     CHALLENGE_MOVIE_ADVANCE_HOOK.with_borrow(Clone::clone)
 }
 
-fn play_audio_event(event_name: &str) {
-    let _ = add_audio_event(event_name);
+fn play_audio_event(event_name: &str, runtime: &mut LoadScreenOperation<'_>) {
+    let _ = add_audio_event(event_name, runtime);
 }
-
-#[cfg(not(test))]
-fn add_audio_event(event_name: &str) -> u32 {
+fn add_audio_event(
+    event_name: &str,
+    runtime: &mut LoadScreenOperation<'_>,
+) -> Option<crate::gui::menu_audio::MenuAudioHandle> {
     if event_name.is_empty() {
-        return 0;
+        return None;
     }
-    if let Some(audio) = TheAudio::get() {
-        let event = AudioEventRts::new(event_name);
-        audio.add_audio_event(&event)
-    } else {
-        0
-    }
-}
-
-#[cfg(test)]
-fn add_audio_event(event_name: &str) -> u32 {
-    if event_name.is_empty() {
-        0
-    } else {
-        event_name
-            .bytes()
-            .fold(1_u32, |hash, byte| {
-                hash.wrapping_mul(31).wrapping_add(byte as u32)
-            })
-            .max(1)
-    }
+    runtime.effects.play_menu_audio(event_name)
 }

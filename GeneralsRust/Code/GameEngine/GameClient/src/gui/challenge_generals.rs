@@ -8,7 +8,7 @@
 use game_engine::common::ini::{
     ensure_challenge_generals_loaded, get_challenge_generals as get_ini_challenge_generals,
 };
-use std::sync::{Mutex, OnceLock};
+use std::sync::OnceLock;
 
 /// Number of generals in Challenge mode
 /// Matches C++ ChallengeGenerals.h line 18
@@ -345,18 +345,11 @@ pub enum GameDifficulty {
 
 /// Manager for Challenge Generals data and operations
 /// Matches C++ ChallengeGenerals class (ChallengeGenerals.h lines 99-128)
+#[derive(Clone)]
 pub struct ChallengeGenerals {
     /// Array of 12 general personas
     /// Matches C++ m_position (ChallengeGenerals.h line 103)
     positions: [GeneralPersona; NUM_GENERALS],
-
-    /// Currently selected player template number
-    /// Matches C++ m_PlayerTemplateNum (ChallengeGenerals.h line 104)
-    player_template_num: i32,
-
-    /// Current difficulty setting for challenge mode
-    /// Matches C++ m_currentDifficulty (ChallengeGenerals.h line 105)
-    current_difficulty: GameDifficulty,
 
     /// Common could not provide a valid authored persona table.  Keep this
     /// explicit so the legacy GameClient projection cannot mistake blank
@@ -418,8 +411,6 @@ impl ChallengeGenerals {
                 GeneralPersona::new(),
                 GeneralPersona::new(),
             ],
-            player_template_num: 0,
-            current_difficulty: GameDifficulty::Normal,
             persona_data_failed: false,
         }
     }
@@ -496,30 +487,6 @@ impl ChallengeGenerals {
         }
         None
     }
-
-    /// Sets the current player template number
-    /// Matches C++ setCurrentPlayerTemplateNum (ChallengeGenerals.h line 120)
-    pub fn set_current_player_template_num(&mut self, template_num: i32) {
-        self.player_template_num = template_num;
-    }
-
-    /// Gets the current player template number
-    /// Matches C++ getCurrentPlayerTemplateNum (ChallengeGenerals.h line 121)
-    pub fn current_player_template_num(&self) -> i32 {
-        self.player_template_num
-    }
-
-    /// Sets the current difficulty
-    /// Matches C++ setCurrentDifficulty (ChallengeGenerals.h line 123)
-    pub fn set_current_difficulty(&mut self, difficulty: GameDifficulty) {
-        self.current_difficulty = difficulty;
-    }
-
-    /// Gets the current difficulty
-    /// Matches C++ getCurrentDifficulty (ChallengeGenerals.h line 124)
-    pub fn current_difficulty(&self) -> GameDifficulty {
-        self.current_difficulty
-    }
 }
 
 fn fail_closed_general_persona() -> &'static GeneralPersona {
@@ -540,28 +507,6 @@ pub fn create_challenge_generals() -> ChallengeGenerals {
     ChallengeGenerals::new()
 }
 
-/// Global challenge generals instance (mimics C++ singleton pattern)
-static THE_CHALLENGE_GENERALS: OnceLock<Mutex<ChallengeGenerals>> = OnceLock::new();
-
-/// Initialize the global challenge generals instance
-/// Matches C++ TheChallengeGenerals initialization
-pub fn init_challenge_generals() {
-    let generals = THE_CHALLENGE_GENERALS.get_or_init(|| Mutex::new(ChallengeGenerals::new()));
-    generals.lock().unwrap_or_else(|e| e.into_inner()).init();
-}
-
-/// Get immutable reference to global challenge generals
-/// Matches C++ TheChallengeGenerals access
-pub fn get_challenge_generals() -> Option<&'static Mutex<ChallengeGenerals>> {
-    THE_CHALLENGE_GENERALS.get()
-}
-
-/// Get mutable reference to global challenge generals
-/// Matches C++ TheChallengeGenerals access
-pub fn get_challenge_generals_mut() -> Option<std::sync::MutexGuard<'static, ChallengeGenerals>> {
-    THE_CHALLENGE_GENERALS.get().and_then(|m| m.lock().ok())
-}
-
 /// Residual: last ChallengeGenerals action requested by residual peels.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
@@ -574,183 +519,84 @@ pub enum ResidualChallengeGeneralsAction {
     SelectTemplate = 5,
 }
 
-static RESIDUAL_CG_ACTION: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
-static RESIDUAL_CG_STARTS: std::sync::atomic::AtomicBool =
-    std::sync::atomic::AtomicBool::new(false);
-static RESIDUAL_CG_DIFFICULTY: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(1);
-static RESIDUAL_CG_TEMPLATE: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(-1);
-static RESIDUAL_CG_BIO_LEN: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-
-fn residual_cg_action_store(action: ResidualChallengeGeneralsAction) {
-    RESIDUAL_CG_ACTION.store(action as u8, std::sync::atomic::Ordering::Relaxed);
+pub fn residual_challenge_generals_starts_enabled(generals: &ChallengeGenerals) -> bool {
+    generals.challenge_generals()[0].is_starting_enabled()
 }
-
-/// Residual: last ChallengeGenerals residual action.
-pub fn residual_challenge_generals_last_action() -> ResidualChallengeGeneralsAction {
-    match RESIDUAL_CG_ACTION.load(std::sync::atomic::Ordering::Relaxed) {
-        1 => ResidualChallengeGeneralsAction::Init,
-        2 => ResidualChallengeGeneralsAction::SetStartsEnabled,
-        3 => ResidualChallengeGeneralsAction::SetBioName,
-        4 => ResidualChallengeGeneralsAction::SetDifficulty,
-        5 => ResidualChallengeGeneralsAction::SelectTemplate,
-        _ => ResidualChallengeGeneralsAction::None,
+pub fn residual_challenge_generals_bio_name_len(generals: &ChallengeGenerals) -> usize {
+    generals.challenge_generals()[0].bio_name().len()
+}
+pub fn residual_challenge_generals_difficulty(
+    campaign: &crate::gui::campaign_manager::CampaignManager,
+) -> u8 {
+    match campaign.get_game_difficulty() {
+        crate::gui::campaign_manager::GameDifficulty::Easy => 0,
+        crate::gui::campaign_manager::GameDifficulty::Normal => 1,
+        crate::gui::campaign_manager::GameDifficulty::Hard => 2,
     }
 }
-
-/// Residual: persona 0 starts-enabled latch.
-pub fn residual_challenge_generals_starts_enabled() -> bool {
-    RESIDUAL_CG_STARTS.load(std::sync::atomic::Ordering::Relaxed)
+pub fn residual_challenge_generals_template_num(
+    campaign: &crate::gui::campaign_manager::CampaignManager,
+) -> i32 {
+    campaign.get_xfer_challenge_generals_player_template_num()
 }
-
-/// Residual: current difficulty as u8 (Easy=0, Normal=1, Hard=2).
-pub fn residual_challenge_generals_difficulty() -> u8 {
-    RESIDUAL_CG_DIFFICULTY.load(std::sync::atomic::Ordering::Relaxed)
+pub fn simulate_challenge_generals_init(generals: &mut ChallengeGenerals) -> bool {
+    generals.init();
+    !generals.persona_data_failed
 }
-
-/// Residual: current player template num latch.
-pub fn residual_challenge_generals_template_num() -> i32 {
-    RESIDUAL_CG_TEMPLATE.load(std::sync::atomic::Ordering::Relaxed)
-}
-
-/// Residual: persona 0 bio name length latch.
-pub fn residual_challenge_generals_bio_name_len() -> usize {
-    RESIDUAL_CG_BIO_LEN.load(std::sync::atomic::Ordering::Relaxed)
-}
-
-fn residual_cg_ensure() -> bool {
-    if get_challenge_generals().is_none() {
-        init_challenge_generals();
-    }
-    get_challenge_generals().is_some()
-}
-
-fn residual_cg_sync(generals: &ChallengeGenerals) {
-    let persona0 = &generals.challenge_generals()[0];
-    RESIDUAL_CG_STARTS.store(
-        persona0.is_starting_enabled(),
-        std::sync::atomic::Ordering::Relaxed,
-    );
-    RESIDUAL_CG_BIO_LEN.store(
-        persona0.bio_name().len(),
-        std::sync::atomic::Ordering::Relaxed,
-    );
-    let diff_u8 = match generals.current_difficulty() {
-        GameDifficulty::Easy => 0,
-        GameDifficulty::Normal => 1,
-        GameDifficulty::Hard => 2,
-    };
-    RESIDUAL_CG_DIFFICULTY.store(diff_u8, std::sync::atomic::Ordering::Relaxed);
-    RESIDUAL_CG_TEMPLATE.store(
-        generals.current_player_template_num(),
-        std::sync::atomic::Ordering::Relaxed,
-    );
-}
-
-/// Residual: init challenge generals without full INI discovery.
-pub fn simulate_challenge_generals_init() -> bool {
-    init_challenge_generals();
-    let Some(mutex) = get_challenge_generals() else {
+pub fn simulate_challenge_generals_set_starts_enabled(
+    generals: &mut ChallengeGenerals,
+    index: usize,
+    enabled: bool,
+) -> bool {
+    let Some(persona) = generals.positions.get_mut(index) else {
         return false;
     };
-    let Ok(guard) = mutex.lock() else {
+    persona.set_starts_enabled(enabled);
+    persona.is_starting_enabled() == enabled
+}
+pub fn simulate_challenge_generals_set_bio_name(
+    generals: &mut ChallengeGenerals,
+    index: usize,
+    name: &str,
+) -> bool {
+    if name.is_empty() {
+        return false;
+    }
+    let Some(persona) = generals.positions.get_mut(index) else {
         return false;
     };
-    residual_cg_sync(&guard);
-    residual_cg_action_store(ResidualChallengeGeneralsAction::Init);
-    guard.challenge_generals().len() == NUM_GENERALS
+    persona.set_bio_name(name.to_owned());
+    persona.bio_name() == name
 }
-
-/// Residual: enable starts for persona index residual.
-pub fn simulate_challenge_generals_set_starts_enabled(index: usize, enabled: bool) -> bool {
-    if index >= NUM_GENERALS || !residual_cg_ensure() {
-        return false;
-    }
-    let Some(mut guard) = get_challenge_generals_mut() else {
-        return false;
-    };
-    guard.challenge_generals_mut()[index].set_starts_enabled(enabled);
-    residual_cg_sync(&guard);
-    residual_cg_action_store(ResidualChallengeGeneralsAction::SetStartsEnabled);
-    if index == 0 {
-        residual_challenge_generals_starts_enabled() == enabled
-    } else {
-        true
-    }
-}
-
-/// Residual: set persona bio name residual.
-pub fn simulate_challenge_generals_set_bio_name(index: usize, name: &str) -> bool {
-    if index >= NUM_GENERALS || name.is_empty() || !residual_cg_ensure() {
-        return false;
-    }
-    let Some(mut guard) = get_challenge_generals_mut() else {
-        return false;
-    };
-    guard.challenge_generals_mut()[index].set_bio_name(name.to_string());
-    residual_cg_sync(&guard);
-    residual_cg_action_store(ResidualChallengeGeneralsAction::SetBioName);
-    guard.challenge_generals()[index].bio_name() == name
-}
-
-/// Residual: set challenge difficulty residual.
-pub fn simulate_challenge_generals_set_difficulty(difficulty: u8) -> bool {
-    if !residual_cg_ensure() {
-        return false;
-    }
-    let diff = match difficulty {
+pub fn simulate_challenge_generals_set_difficulty(
+    campaign: &mut crate::gui::campaign_manager::CampaignManager,
+    difficulty: u8,
+) -> bool {
+    use crate::gui::campaign_manager::GameDifficulty;
+    let difficulty = match difficulty {
         0 => GameDifficulty::Easy,
         2 => GameDifficulty::Hard,
         _ => GameDifficulty::Normal,
     };
-    let Some(mut guard) = get_challenge_generals_mut() else {
-        return false;
-    };
-    guard.set_current_difficulty(diff);
-    residual_cg_sync(&guard);
-    residual_cg_action_store(ResidualChallengeGeneralsAction::SetDifficulty);
-    residual_challenge_generals_difficulty()
-        == match diff {
-            GameDifficulty::Easy => 0,
-            GameDifficulty::Normal => 1,
-            GameDifficulty::Hard => 2,
-        }
+    campaign.set_game_difficulty(difficulty);
+    campaign.get_game_difficulty() == difficulty
 }
-
-/// Residual: set current player template num residual.
-pub fn simulate_challenge_generals_set_template_num(template_num: i32) -> bool {
-    if !residual_cg_ensure() {
-        return false;
-    }
-    let Some(mut guard) = get_challenge_generals_mut() else {
-        return false;
-    };
-    guard.set_current_player_template_num(template_num);
-    residual_cg_sync(&guard);
-    residual_cg_action_store(ResidualChallengeGeneralsAction::SelectTemplate);
-    residual_challenge_generals_template_num() == template_num
+pub fn simulate_challenge_generals_set_template_num(
+    campaign: &mut crate::gui::campaign_manager::CampaignManager,
+    template: i32,
+) -> bool {
+    campaign.set_xfer_challenge_generals_player_template_num(template);
+    campaign.get_xfer_challenge_generals_player_template_num() == template
 }
-
-/// Residual: init + enable general 0 + name + hard difficulty composite.
-pub fn simulate_challenge_generals_prepare_default() -> bool {
-    if !simulate_challenge_generals_init() {
-        return false;
-    }
-    if !simulate_challenge_generals_set_starts_enabled(0, true) {
-        return false;
-    }
-    if !simulate_challenge_generals_set_bio_name(0, "General Alexander") {
-        return false;
-    }
-    if !simulate_challenge_generals_set_difficulty(2) {
-        return false;
-    }
-    if !simulate_challenge_generals_set_template_num(0) {
-        return false;
-    }
-    residual_challenge_generals_starts_enabled()
-        && residual_challenge_generals_bio_name_len() > 0
-        && residual_challenge_generals_difficulty() == 2
-        && residual_challenge_generals_template_num() == 0
+pub fn simulate_challenge_generals_prepare_default(
+    generals: &mut ChallengeGenerals,
+    campaign: &mut crate::gui::campaign_manager::CampaignManager,
+) -> bool {
+    simulate_challenge_generals_init(generals)
+        && simulate_challenge_generals_set_starts_enabled(generals, 0, true)
+        && simulate_challenge_generals_set_bio_name(generals, 0, "General Alexander")
+        && simulate_challenge_generals_set_difficulty(campaign, 2)
+        && simulate_challenge_generals_set_template_num(campaign, 0)
 }
 
 #[cfg(test)]
@@ -779,7 +625,10 @@ mod tests {
     fn test_challenge_generals_creation() {
         let generals = ChallengeGenerals::new();
         assert_eq!(generals.positions.len(), NUM_GENERALS);
-        assert_eq!(generals.current_difficulty(), GameDifficulty::Normal);
+        assert_eq!(
+            crate::gui::campaign_manager::CampaignManager::new().get_game_difficulty(),
+            crate::gui::campaign_manager::GameDifficulty::Normal
+        );
     }
 
     #[test]
@@ -811,20 +660,18 @@ mod tests {
 
     #[test]
     fn test_difficulty_setting() {
-        let mut generals = ChallengeGenerals::new();
-        assert_eq!(generals.current_difficulty(), GameDifficulty::Normal);
-
-        generals.set_current_difficulty(GameDifficulty::Hard);
-        assert_eq!(generals.current_difficulty(), GameDifficulty::Hard);
-
-        generals.set_current_difficulty(GameDifficulty::Easy);
-        assert_eq!(generals.current_difficulty(), GameDifficulty::Easy);
+        let mut campaign = crate::gui::campaign_manager::CampaignManager::new();
+        assert_eq!(residual_challenge_generals_difficulty(&campaign), 1);
+        assert!(simulate_challenge_generals_set_difficulty(&mut campaign, 2));
+        assert_eq!(residual_challenge_generals_difficulty(&campaign), 2);
+        assert!(simulate_challenge_generals_set_difficulty(&mut campaign, 0));
+        assert_eq!(residual_challenge_generals_difficulty(&campaign), 0);
     }
 
     #[test]
     fn game_client_projection_uses_the_common_locked_general_table() {
-        init_challenge_generals();
-        let generals = get_challenge_generals_mut().expect("ChallengeGenerals UI projection");
+        let mut generals = ChallengeGenerals::new();
+        generals.init();
 
         assert!(
             generals

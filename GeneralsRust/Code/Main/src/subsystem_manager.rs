@@ -500,6 +500,20 @@ impl game_engine::common::audio::audio_event_rts::AudioEventSelection
 }
 
 /// Audio Manager subsystem - handles all audio
+#[cfg(feature = "game_client")]
+pub(crate) trait ReceivingClientPhaseDriver {
+    fn propagate(
+        &mut self,
+        client: &mut game_client::core::GameClient,
+        cursor: Option<game_engine::common::message_stream::PropagationCursor>,
+    ) -> Result<game_engine::common::message_stream::PropagationProgress>;
+    fn update_audio(
+        &mut self,
+        audio: &mut AudioManagerSubsystem,
+        timing: Option<&FrameTiming>,
+    ) -> Result<()>;
+}
+
 pub struct AudioManagerSubsystem {
     audio_manager: Option<crate::assets::audio::AudioManager>,
     _music_on: bool,
@@ -510,6 +524,10 @@ pub struct AudioManagerSubsystem {
     /// Wave 23: leftover TheAudio handles so C++ `removeAudioEvent` can stop the sink.
     looping_object_audio: HashMap<u32, Vec<(String, u32)>>,
     sound_effects_table: Option<crate::assets::SoundEffectsTable>,
+    /// Explicit app device capability, bound once; receipts remain per world.
+    common_audio_device:
+        Option<std::sync::Arc<std::sync::Mutex<game_engine::common::audio::AudioManager>>>,
+    common_audio_handles: Vec<u32>,
 }
 
 impl Default for AudioManagerSubsystem {
@@ -528,7 +546,29 @@ impl AudioManagerSubsystem {
             queued_events: Vec::new(),
             looping_object_audio: HashMap::new(),
             sound_effects_table: None,
+            common_audio_device: None,
+            common_audio_handles: Vec::new(),
         }
+    }
+
+    pub(crate) fn bind_common_audio_device(
+        &mut self,
+        device: std::sync::Arc<std::sync::Mutex<game_engine::common::audio::AudioManager>>,
+    ) {
+        assert!(
+            self.common_audio_device.is_none(),
+            "native audio device binds only once"
+        );
+        self.common_audio_device = Some(device);
+    }
+    fn retire_common_audio_receipts(&mut self) {
+        if let Some(device) = &self.common_audio_device {
+            device
+                .lock()
+                .expect("native audio device poisoned")
+                .retire_audio_handles(&self.common_audio_handles);
+        }
+        self.common_audio_handles.clear();
     }
 
     /// Install the real audio delivery queue into a test-owned manager.
@@ -619,7 +659,7 @@ impl AudioManagerSubsystem {
         }
     }
 
-    fn update_receiving_audio(
+    pub(crate) fn update_receiving_audio(
         &mut self,
         timing: Option<&FrameTiming>,
         random: &mut game_engine::common::random_value::RandomState,
@@ -703,24 +743,23 @@ impl AudioManagerSubsystem {
                     // on TheAudio so Common SpatialSink follows the unit.
                     // Leftover addAudioEvent already applied mute / not-for-local.
                     // C++ has no second backend — do not replay on rodio.
-                    if crate::assets::audio::leftover_the_audio_is_live() {
-                        let handle =
-                            game_engine::common::audio::game_audio::get_global_audio_manager()
-                                .and_then(|manager| {
-                                    let mut manager = manager
-                                        .lock()
-                                        .unwrap_or_else(|poisoned| poisoned.into_inner());
-                                    crate::assets::audio::play_admitted_sound_at(
-                                        &mut manager,
-                                        event.event_type.as_str(),
-                                        position,
-                                        event.object_id.map(|id| id.0),
-                                        event.player_index,
-                                        &locality,
-                                        &mut ReceivingAudioSelection { audio: random },
-                                    )
-                                });
+                    if self.common_audio_device.is_some() {
+                        let handle = self.common_audio_device.as_ref().and_then(|manager| {
+                            let mut manager = manager
+                                .lock()
+                                .unwrap_or_else(|poisoned| poisoned.into_inner());
+                            crate::assets::audio::play_admitted_sound_at(
+                                &mut manager,
+                                event.event_type.as_str(),
+                                position,
+                                event.object_id.map(|id| id.0),
+                                event.player_index,
+                                &locality,
+                                &mut ReceivingAudioSelection { audio: random },
+                            )
+                        });
                         if let Some(handle) = handle {
+                            self.common_audio_handles.push(handle);
                             if event.is_looping {
                                 if let Some(id) = event.object_id {
                                     self.track_looping_object_audio(
@@ -856,14 +895,9 @@ impl SubsystemInterface for AudioManagerSubsystem {
         }
         self.queued_events.clear();
         self.looping_object_audio.clear();
-        // C++ MilesAudioManager::reset via TheSubsystemList->resetAll
-        // (GameEngine.cpp). Leftover game_audio.rs::reset already matches
-        // C++ (stop handles, clear fading/requests, script volumes = 1.0).
-        if let Some(manager) = game_engine::common::audio::game_audio::get_global_audio_manager() {
-            if let Ok(mut audio) = manager.lock() {
-                audio.reset();
-            }
-        }
+        // Native sessions share an application device, never a match namespace.
+        // C++ reset stops this match; the app-wide reset would also kill peers.
+        self.retire_common_audio_receipts();
         Ok(())
     }
 
@@ -877,8 +911,15 @@ impl SubsystemInterface for AudioManagerSubsystem {
 
     fn shutdown(&mut self) -> Result<()> {
         info!("Shutting down AudioManager subsystem");
+        self.retire_common_audio_receipts();
         self.audio_manager = None;
         Ok(())
+    }
+}
+
+impl Drop for AudioManagerSubsystem {
+    fn drop(&mut self) {
+        self.retire_common_audio_receipts();
     }
 }
 
@@ -2144,13 +2185,7 @@ impl SubsystemManager {
         client: &mut game_client::core::GameClient,
         menu_world: game_client::gui::campaign_launch_host_bridge::MenuWorldFacts,
         resume: Option<ReceivingClientUpdateCursor>,
-        audio_random: &mut game_engine::common::random_value::RandomState,
-        propagate: &mut dyn FnMut(
-            &mut game_client::core::GameClient,
-            Option<game_engine::common::message_stream::PropagationCursor>,
-        ) -> Result<
-            game_engine::common::message_stream::PropagationProgress,
-        >,
+        phases: &mut dyn ReceivingClientPhaseDriver,
     ) -> Result<ReceivingClientUpdateProgress> {
         let client_index = self
             .indices_by_type
@@ -2159,6 +2194,10 @@ impl SubsystemManager {
         let stream_index = self
             .indices_by_type
             .get(&TypeId::of::<NativeMessagePhase>())
+            .copied();
+        let audio_index = self
+            .indices_by_type
+            .get(&TypeId::of::<AudioManagerSubsystem>())
             .copied();
         let mut cursor = resume.unwrap_or_else(|| {
             let mut order = Vec::new();
@@ -2184,8 +2223,14 @@ impl SubsystemManager {
                 self.get_mut::<GameClientSubsystem>()
                     .expect("typed GameClient registration changed")
                     .update_receiving_client(timing, client, menu_world)
+            } else if Some(index) == audio_index {
+                phases.update_audio(
+                    self.get_mut::<AudioManagerSubsystem>()
+                        .expect("typed Audio registration changed"),
+                    timing,
+                )
             } else if Some(index) == stream_index {
-                match propagate(client, cursor.stream.take())? {
+                match phases.propagate(client, cursor.stream.take())? {
                     game_engine::common::message_stream::PropagationProgress::Complete(
                         messages,
                     ) => cursor.messages.extend(messages),
@@ -2199,12 +2244,11 @@ impl SubsystemManager {
                 }
                 Ok(())
             } else {
-                Self::update_slot_receiving_audio(
-                    &mut *self.subsystems[index],
-                    dt,
-                    timing,
-                    audio_random,
-                )
+                if let Some(timing) = timing {
+                    self.subsystems[index].update_with_timing(timing)
+                } else {
+                    self.subsystems[index].update(dt)
+                }
             };
             if let Err(error) = result {
                 error!(

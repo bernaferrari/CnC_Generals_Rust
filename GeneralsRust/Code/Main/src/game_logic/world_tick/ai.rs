@@ -862,7 +862,7 @@ impl GameLogic {
         // GuardRetaliate victim-death / return residual.
         self.tick_guard_retaliate_states_with_effects(presentation_effects)?;
         // HijackerUpdate ride residual.
-        self.tick_hijacker_updates_with_effects(presentation_effects);
+        self.tick_hijacker_updates_with_effects(presentation_effects)?;
         // C++ UndeadBody + BattleBusSlowDeathBehavior residual.
         self.tick_battle_bus_slow_deaths_with_effects(presentation_effects);
         // C++ ChinookAIUpdate idle auto-land / evac / combat-drop residual.

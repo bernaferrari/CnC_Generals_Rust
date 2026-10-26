@@ -38,7 +38,7 @@ fn initialize_multiplayer_windows(
         ),
     );
     if prefix == "MultiplayerLoadScreen.wnd" {
-        play_multiplayer_load_screen_music(&context.local_load_screen_music);
+        play_multiplayer_load_screen_music(&context.local_load_screen_music, runtime);
     }
     initialize_multiplayer_map_preview(
         wm,

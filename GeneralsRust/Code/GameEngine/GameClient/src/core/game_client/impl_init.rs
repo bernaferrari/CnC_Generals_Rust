@@ -146,6 +146,16 @@ impl GameClient {
         &self.campaign_manager
     }
 
+    pub fn challenge_generals(&self) -> &crate::gui::challenge_generals::ChallengeGenerals {
+        self.menu_manager.challenge_generals()
+    }
+    pub fn admit_challenge_generals(
+        &mut self,
+        catalog: crate::gui::challenge_generals::ChallengeGenerals,
+    ) {
+        self.menu_manager.admit_challenge_generals(catalog);
+    }
+
     /// Mutably borrow this client's live campaign progress.
     pub fn campaign_manager_mut(&mut self) -> &mut crate::gui::campaign_manager::CampaignManager {
         &mut self.campaign_manager
@@ -181,10 +191,11 @@ impl GameClient {
     /// The callback borrows both the adapter and client for the operation duration.
     pub fn with_load_screen_hooks<R>(
         &mut self,
+        menu_audio: &mut dyn crate::gui::menu_audio::MenuAudioEffects,
         operation: impl FnOnce(&mut dyn gamelogic::helpers::LoadScreenHooks) -> R,
-    ) -> R {
-        let mut hooks = crate::helpers::GameClientLoadScreenHooks::new(self);
-        operation(&mut hooks)
+    ) -> Result<R, String> {
+        let mut hooks = crate::helpers::GameClientLoadScreenHooks::new(self, menu_audio)?;
+        Ok(operation(&mut hooks))
     }
 
     /// Paired Core UI launch. The receiver remains borrowed through original
@@ -195,8 +206,9 @@ impl GameClient {
         difficulty: i32,
         rank_points: i32,
         is_load: bool,
+        menu_audio: &mut dyn crate::gui::menu_audio::MenuAudioEffects,
     ) -> Result<(), String> {
-        self.with_load_screen_hooks(|hooks| {
+        self.with_load_screen_hooks(menu_audio, |hooks| {
             gamelogic::helpers::TheGameLogic::prepare_new_game_with_load_screen_hooks(
                 game_mode,
                 difficulty,
@@ -207,7 +219,7 @@ impl GameClient {
                 is_load,
                 Some(&mut *hooks),
             )
-        })
+        })?
     }
 
     /// Admit effective settings to this client without publishing a recipient.
@@ -222,8 +234,12 @@ impl GameClient {
         &mut self,
         kind: crate::gui::load_screen::LoadScreenKind,
         context: &crate::gui::load_screen::LoadScreenInitContext,
+        menu_audio: &mut dyn crate::gui::menu_audio::MenuAudioEffects,
     ) -> Result<bool, String> {
-        let (mut operation, mut pump) = self.split_load_screen_services();
+        if !menu_audio.is_bound() {
+            return Err("load screen requires bound receiving menu audio".into());
+        }
+        let (mut operation, mut pump) = self.split_load_screen_services(menu_audio);
         operation.init(kind, context, &mut pump)
     }
 
@@ -904,7 +920,7 @@ impl GameClient {
         // `TheChallengeGenerals` immediately after TheInGameUI.  The Rust UI
         // object is now only a projection of Common's authoritative authored
         // persona table, which also serves headless Skirmish validation.
-        crate::gui::challenge_generals::init_challenge_generals();
+        self.menu_manager.init_challenge_generals();
 
         crate::core::subsystems::register_tactical_view_snapshot_block();
 
@@ -1168,12 +1184,36 @@ impl GameClient {
             &mut crate::gui::window_video_manager::WindowVideoManager,
         ) -> R,
     ) -> R {
+        self.with_window_and_control_bar_effects_and_audio(menu_world, None, operation)
+    }
+    pub fn with_window_event_effects_and_menu_audio<R>(
+        &mut self,
+        menu_world: Option<crate::gui::campaign_launch_host_bridge::MenuWorldFacts>,
+        audio: &mut dyn crate::gui::menu_audio::MenuAudioEffects,
+        operation: impl FnOnce(&mut crate::gui::game_window::WindowEventEffects<'_>) -> R,
+    ) -> R {
+        self.with_window_and_control_bar_effects_and_audio(menu_world, Some(audio), |effects, _| {
+            operation(effects)
+        })
+    }
+    fn with_window_and_control_bar_effects_and_audio<R>(
+        &mut self,
+        menu_world: Option<crate::gui::campaign_launch_host_bridge::MenuWorldFacts>,
+        mut audio: Option<&mut dyn crate::gui::menu_audio::MenuAudioEffects>,
+        operation: impl FnOnce(
+            &mut crate::gui::game_window::WindowEventEffects<'_>,
+            &mut crate::gui::window_video_manager::WindowVideoManager,
+        ) -> R,
+    ) -> R {
         self.script_display
             .bind(self.subsystem_manager.display.as_ref());
         let owner = &self.window_manager_owner;
         let mut messages = Vec::new();
         let mut effects = crate::gui::game_window::WindowEventEffects {
             control_bar_observation: None,
+            menu_audio: audio
+                .as_mut()
+                .map(|audio| &mut **audio as &mut dyn crate::gui::menu_audio::MenuAudioEffects),
             input_provenance:
                 crate::gui::control_bar::HostControlBarInputProvenance::InjectedOrUnknown,
             standalone_view: None,
@@ -1214,12 +1254,37 @@ impl GameClient {
             &mut crate::gui::game_window::WindowEventEffects<'_>,
         ) -> R,
     ) -> Option<R> {
+        self.with_receiving_shell_audio(menu_world, None, operation)
+    }
+    pub fn with_receiving_shell_and_menu_audio<R>(
+        &mut self,
+        menu_world: Option<crate::gui::campaign_launch_host_bridge::MenuWorldFacts>,
+        audio: &mut dyn crate::gui::menu_audio::MenuAudioEffects,
+        operation: impl FnOnce(
+            &mut crate::gui::shell::base::Shell,
+            &mut crate::gui::game_window::WindowEventEffects<'_>,
+        ) -> R,
+    ) -> Option<R> {
+        self.with_receiving_shell_audio(menu_world, Some(audio), operation)
+    }
+    fn with_receiving_shell_audio<R>(
+        &mut self,
+        menu_world: Option<crate::gui::campaign_launch_host_bridge::MenuWorldFacts>,
+        mut audio: Option<&mut dyn crate::gui::menu_audio::MenuAudioEffects>,
+        operation: impl FnOnce(
+            &mut crate::gui::shell::base::Shell,
+            &mut crate::gui::game_window::WindowEventEffects<'_>,
+        ) -> R,
+    ) -> Option<R> {
         self.script_display
             .bind(self.subsystem_manager.display.as_ref());
         let owner = &self.window_manager_owner;
         let mut messages = Vec::new();
         let mut effects = crate::gui::game_window::WindowEventEffects {
             control_bar_observation: None,
+            menu_audio: audio
+                .as_mut()
+                .map(|audio| &mut **audio as &mut dyn crate::gui::menu_audio::MenuAudioEffects),
             input_provenance:
                 crate::gui::control_bar::HostControlBarInputProvenance::InjectedOrUnknown,
             standalone_view: None,
@@ -1263,6 +1328,7 @@ impl GameClient {
         let owner = &self.window_manager_owner;
         let mut effects = crate::gui::game_window::WindowEventEffects {
             control_bar_observation: None,
+            menu_audio: None,
             input_provenance:
                 crate::gui::control_bar::HostControlBarInputProvenance::InjectedOrUnknown,
             standalone_view: None,
@@ -1327,6 +1393,7 @@ impl GameClient {
                 let mut pending_clicks = Vec::new();
                 let mut effects = crate::gui::game_window::WindowEventEffects {
                     control_bar_observation: None,
+                    menu_audio: None,
                     input_provenance:
                         crate::gui::control_bar::HostControlBarInputProvenance::InjectedOrUnknown,
                     standalone_view: view.as_deref_mut(),

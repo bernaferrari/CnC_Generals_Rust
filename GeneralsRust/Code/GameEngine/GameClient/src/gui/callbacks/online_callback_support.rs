@@ -73,16 +73,10 @@ pub fn combo_item_data_eq(item_data: Option<usize>, value: i32) -> bool {
     item_data == Some(value as usize)
 }
 
-/// `TheChallengeGenerals` is a `Mutex`; C++ is a raw pointer.
+/// Online UI reads the existing immutable authored definition table. Runtime
+/// menu selection/difficulty never live in that shared asset catalog.
 pub fn challenge_general_starts_enabled(template_name: &str) -> bool {
-    let Some(generals) = crate::gui::challenge_generals::get_challenge_generals() else {
-        return true;
-    };
-    let Ok(guard) = generals.lock() else {
-        return true;
-    };
-    guard
-        .general_by_template_name(template_name)
+    game_engine::common::ini::get_authored_general_by_template_name(template_name)
         .map(|persona| persona.is_starting_enabled())
         .unwrap_or(true)
 }

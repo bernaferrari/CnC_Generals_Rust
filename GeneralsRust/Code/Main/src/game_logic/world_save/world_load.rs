@@ -105,7 +105,7 @@ impl GameLogic {
     {
         self.load_map_with_progress_and_native_checked(
             map_name,
-            |value, phase| {
+            |_, value, phase| {
                 progress(value, phase);
                 Ok(())
             },
@@ -124,7 +124,11 @@ impl GameLogic {
         native: Option<&mut dyn crate::game_logic::NativeMapAdmission>,
     ) -> Result<bool, String>
     where
-        F: FnMut(f32, &str) -> Result<(), String>,
+        F: FnMut(
+            &mut game_engine::common::random_value::RandomState,
+            f32,
+            &str,
+        ) -> Result<(), String>,
     {
         let difficulty = self
             .owned_script_engine
@@ -148,7 +152,7 @@ impl GameLogic {
         self.load_map_with_script_difficulty_and_native_checked(
             map_name,
             difficulty,
-            |value, phase| {
+            |_, value, phase| {
                 progress(value, phase);
                 Ok(())
             },
@@ -168,7 +172,11 @@ impl GameLogic {
         native: Option<&mut dyn crate::game_logic::NativeMapAdmission>,
     ) -> Result<bool, String>
     where
-        F: FnMut(f32, &str) -> Result<(), String>,
+        F: FnMut(
+            &mut game_engine::common::random_value::RandomState,
+            f32,
+            &str,
+        ) -> Result<(), String>,
     {
         let services = Arc::clone(&self.world_services);
         gamelogic::system::engine_stores::with_world_services(&services, || {
@@ -236,7 +244,7 @@ impl GameLogic {
                 difficulty,
                 water_delivery,
                 native,
-                |_, _| Ok(()),
+                |_, _, _| Ok(()),
             )
         })
     }
@@ -251,7 +259,11 @@ impl GameLogic {
         mut report_progress: F,
     ) -> Result<bool, String>
     where
-        F: FnMut(f32, &str) -> Result<(), String>,
+        F: FnMut(
+            &mut game_engine::common::random_value::RandomState,
+            f32,
+            &str,
+        ) -> Result<(), String>,
     {
         if !self.objects.registered_is_empty() || self.has_pending_object_removals() {
             log::error!("Map contents require completed outgoing Object retirement");
@@ -275,7 +287,11 @@ impl GameLogic {
         engine.reset();
         engine.set_global_difficulty(retained_difficulty);
         engine.set_time_frozen_debug(retained_debug);
-        report_progress(0.26, "Preparing map data")?;
+        report_progress(
+            &mut self.session_view.audio_random,
+            0.26,
+            "Preparing map data",
+        )?;
         log::info!("Loading map: {}", map_name);
         let load_started = Instant::now();
         // A failed decode must never leave the previous map marked playable.
@@ -361,7 +377,11 @@ impl GameLogic {
         self.rebuild_objective_lookup();
 
         // Try to locate the real map file so scripts and future terrain loaders have a source.
-        report_progress(0.30, "Resolving map resources")?;
+        report_progress(
+            &mut self.session_view.audio_random,
+            0.30,
+            "Resolving map resources",
+        )?;
         let resolved_map = super::script_loader::find_map_file(map_name);
         let mut decoded_map = None;
         if let Some(path) = &resolved_map {
@@ -431,7 +451,11 @@ impl GameLogic {
                         chunks.join(", ")
                     );
                 }
-                report_progress(0.34, "Parsing map chunks")?;
+                report_progress(
+                    &mut self.session_view.audio_random,
+                    0.34,
+                    "Parsing map chunks",
+                )?;
                 log::info!(
                     "Map '{}' parsed: {} TOC entries, body offset {} bytes",
                     map_name,
@@ -440,7 +464,11 @@ impl GameLogic {
                 );
                 // Replace the test map with parsed object placements for basic fidelity.
                 let settings_started = Instant::now();
-                report_progress(0.36, "Reading map settings")?;
+                report_progress(
+                    &mut self.session_view.audio_random,
+                    0.36,
+                    "Reading map settings",
+                )?;
                 let ai_draft = self.ai_definitions.map_override_draft();
                 let parsed =
                     super::script_loader::parse_map_settings_from_chunky_with_owned_definition_catalogs(
@@ -520,9 +548,17 @@ impl GameLogic {
                     self.admit_map_starting_cash(meta.default_starting_cash);
                 }
                 if self.game_mode != GameMode::Shell {
-                    report_progress(0.40, "Syncing runtime objects")?;
+                    report_progress(
+                        &mut self.session_view.audio_random,
+                        0.40,
+                        "Syncing runtime objects",
+                    )?;
                 } else {
-                    report_progress(0.40, "Syncing shell runtime")?;
+                    report_progress(
+                        &mut self.session_view.audio_random,
+                        0.40,
+                        "Syncing shell runtime",
+                    )?;
                 }
                 let sync_started = Instant::now();
                 if !self.sync_legacy_runtime_from_fast_chunky_with_water_delivery(
@@ -545,7 +581,11 @@ impl GameLogic {
                 );
 
                 let heightmap_started = Instant::now();
-                report_progress(0.46, "Parsing terrain heightmap")?;
+                report_progress(
+                    &mut self.session_view.audio_random,
+                    0.46,
+                    "Parsing terrain heightmap",
+                )?;
                 let heightmap_data =
                     super::script_loader::parse_heightmap_data_from_chunky(&chunky)
                         .ok()
@@ -613,7 +653,11 @@ impl GameLogic {
                             );
                         }
                         let object_spawn_started = Instant::now();
-                        report_progress(0.58, "Spawning world objects")?;
+                        report_progress(
+                            &mut self.session_view.audio_random,
+                            0.58,
+                            "Spawning world objects",
+                        )?;
                         // Singleton onCreate actions may already have created
                         // objects during PlayerList admission. Preserve them.
 
@@ -679,7 +723,11 @@ impl GameLogic {
                         for (index, obj) in objects.iter().enumerate() {
                             if index % 4 == 0 {
                                 let t = (index as f32 / total_objects).clamp(0.0, 1.0);
-                                report_progress(0.58 + t * 0.20, "Spawning world objects")?;
+                                report_progress(
+                                    &mut self.session_view.audio_random,
+                                    0.58 + t * 0.20,
+                                    "Spawning world objects",
+                                )?;
                             }
                             if Self::apply_map_object_scorch(obj) {
                                 continue;
@@ -803,7 +851,11 @@ impl GameLogic {
                                 }
                             }
                         }
-                        report_progress(0.80, "World objects spawned")?;
+                        report_progress(
+                            &mut self.session_view.audio_random,
+                            0.80,
+                            "World objects spawned",
+                        )?;
                         let spawned_ids = spawned_object_ids;
                         self.spawned_map_object_ids = spawned_ids.clone();
                         if let Err(error) = self
@@ -839,7 +891,11 @@ impl GameLogic {
                             log::error!("Map starting object rejected: {error}");
                             return Ok(false);
                         }
-                        report_progress(0.82, "Finalizing world objects")?;
+                        report_progress(
+                            &mut self.session_view.audio_random,
+                            0.82,
+                            "Finalizing world objects",
+                        )?;
                         self.ensure_non_shell_player_presence_with_effects(
                             parsed_settings.as_ref(),
                             &mut native
@@ -856,7 +912,11 @@ impl GameLogic {
                     }
                 }
                 let bounds_started = Instant::now();
-                report_progress(0.84, "Building world bounds")?;
+                report_progress(
+                    &mut self.session_view.audio_random,
+                    0.84,
+                    "Building world bounds",
+                )?;
                 if let Some((min, max)) = bounds_override {
                     self.world_min = min;
                     self.world_max = max;
@@ -1022,7 +1082,11 @@ impl GameLogic {
                     self.refresh_pathfinding_ai_definitions();
                 }
 
-                report_progress(0.88, "Initializing shroud and pathfinding")?;
+                report_progress(
+                    &mut self.session_view.audio_random,
+                    0.88,
+                    "Initializing shroud and pathfinding",
+                )?;
                 log::info!(
                     "Map '{}' bounds/terrain/shroud hookup finished in {:.2}s",
                     map_name,
@@ -1136,7 +1200,11 @@ impl GameLogic {
         }
 
         let scripts_started = Instant::now();
-        report_progress(0.92, "Initializing mission scripts")?;
+        report_progress(
+            &mut self.session_view.audio_random,
+            0.92,
+            "Initializing mission scripts",
+        )?;
         self.initialize_scripts_with_map_data_and_difficulty(
             map_name,
             decoded_map.as_ref(),
@@ -1202,7 +1270,11 @@ impl GameLogic {
         {
             self.update_main_crate_vision();
         }
-        report_progress(0.96, "Map load complete")?;
+        report_progress(
+            &mut self.session_view.audio_random,
+            0.96,
+            "Map load complete",
+        )?;
         log::info!(
             "Map loaded successfully in {:.2}s",
             load_started.elapsed().as_secs_f32()
@@ -1257,7 +1329,7 @@ impl GameLogic {
         self.load_map_or_fallback_with_progress_and_native_checked(
             map_name,
             fallback,
-            |value, phase| {
+            |_, value, phase| {
                 report_progress(value, phase);
                 Ok(())
             },
@@ -1277,7 +1349,11 @@ impl GameLogic {
         mut native: Option<&mut dyn crate::game_logic::NativeMapAdmission>,
     ) -> Result<Option<String>, String>
     where
-        F: FnMut(f32, &str) -> Result<(), String>,
+        F: FnMut(
+            &mut game_engine::common::random_value::RandomState,
+            f32,
+            &str,
+        ) -> Result<(), String>,
     {
         // One admission owns both attempts. Capture the receiving difficulty
         // before either attempt resets map runtime.
@@ -1288,7 +1364,7 @@ impl GameLogic {
         if self.load_map_with_script_difficulty_and_native_checked(
             map_name,
             difficulty,
-            |progress, phase| report_progress(progress, phase),
+            |random, progress, phase| report_progress(random, progress, phase),
             native
                 .as_mut()
                 .map(|native| &mut **native as &mut dyn crate::game_logic::NativeMapAdmission),
@@ -1304,7 +1380,7 @@ impl GameLogic {
             && self.load_map_with_script_difficulty_and_native_checked(
                 fallback,
                 difficulty,
-                |progress, phase| report_progress(progress, phase),
+                |random, progress, phase| report_progress(random, progress, phase),
                 native
                     .as_mut()
                     .map(|native| &mut **native as &mut dyn crate::game_logic::NativeMapAdmission),

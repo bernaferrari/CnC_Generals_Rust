@@ -57,6 +57,7 @@ pub type SystemCallback =
 pub struct WindowEventEffects<'a> {
     pub(crate) control_bar_observation:
         Option<crate::gui::callbacks::control_bar_observation::ControlBarCallbackObservation>,
+    pub(crate) menu_audio: Option<&'a mut dyn crate::gui::menu_audio::MenuAudioEffects>,
     pub(crate) input_provenance: crate::gui::control_bar::HostControlBarInputProvenance,
     pub(crate) standalone_view: Option<&'a mut crate::display::view::View>,
     pub(crate) client_frame: Option<u32>,
@@ -96,6 +97,26 @@ impl<'effects> WindowEventEffects<'effects> {
         &self,
     ) -> Option<crate::gui::callbacks::control_bar_observation::ControlBarCallbackObservation> {
         self.control_bar_observation
+    }
+    pub(crate) fn challenge(&self) -> &crate::gui::callbacks::challenge_menu::ChallengeMenuState {
+        self.menus
+            .as_ref()
+            .expect("Challenge requires receiving menus")
+            .challenge
+    }
+    pub(crate) fn challenge_mut(
+        &mut self,
+    ) -> &mut crate::gui::callbacks::challenge_menu::ChallengeMenuState {
+        self.menus
+            .as_mut()
+            .expect("Challenge requires receiving menus")
+            .challenge
+    }
+    pub fn challenge_generals(&self) -> &crate::gui::challenge_generals::ChallengeGenerals {
+        self.menus
+            .as_ref()
+            .expect("Challenge personas require receiving menus")
+            .challenge_generals
     }
 
     pub(crate) fn difficulty_select(
@@ -157,6 +178,7 @@ impl<'effects> WindowEventEffects<'effects> {
     pub fn new(emitted_messages: &'effects mut Vec<GameMessage>) -> Self {
         Self {
             control_bar_observation: None,
+            menu_audio: None,
             input_provenance:
                 crate::gui::control_bar::HostControlBarInputProvenance::InjectedOrUnknown,
             payloads: Default::default(),
@@ -623,6 +645,96 @@ impl<'effects> WindowEventEffects<'effects> {
 
     /// A leaf callback borrows the actual driving manager for exactly its call.
     /// The outer dispatcher cannot inspect it until the callback returns.
+    pub fn require_menu_audio(&self) -> Result<(), String> {
+        match self.menu_audio.as_deref() {
+            Some(audio) if audio.is_bound() => Ok(()),
+            _ => Err("menu operation requires a bound receiving audio service".into()),
+        }
+    }
+    pub fn has_menu_audio(&self) -> bool {
+        self.require_menu_audio().is_ok()
+    }
+    pub fn play_menu_audio(
+        &mut self,
+        name: &str,
+    ) -> Option<crate::gui::menu_audio::MenuAudioHandle> {
+        self.menu_audio
+            .as_deref_mut()
+            .expect("menu audio admission must be checked before callback")
+            .play(name)
+    }
+    pub fn play_fading_menu_audio(
+        &mut self,
+        name: &str,
+    ) -> Option<crate::gui::menu_audio::MenuAudioHandle> {
+        self.menu_audio
+            .as_deref_mut()
+            .expect("menu audio admission must be checked before callback")
+            .play_fading(name)
+    }
+    pub fn stop_menu_audio(
+        &mut self,
+        handle: crate::gui::menu_audio::MenuAudioHandle,
+    ) -> crate::gui::menu_audio::MenuAudioStop {
+        self.menu_audio
+            .as_deref_mut()
+            .expect("menu audio admission must be checked before callback")
+            .stop(handle)
+    }
+    pub fn pump_menu_audio(&mut self) {
+        self.menu_audio
+            .as_deref_mut()
+            .expect("menu audio admission must be checked before callback")
+            .pump();
+    }
+    pub fn fade_out_menu_music(&mut self) {
+        self.menu_audio
+            .as_deref_mut()
+            .expect("menu audio admission must be checked before callback")
+            .fade_out_music();
+    }
+    pub fn with_menu_audio<R>(
+        &mut self,
+        audio: &mut dyn crate::gui::menu_audio::MenuAudioEffects,
+        operation: impl FnOnce(&mut WindowEventEffects<'_>) -> R,
+    ) -> R {
+        let mut local = WindowEventEffects {
+            control_bar_observation: self.control_bar_observation,
+            menu_audio: Some(audio),
+            payloads: std::mem::take(&mut self.payloads),
+            pending_window_callbacks: std::mem::take(&mut self.pending_window_callbacks),
+            diplomacy_world: self.diplomacy_world,
+            input_provenance: self.input_provenance,
+            ui: self.ui.as_deref_mut(),
+            logic_frame: self.logic_frame,
+            client_frame: self.client_frame,
+            standalone_view: self.standalone_view.as_deref_mut(),
+            manager: self.manager.as_deref_mut(),
+            menus: self.menus.as_mut().map(|menus| menus.reborrow()),
+            ime: self.ime.as_deref_mut(),
+            window_manager_owner: self.window_manager_owner,
+            selected_window: self.selected_window.clone(),
+            emitted_messages: &mut *self.emitted_messages,
+            pending_control_bar_clicks: self.pending_control_bar_clicks.as_deref_mut(),
+            campaign_manager: self.campaign_manager.as_deref_mut(),
+            menu_world: self.menu_world,
+            menu_host: self.menu_host.as_deref_mut(),
+            window_videos: self.window_videos.as_deref_mut(),
+            script_display: self.script_display.as_deref_mut(),
+            main_menu: self.main_menu.as_deref_mut(),
+            pending_main_menu_actions: Vec::new(),
+        };
+        let result =
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| operation(&mut local)));
+        self.payloads = std::mem::take(&mut local.payloads);
+        self.pending_window_callbacks = std::mem::take(&mut local.pending_window_callbacks);
+        self.pending_main_menu_actions
+            .append(&mut local.pending_main_menu_actions);
+        match result {
+            Ok(value) => value,
+            Err(panic) => std::panic::resume_unwind(panic),
+        }
+    }
     pub fn with_diplomacy_facts<R>(
         &mut self,
         facts: Option<&crate::gui::callbacks::diplomacy::DiplomacyWorldFacts>,
@@ -630,6 +742,10 @@ impl<'effects> WindowEventEffects<'effects> {
     ) -> R {
         let mut local = WindowEventEffects {
             control_bar_observation: self.control_bar_observation,
+            menu_audio: self
+                .menu_audio
+                .as_mut()
+                .map(|audio| &mut **audio as &mut dyn crate::gui::menu_audio::MenuAudioEffects),
             payloads: std::mem::take(&mut self.payloads),
             pending_window_callbacks: std::mem::take(&mut self.pending_window_callbacks),
             diplomacy_world: facts,
@@ -673,6 +789,10 @@ impl<'effects> WindowEventEffects<'effects> {
     ) -> R {
         let mut local = WindowEventEffects {
             control_bar_observation: self.control_bar_observation,
+            menu_audio: self
+                .menu_audio
+                .as_mut()
+                .map(|audio| &mut **audio as &mut dyn crate::gui::menu_audio::MenuAudioEffects),
             input_provenance: self.input_provenance,
             payloads: std::mem::take(&mut self.payloads),
             pending_window_callbacks: std::mem::take(&mut self.pending_window_callbacks),

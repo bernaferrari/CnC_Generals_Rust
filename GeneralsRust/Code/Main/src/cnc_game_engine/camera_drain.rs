@@ -1265,15 +1265,19 @@ impl CnCGameEngine {
         &mut self,
         operation: impl FnOnce(
             &mut game_client::core::GameClient,
-            bool,
-            &mut game_client::core::game_client::NativeWindowInputDriver<'_>,
+            &mut super::translation_audio_phase::NativeTranslationPhases<'_, '_>,
             &mut crate::subsystem_manager::SubsystemManager,
-            &mut game_engine::common::random_value::RandomState,
         ) -> R,
-    ) -> (
-        R,
-        Vec<game_client::gui::callbacks::replay_menu::ingress::ReplayMenuStep>,
-    ) {
+    ) -> Result<
+        (
+            R,
+            Vec<game_client::gui::callbacks::replay_menu::ingress::ReplayMenuStep>,
+        ),
+        String,
+    > {
+        self.menu_audio.require_bound()?;
+        let menu_audio_locality = self.game_logic.receiving_audio_locality_for_player(-1);
+        let menu_audio_view = super::audio_view::CompletedAudioView::capture(&self.game_logic);
         let menu_world = self.receiving_menu_world_facts();
         let control_bar_observation = self.receiving_control_bar_callback_observation();
         let diplomacy_world = self.receiving_diplomacy_world_facts().ok();
@@ -1321,7 +1325,7 @@ impl CnCGameEngine {
             let preferences = self.ui_manager.options_preferences_mut();
             let control_bar = &mut self.control_bar;
             let viewport = &mut self.game_logic.session_view.camera;
-            let mut driver = |owner: &game_client::gui::window_manager::WindowManagerOwner,
+            let mut driver = |menu_audio: &mut dyn game_client::gui::menu_audio::MenuAudioEffects, owner: &game_client::gui::window_manager::WindowManagerOwner,
                               campaign: &mut game_client::gui::campaign_manager::CampaignManager,
                               main_menu: &mut game_client::gui::shell::main_menu::MainMenu,
                               menu_host: &mut game_client::gui::campaign_launch_host_bridge::MenuHostMailbox,
@@ -1335,6 +1339,7 @@ impl CnCGameEngine {
                 let mut context = game_client::gui::window_manager::ControlBarInputContext {
             control_bar_observation:Some(control_bar_observation),
             diplomacy_world: diplomacy_world.as_ref(),
+            menu_audio: Some(menu_audio),
             input_provenance: game_client::gui::control_bar::HostControlBarInputProvenance::InjectedOrUnknown,
             ui: Some(ui), logic_frame: Some(menu_world.logic_frame), client_frame: Some(menu_world.client_frame),
             menus: Some(menus.reborrow()),
@@ -1355,15 +1360,24 @@ impl CnCGameEngine {
                 if let Some(step) = replay_operation.take() { steps.push(step); }
                 result
             };
+            let audio = self.menu_audio.lend(
+                &mut self.game_logic.session_view.audio_random,
+                menu_audio_locality,
+                menu_audio_view,
+            );
+            let mut phases = super::translation_audio_phase::NativeTranslationPhases {
+                dispatch: &mut driver,
+                audio,
+                facts: menu_world,
+                playback,
+            };
             operation(
                 &mut self.game_client,
-                playback,
-                &mut driver,
+                &mut phases,
                 &mut self.subsystem_manager,
-                &mut self.game_logic.session_view.audio_random,
             )
         };
-        (result, steps)
+        Ok((result, steps))
     }
 
     #[cfg(feature = "game_client")]
@@ -1372,17 +1386,14 @@ impl CnCGameEngine {
         let mut cursor = None;
         loop {
             let facts = self.receiving_menu_world_facts();
-            let (progress, steps) = self.with_receiving_client_translation(
-                |client, playback, driver, _manager, _audio_random| {
-                    client.take_message_stream_until_menu_host(
-                        playback,
-                        facts.logic_frame,
-                        facts.game_mode,
-                        driver,
+            let (progress, steps) =
+                self.with_receiving_client_translation(|client, phases, _manager| {
+                    crate::subsystem_manager::ReceivingClientPhaseDriver::propagate(
+                        phases,
+                        client,
                         cursor.take(),
                     )
-                },
-            );
+                })?;
             match progress.map_err(|error| error.to_string())? {
                 PropagationProgress::Complete(messages) => {
                     let result = self

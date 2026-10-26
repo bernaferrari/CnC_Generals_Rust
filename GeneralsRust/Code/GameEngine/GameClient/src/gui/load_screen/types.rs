@@ -189,7 +189,7 @@ struct SinglePlayerLoadScreenState {
     movie_label: String,
     briefing_voice_played: bool,
     briefing_voice_handle: u32,
-    ambient_loop_handle: u32,
+    ambient_loop_handle: Option<crate::gui::menu_audio::MenuAudioHandle>,
 }
 
 // Optional external progress callbacks retain their existing adapter boundary.
@@ -352,7 +352,7 @@ struct ChallengeLoadScreenState {
     high_spec_prelude_active: bool,
     current_frame: i32,
     postlude_audio_played: bool,
-    ambient_loop_handle: u32,
+    ambient_loop_handle: Option<crate::gui::menu_audio::MenuAudioHandle>,
     text_pos_big_name_right: usize,
     text_pos_name_right: usize,
     text_pos_birthplace_right: usize,

@@ -276,7 +276,7 @@ fn actual_map_rejects_nested_garrison_body_error_before_later_objects() {
                 !world
                     .load_map_with_progress_and_native_checked(
                         path.to_str().unwrap(),
-                        |_, _| Ok(()),
+                        |_, _, _| Ok(()),
                         native
                     )
                     .expect("nested Body rejection completes its map cleanup")

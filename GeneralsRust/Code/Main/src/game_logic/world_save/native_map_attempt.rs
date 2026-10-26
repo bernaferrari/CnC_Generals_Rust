@@ -20,7 +20,7 @@ impl GameLogic {
             map_script_difficulty,
             water_delivery,
             native,
-            |value, phase| {
+            |_, value, phase| {
                 report_progress(value, phase);
                 Ok(())
             },
@@ -41,7 +41,11 @@ impl GameLogic {
         mut report_progress: F,
     ) -> Result<bool, String>
     where
-        F: FnMut(f32, &str) -> Result<(), String>,
+        F: FnMut(
+            &mut game_engine::common::random_value::RandomState,
+            f32,
+            &str,
+        ) -> Result<(), String>,
     {
         // A loaned interpreter or missing accepted baseline cannot authorize
         // destructive replacement of any outgoing attempt.
@@ -70,7 +74,11 @@ impl GameLogic {
             if accepted {
                 // The final presentation belongs inside the attempt: an error
                 // must retire its Objects before discarding native resources.
-                report_progress(1.0, "Map load complete")?;
+                report_progress(
+                    &mut self.session_view.audio_random,
+                    1.0,
+                    "Map load complete",
+                )?;
             }
             Ok(accepted)
         })();
@@ -189,7 +197,7 @@ mod loading_gate_failure_tests {
                 None,
                 None,
                 Some(&mut native),
-                |_, _| Ok(()),
+                |_, _, _| Ok(()),
             );
             assert!(
                 result
@@ -235,7 +243,7 @@ mod loading_gate_failure_tests {
                 None,
                 None,
                 Some(&mut native),
-                |_, _| Ok(()),
+                |_, _, _| Ok(()),
             )
             .unwrap_err();
         assert!(error.contains("receiving retirement rejected"));
@@ -283,7 +291,7 @@ mod loading_gate_failure_tests {
                 None,
                 None,
                 Some(&mut native),
-                |_, _| Ok(()),
+                |_, _, _| Ok(()),
             )
             .unwrap_err();
         assert!(error.contains("ScriptEngine"));

@@ -744,6 +744,34 @@ impl AudioManager {
         }
     }
 
+    /// Retire receipts belonging to one receiving native owner, without
+    /// resetting another session's device events, requests or script volume.
+    /// Application teardown still uses reset()/shutdown for the whole service.
+    pub fn retire_audio_handles(&mut self, handles: &[AudioHandle]) {
+        if handles.is_empty() {
+            return;
+        }
+        for &handle in handles {
+            if handle >= AHSV_FIRST_HANDLE && handle < 0xFFFF_FFF0 {
+                let _ = self.playback_recipient.with_hook(|hook| hook.stop(handle));
+            }
+        }
+        self.active_audio_events
+            .retain(|handle, _| !handles.contains(handle));
+        self.fading_audio
+            .retain(|fade| !handles.contains(&fade.event.get_playing_handle()));
+        self.audio_force_played
+            .retain(|event| !handles.contains(&event.get_playing_handle()));
+        self.audio_requests.retain(|request| {
+            let handle = request.get_handle().or_else(|| {
+                request
+                    .get_pending_event()
+                    .map(AudioEventRts::get_playing_handle)
+            });
+            !handle.is_some_and(|handle| handles.contains(&handle))
+        });
+    }
+
     pub fn reset(&mut self) {
         // Stop all actively playing sounds through the backend before clearing bookkeeping.
         let handles: Vec<AudioHandle> = self.active_audio_events.keys().copied().collect();
@@ -2507,14 +2535,21 @@ impl AudioManager {
             .unwrap_or_else(|| self.active_audio_events.values().any(is_sensitive))
     }
 
+    pub fn fade_music_for_handles(&mut self, handles: &[AudioHandle]) {
+        self.begin_music_fade_selected(Some(handles));
+    }
     fn begin_music_fade(&mut self) {
+        self.begin_music_fade_selected(None);
+    }
+    fn begin_music_fade_selected(&mut self, handles: Option<&[AudioHandle]>) {
         let music_events: Vec<AudioEventRts> = self
             .active_audio_events
             .values()
             .filter(|event| {
-                event
-                    .get_audio_event_info()
-                    .is_some_and(|info| info.sound_type == AudioType::Music)
+                handles.is_none_or(|handles| handles.contains(&event.get_playing_handle()))
+                    && event
+                        .get_audio_event_info()
+                        .is_some_and(|info| info.sound_type == AudioType::Music)
             })
             .cloned()
             .collect();
@@ -3768,3 +3803,7 @@ mod audio_settings_archive_tests {
 #[cfg(test)]
 #[path = "game_audio_owned_view_tests.rs"]
 mod owned_audio_view_tests;
+
+#[cfg(test)]
+#[path = "scoped_receipt_reset_tests.rs"]
+mod scoped_receipt_reset_tests;

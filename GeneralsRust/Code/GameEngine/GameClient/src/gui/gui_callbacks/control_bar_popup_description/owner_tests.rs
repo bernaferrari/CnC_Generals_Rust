@@ -59,6 +59,7 @@ fn actual_owned_command_tooltip_hover_and_delete_use_receiving_bar_and_window_tr
         let mut context = ControlBarInputContext {
             control_bar_observation:None,
             diplomacy_world: None,
+            menu_audio: None,
             input_provenance: crate::gui::control_bar::HostControlBarInputProvenance::InjectedOrUnknown,
             menus: None,
             ime:None,
@@ -128,6 +129,7 @@ fn actual_owned_command_tooltip_hover_and_delete_use_receiving_bar_and_window_tr
         let mut context = ControlBarInputContext {
             control_bar_observation:None,
             diplomacy_world: None,
+            menu_audio: None,
             input_provenance: crate::gui::control_bar::HostControlBarInputProvenance::InjectedOrUnknown,
             menus: None,
             ime:None,
@@ -167,6 +169,7 @@ fn actual_owned_command_tooltip_hover_and_delete_use_receiving_bar_and_window_tr
         let mut context = ControlBarInputContext {
             control_bar_observation:None,
             diplomacy_world: None,
+            menu_audio: None,
             input_provenance: crate::gui::control_bar::HostControlBarInputProvenance::InjectedOrUnknown,
             menus: None,
             ime:None,

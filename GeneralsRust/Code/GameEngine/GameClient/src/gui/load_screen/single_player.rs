@@ -160,7 +160,7 @@ fn finish_single_player_load_screen_audio_prelude(runtime: &mut LoadScreenOperat
     // C++ LoadScreen.cpp:532-533 `// PULLED FROM THE MISSION DISK` — the movie
     // loop never calls `moveWindows` (the only BriefingVoice caller at :217-220).
     // After the movie / VoiceLength delay, only `LoadScreenAmbient` plays (:590).
-    let ambient_handle = add_audio_event("LoadScreenAmbient");
+    let ambient_handle = add_audio_event("LoadScreenAmbient", runtime);
     with_single_player_load_screen_state(
         |state| {
             state.briefing_voice_played = false;

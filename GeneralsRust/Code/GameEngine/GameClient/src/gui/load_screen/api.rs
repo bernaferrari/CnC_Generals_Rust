@@ -357,7 +357,7 @@ pub fn pump_load_screen_prelude_presentation_with_pump(
 ) -> Result<(), String> {
     finish_load_screen_update(presentation_pump.as_deref_mut(), runtime)?;
     if kind == LoadScreenKind::Challenge {
-        pump_challenge_load_screen_audio();
+        pump_challenge_load_screen_audio(runtime);
     }
 
     Ok(())
@@ -423,7 +423,7 @@ pub fn run_load_screen_prelude_with_pump(
             if kind == LoadScreenKind::Challenge {
                 // C++ ChallengeLoadScreen additionally advances audio after its
                 // display draw during the blocking prelude.
-                pump_challenge_load_screen_audio();
+                pump_challenge_load_screen_audio(runtime);
             }
 
             match step {
@@ -452,6 +452,7 @@ fn run_load_screen_prelude_with_limit(
 
 pub fn load_screen_init_context_from_game_info(
     game_info: &crate::game_network::GameInfo,
+    generals: &ChallengeGenerals,
 ) -> LoadScreenInitContext {
     let slots: Vec<_> = (0..MAX_LOAD_SCREEN_SLOTS)
         .filter_map(|player_id| {
@@ -502,8 +503,11 @@ pub fn load_screen_init_context_from_game_info(
         } else {
             None
         };
-        let local_general_presentation =
-            multiplayer_local_general_presentation(local_template.as_ref(), &local_slot.side_name);
+        let local_general_presentation = multiplayer_local_general_presentation(
+            local_template.as_ref(),
+            &local_slot.side_name,
+            generals,
+        );
         LoadScreenInitContext {
             local_player_name: local_slot.player_name.clone(),
             local_side_name: local_slot.side_name.clone(),

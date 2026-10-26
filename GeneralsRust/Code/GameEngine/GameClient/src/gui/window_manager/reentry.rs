@@ -517,6 +517,10 @@ pub fn dispatch_translated_window_input_for_owner(
     {
         let mut effects = crate::gui::game_window::WindowEventEffects {
             control_bar_observation: context.control_bar_observation,
+            menu_audio: context
+                .menu_audio
+                .as_mut()
+                .map(|audio| &mut **audio as &mut dyn crate::gui::menu_audio::MenuAudioEffects),
             input_provenance: context.input_provenance,
             standalone_view: None,
             ui: context.ui.as_deref_mut(),

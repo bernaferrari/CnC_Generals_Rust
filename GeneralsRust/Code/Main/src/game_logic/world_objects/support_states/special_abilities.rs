@@ -14,7 +14,6 @@ struct RiderChangeEnterPlan {
     /// capability, and physics options.
     active_locomotor: crate::game_logic::locomotor_bootstrap::HostLocomotorBinding,
     previous_rider: Option<ObjectId>,
-    container_position: glam::Vec3,
     /// C++ `wasSelected` is an in-game/local selection fact.  Keep the
     /// owning local player so the object bit and the player's selection list
     /// move together after a successful board.
@@ -2198,7 +2197,6 @@ impl GameLogic {
                 active_locomotor_name,
                 active_locomotor,
                 previous_rider: Some(rider_id),
-                container_position: container.get_position(),
                 incoming_selection_player,
                 incoming_was_selected: incoming_selection_player.is_some(),
                 incoming_veterancy: rider.experience.level,
@@ -2235,7 +2233,6 @@ impl GameLogic {
             active_locomotor_name,
             active_locomotor,
             previous_rider,
-            container_position: container.get_position(),
             incoming_selection_player,
             incoming_was_selected: incoming_selection_player.is_some(),
             incoming_veterancy: rider.experience.level,
@@ -2269,6 +2266,48 @@ impl GameLogic {
             return Ok(false);
         };
 
+        let rider_birth = std::sync::Arc::downgrade(
+            &self
+                .objects
+                .get(&rider_id)
+                .expect("preflight rider")
+                .visual_draw_identity_token,
+        );
+        let container_birth = std::sync::Arc::downgrade(
+            &self
+                .objects
+                .get(&container_id)
+                .expect("preflight container")
+                .visual_draw_identity_token,
+        );
+        let previous_birth = plan
+            .previous_rider
+            .and_then(|id| self.objects.get(&id))
+            .map(|object| std::sync::Arc::downgrade(&object.visual_draw_identity_token));
+        let same_rider = |world: &Self| {
+            world.objects.get(&rider_id).is_some_and(|object| {
+                rider_birth.ptr_eq(&std::sync::Arc::downgrade(
+                    &object.visual_draw_identity_token,
+                ))
+            })
+        };
+        let same_container = |world: &Self| {
+            world.objects.get(&container_id).is_some_and(|object| {
+                container_birth.ptr_eq(&std::sync::Arc::downgrade(
+                    &object.visual_draw_identity_token,
+                ))
+            })
+        };
+        let same_previous = |world: &Self, id| {
+            previous_birth.as_ref().is_some_and(|birth| {
+                world.objects.get(&id).is_some_and(|object| {
+                    birth.ptr_eq(&std::sync::Arc::downgrade(
+                        &object.visual_draw_identity_token,
+                    ))
+                })
+            })
+        };
+
         // Idempotent duplicate: retain the valid existing relation but repair
         // the arrival state without disturbing veterancy or rider effects.
         if plan.previous_rider == Some(rider_id) {
@@ -2285,15 +2324,26 @@ impl GameLogic {
                     Some(container_id),
                     true,
                 );
+                // C++ redeploy observes this receiving container at the call.
+                let position = self
+                    .objects
+                    .get(&container_id)
+                    .expect("same container")
+                    .get_position();
+                if !self.set_owned_object_position_with_effects(
+                    rider_id,
+                    position,
+                    tree_move_frame,
+                    effects,
+                ) || !same_rider(self)
+                    || !same_container(self)
+                {
+                    return Ok(false);
+                }
                 let rider = self
                     .objects
-                    .get_mut(&containment_actor_id)
-                    .expect("containment operation preserves this birth");
-                rider.set_position_with_effects(
-                    plan.container_position,
-                    tree_move_frame,
-                    &mut effects.reborrow_for_object(&mut self.partition_manager),
-                );
+                    .get_mut(&rider_id)
+                    .expect("validated original rider");
                 rider.set_ai_state(
                     AIState::Docked,
                     &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
@@ -2311,6 +2361,15 @@ impl GameLogic {
             rider_id,
             effects,
         ) {
+            return Ok(false);
+        }
+
+        if !same_rider(self)
+            || !same_container(self)
+            || plan
+                .previous_rider
+                .is_some_and(|id| !same_previous(self, id))
+        {
             return Ok(false);
         }
 
@@ -2357,12 +2416,23 @@ impl GameLogic {
                 // exit-path matrix is not represented by this bounded host;
                 // keep the ejected rider at the container origin instead of
                 // fabricating a pseudo-random offset.
-                previous.set_position_with_effects(
-                    plan.container_position,
-                    tree_move_frame,
-                    &mut effects.reborrow_for_object(&mut self.partition_manager),
-                );
                 let containment_actor_id = previous.id;
+                let position = self
+                    .objects
+                    .get(&container_id)
+                    .expect("same container")
+                    .get_position();
+                if !self.set_owned_object_position_with_effects(
+                    previous_rider_id,
+                    position,
+                    tree_move_frame,
+                    effects,
+                ) || !same_previous(self, previous_rider_id)
+                    || !same_container(self)
+                    || !same_rider(self)
+                {
+                    return Ok(false);
+                }
                 Self::set_owned_containment_in_parts(
                     &mut self.objects,
                     &mut self.partition_manager,
@@ -2380,10 +2450,13 @@ impl GameLogic {
                 let previous_id = previous.id;
                 drop(previous);
                 self.set_ai_state_decision_aware_with_effects(previous_id, AIState::Idle, effects)?;
+                if !same_previous(self, previous_id) || !same_container(self) || !same_rider(self) {
+                    return Ok(false);
+                }
                 let previous = self
                     .objects
                     .get_mut(&previous_id)
-                    .expect("RiderChange ejected actor remains installed");
+                    .expect("validated original rider");
                 previous.set_status_moving(false);
                 previous.set_status_attacking(false);
                 previous.deselect();
@@ -2448,15 +2521,25 @@ impl GameLogic {
                 Some(container_id),
                 true,
             );
+            let position = self
+                .objects
+                .get(&container_id)
+                .expect("same container")
+                .get_position();
+            if !self.set_owned_object_position_with_effects(
+                rider_id,
+                position,
+                tree_move_frame,
+                effects,
+            ) || !same_rider(self)
+                || !same_container(self)
+            {
+                return Ok(false);
+            }
             let rider = self
                 .objects
-                .get_mut(&containment_actor_id)
-                .expect("containment operation preserves this birth");
-            rider.set_position_with_effects(
-                plan.container_position,
-                tree_move_frame,
-                &mut effects.reborrow_for_object(&mut self.partition_manager),
-            );
+                .get_mut(&rider_id)
+                .expect("validated original rider");
             rider.set_ai_state(
                 AIState::Docked,
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
@@ -2562,6 +2645,35 @@ impl GameLogic {
             return false;
         };
 
+        let rider_birth = std::sync::Arc::downgrade(
+            &self
+                .objects
+                .get(&rider_id)
+                .expect("preflight rider")
+                .visual_draw_identity_token,
+        );
+        let container_birth = std::sync::Arc::downgrade(
+            &self
+                .objects
+                .get(&container_id)
+                .expect("preflight container")
+                .visual_draw_identity_token,
+        );
+        let same_rider = |world: &Self| {
+            world.objects.get(&rider_id).is_some_and(|object| {
+                rider_birth.ptr_eq(&std::sync::Arc::downgrade(
+                    &object.visual_draw_identity_token,
+                ))
+            })
+        };
+        let same_container = |world: &Self| {
+            world.objects.get(&container_id).is_some_and(|object| {
+                container_birth.ptr_eq(&std::sync::Arc::downgrade(
+                    &object.visual_draw_identity_token,
+                ))
+            })
+        };
+
         let removed = self
             .objects
             .get_mut(&container_id)
@@ -2576,12 +2688,17 @@ impl GameLogic {
             return false;
         }
 
+        if !self.set_owned_object_position_with_effects(
+            rider_id,
+            position,
+            tree_move_frame,
+            effects,
+        ) || !same_rider(self)
+            || !same_container(self)
+        {
+            return false;
+        }
         if let Some(rider) = self.objects.get_mut(&rider_id) {
-            rider.set_position_with_effects(
-                position,
-                tree_move_frame,
-                &mut effects.reborrow_for_object(&mut self.partition_manager),
-            );
             let containment_actor_id = rider.id;
             Self::set_owned_containment_in_parts(
                 &mut self.objects,

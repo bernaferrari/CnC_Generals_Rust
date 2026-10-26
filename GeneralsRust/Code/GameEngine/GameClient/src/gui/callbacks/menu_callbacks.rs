@@ -3082,6 +3082,8 @@ impl MenuCallbacks for LanLobbyMenu {
 
 /// Menu state belongs to one receiving GameClient; construction is inert.
 pub struct MenuManager {
+    challenge: crate::gui::callbacks::challenge_menu::ChallengeMenuState,
+    challenge_generals: crate::gui::challenge_generals::ChallengeGenerals,
     control_bar_callbacks: crate::gui::callbacks::control_bar_callbacks::ControlBarCallbacks,
     message_boxes: crate::gui::callbacks::message_box::MessageBoxSystem,
     diplomacy: crate::gui::callbacks::diplomacy::DiplomacyCallbacks,
@@ -3130,6 +3132,8 @@ impl MenuManager {
 
     pub fn new() -> Self {
         Self {
+            challenge: Default::default(),
+            challenge_generals: crate::gui::challenge_generals::ChallengeGenerals::new(),
             control_bar_callbacks: Default::default(),
             establish_connections:
                 crate::gui::menus::establish_connections_menu::EstablishConnectionsMenu::new(),
@@ -4695,6 +4699,8 @@ mod menu_callbacks_shell_borrow_residual_tests {}
 /// Disjoint operation-scoped loans of the canonical client menu fields.
 /// Taking a loan never moves, replaces, or publishes the menu object.
 pub struct MenuCallbackRecipients<'a> {
+    pub(crate) challenge: &'a mut crate::gui::callbacks::challenge_menu::ChallengeMenuState,
+    pub(crate) challenge_generals: &'a crate::gui::challenge_generals::ChallengeGenerals,
     pub(crate) control_bar_callbacks:
         Option<&'a mut crate::gui::callbacks::control_bar_callbacks::ControlBarCallbacks>,
     pub(crate) message_boxes: &'a mut crate::gui::callbacks::message_box::MessageBoxSystem,
@@ -4728,6 +4734,8 @@ impl MenuManager {
         input_authority: crate::core::game_client::ClientInputAuthority,
     ) -> MenuCallbackRecipients<'_> {
         MenuCallbackRecipients {
+            challenge: &mut self.challenge,
+            challenge_generals: &self.challenge_generals,
             control_bar_callbacks: Some(&mut self.control_bar_callbacks),
             input_authority,
             ingame_ui: &mut self.ingame_ui,
@@ -4755,6 +4763,8 @@ impl MenuManager {
 impl MenuCallbackRecipients<'_> {
     pub fn reborrow(&mut self) -> MenuCallbackRecipients<'_> {
         MenuCallbackRecipients {
+            challenge: &mut *self.challenge,
+            challenge_generals: self.challenge_generals,
             control_bar_callbacks: self.control_bar_callbacks.as_deref_mut(),
             input_authority: self.input_authority,
             ingame_ui: &mut *self.ingame_ui,
@@ -4792,5 +4802,22 @@ impl MenuManager {
 impl MenuManager {
     pub fn message_boxes(&self) -> &crate::gui::callbacks::message_box::MessageBoxSystem {
         &self.message_boxes
+    }
+}
+
+impl MenuManager {
+    pub(crate) fn init_challenge_generals(&mut self) {
+        self.challenge_generals.init();
+    }
+    pub fn challenge_generals(&self) -> &crate::gui::challenge_generals::ChallengeGenerals {
+        &self.challenge_generals
+    }
+    /// Admit effective definitions between callbacks; readers borrow one
+    /// immutable catalog for the bounded operation.
+    pub fn admit_challenge_generals(
+        &mut self,
+        catalog: crate::gui::challenge_generals::ChallengeGenerals,
+    ) {
+        self.challenge_generals = catalog;
     }
 }

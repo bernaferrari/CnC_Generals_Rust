@@ -119,7 +119,7 @@ fn reset_map_transfer_load_screen_state(runtime: &mut LoadScreenOperation<'_>) {
 fn reset_single_player_load_screen_audio_state(runtime: &mut LoadScreenOperation<'_>) {
     let ambient_handle = with_single_player_load_screen_state(
         |state| {
-            let handle = state.ambient_loop_handle;
+            let handle = state.ambient_loop_handle.take();
             state.prelude_state = LoadScreenPreludeState::NotRequired;
             state.prelude_deadline = None;
             state.prelude_duration = Duration::ZERO;
@@ -127,15 +127,13 @@ fn reset_single_player_load_screen_audio_state(runtime: &mut LoadScreenOperation
             state.movie_label.clear();
             state.briefing_voice_played = false;
             state.briefing_voice_handle = 0;
-            state.ambient_loop_handle = 0;
+            state.ambient_loop_handle = None;
             handle
         },
         runtime,
     );
-    if ambient_handle != 0 {
-        if let Some(audio) = TheAudio::get() {
-            audio.remove_audio_event(ambient_handle);
-        }
+    if let Some(handle) = ambient_handle {
+        let _ = runtime.effects.stop_menu_audio(handle);
     }
 }
 

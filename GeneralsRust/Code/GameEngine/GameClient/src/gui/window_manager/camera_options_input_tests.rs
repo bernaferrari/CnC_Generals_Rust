@@ -97,6 +97,7 @@ fn click_options(
     let mut context = ControlBarInputContext {
             control_bar_observation:None,
             diplomacy_world: None,
+            menu_audio: None,
             input_provenance: crate::gui::control_bar::HostControlBarInputProvenance::InjectedOrUnknown,
             menus: None,
             ime:None,

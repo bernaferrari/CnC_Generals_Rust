@@ -179,12 +179,14 @@ impl CnCGameEngine {
                 let setup = game_client::gui::get_lan_setup();
                 game_client::gui::load_screen::load_screen_init_context_from_game_info(
                     setup.game_info(),
+                    self.game_client.challenge_generals(),
                 )
             }),
             GameMode::Skirmish => Some({
                 let setup = game_client::gui::get_skirmish_setup();
                 game_client::gui::load_screen::load_screen_init_context_from_game_info(
                     setup.game_info().game_info(),
+                    self.game_client.challenge_generals(),
                 )
             }),
             _ => None,
@@ -307,19 +309,17 @@ impl CnCGameEngine {
             {
                 Ok(created) => created,
                 Err(error) => {
-                    game_client::gui::load_screen::reset_load_screen(
-                        kind,
-                        &mut self.game_client.load_screen_runtime_mut(),
-                    );
+                    self.with_receiving_load_screen_audio(|runtime| {
+                        game_client::gui::load_screen::reset_load_screen(kind, runtime)
+                    });
                     self.active_load_screen = None;
                     return Err(error);
                 }
             };
             if !created {
-                game_client::gui::load_screen::reset_load_screen(
-                    kind,
-                    &mut self.game_client.load_screen_runtime_mut(),
-                );
+                self.with_receiving_load_screen_audio(|runtime| {
+                    game_client::gui::load_screen::reset_load_screen(kind, runtime)
+                });
                 self.active_load_screen = None;
                 return Err(format!(
                     "Failed to create {kind:?} receiving load-screen layout"
@@ -333,6 +333,24 @@ impl CnCGameEngine {
         Ok(())
     }
 
+    /// One loading UI operation; the canonical client state survives between
+    /// calls, while audio/RNG/device loans end before map mutation resumes.
+    #[cfg(feature = "game_client")]
+    pub(super) fn with_receiving_load_screen_audio<R>(
+        &mut self,
+        operation: impl FnOnce(&mut game_client::gui::load_screen::LoadScreenOperation<'_>) -> R,
+    ) -> R {
+        let locality = self.game_logic.receiving_audio_locality_for_player(-1);
+        let view = super::audio_view::CompletedAudioView::capture(&self.game_logic);
+        let mut audio = self.menu_audio.lend(
+            &mut self.game_logic.session_view.audio_random,
+            locality,
+            view,
+        );
+        let mut load = self.game_client.load_screen_runtime_mut(&mut audio);
+        operation(&mut load)
+    }
+
     #[cfg(feature = "game_client")]
     fn with_native_load_screen_presentation<R>(
         &mut self,
@@ -341,8 +359,16 @@ impl CnCGameEngine {
             &mut game_client::gui::load_screen::LoadScreenPresentationPump<'_>,
         ) -> Result<R, String>,
     ) -> Result<R, String> {
+        self.menu_audio.require_bound()?;
+        let locality = self.game_logic.receiving_audio_locality_for_player(-1);
+        let view = super::audio_view::CompletedAudioView::capture(&self.game_logic);
+        let mut audio = self.menu_audio.lend(
+            &mut self.game_logic.session_view.audio_random,
+            locality,
+            view,
+        );
         let mouse = self.game_client.input_mouse_handle();
-        let (mut load, _default_pump) = self.game_client.split_load_screen_services();
+        let (mut load, _default_pump) = self.game_client.split_load_screen_services(&mut audio);
         if !load.has_renderer() {
             return Err("native load screen has no receiving UI renderer".into());
         }
@@ -430,10 +456,9 @@ impl CnCGameEngine {
             // ShellGameLoadScreen.wnd (92%) stacked over MainMenu.
             let owner = self.game_client.window_manager_owner();
             if let Some(kind) = self.active_load_screen.take() {
-                game_client::gui::load_screen::reset_load_screen(
-                    kind,
-                    &mut self.game_client.load_screen_runtime_mut(),
-                );
+                self.with_receiving_load_screen_audio(|runtime| {
+                    game_client::gui::load_screen::reset_load_screen(kind, runtime)
+                });
             }
             for kind in [
                 game_client::gui::load_screen::LoadScreenKind::ShellGame,
@@ -443,10 +468,9 @@ impl CnCGameEngine {
                 game_client::gui::load_screen::LoadScreenKind::GameSpy,
                 game_client::gui::load_screen::LoadScreenKind::MapTransfer,
             ] {
-                game_client::gui::load_screen::reset_load_screen(
-                    kind,
-                    &mut self.game_client.load_screen_runtime_mut(),
-                );
+                self.with_receiving_load_screen_audio(|runtime| {
+                    game_client::gui::load_screen::reset_load_screen(kind, runtime)
+                });
             }
             self.loading_overlay_active = false;
         }
@@ -1932,8 +1956,14 @@ impl CnCGameEngine {
                 let window = &self.window;
                 let load_kind = self.active_load_screen;
                 let mouse = self.game_client.input_mouse_handle();
-                let (mut load_owner, _default_pump) = self.game_client.split_load_screen_services();
-                if !load_owner.has_renderer() {
+                self.menu_audio
+                    .require_bound()
+                    .map_err(anyhow::Error::msg)?;
+                let audio_locality = game_logic.receiving_audio_locality_for_player(-1);
+                let audio_view = super::audio_view::CompletedAudioView::capture(&game_logic);
+                let menu_audio = &mut self.menu_audio;
+                let game_client = &mut self.game_client;
+                if game_client.ui_renderer().is_none() {
                     return Err(anyhow::anyhow!("startup loading UI renderer unavailable"));
                 }
                 let (draw_services, mut surface) = self
@@ -1974,13 +2004,17 @@ impl CnCGameEngine {
                 let loaded = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                     game_logic.load_map_with_progress_and_native_checked(
                         &map_to_load,
-                        |progress, phase| {
+                        |audio_random, progress, phase| {
                             let progress = progress.clamp(0.0, 0.995);
                             window.set_title(&format!(
                                 "Command & Conquer Generals Zero Hour - Loading {phase} ({:.0}%)",
                                 progress * 100.0
                             ));
                             if let Some(kind) = load_kind {
+                                let mut audio =
+                                    menu_audio.lend(audio_random, audio_locality, audio_view);
+                                let (mut load_owner, _default_pump) =
+                                    game_client.split_load_screen_services(&mut audio);
                                 Self::pump_cpp_load_screen_progress(
                                     &mut pump,
                                     kind,

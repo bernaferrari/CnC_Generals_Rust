@@ -38,7 +38,9 @@ fn initialize_challenge_windows(
         hide_window(wm, name, true);
     }
 
-    let Some((player, opponent)) = current_challenge_persona_text(runtime.campaign()) else {
+    let Some((player, opponent)) =
+        current_challenge_persona_text(runtime.campaign(), runtime.effects.challenge_generals())
+    else {
         return;
     };
     let movie_label = current_challenge_movie_label(runtime.campaign());
@@ -49,7 +51,7 @@ fn initialize_challenge_windows(
             state.opponent = Some(opponent.clone());
             state.current_frame = 0;
             state.postlude_audio_played = false;
-            state.ambient_loop_handle = 0;
+            state.ambient_loop_handle = None;
         },
         runtime,
     );
@@ -293,9 +295,9 @@ fn finish_challenge_load_screen_audio_postlude(runtime: &mut LoadScreenOperation
         return;
     };
     if let Some(taunt) = taunt {
-        play_audio_event(&taunt);
+        play_audio_event(&taunt, runtime);
     }
-    let ambient_handle = add_audio_event("LoadScreenAmbient");
+    let ambient_handle = add_audio_event("LoadScreenAmbient", runtime);
     with_challenge_load_screen_state(
         |state| {
             state.ambient_loop_handle = ambient_handle;
@@ -304,16 +306,14 @@ fn finish_challenge_load_screen_audio_postlude(runtime: &mut LoadScreenOperation
     );
 }
 
-fn pump_challenge_load_screen_audio() {
-    if let Some(audio) = TheAudio::get() {
-        audio.update();
-    }
+fn pump_challenge_load_screen_audio(runtime: &mut LoadScreenOperation<'_>) {
+    runtime.effects.pump_menu_audio();
 }
 
 fn reset_challenge_load_screen_audio_state(runtime: &mut LoadScreenOperation<'_>) {
     let ambient_handle = with_challenge_load_screen_state(
         |state| {
-            let handle = state.ambient_loop_handle;
+            let handle = state.ambient_loop_handle.take();
             state.prelude_state = LoadScreenPreludeState::NotRequired;
             state.prelude_deadline = None;
             state.prelude_duration = Duration::ZERO;
@@ -321,15 +321,13 @@ fn reset_challenge_load_screen_audio_state(runtime: &mut LoadScreenOperation<'_>
             state.high_spec_prelude_active = false;
             state.current_frame = 0;
             state.postlude_audio_played = false;
-            state.ambient_loop_handle = 0;
+            state.ambient_loop_handle = None;
             handle
         },
         runtime,
     );
-    if ambient_handle != 0 {
-        if let Some(audio) = TheAudio::get() {
-            audio.remove_audio_event(ambient_handle);
-        }
+    if let Some(handle) = ambient_handle {
+        let _ = runtime.effects.stop_menu_audio(handle);
     }
 }
 
@@ -392,7 +390,7 @@ fn activate_challenge_pieces_frame_windows(
             );
             hide_window(wm, "ChallengeLoadScreen.wnd:PortraitMovieLeft", false);
             hide_window(wm, "ChallengeLoadScreen.wnd:PortraitMovieRight", false);
-            play_audio_event(&player.name_sound);
+            play_audio_event(&player.name_sound, runtime);
         }
         FRAME_OUTER_CIRCLE_ALPHA_SHOW => {
             hide_window(wm, "ChallengeLoadScreen.wnd:CircleAlphaOuter", false);
@@ -408,10 +406,10 @@ fn activate_challenge_pieces_frame_windows(
             hide_window(wm, "ChallengeLoadScreen.wnd:OverlayVs", false);
             let _ =
                 play_challenge_movie(wm, "ChallengeLoadScreen.wnd:OverlayVs", "VSSmall", runtime);
-            play_audio_event("Taunts_GCAnnouncer12");
+            play_audio_event("Taunts_GCAnnouncer12", runtime);
         }
         FRAME_RIGHT_VOICE => {
-            play_audio_event(&opponent.name_sound);
+            play_audio_event(&opponent.name_sound, runtime);
         }
         _ => {}
     }

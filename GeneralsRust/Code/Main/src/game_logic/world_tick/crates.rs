@@ -1760,114 +1760,150 @@ impl GameLogic {
         height_above_terrain > -(3.0 * 3.0) * crate::game_logic::Object::SHOCK_GRAVITY
     }
 
-    /// Tick HijackerUpdate residual for all in-vehicle hijackers.
+    /// Source HijackerUpdate, driven by this exact receiving world.
     pub fn tick_hijacker_updates(&mut self) {
-        self.tick_hijacker_updates_with_effects(
-            &mut crate::game_logic::ScriptPresentationEffects::default(),
-        )
+        self.tick_hijacker_updates_with_effects(&mut Default::default())
+            .expect("receiving HijackerUpdate failed");
     }
-
     pub(crate) fn tick_hijacker_updates_with_effects(
         &mut self,
-        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
-        let riders: Vec<(ObjectId, ObjectId)> = self
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<()> {
+        let riders: Vec<_> = self
             .objects
             .registered()
-            .filter(|(_, o)| o.hijacker_in_vehicle)
-            .filter_map(|(id, o)| o.hijack_vehicle_id.map(|vid| (*id, vid)))
-            .collect();
-        for (rider_id, vehicle_id) in riders {
-            let vehicle_alive = self
-                .objects
-                .get(&vehicle_id)
-                .map(|v| v.is_alive() && !v.status.destroyed)
-                .unwrap_or(false);
-            if !vehicle_alive {
-                let (epos, air) = {
-                    let r = self.objects.get(&rider_id);
-                    (
-                        r.and_then(|o| o.hijacker_eject_pos)
-                            .or_else(|| r.map(|o| o.get_position()))
-                            .unwrap_or(glam::Vec3::ZERO),
-                        r.map(|o| o.hijacker_was_airborne).unwrap_or(false),
-                    )
-                };
-                if let Some(r) = self.objects.get_mut(&rider_id) {
-                    r.end_hijacker_in_vehicle_with_effects(
-                        epos,
-                        air,
-                        self.frame,
-                        &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
-                        &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
-                    );
-                }
-                // C++ HijackerUpdate: ThePartitionManager->registerObject(obj).
-                if let Some(r) = self.objects.get(&rider_id) {
-                    let p = r.get_position();
-                    let fp = super::collide_dispatch::host_object_footprint(r);
-                    self.partition_manager
-                        .register_object_geometry(rider_id.0, p.x, p.z, fp);
-                }
-
-                // C++ HijackerUpdate: if m_wasTargetAirborne → PutInContainer
-                // AmericaParachute (m_parachuteName) at m_ejectPos.
-                if air {
-                    self.put_hijacker_in_airborne_parachute_with_effects(
-                        rider_id,
-                        epos,
-                        presentation_effects,
-                    );
-                }
-                continue;
-            }
-            let (vpos, air, vlevel, vxp) = {
-                let v = self.objects.get(&vehicle_id).unwrap();
+            .filter(|(_, rider)| rider.hijacker_update_active)
+            .map(|(id, rider)| {
                 (
-                    v.get_position(),
-                    self.vehicle_is_significantly_above_terrain(v),
-                    v.experience.level,
-                    v.experience.current,
+                    *id,
+                    std::sync::Arc::downgrade(&rider.visual_draw_identity_token),
                 )
+            })
+            .collect();
+        for (rider_id, rider_birth) in riders {
+            let same_rider = |object: &Object| {
+                rider_birth.ptr_eq(&std::sync::Arc::downgrade(
+                    &object.visual_draw_identity_token,
+                ))
             };
-            // Sync vehicle veterancy MAX back onto vehicle too.
-            if let Some(v) = self.objects.get_mut(&vehicle_id) {
-                // Will re-read rider level after tick
-                let _ = v;
-            }
-            if let Some(r) = self.objects.get_mut(&rider_id) {
-                r.tick_hijacker_in_vehicle_with_effects(
-                    vpos,
-                    air,
-                    vlevel,
-                    vxp,
-                    self.frame,
-                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
-                );
-            }
-            // Apply MAX level to vehicle from rider after tick.
-            let rlevel = self
+            let Some(rider) = self
                 .objects
                 .get(&rider_id)
-                .map(|r| r.experience.level)
-                .unwrap_or(vlevel);
-            self.with_object_veterancy_feedback(vehicle_id, |v, audio, feedback| {
-                use crate::game_logic::VeterancyLevel;
-                let rank = |l: VeterancyLevel| -> u8 {
-                    match l {
-                        VeterancyLevel::Rookie => 0,
-                        VeterancyLevel::Veteran => 1,
-                        VeterancyLevel::Elite => 2,
-                        VeterancyLevel::Heroic => 3,
-                    }
-                };
-                if rank(rlevel) > rank(v.experience.level) {
-                    let prev = v.experience.level;
-                    v.experience.level = rlevel;
-                    v.apply_veterancy_bonuses(prev, rlevel, audio, feedback);
+                .filter(|object| same_rider(object))
+            else {
+                continue;
+            };
+            if !rider.hijacker_in_vehicle {
+                self.objects
+                    .get_mut(&rider_id)
+                    .unwrap()
+                    .hijacker_was_airborne = false;
+                continue;
+            }
+            let vehicle_id = rider.hijack_vehicle_id;
+            // C++ deliberately tests target existence, not effectively-dead.
+            // Keep following a retained wreck until the registry removes it.
+            let vehicle = vehicle_id.and_then(|id| self.objects.get(&id));
+            let Some(vehicle) = vehicle else {
+                let eject_pos = rider.hijacker_eject_pos.unwrap_or(rider.get_position());
+                let was_airborne = rider.hijacker_was_airborne;
+                let has_ai = rider.has_ai_update_interface();
+                {
+                    let rider = self.objects.get_mut(&rider_id).unwrap();
+                    self.partition_manager.attach_receiving_object(rider);
+                    let pos = rider.get_position();
+                    let footprint = super::collide_dispatch::host_object_footprint(rider);
+                    self.partition_manager
+                        .register_object_geometry(rider_id.0, pos.x, pos.z, footprint);
+                    rider.set_drawable_hidden(false);
+                    rider.set_status_no_collisions(false);
+                    rider.set_status_masked(false);
+                    rider.set_status_unselectable(false);
                 }
+                // No position restore exists in the original eject branch.
+                if has_ai {
+                    self.enter_base_ai_idle_owned(rider_id, effects)?;
+                }
+                if !self
+                    .objects
+                    .get(&rider_id)
+                    .is_some_and(|rider| same_rider(rider))
+                {
+                    continue;
+                }
+                if was_airborne {
+                    self.put_hijacker_in_airborne_parachute_with_effects(
+                        rider_id, eject_pos, effects,
+                    );
+                }
+                if let Some(rider) = self
+                    .objects
+                    .get_mut(&rider_id)
+                    .filter(|rider| same_rider(rider))
+                {
+                    // Source module completion follows the optional containment.
+                    rider.hijack_vehicle_id = None;
+                    rider.hijacker_in_vehicle = false;
+                    rider.hijacker_update_active = false;
+                    rider.hijacker_was_airborne = false;
+                }
+                continue;
+            };
+            let vehicle_id = vehicle_id.expect("existing target has ID");
+            let vehicle_birth = std::sync::Arc::downgrade(&vehicle.visual_draw_identity_token);
+            let position = vehicle.get_position();
+            if !self.set_owned_object_position_with_effects(rider_id, position, self.frame, effects)
+            {
+                continue;
+            }
+            // Position callback has completed. The source rereads these facts
+            // from its original receiving target, not a pre-callback snapshot.
+            let same_vehicle = |object: &Object| {
+                vehicle_birth.ptr_eq(&std::sync::Arc::downgrade(
+                    &object.visual_draw_identity_token,
+                ))
+            };
+            let Some(vehicle) = self
+                .objects
+                .get(&vehicle_id)
+                .filter(|vehicle| same_vehicle(vehicle))
+            else {
+                continue;
+            };
+            let airborne = self.vehicle_is_significantly_above_terrain(vehicle);
+            let eject_pos = vehicle.get_position();
+            let vehicle_level = vehicle.experience.level;
+            let Some(rider) = self
+                .objects
+                .get_mut(&rider_id)
+                .filter(|rider| same_rider(rider))
+            else {
+                continue;
+            };
+            rider.hijacker_was_airborne = airborne;
+            rider.hijacker_eject_pos = Some(eject_pos);
+            let highest = if hijacker_veterancy_rank(vehicle_level)
+                > hijacker_veterancy_rank(rider.experience.level)
+            {
+                vehicle_level
+            } else {
+                rider.experience.level
+            };
+            // Original jacker setter precedes target setter, both with feedback.
+            self.with_object_veterancy_feedback(rider_id, |rider, audio, feedback| {
+                rider.set_exact_veterancy_level(highest, audio, feedback);
             });
+            if self
+                .objects
+                .get(&vehicle_id)
+                .is_some_and(|vehicle| same_vehicle(vehicle))
+            {
+                self.with_object_veterancy_feedback(vehicle_id, |vehicle, audio, feedback| {
+                    vehicle.set_exact_veterancy_level(highest, audio, feedback);
+                });
+            }
         }
+        Ok(())
     }
     pub fn transfer_script_object_name(&mut self, from_id: ObjectId, to_id: ObjectId) -> bool {
         let Some(name) = self.objects.get(&from_id).map(|object| object.name.clone()) else {
@@ -2549,3 +2585,17 @@ mod hq_tb5nn_tests {
         assert_eq!(u.weapon_lock_slot, 1);
     }
 }
+
+fn hijacker_veterancy_rank(level: crate::game_logic::VeterancyLevel) -> u8 {
+    use crate::game_logic::VeterancyLevel;
+    match level {
+        VeterancyLevel::Rookie => 0,
+        VeterancyLevel::Veteran => 1,
+        VeterancyLevel::Elite => 2,
+        VeterancyLevel::Heroic => 3,
+    }
+}
+
+#[cfg(test)]
+#[path = "crates/hijacker_owner_tests.rs"]
+mod hijacker_owner_tests;

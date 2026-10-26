@@ -3,6 +3,7 @@ use crate::game_logic::GameLogic;
 use game_engine::common::audio::{audio_event_rts::Coord3D, game_audio::AudioViewObservation};
 use glam::{Mat4, Vec3};
 
+#[derive(Clone, Copy)]
 pub(super) struct CompletedAudioView {
     pub(super) listener: AudioViewObservation,
     view: Mat4,
