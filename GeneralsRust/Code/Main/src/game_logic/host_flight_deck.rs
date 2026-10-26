@@ -134,6 +134,7 @@ impl GameLogic {
             self.flight_decks.remove(&carrier_id);
             return;
         };
+        let carrier_id_birth = std::sync::Arc::downgrade(&carrier.visual_draw_identity_token);
         if !carrier.is_alive() || carrier.status.destroyed || carrier.status.sold {
             self.kill_flight_deck_parked_units(carrier_id);
             self.flight_decks.remove(&carrier_id);
@@ -153,12 +154,40 @@ impl GameLogic {
             .is_some_and(|state| state.got_info)
         {
             self.flight_deck_build_info_with_effects(carrier_id, true, effects);
+            if !self.objects.get(&carrier_id).is_some_and(|object| {
+                carrier_id_birth.ptr_eq(&std::sync::Arc::downgrade(
+                    &object.visual_draw_identity_token,
+                ))
+            }) {
+                return;
+            }
         }
         self.flight_deck_purge_dead(carrier_id);
         self.flight_deck_adopt_unassigned_replacements(carrier_id, effects);
+        if !self.objects.get(&carrier_id).is_some_and(|object| {
+            carrier_id_birth.ptr_eq(&std::sync::Arc::downgrade(
+                &object.visual_draw_identity_token,
+            ))
+        }) {
+            return;
+        }
         self.flight_deck_update_parking_assignments(carrier_id);
         self.flight_deck_update_replacements_with_effects(carrier_id, effects);
+        if !self.objects.get(&carrier_id).is_some_and(|object| {
+            carrier_id_birth.ptr_eq(&std::sync::Arc::downgrade(
+                &object.visual_draw_identity_token,
+            ))
+        }) {
+            return;
+        }
         self.flight_deck_update_launch_waves(carrier_id, effects);
+        if !self.objects.get(&carrier_id).is_some_and(|object| {
+            carrier_id_birth.ptr_eq(&std::sync::Arc::downgrade(
+                &object.visual_draw_identity_token,
+            ))
+        }) {
+            return;
+        }
         self.flight_deck_update_no_attack(carrier_id);
     }
 
@@ -173,6 +202,14 @@ impl GameLogic {
         create_units: bool,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
+        let Some(carrier_id_birth) = self
+            .objects
+            .get(&carrier_id)
+            .map(|object| std::sync::Arc::downgrade(&object.visual_draw_identity_token))
+        else {
+            return;
+        };
+
         let pose_frame = self.frame;
         if self
             .flight_decks
@@ -296,6 +333,13 @@ impl GameLogic {
         };
 
         for (index, pos, orient) in spawn_jobs {
+            if !self.objects.get(&carrier_id).is_some_and(|object| {
+                carrier_id_birth.ptr_eq(&std::sync::Arc::downgrade(
+                    &object.visual_draw_identity_token,
+                ))
+            }) {
+                return;
+            }
             let Some(jet_id) = self.create_object_for_owner_or_team_with_effects(
                 &metadata.payload_template,
                 team,
@@ -306,16 +350,31 @@ impl GameLogic {
             ) else {
                 continue;
             };
+            if !self.objects.get(&carrier_id).is_some_and(|object| {
+                carrier_id_birth.ptr_eq(&std::sync::Arc::downgrade(
+                    &object.visual_draw_identity_token,
+                ))
+            }) {
+                return;
+            }
             if let Some(jet) = self.objects.get_mut(&jet_id) {
                 jet.producer_id = Some(carrier_id);
                 jet.airfield_parking_space_index = u32::try_from(index).ok();
+            }
+            // FlightDeckBehavior.cpp201-202 installs position before orientation.
+            if !self.set_owned_object_position_with_effects(jet_id, pos, pose_frame, effects) {
+                continue;
+            }
+            if !self.objects.get(&carrier_id).is_some_and(|object| {
+                carrier_id_birth.ptr_eq(&std::sync::Arc::downgrade(
+                    &object.visual_draw_identity_token,
+                ))
+            }) {
+                return;
+            }
+            if let Some(jet) = self.objects.get_mut(&jet_id) {
                 jet.set_orientation_with_effects(
                     orient,
-                    &mut effects.reborrow_for_object(&mut self.partition_manager),
-                );
-                jet.set_position_with_effects(
-                    pos,
-                    pose_frame,
                     &mut effects.reborrow_for_object(&mut self.partition_manager),
                 );
                 jet.set_ai_state(
@@ -332,6 +391,13 @@ impl GameLogic {
             }
         }
 
+        if !self.objects.get(&carrier_id).is_some_and(|object| {
+            carrier_id_birth.ptr_eq(&std::sync::Arc::downgrade(
+                &object.visual_draw_identity_token,
+            ))
+        }) {
+            return;
+        }
         self.flight_decks.insert(carrier_id, state);
     }
 
@@ -371,6 +437,14 @@ impl GameLogic {
         carrier_id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
+        let Some(carrier_id_birth) = self
+            .objects
+            .get(&carrier_id)
+            .map(|object| std::sync::Arc::downgrade(&object.visual_draw_identity_token))
+        else {
+            return;
+        };
+
         let payload = self
             .objects
             .get(&carrier_id)
@@ -391,7 +465,7 @@ impl GameLogic {
                     .collect()
             })
             .unwrap_or_default();
-        let mut candidates: Vec<ObjectId> = self
+        let mut candidates: Vec<_> = self
             .objects
             .registered()
             .filter_map(|(&id, obj)| {
@@ -399,12 +473,29 @@ impl GameLogic {
                     && obj.producer_id == Some(carrier_id)
                     && obj.template_name.eq_ignore_ascii_case(&payload)
                     && !assigned.contains(&id))
-                .then_some(id)
+                .then(|| {
+                    (
+                        id,
+                        std::sync::Arc::downgrade(&obj.visual_draw_identity_token),
+                    )
+                })
             })
             .collect();
-        candidates.sort_by_key(|id| id.0);
-        for jet_id in candidates {
+        candidates.sort_by_key(|(id, _)| id.0);
+        for (jet_id, jet_birth) in candidates {
+            if !self.objects.get(&jet_id).is_some_and(|jet| {
+                jet_birth.ptr_eq(&std::sync::Arc::downgrade(&jet.visual_draw_identity_token))
+            }) {
+                continue;
+            }
             self.flight_deck_exit_object_via_door(carrier_id, jet_id, effects);
+            if !self.objects.get(&carrier_id).is_some_and(|object| {
+                carrier_id_birth.ptr_eq(&std::sync::Arc::downgrade(
+                    &object.visual_draw_identity_token,
+                ))
+            }) {
+                return;
+            }
         }
     }
 
@@ -414,6 +505,14 @@ impl GameLogic {
         jet_id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
+        let Some(carrier_id_birth) = self
+            .objects
+            .get(&carrier_id)
+            .map(|object| std::sync::Arc::downgrade(&object.visual_draw_identity_token))
+        else {
+            return;
+        };
+
         let pose_frame = self.frame;
         let Some(state) = self.flight_decks.get_mut(&carrier_id) else {
             return;
@@ -445,12 +544,23 @@ impl GameLogic {
             .and_then(|c| c.thing().template.flight_deck.as_ref())
             .map(|m| m.landing_deck_height_offset)
             .unwrap_or(0.0);
+        if let Some(jet) = self.objects.get_mut(&jet_id) {
+            jet.producer_id = Some(carrier_id);
+            jet.airfield_parking_space_index = u32::try_from(index).ok();
+        }
+        if !self.set_owned_object_position_with_effects(jet_id, creation, pose_frame, effects) {
+            return;
+        }
+        if !self.objects.get(&carrier_id).is_some_and(|object| {
+            carrier_id_birth.ptr_eq(&std::sync::Arc::downgrade(
+                &object.visual_draw_identity_token,
+            ))
+        }) {
+            return;
+        }
         if let Some((jet, mut movement_events, audio_events, partition)) =
             self.host_object_movement_audio_partition_mut(jet_id)
         {
-            jet.producer_id = Some(carrier_id);
-            jet.airfield_parking_space_index = u32::try_from(index).ok();
-            jet.set_position_with_partition_owner(creation, pose_frame, effects, partition);
             jet.set_orientation_with_effects(
                 start_orient,
                 &mut effects.reborrow_for_object(partition),

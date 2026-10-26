@@ -314,6 +314,10 @@ impl GameLogic {
         }
         self.refresh_receiving_client_templates();
         self.physics_definitions.effective = self.physics_definitions.base;
+        if let Err(error) = self.restore_projectile_definition_base() {
+            log::error!("Cannot restore receiving projectile base: {error}");
+            return Ok(false);
+        }
         self.body_damage_definitions.effective = self.body_damage_definitions.base;
         self.lighting_definitions.effective = self.lighting_definitions.base.clone();
         self.reset_ocl_map_definitions();

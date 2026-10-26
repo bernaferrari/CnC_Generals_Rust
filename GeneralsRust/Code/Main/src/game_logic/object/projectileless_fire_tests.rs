@@ -121,7 +121,12 @@ fn fire_at_keeps_gattling_store_type() {
     ] {
         objects.insert(id, object);
     }
-    drain_pending_projectiles(&mut combat, objects.read(), 3);
+    drain_pending_projectiles(
+        &mut combat,
+        objects.read(),
+        3,
+        &crate::game_logic::projectile_definitions::fixture_projectile_definitions(),
+    );
     assert_eq!(pending_projectile_queue_len_for_test(&combat), 0);
     assert_eq!(
         combat.projectile_count(),
@@ -224,7 +229,12 @@ fn fire_at_projectileless_keeps_identity_in_receiving_pending_queue() {
     ] {
         objects.insert(id, object);
     }
-    drain_pending_projectiles(&mut combat, objects.read(), 3);
+    drain_pending_projectiles(
+        &mut combat,
+        objects.read(),
+        3,
+        &crate::game_logic::projectile_definitions::fixture_projectile_definitions(),
+    );
     assert_eq!(pending_projectile_queue_len_for_test(&combat), 0);
     assert_eq!(
         combat.projectile_count(),

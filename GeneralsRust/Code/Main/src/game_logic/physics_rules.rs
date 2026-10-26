@@ -34,10 +34,14 @@ impl super::GameLogic {
         if !self.objects.registered_is_empty() {
             return Err("Physics content admission requires an empty receiving world".into());
         }
+        let projectile_candidate = self
+            .projectile_definitions
+            .with_physics_gravity(rules.gravity)?;
         self.physics_definitions = PhysicsDefinitions {
             base: rules,
             effective: rules,
         };
+        self.projectile_definitions = projectile_candidate;
         Ok(())
     }
     pub(crate) fn physics_rules_baseline(&self) -> PhysicsContentRules {
@@ -51,7 +55,11 @@ impl super::GameLogic {
         if !self.objects.registered_is_empty() {
             return Err("Map Physics admission requires an empty receiving world".into());
         }
+        let projectile_candidate = self
+            .projectile_definitions
+            .with_physics_gravity(rules.gravity)?;
         self.physics_definitions.effective = rules;
+        self.projectile_definitions = projectile_candidate;
         Ok(())
     }
 }

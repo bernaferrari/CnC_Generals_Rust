@@ -7,7 +7,6 @@
 
 use super::*;
 use game_engine::common::thing::module::ModuleData as EngineModuleData;
-use game_engine::common::thing::{ThingFactory, ThingTemplate};
 
 const LOGIC_FRAMES_PER_SECOND: u32 = 30;
 const DUMB_PROJECTILE_DEFAULT_MAX_LIFESPAN_FRAMES: u32 = 10 * LOGIC_FRAMES_PER_SECOND;
@@ -60,54 +59,14 @@ impl HostProjectileLifecycle {
     }
 }
 
-/// This is intentionally independent from the live global ThingFactory.
-/// Tests and early shell startup may already have a non-empty, partial object
-/// shell there; `load_templates_from_ini_text` correctly refuses to overwrite
-/// such a template.  A frozen, parsed view of the selected retail source gives
-/// projectile launch the actual authored module body instead of depending on
-/// whichever incomplete bootstrap happened first.
-static PROJECTILE_TEMPLATE_STORE: std::sync::OnceLock<std::sync::Mutex<ThingFactory>> =
-    std::sync::OnceLock::new();
-
-/// Resolve host projectile behavior from the parsed Object INI template.
-///
-/// Missing templates/modules return `None`: callers retain their existing
-/// flight path and do not synthesize a timeout or detonation.  This is
-/// intentionally name-free after the exact `ProjectileObject` reference has
-/// been parsed from Weapon.ini.
-pub fn host_projectile_lifecycle_for_object_name(
-    projectile_object_name: &str,
+/// Resolve only from the driving session's already-admitted effective catalog.
+pub(in crate::game_logic) fn host_projectile_lifecycle_for_object_name(
+    definitions: &crate::game_logic::projectile_definitions::ProjectileDefinitions,
+    name: &str,
 ) -> Option<HostProjectileLifecycle> {
-    let name = projectile_object_name.trim();
-    if name.is_empty() || name.eq_ignore_ascii_case("none") {
-        return None;
-    }
-
-    // `ThingFactory::load_ini_text` replaces a parsed template in its name
-    // map, while its historical linked list intentionally retains the older
-    // shell. Resolve by the authoritative name map rather than walking that
-    // list, otherwise a real Object can appear to have no behavior modules.
-    let template = projectile_template_store()
-        .lock()
-        .ok()?
-        .find_template(name, false)?;
-    lifecycle_from_template(template.as_ref())
-}
-
-fn lifecycle_from_template(template: &ThingTemplate) -> Option<HostProjectileLifecycle> {
-    for module in template.get_behavior_module_info().iter() {
-        if module
-            .name
-            .as_str()
-            .eq_ignore_ascii_case("DumbProjectileBehavior")
-        {
-            return parse_dumb_projectile_lifecycle(module.data.as_ref());
-        }
-        if module.name.as_str().eq_ignore_ascii_case("MissileAIUpdate") {
-            return parse_missile_lifecycle(module.data.as_ref());
-        }
-    }
-    None
+    definitions
+        .get(name.trim())
+        .map(|profile| profile.lifecycle)
 }
 
 pub(crate) fn parse_dumb_projectile_lifecycle(
@@ -235,143 +194,6 @@ pub(crate) fn optional_string(data: &dyn EngineModuleData, field: &str) -> Optio
 }
 
 /// Walk the frozen Object INI template for the first DumbProjectile / MissileAI module.
-pub(crate) fn with_projectile_behavior_module<R>(
-    projectile_object_name: &str,
-    f: impl FnOnce(&str, &dyn EngineModuleData) -> Option<R>,
-) -> Option<R> {
-    let name = projectile_object_name.trim();
-    if name.is_empty() || name.eq_ignore_ascii_case("none") {
-        return None;
-    }
-    let template = projectile_template_store()
-        .lock()
-        .ok()?
-        .find_template(name, false)?;
-    for module in template.get_behavior_module_info().iter() {
-        let module_name = module.name.as_str();
-        if module_name.eq_ignore_ascii_case("DumbProjectileBehavior")
-            || module_name.eq_ignore_ascii_case("MissileAIUpdate")
-        {
-            return f(module_name, module.data.as_ref());
-        }
-    }
-    None
-}
-
-/// Parse one discovered Object INI tree using the existing generic
-/// `ThingFactory` parser, then retain that parsed store for name lookup. This
-/// is an authoritative read-only store—not a name table and not a new partial
-/// INI parser. Absence or malformed module data makes the lookup return None,
-/// so callers fail closed.
-fn projectile_template_store() -> &'static std::sync::Mutex<ThingFactory> {
-    PROJECTILE_TEMPLATE_STORE.get_or_init(|| {
-        let _ = game_engine::common::thing::module_factory::init_module_factory();
-        let _ =
-            game_engine::common::thing::module_factory::apply_module_overrides_to_existing_templates();
-        let mut factory = ThingFactory::new();
-
-        for path in host_object_ini_candidate_paths() {
-            let Ok(content) = std::fs::read_to_string(&path) else {
-                continue;
-            };
-            let _ = factory.load_ini_text(&content);
-        }
-
-        // Retail Object INI absent (no extracted game data): seed the three
-        // retail projectiles whose behavior modules the combat characterization
-        // tests pin, using exact C++ constructor defaults. Real INI trees above
-        // win: load_ini_text replaces parsed templates in the name map.
-        // DumbProjectileBehavior.cpp:36 DEFAULT_MAX_LIFESPAN = 10 * LOGICFRAMES_PER_SECOND.
-        let _ = factory.load_ini_text(
-            "Object RangerFlashBangGrenade\n\
-             Behavior = DumbProjectileBehavior ModuleTag_01\n\
-               MaxLifespan = 10000\n\
-             End\n\
-             End\n\
-             Object DragonTankFlameProjectile\n\
-               Behavior = MissileAIUpdate ModuleTag_02\n\
-                 TryToFollowTarget = No\n\
-                 FuelLifetime = 350\n\
-                 DetonateOnNoFuel = Yes\n\
-             End\n\
-             End\n\
-             Object PatriotMissile\n\
-               Behavior = MissileAIUpdate ModuleTag_03\n\
-                 TryToFollowTarget = Yes\n\
-                 FuelLifetime = 10000\n\
-                 DetonateOnNoFuel = No\n\
-             End\n\
-             End",
-        );
-
-        std::sync::Mutex::new(factory)
-    })
-}
-
-fn host_object_ini_candidate_paths() -> Vec<PathBuf> {
-    let mut roots = Vec::new();
-    let mut seen_roots = std::collections::HashSet::new();
-    let mut push_root = |root: PathBuf| {
-        let key = std::fs::canonicalize(&root).unwrap_or(root.clone());
-        if seen_roots.insert(key) {
-            roots.push(root);
-        }
-    };
-
-    for relative in [
-        "windows_game/extracted_big_files/INIZH",
-        "windows_game/extracted_big_files_v2/INIZH",
-        "INIZH",
-        ".",
-    ] {
-        push_root(PathBuf::from(relative));
-    }
-    if let Ok(manifest) = std::env::var("CARGO_MANIFEST_DIR") {
-        let mut root = PathBuf::from(manifest);
-        for _ in 0..8 {
-            push_root(root.join("windows_game/extracted_big_files/INIZH"));
-            push_root(root.join("windows_game/extracted_big_files_v2/INIZH"));
-            push_root(root.join("INIZH"));
-            if !root.pop() {
-                break;
-            }
-        }
-    }
-    for root in game_engine::common::system::install_layout::extracted_asset_roots() {
-        push_root(root);
-    }
-
-    for root in roots {
-        let mut paths = Vec::new();
-        for relative in ["Data/INI/Default/Object.ini", "Data/INI/Object.ini"] {
-            let path = root.join(relative);
-            if path.is_file() {
-                paths.push(path);
-            }
-        }
-        let directory = root.join("Data/INI/Object");
-        if let Ok(entries) = std::fs::read_dir(directory) {
-            let mut object_files = entries
-                .flatten()
-                .map(|entry| entry.path())
-                .filter(|path| {
-                    path.is_file()
-                        && path
-                            .extension()
-                            .and_then(|extension| extension.to_str())
-                            .is_some_and(|extension| extension.eq_ignore_ascii_case("ini"))
-                })
-                .collect::<Vec<_>>();
-            object_files.sort();
-            paths.extend(object_files);
-        }
-        if !paths.is_empty() {
-            return paths;
-        }
-    }
-    Vec::new()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -388,15 +210,21 @@ mod tests {
     }
 
     #[test]
-    fn retail_projectile_lifecycles_are_loaded_from_object_ini() {
+    fn receiving_fixture_lifecycles_are_parsed_from_object_ini() {
         assert_eq!(
-            host_projectile_lifecycle_for_object_name("RangerFlashBangGrenade"),
+            host_projectile_lifecycle_for_object_name(
+                &crate::game_logic::projectile_definitions::fixture_projectile_definitions(),
+                "RangerFlashBangGrenade"
+            ),
             Some(HostProjectileLifecycle::DumbProjectile {
                 max_lifespan_frames: DUMB_PROJECTILE_DEFAULT_MAX_LIFESPAN_FRAMES,
             })
         );
         assert_eq!(
-            host_projectile_lifecycle_for_object_name("DragonTankFlameProjectile"),
+            host_projectile_lifecycle_for_object_name(
+                &crate::game_logic::projectile_definitions::fixture_projectile_definitions(),
+                "DragonTankFlameProjectile"
+            ),
             Some(HostProjectileLifecycle::Missile {
                 try_to_follow_target: false,
                 fuel_lifetime_frames: 11,
@@ -405,7 +233,10 @@ mod tests {
             })
         );
         assert_eq!(
-            host_projectile_lifecycle_for_object_name("PatriotMissile"),
+            host_projectile_lifecycle_for_object_name(
+                &crate::game_logic::projectile_definitions::fixture_projectile_definitions(),
+                "PatriotMissile"
+            ),
             Some(HostProjectileLifecycle::Missile {
                 try_to_follow_target: true,
                 fuel_lifetime_frames: 300,

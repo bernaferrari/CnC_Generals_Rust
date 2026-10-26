@@ -832,6 +832,14 @@ impl GameLogic {
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
         let container_id = self.redirected_containment_owner(container_id);
+        let Some(container_id_birth) = self
+            .objects
+            .get(&container_id)
+            .map(|object| std::sync::Arc::downgrade(&object.visual_draw_identity_token))
+        else {
+            return;
+        };
+
         let unit_pos = self.objects.get(&unit_id).map(|u| u.get_position());
         let Some(container) = self.objects.get(&container_id) else {
             return;
@@ -942,16 +950,31 @@ impl GameLogic {
                     None,
                     true,
                 );
-                let unit = self
+                let mut unit = self
                     .objects
                     .get_mut(&containment_actor_id)
                     .expect("containment operation preserves this birth");
                 unit.target = None;
-                unit.set_position_with_effects(
+                let _ = unit;
+                if !self.set_owned_object_position_with_effects(
+                    containment_actor_id,
                     start,
                     self.frame,
-                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
-                );
+                    presentation_effects,
+                ) {
+                    return;
+                }
+                if !self.objects.get(&container_id).is_some_and(|object| {
+                    container_id_birth.ptr_eq(&std::sync::Arc::downgrade(
+                        &object.visual_draw_identity_token,
+                    ))
+                }) {
+                    return;
+                }
+                unit = match self.objects.get_mut(&containment_actor_id) {
+                    Some(object) => object,
+                    None => return,
+                };
                 unit.set_orientation_with_partition_owner(yaw, &mut self.partition_manager);
                 if !is_garrison {
                     unit.pathfind_layer = container_layer;
@@ -972,17 +995,32 @@ impl GameLogic {
                 None,
                 true,
             );
-            let unit = self
+            let mut unit = self
                 .objects
                 .get_mut(&containment_actor_id)
                 .expect("containment operation preserves this birth");
             unit.target = None;
             if !skip_follow {
-                unit.set_position_with_effects(
+                let _ = unit;
+                if !self.set_owned_object_position_with_effects(
+                    containment_actor_id,
                     start,
                     self.frame,
-                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
-                );
+                    presentation_effects,
+                ) {
+                    return;
+                }
+                if !self.objects.get(&container_id).is_some_and(|object| {
+                    container_id_birth.ptr_eq(&std::sync::Arc::downgrade(
+                        &object.visual_draw_identity_token,
+                    ))
+                }) {
+                    return;
+                }
+                unit = match self.objects.get_mut(&containment_actor_id) {
+                    Some(object) => object,
+                    None => return,
+                };
                 unit.set_orientation_with_partition_owner(yaw, &mut self.partition_manager);
                 if !is_garrison {
                     unit.pathfind_layer = container_layer;

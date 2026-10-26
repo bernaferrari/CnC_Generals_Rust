@@ -7,7 +7,7 @@
 
 use super::projectile_lifecycle::{
     optional_bool, optional_duration_frames, optional_int, optional_percent, optional_real,
-    optional_string, optional_velocity_per_frame, with_projectile_behavior_module,
+    optional_string, optional_velocity_per_frame,
 };
 use crate::game_logic::object::Object;
 use crate::game_logic::{KindOf, ObjectId};
@@ -158,18 +158,13 @@ impl Default for HostProjectileRuntime {
 
 /// Resolve authored flight/warhead fields from the same Object INI store as
 /// `HostProjectileLifecycle`.
-pub fn host_projectile_flight_for_object_name(
-    projectile_object_name: &str,
+pub(in crate::game_logic) fn host_projectile_flight_for_object_name(
+    definitions: &crate::game_logic::projectile_definitions::ProjectileDefinitions,
+    name: &str,
 ) -> Option<HostProjectileFlight> {
-    with_projectile_behavior_module(projectile_object_name, |module_name, data| {
-        if module_name.eq_ignore_ascii_case("DumbProjectileBehavior") {
-            Some(HostProjectileFlight::Dumb(parse_dumb_flight(data)))
-        } else if module_name.eq_ignore_ascii_case("MissileAIUpdate") {
-            Some(HostProjectileFlight::Missile(parse_missile_flight(data)))
-        } else {
-            None
-        }
-    })
+    definitions
+        .get(name.trim())
+        .map(|profile| profile.flight.clone())
 }
 
 pub(crate) fn parse_dumb_flight(
@@ -568,15 +563,21 @@ mod tests {
     }
 
     #[test]
-    fn retail_flashbang_and_patriot_flight_fields_parse() {
-        match host_projectile_flight_for_object_name("RangerFlashBangGrenade") {
+    fn receiving_fixture_flashbang_and_patriot_flight_fields_parse() {
+        match host_projectile_flight_for_object_name(
+            &crate::game_logic::projectile_definitions::fixture_projectile_definitions(),
+            "RangerFlashBangGrenade",
+        ) {
             Some(HostProjectileFlight::Dumb(dumb)) => {
                 assert!(dumb.first_height >= 0.0);
                 assert!(dumb.second_height >= dumb.first_height || dumb.second_height >= 0.0);
             }
             other => panic!("expected DumbProjectile flight, got {other:?}"),
         }
-        match host_projectile_flight_for_object_name("PatriotMissile") {
+        match host_projectile_flight_for_object_name(
+            &crate::game_logic::projectile_definitions::fixture_projectile_definitions(),
+            "PatriotMissile",
+        ) {
             Some(HostProjectileFlight::Missile(missile)) => {
                 assert!(missile.lock_distance > 0.0);
                 // Parsed even when empty; NONE is filtered to "".
@@ -586,7 +587,10 @@ mod tests {
         }
         for name in ["TomahawkMissile", "PatriotMissile", "StingerMissile"] {
             if let Some(HostProjectileFlight::Missile(missile)) =
-                host_projectile_flight_for_object_name(name)
+                host_projectile_flight_for_object_name(
+                    &crate::game_logic::projectile_definitions::fixture_projectile_definitions(),
+                    name,
+                )
             {
                 assert!(
                     !missile.ignition_fx.eq_ignore_ascii_case("none"),

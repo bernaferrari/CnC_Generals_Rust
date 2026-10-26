@@ -735,6 +735,7 @@ impl GameClient {
             self.drawables.borrow_native(),
             &mut self.command_hints,
             crate::gui::game_window::WindowEventEffects {
+                control_bar_observation: None,
                 input_provenance:
                     crate::gui::control_bar::HostControlBarInputProvenance::InjectedOrUnknown,
                 standalone_view: None,

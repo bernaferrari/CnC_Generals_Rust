@@ -988,6 +988,7 @@ mod tests {
         let layout = WindowLayout::new("Menus/ChallengeMenu.wnd".to_string());
         let mut messages = Vec::new();
         let mut effects = crate::gui::game_window::WindowEventEffects {
+            control_bar_observation: None,
             input_provenance:
                 crate::gui::control_bar::HostControlBarInputProvenance::InjectedOrUnknown,
             standalone_view: None,
@@ -1063,6 +1064,7 @@ mod tests {
         let layout = WindowLayout::new("Menus/ChallengeMenu.wnd".to_string());
         let mut messages = Vec::new();
         let mut effects = crate::gui::game_window::WindowEventEffects {
+            control_bar_observation: None,
             input_provenance:
                 crate::gui::control_bar::HostControlBarInputProvenance::InjectedOrUnknown,
             standalone_view: None,
@@ -1250,6 +1252,7 @@ mod tests {
 
             let mut messages = Vec::new();
             let mut effects = crate::gui::game_window::WindowEventEffects {
+                control_bar_observation: None,
                 input_provenance:
                     crate::gui::control_bar::HostControlBarInputProvenance::InjectedOrUnknown,
                 standalone_view: None,

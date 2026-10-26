@@ -1996,21 +1996,29 @@ impl TerrainVisualImpl {
         self.rebind_skybox_background_for_camera();
         self.tree_buffer
             .tick_cpu(false, |_| TreeShroudStatus::Clear);
+        self.finish_tree_meshes(motion, false);
+    }
+    pub(super) fn update_tree_meshes_after_cpu(&mut self, motion: Option<TerrainVisualMotion>) {
+        self.finish_tree_meshes(motion, true);
+    }
+    fn finish_tree_meshes(&mut self, motion: Option<TerrainVisualMotion>, sway_completed: bool) {
         if self.tree_buffer.take_any_push_changed() {
             self.tree_buffer.force_vertex_rebuild();
         }
-        // C++ `W3DTreeBuffer::drawTrees`: ScriptEngine breeze + versioned updateSway.
-        let pause = motion.map(|motion| motion.paused).unwrap_or_else(|| {
-            gamelogic::helpers::TheScriptEngine::is_time_frozen()
-                || gamelogic::helpers::TheGameLogic::is_game_paused()
-        });
-        if !pause {
-            let breeze = motion
-                .map(|motion| motion.breeze)
-                .unwrap_or_else(script_tree_breeze);
-            if self.tree_buffer.cur_sway_version() != breeze.breeze_version {
-                self.tree_buffer.update_sway(breeze, &mut GameClientSwayRng);
-                self.overlay.last_sway_version = breeze.breeze_version;
+        if !sway_completed {
+            // C++ `W3DTreeBuffer::drawTrees`: ScriptEngine breeze + versioned updateSway.
+            let pause = motion.map(|motion| motion.paused).unwrap_or_else(|| {
+                gamelogic::helpers::TheScriptEngine::is_time_frozen()
+                    || gamelogic::helpers::TheGameLogic::is_game_paused()
+            });
+            if !pause {
+                let breeze = motion
+                    .map(|motion| motion.breeze)
+                    .unwrap_or_else(script_tree_breeze);
+                if self.tree_buffer.cur_sway_version() != breeze.breeze_version {
+                    self.tree_buffer.update_sway(breeze, &mut GameClientSwayRng);
+                    self.overlay.last_sway_version = breeze.breeze_version;
+                }
             }
         }
         if self.tree_meshes.is_empty() {

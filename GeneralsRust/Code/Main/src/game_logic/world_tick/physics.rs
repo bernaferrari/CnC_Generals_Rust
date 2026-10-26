@@ -1549,6 +1549,11 @@ impl GameLogic {
                 ground_y, goal_y, highest, frame, effects,
             );
         }
+        // Thrust joins its admitted forces at the actual Physics phase;
+        // do not run the older locomotor-local gravity/Euler shortcut.
+        if obj.loco_appearance == LocomotorAppearance::Thrust {
+            return;
+        }
         match obj.loco_behavior_z {
             LocomotorBehaviorZ::SurfaceRelativeHeight
             | LocomotorBehaviorZ::SmoothRelativeToHighestLayer

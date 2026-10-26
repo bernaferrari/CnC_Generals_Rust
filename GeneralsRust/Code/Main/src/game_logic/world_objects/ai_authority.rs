@@ -463,9 +463,9 @@ impl GameLogic {
         &mut self,
         object_id: ObjectId,
         target_id: Option<ObjectId>,
-        dt: f32,
-        frame: u32,
-        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+        _dt: f32,
+        _frame: u32,
+        _effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> bool {
         let (active, facing_object, face_pos, ai) = match self.objects.get(&object_id) {
             Some(o) => (
@@ -509,12 +509,7 @@ impl GameLogic {
         let Some(u) = self.objects.get_mut(&object_id) else {
             return false;
         };
-        !u.tick_face_towards_with_effects(
-            target_pos,
-            dt,
-            frame,
-            &mut effects.reborrow_for_object(&mut self.partition_manager),
-        )
+        !u.arm_face_locomotor_goal(target_pos)
     }
 
     /// Apply AI command to the game state

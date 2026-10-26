@@ -91,6 +91,7 @@ fn dispatch(c: &mut GameClient, bar: &mut ControlBar, origin: Origin) {
     let (owner, campaign, main_menu, mailbox, display, videos, ime, mut menus, ui) =
         c.window_owner_campaign_menu_and_host_mut();
     let mut context = ControlBarInputContext {
+control_bar_observation:Some(game_client_rust::gui::callbacks::control_bar_observation::ControlBarCallbackObservation{game_ending:false,multiplayer:false,local_player:None,mouse:None}),
         input_provenance: origin,
         diplomacy_world: None,
         client_frame: Some(frame),

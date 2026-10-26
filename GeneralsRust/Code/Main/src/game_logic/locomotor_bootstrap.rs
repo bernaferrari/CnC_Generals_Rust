@@ -248,6 +248,8 @@ pub struct HostLocomotorBinding {
     pub acceleration_damaged: f32,
     pub turn_rate_damaged: f32,
     pub braking: f32,
+    /// Common retains these authored INI values in units/second, unlike
+    /// Speed/Acceleration/TurnRate/Braking which its parser converts to frames.
     pub min_speed: f32,
     pub min_turn_speed: f32,
     pub behavior_z: crate::game_logic::LocomotorBehaviorZ,
@@ -2220,3 +2222,35 @@ mod tests {
 
 mod template_facts;
 pub(crate) use template_facts::apply_host_locomotor_template_facts;
+
+#[cfg(test)]
+mod mixed_source_rate_admission_tests {
+    use super::*;
+    #[test]
+    fn native_binding_uses_actual_common_min_rates_in_seconds() {
+        let properties = HashMap::from([
+            ("Speed".into(), "60".into()),
+            ("MinSpeed".into(), "15".into()),
+            ("MinTurnSpeed".into(), "12".into()),
+            ("Acceleration".into(), "900".into()),
+            ("TurnRate".into(), "90".into()),
+            ("Braking".into(), "1800".into()),
+            ("Surfaces".into(), "AIR".into()),
+            ("Appearance".into(), "THRUST".into()),
+        ]);
+        let common = parse_locomotor_template_definition("ThrustRates", &properties).unwrap();
+        assert_eq!(common.min_speed, 15.0);
+        assert_eq!(common.min_turn_speed, 12.0);
+        assert!((common.max_speed - 2.0).abs() < 0.0001);
+        assert!((common.acceleration - 1.0).abs() < 0.0001);
+        let host = host_locomotor_binding_from_template(&common).unwrap();
+        assert_eq!(host.min_speed, 15.0);
+        assert_eq!(host.min_turn_speed, 12.0);
+        assert!((host.movement.max_speed - 60.0).abs() < 0.0001);
+        assert!((host.movement.acceleration - 900.0).abs() < 0.0001);
+        assert!((host.braking - 1800.0).abs() < 0.0001);
+        let core = gamelogic::locomotor::ini_bridge::from_common_ini_template(&common);
+        assert!((core.min_speed - 0.5).abs() < 0.0001);
+        assert!((core.min_turn_speed - 0.4).abs() < 0.0001);
+    }
+}

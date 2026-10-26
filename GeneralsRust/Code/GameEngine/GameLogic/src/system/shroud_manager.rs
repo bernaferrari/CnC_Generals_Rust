@@ -2138,6 +2138,44 @@ impl ShroudManager {
         ShroudState::Hidden
     }
 
+    /// C++ PartitionManager::getPropShroudStatusForPlayer: four cells around
+    /// position-halfCell, sampled from this session's actual admitted grid.
+    pub fn prop_shroud_status(
+        &self,
+        player: u32,
+        position: &Coord3D,
+    ) -> Option<crate::common::ObjectShroudStatus> {
+        use crate::common::ObjectShroudStatus;
+        let grid = self.shroud_grid.as_ref()?;
+        let half = grid.cell_size * 0.5;
+        let (x, y) = grid.world_to_signed_cell(&Coord3D {
+            x: position.x - half,
+            y: position.y - half,
+            z: position.z,
+        });
+        let cell = |x: i32, y: i32| {
+            if player as usize >= MAX_PLAYER_COUNT
+                || x < 0
+                || y < 0
+                || x as usize >= grid.width
+                || y as usize >= grid.height
+            {
+                ShroudState::Hidden
+            } else {
+                grid.get_cell_state(player as usize, x as usize, y as usize)
+            }
+        };
+        let status = cell(x, y);
+        if status != cell(x + 1, y) || status != cell(x + 1, y + 1) || status != cell(x, y + 1) {
+            return Some(ObjectShroudStatus::PartialClear);
+        }
+        Some(match status {
+            ShroudState::Hidden => ObjectShroudStatus::Shrouded,
+            ShroudState::Explored => ObjectShroudStatus::Fogged,
+            ShroudState::Visible => ObjectShroudStatus::Clear,
+        })
+    }
+
     /// Reveal the entire map for a player (addLooker then removeLooker; not permanent).
     pub fn reveal_map_for_player(&mut self, player_id: u32) -> Result<(), String> {
         if (player_id as usize) >= MAX_PLAYER_COUNT {
@@ -2786,3 +2824,76 @@ mod tests;
 #[cfg(test)]
 #[path = "shroud_explicit_geometry_tests.rs"]
 mod explicit_geometry_tests;
+
+#[cfg(test)]
+mod receiving_prop_shroud_tests {
+    use super::*;
+    #[test]
+    fn prop_samples_four_actual_offset_cells_and_keeps_peer_isolated() {
+        use crate::common::ObjectShroudStatus;
+        let mut first = ShroudManager::new();
+        let mut peer = ShroudManager::new();
+        for owner in [&mut first, &mut peer] {
+            owner
+                .init_shroud_grid_at_origin_with_cell_size([100.0, -100.0], 40.0, 40.0, 10.0)
+                .unwrap();
+        }
+        let position = Coord3D {
+            x: 115.0,
+            y: -85.0,
+            z: 0.0,
+        };
+        assert_eq!(
+            first.prop_shroud_status(0, &position),
+            Some(ObjectShroudStatus::Shrouded)
+        );
+        let cells = [(1, 1), (2, 1), (2, 2), (1, 2)];
+        first
+            .shroud_grid
+            .as_mut()
+            .unwrap()
+            .get_cell_mut(1, 1)
+            .unwrap()
+            .add_looker(0);
+        assert_eq!(
+            first.prop_shroud_status(0, &position),
+            Some(ObjectShroudStatus::PartialClear)
+        );
+        for &(x, y) in &cells[1..] {
+            first
+                .shroud_grid
+                .as_mut()
+                .unwrap()
+                .get_cell_mut(x, y)
+                .unwrap()
+                .add_looker(0);
+        }
+        assert_eq!(
+            first.prop_shroud_status(0, &position),
+            Some(ObjectShroudStatus::Clear)
+        );
+        assert_eq!(
+            peer.prop_shroud_status(0, &position),
+            Some(ObjectShroudStatus::Shrouded)
+        );
+        for &(x, y) in &cells {
+            first
+                .shroud_grid
+                .as_mut()
+                .unwrap()
+                .get_cell_mut(x, y)
+                .unwrap()
+                .remove_looker(0);
+        }
+        assert_eq!(
+            first.prop_shroud_status(0, &position),
+            Some(ObjectShroudStatus::Fogged)
+        );
+        drop(peer);
+        assert_eq!(
+            first.prop_shroud_status(0, &position),
+            Some(ObjectShroudStatus::Fogged)
+        );
+        assert_eq!(ShroudManager::new().prop_shroud_status(0, &position), None);
+    }
+}

@@ -1,5 +1,7 @@
 //! Real normal/passive accepted fire, receiving immutable effects, and callback order.
-use crate::game_logic::{AIState, GameLogic, KindOf, ObjectId, Player, Team, ThingTemplate, Weapon};
+use crate::game_logic::{
+    AIState, GameLogic, KindOf, ObjectId, Player, Team, ThingTemplate, Weapon,
+};
 use gamelogic::effects::ObjectCreationList;
 use gamelogic::object_creation_list::GenericObjectCreationNugget;
 use glam::Vec3;
@@ -266,6 +268,7 @@ fn nested_attack_acceptance_delivers_fire_effects_before_body_and_never_requeues
         &mut owner.combat_system,
         owner.objects.read(),
         owner.frame,
+        &crate::game_logic::projectile_definitions::fixture_projectile_definitions(),
     );
     owner.apply_owned_projectileless_delayed_damage();
     owner.tick_nested_attack_machines(&[source], owner.frame as f32 / 30.0, owner.frame);

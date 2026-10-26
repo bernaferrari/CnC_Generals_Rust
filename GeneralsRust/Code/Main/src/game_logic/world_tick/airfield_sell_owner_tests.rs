@@ -440,3 +440,155 @@ mod save_owner_tests;
 
 #[path = "airfield_sell_death_owner_tests.rs"]
 mod death_owner_tests;
+
+/// Exercise the real parking entry points, authored FX catalog, receiving tree
+/// buffer and ordinary audio admission. No test-only FX executor participates.
+#[cfg(feature = "game_client")]
+#[test]
+fn airfield_pose_callbacks_deliver_tree_fx_to_the_receiving_owner_before_parking_tails() {
+    use game_engine::common::audio::{AudioEventRts, AudioSubmissionLocality};
+    use game_engine::common::ini::ini_fx_list::{FXList, FXNugget};
+    #[derive(Default)]
+    struct Audio(Vec<String>);
+    impl crate::game_logic::NativeAudioEffects for Audio {
+        fn add_audio_event(&mut self, event: &AudioEventRts, _: &AudioSubmissionLocality) {
+            self.0.push(event.get_event_name().to_owned());
+        }
+    }
+    for entry in 0..3 {
+        let (mut world, rack) = owner();
+        let (mut peer, peer_rack) = owner();
+        let jet = aircraft(&mut world, INSTANT, 12.0, 12.0);
+        let peer_jet = aircraft(&mut peer, INSTANT, 12.0, 12.0);
+        assert_eq!((rack, jet), (peer_rack, peer_jet));
+        assert_eq!(world.reserve_airfield_parking_space(rack, jet), Some(0));
+        let info = world.calc_airfield_pp_info(rack, jet).unwrap();
+        let position = match entry {
+            0 => Vec3::new(120.0, 12.0, 100.0),
+            1 => info.hangar_internal,
+            _ => {
+                assert!(world.dock_jet_at_airfield_pad(jet, rack, info.parking_space));
+                // The runway entry fixes deck height before arming the taxi.
+                let mut position = world.host_object(jet).unwrap().get_position();
+                position.y = info.runway_start.y;
+                position
+            }
+        };
+        {
+            let (object, partition) = world.host_object_and_partition_mut(jet).unwrap();
+            object.selection_radius = 8.0;
+            object.crusher_level = 2;
+            object.movement.velocity = Vec3::new(4.0, 0.0, 0.0);
+            object.set_position_with_partition_owner(
+                position - Vec3::new(if entry == 2 { 0.0 } else { 20.0 }, 1.0, 0.0),
+                0,
+                &mut Default::default(),
+                partition,
+            );
+        }
+        world
+            .world_services
+            .shroud()
+            .lock()
+            .unwrap()
+            .init_shroud_grid(1000.0, 1000.0);
+        world
+            .world_services
+            .shroud()
+            .lock()
+            .unwrap()
+            .reveal_map_for_player_permanently(0)
+            .unwrap();
+        let mut definition = FXList::new("AirfieldPositionTree".into());
+        definition.add_nugget(FXNugget::Sound {
+            name: "AirfieldTreeSound".into(),
+        });
+        let mut catalog = game_client::fx_list::FXListStore::new();
+        catalog.add_fx_list(
+            "AirfieldPositionTree".into(),
+            game_client::fx_list::FXList::from_definition(&definition),
+        );
+        world.admit_fx_catalog(catalog);
+        let mut terrain = game_client::terrain::terrain_visual::TerrainVisualImpl::new();
+        terrain
+            .tree_buffer_mut()
+            .set_bounds(game_client::terrain::TreeRegion2D::new(
+                glam::Vec2::splat(-1000.0),
+                glam::Vec2::splat(1000.0),
+            ));
+        let mut data = game_client::terrain::TreeModuleData::default();
+        data.model_name = "AirfieldPositionTree".into();
+        data.do_topple = true;
+        data.topple_fx = Some("AirfieldPositionTree".into());
+        terrain
+            .tree_buffer_mut()
+            .add_tree(
+                900,
+                Vec3::new(position.x - 1.0, position.z, position.y),
+                1.0,
+                0.0,
+                1.0,
+                data,
+                game_client::terrain::TreeSphere {
+                    center: Vec3::ZERO,
+                    radius: 5.0,
+                },
+            )
+            .unwrap();
+        let peer_position = peer.host_object(peer_jet).unwrap().get_position();
+        let mut audio = Audio::default();
+        let mut effects = crate::game_logic::ScriptPresentationEffects {
+            terrain: Some(&mut terrain),
+            audio: Some(&mut audio),
+            ..Default::default()
+        };
+        let completed = match entry {
+            0 => world.dock_jet_at_airfield_pad_with_effects(jet, rack, position, &mut effects),
+            1 => world.place_produced_jet_at_parking_pose_with_effects(rack, jet, &mut effects),
+            _ => world.try_runway_takeoff_from_airfield_with_effects(jet, &mut effects),
+        };
+        assert!(completed, "authored airfield entry {entry}");
+        drop(effects);
+        if entry < 2 {
+            assert_eq!(
+                audio.0,
+                ["AirfieldTreeSound"],
+                "entry {entry} executes actual immediate FX"
+            );
+        } else {
+            assert!(
+                audio.0.is_empty(),
+                "C++ integer XY unchanged: vertical deck correction has no tree notification"
+            );
+        }
+        assert!(terrain.tree_buffer_mut().pending_fx_events().is_empty());
+        assert_eq!(
+            peer.host_object(peer_jet).unwrap().get_position(),
+            peer_position
+        );
+        assert_eq!(world.host_object(jet).unwrap().get_position(), position);
+        if entry < 2 {
+            assert_eq!(world.host_object(jet).unwrap().contained_by, Some(rack));
+            assert_eq!(world.host_object(jet).unwrap().ai_state(), AIState::Docked);
+        }
+        let pose = world.host_object(jet).unwrap().get_position();
+        peer.reset();
+        drop(peer);
+        assert_eq!(world.host_object(jet).unwrap().get_position(), pose);
+    }
+}
+
+#[test]
+fn airfield_producer_receipt_accepts_queued_dead_but_rejects_equal_id_peer_birth() {
+    let (mut world, rack) = owner();
+    let birth =
+        std::sync::Arc::downgrade(&world.host_object(rack).unwrap().visual_draw_identity_token);
+    world.host_object_mut(rack).unwrap().status.destroyed = true;
+    assert!(world.airfield_producer_is_current(rack, &birth));
+    let (peer, peer_rack) = owner();
+    assert_eq!(rack, peer_rack);
+    world
+        .objects
+        .insert(rack, peer.host_object(peer_rack).unwrap().clone());
+    assert!(!world.airfield_producer_is_current(rack, &birth));
+}

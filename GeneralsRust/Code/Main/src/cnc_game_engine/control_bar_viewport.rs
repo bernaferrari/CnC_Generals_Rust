@@ -34,6 +34,7 @@ impl CnCGameEngine {
         &mut self,
         delta: std::time::Duration,
     ) -> Result<(), Box<dyn std::error::Error>> {
+        let receiving_callback_observation = self.receiving_control_bar_callback_observation();
         let game_ending = self.game_logic.owned_script_game_ending();
         self.control_bar.set_receiving_upgrade_definitions(
             &self.game_logic.upgrade_definitions,
@@ -50,6 +51,8 @@ impl CnCGameEngine {
             let result =
                 self.game_client
                     .with_window_and_control_bar_effects(None, |effects, videos| {
+                        effects
+                            .admit_control_bar_callback_observation(receiving_callback_observation);
                         effects.with_manager(|manager, effects| {
                             self.control_bar.update_owned_receiving(
                                 delta,
@@ -71,6 +74,7 @@ impl CnCGameEngine {
         let result =
             self.game_client
                 .with_window_and_control_bar_effects(None, |effects, videos| {
+                    effects.admit_control_bar_callback_observation(receiving_callback_observation);
                     effects.with_manager(|manager, effects| {
                         self.control_bar.update_owned_receiving(
                             delta,
@@ -114,6 +118,7 @@ impl CnCGameEngine {
         let observer_roster = self.receiving_observer_roster();
         let upgrade_tooltip = self.game_logic.receiving_upgrade_tooltip_observer();
         let menu_world = self.receiving_menu_world_facts();
+        let control_bar_observation = self.receiving_control_bar_callback_observation();
         let (
             receiving_window_manager,
             campaign_manager,
@@ -126,6 +131,7 @@ impl CnCGameEngine {
             ui,
         ) = self.game_client.window_owner_campaign_menu_and_host_mut();
         let mut context = game_client::gui::window_manager::ControlBarInputContext {
+            control_bar_observation:Some(control_bar_observation),
             diplomacy_world: None,
             input_provenance: game_client::gui::control_bar::HostControlBarInputProvenance::InjectedOrUnknown,
             ui, logic_frame: Some(menu_world.logic_frame), client_frame: Some(menu_world.client_frame),
@@ -164,6 +170,7 @@ impl CnCGameEngine {
     }
 
     pub(super) fn set_owned_control_bar_scheme(&mut self, side: &str) {
+        let receiving_callback_observation = self.receiving_control_bar_callback_observation();
         let parent = self.control_bar_parent_handle();
         let replay = matches!(
             self.game_logic.game_mode(),
@@ -172,6 +179,7 @@ impl CnCGameEngine {
         let side = if replay { "Observer" } else { side };
         let observer = receiving_local_player_is_observer(&self.game_logic);
         self.game_client.with_window_event_effects(None, |effects| {
+            effects.admit_control_bar_callback_observation(receiving_callback_observation);
             effects.with_manager(|manager, effects| {
                 self.control_bar
                     .set_control_bar_scheme_by_player_side_owned(
@@ -188,6 +196,7 @@ impl CnCGameEngine {
     }
 
     pub(super) fn show_owned_control_bar(&mut self, immediate: bool) {
+        let receiving_callback_observation = self.receiving_control_bar_callback_observation();
         let game_ending = self.game_logic.owned_script_game_ending();
         self.control_bar.set_receiving_upgrade_definitions(
             &self.game_logic.upgrade_definitions,
@@ -212,6 +221,7 @@ impl CnCGameEngine {
                 manager.find_window_by_name(crate::gameplay_layout::CONTROL_BAR_PARENT_NAME)
             });
         self.game_client.with_window_event_effects(None, |effects| {
+            effects.admit_control_bar_callback_observation(receiving_callback_observation);
             effects.with_manager(|manager, effects| {
                 game_client::gui::callbacks::control_bar_callbacks::show_control_bar_receiving(
                     &mut self.control_bar,
@@ -229,6 +239,7 @@ impl CnCGameEngine {
     }
 
     pub(super) fn hide_owned_control_bar(&mut self, immediate: bool) {
+        let receiving_callback_observation = self.receiving_control_bar_callback_observation();
         let replay = matches!(
             self.game_logic.game_mode(),
             crate::game_logic::GameMode::Replay
@@ -243,6 +254,7 @@ impl CnCGameEngine {
                 manager.find_window_by_name(crate::gameplay_layout::CONTROL_BAR_PARENT_NAME)
             });
         self.game_client.with_window_event_effects(None, |effects| {
+            effects.admit_control_bar_callback_observation(receiving_callback_observation);
             effects.with_manager(|manager, effects| {
                 game_client::gui::callbacks::control_bar_callbacks::hide_control_bar_owned(
                     &mut self.control_bar,
@@ -258,6 +270,7 @@ impl CnCGameEngine {
     }
 
     pub(super) fn toggle_owned_control_bar(&mut self, immediate: bool) {
+        let receiving_callback_observation = self.receiving_control_bar_callback_observation();
         let game_ending = self.game_logic.owned_script_game_ending();
         self.control_bar.set_receiving_upgrade_definitions(
             &self.game_logic.upgrade_definitions,
@@ -282,6 +295,7 @@ impl CnCGameEngine {
                 manager.find_window_by_name(crate::gameplay_layout::CONTROL_BAR_PARENT_NAME)
             });
         self.game_client.with_window_event_effects(None, |effects| {
+            effects.admit_control_bar_callback_observation(receiving_callback_observation);
             effects.with_manager(|manager, effects| {
                 game_client::gui::callbacks::control_bar_callbacks::toggle_control_bar_receiving(
                     &mut self.control_bar,
@@ -508,6 +522,10 @@ impl crate::game_logic::ScriptUiEffects for NativeScriptUi<'_> {
             .window_effects
             .as_mut()
             .expect("native letterbox requires receiving callback services");
+        if let Some(mut observation) = effects.control_bar_callback_observation() {
+            observation.game_ending = game_ending;
+            effects.admit_control_bar_callback_observation(observation);
+        }
         let bar = &mut *self.bar;
         effects.with_manager(|manager, effects| {
             if enabled {

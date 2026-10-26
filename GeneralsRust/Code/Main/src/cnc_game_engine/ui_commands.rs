@@ -1583,6 +1583,8 @@ impl CnCGameEngine {
         op: crate::game_logic::CommandPipelineOp,
     ) -> bool {
         #[cfg(feature = "game_client")]
+        let receiving_callback_observation = self.receiving_control_bar_callback_observation();
+        #[cfg(feature = "game_client")]
         let window_manager_owner = self.game_client.window_manager_owner();
         #[cfg(feature = "game_client")]
         let mut script_window_messages = Vec::new();
@@ -1624,7 +1626,14 @@ impl CnCGameEngine {
             window_manager_owner,
         )
         .with_cinematic_input(cinematic_input)
-        .with_window_effects(script_window_effects, script_window_stream)
+        .with_window_effects(
+            {
+                let mut effects = script_window_effects;
+                effects.admit_control_bar_callback_observation(receiving_callback_observation);
+                effects
+            },
+            script_window_stream,
+        )
         .with_command_hints(command_hints, frame.frame());
         let mut audio = super::native_audio_effects::NativeAudioService::live();
         #[cfg(feature = "game_client")]

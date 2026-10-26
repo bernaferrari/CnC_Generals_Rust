@@ -478,6 +478,27 @@ impl_bootstrap_subsystem!(BuildAssistantSubsystem, "BuildAssistant", {
     Ok(())
 });
 
+/// One synchronous delivery borrows the receiving presentation's audio stream.
+struct ReceivingAudioSelection<'a> {
+    audio: &'a mut game_engine::common::random_value::RandomState,
+}
+impl game_engine::common::audio::audio_event_rts::AudioEventSelection
+    for ReceivingAudioSelection<'_>
+{
+    fn index(&mut self, _logical: bool, count: usize) -> usize {
+        if count <= 1 {
+            return 0;
+        }
+        // Queued native presentation creates non-logical AudioEventRts values.
+        // Actual logical sound producers select synchronously before this queue.
+        let value = self.audio.next_u32();
+        value as usize % count
+    }
+    fn real(&mut self, low: f32, high: f32) -> f32 {
+        self.audio.next_real(low, high)
+    }
+}
+
 /// Audio Manager subsystem - handles all audio
 pub struct AudioManagerSubsystem {
     audio_manager: Option<crate::assets::audio::AudioManager>,
@@ -598,6 +619,22 @@ impl AudioManagerSubsystem {
         }
     }
 
+    fn update_receiving_audio(
+        &mut self,
+        timing: Option<&FrameTiming>,
+        random: &mut game_engine::common::random_value::RandomState,
+    ) -> Result<()> {
+        self.drain_and_dispatch_queued_audio(random);
+        if let Some(manager) = &mut self.audio_manager {
+            if let Some(timing) = timing {
+                manager.update_with_time(timing.delta_seconds(), timing.total_seconds());
+            } else {
+                manager.update();
+            }
+        }
+        Ok(())
+    }
+
     fn track_looping_object_audio(&mut self, object_id: u32, event_name: String, handle: u32) {
         self.looping_object_audio
             .entry(object_id)
@@ -612,7 +649,10 @@ impl AudioManagerSubsystem {
     /// `update_with_timing`, so leaving the drain only in `update` made real
     /// build/train/gather/combat/UI events accumulate without ever reaching
     /// the SoundEffectsTable/backend.
-    fn drain_and_dispatch_queued_audio(&mut self) {
+    fn drain_and_dispatch_queued_audio(
+        &mut self,
+        random: &mut game_engine::common::random_value::RandomState,
+    ) {
         // World/player/shroud decisions were made on the receiving operation.
         // Delivery must not re-query another live world's runtime state.
         // Apply high-level toggles/events that don't require archive lookups yet.
@@ -677,6 +717,7 @@ impl AudioManagerSubsystem {
                                         event.object_id.map(|id| id.0),
                                         event.player_index,
                                         &locality,
+                                        &mut ReceivingAudioSelection { audio: random },
                                     )
                                 });
                         if let Some(handle) = handle {
@@ -705,7 +746,8 @@ impl AudioManagerSubsystem {
                         continue;
                     };
 
-                    let Some(sound_path) = table.resolve_sound_path(event.event_type.as_str())
+                    let Some(sound_path) =
+                        table.resolve_sound_path(event.event_type.as_str(), random)
                     else {
                         continue;
                     };
@@ -826,24 +868,11 @@ impl SubsystemInterface for AudioManagerSubsystem {
     }
 
     fn update(&mut self, _dt: f32) -> Result<()> {
-        self.drain_and_dispatch_queued_audio();
-
-        if let Some(audio_manager) = &mut self.audio_manager {
-            audio_manager.update();
-        }
-        Ok(())
+        anyhow::bail!("AudioManager update requires the receiving session audio stream")
     }
 
-    fn update_with_timing(&mut self, timing: &FrameTiming) -> Result<()> {
-        // `CnCGameEngine::update_runtime_subsystems` normally takes this
-        // timing-aware path, so it must drain the same queue before advancing
-        // the backend clock.  Do not call `update()` here: that would advance
-        // the backend twice with incompatible timing sources.
-        self.drain_and_dispatch_queued_audio();
-        if let Some(audio_manager) = &mut self.audio_manager {
-            audio_manager.update_with_time(timing.delta_seconds(), timing.total_seconds());
-        }
-        Ok(())
+    fn update_with_timing(&mut self, _timing: &FrameTiming) -> Result<()> {
+        anyhow::bail!("AudioManager update requires the receiving session audio stream")
     }
 
     fn shutdown(&mut self) -> Result<()> {
@@ -2019,14 +2048,35 @@ impl SubsystemManager {
         Ok(())
     }
 
+    fn update_slot_receiving_audio(
+        slot: &mut dyn SubsystemStorage,
+        dt: f32,
+        timing: Option<&FrameTiming>,
+        audio_random: &mut game_engine::common::random_value::RandomState,
+    ) -> Result<()> {
+        if let Some(audio) = slot.as_any_mut().downcast_mut::<AudioManagerSubsystem>() {
+            audio.update_receiving_audio(timing, audio_random)
+        } else if let Some(timing) = timing {
+            slot.update_with_timing(timing)
+        } else {
+            slot.update(dt)
+        }
+    }
+
     /// Update all subsystems in C++ GameEngine::update() order.
-    pub fn update_all(&mut self, dt: f32) -> Result<()> {
+    pub fn update_all(
+        &mut self,
+        dt: f32,
+        audio_random: &mut game_engine::common::random_value::RandomState,
+    ) -> Result<()> {
         let mut updated = HashSet::new();
         for &target_name in &self.update_order {
             if let Some(&index) = self.indices_by_name.get(target_name) {
                 if let Some(slot) = self.subsystems.get_mut(index) {
                     let name = slot.name();
-                    if let Err(e) = slot.update(dt) {
+                    if let Err(e) =
+                        Self::update_slot_receiving_audio(&mut **slot, dt, None, audio_random)
+                    {
                         error!("Error updating subsystem {}: {}", name, e);
                     }
                     updated.insert(index);
@@ -2038,7 +2088,7 @@ impl SubsystemManager {
                 continue;
             }
             let name = slot.name();
-            if let Err(e) = slot.update(dt) {
+            if let Err(e) = Self::update_slot_receiving_audio(&mut **slot, dt, None, audio_random) {
                 error!("Error updating subsystem {}: {}", name, e);
             }
         }
@@ -2046,13 +2096,22 @@ impl SubsystemManager {
     }
 
     /// Update all subsystems with full frame timing in C++ GameEngine::update() order.
-    pub fn update_all_with_timing(&mut self, timing: &FrameTiming) -> Result<()> {
+    pub fn update_all_with_timing(
+        &mut self,
+        timing: &FrameTiming,
+        audio_random: &mut game_engine::common::random_value::RandomState,
+    ) -> Result<()> {
         let mut updated = HashSet::new();
         for &target_name in &self.update_order {
             if let Some(&index) = self.indices_by_name.get(target_name) {
                 if let Some(slot) = self.subsystems.get_mut(index) {
                     let name = slot.name();
-                    if let Err(e) = slot.update_with_timing(timing) {
+                    if let Err(e) = Self::update_slot_receiving_audio(
+                        &mut **slot,
+                        timing.delta_seconds(),
+                        Some(timing),
+                        audio_random,
+                    ) {
                         error!("Error updating subsystem {}: {}", name, e);
                     }
                     updated.insert(index);
@@ -2064,7 +2123,12 @@ impl SubsystemManager {
                 continue;
             }
             let name = slot.name();
-            if let Err(e) = slot.update_with_timing(timing) {
+            if let Err(e) = Self::update_slot_receiving_audio(
+                &mut **slot,
+                timing.delta_seconds(),
+                Some(timing),
+                audio_random,
+            ) {
                 error!("Error updating subsystem {}: {}", name, e);
             }
         }
@@ -2080,6 +2144,7 @@ impl SubsystemManager {
         client: &mut game_client::core::GameClient,
         menu_world: game_client::gui::campaign_launch_host_bridge::MenuWorldFacts,
         resume: Option<ReceivingClientUpdateCursor>,
+        audio_random: &mut game_engine::common::random_value::RandomState,
         propagate: &mut dyn FnMut(
             &mut game_client::core::GameClient,
             Option<game_engine::common::message_stream::PropagationCursor>,
@@ -2133,10 +2198,13 @@ impl SubsystemManager {
                     }
                 }
                 Ok(())
-            } else if let Some(timing) = timing {
-                self.subsystems[index].update_with_timing(timing)
             } else {
-                self.subsystems[index].update(dt)
+                Self::update_slot_receiving_audio(
+                    &mut *self.subsystems[index],
+                    dt,
+                    timing,
+                    audio_random,
+                )
             };
             if let Err(error) = result {
                 error!(
@@ -2388,9 +2456,15 @@ mod tests {
         second.add_subsystem(ProbeSubsystem::default());
         first.initialize_all().unwrap();
         second.initialize_all().unwrap();
-        first.update_all(1.0 / 30.0).unwrap();
-        second.update_all(1.0 / 30.0).unwrap();
-        first.update_all(1.0 / 30.0).unwrap();
+        first
+            .update_all(1.0 / 30.0, &mut Default::default())
+            .unwrap();
+        second
+            .update_all(1.0 / 30.0, &mut Default::default())
+            .unwrap();
+        first
+            .update_all(1.0 / 30.0, &mut Default::default())
+            .unwrap();
         first.reset_all().unwrap();
         assert_eq!(
             (
@@ -2496,7 +2570,9 @@ mod tests {
             sync_time: 16,
             previous_sync_time: 0,
         };
-        audio.update_with_timing(&timing).unwrap();
+        audio
+            .update_receiving_audio(Some(&timing), &mut Default::default())
+            .unwrap();
         assert!(
             audio.queued_events.is_empty(),
             "timing-driven updates drain this receiver's accepted audio requests"
@@ -2858,7 +2934,7 @@ mod tests {
                 .with_object(crate::game_logic::ObjectId(7))
                 .stopping(),
         );
-        audio.drain_and_dispatch_queued_audio();
+        audio.drain_and_dispatch_queued_audio(&mut Default::default());
         let left = audio
             .looping_object_audio
             .get(&7)
@@ -2884,7 +2960,7 @@ mod tests {
                 .with_object(crate::game_logic::ObjectId(7))
                 .with_position(glam::Vec3::new(10.0, 4.0, 20.0)),
         );
-        audio.drain_and_dispatch_queued_audio();
+        audio.drain_and_dispatch_queued_audio(&mut Default::default());
         assert!(
             audio.sound_effects_table.is_none(),
             "leftover-muted drain must not require the rodio SoundEffectsTable"

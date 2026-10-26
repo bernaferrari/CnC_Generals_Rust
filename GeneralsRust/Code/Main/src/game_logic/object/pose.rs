@@ -1,3 +1,29 @@
+/// Only original scalar locals and source lifetime identity cross Tree FX.
+pub(in crate::game_logic) struct PositionReaction {
+    pub(super) position: Vec3,
+    pub(super) trigger: bool,
+    identity: std::sync::Weak<()>,
+    #[cfg(feature = "game_client")]
+    pub(in crate::game_logic) tree_move: Option<game_client::terrain::TreeMoveCursor>,
+}
+impl PositionReaction {
+    pub(in crate::game_logic) fn has_tree_fx(&self) -> bool {
+        #[cfg(feature = "game_client")]
+        {
+            self.tree_move.is_some()
+        }
+        #[cfg(not(feature = "game_client"))]
+        {
+            false
+        }
+    }
+    pub(in crate::game_logic) fn still_applies(&self, object: &Object) -> bool {
+        self.identity.ptr_eq(&std::sync::Arc::downgrade(
+            &object.visual_draw_identity_token,
+        ))
+    }
+}
+
 use super::*;
 
 impl Object {
@@ -102,6 +128,16 @@ impl Object {
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
         partition: Option<&mut crate::game_logic::partition_manager::PartitionManager>,
     ) {
+        let old_position =
+            self.install_position_with_partition_context(position, effects, partition);
+        self.react_to_position_change(old_position, frame, effects);
+    }
+    fn install_position_with_partition_context(
+        &mut self,
+        position: Vec3,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+        partition: Option<&mut crate::game_logic::partition_manager::PartitionManager>,
+    ) -> Vec3 {
         self.require_partition_owner(partition.as_deref().or(effects.partition.as_deref()));
         let old_position = self.get_position();
         let old_angle = self.get_orientation();
@@ -112,7 +148,16 @@ impl Object {
         } else if let Some(partition) = effects.partition.as_deref_mut() {
             partition.receiving_transform_changed(self, old_position, old_angle);
         }
-        self.react_to_position_change(old_position, frame, effects);
+        old_position
+    }
+    pub(in crate::game_logic) fn prepare_position_tree_reaction(
+        &mut self,
+        position: Vec3,
+        frame: u32,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> PositionReaction {
+        let old_position = self.install_position_with_partition_context(position, effects, None);
+        self.prepare_position_reaction(old_position, frame, effects, true)
     }
 
     /// C++ Thing::setTransformMatrix reaches Object::reactToTransformChange.
@@ -151,6 +196,17 @@ impl Object {
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
         partition: Option<&mut crate::game_logic::partition_manager::PartitionManager>,
     ) {
+        let old_position =
+            self.install_transform_matrix_with_partition_context(transform, effects, partition);
+        self.react_to_position_change(old_position, frame, effects);
+    }
+
+    fn install_transform_matrix_with_partition_context(
+        &mut self,
+        transform: Mat4,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+        partition: Option<&mut crate::game_logic::partition_manager::PartitionManager>,
+    ) -> Vec3 {
         self.require_partition_owner(partition.as_deref().or(effects.partition.as_deref()));
         let old_position = self.get_position();
         let old_angle = self.get_orientation();
@@ -161,7 +217,7 @@ impl Object {
         } else if let Some(partition) = effects.partition.as_deref_mut() {
             partition.receiving_transform_changed(self, old_position, old_angle);
         }
-        self.react_to_position_change(old_position, frame, effects);
+        old_position
     }
 
     fn react_to_position_change(
@@ -170,27 +226,85 @@ impl Object {
         frame: u32,
         effects: &mut crate::game_logic::script_presentation::ScriptPresentationEffects<'_>,
     ) {
+        let reaction = self.prepare_position_reaction(old_position, frame, effects, false);
+        self.finish_position_reaction(reaction);
+    }
+
+    fn prepare_position_reaction(
+        &self,
+        old_position: Vec3,
+        frame: u32,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+        collect_tree_fx: bool,
+    ) -> PositionReaction {
         let position = self.get_position();
-        // CPP Object.cpp:2563–2587 uses integer horizontal coordinates.
-        if old_position.x as i32 != position.x as i32 || old_position.z as i32 != position.z as i32
-        {
-            // Object.cpp2564-2569 returns before the terrain/trigger phase.
-            let skip = self.is_kind_of(KindOf::Projectile) || self.is_kind_of(KindOf::Inert);
-            if skip {
-                return;
+        let changed = old_position.x as i32 != position.x as i32
+            || old_position.z as i32 != position.z as i32;
+        let skip = self.is_kind_of(KindOf::Projectile) || self.is_kind_of(KindOf::Inert);
+        let trigger = changed && !skip;
+        #[cfg(feature = "game_client")]
+        let tree_move = if trigger && collect_tree_fx {
+            self.terrain_tree_move_observation().and_then(|unit| {
+                effects
+                    .terrain
+                    .as_deref_mut()
+                    .and_then(|terrain| terrain.begin_tree_move(unit, frame))
+            })
+        } else {
+            if trigger {
+                self.notify_terrain_trees_on_unit_move_with_effects(frame, effects);
             }
+            None
+        };
+        #[cfg(not(feature = "game_client"))]
+        if trigger {
             self.notify_terrain_trees_on_unit_move_with_effects(frame, effects);
-            let team = if self.team_instance_name.is_empty() {
-                None
-            } else {
-                Some(self.team_instance_name.as_str())
-            };
-            if let Some(world) = self.host_trigger_world.upgrade() {
-                let mut world = world.lock().unwrap_or_else(|e| e.into_inner());
-                let frame = world.current_frame();
-                world.update_object_flags(self.id.0, position.x, position.z, frame, skip, team);
-            }
         }
+        PositionReaction {
+            position,
+            trigger,
+            identity: std::sync::Arc::downgrade(&self.visual_draw_identity_token),
+            #[cfg(feature = "game_client")]
+            tree_move,
+        }
+    }
+
+    pub(in crate::game_logic) fn finish_position_reaction(&mut self, reaction: PositionReaction) {
+        assert!(
+            reaction.still_applies(self),
+            "position continuation requires same registered lifetime"
+        );
+        if !reaction.trigger {
+            return;
+        }
+        // Reread team and trigger owner after tree FX, like the original callback.
+        let team =
+            (!self.team_instance_name.is_empty()).then_some(self.team_instance_name.as_str());
+        if let Some(world) = self.host_trigger_world.upgrade() {
+            let mut world = world.lock().unwrap_or_else(|error| error.into_inner());
+            let frame = world.current_frame();
+            world.update_object_flags(
+                self.id.0,
+                reaction.position.x,
+                reaction.position.z,
+                frame,
+                false,
+                team,
+            );
+        }
+    }
+
+    /// The Object remains installed while only this source-position continuation
+    /// crosses presentation FX; canonical fields are never cloned or taken.
+    pub(in crate::game_logic) fn prepare_transform_tree_reaction(
+        &mut self,
+        transform: Mat4,
+        frame: u32,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> PositionReaction {
+        let old_position =
+            self.install_transform_matrix_with_partition_context(transform, effects, None);
+        self.prepare_position_reaction(old_position, frame, effects, true)
     }
 
     /// Immutable authored and derived Thing facts; cannot mutate this Object's pose.
@@ -275,34 +389,43 @@ impl Object {
     pub(crate) fn notify_terrain_trees_on_unit_move_with_effects(
         &self,
         frame: u32,
-        effects: &mut crate::game_logic::script_presentation::ScriptPresentationEffects<'_>,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
+        if let (Some(unit), Some(terrain)) = (
+            self.terrain_tree_move_observation(),
+            effects.terrain.as_deref_mut(),
+        ) {
+            terrain.unit_moved(unit, frame);
+        }
+    }
+    fn terrain_tree_move_observation(
+        &self,
+    ) -> Option<crate::game_logic::script_presentation::NativeTerrainUnitMove> {
         if self.is_kind_of(KindOf::Projectile)
             || self.is_kind_of(KindOf::Inert)
             || self.is_kind_of(KindOf::Immobile)
+            || (!self.is_kind_of(KindOf::Infantry) && !self.is_kind_of(KindOf::Vehicle))
         {
-            return;
+            return None;
         }
-        if !self.is_kind_of(KindOf::Infantry) && !self.is_kind_of(KindOf::Vehicle) {
-            return;
-        }
-        if let Some(terrain) = effects.terrain.as_deref_mut() {
-            let pos = self.get_position();
-            let angle = self.get_orientation();
-            // Existing host geometry approximation is preserved in this owner migration.
-            let radius = self.selection_radius.max(1.0);
-            terrain.unit_moved(
-                crate::game_logic::script_presentation::NativeTerrainUnitMove {
-                    object_id: self.id.0,
-                    position: Vec3::new(pos.x, pos.z, pos.y),
-                    direction_2d: glam::Vec2::new(angle.cos(), -angle.sin()),
-                    major_radius: radius,
-                    minor_radius: radius,
-                    is_box: false,
-                    crusher_level: i32::from(self.crusher_level),
-                },
-                frame,
-            );
+        Some(self.current_tree_move_observation())
+    }
+    // Initial kind/immobile admission is a C++ unitMoved entry test. Resume
+    // rereads only the live fields and must not repeat that entry admission.
+    fn current_tree_move_observation(
+        &self,
+    ) -> crate::game_logic::script_presentation::NativeTerrainUnitMove {
+        let pos = self.get_position();
+        let angle = self.get_orientation();
+        let radius = self.selection_radius.max(1.0);
+        crate::game_logic::script_presentation::NativeTerrainUnitMove {
+            object_id: self.id.0,
+            position: Vec3::new(pos.x, pos.z, pos.y),
+            direction_2d: glam::Vec2::new(angle.cos(), -angle.sin()),
+            major_radius: radius,
+            minor_radius: radius,
+            is_box: false,
+            crusher_level: i32::from(self.crusher_level),
         }
     }
 
@@ -1408,3 +1531,77 @@ mod native_pose_notification_tests {
 #[cfg(test)]
 #[path = "pose/native_tree_owner_tests.rs"]
 mod native_tree_owner_tests;
+
+impl crate::game_logic::GameLogic {
+    /// One lexical original-position callback boundary. The caller has ended
+    /// its Object/terrain loans; the actor remains in the authoritative store.
+    pub(in crate::game_logic) fn complete_owned_position_reaction(
+        &mut self,
+        id: ObjectId,
+        mut reaction: PositionReaction,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> bool {
+        #[cfg(feature = "game_client")]
+        if let Some(mut cursor) = reaction.tree_move.take() {
+            loop {
+                let unit = self
+                    .objects
+                    .get(&id)
+                    .filter(|object| reaction.still_applies(object))
+                    .map(Object::current_tree_move_observation);
+                let terrain = effects
+                    .terrain
+                    .as_deref_mut()
+                    .expect("tree continuation retains its receiving terrain");
+                let Some(unit) = unit else {
+                    terrain.finish_tree_move_fx(&mut cursor);
+                    return false;
+                };
+                let Some(event) = terrain.advance_tree_move(&mut cursor, unit) else {
+                    break;
+                };
+                self.dispatch_fx_list_at_host_position_oriented_with_effects(
+                    &event.fx_name,
+                    Vec3::new(event.position.x, event.position.z, event.position.y),
+                    None,
+                    0.0,
+                    0.0,
+                    None,
+                    effects,
+                );
+            }
+        }
+        let Some(object) = self.objects.get_mut(&id) else {
+            return false;
+        };
+        if !reaction.still_applies(object) {
+            return false;
+        }
+        object.finish_position_reaction(reaction);
+        true
+    }
+}
+
+impl crate::game_logic::GameLogic {
+    /// Direct driving-owner position operation. All original source callbacks
+    /// complete before the caller proceeds to the next operation on that actor.
+    pub(in crate::game_logic) fn set_owned_object_position_with_effects(
+        &mut self,
+        id: ObjectId,
+        position: Vec3,
+        frame: u32,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> bool {
+        let reaction = {
+            let Some(object) = self.objects.get_mut(&id) else {
+                return false;
+            };
+            object.prepare_position_tree_reaction(
+                position,
+                frame,
+                &mut effects.reborrow_for_object(&mut self.partition_manager),
+            )
+        };
+        self.complete_owned_position_reaction(id, reaction, effects)
+    }
+}

@@ -96,6 +96,7 @@ impl GameLogic {
                 .weapon_definitions_snapshot();
             self.admit_weapon_content_snapshot(weapons, &definitions)?;
         }
+        let projectile_candidate=crate::game_logic::projectile_definitions::ProjectileDefinitions::from_effective_definitions(definitions.iter().map(|(name,row)|(name.as_str(),row)),self.physics_definitions.effective.gravity)?;
         self.templates.clear();
         self.setup_templates();
         self.receiving_object_definitions = Some(projections);
@@ -105,6 +106,7 @@ impl GameLogic {
             Some(&content),
         )?;
         Self::bind_receiving_production_templates(&mut self.templates, &content)?;
+        self.projectile_definitions = projectile_candidate;
         self.receiving_module_content = Some(content);
         self.refresh_receiving_client_templates();
         self.receiving_template_baseline = Some(self.templates.clone());

@@ -7,6 +7,25 @@ fn actual_movement_tick_delivers_tree_callbacks_only_to_its_receiving_world_at_o
         moves: usize,
     }
     impl crate::game_logic::NativeTerrainEffects for RecordingTerrain<'_> {
+        fn begin_tree_move(
+            &mut self,
+            unit: crate::game_logic::script_presentation::NativeTerrainUnitMove,
+            frame: u32,
+        ) -> Option<game_client::terrain::TreeMoveCursor> {
+            self.moves += 1;
+            crate::game_logic::NativeTerrainEffects::begin_tree_move(self.visual, unit, frame)
+        }
+        fn advance_tree_move(
+            &mut self,
+            cursor: &mut game_client::terrain::TreeMoveCursor,
+            unit: crate::game_logic::script_presentation::NativeTerrainUnitMove,
+        ) -> Option<game_client::terrain::TreeFxEvent> {
+            crate::game_logic::NativeTerrainEffects::advance_tree_move(self.visual, cursor, unit)
+        }
+        fn finish_tree_move_fx(&mut self, cursor: &mut game_client::terrain::TreeMoveCursor) {
+            crate::game_logic::NativeTerrainEffects::finish_tree_move_fx(self.visual, cursor);
+        }
+
         fn unit_moved(
             &mut self,
             unit: crate::game_logic::script_presentation::NativeTerrainUnitMove,

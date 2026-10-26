@@ -898,3 +898,275 @@ fn update_sway_matches_cpp_array_shapes_and_randomized_type_base() {
 fn tree_radius_approx_matches_cpp_unit_collision_constant() {
     assert_eq!(TREE_RADIUS_APPROX, 7.0);
 }
+
+#[test]
+fn bounded_tree_fx_receipt_does_not_consume_an_older_source_operation() {
+    let mut buffer = W3DTreeBuffer::new();
+    let mut data = module("OwnedOak", "T");
+    data.topple_fx = Some("TreeTopple".into());
+    buffer
+        .add_tree(
+            5,
+            Vec3::new(2.0, 3.0, 4.0),
+            1.0,
+            0.0,
+            1.0,
+            data.clone(),
+            bounds(),
+        )
+        .unwrap();
+    buffer
+        .add_tree(6, Vec3::new(6.0, 7.0, 8.0), 1.0, 0.0, 1.0, data, bounds())
+        .unwrap();
+    assert!(buffer.apply_toppling_force(5, Vec3::X, 1.0, 0));
+    let marker = buffer.pending_fx_events().len();
+    assert!(buffer.apply_toppling_force(6, Vec3::X, 1.0, 0));
+    let current = buffer.take_pending_fx_events_since(marker);
+    assert_eq!(current.len(), 1);
+    assert_eq!(current[0].position, Vec3::new(6.0, 7.0, 8.0));
+    let older = buffer.take_pending_fx_events();
+    assert_eq!(older.len(), 1);
+    assert_eq!(older[0].position, Vec3::new(2.0, 3.0, 4.0));
+    assert!(buffer.take_pending_fx_events().is_empty());
+}
+
+#[test]
+fn per_tree_fx_precedes_matrix_tail_and_rereads_current_unit_for_next_candidate() {
+    let mut buffer = W3DTreeBuffer::new();
+    buffer.set_bounds(TreeRegion2D::new(Vec2::ZERO, Vec2::splat(100.0)));
+    let mut data = module("PhaseOak", "T");
+    data.topple_fx = Some("Topple".into());
+    for (id, x) in [(11, 20.0), (12, 21.0)] {
+        buffer
+            .add_tree(
+                id,
+                Vec3::new(x, 20.0, 0.0),
+                2.0,
+                0.7,
+                1.0,
+                data.clone(),
+                bounds(),
+            )
+            .unwrap();
+    }
+    let original: Vec<_> = buffer.trees().iter().map(|tree| tree.matrix).collect();
+    let mut unit = TreeCollisionUnit {
+        object_id: 7,
+        position: Vec3::new(20.0, 20.0, 0.0),
+        direction_2d: Vec2::X,
+        major_radius: 4.0,
+        minor_radius: 4.0,
+        geometry_type: TreeGeometryType::Cylinder,
+        crusher_level: 3,
+        immobile: false,
+    };
+    let mut cursor = buffer.begin_unit_move(unit, 80).unwrap();
+    let first = buffer.advance_unit_move(&mut cursor, unit).unwrap();
+    let first_index = buffer
+        .trees()
+        .iter()
+        .position(|tree| tree.location == first.position)
+        .unwrap();
+    assert_eq!(
+        buffer.trees()[first_index].topple_state,
+        W3DToppleState::Falling
+    );
+    assert_eq!(
+        buffer.trees()[first_index].matrix,
+        original[first_index],
+        "callback sees pre-tail matrix"
+    );
+    assert_eq!(
+        buffer
+            .trees()
+            .iter()
+            .filter(|tree| tree.topple_state == W3DToppleState::Falling)
+            .count(),
+        1
+    );
+    // Authored callback moved the actor: collision radius/pos stay entry locals,
+    // but the next candidate's force vector must read its current position.
+    unit.position = Vec3::new(80.0, 20.0, 0.0);
+    let second = buffer.advance_unit_move(&mut cursor, unit).unwrap();
+    assert_ne!(first.position, second.position);
+    assert_eq!(
+        buffer.trees()[first_index].matrix,
+        Mat4::from_translation(first.position)
+    );
+    let second_index = buffer
+        .trees()
+        .iter()
+        .position(|tree| tree.location == second.position)
+        .unwrap();
+    assert_eq!(buffer.trees()[second_index].topple_direction, -Vec3::X);
+    assert_eq!(buffer.trees()[second_index].matrix, original[second_index]);
+    assert!(buffer.advance_unit_move(&mut cursor, unit).is_none());
+    assert_eq!(
+        buffer.trees()[second_index].matrix,
+        Mat4::from_translation(second.position)
+    );
+    assert!(
+        buffer.pending_fx_events().is_empty(),
+        "owned receipt is never also queued"
+    );
+}
+
+#[test]
+fn per_tree_resume_observes_changed_crusher_level_and_direction_without_toppling_next_tree() {
+    let mut buffer = W3DTreeBuffer::new();
+    buffer.set_bounds(TreeRegion2D::new(Vec2::ZERO, Vec2::splat(100.0)));
+    let mut data = module("CrusherOak", "T");
+    data.topple_fx = Some("Topple".into());
+    for (id, x) in [(21, 20.0), (22, 21.0)] {
+        buffer
+            .add_tree(
+                id,
+                Vec3::new(x, 20.0, 0.0),
+                1.0,
+                0.0,
+                1.0,
+                data.clone(),
+                bounds(),
+            )
+            .unwrap();
+    }
+    let mut unit = TreeCollisionUnit {
+        object_id: 7,
+        position: Vec3::new(20.0, 20.0, 0.0),
+        direction_2d: Vec2::X,
+        major_radius: 4.0,
+        minor_radius: 4.0,
+        geometry_type: TreeGeometryType::Cylinder,
+        crusher_level: 3,
+        immobile: false,
+    };
+    let mut cursor = buffer.begin_unit_move(unit, 81).unwrap();
+    let first = buffer.advance_unit_move(&mut cursor, unit).unwrap();
+    unit.crusher_level = 0;
+    unit.direction_2d = Vec2::Y;
+    assert!(buffer.advance_unit_move(&mut cursor, unit).is_none());
+    let next = buffer
+        .trees()
+        .iter()
+        .find(|tree| tree.location != first.position)
+        .unwrap();
+    assert_eq!(next.topple_state, W3DToppleState::Upright);
+    assert_ne!(
+        next.push_aside_delta, 0.0,
+        "next candidate instead executes pushAside"
+    );
+}
+
+#[test]
+fn tree_cpu_draw_yields_each_bounce_before_next_tree_observation() {
+    let mut buffer = W3DTreeBuffer::new();
+    let mut data = module("BouncePhaseOak", "T");
+    data.bounce_fx = Some("Bounce".into());
+    for (id, x) in [(41, 20.0), (42, 21.0)] {
+        let index = buffer
+            .add_tree(
+                id,
+                Vec3::new(x, 20.0, 0.0),
+                1.0,
+                0.0,
+                1.0,
+                data.clone(),
+                bounds(),
+            )
+            .unwrap();
+        buffer.apply_toppling_force(id, Vec3::X, 1.0, 0);
+        buffer.tree_mut(index).unwrap().angular_accumulation = ANGULAR_LIMIT - 0.01;
+    }
+    buffer.take_pending_fx_events();
+    let mut cursor = buffer.begin_cpu_draw(false);
+    let first = buffer
+        .advance_cpu_draw(&mut cursor, |_| TreeShroudStatus::Clear)
+        .unwrap();
+    assert_eq!(first.kind, TreeFxKind::Bounce);
+    assert!(buffer.trees()[0].angular_velocity < 0.0);
+    assert!(
+        buffer.trees()[1].angular_velocity > 0.0,
+        "next tree has not advanced at first FX callback"
+    );
+    // The first authored callback changes the next tree before it is read.
+    buffer.tree_mut(1).unwrap().options |= W3D_TOPPLE_OPTIONS_NO_FX;
+    assert!(
+        buffer
+            .advance_cpu_draw(&mut cursor, |_| TreeShroudStatus::Clear)
+            .is_none()
+    );
+    assert!(buffer.trees()[1].angular_velocity < 0.0);
+    assert!(buffer.pending_fx_events().is_empty());
+}
+
+#[test]
+fn tree_cpu_draw_pause_does_not_advance_or_query_shroud() {
+    let mut buffer = W3DTreeBuffer::new();
+    let data = module("PausedOak", "T");
+    let index = buffer
+        .add_tree(44, Vec3::ZERO, 1.0, 0.0, 1.0, data, bounds())
+        .unwrap();
+    buffer.apply_toppling_force(44, Vec3::X, 1.0, 0);
+    let before = buffer.trees()[index].angular_accumulation;
+    let mut cursor = buffer.begin_cpu_draw(true);
+    assert!(
+        buffer
+            .advance_cpu_draw(&mut cursor, |_| panic!("paused draw queried shroud"))
+            .is_none()
+    );
+    assert_eq!(buffer.trees()[index].angular_accumulation, before);
+}
+
+#[test]
+fn tree_cpu_completion_rejects_peer_reset_and_unfinished_draw() {
+    let mut first = W3DTreeBuffer::new();
+    let mut peer = W3DTreeBuffer::new();
+    let unfinished = first.begin_cpu_draw(false);
+    assert!(first.finish_cpu_draw(unfinished).is_err());
+    let mut complete = first.begin_cpu_draw(false);
+    assert!(
+        first
+            .advance_cpu_draw(&mut complete, |_| TreeShroudStatus::Clear)
+            .is_none()
+    );
+    let receipt = first.finish_cpu_draw(complete).unwrap();
+    assert!(first.validate_cpu_draw_receipt(&receipt).is_ok());
+    assert!(peer.validate_cpu_draw_receipt(&receipt).is_err());
+    peer.clear_all_trees();
+    drop(peer);
+    assert!(first.validate_cpu_draw_receipt(&receipt).is_ok());
+    first.clear_all_trees();
+    assert!(first.validate_cpu_draw_receipt(&receipt).is_err());
+}
+
+#[test]
+fn tree_cpu_receipt_rejects_same_storage_replacement_and_cloned_buffer() {
+    // The Option payload is overwritten in place; both draws use generation1.
+    let mut slot = Box::new(Some(W3DTreeBuffer::new()));
+    let owner = slot.as_mut().as_mut().unwrap();
+    let old_address = owner as *const W3DTreeBuffer as usize;
+    let mut cursor = owner.begin_cpu_draw(false);
+    assert!(
+        owner
+            .advance_cpu_draw(&mut cursor, |_| TreeShroudStatus::Clear)
+            .is_none()
+    );
+    let receipt = owner.finish_cpu_draw(cursor).unwrap();
+    let cloned = owner.clone();
+    assert!(cloned.validate_cpu_draw_receipt(&receipt).is_err());
+    *slot = Some(W3DTreeBuffer::new());
+    let replacement = slot.as_mut().as_mut().unwrap();
+    assert_eq!(replacement as *const W3DTreeBuffer as usize, old_address);
+    let mut next = replacement.begin_cpu_draw(false);
+    assert!(
+        replacement
+            .advance_cpu_draw(&mut next, |_| TreeShroudStatus::Clear)
+            .is_none()
+    );
+    let current = replacement.finish_cpu_draw(next).unwrap();
+    assert!(
+        replacement.validate_cpu_draw_receipt(&receipt).is_err(),
+        "equal address+generation is not same birth"
+    );
+    assert!(replacement.validate_cpu_draw_receipt(&current).is_ok());
+}

@@ -981,3 +981,8 @@ struct NativeClientEffectFrame {
     radius_items: Vec<game_client::effects::decals::DecalRenderItem>,
     particles: Option<game_client::effects::particle_renderer::ParticleRenderFrame>,
 }
+
+#[cfg(feature = "game_client")]
+mod native_frame_receiver;
+#[cfg(feature = "game_client")]
+pub(crate) use native_frame_receiver::NativeFrameRenderReceiver;

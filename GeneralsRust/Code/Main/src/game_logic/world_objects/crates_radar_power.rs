@@ -22,7 +22,9 @@ impl GameLogic {
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
         use crate::game_logic::host_deliver_payload::SUPPLY_DROP_PAYLOAD_RESIDUAL_TEMPLATE;
-        use crate::game_logic::host_supply_drop_zone::{SUPPLY_DROP_ZONE_DROP_CASH, drop_cash_amount};
+        use crate::game_logic::host_supply_drop_zone::{
+            SUPPLY_DROP_ZONE_DROP_CASH, drop_cash_amount,
+        };
         use crate::game_logic::host_upgrades::UPGRADE_AMERICA_SUPPLY_LINES;
 
         self.host_deliver_payloads.clear_frame_events();
@@ -42,12 +44,10 @@ impl GameLogic {
             })
             .collect();
         for (tid, pos, yaw) in flight_sync {
+            if !self.set_owned_object_position_with_effects(tid, pos, self.frame, effects) {
+                continue;
+            }
             if let Some(o) = self.objects.get_mut(&tid) {
-                o.set_position_with_effects(
-                    pos,
-                    self.frame,
-                    &mut effects.reborrow_for_object(&mut self.partition_manager),
-                );
                 o.set_orientation_with_partition_owner(yaw, &mut self.partition_manager);
             }
         }
@@ -868,14 +868,13 @@ impl GameLogic {
             p.x = nx;
             p.z = nz;
             p.y = new_y;
-            obj.set_position_with_effects(
-                p,
-                self.frame,
-                &mut effects.reborrow_for_object(&mut self.partition_manager),
-            );
-            {}
-            if landed {
-                obj.clear_eject_parachuting();
+            let _ = obj;
+            if self.set_owned_object_position_with_effects(crate_id, p, self.frame, effects) {
+                if landed {
+                    if let Some(obj) = self.objects.get_mut(&crate_id) {
+                        obj.clear_eject_parachuting();
+                    }
+                }
             }
         }
         if did_override_step {

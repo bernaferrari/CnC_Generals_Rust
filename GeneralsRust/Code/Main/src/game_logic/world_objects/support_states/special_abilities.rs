@@ -1117,8 +1117,8 @@ impl GameLogic {
         &mut self,
         object_id: ObjectId,
         target_id: ObjectId,
-        dt: f32,
-        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+        _dt: f32,
+        _effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> bool {
         if !self.leftover_sa_unit_can_face(object_id) {
             return false;
@@ -1129,18 +1129,12 @@ impl GameLogic {
         let Some(target_pos) = self.objects.get(&target_id).map(|t| t.get_position()) else {
             return false;
         };
-        let frame = self.frame;
         if let Some(obj) = self.objects.get_mut(&object_id) {
             if !obj.face_active() {
                 obj.set_face_can_turn_in_place(obj.min_speed == 0.0);
                 obj.set_face_active(true);
             }
-            obj.tick_face_towards_with_effects(
-                target_pos,
-                dt.max(1.0 / 30.0),
-                frame,
-                &mut effects.reborrow_for_object(&mut self.partition_manager),
-            )
+            obj.arm_face_locomotor_goal(target_pos)
         } else {
             false
         }

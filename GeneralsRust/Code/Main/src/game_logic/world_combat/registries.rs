@@ -624,6 +624,14 @@ impl GameLogic {
         container_id: ObjectId,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> bool {
+        let Some(container_id_birth) = self
+            .objects
+            .get(&container_id)
+            .map(|object| std::sync::Arc::downgrade(&object.visual_draw_identity_token))
+        else {
+            return false;
+        };
+
         use crate::game_logic::host_combat_chinook::HostChinookAIState;
         if !self.objects.get(&container_id).is_some_and(|obj| {
             obj.is_alive()
@@ -642,6 +650,13 @@ impl GameLogic {
             TransportEvacuationMode::ChinookFlight,
             presentation_effects,
         );
+        if !self.objects.get(&container_id).is_some_and(|object| {
+            container_id_birth.ptr_eq(&std::sync::Arc::downgrade(
+                &object.visual_draw_identity_token,
+            ))
+        }) {
+            return false;
+        }
         let empty = self
             .objects
             .get(&container_id)
@@ -677,6 +692,14 @@ impl GameLogic {
         mode: TransportEvacuationMode,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> bool {
+        let Some(container_id_birth) = self
+            .objects
+            .get(&container_id)
+            .map(|object| std::sync::Arc::downgrade(&object.visual_draw_identity_token))
+        else {
+            return false;
+        };
+
         let Some((alive, is_chinook_dropper, subdued)) = self.objects.get(&container_id).map(|c| {
             (
                 c.is_alive(),
@@ -875,9 +898,38 @@ impl GameLogic {
             (None, None)
         };
 
+        // Identity receipts, not mutable passenger copies: earlier riders may
+        // execute authored FX before this original ordered roster reaches a peer.
+        let passenger_births: std::collections::HashMap<_, _> = passengers
+            .iter()
+            .filter_map(|id| {
+                self.objects.get(id).map(|object| {
+                    (
+                        *id,
+                        std::sync::Arc::downgrade(&object.visual_draw_identity_token),
+                    )
+                })
+            })
+            .collect();
         let mut any = false;
         let mut packing_hackers: Vec<ObjectId> = Vec::new();
         for (i, pid) in passengers.iter().enumerate() {
+            if !self.objects.get(&container_id).is_some_and(|object| {
+                container_id_birth.ptr_eq(&std::sync::Arc::downgrade(
+                    &object.visual_draw_identity_token,
+                ))
+            }) {
+                return false;
+            }
+            if !self.objects.get(pid).is_some_and(|object| {
+                passenger_births.get(pid).is_some_and(|birth| {
+                    birth.ptr_eq(&std::sync::Arc::downgrade(
+                        &object.visual_draw_identity_token,
+                    ))
+                })
+            }) {
+                continue;
+            }
             let mut walked_transport = false;
             let mut side_end: Option<glam::Vec3> = None;
             // Remove from container first.
@@ -898,7 +950,7 @@ impl GameLogic {
                     None,
                     true,
                 );
-                let p = self
+                let mut p = self
                     .objects
                     .get_mut(&containment_actor_id)
                     .expect("containment operation preserves this birth");
@@ -907,11 +959,26 @@ impl GameLogic {
                     let seed = pid.0.wrapping_add(i as u32).wrapping_add(self.frame);
                     let (start, end) =
                         garrison_evac_side_points(building_pos, yaw, major, minor, evac, seed);
-                    p.set_position_with_effects(
+                    let _ = p;
+                    if !self.set_owned_object_position_with_effects(
+                        containment_actor_id,
                         start,
                         self.frame,
-                        &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
-                    );
+                        presentation_effects,
+                    ) {
+                        continue;
+                    }
+                    if !self.objects.get(&container_id).is_some_and(|object| {
+                        container_id_birth.ptr_eq(&std::sync::Arc::downgrade(
+                            &object.visual_draw_identity_token,
+                        ))
+                    }) {
+                        return false;
+                    }
+                    p = match self.objects.get_mut(&containment_actor_id) {
+                        Some(object) => object,
+                        None => continue,
+                    };
                     p.set_orientation_with_partition_owner(yaw, &mut self.partition_manager);
                     side_end = Some(end);
                 } else if is_garrison {
@@ -919,12 +986,26 @@ impl GameLogic {
                     // start (Y to ground), then aiFollowPath to adjusted dest.
                     if enclosing {
                         if let Some(start) = burst_start {
-                            p.set_position_with_effects(
+                            let _ = p;
+                            if !self.set_owned_object_position_with_effects(
+                                containment_actor_id,
                                 start,
                                 self.frame,
-                                &mut presentation_effects
-                                    .reborrow_for_object(&mut self.partition_manager),
-                            );
+                                presentation_effects,
+                            ) {
+                                continue;
+                            }
+                            if !self.objects.get(&container_id).is_some_and(|object| {
+                                container_id_birth.ptr_eq(&std::sync::Arc::downgrade(
+                                    &object.visual_draw_identity_token,
+                                ))
+                            }) {
+                                return false;
+                            }
+                            p = match self.objects.get_mut(&containment_actor_id) {
+                                Some(object) => object,
+                                None => continue,
+                            };
                         }
                     }
                     p.set_orientation_with_partition_owner(yaw, &mut self.partition_manager);
@@ -1020,6 +1101,22 @@ impl GameLogic {
                     container_id,
                     presentation_effects,
                 );
+                if !self.objects.get(&container_id).is_some_and(|object| {
+                    container_id_birth.ptr_eq(&std::sync::Arc::downgrade(
+                        &object.visual_draw_identity_token,
+                    ))
+                }) {
+                    return false;
+                }
+                if !self.objects.get(pid).is_some_and(|object| {
+                    passenger_births.get(pid).is_some_and(|birth| {
+                        birth.ptr_eq(&std::sync::Arc::downgrade(
+                            &object.visual_draw_identity_token,
+                        ))
+                    })
+                }) {
+                    continue;
+                }
             } else if !is_garrison && !is_tunnel && !is_cave {
                 self.reset_rider_mood_check_on_exit(container_id, *pid);
                 self.play_container_removing_template_sounds(
@@ -1061,6 +1158,13 @@ impl GameLogic {
                 self.record_transport_residual_unload();
             }
         }
+        if !self.objects.get(&container_id).is_some_and(|object| {
+            container_id_birth.ptr_eq(&std::sync::Arc::downgrade(
+                &object.visual_draw_identity_token,
+            ))
+        }) {
+            return false;
+        }
         if is_garrison {
             // C++ GarrisonContain::removeAllContained → recalcApparentControllingPlayer.
             self.recalc_garrison_apparent_controller(container_id);
@@ -1072,7 +1176,15 @@ impl GameLogic {
             self.refresh_battle_bus_armed_riders_weapon_set(container_id);
         }
         for hid in packing_hackers {
-            self.hacker_income.stop_hacking(hid);
+            if self.objects.get(&hid).is_some_and(|object| {
+                passenger_births.get(&hid).is_some_and(|birth| {
+                    birth.ptr_eq(&std::sync::Arc::downgrade(
+                        &object.visual_draw_identity_token,
+                    ))
+                })
+            }) {
+                self.hacker_income.stop_hacking(hid);
+            }
         }
 
         if let Some(c) = self.objects.get_mut(&container_id) {

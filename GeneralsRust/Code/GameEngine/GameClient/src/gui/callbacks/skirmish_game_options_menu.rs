@@ -2383,6 +2383,7 @@ mod tests {
             });
             let mut emitted = Vec::new();
             let mut effects = WindowEventEffects {
+                control_bar_observation: None,
                 input_provenance:
                     crate::gui::control_bar::HostControlBarInputProvenance::InjectedOrUnknown,
                 standalone_view: None,

@@ -206,3 +206,6 @@ pub fn run_terminal_load_owner_probe() -> anyhow::Result<()> {
 }
 
 mod diplomacy_owner;
+
+#[cfg(feature = "game_client")]
+mod native_frame_receiver;

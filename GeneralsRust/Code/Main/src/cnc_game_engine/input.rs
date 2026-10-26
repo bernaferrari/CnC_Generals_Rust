@@ -1567,8 +1567,8 @@ impl CnCGameEngine {
             let mut resume = None;
             loop {
                 let facts = self.receiving_menu_world_facts();
-                let (progress, steps) =
-                    self.with_receiving_client_translation(|client, playback, driver, manager| {
+                let (progress, steps) = self.with_receiving_client_translation(
+                    |client, playback, driver, manager, audio_random| {
                         let mut propagate =
                             |client: &mut game_client::core::GameClient, stream_cursor| {
                                 client
@@ -1587,9 +1587,11 @@ impl CnCGameEngine {
                             client,
                             facts,
                             resume.take(),
+                            audio_random,
                             &mut propagate,
                         )
-                    });
+                    },
+                );
                 match progress {
                     Ok(crate::subsystem_manager::ReceivingClientUpdateProgress::HostBoundary(
                         cursor,
@@ -1629,10 +1631,16 @@ impl CnCGameEngine {
         #[cfg(not(feature = "game_client"))]
         {
             if let Some(timing) = self.last_frame_timing {
-                if let Err(error) = self.subsystem_manager.update_all_with_timing(&timing) {
+                if let Err(error) = self
+                    .subsystem_manager
+                    .update_all_with_timing(&timing, &mut self.game_logic.session_view.audio_random)
+                {
                     error!("Error updating subsystems: {error}");
                 }
-            } else if let Err(error) = self.subsystem_manager.update_all(dt) {
+            } else if let Err(error) = self
+                .subsystem_manager
+                .update_all(dt, &mut self.game_logic.session_view.audio_random)
+            {
                 error!("Error updating subsystems: {error}");
             }
         }
@@ -2227,38 +2235,7 @@ impl CnCGameEngine {
                     )
                     .map(|state| state.binding_key)
             });
-            let terrain_owner = Arc::clone(self.game_logic.world_services.terrain());
-            let terrain = terrain_owner
-                .read()
-                .map_err(|_| anyhow::anyhow!("receiving filter LookAt terrain poisoned"))?;
             let filter_scroll = self.game_logic.session_view.camera.native_filter_scroll;
-            let (filter, target, impulse, mut cancellation, physics_visuals, native) =
-                self.game_logic.split_filter_camera_owner();
-            let mut camera = super::camera_filter::NativeFilterCameraContext {
-                look_at_modes: &mut self.look_at_modes,
-                target,
-                impulse,
-                native,
-                world_bounds,
-                terrain: &terrain,
-            };
-            let mut complete_filter_camera =
-                |point,poses:&mut crate::graphics::render_pipeline::native_pose_loan::NativeInstalledPoseLoan<'_>,graphics:&mut GraphicsSystem| {
-                    camera.finish(point, &mut || cancellation.cancel(),&mut |mode| {
-                        slave_source.as_ref().map_or(
-                            crate::presentation_frame::camera::build::SlaveCameraSample::MissingObject,
-                            |source|super::native_view_effects::sample_installed_slave(
-                                poses,graphics,source,&mode.bone_name,slave_binding_key,
-                            ),
-                        )
-                    })
-                };
-            let mut physics_visual_owner = physics_visuals.borrow_mut();
-            let mut complete_physics_visual =
-                |input: &mut crate::presentation_frame::UnitRenderInput,
-                 frame: &crate::presentation_frame::PresentationFrame| {
-                    physics_visual_owner.complete_input(input, frame)
-                };
             let snow = self.game_client.snow_render_state();
             let (render_pipeline, graphics_system, game_client) = (
                 &mut self.render_pipeline,
@@ -2291,60 +2268,17 @@ impl CnCGameEngine {
                         Ok(())
                     }
                 };
-            let mut direct_scene_candidate_sink = |candidates: &[crate::graphics::render_pipeline::FrozenDirectDrawableSceneCandidate]| {
-                let game_client_candidates = candidates.iter().copied().map(|candidate| {
-                    game_client::core::FrozenDirectSceneShroudCandidate {
-                        binding_key: game_client::core::PresentationDirectDrawableBindingKey {
-                            host_epoch: candidate.host_epoch,
-                            object_id: candidate.object_id.0,
-                            drawable_id: game_client::core::DrawableId(candidate.drawable_id),
-                            binding_generation: candidate.binding_generation,
-                        },
-                        raw_status: candidate.raw_status,
-                        effectively_dead: candidate.effectively_dead,
-                    }
-                });
-                // Preserve the exact scene-local outcome before WGPU. The
-                // pipeline verifies the full key again, drops a hidden direct
-                // Drawable before forward rendering, and retains Clear versus
-                // PartialClear/Fogged pass eligibility for hq-1a1's projected
-                // material route. No scalar FOW result is used here.
-                scene_drawables
-                    .evaluate_frozen_direct_scene_shroud_candidates(
-                        presentation_logic_frame,
-                        game_client_candidates,
-                    )
-                    .into_iter()
-                    .filter_map(|decision| {
-                        let outcome = match decision.decision {
-                            game_client::drawable::SceneShroudDecision::HiddenDirectDrawable => {
-                                crate::graphics::render_pipeline::FrozenDirectDrawableSceneOutcome::HiddenDirectDrawable
-                            }
-                            game_client::drawable::SceneShroudDecision::RenderDrawable {
-                                final_status,
-                                pushes_projected_shroud_pass,
-                            } => crate::graphics::render_pipeline::FrozenDirectDrawableSceneOutcome::RenderDrawable {
-                                final_status,
-                                pushes_projected_shroud_pass,
-                            },
-                            game_client::drawable::SceneShroudDecision::RenderGhostWithFogLight
-                            | game_client::drawable::SceneShroudDecision::RenderWithoutDrawable => {
-                                return None;
-                            }
-                        };
-                        Some(
-                            crate::graphics::render_pipeline::FrozenDirectDrawableSceneDecision {
-                                host_epoch: decision.binding_key.host_epoch,
-                                object_id: crate::game_logic::ObjectId(
-                                    decision.binding_key.object_id,
-                                ),
-                                drawable_id: decision.binding_key.drawable_id.0,
-                                binding_generation: decision.binding_key.binding_generation,
-                                outcome,
-                            },
-                        )
-                    })
-                    .collect()
+            let mut receiver = super::native_frame_receiver::NativeFrameReceiver {
+                world: &mut self.game_logic,
+                drawables: scene_drawables,
+                look_at_modes: &mut self.look_at_modes,
+                world_bounds,
+                slave_source,
+                slave_binding_key,
+                host_epoch: self.host_direct_visual_world_epoch,
+                local_player_id: self.current_player_id,
+                assets: self.application_assets.as_ref(),
+                logic_frame: presentation_logic_frame,
             };
             let result = render_pipeline.execute(
                 graphics_system,
@@ -2356,16 +2290,13 @@ impl CnCGameEngine {
                 allow_sync_model_loads,
                 deferred_startup_model_load_budget,
                 skip_world_scene,
-                Some(&mut direct_scene_candidate_sink),
+                &mut receiver,
                 native_radius_items,
                 prepared_particles,
-                filter,
                 &snow,
                 filter_scroll,
                 presentation_logic_frame,
-                Some(&mut complete_filter_camera),
                 Some(&mut ui_overlay),
-                Some(&mut complete_physics_visual),
             );
             result
         };
@@ -3078,6 +3009,43 @@ mod tests {
 
 #[cfg(feature = "game_client")]
 impl CnCGameEngine {
+    #[cfg(feature = "game_client")]
+    pub(super) fn receiving_control_bar_callback_observation(
+        &self,
+    ) -> game_client::gui::callbacks::control_bar_observation::ControlBarCallbackObservation {
+        use game_client::gui::callbacks::control_bar_observation::{
+            ControlBarCallbackObservation, ControlBarMouseObservation, ControlBarPlayerObservation,
+        };
+        let local_player = self.game_logic.local_player_id().and_then(|id| {
+            self.game_logic
+                .get_players()
+                .get(&id)
+                .map(|player| ControlBarPlayerObservation {
+                    id,
+                    active: player.is_alive && !player.is_observer,
+                    selection_count: self.ui_selected_ids(id).len(),
+                })
+        });
+        let mouse = self.game_client.input_mouse_handle().and_then(|mouse| {
+            let mouse = mouse.lock().ok()?;
+            Some(ControlBarMouseObservation {
+                middle_held: mouse
+                    .get_mouse_status()
+                    .is_button_down(game_client::input::MouseButton::Middle),
+                alternate_mouse: self.use_alternate_mouse,
+            })
+        });
+        ControlBarCallbackObservation {
+            game_ending: self.game_logic.owned_script_game_ending(),
+            multiplayer: matches!(
+                self.game_logic.game_mode(),
+                GameMode::Lan | GameMode::Internet | GameMode::Multiplayer
+            ),
+            local_player,
+            mouse,
+        }
+    }
+
     pub(super) fn receiving_menu_world_facts(
         &self,
     ) -> game_client::gui::campaign_launch_host_bridge::MenuWorldFacts {
@@ -3105,10 +3073,12 @@ impl CnCGameEngine {
         operation: impl FnOnce(&mut game_client::gui::game_window::WindowEventEffects<'_>) -> R,
     ) -> Result<R, String> {
         let facts = self.receiving_menu_world_facts();
+        let control_bar_observation = self.receiving_control_bar_callback_observation();
         let diplomacy = self.receiving_diplomacy_world_facts().ok();
         let result = self
             .game_client
             .with_window_event_effects(Some(facts), |effects| {
+                effects.admit_control_bar_callback_observation(control_bar_observation);
                 effects.with_diplomacy_facts(diplomacy.as_ref(), operation)
             });
         self.complete_receiving_menu_host_requests()?;
@@ -3123,12 +3093,14 @@ impl CnCGameEngine {
         ) -> R,
     ) -> Result<R, String> {
         let facts = self.receiving_menu_world_facts();
+        let control_bar_observation = self.receiving_control_bar_callback_observation();
         let diplomacy = self.receiving_diplomacy_world_facts().ok();
         let ui = &mut self.ui_manager;
         let render = &mut self.render_pipeline;
         let result = self
             .game_client
             .with_window_event_effects(Some(facts), |effects| {
+                effects.admit_control_bar_callback_observation(control_bar_observation);
                 effects.with_diplomacy_facts(diplomacy.as_ref(), |effects| {
                     operation(ui, render, effects)
                 })
@@ -3144,10 +3116,12 @@ impl CnCGameEngine {
         ) -> R,
     ) -> Result<Option<R>, String> {
         let facts = self.receiving_menu_world_facts();
+        let control_bar_observation = self.receiving_control_bar_callback_observation();
         let diplomacy = self.receiving_diplomacy_world_facts().ok();
         let result = self
             .game_client
             .with_receiving_shell(Some(facts), |shell, effects| {
+                effects.admit_control_bar_callback_observation(control_bar_observation);
                 effects
                     .with_diplomacy_facts(diplomacy.as_ref(), |effects| operation(shell, effects))
             })
@@ -3245,6 +3219,9 @@ impl CnCGameEngine {
             }
             for request in requests {
                 match request {
+                    MenuHostRequest::ClearSelection { player_id } => {
+                        self.host_set_selection(player_id, Vec::new());
+                    }
                     MenuHostRequest::AcknowledgePopup { generation } => {
                         self.host_dismiss_in_game_popup_message(generation);
                     }

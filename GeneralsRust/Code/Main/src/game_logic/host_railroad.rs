@@ -1137,12 +1137,10 @@ impl GameLogic {
             self.make_a_wall_out_of_this_train(head, false);
         }
         for (id, pos, heading) in poses {
+            if !self.set_owned_object_position_with_effects(id, pos, pose_frame, effects) {
+                continue;
+            }
             if let Some(obj) = self.objects.get_mut(&id) {
-                obj.set_position_with_effects(
-                    pos,
-                    pose_frame,
-                    &mut effects.reborrow_for_object(&mut self.partition_manager),
-                );
                 obj.set_orientation_with_effects(
                     heading,
                     &mut effects.reborrow_for_object(&mut self.partition_manager),

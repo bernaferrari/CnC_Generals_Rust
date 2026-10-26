@@ -74,6 +74,13 @@ impl NativeDrawableWorld {
     }
 }
 impl NativeDrawableOwner<'_> {
+    /// Short loan of this same canonical owner for one synchronous render phase.
+    pub fn reborrow(&mut self) -> NativeDrawableOwner<'_> {
+        NativeDrawableOwner {
+            drawables: &mut *self.drawables,
+            particles: &mut *self.particles,
+        }
+    }
     pub fn particle_systems(&self) -> &crate::effects::particle_manager::ParticleSystemManager {
         self.particles
     }

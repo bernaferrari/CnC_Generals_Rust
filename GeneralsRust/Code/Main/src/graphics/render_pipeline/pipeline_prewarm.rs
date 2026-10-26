@@ -393,12 +393,48 @@ impl RenderPipeline {
     }
 
     #[cfg(feature = "game_client")]
+    pub(super) fn update_and_enqueue_terrain_pass_after_tree_cpu(
+        &mut self,
+        view: &Mat4,
+        projection: &Mat4,
+        snow: &game_client::snow::SnowRenderState,
+        tree_receipt: Option<&game_client::terrain::TreeCpuDrawReceipt>,
+    ) -> Result<()> {
+        self.update_and_enqueue_terrain_pass_observed(
+            view,
+            projection,
+            snow,
+            None,
+            true,
+            tree_receipt,
+        )
+    }
+    #[cfg(feature = "game_client")]
     pub(super) fn update_and_enqueue_terrain_pass_with_motion(
         &mut self,
         view_matrix: &Mat4,
         projection_matrix: &Mat4,
         snow: &game_client::snow::SnowRenderState,
         warm_motion: Option<crate::presentation_frame::PresentationTerrainMotion>,
+    ) -> Result<()> {
+        self.update_and_enqueue_terrain_pass_observed(
+            view_matrix,
+            projection_matrix,
+            snow,
+            warm_motion,
+            false,
+            None,
+        )
+    }
+    #[cfg(feature = "game_client")]
+    fn update_and_enqueue_terrain_pass_observed(
+        &mut self,
+        view_matrix: &Mat4,
+        projection_matrix: &Mat4,
+        snow: &game_client::snow::SnowRenderState,
+        warm_motion: Option<crate::presentation_frame::PresentationTerrainMotion>,
+        tree_cpu_completed: bool,
+        tree_receipt: Option<&game_client::terrain::TreeCpuDrawReceipt>,
     ) -> Result<()> {
         static LOGGED_ZERO_TERRAIN_CHUNKS: AtomicBool = AtomicBool::new(false);
         static LOGGED_NONZERO_TERRAIN_CHUNKS: AtomicBool = AtomicBool::new(false);
@@ -423,20 +459,33 @@ impl RenderPipeline {
             let client_projection_matrix =
                 Mat4::from_cols_array_2d(&projection_matrix.to_cols_array_2d());
             let terrain_render_started = Instant::now();
-            terrain_visual
-                .render_native_y_up_with_motion(
+            (if tree_cpu_completed {
+                terrain_visual.render_native_y_up_after_tree_cpu(
+                    &client_view_matrix,
+                    &client_projection_matrix,
+                    snow_min_height,
+                    snow,
+                    motion,
+                    tree_receipt,
+                )
+            } else {
+                terrain_visual.render_native_y_up_with_motion(
                     &client_view_matrix,
                     &client_projection_matrix,
                     snow_min_height,
                     snow,
                     motion,
                 )
-                .map_err(|e| anyhow::anyhow!("terrain visual render state update failed: {}", e))?;
+            })
+            .map_err(|e| anyhow::anyhow!("terrain visual render state update failed: {}", e))?;
             let terrain_render_elapsed = terrain_render_started.elapsed();
             let terrain_update_started = Instant::now();
-            terrain_visual
-                .update_native(motion)
-                .map_err(|e| anyhow::anyhow!("terrain visual update failed: {}", e))?;
+            (if tree_cpu_completed {
+                terrain_visual.update_native_after_tree_cpu(motion, tree_receipt)
+            } else {
+                terrain_visual.update_native(motion)
+            })
+            .map_err(|e| anyhow::anyhow!("terrain visual update failed: {}", e))?;
             let terrain_update_elapsed = terrain_update_started.elapsed();
 
             let chunk_count = terrain_visual.chunk_draw_count();

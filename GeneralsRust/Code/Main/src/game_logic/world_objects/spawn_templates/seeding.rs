@@ -49,6 +49,20 @@ fn validate_receiving_weapon_rule(
 }
 
 impl GameLogic {
+    /// C++ ThingFactory::reset removes map overrides. Derived projectile data
+    /// follows that same receiving source, never a second cached baseline.
+    pub(in crate::game_logic) fn restore_projectile_definition_base(
+        &mut self,
+    ) -> Result<(), String> {
+        let candidate = if let Some(definitions) = self.receiving_object_definitions.as_ref() {
+            crate::game_logic::projectile_definitions::ProjectileDefinitions::from_effective_definitions(definitions.rows().map(|row|(row.name.as_str(),row.as_ref())),self.physics_definitions.base.gravity)?
+        } else {
+            self.projectile_definitions
+                .with_physics_gravity(self.physics_definitions.base.gravity)?
+        };
+        self.projectile_definitions = candidate;
+        Ok(())
+    }
     /// Admit the actual companion stream once into a detached receiving owner.
     /// None is explicit programmatic compatibility; Some(empty) remains authority.
     pub(in crate::game_logic) fn apply_receiving_module_overrides(
@@ -84,8 +98,10 @@ impl GameLogic {
             &candidate,
         )?;
         Self::bind_receiving_production_templates(&mut templates, &candidate)?;
+        let projectile_candidate=crate::game_logic::projectile_definitions::ProjectileDefinitions::from_effective_definitions(projection_candidate.rows().map(|row|(row.name.as_str(),row.as_ref())),self.physics_definitions.effective.gravity)?;
         self.receiving_module_content = Some(candidate);
         self.receiving_object_definitions = Some(projection_candidate);
+        self.projectile_definitions = projectile_candidate;
         self.templates = templates;
         self.refresh_receiving_client_templates();
         Ok(())
@@ -220,11 +236,7 @@ impl GameLogic {
                 return Err("weapon snapshot has duplicate effective identities".into());
             }
         }
-        let mut profiles =
-            crate::game_logic::projectile_definitions::ProjectileDefinitions::default();
-        for (name, definition) in definitions {
-            profiles.admit_definition(name, definition, self.physics_definitions.base.gravity)?;
-        }
+        let profiles=crate::game_logic::projectile_definitions::ProjectileDefinitions::from_effective_definitions(definitions.iter().map(|(name,row)|(name.as_str(),row)),self.physics_definitions.base.gravity)?;
         self.weapon_definition_base = Some(catalog.clone());
         self.weapon_definitions = Some(catalog);
         self.projectile_definitions = profiles;

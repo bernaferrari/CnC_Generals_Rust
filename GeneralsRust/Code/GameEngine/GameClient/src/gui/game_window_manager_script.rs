@@ -1249,7 +1249,7 @@ impl ScriptCallbackRegistry {
         );
         self.register_win_input_with_effects(
             "BeaconWindowInput",
-            |window, msg, d1, d2, effects| cb::beacon_window_input(window, msg, d1, d2),
+            |window, msg, d1, d2, effects| cb::beacon_window_input(window, msg, d1, d2, effects),
         );
         self.register_win_input_with_effects(
             "DifficultySelectInput",
@@ -1997,17 +1997,7 @@ fn left_hud_input(
     data2: WindowMsgData,
     effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> WindowMsgHandled {
-    let input_provenance = effects.input_provenance();
-    cb::left_hud_input(
-        window,
-        msg,
-        data1,
-        data2,
-        effects.emitted_messages,
-        effects.pending_control_bar_clicks.as_deref_mut(),
-        effects.ui.as_deref_mut().expect("receiving UI"),
-        input_provenance,
-    )
+    cb::left_hud_input(window, msg, data1, data2, effects)
 }
 
 fn diplomacy_system(

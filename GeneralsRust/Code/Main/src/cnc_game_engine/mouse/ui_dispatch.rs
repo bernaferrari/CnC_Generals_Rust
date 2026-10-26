@@ -187,9 +187,20 @@ impl CnCGameEngine {
     #[cfg(feature = "game_client")]
     pub(in crate::cnc_game_engine) fn host_inject_game_client_mouse_move(&self, x: f32, y: f32) {
         // Wave 606: host OS mouse move inject residual.
-        game_client::input::mouse::with_mouse(|mouse| {
-            let _ = mouse.handle_mouse_move(x, y);
-        });
+        if let Some(mouse) = self.game_client.input_mouse_handle() {
+            let _ = mouse
+                .lock()
+                .expect("receiving Mouse owner poisoned")
+                .handle_mouse_move(x, y);
+        }
+    }
+
+    /// Feed wheel state into this client's input device.
+    #[cfg(feature = "game_client")]
+    pub(in crate::cnc_game_engine) fn inject_game_client_mouse_scroll(&self, delta_y: f32) {
+        if let Some(mouse) = self.game_client.input_mouse_handle() {
+            let _ = mouse.lock().expect("receiving Mouse owner poisoned").handle_scroll_lines(delta_y);
+        }
     }
 
     /// Wave 606: via `host_inject_game_client_mouse_button`.
@@ -235,6 +246,7 @@ impl CnCGameEngine {
             let camera_rules = self.game_logic.camera_input_rules();
             let upgrade_tooltip = self.game_logic.receiving_upgrade_tooltip_observer();
             let menu_world = self.receiving_menu_world_facts();
+            let control_bar_observation = self.receiving_control_bar_callback_observation();
             let pending = &mut self.game_logic.replay_pending;
             let mut replay_version = |filename: &str| {
                 pending
@@ -260,6 +272,7 @@ impl CnCGameEngine {
                 ui,
             ) = self.game_client.window_owner_campaign_menu_and_host_mut();
             let mut context = game_client::gui::window_manager::ControlBarInputContext {
+            control_bar_observation:Some(control_bar_observation),
             diplomacy_world: None,
             input_provenance: game_client::gui::control_bar::HostControlBarInputProvenance::InjectedOrUnknown,
             ui, logic_frame: Some(menu_world.logic_frame), client_frame: Some(menu_world.client_frame),
@@ -445,6 +458,26 @@ impl CnCGameEngine {
         facts: game_client::gui::WindowMouseFacts,
         input_provenance: game_client::gui::control_bar::HostControlBarInputProvenance,
     ) -> Result<game_client::gui::game_window::WindowInputReturnCode, String> {
+        let observation = self.receiving_control_bar_callback_observation();
+        if observation.mouse.is_none() && !(facts.mouse_locked && game_client::message_stream::window_xlat::should_skip_os_window_manager_while_mouse_locked(msg,facts.scrolling)) {
+            let requires_mouse = self
+                .game_client
+                .window_manager_owner_ref()
+                .with_manager_ref(|manager| {
+                    let mut hit = manager.get_window_under_cursor(x, y, false);
+                    while let Some(window) = hit {
+                        let window = window.borrow();
+                        if window.get_name() == "ControlBar.wnd:LeftHUD" {
+                            return true;
+                        }
+                        hit = window.get_parent();
+                    }
+                    false
+                });
+            if requires_mouse {
+                return Err("native LeftHUD requires its receiving mouse service".into());
+            }
+        }
         let replay = matches!(
             self.game_logic.game_mode(),
             crate::game_logic::GameMode::Replay
@@ -461,6 +494,7 @@ impl CnCGameEngine {
         let camera_rules = self.game_logic.camera_input_rules();
         let upgrade_tooltip = self.game_logic.receiving_upgrade_tooltip_observer();
         let menu_world = self.receiving_menu_world_facts();
+        let control_bar_observation = self.receiving_control_bar_callback_observation();
         let pending = &mut self.game_logic.replay_pending;
         let mut replay_version = |filename: &str| {
             pending
@@ -486,6 +520,7 @@ impl CnCGameEngine {
             ui,
         ) = self.game_client.window_owner_campaign_menu_and_host_mut();
         let mut context = game_client::gui::window_manager::ControlBarInputContext {
+            control_bar_observation:Some(control_bar_observation),
             diplomacy_world: None,
             input_provenance,
             ui, logic_frame: Some(menu_world.logic_frame), client_frame: Some(menu_world.client_frame),
@@ -645,24 +680,11 @@ impl CnCGameEngine {
             MouseButton::Forward => GcMouseButton::Other(4),
             MouseButton::Other(n) => GcMouseButton::Other(n as u16),
         };
-        game_client::input::mouse::with_mouse(|mouse| {
-            let _ = mouse.handle_mouse_button(gc_btn, pressed, Instant::now());
-        });
-    }
-
-    /// Wave 606: via `host_inject_game_client_mouse_scroll`.
-    #[cfg(feature = "game_client")]
-    pub(in crate::cnc_game_engine) fn inject_game_client_mouse_scroll(&self, delta_y: f32) {
-        // Wave 606: thin wrapper — OS mouse scroll inject via host helper.
-        self.host_inject_game_client_mouse_scroll(delta_y);
-    }
-
-    /// Wave 606: host OS→GameClient mouse-scroll inject residual.
-    #[cfg(feature = "game_client")]
-    pub(in crate::cnc_game_engine) fn host_inject_game_client_mouse_scroll(&self, delta_y: f32) {
-        // Wave 606: host OS mouse scroll inject residual.
-        game_client::input::mouse::with_mouse(|mouse| {
-            let _ = mouse.handle_scroll_lines(delta_y);
-        });
+        if let Some(mouse) = self.game_client.input_mouse_handle() {
+            let _ = mouse
+                .lock()
+                .expect("receiving Mouse owner poisoned")
+                .handle_mouse_button(gc_btn, pressed, Instant::now());
+        }
     }
 }

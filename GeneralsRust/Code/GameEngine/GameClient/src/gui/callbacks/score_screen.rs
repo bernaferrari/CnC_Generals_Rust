@@ -2325,6 +2325,7 @@ mod tests {
 
         let mut emitted_messages = Vec::new();
         let mut effects = WindowEventEffects {
+            control_bar_observation: None,
             input_provenance:
                 crate::gui::control_bar::HostControlBarInputProvenance::InjectedOrUnknown,
             standalone_view: None,
@@ -2361,6 +2362,7 @@ mod tests {
         campaign_manager.set_campaign("testcampaign");
         let mut emitted_messages = Vec::new();
         let mut effects = WindowEventEffects {
+            control_bar_observation: None,
             input_provenance:
                 crate::gui::control_bar::HostControlBarInputProvenance::InjectedOrUnknown,
             standalone_view: None,
@@ -2811,6 +2813,7 @@ mod os_wnd_tests {
         let _ = simulate_score_screen_set_finish_campaign(false);
         let mut emitted_messages = Vec::new();
         let mut effects = WindowEventEffects {
+            control_bar_observation: None,
             input_provenance:
                 crate::gui::control_bar::HostControlBarInputProvenance::InjectedOrUnknown,
             standalone_view: None,

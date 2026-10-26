@@ -2396,6 +2396,7 @@ fn deploy_style_nuke_launcher_normal_attack_waits_for_range_and_unpack() {
         &mut logic.combat_system,
         logic.objects.read(),
         102,
+        &crate::game_logic::projectile_definitions::fixture_projectile_definitions(),
     );
     crate::game_logic::combat::apply_ready_projectileless_delayed_damage(
         &mut logic.combat_system,

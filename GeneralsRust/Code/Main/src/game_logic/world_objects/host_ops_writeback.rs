@@ -572,15 +572,12 @@ impl GameLogic {
                 clear,
                 mark_destroy_team,
             } => {
-                if let Some(obj) = self.objects.get_mut(&id) {
-                    if let Some(pos) = position {
-                        obj.set_position_with_partition_owner(
-                            pos,
-                            frame,
-                            effects,
-                            &mut self.partition_manager,
-                        );
+                if let Some(pos) = position {
+                    if !self.set_owned_object_position_with_effects(id, pos, frame, effects) {
+                        return;
                     }
+                }
+                if let Some(obj) = self.objects.get_mut(&id) {
                     {
                         obj.internal_change_health(-obj.health.current);
                     }
@@ -800,10 +797,7 @@ impl GameLogic {
                 position,
                 sticky_follow_tick,
             } => {
-                let (objects, partition) = self.host_objects_and_partition_mut();
-                if let Some(obj) = objects.get_mut(&id) {
-                    obj.set_position_with_partition_owner(position, frame, effects, partition);
-                }
+                self.set_owned_object_position_with_effects(id, position, frame, effects);
                 if sticky_follow_tick {
                     self.sticky_bomb_follow_ticks = self.sticky_bomb_follow_ticks.saturating_add(1);
                 }

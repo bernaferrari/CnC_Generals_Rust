@@ -791,7 +791,7 @@ impl Object {
     }
 
     /// C++ `AIFaceState::update` goal select — ANGLE vs POSITION_EXPLICIT.
-    /// Does not integrate; `doLocomotor` / `tick_face_towards` leftover-march.
+    /// Does not integrate; the receiving World doLocomotor owns motion.
     pub fn arm_face_locomotor_goal(&mut self, target_pos: glam::Vec3) -> bool {
         let rel = self.relative_angle_2d_to(target_pos);
         if rel.abs() < FACE_REL_THRESH_RAD {
@@ -805,55 +805,6 @@ impl Object {
             self.set_locomotor_goal_position_explicit(target_pos);
         }
         true
-    }
-
-    /// C++ `AIFaceState::update` leftover-march. Returns true while still turning.
-    ///
-    /// `minSpeed == 0` → ANGLE goal + `locoUpdate_moveTowardsAngle`.
-    /// Else → POSITION_EXPLICIT so Wings/Thrust fly a curve at the face point.
-    pub fn tick_face_towards(&mut self, target_pos: glam::Vec3, dt: f32, frame: u32) -> bool {
-        self.tick_face_towards_with_effects(target_pos, dt, frame, &mut Default::default())
-    }
-    pub(crate) fn tick_face_towards_with_effects(
-        &mut self,
-        target_pos: glam::Vec3,
-        dt: f32,
-        frame: u32,
-        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> bool {
-        if !self.arm_face_locomotor_goal(target_pos) {
-            return false;
-        }
-        if self.face_loco_frame() == frame && frame != 0 {
-            return true;
-        }
-        self.set_face_loco_frame(frame);
-        if self.locomotor_goal_type == LocoGoalType::Angle {
-            self.loco_update_move_towards_angle_with_effects(
-                self.locomotor_goal_angle,
-                dt.max(1.0 / 30.0),
-                frame,
-                effects,
-            );
-        }
-        true
-    }
-
-    /// Face toward a world position (AI_FACE_POSITION residual).
-    ///
-    /// One leftover-march slice via ANGLE/`locoUpdate_moveTowardsAngle`, not a
-    /// one-frame `rotate_towards_position` yaw snap.
-    pub fn face_position(&mut self, pos: glam::Vec3, dt: f32) -> bool {
-        if !self.can_move() {
-            return false;
-        }
-        self.set_face_can_turn_in_place(self.min_speed == 0.0);
-        !self.tick_face_towards(pos, dt, 0)
-    }
-
-    /// Face toward another object.
-    pub fn face_object(&mut self, other: &Object, dt: f32) -> bool {
-        self.face_position(other.get_position(), dt)
     }
 }
 
@@ -1027,69 +978,70 @@ mod tests {
     }
 
     #[test]
-    fn tick_face_towards_sets_angle_goal_when_min_speed_zero() {
-        use crate::game_logic::{KindOf, LocoGoalType, Team, ThingTemplate};
-        use glam::Vec3;
-
+    fn face_goal_then_receiving_world_locomotor_turns_when_min_speed_zero() {
         let mut t = ThingTemplate::new("FaceTank");
         t.add_kind_of(KindOf::Vehicle);
-        let mut o = Object::new(t, ObjectId(1), Team::USA);
-        o.set_orientation(0.0);
-        o.set_position(Vec3::ZERO);
-        o.min_speed = 0.0;
-        o.set_face_can_turn_in_place(true);
-        o.movement.turn_rate = 0.3;
+        let mut object = Object::new(t, ObjectId(1), Team::USA);
+        object.min_speed = 0.0;
+        object.movement.turn_rate = 0.3;
+        let mut world = crate::game_logic::GameLogic::new();
+        world.objects.insert(ObjectId(1), object);
         let goal = Vec3::new(0.0, 0.0, 10.0);
-        assert!(o.tick_face_towards(goal, 1.0 / 30.0, 1));
-        assert_eq!(o.locomotor_goal_type, LocoGoalType::Angle);
-        assert!(o.get_orientation().abs() > 1e-4);
-        assert!(o.relative_angle_2d_to(goal).abs() > FACE_REL_THRESH_RAD);
+        assert!(world.private_face_position(ObjectId(1), goal));
+        assert_eq!(
+            world.objects.get(&ObjectId(1)).unwrap().get_orientation(),
+            0.0,
+            "goal admission never steps another owner"
+        );
+        world.update_movement_for_test(&[ObjectId(1)], 1.0 / 30.0);
+        let object = world.objects.get(&ObjectId(1)).unwrap();
+        assert_eq!(object.locomotor_goal_type, LocoGoalType::Angle);
+        assert!(object.get_orientation().abs() > 1e-4);
+        assert!(object.relative_angle_2d_to(goal).abs() > FACE_REL_THRESH_RAD);
     }
-
     #[test]
-    fn tick_face_towards_sets_position_explicit_when_min_speed() {
-        use crate::game_logic::{KindOf, LocoGoalType, Team, ThingTemplate};
-        use glam::Vec3;
-
+    fn face_goal_with_min_speed_is_explicit_without_eager_motion() {
         let mut t = ThingTemplate::new("FaceJet");
         t.add_kind_of(KindOf::Aircraft);
-        let mut o = Object::new(t, ObjectId(2), Team::USA);
-        o.set_orientation(0.0);
-        o.set_position(Vec3::ZERO);
-        o.min_speed = 20.0;
-        o.set_face_can_turn_in_place(false);
+        let mut object = Object::new(t, ObjectId(2), Team::USA);
+        object.min_speed = 20.0;
+        let mut world = crate::game_logic::GameLogic::new();
+        world.objects.insert(ObjectId(2), object);
         let goal = Vec3::new(0.0, 0.0, 40.0);
-        let yaw0 = o.get_orientation();
-        assert!(o.tick_face_towards(goal, 1.0 / 30.0, 1));
-        assert_eq!(o.locomotor_goal_type, LocoGoalType::PositionExplicit);
-        assert_eq!(o.movement.target_position, Some(goal));
-        assert_eq!(o.get_orientation(), yaw0);
+        assert!(world.private_face_position(ObjectId(2), goal));
+        let object = world.objects.get(&ObjectId(2)).unwrap();
+        assert_eq!(object.locomotor_goal_type, LocoGoalType::PositionExplicit);
+        assert_eq!(object.movement.target_position, Some(goal));
+        assert_eq!(object.get_orientation(), 0.0);
     }
-
     #[test]
-    fn tick_face_towards_persists_until_two_degree_threshold() {
-        use crate::game_logic::{KindOf, Team, ThingTemplate};
-        use glam::Vec3;
-
+    fn receiving_face_locomotor_persists_until_source_threshold() {
         let mut t = ThingTemplate::new("FaceSlow");
         t.add_kind_of(KindOf::Vehicle);
-        let mut o = Object::new(t, ObjectId(3), Team::USA);
-        o.set_orientation(0.0);
-        o.set_position(Vec3::ZERO);
-        o.min_speed = 0.0;
-        o.set_face_can_turn_in_place(true);
-        o.set_face_active(true);
-        o.movement.turn_rate = 0.4;
+        let mut object = Object::new(t, ObjectId(3), Team::USA);
+        object.min_speed = 0.0;
+        object.set_face_can_turn_in_place(true);
+        object.set_face_active(true);
+        object.movement.turn_rate = 0.4;
+        let mut world = crate::game_logic::GameLogic::new();
+        world.objects.insert(ObjectId(3), object);
         let goal = Vec3::new(0.0, 0.0, 10.0);
         let mut still = true;
         for frame in 1..=200 {
-            still = o.tick_face_towards(goal, 1.0 / 30.0, frame);
+            world.frame = frame;
+            still = world
+                .objects
+                .get_mut(&ObjectId(3))
+                .unwrap()
+                .arm_face_locomotor_goal(goal);
             if !still {
                 break;
             }
+            world.update_movement_for_test(&[ObjectId(3)], 1.0 / 30.0);
         }
         assert!(!still);
-        assert!(!o.face_active());
-        assert!(o.relative_angle_2d_to(goal).abs() < FACE_REL_THRESH_RAD);
+        let object = world.objects.get(&ObjectId(3)).unwrap();
+        assert!(!object.face_active());
+        assert!(object.relative_angle_2d_to(goal).abs() < FACE_REL_THRESH_RAD);
     }
 }

@@ -95,7 +95,7 @@ impl SubsystemInterface for TerrainVisualImpl {
     }
 
     fn update(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        self.update_with_motion(None)
+        self.update_with_motion(None, false)
     }
 }
 
@@ -119,7 +119,7 @@ impl TerrainVisualImpl {
         snow: &crate::snow::SnowRenderState,
     ) -> Result<(), TerrainError> {
         let camera = snow_camera::SnowCamera::native_y_up(*view, *projection, min_height);
-        self.render_with_snow_camera(view, projection, camera, Some(snow), None)
+        self.render_with_snow_camera(view, projection, camera, Some(snow), None, false)
     }
 
     /// Actual Main frame supplies its receiving script and physics observations.
@@ -132,7 +132,60 @@ impl TerrainVisualImpl {
         motion: TerrainVisualMotion,
     ) -> Result<(), TerrainError> {
         let camera = snow_camera::SnowCamera::native_y_up(*view, *projection, min_height);
-        self.render_with_snow_camera(view, projection, camera, Some(snow), Some(motion))
+        self.render_with_snow_camera(view, projection, camera, Some(snow), Some(motion), false)
+    }
+
+    /// The native render driver has completed each original tree callback.
+    /// Consume the same render algorithms without advancing tree CPU again.
+    pub fn render_native_y_up_after_tree_cpu(
+        &mut self,
+        view: &Mat4,
+        projection: &Mat4,
+        min_height: f32,
+        snow: &crate::snow::SnowRenderState,
+        motion: TerrainVisualMotion,
+        receipt: Option<&crate::terrain::TreeCpuDrawReceipt>,
+    ) -> Result<(), TerrainError> {
+        self.validate_owned_tree_draw(receipt)
+            .map_err(|error| TerrainError::InvalidData(error.into()))?;
+        let camera = snow_camera::SnowCamera::native_y_up(*view, *projection, min_height);
+        self.render_with_snow_camera(view, projection, camera, Some(snow), Some(motion), true)
+    }
+    pub fn update_native_after_tree_cpu(
+        &mut self,
+        motion: TerrainVisualMotion,
+        receipt: Option<&crate::terrain::TreeCpuDrawReceipt>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        self.validate_owned_tree_draw(receipt)
+            .map_err(|error| Box::<dyn std::error::Error>::from(error))?;
+        self.update_with_motion(Some(motion), true)
+    }
+    fn validate_owned_tree_draw(
+        &self,
+        receipt: Option<&crate::terrain::TreeCpuDrawReceipt>,
+    ) -> Result<(), &'static str> {
+        if !self.enabled {
+            return Ok(());
+        }
+        self.tree_buffer.validate_cpu_draw_receipt(
+            receipt.ok_or("enabled native tree draw requires its completion receipt")?,
+        )
+    }
+    pub fn begin_owned_tree_cpu_draw(
+        &mut self,
+        motion: TerrainVisualMotion,
+        rng: &mut impl crate::terrain::TreeRandom,
+    ) -> Option<crate::terrain::TreeCpuDrawCursor> {
+        if !self.enabled {
+            return None;
+        }
+        self.rebind_skybox_background_for_camera();
+        // Original drawTrees updates breeze before any toppling/bounce callback.
+        if !motion.paused && self.tree_buffer.cur_sway_version() != motion.breeze.breeze_version {
+            self.tree_buffer.update_sway(motion.breeze, rng);
+            self.overlay.last_sway_version = motion.breeze.breeze_version;
+        }
+        Some(self.tree_buffer.begin_cpu_draw(motion.paused))
     }
 
     /// Receiving standalone Client keeps its historical source-axis inference.
@@ -144,7 +197,7 @@ impl TerrainVisualImpl {
     ) -> Result<(), TerrainError> {
         let camera =
             snow_camera::SnowCamera::from_client_view(*view, *projection, self.snow_min_height());
-        self.render_with_snow_camera(view, projection, camera, Some(snow), None)
+        self.render_with_snow_camera(view, projection, camera, Some(snow), None, false)
     }
 
     fn snow_min_height(&self) -> f32 {
@@ -161,6 +214,7 @@ impl TerrainVisualImpl {
         snow_camera: Option<snow_camera::SnowCamera>,
         snow: Option<&crate::snow::SnowRenderState>,
         motion: Option<TerrainVisualMotion>,
+        tree_cpu_completed: bool,
     ) -> Result<(), TerrainError> {
         if !self.enabled {
             return Ok(());
@@ -173,9 +227,13 @@ impl TerrainVisualImpl {
             }
         }
 
-        match motion {
-            Some(motion) => self.update_tree_meshes_for_motion(motion),
-            None => self.update_tree_meshes(),
+        if tree_cpu_completed {
+            self.update_tree_meshes_after_cpu(motion);
+        } else {
+            match motion {
+                Some(motion) => self.update_tree_meshes_for_motion(motion),
+                None => self.update_tree_meshes(),
+            }
         }
         self.time += 1.0 / 30.0;
 
@@ -253,7 +311,14 @@ impl TerrainVisual for TerrainVisualImpl {
             self.snow_min_height(),
         );
         let snow = crate::snow::SnowRenderState::from_standalone();
-        self.render_with_snow_camera(view_matrix, projection_matrix, camera, snow.as_ref(), None)
+        self.render_with_snow_camera(
+            view_matrix,
+            projection_matrix,
+            camera,
+            snow.as_ref(),
+            None,
+            false,
+        )
     }
 
     fn get_height_at(&self, x: f32, y: f32) -> Result<f32, TerrainError> {
@@ -371,11 +436,12 @@ impl TerrainVisualImpl {
         &mut self,
         motion: TerrainVisualMotion,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        self.update_with_motion(Some(motion))
+        self.update_with_motion(Some(motion), false)
     }
     fn update_with_motion(
         &mut self,
         motion: Option<TerrainVisualMotion>,
+        tree_cpu_completed: bool,
     ) -> Result<(), Box<dyn std::error::Error>> {
         if !self.enabled {
             return Ok(());
@@ -456,9 +522,13 @@ impl TerrainVisualImpl {
                 self.update_scorch_meshes(&device);
             }
         }
-        match motion {
-            Some(motion) => self.update_tree_meshes_for_motion(motion),
-            None => self.update_tree_meshes(),
+        if tree_cpu_completed {
+            self.update_tree_meshes_after_cpu(motion);
+        } else {
+            match motion {
+                Some(motion) => self.update_tree_meshes_for_motion(motion),
+                None => self.update_tree_meshes(),
+            }
         }
         let road_meshes_elapsed = road_meshes_started.elapsed();
 

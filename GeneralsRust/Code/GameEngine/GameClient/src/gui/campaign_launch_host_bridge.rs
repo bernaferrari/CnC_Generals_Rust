@@ -53,6 +53,9 @@ pub enum MenuLaunchSource {
 
 #[derive(Debug)]
 pub enum MenuHostRequest {
+    ClearSelection {
+        player_id: u32,
+    },
     AcknowledgePopup {
         generation: usize,
     },

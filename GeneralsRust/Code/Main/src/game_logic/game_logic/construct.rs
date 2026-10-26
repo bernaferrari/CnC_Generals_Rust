@@ -856,6 +856,8 @@ impl GameLogic {
         self.upgrade_definitions = self.upgrade_definition_base.clone();
         self.production_energy.effective = self.production_energy.base;
         self.physics_definitions.effective = self.physics_definitions.base;
+        self.restore_projectile_definition_base()
+            .expect("previously admitted projectile base must remain valid across reset");
         self.body_damage_definitions.effective = self.body_damage_definitions.base;
         self.lighting_definitions.effective = self.lighting_definitions.base.clone();
         self.reset_ocl_map_definitions();

@@ -1173,6 +1173,7 @@ impl GameClient {
         let owner = &self.window_manager_owner;
         let mut messages = Vec::new();
         let mut effects = crate::gui::game_window::WindowEventEffects {
+            control_bar_observation: None,
             input_provenance:
                 crate::gui::control_bar::HostControlBarInputProvenance::InjectedOrUnknown,
             standalone_view: None,
@@ -1218,6 +1219,7 @@ impl GameClient {
         let owner = &self.window_manager_owner;
         let mut messages = Vec::new();
         let mut effects = crate::gui::game_window::WindowEventEffects {
+            control_bar_observation: None,
             input_provenance:
                 crate::gui::control_bar::HostControlBarInputProvenance::InjectedOrUnknown,
             standalone_view: None,
@@ -1260,6 +1262,7 @@ impl GameClient {
             .bind(self.subsystem_manager.display.as_ref());
         let owner = &self.window_manager_owner;
         let mut effects = crate::gui::game_window::WindowEventEffects {
+            control_bar_observation: None,
             input_provenance:
                 crate::gui::control_bar::HostControlBarInputProvenance::InjectedOrUnknown,
             standalone_view: None,
@@ -1323,6 +1326,7 @@ impl GameClient {
                 }
                 let mut pending_clicks = Vec::new();
                 let mut effects = crate::gui::game_window::WindowEventEffects {
+                    control_bar_observation: None,
                     input_provenance:
                         crate::gui::control_bar::HostControlBarInputProvenance::InjectedOrUnknown,
                     standalone_view: view.as_deref_mut(),

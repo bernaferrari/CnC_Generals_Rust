@@ -115,6 +115,8 @@ impl<'a> CameraOptionsInputContext<'a> {
     }
 }
 pub struct ControlBarInputContext<'a> {
+    pub control_bar_observation:
+        Option<crate::gui::callbacks::control_bar_observation::ControlBarCallbackObservation>,
     pub diplomacy_world: Option<&'a crate::gui::callbacks::diplomacy::DiplomacyWorldFacts>,
     pub input_provenance: crate::gui::control_bar::HostControlBarInputProvenance,
     pub client_frame: Option<u32>,
@@ -162,6 +164,7 @@ impl ControlBarInputContext<'_> {
         ) -> R,
     ) -> R {
         let mut effects = crate::gui::game_window::WindowEventEffects {
+            control_bar_observation: self.control_bar_observation,
             input_provenance: self.input_provenance,
             standalone_view: None,
             ui: self.ui.as_deref_mut(),

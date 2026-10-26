@@ -363,17 +363,9 @@ pub fn queue_projectile_direct(combat: &mut CombatSystem, mut pending: PendingPr
     combat.pending_projectiles.push(pending);
 }
 
-/// Freeze the exact parsed Object INI lifecycle on the queue record.  A caller
-/// can supply a pre-resolved lifecycle (for a copied shadow event); otherwise
-/// only the parsed `ProjectileObject` is consulted.  Unknown objects stay
-/// `None`, which intentionally means no synthesized timeout/detonation.
+/// Normalize only the lifecycle already captured by the receiving shot.
+/// Queueing never discovers definitions or manufactures a timeout.
 fn stamp_pending_projectile_lifecycle(pending: &mut PendingProjectile) {
-    if pending.projectile_lifecycle.is_none() {
-        pending.projectile_lifecycle =
-            crate::game_logic::weapon_bootstrap::host_projectile_lifecycle_for_object_name(
-                &pending.projectile_object_name,
-            );
-    }
     if let Some(lifecycle) = pending.projectile_lifecycle {
         // Parsed MissileAIUpdate semantics supersede the old broad weapon
         // target-mask heuristic. Dumb projectile paths are not homing in this
@@ -474,9 +466,17 @@ pub fn drain_pending_projectiles(
     combat: &mut CombatSystem,
     objects: HostObjectRead<'_>,
     frame: u32,
+    definitions: &crate::game_logic::projectile_definitions::ProjectileDefinitions,
 ) {
     let mut standalone_next = combat.next_projectile_id;
-    drain_pending_projectiles_with_terrain(combat, objects, frame, None, &mut standalone_next);
+    drain_pending_projectiles_with_terrain(
+        combat,
+        objects,
+        frame,
+        definitions,
+        None,
+        &mut standalone_next,
+    );
     combat.next_projectile_id = standalone_next;
 }
 
@@ -485,20 +485,21 @@ pub(in crate::game_logic) fn drain_pending_projectiles_with_terrain(
     combat: &mut CombatSystem,
     objects: HostObjectRead<'_>,
     frame: u32,
+    definitions: &crate::game_logic::projectile_definitions::ProjectileDefinitions,
     terrain: Option<&crate::game_logic::game_logic::FlightTerrainView<'_>>,
     next_object_id: &mut ObjectId,
 ) {
     let pending = std::mem::take(&mut combat.pending_projectiles);
 
     for p in pending {
+        let profile = definitions.get(&p.projectile_object_name);
         if let Some(immediate) = materialize_accepted_projectile(
             combat,
             objects,
             frame,
             p,
             None,
-            None,
-            crate::game_logic::projectile_definitions::ProjectileDefinitionMode::LegacyBootstrap,
+            profile,
             terrain,
             next_object_id,
         ) {
@@ -519,20 +520,14 @@ pub(in crate::game_logic) fn materialize_accepted_projectile(
     p: PendingProjectile,
     stream_binding: Option<ProjectileStreamBinding>,
     profile: Option<&crate::game_logic::projectile_definitions::ProjectileProfile>,
-    definition_mode: crate::game_logic::projectile_definitions::ProjectileDefinitionMode,
     terrain: Option<&crate::game_logic::game_logic::FlightTerrainView<'_>>,
     next_object_id: &mut ObjectId,
 ) -> Option<LiveProjectilelessDelayedDamage> {
-    // Queue acceptance normally froze this field. Retain the parsed-only
-    // fallback for legacy shadow records created before that bridge; an
-    // absent/unresolved Object INI still remains `None`.
-    let projectile_lifecycle = profile
-        .map(|p| p.lifecycle)
-        .or(p.projectile_lifecycle)
-        .or_else(|| match definition_mode {
-            crate::game_logic::projectile_definitions::ProjectileDefinitionMode::ReceivingContent => None,
-            crate::game_logic::projectile_definitions::ProjectileDefinitionMode::LegacyBootstrap => crate::game_logic::weapon_bootstrap::host_projectile_lifecycle_for_object_name(&p.projectile_object_name),
-        });
+    // Accepted records retain their captured lifecycle. Otherwise resolve only
+    // the already-borrowed effective profile of this same receiving session.
+    let projectile_lifecycle = p
+        .projectile_lifecycle
+        .or_else(|| profile.map(|profile| profile.lifecycle));
     // C++ Weapon::fireWeaponTemplate executes FireOCL at the source when
     // the weapon fires, independent of whether a later projectile target
     // can still be resolved.  Freeze the source state at launch because
@@ -760,7 +755,7 @@ pub(in crate::game_logic) fn materialize_accepted_projectile(
         if let Some(profile) = profile {
             proj.flight = Some(profile.flight.clone());
         }
-        if profile.is_some() || definition_mode == crate::game_logic::projectile_definitions::ProjectileDefinitionMode::LegacyBootstrap {
+        if profile.is_some() {
             proj.bind_authored_flight(p.shooter_pos, target_pos, flight_speed_per_second, terrain);
         }
         proj.is_small_missile = profile.is_some_and(|profile| profile.is_small_missile);

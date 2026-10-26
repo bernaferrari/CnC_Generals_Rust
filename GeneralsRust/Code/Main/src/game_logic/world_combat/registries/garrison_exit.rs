@@ -50,6 +50,14 @@ impl GameLogic {
         container_id: ObjectId,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> bool {
+        let Some(container_id_birth) = self
+            .objects
+            .get(&container_id)
+            .map(|object| std::sync::Arc::downgrade(&object.visual_draw_identity_token))
+        else {
+            return false;
+        };
+
         let Some(container) = self.objects.get(&container_id) else {
             return false;
         };
@@ -87,16 +95,31 @@ impl GameLogic {
                 None,
                 true,
             );
-            let p = self
+            let mut p = self
                 .objects
                 .get_mut(&containment_actor_id)
                 .expect("containment operation preserves this birth");
             p.target = None;
-            p.set_position_with_effects(
+            let _ = p;
+            if !self.set_owned_object_position_with_effects(
+                containment_actor_id,
                 start,
                 self.frame,
-                &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
-            );
+                presentation_effects,
+            ) {
+                return false;
+            }
+            if !self.objects.get(&container_id).is_some_and(|object| {
+                container_id_birth.ptr_eq(&std::sync::Arc::downgrade(
+                    &object.visual_draw_identity_token,
+                ))
+            }) {
+                return false;
+            }
+            p = match self.objects.get_mut(&containment_actor_id) {
+                Some(object) => object,
+                None => return false,
+            };
             p.set_orientation_with_partition_owner(yaw, &mut self.partition_manager);
             drop(p);
             let _ = self.adjust_to_possible_destination(unit_id, &mut end);
@@ -154,17 +177,32 @@ impl GameLogic {
                 None,
                 true,
             );
-            let p = self
+            let mut p = self
                 .objects
                 .get_mut(&containment_actor_id)
                 .expect("containment operation preserves this birth");
             p.target = None;
             if enclosing {
-                p.set_position_with_effects(
+                let _ = p;
+                if !self.set_owned_object_position_with_effects(
+                    containment_actor_id,
                     start,
                     self.frame,
-                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
-                );
+                    presentation_effects,
+                ) {
+                    return false;
+                }
+                if !self.objects.get(&container_id).is_some_and(|object| {
+                    container_id_birth.ptr_eq(&std::sync::Arc::downgrade(
+                        &object.visual_draw_identity_token,
+                    ))
+                }) {
+                    return false;
+                }
+                p = match self.objects.get_mut(&containment_actor_id) {
+                    Some(object) => object,
+                    None => return false,
+                };
             }
             p.set_orientation_with_partition_owner(yaw, &mut self.partition_manager);
             p.movement.path.clear();

@@ -102,7 +102,12 @@ fn queue_shot(
 
 /// Exercise the actual materialization boundary without publishing the clock.
 fn materialize(world: &mut GameLogic, frame: u32) {
-    drain_pending_projectiles(&mut world.combat_system, world.objects.read(), frame);
+    drain_pending_projectiles(
+        &mut world.combat_system,
+        world.objects.read(),
+        frame,
+        &crate::game_logic::projectile_definitions::fixture_projectile_definitions(),
+    );
 }
 
 #[test]

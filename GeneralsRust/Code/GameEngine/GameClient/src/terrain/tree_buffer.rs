@@ -373,6 +373,57 @@ pub struct TreeFxEvent {
     pub position: Vec3,
 }
 
+/// Immutable lifetime identity only. Arc is required by the existing legacy
+/// THE_TERRAIN_VISUAL Mutex and its Send boundary; no tree state is shared.
+#[derive(Debug)]
+struct TreeBufferBirth(std::sync::Arc<()>);
+impl Default for TreeBufferBirth {
+    fn default() -> Self {
+        Self(std::sync::Arc::new(()))
+    }
+}
+impl Clone for TreeBufferBirth {
+    fn clone(&self) -> Self {
+        Self::default()
+    }
+}
+
+/// One drawTrees CPU iteration. The receiving driver executes every yielded
+/// Bounce before advancing the next tree; this is not a frame/event queue.
+#[derive(Debug)]
+pub struct TreeCpuDrawCursor {
+    next: usize,
+    paused: bool,
+    owner_address: usize,
+    generation: u64,
+    birth: std::sync::Weak<()>,
+    complete: bool,
+}
+#[derive(Debug)]
+pub struct TreeCpuDrawReceipt {
+    owner_address: usize,
+    generation: u64,
+    birth: std::sync::Weak<()>,
+}
+
+/// Owned source-loop continuation. No borrow of the buffer or driving unit
+/// survives authored FX. Collision bounds/position are C++ entry locals;
+/// crusher level, direction and topple position are reread for each candidate.
+#[derive(Debug)]
+pub struct TreeMoveCursor {
+    position: Vec3,
+    radius: f32,
+    x: i32,
+    y: i32,
+    y_min: i32,
+    x_max: i32,
+    y_max: i32,
+    next: i16,
+    bucket_started: bool,
+    tail: Option<(usize, u32)>,
+    frame: u32,
+}
+
 #[derive(Debug, Clone)]
 pub struct W3DTreeBuffer {
     area_partition: Vec<i16>,
@@ -404,6 +455,8 @@ pub struct W3DTreeBuffer {
     atlas_lod: i32,
     last_tile_images: Vec<TreeTileImageSpec>,
     pending_fx_events: Vec<TreeFxEvent>,
+    cpu_draw_generation: u64,
+    birth: TreeBufferBirth,
 }
 
 impl Default for W3DTreeBuffer {
@@ -444,6 +497,8 @@ impl W3DTreeBuffer {
             atlas_lod: 0,
             last_tile_images: Vec::new(),
             pending_fx_events: Vec::new(),
+            cpu_draw_generation: 0,
+            birth: TreeBufferBirth::default(),
         };
         buffer.clear_all_trees();
         buffer.initialized = true;
@@ -513,6 +568,16 @@ impl W3DTreeBuffer {
 
     pub fn take_pending_fx_events(&mut self) -> Vec<TreeFxEvent> {
         std::mem::take(&mut self.pending_fx_events)
+    }
+
+    /// Only events appended by the current bounded terrain operation cross
+    /// its callback boundary. Older Draw/Bounce work is never stolen here.
+    pub fn take_pending_fx_events_since(&mut self, start: usize) -> Vec<TreeFxEvent> {
+        assert!(
+            start <= self.pending_fx_events.len(),
+            "tree FX receipt belongs to current buffer operation"
+        );
+        self.pending_fx_events.split_off(start)
     }
 
     pub fn set_texture_atlas_size(&mut self, width: i32, height: i32) {
@@ -781,6 +846,7 @@ impl W3DTreeBuffer {
     }
 
     pub fn clear_all_trees(&mut self) {
+        self.cpu_draw_generation = self.cpu_draw_generation.wrapping_add(1);
         self.trees.clear();
         self.bounds = TreeRegion2D::default();
         self.cur_num_tree_indices[0] = 0;
@@ -1001,70 +1067,129 @@ impl W3DTreeBuffer {
         }
     }
 
-    pub fn unit_moved(&mut self, unit: TreeCollisionUnit, frame: u32) {
+    pub fn begin_unit_move(&self, unit: TreeCollisionUnit, frame: u32) -> Option<TreeMoveCursor> {
         if unit.immobile {
-            return;
+            return None;
         }
         let mut radius = unit.major_radius;
         if unit.geometry_type == TreeGeometryType::Box && radius > unit.minor_radius {
             radius = unit.minor_radius;
         }
         radius += TREE_RADIUS_APPROX;
-
-        let (x_min, y_min) = self.partition_min_indices(unit.position, radius);
+        let (x, y) = self.partition_min_indices(unit.position, radius);
         let (x_max, y_max) = self.partition_max_indices(unit.position, radius);
-        // Geometry clamp can still yield out-of-grid indices when the unit
-        // sits outside the partition bounds (or bounds collapse); guard the
-        // bucket index instead of panicking on a negative/out-of-range slot.
-        for x in x_min..x_max {
-            for y in y_min..y_max {
-                let bucket = x + PARTITION_WIDTH_HEIGHT as i32 * y;
-                if bucket < 0 {
-                    continue;
-                }
-                let bucket = bucket as usize;
-                if bucket >= self.area_partition.len() {
-                    continue;
-                }
-                let mut tree_ndx = self.area_partition[bucket];
-                while tree_ndx != END_OF_PARTITION {
-                    let index = tree_ndx as usize;
-                    if index >= self.trees.len() {
-                        break;
-                    }
-                    tree_ndx = self.trees[index].next_in_partition;
-                    if self.trees[index].tree_type < 0 {
-                        continue;
-                    }
-                    let delta = self.trees[index].location - unit.position;
-                    if radius * radius <= delta.length_squared() {
-                        continue;
-                    }
-                    let tree_type = self.trees[index].tree_type as usize;
-                    if unit.crusher_level > 1 && self.tree_types[tree_type].data.do_topple {
-                        let topple_vector = Vec3::new(
-                            self.trees[index].location.x - unit.position.x,
-                            self.trees[index].location.y - unit.position.y,
-                            0.0,
-                        );
-                        self.apply_toppling_force_by_index(
-                            index,
-                            topple_vector,
-                            0.0,
-                            W3D_TOPPLE_OPTIONS_NONE,
-                        );
-                    } else if self.tree_types[tree_type].data.frames_to_move_outward > 1 {
-                        let drawable_id = self.trees[index].drawable_id;
-                        self.push_aside_tree(
-                            drawable_id,
-                            unit.position,
-                            unit.direction_2d,
-                            unit.object_id,
-                            frame,
-                        );
-                    }
-                }
+        if x >= x_max || y >= y_max {
+            return None;
+        }
+        Some(TreeMoveCursor {
+            position: unit.position,
+            radius,
+            x,
+            y,
+            y_min: y,
+            x_max,
+            y_max,
+            next: END_OF_PARTITION,
+            bucket_started: false,
+            tail: None,
+            frame,
+        })
+    }
+
+    /// Resume only the post-FX source tail; also used when the driving actor
+    /// was retired during FX and no further candidate may read that actor.
+    pub fn finish_unit_move_fx(&mut self, cursor: &mut TreeMoveCursor) {
+        if let Some((index, drawable)) = cursor.tail.take() {
+            if let Some(tree) = self
+                .trees
+                .get_mut(index)
+                .filter(|tree| tree.drawable_id == drawable)
+            {
+                self.any_push_changed = true;
+                tree.matrix = Mat4::from_translation(tree.location);
+                cursor.next = tree.next_in_partition;
+            } else {
+                cursor.next = END_OF_PARTITION;
             }
+        }
+    }
+
+    /// Stops precisely at FXList::doFXPos, before the matrix/change tail and
+    /// before reading the next tree. Caller must execute FX then reborrow.
+    pub fn advance_unit_move(
+        &mut self,
+        cursor: &mut TreeMoveCursor,
+        unit: TreeCollisionUnit,
+    ) -> Option<TreeFxEvent> {
+        self.finish_unit_move_fx(cursor);
+        loop {
+            if cursor.x >= cursor.x_max {
+                return None;
+            }
+            if !cursor.bucket_started {
+                let bucket = cursor.x + PARTITION_WIDTH_HEIGHT as i32 * cursor.y;
+                cursor.next = usize::try_from(bucket)
+                    .ok()
+                    .and_then(|i| self.area_partition.get(i))
+                    .copied()
+                    .unwrap_or(END_OF_PARTITION);
+                cursor.bucket_started = true;
+            }
+            if cursor.next == END_OF_PARTITION {
+                cursor.y += 1;
+                if cursor.y >= cursor.y_max {
+                    cursor.y = cursor.y_min;
+                    cursor.x += 1;
+                }
+                cursor.bucket_started = false;
+                continue;
+            }
+            let index = cursor.next as usize;
+            let Some(tree) = self.trees.get(index) else {
+                cursor.next = END_OF_PARTITION;
+                continue;
+            };
+            cursor.next = tree.next_in_partition;
+            if tree.tree_type < 0
+                || cursor.radius * cursor.radius
+                    <= (tree.location - cursor.position).length_squared()
+            {
+                continue;
+            }
+            let tree_type = tree.tree_type as usize;
+            if unit.crusher_level > 1 && self.tree_types[tree_type].data.do_topple {
+                let direction = Vec3::new(
+                    tree.location.x - unit.position.x,
+                    tree.location.y - unit.position.y,
+                    0.0,
+                );
+                if let Some(event) = self.prepare_toppling_force_by_index(
+                    index,
+                    direction,
+                    0.0,
+                    W3D_TOPPLE_OPTIONS_NONE,
+                ) {
+                    cursor.tail = Some((index, self.trees[index].drawable_id));
+                    return Some(event);
+                }
+            } else if self.tree_types[tree_type].data.frames_to_move_outward > 1 {
+                self.push_aside_tree(
+                    tree.drawable_id,
+                    cursor.position,
+                    unit.direction_2d,
+                    unit.object_id,
+                    cursor.frame,
+                );
+            }
+        }
+    }
+
+    pub fn unit_moved(&mut self, unit: TreeCollisionUnit, frame: u32) {
+        let Some(mut cursor) = self.begin_unit_move(unit, frame) else {
+            return;
+        };
+        while let Some(event) = self.advance_unit_move(&mut cursor, unit) {
+            self.pending_fx_events.push(event);
         }
     }
 
@@ -1086,11 +1211,20 @@ impl W3DTreeBuffer {
     }
 
     pub fn update_toppling_tree(&mut self, index: usize, shroud: TreeShroudStatus) {
+        if let Some(event) = self.prepare_toppling_tree(index, shroud) {
+            self.pending_fx_events.push(event);
+        }
+    }
+    fn prepare_toppling_tree(
+        &mut self,
+        index: usize,
+        shroud: TreeShroudStatus,
+    ) -> Option<TreeFxEvent> {
         if index >= self.trees.len()
             || self.trees[index].topple_state == W3DToppleState::Upright
             || self.trees[index].topple_state == W3DToppleState::Down
         {
-            return;
+            return None;
         }
 
         let data = self.tree_types[self.trees[index].tree_type as usize]
@@ -1098,7 +1232,7 @@ impl W3DTreeBuffer {
             .clone();
         if shroud == TreeShroudStatus::Fogged {
             self.trees[index].topple_state = W3DToppleState::Fogged;
-            return;
+            return None;
         }
         if self.trees[index].topple_state == W3DToppleState::Fogged {
             self.trees[index].angular_velocity = 0.0;
@@ -1108,7 +1242,7 @@ impl W3DTreeBuffer {
             if data.kill_when_toppled {
                 self.trees[index].sink_frames_left = 0;
             }
-            return;
+            return None;
         }
 
         const VELOCITY_BOUNCE_LIMIT: f32 = 0.01;
@@ -1140,7 +1274,7 @@ impl W3DTreeBuffer {
                         0.0,
                         3.0 * TREE_RADIUS_APPROX,
                     ));
-                    self.pending_fx_events.push(TreeFxEvent {
+                    return Some(TreeFxEvent {
                         kind: TreeFxKind::Bounce,
                         fx_name,
                         position,
@@ -1150,22 +1284,101 @@ impl W3DTreeBuffer {
         } else {
             self.trees[index].angular_velocity += self.trees[index].angular_acceleration;
         }
+        None
     }
 
-    pub fn tick_cpu(&mut self, pause: bool, shroud: impl Fn(&TreeEntry) -> TreeShroudStatus) {
+    pub fn begin_cpu_draw(&mut self, pause: bool) -> TreeCpuDrawCursor {
         self.is_terrain_pass = false;
-        if pause {
-            return;
+        self.cpu_draw_generation = self.cpu_draw_generation.wrapping_add(1);
+        TreeCpuDrawCursor {
+            next: 0,
+            paused: pause,
+            owner_address: self as *const Self as usize,
+            generation: self.cpu_draw_generation,
+            complete: pause,
+            birth: std::sync::Arc::downgrade(&self.birth.0),
         }
-        for index in 0..self.trees.len() {
+    }
+    pub fn finish_cpu_draw(
+        &self,
+        cursor: TreeCpuDrawCursor,
+    ) -> Result<TreeCpuDrawReceipt, &'static str> {
+        if !cursor
+            .birth
+            .ptr_eq(&std::sync::Arc::downgrade(&self.birth.0))
+            || cursor.owner_address != self as *const Self as usize
+            || cursor.generation != self.cpu_draw_generation
+            || !cursor.complete
+        {
+            return Err("CPU tree draw completion is absent, stale or belongs to another buffer");
+        }
+        Ok(TreeCpuDrawReceipt {
+            owner_address: cursor.owner_address,
+            generation: cursor.generation,
+            birth: cursor.birth,
+        })
+    }
+    pub fn validate_cpu_draw_receipt(
+        &self,
+        receipt: &TreeCpuDrawReceipt,
+    ) -> Result<(), &'static str> {
+        if !receipt
+            .birth
+            .ptr_eq(&std::sync::Arc::downgrade(&self.birth.0))
+            || receipt.owner_address != self as *const Self as usize
+            || receipt.generation != self.cpu_draw_generation
+        {
+            return Err("CPU tree draw receipt belongs to another buffer or draw");
+        }
+        Ok(())
+    }
+    pub fn advance_cpu_draw(
+        &mut self,
+        cursor: &mut TreeCpuDrawCursor,
+        shroud: impl Fn(&TreeEntry) -> TreeShroudStatus,
+    ) -> Option<TreeFxEvent> {
+        match self.try_advance_cpu_draw(cursor, |tree| {
+            Ok::<_, std::convert::Infallible>(shroud(tree))
+        }) {
+            Ok(value) => value,
+            Err(never) => match never {},
+        }
+    }
+    pub fn try_advance_cpu_draw<E>(
+        &mut self,
+        cursor: &mut TreeCpuDrawCursor,
+        shroud: impl Fn(&TreeEntry) -> Result<TreeShroudStatus, E>,
+    ) -> Result<Option<TreeFxEvent>, E> {
+        assert!(
+            cursor
+                .birth
+                .ptr_eq(&std::sync::Arc::downgrade(&self.birth.0)),
+            "tree draw requires the same receiving buffer birth"
+        );
+        assert_eq!(
+            cursor.owner_address, self as *const Self as usize,
+            "tree draw requires its receiving buffer"
+        );
+        assert_eq!(
+            cursor.generation, self.cpu_draw_generation,
+            "tree draw was reset or superseded during callback"
+        );
+        if cursor.paused {
+            return Ok(None);
+        }
+        while cursor.next < self.trees.len() {
+            let index = cursor.next;
+            cursor.next += 1;
             let tree_type = self.trees[index].tree_type;
             if tree_type < 0 {
                 continue;
             }
             match self.trees[index].topple_state {
                 W3DToppleState::Falling | W3DToppleState::Fogged => {
-                    let status = shroud(&self.trees[index]);
-                    self.update_toppling_tree(index, status);
+                    let status = shroud(&self.trees[index])?;
+                    if let Some(event) = self.prepare_toppling_tree(index, status) {
+                        return Ok(Some(event));
+                    }
                 }
                 W3DToppleState::Down => {
                     let data = &self.tree_types[tree_type as usize].data;
@@ -1194,6 +1407,14 @@ impl W3DTreeBuffer {
                 }
                 _ => {}
             }
+        }
+        cursor.complete = true;
+        Ok(None)
+    }
+    pub fn tick_cpu(&mut self, pause: bool, shroud: impl Fn(&TreeEntry) -> TreeShroudStatus) {
+        let mut cursor = self.begin_cpu_draw(pause);
+        while let Some(event) = self.advance_cpu_draw(&mut cursor, &shroud) {
+            self.pending_fx_events.push(event);
         }
     }
 
@@ -1259,6 +1480,7 @@ impl W3DTreeBuffer {
     }
 
     pub fn load_records(&mut self, records: &[TreeSaveRecord]) {
+        self.cpu_draw_generation = self.cpu_draw_generation.wrapping_add(1);
         self.trees.clear();
         self.area_partition.fill(END_OF_PARTITION);
         self.cur_num_tree_vertices = [0; MAX_BUFFERS];
@@ -1598,12 +1820,30 @@ impl W3DTreeBuffer {
     fn apply_toppling_force_by_index(
         &mut self,
         index: usize,
-        topple_direction: Vec3,
-        mut topple_speed: f32,
+        direction: Vec3,
+        speed: f32,
         options: u32,
     ) -> bool {
         if self.trees[index].topple_state != W3DToppleState::Upright {
             return false;
+        }
+        if let Some(event) = self.prepare_toppling_force_by_index(index, direction, speed, options)
+        {
+            self.pending_fx_events.push(event);
+            self.any_push_changed = true;
+            self.trees[index].matrix = Mat4::from_translation(self.trees[index].location);
+        }
+        true
+    }
+    fn prepare_toppling_force_by_index(
+        &mut self,
+        index: usize,
+        topple_direction: Vec3,
+        mut topple_speed: f32,
+        options: u32,
+    ) -> Option<TreeFxEvent> {
+        if self.trees[index].topple_state != W3DToppleState::Upright {
+            return None;
         }
         let tree_type = self.trees[index].tree_type as usize;
         let data = &self.tree_types[tree_type].data;
@@ -1617,16 +1857,16 @@ impl W3DTreeBuffer {
         self.trees[index].angular_acceleration = topple_speed * data.initial_accel_percent;
         self.trees[index].topple_state = W3DToppleState::Falling;
         self.trees[index].options = options;
-        self.any_push_changed = true;
-        self.trees[index].matrix = Mat4::from_translation(self.trees[index].location);
         if let Some(fx_name) = data.topple_fx.clone() {
-            self.pending_fx_events.push(TreeFxEvent {
+            return Some(TreeFxEvent {
                 kind: TreeFxKind::Topple,
                 fx_name,
                 position: self.trees[index].location,
             });
         }
-        true
+        self.any_push_changed = true;
+        self.trees[index].matrix = Mat4::from_translation(self.trees[index].location);
+        None
     }
 
     fn partition_min_indices(&self, pos: Vec3, radius: f32) -> (i32, i32) {

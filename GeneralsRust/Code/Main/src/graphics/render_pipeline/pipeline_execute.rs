@@ -45,31 +45,23 @@ impl RenderPipeline {
         // GameClient; RenderPipeline itself remains free of GameClient/live
         // logic access. It returns Main-owned, full-keyed decisions that are
         // revalidated against this exact frozen sidecar before item mutation.
-        mut direct_scene_decision_resolver: Option<
+        #[cfg(not(feature = "game_client"))] mut direct_scene_decision_resolver: Option<
             &mut dyn FnMut(
                 &[FrozenDirectDrawableSceneCandidate],
             ) -> Vec<FrozenDirectDrawableSceneDecision>,
         >,
+        #[cfg(feature = "game_client")] native_receiver: &mut dyn NativeFrameRenderReceiver,
         #[cfg(feature = "game_client")] native_radius_items: Vec<
             game_client::effects::decals::DecalRenderItem,
         >,
         #[cfg(feature = "game_client")] prepared_particles: Option<
             game_client::effects::particle_renderer::ParticleRenderFrame,
         >,
-        #[cfg(feature = "game_client")]
-        view_filter: &mut game_client::display::view_filter::ViewFilterState,
         #[cfg(feature = "game_client")] snow: &game_client::snow::SnowRenderState,
         #[cfg(feature = "game_client")] filter_scroll: glam::Vec2,
         #[cfg(feature = "game_client")] filter_logic_frame: u32,
-        #[cfg(feature = "game_client")] mut filter_camera: Option<
-            &mut dyn FnMut(
-                Option<Vec3>,
-                &mut native_pose_loan::NativeInstalledPoseLoan<'_>,
-                &mut GraphicsSystem,
-            ) -> std::result::Result<FilterCameraMatrices, String>,
-        >,
         ui_overlay: Option<&mut crate::graphics::ui_render_pass::NativeUiOverlay<'_>>,
-        complete_physics_visual: Option<
+        #[cfg(not(feature = "game_client"))] complete_physics_visual: Option<
             &mut dyn FnMut(
                 &mut crate::presentation_frame::UnitRenderInput,
                 &crate::presentation_frame::PresentationFrame,
@@ -221,6 +213,12 @@ impl RenderPipeline {
                     self.render_items.len()
                 );
             }
+            #[cfg(feature = "game_client")]
+            let mut physics_receiver =
+                |input: &mut crate::presentation_frame::UnitRenderInput,
+                 frame: &crate::presentation_frame::PresentationFrame| {
+                    native_receiver.complete_physics_visual(input, frame)
+                };
             self.collect_render_items(
                 graphics_system,
                 view_matrix,
@@ -230,9 +228,16 @@ impl RenderPipeline {
                 &mut deferred_model_load_budget,
                 delta_time,
                 &mut direct_scene_candidates,
+                #[cfg(feature = "game_client")]
+                Some(&mut physics_receiver),
+                #[cfg(not(feature = "game_client"))]
                 complete_physics_visual,
             )?;
             collect_elapsed = collect_started.elapsed();
+            #[cfg(feature = "game_client")]
+            let direct_scene_decisions =
+                native_receiver.direct_scene_decisions(&direct_scene_candidates);
+            #[cfg(not(feature = "game_client"))]
             let direct_scene_decisions = direct_scene_decision_resolver
                 .as_deref_mut()
                 .map_or_else(Vec::new, |resolver| resolver(&direct_scene_candidates));
@@ -301,6 +306,9 @@ impl RenderPipeline {
                 );
             }
         } else {
+            #[cfg(feature = "game_client")]
+            let _ = native_receiver.direct_scene_decisions(&direct_scene_candidates);
+            #[cfg(not(feature = "game_client"))]
             if let Some(resolver) = direct_scene_decision_resolver.as_deref_mut() {
                 // Preserve the callback contract for a deliberately skipped
                 // world scene without carrying decisions into a later frame.
@@ -337,7 +345,29 @@ impl RenderPipeline {
         #[cfg(feature = "game_client")]
         if render_world_scene {
             let terrain_started = std::time::Instant::now();
-            self.update_and_enqueue_terrain_pass(view_matrix, projection_matrix, snow)?;
+            let motion = self
+                .presentation_frame
+                .as_ref()
+                .ok_or_else(|| anyhow::anyhow!("native tree draw requires receiving frame"))?
+                .world_env
+                .terrain_motion
+                .native()
+                .map_err(anyhow::Error::msg)?;
+            let tree_receipt = {
+                let (poses, terrain) = self.borrow_native_installed_poses_and_terrain();
+                match terrain {
+                    Some(terrain) => native_receiver
+                        .complete_tree_cpu_draw(terrain, poses, graphics_system, motion)
+                        .map_err(anyhow::Error::msg)?,
+                    None => None,
+                }
+            };
+            self.update_and_enqueue_terrain_pass_after_tree_cpu(
+                view_matrix,
+                projection_matrix,
+                snow,
+                tree_receipt.as_ref(),
+            )?;
             terrain_elapsed = terrain_started.elapsed();
         }
 
@@ -404,9 +434,9 @@ impl RenderPipeline {
                 .unwrap_or_default()
         };
         #[cfg(feature = "game_client")]
-        let skip_filter_scene = view_filter.filter()
+        let skip_filter_scene = native_receiver.view_filter().filter()
             == game_client::display::view::FilterType::MotionBlur
-            && view_filter.skip_render()
+            && native_receiver.view_filter().skip_render()
             && ww3d_engine::surface_size()
                 .ok()
                 .is_some_and(|(width, height)| {
@@ -423,8 +453,9 @@ impl RenderPipeline {
         }
         #[cfg(feature = "game_client")]
         let locked_binding = if !skip_filter_scene
-            && view_filter.filter() != game_client::display::view::FilterType::Null
-            && view_filter.mode() != game_client::display::view::FilterMode::Null
+            && native_receiver.view_filter().filter()
+                != game_client::display::view::FilterType::Null
+            && native_receiver.view_filter().mode() != game_client::display::view::FilterMode::Null
         {
             filter_scene::camera_lock_binding(
                 self.presentation_frame
@@ -455,42 +486,44 @@ impl RenderPipeline {
             let width = color_texture.width();
             let height = color_texture.height();
             let scroll = game_client::display::view::Vector2::new(filter_scroll.x, filter_scroll.y);
-            let composite = view_filter.composite(scroll);
-            if filter_resources.prepare(
-                device.as_ref(),
-                queue.as_ref(),
-                format,
-                width,
-                height,
-                &composite,
-            ) {
-                view_filter.tick_fade();
+            {
+                let view_filter = native_receiver.view_filter_mut();
                 let composite = view_filter.composite(scroll);
-                let post = view_filter.post_render(filter_logic_frame, scroll);
-                filter_resources.composite_retained_view_filter(
+                if filter_resources.prepare(
                     device.as_ref(),
                     queue.as_ref(),
-                    encoder,
-                    dest.as_ref(),
-                    color_texture,
                     format,
                     width,
                     height,
                     &composite,
-                    &post,
-                    !skip_filter_scene,
-                );
-                look_at = post
-                    .look_at
-                    .map(|position| Vec3::new(position.x, position.z, position.y));
+                ) {
+                    view_filter.tick_fade();
+                    let composite = view_filter.composite(scroll);
+                    let post = view_filter.post_render(filter_logic_frame, scroll);
+                    filter_resources.composite_retained_view_filter(
+                        device.as_ref(),
+                        queue.as_ref(),
+                        encoder,
+                        dest.as_ref(),
+                        color_texture,
+                        format,
+                        width,
+                        height,
+                        &composite,
+                        &post,
+                        !skip_filter_scene,
+                    );
+                    look_at = post
+                        .look_at
+                        .map(|position| Vec3::new(position.x, position.z, position.y));
+                }
             }
             // C++ LookAt executes inside postRender, before the locked Drawable
             // uses the new matrix. This is not another camera/view update.
-            Ok(filter_camera
-                .as_deref_mut()
-                .map(|resume| resume(look_at, &mut native_poses, graphics))
-                .transpose()
-                .map_err(ww3d_renderer_3d::Error::InvalidOperation)?)
+            native_receiver
+                .complete_filter_camera(look_at, &mut native_poses, graphics)
+                .map(Some)
+                .map_err(ww3d_renderer_3d::Error::InvalidOperation)
         };
         #[cfg(feature = "game_client")]
         let fade_resources = &mut self.camera_fade_resources;

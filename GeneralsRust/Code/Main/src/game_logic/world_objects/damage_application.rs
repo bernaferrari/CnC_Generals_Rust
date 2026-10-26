@@ -1016,11 +1016,6 @@ impl GameLogic {
             pending,
             stream_binding,
             self.projectile_definitions.get(&projectile_name),
-            if self.weapon_definitions.is_some() {
-                crate::game_logic::projectile_definitions::ProjectileDefinitionMode::ReceivingContent
-            } else {
-                crate::game_logic::projectile_definitions::ProjectileDefinitionMode::LegacyBootstrap
-            },
             Some(&projectile_terrain),
             &mut self.next_object_id,
         );

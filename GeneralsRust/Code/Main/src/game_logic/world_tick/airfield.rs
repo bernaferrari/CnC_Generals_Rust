@@ -1257,6 +1257,17 @@ impl GameLogic {
         }
     }
 
+    /// A parking controller captured before position callbacks is a lifetime,
+    /// not merely an ObjectId. Queued-dead controllers retain that lifetime.
+    fn airfield_producer_is_current(&self, id: ObjectId, birth: &std::sync::Weak<()>) -> bool {
+        self.objects.get(&id).is_some_and(|object| {
+            std::sync::Weak::ptr_eq(
+                birth,
+                &std::sync::Arc::downgrade(&object.visual_draw_identity_token),
+            )
+        })
+    }
+
     fn apply_pending_helipad_exits(
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
@@ -1273,16 +1284,24 @@ impl GameLogic {
                 .get(&airfield_id)
                 .and_then(|airfield| airfield.building_data.as_ref())
                 .and_then(|building| building.rally_point);
-            if let Some(jet) = self.objects.get_mut(&jet_id) {
-                if !jet.is_alive() || !Self::object_is_produced_at_helipad(jet) {
-                    continue;
-                }
-                jet.set_position_with_effects(
-                    heli,
-                    pose_frame,
-                    &mut effects.reborrow_for_object(&mut self.partition_manager),
-                );
-                {}
+            let Some(producer_birth) = self
+                .objects
+                .get(&airfield_id)
+                .map(|airfield| std::sync::Arc::downgrade(&airfield.visual_draw_identity_token))
+            else {
+                continue;
+            };
+            if !self
+                .objects
+                .get(&jet_id)
+                .is_some_and(|jet| jet.is_alive() && Self::object_is_produced_at_helipad(jet))
+            {
+                continue;
+            }
+            if !self.set_owned_object_position_with_effects(jet_id, heli, pose_frame, effects)
+                || !self.airfield_producer_is_current(airfield_id, &producer_birth)
+            {
+                continue;
             }
             let dest = rally.unwrap_or(heli);
             let _ = self.assign_unit_path(jet_id, dest, &[]);
@@ -2002,15 +2021,26 @@ impl GameLogic {
             return false;
         };
         let taxi_surfaces = self.locomotor_surfaces_at(info.hangar_internal);
+        let Some(producer_birth) = self
+            .objects
+            .get(&producer_id)
+            .map(|producer| std::sync::Arc::downgrade(&producer.visual_draw_identity_token))
+        else {
+            return false;
+        };
+        // C++ exitObjectViaDoor: position callbacks precede orientation and AI.
+        if !self.set_owned_object_position_with_effects(
+            jet_id,
+            info.hangar_internal,
+            pose_frame,
+            effects,
+        ) || !self.airfield_producer_is_current(producer_id, &producer_birth)
+        {
+            return false;
+        }
         let Some(jet) = self.objects.get_mut(&jet_id) else {
             return false;
         };
-        // C++ exitObjectViaDoor creation/hangar bone; FROM_HANGAR taxis to parking.
-        jet.set_position_with_effects(
-            info.hangar_internal,
-            pose_frame,
-            &mut effects.reborrow_for_object(&mut self.partition_manager),
-        );
         jet.set_orientation_with_partition_owner(
             info.hangar_internal_orient,
             &mut self.partition_manager,
@@ -2284,7 +2314,7 @@ impl GameLogic {
     ) -> bool {
         let pose_frame = self.frame;
         use crate::game_logic::host_dock_contain_exit_heal_residual::PARKING_PLACE_RUNWAY_PREP_SPACING;
-        let (af_id, metadata, airfield_position) = {
+        let (af_id, producer_birth, metadata, airfield_position) = {
             let Some(jet) = self.objects.get(&jet_id) else {
                 return false;
             };
@@ -2310,7 +2340,12 @@ impl GameLogic {
             let Some(metadata) = airfield.thing().template.parking_place.clone() else {
                 return false;
             };
-            (af_id, metadata, airfield.get_position())
+            (
+                af_id,
+                std::sync::Arc::downgrade(&airfield.visual_draw_identity_token),
+                metadata,
+                airfield.get_position(),
+            )
         };
         if !metadata.has_runways || metadata.runway_count().unwrap_or(0) == 0 {
             let parking = self.objects.get(&jet_id).map(|jet| jet.get_position());
@@ -2322,12 +2357,11 @@ impl GameLogic {
             if released {
                 if is_heli {
                     if let Some(parking) = parking {
-                        if let Some(jet) = self.objects.get_mut(&jet_id) {
-                            jet.set_position_with_effects(
-                                parking,
-                                pose_frame,
-                                &mut effects.reborrow_for_object(&mut self.partition_manager),
-                            );
+                        if !self.set_owned_object_position_with_effects(
+                            jet_id, parking, pose_frame, effects,
+                        ) || !self.airfield_producer_is_current(af_id, &producer_birth)
+                        {
+                            return false;
                         }
                         let approach = Self::helipad_approach_from_parking(
                             parking,
@@ -2336,18 +2370,19 @@ impl GameLogic {
                         );
                         self.begin_heli_takeoff_or_landing(jet_id, af_id, parking, approach, false);
                     }
-                } else if let Some(jet) = self.objects.get_mut(&jet_id) {
+                } else if let Some(jet) = self.objects.get(&jet_id) {
                     let mut position = jet.get_position();
                     position.y = position.y.max(
                         airfield_position.y
                             + metadata.landing_deck_height_offset
                             + metadata.approach_height,
                     );
-                    jet.set_position_with_effects(
-                        position,
-                        pose_frame,
-                        &mut effects.reborrow_for_object(&mut self.partition_manager),
-                    );
+                    if !self.set_owned_object_position_with_effects(
+                        jet_id, position, pose_frame, effects,
+                    ) || !self.airfield_producer_is_current(af_id, &producer_birth)
+                    {
+                        return false;
+                    }
                 }
             }
             return released;
@@ -2402,14 +2437,16 @@ impl GameLogic {
             self.release_airfield_runway_for_jet(jet_id);
             return false;
         }
+        let Some(mut pos) = self.objects.get(&jet_id).map(|jet| jet.get_position()) else {
+            return false;
+        };
+        pos.y = dest.y;
+        if !self.set_owned_object_position_with_effects(jet_id, pos, pose_frame, effects)
+            || !self.airfield_producer_is_current(af_id, &producer_birth)
+        {
+            return false;
+        }
         if let Some(jet) = self.objects.get_mut(&jet_id) {
-            let mut pos = jet.get_position();
-            pos.y = dest.y;
-            jet.set_position_with_effects(
-                pos,
-                pose_frame,
-                &mut effects.reborrow_for_object(&mut self.partition_manager),
-            );
             jet.arm_jet_taxi_to_takeoff(dest, runway_end, runway_dist, waited);
         }
         if horiz_dist_sq(jet_pos, dest) <= 12.0 * 12.0 {
@@ -3171,6 +3208,13 @@ impl GameLogic {
             .calc_airfield_pp_info(airfield_id, jet_id)
             .map(|info| info.parking_orientation);
         let taxi_surfaces = self.locomotor_surfaces_at(pad);
+        let Some(producer_birth) = self
+            .objects
+            .get(&airfield_id)
+            .map(|airfield| std::sync::Arc::downgrade(&airfield.visual_draw_identity_token))
+        else {
+            return false;
+        };
         {
             let Some(jet) = self.objects.get_mut(&jet_id) else {
                 self.release_airfield_runway_for_jet(jet_id);
@@ -3196,11 +3240,13 @@ impl GameLogic {
             jet.movement.path.clear();
             jet.movement.current_path_index = 0;
             jet.movement.target_position = None;
-            jet.set_position_with_effects(
-                pad,
-                pose_frame,
-                &mut effects.reborrow_for_object(&mut self.partition_manager),
-            );
+        }
+        if !self.set_owned_object_position_with_effects(jet_id, pad, pose_frame, effects)
+            || !self.airfield_producer_is_current(airfield_id, &producer_birth)
+        {
+            return false;
+        }
+        if let Some(jet) = self.objects.get_mut(&jet_id) {
             // C++ JetOrHeliParkOrientState: setLocomotorGoalOrientation(parkingOrientation).
             // Live dock snaps pose; leftover already matches C++.
             if let Some(orient) = parking_orientation {

@@ -738,6 +738,7 @@ impl GameLogic {
                 &mut self.combat_system,
                 objects.read(),
                 self.frame,
+                &self.projectile_definitions,
                 Some(&projectile_terrain),
                 &mut self.next_object_id,
             );

@@ -110,13 +110,13 @@ pub use tree_buffer::{
     END_OF_PARTITION, MAX_TEX_WIDTH, MAX_TILES, MAX_TREE_INDEX, MAX_TREE_VERTEX, MAX_TREES,
     MAX_TYPES, PARTITION_WIDTH_HEIGHT, TILE_BYTES_PER_PIXEL, TILE_PIXEL_EXTENT,
     TREE_MAX_GLOBAL_LIGHTS, TREE_RADIUS_APPROX, TREE_TILE_DATA_LEN, TreeCollisionUnit,
-    TreeConstructionGeometry, TreeFxEvent, TreeFxKind, TreeGeometryType, TreeGpuVertex,
-    TreeModuleData, TreeObjectLight, TreeRandom, TreeRegion2D, TreeSaveRecord, TreeShroudStatus,
-    TreeSphere, TreeTgaHeader, TreeTileImageSpec, TreeTypeMesh, TreeVertexXyznduv1,
-    W3D_TOPPLE_OPTIONS_NO_BOUNCE, W3D_TOPPLE_OPTIONS_NO_FX, W3D_TOPPLE_OPTIONS_NONE,
-    W3DToppleState, W3DTreeBuffer, blit_tree_tile_into_atlas, count_tree_tiles, do_lighting,
-    do_tree_atlas_mip, fill_tree_gpu_upload_vertices, generate_box_mip_chain,
-    square_width_from_tile_count, tree_atlas_pixel_size,
+    TreeConstructionGeometry, TreeCpuDrawCursor, TreeCpuDrawReceipt, TreeFxEvent, TreeFxKind,
+    TreeGeometryType, TreeGpuVertex, TreeModuleData, TreeMoveCursor, TreeObjectLight, TreeRandom,
+    TreeRegion2D, TreeSaveRecord, TreeShroudStatus, TreeSphere, TreeTgaHeader, TreeTileImageSpec,
+    TreeTypeMesh, TreeVertexXyznduv1, W3D_TOPPLE_OPTIONS_NO_BOUNCE, W3D_TOPPLE_OPTIONS_NO_FX,
+    W3D_TOPPLE_OPTIONS_NONE, W3DToppleState, W3DTreeBuffer, blit_tree_tile_into_atlas,
+    count_tree_tiles, do_lighting, do_tree_atlas_mip, fill_tree_gpu_upload_vertices,
+    generate_box_mip_chain, square_width_from_tile_count, tree_atlas_pixel_size,
 };
 pub use vertex::TerrainVertex;
 pub use w3d_overlay_mesh::{

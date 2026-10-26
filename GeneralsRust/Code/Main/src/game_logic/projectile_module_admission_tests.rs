@@ -163,3 +163,127 @@ fn mixed_case_repeated_fx_fields_retain_source_order() {
         Some("INITIAL First\nFINAL Last")
     );
 }
+
+#[test]
+fn projectile_physics_rebinds_only_with_its_receiving_validated_gravity() {
+    let rows = definitions("MinFallHeightForDamage = 50");
+    let mut owner = GameLogic::new();
+    let mut peer = GameLogic::new();
+    owner
+        .admit_weapon_content_snapshot(Vec::new(), &rows)
+        .unwrap();
+    peer.admit_weapon_content_snapshot(Vec::new(), &rows)
+        .unwrap();
+    let speed = |world: &GameLogic| {
+        world
+            .projectile_definitions
+            .get("AuthoredProjectile")
+            .unwrap()
+            .behaviors
+            .iter()
+            .find_map(|module| module.physics.as_ref())
+            .unwrap()
+            .min_fall_speed_for_damage
+    };
+    let baseline = speed(&peer);
+    let mut rules = owner.physics_rules_baseline();
+    rules.gravity *= 4.0;
+    owner.admit_physics_map_rules(rules).unwrap();
+    assert!((speed(&owner) - baseline * 2.0).abs() < 0.00001);
+    assert_eq!(speed(&peer), baseline);
+    let before = speed(&owner);
+    let before_rules = owner.physics_definitions.effective;
+    rules.gravity = f32::NAN;
+    assert!(owner.admit_physics_map_rules(rules).is_err());
+    assert_eq!(speed(&owner), before);
+    assert_eq!(
+        owner.physics_definitions.effective.gravity,
+        before_rules.gravity
+    );
+    assert_eq!(speed(&peer), baseline);
+}
+
+#[test]
+fn receiving_map_solo_and_reset_rebuild_only_the_effective_projectile_catalog() {
+    fn world(fuel: u32) -> GameLogic {
+        let text = format!(
+            "Object MapProjectile\nKindOf = PROJECTILE SMALL_MISSILE\nBody = ActiveBody BodyTag\nMaxHealth = 1\nInitialHealth = 1\nEnd\nBehavior = MissileAIUpdate FlightTag\nFuelLifetime = {fuel}\nEnd\nBehavior = PhysicsBehavior PhysicsTag\nMass = 1\nEnd\nEnd"
+        );
+        let mut parser = crate::assets::IniParser::new();
+        parser
+            .parse_ini_content(&text, "receiving-projectile.ini")
+            .unwrap();
+        let rows: Vec<_> = parser
+            .get_all_definitions()
+            .iter()
+            .map(|(name, row)| (name.clone(), row.clone()))
+            .collect();
+        let mut world = GameLogic::new();
+        world
+            .admit_weapon_content_snapshot(Vec::new(), &rows)
+            .unwrap();
+        world.seed_asset_definition_templates_from_snapshot(rows);
+        world
+            .admit_receiving_module_content(
+                crate::assets::ReceivingObjectContent::from_sources([(
+                    "receiving-projectile.ini".into(),
+                    text,
+                )])
+                .unwrap(),
+            )
+            .unwrap();
+        world
+    }
+    let mut owner = world(1000);
+    let peer = world(10000);
+    let fuel = |world: &GameLogic| match world
+        .projectile_definitions
+        .get("MapProjectile")
+        .unwrap()
+        .lifecycle
+    {
+        HostProjectileLifecycle::Missile {
+            fuel_lifetime_frames,
+            ..
+        } => fuel_lifetime_frames,
+        _ => panic!("actual receiving Missile"),
+    };
+    assert_eq!(fuel(&owner), 30);
+    assert_eq!(fuel(&peer), 300);
+    owner.apply_receiving_module_overrides(&[
+        "Object MapProjectile\nReplaceModule FlightTag\nBehavior = MissileAIUpdate MapFlight\nFuelLifetime = 2000\nEnd\nEnd\nEnd".into(),
+        "Object MapProjectile\nReplaceModule MapFlight\nBehavior = MissileAIUpdate SoloFlight\nFuelLifetime = 3000\nEnd\nEnd\nEnd".into(),
+    ]).unwrap();
+    assert_eq!(fuel(&owner), 90);
+    assert_eq!(fuel(&peer), 300);
+    let profile = owner.projectile_definitions.get("MapProjectile").unwrap();
+    let effective = owner
+        .receiving_object_definitions
+        .as_ref()
+        .unwrap()
+        .get("MapProjectile")
+        .unwrap();
+    assert_eq!(
+        profile
+            .behaviors
+            .iter()
+            .map(|m| m.authored.module_tag.as_deref())
+            .collect::<Vec<_>>(),
+        effective
+            .behavior_modules
+            .iter()
+            .map(|m| m.module_tag.as_deref())
+            .collect::<Vec<_>>()
+    );
+    assert!(owner.apply_receiving_module_overrides(&["Object MapProjectile\nReplaceModule FlightTag\nBehavior = MissileAIUpdate BrokenFlight\nFuelLifetime = invalid\nEnd\nEnd\nEnd".into()]).is_err());
+    assert_eq!(fuel(&owner), 90);
+    assert_eq!(fuel(&peer), 300);
+    owner.apply_receiving_module_overrides(&[]).unwrap();
+    assert_eq!(fuel(&owner), 30);
+    assert_eq!(fuel(&peer), 300);
+    owner.apply_receiving_module_overrides(&["Object MapProjectile\nReplaceModule FlightTag\nBehavior = MissileAIUpdate FinalMapFlight\nFuelLifetime = 2000\nEnd\nEnd\nEnd".into()]).unwrap();
+    assert_eq!(fuel(&owner), 60);
+    owner.reset();
+    assert_eq!(fuel(&owner), 30);
+    assert_eq!(fuel(&peer), 300);
+}

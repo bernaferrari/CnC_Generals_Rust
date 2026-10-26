@@ -812,6 +812,9 @@ impl Object {
             name.map(crate::game_logic::weapon_bootstrap::host_damage_dealt_at_self_position_for_weapon_name).unwrap_or(false));
         // One receiving CombatSystem owns projectileless travel and damage.
         // Never mirror the shot into a different Core world's WeaponStore.
+        let projectile_lifecycle = content
+            .and_then(|definitions| definitions.get(&projectile_object_name))
+            .map(|profile| profile.lifecycle);
         let pending = super::combat::PendingProjectile {
             shooter_id,
             shooter_pos,
@@ -840,7 +843,7 @@ impl Object {
                 crate::game_logic::host_armor_residual::resolve_host_death_type(name, weapon_dtype)
             },
             projectile_object_name,
-            projectile_lifecycle: None,
+            projectile_lifecycle,
             fire_fx_name,
             fire_ocl_name,
             detonation_fx_name,

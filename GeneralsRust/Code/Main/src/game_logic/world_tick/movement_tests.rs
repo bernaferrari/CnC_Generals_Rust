@@ -3974,3 +3974,6 @@ fn blocked_not_jammed_unit_concedes_without_tunnel() {
 #[cfg(feature = "game_client")]
 #[path = "movement_tests/tree_owner.rs"]
 mod tree_owner;
+
+#[path = "movement_tests/angle_position_owner.rs"]
+mod angle_position_owner;

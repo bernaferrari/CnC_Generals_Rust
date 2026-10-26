@@ -1491,9 +1491,7 @@ impl WindowManager {
                     });
                 }
                 "BeaconWindowInput" => {
-                    window.set_input_callback(|window, msg, d1, d2| {
-                        beacon_window_input(window, msg, d1, d2)
-                    });
+                    window.set_input_callback_with_message_sink(beacon_window_input);
                 }
                 "DisconnectControlInput"
                 | "EstablishConnectionsControlInput"
@@ -1527,19 +1525,7 @@ impl WindowManager {
                 }
                 "LeftHUDInput" => {
                     window.set_input_callback_with_message_sink(
-                        |window, msg, data1, data2, effects| {
-                            let input_provenance = effects.input_provenance();
-                            crate::gui::callbacks::control_bar_callbacks::left_hud_input(
-                                window,
-                                msg,
-                                data1,
-                                data2,
-                                effects.emitted_messages,
-                                effects.pending_control_bar_clicks.as_deref_mut(),
-                                effects.ui.as_deref_mut().expect("receiving UI"),
-                                input_provenance,
-                            )
-                        },
+                        crate::gui::callbacks::control_bar_callbacks::left_hud_input,
                     );
                 }
                 "DiplomacyInput" => {

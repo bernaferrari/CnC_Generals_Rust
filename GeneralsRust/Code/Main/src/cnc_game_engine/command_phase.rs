@@ -95,6 +95,8 @@ impl CnCGameEngine {
         operation: NativeLogicOperation,
         mut owned_observer: Option<&mut crate::gameworld_shadow::GameWorldShadow>,
     ) -> crate::game_logic::NativeTickProgress {
+        #[cfg(feature = "game_client")]
+        let receiving_callback_observation = self.receiving_control_bar_callback_observation();
         if self.game_paused {
             assert!(matches!(operation, NativeLogicOperation::Begin));
             return crate::game_logic::NativeTickProgress::Complete(Default::default());
@@ -156,7 +158,14 @@ impl CnCGameEngine {
             window_manager_owner,
         )
         .with_cinematic_input(cinematic_input)
-        .with_window_effects(script_window_effects, script_window_stream)
+        .with_window_effects(
+            {
+                let mut effects = script_window_effects;
+                effects.admit_control_bar_callback_observation(receiving_callback_observation);
+                effects
+            },
+            script_window_stream,
+        )
         .with_command_hints(command_hints, client_frame.frame());
         let mut audio = super::native_audio_effects::NativeAudioService::live();
         #[cfg(feature = "game_client")]
@@ -373,8 +382,12 @@ impl CnCGameEngine {
             if self.source_new_game_background.is_none() {
                 let mut created = None;
                 let facts = self.receiving_menu_world_facts();
+                let receiving_callback_observation =
+                    self.receiving_control_bar_callback_observation();
                 self.game_client
                     .with_window_event_effects(Some(facts), |effects| {
+                        effects
+                            .admit_control_bar_callback_observation(receiving_callback_observation);
                         created = Some(effects.with_manager(|manager, effects| {
                             create_source_background_layout(
                                 manager,
@@ -448,8 +461,10 @@ impl CnCGameEngine {
         #[cfg(feature = "game_client")]
         if let Some(layout) = self.source_new_game_background.take() {
             let facts = self.receiving_menu_world_facts();
+            let receiving_callback_observation = self.receiving_control_bar_callback_observation();
             self.game_client
                 .with_window_event_effects(Some(facts), |effects| {
+                    effects.admit_control_bar_callback_observation(receiving_callback_observation);
                     effects
                         .with_manager(|manager, effects| manager.destroy_layout(&layout, effects));
                 });

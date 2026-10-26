@@ -33,6 +33,17 @@ impl RenderPipeline {
     }
 }
 impl NativeInstalledPoseLoan<'_> {
+    pub(crate) fn reborrow(&mut self) -> NativeInstalledPoseLoan<'_> {
+        NativeInstalledPoseLoan {
+            native_drawable_lifetimes: &mut *self.native_drawable_lifetimes,
+            live_draw_playback: &mut *self.live_draw_playback,
+            drawable_visual_states: &mut *self.drawable_visual_states,
+            failed_model_resolutions: &mut *self.failed_model_resolutions,
+            pending_client_drawable_restore: &mut *self.pending_client_drawable_restore,
+            pending_client_drawable_imports: &mut *self.pending_client_drawable_imports,
+            animation_sync_ms: self.animation_sync_ms,
+        }
+    }
     pub(crate) fn has_drawable_lifetime(&self, object: u32) -> bool {
         self.native_drawable_lifetimes.contains_key(&object)
     }

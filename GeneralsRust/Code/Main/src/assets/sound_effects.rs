@@ -90,15 +90,22 @@ impl SoundEffectsTable {
         self.events.is_empty()
     }
 
-    pub fn resolve_sound_path(&self, event_type: &str) -> Option<String> {
+    pub fn resolve_sound_path(
+        &self,
+        event_type: &str,
+        random: &mut game_engine::common::random_value::RandomState,
+    ) -> Option<String> {
         let variants = self.events.get(event_type)?;
         if variants.is_empty() {
             return None;
         }
-        let hi = (variants.len() - 1) as i32;
-        let pick = variants[game_engine::common::random_value::get_game_client_random_value(0, hi)
-            as usize]
-            .as_str();
+        // Equal bounds never advance the receiving stream.
+        let index = if variants.len() == 1 {
+            0
+        } else {
+            (random.next_u32() as usize) % variants.len()
+        };
+        let pick = variants[index].as_str();
         Some(format!("Data/Audio/Sounds/{pick}.wav"))
     }
 
@@ -106,9 +113,10 @@ impl SoundEffectsTable {
         &self,
         event_type: &str,
         ini_path: &Path,
+        random: &mut game_engine::common::random_value::RandomState,
     ) -> Option<String> {
         let _ = ini_path;
-        self.resolve_sound_path(event_type)
+        self.resolve_sound_path(event_type, random)
     }
 }
 
@@ -125,7 +133,9 @@ mod tests {
         let table = SoundEffectsTable::load_default()
             .expect("SoundEffects.ini must resolve via install_layout");
         assert!(
-            table.resolve_sound_path("GUIClick").is_some(),
+            table
+                .resolve_sound_path("GUIClick", &mut Default::default())
+                .is_some(),
             "retail GUIClick must resolve after boot-equivalent load"
         );
     }

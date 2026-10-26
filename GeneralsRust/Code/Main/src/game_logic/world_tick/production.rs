@@ -968,6 +968,7 @@ impl GameLogic {
                 );
                 continue;
             };
+            let producer_birth = std::sync::Arc::downgrade(&producer.visual_draw_identity_token);
             let producer_orientation = producer.get_orientation();
             // Preserve a concrete player owner, and only use the compatibility
             // unique-team owner for genuinely ownerless legacy producers.
@@ -986,6 +987,25 @@ impl GameLogic {
                 _ => None,
             };
             if let Some(new_id) = new_id {
+                // ThingFactory::newObject has already admitted the unit and
+                // run creation callbacks. Keep that successful birth and its
+                // committed effects, but do not attach it to a replacement
+                // factory or apply the retired factory's orientation/exit data.
+                if !self.objects.get(&producer_id).is_some_and(|producer| {
+                    std::sync::Weak::ptr_eq(
+                        &producer_birth,
+                        &std::sync::Arc::downgrade(&producer.visual_draw_identity_token),
+                    )
+                }) {
+                    continue;
+                }
+                let Some(new_birth) = self
+                    .objects
+                    .get(&new_id)
+                    .map(|unit| std::sync::Arc::downgrade(&unit.visual_draw_identity_token))
+                else {
+                    continue;
+                };
                 if let Some((unit, partition)) = self.host_object_and_partition_mut(new_id) {
                     unit.producer_id = Some(producer_id);
                     unit.set_orientation_with_partition_owner(producer_orientation, partition);
@@ -1022,6 +1042,19 @@ impl GameLogic {
                     }
                 }
 
+                // Position FX can destroy/recreate either endpoint. A numeric
+                // ID replacement is not this factory completion's recipient.
+                let same_birth = |id, birth: &std::sync::Weak<()>| {
+                    self.objects.get(&id).is_some_and(|object| {
+                        std::sync::Weak::ptr_eq(
+                            birth,
+                            &std::sync::Arc::downgrade(&object.visual_draw_identity_token),
+                        )
+                    })
+                };
+                if !same_birth(new_id, &new_birth) || !same_birth(producer_id, &producer_birth) {
+                    continue;
+                }
                 self.production_events
                     .record_complete(producer_id, template.clone(), new_id);
                 // Wave 679: production spawn ObjectId ready residual —

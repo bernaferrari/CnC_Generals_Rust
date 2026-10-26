@@ -74,15 +74,10 @@ fn transport_contain_kills_unfree_riders(obj: &Object) -> bool {
 /// C++ `TransportContain::onRemoving` when the hull is effectively dead:
 /// leftover `OpenContain::scatterToNearbyPosition` — place at wreck, face the
 /// ring angle, `aiMoveToPosition` toward a 1.0–1.5× bounding-radius dest.
-fn apply_transport_death_scatter(
-    unit: &mut Object,
-    container_id: ObjectId,
+fn transport_death_scatter_plan(
     container_pos: glam::Vec3,
     bounding_radius: f32,
-    frame: u32,
-    effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    audio: &mut crate::game_logic::ObjectAudio<'_>,
-) -> glam::Vec3 {
+) -> (glam::Vec3, f32) {
     let leftover = gamelogic::object::contain::open_contain::leftover_scatter_to_nearby_position(
         container_pos.x,
         container_pos.z,
@@ -91,19 +86,7 @@ fn apply_transport_death_scatter(
         Some(container_pos.y),
     );
     let dest = glam::Vec3::new(leftover.dest_x, leftover.dest_z, leftover.dest_y);
-    unit.set_position_with_effects(container_pos, frame, effects);
-    unit.set_orientation_with_effects(leftover.orientation, effects);
-    unit.set_ai_state(AIState::Moving, audio);
-    unit.status.moving = true;
-    // Pathfinder ignore for the queued move. Physics still skips the wreck
-    // through ignore_collisions_with; scatter does not start a collision timer.
-    unit.ignored_obstacle_id = Some(container_id);
-    unit.ignore_collisions_with = Some(container_id);
-    // TransportContain.cpp:389–393 scatters before wakeUpAndAttemptToTarget.
-    // The move makes the rider active, so AIUpdate.cpp:4430 preserves its
-    // mood deadline and jitter flag even when ResetMoodCheckTimeOnExit is true.
-    unit.set_status_attacking(false);
-    dest
+    (dest, leftover.orientation)
 }
 
 /// C++ `Pathfinder::validMovementTerrain` at the hull (AIPathfind.cpp:4763-4783).
@@ -321,6 +304,14 @@ impl GameLogic {
         rider_id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
+        let Some(container_id_birth) = self
+            .objects
+            .get(&container_id)
+            .map(|object| std::sync::Arc::downgrade(&object.visual_draw_identity_token))
+        else {
+            return;
+        };
+
         let Some(container) = self.objects.get(&container_id) else {
             return;
         };
@@ -358,21 +349,34 @@ impl GameLogic {
             None,
             true,
         );
-        let destination = {
-            let rider = self
-                .objects
-                .get_mut(&rider_id)
-                .expect("installed contain rider");
-            apply_transport_death_scatter(
-                rider,
-                container_id,
-                position,
-                radius,
-                self.frame,
+        let (destination, orientation) = transport_death_scatter_plan(position, radius);
+        if let Some(rider) = self.objects.get_mut(&rider_id) {
+            // OpenContain.cpp694 sets the scatter facing before setPosition700.
+            rider.set_orientation_with_effects(
+                orientation,
                 &mut effects.reborrow_for_object(&mut self.partition_manager),
+            );
+        }
+        if !self.set_owned_object_position_with_effects(rider_id, position, self.frame, effects) {
+            return;
+        }
+        if !self.objects.get(&container_id).is_some_and(|object| {
+            container_id_birth.ptr_eq(&std::sync::Arc::downgrade(
+                &object.visual_draw_identity_token,
+            ))
+        }) {
+            return;
+        }
+        if let Some(rider) = self.objects.get_mut(&rider_id) {
+            rider.set_ai_state(
+                AIState::Moving,
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
-            )
-        };
+            );
+            rider.status.moving = true;
+            rider.ignored_obstacle_id = Some(container_id);
+            rider.ignore_collisions_with = Some(container_id);
+            rider.set_status_attacking(false);
+        }
         self.path_approach_with_state_ignoring(
             rider_id,
             destination,

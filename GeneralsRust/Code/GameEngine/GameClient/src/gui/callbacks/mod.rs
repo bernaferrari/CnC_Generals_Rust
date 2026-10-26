@@ -337,3 +337,5 @@ pub fn set_main_menu_campaign_selected(v: bool) {
 }
 
 pub mod owned_credits_menu;
+
+pub mod control_bar_observation;

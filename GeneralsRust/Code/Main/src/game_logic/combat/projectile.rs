@@ -245,12 +245,6 @@ impl Projectile {
         speed_per_second: f32,
         terrain: Option<&crate::game_logic::game_logic::FlightTerrainView<'_>>,
     ) {
-        if self.flight.is_none() && !self.projectile_object_name.is_empty() {
-            self.flight =
-                crate::game_logic::weapon_bootstrap::host_projectile_flight_for_object_name(
-                    &self.projectile_object_name,
-                );
-        }
         let Some(flight) = self.flight.clone() else {
             return;
         };

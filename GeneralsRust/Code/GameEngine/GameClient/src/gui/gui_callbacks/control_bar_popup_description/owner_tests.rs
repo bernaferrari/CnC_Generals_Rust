@@ -57,6 +57,7 @@ fn actual_owned_command_tooltip_hover_and_delete_use_receiving_bar_and_window_tr
     let mut viewport = Viewport;
     {
         let mut context = ControlBarInputContext {
+            control_bar_observation:None,
             diplomacy_world: None,
             input_provenance: crate::gui::control_bar::HostControlBarInputProvenance::InjectedOrUnknown,
             menus: None,
@@ -125,6 +126,7 @@ fn actual_owned_command_tooltip_hover_and_delete_use_receiving_bar_and_window_tr
     bar.tooltip.wait_start = Some(Instant::now() - Duration::from_millis(101));
     for _ in 0..4 {
         let mut context = ControlBarInputContext {
+            control_bar_observation:None,
             diplomacy_world: None,
             input_provenance: crate::gui::control_bar::HostControlBarInputProvenance::InjectedOrUnknown,
             menus: None,
@@ -163,6 +165,7 @@ fn actual_owned_command_tooltip_hover_and_delete_use_receiving_bar_and_window_tr
     }
     {
         let mut context = ControlBarInputContext {
+            control_bar_observation:None,
             diplomacy_world: None,
             input_provenance: crate::gui::control_bar::HostControlBarInputProvenance::InjectedOrUnknown,
             menus: None,

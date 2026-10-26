@@ -29,6 +29,45 @@ use gamelogic::commands::selection::get_selection_manager;
 use gamelogic::helpers::{TheGameLogic, TheScriptEngine};
 use gamelogic::player::ThePlayerList;
 
+pub use super::control_bar_observation::{
+    ControlBarCallbackObservation, ControlBarMouseObservation, ControlBarPlayerObservation,
+};
+fn receiving_callback_observation(
+    effects: &crate::gui::game_window::WindowEventEffects<'_>,
+) -> Option<ControlBarCallbackObservation> {
+    if let Some(facts) = effects.control_bar_callback_observation() {
+        return Some(facts);
+    }
+    let role = effects.menus.as_ref()?.input_authority;
+    if role != crate::core::game_client::ClientInputAuthority::StandaloneCore {
+        return None;
+    }
+    // Explicitly bounded unmigrated Core service adapter; native never enters.
+    let local_player = ThePlayerList()
+        .read()
+        .ok()
+        .and_then(|list| list.get_local_player().cloned())
+        .and_then(|player| {
+            player
+                .read()
+                .ok()
+                .map(|player| ControlBarPlayerObservation {
+                    id: player.get_player_index() as u32,
+                    active: player.is_player_active(),
+                    selection_count: selection_count(),
+                })
+        });
+    Some(ControlBarCallbackObservation {
+        game_ending: TheScriptEngine::is_game_ending(),
+        multiplayer: TheGameLogic::is_in_multiplayer_game(),
+        local_player,
+        mouse: Some(ControlBarMouseObservation {
+            middle_held: middle_mouse_is_held(),
+            alternate_mouse: is_alternate_mouse_enabled(),
+        }),
+    })
+}
+
 const CMD_NEED_TARGET_POS: u32 = 0x0000_0020;
 const CMD_ATTACK_OBJECTS_POSITION: u32 = 0x0000_1000;
 const KEY_ESC: usize = 0x1B;
@@ -613,7 +652,10 @@ impl ControlBarCallbacks {
         _data2: WindowMsgData,
         effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) -> WindowMsgHandled {
-        if TheScriptEngine::is_game_ending() {
+        let Some(observation) = receiving_callback_observation(effects) else {
+            return WindowMsgHandled::Ignored;
+        };
+        if observation.game_ending {
             return WindowMsgHandled::Ignored;
         }
 
@@ -650,6 +692,7 @@ impl ControlBarCallbacks {
                         data1 as u32,
                         effects.emitted_messages,
                         receiving_manager,
+                        observation,
                     )
                 });
                 WindowMsgHandled::Handled
@@ -665,6 +708,9 @@ impl ControlBarCallbacks {
         effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
         mut selected_window: Option<&mut crate::gui::GameWindow>,
     ) {
+        let Some(observation) = receiving_callback_observation(effects) else {
+            return;
+        };
         let input_provenance = effects.input_provenance();
         let beacon_place_id = NameKeyGenerator::name_to_key("ControlBar.wnd:ButtonPlaceBeacon");
         let beacon_delete_id = NameKeyGenerator::name_to_key("ControlBar.wnd:ButtonDeleteBeacon");
@@ -684,13 +730,8 @@ impl ControlBarCallbacks {
         }
 
         if control_id == beacon_place_id {
-            if TheGameLogic::is_in_multiplayer_game()
-                && ThePlayerList()
-                    .read()
-                    .ok()
-                    .and_then(|list| list.get_local_player().cloned())
-                    .and_then(|player| player.read().ok().map(|p| p.is_player_active()))
-                    .unwrap_or(false)
+            if observation.multiplayer
+                && observation.local_player.is_some_and(|player| player.active)
             {
                 effects.ui_mut().clear_pending_special_power();
                 effects.ui_mut().set_pending_command(
@@ -706,7 +747,7 @@ impl ControlBarCallbacks {
         }
 
         if control_id == beacon_delete_id {
-            if TheGameLogic::is_in_multiplayer_game() {
+            if observation.multiplayer {
                 effects
                     .emitted_messages
                     .push(GameMessage::new(GameMessageType::RemoveBeacon(
@@ -717,7 +758,7 @@ impl ControlBarCallbacks {
         }
 
         if control_id == beacon_clear_text_id {
-            if TheGameLogic::is_in_multiplayer_game() {
+            if observation.multiplayer {
                 let text_id = NameKeyGenerator::name_to_key("ControlBar.wnd:EditBeaconText") as i32;
                 effects.with_manager(|manager, effects| {
                     if let Some(handle) = manager.get_window_by_id(text_id) {
@@ -784,13 +825,20 @@ impl ControlBarCallbacks {
         control_id: u32,
         emitted_messages: &mut Vec<GameMessage>,
         receiving_manager: &mut crate::gui::window_manager::WindowManager,
+        observation: ControlBarCallbackObservation,
     ) {
         let text_id = NameKeyGenerator::name_to_key("ControlBar.wnd:EditBeaconText");
         if control_id != text_id {
             return;
         }
 
-        if should_submit_beacon_text(TheGameLogic::is_in_multiplayer_game(), selection_count()) {
+        if should_submit_beacon_text(
+            observation.multiplayer,
+            observation
+                .local_player
+                .map(|player| player.selection_count)
+                .unwrap_or(0),
+        ) {
             let text = (|manager: &mut crate::gui::window_manager::WindowManager| {
                 manager
                     .get_window_by_id(text_id as i32)
@@ -971,13 +1019,29 @@ impl Default for ControlBarCallbacks {
 }
 
 pub fn beacon_window_input(
-    _window: &GameWindow,
+    _window: &mut GameWindow,
     msg: WindowMessage,
     data1: WindowMsgData,
     _data2: WindowMsgData,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> WindowMsgHandled {
     if msg == WindowMessage::Char && data1 == KEY_ESC {
-        clear_local_selection();
+        if effects.input_authority() == crate::core::game_client::ClientInputAuthority::NativeHosted
+        {
+            let Some(observation) = receiving_callback_observation(effects) else {
+                return WindowMsgHandled::Ignored;
+            };
+            let Some(player) = observation.local_player else {
+                return WindowMsgHandled::Ignored;
+            };
+            effects.request_menu_host(
+                crate::gui::campaign_launch_host_bridge::MenuHostRequest::ClearSelection {
+                    player_id: player.id,
+                },
+            );
+        } else {
+            clear_local_selection();
+        }
         return WindowMsgHandled::Handled;
     }
 
@@ -992,12 +1056,26 @@ pub fn left_hud_input(
     msg: WindowMessage,
     data1: WindowMsgData,
     _data2: WindowMsgData,
-    emitted_messages: &mut Vec<GameMessage>,
-    _pending_clicks: Option<&mut Vec<crate::helpers::LiveControlBarClick>>,
-    ui: &mut crate::core::subsystems::InGameUISubsystem,
-    input_provenance: crate::gui::control_bar::HostControlBarInputProvenance,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> WindowMsgHandled {
+    let Some(observation) = receiving_callback_observation(effects) else {
+        return WindowMsgHandled::Ignored;
+    };
+    let Some(mouse) = observation.mouse else {
+        return WindowMsgHandled::Ignored;
+    };
+    let native =
+        effects.input_authority() == crate::core::game_client::ClientInputAuthority::NativeHosted;
+    let input_provenance = effects.input_provenance();
+    let emitted_messages = &mut *effects.emitted_messages;
+    let ui = effects
+        .ui
+        .as_deref_mut()
+        .expect("LeftHUD requires receiving UI");
     let host_bridge = host_control_bar_bridge_enabled(ui);
+    if native && !host_bridge {
+        return WindowMsgHandled::Ignored;
+    }
 
     // C++ first eats input when the radar is unavailable, then checks
     // held MMB.  Main owns radar authority while the bridge is active,
@@ -1011,7 +1089,7 @@ pub fn left_hud_input(
     // In particular, do not turn an LMB/RMB held alongside MMB into an
     // authoritative-host minimap interaction; returning Ignored lets the
     // normal middle-mouse route retain ownership.
-    if middle_mouse_is_held() {
+    if mouse.middle_held {
         return WindowMsgHandled::Ignored;
     }
 
@@ -1020,7 +1098,14 @@ pub fn left_hud_input(
     // Main before consulting those globals, while leaving the standalone
     // path below exactly intact when the bridge is disabled.
     if host_bridge && matches!(msg, WindowMessage::LeftDown | WindowMessage::RightDown) {
-        left_hud_publish_host_minimap_mouse_down(window, msg, data1, ui, input_provenance);
+        left_hud_publish_host_minimap_mouse_down(
+            window,
+            msg,
+            data1,
+            ui,
+            input_provenance,
+            mouse.alternate_mouse,
+        );
         return WindowMsgHandled::Handled;
     }
 
@@ -1074,6 +1159,7 @@ fn left_hud_publish_host_minimap_mouse_down(
     data1: WindowMsgData,
     ui: &mut crate::core::subsystems::InGameUISubsystem,
     input_provenance: crate::gui::control_bar::HostControlBarInputProvenance,
+    alternate_mouse: bool,
 ) {
     let (mouse_x, mouse_y) = decode_mouse_pos(data1);
     let (screen_x, screen_y) = window.get_screen_position();
@@ -1096,7 +1182,7 @@ fn left_hud_publish_host_minimap_mouse_down(
             screen_top_left: [screen_x, screen_y],
             screen_size: [width, height],
             button,
-            alternate_mouse: is_alternate_mouse_enabled(),
+            alternate_mouse,
         },
         ui,
     );
@@ -1276,7 +1362,10 @@ pub fn receiving_control_bar_system(
     _data2: WindowMsgData,
     effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> WindowMsgHandled {
-    if TheScriptEngine::is_game_ending() {
+    let Some(observation) = receiving_callback_observation(effects) else {
+        return WindowMsgHandled::Ignored;
+    };
+    if observation.game_ending {
         return WindowMsgHandled::Ignored;
     }
 
@@ -1314,6 +1403,7 @@ pub fn receiving_control_bar_system(
                     data1 as u32,
                     effects.emitted_messages,
                     receiving_manager,
+                    observation,
                 )
             });
             WindowMsgHandled::Handled
@@ -1374,6 +1464,58 @@ pub fn is_control_bar_visible(effects: &crate::gui::game_window::WindowEventEffe
 
 #[cfg(test)]
 mod tests {
+    fn test_observation(
+        game_ending: bool,
+        middle_held: bool,
+        alternate_mouse: bool,
+    ) -> ControlBarCallbackObservation {
+        ControlBarCallbackObservation {
+            game_ending,
+            multiplayer: true,
+            local_player: Some(ControlBarPlayerObservation {
+                id: 11,
+                active: true,
+                selection_count: 1,
+            }),
+            mouse: Some(ControlBarMouseObservation {
+                middle_held,
+                alternate_mouse,
+            }),
+        }
+    }
+    fn with_receiving_observation<R>(
+        facts: ControlBarCallbackObservation,
+        operation: impl FnOnce(&mut crate::gui::game_window::WindowEventEffects<'_>) -> R,
+    ) -> R {
+        let mut client = crate::core::GameClient::new_with_input_authority(
+            crate::core::game_client::ClientInputAuthority::NativeHosted,
+        )
+        .unwrap();
+        let mut ui = crate::core::subsystems::InGameUISubsystem::default();
+        ui.admit_native_control_bar_transport();
+        let mut radar = game_engine::common::system::radar::RadarSystem::new();
+        radar.new_map_owned(
+            game_engine::common::system::radar::Coord3D::new(0.0, 0.0, 0.0),
+            game_engine::common::system::radar::Coord3D::new(100.0, 100.0, 0.0),
+            &[],
+        );
+        ui.set_radar_presentation(std::sync::Arc::new(radar.presentation()));
+        client.set_in_game_ui_subsystem(ui);
+        client.with_window_event_effects(None, |effects| {
+            effects.admit_control_bar_callback_observation(facts);
+            operation(effects)
+        })
+    }
+    fn left_hud_test_window(
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    ) -> Rc<RefCell<GameWindow>> {
+        effects.with_manager(|manager, effects| {
+            manager
+                .create_window(None, 7, 443, 167, 152, effects)
+                .unwrap()
+        })
+    }
+
     use super::*;
 
     #[test]
@@ -1613,16 +1755,29 @@ mod tests {
 
     #[test]
     fn beacon_window_input_handles_escape_only() {
-        let window = GameWindow::new();
-
-        assert_eq!(
-            beacon_window_input(&window, WindowMessage::Char, KEY_ESC as WindowMsgData, 0),
-            WindowMsgHandled::Handled
-        );
-        assert_eq!(
-            beacon_window_input(&window, WindowMessage::Char, b'A' as WindowMsgData, 0),
-            WindowMsgHandled::Ignored
-        );
+        with_receiving_observation(test_observation(false, false, true), |effects| {
+            let mut window = GameWindow::new();
+            assert_eq!(
+                beacon_window_input(
+                    &mut window,
+                    WindowMessage::Char,
+                    KEY_ESC as WindowMsgData,
+                    0,
+                    effects
+                ),
+                WindowMsgHandled::Handled
+            );
+            assert_eq!(
+                beacon_window_input(
+                    &mut window,
+                    WindowMessage::Char,
+                    b'A' as WindowMsgData,
+                    0,
+                    effects
+                ),
+                WindowMsgHandled::Ignored
+            );
+        });
     }
 
     #[test]
@@ -1654,123 +1809,67 @@ mod tests {
 
     #[test]
     fn idle_worker_button_publishes_typed_host_request_when_bridge_enabled() {
-        let mut transport_ui = crate::core::subsystems::InGameUISubsystem::default();
-        let _guard = crate::gui::control_bar::acquire_host_control_bar_bridge_test_guard();
-        transport_ui.admit_native_control_bar_transport();
-
-        let mut callbacks = ControlBarCallbacks::new();
-        callbacks.handle_button_selected(
-            NameKeyGenerator::name_to_key("ControlBar.wnd:ButtonIdleWorker"),
-            false,
-            &mut Vec::new(),
-        );
-
-        assert!(matches!(
-            crate::gui::control_bar::take_host_control_bar_requests(&mut transport_ui).as_slice(),
-            [crate::gui::control_bar::HostControlBarRequest::SelectNextIdleWorker]
-        ));
+        with_receiving_observation(test_observation(false, false, true), |effects| {
+            let mut window = GameWindow::new();
+            assert_eq!(
+                receiving_control_bar_system(
+                    &mut window,
+                    WindowMessage::GadgetSelected,
+                    NameKeyGenerator::name_to_key("ControlBar.wnd:ButtonIdleWorker") as usize,
+                    0,
+                    effects
+                ),
+                WindowMsgHandled::Handled
+            );
+            assert!(matches!(
+                crate::gui::control_bar::take_host_control_bar_requests(effects.ui_mut())
+                    .as_slice(),
+                [crate::gui::control_bar::HostControlBarRequest::SelectNextIdleWorker]
+            ));
+        });
     }
 
     #[test]
     fn left_hud_host_request_captures_the_live_alternate_mouse_setting() {
-        let ui = &mut crate::core::subsystems::InGameUISubsystem::default();
-        let _bridge_guard = crate::gui::control_bar::acquire_host_control_bar_bridge_test_guard();
-        let ini_global = game_engine::common::ini::ini_game_data::ensure_global_data();
-        let previous_alternate_mouse = ini_global.read().use_alternate_mouse;
-
-        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            ini_global.write().use_alternate_mouse = true;
-            ui.admit_native_control_bar_transport();
-
-            let mut window = GameWindow::new();
-            window
-                .set_position(7, 443)
-                .expect("synthetic LeftHUD position is valid");
-            window
-                .set_size(167, 152)
-                .expect("synthetic LeftHUD size is valid");
-
+        with_receiving_observation(test_observation(false, false, true), |effects| {
+            let window = left_hud_test_window(effects);
             let click = 42usize | (491usize << 16);
             assert_eq!(
                 left_hud_input(
-                    &window,
+                    &mut window.borrow_mut(),
                     WindowMessage::LeftDown,
                     click,
                     0,
-                    &mut Vec::new(),
-                    None,
-                    ui,
-                    crate::gui::control_bar::HostControlBarInputProvenance::InjectedOrUnknown
+                    effects
                 ),
                 WindowMsgHandled::Handled
             );
-
-            let published = crate::gui::control_bar::take_host_minimap_interactions(ui);
-            assert!(matches!(
-                published.as_slice(),
-                [interaction]
-                    if interaction.button
-                        == crate::gui::control_bar::HostMinimapMouseButton::Left
-                        && interaction.alternate_mouse
-            ));
-        }));
-
-        ini_global.write().use_alternate_mouse = previous_alternate_mouse;
-        if let Err(payload) = result {
-            std::panic::resume_unwind(payload);
-        }
+            let published =
+                crate::gui::control_bar::take_host_minimap_interactions(effects.ui_mut());
+            assert!(
+                matches!(published.as_slice(),[interaction] if interaction.button==crate::gui::control_bar::HostMinimapMouseButton::Left && interaction.alternate_mouse)
+            );
+        });
     }
 
     #[test]
     fn held_middle_button_bypasses_left_hud_before_host_minimap_publication() {
-        let ui = &mut crate::core::subsystems::InGameUISubsystem::default();
-        let _bridge_guard = crate::gui::control_bar::acquire_host_control_bar_bridge_test_guard();
-        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            ui.admit_native_control_bar_transport();
-
-            let mut window = GameWindow::new();
-            window
-                .set_position(7, 443)
-                .expect("synthetic LeftHUD position is valid");
-            window
-                .set_size(167, 152)
-                .expect("synthetic LeftHUD size is valid");
-
-            with_mouse(|mouse| {
-                let _ =
-                    mouse.handle_mouse_button(MouseButton::Middle, true, std::time::Instant::now());
-            });
-
+        with_receiving_observation(test_observation(false, true, false), |effects| {
+            let window = left_hud_test_window(effects);
             let click = 42usize | (491usize << 16);
             for message in [WindowMessage::LeftDown, WindowMessage::RightDown] {
                 assert_eq!(
-                    left_hud_input(
-                        &window,
-                        message,
-                        click,
-                        0,
-                        &mut Vec::new(),
-                        None,
-                        ui,
-                        crate::gui::control_bar::HostControlBarInputProvenance::InjectedOrUnknown
-                    ),
+                    left_hud_input(&mut window.borrow_mut(), message, click, 0, effects),
                     WindowMsgHandled::Ignored,
                     "C++ LeftHUDInput yields to the held-middle route before {message:?}"
                 );
             }
             assert!(
-                crate::gui::control_bar::take_host_minimap_interactions(ui).is_empty(),
+                crate::gui::control_bar::take_host_minimap_interactions(effects.ui_mut())
+                    .is_empty(),
                 "a held middle button must not publish an authoritative minimap click"
             );
-        }));
-
-        with_mouse(|mouse| {
-            let _ =
-                mouse.handle_mouse_button(MouseButton::Middle, false, std::time::Instant::now());
         });
-        if let Err(payload) = result {
-            std::panic::resume_unwind(payload);
-        }
     }
 }
 

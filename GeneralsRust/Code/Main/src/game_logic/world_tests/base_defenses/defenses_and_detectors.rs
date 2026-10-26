@@ -1481,6 +1481,7 @@ fn scout_and_hellfire_drone_residual_attach_detect_and_fire() {
         &mut game_logic.combat_system,
         game_logic.objects.read(),
         41,
+        &crate::game_logic::projectile_definitions::fixture_projectile_definitions(),
     );
     assert!(
         game_logic.honesty_hellfire_drone_auto_fire_ok(),
@@ -1688,6 +1689,7 @@ fn hellfire_scatter_misses_infantry_residual() {
             &mut logic.combat_system,
             logic.objects.read(),
             logic.frame,
+            &crate::game_logic::projectile_definitions::fixture_projectile_definitions(),
         );
         if logic.hellfire_scatter_applied > 0 {
             saw = true;
@@ -1720,6 +1722,7 @@ fn hellfire_scatter_misses_infantry_residual() {
             &mut logic.combat_system,
             logic.objects.read(),
             logic.frame,
+            &crate::game_logic::projectile_definitions::fixture_projectile_definitions(),
         );
     }
     let hp_after = logic

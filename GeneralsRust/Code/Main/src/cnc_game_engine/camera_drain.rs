@@ -1268,12 +1268,14 @@ impl CnCGameEngine {
             bool,
             &mut game_client::core::game_client::NativeWindowInputDriver<'_>,
             &mut crate::subsystem_manager::SubsystemManager,
+            &mut game_engine::common::random_value::RandomState,
         ) -> R,
     ) -> (
         R,
         Vec<game_client::gui::callbacks::replay_menu::ingress::ReplayMenuStep>,
     ) {
         let menu_world = self.receiving_menu_world_facts();
+        let control_bar_observation = self.receiving_control_bar_callback_observation();
         let diplomacy_world = self.receiving_diplomacy_world_facts().ok();
         let playback = self
             .game_logic
@@ -1331,6 +1333,7 @@ impl CnCGameEngine {
                               request,
                               messages: &mut Vec<game_engine::common::message_stream::GameMessage>| {
                 let mut context = game_client::gui::window_manager::ControlBarInputContext {
+            control_bar_observation:Some(control_bar_observation),
             diplomacy_world: diplomacy_world.as_ref(),
             input_provenance: game_client::gui::control_bar::HostControlBarInputProvenance::InjectedOrUnknown,
             ui: Some(ui), logic_frame: Some(menu_world.logic_frame), client_frame: Some(menu_world.client_frame),
@@ -1357,6 +1360,7 @@ impl CnCGameEngine {
                 playback,
                 &mut driver,
                 &mut self.subsystem_manager,
+                &mut self.game_logic.session_view.audio_random,
             )
         };
         (result, steps)
@@ -1368,8 +1372,8 @@ impl CnCGameEngine {
         let mut cursor = None;
         loop {
             let facts = self.receiving_menu_world_facts();
-            let (progress, steps) =
-                self.with_receiving_client_translation(|client, playback, driver, _manager| {
+            let (progress, steps) = self.with_receiving_client_translation(
+                |client, playback, driver, _manager, _audio_random| {
                     client.take_message_stream_until_menu_host(
                         playback,
                         facts.logic_frame,
@@ -1377,7 +1381,8 @@ impl CnCGameEngine {
                         driver,
                         cursor.take(),
                     )
-                });
+                },
+            );
             match progress.map_err(|error| error.to_string())? {
                 PropagationProgress::Complete(messages) => {
                     let result = self

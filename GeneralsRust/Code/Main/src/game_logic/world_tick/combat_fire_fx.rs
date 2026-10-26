@@ -186,6 +186,7 @@ impl GameLogic {
             true,
             pose,
             particle_owner,
+            &mut self.session_view.client_random,
         );
     }
 
@@ -286,6 +287,7 @@ impl GameLogic {
                     aflame,
                     pose,
                     particle_owner,
+                    &mut self.session_view.client_random,
                 );
             } else if !wants_body && has_body {
                 self.combat_particles.replace_body_auto_particles(
@@ -296,6 +298,7 @@ impl GameLogic {
                     false,
                     pose,
                     particle_owner,
+                    &mut self.session_view.client_random,
                 );
             }
             self.combat_particles

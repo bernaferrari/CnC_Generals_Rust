@@ -3255,6 +3255,7 @@ pub(crate) use body_visuals::MaxHealthChange;
 mod material_commands;
 mod partition_scalars;
 mod pose;
+pub(in crate::game_logic) use pose::PositionReaction;
 mod record;
 mod rtb;
 mod runtime_attachment;

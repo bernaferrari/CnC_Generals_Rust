@@ -299,11 +299,53 @@ pub(crate) struct NativeTerrainUnitMove {
     pub(crate) crusher_level: i32,
 }
 
+#[cfg(feature = "game_client")]
+impl NativeTerrainUnitMove {
+    fn tree_collision_unit(self) -> game_client::terrain::TreeCollisionUnit {
+        game_client::terrain::TreeCollisionUnit {
+            object_id: self.object_id,
+            position: self.position,
+            direction_2d: self.direction_2d,
+            major_radius: self.major_radius,
+            minor_radius: self.minor_radius,
+            geometry_type: if self.is_box {
+                game_client::terrain::TreeGeometryType::Box
+            } else {
+                game_client::terrain::TreeGeometryType::Cylinder
+            },
+            crusher_level: self.crusher_level,
+            immobile: false,
+        }
+    }
+}
+
 /// One synchronous receiving native terrain loan; never stored by gameplay.
 pub(crate) trait NativeTerrainEffects {
     /// Test/standalone effect recorders may intentionally omit tree simulation.
     /// The real receiving TerrainVisual implementation performs it synchronously.
     fn unit_moved(&mut self, _unit: NativeTerrainUnitMove, _frame: u32) {}
+    #[cfg(feature = "game_client")]
+    fn begin_tree_move(
+        &mut self,
+        unit: NativeTerrainUnitMove,
+        frame: u32,
+    ) -> Option<game_client::terrain::TreeMoveCursor> {
+        self.unit_moved(unit, frame);
+        None // headless recorders have no tree state
+    }
+    #[cfg(feature = "game_client")]
+    fn advance_tree_move(
+        &mut self,
+        _cursor: &mut game_client::terrain::TreeMoveCursor,
+        _unit: NativeTerrainUnitMove,
+    ) -> Option<game_client::terrain::TreeFxEvent> {
+        unreachable!("tree cursor requires its terrain owner")
+    }
+    #[cfg(feature = "game_client")]
+    fn finish_tree_move_fx(&mut self, _cursor: &mut game_client::terrain::TreeMoveCursor) {
+        unreachable!("tree cursor requires its terrain owner")
+    }
+
     fn oversize_terrain(&mut self, amount: i32);
     fn remove_for_construction(
         &mut self,
@@ -330,24 +372,28 @@ pub(crate) trait NativeTerrainEffects {
 }
 #[cfg(feature = "game_client")]
 impl NativeTerrainEffects for game_client::terrain::terrain_visual::TerrainVisualImpl {
+    fn begin_tree_move(
+        &mut self,
+        unit: NativeTerrainUnitMove,
+        frame: u32,
+    ) -> Option<game_client::terrain::TreeMoveCursor> {
+        self.tree_buffer_mut()
+            .begin_unit_move(unit.tree_collision_unit(), frame)
+    }
+    fn advance_tree_move(
+        &mut self,
+        cursor: &mut game_client::terrain::TreeMoveCursor,
+        unit: NativeTerrainUnitMove,
+    ) -> Option<game_client::terrain::TreeFxEvent> {
+        self.tree_buffer_mut()
+            .advance_unit_move(cursor, unit.tree_collision_unit())
+    }
+    fn finish_tree_move_fx(&mut self, cursor: &mut game_client::terrain::TreeMoveCursor) {
+        self.tree_buffer_mut().finish_unit_move_fx(cursor);
+    }
+
     fn unit_moved(&mut self, unit: NativeTerrainUnitMove, frame: u32) {
-        self.unit_moved(
-            game_client::terrain::TreeCollisionUnit {
-                object_id: unit.object_id,
-                position: unit.position,
-                direction_2d: unit.direction_2d,
-                major_radius: unit.major_radius,
-                minor_radius: unit.minor_radius,
-                geometry_type: if unit.is_box {
-                    game_client::terrain::TreeGeometryType::Box
-                } else {
-                    game_client::terrain::TreeGeometryType::Cylinder
-                },
-                crusher_level: unit.crusher_level,
-                immobile: false,
-            },
-            frame,
-        );
+        self.unit_moved(unit.tree_collision_unit(), frame);
     }
 
     fn oversize_terrain(&mut self, amount: i32) {

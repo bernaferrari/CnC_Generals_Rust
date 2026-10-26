@@ -2628,8 +2628,17 @@ fn move_towards_angle_with_min_speed() {
     o.min_speed = 10.0;
     o.movement.max_speed = 30.0;
     o.movement.acceleration = 100.0;
-    o.loco_update_move_towards_angle(0.0, 1.0 / 30.0);
-    assert!(o.get_position().x > 0.0 || o.movement.velocity.x > 0.0);
+    o.set_locomotor_goal_orientation(0.0);
+    let mut world = crate::game_logic::GameLogic::new();
+    world.objects.insert(ObjectId(992), o);
+    world.update_movement_for_test(&[ObjectId(992)], 1.0 / 30.0);
+    let object = world.objects.get(&ObjectId(992)).unwrap();
+    assert!(object.get_position().x > 0.0 || object.movement.velocity.x > 0.0);
+    assert_eq!(
+        object.locomotor_goal_type,
+        crate::game_logic::LocoGoalType::Angle
+    );
+    assert!(object.movement.target_position.is_none());
 }
 
 #[test]

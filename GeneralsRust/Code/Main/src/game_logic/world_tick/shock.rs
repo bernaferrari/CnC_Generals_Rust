@@ -33,6 +33,7 @@ impl GameLogic {
                     || o.bounce_audio_pending > 0
                     || o.pending_ground_collide
                     || o.movement.velocity.length_squared() > 1e-6
+                    || o.physics_accel.length_squared() > 1e-6
                     || o.allow_to_fall
                     || o.is_physics_held()
                     || wreck_airborne;
@@ -67,6 +68,12 @@ impl GameLogic {
             }
             // C++ PhysicsBehavior update residual order: friction → integrate accel → motion.
             // applyFrictionalForces every non-HELD update (debris, disabled, wrecks).
+            // Thrust stores velocity in host seconds, but gravity is admitted
+            // from source frame². All its locomotor forces remain pending until
+            // this actual Physics phase; no position is integrated by locomotor.
+            if o.loco_appearance == LocomotorAppearance::Thrust && o.shock_stun_frames == 0 {
+                o.physics_accel.y += o.physics_gravity() * 30.0;
+            }
             o.apply_frictional_forces();
             o.integrate_physics_accel();
         }

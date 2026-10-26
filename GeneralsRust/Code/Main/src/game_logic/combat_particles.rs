@@ -1118,6 +1118,7 @@ impl CombatParticleRegistry {
         aflame: bool,
         pose: BodyAutoParticlePose<'_>,
         particle_owner: &mut dyn crate::game_logic::combat_particles::ParticleBindingAccess,
+        random: &mut game_engine::common::random_value::RandomState,
     ) {
         self.replace_body_auto_particles_resolved(
             owner,
@@ -1129,6 +1130,7 @@ impl CombatParticleRegistry {
             pose.is_shrouded,
             |prefix, max| body_prefix_bone_locals(pose.model, pose.scale, prefix, max),
             particle_owner,
+            random,
         );
     }
 
@@ -1142,6 +1144,7 @@ impl CombatParticleRegistry {
         aflame: bool,
         prefix_bones: &[(String, Vec<Vec3>)],
         particle_owner: &mut dyn crate::game_logic::combat_particles::ParticleBindingAccess,
+        random: &mut game_engine::common::random_value::RandomState,
     ) {
         self.replace_body_auto_particles_resolved(
             owner,
@@ -1159,6 +1162,7 @@ impl CombatParticleRegistry {
                     .unwrap_or_default()
             },
             particle_owner,
+            random,
         );
     }
 
@@ -1173,6 +1177,7 @@ impl CombatParticleRegistry {
         is_shrouded: Option<bool>,
         resolve_locals: impl Fn(&str, usize) -> Vec<Vec3>,
         particle_owner: &mut dyn crate::game_logic::combat_particles::ParticleBindingAccess,
+        random: &mut game_engine::common::random_value::RandomState,
     ) {
         let stale: Vec<u32> = self
             .systems
@@ -1211,6 +1216,7 @@ impl CombatParticleRegistry {
                 &locals,
                 is_shrouded.unwrap_or(true),
                 particle_owner,
+                random,
             );
         }
     }
@@ -1703,6 +1709,7 @@ fn spawn_body_systems_on_bones(
     bone_locals: &[Vec3],
     is_shrouded: bool,
     particle_owner: &mut dyn crate::game_logic::combat_particles::ParticleBindingAccess,
+    random: &mut game_engine::common::random_value::RandomState,
 ) {
     if max_systems <= 0 || bone_locals.is_empty() {
         return;
@@ -1711,9 +1718,14 @@ fn spawn_body_systems_on_bones(
     let target_count = usize::min(max_systems as usize, num_bones);
     let mut used = vec![false; num_bones];
     for i in 0..target_count {
-        let slot_hi = (target_count - i - 1) as i32;
-        let pick =
-            game_engine::common::random_value::get_game_client_random_value(0, slot_hi) as usize;
+        let available = target_count - i;
+        // ActiveBody.cpp999-1002: pick among this operation's unused prefix
+        // slots. Empty/single choices never consume the receiving stream.
+        let pick = if available <= 1 {
+            0
+        } else {
+            random.next_u32() as usize % available
+        };
         let mut selected = None;
         let mut free_count = 0usize;
         for (idx, used_bone) in used.iter().enumerate() {
@@ -2256,6 +2268,8 @@ mod tests {
                 ("SMOKESMALL".to_string(), vec![smoke_bone]),
                 ("FIRELARGE".to_string(), vec![large_bone]),
             ],
+            &mut (),
+            &mut Default::default(),
         );
         assert!(reg.has_body_particles(owner));
         let fires: Vec<_> = reg
@@ -2304,6 +2318,8 @@ mod tests {
                 ("SMOKESMALL".to_string(), vec![smoke_bone]),
                 ("AFLAME".to_string(), vec![aflame_bone]),
             ],
+            &mut (),
+            &mut Default::default(),
         );
         let aflame_fires: Vec<_> = reg
             .systems_of_kind(CombatParticleKind::BodyFire)
@@ -2348,6 +2364,8 @@ mod tests {
             0,
             false,
             BodyAutoParticlePose::new("", 1.0, 0.0),
+            &mut (),
+            &mut Default::default(),
         );
         assert!(!reg.has_body_particles(owner));
 
@@ -2443,6 +2461,8 @@ mod tests {
             1,
             false,
             &[("FIRESMALL".to_string(), vec![fire_bone])],
+            &mut (),
+            &mut Default::default(),
         );
         let yaw = std::f32::consts::FRAC_PI_2;
         reg.follow_attached_body_particles(owner, origin, yaw);

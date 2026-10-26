@@ -193,6 +193,14 @@ impl GameLogic {
         host_id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
+        let Some(host_id_birth) = self
+            .objects
+            .get(&host_id)
+            .map(|object| std::sync::Arc::downgrade(&object.visual_draw_identity_token))
+        else {
+            return;
+        };
+
         let (maybe_state, occupant_hint, candidates, pos) = {
             let Some(host) = self.objects.get(&host_id) else {
                 return;
@@ -232,11 +240,16 @@ impl GameLogic {
             if occ.body_damage_state != state {
                 occ.apply_overlord_addon_set_damage_state(state);
             }
-            occ.set_position_with_effects(
-                pos,
-                self.frame,
-                &mut effects.reborrow_for_object(&mut self.partition_manager),
-            );
+        }
+        if !self.set_owned_object_position_with_effects(occupant_id, pos, self.frame, effects) {
+            return;
+        }
+        if !self.objects.get(&host_id).is_some_and(|object| {
+            host_id_birth.ptr_eq(&std::sync::Arc::downgrade(
+                &object.visual_draw_identity_token,
+            ))
+        }) {
+            return;
         }
         if let Some(host) = self.objects.get_mut(&host_id) {
             host.overlord_addon_body_damage_state = state;

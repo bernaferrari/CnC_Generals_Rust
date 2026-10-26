@@ -497,7 +497,7 @@ impl Object {
         self.get_transform_matrix().y_axis.y
     }
 
-    fn sync_shock_up_from_transform(&mut self) {
+    pub(super) fn sync_shock_up_from_transform(&mut self) {
         self.shock_up_z = self.physics_transform_up_y().clamp(-1.0, 1.0);
     }
 

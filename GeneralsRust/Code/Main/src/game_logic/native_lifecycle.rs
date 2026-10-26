@@ -374,12 +374,13 @@ impl GameLogic {
         };
         if may_die && position.y < target {
             if definition.snap_to_ground_on_death || position.y < terrain {
-                if let Some(object) = self.objects.get_mut(&id) {
-                    object.set_position_with_effects(
-                        Vec3::new(position.x, terrain, position.z),
-                        pose_frame,
-                        &mut effects.reborrow_for_object(&mut self.partition_manager),
-                    );
+                if !self.set_owned_object_position_with_effects(
+                    id,
+                    Vec3::new(position.x, terrain, position.z),
+                    pose_frame,
+                    effects,
+                ) {
+                    return;
                 }
             }
             self.apply_owned_kill_with_effects(

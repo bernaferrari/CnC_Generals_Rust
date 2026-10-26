@@ -20,7 +20,7 @@ impl GameLogic {
         // Empty-clip RTB is JetAI (guard/hunt interrupt or idle), not every attack.
 
         // Early gates + docked/garrisoned flags in one immutable scope.
-        let (docked_sortie, docked_passenger, garrisoned) = {
+        let (attacker_birth, docked_sortie, docked_passenger, garrisoned) = {
             let Some(attacker) = self.objects.get(&attacker_id) else {
                 return None;
             };
@@ -69,11 +69,24 @@ impl GameLogic {
                 attacker.ai_state() == AIState::Docked && is_ac && attacker.target.is_some();
             let docked_passenger = attacker.ai_state() == AIState::Docked && !docked_sortie;
             let garrisoned = attacker.ai_state() == AIState::Garrisoned;
-            (docked_sortie, docked_passenger, garrisoned)
+            (
+                std::sync::Arc::downgrade(&attacker.visual_draw_identity_token),
+                docked_sortie,
+                docked_passenger,
+                garrisoned,
+            )
         };
         if docked_sortie {
             let _ = self
                 .try_runway_takeoff_from_airfield_with_effects(attacker_id, presentation_effects);
+            if !self.objects.get(&attacker_id).is_some_and(|attacker| {
+                std::sync::Weak::ptr_eq(
+                    &attacker_birth,
+                    &std::sync::Arc::downgrade(&attacker.visual_draw_identity_token),
+                )
+            }) {
+                return None;
+            }
         } else if docked_passenger {
             self.try_transport_passenger_residual_fire_with_effects(
                 attacker_id,
@@ -115,7 +128,9 @@ impl GameLogic {
         // Strategy Center Bombardment turret residual: StrategyCenterGun auto-fire
         // only while Bombardment plan is active (C++ enableTurret residual).
         {
-            use crate::game_logic::host_strategy_center::{HostBattlePlan, is_strategy_center_template};
+            use crate::game_logic::host_strategy_center::{
+                HostBattlePlan, is_strategy_center_template,
+            };
             let is_sc = is_strategy_center_template(&attacker.template_name)
                 || attacker.is_kind_of(KindOf::FSStrategyCenter);
             let sc_auto_ok = is_sc

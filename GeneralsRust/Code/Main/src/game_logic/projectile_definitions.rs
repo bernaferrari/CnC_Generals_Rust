@@ -4,11 +4,6 @@ use super::weapon_bootstrap::{HostProjectileFlight, HostProjectileLifecycle};
 use crate::assets::ini_parser::{BehaviorModuleDefinition, ObjectDefinition};
 use gamelogic::object::behavior::physics_update::PhysicsBehaviorModuleData;
 use std::collections::HashMap;
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(in crate::game_logic) enum ProjectileDefinitionMode {
-    ReceivingContent,
-    LegacyBootstrap,
-}
 /// One authored obligation, including modules not yet executed by the host.
 /// Declaration order and tags identify modules; class names alone do not.
 #[derive(Debug, Clone)]
@@ -29,7 +24,49 @@ pub(crate) struct ProjectileDefinitions {
 }
 impl ProjectileDefinitions {
     pub(in crate::game_logic) fn get(&self, name: &str) -> Option<&ProjectileProfile> {
+        let name = name.trim();
+        if name.is_empty() || name.eq_ignore_ascii_case("none") {
+            return None;
+        }
         self.entries.get(name)
+    }
+    /// Build one immutable effective catalog from the ordered receiving rows.
+    pub(in crate::game_logic) fn from_effective_definitions<'a>(
+        rows: impl IntoIterator<Item = (&'a str, &'a ObjectDefinition)>,
+        gravity: f32,
+    ) -> Result<Self, String> {
+        let mut definitions = Self::default();
+        for (name, row) in rows {
+            definitions.admit_definition(name, row, gravity)?;
+        }
+        Ok(definitions)
+    }
+    /// Rebind only derived Physics module data from retained effective authored
+    /// fields. The old catalog remains installed until every field validates.
+    pub(in crate::game_logic) fn with_physics_gravity(&self, gravity: f32) -> Result<Self, String> {
+        if !gravity.is_finite() {
+            return Err("projectile Physics gravity must be finite".into());
+        }
+        let mut candidate = self.clone();
+        for (name, profile) in &mut candidate.entries {
+            for module in &mut profile.behaviors {
+                if module
+                    .authored
+                    .class_name
+                    .eq_ignore_ascii_case("PhysicsBehavior")
+                {
+                    let mut data = PhysicsBehaviorModuleData::with_gravity(gravity);
+                    for (field, value) in &module.authored.attributes {
+                        data.apply_ini_field_with_gravity(field, value, gravity)
+                            .map_err(|error| {
+                                format!("{name}: PhysicsBehavior {field}: {error:?}")
+                            })?;
+                    }
+                    module.physics = Some(data);
+                }
+            }
+        }
+        Ok(candidate)
     }
     /// Resolve the effective archive row without constructing any runtime owner.
     /// PhysicsUpdate.cpp89-169 uses content gravity for defaults/height conversion.
@@ -174,6 +211,13 @@ mod tests {
         delay: u32,
         kind: &str,
     ) -> (GameLogic, super::super::ObjectId, super::super::ObjectId) {
+        world_with_kind_and_fuel(delay, kind, 0)
+    }
+    fn world_with_kind_and_fuel(
+        delay: u32,
+        kind: &str,
+        fuel: u32,
+    ) -> (GameLogic, super::super::ObjectId, super::super::ObjectId) {
         let mut game = GameLogic::new();
         let mut owner = Player::new(0, Team::USA, "source", false);
         owner.alliance_team = 1;
@@ -182,7 +226,7 @@ mod tests {
         enemy.alliance_team = 2;
         game.add_player(enemy);
         let text = format!(
-            "Object SameMissile\n KindOf = {kind}\n Behavior = MissileAIUpdate Profile\n IgnitionDelay = {delay}\n TryToFollowTarget = Yes\n End\nEnd"
+            "Object SameMissile\n KindOf = {kind}\n Behavior = MissileAIUpdate Profile\n IgnitionDelay = {delay}\n FuelLifetime = {fuel}\n TryToFollowTarget = Yes\n End\nEnd"
         );
         let mut parser = crate::assets::ini_parser::IniParser::new();
         parser
@@ -250,6 +294,117 @@ mod tests {
         game.frame = 40;
         (game, source, target)
     }
+    #[test]
+    fn native_shot_acceptance_captures_its_supplied_catalog_lifecycle() {
+        let (mut owner, source, target) = world_with_kind_and_fuel(0, "NONE", 100);
+        let frame = owner.frame;
+        let (_, pending) = owner
+            .objects
+            .get_mut(&source)
+            .unwrap()
+            .prepare_passive_weapon_shot(
+                0,
+                target,
+                frame as f32 * (1.0 / gamelogic::common::LOGICFRAMES_PER_SECOND as f32),
+                false,
+                false,
+                frame,
+                Vec3::ZERO,
+                &mut owner.combat_system.fire_sound_loop_events,
+                &mut owner.attack_events,
+                Some(&owner.projectile_definitions),
+                &mut crate::game_logic::ObjectAudio::queue(&mut owner.queued_audio_events),
+            )
+            .expect("actual native factory weapon admission");
+        assert!(matches!(
+            pending.projectile_lifecycle,
+            Some(HostProjectileLifecycle::Missile {
+                fuel_lifetime_frames: 3,
+                ..
+            })
+        ));
+        let (mut peer, _, _) = world_with_kind_and_fuel(0, "NONE", 2000);
+        peer.reset();
+        drop(peer);
+        assert!(matches!(
+            pending.projectile_lifecycle,
+            Some(HostProjectileLifecycle::Missile {
+                fuel_lifetime_frames: 3,
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn same_name_queued_projectiles_use_each_receiving_catalog_without_process_seeds() {
+        use crate::game_logic::combat::{
+            queue_projectile_direct, tests::lifecycle_test_pending_projectile,
+        };
+        let (mut owner, source, target) = world_with_kind_and_fuel(0, "NONE", 100);
+        let (mut peer, other_source, other_target) = world_with_kind_and_fuel(0, "NONE", 2000);
+        assert_eq!(source, other_source);
+        assert_eq!(target, other_target);
+        for (world, source, target) in [
+            (&mut owner, source, target),
+            (&mut peer, other_source, other_target),
+        ] {
+            let mut pending = lifecycle_test_pending_projectile(
+                "SameMissile",
+                Some(target),
+                Vec3::new(10000., 0., 0.),
+            );
+            pending.shooter_id = source;
+            queue_projectile_direct(&mut world.combat_system, pending);
+            world.drain_pending_projectiles_into_combat();
+        }
+        let lifecycle = |world: &GameLogic| {
+            world
+                .combat_system
+                .projectiles_snapshot()
+                .last()
+                .unwrap()
+                .projectile_lifecycle
+        };
+        assert!(matches!(
+            lifecycle(&owner),
+            Some(HostProjectileLifecycle::Missile {
+                fuel_lifetime_frames: 3,
+                ..
+            })
+        ));
+        assert!(matches!(
+            lifecycle(&peer),
+            Some(HostProjectileLifecycle::Missile {
+                fuel_lifetime_frames: 60,
+                ..
+            })
+        ));
+        peer.reset();
+        drop(peer);
+        assert!(matches!(
+            lifecycle(&owner),
+            Some(HostProjectileLifecycle::Missile {
+                fuel_lifetime_frames: 3,
+                ..
+            })
+        ));
+        // A famous retail name absent from this exact catalog stays unresolved.
+        let mut absent =
+            lifecycle_test_pending_projectile("PatriotMissile", None, Vec3::new(10000., 0., 0.));
+        absent.shooter_id = source;
+        queue_projectile_direct(&mut owner.combat_system, absent);
+        owner.drain_pending_projectiles_into_combat();
+        let last = owner
+            .combat_system
+            .projectiles_snapshot()
+            .into_iter()
+            .find(|shot| shot.projectile_object_name == "PatriotMissile")
+            .unwrap();
+        assert_eq!(last.projectile_object_name, "PatriotMissile");
+        assert_eq!(last.projectile_lifecycle, None);
+        assert!(last.flight.is_none());
+    }
+
     #[test]
     fn unadmitted_native_projectile_rejects_before_ammo_and_effects() {
         let (mut owner, _, target) = world(0);
@@ -478,4 +633,54 @@ mod tests {
             "next launch reads receiving immutable profile, not another catalog"
         );
     }
+}
+
+/// Explicit local content for legacy characterization fixtures only. Production
+/// never seeds named projectiles or reads disk during queue/materialization.
+#[cfg(test)]
+pub(in crate::game_logic) fn fixture_projectile_definitions() -> ProjectileDefinitions {
+    let mut parser = crate::assets::IniParser::new();
+    parser
+        .parse_ini_content(
+            r#"
+Object RangerFlashBangGrenade
+ Behavior = DumbProjectileBehavior AuthoredGrenade
+ MaxLifespan = 10000
+ End
+End
+Object DragonTankFlameProjectile
+ Behavior = MissileAIUpdate AuthoredFlame
+ TryToFollowTarget = No
+ FuelLifetime = 350
+ DetonateOnNoFuel = Yes
+ End
+End
+Object PatriotMissile
+ Behavior = MissileAIUpdate AuthoredPatriot
+ TryToFollowTarget = Yes
+ FuelLifetime = 10000
+ DetonateOnNoFuel = No
+ IgnitionFX = None
+ End
+End
+Object TomahawkMissile
+ Behavior = MissileAIUpdate AuthoredTomahawk
+ IgnitionFX = None
+ End
+End
+Object StingerMissile
+ Behavior = MissileAIUpdate AuthoredStinger
+ IgnitionFX = None
+ End
+End
+"#,
+            "explicit-projectile-fixture.ini",
+        )
+        .unwrap();
+    let mut definitions = ProjectileDefinitions::default();
+    let gravity = crate::game_logic::physics_rules::default_host_physics_rules().gravity;
+    for (name, row) in parser.get_all_definitions() {
+        definitions.admit_definition(name, row, gravity).unwrap();
+    }
+    definitions
 }

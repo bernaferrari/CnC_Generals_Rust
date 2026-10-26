@@ -578,6 +578,14 @@ impl Object {
         frame: u32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> (PhysicsTurningType, f32) {
+        self.rotate_obj_around_loco_pivot_with_effects(
+            goal,
+            self.maximum_towards_turn(dt),
+            frame,
+            effects,
+        )
+    }
+    fn maximum_towards_turn(&self, dt: f32) -> f32 {
         let mut max_turn = self.effective_turn_rate() * dt;
         if matches!(
             self.loco_appearance,
@@ -585,7 +593,7 @@ impl Object {
         ) {
             max_turn *= self.wheeled_turn_factor();
         }
-        self.rotate_obj_around_loco_pivot_with_effects(goal, max_turn, frame, effects)
+        max_turn
     }
 
     /// C++ `Locomotor::setUltraAccurate` + `setPhysicsOptions`.
@@ -654,13 +662,24 @@ impl Object {
         frame: u32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> (PhysicsTurningType, f32) {
+        let plan = self.plan_loco_pivot(goal, max_turn_rate);
+        if let Some(transform) = plan.transform {
+            self.set_transform_matrix_with_effects(transform, frame, effects);
+        }
+        if let Some(angle) = plan.orientation {
+            self.set_orientation_with_effects(angle, effects);
+        }
+        self.physics_turning = plan.turning;
+        (plan.turning, plan.relative)
+    }
+    fn plan_loco_pivot(&self, goal: glam::Vec3, max_turn_rate: f32) -> PivotTurn {
         let angle = self.get_orientation();
         let mut offset = self.turn_pivot_offset;
         if self.is_braking {
             offset = 0.0;
         }
         let us = self.get_position();
-        let (dx, dz, turn_pos) = if offset.abs() > 1e-6 {
+        let (dx, dz, turn_pos) = if offset != 0.0 {
             let g = self.geometry_info();
             let radius = if g.authored {
                 g.bounding_circle_radius()
@@ -674,17 +693,12 @@ impl Object {
             let dx = goal.x - turn_pos.x;
             let dz = goal.z - turn_pos.z;
             if dx.abs() < 0.1 && dz.abs() < 0.1 {
-                self.physics_turning = PhysicsTurningType::TurnNone;
-                return (PhysicsTurningType::TurnNone, 0.0);
+                return PivotTurn::unchanged();
             }
             (dx, dz, Some(turn_pos))
         } else {
             let dx = goal.x - us.x;
             let dz = goal.z - us.z;
-            if dx * dx + dz * dz < 1.0e-8 {
-                self.physics_turning = PhysicsTurningType::TurnNone;
-                return (PhysicsTurningType::TurnNone, 0.0);
-            }
             (dx, dz, None)
         };
         let desired = (-dz).atan2(dx);
@@ -703,65 +717,26 @@ impl Object {
         } else {
             (amount, PhysicsTurningType::TurnNone)
         };
-        if let Some(tp) = turn_pos {
-            // C++ T(pivot)*Rz(amount)*T(-pivot). Host set_orientation is
-            // T*Ry(angle) with local +X → (cos, 0, -sin), so the same
-            // pre-rotate about the pivot is Ry, not a raw XY Rz.
-            let cos_a = amount.cos();
-            let sin_a = amount.sin();
-            let rx = us.x - tp.x;
-            let rz = us.z - tp.z;
-            let nx = tp.x + rx * cos_a + rz * sin_a;
-            let nz = tp.z - rx * sin_a + rz * cos_a;
-            self.set_position_with_effects(glam::Vec3::new(nx, us.y, nz), frame, effects);
-        }
-        self.set_orientation_with_effects(angle + amount, effects);
-        self.physics_turning = turning;
-        (turning, rel)
-    }
-
-    /// C++ Locomotor::locoUpdate_moveTowardsAngle residual.
-    ///
-    /// XY only. C++ `handleBehaviorZ` is one leftover `getSurfaceHtAtPt` pass
-    /// (`Locomotor.cpp:884-895`); live FACE caller applies that leftover-terrain
-    /// Z once. Never treat pose-Y as surface (hq-jg55x).
-    pub fn loco_update_move_towards_angle(&mut self, goal_angle: f32, dt: f32) {
-        self.loco_update_move_towards_angle_with_effects(goal_angle, dt, 0, &mut Default::default())
-    }
-    pub(crate) fn loco_update_move_towards_angle_with_effects(
-        &mut self,
-        goal_angle: f32,
-        dt: f32,
-        frame: u32,
-        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
-        self.maintain_pos_valid = false;
-        if self.shock_stun_frames > 0 {
-            return;
-        }
-        let min_speed = self.min_speed;
-        if min_speed > 0.0 {
-            let us = self.get_position();
-            let desired = glam::Vec3::new(
-                us.x + goal_angle.cos() * min_speed * 2.0,
-                us.y,
-                us.z + (-goal_angle.sin()) * min_speed * 2.0,
-            );
-            let prev = self.movement.target_position;
-            self.movement.target_position = Some(desired);
-            let _ = self.rotate_towards_position_with_effects(desired, dt, frame, effects);
-            self.apply_forward_speed_force(min_speed, dt);
-            let p = self.get_position() + self.movement.velocity * dt;
-            self.set_position_with_effects(p, frame, effects);
-            self.movement.target_position = prev;
+        let (transform, orientation) = if let Some(tp) = turn_pos {
+            // Preserve the existing validated Main Y-up handedness. C++
+            // T(pivot)*Rz(amount)*T(-pivot)*oldMatrix maps to this Ry product.
+            (
+                Some(
+                    glam::Mat4::from_translation(tp)
+                        * glam::Mat4::from_rotation_y(amount)
+                        * glam::Mat4::from_translation(-tp)
+                        * self.get_transform_matrix(),
+                ),
+                None,
+            )
         } else {
-            let us = self.get_position();
-            let desired = glam::Vec3::new(
-                us.x + goal_angle.cos() * 1000.0,
-                us.y,
-                us.z + (-goal_angle.sin()) * 1000.0,
-            );
-            let _ = self.rotate_towards_position_with_effects(desired, dt, frame, effects);
+            (None, Some(angle + amount))
+        };
+        PivotTurn {
+            transform,
+            orientation,
+            turning,
+            relative: rel,
         }
     }
 
@@ -893,7 +868,13 @@ impl Object {
         let preferred = p.y + delta;
         let lift = self.calc_lift_to_use_at_pt(p.y, preferred);
         if lift.abs() > 1.0e-4 {
-            let force_y = lift * self.physics_get_mass();
+            let force_y = lift
+                * self.physics_get_mass()
+                * if self.loco_appearance == LocomotorAppearance::Thrust {
+                    30.0
+                } else {
+                    1.0
+                };
             self.apply_motive_force(glam::Vec3::new(0.0, force_y, 0.0));
         }
         true
@@ -1296,7 +1277,11 @@ impl Object {
         if max_net < 0.0 {
             max_net = 0.0;
         }
-        let cur_vy = self.movement.velocity.y;
+        let cur_vy = if self.loco_appearance == LocomotorAppearance::Thrust {
+            self.movement.velocity.y / 30.0
+        } else {
+            self.movement.velocity.y
+        };
         let max_accel = if self.ultra_accurate {
             if cur_vy < 0.0 {
                 2.0 * max_net
@@ -1799,93 +1784,124 @@ impl Object {
         &mut self,
         goal: glam::Vec3,
         on_path_dist: f32,
-        mut desired_speed: f32,
-        dt: f32,
+        desired_speed: f32,
+        _dt: f32,
         frame: u32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
-        let mut max_speed = self.effective_max_speed();
-        desired_speed = desired_speed.clamp(self.min_speed, max_speed.max(self.min_speed));
-        let actual = self.movement.velocity.length();
-        if self.braking > 0.0 && !self.no_slow_down_as_approaching_dest {
-            let slow = calc_slow_down_dist(actual, self.min_speed, self.braking);
-            let approach = on_path_dist + self.path_extra_distance.max(0.0);
-            if approach < slow {
-                desired_speed = self.min_speed;
+        self.move_towards_thrust_with_status_and_effects(
+            goal,
+            on_path_dist,
+            desired_speed,
+            _dt,
+            frame,
+            self.is_braking,
+            effects,
+        );
+    }
+    pub(crate) fn move_towards_thrust_with_status_and_effects(
+        &mut self,
+        goal: glam::Vec3,
+        on_path_dist: f32,
+        desired_speed: f32,
+        _dt: f32,
+        frame: u32,
+        braking_status: bool,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
+        // Main admits movement rates in seconds; source locomotor/Physics
+        // arithmetic operates in 30Hz frames. Common MinSpeed is already raw
+        // seconds (unlike Common Speed/Acceleration), so divide every actual
+        // admitted host rate here, not in the shared profile binding.
+        const FPS: f32 = 30.0;
+        let mut max_speed_frame = self.effective_max_speed() / FPS;
+        let min_speed_frame = self.min_speed / FPS;
+        let desired_speed_frame =
+            (desired_speed / FPS).clamp(min_speed_frame, max_speed_frame.max(min_speed_frame));
+        let mut desired_speed_frame = desired_speed_frame;
+        let velocity_frame = self.movement.velocity / FPS;
+        let actual_frame = velocity_frame.length();
+        let braking_frame = self.braking / (FPS * FPS);
+        if braking_frame > 0.0 && !self.no_slow_down_as_approaching_dest {
+            let slow = calc_slow_down_dist(actual_frame, min_speed_frame, braking_frame);
+            // AIUpdate already admitted getPathExtraDistance into this argument.
+            if on_path_dist < slow {
+                desired_speed_frame = min_speed_frame;
             }
         }
-
+        let us = self.get_position();
         let mut local_goal = goal;
         if self.loco_preferred_height != 0.0 && !self.precise_z_pos {
-            // C++ getSurfaceHtAtPt: leftover water/ground, not current altitude.
-            let surface = leftover_surface_ht_at_pt(self.get_position(), self.ground_height);
+            let surface = leftover_surface_ht_at_pt(us, self.ground_height);
             let preferred = self.loco_preferred_height + surface;
-            let delta = (preferred - self.get_position().y) * self.loco_preferred_height_damping;
-            local_goal.y = self.get_position().y + delta;
+            local_goal.y = us.y + (preferred - us.y) * self.loco_preferred_height_damping;
         }
-
-        let us = self.get_position();
-        let (fx, fz) = self.unit_direction_xz();
-        let forward = glam::Vec3::new(fx, 0.0, fz);
-        let speed_delta = desired_speed - actual;
-        let max_accel = if speed_delta > 0.0 || self.braking <= 0.0 {
-            self.effective_acceleration()
+        let forward = self.get_transform_matrix().x_axis.truncate();
+        let speed_delta_frame = desired_speed_frame - actual_frame;
+        let max_accel_frame = if speed_delta_frame > 0.0 || braking_frame == 0.0 {
+            self.effective_acceleration() / (FPS * FPS)
         } else {
-            -self.braking
+            -braking_frame
         };
-        let mut max_turn_rate = self.effective_turn_rate();
-
+        let mut max_turn_frame = self.effective_turn_rate() / FPS;
         let desired_thrust = leftover_calc_direction_to_apply_thrust(
             us,
-            self.movement.velocity,
+            velocity_frame,
             local_goal,
-            max_accel,
+            max_accel_frame,
             forward,
             self.physics_gravity(),
         );
-        let max_thrust_angle = if max_turn_rate > 0.0 {
+        let max_thrust_angle = if max_turn_frame > 0.0 {
             self.max_thrust_angle
         } else {
             0.0
         };
         let (thrust_dir, thrust_angle) =
             leftover_try_to_rotate_vector3d(max_thrust_angle, forward, desired_thrust);
-
-        // C++ orients to velocity (3× turn while braking, aim at original goal).
-        if !thrust_vel_nearly_zero(self.movement.velocity.length()) {
-            let mut vel = self.movement.velocity;
+        if !thrust_vel_nearly_zero(actual_frame) {
+            let mut desired = velocity_frame;
             let mut adjust = true;
-            if self.is_braking {
-                vel = goal - us;
-                if thrust_vel_nearly_zero(vel.length()) {
+            if braking_status {
+                desired = goal - us;
+                if thrust_vel_nearly_zero(desired.length_squared()) {
                     adjust = false;
                 }
-                max_turn_rate *= 3.0;
+                max_turn_frame *= 3.0;
             }
             if adjust {
-                let desired_yaw = (-vel.z).atan2(vel.x);
-                let aim = us + glam::Vec3::new(desired_yaw.cos(), 0.0, -desired_yaw.sin());
-                let _ = self.rotate_obj_around_loco_pivot_with_effects(
-                    aim,
-                    max_turn_rate * dt,
-                    frame,
-                    effects,
-                );
+                let (actual, relative) =
+                    leftover_try_to_rotate_vector3d(max_turn_frame, forward, desired);
+                if relative != 0.0 {
+                    // Reuse the source Matrix3D kernel. This involution is the
+                    // existing source XYZ <-> Main XZY basis (no yaw-only path).
+                    let basis = glam::Mat4::from_cols(
+                        glam::Vec4::X,
+                        glam::Vec4::Z,
+                        glam::Vec4::Y,
+                        glam::Vec4::W,
+                    );
+                    let source = gamelogic::common::build_transform_matrix(
+                        basis.transform_point3(us),
+                        basis.transform_vector3(actual),
+                    );
+                    self.set_transform_matrix_with_effects(basis * source * basis, frame, effects);
+                }
             }
         }
-
-        if speed_delta != 0.0 || thrust_angle != 0.0 {
-            if max_speed <= 0.0 {
-                max_speed = 0.01;
+        if speed_delta_frame != 0.0 || thrust_angle != 0.0 {
+            if max_speed_frame <= 0.0 {
+                max_speed_frame = 0.01;
             }
-            let damping = (max_accel / max_speed).clamp(0.0, 1.0);
-            let accel = thrust_dir * max_accel - self.movement.velocity * damping;
+            let damping = (max_accel_frame / max_speed_frame).clamp(0.0, 1.0);
+            let accel_frame = thrust_dir * max_accel_frame - velocity_frame * damping;
+            // Physics accumulator stores one host delta-v. Convert source
+            // acceleration once, then leave integration to PhysicsBehavior.
             let mass = self.physics_get_mass();
-            self.apply_motive_force(accel * mass);
-            self.integrate_physics_accel();
+            self.apply_motive_force(accel_frame * (FPS * mass));
         }
-        let p = us + self.movement.velocity * dt;
-        self.set_position_with_effects(p, frame, effects);
+        // Original moveTowardsPositionThrust only orients and applies force.
+        // The receiving Physics phase integrates acceleration and pose once.
     }
 
     /// C++ `Locomotor::maintainCurrentPositionHover` (Locomotor.cpp:2527-2576).
@@ -2307,3 +2323,69 @@ fn leftover_try_to_rotate_vector3d(
         (rotated / rot_len, max_angle)
     }
 }
+
+/// Only C++ scalar locals and one new transform; no canonical Object clone.
+struct PivotTurn {
+    transform: Option<glam::Mat4>,
+    orientation: Option<f32>,
+    turning: PhysicsTurningType,
+    relative: f32,
+}
+impl PivotTurn {
+    fn unchanged() -> Self {
+        Self {
+            transform: None,
+            orientation: None,
+            turning: PhysicsTurningType::TurnNone,
+            relative: 0.0,
+        }
+    }
+}
+
+impl crate::game_logic::GameLogic {
+    pub(in crate::game_logic) fn rotate_owned_pivot_with_effects(
+        &mut self,
+        id: ObjectId,
+        goal: glam::Vec3,
+        max_turn: f32,
+        frame: u32,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> Option<(PhysicsTurningType, f32)> {
+        let plan = self.objects.get(&id)?.plan_loco_pivot(goal, max_turn);
+        if let Some(transform) = plan.transform {
+            let reaction = self.objects.get_mut(&id)?.prepare_transform_tree_reaction(
+                transform,
+                frame,
+                &mut effects.reborrow_for_object(&mut self.partition_manager),
+            );
+            if !self.complete_owned_position_reaction(id, reaction, effects) {
+                return None;
+            }
+        }
+        let object = self.objects.get_mut(&id)?;
+        if let Some(angle) = plan.orientation {
+            object.set_orientation_with_partition_owner(angle, &mut self.partition_manager);
+        }
+        object.physics_turning = plan.turning;
+        Some((plan.turning, plan.relative))
+    }
+    pub(in crate::game_logic) fn rotate_owned_towards_position_with_effects(
+        &mut self,
+        id: ObjectId,
+        goal: glam::Vec3,
+        dt: f32,
+        frame: u32,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> Option<(PhysicsTurningType, f32)> {
+        let max_turn = self.objects.get(&id)?.maximum_towards_turn(dt);
+        self.rotate_owned_pivot_with_effects(id, goal, max_turn, frame, effects)
+    }
+}
+
+#[cfg(test)]
+#[path = "physics/pivot_source_owner_tests.rs"]
+mod pivot_source_owner_tests;
+
+#[cfg(test)]
+#[path = "physics/source_thrust_owner_tests.rs"]
+mod source_thrust_owner_tests;

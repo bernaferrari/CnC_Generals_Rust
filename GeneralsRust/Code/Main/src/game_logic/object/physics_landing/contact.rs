@@ -27,6 +27,10 @@ pub(in crate::game_logic) enum ContactStep<S, T> {
         request: ContactDamage,
         next: S,
     },
+    PositionFx {
+        reaction: super::super::PositionReaction,
+        next: S,
+    },
 }
 pub(in crate::game_logic) enum StampContact {
     Start(f32),
@@ -43,6 +47,13 @@ pub(in crate::game_logic) struct LandingTail {
 pub(in crate::game_logic) enum MotionContact {
     Start(f32),
     AfterBounce(LandingTail),
+    AfterPosition {
+        ground_y: f32,
+        new_pos: glam::Vec3,
+        old_y: f32,
+        impact_vy: f32,
+        bounce_force: Option<glam::Vec3>,
+    },
     AfterFall(LandingTail),
     AfterRest(bool),
 }
@@ -62,6 +73,7 @@ pub(in crate::game_logic) struct StunLanding {
 pub(in crate::game_logic) enum StunContact {
     Start,
     AfterBounce(StunLanding),
+    AfterLandingPosition(StunLanding),
     AfterFall(StunLanding),
     AfterRest(StunTail),
     SettledRest,
@@ -101,6 +113,13 @@ impl Object {
                     self.set_locomotor_goal_none();
                     self.movement.path.clear();
                     return value;
+                }
+                ContactStep::PositionFx { reaction, next } => {
+                    // Detached physics has no native terrain loan. Registered
+                    // actors always use drive_owned_contact_with_effects below.
+                    debug_assert!(!reaction.has_tree_fx());
+                    self.finish_position_reaction(reaction);
+                    state = next;
                 }
                 ContactStep::Damage { request, next } => {
                     killed = services.apply_contact(self, &request);
@@ -360,7 +379,9 @@ impl Object {
                 // Living Z-motive units already Euler'd lift+gravity in
                 // apply_live_handle_behavior_z when host march ran (hq-g8oig).
                 // Dead / disabled skip doLocomotor, so they still need gravity here.
-                if self.shock_stun_frames == 0 {
+                if self.shock_stun_frames == 0
+                    && self.loco_appearance != LocomotorAppearance::Thrust
+                {
                     let host_live_y_euler_already = !self.is_disabled()
                         && !self.host_skip_dead_locomotor()
                         && matches!(
@@ -386,9 +407,26 @@ impl Object {
                 // and ~25x retail speed. Only integrate leftover Y / shock here when
                 // the unit is not already path-marching this frame.
                 let v = self.movement.velocity;
-                let marching =
-                    self.movement.target_position.is_some() || !self.movement.path.is_empty();
-                let mut new_pos = if marching { old_pos } else { old_pos + v };
+                let marching = self.movement.target_position.is_some()
+                    || !self.movement.path.is_empty()
+                    || (self.locomotor_goal_type == LocoGoalType::Angle && self.min_speed > 0.0);
+                let mut new_pos = if self.loco_appearance == LocomotorAppearance::Thrust {
+                    // C++ PhysicsBehavior::update649-660, in host-second units.
+                    if self.is_braking {
+                        if self.is_kind_of(KindOf::Projectile) {
+                            old_pos
+                        } else {
+                            old_pos + glam::Vec3::new(0.0, v.y / 30.0, 0.0)
+                        }
+                    } else {
+                        old_pos + v / 30.0
+                    }
+                } else if marching {
+                    old_pos
+                } else {
+                    old_pos + v
+                };
+
                 // YPR: stun tick already integrates while stunned (avoid double apply).
                 if self.shock_stun_frames == 0 {
                     let pryf = self.pitch_roll_yaw_factor;
@@ -450,12 +488,34 @@ impl Object {
                 if !new_pos.is_finite() {
                     return ContactStep::DirectDelete(false);
                 }
-                self.set_position_keep_rotation_with_effects(new_pos, frame, effects);
-
+                let mut transform = self.get_transform_matrix();
+                transform.w_axis = new_pos.extend(1.0);
+                let reaction = self.prepare_transform_tree_reaction(transform, frame, effects);
+                let next = MotionContact::AfterPosition {
+                    ground_y,
+                    new_pos,
+                    old_y,
+                    impact_vy: v.y,
+                    bounce_force,
+                };
+                if reaction.has_tree_fx() {
+                    return ContactStep::PositionFx { reaction, next };
+                }
+                self.finish_position_reaction(reaction);
+                self.step_motion_contact_with_effects(next, killed, frame, effects, audio)
+            }
+            MotionContact::AfterPosition {
+                ground_y,
+                new_pos,
+                old_y,
+                impact_vy,
+                bounce_force,
+            } => {
+                self.sync_shock_up_from_transform();
                 let tail = LandingTail {
                     airborne: new_pos.y > ground_y + 0.05,
                     old_y,
-                    impact_vy: v.y,
+                    impact_vy,
                     bounced: bounce_force.is_some() && self.shock_allow_bounce,
                 };
                 if let Some(force) = bounce_force {
@@ -645,6 +705,7 @@ impl Object {
                 }
                 self.continue_stun_landing(data, frame, effects)
             }
+            StunContact::AfterLandingPosition(data) => self.finish_stun_landing_position(data),
             StunContact::AfterFall(data) => {
                 self.finish_fall_contact();
                 self.finish_stun_landing(data)
@@ -706,7 +767,23 @@ impl Object {
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> ContactStep<StunContact, ()> {
         data.pos.y = data.ground_y;
-        self.set_position_keep_rotation_with_effects(data.pos, frame, effects);
+        // CPP PhysicsUpdate628 keeps mtx by value across handleBounce's
+        // destruction callback, then796 restores that saved translation on
+        // the current afterBounceMatrix. XZ is intentionally not reread here.
+        let mut matrix = self.get_transform_matrix();
+        matrix.w_axis = data.pos.extend(1.0);
+        let reaction = self.prepare_transform_tree_reaction(matrix, frame, effects);
+        self.sync_shock_up_from_transform();
+        if reaction.has_tree_fx() {
+            return ContactStep::PositionFx {
+                reaction,
+                next: StunContact::AfterLandingPosition(data),
+            };
+        }
+        self.finish_position_reaction(reaction);
+        self.finish_stun_landing_position(data)
+    }
+    fn finish_stun_landing_position(&mut self, data: StunLanding) -> ContactStep<StunContact, ()> {
         if !self.shock_grounded_once {
             self.shock_grounded_once = true;
         }
@@ -815,6 +892,12 @@ impl crate::game_logic::GameLogic {
                     self.destroy_object_with_effects(id, presentation_effects);
                     return Some(value);
                 }
+                ContactStep::PositionFx { reaction, next } => {
+                    if !self.complete_owned_position_reaction(id, reaction, presentation_effects) {
+                        return None;
+                    }
+                    state = next;
+                }
                 ContactStep::Damage { request, next } => {
                     let result = if request.kill {
                         self.apply_owned_kill_with_effects(
@@ -847,3 +930,11 @@ impl crate::game_logic::GameLogic {
         }
     }
 }
+
+#[cfg(all(test, feature = "game_client"))]
+#[path = "tree_topple_phase_tests.rs"]
+mod tree_topple_phase_tests;
+
+#[cfg(all(test, feature = "game_client"))]
+#[path = "stun_landing_position_owner_tests.rs"]
+mod stun_landing_position_owner_tests;

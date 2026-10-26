@@ -4,6 +4,13 @@
 //! observes the completed pose; it does not select or step another world.
 #![allow(unused_imports, non_snake_case)]
 use super::super::*;
+/// C++ ANGLE minSpeed delegates to this same position kernel. These are
+/// original operation locals, never a temporary canonical AI target/path.
+#[derive(Clone, Copy)]
+struct AnglePositionGoal {
+    position: Vec3,
+    speed: f32,
+}
 impl GameLogic {
     /// Move an object to a target position using pathfinding.
     ///
@@ -1087,14 +1094,14 @@ impl GameLogic {
             let mut plant_goal: Option<Vec3> = None;
             let mut blocked_out = false;
             let mut restamp_after_move = false;
-            let flight_terrain = super::flight_terrain::FlightTerrainView {
+            let mut flight_terrain = super::flight_terrain::FlightTerrainView {
                 logical: Some(self.world_services.terrain().as_ref()),
                 grid: &self.pathfinding_system.grid,
                 terrain: self.terrain.as_ref(),
                 samples: self.pathfinding_height_samples.as_ref(),
             };
             'unit: {
-                if let Some(obj) = self.objects.get_mut(&id) {
+                if let Some(mut obj) = self.objects.get_mut(&id) {
                     obj.landing_splat_done = false;
                     if obj.is_disabled() {
                         if obj.status.disabled_freefall {
@@ -1146,69 +1153,92 @@ impl GameLogic {
                     }
                     // C++ locoUpdate_moveTowardsPosition always applyMotiveForce(0)
                     // so collide/friction treat the unit as driven (Locomotor.cpp:1010-1014).
+                    let mut angle_position_goal = None;
                     if obj.locomotor_goal_type == LocoGoalType::Angle {
                         obj.choose_good_locomotor_from_current_set(cell_type);
                         obj.set_locomotor_physics_options();
                         obj.tick_do_locomotor_blocked_frames();
-                        // C++ doLocomotor ANGLE: locoUpdate_moveTowardsAngle, not path.
                         obj.do_final_position = false;
-                        if obj.face_loco_frame() != self.frame || self.frame == 0 {
-                            obj.loco_update_move_towards_angle_with_effects(
-                                obj.locomotor_goal_angle,
-                                dt,
+                        obj.maintain_pos_valid = false;
+                        if obj.min_speed > 0.0 {
+                            // getMinSpeed is source dist/frame. Main's admitted
+                            // minimum is units/sec; convert only this source local.
+                            let distance = 2.0 * (obj.min_speed / 30.0);
+                            let angle = obj.locomotor_goal_angle;
+                            let position = obj.get_position()
+                                + Vec3::new(angle.cos() * distance, 0.0, -angle.sin() * distance);
+                            angle_position_goal = Some(AnglePositionGoal {
+                                position,
+                                speed: obj.min_speed,
+                            });
+                            obj.set_face_loco_frame(self.frame);
+                        } else {
+                            let pos = obj.get_position();
+                            let angle = obj.locomotor_goal_angle;
+                            let goal =
+                                pos + Vec3::new(angle.cos() * 1000.0, 0.0, -angle.sin() * 1000.0);
+                            // Source rotateTowardsPosition uses full maxTurnRate,
+                            // not moveTowardsPositionWheels' speed turn factor.
+                            let max_turn = obj.effective_turn_rate() * dt;
+                            let _ = obj;
+                            let _ = flight_terrain;
+                            if self
+                                .rotate_owned_pivot_with_effects(
+                                    id, goal, max_turn, pose_frame, effects,
+                                )
+                                .is_none()
+                            {
+                                break 'unit;
+                            }
+                            flight_terrain = super::flight_terrain::FlightTerrainView {
+                                logical: Some(self.world_services.terrain().as_ref()),
+                                grid: &self.pathfinding_system.grid,
+                                terrain: self.terrain.as_ref(),
+                                samples: self.pathfinding_height_samples.as_ref(),
+                            };
+                            obj = match self.objects.get_mut(&id) {
+                                Some(object) => object,
+                                None => break 'unit,
+                            };
+                            obj.set_face_loco_frame(self.frame);
+                            // Leftover unused `handle_behavior_z_for` via leftover
+                            // `get_surface_ht_at_pt`. Single Z — never pose-Y then double.
+                            let sy = if matches!(
+                                obj.loco_behavior_z,
+                                LocomotorBehaviorZ::SmoothRelativeToHighestLayer
+                            ) {
+                                flight_terrain.highest_surface(obj)
+                            } else {
+                                obj.leftover_surface_ht(surface_y)
+                            };
+                            let face_goal_y = obj.get_position().y;
+                            Self::apply_live_handle_behavior_z_with_effects(
+                                obj,
+                                sy,
+                                Some(face_goal_y),
+                                Some(&flight_terrain),
                                 pose_frame,
                                 &mut effects.reborrow_for_object(&mut self.partition_manager),
                             );
-                            obj.set_face_loco_frame(self.frame);
-                        }
-                        // Leftover unused `handle_behavior_z_for` via leftover
-                        // `get_surface_ht_at_pt`. Single Z — never pose-Y then double.
-                        let sy = if matches!(
-                            obj.loco_behavior_z,
-                            LocomotorBehaviorZ::SmoothRelativeToHighestLayer
-                        ) {
-                            flight_terrain.highest_surface(obj)
-                        } else {
-                            obj.leftover_surface_ht(surface_y)
-                        };
-                        Self::apply_live_handle_behavior_z_with_effects(
-                            obj,
-                            sy,
-                            None,
-                            Some(&flight_terrain),
-                            pose_frame,
-                            &mut effects.reborrow_for_object(&mut self.partition_manager),
-                        );
-                        // Release both the object and borrowed terrain view before original Body callbacks.
-                        let _ = obj;
-                        let _ = flight_terrain;
-                        self.drive_owned_contact_with_effects(
-                            id,
-                            crate::game_logic::object::StampContact::Start(ground_y),
-                            Object::step_stamp_contact_with_effects,
-                            effects,
-                        );
-                        let flight_terrain = super::flight_terrain::FlightTerrainView {
-                            logical: Some(self.world_services.terrain().as_ref()),
-                            grid: &self.pathfinding_system.grid,
-                            terrain: self.terrain.as_ref(),
-                            samples: self.pathfinding_height_samples.as_ref(),
-                        };
-                        let Some(obj) = self.objects.get_mut(&id) else {
+                            obj.stamp_airborne_target_from_locomotor();
+                            if obj.num_frames_blocked > 1 {
+                                obj.num_frames_blocked = 1;
+                            }
+                            obj.cur_max_blocked_speed = 999_999.0;
                             break 'unit;
-                        };
-                        obj.cur_max_blocked_speed = 999_999.0;
-                        break 'unit;
+                        }
                     }
 
-                    let has_move_goal =
-                        obj.movement.target_position.is_some() || !obj.movement.path.is_empty();
+                    let has_move_goal = angle_position_goal.is_some()
+                        || obj.movement.target_position.is_some()
+                        || !obj.movement.path.is_empty();
                     // C++ POSITION/ANGLE goals clear m_doFinalPosition.
                     // NONE is the only case that may keep the slide.
                     if has_move_goal && obj.locomotor_goal_type != LocoGoalType::None {
                         obj.do_final_position = false;
                     }
-                    let skip_loco_move = obj.waiting_for_path
+                    let skip_loco_move = angle_position_goal.is_none()
+                        && obj.waiting_for_path
                         && obj.movement.path.is_empty()
                         && obj.locomotor_goal_type == LocoGoalType::PositionOnPath;
                     // C++ Locomotor.cpp:1055 — treatAsAirborne skips appearance
@@ -1242,9 +1272,11 @@ impl GameLogic {
                     }
 
                     // C++ doLocomotor: chooseGoodLocomotorFromCurrentSet then blocked bookkeeping.
-                    obj.choose_good_locomotor_from_current_set(cell_type);
-                    obj.set_locomotor_physics_options();
-                    obj.tick_do_locomotor_blocked_frames();
+                    if angle_position_goal.is_none() {
+                        obj.choose_good_locomotor_from_current_set(cell_type);
+                        obj.set_locomotor_physics_options();
+                        obj.tick_do_locomotor_blocked_frames();
+                    }
                     obj.is_blocked = false;
                     if obj.waiting_for_path
                         && obj.movement.path.is_empty()
@@ -1254,7 +1286,7 @@ impl GameLogic {
                         // stamp and the blocked-speed reset (AIUpdate.cpp:2161).
                         break 'unit;
                     }
-                    blocked_out = obj.num_frames_blocked > 0;
+                    blocked_out = angle_position_goal.is_none() && obj.num_frames_blocked > 0;
                     if has_move_goal && !skip_loco_move {
                         obj.apply_motive_force(glam::Vec3::ZERO);
                     }
@@ -1415,7 +1447,8 @@ impl GameLogic {
                     // C++ moveTowardsPositionLegs compares goalPos.z before the
                     // XZ march flattens it (Locomotor.cpp:1596-1598).
                     let mut raw_goal_y: Option<f32> = None;
-                    if !obj.movement.path.is_empty()
+                    if angle_position_goal.is_none()
+                        && !obj.movement.path.is_empty()
                         && obj.movement.current_path_index < obj.movement.path.len()
                     {
                         let current_pos = obj.get_position();
@@ -1602,7 +1635,10 @@ impl GameLogic {
                         obj.movement.target_position = Some(target);
                     }
 
-                    if let Some(target_pos) = obj.movement.target_position {
+                    if let Some(target_pos) = angle_position_goal
+                        .map(|goal| goal.position)
+                        .or(obj.movement.target_position)
+                    {
                         let current_pos = obj.get_position();
                         // XZ heading only — do not dive to Y=0 path cells. Height is
                         // handleBehaviorZ (preferredHeight + surface), not path Y.
@@ -1632,14 +1668,17 @@ impl GameLogic {
                             let mut desired_angle = (-direction.z).atan2(direction.x);
                             // C++ AIUpdate.cpp:2145-2148. FAST_AS_POSSIBLE stays at max.
                             // Climb flags live in moveTowardsPositionClimb, after the blocked return.
-                            let mut speed = obj.effective_max_speed();
-                            if obj.desired_speed < speed {
+                            let mut speed = angle_position_goal
+                                .map_or_else(|| obj.effective_max_speed(), |goal| goal.speed);
+                            if angle_position_goal.is_none() && obj.desired_speed < speed {
                                 speed = obj.desired_speed.max(0.0);
                             }
                             // C++ POSITION_EXPLICIT skips only the bump-speed cap
                             // (AIUpdate.cpp:2197). It still calls locoUpdate with
                             // &blocked ( :2149 ), so the scrub and pivot run.
-                            if obj.locomotor_goal_type != LocoGoalType::PositionExplicit {
+                            if angle_position_goal.is_none()
+                                && obj.locomotor_goal_type != LocoGoalType::PositionExplicit
+                            {
                                 let scaled = speed * obj.group_speed_factor.clamp(0.0, 1.0);
                                 // AIUpdate.cpp:2208 else. Do not clear when the cap branch ran.
                                 if blocked_out && scaled <= obj.cur_max_blocked_speed {
@@ -1678,14 +1717,30 @@ impl GameLogic {
                                     // C++ Locomotor.cpp:1035: blocked stays set only
                                     // while the pivot yaw is not TURN_NONE. AIUpdate.cpp:2270
                                     // then clamps m_blockedFrames back to 1.
-                                    let (turning, _) = obj
-                                        .rotate_obj_around_loco_pivot_with_effects(
-                                            flat_target,
-                                            obj.effective_turn_rate() * dt,
-                                            pose_frame,
-                                            &mut effects
-                                                .reborrow_for_object(&mut self.partition_manager),
-                                        );
+                                    let max_turn = obj.effective_turn_rate() * dt;
+                                    let _ = obj;
+                                    let _ = flight_terrain;
+                                    let Some((turning, _)) = self.rotate_owned_pivot_with_effects(
+                                        id,
+                                        flat_target,
+                                        max_turn,
+                                        pose_frame,
+                                        effects,
+                                    ) else {
+                                        break 'unit;
+                                    };
+
+                                    flight_terrain = super::flight_terrain::FlightTerrainView {
+                                        logical: Some(self.world_services.terrain().as_ref()),
+                                        grid: &self.pathfinding_system.grid,
+                                        terrain: self.terrain.as_ref(),
+                                        samples: self.pathfinding_height_samples.as_ref(),
+                                    };
+                                    obj = match self.objects.get_mut(&id) {
+                                        Some(object) => object,
+                                        None => break 'unit,
+                                    };
+
                                     if turning == crate::game_logic::PhysicsTurningType::TurnNone {
                                         blocked_out = false;
                                         if obj.num_frames_blocked > 1 {
@@ -1697,7 +1752,7 @@ impl GameLogic {
                                 Self::apply_live_handle_behavior_z_with_effects(
                                     obj,
                                     surface_y,
-                                    None,
+                                    angle_position_goal.map(|goal| goal.position.y),
                                     Some(&flight_terrain),
                                     pose_frame,
                                     &mut effects.reborrow_for_object(&mut self.partition_manager),
@@ -1763,7 +1818,9 @@ impl GameLogic {
                                 !crate::game_logic::PathfindingGrid::is_doing_ground_movement_full(
                                     obj,
                                 );
-                            let mut on_path_dist = if obj.host_uses_close_enough_dist_3d() {
+                            let mut on_path_dist = if angle_position_goal.is_some() {
+                                99999.0
+                            } else if obj.host_uses_close_enough_dist_3d() {
                                 // Leftover unused `get_locomotor_distance_to_goal`
                                 // FROM_CENTER_3D to last node (AIUpdate.cpp:2448-2456).
                                 let dest = obj.movement.path.last().copied().unwrap_or(target_pos);
@@ -1788,7 +1845,9 @@ impl GameLogic {
                             // C++ passes onPathDistToGoal + getPathExtraDistance()
                             // into locoUpdate, so the clear and the 2× raise both
                             // see it (AIUpdate.cpp:2219, Locomotor.cpp:941 and :985).
-                            on_path_dist += obj.path_extra_distance.max(0.0);
+                            if angle_position_goal.is_none() {
+                                on_path_dist += obj.path_extra_distance.max(0.0);
+                            }
                             if obj.locomotor_goal_type == LocoGoalType::PositionExplicit {
                                 // C++ AIUpdate.cpp:2150. Explicit goals pass 0, not the path.
                                 on_path_dist = 0.0;
@@ -1826,7 +1885,7 @@ impl GameLogic {
                                 Self::apply_live_handle_behavior_z_with_effects(
                                     obj,
                                     surface_y,
-                                    None,
+                                    angle_position_goal.map(|goal| goal.position.y),
                                     Some(&flight_terrain),
                                     pose_frame,
                                     &mut effects.reborrow_for_object(&mut self.partition_manager),
@@ -1856,43 +1915,29 @@ impl GameLogic {
                             // Live `move_towards_thrust` already ports the 3D mover
                             // (hq-sw06m); production march must dispatch it (hq-zx7lx).
                             if matches!(obj.loco_appearance, LocomotorAppearance::Thrust) {
-                                obj.move_towards_thrust_with_effects(
+                                obj.move_towards_thrust_with_status_and_effects(
                                     target_pos,
                                     on_path_dist,
                                     speed,
                                     dt,
                                     pose_frame,
+                                    was_braking,
                                     &mut effects.reborrow_for_object(&mut self.partition_manager),
                                 );
                                 Self::apply_live_handle_behavior_z_with_effects(
                                     obj,
                                     surface_y,
-                                    None,
+                                    angle_position_goal.map(|goal| goal.position.y),
                                     Some(&flight_terrain),
                                     pose_frame,
                                     &mut effects.reborrow_for_object(&mut self.partition_manager),
                                 );
-                                // Release both the object and borrowed terrain view before original Body callbacks.
-                                let _ = obj;
-                                let _ = flight_terrain;
-                                self.drive_owned_contact_with_effects(
-                                    id,
-                                    crate::game_logic::object::StampContact::Start(ground_y),
-                                    Object::step_stamp_contact_with_effects,
-                                    effects,
-                                );
-                                let flight_terrain = super::flight_terrain::FlightTerrainView {
-                                    logical: Some(self.world_services.terrain().as_ref()),
-                                    grid: &self.pathfinding_system.grid,
-                                    terrain: self.terrain.as_ref(),
-                                    samples: self.pathfinding_height_samples.as_ref(),
-                                };
-                                let Some(obj) = self.objects.get_mut(&id) else {
-                                    break 'unit;
-                                };
-                                let mut reached_target = obj
-                                    .host_locomotor_distance_to_goal(current_pos, target_pos)
-                                    < close_enough;
+                                // Source AIUpdate stamps targeting here; landing/body
+                                // callbacks occur later in actual PhysicsBehavior.
+                                obj.stamp_airborne_target_from_locomotor();
+                                let mut reached_target = angle_position_goal.is_none()
+                                    && obj.host_locomotor_distance_to_goal(current_pos, target_pos)
+                                        < close_enough;
                                 if reached_target {
                                     let finishing = obj.movement.path.is_empty()
                                         || obj.movement.current_path_index + 1
@@ -2167,18 +2212,37 @@ impl GameLogic {
                                 ) {
                                     // C++ rotateTowardsPosition (full maxTurnRate,
                                     // no wheeled turnFactor) + applyMotiveForce(0).
-                                    let _ = obj.rotate_obj_around_loco_pivot_with_effects(
-                                        flat_target,
-                                        obj.effective_turn_rate() * dt,
-                                        pose_frame,
-                                        &mut effects
-                                            .reborrow_for_object(&mut self.partition_manager),
-                                    );
+                                    let max_turn = obj.effective_turn_rate() * dt;
+                                    let _ = obj;
+                                    let _ = flight_terrain;
+                                    if self
+                                        .rotate_owned_pivot_with_effects(
+                                            id,
+                                            flat_target,
+                                            max_turn,
+                                            pose_frame,
+                                            effects,
+                                        )
+                                        .is_none()
+                                    {
+                                        break 'unit;
+                                    }
+
+                                    flight_terrain = super::flight_terrain::FlightTerrainView {
+                                        logical: Some(self.world_services.terrain().as_ref()),
+                                        grid: &self.pathfinding_system.grid,
+                                        terrain: self.terrain.as_ref(),
+                                        samples: self.pathfinding_height_samples.as_ref(),
+                                    };
+                                    obj = match self.objects.get_mut(&id) {
+                                        Some(object) => object,
+                                        None => break 'unit,
+                                    };
 
                                     Self::apply_live_handle_behavior_z_with_effects(
                                         obj,
                                         surface_y,
-                                        None,
+                                        angle_position_goal.map(|goal| goal.position.y),
                                         Some(&flight_terrain),
                                         pose_frame,
                                         &mut effects
@@ -2277,14 +2341,32 @@ impl GameLogic {
                                             current_pos.z + (-desired_angle.sin()) * 1000.0,
                                         )
                                     };
-                                    let (_turning, _rel) = obj
-                                        .rotate_towards_position_with_effects(
+                                    let _ = obj;
+                                    let _ = flight_terrain;
+                                    if self
+                                        .rotate_owned_towards_position_with_effects(
+                                            id,
                                             rotate_goal,
                                             dt,
                                             pose_frame,
-                                            &mut effects
-                                                .reborrow_for_object(&mut self.partition_manager),
-                                        );
+                                            effects,
+                                        )
+                                        .is_none()
+                                    {
+                                        break 'unit;
+                                    }
+
+                                    flight_terrain = super::flight_terrain::FlightTerrainView {
+                                        logical: Some(self.world_services.terrain().as_ref()),
+                                        grid: &self.pathfinding_system.grid,
+                                        terrain: self.terrain.as_ref(),
+                                        samples: self.pathfinding_height_samples.as_ref(),
+                                    };
+                                    obj = match self.objects.get_mut(&id) {
+                                        Some(object) => object,
+                                        None => break 'unit,
+                                    };
+
                                     obj.get_orientation()
                                 };
 
@@ -2348,9 +2430,9 @@ impl GameLogic {
                                 // after the cheat and the projectile force-on.
                                 new_position = obj.get_position();
                             }
-                            let mut reached_target = obj
-                                .host_locomotor_distance_to_goal(current_pos, target_pos)
-                                < close_enough;
+                            let mut reached_target = angle_position_goal.is_none()
+                                && obj.host_locomotor_distance_to_goal(current_pos, target_pos)
+                                    < close_enough;
                             if reached_target {
                                 let finishing = obj.movement.path.is_empty()
                                     || obj.movement.current_path_index + 1
@@ -2366,16 +2448,30 @@ impl GameLogic {
                                 }
                             }
 
-                            obj.set_position_with_partition_owner(
+                            let reaction = obj.prepare_position_tree_reaction(
                                 new_position,
                                 pose_frame,
-                                effects,
-                                &mut self.partition_manager,
+                                &mut effects.reborrow_for_object(&mut self.partition_manager),
                             );
+                            let _ = obj;
+                            let _ = flight_terrain;
+                            if !self.complete_owned_position_reaction(id, reaction, effects) {
+                                break 'unit;
+                            }
+                            flight_terrain = super::flight_terrain::FlightTerrainView {
+                                logical: Some(self.world_services.terrain().as_ref()),
+                                grid: &self.pathfinding_system.grid,
+                                terrain: self.terrain.as_ref(),
+                                samples: self.pathfinding_height_samples.as_ref(),
+                            };
+                            obj = match self.objects.get_mut(&id) {
+                                Some(object) => object,
+                                None => break 'unit,
+                            };
                             Self::apply_live_handle_behavior_z_with_effects(
                                 obj,
                                 surface_y,
-                                None,
+                                angle_position_goal.map(|goal| goal.position.y),
                                 Some(&flight_terrain),
                                 pose_frame,
                                 &mut effects.reborrow_for_object(&mut self.partition_manager),
@@ -2387,12 +2483,26 @@ impl GameLogic {
                                 let posed = obj.get_position();
                                 let entry_target = posed + (target_pos - current_pos);
                                 let cheated = obj.braking_cheat_step(posed, entry_target, dt);
-                                obj.set_position_with_partition_owner(
+                                let reaction = obj.prepare_position_tree_reaction(
                                     cheated,
                                     pose_frame,
-                                    effects,
-                                    &mut self.partition_manager,
+                                    &mut effects.reborrow_for_object(&mut self.partition_manager),
                                 );
+                                let _ = obj;
+                                let _ = flight_terrain;
+                                if !self.complete_owned_position_reaction(id, reaction, effects) {
+                                    break 'unit;
+                                }
+                                flight_terrain = super::flight_terrain::FlightTerrainView {
+                                    logical: Some(self.world_services.terrain().as_ref()),
+                                    grid: &self.pathfinding_system.grid,
+                                    terrain: self.terrain.as_ref(),
+                                    samples: self.pathfinding_height_samples.as_ref(),
+                                };
+                                obj = match self.objects.get_mut(&id) {
+                                    Some(object) => object,
+                                    None => break 'unit,
+                                };
                                 if obj.is_kind_of(KindOf::Projectile)
                                     || obj.object_type == crate::game_logic::ObjectType::Projectile
                                 {
@@ -2411,12 +2521,26 @@ impl GameLogic {
                                 } else {
                                     posed + obj.movement.velocity * dt
                                 };
-                                obj.set_position_with_partition_owner(
+                                let reaction = obj.prepare_position_tree_reaction(
                                     stepped,
                                     pose_frame,
-                                    effects,
-                                    &mut self.partition_manager,
+                                    &mut effects.reborrow_for_object(&mut self.partition_manager),
                                 );
+                                let _ = obj;
+                                let _ = flight_terrain;
+                                if !self.complete_owned_position_reaction(id, reaction, effects) {
+                                    break 'unit;
+                                }
+                                flight_terrain = super::flight_terrain::FlightTerrainView {
+                                    logical: Some(self.world_services.terrain().as_ref()),
+                                    grid: &self.pathfinding_system.grid,
+                                    terrain: self.terrain.as_ref(),
+                                    samples: self.pathfinding_height_samples.as_ref(),
+                                };
+                                obj = match self.objects.get_mut(&id) {
+                                    Some(object) => object,
+                                    None => break 'unit,
+                                };
                             }
                             if matches!(obj.loco_appearance, LocomotorAppearance::Hover) {
                                 // C++ moveTowardsPositionHover checks water after the
@@ -2567,10 +2691,11 @@ impl GameLogic {
                             // Position goals still drive altitude when XZ is coincident.
                             // C++ moveTowardsPosition invalidates maintainPos and
                             // applies handleBehaviorZ(goal) once after appearance.
-                            let position_goal = matches!(
-                                obj.locomotor_goal_type,
-                                LocoGoalType::PositionOnPath | LocoGoalType::PositionExplicit
-                            );
+                            let position_goal = angle_position_goal.is_some()
+                                || matches!(
+                                    obj.locomotor_goal_type,
+                                    LocoGoalType::PositionOnPath | LocoGoalType::PositionExplicit
+                                );
                             if position_goal {
                                 obj.maintain_pos_valid = false;
                             }
@@ -2607,7 +2732,8 @@ impl GameLogic {
                             // C++ friend_endingMove only runs from the move state.
                             // Idle maintain (goal still coincident) must not clear
                             // the queue or the ignored obstacle.
-                            if obj.locomotor_goal_type != LocoGoalType::PositionExplicit
+                            if angle_position_goal.is_none()
+                                && obj.locomotor_goal_type != LocoGoalType::PositionExplicit
                                 && (matches!(
                                     obj.ai_state(),
                                     AIState::Moving | AIState::AttackMoving
@@ -2691,12 +2817,28 @@ impl GameLogic {
                             }
                         }
                     } else {
-                        leftover_settle_final_position_on_object(
-                            obj,
-                            pose_frame,
-                            effects,
-                            &mut self.partition_manager,
-                        );
+                        if let Some(position) = leftover_settle_final_position_on_object(obj) {
+                            let reaction = obj.prepare_position_tree_reaction(
+                                position,
+                                pose_frame,
+                                &mut effects.reborrow_for_object(&mut self.partition_manager),
+                            );
+                            let _ = obj;
+                            let _ = flight_terrain;
+                            if !self.complete_owned_position_reaction(id, reaction, effects) {
+                                break 'unit;
+                            }
+                            flight_terrain = super::flight_terrain::FlightTerrainView {
+                                logical: Some(self.world_services.terrain().as_ref()),
+                                grid: &self.pathfinding_system.grid,
+                                terrain: self.terrain.as_ref(),
+                                samples: self.pathfinding_height_samples.as_ref(),
+                            };
+                            obj = match self.objects.get_mut(&id) {
+                                Some(object) => object,
+                                None => break 'unit,
+                            };
+                        }
                         // C++ maintainCurrentPosition: appearance, then one Z update.
                         let _ = obj.loco_maintain_appearance_with_effects(
                             dt,
@@ -3104,6 +3246,7 @@ impl GameLogic {
             &mut self.combat_system,
             self.objects.read(),
             self.frame,
+            &self.projectile_definitions,
             Some(&projectile_terrain),
             &mut self.next_object_id,
         );
@@ -3246,14 +3389,9 @@ fn leftover_cpp_to_host(pos: gamelogic::common::Coord3D) -> Vec3 {
 
 /// Leftover `Locomotor::settle_final_position` (NONE-goal half of
 /// `loco_update_when_goal_none`). Live idle already runs maintain.
-fn leftover_settle_final_position_on_object(
-    obj: &mut Object,
-    pose_frame: u32,
-    effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    partition: &mut crate::game_logic::partition_manager::PartitionManager,
-) {
+fn leftover_settle_final_position_on_object(obj: &mut Object) -> Option<Vec3> {
     if !obj.do_final_position {
-        return;
+        return None;
     }
     let on_ground = !obj.is_above_terrain() && obj.pathfind_layer == 1;
     let (pos, still) = gamelogic::locomotor::Locomotor::settle_final_position(
@@ -3262,10 +3400,5 @@ fn leftover_settle_final_position_on_object(
         on_ground,
     );
     obj.do_final_position = still;
-    obj.set_position_with_partition_owner(
-        leftover_cpp_to_host(pos),
-        pose_frame,
-        effects,
-        partition,
-    );
+    Some(leftover_cpp_to_host(pos))
 }

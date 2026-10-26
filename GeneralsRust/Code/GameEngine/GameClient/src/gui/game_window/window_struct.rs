@@ -55,6 +55,8 @@ pub type SystemCallback =
 /// Effects borrowed from the receiving GameClient for one synchronous window event.
 /// The effects never outlive callback delivery or enter a queued continuation.
 pub struct WindowEventEffects<'a> {
+    pub(crate) control_bar_observation:
+        Option<crate::gui::callbacks::control_bar_observation::ControlBarCallbackObservation>,
     pub(crate) input_provenance: crate::gui::control_bar::HostControlBarInputProvenance,
     pub(crate) standalone_view: Option<&'a mut crate::display::view::View>,
     pub(crate) client_frame: Option<u32>,
@@ -84,6 +86,18 @@ pub struct WindowEventEffects<'a> {
     )>,
 }
 impl<'effects> WindowEventEffects<'effects> {
+    pub fn admit_control_bar_callback_observation(
+        &mut self,
+        facts: crate::gui::callbacks::control_bar_observation::ControlBarCallbackObservation,
+    ) {
+        self.control_bar_observation = Some(facts);
+    }
+    pub fn control_bar_callback_observation(
+        &self,
+    ) -> Option<crate::gui::callbacks::control_bar_observation::ControlBarCallbackObservation> {
+        self.control_bar_observation
+    }
+
     pub(crate) fn difficulty_select(
         &self,
     ) -> &crate::gui::callbacks::difficulty_select::DifficultySelectMenuState {
@@ -142,6 +156,7 @@ impl<'effects> WindowEventEffects<'effects> {
     /// Capabilities are supplied by the receiving client when needed.
     pub fn new(emitted_messages: &'effects mut Vec<GameMessage>) -> Self {
         Self {
+            control_bar_observation: None,
             input_provenance:
                 crate::gui::control_bar::HostControlBarInputProvenance::InjectedOrUnknown,
             payloads: Default::default(),
@@ -614,6 +629,7 @@ impl<'effects> WindowEventEffects<'effects> {
         operation: impl FnOnce(&mut WindowEventEffects<'_>) -> R,
     ) -> R {
         let mut local = WindowEventEffects {
+            control_bar_observation: self.control_bar_observation,
             payloads: std::mem::take(&mut self.payloads),
             pending_window_callbacks: std::mem::take(&mut self.pending_window_callbacks),
             diplomacy_world: facts,
@@ -656,6 +672,7 @@ impl<'effects> WindowEventEffects<'effects> {
         operation: impl FnOnce(&mut WindowEventEffects<'_>) -> R,
     ) -> R {
         let mut local = WindowEventEffects {
+            control_bar_observation: self.control_bar_observation,
             input_provenance: self.input_provenance,
             payloads: std::mem::take(&mut self.payloads),
             pending_window_callbacks: std::mem::take(&mut self.pending_window_callbacks),

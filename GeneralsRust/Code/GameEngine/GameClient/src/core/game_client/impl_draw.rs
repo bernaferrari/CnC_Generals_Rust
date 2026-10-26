@@ -65,6 +65,7 @@ impl GameClient {
             renderer: self.ui_renderer.as_mut(),
             message_stream: &mut self.message_stream,
             effects: crate::gui::game_window::WindowEventEffects {
+                control_bar_observation: None,
                 input_provenance:
                     crate::gui::control_bar::HostControlBarInputProvenance::InjectedOrUnknown,
                 standalone_view: None,

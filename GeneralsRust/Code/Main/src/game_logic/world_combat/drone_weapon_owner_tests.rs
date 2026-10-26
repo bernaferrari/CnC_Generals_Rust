@@ -155,6 +155,7 @@ fn hellfire_launch_consumes_once_and_deals_damage_only_at_real_impact_phase() {
         &mut game.combat_system,
         game.objects.read(),
         game.frame,
+        &crate::game_logic::projectile_definitions::fixture_projectile_definitions(),
     );
     assert_eq!(ammo(&game), Some(1));
     assert_eq!(game.hellfire_drone_residual_auto_fires, 1);
@@ -177,6 +178,7 @@ fn hellfire_launch_consumes_once_and_deals_damage_only_at_real_impact_phase() {
         &mut game.combat_system,
         game.objects.read(),
         game.frame,
+        &crate::game_logic::projectile_definitions::fixture_projectile_definitions(),
     );
     assert_eq!(ammo(&game), Some(1));
     assert_eq!(game.hellfire_drone_residual_auto_fires, 1);
