@@ -914,7 +914,11 @@ fn close_right_click_menu(window: &GameWindow) {
     }
 }
 
-pub fn wol_lobby_menu_init(layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>) {
+pub fn wol_lobby_menu_init(
+    layout: &WindowLayout,
+    _user_data: Option<&dyn std::any::Any>,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) {
     let state_slot = wol_state();
     let mut state = state_slot.borrow_mut();
     state.next_screen = None;
@@ -1052,7 +1056,7 @@ pub fn wol_lobby_menu_init(layout: &WindowLayout, _user_data: Option<&dyn std::a
         let _ = gadget_parent.borrow_mut().hide(true);
     }
 
-    set_dont_show_main_menu(true);
+    set_dont_show_main_menu(effects, true);
 }
 
 fn shutdown_complete(layout: &WindowLayout) {
@@ -1067,7 +1071,11 @@ fn shutdown_complete(layout: &WindowLayout) {
     }
 }
 
-pub fn wol_lobby_menu_shutdown(layout: &WindowLayout, user_data: Option<&dyn std::any::Any>) {
+pub fn wol_lobby_menu_shutdown(
+    layout: &WindowLayout,
+    user_data: Option<&dyn std::any::Any>,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) {
     let pop_immediate = user_data
         .and_then(|data| data.downcast_ref::<bool>())
         .copied()
@@ -1100,7 +1108,7 @@ pub fn wol_lobby_menu_shutdown(layout: &WindowLayout, user_data: Option<&dyn std
     state.listbox_lobby_chat = None;
     state.listbox_lobby_players = None;
     state.is_shutting_down = true;
-    set_dont_show_main_menu(false);
+    set_dont_show_main_menu(effects, false);
 
     if pop_immediate {
         shutdown_complete(layout);

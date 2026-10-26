@@ -11,7 +11,6 @@ use game_engine::common::recorder::with_recorder;
 use std::cell::RefCell;
 use std::fs;
 use std::rc::Rc;
-use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 const KEY_ESC: usize = 0x1B;
@@ -19,7 +18,10 @@ const KEY_STATE_UP: usize = 0x0001;
 const SAVE_POPUP_DURATION_MS: u64 = 1000;
 
 #[derive(Default)]
-struct PopupReplayState {
+pub struct PopupReplayState {
+    residual_action: u8,
+    residual_slot: Option<i32>,
+    residual_name: String,
     button_back: i32,
     button_save: i32,
     listbox_games: i32,
@@ -33,15 +35,6 @@ struct PopupReplayState {
     message_box_window: Option<Rc<RefCell<GameWindow>>>,
 }
 
-thread_local! {
-    static POPUP_REPLAY_STATE: Arc<Mutex<PopupReplayState>> =
-        Arc::new(Mutex::new(PopupReplayState::default()));
-}
-
-fn popup_replay_state() -> Arc<Mutex<PopupReplayState>> {
-    POPUP_REPLAY_STATE.with(|state| state.clone())
-}
-
 fn show_replay_saved_popup(
     state: &PopupReplayState,
     show: bool,
@@ -53,11 +46,13 @@ fn show_replay_saved_popup(
 }
 
 fn close_save_menu(
-    window: &GameWindow,
+    window: &mut GameWindow,
     receiving_manager: &mut crate::gui::window_manager::WindowManager,
 ) {
     if let Some(layout) = window.get_layout() {
-        layout.borrow_mut().hide(receiving_manager, true);
+        layout
+            .borrow()
+            .hide_with_manager_and_selected(receiving_manager, true, Some(window));
     }
 }
 
@@ -122,9 +117,6 @@ fn save_replay(
     receiving_manager: &mut crate::gui::window_manager::WindowManager,
     effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) {
-    let state_handle = popup_replay_state();
-    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
-
     let translated = if filename == GameText::fetch("GUI:LastReplay") {
         last_replay_filename()
     } else {
@@ -133,21 +125,30 @@ fn save_replay(
 
     let (replay_dir, ext) = replay_dir_and_ext();
     let full_path = replay_dir.join(format!("{}{}", translated, ext));
-    state.replay_path = full_path.to_string_lossy().to_string();
-    state.message_box_window = None;
+    {
+        let value = full_path.to_string_lossy().to_string();
+        effects.popup_replay_mut().replay_path = value
+    };
+    {
+        let value = None;
+        effects.popup_replay_mut().message_box_window = value
+    };
 
     if full_path.exists() {
         let ok: crate::gui::callbacks::message_box::MessageBoxFunc = Box::new(|effects| {
             effects.with_manager(|manager, effects| really_save_replay(manager, effects));
         });
-        state.message_box_window = message_box_ok_cancel(
-            &GameText::fetch("GUI:OverwriteReplayTitle"),
-            &GameText::fetch("GUI:OverwriteReplay"),
-            Some(ok),
-            None,
-            receiving_manager,
-            effects,
-        );
+        {
+            let value = message_box_ok_cancel(
+                &GameText::fetch("GUI:OverwriteReplayTitle"),
+                &GameText::fetch("GUI:OverwriteReplay"),
+                Some(ok),
+                None,
+                receiving_manager,
+                effects,
+            );
+            effects.popup_replay_mut().message_box_window = value
+        };
     } else {
         really_save_replay(receiving_manager, effects);
     }
@@ -157,10 +158,7 @@ fn really_save_replay(
     receiving_manager: &mut crate::gui::window_manager::WindowManager,
     effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) {
-    let state_handle = popup_replay_state();
-    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
-
-    let filename = state.replay_path.clone();
+    let filename = effects.popup_replay().replay_path.clone();
     if filename.is_empty() {
         return;
     }
@@ -175,7 +173,10 @@ fn really_save_replay(
     let target = std::path::PathBuf::from(&filename);
     if target.exists() {
         if let Err(err) = fs::remove_file(&target) {
-            state.message_box_window = None;
+            {
+                let value = None;
+                effects.popup_replay_mut().message_box_window = value
+            };
             let _ = message_box_ok(
                 &GameText::fetch("GUI:Error"),
                 &err.to_string(),
@@ -183,13 +184,16 @@ fn really_save_replay(
                 receiving_manager,
                 effects,
             );
-            populate_replay_listbox(&mut state);
+            populate_replay_listbox(effects.popup_replay_mut());
             return;
         }
     }
 
     if let Err(err) = fs::copy(&old_filename, &target) {
-        state.message_box_window = None;
+        {
+            let value = None;
+            effects.popup_replay_mut().message_box_window = value
+        };
         let _ = message_box_ok(
             &GameText::fetch("GUI:Error"),
             &err.to_string(),
@@ -200,9 +204,12 @@ fn really_save_replay(
         return;
     }
 
-    populate_replay_listbox(&mut state);
-    show_replay_saved_popup(&state, true, receiving_manager);
-    state.save_popup_start = Some(Instant::now());
+    populate_replay_listbox(effects.popup_replay_mut());
+    show_replay_saved_popup(effects.popup_replay(), true, receiving_manager);
+    {
+        let value = Some(Instant::now());
+        effects.popup_replay_mut().save_popup_start = value
+    };
 }
 
 pub fn popup_replay_init(
@@ -211,35 +218,55 @@ pub fn popup_replay_init(
     receiving_manager: &mut crate::gui::window_manager::WindowManager,
     effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) {
-    let state_handle = popup_replay_state();
-    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
-
-    state.button_back = NameKeyGenerator::name_to_key("PopupReplay.wnd:ButtonBack") as i32;
-    state.button_save = NameKeyGenerator::name_to_key("PopupReplay.wnd:ButtonSave") as i32;
-    state.listbox_games = NameKeyGenerator::name_to_key("PopupReplay.wnd:ListboxGames") as i32;
-    state.text_entry_replay_name =
-        NameKeyGenerator::name_to_key("PopupReplay.wnd:TextEntryReplayName") as i32;
+    {
+        let value = NameKeyGenerator::name_to_key("PopupReplay.wnd:ButtonBack") as i32;
+        effects.popup_replay_mut().button_back = value
+    };
+    {
+        let value = NameKeyGenerator::name_to_key("PopupReplay.wnd:ButtonSave") as i32;
+        effects.popup_replay_mut().button_save = value
+    };
+    {
+        let value = NameKeyGenerator::name_to_key("PopupReplay.wnd:ListboxGames") as i32;
+        effects.popup_replay_mut().listbox_games = value
+    };
+    {
+        let value = NameKeyGenerator::name_to_key("PopupReplay.wnd:TextEntryReplayName") as i32;
+        effects.popup_replay_mut().text_entry_replay_name = value
+    };
 
     let parent_id = NameKeyGenerator::name_to_key("PopupReplay.wnd:PopupReplayMenu") as i32;
     let replay_saved_parent_id =
         NameKeyGenerator::name_to_key("PopupReplay.wnd:PopupReplaySaved") as i32;
 
     (|manager: &mut crate::gui::window_manager::WindowManager| {
-        state.parent = manager.get_window_by_id(parent_id);
-        state.replay_saved_parent = manager.get_window_by_id(replay_saved_parent_id);
-        state.listbox_window = manager.get_window_by_id(state.listbox_games);
-        state.text_entry_window = manager.get_window_by_id(state.text_entry_replay_name);
+        {
+            let value = manager.get_window_by_id(parent_id);
+            effects.popup_replay_mut().parent = value
+        };
+        {
+            let value = manager.get_window_by_id(replay_saved_parent_id);
+            effects.popup_replay_mut().replay_saved_parent = value
+        };
+        {
+            let value = manager.get_window_by_id(effects.popup_replay().listbox_games);
+            effects.popup_replay_mut().listbox_window = value
+        };
+        {
+            let value = manager.get_window_by_id(effects.popup_replay().text_entry_replay_name);
+            effects.popup_replay_mut().text_entry_window = value
+        };
     })(receiving_manager);
 
-    if let Some(parent) = state.parent.as_ref() {
+    if let Some(parent) = effects.popup_replay().parent.clone().as_ref() {
         (|manager: &mut crate::gui::window_manager::WindowManager| {
             let _ = manager.set_focus(Some(parent), effects);
         })(receiving_manager);
     }
 
-    show_replay_saved_popup(&state, false, receiving_manager);
+    show_replay_saved_popup(effects.popup_replay(), false, receiving_manager);
 
-    if let Some(parent) = state.parent.as_ref() {
+    if let Some(parent) = effects.popup_replay().parent.clone().as_ref() {
         if let Some(frame) = parent
             .borrow()
             .find_child_by_id(
@@ -250,9 +277,9 @@ pub fn popup_replay_init(
         }
     }
 
-    populate_replay_listbox(&mut state);
+    populate_replay_listbox(effects.popup_replay_mut());
 
-    if let Some(entry) = state.text_entry_window.as_ref() {
+    if let Some(entry) = effects.popup_replay().text_entry_window.clone().as_ref() {
         if let Some(widget) = entry.borrow_mut().text_entry_mut() {
             widget.set_text("");
         }
@@ -262,50 +289,73 @@ pub fn popup_replay_init(
     }
 
     (|manager: &mut crate::gui::window_manager::WindowManager| {
-        if let Some(control) = manager.get_window_by_id(state.button_save) {
+        if let Some(control) = manager.get_window_by_id(effects.popup_replay().button_save) {
             let _ = control.borrow_mut().enable(false);
         }
     })(receiving_manager);
 }
 
-pub fn popup_replay_shutdown(_layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>) {
-    let state_handle = popup_replay_state();
-    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
-    state.parent = None;
-    state.replay_saved_parent = None;
-    state.listbox_window = None;
-    state.text_entry_window = None;
-    state.save_popup_start = None;
-    state.message_box_window = None;
+pub fn popup_replay_shutdown(
+    _layout: &WindowLayout,
+    _user_data: Option<&dyn std::any::Any>,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) {
+    {
+        let value = None;
+        effects.popup_replay_mut().parent = value
+    };
+    {
+        let value = None;
+        effects.popup_replay_mut().replay_saved_parent = value
+    };
+    {
+        let value = None;
+        effects.popup_replay_mut().listbox_window = value
+    };
+    {
+        let value = None;
+        effects.popup_replay_mut().text_entry_window = value
+    };
+    {
+        let value = None;
+        effects.popup_replay_mut().save_popup_start = value
+    };
+    {
+        let value = None;
+        effects.popup_replay_mut().message_box_window = value
+    };
 }
 
 pub fn popup_replay_update(
     _layout: &WindowLayout,
     _user_data: Option<&dyn std::any::Any>,
     receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) {
-    let state_handle = popup_replay_state();
-    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
-
-    if let Some(start) = state.save_popup_start {
+    if let Some(start) = effects.popup_replay().save_popup_start {
         if start.elapsed() >= Duration::from_millis(SAVE_POPUP_DURATION_MS) {
-            show_replay_saved_popup(&state, false, receiving_manager);
-            if let Some(parent) = state.parent.as_ref() {
-                let parent_ref = parent.borrow();
-                close_save_menu(&parent_ref, receiving_manager);
+            show_replay_saved_popup(effects.popup_replay(), false, receiving_manager);
+            if let Some(parent) = effects.popup_replay().parent.clone().as_ref() {
+                let layout = parent.borrow().get_layout();
+                if let Some(layout) = layout {
+                    layout.borrow_mut().hide(receiving_manager, true);
+                }
             }
-            score_screen_enable_controls(true);
-            state.save_popup_start = None;
+            score_screen_enable_controls(true, effects);
+            {
+                let value = None;
+                effects.popup_replay_mut().save_popup_start = value
+            };
         }
     }
 
-    if let Some(entry) = state.text_entry_window.as_ref() {
+    if let Some(entry) = effects.popup_replay().text_entry_window.clone().as_ref() {
         let mut enabled = false;
         if let Some(widget) = entry.borrow_mut().text_entry_mut() {
             enabled = !widget.text().is_empty();
         }
         (|manager: &mut crate::gui::window_manager::WindowManager| {
-            if let Some(control) = manager.get_window_by_id(state.button_save) {
+            if let Some(control) = manager.get_window_by_id(effects.popup_replay().button_save) {
                 let _ = control.borrow_mut().enable(enabled);
             }
         })(receiving_manager);
@@ -326,17 +376,25 @@ pub fn popup_replay_input(
         return WindowMsgHandled::Handled;
     }
 
-    let state_handle = popup_replay_state();
-    let state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
-    if let Some(parent) = state.parent.as_ref() {
-        let _ = parent.borrow_mut().send_system_message(
-            WindowMessage::GadgetSelected,
-            state.button_back as WindowMsgData,
-            0,
-            effects,
-        );
-    }
+    let button_back = effects.popup_replay().button_back;
+    window.send_system_message(
+        WindowMessage::GadgetSelected,
+        button_back as WindowMsgData,
+        0,
+        effects,
+    );
     WindowMsgHandled::Handled
+}
+
+fn popup_replay_filename(effects: &crate::gui::game_window::WindowEventEffects<'_>) -> String {
+    let Some(entry) = effects.popup_replay().text_entry_window.as_ref() else {
+        return String::new();
+    };
+    let entry = entry.borrow();
+    match entry.widget() {
+        Some(crate::gui::WindowWidget::TextEntry(widget)) => widget.text().to_string(),
+        _ => String::new(),
+    }
 }
 
 pub fn popup_replay_system(
@@ -347,36 +405,29 @@ pub fn popup_replay_system(
     receiving_manager: &mut crate::gui::window_manager::WindowManager,
     effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> WindowMsgHandled {
-    let state_handle = popup_replay_state();
-    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
-
     match msg {
         WindowMessage::Create | WindowMessage::Destroy => WindowMsgHandled::Handled,
         WindowMessage::InputFocus => write_input_focus_response(data1, data2, true),
         WindowMessage::User(code) if code == GLM_SELECTED => {
             let control_id = data1 as i32;
-            if control_id == state.listbox_games {
-                copy_selected_replay_to_text_entry(&mut state, data2 as i32);
+            if control_id == effects.popup_replay().listbox_games {
+                copy_selected_replay_to_text_entry(effects.popup_replay_mut(), data2 as i32);
             }
             WindowMsgHandled::Handled
         }
         WindowMessage::GadgetSelected => {
             let control_id = data1 as i32;
-            if control_id == state.button_save {
-                if let Some(entry) = state.text_entry_window.as_ref() {
-                    if let Some(widget) = entry.borrow_mut().text_entry_mut() {
-                        let filename = widget.text().to_string();
-                        if !filename.is_empty() {
-                            save_replay(&filename, receiving_manager, effects);
-                        }
-                    }
+            if control_id == effects.popup_replay().button_save {
+                let filename = popup_replay_filename(effects);
+                if !filename.is_empty() {
+                    save_replay(&filename, receiving_manager, effects);
                 }
                 return WindowMsgHandled::Handled;
             }
 
-            if control_id == state.button_back {
+            if control_id == effects.popup_replay().button_back {
                 close_save_menu(window, receiving_manager);
-                score_screen_enable_controls(true);
+                score_screen_enable_controls(true, effects);
                 return WindowMsgHandled::Handled;
             }
 
@@ -384,14 +435,10 @@ pub fn popup_replay_system(
         }
         WindowMessage::GadgetEditDone => {
             let control_id = data1 as i32;
-            if control_id == state.text_entry_replay_name {
-                if let Some(entry) = state.text_entry_window.as_ref() {
-                    if let Some(widget) = entry.borrow_mut().text_entry_mut() {
-                        let filename = widget.text().to_string();
-                        if !filename.is_empty() {
-                            save_replay(&filename, receiving_manager, effects);
-                        }
-                    }
+            if control_id == effects.popup_replay().text_entry_replay_name {
+                let filename = popup_replay_filename(effects);
+                if !filename.is_empty() {
+                    save_replay(&filename, receiving_manager, effects);
                 }
             }
             WindowMsgHandled::Handled
@@ -581,22 +628,10 @@ pub enum ResidualPopupReplayAction {
     SetName = 4,
 }
 
-static RESIDUAL_POPUP_REPLAY_ACTION: std::sync::atomic::AtomicU8 =
-    std::sync::atomic::AtomicU8::new(0);
-static RESIDUAL_POPUP_REPLAY_SLOT: std::sync::atomic::AtomicI32 =
-    std::sync::atomic::AtomicI32::new(-1);
-// THREAD: main thread only — GUI residual latch, see `POPUP_REPLAY_STATE`.
-thread_local! {
-    static RESIDUAL_POPUP_REPLAY_NAME: RefCell<String> = RefCell::new(String::new());
-}
-
-fn residual_popup_replay_action_store(action: ResidualPopupReplayAction) {
-    RESIDUAL_POPUP_REPLAY_ACTION.store(action as u8, std::sync::atomic::Ordering::Relaxed);
-}
-
-/// Residual: last PopupReplay residual action.
-pub fn residual_popup_replay_last_action() -> ResidualPopupReplayAction {
-    match RESIDUAL_POPUP_REPLAY_ACTION.load(std::sync::atomic::Ordering::Relaxed) {
+pub fn residual_popup_replay_last_action(
+    effects: &crate::gui::game_window::WindowEventEffects<'_>,
+) -> ResidualPopupReplayAction {
+    match effects.popup_replay().residual_action {
         1 => ResidualPopupReplayAction::SelectSlot,
         2 => ResidualPopupReplayAction::Save,
         3 => ResidualPopupReplayAction::Back,
@@ -604,16 +639,15 @@ pub fn residual_popup_replay_last_action() -> ResidualPopupReplayAction {
         _ => ResidualPopupReplayAction::None,
     }
 }
-
-/// Residual: last selected ListboxGames slot (-1 if none).
-pub fn residual_popup_replay_selected_slot() -> Option<i32> {
-    let slot = RESIDUAL_POPUP_REPLAY_SLOT.load(std::sync::atomic::Ordering::Relaxed);
-    if slot < 0 { None } else { Some(slot) }
+pub fn residual_popup_replay_selected_slot(
+    effects: &crate::gui::game_window::WindowEventEffects<'_>,
+) -> Option<i32> {
+    effects.popup_replay().residual_slot
 }
-
-/// Residual: last residual replay name text.
-pub fn residual_popup_replay_name() -> String {
-    RESIDUAL_POPUP_REPLAY_NAME.with_borrow(Clone::clone)
+pub fn residual_popup_replay_name(
+    effects: &crate::gui::game_window::WindowEventEffects<'_>,
+) -> String {
+    effects.popup_replay().residual_name.clone()
 }
 
 fn ensure_popup_replay_control_ids(state: &mut PopupReplayState) {
@@ -632,92 +666,75 @@ fn ensure_popup_replay_control_ids(state: &mut PopupReplayState) {
     }
 }
 
-/// Residual: bind PopupReplay control IDs (no layout load required).
-pub fn simulate_popup_replay_bind_controls() -> bool {
-    let state_handle = popup_replay_state();
-    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
-    ensure_popup_replay_control_ids(&mut state);
-    let _ = (
-        state.button_back,
-        state.button_save,
-        state.listbox_games,
-        state.text_entry_replay_name,
-    );
+/// Bind authored control identities in the receiving popup only.
+pub fn simulate_popup_replay_bind_controls(
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
+    ensure_popup_replay_control_ids(effects.popup_replay_mut());
     true
 }
-
-/// Residual: select ListboxGames slot without live listbox widget.
-pub fn simulate_popup_replay_select_slot(slot_index: i32) -> bool {
+pub fn simulate_popup_replay_select_slot(
+    slot_index: i32,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
     if slot_index < 0 {
         return false;
     }
-    let state_handle = popup_replay_state();
-    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
-    ensure_popup_replay_control_ids(&mut state);
-    RESIDUAL_POPUP_REPLAY_SLOT.store(slot_index, std::sync::atomic::Ordering::Relaxed);
-    residual_popup_replay_action_store(ResidualPopupReplayAction::SelectSlot);
-    residual_popup_replay_selected_slot() == Some(slot_index)
+    let state = effects.popup_replay_mut();
+    ensure_popup_replay_control_ids(state);
+    state.residual_slot = Some(slot_index);
+    state.residual_action = ResidualPopupReplayAction::SelectSlot as u8;
+    true
 }
-
-/// Residual: set replay name without live text entry widget.
-pub fn simulate_popup_replay_set_name(name: &str) -> bool {
+pub fn simulate_popup_replay_set_name(
+    name: &str,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
     if name.is_empty() {
         return false;
     }
-    let state_handle = popup_replay_state();
-    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
-    ensure_popup_replay_control_ids(&mut state);
-    RESIDUAL_POPUP_REPLAY_NAME.with_borrow_mut(|stored| *stored = name.to_string());
-    residual_popup_replay_action_store(ResidualPopupReplayAction::SetName);
-    residual_popup_replay_name() == name
-}
-
-/// Residual: fire ButtonSave without filesystem write.
-pub fn simulate_popup_replay_save_button_gadget_selected() -> bool {
-    let state_handle = popup_replay_state();
-    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
-    ensure_popup_replay_control_ids(&mut state);
-    let name = residual_popup_replay_name();
-    if name.is_empty() {
-        // C++ ignores Save with empty filename.
-        return false;
-    }
-    residual_popup_replay_action_store(ResidualPopupReplayAction::Save);
+    let state = effects.popup_replay_mut();
+    ensure_popup_replay_control_ids(state);
+    state.residual_name = name.to_owned();
+    state.residual_action = ResidualPopupReplayAction::SetName as u8;
     true
 }
-
-/// Residual: fire ButtonBack without score_screen_enable_controls / close.
-pub fn simulate_popup_replay_back_button_gadget_selected() -> bool {
-    let state_handle = popup_replay_state();
-    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
-    ensure_popup_replay_control_ids(&mut state);
-    residual_popup_replay_action_store(ResidualPopupReplayAction::Back);
-    RESIDUAL_POPUP_REPLAY_SLOT.store(-1, std::sync::atomic::Ordering::Relaxed);
-    RESIDUAL_POPUP_REPLAY_NAME.with_borrow_mut(String::clear);
+pub fn simulate_popup_replay_save_button_gadget_selected(
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
+    let state = effects.popup_replay_mut();
+    ensure_popup_replay_control_ids(state);
+    if state.residual_name.is_empty() {
+        return false;
+    }
+    state.residual_action = ResidualPopupReplayAction::Save as u8;
     true
 }
-
-/// Residual: name + Save composite (pre-write honesty).
-pub fn simulate_popup_replay_prepare_save(name: &str) -> bool {
-    if !simulate_popup_replay_bind_controls() {
-        return false;
-    }
-    if !simulate_popup_replay_set_name(name) {
-        return false;
-    }
-    simulate_popup_replay_save_button_gadget_selected()
+pub fn simulate_popup_replay_back_button_gadget_selected(
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
+    let state = effects.popup_replay_mut();
+    ensure_popup_replay_control_ids(state);
+    state.residual_action = ResidualPopupReplayAction::Back as u8;
+    state.residual_slot = None;
+    state.residual_name.clear();
+    true
 }
-
-/// Residual: select slot + set name + Save composite.
-pub fn simulate_popup_replay_prepare_save_from_slot(slot_index: i32, name: &str) -> bool {
-    if !simulate_popup_replay_bind_controls() {
-        return false;
-    }
-    if !simulate_popup_replay_select_slot(slot_index) {
-        return false;
-    }
-    if !simulate_popup_replay_set_name(name) {
-        return false;
-    }
-    simulate_popup_replay_save_button_gadget_selected()
+pub fn simulate_popup_replay_prepare_save(
+    name: &str,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
+    simulate_popup_replay_bind_controls(effects)
+        && simulate_popup_replay_set_name(name, effects)
+        && simulate_popup_replay_save_button_gadget_selected(effects)
+}
+pub fn simulate_popup_replay_prepare_save_from_slot(
+    slot_index: i32,
+    name: &str,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
+    simulate_popup_replay_bind_controls(effects)
+        && simulate_popup_replay_select_slot(slot_index, effects)
+        && simulate_popup_replay_set_name(name, effects)
+        && simulate_popup_replay_save_button_gadget_selected(effects)
 }

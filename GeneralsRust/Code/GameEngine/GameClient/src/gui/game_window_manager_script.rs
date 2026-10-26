@@ -1368,7 +1368,9 @@ impl ScriptCallbackRegistry {
         register_online_layout_init!(self, "WOLLadderScreenInit", cb::wol_ladder_screen_init);
         register_online_layout_init!(self, "WOLLoginMenuInit", cb::wol_login_menu_init);
         register_online_layout_init!(self, "WOLLocaleSelectInit", cb::wol_locale_select_init);
-        register_online_layout_init!(self, "WOLLobbyMenuInit", cb::wol_lobby_menu_init);
+        self.register_layout_init("WOLLobbyMenuInit", |layout, effects| {
+            cb::wol_lobby_menu_init(layout, None, effects)
+        });
         register_online_layout_init!(self, "WOLGameSetupMenuInit", cb::wol_game_setup_menu_init);
         register_online_layout_init!(self, "WOLMapSelectMenuInit", cb::wol_map_select_menu_init);
         register_online_layout_init!(self, "WOLBuddyOverlayInit", cb::wol_buddy_overlay_init);
@@ -1539,7 +1541,9 @@ impl ScriptCallbackRegistry {
             })
         });
         self.register_layout_update("PopupReplayUpdate", |layout, effects| {
-            effects.with_manager(|manager, effects| cb::popup_replay_update(layout, None, manager))
+            effects.with_manager(|manager, effects| {
+                cb::popup_replay_update(layout, None, manager, effects)
+            })
         });
     }
 
@@ -1620,7 +1624,9 @@ impl ScriptCallbackRegistry {
             "WOLLocaleSelectShutdown",
             cb::wol_locale_select_shutdown
         );
-        register_online_layout_shutdown!(self, "WOLLobbyMenuShutdown", cb::wol_lobby_menu_shutdown);
+        self.register_layout_shutdown_without_data("WOLLobbyMenuShutdown", |layout, effects| {
+            cb::wol_lobby_menu_shutdown(layout, None, effects)
+        });
         register_online_layout_shutdown!(
             self,
             "WOLGameSetupMenuShutdown",
@@ -1684,7 +1690,7 @@ impl ScriptCallbackRegistry {
             cb::download_menu_shutdown(layout, None)
         });
         self.register_layout_shutdown_without_data("PopupReplayShutdown", |layout, effects| {
-            cb::popup_replay_shutdown(layout, None)
+            cb::popup_replay_shutdown(layout, None, effects)
         });
     }
 }

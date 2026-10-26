@@ -1218,6 +1218,10 @@ impl GameClient {
     /// Host injection point for the InGameUI subsystem (creation order is
     /// host-owned; tests install a default subsystem to observe the HUD).
     pub fn set_in_game_ui_subsystem(&mut self, ui: crate::core::subsystems::InGameUISubsystem) {
+        let mut ui = ui;
+        if self.input_authority == ClientInputAuthority::NativeHosted {
+            ui.admit_native_control_bar_transport();
+        }
         self.subsystem_manager.in_game_ui = Some(ui);
     }
 

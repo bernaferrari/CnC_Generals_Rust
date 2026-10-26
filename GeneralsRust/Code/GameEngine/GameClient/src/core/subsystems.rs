@@ -1199,6 +1199,8 @@ pub struct PresentationSuperweaponTimerResidual {
 /// In-game UI subsystem bridge.
 #[derive(Default)]
 pub struct InGameUISubsystem {
+    pub(crate) legacy_production_pause_requests: Vec<(u32, bool)>,
+    pub(crate) host_control_bar_transport: Option<crate::gui::control_bar::HostControlBarTransport>,
     pub(crate) live_hud: crate::gui::ingame_ui::LiveHud,
     pub(crate) superweapon_strip: crate::gui::ingame_ui::LiveSuperweaponStrip,
     pub(crate) status: crate::helpers::InGameUIStatusState,
@@ -1837,6 +1839,9 @@ impl InGameUISubsystem {
     }
 
     pub fn clear_runtime_state(&mut self) {
+        crate::gui::control_bar::clear_host_control_bar_requests(self);
+        self.legacy_production_pause_requests.clear();
+
         crate::gui::ingame_ui::reset_live_hud(&mut self.live_hud);
         self.superweapon_strip = Default::default();
         self.status = Default::default();
@@ -3079,5 +3084,16 @@ mod client_audio_diagnostic_owner_tests {
         assert_eq!(recorded.recent_events[0].name, "OwnerEvent");
         assert_eq!(peer.debug_snapshot().total_events, 0);
         assert!(peer.debug_snapshot().recent_events.is_empty());
+    }
+}
+
+impl InGameUISubsystem {
+    /// Role admission is performed by this UI's actual GameClient owner.
+    pub(crate) fn admit_native_control_bar_transport(&mut self) {
+        assert!(
+            self.host_control_bar_transport.is_none(),
+            "native UI transport admitted once"
+        );
+        self.host_control_bar_transport = Some(Default::default());
     }
 }

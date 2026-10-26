@@ -120,6 +120,63 @@ impl<'effects> WindowEventEffects<'effects> {
             .queue_replay_step(step);
     }
 
+    pub(crate) fn popup_replay(&self) -> &crate::gui::callbacks::popup_replay::PopupReplayState {
+        self.menus
+            .as_ref()
+            .expect("replay popup requires receiving client")
+            .popup_replay
+            .as_deref()
+            .expect("popup belongs to this operation")
+    }
+    pub(crate) fn popup_replay_mut(
+        &mut self,
+    ) -> &mut crate::gui::callbacks::popup_replay::PopupReplayState {
+        self.menus
+            .as_mut()
+            .expect("replay popup requires receiving client")
+            .popup_replay
+            .as_deref_mut()
+            .expect("popup belongs to this operation")
+    }
+
+    pub(crate) fn menu_flags(&self) -> &crate::gui::menu_flags::MenuFlags {
+        self.menus
+            .as_ref()
+            .expect("menu flags require receiving client")
+            .flags
+            .as_deref()
+            .expect("flags belong to this operation")
+    }
+    pub(crate) fn menu_flags_mut(&mut self) -> &mut crate::gui::menu_flags::MenuFlags {
+        self.menus
+            .as_mut()
+            .expect("menu flags require receiving client")
+            .flags
+            .as_deref_mut()
+            .expect("flags belong to this operation")
+    }
+
+    /// Borrow only this client's score state. Callers release the loan before
+    /// invoking window, replay, movie or Shell callbacks.
+    pub(crate) fn score_screen(&self) -> &crate::gui::callbacks::score_screen::ScoreScreenState {
+        self.menus
+            .as_ref()
+            .expect("score screen requires receiving client")
+            .score
+            .as_deref()
+            .expect("score state belongs to this operation")
+    }
+    pub(crate) fn score_screen_mut(
+        &mut self,
+    ) -> &mut crate::gui::callbacks::score_screen::ScoreScreenState {
+        self.menus
+            .as_mut()
+            .expect("score screen requires receiving client")
+            .score
+            .as_deref_mut()
+            .expect("score state belongs to this operation")
+    }
+
     /// A bounded phase on this client's canonical QuitMenu state. No callbacks
     /// may execute while the state is borrowed.
     pub fn with_quit_menu<R>(

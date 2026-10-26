@@ -20,11 +20,16 @@ pub fn PopupReplayUpdate(
     user_data: Option<&dyn std::any::Any>,
     effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) {
-    effects.with_manager(|manager, effects| popup_replay_update(layout, user_data, manager));
+    effects
+        .with_manager(|manager, effects| popup_replay_update(layout, user_data, manager, effects));
 }
 
-pub fn PopupReplayShutdown(layout: &WindowLayout, user_data: Option<&dyn std::any::Any>) {
-    popup_replay_shutdown(layout, user_data);
+pub fn PopupReplayShutdown(
+    layout: &WindowLayout,
+    user_data: Option<&dyn std::any::Any>,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) {
+    popup_replay_shutdown(layout, user_data, effects);
 }
 
 pub fn PopupReplaySystem(

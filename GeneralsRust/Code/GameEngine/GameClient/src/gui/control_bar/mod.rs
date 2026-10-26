@@ -104,11 +104,11 @@ pub use control_bar_print_positions::*;
 pub(crate) use host_command_bridge::acquire_host_control_bar_bridge_test_guard;
 pub use host_command_bridge::{
     HostControlBarInputProvenance, HostControlBarPublishedRequest, HostControlBarRequest,
-    HostControlBarTarget, HostMinimapInteraction, HostMinimapMouseButton,
+    HostControlBarTarget, HostControlBarTransport, HostMinimapInteraction, HostMinimapMouseButton,
     clear_host_control_bar_requests, clear_host_dismiss_in_game_popup_message_requests,
-    host_control_bar_bridge_enabled, set_host_control_bar_bridge_enabled,
-    take_host_control_bar_published_requests, take_host_control_bar_requests,
-    take_host_minimap_interactions, with_host_control_bar_input_provenance,
+    host_control_bar_bridge_enabled, take_host_control_bar_published_requests,
+    take_host_control_bar_requests, take_host_minimap_interactions,
+    with_host_control_bar_input_provenance,
 };
 pub(crate) use host_command_bridge::{
     HostMinimapInteractionRequest, host_control_bar_input_provenance_for_current_dispatch,

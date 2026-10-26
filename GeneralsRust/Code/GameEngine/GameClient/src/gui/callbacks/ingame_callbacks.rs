@@ -465,12 +465,14 @@ mod tests {
 
     #[test]
     fn idle_worker_popup_publishes_typed_host_request_when_bridge_enabled() {
+        let mut transport_ui = crate::core::subsystems::InGameUISubsystem::default();
         let _guard = crate::gui::control_bar::acquire_host_control_bar_bridge_test_guard();
-        crate::gui::control_bar::set_host_control_bar_bridge_enabled(true);
+        transport_ui.admit_native_control_bar_transport();
 
         let mut owner = crate::gui::callbacks::menu_callbacks::MenuManager::new();
         let mut messages = Vec::new();
         let mut effects = crate::gui::game_window::WindowEventEffects::new(&mut messages);
+        effects.ui = Some(&mut transport_ui);
         effects.menus = Some(
             owner.receiving_menus(crate::core::game_client::ClientInputAuthority::NativeHosted),
         );
@@ -488,7 +490,7 @@ mod tests {
             WindowMsgHandled::Handled
         );
         assert!(matches!(
-            crate::gui::control_bar::take_host_control_bar_requests().as_slice(),
+            crate::gui::control_bar::take_host_control_bar_requests(&mut transport_ui).as_slice(),
             [crate::gui::control_bar::HostControlBarRequest::SelectNextIdleWorker]
         ));
     }
@@ -1167,7 +1169,7 @@ pub fn idle_worker_system_receiving(
                 == NameKeyGenerator::name_to_key("IdleWorker.wnd:ButtonSelectNextIdleWorker")
             {
                 if effects.input_authority() == ClientInputAuthority::NativeHosted {
-                    if !publish_host_select_next_idle_worker() {
+                    if !publish_host_select_next_idle_worker(effects.ui_mut()) {
                         log::error!(
                             "native idle worker callback has no receiving host request route"
                         );

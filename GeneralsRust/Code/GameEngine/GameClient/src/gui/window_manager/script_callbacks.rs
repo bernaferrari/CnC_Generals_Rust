@@ -352,7 +352,7 @@ impl WindowManager {
                 }
                 "WOLLobbyMenuInit" => {
                     layout.init_callback_with_effects = Some(Box::new(|layout, data, effects| {
-                        wol_lobby_menu_init(layout, data);
+                        wol_lobby_menu_init(layout, data, effects);
                     }));
                     None
                 }
@@ -478,7 +478,7 @@ impl WindowManager {
                     layout.update_callback_with_effects =
                         Some(Box::new(|layout, data, effects| {
                             effects.with_manager(|manager, effects| {
-                                popup_replay_update(layout, data, manager)
+                                popup_replay_update(layout, data, manager, effects)
                             });
                         }));
                     None
@@ -758,7 +758,7 @@ impl WindowManager {
                 "PopupReplayShutdown" => {
                     layout.shutdown_callback_with_effects =
                         Some(Box::new(|layout, data, effects| {
-                            popup_replay_shutdown(layout, as_any_ref(data));
+                            popup_replay_shutdown(layout, as_any_ref(data), effects);
                         }));
                     None
                 }
@@ -891,7 +891,7 @@ impl WindowManager {
                 "WOLLobbyMenuShutdown" => {
                     layout.shutdown_callback_with_effects =
                         Some(Box::new(|layout, data, effects| {
-                            wol_lobby_menu_shutdown(layout, as_any_ref(data));
+                            wol_lobby_menu_shutdown(layout, as_any_ref(data), effects);
                         }));
                     None
                 }

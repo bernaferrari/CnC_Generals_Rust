@@ -386,3 +386,46 @@ fn chat_requests_change_only_the_receiving_client() {
         "first draft"
     );
 }
+
+#[test]
+fn native_callback_transport_survives_peer_reset_and_drop() {
+    use game_client_rust::core::game_client::ClientInputAuthority;
+    use game_client_rust::gui::callbacks::ingame_callbacks::idle_worker_system_receiving;
+    use game_client_rust::gui::control_bar::{
+        HostControlBarRequest, take_host_control_bar_requests,
+    };
+    use game_client_rust::gui::{GameWindow, WindowMessage, WindowMsgHandled};
+    use game_engine::common::name_key_generator::NameKeyGenerator;
+    let make = || {
+        let mut client =
+            GameClient::new_with_input_authority(ClientInputAuthority::NativeHosted).unwrap();
+        client.set_in_game_ui_subsystem(InGameUISubsystem::default());
+        client
+    };
+    let mut first = make();
+    let mut peer = make();
+    let button =
+        NameKeyGenerator::name_to_key("IdleWorker.wnd:ButtonSelectNextIdleWorker") as usize;
+    for client in [&mut first, &mut peer] {
+        client.with_window_event_effects(None, |effects| {
+            assert_eq!(
+                idle_worker_system_receiving(
+                    &mut GameWindow::new(),
+                    WindowMessage::GadgetSelected,
+                    button,
+                    0,
+                    effects
+                ),
+                WindowMsgHandled::Handled
+            );
+        });
+    }
+    peer.reset().unwrap();
+    assert!(take_host_control_bar_requests(peer.in_game_ui_subsystem_mut().unwrap()).is_empty());
+    drop(peer);
+    assert_eq!(
+        take_host_control_bar_requests(first.in_game_ui_subsystem_mut().unwrap()),
+        vec![HostControlBarRequest::SelectNextIdleWorker]
+    );
+    assert!(take_host_control_bar_requests(first.in_game_ui_subsystem_mut().unwrap()).is_empty());
+}

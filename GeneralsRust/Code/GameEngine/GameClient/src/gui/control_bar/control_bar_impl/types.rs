@@ -200,34 +200,25 @@ impl Default for SciencePurchaseState {
     }
 }
 
-// Wave 985: host residual production pause requests (producer_id, paused).
-// THREAD: main thread only — queued by ControlBar WND callbacks and drained by
-// the same thread's GameLogic bridge.
-thread_local! {
-    static HOST_PRODUCTION_PAUSE_QUEUE: RefCell<Vec<(u32, bool)>> = RefCell::new(Vec::new());
+/// Standalone producer-less presentation requests belong to the receiving UI.
+/// Native commands return through the typed transport before this fallback.
+pub fn queue_host_production_pause(
+    producer_id: u32,
+    paused: bool,
+    ui: &mut crate::core::subsystems::InGameUISubsystem,
+) {
+    ui.legacy_production_pause_requests
+        .retain(|(id, _)| *id != producer_id);
+    ui.legacy_production_pause_requests
+        .push((producer_id, paused));
 }
-
-/// Queue host production pause residual for Main GameLogic drain.
-pub fn queue_host_production_pause(producer_id: u32, paused: bool) {
-    HOST_PRODUCTION_PAUSE_QUEUE.with_borrow_mut(|queue| {
-        // Last write for same producer wins.
-        queue.retain(|(id, _)| *id != producer_id);
-        queue.push((producer_id, paused));
-    });
+pub fn take_host_production_pause_requests(
+    ui: &mut crate::core::subsystems::InGameUISubsystem,
+) -> Vec<(u32, bool)> {
+    std::mem::take(&mut ui.legacy_production_pause_requests)
 }
-
-/// Drain host production pause residual queue.
-pub fn take_host_production_pause_requests() -> Vec<(u32, bool)> {
-    HOST_PRODUCTION_PAUSE_QUEUE.with_borrow_mut(std::mem::take)
-}
-
-/// Discard legacy host-pause residuals without applying them.
-///
-/// This is used when Control Bar authority changes to the Main host: work
-/// queued for the legacy GameLogic path must never be replayed into a later
-/// authoritative-world session.
-pub fn clear_host_production_pause_requests() {
-    HOST_PRODUCTION_PAUSE_QUEUE.with_borrow_mut(Vec::clear);
+pub fn clear_host_production_pause_requests(ui: &mut crate::core::subsystems::InGameUISubsystem) {
+    ui.legacy_production_pause_requests.clear();
 }
 
 pub struct ControlBar {

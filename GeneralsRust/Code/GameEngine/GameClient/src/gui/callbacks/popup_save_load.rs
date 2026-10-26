@@ -1424,12 +1424,12 @@ pub fn save_load_menu_update(
     let state_handle = save_load_menu_state();
     let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
 
-    if get_dont_show_main_menu() && state.just_entered {
+    if get_dont_show_main_menu(effects) && state.just_entered {
         state.just_entered = false;
     }
-    if get_replay_was_pressed() && state.just_entered {
+    if get_replay_was_pressed(effects) && state.just_entered {
         state.just_entered = false;
-        set_replay_was_pressed(false);
+        set_replay_was_pressed(effects, false);
     }
 
     if state.just_entered {

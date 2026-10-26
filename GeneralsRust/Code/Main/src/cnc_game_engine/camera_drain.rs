@@ -2548,14 +2548,8 @@ impl CnCGameEngine {
         self.game_logic.owned_script_engine.as_ref().ok_or(
             "Cannot freeze native camera fade: receiving interpreter is unavailable or lent",
         )?;
-        // Wave 985: drain ControlBar host production-pause residual onto BuildingData.
-        for (producer_id, paused) in
-            game_client::gui::control_bar::take_host_production_pause_requests()
-        {
-            let _ = self
-                .game_logic
-                .set_production_paused(crate::game_logic::ObjectId(producer_id), paused);
-        }
+        // Native ControlBar pause requests are admitted once by
+        // host_tick_control_bar_bridge; never poll a standalone Core UI queue.
         // Wave 589: presentation finalize residual.
         // Wave 589/838/926: shadow sync + victory presentation build via single boundary.
         // Admit actual client bindings into the receiving canonical registry

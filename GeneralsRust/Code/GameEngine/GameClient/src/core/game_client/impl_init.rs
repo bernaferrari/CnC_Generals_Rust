@@ -869,6 +869,10 @@ impl GameClient {
             ui.init()?;
             crate::core::subsystems::register_in_game_ui_snapshot_block();
             register_radar_snapshot_block();
+            let mut ui = ui;
+            if self.input_authority == ClientInputAuthority::NativeHosted {
+                ui.admit_native_control_bar_transport();
+            }
             self.subsystem_manager.in_game_ui = Some(ui);
             // InGameUI.cpp1157 creates this authored transport during UI init;
             // Recorder::initControls later only changes existing visibility.
@@ -1072,6 +1076,10 @@ impl GameClient {
         self.menu_host.has_requests()
     }
     pub fn clear_pending_client_messages(&mut self) {
+        if let Some(ui) = self.subsystem_manager.in_game_ui.as_mut() {
+            crate::gui::control_bar::clear_host_control_bar_requests(ui);
+            crate::gui::control_bar::clear_host_production_pause_requests(ui);
+        }
         self.message_stream.clear_messages();
         self.menu_host.clear_pending();
         self.window_manager_owner

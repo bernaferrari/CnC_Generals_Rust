@@ -9,8 +9,9 @@ impl ControlBar {
         button: &CommandButton,
         source: CommandSourceType,
         context: &ControlBarContext,
+        ui: &mut crate::core::subsystems::InGameUISubsystem,
     ) -> bool {
-        if !super::host_control_bar_bridge_enabled() {
+        if !super::host_control_bar_bridge_enabled(ui) {
             return false;
         }
 
@@ -43,7 +44,7 @@ impl ControlBar {
             weapon_slot,
             Self::command_needs_target(button.options),
         );
-        super::publish_host_control_bar_request(request)
+        super::publish_host_control_bar_request(request, ui)
     }
 
     fn command_needs_target(options: u32) -> bool {
@@ -138,6 +139,7 @@ impl ControlBar {
         &self,
         button: &CommandButton,
         context: &ControlBarContext,
+        ui: &mut crate::core::subsystems::InGameUISubsystem,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let Some(store) = get_science_store() else {
             return Ok(());
@@ -402,6 +404,7 @@ impl ControlBar {
         queue_index: usize,
         context: &ControlBarContext,
         emitted_messages: &mut Vec<crate::message_stream::game_message::GameMessage>,
+        ui: &mut crate::core::subsystems::InGameUISubsystem,
     ) -> Result<bool, Box<dyn std::error::Error>> {
         if queue_index >= self.build_queue_data.len() {
             return Ok(false);
@@ -420,6 +423,7 @@ impl ControlBar {
             entry.production_type,
             entry.upgrade_name.clone(),
             queue_index,
+            ui,
         ) {
             return Ok(true);
         }
@@ -448,6 +452,7 @@ impl ControlBar {
         &mut self,
         paused: bool,
         context: &ControlBarContext,
+        ui: &mut crate::core::subsystems::InGameUISubsystem,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let Some(&producer_id) = context.selected_objects.first() else {
             return Ok(());
@@ -455,7 +460,7 @@ impl ControlBar {
 
         // A host bridge is a single-authority boundary.  Do not update the
         // legacy module or its compatibility pause queue after publishing.
-        if super::publish_host_production_pause(context, producer_id, paused) {
+        if super::publish_host_production_pause(context, producer_id, paused, ui) {
             self.portrait_state.production_paused = paused;
             return Ok(());
         }
@@ -465,7 +470,7 @@ impl ControlBar {
             Self::set_object_production_paused(producer_id, paused);
         } else {
             // Wave 985: host empty dual-world → queue residual for Main BuildingData.
-            queue_host_production_pause(producer_id, paused);
+            queue_host_production_pause(producer_id, paused, ui);
             // Wave 986: portrait residual reflects pause immediately.
             self.portrait_state.production_paused = paused;
         }
@@ -696,8 +701,9 @@ mod host_bridge_execution_tests {
 
     #[test]
     fn enabled_host_bridge_intercepts_real_control_bar_execution() {
+        let mut transport_ui = crate::core::subsystems::InGameUISubsystem::default();
         let _guard = crate::gui::control_bar::acquire_host_control_bar_bridge_test_guard();
-        crate::gui::control_bar::set_host_control_bar_bridge_enabled(true);
+        transport_ui.admit_native_control_bar_transport();
 
         let mut button = CommandButton::default();
         button.command_name = "Command_ConstructAmericaTank".to_string();
@@ -715,11 +721,12 @@ mod host_bridge_execution_tests {
                 CommandSourceType::FromUser,
                 &context,
                 &mut Vec::new(),
+                &mut transport_ui,
             )
             .expect("host bridge request");
 
         assert!(matches!(
-            crate::gui::control_bar::take_host_control_bar_requests().as_slice(),
+            crate::gui::control_bar::take_host_control_bar_requests(&mut transport_ui).as_slice(),
             [crate::gui::control_bar::HostControlBarRequest::Production {
                 template_name,
                 producer_ids,
@@ -731,8 +738,9 @@ mod host_bridge_execution_tests {
 
     #[test]
     fn parsed_retail_mig_fire_weapon_keeps_max_shots_and_options_without_logic_button() {
+        let mut transport_ui = crate::core::subsystems::InGameUISubsystem::default();
         let _guard = crate::gui::control_bar::acquire_host_control_bar_bridge_test_guard();
-        crate::gui::control_bar::set_host_control_bar_bridge_enabled(true);
+        transport_ui.admit_native_control_bar_transport();
 
         const RETAIL_MIG_BUTTON: &str = "Command_ChinaJetMIGFireNapalmMissile";
         // Parse the actual retail CommandButton.ini block, rather than hand
@@ -782,11 +790,12 @@ mod host_bridge_execution_tests {
                 CommandSourceType::FromUser,
                 &context,
                 &mut Vec::new(),
+                &mut transport_ui,
             )
             .expect("host bridge request from parsed command button");
 
         assert!(matches!(
-            crate::gui::control_bar::take_host_control_bar_requests().as_slice(),
+            crate::gui::control_bar::take_host_control_bar_requests(&mut transport_ui).as_slice(),
             [crate::gui::control_bar::HostControlBarRequest::ArmTarget {
                 command_name,
                 command_type: CommandType::FireWeapon,
@@ -801,8 +810,9 @@ mod host_bridge_execution_tests {
 
     #[test]
     fn parsed_retail_switch_weapon_slot_reaches_host_direct_command_without_logic_button() {
+        let mut transport_ui = crate::core::subsystems::InGameUISubsystem::default();
         let _guard = crate::gui::control_bar::acquire_host_control_bar_bridge_test_guard();
-        crate::gui::control_bar::set_host_control_bar_bridge_enabled(true);
+        transport_ui.admit_native_control_bar_transport();
 
         // Retail CommandButton.ini: the Demo Trap manual fuse is a tertiary
         // SWITCH_WEAPON command.  Keep the slot sourced from the parsed live
@@ -827,10 +837,11 @@ mod host_bridge_execution_tests {
                 CommandSourceType::FromUser,
                 &context,
                 &mut Vec::new(),
+                &mut transport_ui,
             )
             .expect("host bridge request from parsed retail switch button");
 
-        let requests = crate::gui::control_bar::take_host_control_bar_requests();
+        let requests = crate::gui::control_bar::take_host_control_bar_requests(&mut transport_ui);
         assert!(
             matches!(
                 requests.as_slice(),

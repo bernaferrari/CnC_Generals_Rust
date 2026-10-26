@@ -121,7 +121,11 @@ impl CnCGameEngine {
     /// stale UI context, an enemy id, or a legacy object id from being treated
     /// as an authority command merely because it reached this queue.
     pub(crate) fn host_tick_control_bar_bridge(&mut self) {
-        let requests = take_host_control_bar_published_requests();
+        let requests = take_host_control_bar_published_requests(
+            self.game_client
+                .in_game_ui_subsystem_mut()
+                .expect("native host bridge requires its receiving UI"),
+        );
         if requests.is_empty() {
             return;
         }

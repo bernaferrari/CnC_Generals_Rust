@@ -55,9 +55,7 @@ layout_noop!(
     wol_buddy_overlay_update,
     wol_buddy_overlay_shutdown,
     wol_buddy_overlay_rc_menu_init,
-    wol_lobby_menu_init,
     wol_lobby_menu_update,
-    wol_lobby_menu_shutdown,
     wol_ladder_screen_init,
     wol_ladder_screen_update,
     wol_ladder_screen_shutdown,
@@ -131,6 +129,20 @@ system_ignored!(
 pub fn network_direct_connect_init(
     _layout: &WindowLayout,
     _user_data: Option<&dyn Any>,
+    _effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) {
+}
+
+// No online service exists in this build; preserve the receiving lifecycle ABI.
+pub fn wol_lobby_menu_init(
+    _layout: &WindowLayout,
+    _data: Option<&dyn Any>,
+    _effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) {
+}
+pub fn wol_lobby_menu_shutdown(
+    _layout: &WindowLayout,
+    _data: Option<&dyn Any>,
     _effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) {
 }

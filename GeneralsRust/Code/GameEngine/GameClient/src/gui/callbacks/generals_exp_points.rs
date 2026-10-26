@@ -20,7 +20,7 @@ pub fn generals_exp_points_input(
 ) -> WindowMsgHandled {
     match msg {
         WindowMessage::MouseEntering => {
-            if !publish_host_cancel_structure_placement() {
+            if !publish_host_cancel_structure_placement(effects.ui_mut()) {
                 effects.ui_mut().place_build_available(None, None);
             }
         }
@@ -143,6 +143,7 @@ mod tests {
 
     #[test]
     fn mouse_entering_keeps_legacy_placement_cancel_when_bridge_is_disabled() {
+        let mut transport_ui = crate::core::subsystems::InGameUISubsystem::default();
         let _guard = crate::gui::control_bar::acquire_host_control_bar_bridge_test_guard();
         TheInGameUI::place_build_available(Some("TestStructure".to_string()), Some(77));
         assert_eq!(
@@ -160,13 +161,16 @@ mod tests {
             "standalone GameClient must retain C++ placement cancellation"
         );
         assert_eq!(TheInGameUI::get_pending_place_source_object_id(), 0);
-        assert!(crate::gui::control_bar::take_host_control_bar_requests().is_empty());
+        assert!(
+            crate::gui::control_bar::take_host_control_bar_requests(&mut transport_ui).is_empty()
+        );
     }
 
     #[test]
     fn mouse_entering_publishes_host_placement_cancel_when_bridge_is_enabled() {
+        let mut transport_ui = crate::core::subsystems::InGameUISubsystem::default();
         let _guard = crate::gui::control_bar::acquire_host_control_bar_bridge_test_guard();
-        crate::gui::control_bar::set_host_control_bar_bridge_enabled(true);
+        transport_ui.admit_native_control_bar_transport();
 
         let window = GameWindow::new();
         assert_eq!(
@@ -174,7 +178,7 @@ mod tests {
             WindowMsgHandled::Handled
         );
         assert!(matches!(
-            crate::gui::control_bar::take_host_control_bar_requests().as_slice(),
+            crate::gui::control_bar::take_host_control_bar_requests(&mut transport_ui).as_slice(),
             [crate::gui::control_bar::HostControlBarRequest::CancelStructurePlacement]
         ));
     }

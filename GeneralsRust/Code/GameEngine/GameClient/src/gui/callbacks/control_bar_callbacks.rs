@@ -748,7 +748,7 @@ impl ControlBarCallbacks {
             // C++ calls InGameUI::selectNextIdleWorker directly here.  While
             // Main owns the match, send the same UI intent to its typed
             // selection boundary rather than its dormant legacy message path.
-            if publish_host_select_next_idle_worker() {
+            if publish_host_select_next_idle_worker(effects.ui_mut()) {
                 return;
             }
             // Standalone GameClient retains its existing legacy route.
@@ -982,7 +982,7 @@ pub fn left_hud_input(
     _pending_clicks: Option<&mut Vec<crate::helpers::LiveControlBarClick>>,
     ui: &mut crate::core::subsystems::InGameUISubsystem,
 ) -> WindowMsgHandled {
-    let host_bridge = host_control_bar_bridge_enabled();
+    let host_bridge = host_control_bar_bridge_enabled(ui);
 
     // C++ first eats input when the radar is unavailable, then checks
     // held MMB.  Main owns radar authority while the bridge is active,
@@ -1074,13 +1074,16 @@ fn left_hud_publish_host_minimap_mouse_down(
         WindowMessage::RightDown => HostMinimapMouseButton::Right,
         _ => return,
     };
-    let _ = publish_host_minimap_interaction(HostMinimapInteractionRequest {
-        screen_position: [mouse_x, mouse_y],
-        screen_top_left: [screen_x, screen_y],
-        screen_size: [width, height],
-        button,
-        alternate_mouse: is_alternate_mouse_enabled(),
-    });
+    let _ = publish_host_minimap_interaction(
+        HostMinimapInteractionRequest {
+            screen_position: [mouse_x, mouse_y],
+            screen_top_left: [screen_x, screen_y],
+            screen_size: [width, height],
+            button,
+            alternate_mouse: is_alternate_mouse_enabled(),
+        },
+        ui,
+    );
 }
 
 fn left_hud_handle_mouse_down(
@@ -1634,8 +1637,9 @@ mod tests {
 
     #[test]
     fn idle_worker_button_publishes_typed_host_request_when_bridge_enabled() {
+        let mut transport_ui = crate::core::subsystems::InGameUISubsystem::default();
         let _guard = crate::gui::control_bar::acquire_host_control_bar_bridge_test_guard();
-        crate::gui::control_bar::set_host_control_bar_bridge_enabled(true);
+        transport_ui.admit_native_control_bar_transport();
 
         let mut callbacks = ControlBarCallbacks::new();
         callbacks.handle_button_selected(
@@ -1645,7 +1649,7 @@ mod tests {
         );
 
         assert!(matches!(
-            crate::gui::control_bar::take_host_control_bar_requests().as_slice(),
+            crate::gui::control_bar::take_host_control_bar_requests(&mut transport_ui).as_slice(),
             [crate::gui::control_bar::HostControlBarRequest::SelectNextIdleWorker]
         ));
     }
@@ -1659,7 +1663,7 @@ mod tests {
 
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             ini_global.write().use_alternate_mouse = true;
-            crate::gui::control_bar::set_host_control_bar_bridge_enabled(true);
+            ui.admit_native_control_bar_transport();
 
             let mut window = GameWindow::new();
             window
@@ -1683,7 +1687,7 @@ mod tests {
                 WindowMsgHandled::Handled
             );
 
-            let published = crate::gui::control_bar::take_host_minimap_interactions();
+            let published = crate::gui::control_bar::take_host_minimap_interactions(ui);
             assert!(matches!(
                 published.as_slice(),
                 [interaction]
@@ -1704,7 +1708,7 @@ mod tests {
         let ui = &mut crate::core::subsystems::InGameUISubsystem::default();
         let _bridge_guard = crate::gui::control_bar::acquire_host_control_bar_bridge_test_guard();
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            crate::gui::control_bar::set_host_control_bar_bridge_enabled(true);
+            ui.admit_native_control_bar_transport();
 
             let mut window = GameWindow::new();
             window
@@ -1728,7 +1732,7 @@ mod tests {
                 );
             }
             assert!(
-                crate::gui::control_bar::take_host_minimap_interactions().is_empty(),
+                crate::gui::control_bar::take_host_minimap_interactions(ui).is_empty(),
                 "a held middle button must not publish an authoritative minimap click"
             );
         }));

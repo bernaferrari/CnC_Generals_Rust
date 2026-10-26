@@ -771,8 +771,6 @@ impl CnCGameEngine {
                 // Main owns the offline Rust simulation.  Route Control Bar
                 // interactions into its typed host bridge rather than the
                 // separate legacy GameLogic global queue.
-                game_client::gui::control_bar::clear_host_control_bar_requests();
-                game_client::gui::control_bar::set_host_control_bar_bridge_enabled(true);
 
                 game_client::core::game_client::GameClient::new_with_input_authority(
                     game_client::core::game_client::ClientInputAuthority::NativeHosted,

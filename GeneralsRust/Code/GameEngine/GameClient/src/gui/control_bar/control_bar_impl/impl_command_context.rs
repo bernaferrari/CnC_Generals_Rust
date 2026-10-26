@@ -1035,7 +1035,7 @@ impl ControlBar {
             if i < self.build_queue_data.len() {
                 {
                     let ctx = &self.context;
-                    let _ = self.cancel_build_queue_item(i, &ctx, emitted_messages);
+                    let _ = self.cancel_build_queue_item(i, &ctx, emitted_messages, ui);
                 }
             }
             return true;
@@ -1134,7 +1134,7 @@ impl ControlBar {
         // Main owns the authoritative Rust simulation.  When it has explicitly
         // enabled the bridge, do not also route this click through the legacy
         // GameLogic globals: that would make one HUD action mutate two worlds.
-        if self.publish_host_command_if_enabled(button, source, context) {
+        if self.publish_host_command_if_enabled(button, source, context, ui) {
             return Ok(());
         }
 
@@ -1144,7 +1144,7 @@ impl ControlBar {
         }
 
         if button.command_type == CommandType::PurchaseScience {
-            self.execute_purchase_science(button, context)?;
+            self.execute_purchase_science(button, context, ui)?;
             return Ok(());
         }
 

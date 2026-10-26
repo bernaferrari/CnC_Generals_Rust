@@ -57,7 +57,11 @@ impl CnCGameEngine {
     /// explicit `InjectedOrUnknown` provenance is retained and no playable
     /// evidence latch is derived from this bridge.
     pub(crate) fn host_tick_minimap_bridge(&mut self) {
-        let interactions = take_host_minimap_interactions();
+        let interactions = take_host_minimap_interactions(
+            self.game_client
+                .in_game_ui_subsystem_mut()
+                .expect("native host bridge requires its receiving UI"),
+        );
         if interactions.is_empty() {
             return;
         }

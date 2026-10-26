@@ -926,7 +926,7 @@ impl MainMenu {
             return Ok(());
         }
 
-        if get_dont_show_main_menu() && state.just_entered {
+        if get_dont_show_main_menu(effects) && state.just_entered {
             state.just_entered = false;
         }
 

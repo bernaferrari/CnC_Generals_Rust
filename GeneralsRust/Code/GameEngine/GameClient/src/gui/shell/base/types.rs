@@ -188,6 +188,18 @@ impl WindowLayout for BasicWindowLayout {
             if let Some(snapshot) = data.and_then(|data| data.downcast_ref::<crate::gui::callbacks::score_screen::ScoreScreenAcademySnapshot>()) {
                 crate::gui::callbacks::score_screen::bind_score_screen_snapshot(&layout_ref, snapshot);
             }
+            if self
+                .filename
+                .replace('\\', "/")
+                .rsplit('/')
+                .next()
+                .is_some_and(|name| name.eq_ignore_ascii_case("ScoreScreen.wnd"))
+                && effects.input_authority()
+                    == crate::core::game_client::ClientInputAuthority::NativeHosted
+            {
+                crate::gui::callbacks::score_screen::validate_completed_score_snapshot(&layout_ref)
+                    .map_err(ShellError::LayoutError)?;
+            }
             effects.with_manager(|manager, effects| {
                 effects.with_receiving_manager(manager, |effects| {
                     layout_ref.run_init_with_effects(data, effects)

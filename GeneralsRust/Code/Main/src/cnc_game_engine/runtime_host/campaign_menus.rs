@@ -578,7 +578,9 @@ impl CnCGameEngine {
         let mut wnd_ok = false;
         #[cfg(feature = "game_client")]
         {
-            wnd_ok = game_client::gui::callbacks::simulate_score_screen_bind_controls();
+            wnd_ok = self.with_receiving_menu_effects(|effects| {
+                game_client::gui::callbacks::simulate_score_screen_bind_controls(effects)
+            })?;
         }
         self.enter_shell_screen_from_runtime_host(Some("ScoreScreen"), "Menus/ScoreScreen.wnd")?;
         self.runtime_host_last_gameplay_cmd = if wnd_ok {
@@ -619,38 +621,54 @@ impl CnCGameEngine {
                 "continue" => {
                     self.with_receiving_menu_effects(|effects| {
                         drive_os_wnd_score_screen_continue_like_cpp(effects)
-                    })? || simulate_score_screen_continue_button_gadget_selected()
+                    })? || self.with_receiving_menu_effects(|effects| {
+                        simulate_score_screen_continue_button_gadget_selected(effects)
+                    })?
                 }
                 "finish" | "prepare_finish" => {
-                    let _ = simulate_score_screen_set_finish_campaign(true);
+                    let _ = self.with_receiving_menu_effects(|effects| {
+                        simulate_score_screen_set_finish_campaign(true, effects)
+                    })?;
                     self.with_receiving_menu_effects(|effects| {
                         drive_os_wnd_score_screen_continue_like_cpp(effects)
-                    })? || simulate_score_screen_prepare_finish()
+                    })? || self.with_receiving_menu_effects(|effects| {
+                        simulate_score_screen_prepare_finish(effects)
+                    })?
                 }
                 "save_replay" | "replay" => {
                     self.with_receiving_menu_effects(|effects| {
                         drive_os_wnd_score_screen_save_replay_like_cpp(effects)
-                    })? || simulate_score_screen_save_replay_button_gadget_selected()
+                    })? || self.with_receiving_menu_effects(|effects| {
+                        simulate_score_screen_save_replay_button_gadget_selected(effects)
+                    })?
                 }
                 "buddy" => {
                     self.with_receiving_menu_effects(|effects| {
                         drive_os_wnd_score_screen_buddy_like_cpp(effects)
-                    })? || simulate_score_screen_buddy_button_gadget_selected()
+                    })? || self.with_receiving_menu_effects(|effects| {
+                        simulate_score_screen_buddy_button_gadget_selected(effects)
+                    })?
                 }
                 "emote" => {
                     self.with_receiving_menu_effects(|effects| {
                         drive_os_wnd_score_screen_emote_like_cpp(effects)
-                    })? || simulate_score_screen_emote_button_gadget_selected()
+                    })? || self.with_receiving_menu_effects(|effects| {
+                        simulate_score_screen_emote_button_gadget_selected(effects)
+                    })?
                 }
                 "prepare_ok" => {
                     self.with_receiving_menu_effects(|effects| {
                         drive_os_wnd_score_screen_ok_like_cpp(effects)
-                    })? || simulate_score_screen_prepare_ok()
+                    })? || self.with_receiving_menu_effects(|effects| {
+                        simulate_score_screen_prepare_ok(effects)
+                    })?
                 }
                 _ => {
                     self.with_receiving_menu_effects(|effects| {
                         drive_os_wnd_score_screen_ok_like_cpp(effects)
-                    })? || simulate_score_screen_ok_button_gadget_selected()
+                    })? || self.with_receiving_menu_effects(|effects| {
+                        simulate_score_screen_ok_button_gadget_selected(effects)
+                    })?
                 }
             };
         }

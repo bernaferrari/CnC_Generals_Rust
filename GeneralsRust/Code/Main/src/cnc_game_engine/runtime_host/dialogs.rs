@@ -243,7 +243,9 @@ impl CnCGameEngine {
         let mut wnd_ok = false;
         #[cfg(feature = "game_client")]
         {
-            wnd_ok = game_client::gui::callbacks::simulate_popup_replay_bind_controls();
+            wnd_ok = self.with_receiving_menu_effects(|effects| {
+                game_client::gui::callbacks::simulate_popup_replay_bind_controls(effects)
+            })?;
         }
         self.enter_shell_menu_from_runtime_host(Some("PopupReplay"))?;
         self.runtime_host_last_gameplay_cmd = if wnd_ok {
@@ -278,17 +280,41 @@ impl CnCGameEngine {
                 simulate_popup_replay_save_button_gadget_selected,
                 simulate_popup_replay_select_slot, simulate_popup_replay_set_name,
             };
-            wnd_ok = match action.as_str() {
-                "select" | "slot" => simulate_popup_replay_select_slot(slot),
-                "name" | "set_name" => simulate_popup_replay_set_name(&name),
-                "back" => simulate_popup_replay_back_button_gadget_selected(),
-                "prepare_save_slot" => simulate_popup_replay_prepare_save_from_slot(slot, &name),
-                "prepare_save" => simulate_popup_replay_prepare_save(&name),
-                _ => {
-                    let _ = simulate_popup_replay_set_name(&name);
-                    simulate_popup_replay_save_button_gadget_selected()
+            let result = (|| -> Result<bool, String> {
+                Ok(match action.as_str() {
+                    "select" | "slot" => self.with_receiving_menu_effects(|effects| {
+                        simulate_popup_replay_select_slot(slot, effects)
+                    })?,
+                    "name" | "set_name" => self.with_receiving_menu_effects(|effects| {
+                        simulate_popup_replay_set_name(&name, effects)
+                    })?,
+                    "back" => self.with_receiving_menu_effects(|effects| {
+                        simulate_popup_replay_back_button_gadget_selected(effects)
+                    })?,
+                    "prepare_save_slot" => self.with_receiving_menu_effects(|effects| {
+                        simulate_popup_replay_prepare_save_from_slot(slot, &name, effects)
+                    })?,
+                    "prepare_save" => self.with_receiving_menu_effects(|effects| {
+                        simulate_popup_replay_prepare_save(&name, effects)
+                    })?,
+                    _ => {
+                        let _ = self.with_receiving_menu_effects(|effects| {
+                            simulate_popup_replay_set_name(&name, effects)
+                        })?;
+                        self.with_receiving_menu_effects(|effects| {
+                            simulate_popup_replay_save_button_gadget_selected(effects)
+                        })?
+                    }
+                })
+            })();
+            match result {
+                Ok(handled) => wnd_ok = handled,
+                Err(error) => {
+                    self.runtime_host_last_gameplay_cmd =
+                        format!("click_popup_replay_error_{error}");
+                    return;
                 }
-            };
+            }
         }
         self.runtime_host_last_gameplay_cmd = if wnd_ok {
             format!("click_popup_replay_ok_wnd_{action}")
